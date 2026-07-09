@@ -5,9 +5,13 @@
 ContextMatrix is a kanban-style task coordination system for AI agents and
 humans. Cards are markdown files with YAML frontmatter, stored in a git
 repository. It exposes a REST API, an MCP server, and a web UI for managing
-tasks across projects. The primary users are Claude Code agents that claim
-tasks, execute them in separate project repos, and report progress back to the
-board.
+tasks across projects. Cards are executed by `contextmatrix-agent`, an
+OpenRouter-backed multi-model Go harness that claims a card, works it in a
+separate project repo, and reports progress back to the board over MCP. Humans
+drive the same board through the web UI. The older `contextmatrix-runner`
+backend (Claude Code headless in disposable Docker containers) is frozen: it
+predates the multi-user feature, gained no multi-user support, and receives no
+new work.
 
 **Boundary: ContextMatrix is a coordination layer only.** It never clones,
 builds, or touches project code repositories. Each project's `.board.yaml`

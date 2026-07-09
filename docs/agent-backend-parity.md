@@ -1,36 +1,44 @@
 # Agent backend — v1 parity
 
-`contextmatrix-agent` is a v1-parity, operator-selectable **task** backend,
-co-equal with `contextmatrix-runner`. The two coexist permanently; exactly one
-serves task execution at a time (global selection). This page records the parity
-audit and how to select the agent.
+`contextmatrix-agent` is the go-forward **task** backend — an OpenRouter-backed
+Go harness that executes cards with a hand-written orchestrator FSM. It reached
+and exceeded feature parity with `contextmatrix-runner` before the runner was
+frozen. This page records that parity audit and how to select the agent.
+
+> [!IMPORTANT]
+> `contextmatrix-runner` is **deprecate-frozen**. It never gained multi-user
+> support, so `auth.mode: multi` (the default) rejects it at startup
+> (`internal/config/config.go`). It runs only in single-user `none` mode and
+> receives no new features; the agent is the sole task backend on multi-user
+> instances. The parity matrix below is a historical record of the agent
+> matching the runner as of the freeze.
 
 The runner executes cards by spawning Claude Code headless in a disposable
 container, driven by the behavioral contract in `workflow-skills/` (served as MCP
-prompts). The agent is a custom Go harness backed by OpenRouter that implements
-the same `TaskBackend` contract with a hand-written orchestrator FSM. This audit
+prompts). The agent implements the same `TaskBackend` contract. This audit
 checks the agent against the runner — the parity bar — capability by capability.
 
 ## Selecting the agent backend
 
-Backend selection is global (runner XOR agent), set in this server's
-`config.yaml` under `backends` and read once at startup. To run the agent
-backend:
+Backend selection is global (one task backend at a time), set in this server's
+`config.yaml` under `backends` and read once at startup. In the default
+`auth.mode: multi`, the frozen runner is rejected at startup, so the agent (or
+chat) serves task execution. To run the agent backend:
 
 1. Set `backends.agent.{url, api_key, enabled: true}` — `api_key` must be at
    least 32 characters (`MinBackendAPIKeyLength`) and match the agent's own
    configured HMAC key; `url` is the agent's public webhook listener (e.g.
    `http://localhost:9092`).
-2. Set `backends.runner.enabled: false`. The runner is mutually exclusive with
-   the agent: enabling both fails validation
-   (`internal/config/config.go` — runner XOR agent/chat).
+2. Ensure no other task backend is enabled. Task backends are mutually
+   exclusive: enabling the runner alongside the agent fails validation, and in
+   multi mode the runner fails validation on its own
+   (`internal/config/config.go`).
 3. Restart ContextMatrix.
 
-The runner remains the default; the agent is opt-in. Per-project routing is not
-supported — selection is instance-wide (the per-project setting only toggles
-remote execution on/off and overrides the worker image). See
-`config.yaml.example` for the full block and the `CONTEXTMATRIX_*` /
-`backends.*` env overrides.
+Per-project routing is not supported — selection is instance-wide (the
+per-project setting only toggles remote execution on/off and overrides the
+worker image). See `config.yaml.example` for the full block and the
+`CONTEXTMATRIX_*` / `backends.*` env overrides.
 
 ## Parity matrix
 
