@@ -103,7 +103,7 @@ func TestExtractCMImageIDs_TenCap(t *testing.T) {
 	var b strings.Builder
 
 	// 12 unique IDs — function should cap at 10.
-	for i := 0; i < 12; i++ {
+	for i := range 12 {
 		fmt.Fprintf(&b, "![](/api/images/%016x)\n", i)
 	}
 
@@ -174,8 +174,8 @@ func makeTinyPNG(t *testing.T) []byte {
 
 	img := image.NewRGBA(image.Rect(0, 0, 4, 4))
 
-	for y := 0; y < 4; y++ {
-		for x := 0; x < 4; x++ {
+	for y := range 4 {
+		for x := range 4 {
 			img.Set(x, y, color.RGBA{R: 200, G: 100, B: 50, A: 255})
 		}
 	}

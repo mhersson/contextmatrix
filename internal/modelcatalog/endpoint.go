@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -114,15 +115,7 @@ func fetchEndpointCatalog(ctx context.Context, endpoint, apiKey string) (map[str
 		pp, _ := strconv.ParseFloat(d.Pricing.Prompt, 64)
 		cp, _ := strconv.ParseFloat(d.Pricing.Completion, 64)
 
-		tools := false
-
-		for _, f := range d.Capabilities.Features {
-			if f == "tools" {
-				tools = true
-
-				break
-			}
-		}
+		tools := slices.Contains(d.Capabilities.Features, "tools")
 
 		out[d.ID] = orEntry{PromptPrice: pp, CompletionPrice: cp, ContextWindow: d.ContextLength, Tools: tools}
 	}

@@ -310,14 +310,10 @@ func TestIncrementSessionCost_ConcurrentIncrementsAreRaceFree(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for range N {
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
-
+		wg.Go(func() {
 			_, _, _, _, _, err := store.IncrementSessionCost(ctx, sessionID, 1, 0, 0, 0, 0.001, "claude-sonnet-4-6")
 			assert.NoError(t, err)
-		}()
+		})
 	}
 
 	wg.Wait()

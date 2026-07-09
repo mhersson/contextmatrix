@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/mhersson/contextmatrix/internal/chat"
@@ -135,15 +136,17 @@ func (s *Store) CountSessionsByStatus(ctx context.Context, statuses ...chat.Stat
 		args[i] = string(st)
 	}
 
-	placeholders := "?"
+	var placeholders strings.Builder
+	placeholders.WriteString("?")
+
 	for range statuses[1:] {
-		placeholders += ",?"
+		placeholders.WriteString(",?")
 	}
 
 	var n int
 
 	err := s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM chat_sessions WHERE status IN (`+placeholders+`)`,
+		`SELECT COUNT(*) FROM chat_sessions WHERE status IN (`+placeholders.String()+`)`,
 		args...,
 	).Scan(&n)
 	if err != nil {

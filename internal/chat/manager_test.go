@@ -929,7 +929,7 @@ func TestManager_OpenSession_RespectsMaxConcurrent(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "", CreatedBy: "x"})
 		require.NoError(t, err)
 		_, err = mgr.OpenSession(ctx, sess.ID)
@@ -1069,7 +1069,7 @@ func TestManager_SendUserMessage_AutoRecoverColdOnRepeatedBackendUnreachable(t *
 	runner.sendErr = dialErr
 
 	// First two failures must NOT flip the session — only the threshold does.
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		_, sendErr := mgr.SendUserMessage(ctx, sess.ID, "hello")
 		require.Error(t, sendErr)
 	}
@@ -1621,7 +1621,7 @@ func TestSetRehydrationActive_StoreAndCacheStayInSync(t *testing.T) {
 	for batch := range 5 {
 		var wg sync.WaitGroup
 
-		for i := 0; i < 100; i++ {
+		for i := range 100 {
 			wg.Add(1)
 
 			active := i%2 == 0
@@ -1848,7 +1848,7 @@ func TestManager_OpenSession_WorkspaceDedupesOnReopen(t *testing.T) {
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Project: "proj", CreatedBy: "human:t"})
 	require.NoError(t, err)
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		_, err := mgr.OpenSession(ctx, sess.ID)
 		require.NoError(t, err)
 		err = mgr.EndSession(ctx, sess.ID)

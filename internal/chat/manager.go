@@ -484,10 +484,7 @@ func (m *Manager) startConsumer(sessionID string) {
 	m.consumers[sessionID] = handle
 	m.mu.Unlock()
 
-	m.wg.Add(1)
-
-	go func() {
-		defer m.wg.Done()
+	m.wg.Go(func() {
 		// close(done) runs LAST so stopConsumer's <-done blocks until the
 		// map-entry cleanup has executed; that guarantees a follow-on
 		// startConsumer sees a clean slate and is not defeated by a stale
@@ -573,15 +570,9 @@ func (m *Manager) startConsumer(sessionID string) {
 
 			attempt++
 
-			shift := attempt - 1
-			if shift > 16 {
-				shift = 16
-			}
+			shift := min(attempt-1, 16)
 
-			backoff := time.Duration(float64(backoffBase) * float64(int64(1)<<shift))
-			if backoff > backoffCap {
-				backoff = backoffCap
-			}
+			backoff := min(time.Duration(float64(backoffBase)*float64(int64(1)<<shift)), backoffCap)
 
 			m.logger.Warn("chat: runner-log consumer stream error, retrying",
 				"session_id", sessionID, "attempt", attempt,
@@ -595,7 +586,7 @@ func (m *Manager) startConsumer(sessionID string) {
 			case <-time.After(backoff):
 			}
 		}
-	}()
+	})
 }
 
 // stopConsumer cancels the runner-log consumer for sessionID and blocks until

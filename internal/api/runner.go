@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -1266,13 +1267,9 @@ func (h *runnerHandlers) isRemoteExecutionEnabled(r *http.Request, project strin
 // A project entry for a tier replaces the global entry for that tier.
 func mergeFavorites(global, project map[string]board.TierFavorites) []protocol.FavoriteRule {
 	merged := make(map[string]board.TierFavorites, len(global)+len(project))
-	for tier, f := range global {
-		merged[tier] = f
-	}
+	maps.Copy(merged, global)
 
-	for tier, f := range project {
-		merged[tier] = f
-	}
+	maps.Copy(merged, project)
 
 	var rules []protocol.FavoriteRule
 

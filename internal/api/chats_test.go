@@ -287,8 +287,7 @@ func TestStreamChat_ConnectedBeforeAnyEvent(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		srv.URL+"/api/chats/"+sess.ID+"/stream", nil)

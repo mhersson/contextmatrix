@@ -337,11 +337,11 @@ func workerRepoHostPath(rawURL string) (host, path string, ok bool) {
 	}
 
 	if !strings.Contains(rawURL, "://") {
-		if at := strings.IndexByte(rawURL, '@'); at >= 0 {
-			rest := rawURL[at+1:]
-			if colon := strings.IndexByte(rest, ':'); colon >= 0 {
-				h := canonicalGitHost(rest[:colon])
-				p := normalizeWorkerRepoPath(rest[colon+1:])
+		if _, after, ok0 := strings.Cut(rawURL, "@"); ok0 {
+			rest := after
+			if before, after, ok0 := strings.Cut(rest, ":"); ok0 {
+				h := canonicalGitHost(before)
+				p := normalizeWorkerRepoPath(after)
 
 				if h == "" || p == "" {
 					return "", "", false

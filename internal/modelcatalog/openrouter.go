@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"time"
 )
@@ -57,15 +58,7 @@ func fetchORCatalog(ctx context.Context, endpoint string) (map[string]orEntry, e
 	for _, d := range raw.Data {
 		pp, _ := strconv.ParseFloat(d.Pricing.Prompt, 64)
 		cp, _ := strconv.ParseFloat(d.Pricing.Completion, 64)
-		tools := false
-
-		for _, p := range d.SupportedParameters {
-			if p == "tools" {
-				tools = true
-
-				break
-			}
-		}
+		tools := slices.Contains(d.SupportedParameters, "tools")
 
 		out[d.ID] = orEntry{PromptPrice: pp, CompletionPrice: cp, ContextWindow: d.ContextLength, Tools: tools}
 	}
