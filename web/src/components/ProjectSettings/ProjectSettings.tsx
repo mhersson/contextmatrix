@@ -181,6 +181,20 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
         ...(mode === 'multi' && githubCredential !== (config?.github_credential ?? '')
           ? { github_credential: githubCredential }
           : {}),
+        // Only send remote_execution when it actually changed from the loaded
+        // config. The GET response runs through effectiveRemoteExecution, which
+        // forces `enabled` to the EFFECTIVE value (false when the backend is
+        // globally disabled). An unconditional echo-back would persist that
+        // forced enabled:false into .board.yaml. The reToString diff against the
+        // loaded config keeps "save without touching it" from writing anything.
+        ...(reToString(remoteExecution) !== reToString(config?.remote_execution)
+          ? {
+              remote_execution: {
+                enabled: !!remoteExecution.enabled,
+                runner_image: remoteExecution.runner_image ?? '',
+              },
+            }
+          : {}),
       };
       const updated = await api.updateProject(project, input);
       setConfig(updated);
@@ -203,6 +217,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
     priorities,
     transitions,
     github,
+    remoteExecution,
     defaultSkills,
     githubCredential,
     mode,

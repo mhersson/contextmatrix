@@ -136,3 +136,50 @@ describe('ProjectSettings — handleSave payload construction for github_credent
     expect(body).toHaveProperty('github_credential', '');
   });
 });
+
+describe('ProjectSettings — handleSave payload construction for remote_execution', () => {
+  it('untouched: saving an unrelated field omits remote_execution from the PUT body', async () => {
+    mocks.getProject.mockResolvedValue(baseConfig());
+    mocks.updateProject.mockResolvedValue(baseConfig({ repo: 'git@github.com:org/new.git' }));
+
+    await renderSettings();
+
+    // Edit an unrelated field (repo URL) without touching remote execution.
+    fireEvent.change(screen.getByLabelText(/repository url/i), {
+      target: { value: 'git@github.com:org/new.git' },
+    });
+
+    const saveButton = screen.getByRole('button', { name: /save/i });
+    await waitFor(() => expect(saveButton).not.toBeDisabled());
+    fireEvent.click(saveButton);
+
+    await waitFor(() => expect(mocks.updateProject).toHaveBeenCalled());
+    const [, body] = mocks.updateProject.mock.calls[0];
+    expect(body).not.toHaveProperty('remote_execution');
+  });
+
+  it('changed: enabling remote execution and setting an image sends the pointer-shaped payload', async () => {
+    mocks.getProject.mockResolvedValue(baseConfig());
+    mocks.updateProject.mockResolvedValue(
+      baseConfig({ remote_execution: { enabled: true, runner_image: 'ghcr.io/org/runner:latest' } }),
+    );
+
+    await renderSettings();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /enable remote execution/i }));
+
+    const imageInput = await screen.findByLabelText(/worker image/i);
+    fireEvent.change(imageInput, { target: { value: 'ghcr.io/org/runner:latest' } });
+
+    const saveButton = screen.getByRole('button', { name: /save/i });
+    await waitFor(() => expect(saveButton).not.toBeDisabled());
+    fireEvent.click(saveButton);
+
+    await waitFor(() => expect(mocks.updateProject).toHaveBeenCalled());
+    const [, body] = mocks.updateProject.mock.calls[0];
+    expect(body.remote_execution).toEqual({
+      enabled: true,
+      runner_image: 'ghcr.io/org/runner:latest',
+    });
+  });
+});

@@ -37,7 +37,7 @@ export function RemoteExecutionSection({ value, onChange, inputStyle }: RemoteEx
             className="accent-[var(--green)]"
           />
           <span className="text-sm" style={{ color: 'var(--fg)' }}>
-            Enable remote execution (contextmatrix-runner)
+            Enable remote execution
           </span>
         </label>
         {value.enabled && (
@@ -47,7 +47,7 @@ export function RemoteExecutionSection({ value, onChange, inputStyle }: RemoteEx
               className="block text-xs mb-1"
               style={{ color: 'var(--grey1)' }}
             >
-              Runner image
+              Worker image
             </label>
             <input
               id={runnerImageId}
@@ -58,6 +58,9 @@ export function RemoteExecutionSection({ value, onChange, inputStyle }: RemoteEx
               className="w-full px-3 py-2 rounded text-sm border focus:outline-none"
               style={inputStyle}
             />
+            <p className="mt-1 text-xs" style={{ color: 'var(--grey1)' }}>
+              Worker image must contain this project&apos;s language toolchain.
+            </p>
           </div>
         )}
       </div>

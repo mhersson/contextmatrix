@@ -327,6 +327,16 @@ export interface UpdateProjectInput {
    * default; a name sets/replaces it (422 if unknown, multi mode only).
    */
   github_credential?: string;
+  /**
+   * Field-level merge on the server: the whole object omitted preserves the
+   * current config; each subfield present is applied (runner_image "" clears
+   * the image). Send only when the value changed from the loaded config —
+   * see the echo-back note in ProjectSettings.handleSave.
+   */
+  remote_execution?: {
+    enabled?: boolean;
+    runner_image?: string;
+  };
 }
 
 export interface StopAllResponse {
