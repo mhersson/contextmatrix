@@ -85,14 +85,29 @@ func registerCreateProject(server *mcp.Server, svc *service.CardService) {
 func registerUpdateProject(server *mcp.Server, svc *service.CardService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "update_project",
-		Description: "Update a project's configuration. Cannot change name or prefix. Cannot remove states, types, or priorities that are currently in use by cards.",
+		Description: "Update a project's configuration. Cannot change name or prefix. Cannot remove states, types, or priorities that are currently in use by cards. Operator-managed fields (default_skills, remote_execution) are preserved and cannot be set through this tool; repo can only be cleared via the REST API or web UI.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input updateProjectToolInput) (*mcp.CallToolResult, *board.ProjectConfig, error) {
+		// The tool input carries no default_skills/repo-clear channel, but the
+		// service applies both wholesale (nil default_skills clears; empty repo
+		// clears). Backfill from the current config so an agent-driven update
+		// never silently wipes operator-managed fields it can't even see.
+		cur, err := svc.GetProject(ctx, input.Project)
+		if err != nil {
+			return nil, nil, fmt.Errorf("update project %s: %w", input.Project, err)
+		}
+
+		repo := input.Repo
+		if repo == "" {
+			repo = cur.Repo
+		}
+
 		cfg, err := svc.UpdateProject(ctx, input.Project, service.UpdateProjectInput{
-			Repo:        input.Repo,
-			States:      input.States,
-			Types:       input.Types,
-			Priorities:  input.Priorities,
-			Transitions: input.Transitions,
+			Repo:          repo,
+			States:        input.States,
+			Types:         input.Types,
+			Priorities:    input.Priorities,
+			Transitions:   input.Transitions,
+			DefaultSkills: cur.DefaultSkills,
 		})
 		if err != nil {
 			return nil, nil, fmt.Errorf("update project %s: %w", input.Project, err)
