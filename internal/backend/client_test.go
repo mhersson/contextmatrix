@@ -1,4 +1,4 @@
-package runner
+package backend
 
 import (
 	"context"
@@ -135,7 +135,7 @@ func TestClient_Kill_Success(t *testing.T) {
 // TestClient_EndSessionAndKill_DistinctSignatures is the regression guard for
 // the replay-cache collision bug: /end-session and /kill carry identical JSON
 // bodies, so when they fire back-to-back in the same Unix second their HMAC
-// signatures MUST differ — otherwise the runner's replay cache (keyed on
+// signatures MUST differ — otherwise the backend's replay cache (keyed on
 // signature) rejects the second call with 409 duplicate and the container
 // leaks. Binding method + path into the signature is what guarantees the
 // divergence.
@@ -241,7 +241,7 @@ func TestClient_ContextCancellation(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestClient_RunnerReturnsNotOK(t *testing.T) {
+func TestClient_BackendReturnsNotOK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(protocol.ErrorResponse{OK: false, Code: "container_limit", Message: "container limit reached"})
 	}))
@@ -525,9 +525,9 @@ func TestClient_ListContainers_Success(t *testing.T) {
 	assert.True(t, got[1].Tracked)
 }
 
-// TestClient_ListContainers_RunnerError surfaces a runner 502 so the sweep
+// TestClient_ListContainers_BackendError surfaces a backend 502 so the sweep
 // logs and skips this tick rather than acting on a half-response.
-func TestClient_ListContainers_RunnerError(t *testing.T) {
+func TestClient_ListContainers_BackendError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)
 		_, _ = w.Write([]byte(`{"ok":false,"code":"upstream_failure","message":"docker list failed"}`))
@@ -566,9 +566,9 @@ func TestTriggerPayload_TaskSkillsField(t *testing.T) {
 	})
 }
 
-// TestClient_ListContainers_RunnerOKFalse rejects a 200 OK body with ok=false
+// TestClient_ListContainers_BackendOKFalse rejects a 200 OK body with ok=false
 // so the sweep doesn't act on an ambiguous response.
-func TestClient_ListContainers_RunnerOKFalse(t *testing.T) {
+func TestClient_ListContainers_BackendOKFalse(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"ok":false,"containers":[]}`))
 	}))
@@ -580,7 +580,7 @@ func TestClient_ListContainers_RunnerOKFalse(t *testing.T) {
 }
 
 // TestClient_DecodesProtocolErrorCode pins the raw JSON wire shape of a
-// logical rejection on a 2xx transport (unlike TestClient_RunnerReturnsNotOK,
+// logical rejection on a 2xx transport (unlike TestClient_BackendReturnsNotOK,
 // which sends a struct-encoded fixture).
 func TestClient_DecodesProtocolErrorCode(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -597,7 +597,7 @@ func TestClient_DecodesProtocolErrorCode(t *testing.T) {
 	assert.Contains(t, err.Error(), "card already tracked")
 }
 
-// TestClient_DecodesProtocolErrorCodeOn4xx pins the real-runner rejection
+// TestClient_DecodesProtocolErrorCodeOn4xx pins the real-backend rejection
 // path: protocol.ErrorResponse on a non-2xx status must surface code +
 // message, not the raw JSON body.
 func TestClient_DecodesProtocolErrorCodeOn4xx(t *testing.T) {

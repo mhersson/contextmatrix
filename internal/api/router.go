@@ -19,6 +19,8 @@ import (
 	githubauth "github.com/mhersson/contextmatrix-githubauth"
 	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/auth"
+	"github.com/mhersson/contextmatrix/internal/backend"
+	"github.com/mhersson/contextmatrix/internal/backend/sessionlog"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/chat"
 	"github.com/mhersson/contextmatrix/internal/config"
@@ -27,8 +29,6 @@ import (
 	"github.com/mhersson/contextmatrix/internal/images"
 	"github.com/mhersson/contextmatrix/internal/lock"
 	"github.com/mhersson/contextmatrix/internal/metrics"
-	"github.com/mhersson/contextmatrix/internal/runner"
-	"github.com/mhersson/contextmatrix/internal/runner/sessionlog"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
@@ -422,7 +422,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		backendCfg:             agentCfg,
 		mcpAPIKey:              cfg.MCPAPIKey,
 		sessionManager:         cfg.SessionManager,
-		replayCache:            runner.NewSignatureCache(),
+		replayCache:            backend.NewSignatureCache(),
 		catalog:                cfg.Catalog,
 		blacklist:              cfg.Blacklist,
 		outcomes:               cfg.Outcomes,
@@ -516,7 +516,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	if cfg.ChatBackendCfg.IsEnabled() && cfg.ChatBackendCfg.APIKey != "" {
 		cbh := &chatBackendHandlers{
 			apiKey:                 cfg.ChatBackendCfg.APIKey,
-			replayCache:            runner.NewSignatureCache(),
+			replayCache:            backend.NewSignatureCache(),
 			taskSkillsDir:          cfg.TaskSkillsDir,
 			taskSkillsGitRemoteURL: cfg.TaskSkillsGitRemoteURL,
 			instanceTokenProvider:  cfg.GitHubTokenProvider,

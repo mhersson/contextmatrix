@@ -548,7 +548,7 @@ func main() {
 	defer runnerCleanup()
 
 	// Interface fields must stay untyped-nil when the backend is disabled —
-	// a nil *runner.Client wrapped in the interface would defeat every
+	// a nil *backend.Client wrapped in the interface would defeat every
 	// `!= nil` enablement check in the router.
 	var taskBackend api.TaskBackend
 

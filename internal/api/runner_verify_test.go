@@ -11,10 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	protocol "github.com/mhersson/contextmatrix-protocol"
+	"github.com/mhersson/contextmatrix/internal/backend"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/events"
-	"github.com/mhersson/contextmatrix/internal/runner"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
@@ -42,12 +42,12 @@ verify:
 
 // triggerVerifyPayload runs a card and captures the TriggerPayload the agent
 // backend received.
-func triggerVerifyPayload(t *testing.T, svc *service.CardService, bus *events.Bus, cardID string) runner.TriggerPayload {
+func triggerVerifyPayload(t *testing.T, svc *service.CardService, bus *events.Bus, cardID string) backend.TriggerPayload {
 	t.Helper()
 
 	const apiKey = "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"
 
-	var capturedPayload runner.TriggerPayload
+	var capturedPayload backend.TriggerPayload
 
 	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&capturedPayload)
@@ -56,7 +56,7 @@ func triggerVerifyPayload(t *testing.T, svc *service.CardService, bus *events.Bu
 	}))
 	t.Cleanup(mockRunner.Close)
 
-	runnerClient := runner.NewClient(mockRunner.URL, apiKey)
+	runnerClient := backend.NewClient(mockRunner.URL, apiKey)
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		AgentBackendCfg: &config.AgentBackendConfig{

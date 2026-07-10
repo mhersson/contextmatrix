@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/mhersson/contextmatrix/internal/runner/sessionlog"
+	"github.com/mhersson/contextmatrix/internal/backend/sessionlog"
 )
 
 // fakeRunnerServer creates a fake runner SSE server that streams events from
@@ -217,7 +217,7 @@ func TestStreamCardSession_SnapshotAndLive(t *testing.T) {
 	defer upstream.Close()
 
 	mgr := sessionlog.NewManager(
-		sessionlog.WithRunnerConfig(upstream.URL, "test-key"),
+		sessionlog.WithBackendConfig(upstream.URL, "test-key"),
 	)
 
 	// Start the session (mirrors what UpdateRunnerStatus does on → running).
@@ -312,7 +312,7 @@ func TestStreamCardSession_CrossCardFilter(t *testing.T) {
 	defer upstream.Close()
 
 	mgr := sessionlog.NewManager(
-		sessionlog.WithRunnerConfig(upstream.URL, "test-key"),
+		sessionlog.WithBackendConfig(upstream.URL, "test-key"),
 	)
 
 	require.NoError(t, mgr.Start(context.Background(), cardX, project))
@@ -383,7 +383,7 @@ func TestStreamCardSession_RevivesSweptSession(t *testing.T) {
 	defer upstream.Close()
 
 	mgr := sessionlog.NewManager(
-		sessionlog.WithRunnerConfig(upstream.URL, "test-key"),
+		sessionlog.WithBackendConfig(upstream.URL, "test-key"),
 	)
 
 	// Start the session and deliver one event so we know the first upstream
@@ -468,7 +468,7 @@ func TestStreamProjectSession_SnapshotAndLive(t *testing.T) {
 	defer upstream.Close()
 
 	mgr := sessionlog.NewManager(
-		sessionlog.WithRunnerConfig(upstream.URL, "test-key"),
+		sessionlog.WithBackendConfig(upstream.URL, "test-key"),
 	)
 
 	// Start the project session (mirrors what the handler does on first connect).

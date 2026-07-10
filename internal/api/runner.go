@@ -17,12 +17,12 @@ import (
 
 	githubauth "github.com/mhersson/contextmatrix-githubauth"
 	protocol "github.com/mhersson/contextmatrix-protocol"
+	"github.com/mhersson/contextmatrix/internal/backend"
+	"github.com/mhersson/contextmatrix/internal/backend/sessionlog"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/opstore/sqlite"
-	"github.com/mhersson/contextmatrix/internal/runner"
-	"github.com/mhersson/contextmatrix/internal/runner/sessionlog"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
@@ -96,7 +96,7 @@ type runnerHandlers struct {
 	// replayCache guards the runner-callback authentication path against
 	// replayed HMAC signatures. Populated at construction time; non-nil
 	// whenever a runner API key is configured.
-	replayCache *runner.SignatureCache
+	replayCache *backend.SignatureCache
 
 	// providerForProject resolves the project-scoped git-token provider used
 	// to mint the trigger payload's GitToken: the project's credential
@@ -135,7 +135,7 @@ type runnerHandlers struct {
 type healthProbeCache struct {
 	mu      sync.Mutex
 	expires time.Time
-	info    runner.HealthInfo
+	info    backend.HealthInfo
 	err     error
 
 	flight singleflight.Group
@@ -279,7 +279,7 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 	// cannot push an autonomous card down the HITL path).
 	interactive := runBody.Interactive && !card.Autonomous
 
-	payload := runner.TriggerPayload{
+	payload := backend.TriggerPayload{
 		CardID:      id,
 		Project:     project,
 		RepoURL:     projectCfg.Repo,
@@ -508,7 +508,7 @@ func (h *runnerHandlers) messageCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	messageID := uuid.New().String()
-	if err := h.runner.Message(r.Context(), runner.MessagePayload{
+	if err := h.runner.Message(r.Context(), backend.MessagePayload{
 		CardID:    id,
 		Project:   project,
 		MessageID: messageID,
@@ -605,7 +605,7 @@ func (h *runnerHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Send promote webhook to runner.
-	if err := h.runner.Promote(r.Context(), runner.PromotePayload{
+	if err := h.runner.Promote(r.Context(), backend.PromotePayload{
 		CardID:  id,
 		Project: project,
 	}); err != nil {
@@ -704,7 +704,7 @@ func (h *runnerHandlers) stopCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Send kill webhook.
-	if err := h.runner.Kill(r.Context(), runner.KillPayload{CardID: id, Project: project}); err != nil {
+	if err := h.runner.Kill(r.Context(), backend.KillPayload{CardID: id, Project: project}); err != nil {
 		ctxlog.Logger(r.Context()).Error("runner kill webhook failed", "card_id", id, "project", project, "error", err)
 		writeError(w, http.StatusBadGateway, ErrCodeRunnerUnavailable,
 			"failed to stop runner task", "")
@@ -751,7 +751,7 @@ func (h *runnerHandlers) stopAll(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Send stop-all webhook.
-	if err := h.runner.StopAll(r.Context(), runner.StopAllPayload{Project: project}); err != nil {
+	if err := h.runner.StopAll(r.Context(), backend.StopAllPayload{Project: project}); err != nil {
 		ctxlog.Logger(r.Context()).Error("runner stop-all webhook failed", "project", project, "error", err)
 		writeError(w, http.StatusBadGateway, ErrCodeRunnerUnavailable,
 			"failed to stop all runner tasks", "")
@@ -931,7 +931,7 @@ func tokenExpiryString(t time.Time) string {
 // independently of the runner/agent task backend.
 type chatBackendHandlers struct {
 	apiKey                 string
-	replayCache            *runner.SignatureCache
+	replayCache            *backend.SignatureCache
 	taskSkillsDir          string
 	taskSkillsGitRemoteURL string
 
@@ -1173,7 +1173,7 @@ func (h *runnerHandlers) getRunnerHealth(w http.ResponseWriter, r *http.Request)
 // `ctx` is only consulted to abandon the wait when the caller goes
 // away; the in-flight probe continues so the result still lands in
 // the cache for the next caller.
-func (c *healthProbeCache) get(ctx context.Context, client TaskBackend) (runner.HealthInfo, error) {
+func (c *healthProbeCache) get(ctx context.Context, client TaskBackend) (backend.HealthInfo, error) {
 	c.mu.Lock()
 	if time.Now().Before(c.expires) {
 		info, err := c.info, c.err
@@ -1200,13 +1200,13 @@ func (c *healthProbeCache) get(ctx context.Context, client TaskBackend) (runner.
 
 	select {
 	case res := <-ch:
-		info, _ := res.Val.(runner.HealthInfo)
+		info, _ := res.Val.(backend.HealthInfo)
 
 		return info, res.Err
 	case <-ctx.Done():
 		// Caller went away; let the singleflight probe keep running so
 		// the next caller benefits from the cached result.
-		return runner.HealthInfo{}, fmt.Errorf("runner health probe: %w", ctx.Err())
+		return backend.HealthInfo{}, fmt.Errorf("runner health probe: %w", ctx.Err())
 	}
 }
 

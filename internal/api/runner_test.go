@@ -26,12 +26,12 @@ import (
 	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/auth"
 	"github.com/mhersson/contextmatrix/internal/authstore"
+	"github.com/mhersson/contextmatrix/internal/backend"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/modelcatalog"
 	"github.com/mhersson/contextmatrix/internal/opstore/sqlite"
-	"github.com/mhersson/contextmatrix/internal/runner"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
@@ -107,7 +107,7 @@ func TestRunCard_HumanOnly(t *testing.T) {
 	}))
 	defer mockRunner.Close()
 
-	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		AgentBackendCfg: &config.AgentBackendConfig{
@@ -218,7 +218,7 @@ func TestRunCard_NonAutonomousCardNowSucceeds(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	var receivedPayload runner.TriggerPayload
+	var receivedPayload backend.TriggerPayload
 
 	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
@@ -227,7 +227,7 @@ func TestRunCard_NonAutonomousCardNowSucceeds(t *testing.T) {
 	}))
 	defer mockRunner.Close()
 
-	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
@@ -278,7 +278,7 @@ func TestRunCard_CardNotInTodo(t *testing.T) {
 	}))
 	defer mockRunner.Close()
 
-	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
@@ -323,7 +323,7 @@ func TestRunCard_AlreadyQueued(t *testing.T) {
 	}))
 	defer mockRunner.Close()
 
-	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
@@ -356,7 +356,7 @@ func TestRunCard_CardNotFound(t *testing.T) {
 	}))
 	defer mockRunner.Close()
 
-	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
@@ -377,10 +377,10 @@ func TestRunCard_CardNotFound(t *testing.T) {
 }
 
 func TestRunCard_WebhookFailure(t *testing.T) {
-	origBackoff := runner.BackoffBase
-	runner.BackoffBase = time.Millisecond
+	origBackoff := backend.BackoffBase
+	backend.BackoffBase = time.Millisecond
 
-	t.Cleanup(func() { runner.BackoffBase = origBackoff })
+	t.Cleanup(func() { backend.BackoffBase = origBackoff })
 
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
 	defer cleanup()
@@ -400,7 +400,7 @@ func TestRunCard_WebhookFailure(t *testing.T) {
 	}))
 	defer mockRunner.Close()
 
-	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
@@ -463,7 +463,7 @@ func TestRunCard_ContextCancelledDuringWebhook(t *testing.T) {
 	}))
 	defer mockRunner.Close()
 
-	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		AgentBackendCfg: &config.AgentBackendConfig{
@@ -559,7 +559,7 @@ remote_execution:
 	}))
 	defer mockRunner.Close()
 
-	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
@@ -600,7 +600,7 @@ func TestRunCard_ProviderForProject_MintsGitToken(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	var receivedPayload runner.TriggerPayload
+	var receivedPayload backend.TriggerPayload
 
 	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
@@ -609,7 +609,7 @@ func TestRunCard_ProviderForProject_MintsGitToken(t *testing.T) {
 	}))
 	defer mockRunner.Close()
 
-	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 
 	fakeExpiry := time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC)
 	fakeProvider := &fakeTokenProvider{token: "ghs_faketoken", expiresAt: fakeExpiry}
@@ -658,7 +658,7 @@ func TestRunCard_ProviderForProject_PATZeroExpiry_ExpiryOmitted(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	var receivedPayload runner.TriggerPayload
+	var receivedPayload backend.TriggerPayload
 
 	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
@@ -667,7 +667,7 @@ func TestRunCard_ProviderForProject_PATZeroExpiry_ExpiryOmitted(t *testing.T) {
 	}))
 	defer mockRunner.Close()
 
-	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 
 	fakeProvider := &fakeTokenProvider{token: "pat-token", expiresAt: time.Time{}}
 
@@ -721,7 +721,7 @@ func TestRunCard_ProviderForProject_CredentialUnavailable(t *testing.T) {
 	}))
 	defer mockRunner.Close()
 
-	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
@@ -790,7 +790,7 @@ func TestRunCard_ProviderForProject_GenerateTokenFails(t *testing.T) {
 	}))
 	defer mockRunner.Close()
 
-	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 
 	fakeProvider := &fakeTokenProvider{err: fmt.Errorf("request token: github api returned status 401")}
 
@@ -938,7 +938,7 @@ func TestRunCard_ProviderForProject_BrokenBindingNeverFallsBackToInstance(t *tes
 	}))
 	defer mockRunner.Close()
 
-	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
@@ -1043,7 +1043,7 @@ func TestRunCard_ProviderForProject_NoneMode_ReturnsInstanceProvider(t *testing.
 	// End to end: the trigger-mint path (runCard) actually uses this
 	// resolver's result — the token that reaches the wire is the instance
 	// provider's token.
-	var receivedPayload runner.TriggerPayload
+	var receivedPayload backend.TriggerPayload
 
 	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
@@ -1052,7 +1052,7 @@ func TestRunCard_ProviderForProject_NoneMode_ReturnsInstanceProvider(t *testing.
 	}))
 	defer mockRunner.Close()
 
-	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
@@ -1090,7 +1090,7 @@ func TestRunCard_NoProviderForProject_BackwardsCompat(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	var receivedPayload runner.TriggerPayload
+	var receivedPayload backend.TriggerPayload
 
 	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
@@ -1099,7 +1099,7 @@ func TestRunCard_NoProviderForProject_BackwardsCompat(t *testing.T) {
 	}))
 	defer mockRunner.Close()
 
-	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 
 	// No ProviderForProject set.
 	router := NewRouter(RouterConfig{
@@ -1145,7 +1145,7 @@ func TestRunCard_LLMEndpoint_PresentWhenConfigured(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	var receivedPayload runner.TriggerPayload
+	var receivedPayload backend.TriggerPayload
 
 	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
@@ -1154,7 +1154,7 @@ func TestRunCard_LLMEndpoint_PresentWhenConfigured(t *testing.T) {
 	}))
 	defer mockRunner.Close()
 
-	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 
 	endpoint := &protocol.LLMEndpoint{Type: "openrouter", BaseURL: "https://openrouter.ai/api/v1", APIKey: "sk-test-key"}
 
@@ -1203,7 +1203,7 @@ func TestStopCard_HumanOnly(t *testing.T) {
 	}))
 	defer mockRunner.Close()
 
-	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
@@ -1294,7 +1294,7 @@ func TestStopCard_NotRunning(t *testing.T) {
 	}))
 	defer mockRunner.Close()
 
-	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
@@ -1327,7 +1327,7 @@ func TestStopCard_CardNotFound(t *testing.T) {
 	}))
 	defer mockRunner.Close()
 
-	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
@@ -1358,7 +1358,7 @@ func TestStopAll_HumanOnly(t *testing.T) {
 	}))
 	defer mockRunner.Close()
 
-	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
@@ -1458,7 +1458,7 @@ func TestStopAll_StopsActiveCards(t *testing.T) {
 	}))
 	defer mockRunner.Close()
 
-	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
@@ -1494,10 +1494,10 @@ func TestStopAll_StopsActiveCards(t *testing.T) {
 }
 
 func TestStopAll_WebhookFailure(t *testing.T) {
-	origBackoff := runner.BackoffBase
-	runner.BackoffBase = time.Millisecond
+	origBackoff := backend.BackoffBase
+	backend.BackoffBase = time.Millisecond
 
-	t.Cleanup(func() { runner.BackoffBase = origBackoff })
+	t.Cleanup(func() { backend.BackoffBase = origBackoff })
 
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
 	defer cleanup()
@@ -1508,7 +1508,7 @@ func TestStopAll_WebhookFailure(t *testing.T) {
 	}))
 	defer mockRunner.Close()
 
-	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
@@ -1547,7 +1547,7 @@ func TestRunnerStatusUpdate_ValidSignature(t *testing.T) {
 
 	const apiKey = "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"
 
-	runnerClient := runner.NewClient("http://localhost:9090", apiKey)
+	runnerClient := backend.NewClient("http://localhost:9090", apiKey)
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: apiKey},
@@ -1593,7 +1593,7 @@ func TestAgentBackendCallbackMount(t *testing.T) {
 
 	const apiKey = "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"
 
-	agentClient := runner.NewClient("http://localhost:9091", apiKey)
+	agentClient := backend.NewClient("http://localhost:9091", apiKey)
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: agentClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: apiKey},
@@ -1630,7 +1630,7 @@ func TestRunnerStatusUpdate_InvalidSignature(t *testing.T) {
 
 	const apiKey = "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"
 
-	runnerClient := runner.NewClient("http://localhost:9090", apiKey)
+	runnerClient := backend.NewClient("http://localhost:9090", apiKey)
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: apiKey},
@@ -1667,7 +1667,7 @@ func TestRunnerStatusUpdate_MissingSignature(t *testing.T) {
 
 	const apiKey = "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"
 
-	runnerClient := runner.NewClient("http://localhost:9090", apiKey)
+	runnerClient := backend.NewClient("http://localhost:9090", apiKey)
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: apiKey},
@@ -1747,7 +1747,7 @@ func TestRunnerStatusUpdate_InvalidCallbackStatus(t *testing.T) {
 
 	const apiKey = "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"
 
-	runnerClient := runner.NewClient("http://localhost:9090", apiKey)
+	runnerClient := backend.NewClient("http://localhost:9090", apiKey)
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: apiKey},
@@ -1788,7 +1788,7 @@ func TestRunnerStatusUpdate_NoAPIKeyConfigured(t *testing.T) {
 	defer cleanup()
 
 	// Runner without API key configured.
-	runnerClient := runner.NewClient("http://localhost:9090", "")
+	runnerClient := backend.NewClient("http://localhost:9090", "")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: ""},
@@ -1822,7 +1822,7 @@ func TestRunnerStatusUpdate_InvalidJSON(t *testing.T) {
 
 	const apiKey = "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"
 
-	runnerClient := runner.NewClient("http://localhost:9090", apiKey)
+	runnerClient := backend.NewClient("http://localhost:9090", apiKey)
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: apiKey},
@@ -1879,7 +1879,7 @@ func TestMessageCard_HumanOnly(t *testing.T) {
 	}))
 	defer mockRunner.Close()
 
-	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
@@ -1947,7 +1947,7 @@ func TestMessageCard_NotRunning(t *testing.T) {
 	}))
 	defer mockRunner.Close()
 
-	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
@@ -1995,7 +1995,7 @@ func TestMessageCard_EmptyContent(t *testing.T) {
 	}))
 	defer mockRunner.Close()
 
-	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
@@ -2029,7 +2029,7 @@ func TestMessageCard_ContentTooLarge(t *testing.T) {
 	}))
 	defer mockRunner.Close()
 
-	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
@@ -2057,7 +2057,7 @@ func TestMessageCard_HappyPath(t *testing.T) {
 	svc, bus, cleanup, card := newRunningCardSetup(t)
 	defer cleanup()
 
-	var receivedPayload runner.MessagePayload
+	var receivedPayload backend.MessagePayload
 
 	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
@@ -2066,7 +2066,7 @@ func TestMessageCard_HappyPath(t *testing.T) {
 	}))
 	defer mockRunner.Close()
 
-	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
@@ -2101,10 +2101,10 @@ func TestMessageCard_HappyPath(t *testing.T) {
 }
 
 func TestMessageCard_WebhookFailure(t *testing.T) {
-	origBackoff := runner.BackoffBase
-	runner.BackoffBase = time.Millisecond
+	origBackoff := backend.BackoffBase
+	backend.BackoffBase = time.Millisecond
 
-	t.Cleanup(func() { runner.BackoffBase = origBackoff })
+	t.Cleanup(func() { backend.BackoffBase = origBackoff })
 
 	svc, bus, cleanup, card := newRunningCardSetup(t)
 	defer cleanup()
@@ -2115,7 +2115,7 @@ func TestMessageCard_WebhookFailure(t *testing.T) {
 	}))
 	defer mockRunner.Close()
 
-	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
@@ -2168,7 +2168,7 @@ func TestPromoteCard_HumanOnly(t *testing.T) {
 	}))
 	defer mockRunner.Close()
 
-	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
@@ -2204,7 +2204,7 @@ func TestPromoteCard_NotRunning(t *testing.T) {
 	}))
 	defer mockRunner.Close()
 
-	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
@@ -2259,7 +2259,7 @@ func TestPromoteCard_AlreadyAutonomous(t *testing.T) {
 	}))
 	defer mockRunner.Close()
 
-	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
@@ -2311,7 +2311,7 @@ func TestPromoteCard_HappyPath(t *testing.T) {
 	}))
 	defer mockRunner.Close()
 
-	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
@@ -2373,10 +2373,10 @@ func TestPromoteCard_WebhookFailure_RevertsFlag(t *testing.T) {
 	// The revert is recorded with a "promote-webhook-failed" activity-log entry
 	// so operators reconciling a half-promoted card can see why without
 	// grepping server logs.
-	origBackoff := runner.BackoffBase
-	runner.BackoffBase = time.Millisecond
+	origBackoff := backend.BackoffBase
+	backend.BackoffBase = time.Millisecond
 
-	t.Cleanup(func() { runner.BackoffBase = origBackoff })
+	t.Cleanup(func() { backend.BackoffBase = origBackoff })
 
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
 	defer cleanup()
@@ -2395,7 +2395,7 @@ func TestPromoteCard_WebhookFailure_RevertsFlag(t *testing.T) {
 	}))
 	defer mockRunner.Close()
 
-	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
@@ -2454,7 +2454,7 @@ func TestRunCard_AutonomousForcesNonInteractive(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	var receivedPayload runner.TriggerPayload
+	var receivedPayload backend.TriggerPayload
 
 	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
@@ -2463,7 +2463,7 @@ func TestRunCard_AutonomousForcesNonInteractive(t *testing.T) {
 	}))
 	defer mockRunner.Close()
 
-	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
@@ -2497,7 +2497,7 @@ func TestRunCard_Interactive(t *testing.T) {
 		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
 		defer cleanup()
 
-		var receivedPayload runner.TriggerPayload
+		var receivedPayload backend.TriggerPayload
 
 		mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
@@ -2506,7 +2506,7 @@ func TestRunCard_Interactive(t *testing.T) {
 		}))
 		defer mockRunner.Close()
 
-		runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+		runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 		router := NewRouter(RouterConfig{
 			Service: svc, Bus: bus, Runner: runnerClient,
 			AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
@@ -2543,7 +2543,7 @@ func TestRunCard_Interactive(t *testing.T) {
 		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
 		defer cleanup()
 
-		var receivedPayload runner.TriggerPayload
+		var receivedPayload backend.TriggerPayload
 
 		mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
@@ -2552,7 +2552,7 @@ func TestRunCard_Interactive(t *testing.T) {
 		}))
 		defer mockRunner.Close()
 
-		runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+		runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 		router := NewRouter(RouterConfig{
 			Service: svc, Bus: bus, Runner: runnerClient,
 			AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
@@ -2588,7 +2588,7 @@ func TestRunCard_Interactive(t *testing.T) {
 		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
 		defer cleanup()
 
-		var receivedPayload runner.TriggerPayload
+		var receivedPayload backend.TriggerPayload
 
 		mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
@@ -2597,7 +2597,7 @@ func TestRunCard_Interactive(t *testing.T) {
 		}))
 		defer mockRunner.Close()
 
-		runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+		runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 		router := NewRouter(RouterConfig{
 			Service: svc, Bus: bus, Runner: runnerClient,
 			AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
@@ -2640,7 +2640,7 @@ func TestRunCard_Interactive(t *testing.T) {
 
 		var (
 			triggerCount    int
-			receivedPayload runner.TriggerPayload
+			receivedPayload backend.TriggerPayload
 		)
 
 		mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -2651,7 +2651,7 @@ func TestRunCard_Interactive(t *testing.T) {
 		}))
 		defer mockRunner.Close()
 
-		runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+		runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 		router := NewRouter(RouterConfig{
 			Service: svc, Bus: bus, Runner: runnerClient,
 			AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
@@ -2746,7 +2746,7 @@ func TestPromoteCard_RecursionGuard(t *testing.T) {
 	}))
 	defer fakeRunner.Close()
 
-	runnerClient := runner.NewClient(fakeRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	runnerClient := backend.NewClient(fakeRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		AgentBackendCfg: &config.AgentBackendConfig{
@@ -2792,7 +2792,7 @@ func TestRunCard_ModelInPayload(t *testing.T) {
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
 	defer cleanup()
 
-	var capturedPayload runner.TriggerPayload
+	var capturedPayload backend.TriggerPayload
 
 	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&capturedPayload)
@@ -2801,7 +2801,7 @@ func TestRunCard_ModelInPayload(t *testing.T) {
 	}))
 	defer mockRunner.Close()
 
-	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		AgentBackendCfg: &config.AgentBackendConfig{
@@ -2848,7 +2848,7 @@ func setupAutonomousEndpoint(t *testing.T, autonomous bool) (*httptest.Server, s
 	})
 	require.NoError(t, err)
 
-	runnerClient := runner.NewClient("http://localhost:9090", testRunnerAPIKey)
+	runnerClient := backend.NewClient("http://localhost:9090", testRunnerAPIKey)
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: testRunnerAPIKey},
@@ -3060,10 +3060,10 @@ default_skills:
   - go-development
 `
 
-	triggerCard := func(t *testing.T, svc *service.CardService, bus *events.Bus, cardID string) runner.TriggerPayload {
+	triggerCard := func(t *testing.T, svc *service.CardService, bus *events.Bus, cardID string) backend.TriggerPayload {
 		t.Helper()
 
-		var capturedPayload runner.TriggerPayload
+		var capturedPayload backend.TriggerPayload
 
 		mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewDecoder(r.Body).Decode(&capturedPayload)
@@ -3072,7 +3072,7 @@ default_skills:
 		}))
 		t.Cleanup(mockRunner.Close)
 
-		runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+		runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 		router := NewRouter(RouterConfig{
 			Service: svc, Bus: bus, Runner: runnerClient,
 			AgentBackendCfg: &config.AgentBackendConfig{
@@ -3245,7 +3245,7 @@ favorites:
 		"complex": {All: []string{candidateSlug}},
 	}
 
-	var capturedPayload runner.TriggerPayload
+	var capturedPayload backend.TriggerPayload
 
 	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&capturedPayload)
@@ -3254,7 +3254,7 @@ favorites:
 	}))
 	defer mockRunner.Close()
 
-	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		AgentBackendCfg: &config.AgentBackendConfig{
@@ -3328,7 +3328,7 @@ func TestRunCardTypedNilCatalogDoesNotPanic(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	var capturedPayload runner.TriggerPayload
+	var capturedPayload backend.TriggerPayload
 
 	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&capturedPayload)
@@ -3345,7 +3345,7 @@ func TestRunCardTypedNilCatalogDoesNotPanic(t *testing.T) {
 
 	var typedNilCatalog catalogProvider = nilBuilder // boxes the typed nil
 
-	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
 		AgentBackendCfg: &config.AgentBackendConfig{
@@ -3408,7 +3408,7 @@ func TestRunCardBestOfNPayload(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			var capturedPayload runner.TriggerPayload
+			var capturedPayload backend.TriggerPayload
 
 			mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				_ = json.NewDecoder(r.Body).Decode(&capturedPayload)
@@ -3417,7 +3417,7 @@ func TestRunCardBestOfNPayload(t *testing.T) {
 			}))
 			defer mockRunner.Close()
 
-			runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+			runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 			router := NewRouter(RouterConfig{
 				Service: svc, Bus: bus, Runner: runnerClient,
 				AgentBackendCfg: &config.AgentBackendConfig{
@@ -3451,7 +3451,7 @@ func TestRunCardBestOfNPayload(t *testing.T) {
 func TestRunCardSelectionCarriesOutcomeStats(t *testing.T) {
 	const candidateSlug = "z-ai/glm-5.2"
 
-	newRouterFor := func(t *testing.T, oc outcomeStatsReader) (*board.Card, *http.Client, string, *runner.TriggerPayload, *stubCatalog) {
+	newRouterFor := func(t *testing.T, oc outcomeStatsReader) (*board.Card, *http.Client, string, *backend.TriggerPayload, *stubCatalog) {
 		t.Helper()
 
 		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
@@ -3470,7 +3470,7 @@ func TestRunCardSelectionCarriesOutcomeStats(t *testing.T) {
 			},
 		}
 
-		capturedPayload := &runner.TriggerPayload{}
+		capturedPayload := &backend.TriggerPayload{}
 
 		mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewDecoder(r.Body).Decode(capturedPayload)
@@ -3479,7 +3479,7 @@ func TestRunCardSelectionCarriesOutcomeStats(t *testing.T) {
 		}))
 		t.Cleanup(mockRunner.Close)
 
-		runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+		runnerClient := backend.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 		router := NewRouter(RouterConfig{
 			Service: svc, Bus: bus, Runner: runnerClient,
 			AgentBackendCfg: &config.AgentBackendConfig{
@@ -3667,7 +3667,7 @@ func setupGitCredentialsEndpoint(
 		require.NoError(t, err)
 	}
 
-	runnerClient := runner.NewClient("http://localhost:9090", testRunnerAPIKey)
+	runnerClient := backend.NewClient("http://localhost:9090", testRunnerAPIKey)
 	router := NewRouter(RouterConfig{
 		Service:            svc,
 		Bus:                bus,

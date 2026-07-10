@@ -1,4 +1,4 @@
-package runner
+package backend
 
 import (
 	"bytes"
@@ -41,14 +41,14 @@ type (
 	StopAllPayload    = protocol.StopAllPayload
 )
 
-// ContainerInfo is a decoded entry from GET /containers. The runner sources
-// these from Docker directly (filtered on label contextmatrix.runner=true),
+// ContainerInfo is a decoded entry from GET /containers. The backend sources
+// these from Docker directly (filtered to the worker containers it manages),
 // so a populated slice is the authoritative answer to "what containers are
-// actually running right now" — independent of the runner's in-memory tracker
+// actually running right now" — independent of the backend's in-memory tracker
 // or of CM's runner_status field. The Docker-authoritative reconcile sweep
 // uses this list as its decision input.
 //
-// Tracked reflects the runner's tracker state at response time: Tracked=false
+// Tracked reflects the backend's tracker state at response time: Tracked=false
 // combined with State="running" is the tracker/Docker divergence signature
 // that the older in-process cleanup paths could not detect.
 type ContainerInfo struct {
@@ -61,14 +61,14 @@ type ContainerInfo struct {
 	Tracked     bool
 }
 
-// Client sends signed webhooks to the contextmatrix-runner.
+// Client sends signed webhooks to the task backend.
 type Client struct {
 	httpClient *http.Client
 	baseURL    string
 	apiKey     string
 }
 
-// NewClient creates a new runner webhook client.
+// NewClient creates a new backend webhook client.
 func NewClient(baseURL, apiKey string) *Client {
 	return &Client{
 		httpClient: &http.Client{Timeout: requestTimeout},
@@ -102,22 +102,23 @@ func (c *Client) Promote(ctx context.Context, p PromotePayload) error {
 	return c.send(ctx, c.baseURL+"/promote", p)
 }
 
-// EndSession sends an end-session webhook so the runner closes the container's
-// stdin; claude receives EOF and exits, ending the interactive session.
+// EndSession sends an end-session webhook so the backend closes the worker
+// container's stdin; claude receives EOF and exits, ending the interactive
+// session.
 func (c *Client) EndSession(ctx context.Context, p EndSessionPayload) error {
 	return c.send(ctx, c.baseURL+"/end-session", p)
 }
 
-// HealthInfo is the parsed shape of the runner's /health response.
+// HealthInfo is the parsed shape of the backend's /health response.
 type HealthInfo struct {
 	OK                bool
 	RunningContainers int
 	MaxConcurrent     int
 }
 
-// Health queries the runner's /health endpoint. The runner exposes
+// Health queries the backend's /health endpoint. The backend exposes
 // max_concurrent (its global capacity cap) and the live container count.
-// /health is unauthenticated on the runner side; we still sign so the
+// /health is unauthenticated on the backend side; we still sign so the
 // shared transport stays consistent.
 func (c *Client) Health(ctx context.Context) (HealthInfo, error) {
 	body, err := c.sendGet(ctx, c.baseURL+"/health")
@@ -133,12 +134,12 @@ func (c *Client) Health(ctx context.Context) (HealthInfo, error) {
 	return HealthInfo(parsed), nil
 }
 
-// ListContainers queries the runner's /containers endpoint for every Docker
-// container currently labeled as runner-managed. The returned slice is CM's
-// ground truth for "what containers are actually running right now" —
-// independent of any CM-side bookkeeping. An error here is not recoverable
-// by retry at the call site: the caller should log and continue rather than
-// risk firing spurious kills against a runner that briefly can't answer.
+// ListContainers queries the backend's /containers endpoint for every worker
+// container it currently manages. The returned slice is CM's ground truth
+// for "what containers are actually running right now" — independent of any
+// CM-side bookkeeping. An error here is not recoverable by retry at the call
+// site: the caller should log and continue rather than risk firing spurious
+// kills against a backend that briefly can't answer.
 func (c *Client) ListContainers(ctx context.Context) ([]ContainerInfo, error) {
 	body, err := c.sendGet(ctx, c.baseURL+"/containers")
 	if err != nil {
@@ -151,7 +152,7 @@ func (c *Client) ListContainers(ctx context.Context) ([]ContainerInfo, error) {
 	}
 
 	if !parsed.OK {
-		return nil, fmt.Errorf("runner /containers returned ok=false")
+		return nil, fmt.Errorf("backend /containers returned ok=false")
 	}
 
 	out := make([]ContainerInfo, 0, len(parsed.Containers))
@@ -238,7 +239,7 @@ func (c *Client) send(ctx context.Context, rawURL string, payload any) error {
 		// jitter is in [-25%, +25%] of base
 		jitter := time.Duration(rand.Int64N(int64(base)/2) - int64(base)/4) //nolint:gosec // non-security jitter
 		backoff := base + jitter
-		ctxlog.Logger(ctx).Warn("runner webhook transient error, retrying",
+		ctxlog.Logger(ctx).Warn("backend webhook transient error, retrying",
 			"url", rawURL,
 			"attempt", attempt+1,
 			"backoff", backoff,
@@ -252,12 +253,12 @@ func (c *Client) send(ctx context.Context, rawURL string, payload any) error {
 		}
 	}
 
-	return fmt.Errorf("runner webhook failed after %d attempts: %w", maxRetries, lastErr)
+	return fmt.Errorf("backend webhook failed after %d attempts: %w", maxRetries, lastErr)
 }
 
 // sendGet signs and performs a GET against rawURL, returning the raw response
 // body. GET requests sign an empty body under the same HMAC scheme the
-// runner accepts on POST endpoints, so the existing replay/skew protections
+// backend accepts on POST endpoints, so the existing replay/skew protections
 // apply uniformly. Errors are not retried here: the reconcile sweep calls
 // this on a 60s tick and a transient failure is better surfaced than
 // silently retried (the next tick retries anyway).
@@ -306,7 +307,7 @@ func (c *Client) sendGet(ctx context.Context, rawURL string) ([]byte, error) {
 	return respBody, nil
 }
 
-// doRequest performs a single HTTP request to the runner.
+// doRequest performs a single HTTP request to the backend.
 func (c *Client) doRequest(ctx context.Context, url string, body []byte, signature, ts string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
@@ -340,7 +341,7 @@ func (c *Client) doRequest(ctx context.Context, url string, body []byte, signatu
 		}
 	}
 
-	// Only reached on <400, where the runner contract says
+	// Only reached on <400, where the backend contract says
 	// protocol.SuccessResponse — so ok:false here is the off-contract /
 	// logical-rejection case. Decode as ErrorResponse, a field superset of
 	// what we branch on; on-contract non-2xx rejections are decoded in the
@@ -351,7 +352,7 @@ func (c *Client) doRequest(ctx context.Context, url string, body []byte, signatu
 	}
 
 	if !parsed.OK {
-		// Runner explicitly rejected — do not retry.
+		// Backend explicitly rejected — do not retry.
 		return &webhookError{
 			statusCode: resp.StatusCode,
 			body:       rejectionDetail(respBody),
@@ -364,7 +365,7 @@ func (c *Client) doRequest(ctx context.Context, url string, body []byte, signatu
 	return nil
 }
 
-// rejectionDetail extracts a human-readable detail from a runner rejection
+// rejectionDetail extracts a human-readable detail from a backend rejection
 // body: the stable `code: message` pair from protocol.ErrorResponse when
 // present, falling back to the raw body when it doesn't decode or carries
 // neither field (e.g. stop-all's 207 StopAllResponse shape).
@@ -386,7 +387,7 @@ func rejectionDetail(respBody []byte) string {
 	}
 }
 
-// webhookError represents an HTTP error response from the runner.
+// webhookError represents an HTTP error response from the backend.
 type webhookError struct {
 	statusCode int
 	body       string
@@ -394,10 +395,10 @@ type webhookError struct {
 }
 
 func (e *webhookError) Error() string {
-	return fmt.Sprintf("runner returned HTTP %d: %s", e.statusCode, e.body)
+	return fmt.Sprintf("backend returned HTTP %d: %s", e.statusCode, e.body)
 }
 
-// HTTPStatusCode exposes the runner's response status so callers can
+// HTTPStatusCode exposes the backend's response status so callers can
 // classify errors without depending on the concrete type.
 func (e *webhookError) HTTPStatusCode() int {
 	return e.statusCode

@@ -13,15 +13,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mhersson/contextmatrix/internal/backend"
+	"github.com/mhersson/contextmatrix/internal/backend/sessionlog"
 	"github.com/mhersson/contextmatrix/internal/config"
-	"github.com/mhersson/contextmatrix/internal/runner"
-	"github.com/mhersson/contextmatrix/internal/runner/sessionlog"
 )
 
 // makeRunnerHandlers returns a runnerHandlers wired to the given runner URL and API key.
-func makeRunnerHandlers(runnerURL, apiKey string) *runnerHandlers {
+func makeRunnerHandlers(backendURL, apiKey string) *runnerHandlers {
 	return &runnerHandlers{
-		runner: runner.NewClient(runnerURL, apiKey),
+		runner: backend.NewClient(backendURL, apiKey),
 		backendCfg: &config.AgentBackendConfig{
 			APIKey: apiKey,
 		},
@@ -238,7 +238,7 @@ func TestStreamCardSession_WireFramesCarryNoSeq(t *testing.T) {
 	upstream := fakeRunnerServer(t, upstreamCh, readyCh)
 
 	mgr := sessionlog.NewManager(
-		sessionlog.WithRunnerConfig(upstream.URL, "test-key"),
+		sessionlog.WithBackendConfig(upstream.URL, "test-key"),
 	)
 
 	require.NoError(t, mgr.Start(context.Background(), cardID, project))
@@ -305,7 +305,7 @@ func TestStreamProjectSession_WireFramesCarryNoSeq(t *testing.T) {
 	upstream := fakeRunnerServer(t, upstreamCh, readyCh)
 
 	mgr := sessionlog.NewManager(
-		sessionlog.WithRunnerConfig(upstream.URL, "test-key"),
+		sessionlog.WithBackendConfig(upstream.URL, "test-key"),
 	)
 
 	require.NoError(t, mgr.StartProject(context.Background(), project))

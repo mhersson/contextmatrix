@@ -7,10 +7,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mhersson/contextmatrix/internal/backend/sessionlog"
 	ghimport "github.com/mhersson/contextmatrix/internal/github"
 	"github.com/mhersson/contextmatrix/internal/gitops"
 	"github.com/mhersson/contextmatrix/internal/gitsync"
-	"github.com/mhersson/contextmatrix/internal/runner/sessionlog"
 )
 
 // shutdownComponents groups the live objects touched during the multi-phase

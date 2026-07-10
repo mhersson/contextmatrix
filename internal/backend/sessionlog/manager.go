@@ -96,12 +96,12 @@ func WithSessionTTL(d time.Duration) Option {
 	return func(m *Manager) { m.sessionTTL = d }
 }
 
-// WithRunnerConfig sets the runner base URL and API key used for HMAC-signed
+// WithBackendConfig sets the backend base URL and API key used for HMAC-signed
 // upstream SSE connections.
-func WithRunnerConfig(runnerURL, apiKey string) Option {
+func WithBackendConfig(backendURL, apiKey string) Option {
 	return func(m *Manager) {
-		m.runnerURL = runnerURL
-		m.runnerAPIKey = apiKey
+		m.backendURL = backendURL
+		m.backendAPIKey = apiKey
 	}
 }
 
@@ -134,7 +134,7 @@ func (m *Manager) ensureActiveSessions() {
 	}
 }
 
-// Start opens a long-lived authenticated SSE connection to the runner's /logs
+// Start opens a long-lived authenticated SSE connection to the backend's /logs
 // endpoint for the given cardID/project pair.  Incoming events are written into
 // the buffer and fanned out to all current subscribers.
 //
@@ -600,7 +600,7 @@ func projectKey(project string) string {
 	return "project:" + project
 }
 
-// StartProject opens a long-lived authenticated SSE connection to the runner's
+// StartProject opens a long-lived authenticated SSE connection to the backend's
 // /logs endpoint for the given project.  All events for the project are
 // buffered and fanned out to subscribers, regardless of which card they
 // belong to.
@@ -714,7 +714,7 @@ type runUpstreamConfig struct {
 
 // runUpstream is the shared upstream SSE pump goroutine used by both card-
 // scoped (Start) and project-scoped (StartProject) sessions. It connects to
-// the runner via readUpstreamStream, and on read error retries with
+// the backend via readUpstreamStream, and on read error retries with
 // exponential backoff up to maxUpstreamRetries before marking the session
 // permanently failed and closing it.
 //
@@ -797,7 +797,7 @@ func (m *Manager) runUpstream(ctx context.Context, key, project string, sess *ac
 	}
 }
 
-// readUpstreamStream connects to the runner /logs endpoint and reads SSE
+// readUpstreamStream connects to the backend /logs endpoint and reads SSE
 // frames until the connection closes or ctx is cancelled. It is the shared
 // implementation for both card- and project-scoped pumps:
 //
@@ -811,7 +811,7 @@ func (m *Manager) runUpstream(ctx context.Context, key, project string, sess *ac
 //   - cfg.logKey / cfg.logValue label slog fields on the slow-subscriber warn.
 //
 // The upstream URL is project-scoped only (no card_id query parameter) to
-// maintain compatibility with current runner versions that stream all
+// maintain compatibility with current backend versions that stream all
 // project events; per-card sessions filter client-side.
 //
 // Returns (delivered, err) where delivered is true if at least one frame
@@ -819,7 +819,7 @@ func (m *Manager) runUpstream(ctx context.Context, key, project string, sess *ac
 // retry-attempt counter so transient disconnects after successful frames
 // do not accumulate toward the permanent-failure threshold.
 func (m *Manager) readUpstreamStream(ctx context.Context, key, project string, sess *activeSession, cfg runUpstreamConfig) (bool, error) {
-	upstreamURL := m.runnerURL + "/logs"
+	upstreamURL := m.backendURL + "/logs"
 	if project != "" {
 		upstreamURL += "?project=" + url.QueryEscape(project)
 	}
@@ -829,7 +829,7 @@ func (m *Manager) readUpstreamStream(ctx context.Context, key, project string, s
 		return false, fmt.Errorf("create request: %w", err)
 	}
 
-	sigHeader, tsHeader := signSSERequest(m.runnerAPIKey, req.URL.RequestURI())
+	sigHeader, tsHeader := signSSERequest(m.backendAPIKey, req.URL.RequestURI())
 	req.Header.Set("X-Signature-256", sigHeader)
 	req.Header.Set("X-Webhook-Timestamp", tsHeader)
 
@@ -875,7 +875,7 @@ func (m *Manager) readUpstreamStream(ctx context.Context, key, project string, s
 		}
 
 		// Card-scoped filter: drop events that belong to other cards. The
-		// runner streams all project events; per-card sessions filter
+		// backend streams all project events; per-card sessions filter
 		// client-side. Project-scoped pumps pass filterCardID == "" to
 		// disable the filter and accept every event.
 		if cfg.filterCardID != "" {
@@ -1003,9 +1003,9 @@ func (m *Manager) sweepIdleSessions(ctx context.Context) {
 var sseHTTPClient = &http.Client{Timeout: 0}
 
 // parseSSEPayload parses a JSON data value from an SSE frame into an Event.
-// Frames are protocol.LogEntry — the shape contextmatrix-runner actually
+// Frames are protocol.LogEntry — the shape the backend actually
 // marshals. It also returns the card_id from the payload (may be empty if
-// the runner did not include it), which callers use to filter cross-card
+// the backend did not include it), which callers use to filter cross-card
 // events.
 //
 // A frame without a usable ts falls back to arrival time so the event

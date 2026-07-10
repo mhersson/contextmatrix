@@ -17,8 +17,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	protocol "github.com/mhersson/contextmatrix-protocol"
+	"github.com/mhersson/contextmatrix/internal/backend"
 	"github.com/mhersson/contextmatrix/internal/config"
-	"github.com/mhersson/contextmatrix/internal/runner"
 )
 
 // writeSkillFile creates dir/<name>/SKILL.md with a frontmatter
@@ -559,7 +559,7 @@ func setupTaskSkillsSourceEndpoint(t *testing.T) (*httptest.Server, func()) {
 
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
 
-	runnerClient := runner.NewClient("http://localhost:9090", testRunnerAPIKey)
+	runnerClient := backend.NewClient("http://localhost:9090", testRunnerAPIKey)
 	router := NewRouter(RouterConfig{
 		Service:         svc,
 		Bus:             bus,
@@ -746,7 +746,7 @@ func TestGetTaskSkillsSource_InstanceProvider_IncludesToken(t *testing.T) {
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
 	defer cleanup()
 
-	runnerClient := runner.NewClient("http://localhost:9090", testRunnerAPIKey)
+	runnerClient := backend.NewClient("http://localhost:9090", testRunnerAPIKey)
 	fakeExpiry := time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC)
 	router := NewRouter(RouterConfig{
 		Service:             svc,
@@ -786,7 +786,7 @@ func TestGetTaskSkillsSource_MintFailure_OmitsTokenBestEffort(t *testing.T) {
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
 	defer cleanup()
 
-	runnerClient := runner.NewClient("http://localhost:9090", testRunnerAPIKey)
+	runnerClient := backend.NewClient("http://localhost:9090", testRunnerAPIKey)
 	router := NewRouter(RouterConfig{
 		Service:             svc,
 		Bus:                 bus,

@@ -1,4 +1,4 @@
-package runner
+package backend
 
 import (
 	"context"
@@ -10,11 +10,11 @@ import (
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
-// ContainerMaxAge caps how long a runner container is allowed to live before
-// the reconcile sweep kills it regardless of card state. The runner has its
+// ContainerMaxAge caps how long a worker container is allowed to live before
+// the reconcile sweep kills it regardless of card state. The backend has its
 // own container_timeout (default 2h) as a last-resort safety net; this
 // slightly-longer cap is the belt-and-suspenders layer on the CM side for the
-// pathological case where neither the runner's timeout nor CM's own card
+// pathological case where neither the backend's timeout nor CM's own card
 // bookkeeping catches a runaway container.
 //
 // Declared as a package var so tests can shrink it without a multi-hour
@@ -23,11 +23,11 @@ import (
 // local, so a ticker-driven read never races a subsequent test's write.
 var ContainerMaxAge = 150 * time.Minute
 
-// ContainerLister is the subset of *Client needed to ask the runner for
+// ContainerLister is the subset of *Client needed to ask the backend for
 // ground-truth container state. The reconcile sweep consults this instead of
 // CM's own runner_status field so the decision to kill never depends on a
 // piece of CM bookkeeping that could drift away from Docker reality. See
-// docs/remote-execution.md for why we moved authority to the runner.
+// docs/remote-execution.md for why we moved authority to the backend.
 type ContainerLister interface {
 	ListContainers(ctx context.Context) ([]ContainerInfo, error)
 }
@@ -52,7 +52,7 @@ type CardLookup interface {
 }
 
 // StartReconciliationSweep launches a ticker goroutine that periodically asks
-// the runner for every labeled container and decides, per container, whether
+// the backend for every worker container and decides, per container, whether
 // it should still be running. A card container is killed if:
 //
 //  1. CM has no card matching (project, card_id) — deleted or renamed out
@@ -62,8 +62,8 @@ type CardLookup interface {
 //
 // Notably: the sweep does NOT consult the card's runner_status field. That
 // field is a CM-side bookkeeping convenience that has repeatedly drifted
-// away from Docker reality (the runner's reportCompleted/reportFailure
-// callbacks flip it before the Docker cleanup defers actually succeed); any
+// away from Docker reality (the backend's completion/failure callbacks can
+// flip it before the Docker cleanup actually succeeds); any
 // path that gates on runner_status inherits every past and future drift bug.
 // Docker is the single authority on "is this container running"; CM is the
 // single authority on "should it be". Those two facts, nothing else.
@@ -124,7 +124,7 @@ func StartReconciliationSweep(ctx context.Context, svc CardLookup, client Reconc
 func runReconcileSweep(ctx context.Context, svc CardLookup, client ReconcileClient, maxAge time.Duration, logger *slog.Logger) {
 	containers, err := client.ListContainers(ctx)
 	if err != nil {
-		logger.Warn("reconcile sweep: runner list failed (skipping tick)", "error", err)
+		logger.Warn("reconcile sweep: backend list failed (skipping tick)", "error", err)
 
 		return
 	}
