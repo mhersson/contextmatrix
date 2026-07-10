@@ -41,7 +41,7 @@ verify:
 `
 
 // triggerVerifyPayload runs a card and captures the TriggerPayload the backend
-// received. backendName selects the backend (agent vs runner).
+// received. backendName selects the backend the router is configured with.
 func triggerVerifyPayload(t *testing.T, svc *service.CardService, bus *events.Bus, backendName, cardID string) runner.TriggerPayload {
 	t.Helper()
 
@@ -83,7 +83,7 @@ func triggerVerifyPayload(t *testing.T, svc *service.CardService, bus *events.Bu
 }
 
 // TestRunCard_VerifyResolution covers the resolved verify in the TriggerPayload:
-// project-only, card-over-project field merge, and the agent-backend-only gate.
+// project-only, card-over-project field merge, and the no-verify fallthrough.
 func TestRunCard_VerifyResolution(t *testing.T) {
 	ctx := context.Background()
 
@@ -145,21 +145,6 @@ func TestRunCard_VerifyResolution(t *testing.T) {
 		assert.Equal(t, "go test ./...", payload.Verify.Command)
 		assert.Empty(t, payload.Verify.Env, "card's empty-env override must clear the project env")
 		assert.NotContains(t, payload.Verify.Env, "JAVA_HOME", "project env must not leak through an override-to-clear")
-	})
-
-	t.Run("runner backend never receives verify", func(t *testing.T) {
-		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigWithVerify)
-		defer cleanup()
-
-		card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
-			Title: "runner verify", Type: "task", Priority: "medium",
-			Verify: &board.VerifyConfig{Command: "go test ./..."},
-		})
-		require.NoError(t, err)
-
-		payload := triggerVerifyPayload(t, svc, bus, "runner", card.ID)
-
-		assert.Nil(t, payload.Verify, "the frozen runner backend must never receive verify")
 	})
 
 	t.Run("no verify anywhere yields nil for agent backend", func(t *testing.T) {

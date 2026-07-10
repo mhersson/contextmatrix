@@ -71,14 +71,13 @@ const (
 // Backend name constants — the closed set of valid backends map keys.
 // Callback paths are derived as /api/<name>.
 const (
-	BackendNameRunner = "runner"
-	BackendNameAgent  = "agent"
-	BackendNameChat   = "chat"
+	BackendNameAgent = "agent"
+	BackendNameChat  = "chat"
 )
 
 // allowedBackendNames is the closed set used for name validation and env-key
-// allowlisting. Order is stable (runner, agent, chat) for error messages.
-var allowedBackendNames = []string{BackendNameRunner, BackendNameAgent, BackendNameChat}
+// allowlisting. Order is stable (agent, chat) for error messages.
+var allowedBackendNames = []string{BackendNameAgent, BackendNameChat}
 
 // Auth modes. AuthModeMulti (the default) requires login; AuthModeNone is
 // the single-user zero-login behavior CM always had.
@@ -509,15 +508,6 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("auth.session_idle_ttl must be positive (got %s)", d)
 	}
 
-	// A missing "runner" key returns a zero-value BackendConfig whose
-	// Enabled pointer is nil, and IsEnabled() treats nil as enabled — so
-	// map presence must be checked too (same gotcha guarded against by
-	// hasRunner in the runner/agent/chat exclusivity check below).
-	if runner, declared := c.Backends[BackendNameRunner]; c.Auth.Mode == AuthModeMulti && declared && runner.IsEnabled() {
-		return fmt.Errorf("backends.runner is not supported when auth.mode is %q (the runner backend is deprecate-frozen): "+
-			"switch the task backend to \"agent\" or set auth.mode: %q for single-user operation", AuthModeMulti, AuthModeNone)
-	}
-
 	// applyBackendDefaults fills per-entry knob defaults for backends that
 	// omit them. Idempotent; mirrors the applyChatDefaults pattern so
 	// callers that bypass Load still get defaults applied.
@@ -530,8 +520,16 @@ func (c *Config) Validate() error {
 
 	for name, b := range c.Backends {
 		// Name check applies to ALL entries, enabled or not (typo guard).
+		// "runner" gets a dedicated message: the backend was removed and a
+		// leftover entry must fail loudly, not be silently ignored.
+		if name == "runner" {
+			return fmt.Errorf("backends.runner: the runner backend has been removed "+
+				"(deprecate-frozen since multi-user; see the runner-eos tag for the last supported commit): "+
+				"use backends.%s for task execution and backends.%s for chat", BackendNameAgent, BackendNameChat)
+		}
+
 		if !allowedSet[name] {
-			return fmt.Errorf("invalid backend name %q: must be one of \"runner\", \"agent\", \"chat\"", name)
+			return fmt.Errorf("invalid backend name %q: must be one of \"agent\", \"chat\"", name)
 		}
 
 		// Disabled entries are inert placeholders — skip all further checks.
@@ -572,22 +570,16 @@ func (c *Config) Validate() error {
 			continue
 		}
 
-		// agent is a task-execution-only backend; runner-only steering-wheel
-		// fields (sonnet/opus model selection) are not applicable. agent uses
-		// default_model instead. runner entries must not have default_model.
+		// agent is a task-execution-only backend; the retired runner's
+		// steering-wheel fields (sonnet/opus model selection) are not
+		// applicable. agent uses default_model instead.
 		if name == BackendNameAgent {
 			if b.OrchestratorSonnetModel != "" {
-				return fmt.Errorf("backends[%q].orchestrator_sonnet_model must not be set on the agent backend: agent backend uses default_model; orchestrator_*_model fields are runner-only", name)
+				return fmt.Errorf("backends[%q].orchestrator_sonnet_model must not be set: the agent backend uses default_model", name)
 			}
 
 			if b.OrchestratorOpusModel != "" {
-				return fmt.Errorf("backends[%q].orchestrator_opus_model must not be set on the agent backend: agent backend uses default_model; orchestrator_*_model fields are runner-only", name)
-			}
-		}
-
-		if name == BackendNameRunner {
-			if b.DefaultModel != "" {
-				return fmt.Errorf("backends[%q].default_model must not be set on the runner backend: default_model is agent-only", name)
+				return fmt.Errorf("backends[%q].orchestrator_opus_model must not be set: the agent backend uses default_model", name)
 			}
 		}
 
@@ -598,33 +590,16 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	// runner is mutually exclusive with agent and chat: runner already serves
-	// both task execution and chat, so mixing the roles creates ambiguity.
-	runnerEnabled := c.Backends[BackendNameRunner].IsEnabled() && c.Backends[BackendNameRunner].URL != ""
-	agentEnabled := c.Backends[BackendNameAgent].IsEnabled() && c.Backends[BackendNameAgent].URL != ""
-	chatEnabled := c.Backends[BackendNameChat].IsEnabled() && c.Backends[BackendNameChat].URL != ""
-
-	// Only treat an entry as "present+enabled" when it was actually declared
-	// in the map (a missing key returns a zero BackendConfig with Enabled==nil,
-	// which IsEnabled() would report true — so we must check map presence too).
-	_, hasRunner := c.Backends[BackendNameRunner]
-	_, hasAgent := c.Backends[BackendNameAgent]
+	// Only treat the chat entry as "present+enabled" when it was actually
+	// declared in the map (a missing key returns a zero BackendConfig with
+	// Enabled==nil, which IsEnabled() would report true — so map presence
+	// must be checked too).
 	_, hasChat := c.Backends[BackendNameChat]
-
-	runnerActive := hasRunner && runnerEnabled
-	agentActive := hasAgent && agentEnabled
-	chatActive := hasChat && chatEnabled
-
-	if runnerActive && (agentActive || chatActive) {
-		return fmt.Errorf("backends: runner is mutually exclusive with agent and chat " +
-			"(runner already serves both task execution and chat); " +
-			"set enabled: false on the entries you are not using")
-	}
+	chatActive := hasChat && c.Backends[BackendNameChat].IsEnabled() && c.Backends[BackendNameChat].URL != ""
 
 	// The dedicated chat backend (contextmatrix-chat) has no server-side default
 	// model — CM supplies it as CM_MODEL on every chat-start — so default_model
-	// is mandatory when that backend is enabled. Checked here (after the
-	// exclusivity gate) so the error order is deterministic.
+	// is mandatory when that backend is enabled.
 	if chatActive && c.Backends[BackendNameChat].DefaultModel == "" {
 		return fmt.Errorf(`backends["chat"].default_model is required when the chat backend ` +
 			`is enabled (contextmatrix-chat has no server-side default; it is supplied as CM_MODEL)`)
@@ -956,53 +931,32 @@ func applyAuthDefaults(cfg *Config) {
 	}
 }
 
-// TaskBackendConfig returns the backend responsible for task execution.
-// Precedence: runner (if present+enabled) → agent (if present+enabled) → not found.
-// The returned copy has Name set defensively so callers that bypass Load still
-// get a usable value.
+// TaskBackendConfig returns the backend responsible for task execution
+// (the agent backend, if present+enabled). The returned copy has Name set
+// defensively so callers that bypass Load still get a usable value.
 func (c *Config) TaskBackendConfig() (BackendConfig, bool) {
-	for _, name := range []string{BackendNameRunner, BackendNameAgent} {
-		b, ok := c.Backends[name]
-		if ok && b.IsEnabled() {
-			b.Name = name
+	b, ok := c.Backends[BackendNameAgent]
+	if ok && b.IsEnabled() {
+		b.Name = BackendNameAgent
 
-			return b, true
-		}
+		return b, true
 	}
 
 	return BackendConfig{}, false
 }
 
-// ChatBackendConfig returns the backend responsible for chat containers.
-// Precedence: runner (if present+enabled) → chat (if present+enabled) → not found.
-// The returned copy has Name set defensively so callers that bypass Load still
-// get a usable value.
+// ChatBackendConfig returns the backend responsible for chat containers
+// (the chat backend, if present+enabled). The returned copy has Name set
+// defensively so callers that bypass Load still get a usable value.
 func (c *Config) ChatBackendConfig() (BackendConfig, bool) {
-	for _, name := range []string{BackendNameRunner, BackendNameChat} {
-		b, ok := c.Backends[name]
-		if ok && b.IsEnabled() {
-			b.Name = name
+	b, ok := c.Backends[BackendNameChat]
+	if ok && b.IsEnabled() {
+		b.Name = BackendNameChat
 
-			return b, true
-		}
+		return b, true
 	}
 
 	return BackendConfig{}, false
-}
-
-// TaskBackendServesChat reports whether the active task backend is also the
-// active chat backend — true only for the runner, which serves both roles.
-// The reconcile sweep's chat half cross-references CM chat sessions against
-// the TASK backend's /containers list, so it must only be wired when this is
-// true: with a dedicated chat backend (contextmatrix-chat, which exposes no
-// /containers), every live session is absent from the task backend's list by
-// construction and would be flipped to cold — killing the worker
-// mid-conversation — on every tick.
-func (c *Config) TaskBackendServesChat() bool {
-	tb, taskOK := c.TaskBackendConfig()
-	cb, chatOK := c.ChatBackendConfig()
-
-	return taskOK && chatOK && tb.Name == cb.Name
 }
 
 // applyBackendDefaults fills per-entry defaults for fields not supplied by
@@ -1016,24 +970,12 @@ func applyBackendDefaults(cfg *Config) {
 		// disabled placeholders.
 		b.Name = name
 
-		// Orchestrator model steering is runner-only: Validate rejects the
-		// sonnet/opus fields on agent and chat entries.
-		if b.IsEnabled() && name == BackendNameRunner {
-			if b.OrchestratorSonnetModel == "" {
-				b.OrchestratorSonnetModel = "claude-sonnet-4-6"
-			}
-
-			if b.OrchestratorOpusModel == "" {
-				b.OrchestratorOpusModel = "claude-opus-4-8"
-			}
-		}
-
-		// The reconcile default applies to every task backend. For the agent
-		// backend CM's sweep is the ONLY reconcile mechanism (the agent has no
-		// internal loop — docs/agent-backend-parity.md), so leaving the entry
-		// at 0 would silently disable the container backstop. Chat entries
-		// must leave the field empty (Validate rejects it there).
-		if b.IsEnabled() && (name == BackendNameRunner || name == BackendNameAgent) {
+		// The reconcile default applies to the task backend. CM's sweep is the
+		// agent backend's ONLY reconcile mechanism (the agent has no internal
+		// loop), so leaving the entry at 0 would silently disable the container
+		// backstop. Chat entries must leave the field empty (Validate rejects
+		// it there).
+		if b.IsEnabled() && name == BackendNameAgent {
 			if b.ReconcileInterval == "" {
 				b.ReconcileInterval = "60s"
 			}

@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/mhersson/contextmatrix/internal/chat"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/runner"
@@ -25,18 +24,11 @@ type runnerSubsystems struct {
 // end-session subscriber, creates the session-log manager, starts its idle
 // sweeper, and (when enabled) launches the Docker-authoritative reconciliation
 // sweep. Returns the aggregate and a cleanup closure the caller must defer.
-//
-// chatMgr is only consulted for the chat half of the reconciliation sweep
-// (adapts *chat.Manager to the runner.ChatReconciler surface), and only when
-// the task backend also serves chat (see Config.TaskBackendServesChat). The
-// card half of the sweep runs whenever a task backend is enabled and does not
-// require chatMgr at all.
 func wireRunnerSubsystems(
 	ctx context.Context,
 	cfg *config.Config,
 	svc *service.CardService,
 	bus *events.Bus,
-	chatMgr *chat.Manager,
 ) (*runnerSubsystems, func()) {
 	sys := &runnerSubsystems{}
 
@@ -51,22 +43,12 @@ func wireRunnerSubsystems(
 		slog.Info("end-session subscriber started")
 	}
 
-	// --- reconciliation sweep (task backend required) ---
+	// --- reconciliation sweep (task backend required; it is the agent
+	// backend's only reconcile mechanism) ---
 	if taskEnabled {
-		// Chat half of the sweep: only wired when the task backend also
-		// hosts chat containers (runner). See Config.TaskBackendServesChat.
-		// chatRec stays untyped-nil otherwise — runReconcileSweep skips the
-		// chat pass on nil, and the card sweep runs regardless (it is the
-		// agent backend's only reconcile mechanism).
-		var chatRec runner.ChatReconciler
-		if chatMgr != nil && cfg.TaskBackendServesChat() {
-			chatRec = chatReconcilerAdapter{mgr: chatMgr}
-		}
-
 		reconcileInterval := taskCfg.ReconcileIntervalDuration()
 		runner.StartReconciliationSweep(
 			ctx, svc,
-			chatRec,
 			sys.Client,
 			reconcileInterval,
 			slog.Default(),
@@ -75,7 +57,6 @@ func wireRunnerSubsystems(
 		if reconcileInterval > 0 {
 			slog.Info("reconciliation sweep started",
 				"interval", reconcileInterval,
-				"chat_reconcile", chatRec != nil,
 			)
 		}
 	}

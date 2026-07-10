@@ -10,12 +10,12 @@ import (
 
 const testProjectName = "test-project"
 
-func TestBackendAuthor_DefaultsToRunner(t *testing.T) {
+func TestBackendAuthor_DefaultsToNeutralBackend(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
 	defer cleanup()
 
-	// No SetTaskBackendName call → unset → defaults to "runner".
-	assert.Equal(t, "runner", svc.backendAuthor())
+	// No SetTaskBackendName call → unset → defaults to "backend".
+	assert.Equal(t, "backend", svc.backendAuthor())
 }
 
 func TestBackendAuthor_ReflectsConfiguredBackend(t *testing.T) {
@@ -24,9 +24,6 @@ func TestBackendAuthor_ReflectsConfiguredBackend(t *testing.T) {
 
 	svc.SetTaskBackendName("agent")
 	assert.Equal(t, "agent", svc.backendAuthor())
-
-	svc.SetTaskBackendName("runner")
-	assert.Equal(t, "runner", svc.backendAuthor())
 }
 
 func TestUpdateRunnerStatus_AttributesMessageToActiveBackend(t *testing.T) {

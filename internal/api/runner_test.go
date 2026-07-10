@@ -3374,55 +3374,6 @@ favorites:
 	assert.True(t, foundProjectCriticalReviewer, "project critical/reviewer favorite rule must be present")
 }
 
-func TestRunCardSelectionNilForRunnerBackend(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
-	defer cleanup()
-
-	ctx := context.Background()
-
-	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
-		Title: "Runner task", Type: "task", Priority: "medium",
-	})
-	require.NoError(t, err)
-
-	cat := &stubCatalog{
-		candidates: []protocol.CandidateModel{{Slug: "some/model"}},
-	}
-
-	var capturedPayload runner.TriggerPayload
-
-	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewDecoder(r.Body).Decode(&capturedPayload)
-
-		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
-	}))
-	defer mockRunner.Close()
-
-	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
-	router := NewRouter(RouterConfig{
-		Service: svc, Bus: bus, Runner: runnerClient,
-		BackendCfg: config.BackendConfig{
-			APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
-			Name:   config.BackendNameRunner,
-		},
-		Catalog: cat,
-	})
-
-	server := httptest.NewServer(router)
-	defer server.Close()
-
-	req, _ := http.NewRequest("POST",
-		server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", nil)
-
-	resp, err := http.DefaultClient.Do(req)
-
-	require.NoError(t, err)
-	defer closeBody(t, resp.Body)
-
-	require.Equal(t, http.StatusAccepted, resp.StatusCode)
-	assert.Nil(t, capturedPayload.Selection, "Selection must be nil for runner backend")
-}
-
 // TestRunCardTypedNilCatalogDoesNotPanic reproduces the typed-nil-interface
 // footgun: a nil *modelcatalog.Builder assigned to RouterConfig.Catalog
 // produces a non-nil catalogProvider interface value, so the h.catalog != nil
@@ -3555,57 +3506,6 @@ func TestRunCardBestOfNPayload(t *testing.T) {
 			assert.Equal(t, tc.want, capturedPayload.BestOfN)
 		})
 	}
-}
-
-// TestRunCardBestOfNOmittedForRunnerBackend asserts the runner backend never
-// receives best_of_n, even when the card has one set.
-func TestRunCardBestOfNOmittedForRunnerBackend(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
-	defer cleanup()
-
-	ctx := context.Background()
-
-	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
-		Title: "Runner task with best_of_n", Type: "task", Priority: "medium",
-	})
-	require.NoError(t, err)
-
-	three := 3
-	_, err = svc.PatchCard(ctx, "test-project", card.ID, service.PatchCardInput{BestOfN: &three})
-	require.NoError(t, err)
-
-	var capturedPayload runner.TriggerPayload
-
-	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewDecoder(r.Body).Decode(&capturedPayload)
-
-		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
-	}))
-	defer mockRunner.Close()
-
-	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
-	router := NewRouter(RouterConfig{
-		Service: svc, Bus: bus, Runner: runnerClient,
-		BackendCfg: config.BackendConfig{
-			APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
-			Name:   config.BackendNameRunner,
-		},
-		BestOfN: config.BestOfNConfig{MaxCandidates: 5},
-	})
-
-	server := httptest.NewServer(router)
-	defer server.Close()
-
-	req, _ := http.NewRequest("POST",
-		server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", nil)
-
-	resp, err := http.DefaultClient.Do(req)
-
-	require.NoError(t, err)
-	defer closeBody(t, resp.Body)
-
-	require.Equal(t, http.StatusAccepted, resp.StatusCode)
-	assert.Zero(t, capturedPayload.BestOfN, "runner backend must never receive best_of_n")
 }
 
 // --- Selection outcome stats ---
