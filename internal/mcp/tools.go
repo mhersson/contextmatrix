@@ -122,7 +122,7 @@ type getSkillInput struct {
 	// skillBuilders directly. assertGetSkillSchemaInSync (below) compares it
 	// to skillNameSchemaDescription at package init time and panics on drift,
 	// so adding a skill in one place but not the other fails fast in tests.
-	SkillName       string `json:"skill_name" jsonschema:"required,skill name: brainstorming, chat-mode, create-plan, create-task, document-task, execute-task, init-project, review-task, run-autonomous, systematic-debugging"`
+	SkillName       string `json:"skill_name" jsonschema:"required,skill name: brainstorming, create-plan, create-task, document-task, execute-task, init-project, review-task, run-autonomous, systematic-debugging"`
 	CardID          string `json:"card_id,omitempty" jsonschema:"card ID (required for create-plan, execute-task, review-task, document-task, brainstorming, systematic-debugging)"`
 	Description     string `json:"description,omitempty" jsonschema:"free-text description (used by create-task)"`
 	Name            string `json:"name,omitempty" jsonschema:"project name (used by init-project)"`

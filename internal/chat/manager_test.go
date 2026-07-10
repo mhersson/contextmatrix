@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -2052,51 +2051,6 @@ func TestOpenSession_ConcurrentColdOpensRunInParallel(t *testing.T) {
 
 // --- chat-mode primer tests ---
 
-func writeTempPrimer(t *testing.T, content string) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "chat-mode.md")
-	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
-
-	return path
-}
-
-func newManagerWithPrimerPath(t *testing.T, primerPath string) (*chat.Manager, *stubRunner, chat.Store) {
-	t.Helper()
-	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = store.Close() })
-
-	runner := &stubRunner{}
-	mgr := chat.NewManager(chat.Config{
-		Store:      store,
-		Backend:    runner,
-		Clock:      clock.Real(),
-		IdleTTL:    time.Hour,
-		PrimerPath: primerPath,
-	})
-
-	return mgr, runner, store
-}
-
-func TestManager_OpenCold_PassesPrimerToRunner_Fresh(t *testing.T) {
-	primerPath := writeTempPrimer(t, "ORIENT")
-	mgr, runner, _ := newManagerWithPrimerPath(t, primerPath)
-
-	ctx := context.Background()
-	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
-	require.NoError(t, err)
-
-	_, err = mgr.OpenSession(ctx, sess.ID)
-	require.NoError(t, err)
-
-	runner.mu.Lock()
-	defer runner.mu.Unlock()
-
-	assert.Equal(t, "ORIENT", runner.lastOpts.Primer,
-		"fresh cold-open must pass primer content to StartChat")
-	assert.Nil(t, runner.lastOpts.Resume, "fresh session has no resume")
-}
-
 // --- llm_endpoint provisioning tests ---
 
 func TestManager_OpenCold_PassesLLMEndpointToRunner(t *testing.T) {
@@ -2322,9 +2276,8 @@ func TestManager_SessionLiveness_UnknownSession(t *testing.T) {
 	assert.ErrorIs(t, err, chat.ErrSessionNotFound)
 }
 
-func TestManager_OpenCold_PassesPrimerToRunner_Resume(t *testing.T) {
-	primerPath := writeTempPrimer(t, "ORIENT")
-	mgr, runner, _ := newManagerWithPrimerPath(t, primerPath)
+func TestManager_OpenCold_ResumePayloadPresent(t *testing.T) {
+	mgr, runner, _ := newManagerWithStubs(t)
 
 	ctx := context.Background()
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
@@ -2344,75 +2297,13 @@ func TestManager_OpenCold_PassesPrimerToRunner_Resume(t *testing.T) {
 	runner.mu.Lock()
 	defer runner.mu.Unlock()
 
-	assert.Equal(t, "ORIENT", runner.lastOpts.Primer,
-		"resume cold-open must also pass primer content")
 	assert.NotNil(t, runner.lastOpts.Resume, "resume payload must be present")
-}
-
-func TestManager_OpenCold_PrimerFileMissing(t *testing.T) {
-	missingPath := filepath.Join(t.TempDir(), "does-not-exist.md")
-	mgr, runner, _ := newManagerWithPrimerPath(t, missingPath)
-
-	ctx := context.Background()
-	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
-	require.NoError(t, err)
-
-	// Must NOT return an error — fail-open posture.
-	_, err = mgr.OpenSession(ctx, sess.ID)
-	require.NoError(t, err, "missing primer file must not block session open")
-
-	runner.mu.Lock()
-	defer runner.mu.Unlock()
-
-	assert.Empty(t, runner.lastOpts.Primer,
-		"missing primer file must result in empty Primer, not garbage")
-}
-
-func TestManager_OpenCold_PrimerReadOnEachOpen(t *testing.T) {
-	primerPath := writeTempPrimer(t, "VERSION-1")
-	mgr, runner, _ := newManagerWithPrimerPath(t, primerPath)
-
-	ctx := context.Background()
-
-	// First cold open with VERSION-1.
-	sess1, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "a", CreatedBy: "human:web-x"})
-	require.NoError(t, err)
-	_, err = mgr.OpenSession(ctx, sess1.ID)
-	require.NoError(t, err)
-
-	runner.mu.Lock()
-	first := runner.lastOpts.Primer
-	runner.mu.Unlock()
-	assert.Equal(t, "VERSION-1", first)
-
-	// Edit the primer file between opens.
-	require.NoError(t, os.WriteFile(primerPath, []byte("VERSION-2"), 0o644))
-
-	// Second cold open (different session) must see the new content —
-	// confirms read-on-each-cold-open rather than boot-cache.
-	sess2, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "b", CreatedBy: "human:web-x"})
-	require.NoError(t, err)
-	_, err = mgr.OpenSession(ctx, sess2.ID)
-	require.NoError(t, err)
-
-	runner.mu.Lock()
-	defer runner.mu.Unlock()
-
-	assert.Equal(t, "VERSION-2", runner.lastOpts.Primer,
-		"second cold-open must read the updated primer (hot-reload)")
 }
 
 // --- ClearContext tests ---
 
-func newManagerForClear(t *testing.T, primer string) (*chat.Manager, *stubRunner, chat.Store) {
-	t.Helper()
-	primerPath := writeTempPrimer(t, primer)
-
-	return newManagerWithPrimerPath(t, primerPath)
-}
-
 func TestClearContext_HappyPath(t *testing.T) {
-	mgr, runner, store := newManagerForClear(t, "PRIMER")
+	mgr, runner, store := newManagerWithStubs(t)
 	ctx := context.Background()
 
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
@@ -2430,14 +2321,13 @@ func TestClearContext_HappyPath(t *testing.T) {
 
 	require.NoError(t, mgr.ClearContext(ctx, sess.ID))
 
-	// Runner saw /clear then primer in order.
+	// Runner saw exactly the /clear control message — the worker re-orients
+	// its next epoch from its own embedded primer.
 	runner.mu.Lock()
 	args := append([]sendArg(nil), runner.sendArgs...)
 	runner.mu.Unlock()
-	require.Len(t, args, 2)
+	require.Len(t, args, 1)
 	assert.Equal(t, "/clear", args[0].Content)
-	assert.Equal(t, "PRIMER", args[1].Content)
-	assert.NotEqual(t, args[0].MessageID, args[1].MessageID, "each runner write must use a fresh message id")
 
 	// All three pre-clear rows now have rehydration_phase=true.
 	msgs, err := store.ListMessagesTail(ctx, sess.ID, 100)
@@ -2457,35 +2347,8 @@ func TestClearContext_HappyPath(t *testing.T) {
 		"divider row must persist kind so REST-bootstrap reload renders the rule")
 }
 
-func TestClearContext_PrimerMissing(t *testing.T) {
-	// PrimerPath is "" → loadPrimer returns "" → no primer-send call.
-	mgr, runner, store := newManagerWithStubs(t)
-	ctx := context.Background()
-
-	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
-	require.NoError(t, err)
-
-	// Open so the session is active (runner container is running).
-	_, err = mgr.OpenSession(ctx, sess.ID)
-	require.NoError(t, err)
-
-	require.NoError(t, mgr.ClearContext(ctx, sess.ID))
-
-	runner.mu.Lock()
-	args := append([]sendArg(nil), runner.sendArgs...)
-	runner.mu.Unlock()
-	require.Len(t, args, 1, "only /clear runs when there's no primer file")
-	assert.Equal(t, "/clear", args[0].Content)
-
-	// Divider still persists.
-	msgs, err := store.ListMessagesTail(ctx, sess.ID, 100)
-	require.NoError(t, err)
-	require.Len(t, msgs, 1)
-	assert.Equal(t, chat.EventKindDivider, msgs[0].Kind)
-}
-
 func TestClearContext_RunnerFailure_ClearStep(t *testing.T) {
-	mgr, runner, store := newManagerForClear(t, "PRIMER")
+	mgr, runner, store := newManagerWithStubs(t)
 
 	ctx := context.Background()
 
@@ -2517,47 +2380,8 @@ func TestClearContext_RunnerFailure_ClearStep(t *testing.T) {
 	assert.False(t, msgs[0].RehydrationPhase, "phase must not flip when /clear fails")
 }
 
-func TestClearContext_PrimerFailure(t *testing.T) {
-	mgr, runner, store := newManagerForClear(t, "PRIMER")
-
-	ctx := context.Background()
-
-	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
-	require.NoError(t, err)
-
-	// Open so the session is active.
-	_, err = mgr.OpenSession(ctx, sess.ID)
-	require.NoError(t, err)
-
-	_, err = mgr.AppendMessage(ctx, sess.ID, chat.RoleAssistantText, "pre-clear")
-	require.NoError(t, err)
-
-	// Arm failure: /clear succeeds (index 0 → nil), primer fails (index 1 → error).
-	runner.mu.Lock()
-	runner.sendErrSeq = []error{nil, errors.New("primer send failed")}
-	runner.mu.Unlock()
-
-	err = mgr.ClearContext(ctx, sess.ID)
-	require.Error(t, err)
-	require.ErrorIs(t, err, chat.ErrRunnerSend,
-		"primer-send failure must wrap ErrRunnerSend, got: %v", err)
-
-	// Both runner calls attempted, but transcript untouched.
-	runner.mu.Lock()
-	args := append([]sendArg(nil), runner.sendArgs...)
-	runner.mu.Unlock()
-	require.Len(t, args, 2)
-	assert.Equal(t, "/clear", args[0].Content)
-	assert.Equal(t, "PRIMER", args[1].Content)
-
-	msgs, err := store.ListMessagesTail(ctx, sess.ID, 100)
-	require.NoError(t, err)
-	require.Len(t, msgs, 1, "no divider appended when primer fails")
-	assert.False(t, msgs[0].RehydrationPhase)
-}
-
 func TestClearContext_RepeatedClears(t *testing.T) {
-	mgr, _, store := newManagerForClear(t, "PRIMER")
+	mgr, _, store := newManagerWithStubs(t)
 	ctx := context.Background()
 
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
@@ -2599,7 +2423,7 @@ func TestClearContext_RepeatedClears(t *testing.T) {
 }
 
 func TestClearContext_SessionNotFound(t *testing.T) {
-	mgr, _, _ := newManagerForClear(t, "PRIMER")
+	mgr, _, _ := newManagerWithStubs(t)
 	err := mgr.ClearContext(context.Background(), "nope")
 	require.Error(t, err)
 	require.ErrorIs(t, err, chat.ErrSessionNotFound,
@@ -2612,8 +2436,8 @@ func TestClearContext_SessionNotFound(t *testing.T) {
 // the singleflight slot open long enough for every concurrent caller to
 // arrive at clearGroup.Do — otherwise the in-flight body would finish
 // before the others arrive, the slot would reopen, and each late arrival
-// would execute its own /clear + primer pair, producing multiple
-// dividers and defeating the deduplication invariant under test.
+// would execute its own /clear, producing multiple dividers and
+// defeating the deduplication invariant under test.
 type clearGatingRunner struct {
 	*stubRunner
 
@@ -2634,13 +2458,10 @@ func (r *clearGatingRunner) SendChatMessage(ctx context.Context, sessionID, cont
 // TestClearContext_ConcurrentCallsSerialised verifies that singleflight
 // serialises concurrent ClearContext calls for the same session. Because
 // singleflight.Do deduplicates in-flight calls keyed on sessionID, only
-// one /clear + primer pair actually runs (the others share the result).
-// The transcript must contain exactly one divider row, and all
-// /clear + primer pairs (if any) must appear back-to-back in sendArgs.
+// one /clear actually runs (the others share the result). The transcript
+// must contain exactly one divider row.
 func TestClearContext_ConcurrentCallsSerialised(t *testing.T) {
 	t.Parallel()
-
-	primerPath := writeTempPrimer(t, "PRIMER")
 
 	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
 	require.NoError(t, err)
@@ -2654,11 +2475,10 @@ func TestClearContext_ConcurrentCallsSerialised(t *testing.T) {
 	}
 
 	mgr := chat.NewManager(chat.Config{
-		Store:      store,
-		Backend:    runner,
-		Clock:      clock.Real(),
-		IdleTTL:    time.Hour,
-		PrimerPath: primerPath,
+		Store:   store,
+		Backend: runner,
+		Clock:   clock.Real(),
+		IdleTTL: time.Hour,
 	})
 
 	ctx := context.Background()
@@ -2712,9 +2532,9 @@ func TestClearContext_ConcurrentCallsSerialised(t *testing.T) {
 	// each would execute its own fn on its own.
 	time.Sleep(100 * time.Millisecond)
 
-	// Release the gate. The in-flight caller completes /clear + primer +
-	// divider, returns, and singleflight wakes the parked callers, who
-	// share the result without re-executing fn.
+	// Release the gate. The in-flight caller completes /clear + divider,
+	// returns, and singleflight wakes the parked callers, who share the
+	// result without re-executing fn.
 	close(runner.release)
 
 	wg.Wait()
@@ -2740,22 +2560,16 @@ func TestClearContext_ConcurrentCallsSerialised(t *testing.T) {
 	require.Equal(t, 1, dividerCount,
 		"singleflight must deduplicate concurrent clears to exactly one divider row")
 
-	// The /clear + primer pairs that did run must appear consecutively in
-	// sendArgs (no interleaving). With singleflight the only pair is at
-	// indices 0 and 1 (from the single execution).
+	// Every runner send that did run must be a /clear control message.
 	base.mu.Lock()
 	args := append([]sendArg(nil), base.sendArgs...)
 	base.mu.Unlock()
 
-	// At least one /clear + primer pair must have executed.
-	require.GreaterOrEqual(t, len(args), 2, "at least one /clear + primer pair must have run")
+	require.NotEmpty(t, args, "at least one /clear must have run")
 
-	// Each consecutive pair must be /clear then primer.
-	for i := 0; i+1 < len(args); i += 2 {
-		assert.Equal(t, "/clear", args[i].Content,
-			"expected /clear at index %d, got %q", i, args[i].Content)
-		assert.Equal(t, "PRIMER", args[i+1].Content,
-			"expected PRIMER at index %d, got %q", i+1, args[i+1].Content)
+	for i, a := range args {
+		assert.Equal(t, "/clear", a.Content,
+			"expected /clear at index %d, got %q", i, a.Content)
 	}
 }
 
@@ -2819,8 +2633,7 @@ func TestClearContext_DividerFailureLeavesTranscriptClean(t *testing.T) {
 func TestClearContext_ColdReopen_RehydrationPayloadEmpty(t *testing.T) {
 	t.Parallel()
 
-	primerPath := writeTempPrimer(t, "PRIMER")
-	mgr, runner, _ := newManagerWithPrimerPath(t, primerPath)
+	mgr, runner, _ := newManagerWithStubs(t)
 	ctx := context.Background()
 
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
@@ -2862,7 +2675,7 @@ func TestClearContext_ColdReopen_RehydrationPayloadEmpty(t *testing.T) {
 // and that the runner is never called.
 func TestClearContext_ColdSession(t *testing.T) {
 	t.Parallel()
-	mgr, runner, _ := newManagerForClear(t, "PRIMER")
+	mgr, runner, _ := newManagerWithStubs(t)
 	ctx := context.Background()
 
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
@@ -2882,7 +2695,7 @@ func TestClearContext_ColdSession(t *testing.T) {
 // ErrSessionNotRunning when the session is in the "ending" state.
 func TestClearContext_EndingSession(t *testing.T) {
 	t.Parallel()
-	mgr, runner, store := newManagerForClear(t, "PRIMER")
+	mgr, runner, store := newManagerWithStubs(t)
 	ctx := context.Background()
 
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})

@@ -447,9 +447,9 @@ func (h *chatHandlers) endChat(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, sess)
 }
 
-// clearChat wipes the runner's working memory in place, re-primes the
-// session with the chat-mode primer, marks prior transcript rows as
-// rehydration_phase=true so they are excluded from future cold-open
+// clearChat wipes the runner's working memory in place (the worker re-orients
+// its next epoch from its own embedded primer), marks prior transcript rows
+// as rehydration_phase=true so they are excluded from future cold-open
 // resume payloads, and appends a "Context cleared" divider row. The
 // divider is published on the live SSE wire AND persisted with
 // kind="divider" so a page reload still renders it as a horizontal rule.
@@ -462,7 +462,7 @@ func (h *chatHandlers) endChat(w http.ResponseWriter, r *http.Request) {
 // Errors are routed:
 //   - chat.ErrSessionNotFound   → 404 (via handleChatError)
 //   - chat.ErrSessionNotRunning → 409 RUNNER_NOT_RUNNING
-//   - chat.ErrRunnerSend        → 502 RUNNER_UNAVAILABLE (detail: "clear_failed" or "primer_failed")
+//   - chat.ErrRunnerSend        → 502 RUNNER_UNAVAILABLE (detail: "clear_failed")
 //   - everything else           → 500 (via handleChatError)
 func (h *chatHandlers) clearChat(w http.ResponseWriter, r *http.Request) {
 	if _, ok := h.ownedSession(w, r); !ok {
@@ -479,15 +479,8 @@ func (h *chatHandlers) clearChat(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if errors.Is(err, chat.ErrRunnerSend) {
-			// ErrRunnerSendPrimer is the more specific sentinel — check it first
-			// so "primer_failed" takes precedence over the general "clear_failed".
-			detail := "clear_failed"
-			if errors.Is(err, chat.ErrRunnerSendPrimer) {
-				detail = "primer_failed"
-			}
-
 			writeError(w, http.StatusBadGateway, ErrCodeRunnerUnavailable,
-				"runner unavailable", detail)
+				"runner unavailable", "clear_failed")
 
 			return
 		}

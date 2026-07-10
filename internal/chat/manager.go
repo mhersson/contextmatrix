@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"slices"
 	"sync"
 	"time"
@@ -34,14 +33,6 @@ var ErrRunnerSend = errors.New("chat: runner send failed")
 // running). Clearing a cold or ending session has no runner to talk to.
 // The API layer maps this to 409 RUNNER_NOT_RUNNING.
 var ErrSessionNotRunning = errors.New("chat: session is not running")
-
-// ErrRunnerSendPrimer is wrapped around primer-send failures inside
-// ClearContext, in addition to the general ErrRunnerSend sentinel. The API
-// layer uses errors.Is(err, ErrRunnerSendPrimer) to distinguish a "primer
-// send failed after /clear succeeded" case (detail: "primer_failed") from a
-// plain "/clear send failure" (detail: "clear_failed"). Both cases are still
-// 502 RUNNER_UNAVAILABLE; the detail string is the differentiator.
-var ErrRunnerSendPrimer = errors.New("chat: primer send failed after /clear succeeded")
 
 // ContextClearedMarker is the canonical content string written to the
 // system-role transcript row appended on Clear Context. The frontend uses
@@ -84,11 +75,6 @@ type StartChatOpts struct {
 	RunnerImage string
 	Model       string
 	Resume      *ResumeContext
-	// Primer is the chat-mode orientation text written to the container's
-	// stdin as a stream-json user envelope before any rehydration priming.
-	// Empty string means "no primer" — runner skips the write. Sourced
-	// from workflow-skills/chat-mode.md on each cold open.
-	Primer string
 	// LLMEndpoint is the CM-provisioned inference endpoint configuration
 	// forwarded to the chat backend verbatim. Nil means "the backend falls
 	// back to its own local llm_endpoint config" (pre-multi-user behavior).
@@ -149,13 +135,6 @@ type Config struct {
 	// Production wires this to chat.default_model from config.
 	DefaultModel string
 
-	// PrimerPath is the on-disk path to the chat-mode orientation primer
-	// file (typically <WorkflowSkillsDir>/chat-mode.md). Read on each cold
-	// open and shipped to the runner as StartChatOpts.Primer. Empty path
-	// or a missing/unreadable file is non-fatal: cold open proceeds with
-	// an empty primer and a WARN log.
-	PrimerPath string
-
 	// Pricer is used to compute token costs for chat sessions. Optional:
 	// nil means cost computation is skipped.
 	Pricer Pricer
@@ -192,7 +171,6 @@ type Manager struct {
 	resumeBudgetTokens int
 	rehydrationTimeout time.Duration
 	defaultModel       string
-	primerPath         string
 	pricer             Pricer
 	// llmEndpoint is the CM-provisioned inference endpoint configuration
 	// forwarded to every chat-start payload. Treat as a secret carrier:
@@ -286,7 +264,6 @@ func NewManager(cfg Config) *Manager {
 		resumeBudgetTokens:     cfg.ResumeBudgetTokens,
 		rehydrationTimeout:     cfg.RehydrationTimeout,
 		defaultModel:           cfg.DefaultModel,
-		primerPath:             cfg.PrimerPath,
 		pricer:                 cfg.Pricer,
 		llmEndpoint:            cfg.LLMEndpoint,
 		workerCredentialsToken: cfg.WorkerCredentialsToken,
@@ -725,26 +702,6 @@ func resumeTurnCount(r *ResumeContext) int {
 	return len(r.Turns)
 }
 
-// loadPrimer reads the chat-mode primer file from m.primerPath on each call.
-// Returns an empty string and logs a WARN on any failure (missing file,
-// permission error, unreadable bytes) — primer is a quality-of-life feature
-// and must never block a cold open.
-func (m *Manager) loadPrimer() string {
-	if m.primerPath == "" {
-		return ""
-	}
-
-	data, err := os.ReadFile(m.primerPath)
-	if err != nil {
-		m.logger.Warn("chat: primer load failed; cold open will start without primer",
-			"path", m.primerPath, "error", err)
-
-		return ""
-	}
-
-	return string(data)
-}
-
 // isRehydrationActive reports whether the session is currently in its
 // rehydration phase. Reads go through the in-memory cache first; misses
 // fall back to the store and populate. Errors fall back to false rather
@@ -846,8 +803,8 @@ func (m *Manager) CompleteRehydration(ctx context.Context, sessionID, summary st
 	return nil
 }
 
-// ClearContext clears the runner's working memory in place: sends
-// "/clear" then re-primes the session with the chat-mode primer, marks
+// ClearContext clears the runner's working memory in place: sends "/clear"
+// (the worker re-orients its next epoch from its own embedded primer), marks
 // every prior transcript row with rehydration_phase=true so future
 // rehydration payloads skip them, and appends a system-role divider row
 // (content=ContextClearedMarker, kind=EventKindDivider) that the UI
@@ -855,15 +812,12 @@ func (m *Manager) CompleteRehydration(ctx context.Context, sessionID, summary st
 //
 // Concurrent ClearContext calls for the same session are serialised via
 // clearGroup (singleflight): the first caller executes the body and all
-// concurrent callers on the same session share the result. This prevents
-// /clear + primer pairs from interleaving across simultaneous requests.
+// concurrent callers on the same session share the result.
 //
-// Failure semantics: a failure in the runner /clear or primer call wraps
-// ErrRunnerSend so the API layer maps to 502. On runner failure we abort
-// before marking the transcript or appending the divider — the transcript
-// stays consistent with the runtime. If the /clear succeeds but the
-// primer fails, a WARN log records that the runtime is "unoriented"; the
-// transcript is still left untouched, so the user can retry.
+// Failure semantics: a failure in the runner /clear call wraps ErrRunnerSend
+// so the API layer maps to 502. On runner failure we abort before marking the
+// transcript or appending the divider — the transcript stays consistent with
+// the runtime.
 func (m *Manager) ClearContext(ctx context.Context, sessionID string) error {
 	sess, err := m.store.GetSession(ctx, sessionID)
 	if err != nil {
@@ -892,23 +846,6 @@ func (m *Manager) doClearContext(ctx context.Context, sessionID string) error {
 	clearMsgID := NewID()
 	if err := m.backend.SendChatMessage(ctx, sessionID, "/clear", clearMsgID); err != nil {
 		return fmt.Errorf("chat: ClearContext: /clear: %w: %w", ErrRunnerSend, err)
-	}
-
-	primerPresent := false
-
-	if primer := m.loadPrimer(); primer != "" {
-		primerPresent = true
-		primerMsgID := NewID()
-
-		if err := m.backend.SendChatMessage(ctx, sessionID, primer, primerMsgID); err != nil {
-			m.logger.Warn("chat: ClearContext: primer send failed after /clear succeeded; runtime is unoriented",
-				"session_id", sessionID, "error", err)
-
-			// Wrap with both ErrRunnerSendPrimer and ErrRunnerSend so callers
-			// can use errors.Is to distinguish primer failure from /clear failure
-			// while still matching the broader ErrRunnerSend sentinel.
-			return fmt.Errorf("chat: ClearContext: primer: %w: %w: %w", ErrRunnerSendPrimer, ErrRunnerSend, err)
-		}
 	}
 
 	// Build the divider message under the per-session append lock so the
@@ -987,8 +924,7 @@ func (m *Manager) doClearContext(ctx context.Context, sessionID string) error {
 
 	m.logger.Info("chat: context cleared",
 		"session_id", sessionID,
-		"marked_count", markedCount,
-		"primer_present", primerPresent)
+		"marked_count", markedCount)
 
 	return nil
 }
@@ -1299,11 +1235,6 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, er
 	// never block the user from opening the chat.
 	resume := m.buildResume(ctx, sess.ID)
 
-	// Read the chat-mode primer on every cold open. Operators who edit
-	// workflow-skills/chat-mode.md get hot-reload for free on the next
-	// new container.
-	primer := m.loadPrimer()
-
 	model := sess.Model
 	if model == "" {
 		model = m.defaultModel
@@ -1321,8 +1252,7 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, er
 		"session_id", sess.ID, "project", sess.Project, "repo_url", execInfo.RepoURL,
 		"runner_image", execInfo.RunnerImage,
 		"model", model, "has_resume", resume != nil,
-		"resume_turn_count", resumeTurnCount(resume),
-		"has_primer", primer != "")
+		"resume_turn_count", resumeTurnCount(resume))
 
 	return StartChatOpts{
 		SessionID:           sess.ID,
@@ -1331,7 +1261,6 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, er
 		RunnerImage:         execInfo.RunnerImage,
 		Model:               model,
 		Resume:              resume,
-		Primer:              primer,
 		LLMEndpoint:         m.llmEndpoint,
 		GitCredentialsToken: gitCredentialsToken,
 	}, nil
