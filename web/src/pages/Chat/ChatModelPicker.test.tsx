@@ -9,19 +9,19 @@ vi.mock('../../hooks/useTheme', () => ({
   useTheme: () => ({ favorites: { complex: ['anthropic/claude-opus-4'] } }),
 }));
 
-const configModels: ChatModel[] = [
+const endpointModels: ChatModel[] = [
   { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', max_tokens: 1_000_000 },
   { id: 'claude-opus-4-8', label: 'Opus 4.8', max_tokens: 1_000_000 },
 ];
 
 describe('ChatModelPicker', () => {
-  it('config mode: renders a <select> of the allowlist', () => {
+  it('endpoint mode: renders a <select> of the server models', () => {
     render(
       <ChatModelPicker
-        source="config"
+        source="endpoint"
         model="claude-sonnet-4-6"
         defaultModel="claude-sonnet-4-6"
-        models={configModels}
+        models={endpointModels}
         onChange={vi.fn()}
       />,
     );
@@ -31,10 +31,10 @@ describe('ChatModelPicker', () => {
     expect(screen.getByRole('option', { name: /Opus 4\.8/ })).toBeInTheDocument();
   });
 
-  it('config mode: renders nothing when the allowlist is empty', () => {
+  it('endpoint mode: renders nothing when the model list is empty', () => {
     const { container } = render(
       <ChatModelPicker
-        source="config"
+        source="endpoint"
         model=""
         defaultModel=""
         models={[]}
@@ -100,21 +100,5 @@ describe('ChatModelPicker', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: /anthropic\/claude-opus-4/ }));
     expect(onChange).toHaveBeenCalledWith('anthropic/claude-opus-4');
-  });
-
-  it('endpoint mode: renders a <select> over the server-provided models', () => {
-    const onChange = vi.fn();
-    render(
-      <ChatModelPicker
-        source="endpoint"
-        model="model-a"
-        defaultModel="model-a"
-        models={[{ id: 'model-a', label: 'Model A', max_tokens: 200000 }]}
-        onChange={onChange}
-      />,
-    );
-    const select = screen.getByLabelText('Model');
-    expect(select.tagName).toBe('SELECT');
-    expect(screen.getByRole('option', { name: /Model A/ })).toBeInTheDocument();
   });
 });

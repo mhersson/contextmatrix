@@ -20,7 +20,7 @@ export function NewChatDialog({ open, onClose }: NewChatDialogProps) {
   const [model, setModel] = useState('');
   const [models, setModels] = useState<ChatModel[]>([]);
   const [defaultModel, setDefaultModel] = useState('');
-  const [modelSource, setModelSource] = useState<'config' | 'openrouter' | 'endpoint'>('config');
+  const [modelSource, setModelSource] = useState<'openrouter' | 'endpoint'>('endpoint');
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -57,7 +57,7 @@ export function NewChatDialog({ open, onClose }: NewChatDialogProps) {
         if (cancelled) return;
         setModels(resp.models);
         setDefaultModel(resp.default);
-        setModelSource(resp.source ?? 'config');
+        setModelSource(resp.source ?? 'endpoint');
         setModel((cur) => cur || resp.default);
       })
       .catch((e) => {

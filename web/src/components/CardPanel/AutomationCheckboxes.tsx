@@ -6,17 +6,15 @@ const REVIEW_ATTEMPTS_HALT = 5;
 
 interface AutomationCheckboxesProps {
   autonomous: boolean;
-  useOpusOrchestrator: boolean;
   featureBranch: boolean;
   createPR: boolean;
   onAutonomousChange: (value: boolean) => void;
-  onUseOpusOrchestratorChange: (value: boolean) => void;
   onFeatureBranchChange: (value: boolean) => void;
   onCreatePRChange: (value: boolean) => void;
   /**
-   * Active task backend ("runner" | "agent" | ""). When `'agent'`, the
-   * "Opus as orchestrator" row (a runner-only steering wheel) is replaced
-   * by the three model-pin inputs. Runner / unset keeps the opus row.
+   * Active task backend ("agent" | ""). When `'agent'`, the three model-pin
+   * inputs render as the model-steering row. When unset there is no
+   * steering row at all.
    */
   taskBackend?: string;
   /** Model pin values — only rendered when `taskBackend === 'agent'`. */
@@ -85,7 +83,6 @@ interface AutomationCheckboxesProps {
  * label on the left and a hint/value on the right:
  *
  *   [☐ Autonomous mode]            HITL — human replies in chat
- *   [☐ Opus as orchestrator]      → Sonnet (default)
  *   [☐ Feature branch]            ctxmax-456/foo
  *   [☐ Create pull request]       PR #482 ↗
  *   Base branch                   [main ▾]
@@ -93,12 +90,11 @@ interface AutomationCheckboxesProps {
  *   🔒 Automation locked during remote run        (when disabled)
  *
  * Run-status info lives inline with each row — no separate "Run status"
- * card. The Opus hint is yellow when ticked, grey otherwise. The autonomous
- * hint is uncolored (just `.bf-hint` defaults).
+ * card. The autonomous hint is uncolored (just `.bf-hint` defaults).
  */
 export function AutomationCheckboxes({
-  autonomous, useOpusOrchestrator, featureBranch, createPR,
-  onAutonomousChange, onUseOpusOrchestratorChange, onFeatureBranchChange, onCreatePRChange,
+  autonomous, featureBranch, createPR,
+  onAutonomousChange, onFeatureBranchChange, onCreatePRChange,
   taskBackend,
   modelOrchestrator = '', modelCoder = '', modelReviewer = '',
   onModelPinChange, models = [], favorites,
@@ -163,8 +159,8 @@ export function AutomationCheckboxes({
       )}
 
       {/* Orchestrator steering wheel — the agent backend uses per-role model
-          pins; the runner backend (or unset) uses the Opus toggle. */}
-      {agentBackend ? (
+          pins. No steering row on the unset backend. */}
+      {agentBackend && (
         <ModelPinsSection
           orchestrator={modelOrchestrator}
           coder={modelCoder}
@@ -174,22 +170,6 @@ export function AutomationCheckboxes({
           models={models}
           favorites={favorites}
         />
-      ) : (
-        <div className="bf-spread">
-          <label className="bf-switch">
-            <input
-              type="checkbox"
-              aria-label="Opus as orchestrator"
-              checked={useOpusOrchestrator}
-              disabled={disabled}
-              onChange={(e) => onUseOpusOrchestratorChange(e.target.checked)}
-            />
-            <span>Opus as orchestrator</span>
-          </label>
-          <span className="bf-hint" style={{ color: useOpusOrchestrator ? 'var(--yellow)' : 'var(--grey1)' }}>
-            {useOpusOrchestrator ? '→ Opus — deeper planning, higher cost' : '→ Sonnet (default)'}
-          </span>
-        </div>
       )}
 
       {/* Feature branch */}

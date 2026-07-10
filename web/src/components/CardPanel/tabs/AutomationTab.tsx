@@ -58,7 +58,6 @@ export function AutomationTab({
       <div className="bf-auto-top">
         <AutomationCheckboxes
           autonomous={editedCard.autonomous ?? false}
-          useOpusOrchestrator={editedCard.use_opus_orchestrator ?? false}
           featureBranch={editedCard.feature_branch ?? false}
           createPR={editedCard.create_pr ?? false}
           taskBackend={taskBackend}
@@ -78,9 +77,6 @@ export function AutomationTab({
           }
           onAutonomousChange={(v) =>
             setEditedCard((prev) => ({ ...prev, autonomous: v, ...(v ? {} : { base_branch: undefined }) }))
-          }
-          onUseOpusOrchestratorChange={(v) =>
-            setEditedCard((prev) => ({ ...prev, use_opus_orchestrator: v }))
           }
           onFeatureBranchChange={(v) =>
             setEditedCard((prev) => ({

@@ -2,17 +2,17 @@ import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import type { ChatModel } from '../types';
 
-export type ChatModelSource = 'config' | 'openrouter' | 'endpoint';
+export type ChatModelSource = 'openrouter' | 'endpoint';
 
 export interface ChatModelsResult {
   models: ChatModel[];
-  // source mirrors GET /api/chats/models: 'config' (runner serves chat → the
-  // allowlist drives the picker and the context-window denominator),
-  // 'openrouter' (dedicated chat backend → CM's vendor-screened catalog;
-  // id/label are the OpenRouter slug and max_tokens is the context window —
-  // consumers no longer fetch the OpenRouter API directly from the browser),
-  // or 'endpoint' (server-provided list from the configured OpenAI-compatible
-  // endpoint — rendered like 'config').
+  // source mirrors GET /api/chats/models: 'openrouter' (dedicated chat backend
+  // → CM's vendor-screened catalog; id/label are the OpenRouter slug and
+  // max_tokens is the context window — consumers no longer fetch the OpenRouter
+  // API directly from the browser), or 'endpoint' (server-provided list from
+  // the configured OpenAI-compatible endpoint, rendered as a <select>). A
+  // fetch failure or a missing source degrades to an empty 'endpoint' list,
+  // which renders nothing — new chats fall back to the server default.
   source: ChatModelSource;
 }
 
@@ -26,17 +26,17 @@ export function loadChatModels(): Promise<ChatModelsResult> {
   cache.promise = api
     .listChatModels()
     .then((resp) => {
-      const result: ChatModelsResult = { models: resp.models, source: resp.source ?? 'config' };
+      const result: ChatModelsResult = { models: resp.models, source: resp.source ?? 'endpoint' };
       cache.result = result;
       return result;
     })
-    .catch((): ChatModelsResult => ({ models: [], source: 'config' }));
+    .catch((): ChatModelsResult => ({ models: [], source: 'endpoint' }));
   return cache.promise;
 }
 
 export function useChatModels(): ChatModelsResult {
   const [result, setResult] = useState<ChatModelsResult>(
-    cache.result ?? { models: [], source: 'config' },
+    cache.result ?? { models: [], source: 'endpoint' },
   );
   useEffect(() => {
     if (cache.result) return;

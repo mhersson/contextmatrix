@@ -120,7 +120,6 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
           <AutomationCheckboxes
             mode="create"
             autonomous={form.autonomous}
-            useOpusOrchestrator={form.useOpusOrchestrator}
             featureBranch={form.featureBranch}
             createPR={form.createPR}
             taskBackend={taskBackend}
@@ -130,7 +129,6 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
             onModelPinChange={(field, value) => pinSetters[field](value)}
             models={models}
             onAutonomousChange={form.setAutonomous}
-            onUseOpusOrchestratorChange={form.setUseOpusOrchestrator}
             onFeatureBranchChange={(v) => {
               form.setFeatureBranch(v);
               if (!v) form.setCreatePR(false);
