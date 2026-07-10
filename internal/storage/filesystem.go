@@ -212,6 +212,14 @@ func copyCard(c *board.Card) *board.Card {
 		cp.Skills = &s
 	}
 
+	if c.Verify != nil {
+		v := *c.Verify
+		// slices.Clone preserves nil vs non-nil-empty, keeping a card's
+		// "override to clear env" (env: []) distinct from "inherit" (nil).
+		v.Env = slices.Clone(c.Verify.Env)
+		cp.Verify = &v
+	}
+
 	return &cp
 }
 

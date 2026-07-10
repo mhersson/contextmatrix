@@ -42,6 +42,9 @@ type CreateCardInput struct {
 	ModelOrchestrator string
 	ModelCoder        string
 	ModelReviewer     string
+	// Verify overrides the project's verify gate for this card. Human-set only,
+	// like the model pins. Validated and normalized before it lands on the card.
+	Verify *board.VerifyConfig
 }
 
 // UpdateCardInput contains all mutable fields for a full card update.
@@ -109,6 +112,9 @@ type PatchCardInput struct {
 	// BestOfN: human-set only, like the model pins. nil = don't change;
 	// non-nil (including pointer-to-zero) sets/clears the field.
 	BestOfN *int
+	// Verify: human-set only, like the model pins. nil = don't change; non-nil
+	// replaces the whole struct, then normalizes (zero value clears it).
+	Verify *board.VerifyConfig
 	// AgentID, when non-empty, is checked against the card's AssignedAgent.
 	// If the card is claimed by a different agent, ErrAgentMismatch is returned
 	// before any mutations are applied. Empty AgentID skips the check (backward
@@ -458,6 +464,10 @@ func (s *CardService) buildNewCardFromInput(
 		return nil, err
 	}
 
+	if err := validateCardVerify(input.Verify); err != nil {
+		return nil, err
+	}
+
 	now := s.clk.Now()
 	card := &board.Card{
 		ID:                  cardID,
@@ -479,6 +489,7 @@ func (s *CardService) buildNewCardFromInput(
 		ModelOrchestrator:   input.ModelOrchestrator,
 		ModelCoder:          input.ModelCoder,
 		ModelReviewer:       input.ModelReviewer,
+		Verify:              normalizeVerify(input.Verify),
 		Created:             now,
 		Updated:             now,
 		Body:                input.Body,
@@ -818,6 +829,10 @@ func validatePatchFieldLimits(input PatchCardInput) error {
 		}
 	}
 
+	if err := validateCardVerify(input.Verify); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -982,6 +997,12 @@ func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput)
 
 		if input.BestOfN != nil {
 			card.BestOfN = *input.BestOfN
+		}
+
+		// Verify replaces the whole struct (nil preserves; a zero-value config
+		// normalizes to nil, clearing the card override).
+		if input.Verify != nil {
+			card.Verify = normalizeVerify(input.Verify)
 		}
 
 		if input.Phase != nil {

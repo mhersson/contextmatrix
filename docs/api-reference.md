@@ -249,7 +249,7 @@ clients. The raw error is always logged server-side with the request's
 | Code               | HTTP | When                                                                                                                                               |
 | ------------------ | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `CARD_NOT_VETTED`  | 403  | A non-human agent calls `POST /claim` on a card with `source != null && vetted == false`.                                                          |
-| `HUMAN_ONLY_FIELD` | 403  | An agent without `human:` prefix attempts to set `autonomous`, `use_opus_orchestrator`, `feature_branch`, `create_pr`, `vetted`, `base_branch`, a model pin (`model_orchestrator`, `model_coder`, `model_reviewer`), or `best_of_n`. |
+| `HUMAN_ONLY_FIELD` | 403  | An agent without `human:` prefix attempts to set `autonomous`, `use_opus_orchestrator`, `feature_branch`, `create_pr`, `vetted`, `base_branch`, a model pin (`model_orchestrator`, `model_coder`, `model_reviewer`), `best_of_n`, or `verify`. |
 
 ## Authentication (multi mode)
 
@@ -1023,10 +1023,10 @@ see § Authentication (multi mode) above.
 
 Update the project configuration. The update body is a **subset** of
 `POST /api/projects` — `name`, `display_name`, and `prefix` are immutable and
-not accepted here. Three extra fields are available: `github` (GitHub import
-configuration), `default_skills` (project-wide task-skill fallback), and
+not accepted here. Extra fields are available: `github` (GitHub import
+configuration), `default_skills` (project-wide task-skill fallback),
 `github_credential` (credential-pool binding for this project's GitHub
-operations).
+operations), and `verify` (project-wide verify gate).
 
 **Accepted fields:**
 
@@ -1043,7 +1043,8 @@ operations).
   },
   "github": { "...": "..." },
   "default_skills": ["go-development", "documentation"],
-  "github_credential": "org-app"
+  "github_credential": "org-app",
+  "verify": { "command": "make test", "timeout_seconds": 600, "env": ["JAVA_HOME"] }
 }
 ```
 
@@ -1073,6 +1074,15 @@ field (including explicit empty) always overrides the project default.
 The Project Settings UI exposes this as the **Default task skills** selector
 with "Mount full set" / "Mount no skills" / "Constrain to selected skills" radio
 buttons.
+
+**`verify` field** — replace-whole-struct semantics: omitting the object
+preserves the stored config; a present object replaces it, and a zero-value
+object clears it. The server validates the config (invalid → 422
+`VALIDATION_ERROR`) and normalizes a zero value to absent. Fields and limits are
+documented in `docs/data-model.md`'s `verify` section. The same object is
+accepted on card create (`POST .../cards`) and card PATCH — both human-only (an
+agent setting `verify` gets 403 `HUMAN_ONLY_FIELD`) — where the card value
+overrides the project's field by field at trigger time.
 
 Returns 200 with the updated `ProjectConfig`.
 

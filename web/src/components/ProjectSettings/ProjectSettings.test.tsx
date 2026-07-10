@@ -136,3 +136,188 @@ describe('ProjectSettings — handleSave payload construction for github_credent
     expect(body).toHaveProperty('github_credential', '');
   });
 });
+
+describe('ProjectSettings — handleSave payload construction for remote_execution', () => {
+  it('untouched: saving an unrelated field omits remote_execution from the PUT body', async () => {
+    mocks.getProject.mockResolvedValue(baseConfig());
+    mocks.updateProject.mockResolvedValue(baseConfig({ repo: 'git@github.com:org/new.git' }));
+
+    await renderSettings();
+
+    // Edit an unrelated field (repo URL) without touching remote execution.
+    fireEvent.change(screen.getByLabelText(/repository url/i), {
+      target: { value: 'git@github.com:org/new.git' },
+    });
+
+    const saveButton = screen.getByRole('button', { name: /save/i });
+    await waitFor(() => expect(saveButton).not.toBeDisabled());
+    fireEvent.click(saveButton);
+
+    await waitFor(() => expect(mocks.updateProject).toHaveBeenCalled());
+    const [, body] = mocks.updateProject.mock.calls[0];
+    expect(body).not.toHaveProperty('remote_execution');
+  });
+
+  it('changed: enabling remote execution and setting an image sends the pointer-shaped payload', async () => {
+    mocks.getProject.mockResolvedValue(baseConfig());
+    mocks.updateProject.mockResolvedValue(
+      baseConfig({ remote_execution: { enabled: true, runner_image: 'ghcr.io/org/runner:latest' } }),
+    );
+
+    await renderSettings();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /enable remote execution/i }));
+
+    const imageInput = await screen.findByLabelText(/worker image/i);
+    fireEvent.change(imageInput, { target: { value: 'ghcr.io/org/runner:latest' } });
+
+    const saveButton = screen.getByRole('button', { name: /save/i });
+    await waitFor(() => expect(saveButton).not.toBeDisabled());
+    fireEvent.click(saveButton);
+
+    await waitFor(() => expect(mocks.updateProject).toHaveBeenCalled());
+    const [, body] = mocks.updateProject.mock.calls[0];
+    expect(body.remote_execution).toEqual({
+      enabled: true,
+      runner_image: 'ghcr.io/org/runner:latest',
+    });
+  });
+
+  it('two consecutive unrelated-field saves never leak remote_execution (effective-vs-raw baseline)', async () => {
+    // GET returns the EFFECTIVE config — the backend is globally disabled so
+    // effectiveRemoteExecution forces enabled:false, while the stored/raw value
+    // is enabled:true. PUT echoes the RAW config back (enabled:true), which is
+    // what setConfig makes the new baseline. That divergence is the trap.
+    mocks.getProject.mockResolvedValue(
+      baseConfig({ remote_execution: { enabled: false, runner_image: 'ghcr.io/org/runner:latest' } }),
+    );
+    mocks.updateProject.mockImplementation((_project: string, input: { repo?: string }) =>
+      Promise.resolve(
+        baseConfig({
+          repo: input.repo ?? '',
+          remote_execution: { enabled: true, runner_image: 'ghcr.io/org/runner:latest' },
+        }),
+      ),
+    );
+
+    await renderSettings();
+
+    const repoInput = screen.getByLabelText(/repository url/i);
+
+    // Save #1: edit only the repo; remote_execution must be omitted.
+    fireEvent.change(repoInput, { target: { value: 'git@github.com:org/two.git' } });
+    await waitFor(() => expect(screen.getByRole('button', { name: /save/i })).not.toBeDisabled());
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+
+    await waitFor(() => expect(mocks.updateProject).toHaveBeenCalledTimes(1));
+    expect(mocks.updateProject.mock.calls[0][1]).not.toHaveProperty('remote_execution');
+
+    // The raw PUT response becoming the baseline must NOT leave the form
+    // spuriously dirty — nothing about remote execution was touched.
+    await waitFor(() => expect(screen.getByRole('button', { name: /save/i })).toBeDisabled());
+
+    // Save #2: edit the repo again; remote_execution must STILL be omitted, so
+    // the operator's enabled:true opt-in is never silently overwritten.
+    fireEvent.change(repoInput, { target: { value: 'git@github.com:org/three.git' } });
+    await waitFor(() => expect(screen.getByRole('button', { name: /save/i })).not.toBeDisabled());
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+
+    await waitFor(() => expect(mocks.updateProject).toHaveBeenCalledTimes(2));
+    expect(mocks.updateProject.mock.calls[1][1]).not.toHaveProperty('remote_execution');
+  });
+});
+
+describe('ProjectSettings — handleSave payload construction for verify', () => {
+  it('untouched: saving an unrelated field omits verify from the PUT body', async () => {
+    mocks.getProject.mockResolvedValue(baseConfig({ verify: { command: 'make test' } }));
+    mocks.updateProject.mockResolvedValue(baseConfig({ repo: 'git@github.com:org/new.git' }));
+
+    await renderSettings();
+
+    fireEvent.change(screen.getByLabelText(/repository url/i), {
+      target: { value: 'git@github.com:org/new.git' },
+    });
+
+    const saveButton = screen.getByRole('button', { name: /save/i });
+    await waitFor(() => expect(saveButton).not.toBeDisabled());
+    fireEvent.click(saveButton);
+
+    await waitFor(() => expect(mocks.updateProject).toHaveBeenCalled());
+    const [, body] = mocks.updateProject.mock.calls[0];
+    expect(body).not.toHaveProperty('verify');
+  });
+
+  it('changed: setting a command, timeout, and env sends the full verify object', async () => {
+    mocks.getProject.mockResolvedValue(baseConfig());
+    mocks.updateProject.mockResolvedValue(
+      baseConfig({ verify: { command: 'make test', timeout_seconds: 300, env: ['JAVA_HOME'] } }),
+    );
+
+    await renderSettings();
+
+    fireEvent.change(screen.getByLabelText(/verify command/i), {
+      target: { value: 'make test' },
+    });
+    fireEvent.change(screen.getByLabelText(/timeout \(seconds\)/i), {
+      target: { value: '300' },
+    });
+    fireEvent.change(screen.getByLabelText(/passthrough env names/i), {
+      target: { value: 'JAVA_HOME, CGO_ENABLED' },
+    });
+
+    const saveButton = screen.getByRole('button', { name: /save/i });
+    await waitFor(() => expect(saveButton).not.toBeDisabled());
+    fireEvent.click(saveButton);
+
+    await waitFor(() => expect(mocks.updateProject).toHaveBeenCalled());
+    const [, body] = mocks.updateProject.mock.calls[0];
+    expect(body.verify).toEqual({
+      command: 'make test',
+      timeout_seconds: 300,
+      env: ['JAVA_HOME', 'CGO_ENABLED'],
+    });
+  });
+
+  it('cleared: emptying every field sends a zero-value verify object (server clears it)', async () => {
+    mocks.getProject.mockResolvedValue(
+      baseConfig({ verify: { command: 'make test', timeout_seconds: 600 } }),
+    );
+    mocks.updateProject.mockResolvedValue(baseConfig());
+
+    await renderSettings();
+
+    fireEvent.change(screen.getByLabelText(/verify command/i), { target: { value: '' } });
+    fireEvent.change(screen.getByLabelText(/timeout \(seconds\)/i), { target: { value: '' } });
+
+    const saveButton = screen.getByRole('button', { name: /save/i });
+    await waitFor(() => expect(saveButton).not.toBeDisabled());
+    fireEvent.click(saveButton);
+
+    await waitFor(() => expect(mocks.updateProject).toHaveBeenCalled());
+    const [, body] = mocks.updateProject.mock.calls[0];
+    // A zero-value verify object clears it on the server; env is omitted (empty
+    // env carries no intent at the project level).
+    expect(body.verify).toEqual({ command: '', timeout_seconds: 0 });
+    expect(body.verify).not.toHaveProperty('env');
+  });
+
+  it('command only: omits env from the verify object so .board.yaml stays clean', async () => {
+    mocks.getProject.mockResolvedValue(baseConfig());
+    mocks.updateProject.mockResolvedValue(baseConfig({ verify: { command: 'make test' } }));
+
+    await renderSettings();
+
+    fireEvent.change(screen.getByLabelText(/verify command/i), {
+      target: { value: 'make test' },
+    });
+
+    const saveButton = screen.getByRole('button', { name: /save/i });
+    await waitFor(() => expect(saveButton).not.toBeDisabled());
+    fireEvent.click(saveButton);
+
+    await waitFor(() => expect(mocks.updateProject).toHaveBeenCalled());
+    const [, body] = mocks.updateProject.mock.calls[0];
+    expect(body.verify).toEqual({ command: 'make test', timeout_seconds: 0 });
+    expect(body.verify).not.toHaveProperty('env');
+  });
+});

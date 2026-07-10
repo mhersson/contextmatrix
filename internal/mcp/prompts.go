@@ -397,7 +397,7 @@ func buildCardSkill(ctx context.Context, svc *service.CardService, workflowSkill
 
 	var parts []string
 
-	parts = append(parts, formatCardContext(card, project))
+	parts = append(parts, formatCardContext(card, project, resolveVerifyCommand(ctx, svc, card, project)))
 
 	if includeFamily && card.Parent != "" {
 		parent, perr := svc.GetCard(ctx, project, card.Parent)
@@ -444,7 +444,7 @@ func buildSubtaskSkill(ctx context.Context, svc *service.CardService, workflowSk
 
 	var parts []string
 
-	parts = append(parts, formatCardContext(card, project))
+	parts = append(parts, formatCardContext(card, project, resolveVerifyCommand(ctx, svc, card, project)))
 
 	subtasks, serr := svc.ListCards(ctx, project, storage.CardFilter{Parent: card.ID})
 	if serr == nil && len(subtasks) > 0 {
@@ -478,7 +478,7 @@ func buildRunAutonomous(ctx context.Context, svc *service.CardService, workflowS
 
 	var parts []string
 
-	parts = append(parts, formatCardContext(card, project))
+	parts = append(parts, formatCardContext(card, project, resolveVerifyCommand(ctx, svc, card, project)))
 
 	// Inject server-side complexity classification so the skill can route
 	// simple tasks to the fast path (skip planning/review/docs).
@@ -578,10 +578,31 @@ func findCard(ctx context.Context, svc *service.CardService, cardID string) (*bo
 	return nil, "", fmt.Errorf("card %s not found in any project", cardID)
 }
 
+// resolveVerifyCommand returns the verify command a card would run (card-over-
+// project merge), or "" when none resolves. Best-effort: a project-load failure
+// yields no command rather than failing the prompt.
+func resolveVerifyCommand(ctx context.Context, svc *service.CardService, card *board.Card, project string) string {
+	cfg, err := svc.GetProject(ctx, project)
+	if err != nil {
+		return ""
+	}
+
+	var projectVerify *board.VerifyConfig
+	if cfg != nil {
+		projectVerify = cfg.Verify
+	}
+
+	if merged := board.ResolveVerify(card.Verify, projectVerify); merged != nil {
+		return merged.Command
+	}
+
+	return ""
+}
+
 // formatCardContext formats a card with full details for prompt injection.
 // Unvetted external cards are redacted first so untrusted title/body/activity
 // entries can never influence the rendered skill prompt.
-func formatCardContext(c *board.Card, project string) string {
+func formatCardContext(c *board.Card, project, verifyCommand string) string {
 	c = redactCardForPrompt(c)
 
 	var b strings.Builder
@@ -630,6 +651,12 @@ func formatCardContext(c *board.Card, project string) string {
 
 	if c.ReviewAttempts > 0 {
 		fmt.Fprintf(&b, "- **Review Attempts:** %d\n", c.ReviewAttempts)
+	}
+
+	// Operator-declared verify command (card-over-project). Surfaces the gate so
+	// workflow-skill-driven runners verify with the declared command.
+	if verifyCommand != "" {
+		fmt.Fprintf(&b, "- **Verify command:** %s\n", verifyCommand)
 	}
 
 	// Skill prompts always flow into agent (non-human) context, so redact

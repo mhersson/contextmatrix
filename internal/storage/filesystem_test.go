@@ -1346,6 +1346,29 @@ func TestCopyCardIsolatesUsageBreakdown(t *testing.T) {
 		"Skills copy must not share backing array with original")
 }
 
+// TestCopyCardIsolatesVerify verifies that copyCard deep-copies Card.Verify
+// (the struct and its Env backing array) so mutating the copy cannot corrupt
+// the cached card across requests.
+func TestCopyCardIsolatesVerify(t *testing.T) {
+	orig := &board.Card{
+		ID:     "TEST-001",
+		Title:  "verify isolation",
+		Verify: &board.VerifyConfig{Command: "make test", TimeoutSeconds: 600, Env: []string{"JAVA_HOME"}},
+	}
+
+	cp := copyCard(orig)
+
+	require.NotNil(t, cp.Verify)
+	// Mutate the copy — the original must remain unchanged.
+	cp.Verify.Command = "rm -rf /"
+	cp.Verify.Env[0] = "mutated"
+
+	assert.Equal(t, "make test", orig.Verify.Command,
+		"Verify struct copy must not share pointer with original")
+	assert.Equal(t, "JAVA_HOME", orig.Verify.Env[0],
+		"Verify.Env copy must not share backing array with original")
+}
+
 // BenchmarkListCards_500Cards measures ListCards throughput with a warm cache.
 func BenchmarkListCards_500Cards(b *testing.B) {
 	dir := b.TempDir()

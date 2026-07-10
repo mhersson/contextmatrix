@@ -261,6 +261,25 @@ when the skill is engaged (it never broadens). Push changes to your remote: the
 frozen runner does `git pull --ff-only` before each `/trigger`, and the
 agent/chat re-clone from the `{git_remote_url, ref}` pointer CM derives.
 
+## Verification
+
+A card's work is verified before it can pass review. The agent resolves the
+verify command in this order:
+
+1. **Declared** — the resolved `verify` command CM sends in the trigger payload
+   (the card's `verify` merged over the project's; see `docs/data-model.md`). If
+   present, the agent runs it as-is.
+2. **Detected** — with no declared command, the agent detects the project's own
+   command (test target, build script) from the repo.
+3. **Model-proposed** — with nothing detected, the agent proposes a command.
+4. **Loud skip** — if it cannot verify at all, it says so loudly rather than
+   claiming success silently.
+
+An operator can promote a model-proposed command into the project's `verify`
+config (Project Settings → Verify) so future runs start from step 1. The
+declared `timeout_seconds` and `env` bound and provision every step, not just the
+declared command.
+
 ## Slash command interface
 
 CC exposes these slash commands via the MCP `prompts` capability:

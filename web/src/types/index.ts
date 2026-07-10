@@ -103,6 +103,16 @@ export interface ProjectConfig {
     enabled?: boolean;
     runner_image?: string;
   };
+  /**
+   * Operator-declared verify gate every card inherits unless it overrides.
+   * command is a shell string the agent runs; timeout_seconds bounds it
+   * (0 = agent default); env passes through container env var names only.
+   */
+  verify?: {
+    command?: string;
+    timeout_seconds?: number;
+    env?: string[];
+  };
   github?: GitHubImportConfig;
   templates?: Record<string, string>;
   // default_skills uses three-state semantics:
@@ -327,6 +337,26 @@ export interface UpdateProjectInput {
    * default; a name sets/replaces it (422 if unknown, multi mode only).
    */
   github_credential?: string;
+  /**
+   * Field-level merge on the server: the whole object omitted preserves the
+   * current config; each subfield present is applied (runner_image "" clears
+   * the image). Send only when the value changed from the loaded config —
+   * see the echo-back note in ProjectSettings.handleSave.
+   */
+  remote_execution?: {
+    enabled?: boolean;
+    runner_image?: string;
+  };
+  /**
+   * Replace-whole-struct on the server: the object omitted preserves the
+   * current config; a present object replaces it (a zero-value object clears
+   * it). Send only when the value changed from the loaded config.
+   */
+  verify?: {
+    command?: string;
+    timeout_seconds?: number;
+    env?: string[];
+  };
 }
 
 export interface StopAllResponse {
