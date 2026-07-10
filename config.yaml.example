@@ -239,9 +239,10 @@ task_skills:
 # entry (or CONTEXTMATRIX_BACKEND_RUNNER_* env var) fails startup. The
 # runner-eos git tag marks the last CM commit that supported it.
 #
-# Callback paths are derived as /api/<name> (e.g. /api/agent, /api/chat).
-# The browser-facing /api/runner/logs and /api/runner/health endpoints are
-# hard-wired whenever a task backend is configured; they do not move.
+# Callback paths are fixed: /api/agent and /api/chat (the agent and chat
+# repos hardcode them). The browser-facing /api/runner/logs and
+# /api/runner/health endpoints are hard-wired whenever a task backend is
+# configured; they do not move.
 #
 # ENABLED FLAG: each entry has an optional `enabled` field (default: true).
 # Omitting `enabled` means the entry is active. Set `enabled: false` to keep
@@ -249,8 +250,8 @@ task_skills:
 # enabled flags — do not delete blocks.
 #
 # PER-ENTRY FIELDS:
-#   reconcile_interval — agent entry only (default 60s); rejected on the chat
-#     entry.
+#   reconcile_interval — agent entry only (default 60s); the chat entry has no
+#     reconcile_interval field — unknown keys fail startup.
 #   default_model — agent and chat entries. Required on the chat entry when it
 #     is enabled (contextmatrix-chat has no server-side default — CM supplies
 #     the model as CM_MODEL).

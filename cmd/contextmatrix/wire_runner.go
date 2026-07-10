@@ -32,12 +32,21 @@ func wireRunnerSubsystems(
 ) (*runnerSubsystems, func()) {
 	sys := &runnerSubsystems{}
 
-	taskCfg, taskEnabled := cfg.TaskBackendConfig()
+	taskCfg, taskEnabled := cfg.AgentBackend()
+
+	// taskURL/taskAPIKey stay empty when no agent backend is enabled — the
+	// session-log manager below is always constructed and treats an empty
+	// URL as "disabled".
+	var taskURL, taskAPIKey string
+
+	if taskEnabled {
+		taskURL, taskAPIKey = taskCfg.URL, taskCfg.APIKey
+	}
 
 	// --- task backend client (optional) ---
 	if taskEnabled {
 		sys.Client = runner.NewClient(taskCfg.URL, taskCfg.APIKey)
-		slog.Info("task backend enabled", "name", taskCfg.Name, "url", taskCfg.URL)
+		slog.Info("task backend enabled", "name", config.BackendNameAgent, "url", taskCfg.URL)
 
 		runner.StartEndSessionSubscriber(ctx, bus, svc, sys.Client, slog.Default())
 		slog.Info("end-session subscriber started")
@@ -62,9 +71,8 @@ func wireRunnerSubsystems(
 	}
 
 	// --- session-log manager (always constructed; Subscribe is a no-op when disabled) ---
-	// taskCfg is the zero value when disabled — an empty URL.
 	sys.SessionLog = sessionlog.NewManager(
-		sessionlog.WithRunnerConfig(taskCfg.URL, taskCfg.APIKey),
+		sessionlog.WithRunnerConfig(taskURL, taskAPIKey),
 		sessionlog.WithMaxSessions(64),
 		sessionlog.WithSessionTTL(2*time.Hour),
 	)

@@ -561,10 +561,10 @@ func setupTaskSkillsSourceEndpoint(t *testing.T) (*httptest.Server, func()) {
 
 	runnerClient := runner.NewClient("http://localhost:9090", testRunnerAPIKey)
 	router := NewRouter(RouterConfig{
-		Service:    svc,
-		Bus:        bus,
-		Runner:     runnerClient,
-		BackendCfg: config.BackendConfig{APIKey: testRunnerAPIKey, Name: "runner"},
+		Service:         svc,
+		Bus:             bus,
+		Runner:          runnerClient,
+		AgentBackendCfg: &config.AgentBackendConfig{APIKey: testRunnerAPIKey},
 	})
 
 	server := httptest.NewServer(router)
@@ -579,7 +579,7 @@ func TestGetTaskSkillsSource_HMAC_Valid(t *testing.T) {
 	server, cleanup := setupTaskSkillsSourceEndpoint(t)
 	defer cleanup()
 
-	path := "/api/runner/task-skills-source"
+	path := "/api/agent/task-skills-source"
 	sig, ts := protocol.SignRequestHeaders(testRunnerAPIKey, http.MethodGet, path, nil)
 
 	req, _ := http.NewRequest("GET", server.URL+path, nil)
@@ -604,7 +604,7 @@ func TestGetTaskSkillsSource_HMAC_Unsigned(t *testing.T) {
 	server, cleanup := setupTaskSkillsSourceEndpoint(t)
 	defer cleanup()
 
-	req, _ := http.NewRequest("GET", server.URL+"/api/runner/task-skills-source", nil)
+	req, _ := http.NewRequest("GET", server.URL+"/api/agent/task-skills-source", nil)
 
 	resp, err := http.DefaultClient.Do(req)
 
@@ -635,7 +635,7 @@ func setupChatTaskSkillsSourceEndpoint(t *testing.T) (*httptest.Server, func()) 
 	router := NewRouter(RouterConfig{
 		Service:        svc,
 		Bus:            bus,
-		ChatBackendCfg: config.BackendConfig{APIKey: testChatBackendAPIKey, Name: config.BackendNameChat},
+		ChatBackendCfg: &config.ChatBackendConfig{APIKey: testChatBackendAPIKey},
 	})
 
 	server := httptest.NewServer(router)
@@ -706,8 +706,7 @@ func TestGetChatTaskSkillsSource_HMAC_Unsigned(t *testing.T) {
 }
 
 // TestChatTaskSkillsSource_NotRegisteredWithoutBackend verifies the route is
-// absent when no dedicated chat backend key is configured (the runner-served-
-// chat case uses /api/runner/task-skills-source instead).
+// absent when no chat backend entry is configured.
 func TestChatTaskSkillsSource_NotRegisteredWithoutBackend(t *testing.T) {
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
 	defer cleanup()
@@ -753,14 +752,14 @@ func TestGetTaskSkillsSource_InstanceProvider_IncludesToken(t *testing.T) {
 		Service:             svc,
 		Bus:                 bus,
 		Runner:              runnerClient,
-		BackendCfg:          config.BackendConfig{APIKey: testRunnerAPIKey, Name: "runner"},
+		AgentBackendCfg:     &config.AgentBackendConfig{APIKey: testRunnerAPIKey},
 		GitHubTokenProvider: &fakeTokenProvider{token: "ghs_instance", expiresAt: fakeExpiry},
 	})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
 
-	path := "/api/runner/task-skills-source"
+	path := "/api/agent/task-skills-source"
 	sig, ts := protocol.SignRequestHeaders(testRunnerAPIKey, http.MethodGet, path, nil)
 
 	req, _ := http.NewRequest("GET", server.URL+path, nil)
@@ -792,14 +791,14 @@ func TestGetTaskSkillsSource_MintFailure_OmitsTokenBestEffort(t *testing.T) {
 		Service:             svc,
 		Bus:                 bus,
 		Runner:              runnerClient,
-		BackendCfg:          config.BackendConfig{APIKey: testRunnerAPIKey, Name: "runner"},
+		AgentBackendCfg:     &config.AgentBackendConfig{APIKey: testRunnerAPIKey},
 		GitHubTokenProvider: &fakeTokenProvider{err: errors.New("github api returned status 401")},
 	})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
 
-	path := "/api/runner/task-skills-source"
+	path := "/api/agent/task-skills-source"
 	sig, ts := protocol.SignRequestHeaders(testRunnerAPIKey, http.MethodGet, path, nil)
 
 	req, _ := http.NewRequest("GET", server.URL+path, nil)
@@ -829,7 +828,7 @@ func TestGetChatTaskSkillsSource_InstanceProvider_IncludesToken(t *testing.T) {
 	router := NewRouter(RouterConfig{
 		Service:             svc,
 		Bus:                 bus,
-		ChatBackendCfg:      config.BackendConfig{APIKey: testChatBackendAPIKey, Name: config.BackendNameChat},
+		ChatBackendCfg:      &config.ChatBackendConfig{APIKey: testChatBackendAPIKey},
 		GitHubTokenProvider: &fakeTokenProvider{token: "ghs_chat_instance", expiresAt: fakeExpiry},
 	})
 

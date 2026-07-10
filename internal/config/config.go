@@ -68,16 +68,18 @@ const (
 	LLMEndpointTypeOpenAI     = "openai"
 )
 
-// Backend name constants — the closed set of valid backends map keys.
-// Callback paths are derived as /api/<name>.
+// Backend name constants — the closed set of valid backends mapping keys.
 const (
 	BackendNameAgent = "agent"
 	BackendNameChat  = "chat"
 )
 
-// allowedBackendNames is the closed set used for name validation and env-key
-// allowlisting. Order is stable (agent, chat) for error messages.
-var allowedBackendNames = []string{BackendNameAgent, BackendNameChat}
+// Backend callback paths. The agent and chat repos hardcode these — they
+// must not change.
+const (
+	AgentCallbackPath = "/api/agent"
+	ChatCallbackPath  = "/api/chat"
+)
 
 // Auth modes. AuthModeMulti (the default) requires login; AuthModeNone is
 // the single-user zero-login behavior CM always had.
@@ -86,51 +88,109 @@ const (
 	AuthModeNone  = "none"
 )
 
-// backendEnvSuffixes are the per-entry CONTEXTMATRIX_BACKEND_<NAME>_* env
-// var suffixes. applyEnvOverrides reads each one; checkBackendEnvKeys
-// allowlists the same set — keep the two in sync via this list.
-var backendEnvSuffixes = []string{
-	"_URL",
-	"_API_KEY",
-	"_ENABLED",
-	"_RECONCILE_INTERVAL",
-	"_DEFAULT_MODEL",
-	"_AA_API_KEY",
-	"_MODEL_ALLOWLIST",
+// Per-backend CONTEXTMATRIX_BACKEND_<NAME>_* env var suffixes.
+// applyAgentBackendEnv / applyChatBackendEnv read each one;
+// checkBackendEnvKeys allowlists the same sets — keep them in sync.
+var (
+	agentBackendEnvSuffixes = []string{
+		"_URL",
+		"_API_KEY",
+		"_ENABLED",
+		"_RECONCILE_INTERVAL",
+		"_DEFAULT_MODEL",
+		"_AA_API_KEY",
+		"_MODEL_ALLOWLIST",
+	}
+	chatBackendEnvSuffixes = []string{
+		"_URL",
+		"_API_KEY",
+		"_ENABLED",
+		"_DEFAULT_MODEL",
+	}
+)
+
+// Backends declares the execution backends CM drives over the
+// contextmatrix-protocol webhook contract. Read once at startup —
+// changing backends requires a CM restart.
+type Backends struct {
+	Agent *AgentBackendConfig
+	Chat  *ChatBackendConfig
 }
 
-// BackendConfig is one entry in the backends map: an execution backend CM
-// can drive over the contextmatrix-protocol webhook contract. Read once at
-// startup — changing backends requires a CM restart.
-type BackendConfig struct {
+// UnmarshalYAML decodes the backends mapping with a closed key set. Unknown
+// names fail loudly instead of being silently ignored, and a leftover
+// runner entry gets a dedicated retirement message.
+func (b *Backends) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind != yaml.MappingNode {
+		return fmt.Errorf("backends must be a mapping")
+	}
+
+	for i := 0; i < len(node.Content); i += 2 {
+		key, val := node.Content[i].Value, node.Content[i+1]
+
+		switch key {
+		case BackendNameAgent:
+			b.Agent = &AgentBackendConfig{}
+			if err := decodeBackendEntry(val, b.Agent); err != nil {
+				return fmt.Errorf("backends.agent: %w", err)
+			}
+		case BackendNameChat:
+			b.Chat = &ChatBackendConfig{}
+			if err := decodeBackendEntry(val, b.Chat); err != nil {
+				return fmt.Errorf("backends.chat: %w", err)
+			}
+		case "runner":
+			return fmt.Errorf("backends.runner: the runner backend has been removed " +
+				"(deprecate-frozen since multi-user; see the runner-eos tag for the last supported commit): " +
+				"use backends.agent for task execution and backends.chat for chat")
+		default:
+			return fmt.Errorf("invalid backend name %q: must be one of \"agent\", \"chat\"", key)
+		}
+	}
+
+	return nil
+}
+
+// decodeBackendEntry strictly decodes one backends entry node into target.
+// node.Decode cannot enforce KnownFields, so the node is re-marshalled and
+// run through a KnownFields(true) decoder: a stale or typo'd per-entry field
+// (e.g. backends.chat.reconcile_interval) fails startup loudly instead of
+// being silently dropped.
+func decodeBackendEntry(node *yaml.Node, target any) error {
+	raw, err := yaml.Marshal(node)
+	if err != nil {
+		return fmt.Errorf("re-marshal entry: %w", err)
+	}
+
+	dec := yaml.NewDecoder(bytes.NewReader(raw))
+	dec.KnownFields(true)
+
+	if err := dec.Decode(target); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// AgentBackendConfig is the contextmatrix-agent task-execution backend entry.
+type AgentBackendConfig struct {
 	URL     string `yaml:"url"`     // base URL, e.g. http://localhost:9090
 	APIKey  string `yaml:"api_key"` // shared HMAC secret for this backend
 	Enabled *bool  `yaml:"enabled"` // nil means enabled (omitting = active)
-
-	// Name is the map key, set programmatically by applyBackendDefaults.
-	// Never parsed from YAML.
-	Name string `yaml:"-"`
-
-	// Runner-only task knobs; agent and chat entries must leave these empty.
+	// ReconcileInterval — CM's sweep is the agent backend's only reconcile
+	// mechanism; defaults to 60s when the entry is enabled.
 	ReconcileInterval string `yaml:"reconcile_interval"`
-
-	// DefaultModel is the default OpenRouter model slug.
-	//   - agent backend: default orchestrator model; per-card pins override it.
-	//   - chat backend: default model for new chats and the cold-open fallback;
-	//     required when the chat backend is enabled (contextmatrix-chat has no
-	//     server-side default — CM supplies it as CM_MODEL).
-	// Rejected on the runner backend (Validate rejects misuse).
+	// DefaultModel is the default orchestrator model slug; per-card pins override it.
 	DefaultModel string `yaml:"default_model"`
 
-	// Agent-only: catalog and selection inputs.
+	// Catalog and selection inputs.
 	AAAPIKey       string                         `yaml:"aa_api_key"`
 	ModelAllowlist []string                       `yaml:"model_allowlist"`
 	Favorites      map[string]board.TierFavorites `yaml:"favorites"`
 
 	// AAModelMap maps each endpoint model slug to its Artificial Analysis model
-	// stem, for the openai endpoint type. Used only by the agent backend's
-	// selection fusion. Empty for the openrouter type (which uses the built-in
-	// slug mapping).
+	// stem, for the openai endpoint type. Empty for the openrouter type (which
+	// uses the built-in slug mapping).
 	AAModelMap map[string]string `yaml:"aa_model_map"`
 
 	// ModelPriors supplies a direct selection prior for an endpoint slug AA does
@@ -140,27 +200,37 @@ type BackendConfig struct {
 	ModelPriors map[string]PriorOverride `yaml:"model_priors"`
 }
 
-// IsEnabled reports whether this entry is active. nil Enabled defaults to true
-// (presence in the map = active; disabled entries are inert placeholders).
-func (b BackendConfig) IsEnabled() bool {
-	return b.Enabled == nil || *b.Enabled
+// ChatBackendConfig is the contextmatrix-chat chat-serving backend entry.
+type ChatBackendConfig struct {
+	URL     string `yaml:"url"`
+	APIKey  string `yaml:"api_key"`
+	Enabled *bool  `yaml:"enabled"`
+	// DefaultModel — required when enabled (contextmatrix-chat has no
+	// server-side default; CM supplies it as CM_MODEL).
+	DefaultModel string `yaml:"default_model"`
 }
 
-// CallbackPath returns the webhook callback prefix derived from the entry name:
-// /api/<name>. Name must be set (by applyBackendDefaults or the constructor
-// helpers) before calling this.
-func (b BackendConfig) CallbackPath() string {
-	return "/api/" + b.Name
+// IsEnabled reports whether the agent entry is present and active. A nil
+// receiver (entry not declared) is disabled; nil Enabled defaults to true
+// (declaring the entry = active; disabled entries are inert placeholders).
+func (a *AgentBackendConfig) IsEnabled() bool {
+	return a != nil && (a.Enabled == nil || *a.Enabled)
+}
+
+// IsEnabled reports whether the chat entry is present and active. Same
+// nil-safe semantics as AgentBackendConfig.IsEnabled.
+func (c *ChatBackendConfig) IsEnabled() bool {
+	return c != nil && (c.Enabled == nil || *c.Enabled)
 }
 
 // ReconcileIntervalDuration parses ReconcileInterval. Zero/unset/invalid
 // returns 0, which disables the reconcile sweep.
-func (b *BackendConfig) ReconcileIntervalDuration() time.Duration {
-	if b.ReconcileInterval == "" {
+func (a *AgentBackendConfig) ReconcileIntervalDuration() time.Duration {
+	if a.ReconcileInterval == "" {
 		return 0
 	}
 
-	d, err := time.ParseDuration(b.ReconcileInterval)
+	d, err := time.ParseDuration(a.ReconcileInterval)
 	if err != nil {
 		return 0
 	}
@@ -330,19 +400,19 @@ type Config struct {
 	TokenCosts           map[string]ModelRate `yaml:"token_costs"`
 	LLMEndpoint          LLMEndpointConfig    `yaml:"llm_endpoint"`
 	MCPAPIKey            string               `yaml:"mcp_api_key"`
-	// Backends maps a backend name (runner, agent, chat) to its connection
-	// config. Roles and callback paths are derived from the entry name.
-	Backends      map[string]BackendConfig `yaml:"backends"`
-	GitHub        GitHubConfig             `yaml:"github"`
-	LogFormat     string                   `yaml:"log_format"`      // "json" or "text", default "text"
-	LogLevel      string                   `yaml:"log_level"`       // "debug"/"info"/"warn"/"error", default "info"
-	AdminPort     int                      `yaml:"admin_port"`      // 0 = disabled
-	AdminBindAddr string                   `yaml:"admin_bind_addr"` // listen address for admin server (pprof + /metrics); default "127.0.0.1"
-	Chat          ChatConfig               `yaml:"chat"`
-	Images        ImagesConfig             `yaml:"images"`
-	OpStore       OpStoreConfig            `yaml:"op_store"`
-	BestOfN       BestOfNConfig            `yaml:"best_of_n"`
-	Auth          AuthConfig               `yaml:"auth"`
+	// Backends declares the agent (task execution) and chat backend entries.
+	// The mapping's key set is closed — see Backends.UnmarshalYAML.
+	Backends      Backends      `yaml:"backends"`
+	GitHub        GitHubConfig  `yaml:"github"`
+	LogFormat     string        `yaml:"log_format"`      // "json" or "text", default "text"
+	LogLevel      string        `yaml:"log_level"`       // "debug"/"info"/"warn"/"error", default "info"
+	AdminPort     int           `yaml:"admin_port"`      // 0 = disabled
+	AdminBindAddr string        `yaml:"admin_bind_addr"` // listen address for admin server (pprof + /metrics); default "127.0.0.1"
+	Chat          ChatConfig    `yaml:"chat"`
+	Images        ImagesConfig  `yaml:"images"`
+	OpStore       OpStoreConfig `yaml:"op_store"`
+	BestOfN       BestOfNConfig `yaml:"best_of_n"`
+	Auth          AuthConfig    `yaml:"auth"`
 }
 
 // defaults returns a Config with default values.
@@ -482,77 +552,45 @@ func (c *Config) Validate() error {
 	// applyBackendDefaults fills per-entry knob defaults for backends that
 	// omit them. Idempotent; mirrors the applyChatDefaults pattern so
 	// callers that bypass Load still get defaults applied.
+	//
+	// Unknown backend names, leftover runner entries, and stale per-entry
+	// fields are rejected earlier, during Load's YAML parse — see
+	// Backends.UnmarshalYAML. Only enabled-entry field checks remain here;
+	// disabled entries are inert placeholders.
 	applyBackendDefaults(c)
 
-	allowedSet := map[string]bool{}
-	for _, n := range allowedBackendNames {
-		allowedSet[n] = true
-	}
-
-	for name, b := range c.Backends {
-		// Name check applies to ALL entries, enabled or not (typo guard).
-		// "runner" gets a dedicated message: the backend was removed and a
-		// leftover entry must fail loudly, not be silently ignored.
-		if name == "runner" {
-			return fmt.Errorf("backends.runner: the runner backend has been removed "+
-				"(deprecate-frozen since multi-user; see the runner-eos tag for the last supported commit): "+
-				"use backends.%s for task execution and backends.%s for chat", BackendNameAgent, BackendNameChat)
+	if a := c.Backends.Agent; a.IsEnabled() {
+		if a.URL == "" {
+			return fmt.Errorf("backends.agent.url is required")
 		}
 
-		if !allowedSet[name] {
-			return fmt.Errorf("invalid backend name %q: must be one of \"agent\", \"chat\"", name)
+		if len(a.APIKey) < MinBackendAPIKeyLength {
+			return fmt.Errorf("backends.agent.api_key must be at least %d characters", MinBackendAPIKeyLength)
 		}
 
-		// Disabled entries are inert placeholders — skip all further checks.
-		if !b.IsEnabled() {
-			continue
-		}
-
-		if b.URL == "" {
-			return fmt.Errorf("backends[%q].url is required", name)
-		}
-
-		if len(b.APIKey) < MinBackendAPIKeyLength {
-			return fmt.Errorf("backends[%q].api_key must be at least %d characters", name, MinBackendAPIKeyLength)
-		}
-
-		// chat is a pure chat-serving backend; task-execution knobs don't
-		// apply. Checked before the duration-format check so the operator
-		// sees "must not be set" rather than a misleading format error.
-		if name == BackendNameChat {
-			if b.ReconcileInterval != "" {
-				return fmt.Errorf("backends[%q].reconcile_interval must not be set on the chat backend", name)
-			}
-
-			// default_model IS allowed on the chat backend: contextmatrix-chat
-			// has no server-side default, so CM supplies the OpenRouter slug as
-			// CM_MODEL. It is required when the chat backend is enabled — checked
-			// after the mutual-exclusivity gate below so a runner+chat misconfig
-			// reports the exclusivity error first.
-
-			continue
-		}
-
-		if b.ReconcileInterval != "" {
-			if _, err := time.ParseDuration(b.ReconcileInterval); err != nil {
-				return fmt.Errorf("invalid backends[%q].reconcile_interval %q: %w", name, b.ReconcileInterval, err)
+		if a.ReconcileInterval != "" {
+			if _, err := time.ParseDuration(a.ReconcileInterval); err != nil {
+				return fmt.Errorf("invalid backends.agent.reconcile_interval %q: %w", a.ReconcileInterval, err)
 			}
 		}
 	}
 
-	// Only treat the chat entry as "present+enabled" when it was actually
-	// declared in the map (a missing key returns a zero BackendConfig with
-	// Enabled==nil, which IsEnabled() would report true — so map presence
-	// must be checked too).
-	_, hasChat := c.Backends[BackendNameChat]
-	chatActive := hasChat && c.Backends[BackendNameChat].IsEnabled() && c.Backends[BackendNameChat].URL != ""
+	if ch := c.Backends.Chat; ch.IsEnabled() {
+		if ch.URL == "" {
+			return fmt.Errorf("backends.chat.url is required")
+		}
 
-	// The dedicated chat backend (contextmatrix-chat) has no server-side default
-	// model — CM supplies it as CM_MODEL on every chat-start — so default_model
-	// is mandatory when that backend is enabled.
-	if chatActive && c.Backends[BackendNameChat].DefaultModel == "" {
-		return fmt.Errorf(`backends["chat"].default_model is required when the chat backend ` +
-			`is enabled (contextmatrix-chat has no server-side default; it is supplied as CM_MODEL)`)
+		if len(ch.APIKey) < MinBackendAPIKeyLength {
+			return fmt.Errorf("backends.chat.api_key must be at least %d characters", MinBackendAPIKeyLength)
+		}
+
+		// The dedicated chat backend (contextmatrix-chat) has no server-side
+		// default model — CM supplies it as CM_MODEL on every chat-start — so
+		// default_model is mandatory when the entry is enabled.
+		if ch.DefaultModel == "" {
+			return fmt.Errorf("backends.chat.default_model is required when the chat backend " +
+				"is enabled (contextmatrix-chat has no server-side default; it is supplied as CM_MODEL)")
+		}
 	}
 
 	if c.Theme == "" {
@@ -863,32 +901,24 @@ func applyAuthDefaults(cfg *Config) {
 	}
 }
 
-// TaskBackendConfig returns the backend responsible for task execution
-// (the agent backend, if present+enabled). The returned copy has Name set
-// defensively so callers that bypass Load still get a usable value.
-func (c *Config) TaskBackendConfig() (BackendConfig, bool) {
-	b, ok := c.Backends[BackendNameAgent]
-	if ok && b.IsEnabled() {
-		b.Name = BackendNameAgent
-
-		return b, true
+// AgentBackend returns the backend responsible for task execution (the agent
+// entry), true iff it is declared and enabled.
+func (c *Config) AgentBackend() (*AgentBackendConfig, bool) {
+	if c.Backends.Agent.IsEnabled() {
+		return c.Backends.Agent, true
 	}
 
-	return BackendConfig{}, false
+	return nil, false
 }
 
-// ChatBackendConfig returns the backend responsible for chat containers
-// (the chat backend, if present+enabled). The returned copy has Name set
-// defensively so callers that bypass Load still get a usable value.
-func (c *Config) ChatBackendConfig() (BackendConfig, bool) {
-	b, ok := c.Backends[BackendNameChat]
-	if ok && b.IsEnabled() {
-		b.Name = BackendNameChat
-
-		return b, true
+// ChatBackend returns the backend responsible for chat containers (the chat
+// entry), true iff it is declared and enabled.
+func (c *Config) ChatBackend() (*ChatBackendConfig, bool) {
+	if c.Backends.Chat.IsEnabled() {
+		return c.Backends.Chat, true
 	}
 
-	return BackendConfig{}, false
+	return nil, false
 }
 
 // applyBackendDefaults fills per-entry defaults for fields not supplied by
@@ -896,24 +926,14 @@ func (c *Config) ChatBackendConfig() (BackendConfig, bool) {
 // flipped on via CONTEXTMATRIX_BACKEND_<NAME>_ENABLED gets its task defaults
 // only from the second run inside Validate — keep that re-run if the Load
 // sequence is ever reordered (pinned by TestBackendEnvEnableGetsDefaults).
+//
+// The reconcile default applies to the agent entry only. CM's sweep is the
+// agent backend's ONLY reconcile mechanism (the agent has no internal loop),
+// so leaving the field empty would silently disable the container backstop.
+// The chat entry has no reconcile_interval field by construction.
 func applyBackendDefaults(cfg *Config) {
-	for name, b := range cfg.Backends {
-		// Name is always set from the map key — cheap and correct even on
-		// disabled placeholders.
-		b.Name = name
-
-		// The reconcile default applies to the task backend. CM's sweep is the
-		// agent backend's ONLY reconcile mechanism (the agent has no internal
-		// loop), so leaving the entry at 0 would silently disable the container
-		// backstop. Chat entries must leave the field empty (Validate rejects
-		// it there).
-		if b.IsEnabled() && name == BackendNameAgent {
-			if b.ReconcileInterval == "" {
-				b.ReconcileInterval = "60s"
-			}
-		}
-
-		cfg.Backends[name] = b
+	if a := cfg.Backends.Agent; a.IsEnabled() && a.ReconcileInterval == "" {
+		a.ReconcileInterval = "60s"
 	}
 }
 
@@ -1145,93 +1165,163 @@ func applyEnvOverrides(cfg *Config) error {
 	}
 
 	// Backend entries can be configured entirely via env: a variable for one
-	// of the allowed names creates the entry when YAML does not declare it,
+	// of the two backends creates the entry when YAML does not declare it,
 	// so pure-env deployments need no backends stub in the config file.
-	for _, name := range allowedBackendNames {
-		prefix := "CONTEXTMATRIX_BACKEND_" + strings.ToUpper(name)
+	if err := applyAgentBackendEnv(cfg); err != nil {
+		return err
+	}
 
-		anySet := false
-
-		for _, suffix := range backendEnvSuffixes {
-			if os.Getenv(prefix+suffix) != "" {
-				anySet = true
-
-				break
-			}
-		}
-
-		b, declared := cfg.Backends[name]
-		if !declared && !anySet {
-			continue
-		}
-
-		if v := os.Getenv(prefix + "_URL"); v != "" {
-			b.URL = v
-		}
-
-		if v := os.Getenv(prefix + "_API_KEY"); v != "" {
-			b.APIKey = v
-		}
-
-		if v := os.Getenv(prefix + "_ENABLED"); v != "" {
-			enabled, err := strconv.ParseBool(v)
-			if err != nil {
-				return fmt.Errorf("invalid %s_ENABLED %q: must be true/false/1/0: %w", prefix, v, err)
-			}
-
-			b.Enabled = &enabled
-		}
-
-		// Task-only fields: the env layer just sets them; Validate rejects
-		// them on the chat entry and parses the interval, so misuse fails
-		// loudly with the entry-scoped error.
-		if v := os.Getenv(prefix + "_RECONCILE_INTERVAL"); v != "" {
-			b.ReconcileInterval = v
-		}
-
-		if v := os.Getenv(prefix + "_DEFAULT_MODEL"); v != "" {
-			b.DefaultModel = v
-		}
-
-		if v := os.Getenv(prefix + "_AA_API_KEY"); v != "" {
-			b.AAAPIKey = v
-		}
-
-		if v := os.Getenv(prefix + "_MODEL_ALLOWLIST"); v != "" {
-			var allow []string
-
-			for s := range strings.SplitSeq(v, ",") {
-				if s = strings.TrimSpace(s); s != "" {
-					allow = append(allow, s)
-				}
-			}
-
-			b.ModelAllowlist = allow
-		}
-
-		if cfg.Backends == nil {
-			cfg.Backends = map[string]BackendConfig{}
-		}
-
-		cfg.Backends[name] = b
+	if err := applyChatBackendEnv(cfg); err != nil {
+		return err
 	}
 
 	return nil
 }
 
-// checkBackendEnvKeys rejects CONTEXTMATRIX_BACKEND_<NAME>_* variables that
-// do not map to a known (name, suffix) pair: the name must be in the closed
-// set (runner, agent, chat) and the suffix in backendEnvSuffixes. A typo'd
-// or stale variable must fail loudly, not silently configure nothing. The
-// entry does not need to be declared in YAML — applyEnvOverrides creates it.
+// anyBackendEnvSet reports whether any prefix+suffix env var is set.
+func anyBackendEnvSet(prefix string, suffixes []string) bool {
+	for _, suffix := range suffixes {
+		if os.Getenv(prefix+suffix) != "" {
+			return true
+		}
+	}
+
+	return false
+}
+
+// parseBackendEnabledEnv parses the <prefix>_ENABLED env var, returning nil
+// when the variable is unset.
+func parseBackendEnabledEnv(prefix string) (*bool, error) {
+	v := os.Getenv(prefix + "_ENABLED")
+	if v == "" {
+		return nil, nil //nolint:nilnil // nil means "env var unset — leave YAML value"
+	}
+
+	enabled, err := strconv.ParseBool(v)
+	if err != nil {
+		return nil, fmt.Errorf("invalid %s_ENABLED %q: must be true/false/1/0: %w", prefix, v, err)
+	}
+
+	return &enabled, nil
+}
+
+// applyAgentBackendEnv applies the CONTEXTMATRIX_BACKEND_AGENT_* overrides.
+// Entry-creating: when the agent entry is not declared in YAML and any of its
+// env vars is set, the entry is allocated first.
+func applyAgentBackendEnv(cfg *Config) error {
+	const prefix = "CONTEXTMATRIX_BACKEND_AGENT"
+
+	if cfg.Backends.Agent == nil {
+		if !anyBackendEnvSet(prefix, agentBackendEnvSuffixes) {
+			return nil
+		}
+
+		cfg.Backends.Agent = &AgentBackendConfig{}
+	}
+
+	a := cfg.Backends.Agent
+
+	if v := os.Getenv(prefix + "_URL"); v != "" {
+		a.URL = v
+	}
+
+	if v := os.Getenv(prefix + "_API_KEY"); v != "" {
+		a.APIKey = v
+	}
+
+	enabled, err := parseBackendEnabledEnv(prefix)
+	if err != nil {
+		return err
+	}
+
+	if enabled != nil {
+		a.Enabled = enabled
+	}
+
+	// The env layer just sets the interval; Validate parses it, so a bad
+	// value fails loudly with the entry-scoped error.
+	if v := os.Getenv(prefix + "_RECONCILE_INTERVAL"); v != "" {
+		a.ReconcileInterval = v
+	}
+
+	if v := os.Getenv(prefix + "_DEFAULT_MODEL"); v != "" {
+		a.DefaultModel = v
+	}
+
+	if v := os.Getenv(prefix + "_AA_API_KEY"); v != "" {
+		a.AAAPIKey = v
+	}
+
+	if v := os.Getenv(prefix + "_MODEL_ALLOWLIST"); v != "" {
+		var allow []string
+
+		for s := range strings.SplitSeq(v, ",") {
+			if s = strings.TrimSpace(s); s != "" {
+				allow = append(allow, s)
+			}
+		}
+
+		a.ModelAllowlist = allow
+	}
+
+	return nil
+}
+
+// applyChatBackendEnv applies the CONTEXTMATRIX_BACKEND_CHAT_* overrides.
+// Entry-creating like applyAgentBackendEnv.
+func applyChatBackendEnv(cfg *Config) error {
+	const prefix = "CONTEXTMATRIX_BACKEND_CHAT"
+
+	if cfg.Backends.Chat == nil {
+		if !anyBackendEnvSet(prefix, chatBackendEnvSuffixes) {
+			return nil
+		}
+
+		cfg.Backends.Chat = &ChatBackendConfig{}
+	}
+
+	c := cfg.Backends.Chat
+
+	if v := os.Getenv(prefix + "_URL"); v != "" {
+		c.URL = v
+	}
+
+	if v := os.Getenv(prefix + "_API_KEY"); v != "" {
+		c.APIKey = v
+	}
+
+	enabled, err := parseBackendEnabledEnv(prefix)
+	if err != nil {
+		return err
+	}
+
+	if enabled != nil {
+		c.Enabled = enabled
+	}
+
+	if v := os.Getenv(prefix + "_DEFAULT_MODEL"); v != "" {
+		c.DefaultModel = v
+	}
+
+	return nil
+}
+
+// checkBackendEnvKeys rejects CONTEXTMATRIX_BACKEND_* variables that do not
+// map to a known (name, suffix) pair: the name must be agent or chat, and the
+// suffix must be in that backend's suffix set. A typo'd or stale variable —
+// including any CONTEXTMATRIX_BACKEND_RUNNER_* leftover, or an agent-only
+// suffix on the chat entry — must fail loudly, not silently configure
+// nothing. The entry does not need to be declared in YAML —
+// applyEnvOverrides creates it.
 func checkBackendEnvKeys() error {
 	known := map[string]bool{}
 
-	for _, name := range allowedBackendNames {
-		pfx := "CONTEXTMATRIX_BACKEND_" + strings.ToUpper(name)
-		for _, suffix := range backendEnvSuffixes {
-			known[pfx+suffix] = true
-		}
+	for _, suffix := range agentBackendEnvSuffixes {
+		known["CONTEXTMATRIX_BACKEND_AGENT"+suffix] = true
+	}
+
+	for _, suffix := range chatBackendEnvSuffixes {
+		known["CONTEXTMATRIX_BACKEND_CHAT"+suffix] = true
 	}
 
 	for _, kv := range os.Environ() {
@@ -1242,10 +1332,10 @@ func checkBackendEnvKeys() error {
 
 		if !known[key] {
 			return fmt.Errorf("%s is not a recognised backend env var "+
-				"(names: %s; suffixes: %s) — fix the variable name",
+				"(agent suffixes: %s; chat suffixes: %s) — fix the variable name",
 				key,
-				strings.Join(allowedBackendNames, ", "),
-				strings.Join(backendEnvSuffixes, ", "))
+				strings.Join(agentBackendEnvSuffixes, ", "),
+				strings.Join(chatBackendEnvSuffixes, ", "))
 		}
 	}
 

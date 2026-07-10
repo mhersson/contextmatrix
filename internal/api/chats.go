@@ -100,18 +100,23 @@ type chatHandlers struct {
 	validateModel func(ctx context.Context, slug string) bool
 }
 
-func newChatHandlers(mgr *chat.Manager, hub *chat.SSEHub, chatBackendCfg config.BackendConfig) *chatHandlers {
+func newChatHandlers(mgr *chat.Manager, hub *chat.SSEHub, chatBackendCfg *config.ChatBackendConfig) *chatHandlers {
 	// The chat backend is the active chat server exactly when it is enabled
-	// and keyed — mirrors the route guard in router.go. An absent entry is a
-	// zero value whose IsEnabled() reports true, so the APIKey check is what
-	// distinguishes "configured" from "absent".
+	// and keyed — mirrors the route guard in router.go. IsEnabled is nil-safe
+	// (an absent entry is nil → disabled), and the short-circuit keeps the
+	// APIKey read from dereferencing nil.
 	openRouter := chatBackendCfg.IsEnabled() && chatBackendCfg.APIKey != ""
+
+	orDefault := ""
+	if chatBackendCfg != nil {
+		orDefault = chatBackendCfg.DefaultModel
+	}
 
 	return &chatHandlers{
 		mgr:        mgr,
 		hub:        hub,
 		openRouter: openRouter,
-		orDefault:  chatBackendCfg.DefaultModel,
+		orDefault:  orDefault,
 	}
 }
 

@@ -40,7 +40,7 @@ func wireChat(
 	// entry's APIKey is also the worker-credentials bearer secret, needed
 	// again below to build workerCredentialsToken and to return to the
 	// caller for RouterConfig.ChatWorkerAPIKey.
-	chatBackendEntry, chatBackendOK := cfg.ChatBackendConfig()
+	chatBackendEntry, chatBackendOK := cfg.ChatBackend()
 
 	if chatBackendOK {
 		chatBackend = chat.NewRunnerClient(chat.RunnerClientConfig{

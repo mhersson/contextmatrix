@@ -40,9 +40,9 @@ verify:
   env: [JAVA_HOME]
 `
 
-// triggerVerifyPayload runs a card and captures the TriggerPayload the backend
-// received. backendName selects the backend the router is configured with.
-func triggerVerifyPayload(t *testing.T, svc *service.CardService, bus *events.Bus, backendName, cardID string) runner.TriggerPayload {
+// triggerVerifyPayload runs a card and captures the TriggerPayload the agent
+// backend received.
+func triggerVerifyPayload(t *testing.T, svc *service.CardService, bus *events.Bus, cardID string) runner.TriggerPayload {
 	t.Helper()
 
 	const apiKey = "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"
@@ -59,9 +59,8 @@ func triggerVerifyPayload(t *testing.T, svc *service.CardService, bus *events.Bu
 	runnerClient := runner.NewClient(mockRunner.URL, apiKey)
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Runner: runnerClient,
-		BackendCfg: config.BackendConfig{
+		AgentBackendCfg: &config.AgentBackendConfig{
 			APIKey:       apiKey,
-			Name:         backendName,
 			DefaultModel: "openrouter/auto",
 		},
 	})
@@ -96,7 +95,7 @@ func TestRunCard_VerifyResolution(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		payload := triggerVerifyPayload(t, svc, bus, config.BackendNameAgent, card.ID)
+		payload := triggerVerifyPayload(t, svc, bus, card.ID)
 
 		require.NotNil(t, payload.Verify)
 		assert.Equal(t, "make test", payload.Verify.Command)
@@ -115,7 +114,7 @@ func TestRunCard_VerifyResolution(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		payload := triggerVerifyPayload(t, svc, bus, config.BackendNameAgent, card.ID)
+		payload := triggerVerifyPayload(t, svc, bus, card.ID)
 
 		require.NotNil(t, payload.Verify)
 		assert.Equal(t, "go test ./...", payload.Verify.Command, "card command wins")
@@ -139,7 +138,7 @@ func TestRunCard_VerifyResolution(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		payload := triggerVerifyPayload(t, svc, bus, config.BackendNameAgent, card.ID)
+		payload := triggerVerifyPayload(t, svc, bus, card.ID)
 
 		require.NotNil(t, payload.Verify)
 		assert.Equal(t, "go test ./...", payload.Verify.Command)
@@ -156,7 +155,7 @@ func TestRunCard_VerifyResolution(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		payload := triggerVerifyPayload(t, svc, bus, config.BackendNameAgent, card.ID)
+		payload := triggerVerifyPayload(t, svc, bus, card.ID)
 
 		assert.Nil(t, payload.Verify)
 	})

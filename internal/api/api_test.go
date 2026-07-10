@@ -2371,10 +2371,10 @@ remote_execution:
 		// Passing a non-nil task backend → runnerEnabled = true
 		runnerClient := runner.NewClient("http://localhost:9090", "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 		router := NewRouter(RouterConfig{
-			Service:    svc,
-			Bus:        bus,
-			Runner:     runnerClient,
-			BackendCfg: config.BackendConfig{Name: "runner"},
+			Service:         svc,
+			Bus:             bus,
+			Runner:          runnerClient,
+			AgentBackendCfg: &config.AgentBackendConfig{},
 		})
 
 		server := httptest.NewServer(router)
@@ -2403,10 +2403,10 @@ remote_execution:
 
 		runnerClient := runner.NewClient("http://localhost:9090", "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 		router := NewRouter(RouterConfig{
-			Service:    svc,
-			Bus:        bus,
-			Runner:     runnerClient,
-			BackendCfg: config.BackendConfig{Name: "runner"},
+			Service:         svc,
+			Bus:             bus,
+			Runner:          runnerClient,
+			AgentBackendCfg: &config.AgentBackendConfig{},
 		})
 
 		server := httptest.NewServer(router)

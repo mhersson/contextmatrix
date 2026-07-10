@@ -12,6 +12,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 // loadFromYAML writes yamlContent to a temp config file and loads it.
@@ -2121,6 +2122,8 @@ backends:
 			wantErr: "url",
 		},
 		{
+			// Unknown names fail during Load's YAML parse (Backends.UnmarshalYAML),
+			// not Validate.
 			name: "unknown backend name",
 			yaml: `
 backends:
@@ -2128,7 +2131,7 @@ backends:
     url: http://localhost:9090
     api_key: "0123456789abcdef0123456789abcdef"
 `,
-			wantErr: "backend name",
+			wantErr: `invalid backend name "foo": must be one of "agent", "chat"`,
 		},
 		{
 			// Unknown name rejected even when disabled (typo guard).
@@ -2139,6 +2142,18 @@ backends:
     enabled: false
 `,
 			wantErr: "backend name",
+		},
+		{
+			// A valid agent entry does not shield an unknown sibling.
+			name: "valid agent entry plus unknown name",
+			yaml: `
+backends:
+  agent:
+    url: http://localhost:9090
+    api_key: "0123456789abcdef0123456789abcdef"
+  unknown: {}
+`,
+			wantErr: `invalid backend name "unknown"`,
 		},
 		{
 			name:    "no backends configured",
@@ -2175,7 +2190,9 @@ backends:
 			wantErr: "",
 		},
 		{
-			// Task-only field on enabled chat entry → error.
+			// ChatBackendConfig has no reconcile_interval field by
+			// construction; the strict per-entry decode rejects it as an
+			// unknown field during Load's YAML parse.
 			name: "reconcile_interval on chat entry",
 			yaml: `
 backends:
@@ -2184,11 +2201,10 @@ backends:
     api_key: "0123456789abcdef0123456789abcdef"
     reconcile_interval: "30s"
 `,
-			wantErr: "reconcile_interval must not be set",
+			wantErr: "field reconcile_interval not found",
 		},
 		{
-			// Even an unparseable value must hit the "not allowed on chat"
-			// error, not a misleading duration-format error.
+			// The value never matters — the field itself is unknown.
 			name: "unparseable reconcile_interval on chat entry",
 			yaml: `
 backends:
@@ -2197,7 +2213,7 @@ backends:
     api_key: "0123456789abcdef0123456789abcdef"
     reconcile_interval: "bad-value"
 `,
-			wantErr: "reconcile_interval must not be set",
+			wantErr: "field reconcile_interval not found",
 		},
 		{
 			name: "orchestrator_sonnet_model on chat entry",
@@ -2208,7 +2224,7 @@ backends:
     api_key: "0123456789abcdef0123456789abcdef"
     orchestrator_sonnet_model: "claude-sonnet-4-6"
 `,
-			wantErr: "orchestrator_sonnet_model",
+			wantErr: "field orchestrator_sonnet_model not found",
 		},
 		{
 			// default_model is agent-only; parses cleanly on an agent entry.
@@ -2237,7 +2253,8 @@ backends:
 		},
 		{
 			// orchestrator_sonnet_model was a knob of the removed runner
-			// backend; rejected on agent entry (agent uses default_model).
+			// backend; unknown field on the agent entry (agent uses
+			// default_model), rejected by the strict per-entry decode.
 			name: "orchestrator_sonnet_model on agent entry",
 			yaml: `
 backends:
@@ -2246,11 +2263,11 @@ backends:
     api_key: "0123456789abcdef0123456789abcdef"
     orchestrator_sonnet_model: "anthropic/claude-sonnet-4-6"
 `,
-			wantErr: "orchestrator_sonnet_model",
+			wantErr: "field orchestrator_sonnet_model not found",
 		},
 		{
 			// orchestrator_opus_model was a knob of the removed runner
-			// backend; rejected on agent entry (agent uses default_model).
+			// backend; unknown field on the agent entry.
 			name: "orchestrator_opus_model on agent entry",
 			yaml: `
 backends:
@@ -2259,7 +2276,7 @@ backends:
     api_key: "0123456789abcdef0123456789abcdef"
     orchestrator_opus_model: "anthropic/claude-opus-4-8"
 `,
-			wantErr: "orchestrator_opus_model",
+			wantErr: "field orchestrator_opus_model not found",
 		},
 	}
 
@@ -2281,8 +2298,10 @@ backends:
 }
 
 // TestValidateRejectsRunnerBackend pins the removal of the runner backend:
-// any declared backends.runner entry — enabled or not — fails Validate with
-// the dedicated removal error, never a silent skip or a generic name error.
+// any declared backends.runner entry — enabled or not — fails Load with the
+// dedicated removal error, never a silent skip or a generic name error. The
+// rejection fires during Load's YAML parse (Backends.UnmarshalYAML carries
+// the closed key set), not in Validate.
 func TestValidateRejectsRunnerBackend(t *testing.T) {
 	apiKey := strings.Repeat("k", 32)
 
@@ -2324,6 +2343,73 @@ backends:
 	}
 }
 
+// TestBackendEntryUnknownFieldFailsAtLoad pins the strict per-entry decode:
+// entries are decoded with KnownFields(true), so a stale or typo'd field on
+// either backend entry fails Load's YAML parse loudly instead of being
+// silently dropped. This preserves the migration-tripwire posture at the
+// field level (e.g. a leftover backends.chat.reconcile_interval).
+func TestBackendEntryUnknownFieldFailsAtLoad(t *testing.T) {
+	apiKey := strings.Repeat("k", 32)
+
+	cases := []struct {
+		name    string
+		yaml    string
+		wantErr string
+	}{
+		{
+			name: "stale reconcile_interval on chat entry",
+			yaml: `
+backends:
+  chat:
+    url: http://localhost:9092
+    api_key: "` + apiKey + `"
+    default_model: "anthropic/claude-sonnet-4"
+    reconcile_interval: "60s"
+`,
+			wantErr: "backends.chat",
+		},
+		{
+			name: "typo'd field on agent entry",
+			yaml: `
+backends:
+  agent:
+    url: http://localhost:9091
+    api_key: "` + apiKey + `"
+    models_allowlist: ["deepseek"]
+`,
+			wantErr: "backends.agent",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			boardsDir := t.TempDir()
+			path := writeConfigFile(t, dir, minValidBase(boardsDir)+tc.yaml)
+
+			_, err := Load(path)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
+			assert.Contains(t, err.Error(), "not found in type")
+		})
+	}
+}
+
+// TestConfigExampleParses pins config.yaml.example against the Config schema:
+// the shipped template must stay byte-compatible with the strict
+// KnownFields(true) decode Load performs, including the typed backends
+// mapping.
+func TestConfigExampleParses(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "config.yaml.example"))
+	require.NoError(t, err)
+
+	cfg := defaults()
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+
+	require.NoError(t, dec.Decode(cfg), "config.yaml.example must decode cleanly")
+}
+
 func TestBackendsConfigDefaults(t *testing.T) {
 	dir := t.TempDir()
 	boardsDir := t.TempDir()
@@ -2333,36 +2419,34 @@ func TestBackendsConfigDefaults(t *testing.T) {
 	require.NoError(t, err)
 
 	// Per-entry defaults filled by applyBackendDefaults on the enabled agent
-	// entry: reconcile interval only — the removed runner's orchestrator
-	// model defaults no longer exist.
-	b := cfg.Backends["agent"]
-	assert.Equal(t, "agent", b.Name)
+	// entry: reconcile interval only.
+	b := cfg.Backends.Agent
+	require.NotNil(t, b)
 	assert.Equal(t, "60s", b.ReconcileInterval)
 
-	// TaskBackendConfig: agent present+enabled → returns it with Name set.
-	tb, ok := cfg.TaskBackendConfig()
+	// AgentBackend: agent present+enabled → returns the entry.
+	tb, ok := cfg.AgentBackend()
 	require.True(t, ok)
 	assert.Equal(t, "http://localhost:9090", tb.URL)
-	assert.Equal(t, "agent", tb.Name)
 
-	// ChatBackendConfig: the agent backend does not serve chat.
-	_, ok = cfg.ChatBackendConfig()
+	// ChatBackend: the agent backend does not serve chat.
+	_, ok = cfg.ChatBackend()
 	assert.False(t, ok)
 
-	// No backends → both helpers return false.
+	// No backends → both accessors return false.
 	emptyDir := t.TempDir()
 	emptyBoardsDir := t.TempDir()
 	emptyCfg, err := Load(writeConfigFile(t, emptyDir, minValidBase(emptyBoardsDir)))
 	require.NoError(t, err)
 
-	_, ok = emptyCfg.TaskBackendConfig()
+	_, ok = emptyCfg.AgentBackend()
 	assert.False(t, ok)
 
-	_, ok = emptyCfg.ChatBackendConfig()
+	_, ok = emptyCfg.ChatBackend()
 	assert.False(t, ok)
 }
 
-func TestBackendsConfigDefaults_ChatEntryNoTaskDefaults(t *testing.T) {
+func TestBackendsConfigDefaults_ChatEntryParses(t *testing.T) {
 	dir := t.TempDir()
 	boardsDir := t.TempDir()
 	yaml := minValidBase(boardsDir) + `
@@ -2377,9 +2461,13 @@ backends:
 	cfg, err := Load(path)
 	require.NoError(t, err)
 
-	b := cfg.Backends["chat"]
-	assert.Equal(t, "chat", b.Name)
-	assert.Empty(t, b.ReconcileInterval)
+	// The chat entry resolves; no agent entry appears as a side effect (the
+	// old map code stamped task defaults per entry — the typed chat entry has
+	// no task knobs by construction).
+	cb, ok := cfg.ChatBackend()
+	require.True(t, ok)
+	assert.Equal(t, "http://localhost:9092", cb.URL)
+	assert.Nil(t, cfg.Backends.Agent)
 }
 
 // TestBackendsConfigDefaults_AgentReconcileInterval pins the agent entry's
@@ -2402,11 +2490,11 @@ backends:
 	cfg, err := Load(path)
 	require.NoError(t, err)
 
-	b := cfg.Backends["agent"]
-	assert.Equal(t, "agent", b.Name)
+	b := cfg.Backends.Agent
+	require.NotNil(t, b)
 	assert.Equal(t, "60s", b.ReconcileInterval)
 
-	tb, ok := cfg.TaskBackendConfig()
+	tb, ok := cfg.AgentBackend()
 	require.True(t, ok)
 	assert.Equal(t, 60*time.Second, tb.ReconcileIntervalDuration())
 }
@@ -2451,7 +2539,8 @@ backends:
 
 			cfg, err := Load(path)
 			require.NoError(t, err)
-			assert.Equal(t, tc.want, cfg.Backends["agent"].ReconcileInterval)
+			require.NotNil(t, cfg.Backends.Agent)
+			assert.Equal(t, tc.want, cfg.Backends.Agent.ReconcileInterval)
 		})
 	}
 }
@@ -2460,12 +2549,12 @@ func TestBackendsRoleDerivation(t *testing.T) {
 	apiKey := strings.Repeat("k", 32)
 
 	cases := []struct {
-		name         string
-		yaml         string
-		wantTaskName string
-		wantTaskOK   bool
-		wantChatName string
-		wantChatOK   bool
+		name        string
+		yaml        string
+		wantTaskURL string
+		wantTaskOK  bool
+		wantChatURL string
+		wantChatOK  bool
 	}{
 		{
 			name: "agent only",
@@ -2474,7 +2563,7 @@ func TestBackendsRoleDerivation(t *testing.T) {
     url: http://a:9091
     api_key: "` + apiKey + `"
 `,
-			wantTaskName: "agent", wantTaskOK: true,
+			wantTaskURL: "http://a:9091", wantTaskOK: true,
 			wantChatOK: false,
 		},
 		{
@@ -2485,8 +2574,8 @@ func TestBackendsRoleDerivation(t *testing.T) {
     api_key: "` + apiKey + `"
     default_model: "anthropic/claude-sonnet-4"
 `,
-			wantTaskOK:   false,
-			wantChatName: "chat", wantChatOK: true,
+			wantTaskOK:  false,
+			wantChatURL: "http://c:9092", wantChatOK: true,
 		},
 		{
 			name: "agent and chat",
@@ -2499,8 +2588,8 @@ func TestBackendsRoleDerivation(t *testing.T) {
     api_key: "` + apiKey + `"
     default_model: "anthropic/claude-sonnet-4"
 `,
-			wantTaskName: "agent", wantTaskOK: true,
-			wantChatName: "chat", wantChatOK: true,
+			wantTaskURL: "http://a:9091", wantTaskOK: true,
+			wantChatURL: "http://c:9092", wantChatOK: true,
 		},
 		{
 			name:       "empty backends",
@@ -2518,18 +2607,18 @@ func TestBackendsRoleDerivation(t *testing.T) {
 			cfg, err := Load(path)
 			require.NoError(t, err)
 
-			tb, taskOK := cfg.TaskBackendConfig()
+			tb, taskOK := cfg.AgentBackend()
 			assert.Equal(t, tc.wantTaskOK, taskOK)
 
 			if tc.wantTaskOK {
-				assert.Equal(t, tc.wantTaskName, tb.Name)
+				assert.Equal(t, tc.wantTaskURL, tb.URL)
 			}
 
-			cb, chatOK := cfg.ChatBackendConfig()
+			cb, chatOK := cfg.ChatBackend()
 			assert.Equal(t, tc.wantChatOK, chatOK)
 
 			if tc.wantChatOK {
-				assert.Equal(t, tc.wantChatName, cb.Name)
+				assert.Equal(t, tc.wantChatURL, cb.URL)
 			}
 		})
 	}
@@ -2549,12 +2638,13 @@ func TestBackendEnvOverrides(t *testing.T) {
 	cfg, err := Load(path)
 	require.NoError(t, err)
 
-	assert.Equal(t, "http://override:9999", cfg.Backends["agent"].URL)
-	assert.Equal(t, strings.Repeat("x", 32), cfg.Backends["agent"].APIKey)
-	assert.Equal(t, "90s", cfg.Backends["agent"].ReconcileInterval)
+	require.NotNil(t, cfg.Backends.Agent)
+	assert.Equal(t, "http://override:9999", cfg.Backends.Agent.URL)
+	assert.Equal(t, strings.Repeat("x", 32), cfg.Backends.Agent.APIKey)
+	assert.Equal(t, "90s", cfg.Backends.Agent.ReconcileInterval)
 
-	tb, ok := cfg.TaskBackendConfig()
-	require.True(t, ok, "TaskBackendConfig must resolve after env URL override")
+	tb, ok := cfg.AgentBackend()
+	require.True(t, ok, "AgentBackend must resolve after env URL override")
 	assert.Equal(t, "http://override:9999", tb.URL)
 }
 
@@ -2581,16 +2671,19 @@ backends:
   chat:
     url: http://localhost:9092
     api_key: "` + apiKey + `"
+    default_model: "anthropic/claude-sonnet-4"
 `
 	path := writeConfigFile(t, dir, yaml)
 
 	t.Setenv("CONTEXTMATRIX_BACKEND_CHAT_RECONCILE_INTERVAL", "60s")
 
-	// Task-only fields are rejected on the enabled chat entry regardless of
-	// whether they arrive via YAML or env.
+	// RECONCILE_INTERVAL is not in the chat entry's env suffix set, so
+	// checkBackendEnvKeys rejects the variable by name — same loud-failure
+	// posture as the YAML unknown-field decode.
 	_, err := Load(path)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "must not be set")
+	assert.Contains(t, err.Error(), "CONTEXTMATRIX_BACKEND_CHAT_RECONCILE_INTERVAL")
+	assert.Contains(t, err.Error(), "not a recognised backend env var")
 }
 
 func TestBackendEnvAgentDefaultModel(t *testing.T) {
@@ -2612,7 +2705,8 @@ backends:
 	cfg, err := Load(path)
 	require.NoError(t, err)
 
-	assert.Equal(t, "deepseek/deepseek-v4-flash", cfg.Backends["agent"].DefaultModel)
+	require.NotNil(t, cfg.Backends.Agent)
+	assert.Equal(t, "deepseek/deepseek-v4-flash", cfg.Backends.Agent.DefaultModel)
 }
 
 func TestBackendEnvChatDefaultModel(t *testing.T) {
@@ -2634,7 +2728,8 @@ backends:
 	cfg, err := Load(path)
 	require.NoError(t, err)
 
-	assert.Equal(t, "anthropic/claude-sonnet-4", cfg.Backends["chat"].DefaultModel)
+	require.NotNil(t, cfg.Backends.Chat)
+	assert.Equal(t, "anthropic/claude-sonnet-4", cfg.Backends.Chat.DefaultModel)
 }
 
 func TestValidate_ChatBackendRequiresDefaultModel(t *testing.T) {
@@ -2722,8 +2817,8 @@ backends:
 	cfg, err := Load(path)
 	require.NoError(t, err)
 
-	// agent disabled via env → TaskBackendConfig returns false.
-	_, ok := cfg.TaskBackendConfig()
+	// agent disabled via env → AgentBackend returns false.
+	_, ok := cfg.AgentBackend()
 	assert.False(t, ok)
 }
 
@@ -2749,9 +2844,8 @@ backends:
 	cfg, err := Load(path)
 	require.NoError(t, err)
 
-	tb, ok := cfg.TaskBackendConfig()
+	tb, ok := cfg.AgentBackend()
 	require.True(t, ok, "env-enabled agent must resolve as task backend")
-	assert.Equal(t, "agent", tb.Name)
 	assert.Equal(t, "60s", tb.ReconcileInterval)
 }
 
@@ -2785,7 +2879,7 @@ backends:
 	cfg, err := Load(path)
 	require.NoError(t, err)
 
-	cb, ok := cfg.ChatBackendConfig()
+	cb, ok := cfg.ChatBackend()
 	require.True(t, ok)
 	assert.Equal(t, "http://override:9993", cb.URL)
 }
@@ -2804,9 +2898,8 @@ func TestBackendEnvOnlyConfiguration(t *testing.T) {
 	cfg, err := Load(path)
 	require.NoError(t, err)
 
-	tb, ok := cfg.TaskBackendConfig()
+	tb, ok := cfg.AgentBackend()
 	require.True(t, ok, "env-only agent must resolve as task backend")
-	assert.Equal(t, "agent", tb.Name)
 	assert.Equal(t, "http://env-only:9090", tb.URL)
 	// The env-created entry gets the task defaults like a YAML-declared one.
 	assert.Equal(t, "60s", tb.ReconcileInterval)
@@ -2826,11 +2919,11 @@ func TestBackendEnvOnlyChatConfiguration(t *testing.T) {
 	cfg, err := Load(path)
 	require.NoError(t, err)
 
-	cb, ok := cfg.ChatBackendConfig()
+	cb, ok := cfg.ChatBackend()
 	require.True(t, ok, "env-only chat must resolve as chat backend")
-	assert.Equal(t, "chat", cb.Name)
+	assert.Equal(t, "http://env-only:9092", cb.URL)
 
-	_, ok = cfg.TaskBackendConfig()
+	_, ok = cfg.AgentBackend()
 	assert.False(t, ok, "chat-only config must not resolve a task backend")
 }
 
@@ -2866,9 +2959,15 @@ func TestBackendEnvUnknownNameErrors(t *testing.T) {
 		},
 		{
 			// Valid backend name (agent declared in YAML), but suffix not in
-			// the _URL/_API_KEY/_ENABLED allowlist.
+			// the agent suffix allowlist.
 			name:   "known backend name with unknown suffix",
 			envKey: "CONTEXTMATRIX_BACKEND_AGENT_MODEL",
+		},
+		{
+			// The suffix sets are per-name: AA_API_KEY is agent-only, so the
+			// chat-prefixed variant fails loudly instead of being ignored.
+			name:   "agent-only suffix on chat entry",
+			envKey: "CONTEXTMATRIX_BACKEND_CHAT_AA_API_KEY",
 		},
 	}
 
@@ -2931,7 +3030,10 @@ backends:
 		t.Fatal(err)
 	}
 
-	b := cfg.Backends["agent"]
+	b := cfg.Backends.Agent
+	if b == nil {
+		t.Fatal("agent entry must be present")
+	}
 
 	if b.AAAPIKey != "aa-env" {
 		t.Errorf("AA key env override failed: %q", b.AAAPIKey)
@@ -2979,9 +3081,10 @@ backends:
 	assert.Equal(t, "openai", cfg.LLMEndpoint.Type)
 	assert.Equal(t, "https://your-llm-endpoint.example/v1", cfg.LLMEndpoint.BaseURL)
 	assert.Equal(t, "test-key", cfg.LLMEndpoint.APIKey)
-	assert.Equal(t, "vendor-x-1", cfg.Backends["agent"].AAModelMap["model-a"])
-	assert.InDelta(t, 0.91, cfg.Backends["agent"].ModelPriors["model-b"].Coder, 1e-9)
-	assert.InDelta(t, 0.88, cfg.Backends["agent"].ModelPriors["model-b"].Reviewer, 1e-9)
+	require.NotNil(t, cfg.Backends.Agent)
+	assert.Equal(t, "vendor-x-1", cfg.Backends.Agent.AAModelMap["model-a"])
+	assert.InDelta(t, 0.91, cfg.Backends.Agent.ModelPriors["model-b"].Coder, 1e-9)
+	assert.InDelta(t, 0.88, cfg.Backends.Agent.ModelPriors["model-b"].Reviewer, 1e-9)
 }
 
 func TestLLMEndpointValidationRequiresBaseURLForOpenAI(t *testing.T) {
