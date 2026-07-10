@@ -231,22 +231,15 @@ task_skills:
 # contextmatrix-protocol webhooks. The backends map has a closed set of entry
 # names; each name implies a distinct role:
 #
-#   runner — contextmatrix-runner: executes cards AND serves global chat.
-#            DEPRECATED (frozen): never gained multi-user support, so
-#            auth.mode: multi (the default) rejects it at startup — usable only
-#            in single-user auth.mode: none. Mutually exclusive with agent and
-#            chat.
-#   agent  — contextmatrix-agent: executes cards only (no chat). The go-forward
-#            task backend; pair with chat for the chat surface.
+#   agent  — contextmatrix-agent: executes cards (no chat). Pair with chat for
+#            the chat surface.
 #   chat   — contextmatrix-chat: serves global chat only.
 #
-# Roles and callback paths are derived from the entry name. CM picks:
-#   task backend  → runner (if enabled) else agent (if enabled)
-#   chat backend  → runner (if enabled) else chat (if enabled)
-# In the default auth.mode: multi the runner is rejected, so this reduces to
-# agent (tasks) + chat (chat).
+# The retired runner backend is no longer accepted: a leftover backends.runner
+# entry (or CONTEXTMATRIX_BACKEND_RUNNER_* env var) fails startup. The
+# runner-eos git tag marks the last CM commit that supported it.
 #
-# Callback paths are derived as /api/<name> (e.g. /api/runner, /api/agent).
+# Callback paths are derived as /api/<name> (e.g. /api/agent, /api/chat).
 # The browser-facing /api/runner/logs and /api/runner/health endpoints are
 # hard-wired whenever a task backend is configured; they do not move.
 #
@@ -255,63 +248,32 @@ task_skills:
 # the config block as an inert placeholder. Switch backends by toggling
 # enabled flags — do not delete blocks.
 #
-# TASK-ONLY FIELDS:
-#   orchestrator_sonnet_model, orchestrator_opus_model — runner entry only;
-#     rejected on agent and chat entries.
-#   reconcile_interval — runner and agent entries (default 60s on both);
-#     rejected on the chat entry.
-#   default_model — agent and chat entries; rejected on the runner entry.
-#     Required on the chat entry when it is enabled (contextmatrix-chat has no
-#     server-side default — CM supplies the model as CM_MODEL).
+# PER-ENTRY FIELDS:
+#   reconcile_interval — agent entry only (default 60s); rejected on the chat
+#     entry.
+#   default_model — agent and chat entries. Required on the chat entry when it
+#     is enabled (contextmatrix-chat has no server-side default — CM supplies
+#     the model as CM_MODEL).
 #
 # RESTART REQUIRED: backends are read once at startup. Any change requires
 # a CM restart.
 
-# Backend entries. Valid names: runner, agent, chat.
-# Every field has an env override (NAME = RUNNER | AGENT | CHAT). Env values
-# take precedence over this file, and a backend can be configured through
-# env vars alone:
+# Backend entries. Valid names: agent, chat.
+# Every field has an env override (NAME = AGENT | CHAT). Env values take
+# precedence over this file, and a backend can be configured through env
+# vars alone:
 #   CONTEXTMATRIX_BACKEND_<NAME>_URL
 #   CONTEXTMATRIX_BACKEND_<NAME>_API_KEY
 #   CONTEXTMATRIX_BACKEND_<NAME>_ENABLED
-#   CONTEXTMATRIX_BACKEND_<NAME>_ORCHESTRATOR_SONNET_MODEL  (runner only)
-#   CONTEXTMATRIX_BACKEND_<NAME>_ORCHESTRATOR_OPUS_MODEL    (runner only)
-#   CONTEXTMATRIX_BACKEND_<NAME>_RECONCILE_INTERVAL         (runner and agent)
+#   CONTEXTMATRIX_BACKEND_<NAME>_RECONCILE_INTERVAL         (agent only)
 #   CONTEXTMATRIX_BACKEND_<NAME>_DEFAULT_MODEL              (agent and chat)
 backends: {}
-#  runner:
-#    # Base URL of the backend. Protocol paths are appended: /trigger, /kill,
-#    # /stop-all, /message, /promote, /end-session, /chat/*, /logs, ...
-#    # Env: CONTEXTMATRIX_BACKEND_RUNNER_URL
-#    url: "http://localhost:9090"
-#
-#    # Shared secret for HMAC-SHA256 webhook signing (both directions).
-#    # Must match the backend's configured api_key; min 32 characters.
-#    # Env: CONTEXTMATRIX_BACKEND_RUNNER_API_KEY
-#    api_key: ""
-#
-#    # Set to false to disable this entry without removing the config block.
-#    # Default: true (omitting = active).
-#    # Env: CONTEXTMATRIX_BACKEND_RUNNER_ENABLED
-#    enabled: true
-#
-#    # Model IDs passed in the trigger payload. Defaults shown.
-#    # Env: CONTEXTMATRIX_BACKEND_RUNNER_ORCHESTRATOR_SONNET_MODEL /
-#    #      CONTEXTMATRIX_BACKEND_RUNNER_ORCHESTRATOR_OPUS_MODEL
-#    orchestrator_sonnet_model: "claude-sonnet-4-6"
-#    orchestrator_opus_model: "claude-opus-4-8"
-#
-#    # How often the backstop sweep reconciles containers against card state.
-#    # "0s" disables. Default: 60s.
-#    # Env: CONTEXTMATRIX_BACKEND_RUNNER_RECONCILE_INTERVAL
-#    reconcile_interval: "60s"
-#
 #  agent:
-#    # contextmatrix-agent: card execution only (no chat). The go-forward task
-#    # backend (see docs/agent-backend-parity.md for the runner parity audit).
-#    # Drives models over OpenRouter or any OpenAI-compatible gateway (set the
-#    # inference endpoint via llm_endpoint above). Mutually exclusive with the
-#    # runner.
+#    # contextmatrix-agent: card execution only (no chat). Drives models over
+#    # OpenRouter or any OpenAI-compatible gateway (set the inference endpoint
+#    # via llm_endpoint above).
+#    # Base URL of the backend. Protocol paths are appended: /trigger, /kill,
+#    # /stop-all, /message, /promote, /end-session, /containers, /logs, ...
 #    url: "http://localhost:9092"
 #    api_key: ""
 #    enabled: false  # flip to true to enable the agent (restart CM to apply)
@@ -462,8 +424,7 @@ auth:
   # "multi" (default) — login required. Users, sessions, and the GitHub
   #   credential pool live in auth.db. On first start with zero users, CM
   #   logs a one-time bootstrap URL; whoever opens it creates the first
-  #   admin account. NOTE: the runner backend cannot be enabled in this
-  #   mode (it is deprecate-frozen; use the agent backend).
+  #   admin account.
   # "none" — single-tenant, zero-login: no user accounts, no sessions, no
   #   credential pool. For laptop installs and easy testing.
   # Env: CONTEXTMATRIX_AUTH_MODE

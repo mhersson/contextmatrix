@@ -45,15 +45,6 @@ func TestGetAppConfig(t *testing.T) {
 			wantStatus:      http.StatusOK,
 			wantCTHeader:    "application/json",
 		},
-		{
-			name:            "runner backend reported",
-			theme:           "everforest",
-			taskBackend:     "runner",
-			wantTheme:       "everforest",
-			wantTaskBackend: "runner",
-			wantStatus:      http.StatusOK,
-			wantCTHeader:    "application/json",
-		},
 	}
 
 	for _, tc := range tests {

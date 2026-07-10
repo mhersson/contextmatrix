@@ -226,17 +226,17 @@ func (s *CardService) SetSessionManager(m *sessionlog.Manager) {
 // SetTaskBackendName records the active task backend's name so backend-
 // generated audit-trail entries are attributed to it. Must be called before
 // the server starts accepting requests. Empty / never-called defaults to
-// "runner" (see backendAuthor).
+// "backend" (see backendAuthor).
 func (s *CardService) SetTaskBackendName(name string) {
 	s.taskBackendName = name
 }
 
 // backendAuthor returns the author label for backend-generated activity-log
-// entries and commits: the active task backend's name, or "runner" when unset
-// (preserves runner-active behavior and the no-backend / test-fixture case).
+// entries and commits: the active task backend's name, or the neutral
+// "backend" when unset (the no-backend / test-fixture case).
 func (s *CardService) backendAuthor() string {
 	if s.taskBackendName == "" {
-		return "runner"
+		return "backend"
 	}
 
 	return s.taskBackendName

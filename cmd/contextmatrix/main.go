@@ -40,7 +40,6 @@ import (
 	"github.com/mhersson/contextmatrix/internal/metrics"
 	"github.com/mhersson/contextmatrix/internal/modelcatalog"
 	opsqlite "github.com/mhersson/contextmatrix/internal/opstore/sqlite"
-	"github.com/mhersson/contextmatrix/internal/runner"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/internal/storage"
 	"github.com/mhersson/contextmatrix/web"
@@ -531,9 +530,8 @@ func main() {
 	defer chatCleanup()
 
 	// Wire runner subsystems: client, end-session subscriber, reconcile sweep,
-	// and session-log manager. chatMgr is passed for the reconcile sweep adapter
-	// (must be called after wireChat so chatMgr is available).
-	runnerSys, runnerCleanup := wireRunnerSubsystems(ctx, cfg, svc, bus, chatMgr)
+	// and session-log manager.
+	runnerSys, runnerCleanup := wireRunnerSubsystems(ctx, cfg, svc, bus)
 	defer runnerCleanup()
 
 	// Interface fields must stay untyped-nil when the backend is disabled —
@@ -932,38 +930,4 @@ func (chatRunnerDisabled) StreamLogs(ctx context.Context, _ string, _ func(chat.
 	<-ctx.Done()
 
 	return ctx.Err()
-}
-
-// chatReconcilerAdapter adapts *chat.Manager to the runner.ChatReconciler
-// surface. Keeps the chat package free of any runner-facing type while still
-// letting the reconcile sweep enumerate orphan sessions and flip them cold.
-type chatReconcilerAdapter struct {
-	mgr *chat.Manager
-}
-
-func (a chatReconcilerAdapter) ListActiveChatSessions(ctx context.Context) ([]runner.ChatSessionRef, error) {
-	active, err := a.mgr.ListSessions(ctx, chat.SessionFilter{Status: chat.StatusActive})
-	if err != nil {
-		return nil, fmt.Errorf("list active: %w", err)
-	}
-
-	warm, err := a.mgr.ListSessions(ctx, chat.SessionFilter{Status: chat.StatusWarmIdle})
-	if err != nil {
-		return nil, fmt.Errorf("list warm-idle: %w", err)
-	}
-
-	out := make([]runner.ChatSessionRef, 0, len(active)+len(warm))
-	for _, s := range active {
-		out = append(out, runner.ChatSessionRef{ID: s.ID, Status: string(s.Status)})
-	}
-
-	for _, s := range warm {
-		out = append(out, runner.ChatSessionRef{ID: s.ID, Status: string(s.Status)})
-	}
-
-	return out, nil
-}
-
-func (a chatReconcilerAdapter) EndChatSession(ctx context.Context, id string) error {
-	return a.mgr.EndSession(ctx, id)
 }

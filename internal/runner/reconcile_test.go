@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 	"testing"
 	"time"
 
@@ -46,7 +45,7 @@ func TestReconciliationSweep_TerminalCardKillsContainer(t *testing.T) {
 		},
 	}
 
-	runner.StartReconciliationSweep(ctx, cg, nil, fc, 30*time.Millisecond, discardLogger())
+	runner.StartReconciliationSweep(ctx, cg, fc, 30*time.Millisecond, discardLogger())
 
 	waitForKillCalls(t, fc, 1)
 
@@ -78,7 +77,7 @@ func TestReconciliationSweep_SkipsNonTerminalCard(t *testing.T) {
 		},
 	}
 
-	runner.StartReconciliationSweep(ctx, cg, nil, fc, 30*time.Millisecond, discardLogger())
+	runner.StartReconciliationSweep(ctx, cg, fc, 30*time.Millisecond, discardLogger())
 
 	time.Sleep(150 * time.Millisecond)
 	assert.Empty(t, fc.KillCalls(), "sweep must not kill in-progress card's container")
@@ -104,7 +103,7 @@ func TestReconciliationSweep_MissingCardKillsContainer(t *testing.T) {
 		},
 	}
 
-	runner.StartReconciliationSweep(ctx, cg, nil, fc, 30*time.Millisecond, discardLogger())
+	runner.StartReconciliationSweep(ctx, cg, fc, 30*time.Millisecond, discardLogger())
 
 	waitForKillCalls(t, fc, 1)
 
@@ -141,7 +140,7 @@ func TestReconciliationSweep_AgeCapKillsRunawayContainer(t *testing.T) {
 		},
 	}
 
-	runner.StartReconciliationSweep(ctx, cg, nil, fc, 30*time.Millisecond, discardLogger())
+	runner.StartReconciliationSweep(ctx, cg, fc, 30*time.Millisecond, discardLogger())
 
 	waitForKillCalls(t, fc, 1)
 }
@@ -161,7 +160,7 @@ func TestReconciliationSweep_ZeroIntervalDisabled(t *testing.T) {
 		},
 	}
 
-	runner.StartReconciliationSweep(ctx, cg, nil, fc, 0, discardLogger())
+	runner.StartReconciliationSweep(ctx, cg, fc, 0, discardLogger())
 
 	time.Sleep(100 * time.Millisecond)
 	assert.Empty(t, fc.KillCalls(), "sweep must be a no-op at interval=0")
@@ -186,7 +185,7 @@ func TestReconciliationSweep_RunsImmediatelyOnStart(t *testing.T) {
 
 	// Interval well above the assertion deadline — if the first sweep waits
 	// for the ticker, waitForKillCalls will time out.
-	runner.StartReconciliationSweep(ctx, cg, nil, fc, 10*time.Second, discardLogger())
+	runner.StartReconciliationSweep(ctx, cg, fc, 10*time.Second, discardLogger())
 
 	waitForKillCalls(t, fc, 1)
 }
@@ -201,7 +200,7 @@ func TestReconciliationSweep_RunnerListFailureSkipsTick(t *testing.T) {
 	cg := &fakeCardGetter{cards: map[string]*board.Card{}}
 	fc := &fakeClient{listErr: errors.New("runner unreachable")}
 
-	runner.StartReconciliationSweep(ctx, cg, nil, fc, 30*time.Millisecond, discardLogger())
+	runner.StartReconciliationSweep(ctx, cg, fc, 30*time.Millisecond, discardLogger())
 
 	time.Sleep(150 * time.Millisecond)
 	// Not kill and not panic — the ListContainers error just skips the tick.
@@ -216,7 +215,7 @@ func TestReconciliationSweep_MissingClient_NoPanic(t *testing.T) {
 
 	cg := &fakeCardGetter{}
 
-	runner.StartReconciliationSweep(ctx, cg, nil, nil, 30*time.Millisecond, discardLogger())
+	runner.StartReconciliationSweep(ctx, cg, nil, 30*time.Millisecond, discardLogger())
 	time.Sleep(50 * time.Millisecond)
 }
 
@@ -236,7 +235,7 @@ func TestReconciliationSweep_TransientCardErrorLeavesContainerAlone(t *testing.T
 		},
 	}
 
-	runner.StartReconciliationSweep(ctx, cg, nil, fc, 30*time.Millisecond, discardLogger())
+	runner.StartReconciliationSweep(ctx, cg, fc, 30*time.Millisecond, discardLogger())
 
 	time.Sleep(150 * time.Millisecond)
 	assert.Empty(t, fc.KillCalls(), "transient card-store error must not trigger a kill")
@@ -263,7 +262,7 @@ func TestReconciliationSweep_StorageNotFoundErrorIsKill(t *testing.T) {
 		},
 	}
 
-	runner.StartReconciliationSweep(ctx, cg, nil, fc, 30*time.Millisecond, discardLogger())
+	runner.StartReconciliationSweep(ctx, cg, fc, 30*time.Millisecond, discardLogger())
 
 	waitForKillCalls(t, fc, 1)
 }
@@ -283,7 +282,7 @@ func TestReconciliationSweep_WrappedStorageNotFoundErrorIsKill(t *testing.T) {
 		},
 	}
 
-	runner.StartReconciliationSweep(ctx, cg, nil, fc, 30*time.Millisecond, discardLogger())
+	runner.StartReconciliationSweep(ctx, cg, fc, 30*time.Millisecond, discardLogger())
 
 	waitForKillCalls(t, fc, 1)
 }
@@ -309,182 +308,11 @@ func TestReconciliationSweep_SkipsChatContainers(t *testing.T) {
 		},
 	}
 
-	runner.StartReconciliationSweep(ctx, cg, nil, fc, 30*time.Millisecond, discardLogger())
+	runner.StartReconciliationSweep(ctx, cg, fc, 30*time.Millisecond, discardLogger())
 
 	time.Sleep(150 * time.Millisecond)
 	assert.Empty(t, fc.KillCalls(),
 		"card sweep must skip chat containers (those carry SessionID, not CardID)")
 	assert.Empty(t, fc.Calls(),
 		"card sweep must not call /end-session for chat containers either")
-}
-
-// fakeChatReconciler implements runner.ChatReconciler for tests.
-type fakeChatReconciler struct {
-	mu       sync.Mutex
-	active   []chatSessionStub
-	warm     []chatSessionStub
-	ended    []string
-	endError error
-}
-
-// chatSessionStub mirrors the subset of chat.Session that the reconcile
-// sweep reads — using a local stub keeps the test file independent of the
-// chat package's full type surface.
-type chatSessionStub struct {
-	ID     string
-	Status string
-}
-
-func (f *fakeChatReconciler) ListActiveChatSessions(_ context.Context) ([]runner.ChatSessionRef, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	out := make([]runner.ChatSessionRef, 0, len(f.active)+len(f.warm))
-	for _, s := range f.active {
-		out = append(out, runner.ChatSessionRef{ID: s.ID, Status: s.Status})
-	}
-
-	for _, s := range f.warm {
-		out = append(out, runner.ChatSessionRef{ID: s.ID, Status: s.Status})
-	}
-
-	return out, nil
-}
-
-func (f *fakeChatReconciler) EndChatSession(_ context.Context, id string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	f.ended = append(f.ended, id)
-
-	return f.endError
-}
-
-func (f *fakeChatReconciler) endedCalls() []string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	out := make([]string, len(f.ended))
-	copy(out, f.ended)
-
-	return out
-}
-
-// TestChatReconcileSweep_FlipsOrphanToCold is the central guarantee of Wave 2.3:
-// if CM thinks a chat session is active or warm-idle but the runner has no
-// container for it, the sweep flips that session to cold. Without this,
-// stranded sessions persist forever after a runner restart or crash.
-func TestChatReconcileSweep_FlipsOrphanToCold(t *testing.T) {
-	ctx := t.Context()
-
-	fcr := &fakeChatReconciler{
-		active: []chatSessionStub{
-			{ID: "S-live", Status: "active"},
-			{ID: "S-orphan", Status: "active"},
-		},
-		warm: []chatSessionStub{
-			{ID: "S-warm-orphan", Status: "warm-idle"},
-		},
-	}
-	fc := &fakeClient{
-		listResult: []runner.ContainerInfo{
-			{
-				ContainerID: "card-ctr",
-				CardID:      "C-001",
-				Project:     "proj",
-				State:       "running",
-				StartedAt:   time.Now(),
-			},
-			{
-				ContainerID: "chat-ctr",
-				SessionID:   "S-live",
-				Project:     "proj",
-				State:       "running",
-				StartedAt:   time.Now(),
-			},
-		},
-	}
-
-	runner.RunChatReconcileSweepForTest(ctx, fcr, fc, discardLogger())
-
-	ended := fcr.endedCalls()
-	require.ElementsMatch(t, []string{"S-orphan", "S-warm-orphan"}, ended,
-		"both orphan sessions must be ended; the one with a live runner container must be left alone")
-}
-
-// TestChatReconcileSweep_NoOpWhenAllSessionsHaveContainers confirms that when
-// every active/warm session matches a runner container, no EndChatSession
-// calls fire. Reconcile must be silent on the happy path.
-func TestChatReconcileSweep_NoOpWhenAllSessionsHaveContainers(t *testing.T) {
-	ctx := t.Context()
-
-	fcr := &fakeChatReconciler{
-		active: []chatSessionStub{
-			{ID: "S-1", Status: "active"},
-			{ID: "S-2", Status: "active"},
-		},
-	}
-	fc := &fakeClient{
-		listResult: []runner.ContainerInfo{
-			{ContainerID: "c1", SessionID: "S-1", Project: "proj", State: "running", StartedAt: time.Now()},
-			{ContainerID: "c2", SessionID: "S-2", Project: "proj", State: "running", StartedAt: time.Now()},
-		},
-	}
-
-	runner.RunChatReconcileSweepForTest(ctx, fcr, fc, discardLogger())
-
-	assert.Empty(t, fcr.endedCalls(),
-		"happy path: every CM session has a runner container, no end calls expected")
-}
-
-// TestChatReconcileSweep_RunnerListErrorSkipsTick guards the safety property:
-// a transient /containers failure must NOT cause CM to flip every chat
-// session to cold. Better to skip a tick than to nuke live sessions.
-func TestChatReconcileSweep_RunnerListErrorSkipsTick(t *testing.T) {
-	ctx := t.Context()
-
-	fcr := &fakeChatReconciler{
-		active: []chatSessionStub{{ID: "S-1", Status: "active"}},
-	}
-	fc := &fakeClient{
-		listErr: errors.New("runner unreachable"),
-	}
-
-	runner.RunChatReconcileSweepForTest(ctx, fcr, fc, discardLogger())
-
-	assert.Empty(t, fcr.endedCalls(),
-		"runner-list error must skip the tick, not flip every session to cold")
-}
-
-// TestReconciliationSweep_SingleContainersFetchPerTick is the regression guard
-// against an HMAC replay-cache 409: card and chat sweeps firing simultaneously
-// on two tickers, each calling /containers with the same signed payload, make
-// the runner's replay cache reject the second as a "duplicate request". Both
-// reconcilers must share a single ListContainers round-trip per tick.
-func TestReconciliationSweep_SingleContainersFetchPerTick(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-
-	cg := &fakeCardGetter{cards: map[string]*board.Card{}}
-	fcr := &fakeChatReconciler{
-		active: []chatSessionStub{{ID: "S-1", Status: "active"}},
-	}
-	fc := &fakeClient{
-		listResult: []runner.ContainerInfo{
-			{ContainerID: "chat-ctr", SessionID: "S-1", Project: "proj", State: "running", StartedAt: time.Now()},
-		},
-	}
-
-	// Long interval: only the initial tick fires within the test window,
-	// so a stable assertion on ListCount==1 is possible. If both sweeps
-	// fetched separately the count would be 2.
-	runner.StartReconciliationSweep(ctx, cg, fcr, fc, time.Hour, discardLogger())
-
-	require.Eventually(t, func() bool {
-		return fc.ListCount() >= 1
-	}, time.Second, 5*time.Millisecond, "expected initial sweep tick")
-
-	time.Sleep(50 * time.Millisecond)
-	assert.Equal(t, 1, fc.ListCount(),
-		"single tick must fetch /containers exactly once; separate fetches hit the runner's HMAC replay cache as duplicates")
 }
