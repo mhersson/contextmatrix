@@ -10,16 +10,14 @@ import (
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 )
 
-// backendHealthResponse is the wire shape for GET /api/runner/health (the
-// route literal keeps the legacy runner spelling until a wire-breaking
-// change renames it).
+// backendHealthResponse is the wire shape for GET /api/backend/health.
 type backendHealthResponse struct {
 	OK                bool `json:"ok"`
 	RunningContainers int  `json:"running_containers"`
 	MaxConcurrent     int  `json:"max_concurrent"`
 }
 
-// getBackendHealth handles GET /api/runner/health by proxying to the backend's
+// getBackendHealth handles GET /api/backend/health by proxying to the backend's
 // /health endpoint and returning the parsed shape. The UI reads max_concurrent
 // from here to render the NowRail capacity meter — it's the backend-global cap,
 // not a per-project value. Returns 503 when no task backend is configured and 502
@@ -32,7 +30,7 @@ type backendHealthResponse struct {
 // to match how every other backend endpoint handles them.
 func (h *backendHandlers) getBackendHealth(w http.ResponseWriter, r *http.Request) {
 	if h.backend == nil {
-		writeError(w, http.StatusServiceUnavailable, ErrCodeBackendDisabled, "runner is not configured", "")
+		writeError(w, http.StatusServiceUnavailable, ErrCodeBackendDisabled, "no execution backend is configured", "")
 
 		return
 	}
@@ -40,7 +38,7 @@ func (h *backendHandlers) getBackendHealth(w http.ResponseWriter, r *http.Reques
 	info, err := h.healthCache.get(r.Context(), h.backend)
 	if err != nil {
 		ctxlog.Logger(r.Context()).Error("backend health probe failed", "error", err)
-		writeError(w, http.StatusBadGateway, ErrCodeBackendUnavailable, "runner health probe failed", "")
+		writeError(w, http.StatusBadGateway, ErrCodeBackendUnavailable, "backend health probe failed", "")
 
 		return
 	}

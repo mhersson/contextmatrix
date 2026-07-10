@@ -180,7 +180,7 @@ func TestEndSessionSubscriber_TerminalDoneReleasedRunning_Fires(t *testing.T) {
 			ID:            "C-001",
 			State:         "done",
 			AssignedAgent: "",
-			RunnerStatus:  "running",
+			WorkerStatus:  "running",
 		},
 	}}
 	fc := &fakeClient{}
@@ -212,7 +212,7 @@ func TestEndSessionSubscriber_MidWorkflow_NoCall(t *testing.T) {
 			ID:            "C-001",
 			State:         "in_progress",
 			AssignedAgent: "",
-			RunnerStatus:  "running",
+			WorkerStatus:  "running",
 		},
 	}}
 	fc := &fakeClient{}
@@ -223,14 +223,14 @@ func TestEndSessionSubscriber_MidWorkflow_NoCall(t *testing.T) {
 	assertNoCall(t, fc)
 }
 
-// TestEndSessionSubscriber_TerminalAndReleased_FiresRegardlessOfRunnerStatus
+// TestEndSessionSubscriber_TerminalAndReleased_FiresRegardlessOfWorkerStatus
 // verifies the subscriber fires on terminal + released, ignoring
-// runner_status. A card whose runner_status has drifted to "" (or
+// worker_status. A card whose worker_status has drifted to "" (or
 // "completed", "failed") but still has a live container on the backend must
 // still get a /kill — the backend's /kill is idempotent, so a spurious call
 // against an already-dead container is a 200 no-op, and silent-skip bugs
-// around runner_status drift are eliminated at the source.
-func TestEndSessionSubscriber_TerminalAndReleased_FiresRegardlessOfRunnerStatus(t *testing.T) {
+// around worker_status drift are eliminated at the source.
+func TestEndSessionSubscriber_TerminalAndReleased_FiresRegardlessOfWorkerStatus(t *testing.T) {
 	ctx := t.Context()
 
 	bus := events.NewBus()
@@ -239,10 +239,10 @@ func TestEndSessionSubscriber_TerminalAndReleased_FiresRegardlessOfRunnerStatus(
 			ID:            "SUB-001",
 			State:         "done",
 			AssignedAgent: "",
-			// Empty runner_status — the subscriber fires anyway because
+			// Empty worker_status — the subscriber fires anyway because
 			// the card is terminal and released, which is all the truth
 			// it needs.
-			RunnerStatus: "",
+			WorkerStatus: "",
 		},
 	}}
 	fc := &fakeClient{}
@@ -263,7 +263,7 @@ func TestEndSessionSubscriber_StateChangedWithAgentStillSet_NoCall(t *testing.T)
 			ID:            "C-001",
 			State:         "done",
 			AssignedAgent: "agent-123",
-			RunnerStatus:  "running",
+			WorkerStatus:  "running",
 		},
 	}}
 	fc := &fakeClient{}
@@ -290,7 +290,7 @@ func TestEndSessionSubscriber_NotPlannedReleasedRunning_Fires(t *testing.T) {
 			ID:            "C-001",
 			State:         "not_planned",
 			AssignedAgent: "",
-			RunnerStatus:  "running",
+			WorkerStatus:  "running",
 		},
 	}}
 	fc := &fakeClient{}
@@ -311,7 +311,7 @@ func TestEndSessionSubscriber_DoubleEvent_TwoCalls(t *testing.T) {
 			ID:            "C-001",
 			State:         "done",
 			AssignedAgent: "",
-			RunnerStatus:  "running",
+			WorkerStatus:  "running",
 		},
 	}}
 	fc := &fakeClient{}
@@ -334,7 +334,7 @@ func TestEndSessionSubscriber_UnrelatedEvent_NoCall(t *testing.T) {
 			ID:            "C-001",
 			State:         "done",
 			AssignedAgent: "",
-			RunnerStatus:  "running",
+			WorkerStatus:  "running",
 		},
 	}}
 	fc := &fakeClient{}
@@ -354,7 +354,7 @@ func TestEndSessionSubscriber_WebhookError_NoCrash(t *testing.T) {
 			ID:            "C-001",
 			State:         "done",
 			AssignedAgent: "",
-			RunnerStatus:  "running",
+			WorkerStatus:  "running",
 		},
 	}}
 	fc := &fakeClient{err: errors.New("backend is down")}
@@ -382,7 +382,7 @@ func TestEndSessionSubscriber_EndSession409_KillStillFires(t *testing.T) {
 			ID:            "C-001",
 			State:         "done",
 			AssignedAgent: "",
-			RunnerStatus:  "running",
+			WorkerStatus:  "running",
 		},
 	}}
 	fc := &fakeClient{err: &fakeStatusErr{status: 409, msg: "container is not in interactive mode"}}

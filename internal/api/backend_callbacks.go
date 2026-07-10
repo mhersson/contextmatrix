@@ -33,14 +33,14 @@ func (h *backendHandlers) workerStatusUpdate(w http.ResponseWriter, r *http.Requ
 
 	// Validate that the callback only sets backend-settable statuses.
 	v := board.NewValidator()
-	if err := v.ValidateWorkerCallbackStatus(req.RunnerStatus); err != nil {
+	if err := v.ValidateWorkerCallbackStatus(req.WorkerStatus); err != nil {
 		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError,
-			"invalid runner callback status", err.Error())
+			"invalid worker callback status", err.Error())
 
 		return
 	}
 
-	card, err := h.svc.UpdateWorkerStatus(r.Context(), req.Project, strings.ToUpper(req.CardID), req.RunnerStatus, req.Message)
+	card, err := h.svc.UpdateWorkerStatus(r.Context(), req.Project, strings.ToUpper(req.CardID), req.WorkerStatus, req.Message)
 	if err != nil {
 		handleServiceError(w, r, err)
 
@@ -171,7 +171,7 @@ func (h *backendHandlers) getGitCredentials(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if card.RunnerStatus != "running" {
+	if card.WorkerStatus != "running" {
 		writeError(w, http.StatusConflict, ErrCodeValidationError, "card is not running", "")
 
 		return

@@ -6,7 +6,7 @@ import { LabelsSection } from './CardPanelLabels';
 interface CardPanelLeftProps {
   editedCard: Card;
   setEditedCard: Dispatch<SetStateAction<Card>>;
-  runnerAttached: boolean;
+  workerAttached: boolean;
   editingLocked: boolean;
   lockedReason: string;
   canToggleEditor: boolean;
@@ -15,11 +15,11 @@ interface CardPanelLeftProps {
 /**
  * Left column of the bifold card panel: labels section + description
  * surface. Both live here because they share the same lock predicates
- * (`editingLocked` / `runnerAttached`) and neither is reused elsewhere
+ * (`editingLocked` / `workerAttached`) and neither is reused elsewhere
  * in the panel tree.
  *
  * The description is preview-only by default. When `canToggleEditor` is
- * true (todo / done / not_planned without a runner attached) the user can
+ * true (todo / done / not_planned without a worker attached) the user can
  * flip into edit mode via the button rendered inside `CardPanelEditor`.
  * Editor state is local and resets on card identity change via a `key`
  * prop from `CardPanel`.
@@ -27,7 +27,7 @@ interface CardPanelLeftProps {
 export function CardPanelLeft({
   editedCard,
   setEditedCard,
-  runnerAttached,
+  workerAttached,
   editingLocked,
   lockedReason,
   canToggleEditor,
@@ -44,7 +44,7 @@ export function CardPanelLeft({
       />
       <CardPanelEditor
         body={editedCard.body}
-        editable={!runnerAttached}
+        editable={!workerAttached}
         editing={editing}
         onToggleEditing={canToggleEditor ? () => setEditing((v) => !v) : undefined}
         onChange={(body) => setEditedCard((prev) => ({ ...prev, body }))}

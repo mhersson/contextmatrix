@@ -44,6 +44,6 @@ func TestUpdateWorkerStatus_AttributesMessageToActiveBackend(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, got.ActivityLog)
 	last := got.ActivityLog[len(got.ActivityLog)-1]
-	assert.Equal(t, "runner_status", last.Action)
+	assert.Equal(t, "worker_status", last.Action)
 	assert.Equal(t, "agent", last.Agent)
 }

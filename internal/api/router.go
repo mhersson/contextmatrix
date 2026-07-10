@@ -443,17 +443,16 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	// registration time — each handler set closes over exactly one backend's
 	// key + replay cache, resolved before any card lookup.
 	//
-	// GET /api/runner/logs and /api/runner/health are BROWSER-facing (the
+	// GET /api/worker/logs and /api/backend/health are BROWSER-facing (the
 	// web UI's EventSource and capacity meter), not backend callbacks —
-	// they stay at their literal paths (the /api/runner prefix is a legacy
-	// spelling kept for wire compatibility). So does the backend-called
+	// they mount at fixed literal paths. So does the backend-called
 	// GET /api/v1/cards/.../autonomous.
 	if cfg.Backend != nil {
 		mux.HandleFunc("POST "+config.AgentCallbackPath+"/status", rh.workerStatusUpdate)
 		mux.HandleFunc("GET "+config.AgentCallbackPath+"/task-skills-source", rh.getTaskSkillsSource)
 		mux.HandleFunc("GET "+config.AgentCallbackPath+"/git-credentials", rh.getGitCredentials)
-		mux.HandleFunc("GET /api/runner/logs", rh.streamWorkerLogs)
-		mux.HandleFunc("GET /api/runner/health", rh.getBackendHealth)
+		mux.HandleFunc("GET /api/worker/logs", rh.streamWorkerLogs)
+		mux.HandleFunc("GET /api/backend/health", rh.getBackendHealth)
 		mux.HandleFunc("GET /api/v1/cards/{project}/{id}/autonomous", rh.getCardAutonomous)
 	}
 
@@ -620,7 +619,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 //
 // Exempt paths:
 //   - GET / HEAD / OPTIONS (read-only)
-//   - /api/runner/*, /api/agent/*, /api/chat/* — HMAC-signed backend-callback space (the /api/runner prefix is legacy); no browser POST path here
+//   - /api/agent/*, /api/chat/* — HMAC-signed backend-callback space; no browser POST path here
 //   - /mcp           — Bearer-authed MCP endpoint
 //   - /healthz, /readyz — probe endpoints, no body
 //
@@ -658,8 +657,7 @@ func csrfExempt(r *http.Request) bool {
 	switch {
 	case path == "/healthz" || path == "/readyz":
 		return true
-	case strings.HasPrefix(path, "/api/runner/"),
-		strings.HasPrefix(path, "/api/agent/"),
+	case strings.HasPrefix(path, "/api/agent/"),
 		strings.HasPrefix(path, "/api/chat/"):
 		return true
 	case path == "/mcp":
@@ -721,7 +719,7 @@ func observe(next http.Handler) http.Handler {
 		// HTTP GET /mcp is a long-lived SSE connection for the same reason.
 		// Chat session SSE streams (/api/chats/{id}/stream) follow the same
 		// pattern — match by suffix since the id is variable.
-		if r.URL.Path == "/api/events" || r.URL.Path == "/api/runner/logs" ||
+		if r.URL.Path == "/api/events" || r.URL.Path == "/api/worker/logs" ||
 			(r.Method == http.MethodGet && r.URL.Path == "/mcp") ||
 			(r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/chats/") && strings.HasSuffix(r.URL.Path, "/stream")) {
 			return

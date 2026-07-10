@@ -4,11 +4,9 @@ import { AutomationCheckboxes } from './AutomationCheckboxes';
 
 const baseProps = {
   autonomous: false,
-  useOpusOrchestrator: false,
   featureBranch: false,
   createPR: false,
   onAutonomousChange: vi.fn(),
-  onUseOpusOrchestratorChange: vi.fn(),
   onFeatureBranchChange: vi.fn(),
   onCreatePRChange: vi.fn(),
   onModelPinChange: vi.fn(),
@@ -16,28 +14,15 @@ const baseProps = {
   branches: ['main', 'develop'],
 };
 
-describe('AutomationCheckboxes — Opus orchestrator label', () => {
-  it('shows "Sonnet (default)" hint when Opus is unticked', () => {
-    render(<AutomationCheckboxes {...baseProps} useOpusOrchestrator={false} />);
-    expect(screen.getByText(/Sonnet \(default\)/)).toBeInTheDocument();
+describe('AutomationCheckboxes — model steering', () => {
+  it('renders the per-role model pins when taskBackend is agent', () => {
+    render(<AutomationCheckboxes {...baseProps} taskBackend="agent" />);
+    expect(screen.getByLabelText('Orchestrator model pin')).toBeInTheDocument();
   });
 
-  it('shows "Opus" hint when Opus is ticked', () => {
-    render(<AutomationCheckboxes {...baseProps} useOpusOrchestrator={true} />);
-    expect(screen.getByText(/Opus.*deeper planning/)).toBeInTheDocument();
-  });
-
-  it('calls onUseOpusOrchestratorChange with true when clicked while unchecked', () => {
-    const onUseOpusOrchestratorChange = vi.fn();
-    render(
-      <AutomationCheckboxes
-        {...baseProps}
-        useOpusOrchestrator={false}
-        onUseOpusOrchestratorChange={onUseOpusOrchestratorChange}
-      />,
-    );
-    fireEvent.click(screen.getByLabelText('Opus as orchestrator'));
-    expect(onUseOpusOrchestratorChange).toHaveBeenCalledWith(true);
+  it('renders no model steering when taskBackend is empty', () => {
+    render(<AutomationCheckboxes {...baseProps} />);
+    expect(screen.queryByLabelText('Orchestrator model pin')).not.toBeInTheDocument();
   });
 });
 
@@ -134,7 +119,7 @@ describe('AutomationCheckboxes — Best of N selector', () => {
   });
 
   it('hides the "Best of N" select when taskBackend is not agent', () => {
-    render(<AutomationCheckboxes {...baseProps} taskBackend="runner" />);
+    render(<AutomationCheckboxes {...baseProps} taskBackend="other" />);
     expect(screen.queryByLabelText('Best of N')).not.toBeInTheDocument();
   });
 

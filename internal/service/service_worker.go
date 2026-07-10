@@ -203,7 +203,7 @@ func (s *CardService) IncrementReviewAttempts(ctx context.Context, project, id, 
 	return card, nil
 }
 
-// UpdateWorkerStatus sets the runner_status field on a card.
+// UpdateWorkerStatus sets the worker_status field on a card.
 func (s *CardService) UpdateWorkerStatus(ctx context.Context, project, cardID, status, message string) (*board.Card, error) {
 	cardID = strings.ToUpper(cardID)
 
@@ -260,8 +260,8 @@ func (s *CardService) UpdateWorkerStatus(ctx context.Context, project, cardID, s
 		message = "container cleaned up after run completed"
 	}
 
-	prevWorkerStatus := card.RunnerStatus
-	card.RunnerStatus = status
+	prevWorkerStatus := card.WorkerStatus
+	card.WorkerStatus = status
 	card.Updated = s.clk.Now()
 
 	// Clear agent claim on terminal worker statuses.
@@ -269,9 +269,9 @@ func (s *CardService) UpdateWorkerStatus(ctx context.Context, project, cardID, s
 		card.AssignedAgent = ""
 		card.LastHeartbeat = nil
 	}
-	// On completed, also clear runner_status since the run is over.
+	// On completed, also clear worker_status since the run is over.
 	if status == "completed" {
-		card.RunnerStatus = ""
+		card.WorkerStatus = ""
 	}
 
 	s.appendWorkerStatusMessage(card, message)
@@ -282,7 +282,7 @@ func (s *CardService) UpdateWorkerStatus(ctx context.Context, project, cardID, s
 		return nil, fmt.Errorf("update card: %w", err)
 	}
 
-	commitDone, notify := s.enqueueCardCommit(ctx, project, cardID, s.backendAuthor(), "runner_status: "+status)
+	commitDone, notify := s.enqueueCardCommit(ctx, project, cardID, s.backendAuthor(), "worker_status: "+status)
 
 	// Flush deferred commits only on terminal worker statuses (completed,
 	// failed, killed). These occur after the agent has released the card, so
@@ -313,13 +313,13 @@ func (s *CardService) UpdateWorkerStatus(ctx context.Context, project, cardID, s
 
 	switch status {
 	case "queued":
-		eventType = events.RunnerTriggered
+		eventType = events.WorkerTriggered
 	case "running":
-		eventType = events.RunnerStarted
+		eventType = events.WorkerStarted
 	case "failed":
-		eventType = events.RunnerFailed
+		eventType = events.WorkerFailed
 	case "killed":
-		eventType = events.RunnerKilled
+		eventType = events.WorkerKilled
 	default:
 		eventType = events.CardUpdated
 	}
@@ -329,7 +329,7 @@ func (s *CardService) UpdateWorkerStatus(ctx context.Context, project, cardID, s
 		Project:   project,
 		CardID:    cardID,
 		Timestamp: s.clk.Now(),
-		Data:      map[string]any{"runner_status": status},
+		Data:      map[string]any{"worker_status": status},
 	})
 
 	return card, nil
@@ -346,7 +346,7 @@ func (s *CardService) appendWorkerStatusMessage(card *board.Card, message string
 	card.ActivityLog = append(card.ActivityLog, board.ActivityEntry{
 		Agent:     s.backendAuthor(),
 		Timestamp: s.clk.Now(),
-		Action:    "runner_status",
+		Action:    "worker_status",
 		Message:   message,
 	})
 	card.ActivityLog = trimActivityLog(card.ActivityLog)

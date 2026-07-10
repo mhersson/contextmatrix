@@ -6,29 +6,29 @@ import { ConfirmModal } from '../../ConfirmModal/ConfirmModal';
 interface MetadataAgentProps {
   card: Card;
   currentAgentId: string | null;
-  runnerAttached: boolean;
+  workerAttached: boolean;
   onClaim: () => void;
   onRelease: () => void;
 }
 
 /**
  * Agent section of the Info rail tab. Renders one of three branches:
- *   - Runner attached with agent: show agent ID + heartbeat + optional
+ *   - Worker attached with agent: show agent ID + heartbeat + optional
  *     Release button (human-only; emits ConfirmModal).
  *   - Unassigned but previously claimed: "released · no active claim" +
  *     last-claimer hint.
- *   - Fresh unassigned todo: "unassigned · runner ready ✓" + Just claim.
+ *   - Fresh unassigned todo: "unassigned · worker ready ✓" + Just claim.
  */
 export function MetadataAgent({
   card,
   currentAgentId,
-  runnerAttached,
+  workerAttached,
   onClaim,
   onRelease,
 }: MetadataAgentProps) {
   const [confirmReleaseOpen, setConfirmReleaseOpen] = useState(false);
   const assignedAgent = card.assigned_agent;
-  const canClaim = !assignedAgent && !runnerAttached;
+  const canClaim = !assignedAgent && !workerAttached;
   const canRelease =
     !!assignedAgent && !!currentAgentId && currentAgentId.startsWith('human:');
 
@@ -41,7 +41,7 @@ export function MetadataAgent({
     <>
       <section className="bf-aside-section">
         <h4>Agent</h4>
-        {runnerAttached && assignedAgent ? (
+        {workerAttached && assignedAgent ? (
           <div className="bf-spread">
             <div className="flex items-center gap-2 min-w-0">
               <span
@@ -86,7 +86,7 @@ export function MetadataAgent({
                     unassigned
                   </span>
                   <span className="font-mono" style={{ color: 'var(--aqua)', fontSize: '11.5px' }}>
-                    runner ready ✓
+                    worker ready ✓
                   </span>
                 </>
               ) : (

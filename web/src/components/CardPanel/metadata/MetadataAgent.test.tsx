@@ -18,18 +18,18 @@ function makeCard(overrides: Partial<Card> = {}): Card {
   };
 }
 
-describe('MetadataAgent — runner attached + agent branch', () => {
-  it('shows the assigned agent ID and heartbeat when runner is attached', () => {
+describe('MetadataAgent — worker attached + agent branch', () => {
+  it('shows the assigned agent ID and heartbeat when worker is attached', () => {
     render(
       <MetadataAgent
         card={makeCard({
           assigned_agent: 'human:alice',
           last_heartbeat: '2026-01-01T00:00:00Z',
           state: 'in_progress',
-          runner_status: 'running',
+          worker_status: 'running',
         })}
         currentAgentId="human:alice"
-        runnerAttached
+        workerAttached
         onClaim={vi.fn()}
         onRelease={vi.fn()}
       />,
@@ -41,9 +41,9 @@ describe('MetadataAgent — runner attached + agent branch', () => {
   it('shows the Release button only when current agent is human', () => {
     const { rerender } = render(
       <MetadataAgent
-        card={makeCard({ assigned_agent: 'human:alice', state: 'in_progress', runner_status: 'running' })}
+        card={makeCard({ assigned_agent: 'human:alice', state: 'in_progress', worker_status: 'running' })}
         currentAgentId="human:alice"
-        runnerAttached
+        workerAttached
         onClaim={vi.fn()}
         onRelease={vi.fn()}
       />,
@@ -53,9 +53,9 @@ describe('MetadataAgent — runner attached + agent branch', () => {
     // Non-human current agent → Release hidden.
     rerender(
       <MetadataAgent
-        card={makeCard({ assigned_agent: 'bot-1', state: 'in_progress', runner_status: 'running' })}
+        card={makeCard({ assigned_agent: 'bot-1', state: 'in_progress', worker_status: 'running' })}
         currentAgentId="bot-1"
-        runnerAttached
+        workerAttached
         onClaim={vi.fn()}
         onRelease={vi.fn()}
       />,
@@ -66,9 +66,9 @@ describe('MetadataAgent — runner attached + agent branch', () => {
   it('hides the Release button when there is no current agent set in the browser', () => {
     render(
       <MetadataAgent
-        card={makeCard({ assigned_agent: 'human:alice', state: 'in_progress', runner_status: 'running' })}
+        card={makeCard({ assigned_agent: 'human:alice', state: 'in_progress', worker_status: 'running' })}
         currentAgentId={null}
-        runnerAttached
+        workerAttached
         onClaim={vi.fn()}
         onRelease={vi.fn()}
       />,
@@ -82,9 +82,9 @@ describe('MetadataAgent — Release ConfirmModal flow', () => {
     const onRelease = vi.fn();
     render(
       <MetadataAgent
-        card={makeCard({ assigned_agent: 'human:alice', state: 'in_progress', runner_status: 'running' })}
+        card={makeCard({ assigned_agent: 'human:alice', state: 'in_progress', worker_status: 'running' })}
         currentAgentId="human:alice"
-        runnerAttached
+        workerAttached
         onClaim={vi.fn()}
         onRelease={onRelease}
       />,
@@ -99,9 +99,9 @@ describe('MetadataAgent — Release ConfirmModal flow', () => {
     const onRelease = vi.fn();
     render(
       <MetadataAgent
-        card={makeCard({ assigned_agent: 'human:alice', state: 'in_progress', runner_status: 'running' })}
+        card={makeCard({ assigned_agent: 'human:alice', state: 'in_progress', worker_status: 'running' })}
         currentAgentId="human:alice"
-        runnerAttached
+        workerAttached
         onClaim={vi.fn()}
         onRelease={onRelease}
       />,
@@ -120,9 +120,9 @@ describe('MetadataAgent — Release ConfirmModal flow', () => {
     const onRelease = vi.fn();
     render(
       <MetadataAgent
-        card={makeCard({ assigned_agent: 'human:alice', state: 'in_progress', runner_status: 'running' })}
+        card={makeCard({ assigned_agent: 'human:alice', state: 'in_progress', worker_status: 'running' })}
         currentAgentId="human:alice"
-        runnerAttached
+        workerAttached
         onClaim={vi.fn()}
         onRelease={onRelease}
       />,
@@ -135,12 +135,12 @@ describe('MetadataAgent — Release ConfirmModal flow', () => {
 });
 
 describe('MetadataAgent — released (previously claimed) branch', () => {
-  it('shows "released · no active claim" when an agent is recorded but runner not attached', () => {
+  it('shows "released · no active claim" when an agent is recorded but worker not attached', () => {
     render(
       <MetadataAgent
         card={makeCard({ assigned_agent: 'human:alice', state: 'todo' })}
         currentAgentId="human:alice"
-        runnerAttached={false}
+        workerAttached={false}
         onClaim={vi.fn()}
         onRelease={vi.fn()}
       />,
@@ -158,7 +158,7 @@ describe('MetadataAgent — released (previously claimed) branch', () => {
           state: 'todo',
         })}
         currentAgentId="human:alice"
-        runnerAttached={false}
+        workerAttached={false}
         onClaim={vi.fn()}
         onRelease={vi.fn()}
       />,
@@ -171,18 +171,18 @@ describe('MetadataAgent — released (previously claimed) branch', () => {
 });
 
 describe('MetadataAgent — fresh unassigned todo branch', () => {
-  it('shows "unassigned · runner ready" and the Just claim button', () => {
+  it('shows "unassigned · worker ready" and the Just claim button', () => {
     render(
       <MetadataAgent
         card={makeCard({ assigned_agent: undefined, last_heartbeat: undefined, state: 'todo' })}
         currentAgentId={null}
-        runnerAttached={false}
+        workerAttached={false}
         onClaim={vi.fn()}
         onRelease={vi.fn()}
       />,
     );
     expect(screen.getByText('unassigned')).toBeInTheDocument();
-    expect(screen.getByText(/runner ready/)).toBeInTheDocument();
+    expect(screen.getByText(/worker ready/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Just claim' })).toBeInTheDocument();
   });
 
@@ -192,7 +192,7 @@ describe('MetadataAgent — fresh unassigned todo branch', () => {
       <MetadataAgent
         card={makeCard({ assigned_agent: undefined, last_heartbeat: undefined, state: 'todo' })}
         currentAgentId={null}
-        runnerAttached={false}
+        workerAttached={false}
         onClaim={onClaim}
         onRelease={vi.fn()}
       />,
@@ -201,12 +201,12 @@ describe('MetadataAgent — fresh unassigned todo branch', () => {
     expect(onClaim).toHaveBeenCalledOnce();
   });
 
-  it('hides the Just claim button when the runner is attached (no claim race)', () => {
+  it('hides the Just claim button when the worker is attached (no claim race)', () => {
     render(
       <MetadataAgent
         card={makeCard({ assigned_agent: undefined, state: 'todo' })}
         currentAgentId={null}
-        runnerAttached
+        workerAttached
         onClaim={vi.fn()}
         onRelease={vi.fn()}
       />,
@@ -214,17 +214,17 @@ describe('MetadataAgent — fresh unassigned todo branch', () => {
     expect(screen.queryByRole('button', { name: 'Just claim' })).not.toBeInTheDocument();
   });
 
-  it('omits the "runner ready" hint for non-todo cards (state-dependent label)', () => {
+  it('omits the "worker ready" hint for non-todo cards (state-dependent label)', () => {
     render(
       <MetadataAgent
         card={makeCard({ assigned_agent: undefined, last_heartbeat: undefined, state: 'review' })}
         currentAgentId={null}
-        runnerAttached={false}
+        workerAttached={false}
         onClaim={vi.fn()}
         onRelease={vi.fn()}
       />,
     );
     expect(screen.getByText('unassigned')).toBeInTheDocument();
-    expect(screen.queryByText(/runner ready/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/worker ready/)).not.toBeInTheDocument();
   });
 });

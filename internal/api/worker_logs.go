@@ -17,7 +17,7 @@ import (
 // defaultWorkerLogKeepalive is the keepalive period for worker-log SSE streams.
 const defaultWorkerLogKeepalive = 30 * time.Second
 
-// streamWorkerLogs handles GET /api/runner/logs
+// streamWorkerLogs handles GET /api/worker/logs
 //
 // Two code paths, selected by query parameters:
 //
@@ -113,7 +113,7 @@ func (h *backendHandlers) streamCardSession(w http.ResponseWriter, r *http.Reque
 
 	// Start is idempotent — safe to call on every connection, exactly like
 	// streamProjectSession calls StartProject below. This revives a session
-	// the idle sweeper force-closed mid-run: the runner_status transition
+	// the idle sweeper force-closed mid-run: the worker_status transition
 	// that originally triggered Start fires only once per run, so without
 	// this call a reconnect after a sweep would park in pendingSubs forever.
 	if err := h.sessionManager.Start(r.Context(), cardID, project); err != nil {

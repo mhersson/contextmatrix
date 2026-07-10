@@ -2318,7 +2318,7 @@ transitions:
   not_planned: [todo]
 remote_execution:
   enabled: true
-  runner_image: my-runner:latest
+  worker_image: my-worker:latest
 `
 
 	boardConfigPerProjectDisabled := `name: test-project
@@ -2335,7 +2335,7 @@ transitions:
   not_planned: [todo]
 remote_execution:
   enabled: false
-  runner_image: my-runner:latest
+  worker_image: my-worker:latest
 `
 
 	t.Run("backend disabled globally returns remote_execution.enabled false", func(t *testing.T) {
@@ -2444,7 +2444,7 @@ transitions:
   not_planned: [todo]
 remote_execution:
   enabled: true
-  runner_image: my-runner:latest
+  worker_image: my-worker:latest
 `
 
 	t.Run("backend disabled globally returns remote_execution.enabled false for all projects", func(t *testing.T) {

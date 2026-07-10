@@ -17,7 +17,7 @@ import (
 
 // TestReconciliationSweep_TerminalCardKillsContainer covers the case where the
 // backend reports a live container whose CM card is already `done`. The sweep
-// must kill it, regardless of the card's runner_status field, which the sweep
+// must kill it, regardless of the card's worker_status field, which the sweep
 // does not consult — consulting it is the source of silent-skip bugs.
 func TestReconciliationSweep_TerminalCardKillsContainer(t *testing.T) {
 	ctx := t.Context()
@@ -26,10 +26,10 @@ func TestReconciliationSweep_TerminalCardKillsContainer(t *testing.T) {
 		"proj/C-001": {
 			ID:    "C-001",
 			State: "done",
-			// runner_status is deliberately set to "completed" — a value
+			// worker_status is deliberately set to "completed" — a value
 			// the sweep does not read. Gating on it would silently skip
 			// this container.
-			RunnerStatus:  "completed",
+			WorkerStatus:  "completed",
 			AssignedAgent: "",
 		},
 	}}

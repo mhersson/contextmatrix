@@ -752,7 +752,7 @@ func TestClearChat_BackendFailure(t *testing.T) {
 }
 
 // TestClearChat_ColdSession asserts that POST .../clear returns 409
-// RUNNER_NOT_RUNNING when the target session is cold (no running container).
+// WORKER_NOT_RUNNING when the target session is cold (no running container).
 func TestClearChat_ColdSession(t *testing.T) {
 	mux, mgr, _ := newChatFixtureWithBackend(t, defaultFixtureOpts())
 
@@ -769,7 +769,7 @@ func TestClearChat_ColdSession(t *testing.T) {
 
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&apiErr))
-	assert.Equal(t, ErrCodeBackendNotRunning, apiErr.Code)
+	assert.Equal(t, ErrCodeWorkerNotRunning, apiErr.Code)
 }
 
 // TestClearChat_BackendFailure_TranscriptUntouched asserts that when the backend

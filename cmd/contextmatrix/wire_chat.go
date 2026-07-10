@@ -100,12 +100,12 @@ func wireChat(
 				}
 			}
 
-			// Chat uses runner_image regardless of remote_execution.enabled:
+			// Chat uses worker_image regardless of remote_execution.enabled:
 			// enabled gates autonomous card execution, while the image answers
 			// "what toolchain does this project need", which applies to
 			// interactive sessions identically.
 			if p.RemoteExecution != nil {
-				info.WorkerImage = p.RemoteExecution.RunnerImage
+				info.WorkerImage = p.RemoteExecution.WorkerImage
 			}
 
 			return info, nil

@@ -407,7 +407,7 @@ func (s *CardService) transitionStep(
 	appendStateChangeLog(card, oldState, state, "", card.Updated)
 
 	// State-change invariants: release claim on not_planned, clear
-	// runner_status on terminal states. Each step in the path is a state
+	// worker_status on terminal states. Each step in the path is a state
 	// change, so pass stateChanged=true.
 	enforceTerminalStateInvariants(card, true)
 

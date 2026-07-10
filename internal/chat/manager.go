@@ -24,14 +24,14 @@ var ErrTooManyConcurrent = errors.New("chat: too many concurrent sessions")
 
 // ErrBackendSend is the sentinel wrapped around Backend.SendChatMessage
 // failures inside ClearContext. The API layer matches on errors.Is to
-// route these to a 502 RUNNER_UNAVAILABLE rather than a 500 INTERNAL_ERROR,
+// route these to a 502 BACKEND_UNAVAILABLE rather than a 500 INTERNAL_ERROR,
 // since the runtime cause is "the backend is unreachable", not a bug.
 var ErrBackendSend = errors.New("chat: backend send failed")
 
 // ErrSessionNotRunning is returned by ClearContext when the target session is
 // not in an active or warm-idle state (i.e. the worker container is not
 // running). Clearing a cold or ending session has no worker to talk to.
-// The API layer maps this to 409 RUNNER_NOT_RUNNING.
+// The API layer maps this to 409 WORKER_NOT_RUNNING.
 var ErrSessionNotRunning = errors.New("chat: session is not running")
 
 // ContextClearedMarker is the canonical content string written to the
@@ -66,7 +66,7 @@ type StartChatOpts struct {
 	SessionID string
 	Project   string
 	RepoURL   string
-	// WorkerImage is the project's remote_execution.runner_image — the
+	// WorkerImage is the project's remote_execution.worker_image — the
 	// per-project toolchain image the chat worker container should run. Empty
 	// means "use the chat backend's configured base_image". Chat applies it
 	// regardless of remote_execution.enabled: enabled gates autonomous card
@@ -1250,7 +1250,7 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, er
 
 	m.logger.Info("chat: opening cold session",
 		"session_id", sess.ID, "project", sess.Project, "repo_url", execInfo.RepoURL,
-		"runner_image", execInfo.WorkerImage,
+		"worker_image", execInfo.WorkerImage,
 		"model", model, "has_resume", resume != nil,
 		"resume_turn_count", resumeTurnCount(resume))
 

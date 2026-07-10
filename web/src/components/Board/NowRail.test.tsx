@@ -84,9 +84,9 @@ describe('NowRail', () => {
     expect(screen.queryByText(/NaN/)).not.toBeInTheDocument();
   });
 
-  it('does not divide the Now · agents head-row by the runner container cap', () => {
+  it('does not divide the Now · agents head-row by the worker container cap', () => {
     // Fix B-1: the agents head-row must show just the active-agent count
-    // (here: 2), never "2 / 8". The runner cap (max_concurrent) is a
+    // (here: 2), never "2 / 8". The worker cap (max_concurrent) is a
     // container number — the canonical place for it is the Capacity meter.
     render(<NowRail agents={agents} activityEntries={[]} maxAgents={8} runningContainers={3} />);
     // Locate the head-row inside the "Now · agents" section.
@@ -95,7 +95,7 @@ describe('NowRail', () => {
     const countSpan = agentsHead.querySelector('.count')!;
     expect(countSpan.textContent).toBe('2');
     expect(countSpan.textContent).not.toContain('/');
-    // Sanity: the runner-cap denominator still lives in the Capacity meta.
+    // Sanity: the worker-cap denominator still lives in the Capacity meta.
     expect(screen.getByText(/3 \/ 8 containers/)).toBeInTheDocument();
   });
 });

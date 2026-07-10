@@ -54,7 +54,7 @@ func TestBackendClient_StartChat_HappyPath(t *testing.T) {
 	assert.Equal(t, "/chat/start", received.path)
 	assert.Equal(t, "S1", received.body["session_id"])
 	assert.Equal(t, "alpha", received.body["project"])
-	assert.Equal(t, "ghcr.io/acme/rust-worker:latest", received.body["runner_image"])
+	assert.Equal(t, "ghcr.io/acme/rust-worker:latest", received.body["worker_image"])
 	assert.Equal(t, "claude-sonnet-4-6", received.body["model"])
 	assert.NotEmpty(t, received.sig)
 	assert.NotEmpty(t, received.ts)

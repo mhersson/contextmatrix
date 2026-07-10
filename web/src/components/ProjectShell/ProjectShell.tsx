@@ -8,8 +8,8 @@ import { useCardActions } from '../../hooks/useCardActions';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 import { useProjects } from '../../hooks/useProjects';
 import { useToast } from '../../hooks/useToast';
-import { useRunnerLogs } from '../../hooks/useRunnerLogs';
-import { useRunnerHealth } from '../../hooks/useRunnerHealth';
+import { useWorkerLogs } from '../../hooks/useWorkerLogs';
+import { useBackendHealth } from '../../hooks/useBackendHealth';
 import { useDashboardPolling } from '../../hooks/useDashboardPolling';
 import { useActivityFeed } from '../../hooks/useActivityFeed';
 import { useResizeDivider } from '../../hooks/useResizeDivider';
@@ -20,7 +20,7 @@ import { CardPanel } from '../CardPanel';
 import { CreateCardPanel } from '../CreateCardPanel';
 import { ErrorBoundary } from '../ErrorBoundary';
 import { NotFound } from '../NotFound';
-import { RunnerConsole } from '../RunnerConsole';
+import { WorkerConsole } from '../WorkerConsole';
 import { api, isAPIError } from '../../api/client';
 import type { BoardEvent, Card, CreateCardInput } from '../../types';
 import { useDeepLinkCard } from './useDeepLinkCard';
@@ -62,7 +62,7 @@ export function ProjectShell() {
 
   const dashboard = useDashboardPolling(project, REFRESH_INTERVAL);
   const activity = useActivityFeed(project);
-  const { maxAgents: runnerMaxAgents, runningContainers } = useRunnerHealth(REFRESH_INTERVAL);
+  const { maxAgents: maxWorkers, runningContainers } = useBackendHealth(REFRESH_INTERVAL);
 
   // In-render reset on project change. This pattern (a `prev*` state marker
   // compared in render) replaces a `useEffect(..., [project])` that called
@@ -103,7 +103,7 @@ export function ProjectShell() {
       onCardDeleted: () => setSelectedCard(null),
     });
 
-  const { logs: runnerLogs, connected: consoleConnected, error: consoleError, clear: clearLogs } = useRunnerLogs({
+  const { logs: workerLogs, connected: consoleConnected, error: consoleError, clear: clearLogs } = useWorkerLogs({
     project: project || '',
     enabled: consoleOpen,
   });
@@ -122,22 +122,22 @@ export function ProjectShell() {
     async (input: CreateCardInput, opts?: { run?: boolean; interactive?: boolean }) => {
       const card = await handleCreateCard(input);
       setCreatePanelOpen(false);
-      // Optionally fire the runner immediately (Create & Run flow). Update
+      // Optionally fire the worker immediately (Create & Run flow). Update
       // the local card record on success so the board reflects the new
-      // runner_status / assigned_agent without waiting for SSE, then open
+      // worker_status / assigned_agent without waiting for SSE, then open
       // the card panel so the user sees the running card immediately.
       if (opts?.run) {
         try {
           const updated = await api.runCard(card.project, card.id, { interactive: opts.interactive });
-          const updatedCard = { ...card, runner_status: updated.runner_status, assigned_agent: updated.assigned_agent };
+          const updatedCard = { ...card, worker_status: updated.worker_status, assigned_agent: updated.assigned_agent };
           updateCardLocally(card.id, {
-            runner_status: updated.runner_status,
+            worker_status: updated.worker_status,
             assigned_agent: updated.assigned_agent,
           });
           setSelectedCard(updatedCard);
-          showToast('Task queued for runner', 'success');
+          showToast('Task queued for worker', 'success');
         } catch (err) {
-          showToast(isAPIError(err) ? err.error : 'Failed to trigger runner', 'error');
+          showToast(isAPIError(err) ? err.error : 'Failed to start worker', 'error');
         }
         return;
       }
@@ -172,18 +172,18 @@ export function ProjectShell() {
     ? cards.find((c) => c.id === selectedCard.id) || selectedCard
     : null;
   const panelOpen = !!currentSelectedCard || createPanelOpen;
-  const hasActiveRunners = useMemo(
-    () => cards.some((c) => c.runner_status === 'queued' || c.runner_status === 'running'),
+  const hasActiveWorkers = useMemo(
+    () => cards.some((c) => c.worker_status === 'queued' || c.worker_status === 'running'),
     [cards]
   );
 
   // Card-scoped log stream for CardChat — enabled only when a HITL session is running.
   // This avoids opening a second EventSource from inside CardChat itself.
   const isHITLCardRunning = useMemo(
-    () => currentSelectedCard?.runner_status === 'running' && !(currentSelectedCard?.autonomous ?? false),
-    [currentSelectedCard?.runner_status, currentSelectedCard?.autonomous],
+    () => currentSelectedCard?.worker_status === 'running' && !(currentSelectedCard?.autonomous ?? false),
+    [currentSelectedCard?.worker_status, currentSelectedCard?.autonomous],
   );
-  const { logs: selectedCardLogs } = useRunnerLogs({
+  const { logs: selectedCardLogs } = useWorkerLogs({
     project: project || '',
     cardId: currentSelectedCard?.id,
     enabled: !!isHITLCardRunning,
@@ -209,9 +209,9 @@ export function ProjectShell() {
     <>
       <AppHeader
         project={project || ''}
-        hasActiveRunners={hasActiveRunners}
+        hasActiveWorkers={hasActiveWorkers}
         onStopAll={handleStopAll}
-        runnerEnabled={!!config?.remote_execution?.enabled}
+        remoteExecutionEnabled={!!config?.remote_execution?.enabled}
         consoleOpen={consoleOpen}
         onToggleConsole={toggleConsole}
       />
@@ -238,7 +238,7 @@ export function ProjectShell() {
                       stateCounts={dashboard?.state_counts}
                       stateCountsParents={dashboard?.state_counts_parents}
                       metricSeries={dashboard?.metric_series}
-                      runnerMaxAgents={runnerMaxAgents}
+                      maxWorkers={maxWorkers}
                       runningContainers={runningContainers}
                       syncStatus={syncStatus}
                       connected={connected}
@@ -291,8 +291,8 @@ export function ProjectShell() {
                 }}
               />
             </div>
-            <RunnerConsole
-              logs={runnerLogs}
+            <WorkerConsole
+              logs={workerLogs}
               connected={consoleConnected}
               error={consoleError}
               onClose={closeConsole}

@@ -7,14 +7,14 @@ import { useMobileSidebar } from '../../context/MobileSidebarContext';
 
 interface AppHeaderProps {
   project: string;
-  hasActiveRunners?: boolean;
+  hasActiveWorkers?: boolean;
   onStopAll?: () => void;
-  runnerEnabled?: boolean;
+  remoteExecutionEnabled?: boolean;
   consoleOpen?: boolean;
   onToggleConsole?: () => void;
 }
 
-export function AppHeader({ project, hasActiveRunners, onStopAll, runnerEnabled, consoleOpen, onToggleConsole }: AppHeaderProps) {
+export function AppHeader({ project, hasActiveWorkers, onStopAll, remoteExecutionEnabled, consoleOpen, onToggleConsole }: AppHeaderProps) {
   const base = `/projects/${project}`;
   const { toggle } = useMobileSidebar();
   const [confirmStopAllOpen, setConfirmStopAllOpen] = useState(false);
@@ -51,7 +51,7 @@ export function AppHeader({ project, hasActiveRunners, onStopAll, runnerEnabled,
           >
             Board
           </NavLink>
-          {runnerEnabled && (
+          {remoteExecutionEnabled && (
             <button
               type="button"
               onClick={onToggleConsole}
@@ -61,7 +61,7 @@ export function AppHeader({ project, hasActiveRunners, onStopAll, runnerEnabled,
                 backgroundColor: consoleOpen ? 'var(--bg3)' : 'transparent',
                 color: consoleOpen ? 'var(--fg)' : 'var(--grey1)',
               }}
-              title="Toggle runner console (c)"
+              title="Toggle worker console (c)"
             >
               <span aria-hidden="true" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem' }}>{'>_'}</span>
               Console
@@ -83,7 +83,7 @@ export function AppHeader({ project, hasActiveRunners, onStopAll, runnerEnabled,
       </div>
 
       <div className="flex items-center gap-2 sm:gap-3">
-        {hasActiveRunners && onStopAll && (
+        {hasActiveWorkers && onStopAll && (
           <button
             type="button"
             onClick={() => setConfirmStopAllOpen(true)}
@@ -102,7 +102,7 @@ export function AppHeader({ project, hasActiveRunners, onStopAll, runnerEnabled,
     <ConfirmModal
       open={confirmStopAllOpen}
       title="Stop all running tasks?"
-      message="All active runner containers will be destroyed and uncommitted work discarded."
+      message="All active worker containers will be destroyed and uncommitted work discarded."
       confirmLabel="Stop all"
       variant="danger"
       onConfirm={() => {

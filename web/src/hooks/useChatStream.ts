@@ -64,7 +64,7 @@ export interface UseChatStream {
   logs: readonly LogEntry[];
   connected: boolean;
   /**
-   * Session-metadata updates pushed by the runner-log bridge (context_tokens
+   * Session-metadata updates pushed by the worker-log bridge (context_tokens
    * increments after each Claude turn, rehydration_active flips when the
    * agent calls chat_rehydration_complete, model on first usage event).
    * `null` until the first session_updated event arrives.

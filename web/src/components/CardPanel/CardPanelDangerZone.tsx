@@ -19,7 +19,7 @@ interface DangerZoneTabProps {
  *
  * Currently lists:
  *   1. Delete card — enabled only when state ∈ {todo, not_planned} AND no
- *      runner attached.
+ *      worker attached.
  *   2. Force-release agent claim — always disabled; the backend does not
  *      expose the operation.
  */
@@ -82,9 +82,9 @@ export function DangerZoneTab({ card, canDelete, deleteTooltip, isDeleting, onDe
           <div>
             <div className="bf-danger-title">Force-release agent claim</div>
             <div className="bf-danger-desc">
-              Clear the assigned agent without notifying them. Use only if the runner is wedged and won&apos;t respond to Stop.
+              Clear the assigned agent without notifying them. Use only if the worker is wedged and won&apos;t respond to Stop.
             </div>
-            <div className="bf-danger-reason">Only available when the runner is unresponsive.</div>
+            <div className="bf-danger-reason">Only available when the worker is unresponsive.</div>
           </div>
           <button
             type="button"

@@ -16,7 +16,6 @@ export interface CreateCardForm {
   body: string;
   bodyDirty: boolean;
   autonomous: boolean;
-  useOpusOrchestrator: boolean;
   modelOrchestrator: string;
   modelCoder: string;
   modelReviewer: string;
@@ -32,7 +31,6 @@ export interface CreateCardForm {
   setPriority: (v: string) => void;
   setLabels: (v: string[]) => void;
   setAutonomous: (v: boolean) => void;
-  setUseOpusOrchestrator: (v: boolean) => void;
   setModelOrchestrator: (v: string) => void;
   setModelCoder: (v: string) => void;
   setModelReviewer: (v: string) => void;
@@ -74,7 +72,6 @@ export function useCreateCardForm(
   const [body, setBody] = useState(() => config.templates?.[config.types[0]] ?? '');
   const [bodyDirty, setBodyDirty] = useState(false);
   const [autonomous, setAutonomous] = useState(false);
-  const [useOpusOrchestrator, setUseOpusOrchestrator] = useState(false);
   const [modelOrchestrator, setModelOrchestrator] = useState('');
   const [modelCoder, setModelCoder] = useState('');
   const [modelReviewer, setModelReviewer] = useState('');
@@ -138,7 +135,6 @@ export function useCreateCardForm(
       parent: parent || undefined,
       body: body || undefined,
       autonomous: autonomous || undefined,
-      use_opus_orchestrator: useOpusOrchestrator || undefined,
       // Per-role model pins for the agent backend. Empty = "selector decides";
       // only forward a non-empty override.
       model_orchestrator: modelOrchestrator || undefined,
@@ -152,7 +148,7 @@ export function useCreateCardForm(
       // null = inherit project default; only forward an explicit override.
       skills: skills === null ? undefined : skills,
     }),
-    [title, type, priority, labels, parent, body, autonomous, useOpusOrchestrator, modelOrchestrator, modelCoder, modelReviewer, featureBranch, createPR, baseBranch, skills],
+    [title, type, priority, labels, parent, body, autonomous, modelOrchestrator, modelCoder, modelReviewer, featureBranch, createPR, baseBranch, skills],
   );
 
   const ensureTitle = useCallback((): boolean => {
@@ -197,7 +193,6 @@ export function useCreateCardForm(
       body,
       bodyDirty,
       autonomous,
-      useOpusOrchestrator,
       modelOrchestrator,
       modelCoder,
       modelReviewer,
@@ -211,7 +206,6 @@ export function useCreateCardForm(
       setPriority,
       setLabels,
       setAutonomous,
-      setUseOpusOrchestrator,
       setModelOrchestrator,
       setModelCoder,
       setModelReviewer,

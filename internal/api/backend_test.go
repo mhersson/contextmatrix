@@ -83,7 +83,7 @@ transitions:
   not_planned: [todo]
 remote_execution:
   enabled: true
-  runner_image: my-runner:latest
+  worker_image: my-worker:latest
 `
 
 // --- POST /api/projects/{project}/cards/{id}/run ---
@@ -154,7 +154,7 @@ func TestRunCard_HumanOnly(t *testing.T) {
 		_, err := svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "completed", "done")
 		require.NoError(t, err)
 
-		// Re-create a fresh card since the first may now have runner_status set.
+		// Re-create a fresh card since the first may now have worker_status set.
 		freshCard, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
 			Title: "Auto task 2", Type: "task", Priority: "medium",
 			Autonomous: true, FeatureBranch: true,
@@ -314,7 +314,7 @@ func TestRunCard_AlreadyQueued(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Set runner_status to queued.
+	// Set worker_status to queued.
 	_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "queued", "already queued")
 	require.NoError(t, err)
 
@@ -344,7 +344,7 @@ func TestRunCard_AlreadyQueued(t *testing.T) {
 
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
-	assert.Equal(t, ErrCodeBackendConflict, apiErr.Code)
+	assert.Equal(t, ErrCodeWorkerConflict, apiErr.Code)
 }
 
 func TestRunCard_CardNotFound(t *testing.T) {
@@ -423,10 +423,10 @@ func TestRunCard_WebhookFailure(t *testing.T) {
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodeBackendUnavailable, apiErr.Code)
 
-	// Verify runner_status was reverted to "failed".
+	// Verify worker_status was reverted to "failed".
 	updated, err := svc.GetCard(ctx, "test-project", card.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "failed", updated.RunnerStatus)
+	assert.Equal(t, "failed", updated.WorkerStatus)
 }
 
 // TestRunCard_ContextCancelledDuringWebhook verifies that when the HTTP client
@@ -515,13 +515,13 @@ func TestRunCard_ContextCancelledDuringWebhook(t *testing.T) {
 	require.Eventually(t, func() bool {
 		upd, getErr := svc.GetCard(ctx, "test-project", card.ID)
 
-		return getErr == nil && upd.RunnerStatus == "failed"
+		return getErr == nil && upd.WorkerStatus == "failed"
 	}, 2*time.Second, 10*time.Millisecond)
 
 	// The card must have been reverted to "failed", not left in "queued".
 	updated, err := svc.GetCard(ctx, "test-project", card.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "failed", updated.RunnerStatus,
+	assert.Equal(t, "failed", updated.WorkerStatus,
 		"card must be reverted to failed even when client context is cancelled mid-webhook")
 }
 
@@ -759,11 +759,11 @@ func TestRunCard_ProviderForProject_CredentialUnavailable(t *testing.T) {
 	assert.Equal(t, "system", last.Agent)
 	assert.Equal(t, "run rejected: project credential unavailable (test-project)", last.Message)
 
-	// runCard set runner_status to "queued" before minting; the rejection must
+	// runCard set worker_status to "queued" before minting; the rejection must
 	// revert it to "failed" (mirroring the webhook-failure path) or the
 	// already-queued guard would 409 every future trigger of this card.
-	assert.Equal(t, "failed", updated.RunnerStatus,
-		"rejected trigger must revert runner_status to failed, not leave the card stuck queued")
+	assert.Equal(t, "failed", updated.WorkerStatus,
+		"rejected trigger must revert worker_status to failed, not leave the card stuck queued")
 }
 
 // TestRunCard_ProviderForProject_GenerateTokenFails covers the second
@@ -831,8 +831,8 @@ func TestRunCard_ProviderForProject_GenerateTokenFails(t *testing.T) {
 
 	// Same revert contract as the provider-resolution failure: the card must
 	// not be left stuck in "queued" after the 409.
-	assert.Equal(t, "failed", updated.RunnerStatus,
-		"rejected trigger must revert runner_status to failed, not leave the card stuck queued")
+	assert.Equal(t, "failed", updated.WorkerStatus,
+		"rejected trigger must revert worker_status to failed, not leave the card stuck queued")
 }
 
 // TestRunCard_ProviderForProject_BrokenBindingNeverFallsBackToInstance
@@ -856,7 +856,7 @@ func TestRunCard_ProviderForProject_GenerateTokenFails(t *testing.T) {
 // cmd/contextmatrix/provider_test.go. This test stays to pin the
 // handler-side half of the contract that a resolver-only test cannot reach:
 // a resolution error 409s, never calls the task backend, and reverts
-// runner_status to failed — i.e. runCard applies no fallback of its own on
+// worker_status to failed — i.e. runCard applies no fallback of its own on
 // top of whatever the resolver returns.
 func TestRunCard_ProviderForProject_BrokenBindingNeverFallsBackToInstance(t *testing.T) {
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
@@ -963,8 +963,8 @@ func TestRunCard_ProviderForProject_BrokenBindingNeverFallsBackToInstance(t *tes
 
 	updated, err := svc.GetCard(ctx, "test-project", card.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "failed", updated.RunnerStatus,
-		"rejected trigger must revert runner_status to failed, not leave the card stuck queued")
+	assert.Equal(t, "failed", updated.WorkerStatus,
+		"rejected trigger must revert worker_status to failed, not leave the card stuck queued")
 }
 
 // TestRunCard_ProviderForProject_NoneMode_ReturnsInstanceProvider hardens the
@@ -1194,7 +1194,7 @@ func TestStopCard_HumanOnly(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Set runner_status to running so stop is valid.
+	// Set worker_status to running so stop is valid.
 	_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "running", "running")
 	require.NoError(t, err)
 
@@ -1243,7 +1243,7 @@ func TestStopCard_HumanOnly(t *testing.T) {
 
 		var respCard board.Card
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&respCard))
-		assert.Equal(t, "killed", respCard.RunnerStatus)
+		assert.Equal(t, "killed", respCard.WorkerStatus)
 	})
 }
 
@@ -1315,7 +1315,7 @@ func TestStopCard_NotRunning(t *testing.T) {
 
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
-	assert.Equal(t, ErrCodeBackendNotRunning, apiErr.Code)
+	assert.Equal(t, ErrCodeWorkerNotRunning, apiErr.Code)
 }
 
 func TestStopCard_CardNotFound(t *testing.T) {
@@ -1432,7 +1432,7 @@ func TestStopAll_StopsActiveCards(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Create multiple cards with various runner_status values.
+	// Create multiple cards with various worker_status values.
 	card1, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
 		Title: "Running task", Type: "task", Priority: "medium",
 	})
@@ -1447,7 +1447,7 @@ func TestStopAll_StopsActiveCards(t *testing.T) {
 	_, err = svc.UpdateWorkerStatus(ctx, "test-project", card2.ID, "queued", "queued")
 	require.NoError(t, err)
 
-	// Card with no runner_status should not be affected.
+	// Card with no worker_status should not be affected.
 	_, err = svc.CreateCard(ctx, "test-project", service.CreateCardInput{
 		Title: "Idle task", Type: "task", Priority: "medium",
 	})
@@ -1486,11 +1486,11 @@ func TestStopAll_StopsActiveCards(t *testing.T) {
 	// Verify cards were updated to killed.
 	updated1, err := svc.GetCard(ctx, "test-project", card1.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "killed", updated1.RunnerStatus)
+	assert.Equal(t, "killed", updated1.WorkerStatus)
 
 	updated2, err := svc.GetCard(ctx, "test-project", card2.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "killed", updated2.RunnerStatus)
+	assert.Equal(t, "killed", updated2.WorkerStatus)
 }
 
 func TestStopAll_WebhookFailure(t *testing.T) {
@@ -1541,7 +1541,7 @@ func TestWorkerStatusUpdate_ValidSignature(t *testing.T) {
 	ctx := context.Background()
 
 	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
-		Title: "Runner task", Type: "task", Priority: "medium",
+		Title: "Worker task", Type: "task", Priority: "medium",
 	})
 	require.NoError(t, err)
 
@@ -1556,7 +1556,7 @@ func TestWorkerStatusUpdate_ValidSignature(t *testing.T) {
 	server := httptest.NewServer(router)
 	defer server.Close()
 
-	body := fmt.Sprintf(`{"card_id":"%s","project":"test-project","runner_status":"running","message":"container started"}`, card.ID)
+	body := fmt.Sprintf(`{"card_id":"%s","project":"test-project","worker_status":"running","message":"container started"}`, card.ID)
 	bodyBytes := []byte(body)
 
 	sigHeader, tsHeader := protocol.SignRequestHeaders(apiKey, http.MethodPost, "/api/agent/status", bodyBytes)
@@ -1575,7 +1575,7 @@ func TestWorkerStatusUpdate_ValidSignature(t *testing.T) {
 
 	var respCard board.Card
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&respCard))
-	assert.Equal(t, "running", respCard.RunnerStatus)
+	assert.Equal(t, "running", respCard.WorkerStatus)
 }
 
 // Backend callbacks mount at the fixed config.AgentCallbackPath — prove the
@@ -1602,7 +1602,7 @@ func TestAgentBackendCallbackMount(t *testing.T) {
 	server := httptest.NewServer(router)
 	defer server.Close()
 
-	body := fmt.Sprintf(`{"card_id":"%s","project":"test-project","runner_status":"running","message":"container started"}`, card.ID)
+	body := fmt.Sprintf(`{"card_id":"%s","project":"test-project","worker_status":"running","message":"container started"}`, card.ID)
 	bodyBytes := []byte(body)
 
 	sigHeader, tsHeader := protocol.SignRequestHeaders(apiKey, http.MethodPost, "/api/agent/status", bodyBytes)
@@ -1621,7 +1621,7 @@ func TestAgentBackendCallbackMount(t *testing.T) {
 
 	var respCard board.Card
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&respCard))
-	assert.Equal(t, "running", respCard.RunnerStatus)
+	assert.Equal(t, "running", respCard.WorkerStatus)
 }
 
 func TestWorkerStatusUpdate_InvalidSignature(t *testing.T) {
@@ -1639,7 +1639,7 @@ func TestWorkerStatusUpdate_InvalidSignature(t *testing.T) {
 	server := httptest.NewServer(router)
 	defer server.Close()
 
-	body := `{"card_id":"TEST-001","project":"test-project","runner_status":"running"}`
+	body := `{"card_id":"TEST-001","project":"test-project","worker_status":"running"}`
 	bodyBytes := []byte(body)
 
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
@@ -1676,7 +1676,7 @@ func TestWorkerStatusUpdate_MissingSignature(t *testing.T) {
 	server := httptest.NewServer(router)
 	defer server.Close()
 
-	body := `{"card_id":"TEST-001","project":"test-project","runner_status":"running"}`
+	body := `{"card_id":"TEST-001","project":"test-project","worker_status":"running"}`
 
 	t.Run("missing X-Signature-256 header", func(t *testing.T) {
 		req, _ := http.NewRequest("POST", server.URL+"/api/agent/status",
@@ -1759,7 +1759,7 @@ func TestWorkerStatusUpdate_InvalidCallbackStatus(t *testing.T) {
 	// "queued" and "killed" are not valid callback statuses.
 	for _, badStatus := range []string{"queued", "killed", "unknown"} {
 		t.Run(badStatus, func(t *testing.T) {
-			body := fmt.Sprintf(`{"card_id":"TEST-001","project":"test-project","runner_status":"%s"}`, badStatus)
+			body := fmt.Sprintf(`{"card_id":"TEST-001","project":"test-project","worker_status":"%s"}`, badStatus)
 			bodyBytes := []byte(body)
 
 			sigHeader, tsHeader := protocol.SignRequestHeaders(apiKey, http.MethodPost, "/api/agent/status", bodyBytes)
@@ -1797,7 +1797,7 @@ func TestWorkerStatusUpdate_NoAPIKeyConfigured(t *testing.T) {
 	server := httptest.NewServer(router)
 	defer server.Close()
 
-	body := `{"card_id":"TEST-001","project":"test-project","runner_status":"running"}`
+	body := `{"card_id":"TEST-001","project":"test-project","worker_status":"running"}`
 
 	req, _ := http.NewRequest("POST", server.URL+"/api/agent/status", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -1863,7 +1863,7 @@ func newRunningCardSetup(t *testing.T) (*service.CardService, *events.Bus, func(
 		Autonomous: true, FeatureBranch: true,
 	})
 	require.NoError(t, err)
-	// Set runner_status to running.
+	// Set worker_status to running.
 	card, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "running", "container started")
 	require.NoError(t, err)
 
@@ -1981,7 +1981,7 @@ func TestMessageCard_NotRunning(t *testing.T) {
 
 			var apiErr APIError
 			require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
-			assert.Equal(t, ErrCodeBackendNotRunning, apiErr.Code)
+			assert.Equal(t, ErrCodeWorkerNotRunning, apiErr.Code)
 		})
 	}
 }
@@ -2217,7 +2217,7 @@ func TestPromoteCard_NotRunning(t *testing.T) {
 		Title: "Not running task", Type: "task", Priority: "medium",
 	})
 	require.NoError(t, err)
-	// card has no runner_status (empty) — not running.
+	// card has no worker_status (empty) — not running.
 
 	req, _ := http.NewRequest("POST",
 		server.URL+"/api/projects/test-project/cards/"+card.ID+"/promote", nil)
@@ -2231,7 +2231,7 @@ func TestPromoteCard_NotRunning(t *testing.T) {
 
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
-	assert.Equal(t, ErrCodeBackendNotRunning, apiErr.Code)
+	assert.Equal(t, ErrCodeWorkerNotRunning, apiErr.Code)
 }
 
 func TestPromoteCard_AlreadyAutonomous(t *testing.T) {
@@ -3055,7 +3055,7 @@ transitions:
   not_planned: [todo]
 remote_execution:
   enabled: true
-  runner_image: my-runner:latest
+  worker_image: my-worker:latest
 default_skills:
   - go-development
 `
@@ -3215,7 +3215,7 @@ transitions:
   not_planned: [todo]
 remote_execution:
   enabled: true
-  runner_image: my-runner:latest
+  worker_image: my-worker:latest
 favorites:
   critical:
     reviewer: ["anthropic/claude-opus-4.8"]
@@ -3643,8 +3643,8 @@ func TestMergeFavorites(t *testing.T) {
 // credential.
 
 // setupGitCredentialsEndpoint creates a card in project "test-project",
-// optionally sets its runner_status, and wires providerForProject. An empty
-// workerStatus leaves the card in its just-created state (RunnerStatus ""),
+// optionally sets its worker_status, and wires providerForProject. An empty
+// workerStatus leaves the card in its just-created state (WorkerStatus ""),
 // exercising the not-running rejection path.
 func setupGitCredentialsEndpoint(
 	t *testing.T,
@@ -3781,7 +3781,7 @@ func TestGetGitCredentials_PATSentinelExpiry_ExpiresAtOmitted(t *testing.T) {
 func TestGetGitCredentials_NotRunning_Conflict(t *testing.T) {
 	fakeProvider := &fakeTokenProvider{token: "ghs_unused"}
 
-	server, cardID, cleanup := setupGitCredentialsEndpoint(t, "", // never started; RunnerStatus stays ""
+	server, cardID, cleanup := setupGitCredentialsEndpoint(t, "", // never started; WorkerStatus stays ""
 		func(_ context.Context, _ string) (githubauth.TokenGenerator, string, error) {
 			return fakeProvider, "", nil
 		})

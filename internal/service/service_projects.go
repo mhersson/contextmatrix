@@ -64,10 +64,10 @@ type UpdateProjectInput struct {
 
 // RemoteExecutionUpdate carries per-field edits to a project's remote-execution
 // config. Each pointer is applied independently: nil leaves the subfield
-// untouched; non-nil sets it. A non-nil RunnerImage of "" clears the image.
+// untouched; non-nil sets it. A non-nil WorkerImage of "" clears the image.
 type RemoteExecutionUpdate struct {
 	Enabled     *bool
-	RunnerImage *string
+	WorkerImage *string
 }
 
 // validWorkerImage is a hygiene-only screen for a per-project worker image
@@ -275,13 +275,13 @@ func (s *CardService) UpdateProject(ctx context.Context, name string, input Upda
 			re.Enabled = &v
 		}
 
-		if input.RemoteExecution.RunnerImage != nil {
-			image := strings.TrimSpace(*input.RemoteExecution.RunnerImage)
+		if input.RemoteExecution.WorkerImage != nil {
+			image := strings.TrimSpace(*input.RemoteExecution.WorkerImage)
 			if err := validateWorkerImage(image); err != nil {
 				return nil, err
 			}
 
-			re.RunnerImage = image
+			re.WorkerImage = image
 		}
 
 		// Normalize: drop a zero-value config so .board.yaml stays clean.
@@ -748,11 +748,11 @@ func validateWorkerImage(image string) error {
 	}
 
 	if len(image) > maxWorkerImageLen {
-		return fmt.Errorf("%w: runner_image exceeds %d bytes", board.ErrInvalidProjectConfig, maxWorkerImageLen)
+		return fmt.Errorf("%w: worker_image exceeds %d bytes", board.ErrInvalidProjectConfig, maxWorkerImageLen)
 	}
 
 	if !validWorkerImage.MatchString(image) {
-		return fmt.Errorf("%w: runner_image contains invalid characters", board.ErrInvalidProjectConfig)
+		return fmt.Errorf("%w: worker_image contains invalid characters", board.ErrInvalidProjectConfig)
 	}
 
 	return nil
@@ -764,7 +764,7 @@ func validateWorkerImage(image string) error {
 // meaningful per-project override of the global default (see
 // backendHandlers.isRemoteExecutionEnabled) and must be preserved.
 func remoteExecutionIsZero(re *board.RemoteExecutionConfig) bool {
-	return re.Enabled == nil && re.RunnerImage == ""
+	return re.Enabled == nil && re.WorkerImage == ""
 }
 
 // toSet converts a slice to a set for membership checks.

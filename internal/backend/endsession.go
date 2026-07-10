@@ -102,7 +102,7 @@ func handleEndSessionEvent(ctx context.Context, svc CardGetter, client EndSessio
 		return
 	}
 
-	endSessionAndKill(ctx, client, logger, project, cardID, card.State, card.RunnerStatus, sourceSubscriber)
+	endSessionAndKill(ctx, client, logger, project, cardID, card.State, card.WorkerStatus, sourceSubscriber)
 }
 
 // endSessionAndKill runs the /end-session → /kill sequence against the backend
@@ -147,7 +147,7 @@ func endSessionAndKill(ctx context.Context, client EndSessionClient, logger *slo
 	logger.Info("end-session + kill sent",
 		"source", source,
 		"project", project, "card_id", cardID,
-		"state", state, "runner_status", workerStatus,
+		"state", state, "worker_status", workerStatus,
 		"end_session_err", endSessionErr)
 }
 
@@ -184,9 +184,9 @@ func isExpectedEndSessionErr(err error) bool {
 // associated worker container should be terminated: the card is in a
 // terminal state (done / not_planned) AND the agent claim has been released.
 //
-// runner_status is deliberately NOT consulted: it drifts away from Docker
+// worker_status is deliberately NOT consulted: it drifts away from Docker
 // reality because backend callbacks flip the field before Docker cleanup
-// actually succeeds, so gating on runner_status ∈ {queued, running} would
+// actually succeeds, so gating on worker_status ∈ {queued, running} would
 // silently hide every container that is still alive. The reconcile sweep
 // owns the ground-truth "is this container still running?" question by
 // asking the backend directly; the subscriber is a fast-path accelerator

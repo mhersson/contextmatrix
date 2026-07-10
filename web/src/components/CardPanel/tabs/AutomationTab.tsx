@@ -48,7 +48,7 @@ export function AutomationTab({
 
   // Flatten all per-tier All slugs into a single de-duplicated list for the
   // chip row. Only relevant when taskBackend === 'agent'; the prop is ignored
-  // by AutomationCheckboxes on the runner path.
+  // by AutomationCheckboxes on the worker path.
   const favorites = favsByTier
     ? [...new Set(Object.values(favsByTier).flat())]
     : undefined;
@@ -58,7 +58,6 @@ export function AutomationTab({
       <div className="bf-auto-top">
         <AutomationCheckboxes
           autonomous={editedCard.autonomous ?? false}
-          useOpusOrchestrator={editedCard.use_opus_orchestrator ?? false}
           featureBranch={editedCard.feature_branch ?? false}
           createPR={editedCard.create_pr ?? false}
           taskBackend={taskBackend}
@@ -78,9 +77,6 @@ export function AutomationTab({
           }
           onAutonomousChange={(v) =>
             setEditedCard((prev) => ({ ...prev, autonomous: v, ...(v ? {} : { base_branch: undefined }) }))
-          }
-          onUseOpusOrchestratorChange={(v) =>
-            setEditedCard((prev) => ({ ...prev, use_opus_orchestrator: v }))
           }
           onFeatureBranchChange={(v) =>
             setEditedCard((prev) => ({

@@ -173,7 +173,7 @@ func (h *workerCredentialsHandlers) getGitCredentials(w http.ResponseWriter, r *
 	}
 
 	if !live {
-		writeError(w, http.StatusConflict, ErrCodeBackendNotRunning, "chat session is not running", "")
+		writeError(w, http.StatusConflict, ErrCodeWorkerNotRunning, "chat session is not running", "")
 
 		return
 	}

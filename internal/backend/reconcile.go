@@ -25,7 +25,7 @@ var ContainerMaxAge = 150 * time.Minute
 
 // ContainerLister is the subset of *Client needed to ask the backend for
 // ground-truth container state. The reconcile sweep consults this instead of
-// CM's own runner_status field so the decision to kill never depends on a
+// CM's own worker_status field so the decision to kill never depends on a
 // piece of CM bookkeeping that could drift away from Docker reality. See
 // docs/remote-execution.md for why we moved authority to the backend.
 type ContainerLister interface {
@@ -60,11 +60,11 @@ type CardLookup interface {
 //  2. The card's state is terminal (done / not_planned) — the work is over.
 //  3. The container is older than ContainerMaxAge — runaway cap.
 //
-// Notably: the sweep does NOT consult the card's runner_status field. That
+// Notably: the sweep does NOT consult the card's worker_status field. That
 // field is a CM-side bookkeeping convenience that has repeatedly drifted
 // away from Docker reality (the backend's completion/failure callbacks can
 // flip it before the Docker cleanup actually succeeds); any
-// path that gates on runner_status inherits every past and future drift bug.
+// path that gates on worker_status inherits every past and future drift bug.
 // Docker is the single authority on "is this container running"; CM is the
 // single authority on "should it be". Those two facts, nothing else.
 //

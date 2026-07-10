@@ -3,7 +3,7 @@ import type { CSSProperties } from 'react';
 
 export interface RemoteExecutionConfig {
   enabled?: boolean;
-  runner_image?: string;
+  worker_image?: string;
 }
 
 export interface RemoteExecutionSectionProps {
@@ -13,7 +13,7 @@ export interface RemoteExecutionSectionProps {
 }
 
 export function RemoteExecutionSection({ value, onChange, inputStyle }: RemoteExecutionSectionProps) {
-  const runnerImageId = useId();
+  const workerImageId = useId();
   const headingId = useId();
 
   const update = (patch: Partial<RemoteExecutionConfig>) =>
@@ -43,18 +43,18 @@ export function RemoteExecutionSection({ value, onChange, inputStyle }: RemoteEx
         {value.enabled && (
           <div>
             <label
-              htmlFor={runnerImageId}
+              htmlFor={workerImageId}
               className="block text-xs mb-1"
               style={{ color: 'var(--grey1)' }}
             >
               Worker image
             </label>
             <input
-              id={runnerImageId}
+              id={workerImageId}
               type="text"
-              value={value.runner_image ?? ''}
-              onChange={(e) => update({ runner_image: e.target.value || undefined })}
-              placeholder="e.g. ghcr.io/org/runner:latest"
+              value={value.worker_image ?? ''}
+              onChange={(e) => update({ worker_image: e.target.value || undefined })}
+              placeholder="e.g. ghcr.io/org/worker:latest"
               className="w-full px-3 py-2 rounded text-sm border focus:outline-none"
               style={inputStyle}
             />

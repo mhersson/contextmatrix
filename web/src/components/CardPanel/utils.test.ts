@@ -3,7 +3,7 @@ import type { Card, ProjectConfig } from '../../types';
 import {
   buildCardPatch,
   isCardDirty,
-  isRunnerAttached,
+  isWorkerAttached,
   isSafeHttpUrl,
   primaryAction,
 } from './utils';
@@ -61,46 +61,46 @@ describe('isSafeHttpUrl', () => {
   });
 });
 
-describe('isRunnerAttached', () => {
-  it('returns true when runner_status is queued', () => {
-    expect(isRunnerAttached(makeCard({ runner_status: 'queued' }), null)).toBe(true);
+describe('isWorkerAttached', () => {
+  it('returns true when worker_status is queued', () => {
+    expect(isWorkerAttached(makeCard({ worker_status: 'queued' }), null)).toBe(true);
   });
 
-  it('returns true when runner_status is running', () => {
-    expect(isRunnerAttached(makeCard({ runner_status: 'running' }), null)).toBe(true);
+  it('returns true when worker_status is running', () => {
+    expect(isWorkerAttached(makeCard({ worker_status: 'running' }), null)).toBe(true);
   });
 
   it('returns true when another agent holds the claim', () => {
     expect(
-      isRunnerAttached(makeCard({ assigned_agent: 'agent:other' }), 'human:me'),
+      isWorkerAttached(makeCard({ assigned_agent: 'agent:other' }), 'human:me'),
     ).toBe(true);
   });
 
   it('returns false when the current human holds the claim (self-claim)', () => {
     expect(
-      isRunnerAttached(makeCard({ assigned_agent: 'human:me' }), 'human:me'),
+      isWorkerAttached(makeCard({ assigned_agent: 'human:me' }), 'human:me'),
     ).toBe(false);
   });
 
   it('returns true when a non-human current agent matches (only humans self-own)', () => {
     expect(
-      isRunnerAttached(makeCard({ assigned_agent: 'agent:me' }), 'agent:me'),
+      isWorkerAttached(makeCard({ assigned_agent: 'agent:me' }), 'agent:me'),
     ).toBe(true);
   });
 
-  it('returns false when no runner and no claim', () => {
-    expect(isRunnerAttached(makeCard(), null)).toBe(false);
+  it('returns false when no worker and no claim', () => {
+    expect(isWorkerAttached(makeCard(), null)).toBe(false);
   });
 });
 
 describe('primaryAction', () => {
-  it('returns stop when runner is running', () => {
-    expect(primaryAction(makeCard({ runner_status: 'running' }), false, makeConfig(), false))
+  it('returns stop when worker is running', () => {
+    expect(primaryAction(makeCard({ worker_status: 'running' }), false, makeConfig(), false))
       .toEqual({ kind: 'stop' });
   });
 
-  it('returns stop when runner is queued', () => {
-    expect(primaryAction(makeCard({ runner_status: 'queued' }), false, makeConfig(), false))
+  it('returns stop when worker is queued', () => {
+    expect(primaryAction(makeCard({ worker_status: 'queued' }), false, makeConfig(), false))
       .toEqual({ kind: 'stop' });
   });
 
@@ -135,7 +135,7 @@ describe('primaryAction', () => {
   });
 
   it('returns null when no curated action matches', () => {
-    // in_progress, no runner, canRun=false → no primary action
+    // in_progress, no worker, canRun=false → no primary action
     expect(primaryAction(makeCard({ state: 'in_progress' }), false, makeConfig(), false))
       .toBeNull();
   });
@@ -160,7 +160,6 @@ describe('isCardDirty', () => {
     ['body', { body: 'new content' }],
     ['labels', { labels: ['bug'] }],
     ['autonomous', { autonomous: true }],
-    ['use_opus_orchestrator', { use_opus_orchestrator: true }],
     ['best_of_n', { best_of_n: 3 }],
     ['feature_branch', { feature_branch: true }],
     ['create_pr', { create_pr: true }],

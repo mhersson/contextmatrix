@@ -33,7 +33,7 @@ transitions:
   not_planned: [todo]
 remote_execution:
   enabled: true
-  runner_image: my-runner:latest
+  worker_image: my-worker:latest
 verify:
   command: make test
   timeout_seconds: 600

@@ -1,26 +1,26 @@
 import { useId } from 'react';
 import type { Card, ProjectConfig } from '../../../types';
-import { runnerStatusStyles } from '../../../lib/chip';
+import { workerStatusStyles } from '../../../lib/chip';
 
 interface MetadataStatusProps {
   card: Card;
   editedCard: Card;
   config: ProjectConfig;
-  runnerAttached: boolean;
+  workerAttached: boolean;
   onStateChange: (state: string) => void;
   excludeStateFromPicker?: string | null;
 }
 
 /**
  * Status section of the Info rail tab. Renders the state picker, a hint
- * describing the current state's transition options, and the runner-status
- * badge when a runner is attached.
+ * describing the current state's transition options, and the worker-status
+ * badge when a worker is attached.
  */
 export function MetadataStatus({
   card,
   editedCard,
   config,
-  runnerAttached,
+  workerAttached,
   onStateChange,
   excludeStateFromPicker,
 }: MetadataStatusProps) {
@@ -35,7 +35,7 @@ export function MetadataStatus({
       <select
         id={stateId}
         value={editedCard.state}
-        disabled={runnerAttached}
+        disabled={workerAttached}
         onChange={(e) => onStateChange(e.target.value)}
         className="bf-state-select"
         aria-label="State"
@@ -48,21 +48,21 @@ export function MetadataStatus({
         ))}
       </select>
       <div className="font-mono mt-2" style={{ fontSize: '11px', color: 'var(--grey1)', lineHeight: 1.45 }}>
-        {runnerAttached
-          ? '🔒 Runner owns this card — only the agent or Stop can transition it.'
+        {workerAttached
+          ? '🔒 Worker owns this card — only the agent or Stop can transition it.'
           : validTransitions.length === 0
             ? 'No transitions available from this state.'
             : 'Select a target state to move the card through the board.'}
       </div>
-      {card.runner_status && runnerStatusStyles[card.runner_status] && (
+      {card.worker_status && workerStatusStyles[card.worker_status] && (
         <div
-          className={`mt-3 px-2 py-1 rounded text-xs inline-block${card.runner_status === 'running' ? ' animate-pulse' : ''}`}
+          className={`mt-3 px-2 py-1 rounded text-xs inline-block${card.worker_status === 'running' ? ' animate-pulse' : ''}`}
           style={{
-            backgroundColor: runnerStatusStyles[card.runner_status].bg,
-            color: runnerStatusStyles[card.runner_status].text,
+            backgroundColor: workerStatusStyles[card.worker_status].bg,
+            color: workerStatusStyles[card.worker_status].text,
           }}
         >
-          {runnerStatusStyles[card.runner_status].label}
+          {workerStatusStyles[card.worker_status].label}
         </div>
       )}
     </section>

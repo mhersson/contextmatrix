@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { useRunnerLogs } from './useRunnerLogs';
+import { useWorkerLogs } from './useWorkerLogs';
 
 // ---------------------------------------------------------------------------
 // Fake EventSource
@@ -73,10 +73,10 @@ function latestES(): FakeEventSource {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('useRunnerLogs — dropped frame handling', () => {
+describe('useWorkerLogs — dropped frame handling', () => {
   it('(a) dropped frame inserts a gap marker entry and does not add a blank LogEntry', () => {
     const { result } = renderHook(() =>
-      useRunnerLogs({ project: 'proj', enabled: true }),
+      useWorkerLogs({ project: 'proj', enabled: true }),
     );
 
     act(() => { latestES().simulateOpen(); });
@@ -100,7 +100,7 @@ describe('useRunnerLogs — dropped frame handling', () => {
 
   it('dropped frame with count=0 still produces a gap marker', () => {
     const { result } = renderHook(() =>
-      useRunnerLogs({ project: 'proj', enabled: true }),
+      useWorkerLogs({ project: 'proj', enabled: true }),
     );
 
     act(() => { latestES().simulateOpen(); });
@@ -114,10 +114,10 @@ describe('useRunnerLogs — dropped frame handling', () => {
   });
 });
 
-describe('useRunnerLogs — terminal frame handling', () => {
+describe('useWorkerLogs — terminal frame handling', () => {
   it('(b) terminal frame after log delivery sets connected=false and no reconnect is scheduled', () => {
     const { result } = renderHook(() =>
-      useRunnerLogs({ project: 'proj', enabled: true }),
+      useWorkerLogs({ project: 'proj', enabled: true }),
     );
 
     act(() => { latestES().simulateOpen(); });
@@ -151,7 +151,7 @@ describe('useRunnerLogs — terminal frame handling', () => {
 
   it('terminal frame does not push any entry to logs', () => {
     const { result } = renderHook(() =>
-      useRunnerLogs({ project: 'proj', enabled: true }),
+      useWorkerLogs({ project: 'proj', enabled: true }),
     );
 
     act(() => { latestES().simulateOpen(); });
@@ -165,7 +165,7 @@ describe('useRunnerLogs — terminal frame handling', () => {
 
   it('onerror after a clean terminal does NOT schedule reconnect', () => {
     const { result } = renderHook(() =>
-      useRunnerLogs({ project: 'proj', enabled: true }),
+      useWorkerLogs({ project: 'proj', enabled: true }),
     );
 
     act(() => { latestES().simulateOpen(); });
@@ -196,10 +196,10 @@ describe('useRunnerLogs — terminal frame handling', () => {
   });
 });
 
-describe('useRunnerLogs — seq gap detection', () => {
+describe('useWorkerLogs — seq gap detection', () => {
   it('(c) out-of-order seq inserts a client-side gap marker between entries', () => {
     const { result } = renderHook(() =>
-      useRunnerLogs({ project: 'proj', enabled: true }),
+      useWorkerLogs({ project: 'proj', enabled: true }),
     );
 
     act(() => { latestES().simulateOpen(); });
@@ -240,7 +240,7 @@ describe('useRunnerLogs — seq gap detection', () => {
 
   it('consecutive seq numbers do NOT insert a gap marker', () => {
     const { result } = renderHook(() =>
-      useRunnerLogs({ project: 'proj', enabled: true }),
+      useWorkerLogs({ project: 'proj', enabled: true }),
     );
 
     act(() => { latestES().simulateOpen(); });
@@ -263,7 +263,7 @@ describe('useRunnerLogs — seq gap detection', () => {
 
   it('first message with any seq does not produce a gap (no previous seq)', () => {
     const { result } = renderHook(() =>
-      useRunnerLogs({ project: 'proj', enabled: true }),
+      useWorkerLogs({ project: 'proj', enabled: true }),
     );
 
     act(() => { latestES().simulateOpen(); });
@@ -278,7 +278,7 @@ describe('useRunnerLogs — seq gap detection', () => {
 
   it('seq gap marker content mentions the sequence numbers', () => {
     const { result } = renderHook(() =>
-      useRunnerLogs({ project: 'proj', enabled: true }),
+      useWorkerLogs({ project: 'proj', enabled: true }),
     );
 
     act(() => { latestES().simulateOpen(); });
@@ -299,9 +299,9 @@ describe('useRunnerLogs — seq gap detection', () => {
   });
 });
 
-describe('useRunnerLogs — terminal-before-snapshot race guard', () => {
+describe('useWorkerLogs — terminal-before-snapshot race guard', () => {
   it('terminal frame before any log events schedules a reconnect (not permanent halt)', () => {
-    renderHook(() => useRunnerLogs({ project: 'proj', enabled: true }));
+    renderHook(() => useWorkerLogs({ project: 'proj', enabled: true }));
 
     act(() => { latestES().simulateOpen(); });
 
@@ -322,7 +322,7 @@ describe('useRunnerLogs — terminal-before-snapshot race guard', () => {
 
   it('terminal frame before any log events does NOT set terminalRef (logs stays empty, no halt)', () => {
     const { result } = renderHook(() =>
-      useRunnerLogs({ project: 'proj', enabled: true }),
+      useWorkerLogs({ project: 'proj', enabled: true }),
     );
 
     act(() => { latestES().simulateOpen(); });
@@ -343,7 +343,7 @@ describe('useRunnerLogs — terminal-before-snapshot race guard', () => {
   });
 
   it('terminal frame after at least one log event still halts reconnects (existing behavior preserved)', () => {
-    renderHook(() => useRunnerLogs({ project: 'proj', enabled: true }));
+    renderHook(() => useWorkerLogs({ project: 'proj', enabled: true }));
 
     act(() => { latestES().simulateOpen(); });
 
@@ -368,7 +368,7 @@ describe('useRunnerLogs — terminal-before-snapshot race guard', () => {
 
   it('after reconnect triggered by empty-buffer terminal, second connection delivers logs normally', () => {
     const { result } = renderHook(() =>
-      useRunnerLogs({ project: 'proj', enabled: true }),
+      useWorkerLogs({ project: 'proj', enabled: true }),
     );
 
     act(() => { latestES().simulateOpen(); });
@@ -406,10 +406,10 @@ describe('useRunnerLogs — terminal-before-snapshot race guard', () => {
   });
 });
 
-describe('useRunnerLogs — usage entry filtering', () => {
+describe('useWorkerLogs — usage entry filtering', () => {
   it('silently drops usage entries — they do not appear in logs', () => {
     const { result } = renderHook(() =>
-      useRunnerLogs({ project: 'proj', enabled: true }),
+      useWorkerLogs({ project: 'proj', enabled: true }),
     );
 
     act(() => { latestES().simulateOpen(); });
@@ -429,7 +429,7 @@ describe('useRunnerLogs — usage entry filtering', () => {
 
   it('drops usage entries but still delivers subsequent non-usage entries', () => {
     const { result } = renderHook(() =>
-      useRunnerLogs({ project: 'proj', enabled: true }),
+      useWorkerLogs({ project: 'proj', enabled: true }),
     );
 
     act(() => { latestES().simulateOpen(); });
@@ -467,7 +467,7 @@ describe('useRunnerLogs — usage entry filtering', () => {
     // a spurious gap marker (seq was e.g. 1, usage consumed seq=2, next text
     // arrives at seq=3 — without the fix the hook sees 3 > 1+1 and fires).
     const { result } = renderHook(() =>
-      useRunnerLogs({ project: 'proj', enabled: true }),
+      useWorkerLogs({ project: 'proj', enabled: true }),
     );
 
     act(() => { latestES().simulateOpen(); });
@@ -498,9 +498,9 @@ describe('useRunnerLogs — usage entry filtering', () => {
   });
 });
 
-describe('useRunnerLogs — reconnect on error (non-terminal)', () => {
+describe('useWorkerLogs — reconnect on error (non-terminal)', () => {
   it('onerror triggers reconnect after delay when not terminal', () => {
-    renderHook(() => useRunnerLogs({ project: 'proj', enabled: true }));
+    renderHook(() => useWorkerLogs({ project: 'proj', enabled: true }));
 
     act(() => { latestES().simulateOpen(); });
 
@@ -517,11 +517,11 @@ describe('useRunnerLogs — reconnect on error (non-terminal)', () => {
   });
 });
 
-describe('useRunnerLogs — close→reopen does not duplicate entries', () => {
+describe('useWorkerLogs — close→reopen does not duplicate entries', () => {
   it('buffer is cleared on reopen so server snapshot replay does not produce duplicates', () => {
     const { result, rerender } = renderHook(
       ({ enabled }: { enabled: boolean }) =>
-        useRunnerLogs({ project: 'proj', enabled, cardId: 'CARD-1' }),
+        useWorkerLogs({ project: 'proj', enabled, cardId: 'CARD-1' }),
       { initialProps: { enabled: true } },
     );
 
@@ -560,11 +560,11 @@ describe('useRunnerLogs — close→reopen does not duplicate entries', () => {
   });
 });
 
-describe('useRunnerLogs — stream identity changes', () => {
+describe('useWorkerLogs — stream identity changes', () => {
   it('clears buffer when cardId changes so entries from previous card do not bleed', () => {
     const { result, rerender } = renderHook(
       ({ cardId }: { cardId: string }) =>
-        useRunnerLogs({ project: 'proj', enabled: true, cardId }),
+        useWorkerLogs({ project: 'proj', enabled: true, cardId }),
       { initialProps: { cardId: 'CARD-A' } },
     );
 
@@ -598,7 +598,7 @@ describe('useRunnerLogs — stream identity changes', () => {
   it('clears buffer when project changes', () => {
     const { result, rerender } = renderHook(
       ({ project }: { project: string }) =>
-        useRunnerLogs({ project, enabled: true }),
+        useWorkerLogs({ project, enabled: true }),
       { initialProps: { project: 'proj-1' } },
     );
 
@@ -617,7 +617,7 @@ describe('useRunnerLogs — stream identity changes', () => {
   it('does NOT emit a spurious seq gap marker on the first message after a card switch', () => {
     const { result, rerender } = renderHook(
       ({ cardId }: { cardId: string }) =>
-        useRunnerLogs({ project: 'proj', enabled: true, cardId }),
+        useWorkerLogs({ project: 'proj', enabled: true, cardId }),
       { initialProps: { cardId: 'CARD-A' } },
     );
 

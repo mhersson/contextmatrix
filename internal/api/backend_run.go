@@ -49,7 +49,7 @@ func (h *backendHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 	id := strings.ToUpper(r.PathValue("id"))
 
 	if h.backend == nil {
-		writeError(w, http.StatusServiceUnavailable, ErrCodeBackendDisabled, "runner is not configured", "")
+		writeError(w, http.StatusServiceUnavailable, ErrCodeBackendDisabled, "no execution backend is configured", "")
 
 		return
 	}
@@ -81,9 +81,9 @@ func (h *backendHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if card.RunnerStatus == "queued" || card.RunnerStatus == "running" {
-		writeError(w, http.StatusConflict, ErrCodeBackendConflict,
-			"card is already being executed by the runner", fmt.Sprintf("runner_status: %s", card.RunnerStatus))
+	if card.WorkerStatus == "queued" || card.WorkerStatus == "running" {
+		writeError(w, http.StatusConflict, ErrCodeWorkerConflict,
+			"card is already being executed by a worker", fmt.Sprintf("worker_status: %s", card.WorkerStatus))
 
 		return
 	}
@@ -116,8 +116,8 @@ func (h *backendHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set runner_status to queued.
-	card, err = h.svc.UpdateWorkerStatus(r.Context(), project, id, "queued", "task queued for runner")
+	// Set worker_status to queued.
+	card, err = h.svc.UpdateWorkerStatus(r.Context(), project, id, "queued", "task queued for worker")
 	if err != nil {
 		handleServiceError(w, r, err)
 
@@ -168,8 +168,8 @@ func (h *backendHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 	// verify gate uses the operator-declared command.
 	payload.Verify = resolveVerify(card.Verify, projectCfg.Verify)
 
-	if projectCfg.RemoteExecution != nil && projectCfg.RemoteExecution.RunnerImage != "" {
-		payload.RunnerImage = projectCfg.RemoteExecution.RunnerImage
+	if projectCfg.RemoteExecution != nil && projectCfg.RemoteExecution.WorkerImage != "" {
+		payload.WorkerImage = projectCfg.RemoteExecution.WorkerImage
 	}
 
 	if h.catalog != nil {
@@ -256,12 +256,12 @@ func (h *backendHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 		revertCtx := context.WithoutCancel(r.Context())
 		if _, revertErr := h.svc.UpdateWorkerStatus(revertCtx, project, id, "failed",
 			"webhook trigger failed"); revertErr != nil {
-			ctxlog.Logger(r.Context()).Error("failed to revert runner_status after webhook failure",
+			ctxlog.Logger(r.Context()).Error("failed to revert worker_status after webhook failure",
 				"card_id", id, "project", project, "error", revertErr)
 		}
 
 		writeError(w, http.StatusBadGateway, ErrCodeBackendUnavailable,
-			"failed to trigger runner", "")
+			"failed to trigger backend task", "")
 
 		return
 	}
@@ -273,13 +273,13 @@ func (h *backendHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 // broken or unresolvable project git-token provider (either providerForProject
 // itself failed, or the resolved provider's GenerateToken call did).
 //
-// runCard has already set runner_status to "queued" by this point, so the
+// runCard has already set worker_status to "queued" by this point, so the
 // rejection first reverts it to "failed" — mirroring the webhook-failure
 // revert below (context.WithoutCancel so a client disconnect cannot strand
 // the rollback). Without the revert, the already-queued guard at the top of
 // runCard would 409 every future trigger of this card until a manual stop.
 // The revert runs before the activity append so the run-rejected trace stays
-// the most recent entry (UpdateWorkerStatus appends its own runner_status
+// the most recent entry (UpdateWorkerStatus appends its own worker_status
 // entry). Both writes are best-effort: failures are logged but never change
 // the 409 response, since the caller has already been told the run was
 // rejected.
@@ -293,7 +293,7 @@ func (h *backendHandlers) rejectRunForCredentialFailure(w http.ResponseWriter, r
 	revertCtx := context.WithoutCancel(r.Context())
 	if _, revertErr := h.svc.UpdateWorkerStatus(revertCtx, project, id, "failed",
 		"trigger rejected: project credential unavailable"); revertErr != nil {
-		ctxlog.Logger(r.Context()).Error("failed to revert runner_status after credential failure",
+		ctxlog.Logger(r.Context()).Error("failed to revert worker_status after credential failure",
 			"card_id", id, "project", project, "error", revertErr)
 	}
 
