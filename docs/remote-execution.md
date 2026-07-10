@@ -591,8 +591,9 @@ compatibility with the pre-worker-fetched design; CM never populates them on
 `ChatStartPayload` (contrast with `/trigger`, where the identically-named
 `git_token` field above is very much live). `git_credentials_token` is empty
 when no chat-backend `api_key` is configured, or on a CM build that predates
-this change — backends fall back to their own local git configuration in
-that case (deprecated path, retained for compatibility).
+this change — both live backends fail the session closed in that case (the
+agent rejects the trigger, the chat backend 500s the chat-start); the local
+git-configuration fallback has been retired.
 
 `primer` is optional. When non-empty, it carries the chat-mode orientation text
 read from `workflow-skills/chat-mode.md` on every cold open. The runner writes
