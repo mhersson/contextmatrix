@@ -51,7 +51,30 @@ type UpdateProjectInput struct {
 	//   non-nil empty     — mount no skills
 	//   non-nil populated — constrain to listed skills
 	DefaultSkills *[]string
+	// RemoteExecution uses field-level merge semantics (unlike DefaultSkills'
+	// wholesale replace):
+	//   nil pointer   — preserve the existing remote_execution config
+	//   non-nil       — merge each set subfield into the existing config
+	RemoteExecution *RemoteExecutionUpdate
 }
+
+// RemoteExecutionUpdate carries per-field edits to a project's remote-execution
+// config. Each pointer is applied independently: nil leaves the subfield
+// untouched; non-nil sets it. A non-nil RunnerImage of "" clears the image.
+type RemoteExecutionUpdate struct {
+	Enabled     *bool
+	RunnerImage *string
+}
+
+// validRunnerImage is a hygiene-only screen for a per-project runner image
+// reference: it must start with an alphanumeric and contain only characters
+// that appear in OCI image references. Exact registry/tag/digest grammar is
+// left to the container runtime. Empty passes (it means "clear the image").
+var validRunnerImage = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._:/@-]*$`)
+
+// maxRunnerImageLen caps the runner image reference length before it reaches
+// .board.yaml. Hygiene only — well above any real image reference.
+const maxRunnerImageLen = 512
 
 // validProjectName matches safe directory names: alphanumeric, hyphens, underscores.
 var validProjectName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
@@ -232,6 +255,38 @@ func (s *CardService) UpdateProject(ctx context.Context, name string, input Upda
 	// handling): nil pointer in the request clears the field, allowing
 	// the UI to switch a project from constrained back to "mount full set".
 	cfg.DefaultSkills = input.DefaultSkills
+
+	// RemoteExecution merges field-by-field (nil pointer preserves the whole
+	// config). Build a fresh struct rather than mutating cfg.RemoteExecution
+	// in place: the store's GetProject returns a shallow copy, so that pointer
+	// may still be shared with the cached config.
+	if input.RemoteExecution != nil {
+		re := board.RemoteExecutionConfig{}
+		if cfg.RemoteExecution != nil {
+			re = *cfg.RemoteExecution
+		}
+
+		if input.RemoteExecution.Enabled != nil {
+			v := *input.RemoteExecution.Enabled
+			re.Enabled = &v
+		}
+
+		if input.RemoteExecution.RunnerImage != nil {
+			image := strings.TrimSpace(*input.RemoteExecution.RunnerImage)
+			if err := validateRunnerImage(image); err != nil {
+				return nil, err
+			}
+
+			re.RunnerImage = image
+		}
+
+		// Normalize: drop a zero-value config so .board.yaml stays clean.
+		if remoteExecutionIsZero(&re) {
+			cfg.RemoteExecution = nil
+		} else {
+			cfg.RemoteExecution = &re
+		}
+	}
 
 	// SaveProject validates and persists
 	if err := s.store.SaveProject(ctx, cfg); err != nil {
@@ -665,6 +720,36 @@ func copyProjectConfig(cfg *board.ProjectConfig) *board.ProjectConfig {
 	}
 
 	return &cp
+}
+
+// validateRunnerImage screens a per-project runner image reference for hygiene
+// only (length + allowed characters); exact OCI reference grammar is left to
+// the container runtime. Empty is allowed — it clears the image. Wraps
+// ErrInvalidProjectConfig so the API layer maps it to 422, matching the other
+// project-config validation failures.
+func validateRunnerImage(image string) error {
+	if image == "" {
+		return nil
+	}
+
+	if len(image) > maxRunnerImageLen {
+		return fmt.Errorf("%w: runner_image exceeds %d bytes", board.ErrInvalidProjectConfig, maxRunnerImageLen)
+	}
+
+	if !validRunnerImage.MatchString(image) {
+		return fmt.Errorf("%w: runner_image contains invalid characters", board.ErrInvalidProjectConfig)
+	}
+
+	return nil
+}
+
+// remoteExecutionIsZero reports whether a merged remote-execution config carries
+// no operator intent and can be dropped so .board.yaml stays clean. Only the Go
+// zero value qualifies: an explicit Enabled (even a pointer to false) is a
+// meaningful per-project override of the global default (see
+// runner.isRemoteExecutionEnabled) and must be preserved.
+func remoteExecutionIsZero(re *board.RemoteExecutionConfig) bool {
+	return re.Enabled == nil && re.RunnerImage == ""
 }
 
 // toSet converts a slice to a set for membership checks.

@@ -2556,6 +2556,202 @@ func TestUpdateProject_GitHubCredentialRoundTrip(t *testing.T) {
 	assert.Empty(t, reloaded.GitHubCredential, "clear must round-trip through .board.yaml on disk")
 }
 
+// remoteExecBaseInput returns an UpdateProjectInput that satisfies the
+// states/types/priorities/transitions validation for the "test-project"
+// fixture, carrying only the remote_execution merge under test.
+func remoteExecBaseInput(re *RemoteExecutionUpdate) UpdateProjectInput {
+	return UpdateProjectInput{
+		States:     []string{"todo", "in_progress", "done", "stalled", "not_planned"},
+		Types:      []string{"task", "bug", "feature"},
+		Priorities: []string{"low", "medium", "high"},
+		Transitions: map[string][]string{
+			"todo":        {"in_progress"},
+			"in_progress": {"done", "todo"},
+			"done":        {"todo"},
+			"stalled":     {"todo", "in_progress"},
+			"not_planned": {"todo"},
+		},
+		RemoteExecution: re,
+	}
+}
+
+// TestUpdateProject_RemoteExecutionMerge exercises the field-level merge
+// semantics: preserve on nil, per-subfield merge, clear-via-empty-image, and
+// preservation of an explicit enabled=false (which must NOT normalize away).
+func TestUpdateProject_RemoteExecutionMerge(t *testing.T) {
+	svc, tmpDir, cleanup := setupTest(t)
+	defer cleanup()
+
+	projectDir := filepath.Join(tmpDir, "boards", "test-project")
+	ctx := context.Background()
+
+	boolPtr := func(b bool) *bool { return &b }
+	strPtr := func(s string) *string { return &s }
+
+	// Set both subfields and confirm it round-trips to .board.yaml on disk.
+	cfg, err := svc.UpdateProject(ctx, "test-project", remoteExecBaseInput(&RemoteExecutionUpdate{
+		Enabled:     boolPtr(true),
+		RunnerImage: strPtr("ghcr.io/org/runner:latest"),
+	}))
+	require.NoError(t, err)
+	require.NotNil(t, cfg.RemoteExecution)
+	require.NotNil(t, cfg.RemoteExecution.Enabled)
+	assert.True(t, *cfg.RemoteExecution.Enabled)
+	assert.Equal(t, "ghcr.io/org/runner:latest", cfg.RemoteExecution.RunnerImage)
+
+	reloaded, err := board.LoadProjectConfig(projectDir)
+	require.NoError(t, err)
+	require.NotNil(t, reloaded.RemoteExecution)
+	assert.Equal(t, "ghcr.io/org/runner:latest", reloaded.RemoteExecution.RunnerImage)
+
+	// Preserve: a nil pointer leaves the entire config untouched.
+	cfg, err = svc.UpdateProject(ctx, "test-project", remoteExecBaseInput(nil))
+	require.NoError(t, err)
+	require.NotNil(t, cfg.RemoteExecution)
+	require.NotNil(t, cfg.RemoteExecution.Enabled)
+	assert.True(t, *cfg.RemoteExecution.Enabled)
+	assert.Equal(t, "ghcr.io/org/runner:latest", cfg.RemoteExecution.RunnerImage)
+
+	// Merge image-only: enabled must survive.
+	cfg, err = svc.UpdateProject(ctx, "test-project", remoteExecBaseInput(&RemoteExecutionUpdate{
+		RunnerImage: strPtr("ghcr.io/org/runner:v2"),
+	}))
+	require.NoError(t, err)
+	require.NotNil(t, cfg.RemoteExecution.Enabled)
+	assert.True(t, *cfg.RemoteExecution.Enabled, "enabled must survive an image-only merge")
+	assert.Equal(t, "ghcr.io/org/runner:v2", cfg.RemoteExecution.RunnerImage)
+
+	// Merge enabled-only: image must survive.
+	cfg, err = svc.UpdateProject(ctx, "test-project", remoteExecBaseInput(&RemoteExecutionUpdate{
+		Enabled: boolPtr(false),
+	}))
+	require.NoError(t, err)
+	require.NotNil(t, cfg.RemoteExecution.Enabled)
+	assert.False(t, *cfg.RemoteExecution.Enabled)
+	assert.Equal(t, "ghcr.io/org/runner:v2", cfg.RemoteExecution.RunnerImage, "image must survive an enabled-only merge")
+
+	// Clear via empty image: with an explicit enabled=false still set, the
+	// config is a meaningful per-project opt-out and must NOT normalize to nil.
+	cfg, err = svc.UpdateProject(ctx, "test-project", remoteExecBaseInput(&RemoteExecutionUpdate{
+		RunnerImage: strPtr(""),
+	}))
+	require.NoError(t, err)
+	require.NotNil(t, cfg.RemoteExecution, "explicit enabled=false must be preserved, not normalized away")
+	require.NotNil(t, cfg.RemoteExecution.Enabled)
+	assert.False(t, *cfg.RemoteExecution.Enabled)
+	assert.Empty(t, cfg.RemoteExecution.RunnerImage)
+}
+
+// TestUpdateProject_RemoteExecutionNormalizesToNil confirms a merge whose result
+// carries no operator intent (enabled unset, image empty) drops the config so
+// .board.yaml stays clean.
+func TestUpdateProject_RemoteExecutionNormalizesToNil(t *testing.T) {
+	svc, tmpDir, cleanup := setupTest(t)
+	defer cleanup()
+
+	projectDir := filepath.Join(tmpDir, "boards", "test-project")
+	ctx := context.Background()
+
+	strPtr := func(s string) *string { return &s }
+
+	// Set image only — enabled stays unset (nil).
+	cfg, err := svc.UpdateProject(ctx, "test-project", remoteExecBaseInput(&RemoteExecutionUpdate{
+		RunnerImage: strPtr("ghcr.io/org/runner:latest"),
+	}))
+	require.NoError(t, err)
+	require.NotNil(t, cfg.RemoteExecution)
+	assert.Nil(t, cfg.RemoteExecution.Enabled)
+	assert.Equal(t, "ghcr.io/org/runner:latest", cfg.RemoteExecution.RunnerImage)
+
+	// Clear the image; with enabled unset the config is the zero value and the
+	// whole struct is dropped.
+	cfg, err = svc.UpdateProject(ctx, "test-project", remoteExecBaseInput(&RemoteExecutionUpdate{
+		RunnerImage: strPtr("   "), // whitespace trims to empty
+	}))
+	require.NoError(t, err)
+	assert.Nil(t, cfg.RemoteExecution, "zero-value remote_execution must normalize to nil")
+
+	reloaded, err := board.LoadProjectConfig(projectDir)
+	require.NoError(t, err)
+	assert.Nil(t, reloaded.RemoteExecution, "normalized-away config must be absent from .board.yaml on disk")
+}
+
+// TestUpdateProject_RemoteExecutionImageValidation covers the hygiene screen on
+// the runner image: length cap, allowed characters, empty-is-clear.
+func TestUpdateProject_RemoteExecutionImageValidation(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	strPtr := func(s string) *string { return &s }
+
+	tests := []struct {
+		name    string
+		image   string
+		wantErr bool
+	}{
+		{"empty clears", "", false},
+		{"bare name", "runner", false},
+		{"registry path and tag", "ghcr.io/org/runner:latest", false},
+		{"digest reference", "ghcr.io/org/runner@sha256:abc123", false},
+		{"max length", strings.Repeat("a", maxRunnerImageLen), false},
+		{"leading dash rejected", "-runner", true},
+		{"embedded space rejected", "ghcr.io/org/runner latest", true},
+		{"illegal char rejected", "runner!", true},
+		{"too long rejected", strings.Repeat("a", maxRunnerImageLen+1), true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := svc.UpdateProject(ctx, "test-project", remoteExecBaseInput(&RemoteExecutionUpdate{
+				RunnerImage: strPtr(tt.image),
+			}))
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, board.ErrInvalidProjectConfig)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestUpdateProject_MCPShapePreservesFields is the regression for the MCP
+// update_project fix: the read-modify-write shape the fixed handler now sends
+// (DefaultSkills backfilled from the current config, Repo backfilled when the
+// caller omits it) must leave both fields intact rather than wiping them.
+func TestUpdateProject_MCPShapePreservesFields(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Seed the project with a repo and operator-configured default_skills.
+	skills := []string{"go-development"}
+
+	seed := remoteExecBaseInput(nil)
+	seed.Repo = "https://github.com/org/test"
+	seed.DefaultSkills = &skills
+
+	_, err := svc.UpdateProject(ctx, "test-project", seed)
+	require.NoError(t, err)
+
+	// The shape the fixed MCP handler sends: repo and default_skills backfilled
+	// from the current config (the tool input carries neither channel).
+	cur, err := svc.GetProject(ctx, "test-project")
+	require.NoError(t, err)
+
+	mcpShaped := remoteExecBaseInput(nil)
+	mcpShaped.Repo = cur.Repo
+	mcpShaped.DefaultSkills = cur.DefaultSkills
+
+	cfg, err := svc.UpdateProject(ctx, "test-project", mcpShaped)
+	require.NoError(t, err)
+	assert.Equal(t, "https://github.com/org/test", cfg.Repo, "repo must be preserved")
+	require.NotNil(t, cfg.DefaultSkills, "default_skills must not be wiped")
+	assert.Equal(t, []string{"go-development"}, *cfg.DefaultSkills)
+}
+
 func TestUpdateProject_CannotRemoveInUseState(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
 	defer cleanup()

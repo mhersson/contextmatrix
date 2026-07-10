@@ -24,10 +24,6 @@ function ghToString(gh: GitHubImportConfig | undefined): string {
   return JSON.stringify(gh ?? emptyGitHub);
 }
 
-function reToString(re: RemoteExecutionConfig | undefined): string {
-  return JSON.stringify(re ?? emptyRemoteExecution);
-}
-
 export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: ProjectSettingsProps) {
   const [config, setConfig] = useState<ProjectConfig | null>(null);
   const [loading, setLoading] = useState(true);
@@ -53,6 +49,12 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
   const [newPriority, setNewPriority] = useState('');
   const [github, setGitHub] = useState<GitHubImportConfig>(emptyGitHub);
   const [remoteExecution, setRemoteExecution] = useState<RemoteExecutionConfig>(emptyRemoteExecution);
+  // Tracks whether the operator interacted with the Remote Execution section
+  // this session. It is the ONLY dirty/payload signal for remote_execution:
+  // config.remote_execution is an unreliable baseline because GET returns the
+  // effective value (effectiveRemoteExecution forces `enabled`) while PUT
+  // returns the raw value, so after a save the two diverge. See handleSave.
+  const [remoteExecutionTouched, setRemoteExecutionTouched] = useState(false);
   const [defaultSkills, setDefaultSkills] = useState<string[] | null>(null);
   const [githubCredential, setGithubCredential] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -91,6 +93,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
         setTransitions(normalizedTransitions);
         setGitHub(cfg.github ?? emptyGitHub);
         setRemoteExecution(cfg.remote_execution ?? emptyRemoteExecution);
+        setRemoteExecutionTouched(false);
         setDefaultSkills(cfg.default_skills ?? null);
         setGithubCredential(cfg.github_credential ?? '');
         setCardCount(count);
@@ -134,7 +137,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
       JSON.stringify(priorities) !== JSON.stringify(config.priorities) ||
       serializeTransitions(transitions) !== serializeTransitions(config.transitions) ||
       ghToString(github) !== ghToString(config.github) ||
-      reToString(remoteExecution) !== reToString(config.remote_execution) ||
+      remoteExecutionTouched ||
       JSON.stringify(defaultSkills) !== JSON.stringify(configDefaultSkills) ||
       githubCredential !== (config.github_credential ?? '')
     );
@@ -146,7 +149,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
     priorities,
     transitions,
     github,
-    remoteExecution,
+    remoteExecutionTouched,
     defaultSkills,
     githubCredential,
     serializeTransitions,
@@ -181,9 +184,29 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
         ...(mode === 'multi' && githubCredential !== (config?.github_credential ?? '')
           ? { github_credential: githubCredential }
           : {}),
+        // Send remote_execution only when the operator actually touched the
+        // section. A value diff against config.remote_execution cannot be
+        // trusted: GET returns the effective config (effectiveRemoteExecution
+        // forces `enabled` to false when the backend is globally disabled) but
+        // PUT returns the raw config, so after the first save `config` holds the
+        // raw value while the section state still holds the effective one — an
+        // echo-back would then persist a forced enabled:false (wiping an opt-in)
+        // or fabricate an explicit flag on a project that relied on the global
+        // default. The touched flag sidesteps that baseline entirely.
+        ...(remoteExecutionTouched
+          ? {
+              remote_execution: {
+                enabled: !!remoteExecution.enabled,
+                runner_image: remoteExecution.runner_image ?? '',
+              },
+            }
+          : {}),
       };
       const updated = await api.updateProject(project, input);
       setConfig(updated);
+      // The save landed; the section state is now the baseline. Clearing the
+      // flag keeps the form from reading as dirty against the raw PUT response.
+      setRemoteExecutionTouched(false);
       onUpdated(updated);
       showToast('Project settings saved', 'success');
     } catch (err) {
@@ -203,6 +226,8 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
     priorities,
     transitions,
     github,
+    remoteExecution,
+    remoteExecutionTouched,
     defaultSkills,
     githubCredential,
     mode,
@@ -392,7 +417,10 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
         {/* Remote Execution */}
         <RemoteExecutionSection
           value={remoteExecution}
-          onChange={setRemoteExecution}
+          onChange={(next) => {
+            setRemoteExecution(next);
+            setRemoteExecutionTouched(true);
+          }}
           inputStyle={inputStyle}
         />
 
