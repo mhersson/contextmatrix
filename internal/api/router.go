@@ -115,12 +115,15 @@ type APIError struct {
 
 // RouterConfig holds all dependencies for creating the HTTP router.
 type RouterConfig struct {
-	Service                *service.CardService
-	Bus                    *events.Bus
-	CORSOrigin             string
-	Syncer                 Syncer
-	Runner                 TaskBackend          // nil when no task backend is configured
-	BackendCfg             config.BackendConfig // resolved task-backend entry (Name set); zero value when Runner is nil
+	Service    *service.CardService
+	Bus        *events.Bus
+	CORSOrigin string
+	Syncer     Syncer
+	Runner     TaskBackend // nil when no task backend is configured
+	// AgentBackendCfg is the resolved agent backend entry. nil when Runner is
+	// nil; normalized to an empty config at construction so handlers can read
+	// fields without nil checks (an empty APIKey fails callback auth closed).
+	AgentBackendCfg        *config.AgentBackendConfig
 	MCPAPIKey              string
 	GitHubTokenProvider    githubauth.TokenGenerator
 	TaskSkillsDir          string // absolute path to the task-skills directory; empty disables the skills selector
@@ -135,11 +138,10 @@ type RouterConfig struct {
 	ChatHub                *chat.SSEHub        // optional; required when ChatManager is set
 	// ChatBackendCfg is the dedicated "chat" backend entry. Its HMAC key
 	// authenticates GET /api/chat/task-skills-source (the chat service's
-	// pointer fetch). Zero value when no dedicated chat backend is configured.
-	ChatBackendCfg config.BackendConfig
-	// ChatWorkerAPIKey is the resolved (precedence-aware: runner-serves-chat
-	// wins, else the dedicated "chat" entry) chat-backend api_key — the same
-	// secret cmd/contextmatrix/wire_chat.go used to mint
+	// pointer fetch). nil when no dedicated chat backend is configured.
+	ChatBackendCfg *config.ChatBackendConfig
+	// ChatWorkerAPIKey is the chat entry's api_key — the same secret
+	// cmd/contextmatrix/wire_chat.go used to mint
 	// StartChatOpts.GitCredentialsToken. GET /api/worker/git-credentials
 	// verifies bearer tokens against this exact value, so mint and verify
 	// never disagree. Empty disables the route (no chat backend, or one with
@@ -244,6 +246,15 @@ type ServedModelView struct {
 func NewRouter(cfg RouterConfig) http.Handler {
 	mux := http.NewServeMux()
 
+	// Normalize a nil agent entry to an empty config so the handler set can
+	// read fields without nil checks. The empty APIKey makes every callback
+	// authentication fail closed; the routes behind the Runner-nil gates are
+	// unregistered or 503 anyway.
+	agentCfg := cfg.AgentBackendCfg
+	if agentCfg == nil {
+		agentCfg = &config.AgentBackendConfig{}
+	}
+
 	// Create handlers
 	taskSkillsLister := newTaskSkillsLister(cfg.TaskSkillsDir)
 	tsh := &taskSkillHandlers{lister: taskSkillsLister}
@@ -260,11 +271,18 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	acth := &activityHandlers{svc: cfg.Service}
 	eh := newEventHandlers(cfg.Bus)
 	sh := &syncHandlers{syncer: cfg.Syncer}
+	// taskBackend is surfaced in GET /api/app/config: the agent backend is
+	// the only task backend, so its presence is the Runner wiring itself.
+	taskBackendName := ""
+	if cfg.Runner != nil {
+		taskBackendName = config.BackendNameAgent
+	}
+
 	ach := &appConfigHandlers{
 		theme:          cfg.Theme,
 		version:        cfg.Version,
-		taskBackend:    cfg.BackendCfg.Name,
-		favorites:      extractFavorites(cfg.BackendCfg.Favorites),
+		taskBackend:    taskBackendName,
+		favorites:      extractFavorites(agentCfg.Favorites),
 		authMode:       cfg.AuthMode,
 		bestOfNMax:     cfg.BestOfN.MaxCandidates,
 		bestOfNDefault: cfg.BestOfN.DefaultCandidates,
@@ -401,7 +419,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	rh := &runnerHandlers{
 		svc:                    cfg.Service,
 		runner:                 cfg.Runner,
-		backendCfg:             cfg.BackendCfg,
+		backendCfg:             agentCfg,
 		mcpAPIKey:              cfg.MCPAPIKey,
 		sessionManager:         cfg.SessionManager,
 		replayCache:            runner.NewSignatureCache(),
@@ -420,29 +438,19 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/message", rh.messageCard)
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/promote", rh.promoteCard)
 	mux.HandleFunc("POST /api/projects/{project}/stop-all", rh.stopAll)
-	// Backend-callback endpoints mount at /api/<name> derived from the
-	// backend entry name. The HMAC key is selected by path at registration
-	// time — each handler set closes over exactly one backend's key + replay
-	// cache, resolved before any card lookup.
+	// Backend-callback endpoints mount at the fixed config.AgentCallbackPath
+	// (the agent repo hardcodes it). The HMAC key is selected by path at
+	// registration time — each handler set closes over exactly one backend's
+	// key + replay cache, resolved before any card lookup.
 	//
 	// GET /api/runner/logs and /api/runner/health are BROWSER-facing (the
 	// web UI's EventSource and capacity meter), not backend callbacks —
-	// they stay at literal paths. So does the runner-called
+	// they stay at literal paths. So does the backend-called
 	// GET /api/v1/cards/.../autonomous.
 	if cfg.Runner != nil {
-		// Fail fast at startup: an empty Name would silently mount the
-		// backend callbacks at /api/ (derived path would be "/api/"). Real
-		// configs can't get here (applyBackendDefaults always sets Name);
-		// this guards sloppy test fixtures and future wiring bugs. Same
-		// panic-at-registration posture as validateOverrideLimit.
-		if cfg.BackendCfg.Name == "" {
-			panic("api: RouterConfig.BackendCfg.Name must be set when Runner is non-nil")
-		}
-
-		cb := cfg.BackendCfg.CallbackPath()
-		mux.HandleFunc("POST "+cb+"/status", rh.runnerStatusUpdate)
-		mux.HandleFunc("GET "+cb+"/task-skills-source", rh.getTaskSkillsSource)
-		mux.HandleFunc("GET "+cb+"/git-credentials", rh.getGitCredentials)
+		mux.HandleFunc("POST "+config.AgentCallbackPath+"/status", rh.runnerStatusUpdate)
+		mux.HandleFunc("GET "+config.AgentCallbackPath+"/task-skills-source", rh.getTaskSkillsSource)
+		mux.HandleFunc("GET "+config.AgentCallbackPath+"/git-credentials", rh.getGitCredentials)
 		mux.HandleFunc("GET /api/runner/logs", rh.streamRunnerLogs)
 		mux.HandleFunc("GET /api/runner/health", rh.getRunnerHealth)
 		mux.HandleFunc("GET /api/v1/cards/{project}/{id}/autonomous", rh.getCardAutonomous)
@@ -501,12 +509,10 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		mux.HandleFunc("GET /api/chats/models", chh.listModels)
 	}
 
-	// Chat backend callback (HMAC-signed): the dedicated chat service fetches the
-	// task-skills git pointer and clones it itself, mirroring the agent. Registered
-	// only when a dedicated chat backend key is configured. When the runner serves
-	// chat instead (ChatBackendConfig precedence: runner → chat), the chat resolver
-	// uses the runner's own /api/runner/task-skills-source, so no /api/chat route is
-	// needed here.
+	// Chat backend callback (HMAC-signed): the dedicated chat service fetches
+	// the task-skills git pointer and clones it itself, mirroring the agent.
+	// Registered only when a dedicated chat backend entry is enabled and keyed
+	// (IsEnabled is nil-safe: an absent entry is nil → disabled).
 	if cfg.ChatBackendCfg.IsEnabled() && cfg.ChatBackendCfg.APIKey != "" {
 		cbh := &chatBackendHandlers{
 			apiKey:                 cfg.ChatBackendCfg.APIKey,
@@ -515,7 +521,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			taskSkillsGitRemoteURL: cfg.TaskSkillsGitRemoteURL,
 			instanceTokenProvider:  cfg.GitHubTokenProvider,
 		}
-		mux.HandleFunc("GET "+cfg.ChatBackendCfg.CallbackPath()+"/task-skills-source", cbh.getTaskSkillsSource)
+		mux.HandleFunc("GET "+config.ChatCallbackPath+"/task-skills-source", cbh.getTaskSkillsSource)
 	}
 
 	// Worker git-credentials: chat workers fetch per-repo git credentials on

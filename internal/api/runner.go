@@ -60,11 +60,13 @@ type outcomeStatsReader interface {
 	ModelOutcomeStats(ctx context.Context) ([]sqlite.OutcomeStats, error)
 }
 
-// runnerHandlers contains handlers for remote execution endpoints.
+// runnerHandlers contains handlers for remote execution endpoints. This
+// handler set exists only for the agent backend — the callback endpoints it
+// serves mount at config.AgentCallbackPath.
 type runnerHandlers struct {
 	svc               *service.CardService
-	runner            TaskBackend          // nil when no task backend is configured
-	backendCfg        config.BackendConfig // resolved task-backend entry (Name set); zero value when no task backend is configured
+	runner            TaskBackend                // nil when no task backend is configured
+	backendCfg        *config.AgentBackendConfig // resolved agent entry; never nil (NewRouter normalizes an absent entry to the zero value)
 	mcpAPIKey         string
 	sessionManager    *sessionlog.Manager // nil when session manager is not configured
 	keepaliveInterval time.Duration       // zero → use default (30s)
@@ -288,27 +290,23 @@ func (h *runnerHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 		TaskSkills:  taskSkills,
 	}
 
-	// Best-of-N is an agent-backend-only feature; the runner backend never
-	// receives it (0/omitted). Clamp against the configured max — the stored
-	// card value can exceed it if max_candidates was lowered after the card
-	// was set, since the REST PATCH/PUT validation only checks the max in
-	// effect at write time.
-	if h.backendCfg.Name == config.BackendNameAgent && card.BestOfN >= 2 {
+	// Clamp Best-of-N against the configured max — the stored card value can
+	// exceed it if max_candidates was lowered after the card was set, since
+	// the REST PATCH/PUT validation only checks the max in effect at write
+	// time.
+	if card.BestOfN >= 2 {
 		payload.BestOfN = min(card.BestOfN, h.bestOfN.MaxCandidates)
 	}
 
-	// Verify is an agent-backend-only field: CM resolves card-over-project and
-	// sends it so the agent's verify gate uses the operator-declared command.
-	// The frozen runner backend never receives it (nil), matching BestOfN.
-	if h.backendCfg.Name == config.BackendNameAgent {
-		payload.Verify = resolveVerify(card.Verify, projectCfg.Verify)
-	}
+	// Verify: CM resolves card-over-project and sends it so the agent's
+	// verify gate uses the operator-declared command.
+	payload.Verify = resolveVerify(card.Verify, projectCfg.Verify)
 
 	if projectCfg.RemoteExecution != nil && projectCfg.RemoteExecution.RunnerImage != "" {
 		payload.RunnerImage = projectCfg.RemoteExecution.RunnerImage
 	}
 
-	if h.backendCfg.Name == config.BackendNameAgent && h.catalog != nil {
+	if h.catalog != nil {
 		var bl []string
 
 		if h.blacklist != nil {

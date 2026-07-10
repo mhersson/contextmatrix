@@ -438,11 +438,13 @@ func main() {
 	// the endpoint-only path (chat-only deployments) yields pricing only.
 	var catalogBuilder *modelcatalog.Builder
 
-	agentCfg, hasAgent := cfg.Backends[config.BackendNameAgent]
+	// agentCfg is nil when the agent backend is absent or disabled; every
+	// read below is behind hasAgent.
+	agentCfg, hasAgent := cfg.AgentBackend()
 	agentAA := hasAgent && agentCfg.AAAPIKey != ""
 
-	chatBackendCfg := cfg.Backends[config.BackendNameChat]
-	chatOpenRouter := chatBackendCfg.IsEnabled() && chatBackendCfg.APIKey != ""
+	chatBackendCfg, chatBackendEnabled := cfg.ChatBackend()
+	chatOpenRouter := chatBackendEnabled && chatBackendCfg.APIKey != ""
 
 	switch {
 	case agentAA:
@@ -475,9 +477,20 @@ func main() {
 	case hasAgent || chatOpenRouter:
 		// OpenRouter catalog without AA: no selection candidates, but the
 		// served set drives the model pickers, write-time validation, and
-		// chat cost pricing on AA-less deployments.
-		catalogBuilder = modelcatalog.NewBuilder("", 0.65, agentCfg.ModelAllowlist, 0,
-			modelcatalog.WithFavorites(flattenFavorites(agentCfg.Favorites)))
+		// chat cost pricing on AA-less deployments. On a chat-only deployment
+		// there is no agent entry — no allowlist or favorites apply.
+		var (
+			allowlist []string
+			favorites map[string]board.TierFavorites
+		)
+
+		if hasAgent {
+			allowlist = agentCfg.ModelAllowlist
+			favorites = agentCfg.Favorites
+		}
+
+		catalogBuilder = modelcatalog.NewBuilder("", 0.65, allowlist, 0,
+			modelcatalog.WithFavorites(flattenFavorites(favorites)))
 
 		slog.Info("model catalog builder initialized", "endpoint_type", cfg.LLMEndpoint.Type, "mode", "openrouter-catalog-only")
 	}
@@ -543,15 +556,12 @@ func main() {
 		taskBackend = runnerSys.Client
 	}
 
-	// BackendCfg is the resolved task-backend entry; zero value when no
-	// task backend is configured (handlers behind the Runner-nil gate never
-	// read it then).
-	taskBackendCfg, _ := cfg.TaskBackendConfig()
-
-	// Attribute backend-generated audit-trail entries to the active backend.
-	// taskBackendCfg.Name is "runner"/"agent"/"" (empty when none configured;
-	// the affected service paths are unreachable in that case).
-	svc.SetTaskBackendName(taskBackendCfg.Name)
+	// Attribute backend-generated audit-trail entries to the agent backend
+	// when it resolves. Left unset otherwise — the affected service paths are
+	// unreachable then, and the neutral "backend" default applies.
+	if hasAgent {
+		svc.SetTaskBackendName(config.BackendNameAgent)
+	}
 
 	sessionMgr := runnerSys.SessionLog
 
@@ -584,19 +594,16 @@ func main() {
 	// in runCard and causes a panic on the mutex lock (nil receiver dereference).
 	// Blacklist, Outcomes, and OutcomesAdmin (all opStore) are always
 	// non-nil so they are set unconditionally.
-	// chatBackendCfg is the dedicated "chat" backend entry (zero value when
-	// absent), already fetched above for the catalog builder switch. Its key
-	// authenticates the chat service's task-skills pointer fetch. Name is set
-	// defensively: map values may not carry it.
-	chatBackendCfg.Name = config.BackendNameChat
-
+	// chatBackendCfg is the dedicated "chat" backend entry (nil when absent
+	// or disabled), already fetched above for the catalog builder switch. Its
+	// key authenticates the chat service's task-skills pointer fetch.
 	routerCfg := api.RouterConfig{
 		Service:                svc,
 		Bus:                    bus,
 		CORSOrigin:             cfg.CORSOrigin,
 		Syncer:                 apiSyncer,
 		Runner:                 taskBackend,
-		BackendCfg:             taskBackendCfg,
+		AgentBackendCfg:        agentCfg,
 		MCPAPIKey:              cfg.MCPAPIKey,
 		GitHubTokenProvider:    tokenProvider,
 		TaskSkillsDir:          cfg.TaskSkills.Dir,

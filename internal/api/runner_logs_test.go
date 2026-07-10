@@ -22,9 +22,8 @@ import (
 func makeRunnerHandlers(runnerURL, apiKey string) *runnerHandlers {
 	return &runnerHandlers{
 		runner: runner.NewClient(runnerURL, apiKey),
-		backendCfg: config.BackendConfig{
+		backendCfg: &config.AgentBackendConfig{
 			APIKey: apiKey,
-			Name:   "runner",
 		},
 	}
 }

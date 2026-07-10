@@ -59,11 +59,11 @@ func (r *chatStubRunner) StreamLogs(ctx context.Context, _ string, _ func(chat.L
 }
 
 type fixtureOpts struct {
-	// chatBackendCfg is the dedicated "chat" backend entry. Zero value (the
+	// chatBackendCfg is the dedicated "chat" backend entry. nil (the
 	// default) means no chat backend is configured → no-backend fallback.
 	// Set an enabled+keyed entry with a DefaultModel to exercise OpenRouter
 	// mode.
-	chatBackendCfg config.BackendConfig
+	chatBackendCfg *config.ChatBackendConfig
 	// endpointModels, when non-nil, is the raw (uncached) endpoint model
 	// fetcher. The fixture wraps it with a TTL cache before wiring into
 	// the handler, matching the production path in NewRouter.
@@ -105,15 +105,20 @@ func newChatFixtureWithRunner(t *testing.T, opts fixtureOpts) (*http.ServeMux, *
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
+	// Mirrors production wiring: the manager's cold-open fallback is the
+	// chat backend entry's default_model (empty when no backend).
+	defaultModel := ""
+	if opts.chatBackendCfg != nil {
+		defaultModel = opts.chatBackendCfg.DefaultModel
+	}
+
 	runner := &chatStubRunner{}
 	mgr := chat.NewManager(chat.Config{
-		Store:   store,
-		Backend: runner,
-		Clock:   clock.Real(),
-		IdleTTL: time.Hour,
-		// Mirrors production wiring: the manager's cold-open fallback is
-		// the chat backend entry's default_model (empty when no backend).
-		DefaultModel: opts.chatBackendCfg.DefaultModel,
+		Store:        store,
+		Backend:      runner,
+		Clock:        clock.Real(),
+		IdleTTL:      time.Hour,
+		DefaultModel: defaultModel,
 	})
 	hub := chat.NewSSEHub(64)
 	mux := http.NewServeMux()
@@ -502,8 +507,7 @@ func TestCreateChat_NoBackend_AcceptsAnyModel(t *testing.T) {
 // openRouter mode.
 func openRouterFixtureOpts() fixtureOpts {
 	return fixtureOpts{
-		chatBackendCfg: config.BackendConfig{
-			Name:         config.BackendNameChat,
+		chatBackendCfg: &config.ChatBackendConfig{
 			APIKey:       "chat-backend-hmac-key-0123456789ab",
 			DefaultModel: "anthropic/claude-sonnet-4",
 		},
@@ -511,9 +515,9 @@ func openRouterFixtureOpts() fixtureOpts {
 }
 
 // TestListModels_NoBackendFallsBackToEndpointSource verifies the no-backend
-// fallback: with no chat backend configured (zero-value BackendConfig) and no
-// endpoint picker wired, listModels serves an empty endpoint-source response
-// so the picker renders nothing.
+// fallback: with no chat backend configured (nil entry) and no endpoint
+// picker wired, listModels serves an empty endpoint-source response so the
+// picker renders nothing.
 func TestListModels_NoBackendFallsBackToEndpointSource(t *testing.T) {
 	t.Parallel()
 	mux, _ := newChatFixture(t, defaultFixtureOpts())
