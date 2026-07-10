@@ -1,4 +1,4 @@
-interface RunnerConsoleHeaderProps {
+interface WorkerConsoleHeaderProps {
   connected: boolean;
   cardFilter: string;
   cardIds: string[];
@@ -7,14 +7,14 @@ interface RunnerConsoleHeaderProps {
   onClose: () => void;
 }
 
-export function RunnerConsoleHeader({
+export function WorkerConsoleHeader({
   connected,
   cardFilter,
   cardIds,
   onCardFilterChange,
   onClear,
   onClose,
-}: RunnerConsoleHeaderProps) {
+}: WorkerConsoleHeaderProps) {
   return (
     <div
       className="flex items-center gap-3 px-3 py-1.5 flex-shrink-0 text-xs"
@@ -25,7 +25,7 @@ export function RunnerConsoleHeader({
         <span style={{ color: 'var(--aqua)' }} aria-hidden="true">
           &gt;_
         </span>
-        Runner Console
+        Worker Console
       </span>
 
       {/* Connection status dot */}

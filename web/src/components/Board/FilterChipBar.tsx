@@ -104,12 +104,12 @@ export function FilterChipBar({
         <button
           type="button"
           className="fchip"
-          data-active={filter.runner_status === 'running'}
-          aria-pressed={filter.runner_status === 'running'}
-          onClick={() => toggle('runner_status', 'running')}
+          data-active={filter.worker_status === 'running'}
+          aria-pressed={filter.worker_status === 'running'}
+          onClick={() => toggle('worker_status', 'running')}
         >
           <span className="fchip__swatch" style={{ background: 'var(--aqua)' }} />
-          runner:running
+          worker:running
         </button>
       </div>
     </div>

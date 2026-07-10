@@ -1,26 +1,26 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 
-export interface RunnerHealthState {
+export interface BackendHealthState {
   maxAgents: number | undefined;
   runningContainers: number | undefined;
 }
 
-export function useRunnerHealth(intervalMs: number): RunnerHealthState {
+export function useBackendHealth(intervalMs: number): BackendHealthState {
   const [maxAgents, setMaxAgents] = useState<number | undefined>(undefined);
   const [runningContainers, setRunningContainers] = useState<number | undefined>(undefined);
 
   useEffect(() => {
     let cancelled = false;
     let inFlight: AbortController | null = null;
-    const fetchRunnerHealth = () => {
+    const fetchBackendHealth = () => {
       if (cancelled) return;
       if (document.visibilityState !== 'visible') return;
       if (inFlight) inFlight.abort();
       const ctrl = new AbortController();
       inFlight = ctrl;
       api
-        .getRunnerHealth(ctrl.signal)
+        .getBackendHealth(ctrl.signal)
         .then((h) => {
           if (cancelled || ctrl.signal.aborted) return;
           setMaxAgents(h.max_concurrent);
@@ -29,13 +29,13 @@ export function useRunnerHealth(intervalMs: number): RunnerHealthState {
         .catch((err) => {
           if (ctrl.signal.aborted) return;
           if (err instanceof DOMException && err.name === 'AbortError') return;
-          console.warn('runner health poll failed:', err);
+          console.warn('backend health poll failed:', err);
         });
     };
-    fetchRunnerHealth();
-    const interval = setInterval(fetchRunnerHealth, intervalMs);
+    fetchBackendHealth();
+    const interval = setInterval(fetchBackendHealth, intervalMs);
     const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible') fetchRunnerHealth();
+      if (document.visibilityState === 'visible') fetchBackendHealth();
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
     return () => {

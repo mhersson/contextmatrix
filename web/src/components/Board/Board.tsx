@@ -82,7 +82,7 @@ interface BoardProps {
   stateCounts?: Record<string, number>;
   stateCountsParents?: Record<string, number>;
   metricSeries?: MetricSeries;
-  runnerMaxAgents?: number;
+  maxWorkers?: number;
   runningContainers?: number;
   syncStatus?: SyncStatus | null;
   connected?: boolean;
@@ -112,7 +112,7 @@ export function Board({
   stateCounts,
   stateCountsParents,
   metricSeries,
-  runnerMaxAgents,
+  maxWorkers,
   runningContainers,
   syncStatus,
   connected,
@@ -172,7 +172,7 @@ export function Board({
       if (filter.label && !(card.labels ?? []).includes(filter.label)) return false;
       if (filter.agent && card.assigned_agent !== filter.agent) return false;
       if (filter.autonomous && !card.autonomous) return false;
-      if (filter.runner_status && card.runner_status !== filter.runner_status) return false;
+      if (filter.worker_status && card.worker_status !== filter.worker_status) return false;
       if (hasSearch) {
         const haystack = [
           card.id,
@@ -392,7 +392,7 @@ export function Board({
             <NowRail
               agents={activeAgents}
               activityEntries={activityEntries}
-              maxAgents={runnerMaxAgents}
+              maxAgents={maxWorkers}
               runningContainers={runningContainers}
               hasBackfill={activityBackfillLoaded}
               className={isMobile ? 'animate-panel-slide-in' : undefined}

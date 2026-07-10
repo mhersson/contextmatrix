@@ -10,7 +10,7 @@ interface RelatedCard {
 
 interface MetadataRelatedProps {
   card: Card;
-  runnerAttached: boolean;
+  workerAttached: boolean;
   onSubtaskClick: (cardId: string) => void;
 }
 
@@ -26,7 +26,7 @@ interface MetadataRelatedProps {
  */
 export function MetadataRelated({
   card,
-  runnerAttached,
+  workerAttached,
   onSubtaskClick,
 }: MetadataRelatedProps) {
   const [related, setRelated] = useState<Record<string, RelatedCard>>({});
@@ -110,7 +110,7 @@ export function MetadataRelated({
       )}
 
       {/* Depends on */}
-      {(deps.length > 0 || !runnerAttached) && (
+      {(deps.length > 0 || !workerAttached) && (
         <section className="bf-aside-section">
           <h4>Depends on{deps.length > 0 ? <span className="font-mono normal-case" style={{ color: 'var(--grey0)', fontWeight: 400, letterSpacing: '0.02em' }}> · {deps.length}</span> : null}</h4>
           {deps.length > 0 ? (
@@ -143,7 +143,7 @@ export function MetadataRelated({
               No dependencies.
             </div>
           )}
-          {!runnerAttached && (
+          {!workerAttached && (
             <button
               type="button"
               className="bf-btn-ghost bf-btn-sm"

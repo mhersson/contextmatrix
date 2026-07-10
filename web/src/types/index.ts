@@ -41,7 +41,7 @@ export interface Card {
   base_branch?: string;
   pr_url?: string;
   review_attempts?: number;
-  runner_status?: 'queued' | 'running' | 'failed' | 'killed';
+  worker_status?: 'queued' | 'running' | 'failed' | 'killed';
   created: string;
   updated: string;
   activity_log?: ActivityEntry[];
@@ -100,7 +100,7 @@ export interface ProjectConfig {
   transitions: Record<string, string[]>;
   remote_execution?: {
     enabled?: boolean;
-    runner_image?: string;
+    worker_image?: string;
   };
   /**
    * Operator-declared verify gate every card inherits unless it overrides.
@@ -136,7 +136,7 @@ export interface CardFilter {
   external_id?: string;
   vetted?: boolean;
   autonomous?: boolean;
-  runner_status?: string;
+  worker_status?: string;
 }
 
 export interface APIError {
@@ -162,10 +162,10 @@ export type EventType =
   | 'sync.completed'
   | 'sync.conflict'
   | 'sync.error'
-  | 'runner.triggered'
-  | 'runner.started'
-  | 'runner.failed'
-  | 'runner.killed';
+  | 'worker.triggered'
+  | 'worker.started'
+  | 'worker.failed'
+  | 'worker.killed';
 
 export interface SyncStatus {
   last_sync_time: string | null;
@@ -303,7 +303,7 @@ export interface ActivityFeedResponse {
   items: ActivityFeedEntry[];
 }
 
-export interface RunnerHealth {
+export interface BackendHealth {
   ok: boolean;
   running_containers: number;
   max_concurrent: number;
@@ -336,13 +336,13 @@ export interface UpdateProjectInput {
   github_credential?: string;
   /**
    * Field-level merge on the server: the whole object omitted preserves the
-   * current config; each subfield present is applied (runner_image "" clears
+   * current config; each subfield present is applied (worker_image "" clears
    * the image). Send only when the value changed from the loaded config —
    * see the echo-back note in ProjectSettings.handleSave.
    */
   remote_execution?: {
     enabled?: boolean;
-    runner_image?: string;
+    worker_image?: string;
   };
   /**
    * Replace-whole-struct on the server: the object omitted preserves the
@@ -360,7 +360,7 @@ export interface StopAllResponse {
   affected_cards: string[];
 }
 
-export type RunnerStatus = NonNullable<Card['runner_status']>;
+export type WorkerStatus = NonNullable<Card['worker_status']>;
 
 export type LogEntryType =
   | 'text'
@@ -402,8 +402,8 @@ export interface AppConfig {
    */
   auth_mode?: AuthMode;
   /**
-   * Active task-execution backend: "runner" or "agent" (may be "" when no
-   * task backend is configured). Drives which automation controls render.
+   * Active task-execution backend: "agent" (may be "" when no task backend
+   * is configured). Drives which automation controls render.
    */
   task_backend?: string;
   /**

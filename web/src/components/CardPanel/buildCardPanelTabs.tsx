@@ -13,7 +13,7 @@ interface BuildCardPanelTabsOptions {
   config: ProjectConfig;
   cardLogs: readonly LogEntry[];
   currentAgentId: string | null;
-  runnerAttached: boolean;
+  workerAttached: boolean;
   isHITLRunning: boolean;
   onClaim: () => Promise<void>;
   onRelease: () => Promise<void>;
@@ -100,7 +100,7 @@ export function buildCardPanelTabs(opts: BuildCardPanelTabsOptions): {
         setEditedCard={opts.setEditedCard}
         config={opts.config}
         currentAgentId={opts.currentAgentId}
-        runnerAttached={opts.runnerAttached}
+        workerAttached={opts.workerAttached}
         onSubtaskClick={opts.onSubtaskClick}
         onClaim={opts.onClaim}
         onRelease={opts.onRelease}

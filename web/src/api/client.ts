@@ -18,7 +18,7 @@ import type {
   ChatModelList,
   ModelCatalogResponse,
   ActivityFeedResponse,
-  RunnerHealth,
+  BackendHealth,
   SessionUser,
   TokenInfo,
   RedeemTokenInput,
@@ -258,8 +258,8 @@ class APIClient {
     return this.request<ActivityFeedResponse>(`/projects/${encodeURIComponent(project)}/activity?limit=${limit}`);
   }
 
-  async getRunnerHealth(signal?: AbortSignal): Promise<RunnerHealth> {
-    return this.request<RunnerHealth>(`/runner/health`, { signal });
+  async getBackendHealth(signal?: AbortSignal): Promise<BackendHealth> {
+    return this.request<BackendHealth>(`/backend/health`, { signal });
   }
 
   // App config
@@ -381,7 +381,7 @@ class APIClient {
     return this.request<SyncStatus>('/sync');
   }
 
-  // Runner
+  // Worker runs
   async runCard(
     project: string,
     id: string,

@@ -1,7 +1,7 @@
 import type { LogEntry } from '../../types';
 import { VirtualLogList } from './VirtualLogList';
 
-interface RunnerConsoleLogProps {
+interface WorkerConsoleLogProps {
   logs: readonly LogEntry[];
   error: string | null;
 }
@@ -17,7 +17,7 @@ export function logRowKey(entry: LogEntry): string {
     : `g-${entry.ts}-${entry.content}`;
 }
 
-export function RunnerConsoleLog({ logs, error }: RunnerConsoleLogProps) {
+export function WorkerConsoleLog({ logs, error }: WorkerConsoleLogProps) {
   const emptyState = (
     <div
       className="flex-1 flex items-center justify-center text-xs"
@@ -25,7 +25,7 @@ export function RunnerConsoleLog({ logs, error }: RunnerConsoleLogProps) {
       role="log"
       aria-live="polite"
       aria-atomic="false"
-      aria-label="Runner log"
+      aria-label="Worker log"
     >
       {error ?? 'No log entries'}
     </div>
@@ -39,7 +39,7 @@ export function RunnerConsoleLog({ logs, error }: RunnerConsoleLogProps) {
       role="log"
       ariaLive="polite"
       ariaAtomic={false}
-      ariaLabel="Runner log"
+      ariaLabel="Worker log"
       emptyState={emptyState}
     />
   );

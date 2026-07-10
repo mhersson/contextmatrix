@@ -84,8 +84,8 @@ vi.mock('../../hooks/useToast', () => ({
   })),
 }));
 
-vi.mock('../../hooks/useRunnerLogs', () => ({
-  useRunnerLogs: vi.fn(() => ({
+vi.mock('../../hooks/useWorkerLogs', () => ({
+  useWorkerLogs: vi.fn(() => ({
     logs: [],
     connected: false,
     error: null,
@@ -162,8 +162,8 @@ vi.mock('../ErrorBoundary', () => ({
   ErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
-vi.mock('../RunnerConsole', () => ({
-  RunnerConsole: () => <div data-testid="runner-console" />,
+vi.mock('../WorkerConsole', () => ({
+  WorkerConsole: () => <div data-testid="worker-console" />,
 }));
 
 vi.mock('../NotFound', () => ({
@@ -176,7 +176,7 @@ vi.mock('../../api/client', () => ({
     createCard: vi.fn(),
     getDashboard: vi.fn(() => new Promise(() => {})),
     getActivity: vi.fn(() => new Promise(() => {})),
-    getRunnerHealth: vi.fn(() => new Promise(() => {})),
+    getBackendHealth: vi.fn(() => new Promise(() => {})),
   },
   isAPIError: (err: unknown): err is { error: string; code?: string } =>
     err != null && typeof err === 'object' && 'error' in err,
@@ -232,8 +232,8 @@ beforeEach(() => {
   // Default: api.runCard resolves with updated card
   mockApi.runCard.mockResolvedValue({
     ...baseCard,
-    runner_status: 'queued' as const,
-    assigned_agent: 'runner-agent',
+    worker_status: 'queued' as const,
+    assigned_agent: 'worker-agent',
   });
 });
 
@@ -303,8 +303,8 @@ describe('ProjectShell — onCreateCard', () => {
     expect(screen.queryByTestId('create-card-panel')).not.toBeInTheDocument();
   });
 
-  it('"Create & Run" with runner error does not open the card panel', async () => {
-    mockApi.runCard.mockRejectedValue({ error: 'runner offline', code: 'RUNNER_ERROR' });
+  it('"Create & Run" with worker error does not open the card panel', async () => {
+    mockApi.runCard.mockRejectedValue({ error: 'worker offline', code: 'WORKER_ERROR' });
 
     renderProjectShell();
 
@@ -315,7 +315,7 @@ describe('ProjectShell — onCreateCard', () => {
       await capturedOnCreate!({ title: 'New card', type: 'task', priority: 'medium' }, { run: true, interactive: true });
     });
 
-    // On runner error, the panel should not open.
+    // On worker error, the panel should not open.
     expect(screen.queryByTestId('card-panel-TEST-001')).not.toBeInTheDocument();
   });
 });

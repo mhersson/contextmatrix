@@ -2,7 +2,7 @@ import { useId, useState } from 'react';
 import type { Card, ProjectConfig } from '../../types';
 import { headerTitleStyle } from '../../lib/header-tokens';
 import {
-  isRunnerAttached,
+  isWorkerAttached,
   primaryAction,
 } from './utils';
 import { BifoldHeader } from './BifoldHeader';
@@ -53,10 +53,10 @@ export function CardPanelHeader({
   const typeId = useId();
   const [confirmStopOpen, setConfirmStopOpen] = useState(false);
 
-  const runnerAttached = isRunnerAttached(card, currentAgentId);
+  const workerAttached = isWorkerAttached(card, currentAgentId);
   const primary = primaryAction(card, editedCard.autonomous ?? false, config, canRun);
 
-  const showSave = !runnerAttached;
+  const showSave = !workerAttached;
   const showBlockedHelper = card.state === 'blocked' && !!firstUnfinishedDep && !!onOpenDependency;
 
   const handleStopConfirm = async () => {
@@ -67,10 +67,10 @@ export function CardPanelHeader({
   const renderPrimary = () => {
     if (!primary) return null;
     // primary.kind === 'stop' is unreachable here: the caller only invokes
-    // renderPrimary from the non-runnerAttached branch, and isRunnerAttached
+    // renderPrimary from the non-workerAttached branch, and isWorkerAttached
     // returns true exactly when primaryAction would return { kind: 'stop' }.
     // The stop button lives inline next to the "Agent still owns this card"
-    // notice in the runnerAttached branch below.
+    // notice in the workerAttached branch below.
     if (primary.kind === 'stop') return null;
     if (primary.kind === 'run') {
       return (
@@ -101,7 +101,7 @@ export function CardPanelHeader({
         card={card}
         editedCard={editedCard}
         config={config}
-        runnerAttached={runnerAttached}
+        workerAttached={workerAttached}
         onClose={onClose}
         onPriorityChange={onPriorityChange}
         priorityId={priorityId}
@@ -119,7 +119,7 @@ export function CardPanelHeader({
     </>
   );
 
-  const title = runnerAttached ? (
+  const title = workerAttached ? (
     <h2 className="truncate text-[var(--fg)]" style={headerTitleStyle} title={editedCard.title}>
       {editedCard.title}
     </h2>
@@ -138,7 +138,7 @@ export function CardPanelHeader({
     </>
   );
 
-  const actions = runnerAttached ? (
+  const actions = workerAttached ? (
     <>
       <div
         role="status"
@@ -149,12 +149,12 @@ export function CardPanelHeader({
         </svg>
         <span>Agent still owns this card — transitions locked</span>
       </div>
-      {(card.runner_status === 'queued' || card.runner_status === 'running') && (
+      {(card.worker_status === 'queued' || card.worker_status === 'running') && (
         <button
           type="button"
           onClick={() => setConfirmStopOpen(true)}
           className="px-3 py-1.5 rounded bg-[var(--bg-red)] text-[var(--red)] hover:opacity-90 transition-opacity text-sm font-medium inline-flex items-center gap-2"
-          aria-label="Stop runner"
+          aria-label="Stop worker"
         >
           <span aria-hidden="true">■</span>
           <span>Stop</span>

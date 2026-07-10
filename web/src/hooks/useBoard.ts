@@ -171,10 +171,10 @@ export function useBoard(
         case 'card.released':
         case 'card.stalled':
         case 'card.log_added':
-        case 'runner.triggered':
-        case 'runner.started':
-        case 'runner.failed':
-        case 'runner.killed':
+        case 'worker.triggered':
+        case 'worker.started':
+        case 'worker.failed':
+        case 'worker.killed':
           api.getCard(project, event.card_id).then((card) => {
             setCards((prev) => {
               const index = prev.findIndex((c) => c.id === card.id);
@@ -209,18 +209,18 @@ export function useBoard(
   }, [reconnectEpoch, fetchData]);
 
   useEffect(() => {
-    // Board reacts to card mutations, runner lifecycle, sync pulls that may
+    // Board reacts to card mutations, worker lifecycle, sync pulls that may
     // bring new card data, and project config updates (to pick up new
     // transitions). We register one subscriber per pattern instead of a
     // wildcard so unrelated events (e.g. other projects' activity) do not
     // reach the handler.
     const unsubCard = subscribe('card.*', handleEvent);
-    const unsubRunner = subscribe('runner.*', handleEvent);
+    const unsubWorker = subscribe('worker.*', handleEvent);
     const unsubSync = subscribe('sync.*', handleEvent);
     const unsubProjectUpdated = subscribe('project.updated', handleEvent);
     return () => {
       unsubCard();
-      unsubRunner();
+      unsubWorker();
       unsubSync();
       unsubProjectUpdated();
     };

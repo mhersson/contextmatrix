@@ -138,20 +138,20 @@ export function formatRelativeTime(dateStr: string): string {
 }
 
 /**
- * True when the card is "owned" by a runner or an agent claim — i.e. humans
+ * True when the card is "owned" by a worker or an agent claim — i.e. humans
  * should not perform free-form state transitions or edit metadata that would
  * conflict with the agent's in-flight work.
  *
  * See the workflow-safety rule in the redesign spec: human state-transition
- * UI must only render when `runner_status not in {queued, running}` AND
+ * UI must only render when `worker_status not in {queued, running}` AND
  * `assigned_agent == null` (or assigned_agent is the current human).
  */
-export function isRunnerAttached(card: Card, currentAgentId: string | null): boolean {
-  const runnerActive = card.runner_status === 'queued' || card.runner_status === 'running';
+export function isWorkerAttached(card: Card, currentAgentId: string | null): boolean {
+  const workerActive = card.worker_status === 'queued' || card.worker_status === 'running';
   const claimedByOther =
     !!card.assigned_agent &&
     !(currentAgentId && card.assigned_agent === currentAgentId && currentAgentId.startsWith('human:'));
-  return runnerActive || claimedByOther;
+  return workerActive || claimedByOther;
 }
 
 /**
@@ -175,7 +175,7 @@ export function primaryAction(
   config: ProjectConfig,
   canRun: boolean,
 ): PrimaryAction {
-  if (card.runner_status === 'queued' || card.runner_status === 'running') {
+  if (card.worker_status === 'queued' || card.worker_status === 'running') {
     return { kind: 'stop' };
   }
   const targets = config.transitions[card.state] || [];

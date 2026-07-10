@@ -11,7 +11,7 @@ interface CardPanelMetadataProps {
   editedCard: Card;
   config: ProjectConfig;
   currentAgentId: string | null;
-  runnerAttached: boolean;
+  workerAttached: boolean;
   onStateChange: (state: string) => void;
   onSubtaskClick: (cardId: string) => void;
   onClaim: () => void;
@@ -27,7 +27,7 @@ interface CardPanelMetadataProps {
  * (`/tmp/card-panel-explorer.html:2188-2224`). Stacked sections in four
  * peer files under `./metadata/`:
  *
- *   1. MetadataStatus  — state picker + hint + runner-status badge
+ *   1. MetadataStatus  — state picker + hint + worker-status badge
  *   2. MetadataAgent   — claim/release (with ConfirmModal)
  *   3. MetadataRelated — Parent / Subtasks / Depends-on (shares hydration)
  *   4. MetadataSource  — external-link pill + vetted checkbox
@@ -39,7 +39,7 @@ export function CardPanelMetadata({
   editedCard,
   config,
   currentAgentId,
-  runnerAttached,
+  workerAttached,
   onStateChange,
   onSubtaskClick,
   onClaim,
@@ -55,7 +55,7 @@ export function CardPanelMetadata({
         card={card}
         editedCard={editedCard}
         config={config}
-        runnerAttached={runnerAttached}
+        workerAttached={workerAttached}
         onStateChange={onStateChange}
         excludeStateFromPicker={excludeStateFromPicker}
       />
@@ -63,7 +63,7 @@ export function CardPanelMetadata({
       <MetadataAgent
         card={card}
         currentAgentId={currentAgentId}
-        runnerAttached={runnerAttached}
+        workerAttached={workerAttached}
         onClaim={onClaim}
         onRelease={onRelease}
       />
@@ -72,9 +72,9 @@ export function CardPanelMetadata({
         value={editedCard.skills}
         config={config}
         onSkillsChange={onSkillsChange}
-        disabled={runnerAttached || card.state !== 'todo'}
+        disabled={workerAttached || card.state !== 'todo'}
         lockedReason={
-          runnerAttached
+          workerAttached
             ? 'Skills locked during remote run'
             : `Skills can only be edited in todo · current state: ${card.state.replace(/_/g, ' ')}`
         }
@@ -82,7 +82,7 @@ export function CardPanelMetadata({
 
       <MetadataRelated
         card={card}
-        runnerAttached={runnerAttached}
+        workerAttached={workerAttached}
         onSubtaskClick={onSubtaskClick}
       />
 

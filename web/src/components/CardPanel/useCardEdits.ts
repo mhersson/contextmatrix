@@ -40,13 +40,13 @@ export function useCardEdits(
 
   /**
    * Run handler: force-enables feature_branch + create_pr (matching
-   * server behavior in internal/api/runner.go:runCard), saves if dirty,
-   * then fires the runner webhook.
+   * server behavior when running a card), saves if dirty,
+   * then fires the worker webhook.
    *
    * On save failure: reverts only the two optimistically-forced fields via
    * a functional update, leaving any concurrent user edits intact.
    *
-   * On runner webhook failure after a successful save: clears the
+   * On worker webhook failure after a successful save: clears the
    * "forced on run" badges (they only make sense next to a live claim).
    */
   const handleRun = useCallback(async () => {
@@ -85,10 +85,10 @@ export function useCardEdits(
     try {
       await onRunCard(!(next.autonomous ?? false));
     } catch {
-      // Save succeeded but the runner webhook failed. The feature_branch /
+      // Save succeeded but the worker webhook failed. The feature_branch /
       // create_pr values on the server are now real, so don't revert those;
       // clear the "forced on run" badges since they only make sense next
-      // to a live runner claim.
+      // to a live worker claim.
       setForcedFeatureBranch(false);
       setForcedCreatePR(false);
     }
