@@ -822,8 +822,8 @@ backends:
 
 # Global chat-panel behavior. Chat data persists in the shared ops.db
 # (op_store.db_path); there is no separate chat database. The chat model
-# source is the configured LLM endpoint (llm_endpoint) plus
-# backends.chat.default_model — there is no chat.models allowlist.
+# source is the configured LLM endpoint (llm_endpoint), with
+# backends.chat.default_model as the cold-open fallback.
 chat:
   idle_ttl: 1h
   max_concurrent: 8

@@ -307,8 +307,8 @@ type Card struct {
 // Note: Autonomous and Vetted intentionally use `json:"autonomous"` /
 // `json:"vetted"` (no `omitempty`) so the boolean is always emitted in API
 // responses — clients can distinguish "explicitly false" from "field not
-// returned". Other booleans (FeatureBranch, CreatePR, UseOpusOrchestrator)
-// keep `omitempty` because they are opt-in and absence carries no meaning.
+// returned". Other booleans (FeatureBranch, CreatePR) keep `omitempty`
+// because they are opt-in and absence carries no meaning.
 
 type ActivityEntry struct {
     Agent     string    `yaml:"agent"           json:"agent"`
