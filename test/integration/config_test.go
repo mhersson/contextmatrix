@@ -143,10 +143,17 @@ func (sc *scenarioConfig) writeCMConfig(t *testing.T, opts cmConfigOptions) stri
 `, sc.stubLLMPort)
 	}
 
+	// Without an explicit workflow_skills_dir CM defaults to a workflow-skills
+	// dir next to the generated config — which doesn't exist, and the worker's
+	// start_review MCP call fails on the missing review-task.md. Point it at
+	// the repo's canonical skills so the scenarios exercise what ships.
+	workflowSkillsDir := filepath.Join(harnessRoot, "..", "..", "workflow-skills")
+
 	body := fmt.Sprintf(`port: %d
 log_format: text
 log_level: debug
 mcp_api_key: %q
+workflow_skills_dir: %s
 boards:
   dir: %s
   git_auto_commit: true
@@ -164,7 +171,7 @@ github:
   auth_mode: pat
   pat:
     token: harness-pat
-`, sc.cmPort, sc.mcpAPIKey, sc.boardsDir, backends, llmEndpoint,
+`, sc.cmPort, sc.mcpAPIKey, workflowSkillsDir, sc.boardsDir, backends, llmEndpoint,
 		filepath.Join(sc.tmpDir, "ops.db"), filepath.Join(sc.tmpDir, "images.db"),
 		filepath.Join(sc.tmpDir, "auth.db"), filepath.Join(sc.tmpDir, "master.key"))
 
