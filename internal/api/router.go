@@ -442,7 +442,6 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 		cb := cfg.BackendCfg.CallbackPath()
 		mux.HandleFunc("POST "+cb+"/status", rh.runnerStatusUpdate)
-		mux.HandleFunc("POST "+cb+"/skill-engaged", rh.handleRunnerSkillEngaged)
 		mux.HandleFunc("GET "+cb+"/task-skills-source", rh.getTaskSkillsSource)
 		mux.HandleFunc("GET "+cb+"/git-credentials", rh.getGitCredentials)
 		mux.HandleFunc("GET /api/runner/logs", rh.streamRunnerLogs)

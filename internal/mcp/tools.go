@@ -62,8 +62,6 @@ func registerTools(cfg registerToolsConfig) {
 	if cfg.Outcomes != nil {
 		registerReportModelOutcome(server, svc, cfg.Outcomes)
 	}
-
-	registerPermissionPrompt(server)
 }
 
 // resolveProject resolves the project for a card ID when project is not provided.

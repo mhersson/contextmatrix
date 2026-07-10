@@ -811,10 +811,7 @@ func (h *runnerHandlers) stopAll(w http.ResponseWriter, r *http.Request) {
 }
 
 // Callback request bodies are protocol-owned; aliased so handlers keep their local names.
-type (
-	runnerStatusRequest = protocol.StatusCallbackPayload
-	skillEngagedRequest = protocol.SkillEngagedPayload
-)
+type runnerStatusRequest = protocol.StatusCallbackPayload
 
 // runnerStatusUpdate handles POST /api/runner/status — runner callback.
 func (h *runnerHandlers) runnerStatusUpdate(w http.ResponseWriter, r *http.Request) {
@@ -1106,36 +1103,6 @@ func (h *runnerHandlers) extractRunnerSignature(w http.ResponseWriter, r *http.R
 // true on success; on failure it writes the 403 response and returns false.
 func (h *runnerHandlers) authenticateRunnerGet(w http.ResponseWriter, r *http.Request) bool {
 	return authenticateBackendGet(w, r, h.backendCfg.APIKey, h.replayCache)
-}
-
-// handleRunnerSkillEngaged handles POST /api/runner/skill-engaged — runner
-// callback notifying CM that the agent has engaged a named skill.
-func (h *runnerHandlers) handleRunnerSkillEngaged(w http.ResponseWriter, r *http.Request) {
-	body, ok := h.authenticateRunnerPost(w, r)
-	if !ok {
-		return
-	}
-
-	var req skillEngagedRequest
-	if err := json.Unmarshal(body, &req); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON", "")
-
-		return
-	}
-
-	if req.CardID == "" || req.Project == "" || req.SkillName == "" {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "card_id, project, skill_name required", "")
-
-		return
-	}
-
-	if err := h.svc.RecordSkillEngaged(r.Context(), req.Project, strings.ToUpper(req.CardID), req.SkillName); err != nil {
-		handleServiceError(w, r, err)
-
-		return
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 // authenticateRunnerPost reads the request body, verifies the HMAC-SHA256
