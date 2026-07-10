@@ -30,7 +30,6 @@ export interface Card {
   vetted?: boolean;
   custom?: Record<string, unknown>;
   autonomous?: boolean;
-  use_opus_orchestrator?: boolean;
   model_orchestrator?: string;
   model_coder?: string;
   model_reviewer?: string;
@@ -193,7 +192,6 @@ export interface CreateCardInput {
   body?: string;
   source?: Source;
   autonomous?: boolean;
-  use_opus_orchestrator?: boolean;
   model_orchestrator?: string;
   model_coder?: string;
   model_reviewer?: string;
@@ -211,7 +209,6 @@ export interface PatchCardInput {
   labels?: string[];
   body?: string;
   autonomous?: boolean;
-  use_opus_orchestrator?: boolean;
   model_orchestrator?: string;
   model_coder?: string;
   model_reviewer?: string;
@@ -548,13 +545,13 @@ export interface ChatModel {
 
 export interface ChatModelList {
   // source tells the New Chat picker which mode to render:
-  //  - 'config': runner serves chat → `models` is the chat.models allowlist.
   //  - 'openrouter': dedicated chat backend serves chat → `models` is CM's
   //    vendor-screened OpenRouter catalog (id/label = slug, max_tokens =
   //    context window); empty only when the server catalog is unfetched.
   //  - 'endpoint': server-provided list from the configured OpenAI-compatible
-  //    endpoint; rendered like 'config' (a <select> over the server models[]).
-  source: 'config' | 'openrouter' | 'endpoint';
+  //    endpoint; rendered as a <select> over the server models[]. The
+  //    no-backend fallback is an empty endpoint list.
+  source: 'openrouter' | 'endpoint';
   models: ChatModel[];
   default: string;
 }

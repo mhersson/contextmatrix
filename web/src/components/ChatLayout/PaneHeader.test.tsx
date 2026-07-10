@@ -6,7 +6,7 @@ import { setChatLiveData, clearChatLiveData } from '../../hooks/useChatLiveData'
 import { useChatModels } from '../../utils/chatModels';
 
 // Mock useChatModels so PaneContextUsage can render a model label without
-// an API call. The default return covers 'config' mode (model-x, 200k tokens)
+// an API call. The default return covers 'endpoint' mode (model-x, 200k tokens)
 // so existing tests run unmodified.
 vi.mock('../../utils/chatModels', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../utils/chatModels')>();
@@ -15,18 +15,18 @@ vi.mock('../../utils/chatModels', async (importOriginal) => {
     // Inline the default — vi.mock factories are hoisted before const declarations.
     useChatModels: vi.fn().mockReturnValue({
       models: [{ id: 'model-x', label: 'Model X', max_tokens: 200_000 }],
-      source: 'config' as const,
+      source: 'endpoint' as const,
     }),
   };
 });
 
-// Reset the mock before each test and restore the config-mode default so a
+// Reset the mock before each test and restore the endpoint-mode default so a
 // mockReturnValue set in one test does not bleed into siblings (StrictMode-safe).
 beforeEach(() => {
   vi.mocked(useChatModels).mockReset();
   vi.mocked(useChatModels).mockReturnValue({
     models: [{ id: 'model-x', label: 'Model X', max_tokens: 200_000 }],
-    source: 'config' as const,
+    source: 'endpoint' as const,
   });
 });
 

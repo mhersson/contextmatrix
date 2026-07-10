@@ -160,7 +160,6 @@ describe('isCardDirty', () => {
     ['body', { body: 'new content' }],
     ['labels', { labels: ['bug'] }],
     ['autonomous', { autonomous: true }],
-    ['use_opus_orchestrator', { use_opus_orchestrator: true }],
     ['best_of_n', { best_of_n: 3 }],
     ['feature_branch', { feature_branch: true }],
     ['create_pr', { create_pr: true }],

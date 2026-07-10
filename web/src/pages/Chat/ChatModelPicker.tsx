@@ -6,12 +6,12 @@ import type { ChatModel } from '../../types';
 
 interface ChatModelPickerProps {
   /** Which picker to render — driven by GET /api/chats/models `source`. */
-  source: 'config' | 'openrouter' | 'endpoint';
-  /** Current model value (config: allowlist id; openrouter: OpenRouter slug). */
+  source: 'openrouter' | 'endpoint';
+  /** Current model value (endpoint: server model id; openrouter: OpenRouter slug). */
   model: string;
-  /** Server default, used to mark the default option in config mode. */
+  /** Server default, used to mark the default option in endpoint mode. */
   defaultModel: string;
-  /** Picker list: config allowlist, or the vendor-screened catalog in openrouter mode. */
+  /** Picker list: the endpoint model list, or the vendor-screened catalog in openrouter mode. */
   models: ChatModel[];
   onChange: (value: string) => void;
 }
@@ -20,15 +20,14 @@ interface ChatModelPickerProps {
  * Model selector for the New Chat dialog. Mirrors the card "pin model"
  * autocomplete when the dedicated chat backend (contextmatrix-chat, OpenRouter)
  * serves chat:
- *  - 'config' (runner serves chat): a <select> over the chat.models allowlist.
- *    Renders nothing when the allowlist is empty.
  *  - 'openrouter': a strict combobox (`ModelCombobox`) over the server-
  *    provided, vendor-screened model list, plus a favorites chip row
  *    (operator-configured slugs from app config). Degrades to a free-text
  *    input when the server list is empty (catalog-unavailable path). Always
  *    renders, even though the `models` list is empty.
  *  - 'endpoint': server-provided model list from the configured OpenAI-
- *    compatible endpoint; rendered as a <select>, identical to 'config'.
+ *    compatible endpoint; rendered as a <select>. Renders nothing when the
+ *    list is empty — new chats then use the server default.
  */
 export function ChatModelPicker({
   source,
@@ -52,7 +51,7 @@ export function ChatModelPicker({
   );
 
   if (!openRouter) {
-    // Native allowlist via the runner — hide entirely when none configured.
+    // Endpoint model list — hide entirely when none configured.
     if (models.length === 0) return null;
     return (
       <>
