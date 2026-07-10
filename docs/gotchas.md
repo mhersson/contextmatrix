@@ -50,8 +50,8 @@
   `http.NewResponseController(w).SetWriteDeadline(time.Time{})` called before
   entering the streaming loop. This clears the deadline for that one connection
   only; all other endpoints keep the server-wide timeout. Applied in
-  `internal/api/events.go` (SSE event stream), `internal/api/runner_logs.go`
-  (runner SSE log stream), and as the `clearWriteDeadlineForStreaming`
+  `internal/api/events.go` (SSE event stream), `internal/api/worker_logs.go`
+  (worker SSE log stream), and as the `clearWriteDeadlineForStreaming`
   middleware in `internal/mcp/server.go` (MCP GET stream). The MCP middleware
   scopes the clear to `GET` requests only — `POST` and `DELETE` (short RPC
   calls) retain the normal `WriteTimeout`. **Critical:** `ResponseController`
@@ -91,13 +91,13 @@
   "connection interrupted while the page was loading" when a new navigation-
   adjacent fetch pushes the total past its limit. Practically: if the app opens
   ≥ 3 `EventSource('/api/events')` connections and then a 4th SSE stream opens
-  at the same origin (e.g. `/api/runner/logs` on HITL start), Firefox aborts the
+  at the same origin (e.g. `/api/worker/logs` on HITL start), Firefox aborts the
   earlier three simultaneously. Chrome does not exhibit this behaviour. The fix
   is to share a single `EventSource` for the whole app via `SSEProvider` and fan
   events out to subscribers in-process — see `web/src/hooks/useSSEBus.tsx`.
   Never open more than one `EventSource` per distinct URL; use the subscriber
-  API for additional consumers of the same stream. For runner logs specifically,
-  `ProjectShell` owns a single card-scoped `useRunnerLogs` call (enabled only
+  API for additional consumers of the same stream. For worker logs specifically,
+  `ProjectShell` owns a single card-scoped `useWorkerLogs` call (enabled only
   while the selected card is a HITL running session) and passes the resulting
   `LogEntry[]` array down to `CardChat` as a prop — `CardChat` does not open its
   own `EventSource`.
@@ -208,17 +208,16 @@
   falls inside the bootstrap window are deduped on the client. Reverting to
   SSE-only (no bootstrap) loses everything older than the server-side 128-entry
   ring on refresh.
-- **Chat rehydration is best-effort and never blocks `/open`:** the runner's
-  `prepareChatResume` writes `resume.jsonl` + `resume.meta.json` into a
-  per-container host directory before starting the container. If the write fails
-  (host tmp not writable, disk full, etc.), `manager.go` logs
-  `StartChat: rehydration file prep failed; starting fresh agent`, omits
-  `CM_CHAT_RESUME=1`, and starts the container anyway. The stdin priming
-  envelope is still written (it is gated on the CM payload's `resume`, not on
-  the file-write outcome), so the agent receives the instructions, fails to read
-  `/run/cm-chat/resume.jsonl`, and calls `chat_rehydration_complete` with a
-  summary that says so. `/open` always returns `200`; surface failures via the
-  transcript, never by refusing to open.
+- **Chat rehydration is best-effort and never blocks `/open`:** CM's chat-start
+  payload carries the resume context (`Resume *ResumeContext`); the chat backend
+  writes it to `resume.jsonl` in the per-session run dir and sets
+  `CM_CHAT_RESUME=1` before starting the container. If that write fails (host
+  tmp not writable, disk full, etc.), the backend starts a fresh agent anyway.
+  The stdin priming envelope is still written (it is gated on the CM payload's
+  `resume`, not on the file-write outcome), so the agent receives the
+  instructions, fails to read `/run/cm-chat/resume.jsonl`, and calls
+  `chat_rehydration_complete` with a summary that says so. `/open` always returns
+  `200`; surface failures via the transcript, never by refusing to open.
 - **`rehydration_phase` stamping prevents reopen pollution:** every message
   appended while `Session.RehydrationActive=TRUE` gets stamped with
   `rehydration_phase=TRUE` in `chat_messages`. `chat.transcript.Build` drops

@@ -2680,11 +2680,11 @@ func TestCreatePlanSkill_AutonomousGates(t *testing.T) {
 		"create-plan.md Phase 9 must have push step")
 }
 
-// TestCreatePlanSkill_Phase9RunnerContextBranches verifies that Phase 9 of
-// workflow-skills/create-plan.md contains both the runner-context auto-commit branch
+// TestCreatePlanSkill_Phase9WorkerContextBranches verifies that Phase 9 of
+// workflow-skills/create-plan.md contains both the worker-context auto-commit branch
 // for remote HITL and the local-HITL user prompts. This is a regression guard
 // so that accidental removal of either branch is caught.
-func TestCreatePlanSkill_Phase9RunnerContextBranches(t *testing.T) {
+func TestCreatePlanSkill_Phase9WorkerContextBranches(t *testing.T) {
 	skillPath := filepath.Join("..", "..", "workflow-skills", "create-plan.md")
 	data, err := os.ReadFile(skillPath)
 	require.NoError(t, err, "workflow-skills/create-plan.md must be readable")
@@ -2696,12 +2696,12 @@ func TestCreatePlanSkill_Phase9RunnerContextBranches(t *testing.T) {
 		content,
 		"create-plan.md Phase 9 must reference Remote HITL")
 
-	// Remote HITL path must detect runner context via CM_CARD_ID presence,
+	// Remote HITL path must detect worker context via CM_CARD_ID presence,
 	// not via the older CM_INTERACTIVE check (which produced ambiguous
 	// agent-side reads when the env var was unset).
 	assert.Regexp(t, `(?si)Phase 9: Commit/Push/PR Gate.*CM_CARD_ID`,
 		content,
-		"create-plan.md Phase 9 must use CM_CARD_ID to detect runner context")
+		"create-plan.md Phase 9 must use CM_CARD_ID to detect worker context")
 
 	// Auto-commit path (autonomous + remote HITL) must forbid prompting. The
 	// "do not prompt" rule must appear after the Remote HITL branch reference
@@ -2718,11 +2718,11 @@ func TestCreatePlanSkill_Phase9RunnerContextBranches(t *testing.T) {
 	assert.Contains(t, content, "Want me to push and create a PR?",
 		"create-plan.md Phase 9 must retain local-HITL push prompt")
 
-	// Local HITL path must be gated on the runner-context detection landing
+	// Local HITL path must be gated on the worker-context detection landing
 	// on the `local` outcome.
 	assert.Regexp(t, `(?si)Phase 9: Commit/Push/PR Gate.*`+"`local`"+`.*Local HITL`,
 		content,
-		"create-plan.md Phase 9 must describe local HITL as the `local` runner-context outcome")
+		"create-plan.md Phase 9 must describe local HITL as the `local` worker-context outcome")
 }
 
 // TestCreatePlanSkillIsSelfContained verifies that workflow-skills/create-plan.md is a

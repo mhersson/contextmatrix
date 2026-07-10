@@ -4,20 +4,23 @@ This document describes how AI agents coordinate work through ContextMatrix.
 
 ## Orchestration model
 
-**Claude Code (CC) is the main agent.** The `Agent` tool built into CC handles
-sub-agent spawning with clean contexts. Two orchestration modes exist:
+**An orchestrator agent drives each card.** It spawns sub-agents with clean
+contexts via the `Agent` tool. The orchestrator is either a local
+human-attached session (e.g. Claude Code, "CC" below) or the multi-model harness
+that the agent backend runs inside a worker container. Two orchestration modes
+exist:
 
-1. **Interactive (HITL / local autonomous):** CC runs directly, user triggers
-   workflows via slash commands or the `run-autonomous` skill. Tasks with the
-   `simple` label use a fast path that skips planning and review (see
-   `docs/data-model.md` § Reserved labels).
-2. **Remote runner:** `contextmatrix-runner` (a separate Go binary) receives
-   HMAC-signed webhooks from ContextMatrix and spawns disposable Docker
-   containers running CC. The runner supports two container modes: autonomous
-   primes Claude with `get_skill('run-autonomous', ...)` and runs without a
-   human channel; HITL (human-in-the-loop) primes Claude with
-   `get_skill('create-plan', ...)` and keeps the human approval gates open via
-   the chat channel. See `docs/remote-execution.md` for the runner architecture.
+1. **Interactive (HITL / local autonomous):** a local agent session (e.g. Claude
+   Code) runs directly; the user triggers workflows via slash commands or the
+   `run-autonomous` skill. Tasks with the `simple` label use a fast path that
+   skips planning and review (see `docs/data-model.md` § Reserved labels).
+2. **Agent backend:** `contextmatrix-agent` (a separate Go service) receives
+   HMAC-signed webhooks from ContextMatrix and spawns disposable worker
+   containers running the harness orchestrator. Autonomous cards start from
+   `get_skill('run-autonomous', ...)` and run without a human channel; HITL
+   cards start from `get_skill('create-plan', ...)` and keep the approval gates
+   open via the chat channel. See `docs/remote-execution.md` for the backend
+   architecture.
 
 ```text
 Human ↔ CC (main agent, Opus)
@@ -29,10 +32,10 @@ Human ↔ CC (main agent, Opus)
                   ├── Agent → specialist (design,      Opus 4-8)
                   └── Agent → specialist (security,    Opus 4-8)
 
-Runner container → CC (orchestrator, Sonnet)
-           ├── Agent → sub-agent (execute-task, Sonnet)
-           ├── Agent → sub-agent (execute-task, Sonnet)
-           └── inline: review-task (synthesizer = Sonnet, your session)
+Worker container → harness orchestrator (agent backend)
+           ├── Agent → sub-agent (execute-task)
+           ├── Agent → sub-agent (execute-task)
+           └── inline: review-task (synthesizer = orchestrator model, your session)
                   ├── Agent → specialist (correctness, Opus 4-8)
                   ├── Agent → specialist (design,      Opus 4-8)
                   └── Agent → specialist (security,    Opus 4-8)
@@ -206,20 +209,15 @@ guidance, not a one-line marker. Engagement stays scoped to the right phase:
 
 ### Backends
 
-Both task-skill backends consume the per-card `task_skills` subset through the
-same selection logic above.
-
-**Runner:** mounts the resolved skills directory as a bind-mount at
-`~/.claude/skills/` in the worker container. Claude Code's native Skill tool
-engages matching skills. Engagement is reported via
-`POST /api/runner/skill-engaged`.
-
-**Agent:** fetches a `{git_remote_url, ref}` pointer from
-`GET /api/agent/task-skills-source`, clones the repo server-side, and
-read-only-mounts the resolved subset. A model-driven Skill tool engages
-matching skills. Engagement is reported via MCP `add_log action=skill_engaged`
-(Path A — the same `RecordSkillEngaged` recording and dedup that the runner's
-callback feeds).
+Both backends consume the per-card `task_skills` subset through the same
+selection logic above. Each fetches a `{git_remote_url, ref}` pointer from CM —
+the agent backend from `GET /api/agent/task-skills-source`, the chat backend
+from `GET /api/chat/task-skills-source` — clones the repo server-side (CM mints
+an instance-scoped clone token alongside the pointer), and read-only-mounts the
+resolved subset at `~/.claude/skills/` in the worker container. A model-driven
+Skill tool engages matching skills; engagement is reported via MCP
+`add_log action=skill_engaged`, which drives the same `RecordSkillEngaged`
+recording and dedup.
 
 ### Authoring convention
 
@@ -258,8 +256,8 @@ You are a <role>.
 
 Optional frontmatter `allowed-tools: [Read, Write]` narrows the active tool set
 when the skill is engaged (it never broadens). Push changes to your remote: the
-frozen runner does `git pull --ff-only` before each `/trigger`, and the
-agent/chat re-clone from the `{git_remote_url, ref}` pointer CM derives.
+agent and chat backends re-clone from the `{git_remote_url, ref}` pointer CM
+derives on each run.
 
 ## Verification
 
@@ -453,24 +451,25 @@ Cards with `autonomous: true` bypass human approval gates. The
 `/contextmatrix:start-workflow` slash command (or the `start_workflow` MCP tool)
 routes the card to `run-autonomous` automatically and drives the entire
 lifecycle using the `run-autonomous.md` skill. The orchestrator model is set by
-the invoker — Opus for local autonomous (user's session), Sonnet for the remote
-runner (via container config).
+the invoker — the user's own model for local autonomous (typically Opus), the
+agent backend's configured or per-card-selected model for a worker container.
 
 ## HITL chat surface
 
 HITL runs and the global chat panel both expose a typed message channel back to
-a live Claude Code session. Two surfaces exist:
+a live worker session. Two surfaces exist:
 
-- **Per-card runner messages** —
+- **Per-card worker messages** —
   `POST /api/projects/{project}/cards/{id}/message` forwards human-typed content
-  to a running runner container (`card.runner_status == "running"`). The
+  to a running worker container (`card.worker_status == "running"`). The
   endpoint is human-only (rejects non-human `X-Agent-ID`), bounds content to 8
-  KB, and the runner echoes the message back through its session-log stream so
-  the UI shows it in the same transcript as the agent's output.
+  KB; the backend writes it to the worker's stdin as a user-typed stream-json
+  frame and echoes it back through the worker-log stream so the UI shows it in
+  the same transcript as the agent's output.
 - **Global chat panel** — `/api/chats/*` drives `internal/chat.Manager`, which
   owns a SQLite-backed transcript store (sessions + messages), an idle-TTL
   reaper that warms sessions down to cold, an SSE hub for browser fan-out
-  (`GET /api/chats/{id}/stream`), and a runner-log bridge that maps each runner
+  (`GET /api/chats/{id}/stream`), and a worker-log bridge that maps each worker
   log entry to a transcript row. Cold sessions rehydrate from the persisted
   transcript via `transcript.Build` before the container starts; the rehydration
   phase ends on the first user message or an explicit
@@ -485,9 +484,9 @@ mid-flight: `POST /api/projects/{project}/cards/{id}/promote` (web UI) or the
 `promote_to_autonomous` MCP tool (Claude). Both call
 `service.PromoteToAutonomous` first (fail-closed: rejects terminal cards, flips
 `autonomous: true`, appends an activity log entry, fires an SSE event); only on
-success does the API endpoint fire the runner's `/promote` webhook so the
-runner-side stdin message is written. Both surfaces gate on `human:` prefix —
-agents cannot self-promote. The runner verifies the flag out-of-band via
+success does the API endpoint fire the backend's `/promote` webhook so the
+worker-side stdin message is written. Both surfaces gate on `human:` prefix —
+agents cannot self-promote. The backend verifies the flag out-of-band via
 `GET /api/v1/cards/{project}/{id}/autonomous` (HMAC-signed) before writing its
 canned stdin message.
 
@@ -503,7 +502,7 @@ Phase 5:  Execution              → checkout feature branch (branch_name); clai
 Phase 6:  Documentation          → release claim, spawn document-task sub-agent, reclaim after DOCS_WRITTEN
 Phase 7:  Review                 → transition to review, run review-task inline (always); orchestrator spawns 3 opus specialists in parallel and synthesizes findings
 Phase 8:  Review Decision Gate   → get_card autonomous check; autonomous branches on recommendation, HITL asks
-Phase 9:  Commit/Push/PR Gate    → get_card autonomous check; autonomous or remote HITL (CM_INTERACTIVE=1) auto-commits/pushes/PR; local HITL asks
+Phase 9:  Commit/Push/PR Gate    → get_card autonomous check; autonomous or worker-container HITL (CM_CARD_ID set) auto-commits/pushes/PR; local HITL asks
 Phase 10: Finalization           → reclaim, report_usage, transition to done, release_card (mandatory)
 ```
 
@@ -693,8 +692,11 @@ an existing cost.
 
 ## Model Allocation
 
-The system uses two models: **Opus** (strongest reasoning) and **Sonnet**
-(cost-effective workhorse). Haiku is not used in any workflow. The orchestrator
+Local (Claude Code) orchestration uses two models: **Opus** (strongest
+reasoning) and **Sonnet** (cost-effective workhorse); Haiku is not used. The
+agent backend instead runs an OpenRouter / OpenAI-gateway model as orchestrator
+and selects per-task models by complexity tier (see the agent-backend table
+below and `docs/agent-backend-parity.md`). In every case the orchestrator
 decides whether each phase runs inline or as a sub-agent — the `inline` field
 returned by `get_skill` (and by `start_review`, which loads the review-task
 skill atomically with the state transition) uses exact model match, but the
@@ -712,16 +714,22 @@ management rather than model compatibility.
 | Review           | Opus   | Inline (start_review inline=true, Opus==Opus)        | Devil's advocate reasoning benefits from Opus; inline keeps findings in orchestrator context for human approval |
 | Documentation    | Sonnet | Sub-agent                                            | Context isolation — orchestrator has 150K+ accumulated context by this phase; fresh sub-agent starts at ~25K    |
 
-### Remote Runner (Sonnet orchestrator)
+### Agent backend (worker container)
 
-| Phase            | Model  | Method                                                            | Why                                                                                |
-| ---------------- | ------ | ----------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| Orchestrator     | Sonnet | Runner container sets model via `--model` / env var               | Cost control — Opus premium not justified for well-defined protocol                |
-| Planning         | Sonnet | Inline on orchestrator                                            | Sonnet 4.6 plans well; inline avoids spawn overhead and retains plan context       |
-| Subtask creation | Sonnet | Inline — calls `create_card()` directly                           | Same as HITL — trivial work, no sub-agent needed                                   |
-| Execution        | Sonnet | Sub-agent per subtask                                             | Context isolation + parallel execution; same rationale as HITL                     |
-| Review           | Opus   | Sub-agent (start_review inline=false, Sonnet!=Opus → spawns Opus) | Only phase where Opus premium pays off — catches issues before costly rework loops |
-| Documentation    | Sonnet | Sub-agent                                                         | Context isolation — runner has no human to intervene if context grows too large    |
+The agent backend has no fixed Opus/Sonnet split. CM sets the **orchestrator**
+model per trigger (`backends.agent.default_model`, overridden by a card's model
+pin); the harness's complexity selector picks the per-task **coder** and
+**reviewer** models within the card's budget. The phase structure is the same as
+local orchestration — only the concrete model per row differs.
+
+| Phase            | Model                         | Method                                        | Why                                                                            |
+| ---------------- | ----------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------ |
+| Orchestrator     | CM default or per-card pin     | Set at trigger time by CM                      | One orchestrator model drives planning, subtask creation, review synthesis, docs |
+| Planning         | orchestrator model             | Inline on orchestrator                         | Inline avoids spawn overhead and retains plan context                          |
+| Subtask creation | orchestrator model             | Inline — calls `create_card()` directly        | Trivial work, no sub-agent needed                                              |
+| Execution        | complexity-selected (coder)    | Sub-agent per subtask                          | Context isolation + parallel execution; selector matches model to task tier    |
+| Review           | complexity-selected (reviewer) | Inline or sub-agent per `start_review`         | Stronger reviewer catches issues before costly rework loops                    |
+| Documentation    | orchestrator model             | Sub-agent                                      | Context isolation — the worker container has no human to intervene if context grows too large |
 
 ### Inline/sub-agent decision model
 
@@ -746,61 +754,23 @@ skill's model family AND the skill is on the inline-eligible whitelist
 ### Why `run-autonomous.md` has no model
 
 The orchestrator model is an operational concern, not a skill concern. Local
-autonomous uses whatever model the user runs (typically Opus). The remote runner
-sets Sonnet via container configuration (`--model` flag or environment
-variable). This separation allows the same skill file to work for both workflows
-without code duplication or model override logic.
+autonomous uses whatever model the user runs (typically Opus); the agent backend
+sets the orchestrator model from `backends.agent.default_model` or the card's
+model pin at trigger time. This separation lets the same skill file work for
+both workflows without model override logic.
 
 ## Required permissions for target projects
 
-Agents working on code repositories need Claude Code permissions configured in
-the target project (e.g., `.claude/settings.local.json`). The remote runner sets
-the same allowlist on every worker container — see
-`contextmatrix-runner/docker/entrypoint.sh` (`ALLOWED_TOOLS_COMMON` and
-`ALLOWED_TOOLS_AUTO_EXTRAS`) for the canonical list. Mirror it locally for HITL
-sessions that drive the same skills.
+Worker-container tool policy is the agent backend's concern, not a per-project
+setting: the harness provisions a fixed internal tool set on every container —
+file read/edit/write, search, an `Agent`/`Task` sub-agent tool in autonomous
+runs, the `mcp__contextmatrix__*` board tools, and a bounded Bash surface. See
+`docs/remote-execution.md` and the agent repo's harness tool policy for the
+canonical list.
 
-**Claude Code tools (common, always allowed):**
-
-- `Read` — read files
-- `Edit` — modify existing files
-- `Write` — create new files
-- `MultiEdit` — apply batched edits in one call
-- `NotebookEdit` — modify Jupyter notebook cells
-- `Skill` — engage filesystem-mounted task skills
-- `Glob` / `Grep` — search file contents and paths
-- `TodoWrite` — track in-flight work
-- `WebFetch` / `WebSearch` — fetch external references when researching
-
-**Claude Code tools (autonomous mode only):**
-
-- `Task` — spawn sub-agents via the `Agent` tool. The runner adds this only in
-  autonomous mode (no human review gate), so HITL containers cannot spawn
-  parallel sub-agents that would bypass approval. Local HITL sessions that drive
-  `create-plan` should likewise omit `Task` unless the user is comfortable with
-  sub-agents committing without review.
-
-**MCP tools (auto-available via MCP config):** All `mcp__contextmatrix__*` tools
-are available once the MCP server is configured. No per-tool allowlisting is
-needed for MCP tools, but the runner does enumerate them explicitly in its
-allowlist.
-
-**Bash tools (project-specific):** allowlisted by exact command prefix (e.g.,
-`Bash(make:*)`). The runner enables a baseline that covers Git/GitHub
-(`Bash(git:*)`, `Bash(gh:*)`), Go (`Bash(go test:*)`, `Bash(go build:*)`,
-`Bash(go vet:*)`, `Bash(go mod:*)`, `Bash(go run:*)`, `Bash(go install:*)`),
-Make (`Bash(make:*)`), Node/npm (`Bash(npm:*)`, `Bash(node:*)`, `Bash(npx:*)`),
-Python (`Bash(python3:*)`, `Bash(pip3:*)`), filesystem basics (`Bash(mv:*)`,
-`Bash(cp:*)`, `Bash(rm:*)`, `Bash(mkdir:*)`, `Bash(ls:*)`, `Bash(find:*)`,
-`Bash(which:*)`, `Bash(command:*)`), and text inspection (`Bash(cat:*)`,
-`Bash(head:*)`, `Bash(tail:*)`, `Bash(wc:*)`, `Bash(echo:*)`,
-`Bash(printenv:*)`, `Bash(sed:*)`, `Bash(awk:*)`, `Bash(grep:*)`,
-`Bash(sort:*)`, `Bash(uniq:*)`, `Bash(diff:*)`, `Bash(tr:*)`, `Bash(cut:*)`,
-`Bash(tee:*)`, `Bash(xargs:*)`, `Bash(date:*)`, `Bash(jq:*)`). Trim or extend
-this list to match the project's language and build system.
-
-If `Edit` or `Write` (or another tool an execution agent needs) is missing from
-the target project's allowlist, the agent will report `TASK_BLOCKED` with an
-actionable error message explaining what permissions are needed. The user must
-update the project's permissions config before retrying.
+Local human-attached sessions (e.g. Claude Code) instead use your own tool
+permissions (`.claude/settings.local.json`). An execution agent needs at least
+`Edit` and `Write`; if either is missing it reports `TASK_BLOCKED` with an
+actionable message, and you update the project's permissions config before
+retrying.
 
