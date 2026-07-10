@@ -242,9 +242,11 @@ func (h *chatHandlers) createChat(w http.ResponseWriter, r *http.Request) {
 			model = h.orDefault
 		}
 		// Validate against the same cached list that feeds the picker; a
-		// fetch error fails open so an upstream outage never blocks chat.
+		// fetch error or an empty catalog (cold start, endpoint outage —
+		// the builder-backed fetcher reports both as an empty list with a
+		// nil error) fails open so an upstream outage never blocks chat.
 		if model != "" {
-			if models, err := h.endpointModels(r.Context()); err == nil && !containsModelID(models, model) {
+			if models, err := h.endpointModels(r.Context()); err == nil && len(models) > 0 && !containsModelID(models, model) {
 				writeError(w, http.StatusBadRequest, ErrCodeInvalidModel, "model not in catalog", model)
 
 				return
