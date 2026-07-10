@@ -25,10 +25,10 @@ import (
 	"github.com/mhersson/contextmatrix/internal/opstore/sqlite"
 )
 
-// stubRunner is a fake chat.Backend used by manager tests. Counters are atomic
+// stubBackend is a fake chat.Backend used by manager tests. Counters are atomic
 // because Manager.startConsumer spawns a goroutine that calls StreamLogs
 // independently of the test goroutine — plain ints would race under -race.
-type stubRunner struct {
+type stubBackend struct {
 	startCalls    atomic.Int64
 	endCalls      atomic.Int64
 	sendCalls     atomic.Int64
@@ -52,7 +52,7 @@ type sendArg struct {
 	Content, MessageID string
 }
 
-func (s *stubRunner) StartChat(ctx context.Context, opts chat.StartChatOpts) (string, error) {
+func (s *stubBackend) StartChat(ctx context.Context, opts chat.StartChatOpts) (string, error) {
 	s.startCalls.Add(1)
 	s.mu.Lock()
 	s.lastOpts = opts
@@ -65,13 +65,13 @@ func (s *stubRunner) StartChat(ctx context.Context, opts chat.StartChatOpts) (st
 	return "container-abc", nil
 }
 
-func (s *stubRunner) EndChat(ctx context.Context, sessionID string) error {
+func (s *stubBackend) EndChat(ctx context.Context, sessionID string) error {
 	s.endCalls.Add(1)
 
 	return nil
 }
 
-func (s *stubRunner) SendChatMessage(ctx context.Context, sessionID, content, messageID string) error {
+func (s *stubBackend) SendChatMessage(ctx context.Context, sessionID, content, messageID string) error {
 	idx := s.sendCalls.Add(1) - 1
 
 	s.mu.Lock()
@@ -86,7 +86,7 @@ func (s *stubRunner) SendChatMessage(ctx context.Context, sessionID, content, me
 	return s.sendErr
 }
 
-func (s *stubRunner) StreamLogs(ctx context.Context, sessionID string, onEntry func(chat.LogEntry)) error {
+func (s *stubBackend) StreamLogs(ctx context.Context, sessionID string, onEntry func(chat.LogEntry)) error {
 	s.streamCalls.Add(1)
 
 	s.activeStreams.Add(1)
@@ -101,21 +101,21 @@ func (s *stubRunner) StreamLogs(ctx context.Context, sessionID string, onEntry f
 	return ctx.Err()
 }
 
-func newManagerWithStubs(t *testing.T) (*chat.Manager, *stubRunner, chat.Store) {
+func newManagerWithStubs(t *testing.T) (*chat.Manager, *stubBackend, chat.Store) {
 	t.Helper()
 	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
-	runner := &stubRunner{}
+	backend := &stubBackend{}
 	mgr := chat.NewManager(chat.Config{
 		Store:   store,
-		Backend: runner,
+		Backend: backend,
 		Clock:   clock.Real(),
 		IdleTTL: time.Hour,
 	})
 
-	return mgr, runner, store
+	return mgr, backend, store
 }
 
 func TestManager_CreateSession_RowExists(t *testing.T) {
@@ -123,14 +123,14 @@ func TestManager_CreateSession_RowExists(t *testing.T) {
 	ctx := context.Background()
 
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{
-		Title:     "runner-auth",
-		Project:   "contextmatrix-runner",
+		Title:     "chat-auth",
+		Project:   "contextmatrix-chat",
 		CreatedBy: "human:web-abcd1234",
 	})
 	require.NoError(t, err)
 	assert.NotEmpty(t, sess.ID)
 	assert.Equal(t, chat.StatusCold, sess.Status, "newly-created sessions are cold")
-	assert.Equal(t, "runner-auth", sess.Title)
+	assert.Equal(t, "chat-auth", sess.Title)
 }
 
 func TestManager_OpenSession_ColdStartsContainer(t *testing.T) {
@@ -138,10 +138,10 @@ func TestManager_OpenSession_ColdStartsContainer(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
-	runner := &stubRunner{}
+	backend := &stubBackend{}
 	mgr := chat.NewManager(chat.Config{
 		Store:   store,
-		Backend: runner,
+		Backend: backend,
 		Clock:   clock.Real(),
 		IdleTTL: time.Hour,
 		ResolveProjectExec: func(_ context.Context, _ string) (chat.ProjectExecInfo, error) {
@@ -157,12 +157,12 @@ func TestManager_OpenSession_ColdStartsContainer(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, chat.StatusActive, got.Status)
 	assert.Equal(t, "container-abc", got.ContainerID)
-	assert.Equal(t, int64(1), runner.startCalls.Load(), "container started exactly once")
+	assert.Equal(t, int64(1), backend.startCalls.Load(), "container started exactly once")
 	assert.Equal(t, []string{"alpha"}, got.Workspace, "project recorded in workspace list")
 }
 
 func TestManager_OpenSession_WarmIdleReattaches(t *testing.T) {
-	mgr, runner, store := newManagerWithStubs(t)
+	mgr, backend, store := newManagerWithStubs(t)
 	ctx := context.Background()
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
 	require.NoError(t, err)
@@ -175,11 +175,11 @@ func TestManager_OpenSession_WarmIdleReattaches(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, chat.StatusActive, got.Status)
 	assert.Equal(t, "container-existing", got.ContainerID)
-	assert.Equal(t, int64(0), runner.startCalls.Load(), "warm-idle reattach must not start a new container")
+	assert.Equal(t, int64(0), backend.startCalls.Load(), "warm-idle reattach must not start a new container")
 }
 
 func TestManager_OpenSession_AlreadyActive_NoOp(t *testing.T) {
-	mgr, runner, store := newManagerWithStubs(t)
+	mgr, backend, store := newManagerWithStubs(t)
 	ctx := context.Background()
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
 	require.NoError(t, err)
@@ -190,15 +190,15 @@ func TestManager_OpenSession_AlreadyActive_NoOp(t *testing.T) {
 
 	_, err = mgr.OpenSession(ctx, sess.ID)
 	require.NoError(t, err)
-	assert.Equal(t, int64(0), runner.startCalls.Load())
+	assert.Equal(t, int64(0), backend.startCalls.Load())
 }
 
 // TestManager_OpenSession_AlreadyActive_StartsConsumer ensures the active
-// branch reattaches the runner-log consumer. CM-restart strands the in-
+// branch reattaches the backend-log consumer. CM-restart strands the in-
 // memory consumer goroutine while the session row stays active; without
 // this, an /open call on an active session leaves the bridge missing.
 func TestManager_OpenSession_AlreadyActive_StartsConsumer(t *testing.T) {
-	mgr, runner, store := newManagerWithStubs(t)
+	mgr, backend, store := newManagerWithStubs(t)
 	ctx := context.Background()
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
 	require.NoError(t, err)
@@ -211,16 +211,16 @@ func TestManager_OpenSession_AlreadyActive_StartsConsumer(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
-		return runner.streamCalls.Load() == 1
-	}, 2*time.Second, 10*time.Millisecond, "consumer must stream logs from runner")
-	assert.Equal(t, int64(0), runner.startCalls.Load(), "no new container")
+		return backend.streamCalls.Load() == 1
+	}, 2*time.Second, 10*time.Millisecond, "consumer must stream logs from the backend")
+	assert.Equal(t, int64(0), backend.startCalls.Load(), "no new container")
 }
 
-// TestManager_Reattach_Active starts a runner-log consumer for an already-
+// TestManager_Reattach_Active starts a backend-log consumer for an already-
 // active session whose in-memory consumer was lost (CM restart). The DB
 // row is left as-is.
 func TestManager_Reattach_Active(t *testing.T) {
-	mgr, runner, store := newManagerWithStubs(t)
+	mgr, backend, store := newManagerWithStubs(t)
 	ctx := context.Background()
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "x"})
 	require.NoError(t, err)
@@ -233,13 +233,13 @@ func TestManager_Reattach_Active(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
-		return runner.streamCalls.Load() == 1
+		return backend.streamCalls.Load() == 1
 	}, 2*time.Second, 10*time.Millisecond)
 
 	got, err := store.GetSession(ctx, sess.ID)
 	require.NoError(t, err)
 	assert.Equal(t, chat.StatusActive, got.Status, "Reattach must not change status")
-	assert.Equal(t, int64(0), runner.startCalls.Load())
+	assert.Equal(t, int64(0), backend.startCalls.Load())
 }
 
 // TestManager_Reattach_WarmIdle starts a consumer for a warm-idle session
@@ -248,7 +248,7 @@ func TestManager_Reattach_Active(t *testing.T) {
 // lifecycle promotion (warm-idle → active) is handled separately by
 // MarkActive, called from the OnSubscribe callback.
 func TestManager_Reattach_WarmIdle(t *testing.T) {
-	mgr, runner, store := newManagerWithStubs(t)
+	mgr, backend, store := newManagerWithStubs(t)
 	ctx := context.Background()
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "x"})
 	require.NoError(t, err)
@@ -263,20 +263,20 @@ func TestManager_Reattach_WarmIdle(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
-		return runner.streamCalls.Load() == 1
+		return backend.streamCalls.Load() == 1
 	}, 2*time.Second, 10*time.Millisecond)
 
 	got, err := store.GetSession(ctx, sess.ID)
 	require.NoError(t, err)
 	assert.Equal(t, chat.StatusWarmIdle, got.Status)
 	assert.True(t, got.LastActive.After(old), "LastActive must be refreshed")
-	assert.Equal(t, int64(0), runner.startCalls.Load())
+	assert.Equal(t, int64(0), backend.startCalls.Load())
 }
 
 // TestManager_Reattach_Cold is a no-op — cold sessions have no container
 // to reattach to.
 func TestManager_Reattach_Cold(t *testing.T) {
-	mgr, runner, _ := newManagerWithStubs(t)
+	mgr, backend, _ := newManagerWithStubs(t)
 	ctx := context.Background()
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "x"})
 	require.NoError(t, err)
@@ -286,14 +286,14 @@ func TestManager_Reattach_Cold(t *testing.T) {
 
 	// Give any (incorrect) goroutine spawn time to call StreamLogs.
 	time.Sleep(50 * time.Millisecond)
-	assert.Equal(t, int64(0), runner.streamCalls.Load())
-	assert.Equal(t, int64(0), runner.startCalls.Load())
+	assert.Equal(t, int64(0), backend.streamCalls.Load())
+	assert.Equal(t, int64(0), backend.startCalls.Load())
 }
 
 // TestManager_Reattach_Idempotent guarantees concurrent or repeated calls
 // don't spawn extra consumer goroutines.
 func TestManager_Reattach_Idempotent(t *testing.T) {
-	mgr, runner, store := newManagerWithStubs(t)
+	mgr, backend, store := newManagerWithStubs(t)
 	ctx := context.Background()
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "x"})
 	require.NoError(t, err)
@@ -310,15 +310,15 @@ func TestManager_Reattach_Idempotent(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
-		return runner.streamCalls.Load() == 1
+		return backend.streamCalls.Load() == 1
 	}, 2*time.Second, 10*time.Millisecond)
 	// Give any duplicate goroutine spawn a chance to (wrongly) increment.
 	time.Sleep(50 * time.Millisecond)
-	assert.Equal(t, int64(1), runner.streamCalls.Load(), "exactly one consumer")
+	assert.Equal(t, int64(1), backend.streamCalls.Load(), "exactly one consumer")
 }
 
 func TestManager_EndSession_ActiveTransitionsToCold(t *testing.T) {
-	mgr, runner, store := newManagerWithStubs(t)
+	mgr, backend, store := newManagerWithStubs(t)
 	ctx := context.Background()
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "x"})
 	require.NoError(t, err)
@@ -332,16 +332,16 @@ func TestManager_EndSession_ActiveTransitionsToCold(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, chat.StatusCold, got.Status)
 	assert.Empty(t, got.ContainerID)
-	assert.Equal(t, int64(1), runner.endCalls.Load())
+	assert.Equal(t, int64(1), backend.endCalls.Load())
 }
 
 func TestManager_EndSession_AlreadyCold_NoOp(t *testing.T) {
-	mgr, runner, _ := newManagerWithStubs(t)
+	mgr, backend, _ := newManagerWithStubs(t)
 	ctx := context.Background()
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "x"})
 	require.NoError(t, err)
 	require.NoError(t, mgr.EndSession(ctx, sess.ID))
-	assert.Equal(t, int64(0), runner.endCalls.Load(), "ending an already-cold session must not call runner")
+	assert.Equal(t, int64(0), backend.endCalls.Load(), "ending an already-cold session must not call the backend")
 }
 
 // TestManager_EndSession_RecoversFromStuckEnding verifies that EndSession
@@ -388,10 +388,10 @@ func TestManager_EndSession_NeverPersistsEndingStatus(t *testing.T) {
 	t.Cleanup(func() { _ = inner.Close() })
 
 	ts := &trackingStore{Store: inner}
-	runner := &stubRunner{}
+	backend := &stubBackend{}
 	mgr := chat.NewManager(chat.Config{
 		Store:   ts,
-		Backend: runner,
+		Backend: backend,
 		Clock:   clock.Real(),
 		IdleTTL: time.Hour,
 	})
@@ -518,26 +518,26 @@ func TestManager_MarkWarmIdle_ColdNoOp(t *testing.T) {
 
 // newManagerWithHub creates a Manager wired to a real SSEHub and a FakeClock
 // so tests can advance time and observe SSE events deterministically.
-func newManagerWithHub(t *testing.T) (*chat.Manager, *stubRunner, chat.Store, *chat.SSEHub, *clock.FakeClock) {
+func newManagerWithHub(t *testing.T) (*chat.Manager, *stubBackend, chat.Store, *chat.SSEHub, *clock.FakeClock) {
 	t.Helper()
 
 	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
-	runner := &stubRunner{}
+	backend := &stubBackend{}
 	hub := chat.NewSSEHub(128)
 	clk := clock.Fake(time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC))
 
 	mgr := chat.NewManager(chat.Config{
 		Store:   store,
-		Backend: runner,
+		Backend: backend,
 		Clock:   clk,
 		IdleTTL: time.Hour,
 		Hub:     hub,
 	})
 
-	return mgr, runner, store, hub, clk
+	return mgr, backend, store, hub, clk
 }
 
 func TestManager_MarkWarmIdle_PublishesSessionUpdate(t *testing.T) {
@@ -756,7 +756,7 @@ func TestManager_SendUserMessage_WarmIdle_PromotesToActive(t *testing.T) {
 // concurrency cap under a tight race: ten goroutines call OpenSession at
 // once with MaxConcurrent=2. Without the lock fix, the two ListSessions
 // reads happen before any StartChat call mutates the store, so several
-// goroutines pass the limit check simultaneously and the runner sees
+// goroutines pass the limit check simultaneously and the backend sees
 // more than two StartChat calls. With the fix exactly two start.
 func TestManager_OpenSession_MaxConcurrent_ParallelTOCTOU(t *testing.T) {
 	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
@@ -765,11 +765,11 @@ func TestManager_OpenSession_MaxConcurrent_ParallelTOCTOU(t *testing.T) {
 
 	const total = 10
 
-	// slowRunner stalls StartChat briefly to widen the race window.
-	runner := &slowStartRunner{delay: 10 * time.Millisecond}
+	// slowBackend stalls StartChat briefly to widen the race window.
+	backend := &slowStartBackend{delay: 10 * time.Millisecond}
 
 	mgr := chat.NewManager(chat.Config{
-		Store: store, Backend: runner, Clock: clock.Real(),
+		Store: store, Backend: backend, Clock: clock.Real(),
 		IdleTTL: time.Hour, MaxConcurrent: 2,
 	})
 
@@ -813,8 +813,8 @@ func TestManager_OpenSession_MaxConcurrent_ParallelTOCTOU(t *testing.T) {
 
 	assert.Equal(t, int64(2), successes.Load(), "exactly MaxConcurrent (=2) opens must succeed")
 	assert.Equal(t, int64(total-2), rejects.Load(), "all other opens must be rejected")
-	assert.LessOrEqual(t, runner.startCalls.Load(), int64(2),
-		"runner.StartChat must be called at most MaxConcurrent times (no leaked containers)")
+	assert.LessOrEqual(t, backend.startCalls.Load(), int64(2),
+		"Backend.StartChat must be called at most MaxConcurrent times (no leaked containers)")
 }
 
 // TestManager_AppendMessage_SeqMonotonicUnderConcurrency exercises the
@@ -831,7 +831,7 @@ func TestManager_AppendMessage_SeqMonotonicUnderConcurrency(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 
 	mgr := chat.NewManager(chat.Config{
-		Store: store, Backend: &stubRunner{}, Clock: clock.Real(), IdleTTL: time.Hour,
+		Store: store, Backend: &stubBackend{}, Clock: clock.Real(), IdleTTL: time.Hour,
 	})
 
 	ctx := context.Background()
@@ -891,23 +891,23 @@ func TestManager_AppendMessage_SeqMonotonicUnderConcurrency(t *testing.T) {
 	require.NoError(t, rows.Err())
 }
 
-type slowStartRunner struct {
+type slowStartBackend struct {
 	delay      time.Duration
 	startCalls atomic.Int64
 }
 
-func (s *slowStartRunner) StartChat(_ context.Context, _ chat.StartChatOpts) (string, error) {
+func (s *slowStartBackend) StartChat(_ context.Context, _ chat.StartChatOpts) (string, error) {
 	s.startCalls.Add(1)
 	time.Sleep(s.delay)
 
 	return "container-" + strconv.FormatInt(s.startCalls.Load(), 10), nil
 }
 
-func (s *slowStartRunner) EndChat(_ context.Context, _ string) error { return nil }
+func (s *slowStartBackend) EndChat(_ context.Context, _ string) error { return nil }
 
-func (s *slowStartRunner) SendChatMessage(_ context.Context, _, _, _ string) error { return nil }
+func (s *slowStartBackend) SendChatMessage(_ context.Context, _, _, _ string) error { return nil }
 
-func (s *slowStartRunner) StreamLogs(ctx context.Context, _ string, _ func(chat.LogEntry)) error {
+func (s *slowStartBackend) StreamLogs(ctx context.Context, _ string, _ func(chat.LogEntry)) error {
 	<-ctx.Done()
 
 	return ctx.Err()
@@ -918,9 +918,9 @@ func TestManager_OpenSession_RespectsMaxConcurrent(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
-	runner := &stubRunner{}
+	backend := &stubBackend{}
 	mgr := chat.NewManager(chat.Config{
-		Store: store, Backend: runner, Clock: clock.Real(),
+		Store: store, Backend: backend, Clock: clock.Real(),
 		IdleTTL: time.Hour, MaxConcurrent: 2,
 		ResolveProjectExec: func(_ context.Context, _ string) (chat.ProjectExecInfo, error) {
 			return chat.ProjectExecInfo{}, nil
@@ -979,7 +979,7 @@ func TestManager_DeleteSession_ColdDeletesRow(t *testing.T) {
 }
 
 func TestManager_DeleteSession_ActiveEndsFirst(t *testing.T) {
-	mgr, runner, store := newManagerWithStubs(t)
+	mgr, backend, store := newManagerWithStubs(t)
 	ctx := context.Background()
 
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "x"})
@@ -991,14 +991,14 @@ func TestManager_DeleteSession_ActiveEndsFirst(t *testing.T) {
 
 	require.NoError(t, mgr.DeleteSession(ctx, sess.ID))
 
-	assert.Equal(t, int64(1), runner.endCalls.Load(), "EndSession must have stopped the container")
+	assert.Equal(t, int64(1), backend.endCalls.Load(), "EndSession must have stopped the container")
 
 	_, err = store.GetSession(ctx, sess.ID)
 	require.ErrorIs(t, err, chat.ErrSessionNotFound)
 }
 
 func TestManager_SendUserMessage_HappyPath(t *testing.T) {
-	mgr, runner, store := newManagerWithStubs(t)
+	mgr, backend, store := newManagerWithStubs(t)
 	ctx := context.Background()
 
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "x"})
@@ -1011,7 +1011,7 @@ func TestManager_SendUserMessage_HappyPath(t *testing.T) {
 	msgID, err := mgr.SendUserMessage(ctx, sess.ID, "hello world")
 	require.NoError(t, err)
 	assert.NotEmpty(t, msgID)
-	assert.Equal(t, int64(1), runner.sendCalls.Load(), "SendChatMessage must be called once")
+	assert.Equal(t, int64(1), backend.sendCalls.Load(), "SendChatMessage must be called once")
 
 	msgs, err := store.ListMessages(ctx, sess.ID, 0, 100)
 	require.NoError(t, err)
@@ -1020,12 +1020,12 @@ func TestManager_SendUserMessage_HappyPath(t *testing.T) {
 	assert.Equal(t, "hello world", msgs[0].Content)
 }
 
-// TestManager_SendUserMessage_RunnerErrorDoesNotPersist exercises the
-// runner-first ordering: if the runner.SendChatMessage call fails, the
+// TestManager_SendUserMessage_BackendErrorDoesNotPersist exercises the
+// backend-first ordering: if the backend.SendChatMessage call fails, the
 // user message is NOT persisted and not published to the hub. The UI sees
 // the error and can retry without ending up with an orphaned echo.
-func TestManager_SendUserMessage_RunnerErrorDoesNotPersist(t *testing.T) {
-	mgr, runner, store := newManagerWithStubs(t)
+func TestManager_SendUserMessage_BackendErrorDoesNotPersist(t *testing.T) {
+	mgr, backend, store := newManagerWithStubs(t)
 	ctx := context.Background()
 
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "x"})
@@ -1035,26 +1035,26 @@ func TestManager_SendUserMessage_RunnerErrorDoesNotPersist(t *testing.T) {
 	sess.ContainerID = "c-1"
 	require.NoError(t, store.UpdateSession(ctx, sess))
 
-	runner.sendErr = errors.New("runner unreachable")
+	backend.sendErr = errors.New("backend unreachable")
 
 	_, err = mgr.SendUserMessage(ctx, sess.ID, "hello")
-	require.Error(t, err, "runner failure must propagate to the caller")
-	assert.Contains(t, err.Error(), "runner unreachable")
+	require.Error(t, err, "backend failure must propagate to the caller")
+	assert.Contains(t, err.Error(), "backend unreachable")
 
-	// No persisted user message — the runner-first ordering means we never
-	// got past the runner call.
+	// No persisted user message — the backend-first ordering means we never
+	// got past the backend call.
 	msgs, err := store.ListMessages(ctx, sess.ID, 0, 100)
 	require.NoError(t, err)
-	assert.Empty(t, msgs, "no user message must be persisted when runner.SendChatMessage fails")
+	assert.Empty(t, msgs, "no user message must be persisted when Backend.SendChatMessage fails")
 }
 
 // TestManager_SendUserMessage_AutoRecoverColdOnRepeatedBackendUnreachable:
-// the chat reconcile sweep is deliberately gated to runner topology, so a
+// the chat reconcile sweep is deliberately gated to backend topology, so a
 // dead dedicated chat-backend worker is only detectable via repeated send
 // failures. After maxConsecutiveSendFailures the session must flip to cold
 // so the next send resumes via the existing cold-open (Path-B) machinery.
 func TestManager_SendUserMessage_AutoRecoverColdOnRepeatedBackendUnreachable(t *testing.T) {
-	mgr, runner, store := newManagerWithStubs(t)
+	mgr, backend, store := newManagerWithStubs(t)
 	ctx := context.Background()
 
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "x"})
@@ -1065,7 +1065,7 @@ func TestManager_SendUserMessage_AutoRecoverColdOnRepeatedBackendUnreachable(t *
 	require.NoError(t, store.UpdateSession(ctx, sess))
 
 	dialErr := fmt.Errorf("dial tcp 127.0.0.1:8090: connect: connection refused: %w", chat.ErrBackendUnreachable)
-	runner.sendErr = dialErr
+	backend.sendErr = dialErr
 
 	// First two failures must NOT flip the session — only the threshold does.
 	for range 2 {
@@ -1087,15 +1087,15 @@ func TestManager_SendUserMessage_AutoRecoverColdOnRepeatedBackendUnreachable(t *
 	assert.Empty(t, got.ContainerID, "cold session must have its container_id cleared")
 
 	// The next send attempt must resume via the existing cold-open path.
-	runner.sendErr = nil
+	backend.sendErr = nil
 
 	_, err = mgr.SendUserMessage(ctx, sess.ID, "recovered")
 	require.NoError(t, err, "next send must succeed via cold-open once the backend is reachable again")
-	assert.Equal(t, int64(1), runner.startCalls.Load(), "cold-open must call StartChat to resume the session")
+	assert.Equal(t, int64(1), backend.startCalls.Load(), "cold-open must call StartChat to resume the session")
 }
 
 func TestManager_SendUserMessage_OpensColdSession(t *testing.T) {
-	mgr, runner, _ := newManagerWithStubs(t)
+	mgr, backend, _ := newManagerWithStubs(t)
 	ctx := context.Background()
 
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "x"})
@@ -1104,8 +1104,8 @@ func TestManager_SendUserMessage_OpensColdSession(t *testing.T) {
 
 	_, err = mgr.SendUserMessage(ctx, sess.ID, "hi")
 	require.NoError(t, err)
-	assert.Equal(t, int64(1), runner.startCalls.Load(), "cold session must trigger StartChat")
-	assert.Equal(t, int64(1), runner.sendCalls.Load())
+	assert.Equal(t, int64(1), backend.startCalls.Load(), "cold session must trigger StartChat")
+	assert.Equal(t, int64(1), backend.sendCalls.Load())
 }
 
 func TestManager_UpdateSessionMetadata_ChangesTitle(t *testing.T) {
@@ -1123,17 +1123,17 @@ func TestManager_UpdateSessionMetadata_ChangesTitle(t *testing.T) {
 	assert.Equal(t, "new title", got.Title)
 }
 
-// TestManager_OpenSession_BridgesRunnerLogs verifies that an assistant text
-// event emitted by the runner's /logs stream is persisted as an
+// TestManager_OpenSession_BridgesWorkerLogs verifies that an assistant text
+// event emitted by the backend's /logs stream is persisted as an
 // assistant_text message and published to the SSE hub. Without this
 // bridge, the browser would see only the user echo and no reply.
-func TestManager_OpenSession_BridgesRunnerLogs(t *testing.T) {
+func TestManager_OpenSession_BridgesWorkerLogs(t *testing.T) {
 	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
 	delivered := make(chan struct{})
-	runner := &stubRunner{
+	backend := &stubBackend{
 		streamLogsFn: func(ctx context.Context, _ string, onEntry func(chat.LogEntry)) error {
 			onEntry(chat.LogEntry{Type: "text", Content: "Hello back."})
 			close(delivered)
@@ -1147,7 +1147,7 @@ func TestManager_OpenSession_BridgesRunnerLogs(t *testing.T) {
 	hub := chat.NewSSEHub(128)
 	mgr := chat.NewManager(chat.Config{
 		Store:   store,
-		Backend: runner,
+		Backend: backend,
 		Clock:   clock.Real(),
 		IdleTTL: time.Hour,
 		Hub:     hub,
@@ -1200,7 +1200,7 @@ foundMessage:
 
 	// Re-opening should kick off a new consumer (idempotency check would
 	// require another OpenSession; verifying stop is enough for this test).
-	assert.Equal(t, int64(1), runner.streamCalls.Load())
+	assert.Equal(t, int64(1), backend.streamCalls.Load())
 }
 
 // TestManager_EndThenReopen_SpawnsFreshConsumer is the regression for the
@@ -1218,7 +1218,7 @@ func TestManager_EndThenReopen_SpawnsFreshConsumer(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
-	runner := &stubRunner{
+	backend := &stubBackend{
 		streamLogsFn: func(ctx context.Context, _ string, _ func(chat.LogEntry)) error {
 			<-ctx.Done()
 			// Simulate slow goroutine exit — the goroutine has received cancel
@@ -1231,7 +1231,7 @@ func TestManager_EndThenReopen_SpawnsFreshConsumer(t *testing.T) {
 
 	mgr := chat.NewManager(chat.Config{
 		Store:   store,
-		Backend: runner,
+		Backend: backend,
 		Clock:   clock.Real(),
 		IdleTTL: time.Hour,
 	})
@@ -1242,7 +1242,7 @@ func TestManager_EndThenReopen_SpawnsFreshConsumer(t *testing.T) {
 
 	_, err = mgr.OpenSession(ctx, sess.ID)
 	require.NoError(t, err)
-	require.Eventually(t, func() bool { return runner.streamCalls.Load() == 1 },
+	require.Eventually(t, func() bool { return backend.streamCalls.Load() == 1 },
 		time.Second, 5*time.Millisecond, "first open must start consumer")
 
 	require.NoError(t, mgr.EndSession(ctx, sess.ID))
@@ -1252,15 +1252,15 @@ func TestManager_EndThenReopen_SpawnsFreshConsumer(t *testing.T) {
 
 	// Without the fix, streamCalls stays at 1 because the second startConsumer
 	// returned early on a stale map entry.
-	require.Eventually(t, func() bool { return runner.streamCalls.Load() == 2 },
+	require.Eventually(t, func() bool { return backend.streamCalls.Load() == 2 },
 		time.Second, 5*time.Millisecond,
-		"Reopen after End must spawn a fresh runner-log consumer")
+		"Reopen after End must spawn a fresh worker-log consumer")
 
 	require.NoError(t, mgr.EndSession(ctx, sess.ID))
 }
 
 // TestManager_AppendMessage_TruncatesOversizedContent verifies that
-// runner-emitted entries beyond the per-message size cap are truncated with
+// backend-emitted entries beyond the per-message size cap are truncated with
 // a marker before persistence. Without this cap, a chatty tool (cat of a
 // large file, verbose tool_result) fills chats.db linearly and never
 // reclaims the space.
@@ -1298,7 +1298,7 @@ func TestManager_AppendMessage_DoesNotTruncateSmallContent(t *testing.T) {
 }
 
 func TestManager_OpenSession_ColdWithPriorTranscript_SendsResume(t *testing.T) {
-	mgr, runner, _ := newManagerWithStubsAndConfig(t, chat.Config{IdleTTL: time.Hour})
+	mgr, backend, _ := newManagerWithStubsAndConfig(t, chat.Config{IdleTTL: time.Hour})
 	ctx := context.Background()
 
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "x"})
@@ -1320,9 +1320,9 @@ func TestManager_OpenSession_ColdWithPriorTranscript_SendsResume(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, chat.StatusActive, reopened.Status)
 
-	runner.mu.Lock()
-	opts := runner.lastOpts
-	runner.mu.Unlock()
+	backend.mu.Lock()
+	opts := backend.lastOpts
+	backend.mu.Unlock()
 
 	assert.Equal(t, sess.ID, opts.SessionID)
 	require.NotNil(t, opts.Resume, "Resume must be sent on cold-reopen with prior transcript")
@@ -1331,7 +1331,7 @@ func TestManager_OpenSession_ColdWithPriorTranscript_SendsResume(t *testing.T) {
 }
 
 func TestManager_OpenSession_ColdEmptyTranscript_OmitsResume(t *testing.T) {
-	mgr, runner, _ := newManagerWithStubsAndConfig(t, chat.Config{IdleTTL: time.Hour})
+	mgr, backend, _ := newManagerWithStubsAndConfig(t, chat.Config{IdleTTL: time.Hour})
 	ctx := context.Background()
 
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "x"})
@@ -1340,15 +1340,15 @@ func TestManager_OpenSession_ColdEmptyTranscript_OmitsResume(t *testing.T) {
 	_, err = mgr.OpenSession(ctx, sess.ID)
 	require.NoError(t, err)
 
-	runner.mu.Lock()
-	opts := runner.lastOpts
-	runner.mu.Unlock()
+	backend.mu.Lock()
+	opts := backend.lastOpts
+	backend.mu.Unlock()
 
 	assert.Nil(t, opts.Resume, "fresh session must not carry a Resume")
 }
 
 func TestManager_OpenSession_PassesModel(t *testing.T) {
-	mgr, runner, _ := newManagerWithStubsAndConfig(t, chat.Config{
+	mgr, backend, _ := newManagerWithStubsAndConfig(t, chat.Config{
 		IdleTTL:      time.Hour,
 		DefaultModel: "claude-sonnet-4-6",
 	})
@@ -1364,16 +1364,16 @@ func TestManager_OpenSession_PassesModel(t *testing.T) {
 	_, err = mgr.OpenSession(ctx, sess.ID)
 	require.NoError(t, err)
 
-	runner.mu.Lock()
-	opts := runner.lastOpts
-	runner.mu.Unlock()
+	backend.mu.Lock()
+	opts := backend.lastOpts
+	backend.mu.Unlock()
 
 	assert.Equal(t, "claude-opus-4-7", opts.Model,
-		"session-stored model must be passed to runner")
+		"session-stored model must be passed to the backend")
 }
 
 func TestManager_OpenSession_FallsBackToDefaultModel(t *testing.T) {
-	mgr, runner, _ := newManagerWithStubsAndConfig(t, chat.Config{
+	mgr, backend, _ := newManagerWithStubsAndConfig(t, chat.Config{
 		IdleTTL:      time.Hour,
 		DefaultModel: "claude-sonnet-4-6",
 	})
@@ -1385,9 +1385,9 @@ func TestManager_OpenSession_FallsBackToDefaultModel(t *testing.T) {
 	_, err = mgr.OpenSession(ctx, sess.ID)
 	require.NoError(t, err)
 
-	runner.mu.Lock()
-	opts := runner.lastOpts
-	runner.mu.Unlock()
+	backend.mu.Lock()
+	opts := backend.lastOpts
+	backend.mu.Unlock()
 
 	assert.Equal(t, "claude-sonnet-4-6", opts.Model,
 		"empty session.Model falls back to config DefaultModel")
@@ -1528,11 +1528,11 @@ func TestManager_OpenSession_RollbackOnRehydrationPersistFailure(t *testing.T) {
 	t.Cleanup(func() { _ = inner.Close() })
 
 	fstore := &failingStore{Store: inner}
-	runner := &stubRunner{}
+	backend := &stubBackend{}
 
 	mgr := chat.NewManager(chat.Config{
 		Store:   fstore,
-		Backend: runner,
+		Backend: backend,
 		Clock:   clock.Real(),
 		IdleTTL: time.Hour,
 	})
@@ -1556,7 +1556,7 @@ func TestManager_OpenSession_RollbackOnRehydrationPersistFailure(t *testing.T) {
 	require.Error(t, err, "OpenSession must fail when the rehydration flag cannot be persisted")
 
 	// The container that was started must have been rolled back.
-	require.Equal(t, int64(2), runner.endCalls.Load(),
+	require.Equal(t, int64(2), backend.endCalls.Load(),
 		"EndChat must be called once for the explicit EndSession, once for the rollback")
 
 	// Session must be back to cold so the next open is a clean retry.
@@ -1590,10 +1590,10 @@ func TestSetRehydrationActive_StoreAndCacheStayInSync(t *testing.T) {
 	t.Cleanup(func() { _ = inner.Close() })
 
 	store := &yieldingStore{Store: inner}
-	runner := &stubRunner{}
+	backend := &stubBackend{}
 	mgr := chat.NewManager(chat.Config{
 		Store:   store,
-		Backend: runner,
+		Backend: backend,
 		Clock:   clock.Real(),
 		IdleTTL: time.Hour,
 	})
@@ -1658,7 +1658,7 @@ func TestManager_HandleUsageEntry_UpdatesContextTokens(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
-	runner := &usageStreamingRunner{
+	backend := &usageStreamingBackend{
 		entries: []chat.LogEntry{
 			{
 				Type: "usage",
@@ -1675,7 +1675,7 @@ func TestManager_HandleUsageEntry_UpdatesContextTokens(t *testing.T) {
 
 	mgr := chat.NewManager(chat.Config{
 		Store:        store,
-		Backend:      runner,
+		Backend:      backend,
 		Clock:        clock.Real(),
 		IdleTTL:      time.Hour,
 		Hub:          hub,
@@ -1735,24 +1735,24 @@ func TestManager_HandleUsageEntry_UpdatesContextTokens(t *testing.T) {
 	t.Fatalf("session.context_tokens never reached 5200")
 }
 
-// usageStreamingRunner is a stub Backend that delivers a canned list
+// usageStreamingBackend is a stub Backend that delivers a canned list
 // of LogEntry values through StreamLogs (in order, with a small delay so
 // the consumer reliably observes them).
-type usageStreamingRunner struct {
+type usageStreamingBackend struct {
 	entries []chat.LogEntry
 }
 
-func (r *usageStreamingRunner) StartChat(_ context.Context, _ chat.StartChatOpts) (string, error) {
+func (r *usageStreamingBackend) StartChat(_ context.Context, _ chat.StartChatOpts) (string, error) {
 	return "container-usage", nil
 }
 
-func (r *usageStreamingRunner) EndChat(_ context.Context, _ string) error { return nil }
+func (r *usageStreamingBackend) EndChat(_ context.Context, _ string) error { return nil }
 
-func (r *usageStreamingRunner) SendChatMessage(_ context.Context, _, _, _ string) error {
+func (r *usageStreamingBackend) SendChatMessage(_ context.Context, _, _, _ string) error {
 	return nil
 }
 
-func (r *usageStreamingRunner) StreamLogs(ctx context.Context, _ string, onEntry func(chat.LogEntry)) error {
+func (r *usageStreamingBackend) StreamLogs(ctx context.Context, _ string, onEntry func(chat.LogEntry)) error {
 	for _, e := range r.entries {
 		select {
 		case <-ctx.Done():
@@ -1770,18 +1770,18 @@ func (r *usageStreamingRunner) StreamLogs(ctx context.Context, _ string, onEntry
 
 // newManagerWithStubsAndConfig is like newManagerWithStubs but lets the
 // caller override the manager Config fields (DefaultModel, IdleTTL, etc.)
-// without duplicating the store + stubRunner wiring boilerplate.
-func newManagerWithStubsAndConfig(t *testing.T, base chat.Config) (*chat.Manager, *stubRunner, chat.Store) {
+// without duplicating the store + stubBackend wiring boilerplate.
+func newManagerWithStubsAndConfig(t *testing.T, base chat.Config) (*chat.Manager, *stubBackend, chat.Store) {
 	t.Helper()
 
 	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
-	runner := &stubRunner{}
+	backend := &stubBackend{}
 
 	base.Store = store
-	base.Backend = runner
+	base.Backend = backend
 
 	if base.Clock == nil {
 		base.Clock = clock.Real()
@@ -1789,7 +1789,7 @@ func newManagerWithStubsAndConfig(t *testing.T, base chat.Config) (*chat.Manager
 
 	mgr := chat.NewManager(base)
 
-	return mgr, runner, store
+	return mgr, backend, store
 }
 
 // TestManager_BuildResume_UsesTailOnLongSession is a regression for
@@ -1861,7 +1861,7 @@ func TestManager_OpenSession_WorkspaceDedupesOnReopen(t *testing.T) {
 
 func TestManager_Close_StopsAllConsumers(t *testing.T) {
 	t.Parallel()
-	mgr, runner, _ := newManagerWithStubs(t)
+	mgr, backend, _ := newManagerWithStubs(t)
 	ctx := context.Background()
 
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Project: "p", CreatedBy: "human:t"})
@@ -1872,22 +1872,22 @@ func TestManager_Close_StopsAllConsumers(t *testing.T) {
 
 	// Wait for StreamLogs goroutine to start and increment activeStreams.
 	require.Eventually(t, func() bool {
-		return runner.activeStreams.Load() == 1
+		return backend.activeStreams.Load() == 1
 	}, time.Second, time.Millisecond, "StreamLogs goroutine must start before Close")
 
 	require.NoError(t, mgr.Close(context.Background()))
-	require.Equal(t, int32(0), runner.activeStreams.Load(), "Close must stop all log streams")
+	require.Equal(t, int32(0), backend.activeStreams.Load(), "Close must stop all log streams")
 }
 
-// countingRunner is a fake Backend whose StartChat behaviour is fully
+// countingBackend is a fake Backend whose StartChat behaviour is fully
 // controlled by the test via the startChat func field. Used to gate cold-open
 // progress on a per-test signal so we can assert that two distinct sessions
-// reach the runner concurrently.
-type countingRunner struct {
+// reach the backend concurrently.
+type countingBackend struct {
 	startChat func(ctx context.Context, opts chat.StartChatOpts) (string, error)
 }
 
-func (r *countingRunner) StartChat(ctx context.Context, opts chat.StartChatOpts) (string, error) {
+func (r *countingBackend) StartChat(ctx context.Context, opts chat.StartChatOpts) (string, error) {
 	if r.startChat != nil {
 		return r.startChat(ctx, opts)
 	}
@@ -1895,21 +1895,21 @@ func (r *countingRunner) StartChat(ctx context.Context, opts chat.StartChatOpts)
 	return "container-" + opts.SessionID, nil
 }
 
-func (r *countingRunner) EndChat(_ context.Context, _ string) error { return nil }
+func (r *countingBackend) EndChat(_ context.Context, _ string) error { return nil }
 
-func (r *countingRunner) SendChatMessage(_ context.Context, _, _, _ string) error { return nil }
+func (r *countingBackend) SendChatMessage(_ context.Context, _, _, _ string) error { return nil }
 
-func (r *countingRunner) StreamLogs(ctx context.Context, _ string, _ func(chat.LogEntry)) error {
+func (r *countingBackend) StreamLogs(ctx context.Context, _ string, _ func(chat.LogEntry)) error {
 	<-ctx.Done()
 
 	return ctx.Err()
 }
 
-// newTestManagerWithRunner constructs a chat.Manager wired to the supplied
+// newTestManagerWithBackend constructs a chat.Manager wired to the supplied
 // Backend and a fresh sqlite store, with MaxConcurrent explicitly set
 // to 0 (unlimited) so the limit-bounded serialisation path does not gate
 // the cold-open singleflight test.
-func newTestManagerWithRunner(t *testing.T, runner chat.Backend) (*chat.Manager, chat.Store, func()) {
+func newTestManagerWithBackend(t *testing.T, backend chat.Backend) (*chat.Manager, chat.Store, func()) {
 	t.Helper()
 
 	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
@@ -1917,7 +1917,7 @@ func newTestManagerWithRunner(t *testing.T, runner chat.Backend) (*chat.Manager,
 
 	mgr := chat.NewManager(chat.Config{
 		Store:         store,
-		Backend:       runner,
+		Backend:       backend,
 		Clock:         clock.Real(),
 		IdleTTL:       time.Hour,
 		MaxConcurrent: 0,
@@ -1933,16 +1933,16 @@ func newTestManagerWithRunner(t *testing.T, runner chat.Backend) (*chat.Manager,
 
 // newTestManagerWithStore constructs a chat.Manager wired to the supplied
 // Store (typically a wrapper around the real sqlite store that injects faults
-// or instruments calls) and a stubRunner. The wrapped store is responsible
+// or instruments calls) and a stubBackend. The wrapped store is responsible
 // for embedding the real chat.Store; this helper just wires it in. Used by
-// tests that need to gate AppendMessage independently from the runner path.
-func newTestManagerWithStore(t *testing.T, store chat.Store) (*chat.Manager, *stubRunner, func()) {
+// tests that need to gate AppendMessage independently from the backend path.
+func newTestManagerWithStore(t *testing.T, store chat.Store) (*chat.Manager, *stubBackend, func()) {
 	t.Helper()
 
-	runner := &stubRunner{}
+	backend := &stubBackend{}
 	mgr := chat.NewManager(chat.Config{
 		Store:         store,
-		Backend:       runner,
+		Backend:       backend,
 		Clock:         clock.Real(),
 		IdleTTL:       time.Hour,
 		MaxConcurrent: 0,
@@ -1953,7 +1953,7 @@ func newTestManagerWithStore(t *testing.T, store chat.Store) (*chat.Manager, *st
 		_ = store.Close()
 	}
 
-	return mgr, runner, cleanup
+	return mgr, backend, cleanup
 }
 
 // TestAppendMessage_UnrelatedSessionsDoNotSerialize asserts that two appends
@@ -2009,7 +2009,7 @@ func TestAppendMessage_UnrelatedSessionsDoNotSerialize(t *testing.T) {
 
 // TestOpenSession_ConcurrentColdOpensRunInParallel asserts that two cold
 // opens for distinct session IDs route through their own singleflight slot
-// and reach the runner concurrently. Singleflight is keyed on sessionID, so
+// and reach the backend concurrently. Singleflight is keyed on sessionID, so
 // the second call does not wait behind the first's full StartChat latency and
 // one slow docker pull does not stall every other cold open: two distinct
 // sessions complete within ~one StartChat duration.
@@ -2018,7 +2018,7 @@ func TestOpenSession_ConcurrentColdOpensRunInParallel(t *testing.T) {
 
 	var calls atomic.Int64
 
-	runner := &countingRunner{
+	backend := &countingBackend{
 		startChat: func(_ context.Context, opts chat.StartChatOpts) (string, error) {
 			calls.Add(1)
 			<-release
@@ -2027,7 +2027,7 @@ func TestOpenSession_ConcurrentColdOpensRunInParallel(t *testing.T) {
 		},
 	}
 
-	mgr, _, cleanup := newTestManagerWithRunner(t, runner)
+	mgr, _, cleanup := newTestManagerWithBackend(t, backend)
 	defer cleanup()
 
 	sess1, err := mgr.CreateSession(context.Background(), chat.CreateInput{Title: "a", Project: "alpha", CreatedBy: "human:t"})
@@ -2043,7 +2043,7 @@ func TestOpenSession_ConcurrentColdOpensRunInParallel(t *testing.T) {
 	go func() { defer wg.Done(); _, _ = mgr.OpenSession(context.Background(), sess2.ID) }()
 
 	require.Eventually(t, func() bool { return calls.Load() == 2 }, time.Second, 5*time.Millisecond,
-		"both runner.StartChat calls must be in flight concurrently")
+		"both Backend.StartChat calls must be in flight concurrently")
 
 	close(release)
 	wg.Wait()
@@ -2053,12 +2053,12 @@ func TestOpenSession_ConcurrentColdOpensRunInParallel(t *testing.T) {
 
 // --- llm_endpoint provisioning tests ---
 
-func TestManager_OpenCold_PassesLLMEndpointToRunner(t *testing.T) {
+func TestManager_OpenCold_PassesLLMEndpointToBackend(t *testing.T) {
 	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
-	runner := &stubRunner{}
+	backend := &stubBackend{}
 	endpoint := &protocol.LLMEndpoint{
 		Type:    "openrouter",
 		BaseURL: "https://openrouter.ai/api/v1",
@@ -2066,7 +2066,7 @@ func TestManager_OpenCold_PassesLLMEndpointToRunner(t *testing.T) {
 	}
 	mgr := chat.NewManager(chat.Config{
 		Store:       store,
-		Backend:     runner,
+		Backend:     backend,
 		Clock:       clock.Real(),
 		IdleTTL:     time.Hour,
 		LLMEndpoint: endpoint,
@@ -2079,11 +2079,11 @@ func TestManager_OpenCold_PassesLLMEndpointToRunner(t *testing.T) {
 	_, err = mgr.OpenSession(ctx, sess.ID)
 	require.NoError(t, err)
 
-	runner.mu.Lock()
-	defer runner.mu.Unlock()
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
 
-	require.NotNil(t, runner.lastOpts.LLMEndpoint, "configured Manager.LLMEndpoint must reach StartChatOpts")
-	assert.Equal(t, *endpoint, *runner.lastOpts.LLMEndpoint)
+	require.NotNil(t, backend.lastOpts.LLMEndpoint, "configured Manager.LLMEndpoint must reach StartChatOpts")
+	assert.Equal(t, *endpoint, *backend.lastOpts.LLMEndpoint)
 }
 
 func TestManager_OpenCold_OmitsLLMEndpointWhenUnconfigured(t *testing.T) {
@@ -2091,10 +2091,10 @@ func TestManager_OpenCold_OmitsLLMEndpointWhenUnconfigured(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
-	runner := &stubRunner{}
+	backend := &stubBackend{}
 	mgr := chat.NewManager(chat.Config{
 		Store:   store,
-		Backend: runner,
+		Backend: backend,
 		Clock:   clock.Real(),
 		IdleTTL: time.Hour,
 	})
@@ -2106,29 +2106,29 @@ func TestManager_OpenCold_OmitsLLMEndpointWhenUnconfigured(t *testing.T) {
 	_, err = mgr.OpenSession(ctx, sess.ID)
 	require.NoError(t, err)
 
-	runner.mu.Lock()
-	defer runner.mu.Unlock()
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
 
-	assert.Nil(t, runner.lastOpts.LLMEndpoint, "unconfigured Manager.LLMEndpoint must leave StartChatOpts nil")
+	assert.Nil(t, backend.lastOpts.LLMEndpoint, "unconfigured Manager.LLMEndpoint must leave StartChatOpts nil")
 }
 
-// --- per-project runner image tests ---
+// --- per-project backend image tests ---
 
-func TestManager_OpenCold_PassesRunnerImageToRunner(t *testing.T) {
+func TestManager_OpenCold_PassesWorkerImageToBackend(t *testing.T) {
 	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
-	runner := &stubRunner{}
+	backend := &stubBackend{}
 	mgr := chat.NewManager(chat.Config{
 		Store:   store,
-		Backend: runner,
+		Backend: backend,
 		Clock:   clock.Real(),
 		IdleTTL: time.Hour,
 		ResolveProjectExec: func(_ context.Context, _ string) (chat.ProjectExecInfo, error) {
 			return chat.ProjectExecInfo{
 				RepoURL:     "https://example.com/alpha.git",
-				RunnerImage: "ghcr.io/acme/rust-worker:latest",
+				WorkerImage: "ghcr.io/acme/rust-worker:latest",
 			}, nil
 		},
 	})
@@ -2140,23 +2140,23 @@ func TestManager_OpenCold_PassesRunnerImageToRunner(t *testing.T) {
 	_, err = mgr.OpenSession(ctx, sess.ID)
 	require.NoError(t, err)
 
-	runner.mu.Lock()
-	defer runner.mu.Unlock()
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
 
-	assert.Equal(t, "https://example.com/alpha.git", runner.lastOpts.RepoURL)
-	assert.Equal(t, "ghcr.io/acme/rust-worker:latest", runner.lastOpts.RunnerImage,
-		"resolved runner image must reach StartChatOpts")
+	assert.Equal(t, "https://example.com/alpha.git", backend.lastOpts.RepoURL)
+	assert.Equal(t, "ghcr.io/acme/rust-worker:latest", backend.lastOpts.WorkerImage,
+		"resolved worker image must reach StartChatOpts")
 }
 
-func TestManager_OpenCold_OmitsRunnerImageWhenUnset(t *testing.T) {
+func TestManager_OpenCold_OmitsWorkerImageWhenUnset(t *testing.T) {
 	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
-	runner := &stubRunner{}
+	backend := &stubBackend{}
 	mgr := chat.NewManager(chat.Config{
 		Store:   store,
-		Backend: runner,
+		Backend: backend,
 		Clock:   clock.Real(),
 		IdleTTL: time.Hour,
 		ResolveProjectExec: func(_ context.Context, _ string) (chat.ProjectExecInfo, error) {
@@ -2171,23 +2171,23 @@ func TestManager_OpenCold_OmitsRunnerImageWhenUnset(t *testing.T) {
 	_, err = mgr.OpenSession(ctx, sess.ID)
 	require.NoError(t, err)
 
-	runner.mu.Lock()
-	defer runner.mu.Unlock()
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
 
-	assert.Empty(t, runner.lastOpts.RunnerImage, "empty project runner image must leave StartChatOpts empty")
+	assert.Empty(t, backend.lastOpts.WorkerImage, "empty project worker image must leave StartChatOpts empty")
 }
 
 // --- worker git-credentials bearer provisioning tests ---
 
-func TestManager_OpenCold_PassesGitCredentialsTokenToRunner(t *testing.T) {
+func TestManager_OpenCold_PassesGitCredentialsTokenToBackend(t *testing.T) {
 	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
-	runner := &stubRunner{}
+	backend := &stubBackend{}
 	mgr := chat.NewManager(chat.Config{
 		Store:   store,
-		Backend: runner,
+		Backend: backend,
 		Clock:   clock.Real(),
 		IdleTTL: time.Hour,
 		WorkerCredentialsToken: func(sessionID string) string {
@@ -2202,10 +2202,10 @@ func TestManager_OpenCold_PassesGitCredentialsTokenToRunner(t *testing.T) {
 	_, err = mgr.OpenSession(ctx, sess.ID)
 	require.NoError(t, err)
 
-	runner.mu.Lock()
-	defer runner.mu.Unlock()
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
 
-	assert.Equal(t, "token-for-"+sess.ID, runner.lastOpts.GitCredentialsToken,
+	assert.Equal(t, "token-for-"+sess.ID, backend.lastOpts.GitCredentialsToken,
 		"configured Manager.WorkerCredentialsToken must reach StartChatOpts, keyed on this session's id")
 }
 
@@ -2214,10 +2214,10 @@ func TestManager_OpenCold_OmitsGitCredentialsTokenWhenTokenFuncNil(t *testing.T)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
-	runner := &stubRunner{}
+	backend := &stubBackend{}
 	mgr := chat.NewManager(chat.Config{
 		Store:   store,
-		Backend: runner,
+		Backend: backend,
 		Clock:   clock.Real(),
 		IdleTTL: time.Hour,
 	})
@@ -2229,10 +2229,10 @@ func TestManager_OpenCold_OmitsGitCredentialsTokenWhenTokenFuncNil(t *testing.T)
 	_, err = mgr.OpenSession(ctx, sess.ID)
 	require.NoError(t, err)
 
-	runner.mu.Lock()
-	defer runner.mu.Unlock()
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
 
-	assert.Empty(t, runner.lastOpts.GitCredentialsToken,
+	assert.Empty(t, backend.lastOpts.GitCredentialsToken,
 		"unconfigured Manager.WorkerCredentialsToken must leave StartChatOpts.GitCredentialsToken empty")
 }
 
@@ -2277,7 +2277,7 @@ func TestManager_SessionLiveness_UnknownSession(t *testing.T) {
 }
 
 func TestManager_OpenCold_ResumePayloadPresent(t *testing.T) {
-	mgr, runner, _ := newManagerWithStubs(t)
+	mgr, backend, _ := newManagerWithStubs(t)
 
 	ctx := context.Background()
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
@@ -2294,22 +2294,22 @@ func TestManager_OpenCold_ResumePayloadPresent(t *testing.T) {
 	_, err = mgr.OpenSession(ctx, sess.ID)
 	require.NoError(t, err)
 
-	runner.mu.Lock()
-	defer runner.mu.Unlock()
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
 
-	assert.NotNil(t, runner.lastOpts.Resume, "resume payload must be present")
+	assert.NotNil(t, backend.lastOpts.Resume, "resume payload must be present")
 }
 
 // --- ClearContext tests ---
 
 func TestClearContext_HappyPath(t *testing.T) {
-	mgr, runner, store := newManagerWithStubs(t)
+	mgr, backend, store := newManagerWithStubs(t)
 	ctx := context.Background()
 
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
 	require.NoError(t, err)
 
-	// Open the session so the runner container is active.
+	// Open the session so the backend container is active.
 	_, err = mgr.OpenSession(ctx, sess.ID)
 	require.NoError(t, err)
 
@@ -2321,11 +2321,11 @@ func TestClearContext_HappyPath(t *testing.T) {
 
 	require.NoError(t, mgr.ClearContext(ctx, sess.ID))
 
-	// Runner saw exactly the /clear control message — the worker re-orients
+	// Backend saw exactly the /clear control message — the worker re-orients
 	// its next epoch from its own embedded primer.
-	runner.mu.Lock()
-	args := append([]sendArg(nil), runner.sendArgs...)
-	runner.mu.Unlock()
+	backend.mu.Lock()
+	args := append([]sendArg(nil), backend.sendArgs...)
+	backend.mu.Unlock()
 	require.Len(t, args, 1)
 	assert.Equal(t, "/clear", args[0].Content)
 
@@ -2347,8 +2347,8 @@ func TestClearContext_HappyPath(t *testing.T) {
 		"divider row must persist kind so REST-bootstrap reload renders the rule")
 }
 
-func TestClearContext_RunnerFailure_ClearStep(t *testing.T) {
-	mgr, runner, store := newManagerWithStubs(t)
+func TestClearContext_BackendFailure_ClearStep(t *testing.T) {
+	mgr, backend, store := newManagerWithStubs(t)
 
 	ctx := context.Background()
 
@@ -2364,14 +2364,14 @@ func TestClearContext_RunnerFailure_ClearStep(t *testing.T) {
 
 	// Arm the failure: the next SendChatMessage (i.e. the /clear call) returns
 	// an error. SendCalls are indexed from 0; StartChat does not count.
-	runner.mu.Lock()
-	runner.sendErrSeq = []error{errors.New("runner unreachable")}
-	runner.mu.Unlock()
+	backend.mu.Lock()
+	backend.sendErrSeq = []error{errors.New("backend unreachable")}
+	backend.mu.Unlock()
 
 	err = mgr.ClearContext(ctx, sess.ID)
 	require.Error(t, err)
-	require.ErrorIs(t, err, chat.ErrRunnerSend,
-		"runner /clear failure must wrap ErrRunnerSend so API maps to 502, got: %v", err)
+	require.ErrorIs(t, err, chat.ErrBackendSend,
+		"backend /clear failure must wrap ErrBackendSend so API maps to 502, got: %v", err)
 
 	// Transcript untouched: only the pre-clear row, no divider, phase=false.
 	msgs, err := store.ListMessagesTail(ctx, sess.ID, 100)
@@ -2430,7 +2430,7 @@ func TestClearContext_SessionNotFound(t *testing.T) {
 		"unknown session must surface ErrSessionNotFound for 404 mapping, got: %v", err)
 }
 
-// clearGatingRunner wraps a stubRunner and blocks the very first
+// clearGatingBackend wraps a stubBackend and blocks the very first
 // SendChatMessage call on a release channel, signalling its arrival on
 // `started`. Used by TestClearContext_ConcurrentCallsSerialised to hold
 // the singleflight slot open long enough for every concurrent caller to
@@ -2438,21 +2438,21 @@ func TestClearContext_SessionNotFound(t *testing.T) {
 // before the others arrive, the slot would reopen, and each late arrival
 // would execute its own /clear, producing multiple dividers and
 // defeating the deduplication invariant under test.
-type clearGatingRunner struct {
-	*stubRunner
+type clearGatingBackend struct {
+	*stubBackend
 
 	gateOnce sync.Once
 	started  chan struct{}
 	release  chan struct{}
 }
 
-func (r *clearGatingRunner) SendChatMessage(ctx context.Context, sessionID, content, messageID string) error {
+func (r *clearGatingBackend) SendChatMessage(ctx context.Context, sessionID, content, messageID string) error {
 	r.gateOnce.Do(func() {
 		close(r.started)
 		<-r.release
 	})
 
-	return r.stubRunner.SendChatMessage(ctx, sessionID, content, messageID)
+	return r.stubBackend.SendChatMessage(ctx, sessionID, content, messageID)
 }
 
 // TestClearContext_ConcurrentCallsSerialised verifies that singleflight
@@ -2467,16 +2467,16 @@ func TestClearContext_ConcurrentCallsSerialised(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
-	base := &stubRunner{}
-	runner := &clearGatingRunner{
-		stubRunner: base,
-		started:    make(chan struct{}),
-		release:    make(chan struct{}),
+	base := &stubBackend{}
+	backend := &clearGatingBackend{
+		stubBackend: base,
+		started:     make(chan struct{}),
+		release:     make(chan struct{}),
 	}
 
 	mgr := chat.NewManager(chat.Config{
 		Store:   store,
-		Backend: runner,
+		Backend: backend,
 		Clock:   clock.Real(),
 		IdleTTL: time.Hour,
 	})
@@ -2515,12 +2515,12 @@ func TestClearContext_ConcurrentCallsSerialised(t *testing.T) {
 	// All n goroutines are now running their function bodies.
 	startedGate.Wait()
 
-	// Wait for the singleflight body to enter the runner (the in-flight
+	// Wait for the singleflight body to enter the backend (the in-flight
 	// caller is now blocked inside our gate, holding the slot open).
 	select {
-	case <-runner.started:
+	case <-backend.started:
 	case <-time.After(time.Second):
-		close(runner.release)
+		close(backend.release)
 		t.Fatal("first SendChatMessage call did not arrive within 1s")
 	}
 
@@ -2535,7 +2535,7 @@ func TestClearContext_ConcurrentCallsSerialised(t *testing.T) {
 	// Release the gate. The in-flight caller completes /clear + divider,
 	// returns, and singleflight wakes the parked callers, who share the
 	// result without re-executing fn.
-	close(runner.release)
+	close(backend.release)
 
 	wg.Wait()
 
@@ -2560,7 +2560,7 @@ func TestClearContext_ConcurrentCallsSerialised(t *testing.T) {
 	require.Equal(t, 1, dividerCount,
 		"singleflight must deduplicate concurrent clears to exactly one divider row")
 
-	// Every runner send that did run must be a /clear control message.
+	// Every backend send that did run must be a /clear control message.
 	base.mu.Lock()
 	args := append([]sendArg(nil), base.sendArgs...)
 	base.mu.Unlock()
@@ -2587,10 +2587,10 @@ func TestClearContext_DividerFailureLeavesTranscriptClean(t *testing.T) {
 	t.Cleanup(func() { _ = inner.Close() })
 
 	fstore := &clearAtomicFailingStore{Store: inner}
-	runner := &stubRunner{}
+	backend := &stubBackend{}
 	mgr := chat.NewManager(chat.Config{
 		Store:   fstore,
-		Backend: runner,
+		Backend: backend,
 		Clock:   clock.Real(),
 		IdleTTL: time.Hour,
 	})
@@ -2633,7 +2633,7 @@ func TestClearContext_DividerFailureLeavesTranscriptClean(t *testing.T) {
 func TestClearContext_ColdReopen_RehydrationPayloadEmpty(t *testing.T) {
 	t.Parallel()
 
-	mgr, runner, _ := newManagerWithStubs(t)
+	mgr, backend, _ := newManagerWithStubs(t)
 	ctx := context.Background()
 
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
@@ -2660,9 +2660,9 @@ func TestClearContext_ColdReopen_RehydrationPayloadEmpty(t *testing.T) {
 	_, err = mgr.OpenSession(ctx, sess.ID)
 	require.NoError(t, err)
 
-	runner.mu.Lock()
-	opts := runner.lastOpts
-	runner.mu.Unlock()
+	backend.mu.Lock()
+	opts := backend.lastOpts
+	backend.mu.Unlock()
 
 	// All pre-clear rows are in rehydration_phase=true, so transcript.Build
 	// must return nil (nothing to include after the Clear divider).
@@ -2671,11 +2671,11 @@ func TestClearContext_ColdReopen_RehydrationPayloadEmpty(t *testing.T) {
 }
 
 // TestClearContext_ColdSession asserts that ClearContext returns
-// ErrSessionNotRunning when the session is cold (no live runner container)
-// and that the runner is never called.
+// ErrSessionNotRunning when the session is cold (no live backend container)
+// and that the backend is never called.
 func TestClearContext_ColdSession(t *testing.T) {
 	t.Parallel()
-	mgr, runner, _ := newManagerWithStubs(t)
+	mgr, backend, _ := newManagerWithStubs(t)
 	ctx := context.Background()
 
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
@@ -2687,15 +2687,15 @@ func TestClearContext_ColdSession(t *testing.T) {
 	require.ErrorIs(t, err, chat.ErrSessionNotRunning,
 		"cold session must return ErrSessionNotRunning, got: %v", err)
 
-	// Runner must never have been contacted.
-	assert.Equal(t, int64(0), runner.sendCalls.Load(), "runner must not be called for a cold session")
+	// Backend must never have been contacted.
+	assert.Equal(t, int64(0), backend.sendCalls.Load(), "the backend must not be called for a cold session")
 }
 
 // TestClearContext_EndingSession asserts that ClearContext returns
 // ErrSessionNotRunning when the session is in the "ending" state.
 func TestClearContext_EndingSession(t *testing.T) {
 	t.Parallel()
-	mgr, runner, store := newManagerWithStubs(t)
+	mgr, backend, store := newManagerWithStubs(t)
 	ctx := context.Background()
 
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
@@ -2710,7 +2710,7 @@ func TestClearContext_EndingSession(t *testing.T) {
 	require.ErrorIs(t, err, chat.ErrSessionNotRunning,
 		"ending session must return ErrSessionNotRunning, got: %v", err)
 
-	assert.Equal(t, int64(0), runner.sendCalls.Load(), "runner must not be called for an ending session")
+	assert.Equal(t, int64(0), backend.sendCalls.Load(), "the backend must not be called for an ending session")
 }
 
 // TestMarkActive_OnSubscribe_NoDeadlock is a regression test for the
@@ -2731,10 +2731,10 @@ func TestMarkActive_OnSubscribe_NoDeadlock(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 
 	hub := chat.NewSSEHub(128)
-	runner := &stubRunner{}
+	backend := &stubBackend{}
 	mgr := chat.NewManager(chat.Config{
 		Store:   store,
-		Backend: runner,
+		Backend: backend,
 		Clock:   clock.Real(),
 		IdleTTL: time.Hour,
 		Hub:     hub,
@@ -2819,10 +2819,10 @@ func TestOpenSession_WarmIdle_PublishesActive(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 
 	hub := chat.NewSSEHub(128)
-	runner := &stubRunner{}
+	backend := &stubBackend{}
 	mgr := chat.NewManager(chat.Config{
 		Store:   store,
-		Backend: runner,
+		Backend: backend,
 		Clock:   clock.Real(),
 		IdleTTL: time.Hour,
 		Hub:     hub,
@@ -2869,10 +2869,10 @@ func TestOpenSession_Cold_PublishesActive(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 
 	hub := chat.NewSSEHub(128)
-	runner := &stubRunner{}
+	backend := &stubBackend{}
 	mgr := chat.NewManager(chat.Config{
 		Store:   store,
-		Backend: runner,
+		Backend: backend,
 		Clock:   clock.Real(),
 		IdleTTL: time.Hour,
 		Hub:     hub,
@@ -2925,10 +2925,10 @@ func TestOpenSession_WarmIdle_RaceWith_MarkWarmIdle(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
-	runner := &stubRunner{}
+	backend := &stubBackend{}
 	mgr := chat.NewManager(chat.Config{
 		Store:   store,
-		Backend: runner,
+		Backend: backend,
 		Clock:   clock.Real(),
 		IdleTTL: time.Hour,
 	})
@@ -3078,7 +3078,7 @@ func TestHandleUsageEntry_AccumulatesAcrossFrames(t *testing.T) {
 	// Pricer returns $0.01 per call regardless of token counts.
 	pricer := newStubPricer(map[string]float64{"claude-sonnet-4-6": 0.01})
 
-	runner := &usageStreamingRunner{
+	backend := &usageStreamingBackend{
 		entries: []chat.LogEntry{
 			// Frame 1: turn tokens 100/50/200/10
 			{Type: "usage", Usage: &chat.TokenUsage{InputTokens: 100, OutputTokens: 50, CacheReadTokens: 200, CacheCreateTokens: 10}, Model: "claude-sonnet-4-6"},
@@ -3091,7 +3091,7 @@ func TestHandleUsageEntry_AccumulatesAcrossFrames(t *testing.T) {
 
 	mgr := chat.NewManager(chat.Config{
 		Store:        store,
-		Backend:      runner,
+		Backend:      backend,
 		Clock:        clock.Real(),
 		IdleTTL:      time.Hour,
 		Hub:          hub,
@@ -3167,7 +3167,7 @@ func TestHandleUsageEntry_NegativeDeltaRegression(t *testing.T) {
 
 	pricer := newStubPricer(map[string]float64{"claude-sonnet-4-6": 0.01})
 
-	runner := &usageStreamingRunner{
+	backend := &usageStreamingBackend{
 		entries: []chat.LogEntry{
 			// Turn A: large turn.
 			{Type: "usage", Usage: &chat.TokenUsage{InputTokens: 200, OutputTokens: 80}, Model: "claude-sonnet-4-6"},
@@ -3178,7 +3178,7 @@ func TestHandleUsageEntry_NegativeDeltaRegression(t *testing.T) {
 
 	mgr := chat.NewManager(chat.Config{
 		Store:        store,
-		Backend:      runner,
+		Backend:      backend,
 		Clock:        clock.Real(),
 		IdleTTL:      time.Hour,
 		Hub:          hub,
@@ -3237,8 +3237,8 @@ func TestHandleUsageEntry_EndSessionReopenAccumulates(t *testing.T) {
 
 	pricer := newStubPricer(map[string]float64{"claude-sonnet-4-6": 0.01})
 
-	// A runner that delivers one frame per open, alternating on each StartChat.
-	runner := &twoPhaseUsageRunner{
+	// A backend that delivers one frame per open, alternating on each StartChat.
+	backend := &twoPhaseUsageBackend{
 		phase1: []chat.LogEntry{
 			{Type: "usage", Usage: &chat.TokenUsage{InputTokens: 100, OutputTokens: 40}, Model: "claude-sonnet-4-6"},
 		},
@@ -3249,7 +3249,7 @@ func TestHandleUsageEntry_EndSessionReopenAccumulates(t *testing.T) {
 
 	mgr := chat.NewManager(chat.Config{
 		Store:        store,
-		Backend:      runner,
+		Backend:      backend,
 		Clock:        clock.Real(),
 		IdleTTL:      time.Hour,
 		Hub:          hub,
@@ -3328,16 +3328,16 @@ waitPhase2:
 	t.Fatal("DB prompt_tokens never reached 150 after EndSession+reopen")
 }
 
-// twoPhaseUsageRunner is a stub Backend that delivers phase1 entries on the
+// twoPhaseUsageBackend is a stub Backend that delivers phase1 entries on the
 // first StartChat, and phase2 entries on the second (simulating EndSession + reopen).
-type twoPhaseUsageRunner struct {
+type twoPhaseUsageBackend struct {
 	mu     sync.Mutex
 	calls  int
 	phase1 []chat.LogEntry
 	phase2 []chat.LogEntry
 }
 
-func (r *twoPhaseUsageRunner) StartChat(_ context.Context, _ chat.StartChatOpts) (string, error) {
+func (r *twoPhaseUsageBackend) StartChat(_ context.Context, _ chat.StartChatOpts) (string, error) {
 	r.mu.Lock()
 	r.calls++
 	r.mu.Unlock()
@@ -3345,13 +3345,13 @@ func (r *twoPhaseUsageRunner) StartChat(_ context.Context, _ chat.StartChatOpts)
 	return "container-twophase", nil
 }
 
-func (r *twoPhaseUsageRunner) EndChat(_ context.Context, _ string) error { return nil }
+func (r *twoPhaseUsageBackend) EndChat(_ context.Context, _ string) error { return nil }
 
-func (r *twoPhaseUsageRunner) SendChatMessage(_ context.Context, _, _, _ string) error {
+func (r *twoPhaseUsageBackend) SendChatMessage(_ context.Context, _, _, _ string) error {
 	return nil
 }
 
-func (r *twoPhaseUsageRunner) StreamLogs(ctx context.Context, _ string, onEntry func(chat.LogEntry)) error {
+func (r *twoPhaseUsageBackend) StreamLogs(ctx context.Context, _ string, onEntry func(chat.LogEntry)) error {
 	r.mu.Lock()
 	calls := r.calls
 	r.mu.Unlock()
@@ -3385,7 +3385,7 @@ func TestHandleUsageEntry_NilPricer(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
-	runner := &usageStreamingRunner{
+	backend := &usageStreamingBackend{
 		entries: []chat.LogEntry{
 			{Type: "usage", Usage: &chat.TokenUsage{InputTokens: 500, OutputTokens: 100}, Model: "claude-sonnet-4-6"},
 		},
@@ -3393,7 +3393,7 @@ func TestHandleUsageEntry_NilPricer(t *testing.T) {
 
 	mgr := chat.NewManager(chat.Config{
 		Store:        store,
-		Backend:      runner,
+		Backend:      backend,
 		Clock:        clock.Real(),
 		IdleTTL:      time.Hour,
 		Hub:          hub,
@@ -3436,7 +3436,7 @@ func TestHandleUsageEntry_UnknownModel(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
-	runner := &usageStreamingRunner{
+	backend := &usageStreamingBackend{
 		entries: []chat.LogEntry{
 			{Type: "usage", Usage: &chat.TokenUsage{InputTokens: 300, OutputTokens: 50}, Model: "totally-unknown-model-xyz"},
 		},
@@ -3445,7 +3445,7 @@ func TestHandleUsageEntry_UnknownModel(t *testing.T) {
 	pricer := newStubPricer(map[string]float64{}) // empty — all models unknown
 	mgr := chat.NewManager(chat.Config{
 		Store:        store,
-		Backend:      runner,
+		Backend:      backend,
 		Clock:        clock.Real(),
 		IdleTTL:      time.Hour,
 		Hub:          hub,
@@ -3488,7 +3488,7 @@ func TestHandleUsageEntry_NoSSEPublishOnPersistError(t *testing.T) {
 
 	fStore := &incrementFailingStore{Store: realStore}
 
-	runner := &usageStreamingRunner{
+	backend := &usageStreamingBackend{
 		entries: []chat.LogEntry{
 			{Type: "usage", Usage: &chat.TokenUsage{InputTokens: 100, OutputTokens: 50}, Model: "claude-sonnet-4-6"},
 		},
@@ -3497,7 +3497,7 @@ func TestHandleUsageEntry_NoSSEPublishOnPersistError(t *testing.T) {
 	pricer := newStubPricer(map[string]float64{"claude-sonnet-4-6": 0.01})
 	mgr := chat.NewManager(chat.Config{
 		Store:        fStore,
-		Backend:      runner,
+		Backend:      backend,
 		Clock:        clock.Real(),
 		IdleTTL:      time.Hour,
 		Hub:          hub,
@@ -3556,7 +3556,7 @@ func TestHandleUsageEntry_PreservesContextTokens(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 
 	pricer := newStubPricer(map[string]float64{"claude-sonnet-4-6": 0.005})
-	runner := &usageStreamingRunner{
+	backend := &usageStreamingBackend{
 		entries: []chat.LogEntry{
 			{Type: "usage", Usage: &chat.TokenUsage{InputTokens: 1000, OutputTokens: 500, CacheReadTokens: 4000, CacheCreateTokens: 200}, Model: "claude-sonnet-4-6"},
 		},
@@ -3564,7 +3564,7 @@ func TestHandleUsageEntry_PreservesContextTokens(t *testing.T) {
 
 	mgr := chat.NewManager(chat.Config{
 		Store:        store,
-		Backend:      runner,
+		Backend:      backend,
 		Clock:        clock.Real(),
 		IdleTTL:      time.Hour,
 		Hub:          hub,
@@ -3643,7 +3643,7 @@ func TestGetChatCostSummary_UTCAlignment(t *testing.T) {
 
 	mgr := chat.NewManager(chat.Config{
 		Store:   realStore,
-		Backend: &stubRunner{},
+		Backend: &stubBackend{},
 		Clock:   clk,
 		IdleTTL: time.Hour,
 	})
@@ -3691,7 +3691,7 @@ func TestGetChatCostSummary_Cache(t *testing.T) {
 
 	mgr := chat.NewManager(chat.Config{
 		Store:   countingStore,
-		Backend: &stubRunner{},
+		Backend: &stubBackend{},
 		Clock:   clk,
 		IdleTTL: time.Hour,
 	})
@@ -3734,7 +3734,7 @@ func TestGetChatCostSummary_ErrorNotCached(t *testing.T) {
 
 	mgr := chat.NewManager(chat.Config{
 		Store:   failStore,
-		Backend: &stubRunner{},
+		Backend: &stubBackend{},
 		Clock:   clk,
 		IdleTTL: time.Hour,
 	})
@@ -3771,7 +3771,7 @@ func TestGetChatCostSummary_SeriesDefensiveCopy(t *testing.T) {
 
 	mgr := chat.NewManager(chat.Config{
 		Store:   realStore,
-		Backend: &stubRunner{},
+		Backend: &stubBackend{},
 		Clock:   clk,
 		IdleTTL: time.Hour,
 	})

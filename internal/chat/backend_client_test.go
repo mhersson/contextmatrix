@@ -15,7 +15,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/chat"
 )
 
-func TestRunnerClient_StartChat_HappyPath(t *testing.T) {
+func TestBackendClient_StartChat_HappyPath(t *testing.T) {
 	var received struct {
 		path string
 		body map[string]any
@@ -35,7 +35,7 @@ func TestRunnerClient_StartChat_HappyPath(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	rc := chat.NewRunnerClient(chat.RunnerClientConfig{
+	rc := chat.NewBackendClient(chat.BackendClientConfig{
 		BaseURL: srv.URL,
 		HMACKey: "k",
 	})
@@ -43,7 +43,7 @@ func TestRunnerClient_StartChat_HappyPath(t *testing.T) {
 		SessionID:   "S1",
 		Project:     "alpha",
 		RepoURL:     "https://x/y",
-		RunnerImage: "ghcr.io/acme/rust-worker:latest",
+		WorkerImage: "ghcr.io/acme/rust-worker:latest",
 		Model:       "claude-sonnet-4-6",
 		Resume: &chat.ResumeContext{
 			Turns: []chat.ResumeTurn{{Seq: 1, Role: "user", Content: "hi"}},
@@ -67,19 +67,19 @@ func TestRunnerClient_StartChat_HappyPath(t *testing.T) {
 	require.Len(t, turns, 1)
 }
 
-func TestRunnerClient_EndChat_ReturnsErrorOnNon2xx(t *testing.T) {
+func TestBackendClient_EndChat_ReturnsErrorOnNon2xx(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write([]byte(`{"error":"no_container"}`))
 	}))
 	t.Cleanup(srv.Close)
 
-	rc := chat.NewRunnerClient(chat.RunnerClientConfig{BaseURL: srv.URL, HMACKey: "k"})
+	rc := chat.NewBackendClient(chat.BackendClientConfig{BaseURL: srv.URL, HMACKey: "k"})
 	err := rc.EndChat(context.Background(), "S1")
 	require.Error(t, err)
 }
 
-func TestRunnerClient_StartChat_MarshalsLLMEndpoint(t *testing.T) {
+func TestBackendClient_StartChat_MarshalsLLMEndpoint(t *testing.T) {
 	var received map[string]any
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -91,7 +91,7 @@ func TestRunnerClient_StartChat_MarshalsLLMEndpoint(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	rc := chat.NewRunnerClient(chat.RunnerClientConfig{BaseURL: srv.URL, HMACKey: "k"})
+	rc := chat.NewBackendClient(chat.BackendClientConfig{BaseURL: srv.URL, HMACKey: "k"})
 
 	// Case 1: LLMEndpoint set → JSON contains "llm_endpoint" with the configured fields.
 	_, err := rc.StartChat(context.Background(), chat.StartChatOpts{
@@ -119,7 +119,7 @@ func TestRunnerClient_StartChat_MarshalsLLMEndpoint(t *testing.T) {
 	assert.False(t, present, "llm_endpoint field must be omitted when nil (omitempty)")
 }
 
-func TestRunnerClient_StartChat_MarshalsGitCredentialsToken(t *testing.T) {
+func TestBackendClient_StartChat_MarshalsGitCredentialsToken(t *testing.T) {
 	var received map[string]any
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -131,7 +131,7 @@ func TestRunnerClient_StartChat_MarshalsGitCredentialsToken(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	rc := chat.NewRunnerClient(chat.RunnerClientConfig{BaseURL: srv.URL, HMACKey: "k"})
+	rc := chat.NewBackendClient(chat.BackendClientConfig{BaseURL: srv.URL, HMACKey: "k"})
 
 	// Case 1: GitCredentialsToken set → JSON contains "git_credentials_token".
 	_, err := rc.StartChat(context.Background(), chat.StartChatOpts{
@@ -150,7 +150,7 @@ func TestRunnerClient_StartChat_MarshalsGitCredentialsToken(t *testing.T) {
 	assert.False(t, present, "git_credentials_token field must be omitted when empty (omitempty)")
 }
 
-func TestRunnerClient_SendChatMessage_PostsToMessage(t *testing.T) {
+func TestBackendClient_SendChatMessage_PostsToMessage(t *testing.T) {
 	var (
 		receivedBody map[string]any
 		receivedPath string
@@ -166,7 +166,7 @@ func TestRunnerClient_SendChatMessage_PostsToMessage(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	rc := chat.NewRunnerClient(chat.RunnerClientConfig{BaseURL: srv.URL, HMACKey: "k"})
+	rc := chat.NewBackendClient(chat.BackendClientConfig{BaseURL: srv.URL, HMACKey: "k"})
 	err := rc.SendChatMessage(context.Background(), "S1", "hello", "msg-1")
 	require.NoError(t, err)
 	assert.Equal(t, "/message", receivedPath)
@@ -175,16 +175,16 @@ func TestRunnerClient_SendChatMessage_PostsToMessage(t *testing.T) {
 	assert.Equal(t, "msg-1", receivedBody["message_id"])
 }
 
-func TestRunnerClient_SendChatMessage_WrapsErrBackendUnreachableOnDialFailure(t *testing.T) {
+func TestBackendClient_SendChatMessage_WrapsErrBackendUnreachableOnDialFailure(t *testing.T) {
 	// Port 1 refuses connections without needing a listener.
-	rc := chat.NewRunnerClient(chat.RunnerClientConfig{BaseURL: "http://127.0.0.1:1", HMACKey: "k"})
+	rc := chat.NewBackendClient(chat.BackendClientConfig{BaseURL: "http://127.0.0.1:1", HMACKey: "k"})
 
 	err := rc.SendChatMessage(context.Background(), "S1", "hi", "msg-1")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, chat.ErrBackendUnreachable)
 }
 
-func TestRunnerClient_SendChatMessage_DoesNotWrapErrBackendUnreachableOnCallerCancel(t *testing.T) {
+func TestBackendClient_SendChatMessage_DoesNotWrapErrBackendUnreachableOnCallerCancel(t *testing.T) {
 	// A real, reachable server — proves the failure is caller-side, not a
 	// dial/DNS/timeout problem with the backend.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -193,7 +193,7 @@ func TestRunnerClient_SendChatMessage_DoesNotWrapErrBackendUnreachableOnCallerCa
 	}))
 	t.Cleanup(srv.Close)
 
-	rc := chat.NewRunnerClient(chat.RunnerClientConfig{BaseURL: srv.URL, HMACKey: "k"})
+	rc := chat.NewBackendClient(chat.BackendClientConfig{BaseURL: srv.URL, HMACKey: "k"})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // pre-canceled: Do fails immediately with context.Canceled before any dial matters

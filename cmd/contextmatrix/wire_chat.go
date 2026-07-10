@@ -43,7 +43,7 @@ func wireChat(
 	chatBackendEntry, chatBackendOK := cfg.ChatBackend()
 
 	if chatBackendOK {
-		chatBackend = chat.NewRunnerClient(chat.RunnerClientConfig{
+		chatBackend = chat.NewBackendClient(chat.BackendClientConfig{
 			BaseURL:   chatBackendEntry.URL,
 			HMACKey:   chatBackendEntry.APIKey,
 			MCPAPIKey: cfg.MCPAPIKey,
@@ -105,7 +105,7 @@ func wireChat(
 			// "what toolchain does this project need", which applies to
 			// interactive sessions identically.
 			if p.RemoteExecution != nil {
-				info.RunnerImage = p.RemoteExecution.RunnerImage
+				info.WorkerImage = p.RemoteExecution.RunnerImage
 			}
 
 			return info, nil

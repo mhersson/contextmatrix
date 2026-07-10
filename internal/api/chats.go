@@ -446,7 +446,7 @@ func (h *chatHandlers) endChat(w http.ResponseWriter, r *http.Request) {
 // Errors are routed:
 //   - chat.ErrSessionNotFound   → 404 (via handleChatError)
 //   - chat.ErrSessionNotRunning → 409 RUNNER_NOT_RUNNING
-//   - chat.ErrRunnerSend        → 502 RUNNER_UNAVAILABLE (detail: "clear_failed")
+//   - chat.ErrBackendSend        → 502 RUNNER_UNAVAILABLE (detail: "clear_failed")
 //   - everything else           → 500 (via handleChatError)
 func (h *chatHandlers) clearChat(w http.ResponseWriter, r *http.Request) {
 	if _, ok := h.ownedSession(w, r); !ok {
@@ -462,7 +462,7 @@ func (h *chatHandlers) clearChat(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if errors.Is(err, chat.ErrRunnerSend) {
+		if errors.Is(err, chat.ErrBackendSend) {
 			writeError(w, http.StatusBadGateway, ErrCodeBackendUnavailable,
 				"runner unavailable", "clear_failed")
 

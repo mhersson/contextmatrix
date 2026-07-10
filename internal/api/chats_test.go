@@ -26,19 +26,19 @@ import (
 	"github.com/mhersson/contextmatrix/internal/opstore/sqlite"
 )
 
-type chatStubRunner struct {
+type chatStubBackend struct {
 	sendErr    error
 	sendErrSeq []error
 	mu         sync.Mutex
 	sendCalls  int64
 }
 
-func (r *chatStubRunner) StartChat(_ context.Context, opts chat.StartChatOpts) (string, error) {
+func (r *chatStubBackend) StartChat(_ context.Context, opts chat.StartChatOpts) (string, error) {
 	return "container-" + opts.SessionID, nil
 }
 
-func (r *chatStubRunner) EndChat(_ context.Context, _ string) error { return nil }
-func (r *chatStubRunner) SendChatMessage(_ context.Context, _, _, _ string) error {
+func (r *chatStubBackend) EndChat(_ context.Context, _ string) error { return nil }
+func (r *chatStubBackend) SendChatMessage(_ context.Context, _, _, _ string) error {
 	r.mu.Lock()
 	idx := r.sendCalls
 	r.sendCalls++
@@ -52,7 +52,7 @@ func (r *chatStubRunner) SendChatMessage(_ context.Context, _, _, _ string) erro
 	return r.sendErr
 }
 
-func (r *chatStubRunner) StreamLogs(ctx context.Context, _ string, _ func(chat.LogEntry)) error {
+func (r *chatStubBackend) StreamLogs(ctx context.Context, _ string, _ func(chat.LogEntry)) error {
 	<-ctx.Done()
 
 	return ctx.Err()
@@ -94,12 +94,12 @@ func jsonReq(t *testing.T, method, path, body string) *http.Request {
 
 func newChatFixture(t *testing.T, opts fixtureOpts) (*http.ServeMux, *chat.Manager) {
 	t.Helper()
-	mux, mgr, _ := newChatFixtureWithRunner(t, opts)
+	mux, mgr, _ := newChatFixtureWithBackend(t, opts)
 
 	return mux, mgr
 }
 
-func newChatFixtureWithRunner(t *testing.T, opts fixtureOpts) (*http.ServeMux, *chat.Manager, *chatStubRunner) {
+func newChatFixtureWithBackend(t *testing.T, opts fixtureOpts) (*http.ServeMux, *chat.Manager, *chatStubBackend) {
 	t.Helper()
 	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
 	require.NoError(t, err)
@@ -112,10 +112,10 @@ func newChatFixtureWithRunner(t *testing.T, opts fixtureOpts) (*http.ServeMux, *
 		defaultModel = opts.chatBackendCfg.DefaultModel
 	}
 
-	runner := &chatStubRunner{}
+	backend := &chatStubBackend{}
 	mgr := chat.NewManager(chat.Config{
 		Store:        store,
-		Backend:      runner,
+		Backend:      backend,
 		Clock:        clock.Real(),
 		IdleTTL:      time.Hour,
 		DefaultModel: defaultModel,
@@ -149,7 +149,7 @@ func newChatFixtureWithRunner(t *testing.T, opts fixtureOpts) (*http.ServeMux, *
 	mux.HandleFunc("GET /api/chats/{id}/messages", chh.listMessages)
 	mux.HandleFunc("GET /api/chats/{id}/stream", chh.streamChat)
 
-	return mux, mgr, runner
+	return mux, mgr, backend
 }
 
 func TestCreateChat_Success(t *testing.T) {
@@ -661,7 +661,7 @@ func TestCreateChat_Endpoint_RejectsUnknownModel(t *testing.T) {
 }
 
 func TestClearChat_Success(t *testing.T) {
-	mux, mgr, _ := newChatFixtureWithRunner(t, defaultFixtureOpts())
+	mux, mgr, _ := newChatFixtureWithBackend(t, defaultFixtureOpts())
 	// Wrap with csrfGuard so the success path exercises the same gate the
 	// production router uses; the bare mux would otherwise skip it.
 	h := csrfGuard(mux)
@@ -670,7 +670,7 @@ func TestClearChat_Success(t *testing.T) {
 		chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
 	require.NoError(t, err)
 
-	// Open the session so the runner container is active. ClearContext now
+	// Open the session so the backend container is active. ClearContext now
 	// requires an active or warm-idle session.
 	_, err = mgr.OpenSession(context.Background(), sess.ID)
 	require.NoError(t, err)
@@ -694,7 +694,7 @@ func TestClearChat_Success(t *testing.T) {
 }
 
 func TestClearChat_MissingCSRF(t *testing.T) {
-	mux, mgr, _ := newChatFixtureWithRunner(t, defaultFixtureOpts())
+	mux, mgr, _ := newChatFixtureWithBackend(t, defaultFixtureOpts())
 	h := csrfGuard(mux)
 
 	sess, err := mgr.CreateSession(context.Background(),
@@ -716,7 +716,7 @@ func TestClearChat_MissingCSRF(t *testing.T) {
 }
 
 func TestClearChat_NotFound(t *testing.T) {
-	mux, _, _ := newChatFixtureWithRunner(t, defaultFixtureOpts())
+	mux, _, _ := newChatFixtureWithBackend(t, defaultFixtureOpts())
 
 	req := httptest.NewRequest(http.MethodPost, "/api/chats/no-such/clear",
 		bytes.NewBufferString(`{}`))
@@ -725,8 +725,8 @@ func TestClearChat_NotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
-func TestClearChat_RunnerFailure(t *testing.T) {
-	mux, mgr, runner := newChatFixtureWithRunner(t, defaultFixtureOpts())
+func TestClearChat_BackendFailure(t *testing.T) {
+	mux, mgr, backend := newChatFixtureWithBackend(t, defaultFixtureOpts())
 
 	sess, err := mgr.CreateSession(context.Background(),
 		chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
@@ -736,7 +736,7 @@ func TestClearChat_RunnerFailure(t *testing.T) {
 	_, err = mgr.OpenSession(context.Background(), sess.ID)
 	require.NoError(t, err)
 
-	runner.sendErr = errors.New("runner unreachable")
+	backend.sendErr = errors.New("backend unreachable")
 
 	req := httptest.NewRequest(http.MethodPost, "/api/chats/"+sess.ID+"/clear",
 		bytes.NewBufferString(`{}`))
@@ -754,7 +754,7 @@ func TestClearChat_RunnerFailure(t *testing.T) {
 // TestClearChat_ColdSession asserts that POST .../clear returns 409
 // RUNNER_NOT_RUNNING when the target session is cold (no running container).
 func TestClearChat_ColdSession(t *testing.T) {
-	mux, mgr, _ := newChatFixtureWithRunner(t, defaultFixtureOpts())
+	mux, mgr, _ := newChatFixtureWithBackend(t, defaultFixtureOpts())
 
 	sess, err := mgr.CreateSession(context.Background(),
 		chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
@@ -772,11 +772,11 @@ func TestClearChat_ColdSession(t *testing.T) {
 	assert.Equal(t, ErrCodeBackendNotRunning, apiErr.Code)
 }
 
-// TestClearChat_RunnerFailure_TranscriptUntouched asserts that when the runner
+// TestClearChat_BackendFailure_TranscriptUntouched asserts that when the backend
 // /clear call fails (502 path) the transcript remains empty — no rows were
 // persisted and no divider was inserted.
-func TestClearChat_RunnerFailure_TranscriptUntouched(t *testing.T) {
-	mux, mgr, runner := newChatFixtureWithRunner(t, defaultFixtureOpts())
+func TestClearChat_BackendFailure_TranscriptUntouched(t *testing.T) {
+	mux, mgr, backend := newChatFixtureWithBackend(t, defaultFixtureOpts())
 
 	sess, err := mgr.CreateSession(context.Background(),
 		chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
@@ -786,8 +786,8 @@ func TestClearChat_RunnerFailure_TranscriptUntouched(t *testing.T) {
 	_, err = mgr.OpenSession(context.Background(), sess.ID)
 	require.NoError(t, err)
 
-	// Arm the runner to fail on /clear.
-	runner.sendErr = errors.New("runner unreachable")
+	// Arm the backend to fail on /clear.
+	backend.sendErr = errors.New("backend unreachable")
 
 	req := httptest.NewRequest(http.MethodPost, "/api/chats/"+sess.ID+"/clear",
 		bytes.NewBufferString(`{}`))
@@ -799,7 +799,7 @@ func TestClearChat_RunnerFailure_TranscriptUntouched(t *testing.T) {
 	msgs, err := mgr.ListMessages(context.Background(), sess.ID, 0, 100)
 	require.NoError(t, err)
 	assert.Empty(t, msgs,
-		"transcript must remain empty when the runner /clear call fails")
+		"transcript must remain empty when the backend /clear call fails")
 }
 
 func TestListModelsEndpointSource(t *testing.T) {

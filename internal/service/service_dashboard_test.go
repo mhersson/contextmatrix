@@ -21,19 +21,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// noopChatRunner is a minimal chat.Backend for tests that do not exercise
-// the runner path (cold opens, message sends, log streaming).
-type noopChatRunner struct{}
+// noopChatBackend is a minimal chat.Backend for tests that do not exercise
+// the backend path (cold opens, message sends, log streaming).
+type noopChatBackend struct{}
 
-func (noopChatRunner) StartChat(_ context.Context, _ chat.StartChatOpts) (string, error) {
+func (noopChatBackend) StartChat(_ context.Context, _ chat.StartChatOpts) (string, error) {
 	return "noop-container", nil
 }
 
-func (noopChatRunner) EndChat(_ context.Context, _ string) error { return nil }
+func (noopChatBackend) EndChat(_ context.Context, _ string) error { return nil }
 
-func (noopChatRunner) SendChatMessage(_ context.Context, _, _, _ string) error { return nil }
+func (noopChatBackend) SendChatMessage(_ context.Context, _, _, _ string) error { return nil }
 
-func (noopChatRunner) StreamLogs(_ context.Context, _ string, _ func(chat.LogEntry)) error {
+func (noopChatBackend) StreamLogs(_ context.Context, _ string, _ func(chat.LogEntry)) error {
 	return nil
 }
 
@@ -991,7 +991,7 @@ func TestGetChatCostSummary_DeletePreservesCost(t *testing.T) {
 	// Build the first manager — used to capture the baseline and delete the session.
 	mgr := chat.NewManager(chat.Config{
 		Store:   realStore,
-		Backend: noopChatRunner{},
+		Backend: noopChatBackend{},
 		Clock:   clk,
 		IdleTTL: time.Hour,
 	})
@@ -1023,7 +1023,7 @@ func TestGetChatCostSummary_DeletePreservesCost(t *testing.T) {
 	// A zero costCache on the new manager forces a re-query from the store.
 	mgr2 := chat.NewManager(chat.Config{
 		Store:   realStore,
-		Backend: noopChatRunner{},
+		Backend: noopChatBackend{},
 		Clock:   clk,
 		IdleTTL: time.Hour,
 	})
