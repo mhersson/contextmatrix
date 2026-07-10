@@ -8,7 +8,7 @@ interface CardPanelHeaderChipsProps {
   card: Card;
   editedCard: Card;
   config: ProjectConfig;
-  runnerAttached: boolean;
+  workerAttached: boolean;
   onClose: () => void;
   onPriorityChange: (priority: string) => void;
   priorityId: string;
@@ -21,14 +21,14 @@ interface CardPanelHeaderChipsProps {
  * card ID, type chip, state chip, priority picker, and the imported-from
  * source link. Extracted from CardPanelHeader to keep that file focused
  * on actions and titles. This component is display-only apart from the
- * Priority `<select>`, which is gated by `priorityLocked` (runner attached
+ * Priority `<select>`, which is gated by `priorityLocked` (worker attached
  * or card outside todo).
  */
 export function CardPanelHeaderChips({
   card,
   editedCard,
   config,
-  runnerAttached,
+  workerAttached,
   onClose,
   onPriorityChange,
   priorityId,
@@ -42,16 +42,16 @@ export function CardPanelHeaderChips({
   // Priority — like Automation/Labels — should only be editable while the
   // card is still in `todo`. Outside todo the value already shaped how the
   // last run was queued and editing it would silently drift from history.
-  const priorityLocked = runnerAttached || card.state !== 'todo';
+  const priorityLocked = workerAttached || card.state !== 'todo';
 
   // Type follows the same gating as Priority, plus subtask cards are locked:
   // their type is parent-derived and the server invariant rejects changes.
   const typeLocked =
-    runnerAttached || card.state !== 'todo' || card.type === 'subtask';
+    workerAttached || card.state !== 'todo' || card.type === 'subtask';
   const typeLockedTitle =
     card.type === 'subtask'
       ? 'Subtasks cannot change type'
-      : runnerAttached
+      : workerAttached
         ? undefined
         : `Type can only be edited in todo · current state: ${card.state.replace(/_/g, ' ')}`;
 
@@ -136,7 +136,7 @@ export function CardPanelHeaderChips({
         ariaLabel="Priority"
         onChange={onPriorityChange}
         disabled={priorityLocked}
-        title={priorityLocked && !runnerAttached
+        title={priorityLocked && !workerAttached
           ? `Priority can only be edited in todo · current state: ${card.state.replace(/_/g, ' ')}`
           : undefined}
       />

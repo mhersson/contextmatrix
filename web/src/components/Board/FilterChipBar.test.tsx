@@ -35,11 +35,11 @@ describe('FilterChipBar', () => {
     expect(onFilterChange).toHaveBeenCalledWith({ autonomous: true });
   });
 
-  it('toggles runner:running', () => {
+  it('toggles worker:running', () => {
     const onFilterChange = vi.fn();
     render(<FilterChipBar {...baseProps} onFilterChange={onFilterChange} />);
-    fireEvent.click(screen.getByRole('button', { name: /runner:running/i }));
-    expect(onFilterChange).toHaveBeenCalledWith({ runner_status: 'running' });
+    fireEvent.click(screen.getByRole('button', { name: /worker:running/i }));
+    expect(onFilterChange).toHaveBeenCalledWith({ worker_status: 'running' });
   });
 
   it('fires onSearchChange when typing in the search input', () => {

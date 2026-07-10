@@ -6,7 +6,7 @@ const STORAGE_KEY = 'contextmatrix-agent-id';
 function generateAgentId(): string {
   // 8 hex chars from the browser's CSPRNG; 32 bits is plenty to distinguish
   // browsers on a single CM instance. Falls back to Math.random() in any
-  // environment without crypto.getRandomValues (older test runners).
+  // environment without crypto.getRandomValues (older test environments).
   let suffix: string;
 
   try {

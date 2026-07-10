@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import type { LogEntry } from '../types';
 import { useRingBuffer } from './useRingBuffer';
 
-interface UseRunnerLogsOptions {
+interface UseWorkerLogsOptions {
   project: string;
   enabled: boolean;
   maxEntries?: number;
@@ -11,7 +11,7 @@ interface UseRunnerLogsOptions {
   cardId?: string;
 }
 
-interface UseRunnerLogsResult {
+interface UseWorkerLogsResult {
   logs: readonly LogEntry[];
   connected: boolean;
   error: string | null;
@@ -31,12 +31,12 @@ function makeGapMarker(message: string): LogEntry {
   };
 }
 
-export function useRunnerLogs({
+export function useWorkerLogs({
   project,
   enabled,
   maxEntries = 5000,
   cardId,
-}: UseRunnerLogsOptions): UseRunnerLogsResult {
+}: UseWorkerLogsOptions): UseWorkerLogsResult {
   const ringBuffer = useRingBuffer(maxEntries);
   const { append, clear } = ringBuffer;
   const [connected, setConnected] = useState(false);
@@ -86,7 +86,7 @@ export function useRunnerLogs({
     terminalRef.current = false;
     logsReceivedRef.current = 0;
 
-    let url = `/api/runner/logs?project=${encodeURIComponent(project)}`;
+    let url = `/api/worker/logs?project=${encodeURIComponent(project)}`;
     if (cardId) {
       url += `&card_id=${encodeURIComponent(cardId)}`;
     }
@@ -154,7 +154,7 @@ export function useRunnerLogs({
 
         // Drop usage entries — they are token-accounting metadata consumed by
         // the context-tokens indicator via the session_updated SSE path and
-        // carry no display value for the runner console.
+        // carry no display value for the worker console.
         // 'usage' is intentionally excluded from LogEntryType (it is filter-only,
         // never rendered). We must still advance lastSeqRef here because seq is a
         // unified monotonic counter across all entry types — skipping it would
@@ -186,7 +186,7 @@ export function useRunnerLogs({
         append(entriesToAdd);
         logsReceivedRef.current += 1;
       } catch {
-        console.error('Failed to parse runner log entry:', event.data);
+        console.error('Failed to parse worker log entry:', event.data);
       }
     };
 

@@ -34,7 +34,7 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
     return () => { aliveRef.current = false; };
   }, []);
 
-  const hitlActive = card.runner_status === 'running' && !card.autonomous;
+  const hitlActive = card.worker_status === 'running' && !card.autonomous;
 
   const handleSend = async (content: string) => {
     try {

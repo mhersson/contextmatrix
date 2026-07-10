@@ -100,8 +100,8 @@ beforeEach(() => {
 describe('ClearContext error toast', () => {
   it('shows toast with API error code when clearChatContext rejects', async () => {
     vi.mocked(api.clearChatContext).mockRejectedValueOnce({
-      error: 'Runner is unavailable',
-      code: 'RUNNER_UNAVAILABLE',
+      error: 'Worker is unavailable',
+      code: 'BACKEND_UNAVAILABLE',
     });
 
     render(<ClearErrorToastBanner />);
@@ -113,7 +113,7 @@ describe('ClearContext error toast', () => {
     expect(screen.getByRole('alert')).toBeInTheDocument();
     expect(screen.getByText(/Couldn't clear context for/)).toBeInTheDocument();
     expect(screen.getByText('chat-abc')).toBeInTheDocument();
-    expect(screen.getByText(/RUNNER_UNAVAILABLE/)).toBeInTheDocument();
+    expect(screen.getByText(/BACKEND_UNAVAILABLE/)).toBeInTheDocument();
   });
 
   it('shows UNKNOWN code when the rejection is not an APIError', async () => {

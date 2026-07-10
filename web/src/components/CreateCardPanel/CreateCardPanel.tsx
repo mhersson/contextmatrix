@@ -45,7 +45,7 @@ interface CreateCardPanelProps {
  *     `previewOptions={{ skipHtml: true }}` (handled by CardPanelEditor).
  *   - Server force-enable: clicking Create & Run sets feature_branch +
  *     create_pr to true on the input so client and server agree on the
- *     saved state (matches `internal/api/runner.go:runCard`).
+ *     saved state (matches the server's Run handler).
  */
 export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCardPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
@@ -109,7 +109,7 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
     </>
   );
 
-  // Right rail — Automation + Info. No Chat (no runner) and no Danger Zone
+  // Right rail — Automation + Info. No Chat (no worker) and no Danger Zone
   // (the card doesn't exist yet, so there's nothing destructive to do).
   const tabs = [
     {

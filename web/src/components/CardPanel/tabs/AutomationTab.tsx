@@ -48,7 +48,7 @@ export function AutomationTab({
 
   // Flatten all per-tier All slugs into a single de-duplicated list for the
   // chip row. Only relevant when taskBackend === 'agent'; the prop is ignored
-  // by AutomationCheckboxes on the runner path.
+  // by AutomationCheckboxes on the worker path.
   const favorites = favsByTier
     ? [...new Set(Object.values(favsByTier).flat())]
     : undefined;

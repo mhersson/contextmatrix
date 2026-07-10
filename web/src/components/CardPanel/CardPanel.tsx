@@ -4,7 +4,7 @@ import { CardPanelHeader } from './CardPanelHeader';
 import { CardPanelBody, type RailTabKey } from './CardPanelBody';
 import { CardPanelLeft } from './CardPanelLeft';
 import { buildCardPanelTabs } from './buildCardPanelTabs';
-import { isRunnerAttached, primaryAction } from './utils';
+import { isWorkerAttached, primaryAction } from './utils';
 import { useCardEdits } from './useCardEdits';
 import { useRailSync } from './useRailSync';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
@@ -46,8 +46,8 @@ interface CardPanelProps {
  *     run` badge only when the current Run click actually flipped them.
  *
  * The Run handler (and the header's primary action) always awaits `onSave`
- * before firing the runner webhook, matching the server's force-enable
- * behavior in `internal/api/runner.go:runCard`.
+ * before firing the worker webhook, matching the server's force-enable
+ * behavior when running a card.
  */
 export function CardPanel(props: CardPanelProps) {
   const { card, config, cardLogs = [], onClose, onSave, onDelete, onClaim, onRelease,
@@ -73,7 +73,7 @@ export function CardPanel(props: CardPanelProps) {
   useFocusTrap(panelRef, true);
 
   const isMobile = useMediaQuery('(max-width: 768px)');
-  const isHITLRunning = card.runner_status === 'running' && !(card.autonomous ?? false);
+  const isHITLRunning = card.worker_status === 'running' && !(card.autonomous ?? false);
   const defaultTab: RailTabKey = isHITLRunning ? 'chat' : isMobile ? 'card' : 'automation';
 
   const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
@@ -127,9 +127,9 @@ export function CardPanel(props: CardPanelProps) {
   const canRun =
     config.remote_execution?.enabled !== false &&
     card.state === 'todo' &&
-    (!card.runner_status || card.runner_status === 'failed' || card.runner_status === 'killed');
+    (!card.worker_status || card.worker_status === 'failed' || card.worker_status === 'killed');
 
-  const runnerAttached = isRunnerAttached(card, currentAgentId);
+  const workerAttached = isWorkerAttached(card, currentAgentId);
   const primary = primaryAction(card, editedCard.autonomous ?? false, config, canRun);
 
   // First unfinished dep for the "Open dependency" helper (blocked cards).
@@ -152,25 +152,25 @@ export function CardPanel(props: CardPanelProps) {
     : 'Only unclaimed cards in todo or not_planned can be deleted';
 
   // Editable surfaces lock under two predicates with different remediations.
-  // Runner-attached is automatic and clears when the runner releases.
+  // Worker-attached is automatic and clears when the worker releases.
   // State-driven asks the user to move the card back to `todo` — the only
   // state that can re-run. Both feed the left column (Labels) and the
   // Automation tab (checkbox rail), so compute once here.
   const isTodo = card.state === 'todo';
   const isSubtask = card.type === 'subtask';
-  const stateLocksEditing = !isTodo && !runnerAttached;
-  const editingLocked = runnerAttached || stateLocksEditing;
+  const stateLocksEditing = !isTodo && !workerAttached;
+  const editingLocked = workerAttached || stateLocksEditing;
   const automationLocked = editingLocked || isSubtask;
-  const lockedReason = runnerAttached
+  const lockedReason = workerAttached
     ? 'locked during remote run'
     : `locked outside todo · move card back to todo to edit (current: ${card.state.replace(/_/g, ' ')})`;
   const automationLockedReason = isSubtask
     ? 'Automation is managed on the parent card'
-    : runnerAttached
+    : workerAttached
       ? 'Automation locked during remote run'
       : `Automation can only be edited in todo · current state: ${card.state.replace(/_/g, ' ')}`;
   const canToggleEditor =
-    !runnerAttached &&
+    !workerAttached &&
     (card.state === 'todo' || card.state === 'done' || card.state === 'not_planned');
 
   const { tabs, defaultTab: resolvedDefaultTab } = buildCardPanelTabs({
@@ -180,7 +180,7 @@ export function CardPanel(props: CardPanelProps) {
     config,
     cardLogs,
     currentAgentId,
-    runnerAttached,
+    workerAttached,
     isHITLRunning,
     onClaim: handleClaim,
     onRelease: handleRelease,
@@ -251,7 +251,7 @@ export function CardPanel(props: CardPanelProps) {
               key={card.id}
               editedCard={editedCard}
               setEditedCard={setEditedCard}
-              runnerAttached={runnerAttached}
+              workerAttached={workerAttached}
               editingLocked={editingLocked}
               lockedReason={lockedReason}
               canToggleEditor={canToggleEditor}

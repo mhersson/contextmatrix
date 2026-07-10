@@ -8,7 +8,7 @@ interface InfoTabProps {
   setEditedCard: Dispatch<SetStateAction<Card>>;
   config: ProjectConfig;
   currentAgentId: string | null;
-  runnerAttached: boolean;
+  workerAttached: boolean;
   onSubtaskClick: (cardId: string) => void;
   onClaim: () => Promise<void>;
   onRelease: () => Promise<void>;
@@ -27,7 +27,7 @@ export function InfoTab({
   setEditedCard,
   config,
   currentAgentId,
-  runnerAttached,
+  workerAttached,
   onSubtaskClick,
   onClaim,
   onRelease,
@@ -39,7 +39,7 @@ export function InfoTab({
       editedCard={editedCard}
       config={config}
       currentAgentId={currentAgentId}
-      runnerAttached={runnerAttached}
+      workerAttached={workerAttached}
       onStateChange={(state) => setEditedCard((prev) => ({ ...prev, state }))}
       onSubtaskClick={onSubtaskClick}
       onClaim={onClaim}

@@ -270,13 +270,13 @@ describe('pattern filtering', () => {
   it('delivers events to both wildcard and matching prefix subscribers', () => {
     const wild: BoardEvent[] = [];
     const card: BoardEvent[] = [];
-    const runner: BoardEvent[] = [];
+    const worker: BoardEvent[] = [];
 
     act(() => {
       renderWithProvider((ctx) => {
         ctx.subscribe('*', (e) => wild.push(e));
         ctx.subscribe('card.*', (e) => card.push(e));
-        ctx.subscribe('runner.*', (e) => runner.push(e));
+        ctx.subscribe('worker.*', (e) => worker.push(e));
       });
     });
 
@@ -286,7 +286,7 @@ describe('pattern filtering', () => {
 
     act(() => {
       latestInstance()._triggerMessage({
-        type: 'runner.started',
+        type: 'worker.started',
         project: 'alpha',
         card_id: 'ALPHA-001',
         timestamp: '2026-01-01T00:00:00Z',
@@ -295,7 +295,7 @@ describe('pattern filtering', () => {
 
     expect(wild).toHaveLength(1);
     expect(card).toHaveLength(0);
-    expect(runner).toHaveLength(1);
+    expect(worker).toHaveLength(1);
   });
 });
 

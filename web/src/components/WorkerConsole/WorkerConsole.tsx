@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
 import type { LogEntry } from '../../types';
-import { RunnerConsoleHeader } from './RunnerConsoleHeader';
-import { RunnerConsoleLog } from './RunnerConsoleLog';
+import { WorkerConsoleHeader } from './WorkerConsoleHeader';
+import { WorkerConsoleLog } from './WorkerConsoleLog';
 
-interface RunnerConsoleProps {
+interface WorkerConsoleProps {
   logs: readonly LogEntry[];
   connected: boolean;
   error: string | null;
@@ -12,7 +12,7 @@ interface RunnerConsoleProps {
   flexBasis?: string;
 }
 
-export function RunnerConsole({ logs, connected, error, onClose, onClear, flexBasis }: RunnerConsoleProps) {
+export function WorkerConsole({ logs, connected, error, onClose, onClear, flexBasis }: WorkerConsoleProps) {
   const [cardFilter, setCardFilter] = useState<string>('');
 
   const uniqueCardIds = useMemo(() => {
@@ -35,7 +35,7 @@ export function RunnerConsole({ logs, connected, error, onClose, onClear, flexBa
         minHeight: 0,
       }}
     >
-      <RunnerConsoleHeader
+      <WorkerConsoleHeader
         connected={connected}
         cardFilter={cardFilter}
         cardIds={uniqueCardIds}
@@ -43,7 +43,7 @@ export function RunnerConsole({ logs, connected, error, onClose, onClear, flexBa
         onClear={onClear}
         onClose={onClose}
       />
-      <RunnerConsoleLog logs={filteredLogs} error={error} />
+      <WorkerConsoleLog logs={filteredLogs} error={error} />
     </div>
   );
 }

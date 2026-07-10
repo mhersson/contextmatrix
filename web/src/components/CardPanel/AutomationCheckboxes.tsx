@@ -70,9 +70,9 @@ interface AutomationCheckboxesProps {
   mode?: 'edit' | 'create';
   /**
    * Optional override for the locked-state banner text. Defaults to the
-   * runner-attached message when omitted; callers pass a state-specific
+   * worker-attached message when omitted; callers pass a state-specific
    * message (e.g. "Automation can only be edited in todo") when the lock
-   * is driven by the card's lifecycle rather than an active runner.
+   * is driven by the card's lifecycle rather than an active worker.
    */
   lockedReason?: string;
 }
@@ -276,7 +276,7 @@ export function AutomationCheckboxes({
 
       {/* Locked banner — shown whenever the inputs are disabled outside
           create mode. The banner text is supplied by the caller so the
-          message can describe the actual reason (runner attached vs.
+          message can describe the actual reason (worker attached vs.
           state-not-todo). */}
       {disabled && !creating && (
         <div className="bf-locked-banner">

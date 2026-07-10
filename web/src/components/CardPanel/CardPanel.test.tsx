@@ -115,7 +115,7 @@ describe('CardPanel — bifold layout', () => {
     render(
       <CardPanel
         {...makeProps({
-          card: { ...baseCard, state: 'in_progress', runner_status: 'running', autonomous: false },
+          card: { ...baseCard, state: 'in_progress', worker_status: 'running', autonomous: false },
         })}
       />,
     );
@@ -132,7 +132,7 @@ describe('CardPanel — bifold layout', () => {
             type: 'subtask',
             parent: 'TEST-000',
             state: 'in_progress',
-            runner_status: 'running',
+            worker_status: 'running',
             autonomous: false,
           },
         })}
@@ -141,7 +141,7 @@ describe('CardPanel — bifold layout', () => {
     expect(screen.queryByRole('tab', { name: /Chat/ })).not.toBeInTheDocument();
   });
 
-  it('default tab is Automation when the runner is not running HITL', () => {
+  it('default tab is Automation when the worker is not running HITL', () => {
     render(<CardPanel {...makeProps()} />);
     expect(screen.getByRole('tab', { name: /Automation/ })).toHaveAttribute('aria-selected', 'true');
   });
@@ -156,7 +156,7 @@ describe('CardPanel — bifold layout', () => {
   });
 
   it('preserves railExpanded when the card state changes via a new card object (SSE refresh)', () => {
-    const initial = { ...baseCard, state: 'in_progress', runner_status: 'running' as const, autonomous: false };
+    const initial = { ...baseCard, state: 'in_progress', worker_status: 'running' as const, autonomous: false };
     const { rerender } = render(<CardPanel {...makeProps({ card: initial })} />);
     const grid = screen.getByTestId('body-bifold');
 
@@ -251,7 +251,7 @@ describe('CardPanel — Run handler (save-before-run)', () => {
     expect(onRunCard).toHaveBeenCalledOnce();
   });
 
-  it('reverts optimistic feature_branch/create_pr when onSave rejects (no runner fire)', async () => {
+  it('reverts optimistic feature_branch/create_pr when onSave rejects (no worker fire)', async () => {
     const onSave = vi.fn().mockRejectedValue({ error: 'save failed' });
     const onRunCard = vi.fn().mockResolvedValue(undefined);
     render(<CardPanel {...makeProps({ onSave, onRunCard })} />);
@@ -394,7 +394,7 @@ describe('CardPanel — rail default tab follows isHITLRunning', () => {
     render(
       <CardPanel
         {...makeProps({
-          card: { ...baseCard, state: 'in_progress', runner_status: 'running', autonomous: false },
+          card: { ...baseCard, state: 'in_progress', worker_status: 'running', autonomous: false },
         })}
       />,
     );
@@ -408,7 +408,7 @@ describe('CardPanel — rail default tab follows isHITLRunning', () => {
     rerender(
       <CardPanel
         {...makeProps({
-          card: { ...baseCard, state: 'in_progress', runner_status: 'running', autonomous: false },
+          card: { ...baseCard, state: 'in_progress', worker_status: 'running', autonomous: false },
         })}
       />,
     );
@@ -416,8 +416,8 @@ describe('CardPanel — rail default tab follows isHITLRunning', () => {
   });
 
   it('switches the active tab back to Automation when the HITL session ends (two consecutive renders)', () => {
-    const runningCard = { ...baseCard, state: 'in_progress', runner_status: 'running' as const, autonomous: false };
-    const autonomousCard = { ...baseCard, state: 'in_progress', runner_status: 'running' as const, autonomous: true };
+    const runningCard = { ...baseCard, state: 'in_progress', worker_status: 'running' as const, autonomous: false };
+    const autonomousCard = { ...baseCard, state: 'in_progress', worker_status: 'running' as const, autonomous: true };
     const { rerender } = render(<CardPanel {...makeProps({ card: runningCard })} />);
     expect(screen.getByRole('tab', { name: /Chat/ })).toHaveAttribute('aria-selected', 'true');
 
@@ -433,7 +433,7 @@ describe('CardPanel — rail default tab follows isHITLRunning', () => {
   it('does NOT switch activeTab to Automation on first render after isHITLRunning flips false (counter=1 guard)', () => {
     // Verifies the debounce: a single flip to false does NOT call setActiveTab(defaultTab).
     // After the flip back to true, the chat tab is re-mounted and selected (no stale automation state).
-    const runningCard = { ...baseCard, state: 'in_progress', runner_status: 'running' as const, autonomous: false };
+    const runningCard = { ...baseCard, state: 'in_progress', worker_status: 'running' as const, autonomous: false };
     const { rerender } = render(<CardPanel {...makeProps({ card: runningCard })} />);
     expect(screen.getByRole('tab', { name: /Chat/ })).toHaveAttribute('aria-selected', 'true');
 
@@ -453,7 +453,7 @@ describe('CardPanel — rail default tab follows isHITLRunning', () => {
   });
 
   it('user-initiated tab change resets the stability counter so HITL-off does not re-fire stale switch', () => {
-    const runningCard = { ...baseCard, state: 'in_progress', runner_status: 'running' as const, autonomous: false };
+    const runningCard = { ...baseCard, state: 'in_progress', worker_status: 'running' as const, autonomous: false };
     const { rerender } = render(<CardPanel {...makeProps({ card: runningCard })} />);
     expect(screen.getByRole('tab', { name: /Chat/ })).toHaveAttribute('aria-selected', 'true');
 
@@ -473,7 +473,7 @@ describe('CardPanel — rail default tab follows isHITLRunning', () => {
   });
 });
 
-describe('CardPanel — description editability tracks runnerAttached', () => {
+describe('CardPanel — description editability tracks workerAttached', () => {
   beforeEach(() => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
   });
@@ -485,10 +485,10 @@ describe('CardPanel — description editability tracks runnerAttached', () => {
     expect(await screen.findByTestId('md-editor')).toBeInTheDocument();
   });
 
-  it('omits the "Open in editor" toggle when runner is running (HITL)', async () => {
+  it('omits the "Open in editor" toggle when worker is running (HITL)', async () => {
     render(
       <CardPanel
-        {...makeProps({ card: { ...baseCard, state: 'in_progress', runner_status: 'running', autonomous: false } })}
+        {...makeProps({ card: { ...baseCard, state: 'in_progress', worker_status: 'running', autonomous: false } })}
       />,
     );
     await waitFor(() => {
@@ -564,7 +564,7 @@ describe('CardPanel — mobile layout (≤ 768px)', () => {
     render(
       <CardPanel
         {...makeProps({
-          card: { ...baseCard, state: 'in_progress', runner_status: 'running', autonomous: false },
+          card: { ...baseCard, state: 'in_progress', worker_status: 'running', autonomous: false },
         })}
       />,
     );
@@ -614,7 +614,7 @@ describe('CardPanel — rail auto-expand behavior', () => {
     render(
       <CardPanel
         {...makeProps({
-          card: { ...baseCard, state: 'in_progress', runner_status: 'running', autonomous: false },
+          card: { ...baseCard, state: 'in_progress', worker_status: 'running', autonomous: false },
         })}
       />,
     );
@@ -633,7 +633,7 @@ describe('CardPanel — rail auto-expand behavior', () => {
       ...baseCard,
       id: 'TEST-002',
       state: 'in_progress',
-      runner_status: 'running' as const,
+      worker_status: 'running' as const,
       autonomous: false,
     };
     rerender(<CardPanel {...makeProps({ card: hitlCard })} />);
@@ -650,7 +650,7 @@ describe('CardPanel — rail auto-expand behavior', () => {
     const hitlFlipped = {
       ...baseCard,
       state: 'in_progress',
-      runner_status: 'running' as const,
+      worker_status: 'running' as const,
       autonomous: false,
     };
     rerender(<CardPanel {...makeProps({ card: hitlFlipped })} />);
@@ -663,7 +663,7 @@ describe('CardPanel — rail auto-expand behavior', () => {
     const initial = {
       ...baseCard,
       state: 'in_progress',
-      runner_status: 'running' as const,
+      worker_status: 'running' as const,
       autonomous: false,
     };
     const { rerender } = render(<CardPanel {...makeProps({ card: initial })} />);

@@ -44,7 +44,7 @@ const defaultProps = {
   editedCard: baseCard,
   config,
   currentAgentId: null,
-  runnerAttached: false,
+  workerAttached: false,
   onStateChange: vi.fn(),
   onSubtaskClick: vi.fn(),
   onClaim: vi.fn(),
@@ -78,17 +78,17 @@ describe('CardPanelMetadata — status section', () => {
     expect(screen.queryByRole('option', { name: /→ in progress/ })).not.toBeInTheDocument();
   });
 
-  it('disables the select when a runner is attached', () => {
-    render(<CardPanelMetadata {...defaultProps} runnerAttached />);
+  it('disables the select when a worker is attached', () => {
+    render(<CardPanelMetadata {...defaultProps} workerAttached />);
     expect(screen.getByRole('combobox', { name: 'State' })).toBeDisabled();
   });
 });
 
 describe('CardPanelMetadata — agent section', () => {
-  it('shows "unassigned" + "runner ready" hint and a Just claim button when no agent holds a todo card', () => {
+  it('shows "unassigned" + "worker ready" hint and a Just claim button when no agent holds a todo card', () => {
     render(<CardPanelMetadata {...defaultProps} />);
     expect(screen.getByText('unassigned')).toBeInTheDocument();
-    expect(screen.getByText(/runner ready/)).toBeInTheDocument();
+    expect(screen.getByText(/worker ready/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Just claim' })).toBeInTheDocument();
   });
 
@@ -99,7 +99,7 @@ describe('CardPanelMetadata — agent section', () => {
     expect(onClaim).toHaveBeenCalledOnce();
   });
 
-  it('shows the claimer and a Release button when runner is attached and current user is human', () => {
+  it('shows the claimer and a Release button when worker is attached and current user is human', () => {
     const card: Card = { ...baseCard, assigned_agent: 'agent-1', last_heartbeat: '2026-01-01T00:00:30Z' };
     render(
       <CardPanelMetadata
@@ -107,15 +107,15 @@ describe('CardPanelMetadata — agent section', () => {
         card={card}
         editedCard={card}
         currentAgentId="human:alice"
-        runnerAttached
+        workerAttached
       />,
     );
     expect(screen.getByText('agent-1')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Release' })).toBeInTheDocument();
   });
 
-  it('does not render the Just claim button when the runner is attached', () => {
-    render(<CardPanelMetadata {...defaultProps} runnerAttached />);
+  it('does not render the Just claim button when the worker is attached', () => {
+    render(<CardPanelMetadata {...defaultProps} workerAttached />);
     expect(screen.queryByRole('button', { name: 'Just claim' })).not.toBeInTheDocument();
   });
 
@@ -132,7 +132,7 @@ describe('CardPanelMetadata — agent section', () => {
         {...defaultProps}
         card={card}
         editedCard={card}
-        runnerAttached
+        workerAttached
         currentAgentId={null}
       />,
     );
@@ -146,7 +146,7 @@ describe('CardPanelMetadata — agent section', () => {
         {...defaultProps}
         card={card}
         editedCard={card}
-        runnerAttached
+        workerAttached
         currentAgentId="agent:robot"
       />,
     );
@@ -162,7 +162,7 @@ describe('CardPanelMetadata — agent section', () => {
         {...defaultProps}
         card={card}
         editedCard={card}
-        runnerAttached
+        workerAttached
         currentAgentId="human:alice"
         onRelease={onRelease}
       />,

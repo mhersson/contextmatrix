@@ -119,7 +119,7 @@ describe('AutomationCheckboxes — Best of N selector', () => {
   });
 
   it('hides the "Best of N" select when taskBackend is not agent', () => {
-    render(<AutomationCheckboxes {...baseProps} taskBackend="runner" />);
+    render(<AutomationCheckboxes {...baseProps} taskBackend="other" />);
     expect(screen.queryByLabelText('Best of N')).not.toBeInTheDocument();
   });
 
