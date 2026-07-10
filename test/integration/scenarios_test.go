@@ -4,272 +4,237 @@ package integration_test
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 )
 
-// TestIntegrationHarness is the entry point for all stub scenarios.
-func TestIntegrationHarness(t *testing.T) {
-	t.Run("Autonomous", testAutonomousStub)
-	t.Run("HITL", testHITLStub)
-	t.Run("KillMidRun", testKillMidRunStub)
-	t.Run("HeartbeatTimeout", testHeartbeatTimeoutStub)
-	t.Run("PromoteHITLToAuto", testPromoteHITLToAutoStub)
-	t.Run("IdleWatchdog", testIdleWatchdogStub)
-	t.Run("Chat", testChatStub)
+// harness bundles a booted CM (admin session) plus the host services worker
+// containers reach via host.docker.internal (the scripted LLM and the seeded
+// git server).
+type harness struct {
+	sc      *scenarioConfig
+	cm      *process
+	client  *apiClient
+	rl      *runLog
+	git     *gitServer
+	project string
 }
 
-func testAutonomousStub(t *testing.T) {
-	scenarioID := "autonomous"
-	project := "harness"
+// bootHarness starts the git server, the scripted LLM, and CM (auth.mode:
+// multi) with the given backends declared, then bootstraps an admin session.
+// workerImage is baked into the project's remote_execution.worker_image.
+// It registers the finalize / cards-snapshot / docker-sweep cleanups in the
+// LIFO order the runlog needs (finalize reads stable sinks after the
+// subprocesses stop).
+func bootHarness(t *testing.T, scenarioID, project string, opts cmConfigOptions, reply func(chatRequest) string, workerImage, sweepLabel string) *harness {
+	t.Helper()
 
-	s := bootScenario(t, scenarioID, project)
+	sc := newScenarioConfig(t, scenarioID)
+	sc.workerImage = workerImage
 
-	cardID := s.createCard(t, "stub autonomous", false /* autonomous flag */)
-
-	s.triggerRun(t, cardID, false /* interactive */)
-
-	// Stub completes in ~600ms; allow generous margin.
-	final := s.waitForState(t, cardID, "done", 30*time.Second)
-
-	if final.AssignedAgent != "" {
-		t.Errorf("agent should be cleared after release, got %q", final.AssignedAgent)
+	rl, err := newRunLog(scenarioID)
+	if err != nil {
+		t.Fatalf("runlog: %v", err)
 	}
 
-	// Activity-log assertion: the MCP loop should have produced at
-	// least one entry. A regression that swallowed activity logging
-	// would still pass the state checks above; this catches it.
-	if len(final.ActivityLog) == 0 {
-		t.Errorf("activity log empty; expected entries from claim/transition/release")
-	}
-}
+	start := time.Now()
 
-func testKillMidRunStub(t *testing.T) {
-	scenarioID := "killmidrun"
-	project := "harness"
-
-	s := bootScenario(t, scenarioID, project)
-
-	body := "Test card.\n\nSTUB-DIRECTIVE: hang-after-claim=1\n"
-	cardID := s.createCardWithBody(t, "stub kill", body, false /* autonomous */)
-
-	s.triggerRun(t, cardID, false /* interactive */)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-
-	s.waitForCardClaimed(ctx, t, cardID)
-
-	s.stopCard(t, cardID)
-
-	s.waitForAgentCleared(ctx, t, cardID)
-
-	// Container should be removed within ~10s.
-	pollUntil(ctx, t, "worker container removed", func() bool {
-		return len(dockerListByScenario(scenarioID)) == 0
-	})
-
-	card := s.client.getCard(t, project, cardID)
-	if card.State == "done" {
-		t.Errorf("card should not have reached done after /stop, state=%s", card.State)
-	}
-}
-
-func testHITLStub(t *testing.T) {
-	scenarioID := "hitl"
-	project := "harness"
-
-	s := bootScenario(t, scenarioID, project)
-
-	cardID := s.createCard(t, "stub HITL", false /* autonomous flag */)
-	buf := s.startTranscript(t, cardID)
-
-	s.triggerRun(t, cardID, true /* interactive */)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	// Stub emits "Awaiting input…" after claim_card.
-	waitForTranscriptText(ctx, t, buf, "Awaiting input")
-
-	s.messageCard(t, cardID, "approve")
-
-	final := s.waitForState(t, cardID, "done", 30*time.Second)
-	if final.AssignedAgent != "" {
-		t.Errorf("agent should be cleared, got %q", final.AssignedAgent)
-	}
-}
-
-func testHeartbeatTimeoutStub(t *testing.T) {
-	scenarioID := "heartbeat"
-	project := "harness"
-
-	s := bootScenarioWithConfig(t, scenarioID, project, func(cfg *scenarioConfig) {
-		cfg.heartbeatTimeoutSeconds = 5
-		// Shrink CM's stalled-check tick to 2s (default 1m). Without this
-		// the test races a 60s tick — and if the runner kills the worker
-		// container for ANY reason before 60s, the runner posts failed,
-		// CM clears AssignedAgent, FindStalled then skips the card, and
-		// the test can never reach state=stalled. With 2s tick the
-		// stalled transition fires reliably within ~7s of trigger.
-		cfg.stalledCheckSeconds = 2
-	})
-
-	body := "Test card.\n\nSTUB-DIRECTIVE: skip-heartbeat=1\nSTUB-DIRECTIVE: hang-after-claim=1\n"
-	cardID := s.createCardWithBody(t, "stub heartbeat", body, false)
-
-	s.triggerRun(t, cardID, false)
-
-	// CM's stalled-checker now ticks every 2s (per stalledCheckSeconds
-	// override above). 5s heartbeat_timeout + 2s tick + processing = well
-	// under 15s; 30s is generous slack.
-	final := s.waitForState(t, cardID, "stalled", 30*time.Second)
-	if final.AssignedAgent != "" {
-		t.Errorf("agent should be cleared on stalled, got %q", final.AssignedAgent)
-	}
-}
-
-func testPromoteHITLToAutoStub(t *testing.T) {
-	scenarioID := "promote"
-	project := "harness"
-
-	s := bootScenario(t, scenarioID, project)
-
-	cardID := s.createCard(t, "stub promote", false)
-	buf := s.startTranscript(t, cardID)
-	_ = buf
-
-	s.triggerRun(t, cardID, true /* interactive */)
-
-	// Wait for claim: card enters in_progress when the stub calls claim_card,
-	// which means the HITL loop is running and the stub is blocking on stdin.
-	// Using waitForState instead of waitForTranscriptText avoids a race where
-	// the "Awaiting input" SSE event is emitted before CM's session pump
-	// connects to the runner's broadcaster.
-	s.waitForState(t, cardID, "in_progress", 30*time.Second)
-
-	// Promote without sending a chat message.
-	s.promoteCard(t, cardID)
-
-	final := s.waitForState(t, cardID, "done", 30*time.Second)
-	if !final.Autonomous {
-		t.Errorf("card.autonomous should be true after promote")
-	}
-
-	if final.AssignedAgent != "" {
-		t.Errorf("agent should be cleared, got %q", final.AssignedAgent)
-	}
-}
-
-func testIdleWatchdogStub(t *testing.T) {
-	scenarioID := "idle"
-	project := "harness"
-
-	s := bootScenarioWithConfig(t, scenarioID, project, func(cfg *scenarioConfig) {
-		cfg.idleWatchdogSeconds = 2
-		cfg.idleOutputTimeoutSeconds = 5
-	})
-
-	body := "Test card.\n\nSTUB-DIRECTIVE: hang-after-claim=1\n"
-	cardID := s.createCardWithBody(t, "stub idle", body, false)
-
-	s.triggerRun(t, cardID, false)
-
-	// Wait for claim, then for the watchdog to kill the container.
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	s.waitForCardClaimed(ctx, t, cardID)
-	s.waitForAgentCleared(ctx, t, cardID)
-
-	pollUntil(ctx, t, "worker container removed", func() bool {
-		return len(dockerListByScenario(scenarioID)) == 0
-	})
-}
-
-// testChatStub validates the global-chat REST API end-to-end (create, get,
-// list, patch, delete) against a real CM binary with a live SQLite store.
-//
-// What this covers: router wiring, handler logic, SQLite persistence, and
-// correct HTTP status codes for all five chat lifecycle operations.
-//
-// What this defers (follow-up work):
-//   - Sending a message and receiving SSE events — requires the stub-worker to
-//     accept /chat/start and the SSE bridge to pump events through.
-//   - Reopen flow (cold → active → cold) — same dependency on the runner stub.
-func testChatStub(t *testing.T) {
-	scenarioID := "chat"
-	project := "harness"
-
-	s := bootScenario(t, scenarioID, project)
-
-	// Create chat — no project field means cross-project / no container clone.
-	var created struct {
-		ID     string `json:"id"`
-		Title  string `json:"title"`
-		Status string `json:"status"`
-	}
-	status, body := s.client.postRaw(t, "/api/chats", map[string]any{"title": "smoke"}, &created)
-	if status != http.StatusCreated {
-		t.Fatalf("create chat: HTTP %d body=%s", status, body)
-	}
-	if created.ID == "" || created.Status != "cold" {
-		t.Fatalf("create chat returned unexpected payload: %+v", created)
-	}
-
-	// Get chat by ID.
-	var got struct {
-		ID     string `json:"id"`
-		Status string `json:"status"`
-		Title  string `json:"title"`
-	}
-	statusGet := s.client.get(t, "/api/chats/"+created.ID, &got)
-	if statusGet != http.StatusOK {
-		t.Fatalf("get chat: HTTP %d", statusGet)
-	}
-	if got.ID != created.ID {
-		t.Fatalf("get chat id mismatch: %s vs %s", got.ID, created.ID)
-	}
-
-	// List chats — the newly created one must appear.
-	var list []map[string]any
-	statusList := s.client.get(t, "/api/chats", &list)
-	if statusList != http.StatusOK {
-		t.Fatalf("list chats: HTTP %d", statusList)
-	}
-	found := false
-	for _, c := range list {
-		if c["id"] == created.ID {
-			found = true
-			break
+	// Registered first → runs last: sweep any labelled containers left behind.
+	t.Cleanup(func() {
+		if ids := dockerListByLabel(sweepLabel); len(ids) > 0 {
+			args := append([]string{"rm", "-f"}, ids...)
+			_ = exec.Command("docker", args...).Run()
 		}
-	}
-	if !found {
-		t.Fatalf("list chats: created id %s not in list", created.ID)
+	})
+
+	// Registered second → runs after the subprocess SIGTERMs (stable sinks).
+	t.Cleanup(func() {
+		status := "PASS"
+		if t.Skipped() {
+			status = "SKIP"
+		} else if t.Failed() {
+			status = "FAIL"
+		}
+
+		rl.finalize(scenarioID, status, time.Since(start), nil)
+		t.Logf("scenario diagnostics: %s", rl.dir)
+	})
+
+	git := startGitServer(t, rl)
+	sc.gitPort = git.port
+	sc.repoURL = git.containerURL()
+
+	stub := startStubLLM(t, rl, scenarioID, reply)
+	sc.stubLLMPort = stub.port
+
+	initBoardsRepo(t, sc, project)
+
+	cfgPath := sc.writeCMConfig(t, opts)
+
+	cm := startCM(t, cfgPath, sc.cmPort, rl)
+
+	admin := bootAdminSession(t, fmt.Sprintf("http://127.0.0.1:%d", sc.cmPort), cm)
+
+	// Cards snapshot for run.md. Registered after startCM → runs before CM's
+	// SIGTERM (LIFO), so CM is still up to answer; uses the admin session jar.
+	t.Cleanup(func() { snapshotCards(admin, rl, project) })
+
+	return &harness{sc: sc, cm: cm, client: admin, rl: rl, git: git, project: project}
+}
+
+// snapshotCards writes the project's cards JSON to cards.json for the runlog
+// markdown report. Best-effort (runs in cleanup, no *testing.T): errors are
+// swallowed. Uses the admin client's cookie jar for the session-gated read.
+func snapshotCards(client *apiClient, rl *runLog, project string) {
+	req, err := http.NewRequest(http.MethodGet, client.baseURL+"/api/projects/"+project+"/cards", nil)
+	if err != nil {
+		return
 	}
 
-	// PATCH title.
-	var patched struct {
-		Title string `json:"title"`
+	resp, err := client.hc.Do(req)
+	if err != nil {
+		return
 	}
-	statusPatch, patchBody := s.client.patch(t, "/api/chats/"+created.ID, map[string]any{"title": "renamed"}, &patched)
-	if statusPatch != http.StatusOK {
-		t.Fatalf("patch chat: HTTP %d body=%s", statusPatch, patchBody)
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if len(body) > 0 {
+		_ = os.WriteFile(filepath.Join(rl.dir, "cards.json"), body, 0o644)
 	}
-	if patched.Title != "renamed" {
-		t.Fatalf("patch chat: title not updated: %q", patched.Title)
+}
+
+// createCard creates a card via the admin session and returns its ID.
+func (h *harness) createCard(t *testing.T, title, body string, autonomous bool) string {
+	t.Helper()
+
+	req := map[string]any{
+		"title":      title,
+		"type":       "task",
+		"priority":   "medium",
+		"autonomous": autonomous,
+		"body":       body,
 	}
 
-	// DELETE chat.
-	statusDel := s.client.deleteReq(t, "/api/chats/"+created.ID)
-	if statusDel != http.StatusNoContent {
-		t.Fatalf("delete chat: HTTP %d", statusDel)
+	var resp struct {
+		ID string `json:"id"`
 	}
 
-	// GET after delete must return 404.
-	statusGone := s.client.get(t, "/api/chats/"+created.ID, nil)
-	if statusGone != http.StatusNotFound {
-		t.Fatalf("get deleted chat: expected 404 got %d", statusGone)
+	status, raw := h.client.do(t, http.MethodPost, "/api/projects/"+h.project+"/cards", req, &resp)
+	if status != http.StatusOK && status != http.StatusCreated {
+		t.Fatalf("createCard: HTTP %d body=%s\nCM stderr tail:\n%s", status, raw, tail(h.cm.stderr.String(), 30))
+	}
+
+	if resp.ID == "" {
+		t.Fatalf("createCard: empty ID in response")
+	}
+
+	return resp.ID
+}
+
+// triggerRun triggers remote execution for the card.
+func (h *harness) triggerRun(t *testing.T, cardID string, interactive bool) {
+	t.Helper()
+
+	body := map[string]any{"interactive": interactive}
+
+	status, raw := h.client.do(t, http.MethodPost,
+		fmt.Sprintf("/api/projects/%s/cards/%s/run", h.project, cardID), body, nil)
+	if status != http.StatusOK && status != http.StatusAccepted {
+		t.Fatalf("trigger: HTTP %d body=%s\nCM stderr tail:\n%s\n\nagent stderr tail:\n%s",
+			status, raw, tail(h.cm.stderr.String(), 30), tail(h.rl.agentSink.String(), 60))
+	}
+}
+
+// waitForState polls the card until it reaches target (and, for terminal
+// targets, worker_status has cleared).
+func (h *harness) waitForState(t *testing.T, cardID, target string, timeout time.Duration) cardSnapshot {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	var snap cardSnapshot
+
+	terminal := target == "done" || target == "not_planned"
+	pollUntil(ctx, t, fmt.Sprintf("card %s reach state=%s", cardID, target), func() bool {
+		snap = h.client.getCard(t, h.project, cardID)
+		if snap.State != target {
+			return false
+		}
+
+		if terminal && snap.WorkerStatus != "" {
+			return false
+		}
+
+		return true
+	})
+
+	return snap
+}
+
+// TestAgentScenario runs the contextmatrix-agent backend end to end against the
+// scripted LLM: an autonomous card is decomposed, worked, reviewed, and
+// integrated, driving the parent card to done with its feature branch pushed to
+// the seeded git server.
+func TestAgentScenario(t *testing.T) {
+	requireContainerNetworking(t)  // t.Skip when the daemon lacks bridge networking.
+	assets := ensureAgentAssets(t) // t.Skip when the sibling repo is absent.
+
+	const project = "harness"
+
+	// The scripted happy path (ported from the agent's own e2e): a two-subtask
+	// plan, a passing verify gate, first-round review approval. Costs are
+	// non-zero so the report_usage / cost plumbing is exercised.
+	backend := &scriptedBackend{
+		approveImmediately: true,
+		planCost:           0.0100,
+		coderCost:          0.0200,
+		documentCost:       0.0030,
+		specialistCost:     0.0050,
+		synthesisCost:      0.0100,
+	}
+
+	h := bootHarness(t, "agent", project, cmConfigOptions{agent: true},
+		backend.reply, agentWorkerImage, "contextmatrix.agent=true")
+
+	agent := startAgent(t, assets.hostBinary, h.sc.writeAgentConfig(t), h.sc.agentPort, h.rl)
+	_ = agent
+
+	capture := startWorkerCapture(h.rl, "contextmatrix.agent=true")
+	t.Cleanup(capture.stop)
+
+	cardID := h.createCard(t, "smoke agent card", "Add features A and B.", true /* autonomous */)
+
+	// Diagnostics: capture the worker-log SSE transcript for the run.md report.
+	buf := newTranscriptBuffer(2 * 1024 * 1024)
+	startTranscriptCapture(t, h.client, project, cardID, buf, h.rl)
+
+	h.triggerRun(t, cardID, false /* interactive */)
+
+	// The full autonomous flow (plan → 2 coders → review → document → integrate)
+	// runs a container against real CM + the scripted LLM; allow a generous
+	// margin for the container build/boot and the MCP round-trips.
+	final := h.waitForState(t, cardID, "done", 6*time.Minute)
+
+	if final.AssignedAgent != "" {
+		t.Errorf("agent should be cleared after the run, got %q", final.AssignedAgent)
+	}
+
+	if len(final.ActivityLog) == 0 {
+		t.Errorf("activity log empty; expected claim/transition/release entries")
+	}
+
+	// The card branch (cm/<lowercased-id>) must exist on the seeded remote.
+	wantBranch := "cm/int-001"
+	branches := h.git.remoteBranches(t)
+	if !slices.Contains(branches, wantBranch) {
+		t.Errorf("pushed branch %q not found on remote; got %v", wantBranch, branches)
 	}
 }

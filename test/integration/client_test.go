@@ -9,79 +9,72 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"testing"
 	"time"
 )
 
-type cmClient struct {
+// apiClient is a cookie-jar HTTP client for CM's browser surface. In auth.mode:
+// multi essentially the whole API is session-gated, so every scenario drives it
+// through an authenticated admin session (see bootAdminSession). Each persona
+// gets its own jar so sessions stay independent; the CSRF header is set on
+// writes because the auth/admin routes are not CSRF-exempt.
+type apiClient struct {
 	baseURL string
 	hc      *http.Client
 }
 
-func newCMClient(baseURL string) *cmClient {
-	return &cmClient{baseURL: baseURL, hc: &http.Client{Timeout: 10 * time.Second}}
+func newAPIClient(t *testing.T, baseURL string) *apiClient {
+	t.Helper()
+
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatalf("cookiejar: %v", err)
+	}
+
+	return &apiClient{baseURL: baseURL, hc: &http.Client{Timeout: 10 * time.Second, Jar: jar}}
 }
 
-// postRaw posts to path and returns (status, body). The response body is
-// truncated to 4 KiB so callers can include it in failure messages.
-func (c *cmClient) postRaw(t *testing.T, path string, body any, into any) (int, string) {
+// do issues a request, decoding a JSON body into `into` on 2xx. Returns the
+// status and the (truncated) raw body for assertion messages.
+func (c *apiClient) do(t *testing.T, method, path string, body, into any) (int, string) {
 	t.Helper()
 
 	var buf bytes.Buffer
 	if body != nil {
 		if err := json.NewEncoder(&buf).Encode(body); err != nil {
-			t.Fatalf("post encode %s: %v", path, err)
+			t.Fatalf("encode %s %s: %v", method, path, err)
 		}
 	}
 
-	req, err := http.NewRequest(http.MethodPost, c.baseURL+path, &buf)
+	req, err := http.NewRequest(method, c.baseURL+path, &buf)
 	if err != nil {
-		t.Fatalf("post req %s: %v", path, err)
+		t.Fatalf("req %s %s: %v", method, path, err)
 	}
 
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Agent-ID", "human:harness")
-	req.Header.Set("X-Requested-With", "contextmatrix")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	switch method {
+	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+		req.Header.Set("X-Requested-With", "contextmatrix")
+	}
 
 	resp, err := c.hc.Do(req)
 	if err != nil {
-		t.Fatalf("post do %s: %v", path, err)
+		t.Fatalf("do %s %s: %v", method, path, err)
 	}
 	defer resp.Body.Close()
 
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
 	if into != nil && resp.StatusCode < 400 && len(raw) > 0 {
 		if err := json.Unmarshal(raw, into); err != nil {
-			t.Fatalf("post decode %s: %v body=%s", path, err, raw)
+			t.Fatalf("decode %s %s: %v body=%s", method, path, err, raw)
 		}
 	}
 
 	return resp.StatusCode, string(raw)
-}
-
-func (c *cmClient) get(t *testing.T, path string, into any) int {
-	t.Helper()
-
-	req, err := http.NewRequest(http.MethodGet, c.baseURL+path, nil)
-	if err != nil {
-		t.Fatalf("get req %s: %v", path, err)
-	}
-
-	req.Header.Set("X-Agent-ID", "human:harness")
-
-	resp, err := c.hc.Do(req)
-	if err != nil {
-		t.Fatalf("get do %s: %v", path, err)
-	}
-	defer resp.Body.Close()
-
-	if into != nil && resp.StatusCode < 400 {
-		if err := json.NewDecoder(resp.Body).Decode(into); err != nil && err != io.EOF {
-			t.Fatalf("get decode %s: %v", path, err)
-		}
-	}
-
-	return resp.StatusCode
 }
 
 type activityEntry struct {
@@ -99,85 +92,31 @@ type tokenUsage struct {
 	EstimatedCostUSD float64 `json:"estimated_cost_usd"`
 }
 
+// cardSnapshot mirrors the subset of CM's card JSON the scenarios assert on.
+// WorkerStatus uses the protocol v0.8.0 wire tag (worker_status).
 type cardSnapshot struct {
-	ID                string          `json:"id"`
-	Title             string          `json:"title"`
-	State             string          `json:"state"`
-	AssignedAgent     string          `json:"assigned_agent"`
-	RunnerStatus      string          `json:"runner_status"`
-	Autonomous        bool            `json:"autonomous"`
-	DiscoveryComplete bool            `json:"discovery_complete"`
-	Body              string          `json:"body"`
-	ReviewAttempts    int             `json:"review_attempts"`
-	TokenUsage        *tokenUsage     `json:"token_usage,omitempty"`
-	ActivityLog       []activityEntry `json:"activity_log"`
+	ID            string          `json:"id"`
+	Title         string          `json:"title"`
+	State         string          `json:"state"`
+	AssignedAgent string          `json:"assigned_agent"`
+	WorkerStatus  string          `json:"worker_status"`
+	Autonomous    bool            `json:"autonomous"`
+	Body          string          `json:"body"`
+	TokenUsage    *tokenUsage     `json:"token_usage,omitempty"`
+	ActivityLog   []activityEntry `json:"activity_log"`
 }
 
-func (c *cmClient) getCard(t *testing.T, project, cardID string) cardSnapshot {
+func (c *apiClient) getCard(t *testing.T, project, cardID string) cardSnapshot {
 	t.Helper()
 
 	var card cardSnapshot
 
-	status := c.get(t, fmt.Sprintf("/api/projects/%s/cards/%s", project, cardID), &card)
+	status, body := c.do(t, http.MethodGet, fmt.Sprintf("/api/projects/%s/cards/%s", project, cardID), nil, &card)
 	if status != http.StatusOK {
-		t.Fatalf("getCard %s/%s: HTTP %d", project, cardID, status)
+		t.Fatalf("getCard %s/%s: HTTP %d body=%s", project, cardID, status, body)
 	}
 
 	return card
-}
-
-func (c *cmClient) patch(t *testing.T, path string, body any, into any) (int, string) {
-	t.Helper()
-
-	var buf bytes.Buffer
-	if body != nil {
-		if err := json.NewEncoder(&buf).Encode(body); err != nil {
-			t.Fatalf("patch encode %s: %v", path, err)
-		}
-	}
-
-	req, err := http.NewRequest(http.MethodPatch, c.baseURL+path, &buf)
-	if err != nil {
-		t.Fatalf("patch req %s: %v", path, err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Agent-ID", "human:harness")
-	req.Header.Set("X-Requested-With", "contextmatrix")
-
-	resp, err := c.hc.Do(req)
-	if err != nil {
-		t.Fatalf("patch do %s: %v", path, err)
-	}
-	defer resp.Body.Close()
-
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	if into != nil && resp.StatusCode < 400 && len(raw) > 0 {
-		if err := json.Unmarshal(raw, into); err != nil {
-			t.Fatalf("patch decode %s: %v body=%s", path, err, raw)
-		}
-	}
-
-	return resp.StatusCode, string(raw)
-}
-
-func (c *cmClient) deleteReq(t *testing.T, path string) int {
-	t.Helper()
-
-	req, err := http.NewRequest(http.MethodDelete, c.baseURL+path, nil)
-	if err != nil {
-		t.Fatalf("delete req %s: %v", path, err)
-	}
-	req.Header.Set("X-Agent-ID", "human:harness")
-	req.Header.Set("X-Requested-With", "contextmatrix")
-
-	resp, err := c.hc.Do(req)
-	if err != nil {
-		t.Fatalf("delete do %s: %v", path, err)
-	}
-	defer resp.Body.Close()
-	_, _ = io.ReadAll(resp.Body)
-
-	return resp.StatusCode
 }
 
 // pollUntil retries fn until it returns true or the deadline expires.
