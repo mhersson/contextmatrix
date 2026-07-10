@@ -133,7 +133,6 @@ type RouterConfig struct {
 	MCPHandler             http.Handler        // optional; registered at POST/GET/DELETE /mcp when set
 	ChatManager            *chat.Manager       // optional; enables /api/chats routes
 	ChatHub                *chat.SSEHub        // optional; required when ChatManager is set
-	ChatConfig             *config.ChatConfig  // optional; carries model allowlist for /api/chats endpoints
 	// ChatBackendCfg is the dedicated "chat" backend entry. Its HMAC key
 	// authenticates GET /api/chat/task-skills-source (the chat service's
 	// pointer fetch). Zero value when no dedicated chat backend is configured.
@@ -451,7 +450,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	// Chat routes — registered only when both the manager and hub are wired.
 	if cfg.ChatManager != nil && cfg.ChatHub != nil {
-		chh := newChatHandlers(cfg.ChatManager, cfg.ChatHub, cfg.ChatConfig, cfg.ChatBackendCfg)
+		chh := newChatHandlers(cfg.ChatManager, cfg.ChatHub, cfg.ChatBackendCfg)
 
 		if cfg.ChatEndpointModels != nil {
 			emFn := cfg.ChatEndpointModels

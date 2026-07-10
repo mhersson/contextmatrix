@@ -300,21 +300,6 @@ type ChatConfig struct {
 	// containers. 0 means unlimited. Leave unset to use the default (8).
 	MaxConcurrent int `yaml:"max_concurrent"`
 
-	// DefaultModel is the Claude model ID used when a chat is created
-	// without an explicit selection. Must be a key in Models. Default:
-	// "claude-sonnet-4-6". Applies only when the runner serves chat; when
-	// the dedicated chat backend (contextmatrix-chat, OpenRouter) serves
-	// chat, the default comes from backends.chat.default_model instead.
-	DefaultModel string `yaml:"default_model"`
-
-	// Models is the allowlist of selectable models for new chats, keyed
-	// by model ID. The values carry the human label shown in the picker
-	// and the context-window denominator used by the UI usage indicator.
-	// Used only when the runner serves chat (native Anthropic slugs via
-	// Claude Code); ignored when the dedicated chat backend serves chat,
-	// which offers the live OpenRouter catalog instead.
-	Models map[string]ChatModelConfig `yaml:"models"`
-
 	// ResumeBudgetTokens caps the rough token estimate the transcript
 	// builder will fit into the rehydration payload on cold-reopen.
 	// Default: 40000.
@@ -324,16 +309,6 @@ type ChatConfig struct {
 	// after this duration, even if the agent never called
 	// chat_rehydration_complete and the user never typed. Default: 10m.
 	RehydrationTimeout time.Duration `yaml:"rehydration_timeout"`
-}
-
-// ChatModelConfig is one entry in ChatConfig.Models.
-type ChatModelConfig struct {
-	// Label is the human-readable name shown in the picker, e.g. "Sonnet 4.6".
-	Label string `yaml:"label"`
-
-	// MaxTokens is the context-window denominator used by the UI usage
-	// indicator. The picker also surfaces it (e.g. "(200k context)").
-	MaxTokens int64 `yaml:"max_tokens"`
 }
 
 // Config holds the application configuration.
@@ -656,24 +631,6 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("chat.rehydration_timeout must be positive (got %s)", c.Chat.RehydrationTimeout)
 	}
 
-	if c.Chat.DefaultModel == "" {
-		return fmt.Errorf("chat.default_model is required")
-	}
-
-	if _, ok := c.Chat.Models[c.Chat.DefaultModel]; !ok {
-		return fmt.Errorf("chat.default_model %q is not in chat.models", c.Chat.DefaultModel)
-	}
-
-	for id, m := range c.Chat.Models {
-		if m.Label == "" {
-			return fmt.Errorf("chat.models[%q].label is required", id)
-		}
-
-		if m.MaxTokens <= 0 {
-			return fmt.Errorf("chat.models[%q].max_tokens must be positive (got %d)", id, m.MaxTokens)
-		}
-	}
-
 	return nil
 }
 
@@ -972,19 +929,6 @@ func applyChatDefaults(cfg *Config) {
 
 	if cfg.Chat.RehydrationTimeout == 0 {
 		cfg.Chat.RehydrationTimeout = 10 * time.Minute
-	}
-
-	if len(cfg.Chat.Models) == 0 {
-		cfg.Chat.Models = map[string]ChatModelConfig{
-			"claude-sonnet-4-6":         {Label: "Sonnet 4.6", MaxTokens: 1000000},
-			"claude-opus-4-7":           {Label: "Opus 4.7", MaxTokens: 1000000},
-			"claude-opus-4-8":           {Label: "Opus 4.8", MaxTokens: 1000000},
-			"claude-haiku-4-5-20251001": {Label: "Haiku 4.5", MaxTokens: 200000},
-		}
-	}
-
-	if cfg.Chat.DefaultModel == "" {
-		cfg.Chat.DefaultModel = "claude-sonnet-4-6"
 	}
 }
 

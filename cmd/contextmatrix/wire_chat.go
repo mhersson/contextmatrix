@@ -30,9 +30,10 @@ func wireChat(
 	var chatBackend chat.Backend
 
 	// chatDefaultModel is the cold-open fallback used when a session row has
-	// an empty model. The chat backend's default_model (an OpenRouter slug)
-	// overrides the legacy chat.default_model when the backend is configured.
-	chatDefaultModel := cfg.Chat.DefaultModel
+	// an empty model: the chat backend entry's default_model (an OpenRouter
+	// slug). Empty when no chat backend is configured — sends fail at open
+	// time via the disabled stub anyway.
+	var chatDefaultModel string
 
 	// chatBackendEntry/chatBackendOK are hoisted out of the if-statement
 	// (unlike a plain `if entry, ok := ...; ok {}`) because the resolved

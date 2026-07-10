@@ -2584,7 +2584,7 @@ backends:
 `
 	path := writeConfigFile(t, dir, yaml)
 
-	t.Setenv("CONTEXTMATRIX_BACKEND_CHAT_ORCHESTRATOR_SONNET_MODEL", "claude-sonnet-9-9")
+	t.Setenv("CONTEXTMATRIX_BACKEND_CHAT_RECONCILE_INTERVAL", "60s")
 
 	// Task-only fields are rejected on the enabled chat entry regardless of
 	// whether they arrive via YAML or env.

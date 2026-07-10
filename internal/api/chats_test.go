@@ -59,10 +59,10 @@ func (r *chatStubRunner) StreamLogs(ctx context.Context, _ string, _ func(chat.L
 }
 
 type fixtureOpts struct {
-	chatConfig config.ChatConfig
 	// chatBackendCfg is the dedicated "chat" backend entry. Zero value (the
-	// default) means the runner serves chat → config-source picker. Set an
-	// enabled+keyed entry with a DefaultModel to exercise OpenRouter mode.
+	// default) means no chat backend is configured → no-backend fallback.
+	// Set an enabled+keyed entry with a DefaultModel to exercise OpenRouter
+	// mode.
 	chatBackendCfg config.BackendConfig
 	// endpointModels, when non-nil, is the raw (uncached) endpoint model
 	// fetcher. The fixture wraps it with a TTL cache before wiring into
@@ -76,15 +76,10 @@ type fixtureOpts struct {
 	validateModel func(ctx context.Context, slug string) bool
 }
 
+// defaultFixtureOpts is the no-backend topology: no chat backend configured
+// and no endpoint picker wired.
 func defaultFixtureOpts() fixtureOpts {
-	return fixtureOpts{
-		chatConfig: config.ChatConfig{
-			DefaultModel: "claude-sonnet-4-6",
-			Models: map[string]config.ChatModelConfig{
-				"claude-sonnet-4-6": {Label: "Sonnet 4.6", MaxTokens: 1000000},
-			},
-		},
-	}
+	return fixtureOpts{}
 }
 
 func jsonReq(t *testing.T, method, path, body string) *http.Request {
@@ -110,19 +105,20 @@ func newChatFixtureWithRunner(t *testing.T, opts fixtureOpts) (*http.ServeMux, *
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
-	chatCfg := opts.chatConfig
 	runner := &chatStubRunner{}
 	mgr := chat.NewManager(chat.Config{
-		Store:        store,
-		Backend:      runner,
-		Clock:        clock.Real(),
-		IdleTTL:      time.Hour,
-		DefaultModel: chatCfg.DefaultModel,
+		Store:   store,
+		Backend: runner,
+		Clock:   clock.Real(),
+		IdleTTL: time.Hour,
+		// Mirrors production wiring: the manager's cold-open fallback is
+		// the chat backend entry's default_model (empty when no backend).
+		DefaultModel: opts.chatBackendCfg.DefaultModel,
 	})
 	hub := chat.NewSSEHub(64)
 	mux := http.NewServeMux()
 
-	chh := newChatHandlers(mgr, hub, &chatCfg, opts.chatBackendCfg)
+	chh := newChatHandlers(mgr, hub, opts.chatBackendCfg)
 	if opts.endpointModels != nil {
 		chh.endpointModels = newCachedEndpointFetcher(opts.endpointModels, endpointModelCacheTTL)
 	}
@@ -470,36 +466,6 @@ func TestSendMessage_TooLong(t *testing.T) {
 	assert.Equal(t, http.StatusRequestEntityTooLarge, w.Code)
 }
 
-func TestListModels(t *testing.T) {
-	t.Parallel()
-	mux, _ := newChatFixture(t, fixtureOpts{chatConfig: config.ChatConfig{
-		DefaultModel: "claude-sonnet-4-6",
-		Models: map[string]config.ChatModelConfig{
-			"claude-haiku-4-5-20251001": {Label: "Haiku 4.5", MaxTokens: 200000},
-			"claude-opus-4-7":           {Label: "Opus 4.7", MaxTokens: 1000000},
-			"claude-sonnet-4-6":         {Label: "Sonnet 4.6", MaxTokens: 1000000},
-		},
-	}})
-	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/api/chats/models", nil))
-	require.Equal(t, 200, rec.Code)
-
-	var body struct {
-		Models []struct {
-			ID, Label string
-			MaxTokens int64
-		} `json:"models"`
-		Default string `json:"default"`
-	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-	require.Equal(t, "claude-sonnet-4-6", body.Default)
-	require.Len(t, body.Models, 3)
-	// Sorted by ID.
-	require.Equal(t, "claude-haiku-4-5-20251001", body.Models[0].ID)
-	require.Equal(t, "claude-opus-4-7", body.Models[1].ID)
-	require.Equal(t, "claude-sonnet-4-6", body.Models[2].ID)
-}
-
 func TestCreateChat_Model_RoundTrip(t *testing.T) {
 	t.Parallel()
 	mux, _ := newChatFixture(t, defaultFixtureOpts())
@@ -513,14 +479,21 @@ func TestCreateChat_Model_RoundTrip(t *testing.T) {
 	require.Equal(t, "claude-sonnet-4-6", sess.Model)
 }
 
-func TestCreateChat_InvalidModel(t *testing.T) {
+// TestCreateChat_NoBackend_AcceptsAnyModel verifies that with no chat backend
+// configured there is no catalog to validate against: any model slug is
+// accepted at create time and stored verbatim. Sends fail at open time via
+// the disabled-backend stub instead.
+func TestCreateChat_NoBackend_AcceptsAnyModel(t *testing.T) {
 	t.Parallel()
 	mux, _ := newChatFixture(t, defaultFixtureOpts())
 	body := `{"title":"x","project":"p","model":"gpt-5"}`
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, jsonReq(t, "POST", "/api/chats", body))
-	require.Equal(t, 400, rec.Code)
-	require.Contains(t, rec.Body.String(), "INVALID_MODEL")
+	require.Equal(t, 201, rec.Code, "body=%s", rec.Body.String())
+
+	var sess chat.Session
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sess))
+	require.Equal(t, "gpt-5", sess.Model)
 }
 
 // openRouterFixtureOpts builds fixtureOpts with the dedicated chat backend
@@ -528,17 +501,20 @@ func TestCreateChat_InvalidModel(t *testing.T) {
 // (OpenRouter) chat-server topology, which puts listModels/createChat in
 // openRouter mode.
 func openRouterFixtureOpts() fixtureOpts {
-	o := defaultFixtureOpts()
-	o.chatBackendCfg = config.BackendConfig{
-		Name:         config.BackendNameChat,
-		APIKey:       "chat-backend-hmac-key-0123456789ab",
-		DefaultModel: "anthropic/claude-sonnet-4",
+	return fixtureOpts{
+		chatBackendCfg: config.BackendConfig{
+			Name:         config.BackendNameChat,
+			APIKey:       "chat-backend-hmac-key-0123456789ab",
+			DefaultModel: "anthropic/claude-sonnet-4",
+		},
 	}
-
-	return o
 }
 
-func TestListModels_ConfigSource(t *testing.T) {
+// TestListModels_NoBackendFallsBackToEndpointSource verifies the no-backend
+// fallback: with no chat backend configured (zero-value BackendConfig) and no
+// endpoint picker wired, listModels serves an empty endpoint-source response
+// so the picker renders nothing.
+func TestListModels_NoBackendFallsBackToEndpointSource(t *testing.T) {
 	t.Parallel()
 	mux, _ := newChatFixture(t, defaultFixtureOpts())
 	rec := httptest.NewRecorder()
@@ -551,9 +527,10 @@ func TestListModels_ConfigSource(t *testing.T) {
 		Default string            `json:"default"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-	require.Equal(t, "config", body.Source)
-	require.Equal(t, "claude-sonnet-4-6", body.Default)
-	require.NotEmpty(t, body.Models)
+	require.Equal(t, "endpoint", body.Source)
+	require.Empty(t, body.Default)
+	require.NotNil(t, body.Models, "models must be [] not null")
+	require.Empty(t, body.Models)
 }
 
 func TestListModels_OpenRouterSource(t *testing.T) {
@@ -603,7 +580,8 @@ func TestListModels_OpenRouter_ServesScreenedCatalog(t *testing.T) {
 func TestCreateChat_OpenRouter_SkipsAllowlist(t *testing.T) {
 	t.Parallel()
 	mux, _ := newChatFixture(t, openRouterFixtureOpts())
-	// A slug that is NOT in chat.Models — rejected in config mode, accepted here.
+	// No validateModel is wired, so openrouter mode fails open and accepts
+	// any slug as-is.
 	body := `{"title":"x","project":"p","model":"openai/gpt-5"}`
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, jsonReq(t, "POST", "/api/chats", body))
@@ -844,33 +822,6 @@ func TestListModelsEndpointSource(t *testing.T) {
 	assert.Equal(t, "model-a", resp.Models[0].ID)
 }
 
-func TestListModels_NilConfig(t *testing.T) {
-	t.Parallel()
-	// Create a fixture with nil chat config by manually building without the chatConfig.
-	t.Helper()
-	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = store.Close() })
-
-	mgr := chat.NewManager(chat.Config{
-		Store:        store,
-		Backend:      &chatStubRunner{},
-		Clock:        clock.Real(),
-		IdleTTL:      time.Hour,
-		DefaultModel: "claude-sonnet-4-6",
-	})
-	hub := chat.NewSSEHub(64)
-	mux := http.NewServeMux()
-	chh := newChatHandlers(mgr, hub, nil, config.BackendConfig{})
-	mux.HandleFunc("GET /api/chats/models", chh.listModels)
-
-	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/api/chats/models", nil))
-	require.Equal(t, 200, rec.Code)
-	require.Contains(t, rec.Body.String(), `"models":[]`)
-	require.Contains(t, rec.Body.String(), `"default":""`)
-}
-
 // TestListModelsServesCachedEndpoint verifies that the endpoint model fetch is
 // cached: two consecutive GET /api/chats/models requests must only trigger one
 // upstream call.
@@ -880,7 +831,6 @@ func TestListModelsServesCachedEndpoint(t *testing.T) {
 	var calls atomic.Int64
 
 	mux, _ := newChatFixture(t, fixtureOpts{
-		chatConfig: defaultFixtureOpts().chatConfig,
 		endpointModels: func(_ context.Context) ([]chatModelEntry, error) {
 			calls.Add(1)
 
@@ -905,7 +855,6 @@ func TestListModelsSurfacesFetchError(t *testing.T) {
 	t.Parallel()
 
 	mux, _ := newChatFixture(t, fixtureOpts{
-		chatConfig: defaultFixtureOpts().chatConfig,
 		endpointModels: func(_ context.Context) ([]chatModelEntry, error) {
 			return nil, fmt.Errorf("upstream unavailable")
 		},
@@ -926,13 +875,12 @@ func TestListModelsSurfacesFetchError(t *testing.T) {
 }
 
 // TestCreateChatAcceptsEndpointModel verifies that when the endpoint picker is
-// active, createChat accepts any model slug without consulting the config
-// allowlist — matching the free-text trust applied in openRouter mode.
+// active, createChat accepts a model that is in the endpoint catalog and
+// stores it verbatim.
 func TestCreateChatAcceptsEndpointModel(t *testing.T) {
 	t.Parallel()
 
 	mux, _ := newChatFixture(t, fixtureOpts{
-		chatConfig: defaultFixtureOpts().chatConfig,
 		endpointModels: func(_ context.Context) ([]chatModelEntry, error) {
 			return []chatModelEntry{
 				{ID: "ep-model-a", Label: "EP Model A", MaxTokens: 32768},
@@ -940,7 +888,6 @@ func TestCreateChatAcceptsEndpointModel(t *testing.T) {
 		},
 	})
 
-	// ep-model-a is NOT in the config allowlist; in endpoint mode it must be accepted.
 	body := `{"title":"x","project":"p","model":"ep-model-a"}`
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, jsonReq(t, "POST", "/api/chats", body))
