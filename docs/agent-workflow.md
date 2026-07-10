@@ -474,15 +474,11 @@ a live Claude Code session. Two surfaces exist:
   log entry to a transcript row. Cold sessions rehydrate from the persisted
   transcript via `transcript.Build` before the container starts; the rehydration
   phase ends on the first user message or an explicit
-  `chat_rehydration_complete` call. Every cold open also ships a static
-  orientation primer (`workflow-skills/chat-mode.md`, read per-open so operator
-  edits hot-reload) to the runner as `StartChatOpts.Primer`; the runner writes
-  it to stdin **before** any rehydration priming so a fresh agent has MCP tool
-  awareness and CM concepts before being asked to re-establish workspace state.
-  Agents can re-read the primer mid-session via
-  `get_skill(skill_name="chat-mode")` if context drifts. Missing primer file is
-  non-fatal (WARN logged, primer treated as empty — full backward compatibility
-  with deployments that omit the file).
+  `chat_rehydration_complete` call. Orientation is the chat backend's own
+  concern: the worker opens every epoch (cold open, resume, post-`/clear`)
+  with an embedded primer that lives next to the environment it describes
+  (`contextmatrix-chat`'s `internal/chatwork/primer.md`) — CM ships no
+  orientation text and serves no `chat-mode` skill.
 
 **Promote to autonomous from chat.** A human can promote a running HITL card
 mid-flight: `POST /api/projects/{project}/cards/{id}/promote` (web UI) or the

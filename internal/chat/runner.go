@@ -83,7 +83,6 @@ func (c *runnerClient) StartChat(ctx context.Context, opts StartChatOpts) (strin
 		MCPAPIKey:           c.mcpAPIKey,
 		Model:               opts.Model,
 		Resume:              opts.Resume,
-		Primer:              opts.Primer,
 		LLMEndpoint:         opts.LLMEndpoint,
 		GitCredentialsToken: opts.GitCredentialsToken,
 	})

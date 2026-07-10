@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -98,15 +97,6 @@ func setupMCP(t *testing.T) *testEnv {
 		content := fmt.Sprintf("# %s\n\n## Agent Configuration\n\n- **Model:** %s — Test model.\n\n---\n\nSkill instructions here.", name, model)
 		require.NoError(t, os.WriteFile(filepath.Join(workflowSkillsDir, name), []byte(content), 0o644))
 	}
-
-	// chat-mode is content shipped via stdin, not a sub-agent skill — it has
-	// no Agent Configuration section. Write a small stub the get_skill test
-	// can verify is returned verbatim.
-	require.NoError(t, os.WriteFile(
-		filepath.Join(workflowSkillsDir, "chat-mode.md"),
-		[]byte("# Chat-mode primer\n\nTest primer content."),
-		0o644,
-	))
 
 	// Create MCP server and connect in-memory
 	server := NewServer(ServerConfig{
@@ -2212,29 +2202,6 @@ func TestGetSkill_SystematicDebugging(t *testing.T) {
 	assert.False(t, out.Inline, "systematic-debugging must not be inline-eligible")
 	assert.Contains(t, out.Content, card.ID, "skill content should include the card ID context")
 	assert.Contains(t, out.Content, "Login crashes on submit", "skill content should include the card title")
-}
-
-func TestGetSkill_ChatMode_NoCardRequired(t *testing.T) {
-	env := setupMCP(t)
-
-	// chat-mode does NOT require card_id and must NOT have the workflow
-	// preamble prepended — it's content for a free-form chat agent, not
-	// a card-lifecycle skill.
-	result := callTool(t, env, "get_skill", map[string]any{
-		"skill_name": "chat-mode",
-	})
-	require.False(t, result.IsError, "chat-mode get_skill must succeed without card_id")
-
-	var out getSkillOutput
-	unmarshalResult(t, result, &out)
-	assert.Equal(t, "chat-mode", out.SkillName)
-	assert.Equal(t, "Test primer content.",
-		strings.TrimSpace(strings.TrimPrefix(out.Content, "# Chat-mode primer")),
-		"chat-mode content must be returned verbatim")
-	assert.NotContains(t, out.Content, "ContextMatrix Workflow Rules",
-		"chat-mode must NOT prepend workflowPreamble")
-	assert.Empty(t, out.Model,
-		"chat-mode has no Agent Configuration → model must parse as empty")
 }
 
 func TestGetSkill_BrainstormingInline(t *testing.T) {

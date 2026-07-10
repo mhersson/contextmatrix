@@ -266,8 +266,8 @@ type skillArgs struct {
 
 // skillBuilder builds a skill's raw content (without the workflow preamble).
 // If skipPreamble is true, buildSkillContent never prepends workflowPreamble
-// regardless of the caller's includePreamble flag — used for skills (like
-// chat-mode) that are not part of the card lifecycle.
+// regardless of the caller's includePreamble flag — for skills that are not
+// part of the card lifecycle.
 type skillBuilder struct {
 	build        func(ctx context.Context, svc *service.CardService, workflowSkillsDir string, args skillArgs) (string, error)
 	skipPreamble bool
@@ -306,14 +306,6 @@ var skillBuilders = map[string]skillBuilder{
 	"systematic-debugging": {build: func(ctx context.Context, svc *service.CardService, dir string, args skillArgs) (string, error) {
 		return buildCardSkill(ctx, svc, dir, "systematic-debugging.md", args.CardID, false)
 	}},
-	// chat-mode is content shipped to a free-form chat agent's stdin, not a
-	// card-lifecycle skill — workflowPreamble must NOT be prepended.
-	"chat-mode": {
-		build: func(_ context.Context, _ *service.CardService, dir string, _ skillArgs) (string, error) {
-			return readSkillFile(dir, "chat-mode.md")
-		},
-		skipPreamble: true,
-	},
 }
 
 // validSkillNames is the sorted list of recognised skill names, derived from

@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"log/slog"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -77,11 +76,6 @@ func wireChat(
 
 	chatHub := chat.NewSSEHub(128)
 
-	primerPath := ""
-	if cfg.WorkflowSkillsDir != "" {
-		primerPath = filepath.Join(cfg.WorkflowSkillsDir, "chat-mode.md")
-	}
-
 	chatMgr := chat.NewManager(chat.Config{
 		Store:                  chatStore,
 		Backend:                chatBackend,
@@ -92,7 +86,6 @@ func wireChat(
 		ResumeBudgetTokens:     cfg.Chat.ResumeBudgetTokens,
 		RehydrationTimeout:     cfg.Chat.RehydrationTimeout,
 		DefaultModel:           chatDefaultModel,
-		PrimerPath:             primerPath,
 		Pricer:                 svc,
 		LLMEndpoint:            llmEndpointFromConfig(cfg.LLMEndpoint),
 		WorkerCredentialsToken: workerCredentialsToken,
