@@ -660,6 +660,25 @@ func TestCreateChat_Endpoint_RejectsUnknownModel(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "INVALID_MODEL")
 }
 
+func TestCreateChat_Endpoint_EmptyCatalogFailsOpen(t *testing.T) {
+	t.Parallel()
+
+	// The builder-backed production wrapper returns an empty list with a nil
+	// error when the endpoint is unreachable and no last-good snapshot exists
+	// (cold start). Validation must fail open, matching the OpenRouter path.
+	opts := defaultFixtureOpts()
+	opts.endpointModels = func(_ context.Context) ([]chatModelEntry, error) {
+		return nil, nil
+	}
+	mux, _ := newChatFixture(t, opts)
+
+	body := `{"title":"t","project":"alpha","model":"model-b"}`
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, jsonReq(t, "POST", "/api/chats", body))
+
+	assert.Equal(t, http.StatusCreated, rec.Code, "body=%s", rec.Body.String())
+}
+
 func TestClearChat_Success(t *testing.T) {
 	mux, mgr, _ := newChatFixtureWithBackend(t, defaultFixtureOpts())
 	// Wrap with csrfGuard so the success path exercises the same gate the
