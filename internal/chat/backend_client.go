@@ -79,7 +79,7 @@ func (c *backendClient) StartChat(ctx context.Context, opts StartChatOpts) (stri
 		SessionID:           opts.SessionID,
 		Project:             opts.Project,
 		RepoURL:             opts.RepoURL,
-		RunnerImage:         opts.WorkerImage,
+		WorkerImage:         opts.WorkerImage,
 		MCPAPIKey:           c.mcpAPIKey,
 		Model:               opts.Model,
 		Resume:              opts.Resume,

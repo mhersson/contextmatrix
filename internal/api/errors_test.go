@@ -271,7 +271,7 @@ func TestHandleServiceError_BoardValidationSentinels(t *testing.T) {
 			name: "ErrInvalidWorkerStatus wrapped in ValidationError",
 			err: &board.ValidationError{
 				Err:     board.ErrInvalidWorkerStatus,
-				Field:   "runner_status",
+				Field:   "worker_status",
 				Value:   "bogus",
 				Message: "invalid status",
 			},

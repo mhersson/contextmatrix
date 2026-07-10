@@ -2591,18 +2591,18 @@ func TestUpdateProject_RemoteExecutionMerge(t *testing.T) {
 	// Set both subfields and confirm it round-trips to .board.yaml on disk.
 	cfg, err := svc.UpdateProject(ctx, "test-project", remoteExecBaseInput(&RemoteExecutionUpdate{
 		Enabled:     boolPtr(true),
-		RunnerImage: strPtr("ghcr.io/org/runner:latest"),
+		WorkerImage: strPtr("ghcr.io/org/worker:latest"),
 	}))
 	require.NoError(t, err)
 	require.NotNil(t, cfg.RemoteExecution)
 	require.NotNil(t, cfg.RemoteExecution.Enabled)
 	assert.True(t, *cfg.RemoteExecution.Enabled)
-	assert.Equal(t, "ghcr.io/org/runner:latest", cfg.RemoteExecution.RunnerImage)
+	assert.Equal(t, "ghcr.io/org/worker:latest", cfg.RemoteExecution.WorkerImage)
 
 	reloaded, err := board.LoadProjectConfig(projectDir)
 	require.NoError(t, err)
 	require.NotNil(t, reloaded.RemoteExecution)
-	assert.Equal(t, "ghcr.io/org/runner:latest", reloaded.RemoteExecution.RunnerImage)
+	assert.Equal(t, "ghcr.io/org/worker:latest", reloaded.RemoteExecution.WorkerImage)
 
 	// Preserve: a nil pointer leaves the entire config untouched.
 	cfg, err = svc.UpdateProject(ctx, "test-project", remoteExecBaseInput(nil))
@@ -2610,16 +2610,16 @@ func TestUpdateProject_RemoteExecutionMerge(t *testing.T) {
 	require.NotNil(t, cfg.RemoteExecution)
 	require.NotNil(t, cfg.RemoteExecution.Enabled)
 	assert.True(t, *cfg.RemoteExecution.Enabled)
-	assert.Equal(t, "ghcr.io/org/runner:latest", cfg.RemoteExecution.RunnerImage)
+	assert.Equal(t, "ghcr.io/org/worker:latest", cfg.RemoteExecution.WorkerImage)
 
 	// Merge image-only: enabled must survive.
 	cfg, err = svc.UpdateProject(ctx, "test-project", remoteExecBaseInput(&RemoteExecutionUpdate{
-		RunnerImage: strPtr("ghcr.io/org/runner:v2"),
+		WorkerImage: strPtr("ghcr.io/org/worker:v2"),
 	}))
 	require.NoError(t, err)
 	require.NotNil(t, cfg.RemoteExecution.Enabled)
 	assert.True(t, *cfg.RemoteExecution.Enabled, "enabled must survive an image-only merge")
-	assert.Equal(t, "ghcr.io/org/runner:v2", cfg.RemoteExecution.RunnerImage)
+	assert.Equal(t, "ghcr.io/org/worker:v2", cfg.RemoteExecution.WorkerImage)
 
 	// Merge enabled-only: image must survive.
 	cfg, err = svc.UpdateProject(ctx, "test-project", remoteExecBaseInput(&RemoteExecutionUpdate{
@@ -2628,18 +2628,18 @@ func TestUpdateProject_RemoteExecutionMerge(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, cfg.RemoteExecution.Enabled)
 	assert.False(t, *cfg.RemoteExecution.Enabled)
-	assert.Equal(t, "ghcr.io/org/runner:v2", cfg.RemoteExecution.RunnerImage, "image must survive an enabled-only merge")
+	assert.Equal(t, "ghcr.io/org/worker:v2", cfg.RemoteExecution.WorkerImage, "image must survive an enabled-only merge")
 
 	// Clear via empty image: with an explicit enabled=false still set, the
 	// config is a meaningful per-project opt-out and must NOT normalize to nil.
 	cfg, err = svc.UpdateProject(ctx, "test-project", remoteExecBaseInput(&RemoteExecutionUpdate{
-		RunnerImage: strPtr(""),
+		WorkerImage: strPtr(""),
 	}))
 	require.NoError(t, err)
 	require.NotNil(t, cfg.RemoteExecution, "explicit enabled=false must be preserved, not normalized away")
 	require.NotNil(t, cfg.RemoteExecution.Enabled)
 	assert.False(t, *cfg.RemoteExecution.Enabled)
-	assert.Empty(t, cfg.RemoteExecution.RunnerImage)
+	assert.Empty(t, cfg.RemoteExecution.WorkerImage)
 }
 
 // TestUpdateProject_RemoteExecutionNormalizesToNil confirms a merge whose result
@@ -2656,17 +2656,17 @@ func TestUpdateProject_RemoteExecutionNormalizesToNil(t *testing.T) {
 
 	// Set image only — enabled stays unset (nil).
 	cfg, err := svc.UpdateProject(ctx, "test-project", remoteExecBaseInput(&RemoteExecutionUpdate{
-		RunnerImage: strPtr("ghcr.io/org/runner:latest"),
+		WorkerImage: strPtr("ghcr.io/org/worker:latest"),
 	}))
 	require.NoError(t, err)
 	require.NotNil(t, cfg.RemoteExecution)
 	assert.Nil(t, cfg.RemoteExecution.Enabled)
-	assert.Equal(t, "ghcr.io/org/runner:latest", cfg.RemoteExecution.RunnerImage)
+	assert.Equal(t, "ghcr.io/org/worker:latest", cfg.RemoteExecution.WorkerImage)
 
 	// Clear the image; with enabled unset the config is the zero value and the
 	// whole struct is dropped.
 	cfg, err = svc.UpdateProject(ctx, "test-project", remoteExecBaseInput(&RemoteExecutionUpdate{
-		RunnerImage: strPtr("   "), // whitespace trims to empty
+		WorkerImage: strPtr("   "), // whitespace trims to empty
 	}))
 	require.NoError(t, err)
 	assert.Nil(t, cfg.RemoteExecution, "zero-value remote_execution must normalize to nil")
@@ -2691,20 +2691,20 @@ func TestUpdateProject_RemoteExecutionImageValidation(t *testing.T) {
 		wantErr bool
 	}{
 		{"empty clears", "", false},
-		{"bare name", "runner", false},
-		{"registry path and tag", "ghcr.io/org/runner:latest", false},
-		{"digest reference", "ghcr.io/org/runner@sha256:abc123", false},
+		{"bare name", "worker", false},
+		{"registry path and tag", "ghcr.io/org/worker:latest", false},
+		{"digest reference", "ghcr.io/org/worker@sha256:abc123", false},
 		{"max length", strings.Repeat("a", maxWorkerImageLen), false},
-		{"leading dash rejected", "-runner", true},
-		{"embedded space rejected", "ghcr.io/org/runner latest", true},
-		{"illegal char rejected", "runner!", true},
+		{"leading dash rejected", "-worker", true},
+		{"embedded space rejected", "ghcr.io/org/worker latest", true},
+		{"illegal char rejected", "worker!", true},
 		{"too long rejected", strings.Repeat("a", maxWorkerImageLen+1), true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := svc.UpdateProject(ctx, "test-project", remoteExecBaseInput(&RemoteExecutionUpdate{
-				RunnerImage: strPtr(tt.image),
+				WorkerImage: strPtr(tt.image),
 			}))
 			if tt.wantErr {
 				require.Error(t, err)
@@ -5131,17 +5131,17 @@ func TestUpdateWorkerStatus_Completed(t *testing.T) {
 	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent:test-agent")
 	require.NoError(t, err)
 
-	// Transition to in_progress (claim does this), then set runner_status to running.
+	// Transition to in_progress (claim does this), then set worker_status to running.
 	_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "running", "container started")
 	require.NoError(t, err)
 
-	t.Run("completed clears claim and runner_status", func(t *testing.T) {
+	t.Run("completed clears claim and worker_status", func(t *testing.T) {
 		updated, err := svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "completed", "container exited normally")
 		require.NoError(t, err)
 
 		assert.Empty(t, updated.AssignedAgent, "claim should be cleared on completed")
 		assert.Nil(t, updated.LastHeartbeat, "heartbeat should be cleared on completed")
-		assert.Empty(t, updated.RunnerStatus, "runner_status should be cleared on completed")
+		assert.Empty(t, updated.WorkerStatus, "worker_status should be cleared on completed")
 	})
 }
 
@@ -5164,13 +5164,13 @@ func TestUpdateWorkerStatus_Failed(t *testing.T) {
 	_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "running", "container started")
 	require.NoError(t, err)
 
-	t.Run("failed clears claim but keeps runner_status", func(t *testing.T) {
+	t.Run("failed clears claim but keeps worker_status", func(t *testing.T) {
 		updated, err := svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "failed", "container crashed")
 		require.NoError(t, err)
 
 		assert.Empty(t, updated.AssignedAgent, "claim should be cleared on failed")
 		assert.Nil(t, updated.LastHeartbeat, "heartbeat should be cleared on failed")
-		assert.Equal(t, "failed", updated.RunnerStatus, "runner_status should remain failed")
+		assert.Equal(t, "failed", updated.WorkerStatus, "worker_status should remain failed")
 	})
 }
 
@@ -5203,7 +5203,7 @@ func TestUpdateWorkerStatus_FailedAfterTerminalNormalizesToCompleted(t *testing.
 
 	// Drive the card to done via the normal transition path so the card
 	// mirrors what the reconcile sweep actually sees in production: state
-	// is terminal, runner_status is still "running" because the container
+	// is terminal, worker_status is still "running" because the container
 	// has not exited yet.
 	_, err = svc.TransitionTo(ctx, "test-project", card.ID, board.StateInProgress)
 	require.NoError(t, err)
@@ -5220,11 +5220,11 @@ func TestUpdateWorkerStatus_FailedAfterTerminalNormalizesToCompleted(t *testing.
 	require.NoError(t, err)
 
 	// The card was already done; the kill was cleanup, not a failure.
-	// UpdateWorkerStatus("completed") clears runner_status to "" as part
-	// of its normal terminal-status behaviour, so an empty runner_status
+	// UpdateWorkerStatus("completed") clears worker_status to "" as part
+	// of its normal terminal-status behaviour, so an empty worker_status
 	// here is the signal that the translation happened.
-	assert.Empty(t, updated.RunnerStatus,
-		"runner_status must be cleared — the post-terminal failure was normalized to completed")
+	assert.Empty(t, updated.WorkerStatus,
+		"worker_status must be cleared — the post-terminal failure was normalized to completed")
 	assert.Equal(t, board.StateDone, updated.State, "card state must stay done")
 	assert.Empty(t, updated.AssignedAgent, "claim stays released")
 
@@ -5235,7 +5235,7 @@ func TestUpdateWorkerStatus_FailedAfterTerminalNormalizesToCompleted(t *testing.
 	require.NotEmpty(t, updated.ActivityLog, "normalization must append an activity log entry")
 
 	lastLog := updated.ActivityLog[len(updated.ActivityLog)-1]
-	assert.Equal(t, "runner_status", lastLog.Action)
+	assert.Equal(t, "worker_status", lastLog.Action)
 	assert.NotContains(t, lastLog.Message, "killed by operator",
 		"raw backend message must be rewritten to match the normalized status")
 	assert.Contains(t, lastLog.Message, "cleaned up",
@@ -5274,7 +5274,7 @@ func TestUpdateWorkerStatus_FailedAfterNotPlannedNormalizesToCompleted(t *testin
 	updated, err := svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "failed", "killed by operator")
 	require.NoError(t, err)
 
-	assert.Empty(t, updated.RunnerStatus)
+	assert.Empty(t, updated.WorkerStatus)
 	assert.Equal(t, board.StateNotPlanned, updated.State)
 }
 
@@ -5310,13 +5310,13 @@ func TestUpdateWorkerStatus_FailedMidRunStaysFailed(t *testing.T) {
 	updated, err := svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "failed", "container crashed")
 	require.NoError(t, err)
 
-	assert.Equal(t, "failed", updated.RunnerStatus,
+	assert.Equal(t, "failed", updated.WorkerStatus,
 		"mid-run failure must remain failed — normalization only fires after terminal state")
 }
 
 // TestDeferredCommitFlushOnUpdateWorkerStatus verifies that when a card has
 // deferred commits enabled, calling UpdateWorkerStatus after ReleaseCard
-// results in the runner_status log entry being committed to git.
+// results in the worker_status log entry being committed to git.
 //
 // This reproduces the bug where the "container exited normally" activity log
 // entry was written to disk but never committed because UpdateWorkerStatus
@@ -5361,13 +5361,13 @@ func TestDeferredCommitFlushOnUpdateWorkerStatus(t *testing.T) {
 	_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "completed", "container exited normally")
 	require.NoError(t, err)
 
-	// The runner_status update must be committed — not left as an uncommitted deferred path.
+	// The worker_status update must be committed — not left as an uncommitted deferred path.
 	afterStatusMsg, err := gitMgr.GetLastCommitMessage()
 	require.NoError(t, err)
 	assert.NotEqual(t, releaseMsg, afterStatusMsg,
-		"UpdateWorkerStatus must produce a new commit for the runner_status log entry")
+		"UpdateWorkerStatus must produce a new commit for the worker_status log entry")
 	assert.Contains(t, afterStatusMsg, card.ID,
-		"runner_status commit must reference the card ID")
+		"worker_status commit must reference the card ID")
 
 	// deferredPaths must be cleared after the flush.
 	svc.writeMu.Lock()
@@ -5568,7 +5568,7 @@ func TestDeferredCommitUpdateWorkerStatusNonTerminal(t *testing.T) {
 	require.NoError(t, err)
 
 	// Non-terminal status: queued — should NOT flush.
-	_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "queued", "task queued for runner")
+	_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "queued", "task queued for worker")
 	require.NoError(t, err)
 
 	count, _ := gitMgr.CommitCount()

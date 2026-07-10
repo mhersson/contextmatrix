@@ -105,7 +105,7 @@ theme: "everforest"
 #
 # This config is also forwarded verbatim to the active task/chat backend as
 # the `llm_endpoint` wire field on every trigger / chat-start call (see
-# docs/api-reference.md's Runner Endpoints section) — one admin-managed key,
+# docs/api-reference.md's Worker & Backend Endpoints section) — one admin-managed key,
 # rotated in one place. It rides along whenever type is set, regardless of
 # api_key: a keyless "openrouter" config (api_key left empty, as above) still
 # sends the backend a populated object — {type, base_url, api_key: ""} — not
@@ -240,8 +240,8 @@ task_skills:
 # runner-eos git tag marks the last CM commit that supported it.
 #
 # Callback paths are fixed: /api/agent and /api/chat (the agent and chat
-# repos hardcode them). The browser-facing /api/runner/logs and
-# /api/runner/health endpoints are hard-wired whenever a task backend is
+# repos hardcode them). The browser-facing /api/worker/logs and
+# /api/backend/health endpoints are hard-wired whenever a task backend is
 # configured; they do not move.
 #
 # ENABLED FLAG: each entry has an optional `enabled` field (default: true).

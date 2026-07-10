@@ -22,7 +22,7 @@ type Repo struct {
 // RemoteExecutionConfig controls per-project remote execution settings.
 type RemoteExecutionConfig struct {
 	Enabled     *bool  `yaml:"enabled,omitempty"      json:"enabled,omitempty"`
-	RunnerImage string `yaml:"runner_image,omitempty"  json:"runner_image,omitempty"`
+	WorkerImage string `yaml:"worker_image,omitempty"  json:"worker_image,omitempty"`
 }
 
 // GitHubImportConfig controls per-project GitHub issue import settings.
@@ -216,7 +216,7 @@ func validateProjectConfig(cfg *ProjectConfig) error {
 			}
 
 			if !strings.HasPrefix(r.URL, "https://") {
-				return fmt.Errorf("%w: repos[%d]: url must use https:// scheme (runner is HTTPS-only)", ErrInvalidProjectConfig, i)
+				return fmt.Errorf("%w: repos[%d]: url must use https:// scheme", ErrInvalidProjectConfig, i)
 			}
 
 			if r.Primary {

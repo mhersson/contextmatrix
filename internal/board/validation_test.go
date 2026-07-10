@@ -723,6 +723,6 @@ func TestValidateWorkerStatus(t *testing.T) {
 
 		var ve *ValidationError
 		require.ErrorAs(t, err, &ve)
-		assert.Equal(t, "runner_status", ve.Field)
+		assert.Equal(t, "worker_status", ve.Field)
 	})
 }

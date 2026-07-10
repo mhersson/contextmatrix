@@ -242,7 +242,7 @@ func TestStreamCardSession_SnapshotAndLive(t *testing.T) {
 	}))
 	defer apiServer.Close()
 
-	clientURL := apiServer.URL + fmt.Sprintf("/api/runner/logs?card_id=%s&project=%s", cardID, project)
+	clientURL := apiServer.URL + fmt.Sprintf("/api/worker/logs?card_id=%s&project=%s", cardID, project)
 
 	// Client A connects, receives the 1 buffered event (snapshot), then disconnects.
 	chA, cancelA := connectSSEClient(t, clientURL)
@@ -342,7 +342,7 @@ func TestStreamCardSession_CrossCardFilter(t *testing.T) {
 func TestStreamCardSession_NoManager(t *testing.T) {
 	rh := &backendHandlers{sessionManager: nil}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/runner/logs?card_id=X-001&project=p", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/worker/logs?card_id=X-001&project=p", nil)
 	rec := newFlushRecorder()
 
 	rh.streamWorkerLogs(rec, req)
@@ -353,7 +353,7 @@ func TestStreamCardSession_NoManager(t *testing.T) {
 // TestStreamCardSession_RevivesSweptSession is the regression test for the
 // bug where streamCardSession never called Start, so a browser reconnect
 // after the idle sweeper force-closed a session (Manager.Stop) would park in
-// pendingSubs forever — the runner_status transition that originally
+// pendingSubs forever — the worker_status transition that originally
 // triggered Start fires only once per run, so nothing else would ever revive
 // it.
 //
@@ -411,7 +411,7 @@ func TestStreamCardSession_RevivesSweptSession(t *testing.T) {
 	}))
 	defer apiServer.Close()
 
-	clientURL := apiServer.URL + fmt.Sprintf("/api/runner/logs?card_id=%s&project=%s", cardID, project)
+	clientURL := apiServer.URL + fmt.Sprintf("/api/worker/logs?card_id=%s&project=%s", cardID, project)
 
 	// A card-scoped browser reconnect must revive the session: streamCardSession
 	// calls Start (idempotent) on every connect, so this must open a SECOND
@@ -448,7 +448,7 @@ func TestStreamCardSession_RevivesSweptSession(t *testing.T) {
 //  1. Spin up a fakeBackendServer emitting events for two cards (X and Y) in project P.
 //  2. Start the project session via mgr.StartProject.
 //  3. Emit 2-3 events spanning both cards; wait until buffered.
-//  4. Client A connects to /api/runner/logs?project=P (no card_id), drains the snapshot, disconnects.
+//  4. Client A connects to /api/worker/logs?project=P (no card_id), drains the snapshot, disconnects.
 //  5. Emit 2-3 more events while no client is attached.
 //  6. Client B connects — asserts it receives ALL buffered events (both pre- and post-disconnect)
 //     BEFORE any live event, in Seq order.
@@ -497,7 +497,7 @@ func TestStreamProjectSession_SnapshotAndLive(t *testing.T) {
 	}))
 	defer apiServer.Close()
 
-	clientURL := apiServer.URL + fmt.Sprintf("/api/runner/logs?project=%s", project)
+	clientURL := apiServer.URL + fmt.Sprintf("/api/worker/logs?project=%s", project)
 
 	// Client A connects, receives the 3 buffered events (snapshot), then disconnects.
 	chA, cancelA := connectSSEClient(t, clientURL)

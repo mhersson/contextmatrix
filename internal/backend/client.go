@@ -45,7 +45,7 @@ type (
 // these from Docker directly (filtered to the worker containers it manages),
 // so a populated slice is the authoritative answer to "what containers are
 // actually running right now" — independent of the backend's in-memory tracker
-// or of CM's runner_status field. The Docker-authoritative reconcile sweep
+// or of CM's worker_status field. The Docker-authoritative reconcile sweep
 // uses this list as its decision input.
 //
 // Tracked reflects the backend's tracker state at response time: Tracked=false

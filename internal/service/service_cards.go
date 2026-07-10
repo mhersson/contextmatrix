@@ -1361,7 +1361,7 @@ func (s *CardService) applyCardMutation(
 		appendStateChangeLog(card, oldState, card.State, opts.commitAgentID, card.Updated)
 	}
 
-	// Release agent claim on not_planned and clear runner_status on terminal
+	// Release agent claim on not_planned and clear worker_status on terminal
 	// states. Must happen before validate+persist so the written card reflects
 	// the invariants.
 	enforceTerminalStateInvariants(card, stateChanged)

@@ -48,6 +48,39 @@ func TestLoadSaveProjectConfig_RoundTrip(t *testing.T) {
 	assert.Equal(t, original.Transitions, loaded.Transitions)
 }
 
+// TestProjectConfigIgnoresLegacyRunnerImage pins the wire rename's read-side
+// tolerance: a .board.yaml written before the runner_image → worker_image
+// rename still loads without error. The legacy key is simply ignored (yaml.v3
+// is non-strict), leaving the renamed field empty.
+func TestProjectConfigIgnoresLegacyRunnerImage(t *testing.T) {
+	dir := t.TempDir()
+	raw := `name: test-project
+prefix: TEST
+next_id: 1
+states: [todo, in_progress, done, stalled, not_planned]
+types: [task]
+priorities: [medium]
+transitions:
+  todo: [in_progress]
+  in_progress: [done, todo]
+  done: [todo]
+  stalled: [todo, in_progress]
+  not_planned: [todo]
+remote_execution:
+  enabled: true
+  runner_image: ghcr.io/org/worker:legacy
+`
+
+	err := os.WriteFile(filepath.Join(dir, ".board.yaml"), []byte(raw), 0o644)
+	require.NoError(t, err)
+
+	cfg, err := LoadProjectConfig(dir)
+	require.NoError(t, err)
+
+	require.NotNil(t, cfg.RemoteExecution)
+	assert.Empty(t, cfg.RemoteExecution.WorkerImage, "legacy runner_image must be ignored, not mapped")
+}
+
 func TestLoadProjectConfig_NotFound(t *testing.T) {
 	dir := t.TempDir()
 

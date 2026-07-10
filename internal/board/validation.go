@@ -40,10 +40,8 @@ var (
 	// ErrInvalidAutonomousConfig indicates an invalid combination of autonomous fields.
 	ErrInvalidAutonomousConfig = errors.New("invalid autonomous configuration")
 
-	// ErrInvalidWorkerStatus indicates an invalid runner_status value. The
-	// error text keeps the legacy runner spelling — it can surface in API
-	// error details, which are wire contract.
-	ErrInvalidWorkerStatus = errors.New("invalid runner status")
+	// ErrInvalidWorkerStatus indicates an invalid worker_status value.
+	ErrInvalidWorkerStatus = errors.New("invalid worker status")
 
 	// ErrInvalidPhase indicates an invalid orchestrator phase value.
 	ErrInvalidPhase = errors.New("invalid phase")
@@ -245,22 +243,22 @@ func (v *Validator) ValidateCard(cfg *ProjectConfig, card *Card) error {
 	return nil
 }
 
-// validWorkerStatuses is the set of valid runner_status values.
+// validWorkerStatuses is the set of valid worker_status values.
 var validWorkerStatuses = []string{"", "queued", "running", "failed", "killed", "completed"}
 
 // validWorkerCallbackStatuses is the subset of statuses a backend callback can set.
 // "queued" and "killed" are server-only; the backend can report "running", "failed", or "completed".
 var validWorkerCallbackStatuses = []string{"running", "failed", "completed"}
 
-// ValidateWorkerStatus checks if the given status is a valid runner_status value.
+// ValidateWorkerStatus checks if the given status is a valid worker_status value.
 func (v *Validator) ValidateWorkerStatus(status string) error {
 	if !slices.Contains(validWorkerStatuses, status) {
 		return &ValidationError{
 			Err:     ErrInvalidWorkerStatus,
-			Field:   "runner_status",
+			Field:   "worker_status",
 			Value:   status,
 			Allowed: validWorkerStatuses[1:], // exclude empty string from display
-			Message: fmt.Sprintf("invalid runner_status %q; valid values: %v", status, validWorkerStatuses[1:]),
+			Message: fmt.Sprintf("invalid worker_status %q; valid values: %v", status, validWorkerStatuses[1:]),
 		}
 	}
 
@@ -273,10 +271,10 @@ func (v *Validator) ValidateWorkerCallbackStatus(status string) error {
 	if !slices.Contains(validWorkerCallbackStatuses, status) {
 		return &ValidationError{
 			Err:     ErrInvalidWorkerStatus,
-			Field:   "runner_status",
+			Field:   "worker_status",
 			Value:   status,
 			Allowed: validWorkerCallbackStatuses,
-			Message: fmt.Sprintf("invalid runner callback status %q; valid values: %v", status, validWorkerCallbackStatuses),
+			Message: fmt.Sprintf("invalid worker callback status %q; valid values: %v", status, validWorkerCallbackStatuses),
 		}
 	}
 

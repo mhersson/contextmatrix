@@ -37,7 +37,7 @@ func (h *backendHandlers) messageCard(w http.ResponseWriter, r *http.Request) {
 	id := strings.ToUpper(r.PathValue("id"))
 
 	if h.backend == nil {
-		writeError(w, http.StatusServiceUnavailable, ErrCodeBackendDisabled, "runner is not configured", "")
+		writeError(w, http.StatusServiceUnavailable, ErrCodeBackendDisabled, "no execution backend is configured", "")
 
 		return
 	}
@@ -49,10 +49,10 @@ func (h *backendHandlers) messageCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if card.RunnerStatus != "running" {
-		writeError(w, http.StatusConflict, ErrCodeBackendNotRunning,
+	if card.WorkerStatus != "running" {
+		writeError(w, http.StatusConflict, ErrCodeWorkerNotRunning,
 			"card is not currently running",
-			fmt.Sprintf("runner_status: %q", card.RunnerStatus))
+			fmt.Sprintf("worker_status: %q", card.WorkerStatus))
 
 		return
 	}
@@ -87,7 +87,7 @@ func (h *backendHandlers) messageCard(w http.ResponseWriter, r *http.Request) {
 		Content:   body.Content,
 	}); err != nil {
 		ctxlog.Logger(r.Context()).Error("backend message webhook failed", "card_id", id, "project", project, "error", err)
-		writeError(w, http.StatusBadGateway, ErrCodeBackendUnavailable, "failed to send message to runner", "")
+		writeError(w, http.StatusBadGateway, ErrCodeBackendUnavailable, "failed to send message to the backend", "")
 
 		return
 	}
@@ -107,7 +107,7 @@ func (h *backendHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 	id := strings.ToUpper(r.PathValue("id"))
 
 	if h.backend == nil {
-		writeError(w, http.StatusServiceUnavailable, ErrCodeBackendDisabled, "runner is not configured", "")
+		writeError(w, http.StatusServiceUnavailable, ErrCodeBackendDisabled, "no execution backend is configured", "")
 
 		return
 	}
@@ -119,10 +119,10 @@ func (h *backendHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if card.RunnerStatus != "running" {
-		writeError(w, http.StatusConflict, ErrCodeBackendNotRunning,
+	if card.WorkerStatus != "running" {
+		writeError(w, http.StatusConflict, ErrCodeWorkerNotRunning,
 			"card is not currently running",
-			fmt.Sprintf("runner_status: %q", card.RunnerStatus))
+			fmt.Sprintf("worker_status: %q", card.WorkerStatus))
 
 		return
 	}
@@ -194,7 +194,7 @@ func (h *backendHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 		// strand the rollback — mirror the runCard revert pattern.
 		h.revertPromote(r.Context(), project, id, agentID, hadFeatureBranch)
 
-		writeError(w, http.StatusBadGateway, ErrCodeBackendUnavailable, "failed to promote runner task", "")
+		writeError(w, http.StatusBadGateway, ErrCodeBackendUnavailable, "failed to promote backend task", "")
 
 		return
 	}
@@ -236,7 +236,7 @@ func (h *backendHandlers) revertPromote(ctx context.Context, project, id, agentI
 	if _, err := h.svc.AddLogEntry(revertCtx, project, id, board.ActivityEntry{
 		Agent:   agentID,
 		Action:  "promote-webhook-failed",
-		Message: "Reverted autonomous mode: runner /promote webhook failed",
+		Message: "Reverted autonomous mode: backend /promote webhook failed",
 	}); err != nil {
 		logger.Error("failed to record promote-webhook-failed activity entry",
 			"card_id", id, "project", project, "error", err)
@@ -246,7 +246,7 @@ func (h *backendHandlers) revertPromote(ctx context.Context, project, id, agentI
 // stopCard handles POST /api/projects/{project}/cards/{id}/stop — "Stop".
 func (h *backendHandlers) stopCard(w http.ResponseWriter, r *http.Request) {
 	if isNonHumanAgent(r) {
-		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField, "only humans can stop runner tasks", "")
+		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField, "only humans can stop worker tasks", "")
 
 		return
 	}
@@ -255,7 +255,7 @@ func (h *backendHandlers) stopCard(w http.ResponseWriter, r *http.Request) {
 	id := strings.ToUpper(r.PathValue("id"))
 
 	if h.backend == nil {
-		writeError(w, http.StatusServiceUnavailable, ErrCodeBackendDisabled, "runner is not configured", "")
+		writeError(w, http.StatusServiceUnavailable, ErrCodeBackendDisabled, "no execution backend is configured", "")
 
 		return
 	}
@@ -267,10 +267,10 @@ func (h *backendHandlers) stopCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if card.RunnerStatus != "queued" && card.RunnerStatus != "running" {
-		writeError(w, http.StatusConflict, ErrCodeBackendNotRunning,
-			"card is not being executed by the runner",
-			fmt.Sprintf("runner_status: %q", card.RunnerStatus))
+	if card.WorkerStatus != "queued" && card.WorkerStatus != "running" {
+		writeError(w, http.StatusConflict, ErrCodeWorkerNotRunning,
+			"card is not being executed by a worker",
+			fmt.Sprintf("worker_status: %q", card.WorkerStatus))
 
 		return
 	}
@@ -279,7 +279,7 @@ func (h *backendHandlers) stopCard(w http.ResponseWriter, r *http.Request) {
 	if err := h.backend.Kill(r.Context(), backend.KillPayload{CardID: id, Project: project}); err != nil {
 		ctxlog.Logger(r.Context()).Error("backend kill webhook failed", "card_id", id, "project", project, "error", err)
 		writeError(w, http.StatusBadGateway, ErrCodeBackendUnavailable,
-			"failed to stop runner task", "")
+			"failed to stop backend task", "")
 
 		return
 	}
@@ -309,7 +309,7 @@ type stopAllResponse struct {
 // stopAll handles POST /api/projects/{project}/stop-all — "Stop All".
 func (h *backendHandlers) stopAll(w http.ResponseWriter, r *http.Request) {
 	if isNonHumanAgent(r) {
-		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField, "only humans can stop runner tasks", "")
+		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField, "only humans can stop worker tasks", "")
 
 		return
 	}
@@ -317,7 +317,7 @@ func (h *backendHandlers) stopAll(w http.ResponseWriter, r *http.Request) {
 	project := r.PathValue("project")
 
 	if h.backend == nil {
-		writeError(w, http.StatusServiceUnavailable, ErrCodeBackendDisabled, "runner is not configured", "")
+		writeError(w, http.StatusServiceUnavailable, ErrCodeBackendDisabled, "no execution backend is configured", "")
 
 		return
 	}
@@ -326,7 +326,7 @@ func (h *backendHandlers) stopAll(w http.ResponseWriter, r *http.Request) {
 	if err := h.backend.StopAll(r.Context(), backend.StopAllPayload{Project: project}); err != nil {
 		ctxlog.Logger(r.Context()).Error("backend stop-all webhook failed", "project", project, "error", err)
 		writeError(w, http.StatusBadGateway, ErrCodeBackendUnavailable,
-			"failed to stop all runner tasks", "")
+			"failed to stop all backend tasks", "")
 
 		return
 	}
@@ -343,13 +343,13 @@ func (h *backendHandlers) stopAll(w http.ResponseWriter, r *http.Request) {
 	failed := []string{}
 
 	for _, card := range cards {
-		if card.RunnerStatus == "queued" || card.RunnerStatus == "running" {
+		if card.WorkerStatus == "queued" || card.WorkerStatus == "running" {
 			_, err := h.svc.UpdateWorkerStatus(r.Context(), project, card.ID, "killed", "stopped by stop-all")
 			if err != nil {
 				// Backend already received the kill webhook above; only CM's view of this
 				// card failed to update. Surface the drift in the response so the caller
 				// can reconcile rather than silently dropping it from affected_cards.
-				ctxlog.Logger(r.Context()).Error("failed to update runner_status during stop-all",
+				ctxlog.Logger(r.Context()).Error("failed to update worker_status during stop-all",
 					"card_id", card.ID, "project", project, "error", err)
 
 				failed = append(failed, card.ID)

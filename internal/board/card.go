@@ -51,7 +51,7 @@ type Card struct {
 	BaseBranch     string        `yaml:"base_branch,omitempty"        json:"base_branch,omitempty"`
 	PRUrl          string        `yaml:"pr_url,omitempty"             json:"pr_url,omitempty"`
 	ReviewAttempts int           `yaml:"review_attempts,omitempty"    json:"review_attempts,omitempty"`
-	RunnerStatus   string        `yaml:"runner_status,omitempty"      json:"runner_status,omitempty"`
+	WorkerStatus   string        `yaml:"worker_status,omitempty"      json:"worker_status,omitempty"`
 	// Phase is the autonomous orchestrator's position within the run
 	// (plan|execute|judge|document|review|integrate|done). Orthogonal to State: State is the
 	// board lifecycle, Phase is agent progress inside it. Empty for cards not

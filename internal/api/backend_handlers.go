@@ -17,17 +17,17 @@ import (
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
-// Error codes for task-backend errors. The Go names use backend vocabulary;
-// the string values keep the legacy RUNNER_* spelling — they are part of the
-// public API contract and only a wire-breaking change may rename them.
+// Error codes for task-backend errors. BACKEND_* codes describe the backend
+// service (missing or unreachable); WORKER_* codes describe a card's worker
+// (already running, or not running when one is required).
 //
 // Conflict (409) and unavailable (502) are split so callers can tell an
 // already-running card from an unreachable backend host.
 const (
-	ErrCodeBackendDisabled    = "RUNNER_DISABLED"
-	ErrCodeBackendConflict    = "RUNNER_CONFLICT"
-	ErrCodeBackendUnavailable = "RUNNER_UNAVAILABLE"
-	ErrCodeBackendNotRunning  = "RUNNER_NOT_RUNNING"
+	ErrCodeBackendDisabled    = "BACKEND_DISABLED"
+	ErrCodeWorkerConflict     = "WORKER_CONFLICT"
+	ErrCodeBackendUnavailable = "BACKEND_UNAVAILABLE"
+	ErrCodeWorkerNotRunning   = "WORKER_NOT_RUNNING"
 )
 
 // catalogProvider supplies the current auto-selectable model candidates.
@@ -108,7 +108,7 @@ type backendHandlers struct {
 	// closed on. nil disables the token fields (pre-token-authority behavior).
 	instanceTokenProvider githubauth.TokenGenerator
 
-	// healthCache memoises /api/runner/health responses so concurrent browser
+	// healthCache memoises /api/backend/health responses so concurrent browser
 	// tabs don't each fire a fresh probe at the backend — and so a backend
 	// outage doesn't cause every refresh to block for the full per-request
 	// timeout.
@@ -133,7 +133,7 @@ type healthProbeCache struct {
 	flight singleflight.Group
 }
 
-// backendHealthCacheTTL is how long a /api/runner/health probe result is
+// backendHealthCacheTTL is how long a /api/backend/health probe result is
 // reused.
 // Short enough that operators see capacity changes promptly, long enough to
 // dampen multi-tab refresh storms.

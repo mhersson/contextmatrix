@@ -33,7 +33,7 @@ func makeBackendHandlers(backendURL, apiKey string) *backendHandlers {
 func TestStreamWorkerLogs_NoFlusher(t *testing.T) {
 	h := makeBackendHandlers("http://127.0.0.1:1", "test-api-key-for-worker-logs-unit-tests-xyz")
 
-	req := httptest.NewRequest(http.MethodGet, "/api/runner/logs", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/worker/logs", nil)
 	w := &mockNonFlushingWriter{}
 
 	h.streamWorkerLogs(w, req)
@@ -47,7 +47,7 @@ func TestStreamWorkerLogs_NoFlusher(t *testing.T) {
 func TestStreamProjectSession_NoManager(t *testing.T) {
 	rh := &backendHandlers{sessionManager: nil}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/runner/logs?project=myproject", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/worker/logs?project=myproject", nil)
 	rec := newFlushRecorder()
 
 	rh.streamWorkerLogs(rec, req)
@@ -75,7 +75,7 @@ func TestStreamCardSession_XAccelBufferingHeader(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/api/runner/logs?card_id=CARD-001&project=p", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/api/worker/logs?card_id=CARD-001&project=p", nil)
 	require.NoError(t, err)
 
 	resp, err := http.DefaultClient.Do(req)
@@ -106,7 +106,7 @@ func TestStreamProjectSession_XAccelBufferingHeader(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/api/runner/logs?project=myproject", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/api/worker/logs?project=myproject", nil)
 	require.NoError(t, err)
 
 	resp, err := http.DefaultClient.Do(req)
@@ -139,7 +139,7 @@ func TestStreamCardSession_Keepalive(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/api/runner/logs?card_id=CARD-002&project=p", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/api/worker/logs?card_id=CARD-002&project=p", nil)
 	require.NoError(t, err)
 
 	resp, err := http.DefaultClient.Do(req)
@@ -189,7 +189,7 @@ func TestStreamProjectSession_Keepalive(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/api/runner/logs?project=proj-keepalive", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/api/worker/logs?project=proj-keepalive", nil)
 	require.NoError(t, err)
 
 	resp, err := http.DefaultClient.Do(req)
@@ -261,7 +261,7 @@ func TestStreamCardSession_WireFramesCarryNoSeq(t *testing.T) {
 		rh.streamWorkerLogs(w, r)
 	}))
 
-	clientURL := srv.URL + "/api/runner/logs?card_id=" + cardID + "&project=" + project
+	clientURL := srv.URL + "/api/worker/logs?card_id=" + cardID + "&project=" + project
 
 	dataCh, cancelClient := connectSSEClient(t, clientURL)
 
@@ -326,7 +326,7 @@ func TestStreamProjectSession_WireFramesCarryNoSeq(t *testing.T) {
 		rh.streamWorkerLogs(w, r)
 	}))
 
-	clientURL := srv.URL + "/api/runner/logs?project=" + project
+	clientURL := srv.URL + "/api/worker/logs?project=" + project
 
 	dataCh, cancelClient := connectSSEClient(t, clientURL)
 
