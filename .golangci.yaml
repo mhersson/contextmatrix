@@ -55,9 +55,11 @@ linters:
     # G301/G302/G306: board task files use standard UNIX permissions (not sensitive data)
     - linters: [gosec]
       text: "G301|G302|G306"
-    # Test fixtures legitimately use hardcoded credentials, variable URLs, and int conversions
+    # Test fixtures legitimately use hardcoded credentials, variable URLs, and
+    # int conversions. G124: request cookies built in tests carry no attributes
+    # on the wire, so Secure/HttpOnly/SameSite are meaningless there.
     - linters: [gosec]
-      text: "G101|G107|G115"
+      text: "G101|G107|G115|G124"
       path: "_test\\.go$"
     # Integration harness fixtures: bind 0.0.0.0, math/rand for ports,
     # net/http/cgi for git-http-backend — all test-only, all reviewed.

@@ -64,7 +64,7 @@ func requestIsTLS(r *http.Request) bool {
 // setSessionCookie writes the session cookie: HttpOnly + SameSite=Lax always,
 // Secure when the deployment speaks TLS.
 func setSessionCookie(w http.ResponseWriter, r *http.Request, raw string, ttl time.Duration) {
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure is set dynamically via requestIsTLS
 		Name:     sessionCookieName,
 		Value:    raw,
 		Path:     "/",
@@ -77,7 +77,7 @@ func setSessionCookie(w http.ResponseWriter, r *http.Request, raw string, ttl ti
 
 // clearSessionCookie expires the session cookie.
 func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure is set dynamically via requestIsTLS
 		Name:     sessionCookieName,
 		Value:    "",
 		Path:     "/",
