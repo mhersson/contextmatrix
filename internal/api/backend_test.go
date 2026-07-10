@@ -151,7 +151,7 @@ func TestRunCard_HumanOnly(t *testing.T) {
 
 	t.Run("no agent header allowed", func(t *testing.T) {
 		// Reset the card to todo for a clean trigger.
-		_, err := svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "completed", "done")
+		_, err := svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "completed", "done")
 		require.NoError(t, err)
 
 		// Re-create a fresh card since the first may now have runner_status set.
@@ -315,7 +315,7 @@ func TestRunCard_AlreadyQueued(t *testing.T) {
 	require.NoError(t, err)
 
 	// Set runner_status to queued.
-	_, err = svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "queued", "already queued")
+	_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "queued", "already queued")
 	require.NoError(t, err)
 
 	mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1195,7 +1195,7 @@ func TestStopCard_HumanOnly(t *testing.T) {
 	require.NoError(t, err)
 
 	// Set runner_status to running so stop is valid.
-	_, err = svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "running", "running")
+	_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "running", "running")
 	require.NoError(t, err)
 
 	mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1437,14 +1437,14 @@ func TestStopAll_StopsActiveCards(t *testing.T) {
 		Title: "Running task", Type: "task", Priority: "medium",
 	})
 	require.NoError(t, err)
-	_, err = svc.UpdateRunnerStatus(ctx, "test-project", card1.ID, "running", "running")
+	_, err = svc.UpdateWorkerStatus(ctx, "test-project", card1.ID, "running", "running")
 	require.NoError(t, err)
 
 	card2, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
 		Title: "Queued task", Type: "task", Priority: "medium",
 	})
 	require.NoError(t, err)
-	_, err = svc.UpdateRunnerStatus(ctx, "test-project", card2.ID, "queued", "queued")
+	_, err = svc.UpdateWorkerStatus(ctx, "test-project", card2.ID, "queued", "queued")
 	require.NoError(t, err)
 
 	// Card with no runner_status should not be affected.
@@ -1864,7 +1864,7 @@ func newRunningCardSetup(t *testing.T) (*service.CardService, *events.Bus, func(
 	})
 	require.NoError(t, err)
 	// Set runner_status to running.
-	card, err = svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "running", "container started")
+	card, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "running", "container started")
 	require.NoError(t, err)
 
 	return svc, bus, cleanup, card
@@ -1964,7 +1964,7 @@ func TestMessageCard_NotRunning(t *testing.T) {
 			require.NoError(t, err)
 
 			if status != "" {
-				_, err = svc.UpdateRunnerStatus(ctx, "test-project", card.ID, status, "set status")
+				_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, status, "set status")
 				require.NoError(t, err)
 			}
 
@@ -2151,7 +2151,7 @@ func newInteractiveRunningCard(t *testing.T, svc *service.CardService) *board.Ca
 		Autonomous: false,
 	})
 	require.NoError(t, err)
-	card, err = svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "running", "interactive session started")
+	card, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "running", "interactive session started")
 	require.NoError(t, err)
 
 	return card
@@ -2245,7 +2245,7 @@ func TestPromoteCard_AlreadyAutonomous(t *testing.T) {
 		Autonomous: true, FeatureBranch: true, CreatePR: true,
 	})
 	require.NoError(t, err)
-	card, err = svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "running", "running")
+	card, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "running", "running")
 	require.NoError(t, err)
 
 	var promoteCalled int
@@ -2708,7 +2708,7 @@ func TestPromoteCard_RecursionGuard(t *testing.T) {
 		Title: "Interactive task for recursion test", Type: "task", Priority: "medium",
 	})
 	require.NoError(t, err)
-	card, err = svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "running", "interactive session")
+	card, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "running", "interactive session")
 	require.NoError(t, err)
 
 	// cmURL is set after the CM server starts; the fake backend closure captures the pointer.
@@ -3663,7 +3663,7 @@ func setupGitCredentialsEndpoint(
 	require.NoError(t, err)
 
 	if workerStatus != "" {
-		_, err = svc.UpdateRunnerStatus(ctx, "test-project", card.ID, workerStatus, "test setup")
+		_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, workerStatus, "test setup")
 		require.NoError(t, err)
 	}
 

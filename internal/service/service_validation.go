@@ -165,7 +165,7 @@ func (s *CardService) enrichDependenciesMet(ctx context.Context, card *board.Car
 }
 
 // taskSkillNamePattern restricts skill names to a safe charset that cannot
-// reach outside a task-skills mount via path traversal. Mirrors the runner-
+// reach outside a task-skills mount via path traversal. Mirrors the backend-
 // side ValidateTaskSkills check.
 var taskSkillNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
 

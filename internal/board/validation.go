@@ -40,8 +40,10 @@ var (
 	// ErrInvalidAutonomousConfig indicates an invalid combination of autonomous fields.
 	ErrInvalidAutonomousConfig = errors.New("invalid autonomous configuration")
 
-	// ErrInvalidRunnerStatus indicates an invalid runner_status value.
-	ErrInvalidRunnerStatus = errors.New("invalid runner status")
+	// ErrInvalidWorkerStatus indicates an invalid runner_status value. The
+	// error text keeps the legacy runner spelling — it can surface in API
+	// error details, which are wire contract.
+	ErrInvalidWorkerStatus = errors.New("invalid runner status")
 
 	// ErrInvalidPhase indicates an invalid orchestrator phase value.
 	ErrInvalidPhase = errors.New("invalid phase")
@@ -243,38 +245,38 @@ func (v *Validator) ValidateCard(cfg *ProjectConfig, card *Card) error {
 	return nil
 }
 
-// validRunnerStatuses is the set of valid runner_status values.
-var validRunnerStatuses = []string{"", "queued", "running", "failed", "killed", "completed"}
+// validWorkerStatuses is the set of valid runner_status values.
+var validWorkerStatuses = []string{"", "queued", "running", "failed", "killed", "completed"}
 
-// validRunnerCallbackStatuses is the subset of statuses a runner callback can set.
-// "queued" and "killed" are server-only; the runner can report "running", "failed", or "completed".
-var validRunnerCallbackStatuses = []string{"running", "failed", "completed"}
+// validWorkerCallbackStatuses is the subset of statuses a backend callback can set.
+// "queued" and "killed" are server-only; the backend can report "running", "failed", or "completed".
+var validWorkerCallbackStatuses = []string{"running", "failed", "completed"}
 
-// ValidateRunnerStatus checks if the given status is a valid runner_status value.
-func (v *Validator) ValidateRunnerStatus(status string) error {
-	if !slices.Contains(validRunnerStatuses, status) {
+// ValidateWorkerStatus checks if the given status is a valid runner_status value.
+func (v *Validator) ValidateWorkerStatus(status string) error {
+	if !slices.Contains(validWorkerStatuses, status) {
 		return &ValidationError{
-			Err:     ErrInvalidRunnerStatus,
+			Err:     ErrInvalidWorkerStatus,
 			Field:   "runner_status",
 			Value:   status,
-			Allowed: validRunnerStatuses[1:], // exclude empty string from display
-			Message: fmt.Sprintf("invalid runner_status %q; valid values: %v", status, validRunnerStatuses[1:]),
+			Allowed: validWorkerStatuses[1:], // exclude empty string from display
+			Message: fmt.Sprintf("invalid runner_status %q; valid values: %v", status, validWorkerStatuses[1:]),
 		}
 	}
 
 	return nil
 }
 
-// ValidateRunnerCallbackStatus checks if the status is valid for a runner callback.
-// Only "running" and "failed" are accepted from the runner — other statuses are server-managed.
-func (v *Validator) ValidateRunnerCallbackStatus(status string) error {
-	if !slices.Contains(validRunnerCallbackStatuses, status) {
+// ValidateWorkerCallbackStatus checks if the status is valid for a backend callback.
+// Only "running" and "failed" are accepted from the backend — other statuses are server-managed.
+func (v *Validator) ValidateWorkerCallbackStatus(status string) error {
+	if !slices.Contains(validWorkerCallbackStatuses, status) {
 		return &ValidationError{
-			Err:     ErrInvalidRunnerStatus,
+			Err:     ErrInvalidWorkerStatus,
 			Field:   "runner_status",
 			Value:   status,
-			Allowed: validRunnerCallbackStatuses,
-			Message: fmt.Sprintf("invalid runner callback status %q; valid values: %v", status, validRunnerCallbackStatuses),
+			Allowed: validWorkerCallbackStatuses,
+			Message: fmt.Sprintf("invalid runner callback status %q; valid values: %v", status, validWorkerCallbackStatuses),
 		}
 	}
 

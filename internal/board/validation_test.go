@@ -662,63 +662,63 @@ func TestValidationError_Message(t *testing.T) {
 	assert.Equal(t, "invalid type \"epic\"; valid types: [task bug]", ve.Error())
 }
 
-func TestValidateRunnerCallbackStatus(t *testing.T) {
+func TestValidateWorkerCallbackStatus(t *testing.T) {
 	v := NewValidator()
 
 	t.Run("accepts running", func(t *testing.T) {
-		assert.NoError(t, v.ValidateRunnerCallbackStatus("running"))
+		assert.NoError(t, v.ValidateWorkerCallbackStatus("running"))
 	})
 
 	t.Run("accepts failed", func(t *testing.T) {
-		assert.NoError(t, v.ValidateRunnerCallbackStatus("failed"))
+		assert.NoError(t, v.ValidateWorkerCallbackStatus("failed"))
 	})
 
 	t.Run("accepts completed", func(t *testing.T) {
-		assert.NoError(t, v.ValidateRunnerCallbackStatus("completed"))
+		assert.NoError(t, v.ValidateWorkerCallbackStatus("completed"))
 	})
 
 	t.Run("rejects queued", func(t *testing.T) {
-		assert.Error(t, v.ValidateRunnerCallbackStatus("queued"))
+		assert.Error(t, v.ValidateWorkerCallbackStatus("queued"))
 	})
 
 	t.Run("rejects killed", func(t *testing.T) {
-		assert.Error(t, v.ValidateRunnerCallbackStatus("killed"))
+		assert.Error(t, v.ValidateWorkerCallbackStatus("killed"))
 	})
 
 	t.Run("rejects unknown", func(t *testing.T) {
-		assert.Error(t, v.ValidateRunnerCallbackStatus("unknown"))
+		assert.Error(t, v.ValidateWorkerCallbackStatus("unknown"))
 	})
 }
 
-func TestValidateRunnerStatus(t *testing.T) {
+func TestValidateWorkerStatus(t *testing.T) {
 	v := NewValidator()
 
 	t.Run("accepts empty string", func(t *testing.T) {
-		assert.NoError(t, v.ValidateRunnerStatus(""))
+		assert.NoError(t, v.ValidateWorkerStatus(""))
 	})
 
 	t.Run("accepts queued", func(t *testing.T) {
-		assert.NoError(t, v.ValidateRunnerStatus("queued"))
+		assert.NoError(t, v.ValidateWorkerStatus("queued"))
 	})
 
 	t.Run("accepts running", func(t *testing.T) {
-		assert.NoError(t, v.ValidateRunnerStatus("running"))
+		assert.NoError(t, v.ValidateWorkerStatus("running"))
 	})
 
 	t.Run("accepts failed", func(t *testing.T) {
-		assert.NoError(t, v.ValidateRunnerStatus("failed"))
+		assert.NoError(t, v.ValidateWorkerStatus("failed"))
 	})
 
 	t.Run("accepts completed", func(t *testing.T) {
-		assert.NoError(t, v.ValidateRunnerStatus("completed"))
+		assert.NoError(t, v.ValidateWorkerStatus("completed"))
 	})
 
 	t.Run("accepts killed", func(t *testing.T) {
-		assert.NoError(t, v.ValidateRunnerStatus("killed"))
+		assert.NoError(t, v.ValidateWorkerStatus("killed"))
 	})
 
 	t.Run("rejects invalid status", func(t *testing.T) {
-		err := v.ValidateRunnerStatus("invalid")
+		err := v.ValidateWorkerStatus("invalid")
 		require.Error(t, err)
 
 		var ve *ValidationError

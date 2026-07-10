@@ -251,7 +251,7 @@ func TestExtractAgentID_HeaderOnly(t *testing.T) {
 
 // TestHandleServiceError_BoardValidationSentinels verifies that the
 // validation-error sentinels added to the 422 branch (ErrInvalidExternalURL,
-// ErrInvalidRunnerStatus) are mapped to 422 VALIDATION_ERROR instead of
+// ErrInvalidWorkerStatus) are mapped to 422 VALIDATION_ERROR instead of
 // falling through to the generic 500 branch.
 func TestHandleServiceError_BoardValidationSentinels(t *testing.T) {
 	cases := []struct {
@@ -268,9 +268,9 @@ func TestHandleServiceError_BoardValidationSentinels(t *testing.T) {
 			},
 		},
 		{
-			name: "ErrInvalidRunnerStatus wrapped in ValidationError",
+			name: "ErrInvalidWorkerStatus wrapped in ValidationError",
 			err: &board.ValidationError{
-				Err:     board.ErrInvalidRunnerStatus,
+				Err:     board.ErrInvalidWorkerStatus,
 				Field:   "runner_status",
 				Value:   "bogus",
 				Message: "invalid status",

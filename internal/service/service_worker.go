@@ -203,13 +203,13 @@ func (s *CardService) IncrementReviewAttempts(ctx context.Context, project, id, 
 	return card, nil
 }
 
-// UpdateRunnerStatus sets the runner_status field on a card.
-func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, status, message string) (*board.Card, error) {
+// UpdateWorkerStatus sets the runner_status field on a card.
+func (s *CardService) UpdateWorkerStatus(ctx context.Context, project, cardID, status, message string) (*board.Card, error) {
 	cardID = strings.ToUpper(cardID)
 
 	s.writeMu.Lock()
 
-	if err := s.validator.ValidateRunnerStatus(status); err != nil {
+	if err := s.validator.ValidateWorkerStatus(status); err != nil {
 		s.writeMu.Unlock()
 
 		return nil, err
@@ -232,7 +232,7 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 
 	// Post-terminal cleanup normalization: once the card has reached a
 	// terminal state (done/not_planned), the reconcile sweep and end-session
-	// subscriber kill the container as a cleanup step. The runner reports
+	// subscriber kill the container as a cleanup step. The backend reports
 	// that cleanup through the same callback path it uses for a genuine
 	// mid-run failure — "failed: killed by operator". Recording that as
 	// `failed` would lie about the run (the work succeeded; only the
@@ -240,7 +240,7 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 	// post-terminal failure/killed callbacks to `completed` so the card UI
 	// reflects what actually happened.
 	//
-	// The user-initiated Stop path (stopTask → UpdateRunnerStatus("killed"))
+	// The user-initiated Stop path (stopTask → UpdateWorkerStatus("killed"))
 	// targets non-terminal cards, so the normalization only fires for the
 	// cleanup case it is intended for. If a user manages to Stop a card that
 	// is already done (rare race — human clicking just after the agent
@@ -260,11 +260,11 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 		message = "container cleaned up after run completed"
 	}
 
-	prevRunnerStatus := card.RunnerStatus
+	prevWorkerStatus := card.RunnerStatus
 	card.RunnerStatus = status
 	card.Updated = s.clk.Now()
 
-	// Clear agent claim on terminal runner statuses.
+	// Clear agent claim on terminal worker statuses.
 	if status == "failed" || status == "killed" || status == "completed" {
 		card.AssignedAgent = ""
 		card.LastHeartbeat = nil
@@ -274,7 +274,7 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 		card.RunnerStatus = ""
 	}
 
-	s.appendRunnerStatusMessage(card, message)
+	s.appendWorkerStatusMessage(card, message)
 
 	if err := s.store.UpdateCard(ctx, project, card); err != nil {
 		s.writeMu.Unlock()
@@ -284,7 +284,7 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 
 	commitDone, notify := s.enqueueCardCommit(ctx, project, cardID, s.backendAuthor(), "runner_status: "+status)
 
-	// Flush deferred commits only on terminal runner statuses (completed,
+	// Flush deferred commits only on terminal worker statuses (completed,
 	// failed, killed). These occur after the agent has released the card, so
 	// there is no subsequent flush point. Non-terminal statuses (queued,
 	// running) happen during active work and should continue to defer.
@@ -296,7 +296,7 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 	s.writeMu.Unlock()
 
 	if flushErr != nil {
-		ctxlog.Logger(ctx).Error("flush deferred commit on runner status update", "card_id", cardID, "error", flushErr)
+		ctxlog.Logger(ctx).Error("flush deferred commit on worker status update", "card_id", cardID, "error", flushErr)
 	}
 
 	if err := s.awaitCommit(commitDone, notify); err != nil {
@@ -307,7 +307,7 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 		return nil, rollbackErr
 	}
 
-	s.runSessionManagerLifecycleHooks(ctx, cardID, project, prevRunnerStatus, status)
+	s.runSessionManagerLifecycleHooks(ctx, cardID, project, prevWorkerStatus, status)
 
 	var eventType events.EventType
 
@@ -335,10 +335,10 @@ func (s *CardService) UpdateRunnerStatus(ctx context.Context, project, cardID, s
 	return card, nil
 }
 
-// appendRunnerStatusMessage appends an activity-log entry for the new runner
+// appendWorkerStatusMessage appends an activity-log entry for the new worker
 // status when a non-empty message is provided. Trims the log to the cap after
 // appending. No-ops when message is empty.
-func (s *CardService) appendRunnerStatusMessage(card *board.Card, message string) {
+func (s *CardService) appendWorkerStatusMessage(card *board.Card, message string) {
 	if message == "" {
 		return
 	}
@@ -353,7 +353,7 @@ func (s *CardService) appendRunnerStatusMessage(card *board.Card, message string
 }
 
 // runSessionManagerLifecycleHooks drives the session-manager Start/Stop
-// transitions that mirror runner-status changes. It is a no-op when no
+// transitions that mirror worker-status changes. It is a no-op when no
 // session manager is wired.
 //
 //   - Transition into "running": opens the upstream SSE log buffer.
@@ -368,7 +368,7 @@ func (s *CardService) runSessionManagerLifecycleHooks(ctx context.Context, cardI
 	switch {
 	case prevStatus != "running" && newStatus == "running":
 		if startErr := s.sessionManager.Start(ctx, cardID, project); startErr != nil {
-			ctxlog.Logger(ctx).Error("sessionlog: Start failed on runner status update",
+			ctxlog.Logger(ctx).Error("sessionlog: Start failed on worker status update",
 				"card_id", cardID, "project", project, "error", startErr)
 		}
 	case newStatus == "failed" || newStatus == "killed" || newStatus == "completed":

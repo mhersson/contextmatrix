@@ -115,7 +115,7 @@ type PatchCardInput struct {
 	// AgentID, when non-empty, is checked against the card's AssignedAgent.
 	// If the card is claimed by a different agent, ErrAgentMismatch is returned
 	// before any mutations are applied. Empty AgentID skips the check (backward
-	// compatible for callers like the runner that do not supply an agent ID).
+	// compatible for callers like the task backend that do not supply an agent ID).
 	AgentID string
 }
 

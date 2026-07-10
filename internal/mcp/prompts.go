@@ -646,7 +646,7 @@ func formatCardContext(c *board.Card, project, verifyCommand string) string {
 	}
 
 	// Operator-declared verify command (card-over-project). Surfaces the gate so
-	// workflow-skill-driven runners verify with the declared command.
+	// workflow-skill-driven workers verify with the declared command.
 	if verifyCommand != "" {
 		fmt.Fprintf(&b, "- **Verify command:** %s\n", verifyCommand)
 	}

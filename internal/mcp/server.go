@@ -254,7 +254,7 @@ func clearWriteDeadlineForStreaming(next http.Handler) http.Handler {
 // constant body. RFC 7235 says "Unauthorized" is the right code for a
 // rejected credential; using 403 leaked a missing-vs-wrong-credential
 // oracle that a probing attacker could exploit. Collapsing the body to
-// a constant matches what CM does on the runner-status / autonomous
+// a constant matches what CM does on the worker-status / autonomous
 // endpoints.
 func mcpAuthMiddleware(next http.Handler, apiKey string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

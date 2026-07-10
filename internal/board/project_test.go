@@ -521,7 +521,7 @@ func TestEffectiveRepos_FromReposList(t *testing.T) {
 		Name: "p",
 		Repos: []Repo{
 			{Name: "core", URL: "git@github.com:o/core.git", Primary: true},
-			{Name: "runner", URL: "git@github.com:o/runner.git"},
+			{Name: "tools", URL: "git@github.com:o/tools.git"},
 		},
 	}
 	repos := cfg.EffectiveRepos()

@@ -98,7 +98,7 @@ func (h *backendHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 
 	// Auto-enable feature_branch and create_pr for all "Run now" triggers —
 	// both autonomous and HITL (interactive) runs get a feature branch and PR.
-	// The patched card is intentionally discarded here: UpdateRunnerStatus
+	// The patched card is intentionally discarded here: UpdateWorkerStatus
 	// a few lines below refreshes `card` from disk, so any flags set above
 	// are observable on the returned card. Keep this in mind when adding
 	// fields whose stale value would matter before that refresh.
@@ -117,7 +117,7 @@ func (h *backendHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set runner_status to queued.
-	card, err = h.svc.UpdateRunnerStatus(r.Context(), project, id, "queued", "task queued for runner")
+	card, err = h.svc.UpdateWorkerStatus(r.Context(), project, id, "queued", "task queued for runner")
 	if err != nil {
 		handleServiceError(w, r, err)
 
@@ -254,7 +254,7 @@ func (h *backendHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 		// Use context.WithoutCancel so the revert succeeds even when the HTTP client
 		// has already disconnected and r.Context() is cancelled.
 		revertCtx := context.WithoutCancel(r.Context())
-		if _, revertErr := h.svc.UpdateRunnerStatus(revertCtx, project, id, "failed",
+		if _, revertErr := h.svc.UpdateWorkerStatus(revertCtx, project, id, "failed",
 			"webhook trigger failed"); revertErr != nil {
 			ctxlog.Logger(r.Context()).Error("failed to revert runner_status after webhook failure",
 				"card_id", id, "project", project, "error", revertErr)
@@ -279,7 +279,7 @@ func (h *backendHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 // the rollback). Without the revert, the already-queued guard at the top of
 // runCard would 409 every future trigger of this card until a manual stop.
 // The revert runs before the activity append so the run-rejected trace stays
-// the most recent entry (UpdateRunnerStatus appends its own runner_status
+// the most recent entry (UpdateWorkerStatus appends its own runner_status
 // entry). Both writes are best-effort: failures are logged but never change
 // the 409 response, since the caller has already been told the run was
 // rejected.
@@ -291,7 +291,7 @@ func (h *backendHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 // leakage, so it is safe to surface as the error's details field here.
 func (h *backendHandlers) rejectRunForCredentialFailure(w http.ResponseWriter, r *http.Request, project, id string, err error) {
 	revertCtx := context.WithoutCancel(r.Context())
-	if _, revertErr := h.svc.UpdateRunnerStatus(revertCtx, project, id, "failed",
+	if _, revertErr := h.svc.UpdateWorkerStatus(revertCtx, project, id, "failed",
 		"trigger rejected: project credential unavailable"); revertErr != nil {
 		ctxlog.Logger(r.Context()).Error("failed to revert runner_status after credential failure",
 			"card_id", id, "project", project, "error", revertErr)

@@ -220,7 +220,7 @@ func TestStreamCardSession_SnapshotAndLive(t *testing.T) {
 		sessionlog.WithBackendConfig(upstream.URL, "test-key"),
 	)
 
-	// Start the session (mirrors what UpdateRunnerStatus does on → running).
+	// Start the session (mirrors what UpdateWorkerStatus does on → running).
 	require.NoError(t, mgr.Start(context.Background(), cardID, project))
 
 	// Wait for the pump goroutine to connect to the upstream server.
@@ -276,7 +276,7 @@ func TestStreamCardSession_SnapshotAndLive(t *testing.T) {
 	assert.Equal(t, "user", m0["type"])
 	assert.Equal(t, "question from agent", m0["content"])
 
-	// Stop the session (mirrors UpdateRunnerStatus → terminal).
+	// Stop the session (mirrors UpdateWorkerStatus → terminal).
 	close(upstreamCh)
 	mgr.Stop(cardID)
 

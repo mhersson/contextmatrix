@@ -284,7 +284,7 @@ func (h *backendHandlers) stopCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	card, err = h.svc.UpdateRunnerStatus(r.Context(), project, id, "killed", "task stopped by user")
+	card, err = h.svc.UpdateWorkerStatus(r.Context(), project, id, "killed", "task stopped by user")
 	if err != nil {
 		handleServiceError(w, r, err)
 
@@ -297,7 +297,7 @@ func (h *backendHandlers) stopCard(w http.ResponseWriter, r *http.Request) {
 // stopAllResponse is the response for the stop-all endpoint.
 //
 // FailedToUpdate is a parallel list of card IDs for which the backend kill
-// webhook succeeded but the subsequent CM-side UpdateRunnerStatus call
+// webhook succeeded but the subsequent CM-side UpdateWorkerStatus call
 // failed. The backend has stopped the container, but CM's view of the card
 // has drifted from reality — callers should treat these as "manual
 // reconciliation required". Empty when all updates succeeded.
@@ -344,7 +344,7 @@ func (h *backendHandlers) stopAll(w http.ResponseWriter, r *http.Request) {
 
 	for _, card := range cards {
 		if card.RunnerStatus == "queued" || card.RunnerStatus == "running" {
-			_, err := h.svc.UpdateRunnerStatus(r.Context(), project, card.ID, "killed", "stopped by stop-all")
+			_, err := h.svc.UpdateWorkerStatus(r.Context(), project, card.ID, "killed", "stopped by stop-all")
 			if err != nil {
 				// Backend already received the kill webhook above; only CM's view of this
 				// card failed to update. Surface the drift in the response so the caller
