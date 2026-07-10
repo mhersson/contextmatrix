@@ -12,25 +12,24 @@ import (
 
 // Card represents a task card with YAML frontmatter and markdown body.
 type Card struct {
-	ID                  string         `yaml:"id"              json:"id"`
-	Title               string         `yaml:"title"           json:"title"`
-	Project             string         `yaml:"project"         json:"project"`
-	Type                string         `yaml:"type"            json:"type"`
-	State               string         `yaml:"state"           json:"state"`
-	Priority            string         `yaml:"priority"        json:"priority"`
-	AssignedAgent       string         `yaml:"assigned_agent,omitempty"  json:"assigned_agent,omitempty"`
-	LastHeartbeat       *time.Time     `yaml:"last_heartbeat,omitempty" json:"last_heartbeat,omitempty"`
-	Parent              string         `yaml:"parent,omitempty"         json:"parent,omitempty"`
-	Subtasks            []string       `yaml:"subtasks,omitempty"       json:"subtasks,omitempty"`
-	DependsOn           []string       `yaml:"depends_on,omitempty"     json:"depends_on,omitempty"`
-	DependenciesMet     *bool          `yaml:"-"                        json:"dependencies_met,omitempty"`
-	Context             []string       `yaml:"context,omitempty"        json:"context,omitempty"`
-	Labels              []string       `yaml:"labels,omitempty"         json:"labels,omitempty"`
-	Skills              *[]string      `yaml:"skills,omitempty"         json:"skills,omitempty"`
-	Source              *Source        `yaml:"source,omitempty"         json:"source,omitempty"`
-	Custom              map[string]any `yaml:"custom,omitempty"          json:"custom,omitempty"`
-	Autonomous          bool           `yaml:"autonomous,omitempty"           json:"autonomous"`
-	UseOpusOrchestrator bool           `yaml:"use_opus_orchestrator,omitempty" json:"use_opus_orchestrator,omitempty"`
+	ID              string         `yaml:"id"              json:"id"`
+	Title           string         `yaml:"title"           json:"title"`
+	Project         string         `yaml:"project"         json:"project"`
+	Type            string         `yaml:"type"            json:"type"`
+	State           string         `yaml:"state"           json:"state"`
+	Priority        string         `yaml:"priority"        json:"priority"`
+	AssignedAgent   string         `yaml:"assigned_agent,omitempty"  json:"assigned_agent,omitempty"`
+	LastHeartbeat   *time.Time     `yaml:"last_heartbeat,omitempty" json:"last_heartbeat,omitempty"`
+	Parent          string         `yaml:"parent,omitempty"         json:"parent,omitempty"`
+	Subtasks        []string       `yaml:"subtasks,omitempty"       json:"subtasks,omitempty"`
+	DependsOn       []string       `yaml:"depends_on,omitempty"     json:"depends_on,omitempty"`
+	DependenciesMet *bool          `yaml:"-"                        json:"dependencies_met,omitempty"`
+	Context         []string       `yaml:"context,omitempty"        json:"context,omitempty"`
+	Labels          []string       `yaml:"labels,omitempty"         json:"labels,omitempty"`
+	Skills          *[]string      `yaml:"skills,omitempty"         json:"skills,omitempty"`
+	Source          *Source        `yaml:"source,omitempty"         json:"source,omitempty"`
+	Custom          map[string]any `yaml:"custom,omitempty"          json:"custom,omitempty"`
+	Autonomous      bool           `yaml:"autonomous,omitempty"           json:"autonomous"`
 	// Model pins (agent backend): explicit per-card OpenRouter slugs overriding
 	// the complexity selector. Human-set only — never writable via the MCP
 	// agent surface. Empty = selector/default applies.
