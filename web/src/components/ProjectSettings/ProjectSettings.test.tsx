@@ -161,7 +161,7 @@ describe('ProjectSettings — handleSave payload construction for remote_executi
   it('changed: enabling remote execution and setting an image sends the pointer-shaped payload', async () => {
     mocks.getProject.mockResolvedValue(baseConfig());
     mocks.updateProject.mockResolvedValue(
-      baseConfig({ remote_execution: { enabled: true, runner_image: 'ghcr.io/org/runner:latest' } }),
+      baseConfig({ remote_execution: { enabled: true, worker_image: 'ghcr.io/org/worker:latest' } }),
     );
 
     await renderSettings();
@@ -169,7 +169,7 @@ describe('ProjectSettings — handleSave payload construction for remote_executi
     fireEvent.click(screen.getByRole('checkbox', { name: /enable remote execution/i }));
 
     const imageInput = await screen.findByLabelText(/worker image/i);
-    fireEvent.change(imageInput, { target: { value: 'ghcr.io/org/runner:latest' } });
+    fireEvent.change(imageInput, { target: { value: 'ghcr.io/org/worker:latest' } });
 
     const saveButton = screen.getByRole('button', { name: /save/i });
     await waitFor(() => expect(saveButton).not.toBeDisabled());
@@ -179,7 +179,7 @@ describe('ProjectSettings — handleSave payload construction for remote_executi
     const [, body] = mocks.updateProject.mock.calls[0];
     expect(body.remote_execution).toEqual({
       enabled: true,
-      runner_image: 'ghcr.io/org/runner:latest',
+      worker_image: 'ghcr.io/org/worker:latest',
     });
   });
 
@@ -189,13 +189,13 @@ describe('ProjectSettings — handleSave payload construction for remote_executi
     // is enabled:true. PUT echoes the RAW config back (enabled:true), which is
     // what setConfig makes the new baseline. That divergence is the trap.
     mocks.getProject.mockResolvedValue(
-      baseConfig({ remote_execution: { enabled: false, runner_image: 'ghcr.io/org/runner:latest' } }),
+      baseConfig({ remote_execution: { enabled: false, worker_image: 'ghcr.io/org/worker:latest' } }),
     );
     mocks.updateProject.mockImplementation((_project: string, input: { repo?: string }) =>
       Promise.resolve(
         baseConfig({
           repo: input.repo ?? '',
-          remote_execution: { enabled: true, runner_image: 'ghcr.io/org/runner:latest' },
+          remote_execution: { enabled: true, worker_image: 'ghcr.io/org/worker:latest' },
         }),
       ),
     );

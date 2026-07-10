@@ -1,6 +1,6 @@
 import type { Card } from '../../types';
 import { gitHubIcon } from '../icons';
-import { chipTint, priorityColors, runnerStatusStyles, shortCardId, typeColors } from '../../lib/chip';
+import { chipTint, priorityColors, workerStatusStyles, shortCardId, typeColors } from '../../lib/chip';
 import { avatarGradient } from '../../utils/colorHash';
 
 export interface CardChipRowProps {
@@ -14,7 +14,7 @@ export interface CardChipRowProps {
  *
  * compact=true  — collapsed card header: type initial, source badges, parent badge.
  * compact=false — expanded card footer: priority dot, parent, agent, deps, autonomous,
- *                 best-of-n, runner status, branch, labels.
+ *                 best-of-n, worker status, branch, labels.
  */
 export function CardChipRow({ card, compact = false, onParentClick }: CardChipRowProps) {
   if (compact) {
@@ -133,18 +133,18 @@ export function CardChipRow({ card, compact = false, onParentClick }: CardChipRo
         </span>
       )}
 
-      {/* Runner status badge */}
-      {card.runner_status && runnerStatusStyles[card.runner_status] && (
+      {/* Worker status badge */}
+      {card.worker_status && workerStatusStyles[card.worker_status] && (
         <span
-          className={`chip-pill${card.runner_status === 'running' ? ' animate-pulse' : ''}`}
+          className={`chip-pill${card.worker_status === 'running' ? ' animate-pulse' : ''}`}
           style={{
-            backgroundColor: runnerStatusStyles[card.runner_status].bg,
-            color: runnerStatusStyles[card.runner_status].text,
+            backgroundColor: workerStatusStyles[card.worker_status].bg,
+            color: workerStatusStyles[card.worker_status].text,
           }}
-          title={`Runner: ${card.runner_status}`}
-          aria-label={`Runner status: ${card.runner_status}`}
+          title={`Worker: ${card.worker_status}`}
+          aria-label={`Worker status: ${card.worker_status}`}
         >
-          {card.runner_status}
+          {card.worker_status}
         </span>
       )}
 

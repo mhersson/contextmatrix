@@ -90,7 +90,7 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true }: Ch
   // from another pane, NewChatDialog, etc). Without this, the local
   // `session.status` stays at whatever GetChat returned on mount — so e.g.
   // clicking "Reopen" from the pane header would flip the backend to
-  // active but the compose box would keep showing "Waiting for runner…".
+  // active but the compose box would keep showing "Waiting for worker…".
   //
   // Debounced at 75ms: useChatSessions already coalesces up to 4 pane
   // notifications into one sidebar refetch (100ms window), but each pane's
@@ -176,7 +176,7 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true }: Ch
   }, [sessionID]);
 
   // Suppress the "Restoring workspace…" banner once the user has successfully
-  // sent at least one message in this session. If they're chatting, the runner
+  // sent at least one message in this session. If they're chatting, the worker
   // is clearly ready — the rehydration_active flag can stick true forever when
   // the agent forgets to call chat_rehydration_complete (per the
   // sweepStaleRehydration comment in internal/chat/reaper.go). This is a UX
@@ -222,7 +222,7 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true }: Ch
   // for an inbound event without deadlocking the user out of sending.
   const readOnlyMessage =
     isEnding ? 'Session is ending…' :
-    isCold ? 'Waiting for runner…' :
+    isCold ? 'Waiting for worker…' :
     undefined;
   const sendDisabled = isEnding || isCold;
 

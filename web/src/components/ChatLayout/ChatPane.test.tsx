@@ -15,7 +15,7 @@ vi.mock('../../hooks/useChatLiveData', () => ({
   useChatLiveData: () => null,
 }));
 vi.mock('../../utils/chatModels', () => ({
-  useChatModels: () => ({ models: [], source: 'config' }),
+  useChatModels: () => ({ models: [], source: 'endpoint' }),
   contextPct: () => 0,
   modelMaxTokens: () => 0,
   usageColor: () => 'var(--fg)',

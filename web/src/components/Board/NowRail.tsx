@@ -98,7 +98,7 @@ function relativeTime(iso: string): string {
  * Live agent list + capacity meter + activity feed. `maxAgents` shows the
  * capacity section; `hasBackfill` switches the activity label once the
  * one-shot /activity backfill has loaded.
- * The Capacity meter shows `runningContainers / maxAgents` (runner-container
+ * The Capacity meter shows `runningContainers / maxAgents` (worker-container
  * counts), not agent counts — the "Now · agents" section is the canonical
  * place for active-agent display.
  */
@@ -121,7 +121,7 @@ export function NowRail({ agents, activityEntries, maxAgents, runningContainers,
   const capacityPct = showCapMeter
     ? Math.max(0, Math.min(100, Math.round((containerCount / maxAgents!) * 100)))
     : 0;
-  // Now · agents head-row shows the active-agent count only. The runner cap
+  // Now · agents head-row shows the active-agent count only. The worker cap
   // (max_concurrent) is a container-capacity number, not an agent-capacity
   // number — using it as a denominator here would be a category mismatch.
   const agentsCount = `${agents.length}`;

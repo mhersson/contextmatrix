@@ -148,6 +148,6 @@ describe('DangerZoneTab — force release placeholder', () => {
     );
     const forceRelease = screen.getByRole('button', { name: /Force release/ });
     expect(forceRelease).toBeDisabled();
-    expect(screen.getByText(/Only available when the runner is unresponsive/)).toBeInTheDocument();
+    expect(screen.getByText(/Only available when the worker is unresponsive/)).toBeInTheDocument();
   });
 });

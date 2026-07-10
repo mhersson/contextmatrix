@@ -131,11 +131,11 @@ describe('CardPanelHeader — primary action by state', () => {
 });
 
 describe('CardPanelHeader — workflow-safety lock', () => {
-  it('replaces the Save and primary cluster with a locked badge when runner is running', () => {
-    const card = { ...baseCard, state: 'in_progress', runner_status: 'running' as const, assigned_agent: 'agent-1' };
+  it('replaces the Save and primary cluster with a locked badge when worker is running', () => {
+    const card = { ...baseCard, state: 'in_progress', worker_status: 'running' as const, assigned_agent: 'agent-1' };
     render(<CardPanelHeader {...defaultProps} card={card} editedCard={card} />);
     expect(screen.getByText(/Agent still owns this card/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Stop runner' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Stop worker' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Save/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Run HITL/ })).not.toBeInTheDocument();
   });

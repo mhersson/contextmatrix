@@ -25,7 +25,7 @@ const runningCard: Card = {
   type: 'task',
   state: 'in_progress',
   priority: 'medium',
-  runner_status: 'running',
+  worker_status: 'running',
   autonomous: false,
   created: '2026-01-01T00:00:00Z',
   updated: '2026-01-01T00:00:00Z',
@@ -34,7 +34,7 @@ const runningCard: Card = {
 
 const stoppedCard: Card = {
   ...runningCard,
-  runner_status: 'failed',
+  worker_status: 'failed',
 };
 
 const autonomousCard: Card = {
@@ -49,7 +49,7 @@ beforeEach(() => {
 });
 
 describe('CardChat — visibility gate', () => {
-  it('renders a read-only footer when runner_status is not "running"', () => {
+  it('renders a read-only footer when worker_status is not "running"', () => {
     render(<CardChat card={stoppedCard} cardLogs={noLogs} />);
     expect(screen.queryByPlaceholderText(/Type a message/)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Send/ })).not.toBeInTheDocument();
@@ -128,7 +128,7 @@ describe('CardChat — over-limit guard', () => {
 });
 
 describe('CardChat — Switch to Autonomous button', () => {
-  it('is visible when card.autonomous === false and runner_status === "running"', () => {
+  it('is visible when card.autonomous === false and worker_status === "running"', () => {
     render(<CardChat card={runningCard} cardLogs={noLogs} />);
     expect(screen.getByRole('button', { name: /Switch to Autonomous/ })).toBeInTheDocument();
   });
@@ -187,10 +187,10 @@ describe('CardChat — Switch to Autonomous button', () => {
 describe('CardChat — cardLogs prop', () => {
   it('renders log entries passed via cardLogs prop', () => {
     const logs: LogEntry[] = [
-      { ts: '2026-01-01T00:00:01Z', card_id: 'TEST-001', type: 'text', content: 'hello from runner' },
+      { ts: '2026-01-01T00:00:01Z', card_id: 'TEST-001', type: 'text', content: 'hello from worker' },
     ];
     render(<CardChat card={runningCard} cardLogs={logs} />);
-    expect(screen.getByText(/hello from runner/)).toBeInTheDocument();
+    expect(screen.getByText(/hello from worker/)).toBeInTheDocument();
   });
 
   it('shows "No messages yet" when cardLogs is empty', () => {

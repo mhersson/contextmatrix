@@ -12,12 +12,12 @@ type Subscriber = (event: BoardEvent) => void;
  * Pattern for filtering SSE events by type prefix.
  *
  * - `'*'` matches every event.
- * - `'<prefix>.*'` (e.g. `'card.*'`, `'runner.*'`, `'project.*'`, `'sync.*'`)
+ * - `'<prefix>.*'` (e.g. `'card.*'`, `'worker.*'`, `'project.*'`, `'sync.*'`)
  *   matches every event whose `type` starts with `<prefix>.`.
  * - Any other string is treated as an exact match against `event.type`
  *   (e.g. `'card.updated'`).
  */
-export type SSEPattern = '*' | 'card.*' | 'runner.*' | 'project.*' | 'sync.*' | string;
+export type SSEPattern = '*' | 'card.*' | 'worker.*' | 'project.*' | 'sync.*' | string;
 
 interface SSEBusContextValue {
   subscribe: (pattern: SSEPattern, onEvent: Subscriber) => () => void;
@@ -54,7 +54,7 @@ function bucketKey(pattern: SSEPattern): string {
 }
 
 // Extract the prefix of an event type (substring before the first '.').
-// 'card.updated' → 'card'; 'runner.started' → 'runner'.
+// 'card.updated' → 'card'; 'worker.started' → 'worker'.
 //
 // Returns '' for types with no dot ('card', 'sync') so prefix-pattern
 // dispatch skips them entirely — a 'card.*' subscriber should not match a

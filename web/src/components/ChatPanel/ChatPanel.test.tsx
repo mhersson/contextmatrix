@@ -5,7 +5,7 @@ import { formatHHMM, formatTitle } from '../../utils/chatTimestamp';
 import type { LogEntry } from '../../types';
 
 // Local formatter matching the production instance — locale pinned to 'en-GB'
-// so HH:MM output is deterministic regardless of the test runner's locale.
+// so HH:MM output is deterministic regardless of the test environment's locale.
 const hhmmFormatter = new Intl.DateTimeFormat('en-GB', {
   hour: '2-digit',
   minute: '2-digit',

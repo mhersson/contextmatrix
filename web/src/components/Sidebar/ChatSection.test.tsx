@@ -27,7 +27,7 @@ const localStorageMock = (() => {
 Object.defineProperty(globalThis, 'localStorage', { value: localStorageMock, configurable: true });
 
 const fixtures: ChatSession[] = [
-  { id: 'S1', title: 'runner-auth', status: 'active', created_at: '', last_active: '', created_by: 'x' },
+  { id: 'S1', title: 'worker-auth', status: 'active', created_at: '', last_active: '', created_by: 'x' },
   { id: 'S2', title: 'triage', status: 'cold', created_at: '', last_active: '', created_by: 'x' },
 ];
 
@@ -48,7 +48,7 @@ describe('ChatSection', () => {
         <MobileSidebarProvider><ChatSection onNewChat={() => {}} /></MobileSidebarProvider>
       </MemoryRouter>,
     );
-    expect(await screen.findByText('runner-auth')).toBeInTheDocument();
+    expect(await screen.findByText('worker-auth')).toBeInTheDocument();
     expect(screen.getByText('triage')).toBeInTheDocument();
   });
 
@@ -58,7 +58,7 @@ describe('ChatSection', () => {
         <MobileSidebarProvider><ChatSection onNewChat={() => {}} /></MobileSidebarProvider>
       </MemoryRouter>,
     );
-    await screen.findByText('runner-auth');
+    await screen.findByText('worker-auth');
     fireEvent.click(screen.getByRole('button', { name: /Chat/ }));
     expect(localStorageMock.setItem).toHaveBeenCalledWith('sidebar.chat_section_collapsed', '1');
   });
@@ -70,7 +70,7 @@ describe('ChatSection', () => {
         <MobileSidebarProvider><ChatSection onNewChat={onNewChat} /></MobileSidebarProvider>
       </MemoryRouter>,
     );
-    await screen.findByText('runner-auth');
+    await screen.findByText('worker-auth');
     fireEvent.click(screen.getByTitle('New chat'));
     expect(onNewChat).toHaveBeenCalledOnce();
   });

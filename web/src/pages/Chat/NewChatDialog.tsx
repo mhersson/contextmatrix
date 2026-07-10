@@ -20,7 +20,7 @@ export function NewChatDialog({ open, onClose }: NewChatDialogProps) {
   const [model, setModel] = useState('');
   const [models, setModels] = useState<ChatModel[]>([]);
   const [defaultModel, setDefaultModel] = useState('');
-  const [modelSource, setModelSource] = useState<'config' | 'openrouter' | 'endpoint'>('config');
+  const [modelSource, setModelSource] = useState<'openrouter' | 'endpoint'>('endpoint');
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -57,7 +57,7 @@ export function NewChatDialog({ open, onClose }: NewChatDialogProps) {
         if (cancelled) return;
         setModels(resp.models);
         setDefaultModel(resp.default);
-        setModelSource(resp.source ?? 'config');
+        setModelSource(resp.source ?? 'endpoint');
         setModel((cur) => cur || resp.default);
       })
       .catch((e) => {
@@ -99,7 +99,7 @@ export function NewChatDialog({ open, onClose }: NewChatDialogProps) {
       // otherwise the user lands on the new chat but the sidebar still
       // shows the old set until a manual refresh.
       notifyChatSessionsChanged();
-      // Kick the runner so the container is spawning by the time the user
+      // Kick the worker so the container is spawning by the time the user
       // lands on the chat thread. Failure is non-fatal: the session row
       // exists, and the user can retry via the Reopen button on the cold
       // status header.
@@ -109,7 +109,7 @@ export function NewChatDialog({ open, onClose }: NewChatDialogProps) {
         console.warn('openChat failed; user can Reopen manually', openErr);
       }
       // Second notify so the sidebar status flips from cold → active once
-      // the runner is warm (the first notify above fired before openChat
+      // the worker is warm (the first notify above fired before openChat
       // returned, so its result reflected the still-cold session).
       notifyChatSessionsChanged();
       onClose();

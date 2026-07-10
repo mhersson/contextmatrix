@@ -14,7 +14,7 @@ interface LabelsSectionProps {
 
 /**
  * Left-column labels section. Disabled rendering (`disabled=true`) hides
- * add/remove controls and shows a hint when the runner is attached or the
+ * add/remove controls and shows a hint when the worker is attached or the
  * card is in a non-todo state.
  */
 export function LabelsSection({ editedLabels, disabled, onLabelsChange, lockedReason }: LabelsSectionProps) {

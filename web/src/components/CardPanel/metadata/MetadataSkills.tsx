@@ -10,7 +10,7 @@ interface MetadataSkillsProps {
   onSkillsChange: (next: string[] | null) => void;
   /**
    * Lock the selector once the workflow has started — skills are mounted
-   * into the runner's working directory at run start, so changes after
+   * into the worker's working directory at run start, so changes after
    * that point do not reach the live agent.
    */
   disabled?: boolean;

@@ -19,7 +19,7 @@ interface CardPanelEditorProps {
 /**
  * Description surface for the CardPanel left column.
  *
- * - `editable` gates whether edits are possible at all (false when the runner
+ * - `editable` gates whether edits are possible at all (false when the worker
  *   is attached).
  * - `editing` is the user-controlled toggle; only when `editable && editing`
  *   is MDEditor mounted. Otherwise the body renders through

@@ -70,7 +70,7 @@ describe('api.runCard', () => {
   });
 
   it('treats 202 Accepted as success and parses the card', async () => {
-    // /run is async; backend returns 202 after queuing the runner trigger.
+    // /run is async; backend returns 202 after queuing the worker trigger.
     fetchSpy.mockResolvedValue(makeResponse(baseCard, 202));
     const card = await api.runCard('test-project', 'TEST-001');
     expect(card).toEqual(baseCard);
@@ -132,7 +132,7 @@ describe('api.sendCardMessage', () => {
 
   it('surfaces 503 as a typed APIError', async () => {
     fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      makeErrorResponse('RUNNER_DISABLED', 'runner disabled', 503)
+      makeErrorResponse('BACKEND_DISABLED', 'worker disabled', 503)
     );
 
     let caught: unknown;
@@ -143,7 +143,7 @@ describe('api.sendCardMessage', () => {
     }
 
     expect(isAPIError(caught)).toBe(true);
-    expect((caught as APIError).code).toBe('RUNNER_DISABLED');
+    expect((caught as APIError).code).toBe('BACKEND_DISABLED');
   });
 });
 
@@ -169,7 +169,7 @@ describe('api.promoteCardToAutonomous', () => {
 
   it('surfaces 409 as a typed APIError', async () => {
     fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      makeErrorResponse('RUNNER_NOT_RUNNING', 'card is not currently running', 409)
+      makeErrorResponse('WORKER_NOT_RUNNING', 'card is not currently running', 409)
     );
 
     let caught: unknown;
@@ -180,12 +180,12 @@ describe('api.promoteCardToAutonomous', () => {
     }
 
     expect(isAPIError(caught)).toBe(true);
-    expect((caught as APIError).code).toBe('RUNNER_NOT_RUNNING');
+    expect((caught as APIError).code).toBe('WORKER_NOT_RUNNING');
   });
 
   it('surfaces 503 as a typed APIError', async () => {
     fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      makeErrorResponse('RUNNER_DISABLED', 'runner disabled', 503)
+      makeErrorResponse('BACKEND_DISABLED', 'worker disabled', 503)
     );
 
     let caught: unknown;
@@ -196,7 +196,7 @@ describe('api.promoteCardToAutonomous', () => {
     }
 
     expect(isAPIError(caught)).toBe(true);
-    expect((caught as APIError).code).toBe('RUNNER_DISABLED');
+    expect((caught as APIError).code).toBe('BACKEND_DISABLED');
   });
 });
 

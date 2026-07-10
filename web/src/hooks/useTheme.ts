@@ -68,8 +68,8 @@ interface ThemeContextValue {
   palette: Palette;
   version: string;
   /**
-   * Active task-execution backend from `/api/app/config`: "runner" | "agent"
-   * | "" (when no task backend is configured). Surfaced here because
+   * Active task-execution backend from `/api/app/config`: "agent" | ""
+   * (when no task backend is configured). Surfaced here because
    * ThemeProvider is the single fetcher of the app config; consumers read it
    * via `useTheme()` rather than opening a parallel fetch.
    */

@@ -217,7 +217,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
           ? {
               remote_execution: {
                 enabled: !!remoteExecution.enabled,
-                runner_image: remoteExecution.runner_image ?? '',
+                worker_image: remoteExecution.worker_image ?? '',
               },
             }
           : {}),
