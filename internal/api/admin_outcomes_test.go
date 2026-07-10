@@ -19,7 +19,7 @@ import (
 )
 
 // stubOutcomeAdminStore is a minimal outcomeAdminStore double. Distinct from
-// runner_test.go's stubOutcomeStats (read-only: ModelOutcomeStats only) —
+// backend_test.go's stubOutcomeStats (read-only: ModelOutcomeStats only) —
 // the admin endpoints also need ResetModelOutcomes.
 type stubOutcomeAdminStore struct {
 	stats     []sqlite.OutcomeStats

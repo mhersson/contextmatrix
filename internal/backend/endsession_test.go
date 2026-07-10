@@ -1,4 +1,4 @@
-package runner_test
+package backend_test
 
 import (
 	"context"
@@ -12,9 +12,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mhersson/contextmatrix/internal/backend"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/events"
-	"github.com/mhersson/contextmatrix/internal/runner"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
@@ -50,16 +50,16 @@ func (f *fakeCardGetter) setAgent(project, id, agent string) {
 
 type fakeClient struct {
 	mu         sync.Mutex
-	calls      []runner.EndSessionPayload
-	killCalls  []runner.KillPayload
+	calls      []backend.EndSessionPayload
+	killCalls  []backend.KillPayload
 	err        error
 	killErr    error
-	listResult []runner.ContainerInfo
+	listResult []backend.ContainerInfo
 	listErr    error
 	listCount  int
 }
 
-func (f *fakeClient) EndSession(_ context.Context, p runner.EndSessionPayload) error {
+func (f *fakeClient) EndSession(_ context.Context, p backend.EndSessionPayload) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -68,7 +68,7 @@ func (f *fakeClient) EndSession(_ context.Context, p runner.EndSessionPayload) e
 	return f.err
 }
 
-func (f *fakeClient) Kill(_ context.Context, p runner.KillPayload) error {
+func (f *fakeClient) Kill(_ context.Context, p backend.KillPayload) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -77,11 +77,11 @@ func (f *fakeClient) Kill(_ context.Context, p runner.KillPayload) error {
 	return f.killErr
 }
 
-// ListContainers is the authoritative runner-side input the sweep consults
+// ListContainers is the authoritative backend-side input the sweep consults
 // on every tick. Tests set listResult to configure the container snapshot
-// the sweep sees; listErr covers the runner-unreachable path so the sweep
+// the sweep sees; listErr covers the backend-unreachable path so the sweep
 // can skip ticks without crashing.
-func (f *fakeClient) ListContainers(_ context.Context) ([]runner.ContainerInfo, error) {
+func (f *fakeClient) ListContainers(_ context.Context) ([]backend.ContainerInfo, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -91,7 +91,7 @@ func (f *fakeClient) ListContainers(_ context.Context) ([]runner.ContainerInfo, 
 		return nil, f.listErr
 	}
 
-	out := make([]runner.ContainerInfo, len(f.listResult))
+	out := make([]backend.ContainerInfo, len(f.listResult))
 	copy(out, f.listResult)
 
 	return out, nil
@@ -99,7 +99,7 @@ func (f *fakeClient) ListContainers(_ context.Context) ([]runner.ContainerInfo, 
 
 // ListCount returns the number of ListContainers calls observed since the
 // fake was created. Used by tests that need to assert a single sweep tick
-// makes exactly one /containers round-trip to avoid hitting the runner's
+// makes exactly one /containers round-trip to avoid hitting the backend's
 // HMAC replay cache.
 func (f *fakeClient) ListCount() int {
 	f.mu.Lock()
@@ -108,21 +108,21 @@ func (f *fakeClient) ListCount() int {
 	return f.listCount
 }
 
-func (f *fakeClient) Calls() []runner.EndSessionPayload {
+func (f *fakeClient) Calls() []backend.EndSessionPayload {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	out := make([]runner.EndSessionPayload, len(f.calls))
+	out := make([]backend.EndSessionPayload, len(f.calls))
 	copy(out, f.calls)
 
 	return out
 }
 
-func (f *fakeClient) KillCalls() []runner.KillPayload {
+func (f *fakeClient) KillCalls() []backend.KillPayload {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	out := make([]runner.KillPayload, len(f.killCalls))
+	out := make([]backend.KillPayload, len(f.killCalls))
 	copy(out, f.killCalls)
 
 	return out
@@ -133,7 +133,7 @@ func discardLogger() *slog.Logger {
 }
 
 // fakeStatusErr is an error that exposes an HTTP status code via
-// HTTPStatusCode(), matching what runner.Client returns for 4xx responses.
+// HTTPStatusCode(), matching what backend.Client returns for 4xx responses.
 // Used to drive the subscriber's expected-error classification path.
 type fakeStatusErr struct {
 	status int
@@ -180,12 +180,12 @@ func TestEndSessionSubscriber_TerminalDoneReleasedRunning_Fires(t *testing.T) {
 			ID:            "C-001",
 			State:         "done",
 			AssignedAgent: "",
-			RunnerStatus:  "running",
+			WorkerStatus:  "running",
 		},
 	}}
 	fc := &fakeClient{}
 
-	runner.StartEndSessionSubscriber(ctx, bus, cg, fc, discardLogger())
+	backend.StartEndSessionSubscriber(ctx, bus, cg, fc, discardLogger())
 
 	bus.Publish(events.Event{Type: events.CardReleased, Project: "proj", CardID: "C-001"})
 
@@ -212,25 +212,25 @@ func TestEndSessionSubscriber_MidWorkflow_NoCall(t *testing.T) {
 			ID:            "C-001",
 			State:         "in_progress",
 			AssignedAgent: "",
-			RunnerStatus:  "running",
+			WorkerStatus:  "running",
 		},
 	}}
 	fc := &fakeClient{}
 
-	runner.StartEndSessionSubscriber(ctx, bus, cg, fc, discardLogger())
+	backend.StartEndSessionSubscriber(ctx, bus, cg, fc, discardLogger())
 	bus.Publish(events.Event{Type: events.CardReleased, Project: "proj", CardID: "C-001"})
 
 	assertNoCall(t, fc)
 }
 
-// TestEndSessionSubscriber_TerminalAndReleased_FiresRegardlessOfRunnerStatus
+// TestEndSessionSubscriber_TerminalAndReleased_FiresRegardlessOfWorkerStatus
 // verifies the subscriber fires on terminal + released, ignoring
-// runner_status. A card whose runner_status has drifted to "" (or
-// "completed", "failed") but still has a live container on the runner must
-// still get a /kill — the runner's /kill is idempotent, so a spurious call
+// worker_status. A card whose worker_status has drifted to "" (or
+// "completed", "failed") but still has a live container on the backend must
+// still get a /kill — the backend's /kill is idempotent, so a spurious call
 // against an already-dead container is a 200 no-op, and silent-skip bugs
-// around runner_status drift are eliminated at the source.
-func TestEndSessionSubscriber_TerminalAndReleased_FiresRegardlessOfRunnerStatus(t *testing.T) {
+// around worker_status drift are eliminated at the source.
+func TestEndSessionSubscriber_TerminalAndReleased_FiresRegardlessOfWorkerStatus(t *testing.T) {
 	ctx := t.Context()
 
 	bus := events.NewBus()
@@ -239,15 +239,15 @@ func TestEndSessionSubscriber_TerminalAndReleased_FiresRegardlessOfRunnerStatus(
 			ID:            "SUB-001",
 			State:         "done",
 			AssignedAgent: "",
-			// Empty runner_status — the subscriber fires anyway because
+			// Empty worker_status — the subscriber fires anyway because
 			// the card is terminal and released, which is all the truth
 			// it needs.
-			RunnerStatus: "",
+			WorkerStatus: "",
 		},
 	}}
 	fc := &fakeClient{}
 
-	runner.StartEndSessionSubscriber(ctx, bus, cg, fc, discardLogger())
+	backend.StartEndSessionSubscriber(ctx, bus, cg, fc, discardLogger())
 	bus.Publish(events.Event{Type: events.CardReleased, Project: "proj", CardID: "SUB-001"})
 
 	waitForCalls(t, fc, 1)
@@ -263,12 +263,12 @@ func TestEndSessionSubscriber_StateChangedWithAgentStillSet_NoCall(t *testing.T)
 			ID:            "C-001",
 			State:         "done",
 			AssignedAgent: "agent-123",
-			RunnerStatus:  "running",
+			WorkerStatus:  "running",
 		},
 	}}
 	fc := &fakeClient{}
 
-	runner.StartEndSessionSubscriber(ctx, bus, cg, fc, discardLogger())
+	backend.StartEndSessionSubscriber(ctx, bus, cg, fc, discardLogger())
 	bus.Publish(events.Event{Type: events.CardStateChanged, Project: "proj", CardID: "C-001"})
 
 	assertNoCall(t, fc)
@@ -290,12 +290,12 @@ func TestEndSessionSubscriber_NotPlannedReleasedRunning_Fires(t *testing.T) {
 			ID:            "C-001",
 			State:         "not_planned",
 			AssignedAgent: "",
-			RunnerStatus:  "running",
+			WorkerStatus:  "running",
 		},
 	}}
 	fc := &fakeClient{}
 
-	runner.StartEndSessionSubscriber(ctx, bus, cg, fc, discardLogger())
+	backend.StartEndSessionSubscriber(ctx, bus, cg, fc, discardLogger())
 	bus.Publish(events.Event{Type: events.CardStateChanged, Project: "proj", CardID: "C-001"})
 
 	waitForCalls(t, fc, 1)
@@ -311,12 +311,12 @@ func TestEndSessionSubscriber_DoubleEvent_TwoCalls(t *testing.T) {
 			ID:            "C-001",
 			State:         "done",
 			AssignedAgent: "",
-			RunnerStatus:  "running",
+			WorkerStatus:  "running",
 		},
 	}}
 	fc := &fakeClient{}
 
-	runner.StartEndSessionSubscriber(ctx, bus, cg, fc, discardLogger())
+	backend.StartEndSessionSubscriber(ctx, bus, cg, fc, discardLogger())
 
 	bus.Publish(events.Event{Type: events.CardStateChanged, Project: "proj", CardID: "C-001"})
 	bus.Publish(events.Event{Type: events.CardReleased, Project: "proj", CardID: "C-001"})
@@ -334,12 +334,12 @@ func TestEndSessionSubscriber_UnrelatedEvent_NoCall(t *testing.T) {
 			ID:            "C-001",
 			State:         "done",
 			AssignedAgent: "",
-			RunnerStatus:  "running",
+			WorkerStatus:  "running",
 		},
 	}}
 	fc := &fakeClient{}
 
-	runner.StartEndSessionSubscriber(ctx, bus, cg, fc, discardLogger())
+	backend.StartEndSessionSubscriber(ctx, bus, cg, fc, discardLogger())
 	bus.Publish(events.Event{Type: events.CardCreated, Project: "proj", CardID: "C-001"})
 
 	assertNoCall(t, fc)
@@ -354,12 +354,12 @@ func TestEndSessionSubscriber_WebhookError_NoCrash(t *testing.T) {
 			ID:            "C-001",
 			State:         "done",
 			AssignedAgent: "",
-			RunnerStatus:  "running",
+			WorkerStatus:  "running",
 		},
 	}}
-	fc := &fakeClient{err: errors.New("runner is down")}
+	fc := &fakeClient{err: errors.New("backend is down")}
 
-	runner.StartEndSessionSubscriber(ctx, bus, cg, fc, discardLogger())
+	backend.StartEndSessionSubscriber(ctx, bus, cg, fc, discardLogger())
 	bus.Publish(events.Event{Type: events.CardReleased, Project: "proj", CardID: "C-001"})
 
 	waitForCalls(t, fc, 1)
@@ -382,12 +382,12 @@ func TestEndSessionSubscriber_EndSession409_KillStillFires(t *testing.T) {
 			ID:            "C-001",
 			State:         "done",
 			AssignedAgent: "",
-			RunnerStatus:  "running",
+			WorkerStatus:  "running",
 		},
 	}}
 	fc := &fakeClient{err: &fakeStatusErr{status: 409, msg: "container is not in interactive mode"}}
 
-	runner.StartEndSessionSubscriber(ctx, bus, cg, fc, discardLogger())
+	backend.StartEndSessionSubscriber(ctx, bus, cg, fc, discardLogger())
 	bus.Publish(events.Event{Type: events.CardReleased, Project: "proj", CardID: "C-001"})
 
 	waitForCalls(t, fc, 1)

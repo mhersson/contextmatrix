@@ -30,7 +30,7 @@ func (d *chatTestDeps) setRehydrationActive(ctx context.Context, sessionID strin
 }
 
 // newTestChatManager creates a chat.Manager backed by a real SQLite store and
-// a no-op stub runner, suitable for unit-testing tool handlers.
+// a no-op stub backend, suitable for unit-testing tool handlers.
 func newTestChatManager(t *testing.T) (*chat.Manager, *chatTestDeps) {
 	t.Helper()
 
@@ -40,7 +40,7 @@ func newTestChatManager(t *testing.T) (*chat.Manager, *chatTestDeps) {
 
 	mgr := chat.NewManager(chat.Config{
 		Store:   store,
-		Backend: &chatStubRunner{},
+		Backend: &chatStubBackend{},
 		Clock:   clock.Real(),
 		IdleTTL: time.Hour,
 	})
@@ -48,20 +48,20 @@ func newTestChatManager(t *testing.T) (*chat.Manager, *chatTestDeps) {
 	return mgr, &chatTestDeps{store: store}
 }
 
-// chatStubRunner is the minimal Backend stub needed for chat manager tests
+// chatStubBackend is the minimal Backend stub needed for chat manager tests
 // in the mcp package. It satisfies the chat.Backend interface without any
 // real behaviour — we never actually start containers in these tests.
-type chatStubRunner struct{}
+type chatStubBackend struct{}
 
-func (r *chatStubRunner) StartChat(_ context.Context, _ chat.StartChatOpts) (string, error) {
+func (r *chatStubBackend) StartChat(_ context.Context, _ chat.StartChatOpts) (string, error) {
 	return "stub-container", nil
 }
 
-func (r *chatStubRunner) EndChat(_ context.Context, _ string) error { return nil }
+func (r *chatStubBackend) EndChat(_ context.Context, _ string) error { return nil }
 
-func (r *chatStubRunner) SendChatMessage(_ context.Context, _, _, _ string) error { return nil }
+func (r *chatStubBackend) SendChatMessage(_ context.Context, _, _, _ string) error { return nil }
 
-func (r *chatStubRunner) StreamLogs(ctx context.Context, _ string, _ func(chat.LogEntry)) error {
+func (r *chatStubBackend) StreamLogs(ctx context.Context, _ string, _ func(chat.LogEntry)) error {
 	<-ctx.Done()
 
 	return ctx.Err()

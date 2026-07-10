@@ -115,7 +115,7 @@ type PatchCardInput struct {
 	// AgentID, when non-empty, is checked against the card's AssignedAgent.
 	// If the card is claimed by a different agent, ErrAgentMismatch is returned
 	// before any mutations are applied. Empty AgentID skips the check (backward
-	// compatible for callers like the runner that do not supply an agent ID).
+	// compatible for callers like the task backend that do not supply an agent ID).
 	AgentID string
 }
 
@@ -1361,7 +1361,7 @@ func (s *CardService) applyCardMutation(
 		appendStateChangeLog(card, oldState, card.State, opts.commitAgentID, card.Updated)
 	}
 
-	// Release agent claim on not_planned and clear runner_status on terminal
+	// Release agent claim on not_planned and clear worker_status on terminal
 	// states. Must happen before validate+persist so the written card reflects
 	// the invariants.
 	enforceTerminalStateInvariants(card, stateChanged)

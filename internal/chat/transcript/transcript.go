@@ -1,4 +1,4 @@
-// Package transcript builds the rehydration payload sent to the runner on a
+// Package transcript builds the rehydration payload sent to the chat backend on a
 // cold-reopen. It filters role-typed messages from SQLite into the bounded
 // shape Claude can ingest from /run/cm-chat/resume.jsonl: drop noise (thinking,
 // stderr, system, prior rehydration turns), summarise tool_result bodies, and
@@ -63,7 +63,7 @@ type Message struct {
 }
 
 // ResumeContext is the rehydration payload wire shape — protocol-owned
-// (the runner writes it to /run/cm-chat/resume.jsonl). Aliased so the
+// (the backend writes it to /run/cm-chat/resume.jsonl). Aliased so the
 // builder and the chat package keep their local names.
 type ResumeContext = protocol.ChatResumeContext
 

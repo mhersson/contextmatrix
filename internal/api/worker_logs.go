@@ -8,16 +8,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mhersson/contextmatrix/internal/backend/sessionlog"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/metrics"
-	"github.com/mhersson/contextmatrix/internal/runner/sessionlog"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
-// defaultRunnerKeepaliveInterval is the keepalive period for runner SSE streams.
-const defaultRunnerKeepaliveInterval = 30 * time.Second
+// defaultWorkerLogKeepalive is the keepalive period for worker-log SSE streams.
+const defaultWorkerLogKeepalive = 30 * time.Second
 
-// streamRunnerLogs handles GET /api/runner/logs
+// streamWorkerLogs handles GET /api/worker/logs
 //
 // Two code paths, selected by query parameters:
 //
@@ -25,7 +25,7 @@ const defaultRunnerKeepaliveInterval = 30 * time.Second
 //     replay snapshot, tail live events, handle disconnect.
 //   - only project present → project-scoped path: subscribe to the project
 //     session manager, replay snapshot, tail live events, handle disconnect.
-func (h *runnerHandlers) streamRunnerLogs(w http.ResponseWriter, r *http.Request) {
+func (h *backendHandlers) streamWorkerLogs(w http.ResponseWriter, r *http.Request) {
 	// Assert Flusher — required for SSE.
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -42,7 +42,7 @@ func (h *runnerHandlers) streamRunnerLogs(w http.ResponseWriter, r *http.Request
 	// persistent SSE HTTP connection keyed by an empty string. For non-empty
 	// values, verify the project exists so a typo/garbage name can't spin up
 	// permanent resources for a bogus project. The svc-nil guard preserves
-	// existing tests that instantiate runnerHandlers without a CardService.
+	// existing tests that instantiate backendHandlers without a CardService.
 	if project == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "project query parameter is required", "")
 
@@ -57,7 +57,7 @@ func (h *runnerHandlers) streamRunnerLogs(w http.ResponseWriter, r *http.Request
 				return
 			}
 
-			ctxlog.Logger(r.Context()).Error("runner SSE: failed to load project", "project", project, "error", err)
+			ctxlog.Logger(r.Context()).Error("worker-log SSE: failed to load project", "project", project, "error", err)
 			writeError(w, http.StatusInternalServerError, ErrCodeInternalError, "internal server error", "")
 
 			return
@@ -71,7 +71,7 @@ func (h *runnerHandlers) streamRunnerLogs(w http.ResponseWriter, r *http.Request
 	// past the server's WriteTimeout (see events.go for the full explanation).
 	rc := http.NewResponseController(w)
 	if err := rc.SetWriteDeadline(time.Time{}); err != nil {
-		ctxlog.Logger(r.Context()).Debug("runner SSE could not clear write deadline", "error", err)
+		ctxlog.Logger(r.Context()).Debug("worker-log SSE could not clear write deadline", "error", err)
 	}
 
 	if cardID != "" {
@@ -83,20 +83,20 @@ func (h *runnerHandlers) streamRunnerLogs(w http.ResponseWriter, r *http.Request
 	h.streamProjectSession(w, r, flusher, project)
 }
 
-// runnerKeepaliveInterval returns the configured keepalive interval, falling
+// workerLogKeepalive returns the configured keepalive interval, falling
 // back to the default when the field is zero.
-func (h *runnerHandlers) runnerKeepaliveInterval() time.Duration {
+func (h *backendHandlers) workerLogKeepalive() time.Duration {
 	if h.keepaliveInterval > 0 {
 		return h.keepaliveInterval
 	}
 
-	return defaultRunnerKeepaliveInterval
+	return defaultWorkerLogKeepalive
 }
 
 // streamCardSession is the card-scoped SSE path.  It subscribes to the session
 // manager, replays the snapshot, then tails the live event channel until the
 // session terminates or the client disconnects.
-func (h *runnerHandlers) streamCardSession(w http.ResponseWriter, r *http.Request, flusher http.Flusher, cardID, project string) {
+func (h *backendHandlers) streamCardSession(w http.ResponseWriter, r *http.Request, flusher http.Flusher, cardID, project string) {
 	if h.sessionManager == nil {
 		// Session manager not configured — return 204 so the frontend can retry.
 		w.WriteHeader(http.StatusNoContent)
@@ -113,11 +113,11 @@ func (h *runnerHandlers) streamCardSession(w http.ResponseWriter, r *http.Reques
 
 	// Start is idempotent — safe to call on every connection, exactly like
 	// streamProjectSession calls StartProject below. This revives a session
-	// the idle sweeper force-closed mid-run: the runner_status transition
+	// the idle sweeper force-closed mid-run: the worker_status transition
 	// that originally triggered Start fires only once per run, so without
 	// this call a reconnect after a sweep would park in pendingSubs forever.
 	if err := h.sessionManager.Start(r.Context(), cardID, project); err != nil {
-		ctxlog.Logger(r.Context()).Error("runner SSE: failed to start card session",
+		ctxlog.Logger(r.Context()).Error("worker-log SSE: failed to start card session",
 			"card_id", cardID, "project", project, "error", err)
 
 		_, _ = fmt.Fprintf(w, "data: {\"type\":\"error\",\"content\":\"session unavailable\"}\n\n")
@@ -130,7 +130,7 @@ func (h *runnerHandlers) streamCardSession(w http.ResponseWriter, r *http.Reques
 	ch, unsub := h.sessionManager.Subscribe(cardID)
 	defer unsub()
 
-	ctxlog.Logger(r.Context()).Info("runner SSE session connected",
+	ctxlog.Logger(r.Context()).Info("worker-log SSE session connected",
 		"card_id", cardID,
 		"project", project,
 		"remote_addr", r.RemoteAddr,
@@ -173,13 +173,13 @@ func (h *runnerHandlers) streamCardSession(w http.ResponseWriter, r *http.Reques
 		return true
 	}
 
-	ticker := time.NewTicker(h.runnerKeepaliveInterval())
+	ticker := time.NewTicker(h.workerLogKeepalive())
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-r.Context().Done():
-			ctxlog.Logger(r.Context()).Info("runner SSE session: client disconnected",
+			ctxlog.Logger(r.Context()).Info("worker-log SSE session: client disconnected",
 				"card_id", cardID,
 				"remote_addr", r.RemoteAddr,
 			)
@@ -188,7 +188,7 @@ func (h *runnerHandlers) streamCardSession(w http.ResponseWriter, r *http.Reques
 
 		case <-ticker.C:
 			if _, err := fmt.Fprintf(w, ": keepalive\n\n"); err != nil {
-				ctxlog.Logger(r.Context()).Debug("runner SSE card keepalive write failed", "error", err)
+				ctxlog.Logger(r.Context()).Debug("worker-log SSE card keepalive write failed", "error", err)
 
 				return
 			}
@@ -215,7 +215,7 @@ func (h *runnerHandlers) streamCardSession(w http.ResponseWriter, r *http.Reques
 // streamProjectSession is the project-scoped SSE path.  It subscribes to the
 // session manager for the project, replays the snapshot, then tails the live
 // event channel until the session terminates or the client disconnects.
-func (h *runnerHandlers) streamProjectSession(w http.ResponseWriter, r *http.Request, flusher http.Flusher, project string) {
+func (h *backendHandlers) streamProjectSession(w http.ResponseWriter, r *http.Request, flusher http.Flusher, project string) {
 	if h.sessionManager == nil {
 		// Session manager not configured — return 204 so the frontend can retry.
 		w.WriteHeader(http.StatusNoContent)
@@ -232,7 +232,7 @@ func (h *runnerHandlers) streamProjectSession(w http.ResponseWriter, r *http.Req
 
 	// StartProject is idempotent — safe to call on every connection.
 	if err := h.sessionManager.StartProject(r.Context(), project); err != nil {
-		ctxlog.Logger(r.Context()).Error("runner SSE: failed to start project session", "project", project, "error", err)
+		ctxlog.Logger(r.Context()).Error("worker-log SSE: failed to start project session", "project", project, "error", err)
 
 		_, _ = fmt.Fprintf(w, "data: {\"type\":\"error\",\"content\":\"session unavailable\"}\n\n")
 
@@ -244,7 +244,7 @@ func (h *runnerHandlers) streamProjectSession(w http.ResponseWriter, r *http.Req
 	ch, unsub := h.sessionManager.SubscribeProject(project)
 	defer unsub()
 
-	ctxlog.Logger(r.Context()).Info("runner SSE project session connected",
+	ctxlog.Logger(r.Context()).Info("worker-log SSE project session connected",
 		"project", project,
 		"remote_addr", r.RemoteAddr,
 	)
@@ -286,13 +286,13 @@ func (h *runnerHandlers) streamProjectSession(w http.ResponseWriter, r *http.Req
 		return true
 	}
 
-	ticker := time.NewTicker(h.runnerKeepaliveInterval())
+	ticker := time.NewTicker(h.workerLogKeepalive())
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-r.Context().Done():
-			ctxlog.Logger(r.Context()).Info("runner SSE project session: client disconnected",
+			ctxlog.Logger(r.Context()).Info("worker-log SSE project session: client disconnected",
 				"project", project,
 				"remote_addr", r.RemoteAddr,
 			)
@@ -301,7 +301,7 @@ func (h *runnerHandlers) streamProjectSession(w http.ResponseWriter, r *http.Req
 
 		case <-ticker.C:
 			if _, err := fmt.Fprintf(w, ": keepalive\n\n"); err != nil {
-				ctxlog.Logger(r.Context()).Debug("runner SSE project keepalive write failed", "error", err)
+				ctxlog.Logger(r.Context()).Debug("worker-log SSE project keepalive write failed", "error", err)
 
 				return
 			}

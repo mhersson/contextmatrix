@@ -22,16 +22,16 @@ import (
 // or warm-idle sessions has reached the configured MaxConcurrent ceiling.
 var ErrTooManyConcurrent = errors.New("chat: too many concurrent sessions")
 
-// ErrRunnerSend is the sentinel wrapped around runner.SendChatMessage
+// ErrBackendSend is the sentinel wrapped around Backend.SendChatMessage
 // failures inside ClearContext. The API layer matches on errors.Is to
-// route these to a 502 RUNNER_UNAVAILABLE rather than a 500 INTERNAL_ERROR,
-// since the runtime cause is "the runner is unreachable", not a bug.
-var ErrRunnerSend = errors.New("chat: runner send failed")
+// route these to a 502 BACKEND_UNAVAILABLE rather than a 500 INTERNAL_ERROR,
+// since the runtime cause is "the backend is unreachable", not a bug.
+var ErrBackendSend = errors.New("chat: backend send failed")
 
 // ErrSessionNotRunning is returned by ClearContext when the target session is
-// not in an active or warm-idle state (i.e. the runner container is not
-// running). Clearing a cold or ending session has no runner to talk to.
-// The API layer maps this to 409 RUNNER_NOT_RUNNING.
+// not in an active or warm-idle state (i.e. the worker container is not
+// running). Clearing a cold or ending session has no worker to talk to.
+// The API layer maps this to 409 WORKER_NOT_RUNNING.
 var ErrSessionNotRunning = errors.New("chat: session is not running")
 
 // ContextClearedMarker is the canonical content string written to the
@@ -47,8 +47,8 @@ const EventKindDivider = "divider"
 
 // Backend is the chat-execution surface chat.Manager drives (the roadmap's
 // ChatBackend): container start/end, message delivery, and the /logs SSE
-// bridge. The contextmatrix-runner-backed implementation lives in
-// internal/chat/runner.go; tests inject stubs.
+// bridge. The webhook-backed implementation lives in
+// internal/chat/backend_client.go; tests inject stubs.
 type Backend interface {
 	StartChat(ctx context.Context, opts StartChatOpts) (containerID string, err error)
 	EndChat(ctx context.Context, sessionID string) error
@@ -66,13 +66,13 @@ type StartChatOpts struct {
 	SessionID string
 	Project   string
 	RepoURL   string
-	// RunnerImage is the project's remote_execution.runner_image — the
-	// per-project toolchain image the chat container should run. Empty means
-	// "use the chat backend's configured base_image". Chat applies it
+	// WorkerImage is the project's remote_execution.worker_image — the
+	// per-project toolchain image the chat worker container should run. Empty
+	// means "use the chat backend's configured base_image". Chat applies it
 	// regardless of remote_execution.enabled: enabled gates autonomous card
 	// execution, whereas the image answers "what toolchain does this project
 	// need", which is identical for interactive sessions.
-	RunnerImage string
+	WorkerImage string
 	Model       string
 	Resume      *ResumeContext
 	// LLMEndpoint is the CM-provisioned inference endpoint configuration
@@ -91,11 +91,11 @@ type StartChatOpts struct {
 }
 
 // ProjectExecInfo carries the per-project execution inputs a cold open needs:
-// the repo URL to clone and the runner image (toolchain) to run. Either field
+// the repo URL to clone and the worker image (toolchain) to run. Either field
 // is empty when the project omits it.
 type ProjectExecInfo struct {
 	RepoURL     string
-	RunnerImage string
+	WorkerImage string
 }
 
 // Config carries Manager dependencies.
@@ -110,10 +110,10 @@ type Config struct {
 	MaxConcurrent int
 	// Hub is the per-session SSE fan-out. When non-nil, SendUserMessage
 	// publishes a user echo so the originator sees their own message in
-	// the transcript without depending on a runner-side log round-trip.
+	// the transcript without depending on a backend-side log round-trip.
 	Hub *SSEHub
 	// ResolveProjectExec returns the execution inputs (repo URL and
-	// per-project runner image) for a project in a single lookup per cold
+	// per-project worker image) for a project in a single lookup per cold
 	// open. Either field may be empty when the project omits it. Caller wires
 	// this from service.CardService.GetProject.
 	ResolveProjectExec func(ctx context.Context, project string) (ProjectExecInfo, error)
@@ -158,7 +158,7 @@ type Config struct {
 }
 
 // Manager orchestrates chat session lifecycle, transcript persistence,
-// and runner-client coordination.
+// and backend-client coordination.
 type Manager struct {
 	store              Store
 	backend            Backend
@@ -185,7 +185,7 @@ type Manager struct {
 	mu           sync.Mutex
 	seqMap       map[string]int64           // sessionID → last assigned seq
 	titled       map[string]bool            // sessionID → auto-title work already completed
-	consumers    map[string]*consumerHandle // sessionID → runner-log consumer lifecycle
+	consumers    map[string]*consumerHandle // sessionID → worker-log consumer lifecycle
 	sendFailures map[string]int             // sessionID → consecutive backend-unreachable SendUserMessage failures
 	// rehydrationActive mirrors chat_sessions.rehydration_active. Reads
 	// from AppendMessage's hot path go through the cache to avoid an
@@ -196,7 +196,7 @@ type Manager struct {
 	wg                sync.WaitGroup
 
 	// openGroup deduplicates concurrent cold-open work per sessionID. Two
-	// callers racing to open the same id share one runner.StartChat
+	// callers racing to open the same id share one Backend.StartChat
 	// round-trip; callers on *different* ids do not serialise behind a
 	// global mutex while a slow docker pull is in flight.
 	openGroup singleflight.Group
@@ -341,7 +341,7 @@ func (m *Manager) publishSessionUpdate(sessionID string, u SessionUpdate) {
 	go m.hub.PublishSessionUpdate(sessionID, u)
 }
 
-// consumerHandle is the per-session lifecycle handle for a runner-log consumer
+// consumerHandle is the per-session lifecycle handle for a worker-log consumer
 // goroutine. done is closed when the goroutine returns, so stopConsumer can
 // block until the cleanup defers have executed and the consumers map is
 // guaranteed clean before a subsequent startConsumer runs.
@@ -350,7 +350,7 @@ type consumerHandle struct {
 	done   chan struct{}
 }
 
-// roleFromLogType maps a runner LogEntry.Type to a chat.Role.
+// roleFromLogType maps a backend LogEntry.Type to a chat.Role.
 // Unknown types fall back to RoleSystem so transcripts remain complete.
 func roleFromLogType(typ string) Role {
 	switch typ {
@@ -365,7 +365,7 @@ func roleFromLogType(typ string) Role {
 	case "stderr":
 		return RoleStderr
 	case "user":
-		// User echoes are produced CM-side via SendUserMessage; the runner
+		// User echoes are produced CM-side via SendUserMessage; the backend
 		// re-emits them on the broadcaster as a courtesy. Ignore to avoid
 		// duplicate transcript entries.
 		return ""
@@ -379,14 +379,14 @@ func roleFromLogType(typ string) Role {
 }
 
 // handleUsageEntry processes a Claude stream-json usage block reported by the
-// runner. Each frame carries per-turn (per-assistant-message) token counts —
+// backend. Each frame carries per-turn (per-assistant-message) token counts —
 // NOT cumulative session totals. The values are passed directly to
 // IncrementSessionCost, which atomically accumulates them into the session row.
 // The session row's context_tokens are also updated and a session_updated SSE
 // event is published so the UI header indicator refreshes in real time.
 // Errors are non-fatal — usage is a UI niceness, not a correctness property.
 //
-// Invoked only from the per-session runner-log consumer goroutine.
+// Invoked only from the per-session worker-log consumer goroutine.
 // IncrementSessionCost is atomic so any future change weakening that invariant
 // cannot lose updates.
 func (m *Manager) handleUsageEntry(ctx context.Context, sessionID string, e LogEntry) {
@@ -402,7 +402,7 @@ func (m *Manager) handleUsageEntry(ctx context.Context, sessionID string, e LogE
 	}
 
 	if err := m.store.UpdateContextTokens(ctx, sessionID, tokens, updatedAt); err != nil {
-		// Session may have been deleted between the runner emitting the
+		// Session may have been deleted between the backend emitting the
 		// event and CM consuming it — log at debug rather than warn.
 		m.logger.Debug("chat: handleUsageEntry: update context_tokens failed",
 			"session_id", sessionID, "error", err)
@@ -411,7 +411,7 @@ func (m *Manager) handleUsageEntry(ctx context.Context, sessionID string, e LogE
 	}
 
 	// Each frame carries per-turn token counts — pass them directly.
-	// No snapshot subtraction: the runner emits one usage block per assistant
+	// No snapshot subtraction: the backend emits one usage block per assistant
 	// message (Anthropic Messages-API semantics), not cumulative session totals.
 	prompt := e.Usage.InputTokens
 	completion := e.Usage.OutputTokens
@@ -461,7 +461,7 @@ func (m *Manager) handleUsageEntry(ctx context.Context, sessionID string, e LogE
 	}
 }
 
-// startConsumer ensures a goroutine is bridging runner /logs for sessionID
+// startConsumer ensures a goroutine is bridging backend /logs for sessionID
 // into AppendMessage + hub.Publish. Idempotent: subsequent calls for the
 // same session are no-ops while a consumer is already running.
 func (m *Manager) startConsumer(sessionID string) {
@@ -524,12 +524,12 @@ func (m *Manager) startConsumer(sessionID string) {
 			}
 		}
 
-		m.logger.Info("chat: runner-log consumer started", "session_id", sessionID)
+		m.logger.Info("chat: worker-log consumer started", "session_id", sessionID)
 
 		// Exponential backoff retry loop. A bare StreamLogs failure used
 		// to log WARN and exit, stranding the SSE bridge permanently
-		// across a transient runner restart. Mirror the pattern from
-		// internal/runner/sessionlog/manager.go runPump: retry with
+		// across a transient backend restart. Mirror the pattern from
+		// internal/backend/sessionlog/manager.go runPump: retry with
 		// exponential backoff, cap at 30s, exit cleanly on ctx
 		// cancellation.
 		const (
@@ -541,7 +541,7 @@ func (m *Manager) startConsumer(sessionID string) {
 
 		for {
 			if ctx.Err() != nil {
-				m.logger.Info("chat: runner-log consumer stopped", "session_id", sessionID)
+				m.logger.Info("chat: worker-log consumer stopped", "session_id", sessionID)
 
 				return
 			}
@@ -549,15 +549,15 @@ func (m *Manager) startConsumer(sessionID string) {
 			err := m.backend.StreamLogs(ctx, sessionID, onEntry)
 			if err == nil || errors.Is(err, context.Canceled) {
 				// Clean stream close or external cancellation. The
-				// runner has explicitly signalled "no more events"
+				// backend has explicitly signalled "no more events"
 				// (typically because the session ended), so exit.
-				m.logger.Info("chat: runner-log consumer stopped", "session_id", sessionID)
+				m.logger.Info("chat: worker-log consumer stopped", "session_id", sessionID)
 
 				return
 			}
 
 			if ctx.Err() != nil {
-				m.logger.Info("chat: runner-log consumer stopped", "session_id", sessionID)
+				m.logger.Info("chat: worker-log consumer stopped", "session_id", sessionID)
 
 				return
 			}
@@ -568,13 +568,13 @@ func (m *Manager) startConsumer(sessionID string) {
 
 			backoff := min(time.Duration(float64(backoffBase)*float64(int64(1)<<shift)), backoffCap)
 
-			m.logger.Warn("chat: runner-log consumer stream error, retrying",
+			m.logger.Warn("chat: worker-log consumer stream error, retrying",
 				"session_id", sessionID, "attempt", attempt,
 				"backoff", backoff, "error", err)
 
 			select {
 			case <-ctx.Done():
-				m.logger.Info("chat: runner-log consumer stopped", "session_id", sessionID)
+				m.logger.Info("chat: worker-log consumer stopped", "session_id", sessionID)
 
 				return
 			case <-time.After(backoff):
@@ -583,7 +583,7 @@ func (m *Manager) startConsumer(sessionID string) {
 	})
 }
 
-// stopConsumer cancels the runner-log consumer for sessionID and blocks until
+// stopConsumer cancels the worker-log consumer for sessionID and blocks until
 // the goroutine has exited. Synchronous teardown is required so a fast Reopen
 // after EndSession is guaranteed to start a fresh consumer — an asynchronous
 // cleanup defer would leave the map entry visible to startConsumer's
@@ -605,7 +605,7 @@ func (m *Manager) stopConsumer(sessionID string) {
 	<-handle.done
 }
 
-// Close cancels every active runner-log consumer goroutine and waits for them
+// Close cancels every active worker-log consumer goroutine and waits for them
 // to exit. The supplied ctx acts as a deadline: if consumers have not all
 // stopped by ctx.Done(), Close returns an error wrapping ctx.Err(). Idempotent
 // — subsequent calls are no-ops and return nil.
@@ -665,7 +665,7 @@ func (m *Manager) CreateSession(ctx context.Context, in CreateInput) (Session, e
 }
 
 // buildResume loads the prior transcript and returns a ResumeContext for the
-// runner, or nil when there's nothing worth resuming (fresh session, all
+// backend, or nil when there's nothing worth resuming (fresh session, all
 // messages filtered, or a DB error — the last case is logged and degrades to
 // a fresh agent rather than refusing to open).
 func (m *Manager) buildResume(ctx context.Context, sessionID string) *ResumeContext {
@@ -803,7 +803,7 @@ func (m *Manager) CompleteRehydration(ctx context.Context, sessionID, summary st
 	return nil
 }
 
-// ClearContext clears the runner's working memory in place: sends "/clear"
+// ClearContext clears the worker's working memory in place: sends "/clear"
 // (the worker re-orients its next epoch from its own embedded primer), marks
 // every prior transcript row with rehydration_phase=true so future
 // rehydration payloads skip them, and appends a system-role divider row
@@ -814,8 +814,8 @@ func (m *Manager) CompleteRehydration(ctx context.Context, sessionID, summary st
 // clearGroup (singleflight): the first caller executes the body and all
 // concurrent callers on the same session share the result.
 //
-// Failure semantics: a failure in the runner /clear call wraps ErrRunnerSend
-// so the API layer maps to 502. On runner failure we abort before marking the
+// Failure semantics: a failure in the backend /clear call wraps ErrBackendSend
+// so the API layer maps to 502. On backend failure we abort before marking the
 // transcript or appending the divider — the transcript stays consistent with
 // the runtime.
 func (m *Manager) ClearContext(ctx context.Context, sessionID string) error {
@@ -824,9 +824,9 @@ func (m *Manager) ClearContext(ctx context.Context, sessionID string) error {
 		return fmt.Errorf("chat: ClearContext: %w", err)
 	}
 
-	// Only active and warm-idle sessions have a live runner container. A cold
+	// Only active and warm-idle sessions have a live worker container. A cold
 	// or ending session has nothing to /clear, so we fail fast here rather
-	// than letting the runner call time out or produce a confusing error.
+	// than letting the backend call time out or produce a confusing error.
 	if sess.Status != StatusActive && sess.Status != StatusWarmIdle {
 		return ErrSessionNotRunning
 	}
@@ -845,7 +845,7 @@ func (m *Manager) ClearContext(ctx context.Context, sessionID string) error {
 func (m *Manager) doClearContext(ctx context.Context, sessionID string) error {
 	clearMsgID := NewID()
 	if err := m.backend.SendChatMessage(ctx, sessionID, "/clear", clearMsgID); err != nil {
-		return fmt.Errorf("chat: ClearContext: /clear: %w: %w", ErrRunnerSend, err)
+		return fmt.Errorf("chat: ClearContext: /clear: %w: %w", ErrBackendSend, err)
 	}
 
 	// Build the divider message under the per-session append lock so the
@@ -940,7 +940,7 @@ func (m *Manager) OpenSession(ctx context.Context, id string) (Session, error) {
 
 	switch sess.Status {
 	case StatusActive:
-		// Idempotent for already-active sessions. Also ensure the runner-log
+		// Idempotent for already-active sessions. Also ensure the worker-log
 		// consumer is bridging /logs back into the SSE hub: a CM restart
 		// strands that goroutine while the row stays active, so reopening
 		// restarts the consumer in place instead of forcing an End → Reopen
@@ -1002,7 +1002,7 @@ func (m *Manager) OpenSession(ctx context.Context, id string) (Session, error) {
 	case StatusCold:
 		// Route the cold-start path through singleflight keyed on
 		// sessionID so concurrent callers for the same id share one
-		// runner.StartChat round-trip, and callers for *different* ids
+		// Backend.StartChat round-trip, and callers for *different* ids
 		// do not serialise on a global mutex behind a slow docker
 		// run / image pull.
 		v, err, _ := m.openGroup.Do(id, func() (any, error) {
@@ -1023,7 +1023,7 @@ func (m *Manager) OpenSession(ctx context.Context, id string) (Session, error) {
 
 // openCold runs the cold→active transition for a single sessionID. It is
 // invoked under singleflight by OpenSession so concurrent callers for the
-// same id share one runner.StartChat round-trip; callers for *different*
+// same id share one Backend.StartChat round-trip; callers for *different*
 // ids do not serialise on a global lock when MaxConcurrent is 0.
 //
 // The MaxConcurrent ceiling is enforced via the in-memory pendingActive
@@ -1032,7 +1032,7 @@ func (m *Manager) OpenSession(ctx context.Context, id string) (Session, error) {
 // outcome is known. openLimitMu is held only for the brief count +
 // increment / decrement windows, never across StartChat or any other
 // I/O, so concurrent cold opens on different sessions do not
-// serialise at runner-latency timescale.
+// serialise at backend-latency timescale.
 func (m *Manager) openCold(ctx context.Context, id string) (Session, error) {
 	sess, err := m.store.GetSession(ctx, id)
 	if err != nil {
@@ -1161,7 +1161,7 @@ func (m *Manager) openCold(ctx context.Context, id string) (Session, error) {
 		// permanently — they will be excluded from future resume payloads
 		// by transcript.Build. In practice this window spans a single store
 		// write and no user-driven AppendMessage can race here: the
-		// runner-consumer goroutine is only spawned after a successful
+		// worker-log consumer goroutine is only spawned after a successful
 		// OpenSession returns, so the risk is negligible.
 		m.mu.Lock()
 		m.rehydrationActive[sess.ID] = true
@@ -1216,7 +1216,7 @@ func (m *Manager) openCold(ctx context.Context, id string) (Session, error) {
 	return sess, nil
 }
 
-// coldPrep gathers the inputs needed by runner.StartChat for a cold open.
+// coldPrep gathers the inputs needed by Backend.StartChat for a cold open.
 // Returns the options struct and an error if any preparatory step failed.
 func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, error) {
 	var execInfo ProjectExecInfo
@@ -1250,7 +1250,7 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, er
 
 	m.logger.Info("chat: opening cold session",
 		"session_id", sess.ID, "project", sess.Project, "repo_url", execInfo.RepoURL,
-		"runner_image", execInfo.RunnerImage,
+		"worker_image", execInfo.WorkerImage,
 		"model", model, "has_resume", resume != nil,
 		"resume_turn_count", resumeTurnCount(resume))
 
@@ -1258,7 +1258,7 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, er
 		SessionID:           sess.ID,
 		Project:             sess.Project,
 		RepoURL:             execInfo.RepoURL,
-		RunnerImage:         execInfo.RunnerImage,
+		WorkerImage:         execInfo.WorkerImage,
 		Model:               model,
 		Resume:              resume,
 		LLMEndpoint:         m.llmEndpoint,
@@ -1266,7 +1266,7 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, er
 	}, nil
 }
 
-// rollbackContainer ends the runner container started during a cold open and
+// rollbackContainer ends the worker container started during a cold open and
 // logs the rollback reason. Should be called when openCold fails after the
 // container has been provisioned.
 func (m *Manager) rollbackContainer(_ context.Context, reason, sessID, containerID string, opErr error) {
@@ -1284,7 +1284,7 @@ func (m *Manager) rollbackContainer(_ context.Context, reason, sessID, container
 // output (e.g. a tool_result containing a large file dump) would otherwise
 // grow the transcript store linearly without bound. The user-message path is
 // already capped at the HTTP boundary (8192 bytes), so this cap mainly fires
-// on runner-emitted entries.
+// on backend-emitted entries.
 const maxMessageBytes = 32 * 1024
 
 // truncationMarker is appended to messages that exceeded maxMessageBytes.
@@ -1424,10 +1424,10 @@ func (m *Manager) appendMessageWithKind(ctx context.Context, sessionID string, r
 	return msg, nil
 }
 
-// Reattach ensures the runner-log consumer is running for an active or
+// Reattach ensures the worker-log consumer is running for an active or
 // warm-idle session and refreshes its LastActive timestamp so the idle
 // reaper doesn't end it while the user is interacting with it. No-op on
-// cold and ending sessions, which have no live runner container to
+// cold and ending sessions, which have no live worker container to
 // bridge to.
 //
 // Status is intentionally left untouched; lifecycle promotion is
@@ -1563,7 +1563,7 @@ func (m *Manager) GetSession(ctx context.Context, id string) (Session, error) {
 	return m.store.GetSession(ctx, id)
 }
 
-// SessionLiveness reports whether sessionID currently owns a live runner
+// SessionLiveness reports whether sessionID currently owns a live worker
 // container: status active, warm-idle, or ending (ending still owns a
 // container mid-teardown). A cold session reports live=false with a nil
 // error. An unknown session id returns ErrSessionNotFound so callers — the
@@ -1583,17 +1583,17 @@ func (m *Manager) SessionLiveness(ctx context.Context, sessionID string) (live b
 	}
 }
 
-// EndSession transitions a session to cold, stopping the runner container.
+// EndSession transitions a session to cold, stopping the worker container.
 // Idempotent on already-cold sessions and re-entrant against status=ending
-// rows (which can result from a prior partial failure). Runner teardown and
+// rows (which can result from a prior partial failure). Backend teardown and
 // consumer stop are both idempotent, so calling EndSession on a wedged
 // ending row safely completes the transition in a single store write.
 //
-// The per-session statusLock is acquired BEFORE the runner.EndChat call and
+// The per-session statusLock is acquired BEFORE the Backend.EndChat call and
 // held across the cold persist. A racing OpenSession that gets a Status
-// read between runner.EndChat succeeding and the persist could otherwise
+// read between Backend.EndChat succeeding and the persist could otherwise
 // observe status=active/warm-idle and reattach to a now-dead container.
-// Holding statusLock across runner.EndChat blocks racing status reads for
+// Holding statusLock across Backend.EndChat blocks racing status reads for
 // the duration of an HTTP round-trip — acceptable cost given the
 // transition is a one-shot terminal state.
 func (m *Manager) EndSession(ctx context.Context, id string) error {
@@ -1616,12 +1616,12 @@ func (m *Manager) EndSession(ctx context.Context, id string) error {
 	m.stopConsumer(sess.ID)
 
 	if err := m.withStatusLock(sess.ID, func() error {
-		// EndChat is idempotent on the runner side; re-entry from a
+		// EndChat is idempotent on the backend side; re-entry from a
 		// status=ending row is safe. Held under statusLock so no racing
 		// OpenSession can re-read sess.Status=active/warm-idle and
 		// reattach to the now-dead container.
 		if err := m.backend.EndChat(ctx, sess.ID); err != nil {
-			m.logger.Warn("chat: runner end failed, marking cold anyway",
+			m.logger.Warn("chat: backend end failed, marking cold anyway",
 				"session_id", sess.ID, "error", err)
 		}
 
@@ -1729,13 +1729,13 @@ func (m *Manager) DeleteSession(ctx context.Context, id string) error {
 	return nil
 }
 
-// SendUserMessage forwards a user message to the runner first; only on a
-// successful runner call is the message persisted and fanned out via the
-// SSE hub. If the runner is unreachable the caller gets an error and the
-// UI can retry — the alternative (snappy echo, then runner failure) used
+// SendUserMessage forwards a user message to the backend first; only on a
+// successful backend call is the message persisted and fanned out via the
+// SSE hub. If the backend is unreachable the caller gets an error and the
+// UI can retry — the alternative (snappy echo, then backend failure) used
 // to leave the user staring at their own message with no reply path.
 // Cold-state sessions are opened first. Returns the generated message_id
-// used for runner-side echo dedup.
+// used for backend-side echo dedup.
 //
 // If the session is currently in its rehydration phase, the user typing
 // ends the phase as a belt-and-suspenders safety net for agents that
@@ -1830,7 +1830,7 @@ func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string
 
 	msgID := NewID()
 
-	m.logger.Info("chat: forwarding user message to runner",
+	m.logger.Info("chat: forwarding user message to backend",
 		"session_id", sessionID, "message_id", msgID, "content_len", len(content))
 
 	if err := m.backend.SendChatMessage(ctx, sessionID, content, msgID); err != nil {
@@ -1841,7 +1841,7 @@ func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string
 
 	m.clearSendFailures(sessionID)
 
-	// Runner accepted the message — now safe to persist + publish.
+	// Backend accepted the message — now safe to persist + publish.
 	msg, err := m.AppendMessage(ctx, sessionID, RoleUser, content)
 	if err != nil {
 		return "", err

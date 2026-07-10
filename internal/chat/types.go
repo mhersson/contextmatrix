@@ -92,8 +92,8 @@ type Message struct {
 	RehydrationPhase bool      `json:"rehydration_phase,omitempty"`
 }
 
-// LogEntry is a parsed event from the runner's /logs SSE stream. The Type
-// values mirror the runner's logbroadcast.LogEntry.Type vocabulary: "text",
+// LogEntry is a parsed event from the backend's /logs SSE stream. The Type
+// values mirror the backend's logbroadcast.LogEntry.Type vocabulary: "text",
 // "thinking", "tool_call", "stderr", "system", "user", "usage",
 // "tool_result". The chat package translates Type → Role when bridging into
 // the transcript. "usage" entries are metadata (Claude stream-json usage
@@ -108,7 +108,7 @@ type LogEntry struct {
 }
 
 // TokenUsage carries per-turn (per-assistant-message) token counts from the
-// Anthropic Messages-API usage block emitted by the runner for each assistant
+// Anthropic Messages-API usage block emitted by the backend for each assistant
 // turn. These are NOT cumulative session totals — each frame reports only the
 // tokens consumed by that single turn. The sum of all four fields approximates
 // the prompt size Claude actually processed; the UI typically displays
@@ -120,8 +120,8 @@ type TokenUsage struct {
 	CacheCreateTokens int64 `json:"cache_creation_tokens"`
 }
 
-// ResumeContext is the rehydration payload CM passes to the runner on a
-// cold-open. The runner writes it to /run/cm-chat/resume.jsonl inside the
+// ResumeContext is the rehydration payload CM passes to the backend on a
+// cold-open. The backend writes it to /run/cm-chat/resume.jsonl inside the
 // container; the entrypoint instructs Claude to read it before greeting
 // the operator. Protocol-owned wire shape (protocol.ChatResumeContext),
 // aliased via the transcript subpackage so the builder and the rest of

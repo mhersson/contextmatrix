@@ -2591,18 +2591,18 @@ func TestUpdateProject_RemoteExecutionMerge(t *testing.T) {
 	// Set both subfields and confirm it round-trips to .board.yaml on disk.
 	cfg, err := svc.UpdateProject(ctx, "test-project", remoteExecBaseInput(&RemoteExecutionUpdate{
 		Enabled:     boolPtr(true),
-		RunnerImage: strPtr("ghcr.io/org/runner:latest"),
+		WorkerImage: strPtr("ghcr.io/org/worker:latest"),
 	}))
 	require.NoError(t, err)
 	require.NotNil(t, cfg.RemoteExecution)
 	require.NotNil(t, cfg.RemoteExecution.Enabled)
 	assert.True(t, *cfg.RemoteExecution.Enabled)
-	assert.Equal(t, "ghcr.io/org/runner:latest", cfg.RemoteExecution.RunnerImage)
+	assert.Equal(t, "ghcr.io/org/worker:latest", cfg.RemoteExecution.WorkerImage)
 
 	reloaded, err := board.LoadProjectConfig(projectDir)
 	require.NoError(t, err)
 	require.NotNil(t, reloaded.RemoteExecution)
-	assert.Equal(t, "ghcr.io/org/runner:latest", reloaded.RemoteExecution.RunnerImage)
+	assert.Equal(t, "ghcr.io/org/worker:latest", reloaded.RemoteExecution.WorkerImage)
 
 	// Preserve: a nil pointer leaves the entire config untouched.
 	cfg, err = svc.UpdateProject(ctx, "test-project", remoteExecBaseInput(nil))
@@ -2610,16 +2610,16 @@ func TestUpdateProject_RemoteExecutionMerge(t *testing.T) {
 	require.NotNil(t, cfg.RemoteExecution)
 	require.NotNil(t, cfg.RemoteExecution.Enabled)
 	assert.True(t, *cfg.RemoteExecution.Enabled)
-	assert.Equal(t, "ghcr.io/org/runner:latest", cfg.RemoteExecution.RunnerImage)
+	assert.Equal(t, "ghcr.io/org/worker:latest", cfg.RemoteExecution.WorkerImage)
 
 	// Merge image-only: enabled must survive.
 	cfg, err = svc.UpdateProject(ctx, "test-project", remoteExecBaseInput(&RemoteExecutionUpdate{
-		RunnerImage: strPtr("ghcr.io/org/runner:v2"),
+		WorkerImage: strPtr("ghcr.io/org/worker:v2"),
 	}))
 	require.NoError(t, err)
 	require.NotNil(t, cfg.RemoteExecution.Enabled)
 	assert.True(t, *cfg.RemoteExecution.Enabled, "enabled must survive an image-only merge")
-	assert.Equal(t, "ghcr.io/org/runner:v2", cfg.RemoteExecution.RunnerImage)
+	assert.Equal(t, "ghcr.io/org/worker:v2", cfg.RemoteExecution.WorkerImage)
 
 	// Merge enabled-only: image must survive.
 	cfg, err = svc.UpdateProject(ctx, "test-project", remoteExecBaseInput(&RemoteExecutionUpdate{
@@ -2628,18 +2628,18 @@ func TestUpdateProject_RemoteExecutionMerge(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, cfg.RemoteExecution.Enabled)
 	assert.False(t, *cfg.RemoteExecution.Enabled)
-	assert.Equal(t, "ghcr.io/org/runner:v2", cfg.RemoteExecution.RunnerImage, "image must survive an enabled-only merge")
+	assert.Equal(t, "ghcr.io/org/worker:v2", cfg.RemoteExecution.WorkerImage, "image must survive an enabled-only merge")
 
 	// Clear via empty image: with an explicit enabled=false still set, the
 	// config is a meaningful per-project opt-out and must NOT normalize to nil.
 	cfg, err = svc.UpdateProject(ctx, "test-project", remoteExecBaseInput(&RemoteExecutionUpdate{
-		RunnerImage: strPtr(""),
+		WorkerImage: strPtr(""),
 	}))
 	require.NoError(t, err)
 	require.NotNil(t, cfg.RemoteExecution, "explicit enabled=false must be preserved, not normalized away")
 	require.NotNil(t, cfg.RemoteExecution.Enabled)
 	assert.False(t, *cfg.RemoteExecution.Enabled)
-	assert.Empty(t, cfg.RemoteExecution.RunnerImage)
+	assert.Empty(t, cfg.RemoteExecution.WorkerImage)
 }
 
 // TestUpdateProject_RemoteExecutionNormalizesToNil confirms a merge whose result
@@ -2656,17 +2656,17 @@ func TestUpdateProject_RemoteExecutionNormalizesToNil(t *testing.T) {
 
 	// Set image only — enabled stays unset (nil).
 	cfg, err := svc.UpdateProject(ctx, "test-project", remoteExecBaseInput(&RemoteExecutionUpdate{
-		RunnerImage: strPtr("ghcr.io/org/runner:latest"),
+		WorkerImage: strPtr("ghcr.io/org/worker:latest"),
 	}))
 	require.NoError(t, err)
 	require.NotNil(t, cfg.RemoteExecution)
 	assert.Nil(t, cfg.RemoteExecution.Enabled)
-	assert.Equal(t, "ghcr.io/org/runner:latest", cfg.RemoteExecution.RunnerImage)
+	assert.Equal(t, "ghcr.io/org/worker:latest", cfg.RemoteExecution.WorkerImage)
 
 	// Clear the image; with enabled unset the config is the zero value and the
 	// whole struct is dropped.
 	cfg, err = svc.UpdateProject(ctx, "test-project", remoteExecBaseInput(&RemoteExecutionUpdate{
-		RunnerImage: strPtr("   "), // whitespace trims to empty
+		WorkerImage: strPtr("   "), // whitespace trims to empty
 	}))
 	require.NoError(t, err)
 	assert.Nil(t, cfg.RemoteExecution, "zero-value remote_execution must normalize to nil")
@@ -2677,7 +2677,7 @@ func TestUpdateProject_RemoteExecutionNormalizesToNil(t *testing.T) {
 }
 
 // TestUpdateProject_RemoteExecutionImageValidation covers the hygiene screen on
-// the runner image: length cap, allowed characters, empty-is-clear.
+// the worker image: length cap, allowed characters, empty-is-clear.
 func TestUpdateProject_RemoteExecutionImageValidation(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
 	defer cleanup()
@@ -2691,20 +2691,20 @@ func TestUpdateProject_RemoteExecutionImageValidation(t *testing.T) {
 		wantErr bool
 	}{
 		{"empty clears", "", false},
-		{"bare name", "runner", false},
-		{"registry path and tag", "ghcr.io/org/runner:latest", false},
-		{"digest reference", "ghcr.io/org/runner@sha256:abc123", false},
-		{"max length", strings.Repeat("a", maxRunnerImageLen), false},
-		{"leading dash rejected", "-runner", true},
-		{"embedded space rejected", "ghcr.io/org/runner latest", true},
-		{"illegal char rejected", "runner!", true},
-		{"too long rejected", strings.Repeat("a", maxRunnerImageLen+1), true},
+		{"bare name", "worker", false},
+		{"registry path and tag", "ghcr.io/org/worker:latest", false},
+		{"digest reference", "ghcr.io/org/worker@sha256:abc123", false},
+		{"max length", strings.Repeat("a", maxWorkerImageLen), false},
+		{"leading dash rejected", "-worker", true},
+		{"embedded space rejected", "ghcr.io/org/worker latest", true},
+		{"illegal char rejected", "worker!", true},
+		{"too long rejected", strings.Repeat("a", maxWorkerImageLen+1), true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := svc.UpdateProject(ctx, "test-project", remoteExecBaseInput(&RemoteExecutionUpdate{
-				RunnerImage: strPtr(tt.image),
+				WorkerImage: strPtr(tt.image),
 			}))
 			if tt.wantErr {
 				require.Error(t, err)
@@ -5114,75 +5114,75 @@ func TestRecordPush_Atomic(t *testing.T) {
 	assert.True(t, hasEntry, "expected a 'pushed' activity log entry")
 }
 
-func TestUpdateRunnerStatus_Completed(t *testing.T) {
+func TestUpdateWorkerStatus_Completed(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
 	defer cleanup()
 
 	ctx := context.Background()
 
-	// Create a card and claim it to simulate an active runner session.
+	// Create a card and claim it to simulate an active worker session.
 	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-		Title:    "runner test",
+		Title:    "worker test",
 		Type:     "task",
 		Priority: "medium",
 	})
 	require.NoError(t, err)
 
-	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "runner:test-agent")
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent:test-agent")
 	require.NoError(t, err)
 
-	// Transition to in_progress (claim does this), then set runner_status to running.
-	_, err = svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "running", "container started")
+	// Transition to in_progress (claim does this), then set worker_status to running.
+	_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "running", "container started")
 	require.NoError(t, err)
 
-	t.Run("completed clears claim and runner_status", func(t *testing.T) {
-		updated, err := svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "completed", "container exited normally")
+	t.Run("completed clears claim and worker_status", func(t *testing.T) {
+		updated, err := svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "completed", "container exited normally")
 		require.NoError(t, err)
 
 		assert.Empty(t, updated.AssignedAgent, "claim should be cleared on completed")
 		assert.Nil(t, updated.LastHeartbeat, "heartbeat should be cleared on completed")
-		assert.Empty(t, updated.RunnerStatus, "runner_status should be cleared on completed")
+		assert.Empty(t, updated.WorkerStatus, "worker_status should be cleared on completed")
 	})
 }
 
-func TestUpdateRunnerStatus_Failed(t *testing.T) {
+func TestUpdateWorkerStatus_Failed(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
 	defer cleanup()
 
 	ctx := context.Background()
 
 	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-		Title:    "runner fail test",
+		Title:    "worker fail test",
 		Type:     "task",
 		Priority: "medium",
 	})
 	require.NoError(t, err)
 
-	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "runner:test-agent")
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent:test-agent")
 	require.NoError(t, err)
 
-	_, err = svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "running", "container started")
+	_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "running", "container started")
 	require.NoError(t, err)
 
-	t.Run("failed clears claim but keeps runner_status", func(t *testing.T) {
-		updated, err := svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "failed", "container crashed")
+	t.Run("failed clears claim but keeps worker_status", func(t *testing.T) {
+		updated, err := svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "failed", "container crashed")
 		require.NoError(t, err)
 
 		assert.Empty(t, updated.AssignedAgent, "claim should be cleared on failed")
 		assert.Nil(t, updated.LastHeartbeat, "heartbeat should be cleared on failed")
-		assert.Equal(t, "failed", updated.RunnerStatus, "runner_status should remain failed")
+		assert.Equal(t, "failed", updated.WorkerStatus, "worker_status should remain failed")
 	})
 }
 
-// TestUpdateRunnerStatus_FailedAfterTerminalNormalizesToCompleted is the
+// TestUpdateWorkerStatus_FailedAfterTerminalNormalizesToCompleted is the
 // contract for the post-terminal container cleanup path: once a card is
 // done/not_planned, the reconcile sweep (or end-session subscriber) kills
-// the container; the runner reports that kill as "failed: killed by
+// the container; the backend reports that kill as "failed: killed by
 // operator" through the callback. Recording that literally would say the
 // run failed when in fact the work finished and only the container
 // lingered. The service normalizes the callback to "completed" so the card
 // UI reflects reality.
-func TestUpdateRunnerStatus_FailedAfterTerminalNormalizesToCompleted(t *testing.T) {
+func TestUpdateWorkerStatus_FailedAfterTerminalNormalizesToCompleted(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
 	defer cleanup()
 
@@ -5195,58 +5195,58 @@ func TestUpdateRunnerStatus_FailedAfterTerminalNormalizesToCompleted(t *testing.
 	})
 	require.NoError(t, err)
 
-	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "runner:test-agent")
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent:test-agent")
 	require.NoError(t, err)
 
-	_, err = svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "running", "container started")
+	_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "running", "container started")
 	require.NoError(t, err)
 
 	// Drive the card to done via the normal transition path so the card
 	// mirrors what the reconcile sweep actually sees in production: state
-	// is terminal, runner_status is still "running" because the container
+	// is terminal, worker_status is still "running" because the container
 	// has not exited yet.
 	_, err = svc.TransitionTo(ctx, "test-project", card.ID, board.StateInProgress)
 	require.NoError(t, err)
 	_, err = svc.TransitionTo(ctx, "test-project", card.ID, board.StateDone)
 	require.NoError(t, err)
 
-	_, err = svc.ReleaseCard(ctx, "test-project", card.ID, "runner:test-agent")
+	_, err = svc.ReleaseCard(ctx, "test-project", card.ID, "agent:test-agent")
 	require.NoError(t, err)
 
-	// Simulate the runner's post-kill callback: /kill triggered
+	// Simulate the backend's post-kill callback: /kill triggered
 	// waitAndCleanup's ctx.Done() branch, which called
 	// reportFailure("killed by operator").
-	updated, err := svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "failed", "killed by operator")
+	updated, err := svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "failed", "killed by operator")
 	require.NoError(t, err)
 
 	// The card was already done; the kill was cleanup, not a failure.
-	// UpdateRunnerStatus("completed") clears runner_status to "" as part
-	// of its normal terminal-status behaviour, so an empty runner_status
+	// UpdateWorkerStatus("completed") clears worker_status to "" as part
+	// of its normal terminal-status behaviour, so an empty worker_status
 	// here is the signal that the translation happened.
-	assert.Empty(t, updated.RunnerStatus,
-		"runner_status must be cleared — the post-terminal failure was normalized to completed")
+	assert.Empty(t, updated.WorkerStatus,
+		"worker_status must be cleared — the post-terminal failure was normalized to completed")
 	assert.Equal(t, board.StateDone, updated.State, "card state must stay done")
 	assert.Empty(t, updated.AssignedAgent, "claim stays released")
 
 	// The activity log message must reflect the normalized status, not the
-	// raw "killed by operator" text the runner sent. Otherwise the UI would
+	// raw "killed by operator" text the backend sent. Otherwise the UI would
 	// show a contradictory "failed: killed by operator" message on a card
 	// recorded as completed.
 	require.NotEmpty(t, updated.ActivityLog, "normalization must append an activity log entry")
 
 	lastLog := updated.ActivityLog[len(updated.ActivityLog)-1]
-	assert.Equal(t, "runner_status", lastLog.Action)
+	assert.Equal(t, "worker_status", lastLog.Action)
 	assert.NotContains(t, lastLog.Message, "killed by operator",
-		"raw runner message must be rewritten to match the normalized status")
+		"raw backend message must be rewritten to match the normalized status")
 	assert.Contains(t, lastLog.Message, "cleaned up",
 		"normalized message should describe the cleanup path")
 }
 
-// TestUpdateRunnerStatus_FailedAfterNotPlannedNormalizesToCompleted mirrors
+// TestUpdateWorkerStatus_FailedAfterNotPlannedNormalizesToCompleted mirrors
 // the done-state case for not_planned, since the normalization rule treats
 // both terminal states the same and a regression in one should not silently
 // hide in the other.
-func TestUpdateRunnerStatus_FailedAfterNotPlannedNormalizesToCompleted(t *testing.T) {
+func TestUpdateWorkerStatus_FailedAfterNotPlannedNormalizesToCompleted(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
 	defer cleanup()
 
@@ -5259,10 +5259,10 @@ func TestUpdateRunnerStatus_FailedAfterNotPlannedNormalizesToCompleted(t *testin
 	})
 	require.NoError(t, err)
 
-	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "runner:test-agent")
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent:test-agent")
 	require.NoError(t, err)
 
-	_, err = svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "running", "container started")
+	_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "running", "container started")
 	require.NoError(t, err)
 
 	// TransitionTo(not_planned) goes through enforceTerminalStateInvariants,
@@ -5271,19 +5271,19 @@ func TestUpdateRunnerStatus_FailedAfterNotPlannedNormalizesToCompleted(t *testin
 	_, err = svc.TransitionTo(ctx, "test-project", card.ID, board.StateNotPlanned)
 	require.NoError(t, err)
 
-	updated, err := svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "failed", "killed by operator")
+	updated, err := svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "failed", "killed by operator")
 	require.NoError(t, err)
 
-	assert.Empty(t, updated.RunnerStatus)
+	assert.Empty(t, updated.WorkerStatus)
 	assert.Equal(t, board.StateNotPlanned, updated.State)
 }
 
-// TestUpdateRunnerStatus_FailedMidRunStaysFailed guards against
+// TestUpdateWorkerStatus_FailedMidRunStaysFailed guards against
 // over-normalization: a genuine in-flight failure (container crashed while
 // the card is still in_progress) must still record as failed, not be
 // silently translated to completed. The normalization fires only for cards
 // that have already reached a terminal state.
-func TestUpdateRunnerStatus_FailedMidRunStaysFailed(t *testing.T) {
+func TestUpdateWorkerStatus_FailedMidRunStaysFailed(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
 	defer cleanup()
 
@@ -5296,10 +5296,10 @@ func TestUpdateRunnerStatus_FailedMidRunStaysFailed(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "runner:test-agent")
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent:test-agent")
 	require.NoError(t, err)
 
-	_, err = svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "running", "container started")
+	_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "running", "container started")
 	require.NoError(t, err)
 
 	// Card is still in_progress — a failure here is a genuine run failure,
@@ -5307,31 +5307,31 @@ func TestUpdateRunnerStatus_FailedMidRunStaysFailed(t *testing.T) {
 	_, err = svc.TransitionTo(ctx, "test-project", card.ID, board.StateInProgress)
 	require.NoError(t, err)
 
-	updated, err := svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "failed", "container crashed")
+	updated, err := svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "failed", "container crashed")
 	require.NoError(t, err)
 
-	assert.Equal(t, "failed", updated.RunnerStatus,
+	assert.Equal(t, "failed", updated.WorkerStatus,
 		"mid-run failure must remain failed — normalization only fires after terminal state")
 }
 
-// TestDeferredCommitFlushOnUpdateRunnerStatus verifies that when a card has
-// deferred commits enabled, calling UpdateRunnerStatus after ReleaseCard
-// results in the runner_status log entry being committed to git.
+// TestDeferredCommitFlushOnUpdateWorkerStatus verifies that when a card has
+// deferred commits enabled, calling UpdateWorkerStatus after ReleaseCard
+// results in the worker_status log entry being committed to git.
 //
 // This reproduces the bug where the "container exited normally" activity log
-// entry was written to disk but never committed because UpdateRunnerStatus
+// entry was written to disk but never committed because UpdateWorkerStatus
 // called commitCardChange (which defers the path) without ever flushing.
-func TestDeferredCommitFlushOnUpdateRunnerStatus(t *testing.T) {
+func TestDeferredCommitFlushOnUpdateWorkerStatus(t *testing.T) {
 	svc, gitMgr := setupDeferredTest(t)
 	ctx := context.Background()
 
-	// Create and claim a card — simulates an autonomous runner session.
+	// Create and claim a card — simulates an autonomous worker session.
 	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-		Title: "Runner deferred flush test", Type: "task", Priority: "medium",
+		Title: "Worker deferred flush test", Type: "task", Priority: "medium",
 	})
 	require.NoError(t, err)
 
-	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "runner:agent-1")
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent:one")
 	require.NoError(t, err)
 
 	// Accumulate a deferred mutation (body update, no commit yet).
@@ -5347,7 +5347,7 @@ func TestDeferredCommitFlushOnUpdateRunnerStatus(t *testing.T) {
 	assert.Contains(t, creationMsg, card.ID, "pre-release commit must be the creation commit")
 
 	// ReleaseCard flushes all deferred commits accumulated so far.
-	_, err = svc.ReleaseCard(ctx, "test-project", card.ID, "runner:agent-1")
+	_, err = svc.ReleaseCard(ctx, "test-project", card.ID, "agent:one")
 	require.NoError(t, err)
 
 	releaseMsg, err := gitMgr.GetLastCommitMessage()
@@ -5355,25 +5355,25 @@ func TestDeferredCommitFlushOnUpdateRunnerStatus(t *testing.T) {
 	assert.Contains(t, releaseMsg, card.ID, "release should flush deferred commits")
 	assert.Contains(t, releaseMsg, "deferred commit", "release flush commit should say 'deferred commit'")
 
-	// Now simulate the runner calling UpdateRunnerStatus after the agent released.
-	// This is the scenario from the bug: the runner sends "container exited normally"
+	// Now simulate the backend calling UpdateWorkerStatus after the agent released.
+	// This is the scenario from the bug: the backend sends "container exited normally"
 	// after complete_task has already released the card.
-	_, err = svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "completed", "container exited normally")
+	_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "completed", "container exited normally")
 	require.NoError(t, err)
 
-	// The runner_status update must be committed — not left as an uncommitted deferred path.
-	afterRunnerMsg, err := gitMgr.GetLastCommitMessage()
+	// The worker_status update must be committed — not left as an uncommitted deferred path.
+	afterStatusMsg, err := gitMgr.GetLastCommitMessage()
 	require.NoError(t, err)
-	assert.NotEqual(t, releaseMsg, afterRunnerMsg,
-		"UpdateRunnerStatus must produce a new commit for the runner_status log entry")
-	assert.Contains(t, afterRunnerMsg, card.ID,
-		"runner_status commit must reference the card ID")
+	assert.NotEqual(t, releaseMsg, afterStatusMsg,
+		"UpdateWorkerStatus must produce a new commit for the worker_status log entry")
+	assert.Contains(t, afterStatusMsg, card.ID,
+		"worker_status commit must reference the card ID")
 
 	// deferredPaths must be cleared after the flush.
 	svc.writeMu.Lock()
 	_, hasPaths := svc.deferredPaths[card.ID]
 	svc.writeMu.Unlock()
-	assert.False(t, hasPaths, "deferredPaths should be cleared after UpdateRunnerStatus flush")
+	assert.False(t, hasPaths, "deferredPaths should be cleared after UpdateWorkerStatus flush")
 }
 
 func TestDeferredCommitPathsPreservedOnFailure(t *testing.T) {
@@ -5550,38 +5550,38 @@ func TestDeferredCommitReportUsageAfterRelease(t *testing.T) {
 	assert.False(t, hasPaths, "deferredPaths should be cleared after post-release usage report")
 }
 
-// TestDeferredCommitUpdateRunnerStatusNonTerminal verifies that non-terminal
-// runner statuses (queued, running) do NOT flush deferred commits.
-func TestDeferredCommitUpdateRunnerStatusNonTerminal(t *testing.T) {
+// TestDeferredCommitUpdateWorkerStatusNonTerminal verifies that non-terminal
+// worker statuses (queued, running) do NOT flush deferred commits.
+func TestDeferredCommitUpdateWorkerStatusNonTerminal(t *testing.T) {
 	svc, gitMgr := setupDeferredTest(t)
 	ctx := context.Background()
 
 	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-		Title: "Runner non-terminal test", Type: "task", Priority: "medium",
+		Title: "Worker non-terminal test", Type: "task", Priority: "medium",
 	})
 	require.NoError(t, err)
 
-	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "runner:agent-1")
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent:one")
 	require.NoError(t, err)
 
 	countAfterCreate, err := gitMgr.CommitCount()
 	require.NoError(t, err)
 
 	// Non-terminal status: queued — should NOT flush.
-	_, err = svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "queued", "task queued for runner")
+	_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "queued", "task queued for worker")
 	require.NoError(t, err)
 
 	count, _ := gitMgr.CommitCount()
 	assert.Equal(t, countAfterCreate, count,
-		"non-terminal runner status 'queued' should not flush deferred commits")
+		"non-terminal worker status 'queued' should not flush deferred commits")
 
 	// Non-terminal status: running — should NOT flush.
-	_, err = svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "running", "container started")
+	_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "running", "container started")
 	require.NoError(t, err)
 
 	count, _ = gitMgr.CommitCount()
 	assert.Equal(t, countAfterCreate, count,
-		"non-terminal runner status 'running' should not flush deferred commits")
+		"non-terminal worker status 'running' should not flush deferred commits")
 
 	// Deferred paths should still be present.
 	svc.writeMu.Lock()
@@ -5590,18 +5590,18 @@ func TestDeferredCommitUpdateRunnerStatusNonTerminal(t *testing.T) {
 	assert.Positive(t, pathCount, "deferred paths should accumulate for non-terminal statuses")
 
 	// Terminal status: failed — SHOULD flush.
-	_, err = svc.UpdateRunnerStatus(ctx, "test-project", card.ID, "failed", "container exited with code 1")
+	_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "failed", "container exited with code 1")
 	require.NoError(t, err)
 
 	count, _ = gitMgr.CommitCount()
 	assert.Equal(t, countAfterCreate+1, count,
-		"terminal runner status 'failed' should produce exactly 1 commit (deferred flush)")
+		"terminal worker status 'failed' should produce exactly 1 commit (deferred flush)")
 
 	// Deferred paths should be cleared.
 	svc.writeMu.Lock()
 	_, hasPaths := svc.deferredPaths[card.ID]
 	svc.writeMu.Unlock()
-	assert.False(t, hasPaths, "deferredPaths should be cleared after terminal runner status flush")
+	assert.False(t, hasPaths, "deferredPaths should be cleared after terminal worker status flush")
 }
 
 // TestCreateCard_DuplicateSubtaskGuard verifies that creating a subtask with the
@@ -6781,10 +6781,10 @@ func TestPatchCard_AgentOwnership(t *testing.T) {
 
 		// Caller omits AgentID — ownership check is skipped.
 		patched, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
-			Body: newBody("updated by runner"),
+			Body: newBody("updated by backend"),
 		})
 		require.NoError(t, err)
-		assert.Contains(t, patched.Body, "updated by runner")
+		assert.Contains(t, patched.Body, "updated by backend")
 	})
 
 	t.Run("matching AgentID succeeds", func(t *testing.T) {

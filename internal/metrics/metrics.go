@@ -31,11 +31,11 @@ var (
 		Help: "Event bus messages dropped due to full subscriber channels.",
 	})
 
-	// RunnerWebhookTotal counts outbound runner webhook calls by outcome.
+	// BackendWebhookTotal counts outbound task-backend webhook calls by outcome.
 	// The result label is bounded to {success, failure}.
-	RunnerWebhookTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name: "contextmatrix_runner_webhook_total",
-		Help: "Outbound runner webhook calls labeled by result.",
+	BackendWebhookTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "contextmatrix_backend_webhook_total",
+		Help: "Outbound task backend webhook calls labeled by result.",
 	}, []string{"result"})
 
 	// GitSyncDuration uses wider buckets than DefBuckets because repo
@@ -172,7 +172,7 @@ func Register(reg prometheus.Registerer) {
 		HTTPRequestDuration,
 		SSEActiveConnections,
 		EventBusDropped,
-		RunnerWebhookTotal,
+		BackendWebhookTotal,
 		GitSyncDuration,
 		StallScanDuration,
 		StallCardsMarked,

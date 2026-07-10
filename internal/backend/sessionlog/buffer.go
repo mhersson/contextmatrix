@@ -1,6 +1,6 @@
-// Package sessionlog provides a thread-safe per-card ring buffer for runner
+// Package sessionlog provides a thread-safe per-card ring buffer for worker
 // session events. It is used as the server-side buffering layer for log
-// streaming: events are appended as they arrive from the runner and can be
+// streaming: events are appended as they arrive from the backend and can be
 // snapshot-replayed to reconnecting web-UI subscribers.
 package sessionlog
 
@@ -24,7 +24,7 @@ const (
 	EventTypeDropped = "dropped"
 )
 
-// Event is a single log entry produced by a runner session.
+// Event is a single log entry produced by a worker session.
 type Event struct {
 	Seq       uint64
 	Timestamp time.Time
@@ -218,14 +218,14 @@ type Manager struct {
 	// used to throttle slog.Warn calls to at most one per second globally.
 	lastDropWarn atomic.Int64
 
-	// Upstream session management (populated by WithRunnerConfig / Start / Stop).
+	// Upstream session management (populated by WithBackendConfig / Start / Stop).
 	activeSessions map[string]*activeSession
 	pendingSubs    map[string][]*subscriber // subscribers registered before Start
 	failedSessions map[string]struct{}      // sessions that permanently failed upstream
 	maxSessions    int
 	sessionTTL     time.Duration
-	runnerURL      string
-	runnerAPIKey   string
+	backendURL     string
+	backendAPIKey  string
 
 	// stopCh is closed by Close to signal the idle sweeper (and any future
 	// long-lived goroutine that needs a manager-scoped shutdown signal) to

@@ -11,10 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	protocol "github.com/mhersson/contextmatrix-protocol"
+	"github.com/mhersson/contextmatrix/internal/backend"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/events"
-	"github.com/mhersson/contextmatrix/internal/runner"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
@@ -33,7 +33,7 @@ transitions:
   not_planned: [todo]
 remote_execution:
   enabled: true
-  runner_image: my-runner:latest
+  worker_image: my-worker:latest
 verify:
   command: make test
   timeout_seconds: 600
@@ -42,23 +42,23 @@ verify:
 
 // triggerVerifyPayload runs a card and captures the TriggerPayload the agent
 // backend received.
-func triggerVerifyPayload(t *testing.T, svc *service.CardService, bus *events.Bus, cardID string) runner.TriggerPayload {
+func triggerVerifyPayload(t *testing.T, svc *service.CardService, bus *events.Bus, cardID string) backend.TriggerPayload {
 	t.Helper()
 
 	const apiKey = "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"
 
-	var capturedPayload runner.TriggerPayload
+	var capturedPayload backend.TriggerPayload
 
-	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&capturedPayload)
 
 		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
 	}))
-	t.Cleanup(mockRunner.Close)
+	t.Cleanup(mockBackend.Close)
 
-	runnerClient := runner.NewClient(mockRunner.URL, apiKey)
+	backendClient := backend.NewClient(mockBackend.URL, apiKey)
 	router := NewRouter(RouterConfig{
-		Service: svc, Bus: bus, Runner: runnerClient,
+		Service: svc, Bus: bus, Backend: backendClient,
 		AgentBackendCfg: &config.AgentBackendConfig{
 			APIKey:       apiKey,
 			DefaultModel: "openrouter/auto",

@@ -132,6 +132,31 @@ updated: 2026-03-30T10:00:00Z
 	assert.Empty(t, card.Body)
 }
 
+// TestCardParseIgnoresLegacyRunnerStatus pins the wire rename's read-side
+// tolerance: card files written before the runner_status → worker_status
+// rename still parse without error. The legacy key is simply ignored (yaml.v3
+// is non-strict), leaving the renamed field empty.
+func TestCardParseIgnoresLegacyRunnerStatus(t *testing.T) {
+	input := `---
+id: TEST-001
+title: Test card
+project: test-project
+type: task
+state: in_progress
+priority: medium
+runner_status: running
+created: 2026-03-30T10:00:00Z
+updated: 2026-03-30T10:00:00Z
+---
+`
+
+	card, err := ParseCard([]byte(input))
+	require.NoError(t, err)
+
+	assert.Equal(t, "TEST-001", card.ID)
+	assert.Empty(t, card.WorkerStatus, "legacy runner_status must be ignored, not mapped")
+}
+
 func TestParseCard_BodyWithMarkdown(t *testing.T) {
 	input := "---\nid: TEST-001\ntitle: Test\nproject: test\ntype: task\nstate: todo\npriority: medium\ncreated: 2026-03-30T10:00:00Z\nupdated: 2026-03-30T10:00:00Z\n---\n# Heading\n\n## Subheading\n\n```go\nfunc main() {\n    fmt.Println(\"hello\")\n}\n```\n\n- item 1\n- item 2\n"
 

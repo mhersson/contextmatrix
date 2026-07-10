@@ -98,8 +98,8 @@ func TestSessionGuard_Matrix(t *testing.T) {
 		wantNoAuth int // status without a session
 	}{
 		{name: "gated api route", method: http.MethodGet, path: "/api/task-skills", wantNoAuth: http.StatusUnauthorized},
-		{name: "browser runner logs gated", method: http.MethodGet, path: "/api/runner/logs", wantNoAuth: http.StatusUnauthorized},
-		{name: "browser runner health gated", method: http.MethodGet, path: "/api/runner/health", wantNoAuth: http.StatusUnauthorized},
+		{name: "browser worker logs gated", method: http.MethodGet, path: "/api/worker/logs", wantNoAuth: http.StatusUnauthorized},
+		{name: "browser backend health gated", method: http.MethodGet, path: "/api/backend/health", wantNoAuth: http.StatusUnauthorized},
 		{name: "healthz open", method: http.MethodGet, path: "/healthz", wantNoAuth: http.StatusOK},
 		{name: "readyz open", method: http.MethodGet, path: "/readyz", wantNoAuth: http.StatusOK},
 		{name: "auth session endpoint reachable (401 from handler)", method: http.MethodGet, path: "/api/auth/session", wantNoAuth: http.StatusUnauthorized},

@@ -5,32 +5,32 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/mhersson/contextmatrix/internal/backend"
+	"github.com/mhersson/contextmatrix/internal/backend/sessionlog"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/events"
-	"github.com/mhersson/contextmatrix/internal/runner"
-	"github.com/mhersson/contextmatrix/internal/runner/sessionlog"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
-// runnerSubsystems groups the optional task-backend client, the session-log
+// backendSubsystems groups the optional task-backend client, the session-log
 // manager, and any related coordinators so they can be wired in one place.
-type runnerSubsystems struct {
-	// Client is nil when no task backend is configured (no enabled runner/agent entry).
-	Client     *runner.Client
+type backendSubsystems struct {
+	// Client is nil when no task backend is configured (no enabled agent entry).
+	Client     *backend.Client
 	SessionLog *sessionlog.Manager
 }
 
-// wireRunnerSubsystems constructs the task-backend client, starts the
+// wireBackendSubsystems constructs the task-backend client, starts the
 // end-session subscriber, creates the session-log manager, starts its idle
 // sweeper, and (when enabled) launches the Docker-authoritative reconciliation
 // sweep. Returns the aggregate and a cleanup closure the caller must defer.
-func wireRunnerSubsystems(
+func wireBackendSubsystems(
 	ctx context.Context,
 	cfg *config.Config,
 	svc *service.CardService,
 	bus *events.Bus,
-) (*runnerSubsystems, func()) {
-	sys := &runnerSubsystems{}
+) (*backendSubsystems, func()) {
+	sys := &backendSubsystems{}
 
 	taskCfg, taskEnabled := cfg.AgentBackend()
 
@@ -45,10 +45,10 @@ func wireRunnerSubsystems(
 
 	// --- task backend client (optional) ---
 	if taskEnabled {
-		sys.Client = runner.NewClient(taskCfg.URL, taskCfg.APIKey)
+		sys.Client = backend.NewClient(taskCfg.URL, taskCfg.APIKey)
 		slog.Info("task backend enabled", "name", config.BackendNameAgent, "url", taskCfg.URL)
 
-		runner.StartEndSessionSubscriber(ctx, bus, svc, sys.Client, slog.Default())
+		backend.StartEndSessionSubscriber(ctx, bus, svc, sys.Client, slog.Default())
 		slog.Info("end-session subscriber started")
 	}
 
@@ -56,7 +56,7 @@ func wireRunnerSubsystems(
 	// backend's only reconcile mechanism) ---
 	if taskEnabled {
 		reconcileInterval := taskCfg.ReconcileIntervalDuration()
-		runner.StartReconciliationSweep(
+		backend.StartReconciliationSweep(
 			ctx, svc,
 			sys.Client,
 			reconcileInterval,
@@ -72,7 +72,7 @@ func wireRunnerSubsystems(
 
 	// --- session-log manager (always constructed; Subscribe is a no-op when disabled) ---
 	sys.SessionLog = sessionlog.NewManager(
-		sessionlog.WithRunnerConfig(taskURL, taskAPIKey),
+		sessionlog.WithBackendConfig(taskURL, taskAPIKey),
 		sessionlog.WithMaxSessions(64),
 		sessionlog.WithSessionTTL(2*time.Hour),
 	)

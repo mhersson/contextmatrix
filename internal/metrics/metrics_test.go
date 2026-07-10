@@ -100,7 +100,7 @@ func TestRegister_AllMetricsPresent(t *testing.T) {
 	vecCases := []vecCase{
 		{"contextmatrix_http_requests_total", metrics.HTTPRequestsTotal},
 		{"contextmatrix_http_request_duration_seconds", metrics.HTTPRequestDuration},
-		{"contextmatrix_runner_webhook_total", metrics.RunnerWebhookTotal},
+		{"contextmatrix_backend_webhook_total", metrics.BackendWebhookTotal},
 	}
 
 	for _, tc := range vecCases {

@@ -44,7 +44,7 @@ func (f *fakeInstanceTokenProvider) GenerateToken(_ context.Context) (string, ti
 // newTestAuthService builds a real *auth.Service over a real authstore in
 // t.TempDir with one genuinely resolvable credential ("good-cred")
 // registered. Mirrors the seeding approach in
-// cmd/contextmatrix/authcli_test.go and internal/api/runner_test.go's
+// cmd/contextmatrix/authcli_test.go and internal/api/backend_test.go's
 // TestRunCard_ProviderForProject_BrokenBindingNeverFallsBackToInstance: real
 // crypto, real store, so a binding to a name that was never registered here
 // ("missing-cred") fails through the actual TokenProviderFor resolution
@@ -75,7 +75,7 @@ func newTestAuthService(t *testing.T) *auth.Service {
 // TestNewProviderForProject directly exercises newProviderForProject — the
 // extracted, named form of the resolution logic that used to live only as an
 // inline closure in main() (see provider.go). Before this extraction,
-// internal/api/runner_test.go could only pin a hand-typed replica of this
+// internal/api/backend_test.go could only pin a hand-typed replica of this
 // logic; a regression in the real closure (e.g. the fail-closed
 // `return nil, "", err` silently changed to fall back to the instance
 // provider) would have been caught by nothing.

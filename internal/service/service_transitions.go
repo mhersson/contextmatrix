@@ -17,11 +17,11 @@ import (
 //     as stalled. not_planned is a manual terminal state — no agent will be
 //     active on it.
 //
-// Note: runner_status is intentionally NOT cleared here. The end-session
-// subscriber keys off runner_status ∈ {queued, running} to decide whether the
+// Note: worker_status is intentionally NOT cleared here. The end-session
+// subscriber keys off worker_status ∈ {queued, running} to decide whether the
 // container is still live when the card hits a terminal state; clearing it
-// here would defeat the subscriber's trigger. The runner itself clears
-// runner_status via UpdateRunnerStatus("completed"/"failed"/"killed") once
+// here would defeat the subscriber's trigger. The backend itself clears
+// worker_status via UpdateWorkerStatus("completed"/"failed"/"killed") once
 // the container has actually exited, which is the authoritative signal.
 //
 // DESIGN TENSION (done state):
@@ -33,7 +33,7 @@ import (
 //   - TestDeferredCommitFlushOnDone
 //   - TestDeferredCommitParentManualReviewTransition
 //   - TestDeferredCommitBoardYamlIncluded
-//   - TestUpdateRunnerStatus_FailedAfterTerminalNormalizesToCompleted
+//   - TestUpdateWorkerStatus_FailedAfterTerminalNormalizesToCompleted
 //
 // The smell: a card in done with a live claim looks stalled to the lock
 // manager. Defense-in-depth lives in markCardStalled (it skips terminal
@@ -176,7 +176,7 @@ func (s *CardService) transitionParentDirect(
 		appendStateChangeLog(parent, oldState, state, "system", parent.Updated)
 
 		// State-change invariants: release claim on not_planned, clear
-		// runner_status on terminal states.
+		// worker_status on terminal states.
 		enforceTerminalStateInvariants(parent, true)
 
 		if err := s.store.UpdateCard(ctx, parent.Project, parent); err != nil {

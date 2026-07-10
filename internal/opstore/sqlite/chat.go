@@ -238,7 +238,7 @@ func (s *Store) UpdateSessionTitle(ctx context.Context, sessionID, title string)
 }
 
 // UpdateContextTokens stamps the latest Claude usage block onto the session
-// row. Called from the runner-log consumer when a "usage" event arrives.
+// row. Called from the worker-log consumer when a "usage" event arrives.
 func (s *Store) UpdateContextTokens(ctx context.Context, sessionID string, tokens int64, updatedAt time.Time) error {
 	res, err := s.db.ExecContext(ctx,
 		`UPDATE chat_sessions SET context_tokens = ?, context_tokens_updated_at = ? WHERE id = ?`,

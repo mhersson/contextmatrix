@@ -25,13 +25,13 @@ func TestRedactUnvettedBody(t *testing.T) {
 		{
 			name:    "nil card returns empty",
 			card:    nil,
-			agentID: "runner:claude",
+			agentID: "agent:claude",
 			want:    "",
 		},
 		{
 			name:    "unvetted + non-human → placeholder",
 			card:    &board.Card{Body: sensitive, Vetted: false},
-			agentID: "runner:claude",
+			agentID: "agent:claude",
 			want:    unvettedBodyPlaceholder,
 		},
 		{
@@ -49,7 +49,7 @@ func TestRedactUnvettedBody(t *testing.T) {
 		{
 			name:    "vetted + non-human → full body",
 			card:    &board.Card{Body: sensitive, Vetted: true},
-			agentID: "runner:claude",
+			agentID: "agent:claude",
 			want:    sensitive,
 		},
 		{
@@ -61,7 +61,7 @@ func TestRedactUnvettedBody(t *testing.T) {
 		{
 			name:    "human prefix match is exact (human:) not 'human'",
 			card:    &board.Card{Body: sensitive, Vetted: false},
-			agentID: "human-runner", // no ":" — must NOT be treated as human
+			agentID: "human-worker", // no ":" — must NOT be treated as human
 			want:    unvettedBodyPlaceholder,
 		},
 	}
@@ -78,7 +78,7 @@ func TestRedactUnvettedBody(t *testing.T) {
 // returned card has the redacted body when applicable.
 func TestRedactCardForAgent(t *testing.T) {
 	t.Run("nil card returns nil", func(t *testing.T) {
-		assert.Nil(t, redactCardForAgent(nil, "runner:claude"))
+		assert.Nil(t, redactCardForAgent(nil, "agent:claude"))
 	})
 
 	t.Run("unvetted card copied and body replaced, original untouched", func(t *testing.T) {
@@ -89,7 +89,7 @@ func TestRedactCardForAgent(t *testing.T) {
 			// Vetted: false
 		}
 
-		redacted := redactCardForAgent(orig, "runner:claude")
+		redacted := redactCardForAgent(orig, "agent:claude")
 		require.NotNil(t, redacted)
 		assert.Equal(t, unvettedBodyPlaceholder, redacted.Body)
 		// Original must be untouched.
@@ -101,7 +101,7 @@ func TestRedactCardForAgent(t *testing.T) {
 
 	t.Run("vetted card returned unchanged", func(t *testing.T) {
 		orig := &board.Card{Body: "safe body", Vetted: true}
-		got := redactCardForAgent(orig, "runner:claude")
+		got := redactCardForAgent(orig, "agent:claude")
 		// Same pointer is acceptable — no redaction needed.
 		assert.Equal(t, "safe body", got.Body)
 	})
@@ -116,7 +116,7 @@ func TestRedactCardForAgent(t *testing.T) {
 // TestRedactCardsForAgent verifies slice-level redaction.
 func TestRedactCardsForAgent(t *testing.T) {
 	t.Run("nil input returns nil", func(t *testing.T) {
-		assert.Nil(t, redactCardsForAgent(nil, "runner:claude"))
+		assert.Nil(t, redactCardsForAgent(nil, "agent:claude"))
 	})
 
 	t.Run("mixed slice redacts only unvetted entries for non-human", func(t *testing.T) {
@@ -125,7 +125,7 @@ func TestRedactCardsForAgent(t *testing.T) {
 			{ID: "A-2", Body: "unvetted content", Vetted: false},
 		}
 
-		got := redactCardsForAgent(cards, "runner:claude")
+		got := redactCardsForAgent(cards, "agent:claude")
 		require.Len(t, got, 2)
 		assert.Equal(t, "vetted content", got[0].Body)
 		assert.Equal(t, unvettedBodyPlaceholder, got[1].Body)
@@ -192,7 +192,7 @@ func TestGetCard_UnvettedBodyRedaction(t *testing.T) {
 
 		result := callTool(t, env, "get_card", map[string]any{
 			"card_id":  "TEST-100",
-			"agent_id": "runner:claude",
+			"agent_id": "agent:claude",
 		})
 		require.False(t, result.IsError)
 
@@ -231,7 +231,7 @@ func TestGetCard_UnvettedBodyRedaction(t *testing.T) {
 
 		result := callTool(t, env, "get_card", map[string]any{
 			"card_id":  "TEST-102",
-			"agent_id": "runner:claude",
+			"agent_id": "agent:claude",
 		})
 		require.False(t, result.IsError)
 
@@ -268,7 +268,7 @@ func TestGetTaskContext_UnvettedBodyRedaction(t *testing.T) {
 
 		result := callTool(t, env, "get_task_context", map[string]any{
 			"card_id":  "TEST-200",
-			"agent_id": "runner:claude",
+			"agent_id": "agent:claude",
 		})
 		require.False(t, result.IsError)
 
@@ -307,7 +307,7 @@ func TestListCards_UnvettedBodyRedaction(t *testing.T) {
 
 		result := callTool(t, env, "list_cards", map[string]any{
 			"project":  "test-project",
-			"agent_id": "runner:claude",
+			"agent_id": "agent:claude",
 		})
 		require.False(t, result.IsError)
 

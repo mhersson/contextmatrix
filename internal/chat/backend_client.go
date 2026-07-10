@@ -46,40 +46,40 @@ var ErrOversizedSSELine = errors.New("chat: /logs: oversized SSE line exceeded b
 // backend is unresponsive.
 var ErrBackendUnreachable = errors.New("chat: backend unreachable")
 
-// RunnerClientConfig wires the HMAC-signed webhook client.
-type RunnerClientConfig struct {
-	BaseURL    string       // e.g. http://contextmatrix-runner:8080
+// BackendClientConfig wires the HMAC-signed webhook client.
+type BackendClientConfig struct {
+	BaseURL    string       // e.g. http://contextmatrix-chat:8080
 	HMACKey    string       // pre-shared HMAC secret
 	MCPAPIKey  string       // forwarded to chat containers as CM_MCP_API_KEY
 	HTTPClient *http.Client // optional; defaults to a 30s-timeout client
 }
 
-// runnerClient implements Backend by talking HMAC-signed HTTP to the
-// runner's /chat/* and /message endpoints.
-type runnerClient struct {
+// backendClient implements Backend by talking HMAC-signed HTTP to the
+// chat backend's /chat/* and /message endpoints.
+type backendClient struct {
 	baseURL   string
 	key       string
 	mcpAPIKey string
 	httpc     *http.Client
 }
 
-// NewRunnerClient constructs the runner-backed Backend implementation. If
+// NewBackendClient constructs the webhook-backed Backend implementation. If
 // cfg.HTTPClient is nil, a 30-second-timeout default client is used.
-func NewRunnerClient(cfg RunnerClientConfig) Backend {
+func NewBackendClient(cfg BackendClientConfig) Backend {
 	c := cfg.HTTPClient
 	if c == nil {
 		c = &http.Client{Timeout: 30 * time.Second}
 	}
 
-	return &runnerClient{baseURL: cfg.BaseURL, key: cfg.HMACKey, mcpAPIKey: cfg.MCPAPIKey, httpc: c}
+	return &backendClient{baseURL: cfg.BaseURL, key: cfg.HMACKey, mcpAPIKey: cfg.MCPAPIKey, httpc: c}
 }
 
-func (c *runnerClient) StartChat(ctx context.Context, opts StartChatOpts) (string, error) {
+func (c *backendClient) StartChat(ctx context.Context, opts StartChatOpts) (string, error) {
 	body, err := json.Marshal(protocol.ChatStartPayload{
 		SessionID:           opts.SessionID,
 		Project:             opts.Project,
 		RepoURL:             opts.RepoURL,
-		RunnerImage:         opts.RunnerImage,
+		WorkerImage:         opts.WorkerImage,
 		MCPAPIKey:           c.mcpAPIKey,
 		Model:               opts.Model,
 		Resume:              opts.Resume,
@@ -87,7 +87,7 @@ func (c *runnerClient) StartChat(ctx context.Context, opts StartChatOpts) (strin
 		GitCredentialsToken: opts.GitCredentialsToken,
 	})
 	if err != nil {
-		return "", fmt.Errorf("chat: runner: marshal StartChat payload: %w", err)
+		return "", fmt.Errorf("chat: backend: marshal StartChat payload: %w", err)
 	}
 
 	resp, err := c.post(ctx, "/chat/start", body)
@@ -103,10 +103,10 @@ func (c *runnerClient) StartChat(ctx context.Context, opts StartChatOpts) (strin
 	return out.ContainerID, nil
 }
 
-func (c *runnerClient) EndChat(ctx context.Context, sessionID string) error {
+func (c *backendClient) EndChat(ctx context.Context, sessionID string) error {
 	body, err := json.Marshal(protocol.ChatEndPayload{SessionID: sessionID})
 	if err != nil {
-		return fmt.Errorf("chat: runner: marshal EndChat payload: %w", err)
+		return fmt.Errorf("chat: backend: marshal EndChat payload: %w", err)
 	}
 
 	_, err = c.post(ctx, "/chat/end", body)
@@ -114,10 +114,10 @@ func (c *runnerClient) EndChat(ctx context.Context, sessionID string) error {
 	return err
 }
 
-func (c *runnerClient) SendChatMessage(ctx context.Context, sessionID, content, messageID string) error {
+func (c *backendClient) SendChatMessage(ctx context.Context, sessionID, content, messageID string) error {
 	body, err := json.Marshal(protocol.MessagePayload{SessionID: sessionID, Content: content, MessageID: messageID})
 	if err != nil {
-		return fmt.Errorf("chat: runner: marshal SendChatMessage payload: %w", err)
+		return fmt.Errorf("chat: backend: marshal SendChatMessage payload: %w", err)
 	}
 
 	_, err = c.post(ctx, "/message", body)
@@ -125,11 +125,11 @@ func (c *runnerClient) SendChatMessage(ctx context.Context, sessionID, content, 
 	return err
 }
 
-// StreamLogs subscribes to the runner's HMAC-signed /logs?session_id=<id>
+// StreamLogs subscribes to the backend's HMAC-signed /logs?session_id=<id>
 // SSE endpoint and dispatches each parsed entry to onEntry. The HTTP client
 // is constructed without a timeout for this call because the SSE connection
 // is long-lived; cancellation is via ctx.
-func (c *runnerClient) StreamLogs(ctx context.Context, sessionID string, onEntry func(LogEntry)) error {
+func (c *backendClient) StreamLogs(ctx context.Context, sessionID string, onEntry func(LogEntry)) error {
 	fullURL := c.baseURL + "/logs?session_id=" + url.QueryEscape(sessionID)
 
 	parsed, err := url.Parse(fullURL)
@@ -228,7 +228,7 @@ func (c *runnerClient) StreamLogs(ctx context.Context, sessionID string, onEntry
 }
 
 // post sends an HMAC-signed POST and returns the body on 2xx.
-func (c *runnerClient) post(ctx context.Context, path string, body []byte) ([]byte, error) {
+func (c *backendClient) post(ctx context.Context, path string, body []byte) ([]byte, error) {
 	fullURL := c.baseURL + path
 
 	parsed, err := url.Parse(fullURL)

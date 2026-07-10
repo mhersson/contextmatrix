@@ -40,7 +40,7 @@ type createCardInput struct {
 	Type      string    `json:"type" jsonschema:"required,card type (task/bug/feature). Overridden to 'subtask' when parent is set."`
 	Priority  string    `json:"priority" jsonschema:"required,priority (low/medium/high/critical)"`
 	Labels    []string  `json:"labels,omitempty" jsonschema:"optional labels"`
-	Skills    *[]string `json:"skills,omitempty" jsonschema:"optional task-skill names to mount in the runner container; nil inherits from parent or project default, [] means none, [list] constrains"`
+	Skills    *[]string `json:"skills,omitempty" jsonschema:"optional task-skill names to mount in the worker container; nil inherits from parent or project default, [] means none, [list] constrains"`
 	Body      string    `json:"body,omitempty" jsonschema:"optional markdown body"`
 	Parent    string    `json:"parent,omitempty" jsonschema:"parent card ID for subtasks"`
 	DependsOn []string  `json:"depends_on,omitempty" jsonschema:"card IDs this depends on"`

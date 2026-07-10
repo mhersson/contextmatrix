@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/mhersson/contextmatrix/internal/runner"
+	"github.com/mhersson/contextmatrix/internal/backend"
 )
 
 // newProbeServer returns an httptest server whose /health handler runs fn
@@ -38,7 +38,7 @@ func TestHealthProbeCache_CachesSuccessForTTL(t *testing.T) {
 		_, _ = w.Write([]byte(`{"ok":true,"running_containers":1,"max_concurrent":4}`))
 	})
 
-	client := runner.NewClient(srv.URL, "test-key")
+	client := backend.NewClient(srv.URL, "test-key")
 
 	var cache healthProbeCache
 
@@ -57,7 +57,7 @@ func TestHealthProbeCache_CachesFailureForTTL(t *testing.T) {
 		http.Error(w, "upstream down", http.StatusInternalServerError)
 	})
 
-	client := runner.NewClient(srv.URL, "test-key")
+	client := backend.NewClient(srv.URL, "test-key")
 
 	var cache healthProbeCache
 
@@ -79,7 +79,7 @@ func TestHealthProbeCache_SingleflightDeduplicatesConcurrentProbes(t *testing.T)
 		_, _ = w.Write([]byte(`{"ok":true,"max_concurrent":2}`))
 	})
 
-	client := runner.NewClient(srv.URL, "test-key")
+	client := backend.NewClient(srv.URL, "test-key")
 
 	var cache healthProbeCache
 
@@ -87,7 +87,7 @@ func TestHealthProbeCache_SingleflightDeduplicatesConcurrentProbes(t *testing.T)
 
 	var (
 		wg      sync.WaitGroup
-		results = make([]runner.HealthInfo, callers)
+		results = make([]backend.HealthInfo, callers)
 		errs    = make([]error, callers)
 	)
 
@@ -125,14 +125,14 @@ func TestHealthProbeCache_DetachedContextSurvivesCallerCancellation(t *testing.T
 		_, _ = w.Write([]byte(`{"ok":true,"max_concurrent":3}`))
 	})
 
-	client := runner.NewClient(srv.URL, "test-key")
+	client := backend.NewClient(srv.URL, "test-key")
 
 	var cache healthProbeCache
 
 	ctx1, cancel1 := context.WithCancel(context.Background())
 
 	type result struct {
-		info runner.HealthInfo
+		info backend.HealthInfo
 		err  error
 	}
 
@@ -165,12 +165,12 @@ func TestHealthProbeCache_DetachedContextSurvivesCallerCancellation(t *testing.T
 
 func TestHealthProbeCache_UpstreamTimeoutTighterThanCallerTimeout(t *testing.T) {
 	// Upstream never responds. The probe should fail with deadline exceeded
-	// well before the 10s default runner client timeout.
+	// well before the 10s default backend client timeout.
 	srv, _ := newProbeServer(t, func(_ http.ResponseWriter, _ *http.Request) {
 		time.Sleep(10 * time.Second)
 	})
 
-	client := runner.NewClient(srv.URL, "test-key")
+	client := backend.NewClient(srv.URL, "test-key")
 
 	var cache healthProbeCache
 
@@ -181,7 +181,7 @@ func TestHealthProbeCache_UpstreamTimeoutTighterThanCallerTimeout(t *testing.T) 
 	require.Error(t, err)
 	// Allow some headroom but ensure we don't hit the full 10s client timeout.
 	assert.Less(t, elapsed, 5*time.Second,
-		"upstream probe should time out via the dedicated runnerHealthProbeTimeout (3s), not the full client timeout")
+		"upstream probe should time out via the dedicated backendHealthProbeTimeout (3s), not the full client timeout")
 
 	// Error message should not leak raw transport details either way; that's
 	// the responsibility of the handler, not the cache. Cache must surface

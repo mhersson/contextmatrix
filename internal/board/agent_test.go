@@ -23,7 +23,7 @@ func TestIsHumanAgentID(t *testing.T) {
 		{"wrong placement", ":human:alice", false},
 		{"prefix only with whitespace suffix", "human: ", true},
 		{"uppercase prefix not accepted", "Human:alice", false},
-		{"runner agent", "runner-7", false},
+		{"worker agent", "worker-7", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

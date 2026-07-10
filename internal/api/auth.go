@@ -130,9 +130,9 @@ func sessionGuard(svc *auth.Service) func(http.Handler) http.Handler {
 func sessionExempt(r *http.Request) bool {
 	path := r.URL.Path
 
-	// Browser-facing despite the /api/runner/ prefix: the web UI's log
-	// stream and capacity meter.
-	if path == "/api/runner/logs" || path == "/api/runner/health" {
+	// Browser-facing despite the machine-flavored prefixes: the web UI's
+	// log stream (under /api/worker/) and capacity meter.
+	if path == "/api/worker/logs" || path == "/api/backend/health" {
 		return false
 	}
 
@@ -148,8 +148,7 @@ func sessionExempt(r *http.Request) bool {
 		// Pre-login the SPA needs theme + auth_mode; the handler serves a
 		// slim shape when unauthenticated.
 		return true
-	case strings.HasPrefix(path, "/api/runner/"),
-		strings.HasPrefix(path, "/api/agent/"),
+	case strings.HasPrefix(path, "/api/agent/"),
 		strings.HasPrefix(path, "/api/chat/"),
 		strings.HasPrefix(path, "/api/v1/"):
 		// HMAC-signed backend-callback space (and the backend-called

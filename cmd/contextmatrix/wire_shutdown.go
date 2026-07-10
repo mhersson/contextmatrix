@@ -7,10 +7,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mhersson/contextmatrix/internal/backend/sessionlog"
 	ghimport "github.com/mhersson/contextmatrix/internal/github"
 	"github.com/mhersson/contextmatrix/internal/gitops"
 	"github.com/mhersson/contextmatrix/internal/gitsync"
-	"github.com/mhersson/contextmatrix/internal/runner/sessionlog"
 )
 
 // shutdownComponents groups the live objects touched during the multi-phase
@@ -24,7 +24,7 @@ type shutdownComponents struct {
 	// cfg.AdminPort == 0.
 	AdminServer *http.Server
 
-	// SessionLog manages runner SSE sessions; must be closed after HTTP drain
+	// SessionLog manages backend SSE log sessions; must be closed after HTTP drain
 	// so subscribers receive a terminal event instead of a mid-stream EOF.
 	SessionLog *sessionlog.Manager
 
@@ -46,13 +46,13 @@ type shutdownComponents struct {
 	HTTPCancel context.CancelFunc
 
 	// AppCancel cancels the long-lived application context, signalling the
-	// timeout checker, syncers, and runner subscribers to wind down.
+	// timeout checker, syncers, and backend subscribers to wind down.
 	AppCancel context.CancelFunc
 }
 
 // runShutdownSequence executes the five-phase ordered shutdown:
 //  1. http_drain      — cancel SSE contexts, drain in-flight HTTP requests.
-//  2. sessionlog_close — close runner SSE sessions with terminal events.
+//  2. sessionlog_close — close backend SSE log sessions with terminal events.
 //  3. ctx_cancel      — cancel the long-lived application context.
 //  4. commit_queue_close — flush buffered commits to disk.
 //  5. syncers_drain   — wait for git syncers to finish any late push.
@@ -88,7 +88,7 @@ func runShutdownSequence(ctx context.Context, c shutdownComponents) error {
 
 	wg.Wait()
 
-	// Phase 2: drain active runner SSE sessions. HTTP is no longer accepting
+	// Phase 2: drain active backend SSE log sessions. HTTP is no longer accepting
 	// new connections, so closing these pumps is safe — every subscriber
 	// receives a terminal SSE event instead of a mid-stream EOF.
 	slog.Info("shutdown: phase=sessionlog_close")
@@ -98,7 +98,7 @@ func runShutdownSequence(ctx context.Context, c shutdownComponents) error {
 	}
 
 	// Phase 3: signal the rest of the app (timeout checker, syncers'
-	// periodic loops, runner subscribers) to wind down.
+	// periodic loops, backend subscribers) to wind down.
 	slog.Info("shutdown: phase=ctx_cancel")
 	c.AppCancel()
 

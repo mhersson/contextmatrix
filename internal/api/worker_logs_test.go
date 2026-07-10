@@ -13,30 +13,30 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mhersson/contextmatrix/internal/backend"
+	"github.com/mhersson/contextmatrix/internal/backend/sessionlog"
 	"github.com/mhersson/contextmatrix/internal/config"
-	"github.com/mhersson/contextmatrix/internal/runner"
-	"github.com/mhersson/contextmatrix/internal/runner/sessionlog"
 )
 
-// makeRunnerHandlers returns a runnerHandlers wired to the given runner URL and API key.
-func makeRunnerHandlers(runnerURL, apiKey string) *runnerHandlers {
-	return &runnerHandlers{
-		runner: runner.NewClient(runnerURL, apiKey),
+// makeBackendHandlers returns a backendHandlers wired to the given backend URL and API key.
+func makeBackendHandlers(backendURL, apiKey string) *backendHandlers {
+	return &backendHandlers{
+		backend: backend.NewClient(backendURL, apiKey),
 		backendCfg: &config.AgentBackendConfig{
 			APIKey: apiKey,
 		},
 	}
 }
 
-// TestStreamRunnerLogs_NoFlusher verifies that a 500 is returned when the
+// TestStreamWorkerLogs_NoFlusher verifies that a 500 is returned when the
 // ResponseWriter does not implement http.Flusher.
-func TestStreamRunnerLogs_NoFlusher(t *testing.T) {
-	h := makeRunnerHandlers("http://127.0.0.1:1", "test-api-key-for-runner-logs-unit-tests-xyz")
+func TestStreamWorkerLogs_NoFlusher(t *testing.T) {
+	h := makeBackendHandlers("http://127.0.0.1:1", "test-api-key-for-worker-logs-unit-tests-xyz")
 
-	req := httptest.NewRequest(http.MethodGet, "/api/runner/logs", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/worker/logs", nil)
 	w := &mockNonFlushingWriter{}
 
-	h.streamRunnerLogs(w, req)
+	h.streamWorkerLogs(w, req)
 
 	assert.Equal(t, http.StatusInternalServerError, w.code)
 	assert.Contains(t, string(w.body), "streaming not supported")
@@ -45,12 +45,12 @@ func TestStreamRunnerLogs_NoFlusher(t *testing.T) {
 // TestStreamProjectSession_NoManager verifies that a 204 is returned for the
 // project path when no session manager is configured.
 func TestStreamProjectSession_NoManager(t *testing.T) {
-	rh := &runnerHandlers{sessionManager: nil}
+	rh := &backendHandlers{sessionManager: nil}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/runner/logs?project=myproject", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/worker/logs?project=myproject", nil)
 	rec := newFlushRecorder()
 
-	rh.streamRunnerLogs(rec, req)
+	rh.streamWorkerLogs(rec, req)
 
 	assert.Equal(t, http.StatusNoContent, rec.Code)
 }
@@ -62,20 +62,20 @@ func TestStreamProjectSession_NoManager(t *testing.T) {
 func TestStreamCardSession_XAccelBufferingHeader(t *testing.T) {
 	mgr := sessionlog.NewManager()
 
-	rh := &runnerHandlers{
+	rh := &backendHandlers{
 		sessionManager:    mgr,
 		keepaliveInterval: 1 * time.Hour, // disable keepalive during test
 	}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rh.streamRunnerLogs(w, r)
+		rh.streamWorkerLogs(w, r)
 	}))
 	t.Cleanup(srv.Close)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/api/runner/logs?card_id=CARD-001&project=p", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/api/worker/logs?card_id=CARD-001&project=p", nil)
 	require.NoError(t, err)
 
 	resp, err := http.DefaultClient.Do(req)
@@ -93,20 +93,20 @@ func TestStreamCardSession_XAccelBufferingHeader(t *testing.T) {
 func TestStreamProjectSession_XAccelBufferingHeader(t *testing.T) {
 	mgr := sessionlog.NewManager()
 
-	rh := &runnerHandlers{
+	rh := &backendHandlers{
 		sessionManager:    mgr,
 		keepaliveInterval: 1 * time.Hour, // disable keepalive during test
 	}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rh.streamRunnerLogs(w, r)
+		rh.streamWorkerLogs(w, r)
 	}))
 	t.Cleanup(srv.Close)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/api/runner/logs?project=myproject", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/api/worker/logs?project=myproject", nil)
 	require.NoError(t, err)
 
 	resp, err := http.DefaultClient.Do(req)
@@ -126,20 +126,20 @@ func TestStreamProjectSession_XAccelBufferingHeader(t *testing.T) {
 func TestStreamCardSession_Keepalive(t *testing.T) {
 	mgr := sessionlog.NewManager()
 
-	rh := &runnerHandlers{
+	rh := &backendHandlers{
 		sessionManager:    mgr,
 		keepaliveInterval: 50 * time.Millisecond,
 	}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rh.streamRunnerLogs(w, r)
+		rh.streamWorkerLogs(w, r)
 	}))
 	t.Cleanup(srv.Close)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/api/runner/logs?card_id=CARD-002&project=p", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/api/worker/logs?card_id=CARD-002&project=p", nil)
 	require.NoError(t, err)
 
 	resp, err := http.DefaultClient.Do(req)
@@ -176,20 +176,20 @@ func TestStreamCardSession_Keepalive(t *testing.T) {
 func TestStreamProjectSession_Keepalive(t *testing.T) {
 	mgr := sessionlog.NewManager()
 
-	rh := &runnerHandlers{
+	rh := &backendHandlers{
 		sessionManager:    mgr,
 		keepaliveInterval: 50 * time.Millisecond,
 	}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rh.streamRunnerLogs(w, r)
+		rh.streamWorkerLogs(w, r)
 	}))
 	t.Cleanup(srv.Close)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/api/runner/logs?project=proj-keepalive", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/api/worker/logs?project=proj-keepalive", nil)
 	require.NoError(t, err)
 
 	resp, err := http.DefaultClient.Do(req)
@@ -224,7 +224,7 @@ func TestStreamProjectSession_Keepalive(t *testing.T) {
 
 // TestStreamCardSession_WireFramesCarryNoSeq asserts that the JSON payload
 // emitted by the card-scoped handler includes a "seq" field and that it is 0
-// for wire-sourced live events: the runner's frames carry no seq, and
+// for wire-sourced live events: the backend's frames carry no seq, and
 // nothing assigns a nonzero Seq today.
 func TestStreamCardSession_WireFramesCarryNoSeq(t *testing.T) {
 	const (
@@ -235,10 +235,10 @@ func TestStreamCardSession_WireFramesCarryNoSeq(t *testing.T) {
 	upstreamCh := make(chan protocol.LogEntry, 8)
 	readyCh := make(chan struct{})
 
-	upstream := fakeRunnerServer(t, upstreamCh, readyCh)
+	upstream := fakeBackendServer(t, upstreamCh, readyCh)
 
 	mgr := sessionlog.NewManager(
-		sessionlog.WithRunnerConfig(upstream.URL, "test-key"),
+		sessionlog.WithBackendConfig(upstream.URL, "test-key"),
 	)
 
 	require.NoError(t, mgr.Start(context.Background(), cardID, project))
@@ -252,16 +252,16 @@ func TestStreamCardSession_WireFramesCarryNoSeq(t *testing.T) {
 		return len(mgr.Snapshot(cardID)) == 1
 	}, 3*time.Second, 10*time.Millisecond)
 
-	rh := &runnerHandlers{
+	rh := &backendHandlers{
 		sessionManager:    mgr,
 		keepaliveInterval: 1 * time.Hour,
 	}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rh.streamRunnerLogs(w, r)
+		rh.streamWorkerLogs(w, r)
 	}))
 
-	clientURL := srv.URL + "/api/runner/logs?card_id=" + cardID + "&project=" + project
+	clientURL := srv.URL + "/api/worker/logs?card_id=" + cardID + "&project=" + project
 
 	dataCh, cancelClient := connectSSEClient(t, clientURL)
 
@@ -292,7 +292,7 @@ func TestStreamCardSession_WireFramesCarryNoSeq(t *testing.T) {
 // TestStreamProjectSession_WireFramesCarryNoSeq asserts that the JSON payload
 // emitted by the project-scoped handler includes a "seq" field and that it is
 // 0 for wire-sourced live events — same reality as the card-scoped path: the
-// runner's frames carry no seq.
+// backend's frames carry no seq.
 func TestStreamProjectSession_WireFramesCarryNoSeq(t *testing.T) {
 	const (
 		cardID  = "SEQ-PROJ-001"
@@ -302,10 +302,10 @@ func TestStreamProjectSession_WireFramesCarryNoSeq(t *testing.T) {
 	upstreamCh := make(chan protocol.LogEntry, 8)
 	readyCh := make(chan struct{})
 
-	upstream := fakeRunnerServer(t, upstreamCh, readyCh)
+	upstream := fakeBackendServer(t, upstreamCh, readyCh)
 
 	mgr := sessionlog.NewManager(
-		sessionlog.WithRunnerConfig(upstream.URL, "test-key"),
+		sessionlog.WithBackendConfig(upstream.URL, "test-key"),
 	)
 
 	require.NoError(t, mgr.StartProject(context.Background(), project))
@@ -317,16 +317,16 @@ func TestStreamProjectSession_WireFramesCarryNoSeq(t *testing.T) {
 		return len(mgr.SnapshotProject(project)) == 1
 	}, 3*time.Second, 10*time.Millisecond)
 
-	rh := &runnerHandlers{
+	rh := &backendHandlers{
 		sessionManager:    mgr,
 		keepaliveInterval: 1 * time.Hour,
 	}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rh.streamRunnerLogs(w, r)
+		rh.streamWorkerLogs(w, r)
 	}))
 
-	clientURL := srv.URL + "/api/runner/logs?project=" + project
+	clientURL := srv.URL + "/api/worker/logs?project=" + project
 
 	dataCh, cancelClient := connectSSEClient(t, clientURL)
 

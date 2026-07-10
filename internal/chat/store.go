@@ -32,7 +32,7 @@ type Store interface {
 	SetRehydrationActive(ctx context.Context, sessionID string, active bool, startedAt time.Time) error
 
 	// UpdateContextTokens stamps the context-window usage from the most
-	// recent Claude turn onto the session row. updatedAt is the runner-side
+	// recent Claude turn onto the session row. updatedAt is the backend-side
 	// timestamp of the usage event. Returns ErrSessionNotFound if no row
 	// matches.
 	UpdateContextTokens(ctx context.Context, sessionID string, tokens int64, updatedAt time.Time) error

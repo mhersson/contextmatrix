@@ -17,8 +17,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	protocol "github.com/mhersson/contextmatrix-protocol"
+	"github.com/mhersson/contextmatrix/internal/backend"
 	"github.com/mhersson/contextmatrix/internal/config"
-	"github.com/mhersson/contextmatrix/internal/runner"
 )
 
 // writeSkillFile creates dir/<name>/SKILL.md with a frontmatter
@@ -559,12 +559,12 @@ func setupTaskSkillsSourceEndpoint(t *testing.T) (*httptest.Server, func()) {
 
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
 
-	runnerClient := runner.NewClient("http://localhost:9090", testRunnerAPIKey)
+	backendClient := backend.NewClient("http://localhost:9090", testBackendAPIKey)
 	router := NewRouter(RouterConfig{
 		Service:         svc,
 		Bus:             bus,
-		Runner:          runnerClient,
-		AgentBackendCfg: &config.AgentBackendConfig{APIKey: testRunnerAPIKey},
+		Backend:         backendClient,
+		AgentBackendCfg: &config.AgentBackendConfig{APIKey: testBackendAPIKey},
 	})
 
 	server := httptest.NewServer(router)
@@ -580,7 +580,7 @@ func TestGetTaskSkillsSource_HMAC_Valid(t *testing.T) {
 	defer cleanup()
 
 	path := "/api/agent/task-skills-source"
-	sig, ts := protocol.SignRequestHeaders(testRunnerAPIKey, http.MethodGet, path, nil)
+	sig, ts := protocol.SignRequestHeaders(testBackendAPIKey, http.MethodGet, path, nil)
 
 	req, _ := http.NewRequest("GET", server.URL+path, nil)
 	req.Header.Set("X-Signature-256", sig)
@@ -619,13 +619,13 @@ func TestGetTaskSkillsSource_HMAC_Unsigned(t *testing.T) {
 }
 
 // testChatBackendAPIKey is the dedicated chat backend HMAC key used by the chat
-// task-skills-source endpoint tests. Distinct from testRunnerAPIKey so a
+// task-skills-source endpoint tests. Distinct from testBackendAPIKey so a
 // wrong-key request proves the endpoint verifies with the chat key, not the
-// runner's.
+// task backend's.
 const testChatBackendAPIKey = "chat-backend-test-key-0123456789abcdef"
 
 // setupChatTaskSkillsSourceEndpoint mounts the chat backend's task-skills-source
-// route, authenticated by the dedicated chat backend key. No Runner is wired —
+// route, authenticated by the dedicated chat backend key. No Backend is wired —
 // the chat callback is independent of the active task backend.
 func setupChatTaskSkillsSourceEndpoint(t *testing.T) (*httptest.Server, func()) {
 	t.Helper()
@@ -677,7 +677,7 @@ func TestGetChatTaskSkillsSource_HMAC_WrongKey(t *testing.T) {
 
 	path := "/api/chat/task-skills-source"
 	// Sign with a different key than the configured chat backend key.
-	sig, ts := protocol.SignRequestHeaders(testRunnerAPIKey, http.MethodGet, path, nil)
+	sig, ts := protocol.SignRequestHeaders(testBackendAPIKey, http.MethodGet, path, nil)
 
 	req, _ := http.NewRequest("GET", server.URL+path, nil)
 	req.Header.Set("X-Signature-256", sig)
@@ -739,20 +739,20 @@ func TestChatTaskSkillsSource_NotRegisteredWithoutBackend(t *testing.T) {
 // failure here is best-effort: there is no binding to be wrong about, so the
 // response still succeeds with the token fields simply omitted.
 
-// TestGetTaskSkillsSource_InstanceProvider_IncludesToken asserts the runner
-// variant attaches token + token_expires_at when the instance provider mints
+// TestGetTaskSkillsSource_InstanceProvider_IncludesToken asserts the
+// task-backend variant attaches token + token_expires_at when the instance provider mints
 // successfully.
 func TestGetTaskSkillsSource_InstanceProvider_IncludesToken(t *testing.T) {
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
 	defer cleanup()
 
-	runnerClient := runner.NewClient("http://localhost:9090", testRunnerAPIKey)
+	backendClient := backend.NewClient("http://localhost:9090", testBackendAPIKey)
 	fakeExpiry := time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC)
 	router := NewRouter(RouterConfig{
 		Service:             svc,
 		Bus:                 bus,
-		Runner:              runnerClient,
-		AgentBackendCfg:     &config.AgentBackendConfig{APIKey: testRunnerAPIKey},
+		Backend:             backendClient,
+		AgentBackendCfg:     &config.AgentBackendConfig{APIKey: testBackendAPIKey},
 		GitHubTokenProvider: &fakeTokenProvider{token: "ghs_instance", expiresAt: fakeExpiry},
 	})
 
@@ -760,7 +760,7 @@ func TestGetTaskSkillsSource_InstanceProvider_IncludesToken(t *testing.T) {
 	defer server.Close()
 
 	path := "/api/agent/task-skills-source"
-	sig, ts := protocol.SignRequestHeaders(testRunnerAPIKey, http.MethodGet, path, nil)
+	sig, ts := protocol.SignRequestHeaders(testBackendAPIKey, http.MethodGet, path, nil)
 
 	req, _ := http.NewRequest("GET", server.URL+path, nil)
 	req.Header.Set("X-Signature-256", sig)
@@ -786,12 +786,12 @@ func TestGetTaskSkillsSource_MintFailure_OmitsTokenBestEffort(t *testing.T) {
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
 	defer cleanup()
 
-	runnerClient := runner.NewClient("http://localhost:9090", testRunnerAPIKey)
+	backendClient := backend.NewClient("http://localhost:9090", testBackendAPIKey)
 	router := NewRouter(RouterConfig{
 		Service:             svc,
 		Bus:                 bus,
-		Runner:              runnerClient,
-		AgentBackendCfg:     &config.AgentBackendConfig{APIKey: testRunnerAPIKey},
+		Backend:             backendClient,
+		AgentBackendCfg:     &config.AgentBackendConfig{APIKey: testBackendAPIKey},
 		GitHubTokenProvider: &fakeTokenProvider{err: errors.New("github api returned status 401")},
 	})
 
@@ -799,7 +799,7 @@ func TestGetTaskSkillsSource_MintFailure_OmitsTokenBestEffort(t *testing.T) {
 	defer server.Close()
 
 	path := "/api/agent/task-skills-source"
-	sig, ts := protocol.SignRequestHeaders(testRunnerAPIKey, http.MethodGet, path, nil)
+	sig, ts := protocol.SignRequestHeaders(testBackendAPIKey, http.MethodGet, path, nil)
 
 	req, _ := http.NewRequest("GET", server.URL+path, nil)
 	req.Header.Set("X-Signature-256", sig)
@@ -819,7 +819,7 @@ func TestGetTaskSkillsSource_MintFailure_OmitsTokenBestEffort(t *testing.T) {
 }
 
 // TestGetChatTaskSkillsSource_InstanceProvider_IncludesToken mirrors the
-// runner-variant token test for the dedicated chat backend callback.
+// task-backend-variant token test for the dedicated chat backend callback.
 func TestGetChatTaskSkillsSource_InstanceProvider_IncludesToken(t *testing.T) {
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
 	defer cleanup()

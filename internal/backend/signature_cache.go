@@ -1,6 +1,6 @@
-// Package runner provides an HTTP client for communicating with the
-// contextmatrix-runner via signed webhooks.
-package runner
+// Package backend provides an HTTP client for communicating with the task
+// backend via signed webhooks.
+package backend
 
 import (
 	"sync"
@@ -42,7 +42,7 @@ type SignatureCache struct {
 var _ protocol.ReplayCache = (*SignatureCache)(nil)
 
 // maxSignatureCacheSize is the entry count threshold above which lazy
-// eviction runs on the next insert. At one new entry per outbound runner
+// eviction runs on the next insert. At one new entry per outbound backend
 // call and a 5-minute retention window, normal load stays well below this.
 const maxSignatureCacheSize = 1024
 

@@ -13,7 +13,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
-// wireChat builds the chat subsystem: runner client, SSE hub, manager, idle
+// wireChat builds the chat subsystem: backend client, SSE hub, manager, idle
 // reaper, warm-idle grace timers, and the startup reattach loop. The chat
 // store is the shared operational store (ops.db), opened and owned by the
 // caller — wireChat does not open or close it. Returns the manager, the hub,
@@ -43,7 +43,7 @@ func wireChat(
 	chatBackendEntry, chatBackendOK := cfg.ChatBackend()
 
 	if chatBackendOK {
-		chatBackend = chat.NewRunnerClient(chat.RunnerClientConfig{
+		chatBackend = chat.NewBackendClient(chat.BackendClientConfig{
 			BaseURL:   chatBackendEntry.URL,
 			HMACKey:   chatBackendEntry.APIKey,
 			MCPAPIKey: cfg.MCPAPIKey,
@@ -54,7 +54,7 @@ func wireChat(
 		// Nil backend causes nil-pointer panics at call sites. Use a no-op
 		// stub that errors on every operation — chat features require a
 		// configured chat backend.
-		chatBackend = chatRunnerDisabled{}
+		chatBackend = chatBackendDisabled{}
 	}
 
 	// chatWorkerAPIKey is the secret behind WorkerCredentialsToken: empty
@@ -100,12 +100,12 @@ func wireChat(
 				}
 			}
 
-			// Chat uses runner_image regardless of remote_execution.enabled:
+			// Chat uses worker_image regardless of remote_execution.enabled:
 			// enabled gates autonomous card execution, while the image answers
 			// "what toolchain does this project need", which applies to
 			// interactive sessions identically.
 			if p.RemoteExecution != nil {
-				info.RunnerImage = p.RemoteExecution.RunnerImage
+				info.WorkerImage = p.RemoteExecution.WorkerImage
 			}
 
 			return info, nil
@@ -140,9 +140,9 @@ func wireChat(
 			t.(*time.Timer).Stop()
 		}
 		// A browser subscriber is a strong "I want this chat" signal.
-		// Reattach the runner-log consumer if one isn't already bridging
+		// Reattach the worker-log consumer if one isn't already bridging
 		// /logs for this session — covers the case where CM restarted
-		// while runner containers stayed alive, stranding their consumer
+		// while worker containers stayed alive, stranding their consumer
 		// goroutines. No-op on cold/ending sessions. The returned Session
 		// tells us the current status so we can skip a redundant GetSession
 		// inside MarkActive when the session is already active.
@@ -169,10 +169,10 @@ func wireChat(
 	// "Chat cost · 30d" tile. Done after both chatMgr and svc are constructed.
 	svc.SetChatCostSummarizer(chatMgr)
 
-	// Resume runner-log consumers for sessions that survived a CM restart.
+	// Resume worker-log consumers for sessions that survived a CM restart.
 	// Without this, active/warm-idle sessions stay marked alive in the DB
 	// while their consumer goroutines are gone (in-memory state lost), so
-	// the UI can't see runner output even though the container is still
+	// the UI can't see worker output even though the container is still
 	// up. Reattach is idempotent and tolerant of dead containers — the
 	// consumer exits on first /logs error and the reconcile sweep below
 	// will flip orphaned sessions to cold.

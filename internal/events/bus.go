@@ -31,10 +31,10 @@ const (
 	SyncConflict  EventType = "sync.conflict"
 	SyncError     EventType = "sync.error"
 
-	RunnerTriggered EventType = "runner.triggered"
-	RunnerStarted   EventType = "runner.started"
-	RunnerFailed    EventType = "runner.failed"
-	RunnerKilled    EventType = "runner.killed"
+	WorkerTriggered EventType = "worker.triggered"
+	WorkerStarted   EventType = "worker.started"
+	WorkerFailed    EventType = "worker.failed"
+	WorkerKilled    EventType = "worker.killed"
 )
 
 // Event represents a board event that can be published to subscribers.

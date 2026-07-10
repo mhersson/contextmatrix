@@ -9,7 +9,7 @@ import (
 
 // outcomeAdminStore is the op-store surface the admin model-outcomes
 // endpoints need. Deliberately a separate, wider interface from
-// outcomeStatsReader (runner.go): that one is read-only because runCard's
+// outcomeStatsReader (backend_handlers.go): that one is read-only because runCard's
 // selection path never resets recorded outcomes, and widening it to add
 // ResetModelOutcomes would force every consumer (and test double) of the
 // read-only surface to grow a method it never calls.

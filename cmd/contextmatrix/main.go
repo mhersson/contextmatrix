@@ -542,18 +542,18 @@ func main() {
 	chatMgr, chatHub, chatCleanup, chatWorkerAPIKey := wireChat(ctx, cfg, svc, opStore)
 	defer chatCleanup()
 
-	// Wire runner subsystems: client, end-session subscriber, reconcile sweep,
+	// Wire backend subsystems: client, end-session subscriber, reconcile sweep,
 	// and session-log manager.
-	runnerSys, runnerCleanup := wireRunnerSubsystems(ctx, cfg, svc, bus)
-	defer runnerCleanup()
+	backendSys, backendCleanup := wireBackendSubsystems(ctx, cfg, svc, bus)
+	defer backendCleanup()
 
 	// Interface fields must stay untyped-nil when the backend is disabled —
-	// a nil *runner.Client wrapped in the interface would defeat every
+	// a nil *backend.Client wrapped in the interface would defeat every
 	// `!= nil` enablement check in the router.
 	var taskBackend api.TaskBackend
 
-	if runnerSys.Client != nil {
-		taskBackend = runnerSys.Client
+	if backendSys.Client != nil {
+		taskBackend = backendSys.Client
 	}
 
 	// Attribute backend-generated audit-trail entries to the agent backend
@@ -563,7 +563,7 @@ func main() {
 		svc.SetTaskBackendName(config.BackendNameAgent)
 	}
 
-	sessionMgr := runnerSys.SessionLog
+	sessionMgr := backendSys.SessionLog
 
 	// Create MCP server
 	mcpSrv := mcpserver.NewServer(mcpserver.ServerConfig{
@@ -602,7 +602,7 @@ func main() {
 		Bus:                    bus,
 		CORSOrigin:             cfg.CORSOrigin,
 		Syncer:                 apiSyncer,
-		Runner:                 taskBackend,
+		Backend:                taskBackend,
 		AgentBackendCfg:        agentCfg,
 		MCPAPIKey:              cfg.MCPAPIKey,
 		GitHubTokenProvider:    tokenProvider,
@@ -915,24 +915,24 @@ func newSPAHandler(apiHandler http.Handler, fsys fs.FS) http.Handler {
 	})
 }
 
-// chatRunnerDisabled is a no-op chat.Backend used when no chat backend is
+// chatBackendDisabled is a no-op chat.Backend used when no chat backend is
 // configured. Every operation returns an error so callers fail fast instead
 // of nil-panicking.
-type chatRunnerDisabled struct{}
+type chatBackendDisabled struct{}
 
-func (chatRunnerDisabled) StartChat(_ context.Context, _ chat.StartChatOpts) (string, error) {
+func (chatBackendDisabled) StartChat(_ context.Context, _ chat.StartChatOpts) (string, error) {
 	return "", fmt.Errorf("chat: no chat backend configured")
 }
 
-func (chatRunnerDisabled) EndChat(_ context.Context, _ string) error {
+func (chatBackendDisabled) EndChat(_ context.Context, _ string) error {
 	return fmt.Errorf("chat: no chat backend configured")
 }
 
-func (chatRunnerDisabled) SendChatMessage(_ context.Context, _, _, _ string) error {
+func (chatBackendDisabled) SendChatMessage(_ context.Context, _, _, _ string) error {
 	return fmt.Errorf("chat: no chat backend configured")
 }
 
-func (chatRunnerDisabled) StreamLogs(ctx context.Context, _ string, _ func(chat.LogEntry)) error {
+func (chatBackendDisabled) StreamLogs(ctx context.Context, _ string, _ func(chat.LogEntry)) error {
 	<-ctx.Done()
 
 	return ctx.Err()

@@ -20,12 +20,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	githubauth "github.com/mhersson/contextmatrix-githubauth"
+	"github.com/mhersson/contextmatrix/internal/backend"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/gitops"
 	"github.com/mhersson/contextmatrix/internal/lock"
-	"github.com/mhersson/contextmatrix/internal/runner"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
@@ -1350,7 +1350,7 @@ func TestFullCardLifecycle(t *testing.T) {
 
 	// Step 3: Add log entry. addLogEntry is now a service-layer-only
 	// operation (the REST mirror was removed); MCP's add_log tool and the
-	// runner's promote-webhook-failed path exercise the same svc call.
+	// backend's promote-webhook-failed path exercise the same svc call.
 	logged, err := svc.AddLogEntry(context.Background(), "test-project", cardID, board.ActivityEntry{
 		Agent:   agentID,
 		Action:  "status_update",
@@ -2303,7 +2303,7 @@ func testSetupWithRemoteExecution(t *testing.T, boardConfigYAML string) (*servic
 	return svc, bus, func() {}
 }
 
-func TestGetProjectRunnerStatus(t *testing.T) {
+func TestGetProjectRemoteExecutionStatus(t *testing.T) {
 	boardConfigWithRemoteExec := `name: test-project
 prefix: TEST
 next_id: 1
@@ -2318,7 +2318,7 @@ transitions:
   not_planned: [todo]
 remote_execution:
   enabled: true
-  runner_image: my-runner:latest
+  worker_image: my-worker:latest
 `
 
 	boardConfigPerProjectDisabled := `name: test-project
@@ -2335,15 +2335,15 @@ transitions:
   not_planned: [todo]
 remote_execution:
   enabled: false
-  runner_image: my-runner:latest
+  worker_image: my-worker:latest
 `
 
-	t.Run("runner disabled globally returns remote_execution.enabled false", func(t *testing.T) {
+	t.Run("backend disabled globally returns remote_execution.enabled false", func(t *testing.T) {
 		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigWithRemoteExec)
 		defer cleanup()
 
-		// No task backend passed → runnerEnabled = false
-		router := NewRouter(RouterConfig{Service: svc, Bus: bus, Runner: nil})
+		// No task backend passed → backendEnabled = false
+		router := NewRouter(RouterConfig{Service: svc, Bus: bus, Backend: nil})
 
 		server := httptest.NewServer(router)
 		defer server.Close()
@@ -2361,19 +2361,19 @@ remote_execution:
 		require.NotNil(t, project.RemoteExecution)
 		require.NotNil(t, project.RemoteExecution.Enabled)
 		assert.False(t, *project.RemoteExecution.Enabled,
-			"remote_execution.enabled should be false when runner is globally disabled")
+			"remote_execution.enabled should be false when no task backend is configured")
 	})
 
 	t.Run("task backend configured but per-project disabled returns false", func(t *testing.T) {
 		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigPerProjectDisabled)
 		defer cleanup()
 
-		// Passing a non-nil task backend → runnerEnabled = true
-		runnerClient := runner.NewClient("http://localhost:9090", "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+		// Passing a non-nil task backend → backendEnabled = true
+		backendClient := backend.NewClient("http://localhost:9090", "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 		router := NewRouter(RouterConfig{
 			Service:         svc,
 			Bus:             bus,
-			Runner:          runnerClient,
+			Backend:         backendClient,
 			AgentBackendCfg: &config.AgentBackendConfig{},
 		})
 
@@ -2401,11 +2401,11 @@ remote_execution:
 		svc, bus, cleanup := testSetup(t)
 		defer cleanup()
 
-		runnerClient := runner.NewClient("http://localhost:9090", "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+		backendClient := backend.NewClient("http://localhost:9090", "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
 		router := NewRouter(RouterConfig{
 			Service:         svc,
 			Bus:             bus,
-			Runner:          runnerClient,
+			Backend:         backendClient,
 			AgentBackendCfg: &config.AgentBackendConfig{},
 		})
 
@@ -2423,13 +2423,13 @@ remote_execution:
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&project))
 
 		require.NotNil(t, project.RemoteExecution,
-			"remote_execution should be injected when runner is enabled globally")
+			"remote_execution should be injected when a task backend is configured")
 		assert.True(t, *project.RemoteExecution.Enabled,
-			"remote_execution.enabled should be true when runner is enabled globally")
+			"remote_execution.enabled should be true when a task backend is configured")
 	})
 }
 
-func TestListProjectsRunnerStatus(t *testing.T) {
+func TestListProjectsRemoteExecutionStatus(t *testing.T) {
 	boardConfigWithRemoteExec := `name: test-project
 prefix: TEST
 next_id: 1
@@ -2444,14 +2444,14 @@ transitions:
   not_planned: [todo]
 remote_execution:
   enabled: true
-  runner_image: my-runner:latest
+  worker_image: my-worker:latest
 `
 
-	t.Run("runner disabled globally returns remote_execution.enabled false for all projects", func(t *testing.T) {
+	t.Run("backend disabled globally returns remote_execution.enabled false for all projects", func(t *testing.T) {
 		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigWithRemoteExec)
 		defer cleanup()
 
-		router := NewRouter(RouterConfig{Service: svc, Bus: bus, Runner: nil})
+		router := NewRouter(RouterConfig{Service: svc, Bus: bus, Backend: nil})
 
 		server := httptest.NewServer(router)
 		defer server.Close()
@@ -2470,7 +2470,7 @@ remote_execution:
 		require.NotNil(t, projects[0].RemoteExecution)
 		require.NotNil(t, projects[0].RemoteExecution.Enabled)
 		assert.False(t, *projects[0].RemoteExecution.Enabled,
-			"remote_execution.enabled should be false in list when runner is globally disabled")
+			"remote_execution.enabled should be false in list when no task backend is configured")
 	})
 }
 

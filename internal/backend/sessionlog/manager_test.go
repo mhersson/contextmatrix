@@ -243,7 +243,7 @@ func TestStartSubscribeLiveAndSnapshot(t *testing.T) {
 	readyCh := make(chan struct{})
 	srv := sseServer(t, events, readyCh)
 
-	m := NewManager(WithRunnerConfig(srv.URL, "test-key"))
+	m := NewManager(WithBackendConfig(srv.URL, "test-key"))
 	defer stopThenClose(m, cardID, srv)
 
 	// Subscribe before Start — goes into pendingSubs, picked up when Start runs.
@@ -314,7 +314,7 @@ func TestMultipleConcurrentSubscribers(t *testing.T) {
 		<-r.Context().Done()
 	}))
 
-	m := NewManager(WithRunnerConfig(srv.URL, "test-key"))
+	m := NewManager(WithBackendConfig(srv.URL, "test-key"))
 	defer stopThenClose(m, cardID, srv)
 
 	require.NoError(t, m.Start(context.Background(), cardID, ""))
@@ -345,7 +345,7 @@ func TestStopDrainsSubscribers(t *testing.T) {
 
 	srv := sseServerInfinite(t)
 
-	m := NewManager(WithRunnerConfig(srv.URL, "test-key"))
+	m := NewManager(WithBackendConfig(srv.URL, "test-key"))
 	require.NoError(t, m.Start(context.Background(), cardID, ""))
 
 	ch1, unsub1 := m.Subscribe(cardID)
@@ -392,7 +392,7 @@ func TestStartIdempotent(t *testing.T) {
 
 	srv := sseServerInfinite(t)
 
-	m := NewManager(WithRunnerConfig(srv.URL, "test-key"))
+	m := NewManager(WithBackendConfig(srv.URL, "test-key"))
 	defer stopThenClose(m, cardID, srv)
 
 	require.NoError(t, m.Start(context.Background(), cardID, ""))
@@ -412,7 +412,7 @@ func TestSessionCapEnforcement(t *testing.T) {
 	srv := sseServerInfinite(t)
 	defer srv.Close()
 
-	m := NewManager(WithRunnerConfig(srv.URL, "test-key"), WithMaxSessions(maxSess))
+	m := NewManager(WithBackendConfig(srv.URL, "test-key"), WithMaxSessions(maxSess))
 
 	t.Cleanup(func() {
 		for i := range maxSess {
@@ -443,7 +443,7 @@ func TestIdleSweeper(t *testing.T) {
 
 	fake := clock.Fake(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
 	m := NewManager(
-		WithRunnerConfig(srv.URL, "test-key"),
+		WithBackendConfig(srv.URL, "test-key"),
 		WithSessionTTL(ttl),
 		WithClock(fake),
 	)
@@ -495,7 +495,7 @@ func TestIdleSweeper_KeyedOnLastEventNotStartTime(t *testing.T) {
 	fake := clock.Fake(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
 
 	m := NewManager(
-		WithRunnerConfig(srv.URL, "test-key"),
+		WithBackendConfig(srv.URL, "test-key"),
 		WithSessionTTL(ttl),
 		WithClock(fake),
 	)
@@ -549,7 +549,7 @@ func TestUpstreamRetryAndError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	m, cleanup := newFailFastManager(t, WithRunnerConfig(srv.URL, "test-key"))
+	m, cleanup := newFailFastManager(t, WithBackendConfig(srv.URL, "test-key"))
 	t.Cleanup(cleanup)
 
 	ch, unsub := m.Subscribe(cardID)
@@ -587,7 +587,7 @@ func TestSubscribeBeforeStart(t *testing.T) {
 	readyCh := make(chan struct{})
 	srv := sseServer(t, events, readyCh)
 
-	m := NewManager(WithRunnerConfig(srv.URL, "test-key"))
+	m := NewManager(WithBackendConfig(srv.URL, "test-key"))
 	defer stopThenClose(m, cardID, srv)
 
 	// Subscribe before Start.
@@ -678,7 +678,7 @@ func TestSubscribeSnapshotLiveOrdering(t *testing.T) {
 				}
 			}))
 
-			m := NewManager(WithRunnerConfig(srv.URL, "test-key"))
+			m := NewManager(WithBackendConfig(srv.URL, "test-key"))
 			defer stopThenClose(m, cardID, srv)
 
 			// Start the session so the pump goroutine connects and begins
@@ -975,7 +975,7 @@ func TestSubscribeStopUnblocksSnapshot(t *testing.T) {
 
 	srv := sseServerInfinite(t)
 
-	m := NewManager(WithRunnerConfig(srv.URL, "test-key"))
+	m := NewManager(WithBackendConfig(srv.URL, "test-key"))
 
 	// Pre-populate buffer with more events than the channel can hold.
 	for i := range numEvents {
@@ -1422,7 +1422,7 @@ func TestAttemptResetOnSuccessfulFrame(t *testing.T) {
 		srv.Close()
 	}()
 
-	m := NewManager(WithRunnerConfig(srv.URL, "test-key"))
+	m := NewManager(WithBackendConfig(srv.URL, "test-key"))
 	defer m.Stop(cardID)
 
 	require.NoError(t, m.Start(context.Background(), cardID, ""))
@@ -1582,7 +1582,7 @@ func TestSubscribeProject_BuffersAllCards(t *testing.T) {
 	}
 	srv := sseServerWithCardIDs(t, payloads, readyCh)
 
-	m := NewManager(WithRunnerConfig(srv.URL, "test-key"))
+	m := NewManager(WithBackendConfig(srv.URL, "test-key"))
 
 	defer func() {
 		m.StopProject(project)
@@ -1622,7 +1622,7 @@ func TestStartProject_Idempotent(t *testing.T) {
 
 	srv := sseServerInfinite(t)
 
-	m := NewManager(WithRunnerConfig(srv.URL, "test-key"))
+	m := NewManager(WithBackendConfig(srv.URL, "test-key"))
 
 	defer func() {
 		m.StopProject(project)
@@ -1649,7 +1649,7 @@ func TestProjectKeyNamespacing(t *testing.T) {
 
 	srv := sseServerInfinite(t)
 
-	m := NewManager(WithRunnerConfig(srv.URL, "test-key"))
+	m := NewManager(WithBackendConfig(srv.URL, "test-key"))
 
 	defer func() {
 		m.Stop(cardID)
@@ -1695,7 +1695,7 @@ func TestPermanentFailure_ClosesPendingAndActive(t *testing.T) {
 	srv := sseServerAlways500(t)
 	defer srv.Close()
 
-	m, cleanup := newFailFastManager(t, WithRunnerConfig(srv.URL, "test-key"))
+	m, cleanup := newFailFastManager(t, WithBackendConfig(srv.URL, "test-key"))
 	t.Cleanup(cleanup)
 
 	// Subscribe before Start — lands in pendingSubs.
@@ -1751,7 +1751,7 @@ func TestPermanentFailure_ClosesPendingAndActive(t *testing.T) {
 	for i := range 10 {
 		const gcID = "PFAIL-GC"
 
-		m2, cleanup2 := newFailFastManager(t, WithRunnerConfig(srv.URL, "test-key"))
+		m2, cleanup2 := newFailFastManager(t, WithBackendConfig(srv.URL, "test-key"))
 
 		ch2, unsub2 := m2.Subscribe(gcID)
 		defer unsub2()
@@ -1790,7 +1790,7 @@ func TestPermanentFailure_SubscribeAfterFailure(t *testing.T) {
 	srv := sseServerAlways500(t)
 	defer srv.Close()
 
-	m, cleanup := newFailFastManager(t, WithRunnerConfig(srv.URL, "test-key"))
+	m, cleanup := newFailFastManager(t, WithBackendConfig(srv.URL, "test-key"))
 	t.Cleanup(cleanup)
 
 	// Subscribe and start; wait for permanent failure.
@@ -1837,7 +1837,7 @@ func TestPermanentFailure_RestartClearsFlag(t *testing.T) {
 	// Phase 1: Cause permanent failure.
 	failSrv := sseServerAlways500(t)
 
-	m, cleanup := newFailFastManager(t, WithRunnerConfig(failSrv.URL, "test-key"))
+	m, cleanup := newFailFastManager(t, WithBackendConfig(failSrv.URL, "test-key"))
 	t.Cleanup(cleanup)
 
 	firstCh, firstUnsub := m.Subscribe(cardID)
@@ -1869,7 +1869,7 @@ func TestPermanentFailure_RestartClearsFlag(t *testing.T) {
 	goodSrv := sseServer(t, events, readyCh)
 	defer goodSrv.Close()
 
-	m.runnerURL = goodSrv.URL
+	m.backendURL = goodSrv.URL
 
 	require.NoError(t, m.Start(context.Background(), cardID, ""))
 
@@ -1968,7 +1968,7 @@ func TestSlowSubscriberDropCounter_Pump(t *testing.T) {
 	readyCh := make(chan struct{})
 	srv := sseServer(t, events, readyCh)
 
-	m := NewManager(WithRunnerConfig(srv.URL, "test-key"))
+	m := NewManager(WithBackendConfig(srv.URL, "test-key"))
 	defer stopThenClose(m, cardID, srv)
 
 	// Subscribe before Start — channel has subscriberChanBuf (256) slots.
@@ -2054,7 +2054,7 @@ func TestFailedSessions_StopAndClearClearFlag(t *testing.T) {
 
 	// --- Stop clears the flag ---
 	{
-		m, cleanup := newFailFastManager(t, WithRunnerConfig(srv.URL, "test-key"))
+		m, cleanup := newFailFastManager(t, WithBackendConfig(srv.URL, "test-key"))
 		t.Cleanup(cleanup)
 
 		firstCh, firstUnsub := m.Subscribe(cardIDStop)
@@ -2088,7 +2088,7 @@ func TestFailedSessions_StopAndClearClearFlag(t *testing.T) {
 
 	// --- Clear clears the flag ---
 	{
-		m, cleanup := newFailFastManager(t, WithRunnerConfig(srv.URL, "test-key"))
+		m, cleanup := newFailFastManager(t, WithBackendConfig(srv.URL, "test-key"))
 		t.Cleanup(cleanup)
 
 		firstCh, firstUnsub := m.Subscribe(cardIDClear)
@@ -2135,7 +2135,7 @@ func TestClose_DrainsActiveSessions(t *testing.T) {
 	srv := sseServerInfinite(t)
 	defer srv.Close()
 
-	m := NewManager(WithRunnerConfig(srv.URL, "test-key"))
+	m := NewManager(WithBackendConfig(srv.URL, "test-key"))
 
 	require.NoError(t, m.Start(context.Background(), cardA, ""))
 	require.NoError(t, m.Start(context.Background(), cardB, ""))
@@ -2368,7 +2368,7 @@ func TestSSESignatureBindsFullURI(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	m := NewManager(WithRunnerConfig(srv.URL, apiKey))
+	m := NewManager(WithBackendConfig(srv.URL, apiKey))
 
 	defer func() { _ = m.Close(context.Background()) }()
 
@@ -2386,7 +2386,7 @@ func TestSSESignatureBindsFullURI(t *testing.T) {
 // TestParseSSEPayloadReadsWireTimestamp verifies that parseSSEPayload honors
 // the ts field from a real protocol.LogEntry wire frame instead of falling
 // back to time.Now(). This is the correctness invariant for the decoder: the
-// runner marshals protocol.LogEntry; the decoder must read that exact shape.
+// backend marshals protocol.LogEntry; the decoder must read that exact shape.
 func TestParseSSEPayloadReadsWireTimestamp(t *testing.T) {
 	ts := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	raw, err := json.Marshal(protocol.LogEntry{
@@ -2412,7 +2412,7 @@ func TestParseSSEPayloadReadsWireTimestamp(t *testing.T) {
 // signSSERequest and protocol.SignPayloadWithTimestamp and verifies the
 // resulting signatures are byte-identical. If signSSERequest ever stops
 // delegating to the protocol module — different algorithm, different
-// newline/separator, body-not-empty bug — runner-side HMAC verification
+// newline/separator, body-not-empty bug — backend-side HMAC verification
 // will fail at runtime; this test catches that at compile-and-test time
 // instead. The signature recomputation reuses signSSERequest's own
 // timestamp, so it cannot catch granularity drift by itself; the explicit
@@ -2449,7 +2449,7 @@ func TestSignSSERequestMatchesProtocolSigner(t *testing.T) {
 				"timestamp must be a seconds-scale Unix value (too small)")
 			assert.Less(t, parsed, int64(4_100_000_000),
 				"timestamp must be a seconds-scale Unix value — a larger value "+
-					"means millisecond/nanosecond granularity, which the runner rejects")
+					"means millisecond/nanosecond granularity, which the backend rejects")
 
 			// The core invariant: given identical (key, method, uri, ts,
 			// empty body) inputs, both signers must produce byte-identical
@@ -2460,7 +2460,7 @@ func TestSignSSERequestMatchesProtocolSigner(t *testing.T) {
 			assert.Equal(t, want, sig,
 				"signSSERequest and protocol.SignPayloadWithTimestamp have drifted; "+
 					"sessionlog's SSE signing is no longer byte-compatible with the "+
-					"canonical protocol signer — runner-side HMAC verification "+
+					"canonical protocol signer — backend-side HMAC verification "+
 					"will reject sessionlog's SSE requests in production")
 		})
 	}

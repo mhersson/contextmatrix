@@ -238,7 +238,7 @@ func TestBuild_FirstUserAndLastKCollision(t *testing.T) {
 // — the marker stamped by Manager.ClearContext — are excluded from the
 // resume payload while phase=false rows pass through normally. This is
 // the wire-side guarantee that a cleared session does not re-feed pre-clear
-// turns into the runner on the next cold reopen.
+// turns into the backend on the next cold reopen.
 func TestBuild_SkipsClearedMessages(t *testing.T) {
 	in := []Message{
 		{Seq: 1, Role: RoleUser, Content: "pre-clear turn", RehydrationPhase: true},

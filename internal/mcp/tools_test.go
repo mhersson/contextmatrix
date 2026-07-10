@@ -129,14 +129,14 @@ func TestUpdateCard_AgentOwnership(t *testing.T) {
 		result, err := callToolRaw(t, env, "update_card", map[string]any{
 			"project": "test-project",
 			"card_id": "TEST-001",
-			"body":    "runner update without agent_id",
+			"body":    "backend update without agent_id",
 		})
 
 		require.False(t, resultIsError(result, err), "update_card without agent_id should succeed")
 
 		var updated board.Card
 		unmarshalResult(t, result, &updated)
-		assert.Contains(t, updated.Body, "runner update without agent_id")
+		assert.Contains(t, updated.Body, "backend update without agent_id")
 	})
 }
 

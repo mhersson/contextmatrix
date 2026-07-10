@@ -63,7 +63,7 @@ func workerCredentialsMAC(chatAPIKey, sessionID string) string {
 
 // chatSessionLiveness is the narrow slice of *chat.Manager the worker
 // credentials endpoint needs: whether a session currently owns a live
-// runner container. Defined here, in the consuming package, per project
+// worker container. Defined here, in the consuming package, per project
 // convention (interfaces belong where they're used) — *chat.Manager
 // satisfies it via SessionLiveness without either package importing the
 // other's handler types.
@@ -86,13 +86,12 @@ type workerGitCredentialsResponse struct {
 // (ChatStartPayload.GitCredentialsToken), independent of auth.mode. See
 // docs/api-reference.md § Worker Endpoints for the full contract.
 type workerCredentialsHandlers struct {
-	// chatAPIKey is the resolved (runner-or-chat, precedence-aware) chat
-	// backend's api_key — the same secret WorkerCredentialsToken minted the
-	// bearer with. NewRouter only registers this handler when the key is
-	// non-empty.
+	// chatAPIKey is the resolved chat backend's api_key — the same secret
+	// WorkerCredentialsToken minted the bearer with. NewRouter only registers
+	// this handler when the key is non-empty.
 	chatAPIKey string
 
-	// liveness reports whether a session currently owns a live runner
+	// liveness reports whether a session currently owns a live worker
 	// container. Narrow interface (see chatSessionLiveness) so tests can
 	// stub it without constructing a real *chat.Manager.
 	liveness chatSessionLiveness
@@ -106,7 +105,7 @@ type workerCredentialsHandlers struct {
 	// providerForProject resolves the project-scoped git-token provider for
 	// a matched project: the project's credential binding when set
 	// (fail-closed on a broken one), else the instance provider. Same func
-	// RouterConfig threads into runnerHandlers.
+	// RouterConfig threads into backendHandlers.
 	providerForProject func(ctx context.Context, project string) (githubauth.TokenGenerator, string, error)
 
 	// instanceProvider mints the instance-wide credential used when no
@@ -174,7 +173,7 @@ func (h *workerCredentialsHandlers) getGitCredentials(w http.ResponseWriter, r *
 	}
 
 	if !live {
-		writeError(w, http.StatusConflict, ErrCodeRunnerNotRunning, "chat session is not running", "")
+		writeError(w, http.StatusConflict, ErrCodeWorkerNotRunning, "chat session is not running", "")
 
 		return
 	}

@@ -10,7 +10,7 @@
 //   - service_projects.go  — Project CRUD + config/template accessors.
 //   - service_locks.go     — Claim/Release/Heartbeat + stall detection.
 //   - service_usage.go     — Token usage + cost aggregation/recalculation.
-//   - service_runner.go    — Runner lifecycle (push, review attempts, status,
+//   - service_worker.go    — Worker lifecycle (push, review attempts, status,
 //     promote-to-autonomous).
 //   - service_dashboard.go — GetDashboard.
 //   - service_transitions.go — Parent auto-transitions + state-change side
@@ -29,12 +29,12 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/mhersson/contextmatrix/internal/backend/sessionlog"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/gitops"
 	"github.com/mhersson/contextmatrix/internal/lock"
-	"github.com/mhersson/contextmatrix/internal/runner/sessionlog"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
@@ -95,15 +95,15 @@ type CardService struct {
 	// clock.Real(); tests inject a fake clock via NewCardServiceWithClock.
 	clk clock.Clock
 
-	// sessionManager is optional; when non-nil it is notified of runner lifecycle
+	// sessionManager is optional; when non-nil it is notified of worker lifecycle
 	// transitions (running → Start, terminal → Stop) so the per-card SSE buffer
 	// stays in sync with actual execution state.
 	sessionManager *sessionlog.Manager
 
-	// taskBackendName is the active task backend's name ("runner"/"agent"),
-	// used to attribute backend-generated activity-log entries and boards-repo
-	// commits to the backend that actually did the work. Empty defaults to
-	// "runner" via backendAuthor() (no-backend / test-fixture case).
+	// taskBackendName is the active task backend's name, used to attribute
+	// backend-generated activity-log entries and boards-repo commits to the
+	// backend that actually did the work. Empty defaults to "backend" via
+	// backendAuthor() (no-backend / test-fixture case).
 	taskBackendName string
 
 	// stalledFn is called on each timeout-checker tick to process stalled cards.
@@ -216,7 +216,7 @@ func NewCardService(
 	return svc
 }
 
-// SetSessionManager registers the session manager used for runner lifecycle
+// SetSessionManager registers the session manager used for worker lifecycle
 // hooks.  Must be called before the server starts accepting requests.
 // Passing nil disables lifecycle notifications.
 func (s *CardService) SetSessionManager(m *sessionlog.Manager) {
@@ -407,7 +407,7 @@ func (s *CardService) transitionStep(
 	appendStateChangeLog(card, oldState, state, "", card.Updated)
 
 	// State-change invariants: release claim on not_planned, clear
-	// runner_status on terminal states. Each step in the path is a state
+	// worker_status on terminal states. Each step in the path is a state
 	// change, so pass stateChanged=true.
 	enforceTerminalStateInvariants(card, true)
 
@@ -501,7 +501,7 @@ func (s *CardService) HealthCheck(ctx context.Context) []CheckResult {
 		Err:  gitErr,
 	})
 
-	// Check 3: session_log — always ok; nil means runner is disabled (healthy),
+	// Check 3: session_log — always ok; nil means no task backend (healthy),
 	// non-nil means it is operational.
 	results = append(results, CheckResult{
 		Name: "session_log",

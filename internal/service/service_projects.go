@@ -64,21 +64,21 @@ type UpdateProjectInput struct {
 
 // RemoteExecutionUpdate carries per-field edits to a project's remote-execution
 // config. Each pointer is applied independently: nil leaves the subfield
-// untouched; non-nil sets it. A non-nil RunnerImage of "" clears the image.
+// untouched; non-nil sets it. A non-nil WorkerImage of "" clears the image.
 type RemoteExecutionUpdate struct {
 	Enabled     *bool
-	RunnerImage *string
+	WorkerImage *string
 }
 
-// validRunnerImage is a hygiene-only screen for a per-project runner image
+// validWorkerImage is a hygiene-only screen for a per-project worker image
 // reference: it must start with an alphanumeric and contain only characters
 // that appear in OCI image references. Exact registry/tag/digest grammar is
 // left to the container runtime. Empty passes (it means "clear the image").
-var validRunnerImage = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._:/@-]*$`)
+var validWorkerImage = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._:/@-]*$`)
 
-// maxRunnerImageLen caps the runner image reference length before it reaches
+// maxWorkerImageLen caps the worker image reference length before it reaches
 // .board.yaml. Hygiene only — well above any real image reference.
-const maxRunnerImageLen = 512
+const maxWorkerImageLen = 512
 
 // validProjectName matches safe directory names: alphanumeric, hyphens, underscores.
 var validProjectName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
@@ -275,13 +275,13 @@ func (s *CardService) UpdateProject(ctx context.Context, name string, input Upda
 			re.Enabled = &v
 		}
 
-		if input.RemoteExecution.RunnerImage != nil {
-			image := strings.TrimSpace(*input.RemoteExecution.RunnerImage)
-			if err := validateRunnerImage(image); err != nil {
+		if input.RemoteExecution.WorkerImage != nil {
+			image := strings.TrimSpace(*input.RemoteExecution.WorkerImage)
+			if err := validateWorkerImage(image); err != nil {
 				return nil, err
 			}
 
-			re.RunnerImage = image
+			re.WorkerImage = image
 		}
 
 		// Normalize: drop a zero-value config so .board.yaml stays clean.
@@ -737,22 +737,22 @@ func copyProjectConfig(cfg *board.ProjectConfig) *board.ProjectConfig {
 	return &cp
 }
 
-// validateRunnerImage screens a per-project runner image reference for hygiene
+// validateWorkerImage screens a per-project worker image reference for hygiene
 // only (length + allowed characters); exact OCI reference grammar is left to
 // the container runtime. Empty is allowed — it clears the image. Wraps
 // ErrInvalidProjectConfig so the API layer maps it to 422, matching the other
 // project-config validation failures.
-func validateRunnerImage(image string) error {
+func validateWorkerImage(image string) error {
 	if image == "" {
 		return nil
 	}
 
-	if len(image) > maxRunnerImageLen {
-		return fmt.Errorf("%w: runner_image exceeds %d bytes", board.ErrInvalidProjectConfig, maxRunnerImageLen)
+	if len(image) > maxWorkerImageLen {
+		return fmt.Errorf("%w: worker_image exceeds %d bytes", board.ErrInvalidProjectConfig, maxWorkerImageLen)
 	}
 
-	if !validRunnerImage.MatchString(image) {
-		return fmt.Errorf("%w: runner_image contains invalid characters", board.ErrInvalidProjectConfig)
+	if !validWorkerImage.MatchString(image) {
+		return fmt.Errorf("%w: worker_image contains invalid characters", board.ErrInvalidProjectConfig)
 	}
 
 	return nil
@@ -762,9 +762,9 @@ func validateRunnerImage(image string) error {
 // no operator intent and can be dropped so .board.yaml stays clean. Only the Go
 // zero value qualifies: an explicit Enabled (even a pointer to false) is a
 // meaningful per-project override of the global default (see
-// runner.isRemoteExecutionEnabled) and must be preserved.
+// backendHandlers.isRemoteExecutionEnabled) and must be preserved.
 func remoteExecutionIsZero(re *board.RemoteExecutionConfig) bool {
-	return re.Enabled == nil && re.RunnerImage == ""
+	return re.Enabled == nil && re.WorkerImage == ""
 }
 
 // toSet converts a slice to a set for membership checks.

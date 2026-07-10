@@ -26,7 +26,7 @@ func TestBackendAuthor_ReflectsConfiguredBackend(t *testing.T) {
 	assert.Equal(t, "agent", svc.backendAuthor())
 }
 
-func TestUpdateRunnerStatus_AttributesMessageToActiveBackend(t *testing.T) {
+func TestUpdateWorkerStatus_AttributesMessageToActiveBackend(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
 	defer cleanup()
 
@@ -37,13 +37,13 @@ func TestUpdateRunnerStatus_AttributesMessageToActiveBackend(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = svc.UpdateRunnerStatus(context.Background(), testProjectName, card.ID, "running", "container started")
+	_, err = svc.UpdateWorkerStatus(context.Background(), testProjectName, card.ID, "running", "container started")
 	require.NoError(t, err)
 
 	got, err := svc.GetCard(context.Background(), testProjectName, card.ID)
 	require.NoError(t, err)
 	require.NotEmpty(t, got.ActivityLog)
 	last := got.ActivityLog[len(got.ActivityLog)-1]
-	assert.Equal(t, "runner_status", last.Action)
+	assert.Equal(t, "worker_status", last.Action)
 	assert.Equal(t, "agent", last.Agent)
 }

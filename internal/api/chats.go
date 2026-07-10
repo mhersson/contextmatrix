@@ -83,7 +83,8 @@ type chatHandlers struct {
 	// openRouter is true when the dedicated chat backend (contextmatrix-chat,
 	// OpenRouter) serves chat. In that mode the chat.models allowlist does not
 	// apply: the picker pulls the live OpenRouter catalog and slugs are accepted
-	// as-is. False when the runner serves chat (native Anthropic slugs).
+	// as-is. False only in legacy configurations without a dedicated chat
+	// backend.
 	openRouter bool
 	// orDefault is the default OpenRouter slug (backends.chat.default_model),
 	// used to seed the picker and as the empty-model fallback in openRouter mode.
@@ -430,7 +431,7 @@ func (h *chatHandlers) endChat(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, sess)
 }
 
-// clearChat wipes the runner's working memory in place (the worker re-orients
+// clearChat wipes the worker's working memory in place (the worker re-orients
 // its next epoch from its own embedded primer), marks prior transcript rows
 // as rehydration_phase=true so they are excluded from future cold-open
 // resume payloads, and appends a "Context cleared" divider row. The
@@ -444,8 +445,8 @@ func (h *chatHandlers) endChat(w http.ResponseWriter, r *http.Request) {
 //
 // Errors are routed:
 //   - chat.ErrSessionNotFound   → 404 (via handleChatError)
-//   - chat.ErrSessionNotRunning → 409 RUNNER_NOT_RUNNING
-//   - chat.ErrRunnerSend        → 502 RUNNER_UNAVAILABLE (detail: "clear_failed")
+//   - chat.ErrSessionNotRunning → 409 WORKER_NOT_RUNNING
+//   - chat.ErrBackendSend        → 502 BACKEND_UNAVAILABLE (detail: "clear_failed")
 //   - everything else           → 500 (via handleChatError)
 func (h *chatHandlers) clearChat(w http.ResponseWriter, r *http.Request) {
 	if _, ok := h.ownedSession(w, r); !ok {
@@ -455,15 +456,15 @@ func (h *chatHandlers) clearChat(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if err := h.mgr.ClearContext(r.Context(), id); err != nil {
 		if errors.Is(err, chat.ErrSessionNotRunning) {
-			writeError(w, http.StatusConflict, ErrCodeRunnerNotRunning,
+			writeError(w, http.StatusConflict, ErrCodeWorkerNotRunning,
 				"session is not running", "")
 
 			return
 		}
 
-		if errors.Is(err, chat.ErrRunnerSend) {
-			writeError(w, http.StatusBadGateway, ErrCodeRunnerUnavailable,
-				"runner unavailable", "clear_failed")
+		if errors.Is(err, chat.ErrBackendSend) {
+			writeError(w, http.StatusBadGateway, ErrCodeBackendUnavailable,
+				"backend unavailable", "clear_failed")
 
 			return
 		}
