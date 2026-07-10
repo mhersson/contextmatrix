@@ -9,6 +9,8 @@ import { RepoListSection } from './RepoListSection';
 import { StateTransitionEditor } from './StateTransitionEditor';
 import { RemoteExecutionSection } from './RemoteExecutionSection';
 import type { RemoteExecutionConfig } from './RemoteExecutionSection';
+import { VerifySection } from './VerifySection';
+import type { VerifyConfig } from './VerifySection';
 
 interface ProjectSettingsProps {
   project: string;
@@ -19,9 +21,23 @@ interface ProjectSettingsProps {
 
 const emptyGitHub: GitHubImportConfig = { import_issues: false };
 const emptyRemoteExecution: RemoteExecutionConfig = {};
+const emptyVerify: VerifyConfig = {};
 
 function ghToString(gh: GitHubImportConfig | undefined): string {
   return JSON.stringify(gh ?? emptyGitHub);
+}
+
+// verifyToString normalizes a verify config to a stable shape so the diff-guard
+// treats absent and zero-value fields identically. remote_execution uses a
+// touched flag instead (its GET/PUT baselines diverge); verify has no such
+// divergence, so a value diff is a reliable dirty signal here.
+function verifyToString(v: VerifyConfig | undefined): string {
+  const vv = v ?? emptyVerify;
+  return JSON.stringify({
+    command: vv.command ?? '',
+    timeout_seconds: vv.timeout_seconds ?? 0,
+    env: vv.env ?? [],
+  });
 }
 
 export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: ProjectSettingsProps) {
@@ -55,6 +71,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
   // effective value (effectiveRemoteExecution forces `enabled`) while PUT
   // returns the raw value, so after a save the two diverge. See handleSave.
   const [remoteExecutionTouched, setRemoteExecutionTouched] = useState(false);
+  const [verify, setVerify] = useState<VerifyConfig>(emptyVerify);
   const [defaultSkills, setDefaultSkills] = useState<string[] | null>(null);
   const [githubCredential, setGithubCredential] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -94,6 +111,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
         setGitHub(cfg.github ?? emptyGitHub);
         setRemoteExecution(cfg.remote_execution ?? emptyRemoteExecution);
         setRemoteExecutionTouched(false);
+        setVerify(cfg.verify ?? emptyVerify);
         setDefaultSkills(cfg.default_skills ?? null);
         setGithubCredential(cfg.github_credential ?? '');
         setCardCount(count);
@@ -138,6 +156,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
       serializeTransitions(transitions) !== serializeTransitions(config.transitions) ||
       ghToString(github) !== ghToString(config.github) ||
       remoteExecutionTouched ||
+      verifyToString(verify) !== verifyToString(config.verify) ||
       JSON.stringify(defaultSkills) !== JSON.stringify(configDefaultSkills) ||
       githubCredential !== (config.github_credential ?? '')
     );
@@ -150,6 +169,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
     transitions,
     github,
     remoteExecutionTouched,
+    verify,
     defaultSkills,
     githubCredential,
     serializeTransitions,
@@ -201,6 +221,23 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
               },
             }
           : {}),
+        // Only send verify when it changed from the loaded config. The server
+        // replaces the whole struct and normalizes a zero-value object to nil,
+        // so clearing every field here clears the project's verify config; an
+        // untouched save omits the key and preserves it. env is included only
+        // when it has names: a project has nothing to inherit, so an empty env
+        // is "no env" — omitting the key keeps `env: []` out of .board.yaml
+        // (the server preserves a non-nil empty env for the card-override path,
+        // which this project-level form never sends).
+        ...(verifyToString(verify) !== verifyToString(config?.verify)
+          ? {
+              verify: {
+                command: verify.command ?? '',
+                timeout_seconds: verify.timeout_seconds ?? 0,
+                ...(verify.env && verify.env.length > 0 ? { env: verify.env } : {}),
+              },
+            }
+          : {}),
       };
       const updated = await api.updateProject(project, input);
       setConfig(updated);
@@ -228,6 +265,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
     github,
     remoteExecution,
     remoteExecutionTouched,
+    verify,
     defaultSkills,
     githubCredential,
     mode,
@@ -423,6 +461,9 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
           }}
           inputStyle={inputStyle}
         />
+
+        {/* Verify gate */}
+        <VerifySection value={verify} onChange={setVerify} inputStyle={inputStyle} />
 
         {/* GitHub Issue Import */}
         <GitHubImportSection

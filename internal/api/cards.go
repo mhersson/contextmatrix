@@ -45,22 +45,23 @@ type cardHandlers struct {
 
 // createCardRequest is the JSON body for creating a card.
 type createCardRequest struct {
-	Title               string        `json:"title"`
-	Type                string        `json:"type"`
-	Priority            string        `json:"priority"`
-	Labels              []string      `json:"labels"`
-	Parent              string        `json:"parent"`
-	Body                string        `json:"body"`
-	Source              *board.Source `json:"source"`
-	Autonomous          bool          `json:"autonomous"`
-	UseOpusOrchestrator bool          `json:"use_opus_orchestrator"`
-	FeatureBranch       bool          `json:"feature_branch"`
-	CreatePR            bool          `json:"create_pr"`
-	Vetted              bool          `json:"vetted"`
-	Skills              *[]string     `json:"skills,omitempty"`
-	ModelOrchestrator   string        `json:"model_orchestrator,omitempty"`
-	ModelCoder          string        `json:"model_coder,omitempty"`
-	ModelReviewer       string        `json:"model_reviewer,omitempty"`
+	Title               string              `json:"title"`
+	Type                string              `json:"type"`
+	Priority            string              `json:"priority"`
+	Labels              []string            `json:"labels"`
+	Parent              string              `json:"parent"`
+	Body                string              `json:"body"`
+	Source              *board.Source       `json:"source"`
+	Autonomous          bool                `json:"autonomous"`
+	UseOpusOrchestrator bool                `json:"use_opus_orchestrator"`
+	FeatureBranch       bool                `json:"feature_branch"`
+	CreatePR            bool                `json:"create_pr"`
+	Vetted              bool                `json:"vetted"`
+	Skills              *[]string           `json:"skills,omitempty"`
+	ModelOrchestrator   string              `json:"model_orchestrator,omitempty"`
+	ModelCoder          string              `json:"model_coder,omitempty"`
+	ModelReviewer       string              `json:"model_reviewer,omitempty"`
+	Verify              *board.VerifyConfig `json:"verify,omitempty"`
 }
 
 // updateCardRequest is the JSON body for full card updates.
@@ -118,6 +119,9 @@ type patchCardRequest struct {
 	ModelCoder          *string   `json:"model_coder,omitempty"`
 	ModelReviewer       *string   `json:"model_reviewer,omitempty"`
 	BestOfN             *int      `json:"best_of_n,omitempty"`
+	// Verify replaces the whole struct: omitting it preserves the card's
+	// override; a present object replaces it (zero value clears it).
+	Verify *board.VerifyConfig `json:"verify,omitempty"`
 }
 
 // validateCardSkills validates that each skill name in `skills` exists in
@@ -340,9 +344,9 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 	// never by agents — mirrors the update and patch guards. Pins set at
 	// create time flow onto the card and reach the agent via get_task_context.
 	if isNonHumanAgent(r) && (req.Autonomous || req.UseOpusOrchestrator || req.FeatureBranch || req.CreatePR || req.Vetted ||
-		req.ModelOrchestrator != "" || req.ModelCoder != "" || req.ModelReviewer != "") {
+		req.ModelOrchestrator != "" || req.ModelCoder != "" || req.ModelReviewer != "" || req.Verify != nil) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
-			"forbidden", "autonomous, use_opus_orchestrator, feature_branch, create_pr, vetted, and model pins can only be set via the UI")
+			"forbidden", "autonomous, use_opus_orchestrator, feature_branch, create_pr, vetted, model pins, and verify can only be set via the UI")
 
 		return
 	}
@@ -370,6 +374,7 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 		ModelOrchestrator:   req.ModelOrchestrator,
 		ModelCoder:          req.ModelCoder,
 		ModelReviewer:       req.ModelReviewer,
+		Verify:              req.Verify,
 	}
 
 	card, err := h.svc.CreateCard(r.Context(), projectName, input)
@@ -529,9 +534,10 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 		req.ModelOrchestrator != nil ||
 		req.ModelCoder != nil ||
 		req.ModelReviewer != nil ||
-		req.BestOfN != nil) {
+		req.BestOfN != nil ||
+		req.Verify != nil) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
-			"forbidden", "autonomous, use_opus_orchestrator, feature_branch, create_pr, vetted, base_branch, model pins, and best_of_n can only be set via the UI")
+			"forbidden", "autonomous, use_opus_orchestrator, feature_branch, create_pr, vetted, base_branch, model pins, best_of_n, and verify can only be set via the UI")
 
 		return
 	}
@@ -584,6 +590,7 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 		ModelCoder:          req.ModelCoder,
 		ModelReviewer:       req.ModelReviewer,
 		BestOfN:             req.BestOfN,
+		Verify:              req.Verify,
 	}
 
 	card, err := h.svc.PatchCard(r.Context(), projectName, cardID, input)

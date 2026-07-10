@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
@@ -50,4 +51,39 @@ func TestUpdateProject_MCP_PreservesDefaultSkillsAndRepo(t *testing.T) {
 	assert.Equal(t, "https://github.com/org/test", cur.Repo, "repo must be preserved when the tool omits it")
 	require.NotNil(t, cur.DefaultSkills, "default_skills must not be wiped by an MCP update")
 	assert.Equal(t, []string{"go-development"}, *cur.DefaultSkills)
+}
+
+// TestUpdateProject_MCP_PreservesVerify pins that an MCP-driven update_project
+// leaves an operator's project verify config intact. The tool input carries no
+// verify channel, and UpdateProjectInput.Verify defaults to nil (preserve), so
+// this is structural — but verify is a human-only field and must never be
+// touched through the agent surface.
+func TestUpdateProject_MCP_PreservesVerify(t *testing.T) {
+	env := setupMCP(t)
+	ctx := context.Background()
+
+	verify := &board.VerifyConfig{Command: "make test", TimeoutSeconds: 600}
+	_, err := env.svc.UpdateProject(ctx, "test-project", service.UpdateProjectInput{
+		States:      []string{"todo", "in_progress", "blocked", "review", "done", "stalled", "not_planned"},
+		Types:       []string{"task", "bug", "feature"},
+		Priorities:  []string{"low", "medium", "high", "critical"},
+		Transitions: testProjectConfig().Transitions,
+		Verify:      verify,
+	})
+	require.NoError(t, err)
+
+	result := callTool(t, env, "update_project", map[string]any{
+		"project":     "test-project",
+		"states":      []string{"todo", "in_progress", "blocked", "review", "done", "stalled", "not_planned"},
+		"types":       []string{"task", "bug", "feature"},
+		"priorities":  []string{"low", "medium", "high", "critical"},
+		"transitions": testProjectConfig().Transitions,
+	})
+	require.False(t, result.IsError, "update_project should not error")
+
+	cur, err := env.svc.GetProject(ctx, "test-project")
+	require.NoError(t, err)
+	require.NotNil(t, cur.Verify, "verify must not be wiped by an MCP update")
+	assert.Equal(t, "make test", cur.Verify.Command)
+	assert.Equal(t, 600, cur.Verify.TimeoutSeconds)
 }

@@ -1042,6 +1042,8 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "model pin not in catalog", sanitizeErrorDetails(err))
 	case errors.Is(err, service.ErrFieldTooLong):
 		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "field exceeds maximum length", sanitizeErrorDetails(err))
+	case errors.Is(err, service.ErrInvalidVerify):
+		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "invalid verify config", sanitizeErrorDetails(err))
 
 	default:
 		slog.Error("unhandled error", "error", err)
