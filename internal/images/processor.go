@@ -57,11 +57,7 @@ const maxDim = 16384
 // ceiling at 8) keeps peak decode memory proportional to available CPUs without
 // starving single-CPU deployments.
 var maxConcurrentDecodes = func() int {
-	n := max(runtime.GOMAXPROCS(0), 2)
-
-	if n > 8 {
-		n = 8
-	}
+	n := min(max(runtime.GOMAXPROCS(0), 2), 8)
 
 	return n
 }()

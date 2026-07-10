@@ -17,7 +17,7 @@ func TestBuildAppliesFloorAllowlistAndMapping(t *testing.T) {
 	aa := []aaModel{
 		{Slug: "glm-5-2", Creator: "zai", CodingIndex: new(76.5), IntelIndex: new(59.9)},   // max => norm 1.0
 		{Slug: "weak-1", Creator: "openai", CodingIndex: new(30.0), IntelIndex: new(20.0)}, // norm .39 < floor .65
-		{Slug: "untrusted-x", Creator: "longcat", CodingIndex: f(70), IntelIndex: f(50)},
+		{Slug: "untrusted-x", Creator: "longcat", CodingIndex: new(float64(70)), IntelIndex: new(float64(50))},
 	}
 	or := map[string]orEntry{
 		"z-ai/glm-5.2":  {PromptPrice: 1.2e-6, CompletionPrice: 4.1e-6, ContextWindow: 1048576, Tools: true},
@@ -57,15 +57,12 @@ func TestBuildCollapsesEffortVariants(t *testing.T) {
 	}
 }
 
-//go:fix inline
-func f(v float64) *float64 { return new(v) }
-
 func TestBuildFromStemMapAggregatesFamilyFiltersToolsAndHonorsOverride(t *testing.T) {
 	aa := []aaModel{
 		// base row often unscored; a variant carries the score
-		{Slug: "vendor-x-1", Creator: "vendor", CodingIndex: nil, IntelIndex: f(50)},
-		{Slug: "vendor-x-1-thinking", Creator: "vendor", CodingIndex: f(80), IntelIndex: f(80)},
-		{Slug: "vendor-y-2", Creator: "vendor", CodingIndex: f(40), IntelIndex: f(40)},
+		{Slug: "vendor-x-1", Creator: "vendor", CodingIndex: nil, IntelIndex: new(float64(50))},
+		{Slug: "vendor-x-1-thinking", Creator: "vendor", CodingIndex: new(float64(80)), IntelIndex: new(float64(80))},
+		{Slug: "vendor-y-2", Creator: "vendor", CodingIndex: new(float64(40)), IntelIndex: new(float64(40))},
 	}
 	endpoint := map[string]orEntry{
 		"model-a": {PromptPrice: 3e-6, CompletionPrice: 15e-6, ContextWindow: 200000, Tools: true},
