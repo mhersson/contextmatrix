@@ -12,25 +12,25 @@ import (
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
-// runnerSubsystems groups the optional task-backend client, the session-log
+// backendSubsystems groups the optional task-backend client, the session-log
 // manager, and any related coordinators so they can be wired in one place.
-type runnerSubsystems struct {
-	// Client is nil when no task backend is configured (no enabled runner/agent entry).
+type backendSubsystems struct {
+	// Client is nil when no task backend is configured (no enabled agent entry).
 	Client     *backend.Client
 	SessionLog *sessionlog.Manager
 }
 
-// wireRunnerSubsystems constructs the task-backend client, starts the
+// wireBackendSubsystems constructs the task-backend client, starts the
 // end-session subscriber, creates the session-log manager, starts its idle
 // sweeper, and (when enabled) launches the Docker-authoritative reconciliation
 // sweep. Returns the aggregate and a cleanup closure the caller must defer.
-func wireRunnerSubsystems(
+func wireBackendSubsystems(
 	ctx context.Context,
 	cfg *config.Config,
 	svc *service.CardService,
 	bus *events.Bus,
-) (*runnerSubsystems, func()) {
-	sys := &runnerSubsystems{}
+) (*backendSubsystems, func()) {
+	sys := &backendSubsystems{}
 
 	taskCfg, taskEnabled := cfg.AgentBackend()
 
