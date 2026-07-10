@@ -40,9 +40,9 @@ accidentally releasing each other's card claims; that is the only reason a
 unique-per-browser id is needed.
 
 **REST writes that require an identity but receive none fall back to a marker
-identity.** `internal/api/runner.go` falls back to `human:api` for the
-human-only runner endpoints; `agentIDForChat` in `internal/api/chats.go` falls
-back to `human:web`. These markers are honest ("this came from the web UI /
+identity.** The backend handlers (`internal/api/backend_control.go`) fall back
+to `human:api` for the human-only worker endpoints; `agentIDForChat` in
+`internal/api/chats.go` falls back to `human:web`. These markers are honest ("this came from the web UI /
 direct API call by an unspecified human") and they preserve write
 functionality without inventing fake usernames. In multi mode both fallbacks
 are unreachable dead code on the routes that use them — the session guard has
@@ -66,9 +66,9 @@ control (in none mode):**
 - **Human-only operations on cards** (e.g. flipping `autonomous: true` via
   `PromoteToAutonomous` / the `promote_to_autonomous` MCP tool): the same
   `human:` prefix check, same intent. The REST handler in
-  `internal/api/runner.go` falls back to `human:api` when `X-Agent-ID` is absent
-  so the service-layer gate still passes for direct API calls in none mode (in
-  multi mode the session identity already satisfies it).
+  `internal/api/backend_control.go` falls back to `human:api` when `X-Agent-ID`
+  is absent so the service-layer gate still passes for direct API calls in none
+  mode (in multi mode the session identity already satisfies it).
 
 **`auth.mode: multi` adds real authentication: login, sessions, and an admin
 role.** Users, sessions, one-time tokens, and the GitHub credential pool are
@@ -80,11 +80,12 @@ opening it creates the first admin account.
 `sessionGuard` (`internal/api/auth.go`) runs on every request in multi mode
 and rejects any request with no valid session unless the path is exempt
 (`sessionExempt`): `/healthz`, `/readyz`, `/mcp`, `/api/auth/*`,
-`/api/app/config` (serves a slim payload pre-login), and the HMAC-signed
-backend-callback prefixes (`/api/runner/*`, `/api/agent/*`, `/api/chat/*`,
-`/api/v1/*` — with `/api/runner/logs` and `/api/runner/health` explicitly
-carved back out of the exemption because they are browser-facing despite the
-prefix). Board reads (`GET /api/projects`, `GET /api/events`, and so on)
+`/api/app/config` (serves a slim payload pre-login), the HMAC-signed
+backend-callback prefixes (`/api/agent/*`, `/api/chat/*`, `/api/v1/*`), and the
+Bearer-authed worker-callback prefix (`/api/worker/*`) — with
+`/api/worker/logs` and `/api/backend/health` explicitly carved back out of the
+exemption because they are browser-facing despite the machine-flavored prefix.
+Board reads (`GET /api/projects`, `GET /api/events`, and so on)
 require a session exactly like writes do; multi mode makes no read/write
 distinction.
 
@@ -185,8 +186,8 @@ starts reading the rest of the (now-rotated) pool under the new key.
 - **MCP Bearer token** (`mcp_api_key` config) gates `/mcp`, independent of
   `auth.mode`. Optional for loopback deployments; set it whenever `/mcp` is
   reachable over a network, in either mode.
-- **Runner webhook HMAC** (shared secret in config) authenticates
-  `contextmatrix-runner` / `contextmatrix-agent` callbacks into the server,
+- **Backend webhook HMAC** (per-backend shared secret in config) authenticates
+  `contextmatrix-agent` and `contextmatrix-chat` callbacks into the server,
   independent of `auth.mode`. The backend is on a different host; the secret
   prevents arbitrary network callers from injecting status updates.
 - **`/healthz` and `/readyz`** are open in both modes (`sessionExempt` lists
@@ -263,8 +264,7 @@ bodies at 5 MB (with per-route overrides via `bodyLimitOverrides` — currently
 `POST /api/images` gets the 11 MB image-upload envelope so screenshots fit),
 and `csrfGuard` rejects state-changing requests that lack
 `X-Requested-With: contextmatrix` (with narrow exemptions: GET/HEAD/OPTIONS,
-`/healthz`, `/readyz`, `/api/runner/*`, `/api/agent/*`, `/api/chat/*`, and
-`/mcp`).
+`/healthz`, `/readyz`, `/api/agent/*`, `/api/chat/*`, and `/mcp`).
 
 Card mutations follow the same pipeline through the service layer:
 
@@ -318,7 +318,7 @@ and commit completion. The service layer closes that gap on failure:
   converge and the caller sees the new card.
 - **Commit failure:** `applyCardMutation`, `DeleteCard`, `AddLogEntry`,
   `ClaimCard`, `ReleaseCard`, `markCardStalled`, `RecordPush`,
-  `IncrementReviewAttempts`, `UpdateRunnerStatus`, `PromoteToAutonomous`, and
+  `IncrementReviewAttempts`, `UpdateWorkerStatus`, `PromoteToAutonomous`, and
   `ReportUsage` snapshot the pre-mutation card via `store.GetCard` (which
   returns a deep copy) before mutating, then reapply that snapshot via
   `store.UpdateCard` (or `store.CreateCard` for `DeleteCard`) after a failed
@@ -368,25 +368,25 @@ and commit completion. The service layer closes that gap on failure:
   field (wired via `SetChatCostSummarizer`) that, when non-nil, is called on each
   `GetDashboard` invocation to append server-wide chat-cost aggregates to the
   per-project `DashboardData` payload.
-- **Session Log Manager** (`runner/sessionlog.Manager`): server-side per-card
+- **Session Log Manager** (`backend/sessionlog.Manager`): server-side per-card
   SSE buffer and fan-out hub. Keeps a single long-lived authenticated upstream
-  connection to the runner per active card, tees events into a bounded ring
+  connection to the backend per active card, tees events into a bounded ring
   buffer, and replays the buffer snapshot to every new subscriber before tailing
-  live events. Started by `CardService.UpdateRunnerStatus` on `→running`,
+  live events. Started by `CardService.UpdateWorkerStatus` on `→running`,
   stopped (fire-and-forget) on terminal statuses. See `docs/remote-execution.md`
-  § Session Log Manager for full details.
+  § Log Streaming for full details.
 - **chat.Manager** (`chat.Manager`): orchestrates the global chat surface
-  (project-agnostic chat sessions that share the runner's worker image but use
-  long-lived containers instead of card-scoped one-shots). Owns session
+  (project-agnostic chat sessions that share the same worker image as card runs
+  but use long-lived containers instead of card-scoped one-shots). Owns session
   lifecycle (`cold` → `active` → `warm-idle` → `ending`), persists the
   transcript through `chat.Store`, delegates container management to a
-  `chat.Backend` (HMAC-signed calls to the runner's `/chat/start` and
-  `/chat/end`; the sole implementation is `NewRunnerClient`), and bridges the
-  runner's `/logs?session_id=` SSE feed back into
+  `chat.Backend` (HMAC-signed calls to the chat backend's `/chat/start` and
+  `/chat/end`; the sole implementation is `NewBackendClient`), and bridges the
+  chat backend's `/logs?session_id=` SSE feed back into
   the transcript by appending each entry through `AppendMessage`. Holds `m.mu`
   across the seq-assignment + store insert so disk insertion order matches seq
   order regardless of writer concurrency. On cold-reopen,
-  `chat.transcript.Build` produces the resume payload shipped to the runner;
+  `chat.transcript.Build` produces the resume payload shipped to the chat backend;
   while `RehydrationActive` is true on the session row, `AppendMessage` stamps
   incoming entries with `rehydration_phase=TRUE` so the next reopen can filter
   them out. The MCP tool `chat_rehydration_complete` flips the flag back to
@@ -395,9 +395,9 @@ and commit completion. The service layer closes that gap on failure:
   `CM_CHAT_SESSION` (forwarded as `X-CM-Chat-Session`): a caller can only flip
   its own session's rehydration flag.
 
-  **Cost accumulation:** each `usage` stream-json frame from the runner log
+  **Cost accumulation:** each `usage` stream-json frame from the backend log
   stream reaches `handleUsageEntry`. Usage frames carry per-turn
-  (per-assistant-message) token counts — the runner emits one
+  (per-assistant-message) token counts — the backend emits one
   `message.usage` block per assistant turn following the Anthropic
   Messages-API contract; these are NOT cumulative session totals. The
   values are passed directly (no snapshot subtraction) to
@@ -495,7 +495,7 @@ and commit completion. The service layer closes that gap on failure:
   caller.
 - **API handlers** (`api/*`): thin HTTP layer. Deserialize → call CardService →
   serialize. No business logic, no direct store/git/lock access.
-  `GET /api/runner/logs` has two modes: card-scoped (subscribes to one card's
+  `GET /api/worker/logs` has two modes: card-scoped (subscribes to one card's
   session) and project-scoped (subscribes to the project session, fanning out
   every card's events). Both replay the buffered snapshot through the session
   manager before tailing live events.
@@ -510,7 +510,7 @@ and commit completion. The service layer closes that gap on failure:
   `request_id` attribute in the request context. The `requestID` middleware in
   `internal/api/` calls `ctxlog.WithRequestID(ctx, id)` on every incoming
   request. All log sites in `internal/api/`, `internal/service/`,
-  `internal/storage/`, and `internal/runner/` retrieve the logger via
+  `internal/storage/`, and `internal/backend/` retrieve the logger via
   `ctxlog.Logger(ctx)` so every log line emitted during a request carries the
   same correlation ID. Falls back to `slog.Default()` for background contexts
   that bypass the middleware (e.g. stall scanner goroutine). Also stores a
@@ -552,7 +552,7 @@ and commit completion. The service layer closes that gap on failure:
   `path="unmatched"` label to bound cardinality. SSE endpoints are excluded from
   the latency histogram because their connection lifetime would drown out real
   REST signal. Additional instrumentation: SSE gauge in `internal/api/events.go`
-  and `runner_logs.go`, event-bus drop counter in `internal/events/`, git-sync
+  and `worker_logs.go`, event-bus drop counter in `internal/events/`, git-sync
   histogram in `internal/gitops/`, stall-scanner histogram and counter in
   `internal/service/`, unknown-model counter
   (`contextmatrix_report_usage_unknown_model_total`, labeled by model) in
@@ -604,9 +604,9 @@ internal/
   service/           # CardService orchestration (split across service_*.go)
   api/               # REST handlers + SSE + middleware chain + CSRF gate
   mcp/               # MCP server (Streamable HTTP /mcp) + mcpcontext/
-  runner/            # webhook client + replay cache + reconciler (HMAC via contextmatrix-protocol)
+  backend/           # task-backend webhook client + reconcile sweep + end-session subscriber + signature cache (HMAC via contextmatrix-protocol)
     sessionlog/      # per-card SSE buffer + fan-out hub
-  chat/              # chat.Manager + Store + SSEHub + IdleReaper + runner bridge
+  chat/              # chat.Manager + Store + SSEHub + IdleReaper + chat-backend log bridge
     transcript/      # pure transcript-shaping for cold-reopen resume payloads
   opstore/           # shared operational SQLite store (chat + model blacklist)
     sqlite/          # ensureSchema + Store impl (ops.db)

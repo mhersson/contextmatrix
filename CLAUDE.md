@@ -8,11 +8,9 @@ repository. It exposes a REST API, an MCP server, and a web UI for managing
 tasks across projects. Cards are executed by `contextmatrix-agent`, a
 multi-model Go harness — driving OpenRouter or any OpenAI-compatible gateway —
 that claims a card, works it in a separate project repo, and reports progress
-back to the board over MCP. Humans
-drive the same board through the web UI. The older `contextmatrix-runner`
-backend (Claude Code headless in disposable Docker containers) is frozen: it
-predates the multi-user feature, gained no multi-user support, and receives no
-new work.
+back to the board over MCP. The global chat panel is served by
+`contextmatrix-chat`, a sister backend that runs a worker container per chat
+session. Humans drive the same board through the web UI.
 
 **Boundary: ContextMatrix is a coordination layer only.** It never clones,
 builds, or touches project code repositories. Each project's `.board.yaml`
@@ -31,8 +29,7 @@ Read the relevant one before working in its area:
 | `docs/data-model.md`           | Card parsing, state machine, API validation — full domain rules and Go type definitions.                                                          |
 | `docs/api-reference.md`        | REST endpoints, agent identification, error format, response codes.                                                                               |
 | `docs/gotchas.md`              | YAML, go-git, SSE, MCP, Vite, stdlib quirks. Skim before your first commit each session.                                                          |
-| `docs/remote-execution.md`     | Runner/agent task backends, webhook protocol, container lifecycle, MCP auth.                                                                      |
-| `docs/agent-backend-parity.md` | Selecting or validating the agent task backend.                                                                                                   |
+| `docs/remote-execution.md`     | Agent and chat backends, webhook protocol, worker lifecycle, MCP auth.                                                                            |
 | `web/CLAUDE.md`                | Frontend. Auto-loaded when working in `web/`.                                                                                                     |
 
 ## Trust model (summary — canonical detail in `docs/architecture.md`)
@@ -82,8 +79,8 @@ internal/lock/             → claim/release/heartbeat + timeout checker
 internal/service/          → CardService: orchestrates store, git, lock, events, state machine
 internal/api/              → REST handlers (stdlib http.ServeMux) + SSE endpoint
 internal/mcp/              → MCP server: tools + prompts
-internal/runner/           → webhook client for task backends (runner and agent)
-internal/chat/             → chat session manager, SSE hub, runner-log bridge (persists via opstore)
+internal/backend/          → task-backend webhook client + reconcile sweep + end-session subscriber + session-log bridge (sessionlog subpkg)
+internal/chat/             → chat session manager, SSE hub, chat-backend log bridge (persists via opstore)
 internal/opstore/          → ops.db (SQLite): chat sessions/messages, model outcomes, blacklist, cost archive
 internal/modelcatalog/     → cached model catalog + candidate rating (Artificial Analysis + OpenRouter or OpenAI-compatible endpoint)
 internal/auth/             → sessions, users, one-time tokens, credential-pool crypto, master key
@@ -109,9 +106,9 @@ workflow-skills/           → agent lifecycle skills (markdown, served via MCP 
   Streamable HTTP.
 - **modernc.org/sqlite** — pure-Go SQLite for `auth.db` and `ops.db` (no cgo).
 - **`contextmatrix-githubauth`** — shared GitHub auth module (App + PAT +
-  caching); imported by server and runner.
-- **`contextmatrix-protocol`** — shared wire types across server, runner, and
-  the agent backend.
+  caching); imported by the server and the execution backends.
+- **`contextmatrix-protocol`** — shared wire types across the server, the agent
+  backend, and the chat backend.
 - **React 19 + TypeScript**, **Vite**, **Tailwind**, **@dnd-kit**,
   **@uiw/react-md-editor**; frontend embedded into the Go binary via `embed.FS`
   for single-binary distribution.
@@ -150,8 +147,8 @@ properties only — no palette-specific code, no hardcoded hex.
   instructions only, no commentary.
 - **Task skills** — operator-provided `SKILL.md` files telling the agent _how_ to
   do implementation work well. CM ships none: point `task_skills.dir` (optionally
-  git-backed) at your own repo. The agent/chat clone the `{git_remote_url, ref}`
-  pointer CM derives from it; the frozen runner bind-mounts a local copy. See
+  git-backed) at your own repo. The agent and chat backends clone the
+  `{git_remote_url, ref}` pointer CM derives from it. See
   `docs/agent-workflow.md` § Task skills.
 
 ### Documentation
@@ -191,8 +188,8 @@ Full detail and examples: `docs/data-model.md`.
     `POST /api/projects/{project}/cards/{id}/promote` (human-only) flips
     `autonomous: true`, logs, and commits. Idempotent; rejects terminal cards
     with 409. The `promote_to_autonomous` MCP tool is the same operation, also
-    human-only (`agent_id` must start with `human:`). The runner's `/promote`
-    webhook calls this endpoint first, fail-closed.
+    human-only (`agent_id` must start with `human:`). The agent backend's
+    `/promote` webhook calls this endpoint first, fail-closed.
 
 ## Running & verifying
 

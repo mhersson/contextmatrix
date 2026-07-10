@@ -31,26 +31,25 @@ POST   /api/projects/{project}/cards/{id}/stop        # stop running task (human
 POST   /api/projects/{project}/cards/{id}/message     # send chat message to running container (human-only)
 POST   /api/projects/{project}/cards/{id}/promote     # promote interactive session to autonomous (human-only)
 POST   /api/projects/{project}/stop-all               # stop all running tasks (human-only)
-POST   /api/runner/status                              # backend callback at derived /api/<name>/status; per-backend HMAC key
-POST   /api/runner/skill-engaged                       # skill-engaged callback at derived /api/<name>/... (HMAC-signed; task-backend required)
-GET    /api/runner/task-skills-source                  # agent task-skills {git_remote_url, ref} pointer at derived /api/<name>/... (HMAC-signed; task-backend required)
-GET    /api/runner/health                              # proxied runner /health (capacity meter; 2s cached; fixed path)
-GET    /api/runner/logs?project=&card_id=              # SSE log stream (card-scoped or project-scoped; fixed path; task-backend required)
-GET    /api/v1/cards/{project}/{id}/autonomous         # runner-only autonomous flag read (HMAC-signed; task-backend required)
-# /api/agent/* — callback path when the agent entry is the active task backend
-# /api/chat/*  — callback path when the chat entry is the active chat backend
+POST   /api/agent/status                               # task-backend worker-status callback (HMAC-signed; task-backend required)
+GET    /api/agent/task-skills-source                   # task-skills {git_remote_url, ref} pointer (HMAC-signed; also /api/chat/... for the chat backend)
+GET    /api/agent/git-credentials  ?project=&card_id=  # mid-run project git-token refresh (HMAC-signed; task-backend required)
+GET    /api/backend/health                             # proxied backend /health (capacity meter; 2s cached; fixed path)
+GET    /api/worker/logs  ?project=&card_id=            # SSE log stream (card-scoped or project-scoped; fixed path; task-backend required)
+GET    /api/v1/cards/{project}/{id}/autonomous         # backend autonomous-flag read (HMAC-signed; task-backend required)
+# /api/agent/* — task-backend callback path; /api/chat/* — chat-backend callback path (paths are fixed)
 
 GET    /api/worker/git-credentials  ?host=&path=       # per-repo git credentials for chat workers (bearer-authed, not HMAC; chat backend + manager required)
 
 GET    /api/chats                                      ?project=&status=&created_by=&limit=
 POST   /api/chats                                      # create a new chat session (cold)
-GET    /api/chats/models                               # chat model picker source (config|openrouter)
+GET    /api/chats/models                               # chat model picker source (openrouter|endpoint)
 GET    /api/chats/{id}
 PATCH  /api/chats/{id}                                 # rename a session
 DELETE /api/chats/{id}                                 # delete session and transcript
 POST   /api/chats/{id}/open                            # start (or reattach to) the chat container
 POST   /api/chats/{id}/end                             # stop the container; flip to cold
-POST   /api/chats/{id}/clear                           # clear runner context + re-prime + mark transcript
+POST   /api/chats/{id}/clear                           # clear worker context + mark transcript
 POST   /api/chats/{id}/messages                        # send a user message into the active container
 GET    /api/chats/{id}/messages                        ?since_seq=&limit=    # transcript bootstrap
 GET    /api/chats/{id}/stream                          ?since_seq=           # SSE stream of new entries
@@ -139,8 +138,8 @@ therefore a strong cross-origin signal and the request is rejected with 403
 `BAD_REQUEST`. Exempt paths:
 
 - `GET` / `HEAD` / `OPTIONS` on any route (read-only).
-- `/api/runner/*`, `/api/agent/*`, `/api/chat/*` — backend callback paths,
-  authenticated via per-backend HMAC; not browser paths.
+- `/api/agent/*`, `/api/chat/*` — backend callback paths, authenticated via
+  per-backend HMAC; not browser paths.
 - `/mcp` — Bearer-authed MCP endpoint.
 - `/healthz`, `/readyz` — probe endpoints.
 
@@ -165,7 +164,7 @@ otherwise the server generates a UUID. The same id is emitted as the
 **Response codes:**
 
 - 200: success (GET, PUT, PATCH; also `POST /claim`, `/release`,
-  `/stop-all`, `/api/runner/status`,
+  `/stop-all`, `/api/agent/status`,
   `POST /api/chats/{id}/open`, `POST /api/chats/{id}/end`,
   `GET /api/v1/cards/.../autonomous`, `DELETE /api/admin/model-outcomes` —
   the latter returns the deleted row count rather than an empty 204 body)
@@ -183,17 +182,17 @@ otherwise the server generates a UUID. The same id is emitted as the
 - 403: agent mismatch (wrong agent trying to modify claimed card), unvetted card
   claim attempt (`CARD_NOT_VETTED`), agent attempting a human-only field
   mutation (`HUMAN_ONLY_FIELD`), HMAC signature / timestamp invalid on a
-  runner-side endpoint (`INVALID_SIGNATURE`), authenticated but not admin on
+  backend-callback endpoint (`INVALID_SIGNATURE`), authenticated but not admin on
   an admin-gated route, multi mode only (`FORBIDDEN`)
 - 404: card, project, chat session, or referenced parent not found —
   parent-not-found uses code `PARENT_NOT_FOUND`; also unknown one-time token
   or unknown admin username (`TOKEN_INVALID`, `USER_NOT_FOUND`)
 - 409: conflict (invalid transition, card already claimed, already-running
-  runner task → `RUNNER_CONFLICT`); also a bootstrap token redeemed after a
+  worker task → `WORKER_CONFLICT`); also a bootstrap token redeemed after a
   user already exists, or an edit that would leave zero active admins
   (`VALIDATION_ERROR`); also a cold chat session or a broken/unavailable git
   credential on `GET /api/worker/git-credentials`
-  (`RUNNER_NOT_RUNNING` / `VALIDATION_ERROR`)
+  (`WORKER_NOT_RUNNING` / `VALIDATION_ERROR`)
 - 410: one-time token already redeemed or past its 48-hour expiry
   (`TOKEN_INVALID`)
 - 413: request body / chat message exceeds the size cap (`CONTENT_TOO_LARGE`)
@@ -202,10 +201,10 @@ otherwise the server generates a UUID. The same id is emitted as the
   `VALIDATION_ERROR`. **Not** used for 400-class failures.
 - 429: concurrent chat cap reached (`TOO_MANY_CHATS`), or too many failed
   login attempts for one account+IP (`RATE_LIMITED`, `Retry-After` header set)
-- 502: runner host unreachable (`RUNNER_UNAVAILABLE`); also a git-credential
-  mint failure on `GET /api/<name>/git-credentials` or
+- 502: backend unreachable (`BACKEND_UNAVAILABLE`); also a git-credential
+  mint failure on `GET /api/agent/git-credentials` or
   `GET /api/worker/git-credentials` (`INTERNAL_ERROR`)
-- 503: no task backend configured (`RUNNER_DISABLED`), sync disabled
+- 503: no task backend configured (`BACKEND_DISABLED`), sync disabled
   (`SYNC_DISABLED`), or `/readyz` dependency check failed
 
 **Error code / HTTP status mapping (selected):**
@@ -223,11 +222,11 @@ otherwise the server generates a UUID. The same id is emitted as the
 | `PARENT_NOT_FOUND`        | 404     | referenced parent card does not exist                         |
 | `CHAT_NOT_FOUND`          | 404     | chat session ID does not exist                                |
 | `VALIDATION_ERROR`        | 422     | mutation body semantically invalid                            |
-| `INVALID_MODEL`           | 400     | chat `model` not in the active model source (config allowlist, endpoint list, or CM's vendor-screened OpenRouter catalog) |
-| `RUNNER_CONFLICT`         | 409     | card already queued/running                                   |
-| `RUNNER_DISABLED`         | 503/403 | no task backend configured globally (503) or disabled for the project (403) |
-| `RUNNER_UNAVAILABLE`      | 502     | runner webhook failed (host unreachable)                      |
-| `RUNNER_NOT_RUNNING`      | 409     | card is not currently running; also a cold (non-live) chat session on `GET /api/worker/git-credentials` |
+| `INVALID_MODEL`           | 400     | chat `model` not in the active model source (endpoint list, or CM's vendor-screened OpenRouter catalog) |
+| `WORKER_CONFLICT`         | 409     | card already queued/running                                   |
+| `BACKEND_DISABLED`        | 503/403 | no task backend configured globally (503) or disabled for the project (403) |
+| `BACKEND_UNAVAILABLE`     | 502     | backend webhook failed (host unreachable)                     |
+| `WORKER_NOT_RUNNING`      | 409     | card is not currently running; also a cold (non-live) chat session on `GET /api/worker/git-credentials` |
 | `REVIEW_ATTEMPTS_CAPPED`  | 409     | review attempts limit reached                                 |
 | `INVALID_SIGNATURE`       | 403     | HMAC signature or `X-Webhook-Timestamp` missing / expired     |
 | `TOO_MANY_CHATS`          | 429     | configured `chat.max_concurrent` cap reached                  |
@@ -249,7 +248,7 @@ clients. The raw error is always logged server-side with the request's
 | Code               | HTTP | When                                                                                                                                               |
 | ------------------ | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `CARD_NOT_VETTED`  | 403  | A non-human agent calls `POST /claim` on a card with `source != null && vetted == false`.                                                          |
-| `HUMAN_ONLY_FIELD` | 403  | An agent without `human:` prefix attempts to set `autonomous`, `use_opus_orchestrator`, `feature_branch`, `create_pr`, `vetted`, `base_branch`, a model pin (`model_orchestrator`, `model_coder`, `model_reviewer`), `best_of_n`, or `verify`. |
+| `HUMAN_ONLY_FIELD` | 403  | An agent without `human:` prefix attempts to set `autonomous`, `feature_branch`, `create_pr`, `vetted`, `base_branch`, a model pin (`model_orchestrator`, `model_coder`, `model_reviewer`), `best_of_n`, or `verify`. |
 
 ## Authentication (multi mode)
 
@@ -273,11 +272,11 @@ rejects any request with no valid session — reads as well as writes, unlike
 none mode's write-only agent-identity checks. Exempt paths (reachable without
 a session): `/healthz`, `/readyz`, `/mcp`, `/api/auth/*` itself,
 `/api/app/config` (serves a slim pre-login payload — see below), the
-HMAC-signed backend-callback prefixes `/api/runner/*`, `/api/agent/*`,
-`/api/chat/*`, `/api/v1/*` (`/api/runner/logs` and `/api/runner/health` are
-carved back out of that exemption — they are browser-facing despite the
-prefix, so they require a session), and `/api/worker/*` (bearer-authed, not
-HMAC — see § Worker Endpoints below). `/api/auth/*` being session-exempt at the
+HMAC-signed backend-callback prefixes `/api/agent/*`, `/api/chat/*`,
+`/api/v1/*`, and `/api/worker/*` (bearer-authed, not HMAC — see § Worker
+Endpoints below). The browser-facing `/api/worker/logs` and
+`/api/backend/health` are not backend-callback paths and do require a session.
+`/api/auth/*` being session-exempt at the
 router level does not mean unauthenticated — `GET /api/auth/session` and
 `POST /api/auth/password` check the session themselves and 401 without one.
 
@@ -312,9 +311,9 @@ CSRF protection above). Every non-GET call, including `POST /api/auth/login`
 itself, needs `X-Requested-With: contextmatrix` or it is rejected with 403
 `BAD_REQUEST` before the session/credentials are even checked.
 
-The token-authority endpoints (`GET /api/<name>/task-skills-source`,
-`GET /api/<name>/git-credentials`) are a separate, HMAC-signed machine
-channel documented under § Runner Endpoints below — they are unrelated to the
+The token-authority endpoints (`GET /api/agent/task-skills-source`,
+`GET /api/agent/git-credentials`) are a separate, HMAC-signed machine
+channel documented under § Worker & Backend Endpoints below — they are unrelated to the
 session/admin system here and exist in both auth modes. `GET
 /api/worker/git-credentials` (§ Worker Endpoints below) is a further machine
 channel with its own auth — a deterministic per-session bearer token, not
@@ -724,7 +723,7 @@ Dependency-checked readiness probe. Runs three checks with a 500 ms timeout:
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `store`       | `ListProjects` succeeds (boards directory is readable)                                                                                                                                                                                |
 | `git`         | `CurrentBranch` resolves (git manager is initialised)                                                                                                                                                                                 |
-| `session_log` | always reports `ok: true`. A nil session-log manager simply means the runner is disabled (still healthy); a non-nil manager means it is operational. The check is included for forward compatibility but never fails the probe today. |
+| `session_log` | always reports `ok: true`. A nil session-log manager simply means no task backend is configured (still healthy); a non-nil manager means it is operational. The check is included for forward compatibility but never fails the probe today. |
 
 Returns **200** when all checks pass, **503** when any check fails.
 
@@ -892,7 +891,7 @@ mode:**
   "theme": "everforest",
   "version": "v0.42.0",
   "auth_mode": "multi",
-  "task_backend": "runner",
+  "task_backend": "agent",
   "favorites": { "complex": ["anthropic/claude-opus-4.8"] },
   "best_of_n_max": 5,
   "best_of_n_default": 3
@@ -905,7 +904,7 @@ frontend sets `data-palette` on `<html>` to match the theme value;
 the build version string the binary was compiled with; it is always present and
 is empty when the binary is built without the version ldflag. `auth_mode` is
 `"multi"` or `"none"`, matching the configured `auth.mode`. `task_backend`
-is the active task-backend name (`"runner"`, `"agent"`, or `""` when none is
+is the active task-backend name (`"agent"`, or `""` when none is
 configured). `favorites` maps each tier to its operator-configured preferred
 model slugs (the leaderboard "favorites as pin presets" surface); the field is
 omitted entirely when no favorites are configured. `best_of_n_max` /
@@ -926,7 +925,7 @@ values):
 
 ```bash
 curl http://localhost:8080/api/app/config
-# → {"theme":"everforest","version":"v0.42.0","auth_mode":"none","task_backend":"runner","best_of_n_max":5,"best_of_n_default":3}
+# → {"theme":"everforest","version":"v0.42.0","auth_mode":"none","task_backend":"agent","best_of_n_max":5,"best_of_n_default":3}
 ```
 
 ### GET /api/models
@@ -1319,10 +1318,11 @@ Returns current sync status.
 | `syncing`         | bool               | `true` while a sync is in flight.                             |
 | `enabled`         | bool               | Whether automatic sync is enabled in config.                  |
 
-## Runner Endpoints
+## Worker & Backend Endpoints
 
-See [`docs/remote-execution.md`](remote-execution.md) for the full webhook
-protocol, HMAC signing details, and runner configuration.
+The web UI's run controls plus the HMAC-signed callbacks the task and chat
+backends make to CM. See [`docs/remote-execution.md`](remote-execution.md) for
+the full webhook protocol, HMAC signing details, and backend configuration.
 
 ### POST /api/projects/{project}/cards/{id}/run
 
@@ -1338,22 +1338,22 @@ Accepts an optional JSON body:
 ```
 
 When `interactive` is `true`, the container starts in Human-in-the-Loop (HITL)
-mode — the runner writes a priming stream-json user message to the container's
-stdin after start, which instructs Claude to invoke `get_skill(create-plan)`
-immediately. The user provides approval at the skill's built-in gates (plan
-approval, subtask execution decision, review) via the chat input.
+mode: the worker begins plan drafting immediately and pauses at its built-in
+gates (plan approval, subtask execution decision, review), waiting on human
+input delivered through the chat input. CM forces `interactive` off for
+autonomous cards server-side.
 
 Regardless of `interactive`, `feature_branch` and `create_pr` are automatically
 enabled on the card for all run triggers (both autonomous and HITL).
 
-Returns **202 Accepted** with the updated card (`runner_status: "queued"`). The
-response is returned as soon as the runner webhook is accepted — the runner then
-provisions the container asynchronously.
+Returns **202 Accepted** with the updated card (`worker_status: "queued"`). The
+response is returned as soon as the backend webhook is accepted — the backend
+then provisions the container asynchronously.
 
 ### POST /api/projects/{project}/cards/{id}/message
 
 Send a chat message to a container running in interactive mode. Human-only.
-Requires `runner_status: "running"`.
+Requires `worker_status: "running"`.
 
 ```json
 { "content": "Please focus on the authentication module first." }
@@ -1361,7 +1361,7 @@ Requires `runner_status: "running"`.
 
 - 422 if `content` is empty
 - 413 `CONTENT_TOO_LARGE` if `content` exceeds 8 KiB
-- 409 `RUNNER_NOT_RUNNING` if the card is not running
+- 409 `WORKER_NOT_RUNNING` if the card is not running
 
 Returns 202 with:
 
@@ -1372,29 +1372,33 @@ Returns 202 with:
 ### POST /api/projects/{project}/cards/{id}/promote
 
 Promote an interactive session to autonomous mode. Human-only. Requires
-`runner_status: "running"`.
+`worker_status: "running"`.
 
 The endpoint performs two steps in order:
 
 1. Calls `CardService.PromoteToAutonomous` to flip the card's `autonomous` flag
-   to `true`, append an activity log entry (`action=promoted`), commit the
-   change to the boards git repository, and publish a `CardUpdated` SSE event.
-   This step is **idempotent** — if the card is already autonomous, it returns
-   the current card without writing a new log entry or commit.
-2. Sends a `/promote` webhook to the runner. The runner then writes a canned
-   stdin message to the container instructing Claude Code to check the card with
-   `get_card` at its next gate and continue on the autonomous branch.
+   to `true`, append an activity log entry, commit the change to the boards git
+   repository, and publish a `CardUpdated` SSE event. This step is
+   **idempotent** — if the card is already autonomous, it short-circuits and
+   returns the current card without sending any webhook (preventing the
+   backend's verify from recursing).
+2. Sends a `/promote` webhook to the task backend, which fail-closed confirms
+   the flag via `GET /api/v1/cards/{project}/{id}/autonomous` before writing a
+   canned stdin message telling the worker to re-read the card at its next gate
+   and continue on the autonomous branch.
 
 `feature_branch` and `create_pr` are also set to `true` if not already enabled.
 
 **Error responses:**
 
 - 403 `HUMAN_ONLY_FIELD` if the caller is not a human agent
-- 409 `RUNNER_NOT_RUNNING` if `runner_status` is not `"running"`
+- 409 `WORKER_NOT_RUNNING` if `worker_status` is not `"running"`
 - 409 `INVALID_TRANSITION` if the card is in a terminal state (`done` or
   `not_planned`) — the flag flip itself is rejected before any webhook is sent
-- 502 `RUNNER_UNAVAILABLE` if the runner webhook fails — the autonomous flag
-  flip is **not** reverted; the card is permanently promoted
+- 502 `BACKEND_UNAVAILABLE` if the backend webhook fails — CM rolls back the
+  `autonomous`, `feature_branch`, and `create_pr` changes it made so the card's
+  declared mode matches the worker's actual mode, and records a
+  `promote-webhook-failed` activity entry
 
 Returns **202 Accepted** with the updated card. The idempotent short-circuit
 (card already autonomous) also returns 202 with the current card state and no
@@ -1407,21 +1411,20 @@ curl -X POST http://localhost:8080/api/projects/my-project/cards/PROJ-042/promot
 
 ### POST /api/projects/{project}/cards/{id}/stop
 
-Stop a running remote execution. Human-only. Sends kill webhook to runner.
-Returns **202 Accepted** with the updated card (`runner_status: "killed"`).
+Stop a running remote execution. Human-only. Sends a kill webhook to the task
+backend. Returns **202 Accepted** with the updated card (`worker_status:
+"killed"`).
 
 ### POST /api/projects/{project}/stop-all
 
 Stop all running remote executions in a project. Human-only. Returns
 `{ "affected_cards": ["PROJ-001", "PROJ-003"] }`.
 
-### GET /api/runner/health
+### GET /api/backend/health
 
-Browser-facing fixed path — always at `/api/runner/health` regardless of
-which task backend is configured. Proxies a `GET /health` to the configured
-task backend and returns the parsed shape. Used by the board's NowRail to
-render the capacity meter (`max_concurrent` is the runner-global cap, not a
-per-project value).
+Browser-facing fixed path. Proxies a `GET /health` to the configured task
+backend and returns the parsed shape. Used by the board's capacity meter
+(`max_concurrent` is the backend-global cap, not a per-project value).
 
 Returns:
 
@@ -1433,24 +1436,23 @@ Returns:
 }
 ```
 
-- 503 `RUNNER_DISABLED` when no task backend is configured.
-- 502 `RUNNER_UNAVAILABLE` when a task backend is configured but the probe
+- 503 `BACKEND_DISABLED` when no task backend is configured.
+- 502 `BACKEND_UNAVAILABLE` when a task backend is configured but the probe
   fails (timeout, transport error, non-2xx response). Upstream error
   details are not surfaced in the response body — the underlying error
   is logged server-side. Callers should fail soft (hide capacity).
 
-Probe results are cached server-side for ~2 seconds so concurrent
-browser tabs do not each fire a fresh probe. Probes use a tighter
-upstream timeout (3 s) than the runner client's default to keep the
-endpoint responsive during a runner outage.
+Probe results are cached server-side for ~2 seconds and concurrent callers are
+coalesced through singleflight, so many open tabs and a backend outage never
+storm the backend with redundant probes. Probes use a tighter upstream timeout
+(3 s) than the backend client's default to keep the endpoint responsive during
+an outage.
 
-### GET /api/runner/logs
+### GET /api/worker/logs
 
-SSE log stream. Browser-facing fixed path — always at `/api/runner/logs`
-regardless of which task backend is configured. Only available when a task
-backend is configured (runner or agent entry enabled in the backends map). Not
-authenticated — the browser connects directly; HMAC signing is performed
-server-side toward the runner.
+SSE log stream. Browser-facing fixed path. Only available when a task backend
+is configured. Not authenticated — the browser connects directly; HMAC signing
+is performed server-side toward the backend.
 
 **Query parameters:**
 
@@ -1470,7 +1472,7 @@ server-side toward the runner.
 - **Project-scoped** (`?project=P`, no `card_id`): connects to the server-side
   session manager for the project. The server first replays all buffered project
   events (snapshot), then tails live events — identical replay guarantee as the
-  card-scoped path. Used by the Runner Console panel. A reconnecting client
+  card-scoped path. Used by the Worker Console panel. A reconnecting client
   receives all events buffered since the console was first opened. Returns 204
   if the session manager is unavailable.
 
@@ -1504,7 +1506,7 @@ Marker frames have a distinct shape:
 The connection is closed when the browser disconnects or the session receives a
 terminal event.
 
-**Client behaviour (`useRunnerLogs`):**
+**Client behaviour (`useWorkerLogs`):**
 
 - Tracks last-seen `seq`; if an incoming `seq > lastSeq + 1`, inserts a
   client-side gap marker (`type: 'gap'`) indicating the number of missing
@@ -1516,54 +1518,46 @@ terminal event.
 See [`docs/remote-execution.md`](remote-execution.md) for the full log streaming
 architecture, `LogEntry` type details, and session manager configuration.
 
-### POST /api/runner/status
+### POST /api/agent/status
 
-Runner callback endpoint. Mounts at `/api/<name>` derived from the active task
-backend's entry name (e.g. `/api/runner` for the runner entry, `/api/agent`
-for the agent entry). Requires **both** an `X-Signature-256` header
-(HMAC-SHA256, prefixed with `sha256=`, signed with the matching backend's
-`api_key`) and an `X-Webhook-Timestamp` header (used for clock-skew rejection).
-Missing either header, a malformed signature, or an expired timestamp returns
-403 `INVALID_SIGNATURE`. Only registered when a task backend is configured.
+Task-backend callback reporting a card's worker-status transition. Mounts at the
+fixed task-backend callback path `/api/agent/status`. Requires **both** an
+`X-Signature-256` header (HMAC-SHA256, prefixed with `sha256=`, signed with the
+backend's `api_key`) and an `X-Webhook-Timestamp` header (used for clock-skew
+rejection). Missing either header, a malformed signature, or an expired
+timestamp returns 403 `INVALID_SIGNATURE`. Only registered when a task backend
+is configured.
 
-Accepts `runner_status` updates (`"running"`, `"failed"`, `"completed"`). The
-server-only statuses `"queued"` and `"killed"` are rejected with 422
-`VALIDATION_ERROR`.
+Accepts `worker_status` updates (`"running"`, `"failed"`, `"completed"`,
+validated by `board.ValidateWorkerCallbackStatus`). The server-only statuses
+`"queued"` and `"killed"` are rejected with 422 `VALIDATION_ERROR`.
 
 ```json
 {
   "card_id": "PROJ-042",
   "project": "my-project",
-  "runner_status": "running",
+  "worker_status": "running",
   "message": "container started"
 }
 ```
 
-### POST /api/runner/skill-engaged
-
-Runner callback endpoint reporting that the in-container Claude session engaged
-a workflow skill. Same HMAC authentication as `/api/runner/status`
-(`X-Signature-256` + `X-Webhook-Timestamp`, signed with the backend's `api_key`).
-Only registered when a task backend is configured. Used for runner-side
-telemetry; the response body is `{"ok": true}`.
-
 ### GET /api/v1/cards/{project}/{id}/autonomous
 
-Runner-only read endpoint (fixed path, independent of the derived callback
-path). Authenticated with HMAC-SHA256 over an empty body (`X-Signature-256` +
+Task-backend read endpoint (fixed path, independent of the callback path).
+Authenticated with HMAC-SHA256 over an empty body (`X-Signature-256` +
 `X-Webhook-Timestamp`, signed with the task backend's `api_key`). Returns the
-minimal shape `{"autonomous": <bool>}` so the runner can fail-closed verify a
+minimal shape `{"autonomous": <bool>}` so the backend can fail-closed verify a
 card's autonomous flag during `/promote` before writing the canned stdin
 message. Only registered when a task backend is configured. No other card
 fields are exposed on this path.
 
-### GET /api/<name>/task-skills-source
+### GET /api/agent/task-skills-source
 
-Backend-callback endpoint at the derived path (`/api/runner/task-skills-source`
-or `/api/agent/task-skills-source`). Authenticated with HMAC-SHA256 over an
-empty body (`X-Signature-256` + `X-Webhook-Timestamp`, signed with the task
-backend's `api_key`), the same scheme as `/autonomous`. Returns the task-skills
-repo pointer the agent backend clones for itself:
+Task-backend callback at the fixed path `/api/agent/task-skills-source`.
+Authenticated with HMAC-SHA256 over an empty body (`X-Signature-256` +
+`X-Webhook-Timestamp`, signed with the task backend's `api_key`), the same
+scheme as `/autonomous`. Returns the task-skills repo pointer the backend clones
+for itself:
 
 ```json
 {
@@ -1592,7 +1586,7 @@ the project-scoped git token mid-run — App installation tokens live ~1h while
 card runs can go far longer.
 
 Query parameters: `project` and `card_id` (both required). The card must exist
-and have `runner_status: running` — a non-running card gets 409, so the
+and have `worker_status: running` — a non-running card gets 409, so the
 endpoint is not a free token faucet. The token is minted from the project's
 `github_credential` binding (or the instance credential when unbound); a
 broken binding fails closed with 409, never the instance credential.
@@ -1607,7 +1601,7 @@ different shapes — consumers read each endpoint's own key).
 
 Trigger-time minting: `POST .../cards/{id}/run` populates
 `TriggerPayload.git_token` / `git_token_expires_at` / `llm_endpoint` the same
-way; a broken binding rejects the run with 409, reverts the card's runner
+way; a broken binding rejects the run with 409, reverts the card's worker
 status, and appends a card activity entry.
 
 ## Worker Endpoints
@@ -1624,10 +1618,8 @@ Authorization: Bearer <session_id>.<base64url HMAC-SHA256 mac>
 ```
 
 The token is minted once per chat session at chat-start
-(`ChatStartPayload.git_credentials_token`) from the resolved chat-backend
-`api_key` — whichever backend actually serves chat containers: the runner
-entry when `backends.runner` also serves chat, else the dedicated
-`backends.chat` entry — and the session id. It is deterministic: CM never
+(`ChatStartPayload.git_credentials_token`) from the chat backend's
+`backends.chat` `api_key` and the session id. It is deterministic: CM never
 persists it anywhere, so verification just re-derives the expected token
 from the same `api_key` plus the session id embedded in the presented
 token, and compares with `hmac.Equal` (constant-time — a timing
@@ -1667,7 +1659,7 @@ Success response:
 `username` is always the literal `x-access-token` (the Basic-auth username a
 GitHub App/PAT-backed HTTPS clone expects alongside the token). `expires_at`
 is RFC3339 and omitted for PAT-backed credentials — same omission semantics
-as `GET /api/<name>/git-credentials` above (no server-managed TTL; absent
+as `GET /api/agent/git-credentials` above (no server-managed TTL; absent
 means "do not schedule a refresh").
 
 Status contract:
@@ -1678,7 +1670,7 @@ Status contract:
 | 401    | `UNAUTHORIZED`       | Bearer header absent, malformed, or fails the HMAC comparison                                                   |
 | 404    | `CHAT_NOT_FOUND`     | The session id embedded in the bearer does not exist                                                            |
 | 500    | `INTERNAL_ERROR`     | Session-liveness lookup failed for a reason other than "session not found" (backend/store error)                |
-| 409    | `RUNNER_NOT_RUNNING` | The session exists but is cold (no live runner container)                                                       |
+| 409    | `WORKER_NOT_RUNNING` | The session exists but is cold (no live worker container)                                                       |
 | 409    | `VALIDATION_ERROR`   | Matched project's credential binding is broken, or no provider is configured at all — fail-closed, never the instance credential |
 | 502    | `INTERNAL_ERROR`     | A credential provider resolved, but minting the token itself failed                                             |
 
@@ -1697,8 +1689,8 @@ protection above); no separate path exemption was needed.
 
 ## Chat Endpoints
 
-Project-agnostic chat sessions that share the runner's worker image but use
-long-lived containers instead of card-scoped one-shots. Identity follows the
+Project-agnostic chat sessions that run the same worker image as card runs but
+use long-lived containers instead of card-scoped one-shots. Identity follows the
 same `X-Agent-ID` tagging convention as the rest of the API (see § Trust model
 in `CLAUDE.md`); the web UI defaults to `human:web` when the header is absent.
 
@@ -1732,22 +1724,18 @@ user message; `project` may be empty for cross-project chats. `model` selects
 the model for this session; omit to use the server default. The choice is
 persisted on the session row and forwarded to the container on every `/open`.
 
-Model validation depends on which backend serves chat (see
+Model validation depends on the configured model source (see
 `GET /api/chats/models`):
 
-- **runner serves chat** (`source: "config"`): `model` must be a key from
-  `chat.models`; unknown IDs return `400` (`INVALID_MODEL`). Omit to use
-  `chat.default_model`. Forwarded as `CM_ORCHESTRATOR_MODEL`.
-- **dedicated chat backend serves chat** (`source: "openrouter"`): `model` must
-  be in CM's vendor-screened OpenRouter catalog (the same list
-  `GET /api/chats/models` serves); unknown slugs return `400`
-  (`INVALID_MODEL`). Validation fails open when the catalog has not been
-  fetched (cold start, OpenRouter outage). Omit to use
+- **OpenRouter** (`source: "openrouter"`): `model` must be in CM's
+  vendor-screened OpenRouter catalog (the same list `GET /api/chats/models`
+  serves); unknown slugs return `400` (`INVALID_MODEL`). Validation fails open
+  when the catalog has not been fetched (cold start, OpenRouter outage). Omit
+  to use `backends.chat.default_model`. Forwarded as `CM_MODEL`.
+- **OpenAI-compatible endpoint** (`source: "endpoint"`): `model` must be in the
+  endpoint's served model list; unknown slugs return `400` (`INVALID_MODEL`). A
+  failed upstream list fetch fails open. Omit to use
   `backends.chat.default_model`. Forwarded as `CM_MODEL`.
-- **OpenAI-compatible endpoint serves chat** (`source: "endpoint"`): `model`
-  must be in the endpoint's served model list; unknown slugs return `400`
-  (`INVALID_MODEL`). A failed upstream list fetch fails open. Omit to use
-  `backends.chat.default_model`.
 
 Response (`201 Created`): the new `ChatSession` row.
 
@@ -1756,35 +1744,15 @@ Response (`201 Created`): the new `ChatSession` row.
 Tells the New Chat dialog which model picker to render. The `source` field
 selects the mode:
 
-- `"config"` — the runner serves chat. `models` is the `chat.models` allowlist
-  (native Anthropic slugs, sorted by `id`) and `default` is `chat.default_model`.
-- `"openrouter"` — the dedicated chat backend (contextmatrix-chat) serves chat.
-  `models` is CM's vendor-screened OpenRouter catalog (`id`/`label` = the
-  OpenRouter slug, `max_tokens` = the model's context window), served from the
-  server-side catalog cache; empty only when the catalog has not been fetched.
-  `default` is `backends.chat.default_model`.
-- `"endpoint"` — an OpenAI-compatible endpoint serves chat. `models` is the
-  endpoint's served model list (cached server-side); `default` is
+- `"openrouter"` — the chat backend serves chat over OpenRouter. `models` is
+  CM's vendor-screened OpenRouter catalog (`id`/`label` = the OpenRouter slug,
+  `max_tokens` = the model's context window), served from the server-side
+  catalog cache; empty only when the catalog has not been fetched. `default` is
   `backends.chat.default_model`.
-
-Response (`source: "config"`):
-
-```json
-{
-  "source": "config",
-  "models": [
-    {
-      "id": "claude-haiku-4-5-20251001",
-      "label": "Haiku 4.5",
-      "max_tokens": 200000
-    },
-    { "id": "claude-opus-4-7", "label": "Opus 4.7", "max_tokens": 1000000 },
-    { "id": "claude-opus-4-8", "label": "Opus 4.8", "max_tokens": 1000000 },
-    { "id": "claude-sonnet-4-6", "label": "Sonnet 4.6", "max_tokens": 1000000 }
-  ],
-  "default": "claude-sonnet-4-6"
-}
-```
+- `"endpoint"` — the LLM endpoint is an OpenAI-compatible one (`llm_endpoint.type:
+  openai`). `models` is the endpoint's served model list (cached server-side);
+  `default` is `backends.chat.default_model`. Also returned, with an empty list,
+  when no chat backend is configured — the picker renders nothing.
 
 Response (`source: "openrouter"`):
 
@@ -1802,8 +1770,8 @@ Response (`source: "openrouter"`):
 }
 ```
 
-When chat is disabled in config the response is
-`{"source": "config", "models": [], "default": ""}`.
+When no chat backend is configured the response is
+`{"source": "endpoint", "models": [], "default": ""}`.
 
 ### GET /api/chats
 
@@ -1849,7 +1817,7 @@ Response: the updated `ChatSession`.
 ### DELETE /api/chats/{id}
 
 Removes the session and its transcript (FK cascade on `chat_messages`). If the
-session is `active` or `warm-idle`, the runner container is ended first.
+session is `active` or `warm-idle`, the worker container is ended first.
 
 ### POST /api/chats/{id}/open
 
@@ -1870,10 +1838,9 @@ Response (`200 OK`): the refreshed `ChatSession` in the cold state.
 
 ### POST /api/chats/{id}/clear
 
-Clear the runner's working memory in place without ending the session. The
-server sends `"/clear"` to the runner (the chat backend's worker re-orients
-its next epoch from its own embedded primer), marks every prior transcript
-row with
+Clear the worker's working memory in place without ending the session. The
+server sends `"/clear"` to the chat backend's worker (which re-orients its next
+epoch from its own embedded primer), marks every prior transcript row with
 `rehydration_phase = true` so it is excluded from future cold-open resume
 payloads, and appends a divider row (`role: system`, `content: "Context
 cleared"`, `kind: "divider"`) that the UI renders as a horizontal rule.
@@ -1889,12 +1856,12 @@ Responses:
 | 202    | —                    | Cleared; body `{"ok": true}`                         |
 | 403    | `BAD_REQUEST`        | Missing `X-Requested-With: contextmatrix`            |
 | 404    | `CHAT_NOT_FOUND`     | Unknown session id                                   |
-| 409    | `RUNNER_NOT_RUNNING` | Session is not active or warm-idle (no live runner)  |
-| 502    | `RUNNER_UNAVAILABLE` | Runner `/clear` send failed (`detail: clear_failed`) |
+| 409    | `WORKER_NOT_RUNNING` | Session is not active or warm-idle (no live worker)  |
+| 502    | `BACKEND_UNAVAILABLE`| Backend `/clear` send failed (`detail: clear_failed`)|
 | 500    | `INTERNAL_ERROR`     | Persistence failure (rare; transcript-side)          |
 
 On a `502` the transcript is left untouched — the operator can retry once
-the runner is reachable again. On `500` the runner has already been
+the backend is reachable again. On `500` the worker has already been
 cleared but the transcript mark/divider step failed; the session is still
 usable, the divider just won't appear in the UI until the next clear.
 
@@ -1918,7 +1885,7 @@ only when Clear is invoked while the session is in its rehydration phase (rare).
 
 Send a user message into the active chat container. The Manager appends the
 message to the transcript with a server-assigned seq, broadcasts a `user` event
-on the per-session SSE hub, then forwards the message to the runner.
+on the per-session SSE hub, then forwards the message to the chat backend.
 
 Request:
 
@@ -2022,8 +1989,8 @@ kinds share the wire:
 
   | Value       | Description                                                                                          |
   |-------------|------------------------------------------------------------------------------------------------------|
-  | `cold`      | Session is idle; no runner container. Starting state and the state after `EndSession`.               |
-  | `active`    | Runner container is running and a browser subscriber is present.                                     |
+  | `cold`      | Session is idle; no worker container. Starting state and the state after `EndSession`.               |
+  | `active`    | Worker container is running and a browser subscriber is present.                                     |
   | `warm-idle` | Container still running but no browser subscriber (grace window). Reverts to `active` on resubscribe. |
   | `ending`    | Transient teardown state; not emitted as an SSE `status`.                                                 |
 
