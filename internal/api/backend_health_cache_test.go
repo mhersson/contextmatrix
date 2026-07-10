@@ -165,7 +165,7 @@ func TestHealthProbeCache_DetachedContextSurvivesCallerCancellation(t *testing.T
 
 func TestHealthProbeCache_UpstreamTimeoutTighterThanCallerTimeout(t *testing.T) {
 	// Upstream never responds. The probe should fail with deadline exceeded
-	// well before the 10s default runner client timeout.
+	// well before the 10s default backend client timeout.
 	srv, _ := newProbeServer(t, func(_ http.ResponseWriter, _ *http.Request) {
 		time.Sleep(10 * time.Second)
 	})
@@ -181,7 +181,7 @@ func TestHealthProbeCache_UpstreamTimeoutTighterThanCallerTimeout(t *testing.T) 
 	require.Error(t, err)
 	// Allow some headroom but ensure we don't hit the full 10s client timeout.
 	assert.Less(t, elapsed, 5*time.Second,
-		"upstream probe should time out via the dedicated runnerHealthProbeTimeout (3s), not the full client timeout")
+		"upstream probe should time out via the dedicated backendHealthProbeTimeout (3s), not the full client timeout")
 
 	// Error message should not leak raw transport details either way; that's
 	// the responsibility of the handler, not the cache. Cache must surface

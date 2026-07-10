@@ -602,7 +602,7 @@ func main() {
 		Bus:                    bus,
 		CORSOrigin:             cfg.CORSOrigin,
 		Syncer:                 apiSyncer,
-		Runner:                 taskBackend,
+		Backend:                taskBackend,
 		AgentBackendCfg:        agentCfg,
 		MCPAPIKey:              cfg.MCPAPIKey,
 		GitHubTokenProvider:    tokenProvider,

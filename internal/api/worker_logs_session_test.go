@@ -20,12 +20,12 @@ import (
 	"github.com/mhersson/contextmatrix/internal/backend/sessionlog"
 )
 
-// fakeRunnerServer creates a fake runner SSE server that streams events from
+// fakeBackendServer creates a fake backend SSE server that streams events from
 // the provided channel until it is closed, then holds the connection open until
 // the client disconnects.  readyCh is closed once the HTTP headers are sent.
 // Frames are true protocol.LogEntry wire shape (ts/type/content/card_id) —
-// the runner never emits a seq field.
-func fakeRunnerServer(t *testing.T, eventCh <-chan protocol.LogEntry, readyCh chan struct{}) *httptest.Server {
+// the backend never emits a seq field.
+func fakeBackendServer(t *testing.T, eventCh <-chan protocol.LogEntry, readyCh chan struct{}) *httptest.Server {
 	t.Helper()
 
 	var once sync.Once
@@ -60,17 +60,17 @@ func fakeRunnerServer(t *testing.T, eventCh <-chan protocol.LogEntry, readyCh ch
 	}))
 }
 
-// fakeRunnerServerCounting behaves like fakeRunnerServer but also tracks how
+// fakeBackendServerCounting behaves like fakeBackendServer but also tracks how
 // many upstream connections have been established (via the returned
 // *atomic.Int32), so a test can assert that a reconnect actually happened —
 // i.e. the manager called Start again — rather than a stale pump silently
 // continuing to serve a subscriber parked in pendingSubs. All connections
 // share eventCh; the tests using this helper serialize Stop/Start so only one
-// connection is ever actively selecting on it at a time. Like fakeRunnerServer,
+// connection is ever actively selecting on it at a time. Like fakeBackendServer,
 // the handler selects on r.Context().Done() alongside eventCh so a client
 // disconnect (or the manager cancelling the pump context) tears the handler
 // down promptly instead of leaking it.
-func fakeRunnerServerCounting(t *testing.T, eventCh <-chan protocol.LogEntry, readyCh chan struct{}) (*httptest.Server, *atomic.Int32) {
+func fakeBackendServerCounting(t *testing.T, eventCh <-chan protocol.LogEntry, readyCh chan struct{}) (*httptest.Server, *atomic.Int32) {
 	t.Helper()
 
 	var (
@@ -213,7 +213,7 @@ func TestStreamCardSession_SnapshotAndLive(t *testing.T) {
 	upstreamCh := make(chan protocol.LogEntry, 32)
 	readyCh := make(chan struct{})
 
-	upstream := fakeRunnerServer(t, upstreamCh, readyCh)
+	upstream := fakeBackendServer(t, upstreamCh, readyCh)
 	defer upstream.Close()
 
 	mgr := sessionlog.NewManager(
@@ -235,10 +235,10 @@ func TestStreamCardSession_SnapshotAndLive(t *testing.T) {
 	}, 3*time.Second, 10*time.Millisecond)
 
 	// Wire the handler and expose it via an httptest server.
-	rh := &runnerHandlers{sessionManager: mgr}
+	rh := &backendHandlers{sessionManager: mgr}
 
 	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rh.streamRunnerLogs(w, r)
+		rh.streamWorkerLogs(w, r)
 	}))
 	defer apiServer.Close()
 
@@ -308,7 +308,7 @@ func TestStreamCardSession_CrossCardFilter(t *testing.T) {
 	upstreamCh := make(chan protocol.LogEntry, 32)
 	readyCh := make(chan struct{})
 
-	upstream := fakeRunnerServer(t, upstreamCh, readyCh)
+	upstream := fakeBackendServer(t, upstreamCh, readyCh)
 	defer upstream.Close()
 
 	mgr := sessionlog.NewManager(
@@ -340,12 +340,12 @@ func TestStreamCardSession_CrossCardFilter(t *testing.T) {
 
 // TestStreamCardSession_NoManager returns 204 when no session manager is wired.
 func TestStreamCardSession_NoManager(t *testing.T) {
-	rh := &runnerHandlers{sessionManager: nil}
+	rh := &backendHandlers{sessionManager: nil}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/runner/logs?card_id=X-001&project=p", nil)
 	rec := newFlushRecorder()
 
-	rh.streamRunnerLogs(rec, req)
+	rh.streamWorkerLogs(rec, req)
 
 	assert.Equal(t, http.StatusNoContent, rec.Code)
 }
@@ -362,7 +362,7 @@ func TestStreamCardSession_NoManager(t *testing.T) {
 //     connection was made.
 //  2. Call mgr.Stop directly, simulating the idle sweeper force-closing the
 //     session mid-run.
-//  3. Connect a card-scoped SSE client through streamRunnerLogs (the full
+//  3. Connect a card-scoped SSE client through streamWorkerLogs (the full
 //     HTTP handler, not the manager directly) — this must call the idempotent
 //     Start on every connect, which opens a SECOND upstream connection.
 //  4. A fresh event delivered after the revival must reach the reconnected
@@ -379,7 +379,7 @@ func TestStreamCardSession_RevivesSweptSession(t *testing.T) {
 	upstreamCh := make(chan protocol.LogEntry, 8)
 	readyCh := make(chan struct{})
 
-	upstream, connCount := fakeRunnerServerCounting(t, upstreamCh, readyCh)
+	upstream, connCount := fakeBackendServerCounting(t, upstreamCh, readyCh)
 	defer upstream.Close()
 
 	mgr := sessionlog.NewManager(
@@ -404,10 +404,10 @@ func TestStreamCardSession_RevivesSweptSession(t *testing.T) {
 
 	// Wire the handler and expose it via an httptest server, mirroring the
 	// other streamCardSession tests.
-	rh := &runnerHandlers{sessionManager: mgr}
+	rh := &backendHandlers{sessionManager: mgr}
 
 	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rh.streamRunnerLogs(w, r)
+		rh.streamWorkerLogs(w, r)
 	}))
 	defer apiServer.Close()
 
@@ -445,7 +445,7 @@ func TestStreamCardSession_RevivesSweptSession(t *testing.T) {
 }
 
 // TestStreamProjectSession_SnapshotAndLive covers the project-scoped session lifecycle:
-//  1. Spin up a fakeRunnerServer emitting events for two cards (X and Y) in project P.
+//  1. Spin up a fakeBackendServer emitting events for two cards (X and Y) in project P.
 //  2. Start the project session via mgr.StartProject.
 //  3. Emit 2-3 events spanning both cards; wait until buffered.
 //  4. Client A connects to /api/runner/logs?project=P (no card_id), drains the snapshot, disconnects.
@@ -464,7 +464,7 @@ func TestStreamProjectSession_SnapshotAndLive(t *testing.T) {
 	upstreamCh := make(chan protocol.LogEntry, 32)
 	readyCh := make(chan struct{})
 
-	upstream := fakeRunnerServer(t, upstreamCh, readyCh)
+	upstream := fakeBackendServer(t, upstreamCh, readyCh)
 	defer upstream.Close()
 
 	mgr := sessionlog.NewManager(
@@ -490,10 +490,10 @@ func TestStreamProjectSession_SnapshotAndLive(t *testing.T) {
 	}, 3*time.Second, 10*time.Millisecond)
 
 	// Wire the handler and expose it via an httptest server.
-	rh := &runnerHandlers{sessionManager: mgr}
+	rh := &backendHandlers{sessionManager: mgr}
 
 	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rh.streamRunnerLogs(w, r)
+		rh.streamWorkerLogs(w, r)
 	}))
 	defer apiServer.Close()
 

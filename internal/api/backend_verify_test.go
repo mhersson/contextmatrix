@@ -49,16 +49,16 @@ func triggerVerifyPayload(t *testing.T, svc *service.CardService, bus *events.Bu
 
 	var capturedPayload backend.TriggerPayload
 
-	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&capturedPayload)
 
 		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
 	}))
-	t.Cleanup(mockRunner.Close)
+	t.Cleanup(mockBackend.Close)
 
-	runnerClient := backend.NewClient(mockRunner.URL, apiKey)
+	backendClient := backend.NewClient(mockBackend.URL, apiKey)
 	router := NewRouter(RouterConfig{
-		Service: svc, Bus: bus, Runner: runnerClient,
+		Service: svc, Bus: bus, Backend: backendClient,
 		AgentBackendCfg: &config.AgentBackendConfig{
 			APIKey:       apiKey,
 			DefaultModel: "openrouter/auto",

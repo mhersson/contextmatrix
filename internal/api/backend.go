@@ -8,13 +8,13 @@ import (
 
 // TaskBackend is the task-execution lifecycle channel CM drives:
 // trigger/kill/message/promote/end-session plus container introspection.
-// contextmatrix-runner's backend.Client is the sole implementation until the
-// agent backend lands. Card progress and usage reporting are NOT part of
-// this surface — in-container agents report via CM's MCP tools.
+// backend.Client — the webhook client for the agent backend — is the sole
+// implementation. Card progress and usage reporting are NOT part of this
+// surface — in-container agents report via CM's MCP tools.
 //
 // Payload types are aliases of contextmatrix-protocol DTOs, so the
 // interface is protocol-shaped. HealthInfo and ContainerInfo are parsed
-// response shapes owned by internal/runner, not protocol DTOs.
+// response shapes owned by internal/backend, not protocol DTOs.
 type TaskBackend interface {
 	Trigger(ctx context.Context, p backend.TriggerPayload) error
 	Kill(ctx context.Context, p backend.KillPayload) error
@@ -26,6 +26,5 @@ type TaskBackend interface {
 	ListContainers(ctx context.Context) ([]backend.ContainerInfo, error)
 }
 
-// Compile-time check: the contextmatrix-runner webhook client implements
-// the contract.
+// Compile-time check: the backend webhook client implements the contract.
 var _ TaskBackend = (*backend.Client)(nil)

@@ -747,7 +747,7 @@ func TestClearChat_RunnerFailure(t *testing.T) {
 	var apiErr APIError
 
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&apiErr))
-	assert.Equal(t, ErrCodeRunnerUnavailable, apiErr.Code)
+	assert.Equal(t, ErrCodeBackendUnavailable, apiErr.Code)
 	assert.Equal(t, "clear_failed", apiErr.Details, "body must carry detail=clear_failed for /clear step failure")
 }
 
@@ -769,7 +769,7 @@ func TestClearChat_ColdSession(t *testing.T) {
 
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&apiErr))
-	assert.Equal(t, ErrCodeRunnerNotRunning, apiErr.Code)
+	assert.Equal(t, ErrCodeBackendNotRunning, apiErr.Code)
 }
 
 // TestClearChat_RunnerFailure_TranscriptUntouched asserts that when the runner

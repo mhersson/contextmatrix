@@ -77,7 +77,7 @@ type TaskSkillSummary struct {
 
 // taskSkillNamePattern restricts skill directory names to a safe charset
 // that cannot reach outside the task-skills mount via path traversal.
-// Mirrors the runner-side ValidateTaskSkills check and the service-layer
+// Mirrors the backend-side ValidateTaskSkills check and the service-layer
 // validateSkillNames pattern.
 var taskSkillNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
 
@@ -310,7 +310,7 @@ func (h *taskSkillHandlers) listTaskSkills(w http.ResponseWriter, r *http.Reques
 // `skills` that are not present in `available`. A nil or empty `skills`
 // slice is always valid (mounting nothing is allowed). When `available`
 // is nil (the lister returned no skills, e.g. unconfigured), validation
-// is skipped — the runner-side check is the final guard.
+// is skipped — the backend-side check is the final guard.
 func validateSkillsAgainstAvailable(skills []string, available map[string]struct{}) error {
 	if len(skills) == 0 || available == nil {
 		return nil

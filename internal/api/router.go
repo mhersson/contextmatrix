@@ -119,8 +119,8 @@ type RouterConfig struct {
 	Bus        *events.Bus
 	CORSOrigin string
 	Syncer     Syncer
-	Runner     TaskBackend // nil when no task backend is configured
-	// AgentBackendCfg is the resolved agent backend entry. nil when Runner is
+	Backend    TaskBackend // nil when no task backend is configured
+	// AgentBackendCfg is the resolved agent backend entry. nil when Backend is
 	// nil; normalized to an empty config at construction so handlers can read
 	// fields without nil checks (an empty APIKey fails callback auth closed).
 	AgentBackendCfg        *config.AgentBackendConfig
@@ -212,7 +212,7 @@ type RouterConfig struct {
 	// fixed-provider path.
 	ProviderForProject func(ctx context.Context, project string) (githubauth.TokenGenerator, string /*apiBase*/, error)
 	// LLMEndpoint is the CM-provisioned inference endpoint attached to every
-	// runner/agent trigger payload (single admin-managed key, rotated in one
+	// task-backend trigger payload (single admin-managed key, rotated in one
 	// place). nil when llm_endpoint is unset — backends then fall back to
 	// their own local config, matching pre-token-authority behavior.
 	LLMEndpoint *protocol.LLMEndpoint
@@ -248,7 +248,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	// Normalize a nil agent entry to an empty config so the handler set can
 	// read fields without nil checks. The empty APIKey makes every callback
-	// authentication fail closed; the routes behind the Runner-nil gates are
+	// authentication fail closed; the routes behind the Backend-nil gates are
 	// unregistered or 503 anyway.
 	agentCfg := cfg.AgentBackendCfg
 	if agentCfg == nil {
@@ -261,7 +261,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	ph := &projectHandlers{
 		svc:              cfg.Service,
-		runnerEnabled:    cfg.Runner != nil,
+		backendEnabled:   cfg.Backend != nil,
 		taskSkills:       taskSkillsLister,
 		authEnabled:      cfg.AuthService != nil,
 		credentialExists: cfg.CredentialExists,
@@ -272,9 +272,9 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	eh := newEventHandlers(cfg.Bus)
 	sh := &syncHandlers{syncer: cfg.Syncer}
 	// taskBackend is surfaced in GET /api/app/config: the agent backend is
-	// the only task backend, so its presence is the Runner wiring itself.
+	// the only task backend, so its presence is the Backend wiring itself.
 	taskBackendName := ""
-	if cfg.Runner != nil {
+	if cfg.Backend != nil {
 		taskBackendName = config.BackendNameAgent
 	}
 
@@ -415,10 +415,10 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	mux.HandleFunc("POST /api/sync", sh.triggerSync)
 	mux.HandleFunc("GET /api/sync", sh.getSyncStatus)
 
-	// Runner routes
-	rh := &runnerHandlers{
+	// Backend routes
+	rh := &backendHandlers{
 		svc:                    cfg.Service,
-		runner:                 cfg.Runner,
+		backend:                cfg.Backend,
 		backendCfg:             agentCfg,
 		mcpAPIKey:              cfg.MCPAPIKey,
 		sessionManager:         cfg.SessionManager,
@@ -445,14 +445,15 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	//
 	// GET /api/runner/logs and /api/runner/health are BROWSER-facing (the
 	// web UI's EventSource and capacity meter), not backend callbacks —
-	// they stay at literal paths. So does the backend-called
+	// they stay at their literal paths (the /api/runner prefix is a legacy
+	// spelling kept for wire compatibility). So does the backend-called
 	// GET /api/v1/cards/.../autonomous.
-	if cfg.Runner != nil {
-		mux.HandleFunc("POST "+config.AgentCallbackPath+"/status", rh.runnerStatusUpdate)
+	if cfg.Backend != nil {
+		mux.HandleFunc("POST "+config.AgentCallbackPath+"/status", rh.workerStatusUpdate)
 		mux.HandleFunc("GET "+config.AgentCallbackPath+"/task-skills-source", rh.getTaskSkillsSource)
 		mux.HandleFunc("GET "+config.AgentCallbackPath+"/git-credentials", rh.getGitCredentials)
-		mux.HandleFunc("GET /api/runner/logs", rh.streamRunnerLogs)
-		mux.HandleFunc("GET /api/runner/health", rh.getRunnerHealth)
+		mux.HandleFunc("GET /api/runner/logs", rh.streamWorkerLogs)
+		mux.HandleFunc("GET /api/runner/health", rh.getBackendHealth)
 		mux.HandleFunc("GET /api/v1/cards/{project}/{id}/autonomous", rh.getCardAutonomous)
 	}
 
@@ -619,7 +620,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 //
 // Exempt paths:
 //   - GET / HEAD / OPTIONS (read-only)
-//   - /api/runner/*, /api/agent/*, /api/chat/* — HMAC-signed backend-callback space; no browser path here
+//   - /api/runner/*, /api/agent/*, /api/chat/* — HMAC-signed backend-callback space (the /api/runner prefix is legacy); no browser POST path here
 //   - /mcp           — Bearer-authed MCP endpoint
 //   - /healthz, /readyz — probe endpoints, no body
 //

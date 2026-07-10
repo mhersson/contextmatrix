@@ -419,7 +419,7 @@ func TestGetWorkerGitCredentials_ColdSession_Conflict(t *testing.T) {
 
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&apiErr))
-	assert.Equal(t, ErrCodeRunnerNotRunning, apiErr.Code)
+	assert.Equal(t, ErrCodeBackendNotRunning, apiErr.Code)
 }
 
 func TestGetWorkerGitCredentials_UnknownSession_NotFound(t *testing.T) {
@@ -573,7 +573,7 @@ func TestGetWorkerGitCredentials_EmptyHostAndPath_ColdSession_Conflict(t *testin
 
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&apiErr))
-	assert.Equal(t, ErrCodeRunnerNotRunning, apiErr.Code)
+	assert.Equal(t, ErrCodeBackendNotRunning, apiErr.Code)
 }
 
 // TestGetWorkerGitCredentials_EmptyHostAndPath_BadBearer_Unauthorized pins

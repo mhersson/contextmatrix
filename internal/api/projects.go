@@ -48,9 +48,9 @@ type remoteExecutionUpdate struct {
 
 // projectHandlers contains handlers for project-related endpoints.
 type projectHandlers struct {
-	svc           *service.CardService
-	runnerEnabled bool
-	taskSkills    *taskSkillsLister
+	svc            *service.CardService
+	backendEnabled bool
+	taskSkills     *taskSkillsLister
 	// authEnabled mirrors NewRouter's cfg.AuthService != nil signal — the
 	// existing multi-vs-none-mode distinction, not a new one. When false,
 	// github_credential bindings are rejected outright (fail-closed).
@@ -61,10 +61,10 @@ type projectHandlers struct {
 }
 
 // effectiveRemoteExecution returns a cloned project config with remote_execution.enabled
-// forced to false when the runner is globally disabled. This ensures the frontend sees
+// forced to false when no task backend is configured. This ensures the frontend sees
 // the effective state rather than the raw per-project configuration.
 func (h *projectHandlers) effectiveRemoteExecution(cfg board.ProjectConfig) board.ProjectConfig {
-	if h.runnerEnabled {
+	if h.backendEnabled {
 		if cfg.RemoteExecution == nil {
 			enabled := true
 			cfg.RemoteExecution = &board.RemoteExecutionConfig{Enabled: &enabled}
@@ -77,7 +77,7 @@ func (h *projectHandlers) effectiveRemoteExecution(cfg board.ProjectConfig) boar
 
 		return cfg
 	}
-	// Runner is globally disabled — force enabled=false so the frontend disables the button.
+	// Backend is globally disabled — force enabled=false so the frontend disables the button.
 	disabled := false
 
 	if cfg.RemoteExecution != nil {
