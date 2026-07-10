@@ -171,14 +171,13 @@ vetted: true
 custom:
   some_key: some_value
 autonomous: true
-use_opus_orchestrator: false
 feature_branch: true
 create_pr: true
 branch_name: alpha-001/implement-user-auth
 base_branch: develop
 pr_url: https://github.com/org/repo/pull/42
 review_attempts: 0
-runner_status: ""
+worker_status: ""
 token_usage:
   model: claude-sonnet-4-6
   prompt_tokens: 12340
@@ -283,7 +282,6 @@ type Card struct {
     Source              *Source         `yaml:"source,omitempty"                json:"source,omitempty"`
     Custom              map[string]any  `yaml:"custom,omitempty"                json:"custom,omitempty"`
     Autonomous          bool            `yaml:"autonomous,omitempty"            json:"autonomous"`
-    UseOpusOrchestrator bool            `yaml:"use_opus_orchestrator,omitempty" json:"use_opus_orchestrator,omitempty"`
     ModelOrchestrator   string          `yaml:"model_orchestrator,omitempty"    json:"model_orchestrator,omitempty"`
     ModelCoder          string          `yaml:"model_coder,omitempty"           json:"model_coder,omitempty"`
     ModelReviewer       string          `yaml:"model_reviewer,omitempty"        json:"model_reviewer,omitempty"`
@@ -296,7 +294,7 @@ type Card struct {
     BaseBranch          string          `yaml:"base_branch,omitempty"           json:"base_branch,omitempty"`
     PRUrl               string          `yaml:"pr_url,omitempty"                json:"pr_url,omitempty"`
     ReviewAttempts      int             `yaml:"review_attempts,omitempty"       json:"review_attempts,omitempty"`
-    RunnerStatus        string          `yaml:"runner_status,omitempty"         json:"runner_status,omitempty"`
+    WorkerStatus        string          `yaml:"worker_status,omitempty"         json:"worker_status,omitempty"`
     Phase               string          `yaml:"phase,omitempty"                 json:"phase,omitempty"`
     TokenUsage          *TokenUsage     `yaml:"token_usage,omitempty"           json:"token_usage,omitempty"`
     UsageBreakdown      []UsageBucket   `yaml:"usage_breakdown,omitempty"       json:"usage_breakdown,omitempty"`
@@ -309,8 +307,8 @@ type Card struct {
 // Note: Autonomous and Vetted intentionally use `json:"autonomous"` /
 // `json:"vetted"` (no `omitempty`) so the boolean is always emitted in API
 // responses — clients can distinguish "explicitly false" from "field not
-// returned". Other booleans (FeatureBranch, CreatePR, UseOpusOrchestrator)
-// keep `omitempty` because they are opt-in and absence carries no meaning.
+// returned". Other booleans (FeatureBranch, CreatePR) keep `omitempty`
+// because they are opt-in and absence carries no meaning.
 
 type ActivityEntry struct {
     Agent     string    `yaml:"agent"           json:"agent"`
@@ -399,7 +397,7 @@ type Repo struct {
 
 type RemoteExecutionConfig struct {
     Enabled     *bool  `yaml:"enabled,omitempty"      json:"enabled,omitempty"`
-    RunnerImage string `yaml:"runner_image,omitempty" json:"runner_image,omitempty"`
+    WorkerImage string `yaml:"worker_image,omitempty" json:"worker_image,omitempty"`
 }
 
 type VerifyConfig struct {
@@ -451,7 +449,7 @@ either a bare list of preferred model slugs (applies to every role) or a
 `{coder: [...], reviewer: [...]}` map narrowing to one role — see the
 `favorites:` example in `config.yaml.example`'s `backends.agent` block, which
 documents the same shape for the instance-wide default. `mergeFavorites`
-(`internal/api/runner.go`) combines the backend's global
+(`internal/api/backend_run.go`) combines the backend's global
 `backends.agent.favorites` with a project's `Favorites` at trigger time, with
 project entries taking priority per tier. `json:"-"` — there is no REST
 create/update path for this field; set it by hand-editing `.board.yaml`.
@@ -462,7 +460,7 @@ generation.
 
 **Server-managed fields** (set by service layer, not by clients directly): `id`,
 `created`, `updated`, `assigned_agent`, `last_heartbeat`, `activity_log`,
-`runner_status`, `review_attempts`, `branch_name`, `token_usage`,
+`worker_status`, `review_attempts`, `branch_name`, `token_usage`,
 `usage_breakdown`, `dependencies_met`.
 
 **Agent-managed field** — `phase`: the agent-orchestrator's progress within a run
@@ -474,7 +472,7 @@ normal runs. Enum-validated; the empty string clears it and means "not agent-dri
 via the `update_card` MCP tool and REST (PUT/PATCH).
 
 **Human-only fields** (may only be set by agents whose `X-Agent-ID` starts with
-`human:`): `vetted`, `autonomous`, `use_opus_orchestrator`, `feature_branch`,
+`human:`): `vetted`, `autonomous`, `feature_branch`,
 `create_pr`, the three model pins (`model_orchestrator`, `model_coder`,
 `model_reviewer`), `base_branch`, `best_of_n`, and `verify`. `verify` is exposed
 on POST (`createCardRequest`) and PATCH (`patchCardRequest`) only — there is no
@@ -517,8 +515,8 @@ from storage. Limits: `command` ≤ 1024 bytes, single line, no NUL;
 `timeout_seconds` in `0..7200`; `env` ≤ 16 names, each matching
 `[A-Z_][A-Z0-9_]*`, with secret-shaped names rejected (prefixes `CM_`, `CMX_`,
 `LLM_`, `GITHUB_`; suffixes `_TOKEN`, `_KEY`, `_SECRET`, `_PASSWORD`). The
-resolved config reaches the agent backend only (the frozen runner never receives
-it); see `docs/remote-execution.md` and `docs/agent-workflow.md`.
+resolved config reaches the agent backend in the `/trigger` payload; see
+`docs/remote-execution.md` and `docs/agent-workflow.md`.
 
 ## Reserved labels
 
@@ -639,25 +637,26 @@ Activity log entries beyond the per-card cap of 50 are dropped (oldest first)
 when a new entry is appended — they are not rejected at write time. See domain
 rule 6.
 
-## `runner_status` enum
+## `worker_status` enum
 
-`Card.RunnerStatus` is a small enum tracked by the service layer and the runner.
-The full set of valid values lives in `internal/board/validation.go`'s
-`validRunnerStatuses`:
+`Card.WorkerStatus` is a small enum tracking the card's worker independently of
+its workflow state. The full set of valid values lives in
+`internal/board/validation.go`'s `validWorkerStatuses`:
 
-| Value        | Set by                | Meaning                                                                       |
-| ------------ | --------------------- | ----------------------------------------------------------------------------- |
-| `""` (empty) | service layer / human | No runner attached. Default on newly-created cards and after terminal states. |
-| `queued`     | service layer         | A runner has been requested but the container has not yet started.            |
-| `running`    | runner callback       | The runner container is actively executing the task.                          |
-| `failed`     | runner callback       | The runner exited with an error.                                              |
-| `killed`     | service layer         | The runner was forcibly stopped by a server-initiated `stop` action.          |
-| `completed`  | runner callback       | The runner finished successfully.                                             |
+| Value        | Set by                  | Meaning                                                                       |
+| ------------ | ----------------------- | ----------------------------------------------------------------------------- |
+| `""` (empty) | service layer / human   | No worker attached. Default on newly-created cards and after terminal states. |
+| `queued`     | service layer           | A run has been requested but the container has not yet started.               |
+| `running`    | backend status callback | The worker container is actively executing the task.                          |
+| `failed`     | backend status callback | The worker exited with an error, or the trigger webhook failed.               |
+| `killed`     | service layer           | The worker was forcibly stopped by a server-initiated `stop` / `stop-all`.    |
+| `completed`  | backend status callback | The worker finished successfully.                                             |
 
-The runner-callback subset (`validRunnerCallbackStatuses`) is `running`,
-`failed`, and `completed` — the runner cannot self-report `queued` or `killed`
-because both are server-managed lifecycle states. Setting an invalid value
-returns 422 `INVALID_RUNNER_STATUS`.
+The backend reports through the `POST /api/agent/status` callback, whose
+accepted subset (`validWorkerCallbackStatuses`) is `running`, `failed`, and
+`completed` — the backend cannot self-report `queued` or `killed` because both
+are server-managed lifecycle states. Setting an invalid value returns 422
+`VALIDATION_ERROR`.
 
 ## `depends_on` cycle detection
 
@@ -681,7 +680,7 @@ fields:
 A card with `create_pr: true` and `feature_branch: false` is rejected at write
 time with 422 `VALIDATION_ERROR` (`ErrInvalidAutonomousConfig`,
 `field: "create_pr"`). The reverse — `feature_branch: true` with
-`create_pr: false` — is allowed; the runner will create and push the branch
+`create_pr: false` — is allowed; the worker will create and push the branch
 without opening a pull request.
 
 ## `chat_sessions` SQLite schema
@@ -708,7 +707,7 @@ column (used for the Clear-Context divider).
 | `created_at`                 | INTEGER | —       | Unix epoch of session creation.                                     |
 | `last_active`                | INTEGER | —       | Unix epoch of last activity; indexed for dashboard range queries.   |
 | `created_by`                 | TEXT    | —       | Agent ID of the session creator.                                    |
-| `container_id`               | TEXT    | NULL    | Runner container ID; cleared when the session goes cold.            |
+| `container_id`               | TEXT    | NULL    | Worker container ID; cleared when the session goes cold.            |
 | `workspace`                  | TEXT    | NULL    | JSON-encoded workspace directory list.                              |
 | `model`                      | TEXT    | `''`    | Orchestrator model ID.                                              |
 | `context_tokens`             | INTEGER | `0`     | Last context-window token count.                                    |

@@ -2472,10 +2472,8 @@ backends:
 
 // TestBackendsConfigDefaults_AgentReconcileInterval pins the agent entry's
 // reconcile default: CM's backend-agnostic sweep is the agent backend's ONLY
-// reconcile mechanism (docs/agent-backend-parity.md), so an enabled agent
-// entry defaults reconcile_interval to 60s. The removed runner's orchestrator
-// model defaults must NOT appear on the agent entry (Validate rejects those
-// fields there).
+// reconcile mechanism (docs/remote-execution.md), so an enabled agent
+// entry defaults reconcile_interval to 60s.
 func TestBackendsConfigDefaults_AgentReconcileInterval(t *testing.T) {
 	dir := t.TempDir()
 	boardsDir := t.TempDir()

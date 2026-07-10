@@ -339,9 +339,9 @@ backends: {}
 #
 #    # Default OpenRouter model slug for new chats and the cold-open fallback.
 #    # REQUIRED when this entry is enabled — contextmatrix-chat has no
-#    # server-side default and CM supplies the model as CM_MODEL. In this mode
-#    # the New Chat dialog offers the live OpenRouter catalog (autocomplete +
-#    # favorites); the chat.models allowlist below is NOT used.
+#    # server-side default and CM supplies the model as CM_MODEL. The New
+#    # Chat dialog offers the live OpenRouter catalog (autocomplete +
+#    # favorites) as the model source.
 #    # Env: CONTEXTMATRIX_BACKEND_CHAT_DEFAULT_MODEL
 #    default_model: "anthropic/claude-sonnet-4"
 

@@ -29,13 +29,10 @@ remote, unattended, or chat execution.
 | **[contextmatrix](https://github.com/mhersson/contextmatrix)** (this repo)   | Coordination server, web UI, REST API, and MCP hub. Tracks tasks; never touches your code repos.                                                                                                                 |
 | **[contextmatrix-agent](https://github.com/mhersson/contextmatrix-agent)**   | Primary task backend — a custom Go harness with per-role model selection over **OpenRouter** or any OpenAI-compatible gateway. Executes cards only; pair with contextmatrix-chat for the chat surface.           |
 | **[contextmatrix-chat](https://github.com/mhersson/contextmatrix-chat)**     | Chat backend for the global `/chat` surface — long-lived, board-aware interactive sessions. Pairs with the agent and uses the same OpenRouter / OpenAI-compatible `llm_endpoint`.                                |
-| **[contextmatrix-runner](https://github.com/mhersson/contextmatrix-runner)** | **Deprecated (frozen).** All-in-one backend running **Claude Code** headless plus the chat surface. Never gained multi-user support, so the default `auth.mode: multi` rejects it; single-user `none` mode only. |
 
-The go-forward topology is the **agent + chat** pair: the agent runs cards and
-chat serves the `/chat` surface. The legacy **runner alone** topology (one
-binary for tasks _and_ chat) runs only in single-user `auth.mode: none` — the
-default `auth.mode: multi` rejects the frozen runner at startup. The runner is
-mutually exclusive with the agent and chat backends.
+The backend topology is the **agent + chat** pair: the agent runs cards and chat
+serves the `/chat` surface. Each is an independent `backends` entry with its own
+URL and HMAC key.
 
 Three shared Go modules underpin the services:
 **[contextmatrix-protocol](https://github.com/mhersson/contextmatrix-protocol)**
@@ -63,7 +60,6 @@ Three shared Go modules underpin the services:
 - **Pluggable execution backends** — trigger work from the UI and a backend runs
   it in a sandboxed Docker container: the **agent** (a Go harness on OpenRouter
   or any OpenAI-compatible gateway), paired with **chat** for the chat surface.
-  The legacy **runner** (Claude Code headless) is frozen and single-user only.
 - **Autonomous & HITL execution** — `autonomous: true` cards run the full plan →
   execute → document → review lifecycle with no gates; Human-in-the-Loop mode
   opens a per-card chat pane to approve or redirect the agent, with one-click
@@ -445,25 +441,19 @@ heartbeat, and report progress. Each container is sandboxed from the host — no
 access to your filesystem or other processes — and destroyed when the task
 finishes or fails, so remote execution is safe to run unattended.
 
-Task execution runs through one globally-selected backend in `config.yaml`:
+Task execution runs through the agent backend, configured in `config.yaml`:
 
-- **[contextmatrix-agent](https://github.com/mhersson/contextmatrix-agent)**
-  (go-forward) — a custom Go harness with per-role model selection over
-  **OpenRouter** or any OpenAI-compatible gateway (set via the `llm_endpoint`
-  config). Executes cards only; pair it with
+- **[contextmatrix-agent](https://github.com/mhersson/contextmatrix-agent)** —
+  a custom Go harness with per-role model selection over **OpenRouter** or any
+  OpenAI-compatible gateway (set via the `llm_endpoint` config). Executes cards
+  only; pair it with
   **[contextmatrix-chat](https://github.com/mhersson/contextmatrix-chat)** to
   serve the chat surface.
-- **[contextmatrix-runner](https://github.com/mhersson/contextmatrix-runner)** —
-  spawns containers running **Claude Code** headless with a Sonnet/Opus
-  orchestrator, and also serves the chat surface. **Deprecated (frozen):** it
-  never gained multi-user support, so the default `auth.mode: multi` rejects it;
-  it runs only in single-user `auth.mode: none`.
 
-The runner is mutually exclusive with the agent and chat backends. The
-go-forward topology is **agent + chat**; the legacy **runner alone** (tasks +
-chat) is single-user only. Restart to apply. See
-[`docs/agent-backend-parity.md`](docs/agent-backend-parity.md) for the parity
-audit and the enable recipe.
+Each backend is an independent `backends` entry with its own URL and HMAC key.
+Backends are read once at startup — restart to apply a change. See
+[`docs/remote-execution.md`](docs/remote-execution.md) for the enable recipe and
+the full webhook contract.
 
 **HITL mode:** uncheck **Autonomous mode** and click **"Run HITL"**. The agent
 begins planning immediately — a priming message tells it to start the
@@ -494,7 +484,7 @@ sequenceDiagram
 ```yaml
 # config.yaml
 backends:
-  agent: # go-forward task backend (the runner is frozen; multi mode rejects it)
+  agent: # task backend — executes cards
     url: "http://localhost:9092" # backend base URL
     api_key: "your-secret-key-min-32ch" # shared HMAC secret (min 32 chars)
     enabled: true
@@ -508,13 +498,13 @@ Per-project, override the enabled flag and set a custom worker image in
 ```yaml
 remote_execution:
   enabled: true
-  runner_image: "ghcr.io/org/custom-runner:latest"
+  worker_image: "ghcr.io/org/custom-worker:latest"
 ```
 
 Triggering a run automatically enables `feature_branch` and `create_pr` on the
 card (both autonomous and HITL), so the container always works on a dedicated
 branch and opens a pull request. Cards track execution state via
-`runner_status`: `queued` → `running` → `completed`/`failed`/`killed`, surfaced
+`worker_status`: `queued` → `running` → `completed`/`failed`/`killed`, surfaced
 as status badges in the UI. See
 [`docs/remote-execution.md`](docs/remote-execution.md) for the full
 architecture, webhook protocol, and security model.
@@ -563,8 +553,8 @@ human verification during development — **agents always use MCP, never curl.**
 Identity is sent via the `X-Agent-ID` header; claimed cards can only be mutated
 by the owning agent. Non-safe methods (`POST`, `PUT`, `PATCH`, `DELETE`) require
 an `X-Requested-With: contextmatrix` CSRF header, which the web UI sets
-automatically. Exempt paths: `/healthz`, `/readyz`, `/mcp`, and `/api/runner/*`,
-`/api/agent/*`, `/api/chat/*` (HMAC-signed instead).
+automatically. Exempt paths: `/healthz`, `/readyz`, `/mcp`, `/api/agent/*`, and
+`/api/chat/*` (HMAC-signed instead).
 
 A few representative calls:
 
@@ -590,7 +580,7 @@ curl http://localhost:8080/readyz
 
 SSE event types include `card.created`, `card.updated`, `card.state_changed`,
 `card.claimed`, `card.released`, `card.stalled`, `card.log_added`,
-`card.usage_reported`, the `project.*` and `sync.*` families, and `runner.*`
+`card.usage_reported`, the `project.*` and `sync.*` families, and `worker.*`
 lifecycle events. See [`docs/api-reference.md`](docs/api-reference.md) for the
 complete endpoint reference, request/response shapes, and error format.
 
