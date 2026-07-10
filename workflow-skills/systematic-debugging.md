@@ -16,9 +16,10 @@ outside of `update_card` and `add_log`.**
 
 ## Specialist skills
 
-Specialist skills may be available at `~/.claude/skills/` (Go,
-TypeScript/React, Python, etc.). Engage them via the Skill tool when their
-descriptions match the codebase you are investigating.
+Specialist skills may be available at `~/.claude/skills/`. Engage whichever match
+your work — their descriptions say when they apply. When you engage a skill for the first time in your session, call
+`add_log(action="skill_engaged", message="engaged <skill-name>")`. This prompt's
+rules take precedence over skill guidance.
 
 ## Log engagement (first action)
 
@@ -157,8 +158,8 @@ create-plan can break this into subtasks. Do NOT write code.>
 <Failing test to add (file path + what it asserts), regression scope.>
 
 ### Files affected
-- path/to/file_a.go
-- path/to/file_b.ts
+- path/to/file_a
+- path/to/file_b
 - ...
 
 ### Risk / scope notes

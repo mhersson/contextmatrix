@@ -206,6 +206,14 @@ implementation.
 
 `runner_image` is populated from the project's `remote_execution.runner_image`
 field when set; otherwise the runner falls back to its configured `base_image`.
+This field is the per-project **language-toolchain seam**, shared by the agent
+backend (this payload) and chat sessions (`/chat/start` below): it answers "what
+toolchain does this project's code need", independent of
+`remote_execution.enabled` — that flag gates only whether cards run
+autonomously, not which image an interactive session runs. The default worker
+image already carries Go, Node, Python (`uv`/`uvx`/`ty`/`ruff`), and Rust
+(`cargo`/`rustup`); a project in any other ecosystem sets `runner_image` to a
+custom image built on the worker base (see the agent repo's custom-image docs).
 
 `interactive` defaults to `false`. The web UI sends `interactive: true` when the
 user clicks "Run HITL". When `true`, the runner sets the `CM_INTERACTIVE=1`
@@ -539,6 +547,7 @@ Start a chat container for a session. HMAC-signed.
   "session_id": "01J5...",
   "project": "contextmatrix",
   "repo_url": "https://github.com/mhersson/contextmatrix.git",
+  "runner_image": "ghcr.io/example-org/cm-runner:2026-04-23",
   "mcp_api_key": "<forwarded as CM_MCP_API_KEY>",
   "model": "claude-opus-4-8",
   "resume": [
@@ -557,6 +566,12 @@ Start a chat container for a session. HMAC-signed.
 `project` and `repo_url` are both optional — omit for a cross-project chat.
 `mcp_api_key` may be empty when CM's MCP listener has no auth (loopback dev
 mode); the container then merges an MCP entry with no `Authorization` header.
+
+`runner_image` mirrors `/trigger`'s field: CM populates it from the project's
+`remote_execution.runner_image` on every cold open — regardless of
+`remote_execution.enabled`, since an interactive session needs the same project
+toolchain a card run would — and the worker falls back to its configured
+`base_image` when empty. See the language-toolchain note under `/trigger` above.
 
 `git_credentials_token` is the chat credential story, and it is deliberately
 different from `/trigger`'s upfront `git_token` mint above: a chat session is
@@ -1133,7 +1148,7 @@ Each project can override the global runner setting:
 # In .board.yaml
 remote_execution:
   enabled: true # or false to disable for this project
-  runner_image: "custom/image:v2" # optional per-project Docker image
+  runner_image: "custom/image:v2" # optional per-project toolchain image; used by card runs AND chat sessions
 ```
 
 Resolution order:

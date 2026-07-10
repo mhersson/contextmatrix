@@ -79,6 +79,7 @@ func (c *runnerClient) StartChat(ctx context.Context, opts StartChatOpts) (strin
 		SessionID:           opts.SessionID,
 		Project:             opts.Project,
 		RepoURL:             opts.RepoURL,
+		RunnerImage:         opts.RunnerImage,
 		MCPAPIKey:           c.mcpAPIKey,
 		Model:               opts.Model,
 		Resume:              opts.Resume,

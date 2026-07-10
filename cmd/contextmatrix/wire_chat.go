@@ -96,22 +96,28 @@ func wireChat(
 		Pricer:                 svc,
 		LLMEndpoint:            llmEndpointFromConfig(cfg.LLMEndpoint),
 		WorkerCredentialsToken: workerCredentialsToken,
-		ResolveRepoURL: func(rctx context.Context, project string) (string, error) {
+		ResolveProjectExec: func(rctx context.Context, project string) (chat.ProjectExecInfo, error) {
 			p, err := svc.GetProject(rctx, project)
 			if err != nil {
-				return "", err
+				return chat.ProjectExecInfo{}, err
 			}
 
-			if p.Repo != "" {
-				return p.Repo, nil
+			info := chat.ProjectExecInfo{RepoURL: p.Repo}
+			if info.RepoURL == "" {
+				if repos := p.EffectiveRepos(); len(repos) > 0 {
+					info.RepoURL = repos[0].URL
+				}
 			}
 
-			repos := p.EffectiveRepos()
-			if len(repos) > 0 {
-				return repos[0].URL, nil
+			// Chat uses runner_image regardless of remote_execution.enabled:
+			// enabled gates autonomous card execution, while the image answers
+			// "what toolchain does this project need", which applies to
+			// interactive sessions identically.
+			if p.RemoteExecution != nil {
+				info.RunnerImage = p.RemoteExecution.RunnerImage
 			}
 
-			return "", nil
+			return info, nil
 		},
 	})
 	go chat.NewIdleReaper(chatMgr, time.Minute).Run(ctx)

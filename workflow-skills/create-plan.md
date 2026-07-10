@@ -196,7 +196,7 @@ section. Use this format:
 1. SUBTASK: Implement JWT token generation and validation
    Priority: high | Labels: [backend, security]
    Depends on: (none)
-   Body: Create jwt.go with Sign() and Verify() functions. Use RS256. Add unit tests.
+   Body: Create the token signer with Sign() and Verify() functions. Use RS256. Add unit tests.
 
 2. SUBTASK: Add auth middleware to HTTP router
    Priority: high | Labels: [backend]
