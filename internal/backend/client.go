@@ -281,7 +281,7 @@ func (c *Client) sendGet(ctx context.Context, rawURL string) ([]byte, error) {
 
 	result := "failure"
 
-	defer func() { metrics.RunnerWebhookTotal.WithLabelValues(result).Inc() }()
+	defer func() { metrics.BackendWebhookTotal.WithLabelValues(result).Inc() }()
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -320,7 +320,7 @@ func (c *Client) doRequest(ctx context.Context, url string, body []byte, signatu
 
 	result := "failure"
 
-	defer func() { metrics.RunnerWebhookTotal.WithLabelValues(result).Inc() }()
+	defer func() { metrics.BackendWebhookTotal.WithLabelValues(result).Inc() }()
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

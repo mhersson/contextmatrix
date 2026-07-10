@@ -2111,7 +2111,7 @@ func TestMessageCard_WebhookFailure(t *testing.T) {
 
 	mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte(`{"ok":false,"error":"runner error"}`))
+		_, _ = w.Write([]byte(`{"ok":false,"error":"backend error"}`))
 	}))
 	defer mockBackend.Close()
 
@@ -3658,7 +3658,7 @@ func setupGitCredentialsEndpoint(
 	ctx := context.Background()
 
 	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
-		Title: "Long runner", Type: "task", Priority: "medium",
+		Title: "Long run", Type: "task", Priority: "medium",
 	})
 	require.NoError(t, err)
 
@@ -3954,7 +3954,7 @@ func TestGetGitCredentials_BackendDisabled_NotFound(t *testing.T) {
 	defer cleanup()
 
 	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
-		Title: "No runner", Type: "task", Priority: "medium",
+		Title: "No backend", Type: "task", Priority: "medium",
 	})
 	require.NoError(t, err)
 

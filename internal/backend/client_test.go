@@ -418,28 +418,28 @@ func TestClient_RetryOn503(t *testing.T) {
 }
 
 // TestClient_WebhookMetrics_Success verifies that a successful webhook call
-// increments runner_webhook_total{result="success"} and not the failure series.
+// increments backend_webhook_total{result="success"} and not the failure series.
 func TestClient_WebhookMetrics_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(protocol.SuccessResponse{OK: true})
 	}))
 	defer srv.Close()
 
-	beforeSuccess := testutil.ToFloat64(metrics.RunnerWebhookTotal.WithLabelValues("success"))
-	beforeFailure := testutil.ToFloat64(metrics.RunnerWebhookTotal.WithLabelValues("failure"))
+	beforeSuccess := testutil.ToFloat64(metrics.BackendWebhookTotal.WithLabelValues("success"))
+	beforeFailure := testutil.ToFloat64(metrics.BackendWebhookTotal.WithLabelValues("failure"))
 
 	c := NewClient(srv.URL, "key")
 	err := c.Trigger(context.Background(), TriggerPayload{CardID: "TEST-001", Project: "p"})
 	require.NoError(t, err)
 
-	assert.GreaterOrEqual(t, testutil.ToFloat64(metrics.RunnerWebhookTotal.WithLabelValues("success"))-beforeSuccess, float64(1),
+	assert.GreaterOrEqual(t, testutil.ToFloat64(metrics.BackendWebhookTotal.WithLabelValues("success"))-beforeSuccess, float64(1),
 		"success counter should increment on 2xx response")
-	assert.InDelta(t, 0, testutil.ToFloat64(metrics.RunnerWebhookTotal.WithLabelValues("failure"))-beforeFailure, 0.0,
+	assert.InDelta(t, 0, testutil.ToFloat64(metrics.BackendWebhookTotal.WithLabelValues("failure"))-beforeFailure, 0.0,
 		"failure counter should not increment on success")
 }
 
 // TestClient_WebhookMetrics_Failure verifies that a failed webhook call
-// increments runner_webhook_total{result="failure"}.
+// increments backend_webhook_total{result="failure"}.
 func TestClient_WebhookMetrics_Failure(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
@@ -447,16 +447,16 @@ func TestClient_WebhookMetrics_Failure(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	beforeSuccess := testutil.ToFloat64(metrics.RunnerWebhookTotal.WithLabelValues("success"))
-	beforeFailure := testutil.ToFloat64(metrics.RunnerWebhookTotal.WithLabelValues("failure"))
+	beforeSuccess := testutil.ToFloat64(metrics.BackendWebhookTotal.WithLabelValues("success"))
+	beforeFailure := testutil.ToFloat64(metrics.BackendWebhookTotal.WithLabelValues("failure"))
 
 	c := NewClient(srv.URL, "key")
 	err := c.Trigger(context.Background(), TriggerPayload{CardID: "TEST-001", Project: "p"})
 	require.Error(t, err)
 
-	assert.InDelta(t, 0, testutil.ToFloat64(metrics.RunnerWebhookTotal.WithLabelValues("success"))-beforeSuccess, 0.0,
+	assert.InDelta(t, 0, testutil.ToFloat64(metrics.BackendWebhookTotal.WithLabelValues("success"))-beforeSuccess, 0.0,
 		"success counter should not increment on failure")
-	assert.GreaterOrEqual(t, testutil.ToFloat64(metrics.RunnerWebhookTotal.WithLabelValues("failure"))-beforeFailure, float64(1),
+	assert.GreaterOrEqual(t, testutil.ToFloat64(metrics.BackendWebhookTotal.WithLabelValues("failure"))-beforeFailure, float64(1),
 		"failure counter should increment on non-2xx response")
 }
 
