@@ -358,18 +358,8 @@ chat:
   # CONTEXTMATRIX_CHAT_MAX_CONCURRENT overrides this.
   max_concurrent: 8
 
-  # RUNNER-SERVED CHAT ONLY. default_model and models below apply when the
-  # runner serves chat (native Anthropic slugs via Claude Code). When the
-  # dedicated chat backend (contextmatrix-chat) serves chat, both are ignored:
-  # the picker offers the live OpenRouter catalog and the default comes from
-  # backends.chat.default_model.
-  #
-  # Claude model used when a chat is created without an explicit selection in
-  # the New Chat dialog. Must be a key in chat.models.
-  default_model: claude-sonnet-4-6
-
-  # Rough token budget for the rehydration payload sent to the runner on
-  # cold-reopen. Older transcript turns are dropped (first user turn and
+  # Rough token budget for the rehydration payload sent to the chat backend
+  # on cold-reopen. Older transcript turns are dropped (first user turn and
   # last 20 turns are always preserved) until the estimate fits.
   resume_budget_tokens: 40000
 
@@ -377,24 +367,6 @@ chat:
   # agent never called chat_rehydration_complete. The first user message
   # also ends the phase, so this is a belt-and-suspenders cap.
   rehydration_timeout: 10m
-
-  # Allowlist of selectable models for new chats (runner-served chat only;
-  # see the note on default_model above). The label is shown in the picker;
-  # max_tokens drives the context-window denominator in the ChatThread header
-  # indicator. Adding a new model is a single edit.
-  models:
-    claude-sonnet-4-6:
-      label: "Sonnet 4.6"
-      max_tokens: 1000000
-    claude-opus-4-7:
-      label: "Opus 4.7"
-      max_tokens: 1000000
-    claude-opus-4-8:
-      label: "Opus 4.8"
-      max_tokens: 1000000
-    claude-haiku-4-5-20251001:
-      label: "Haiku 4.5"
-      max_tokens: 200000
 
 # Image upload + retrieval (paste / drag-drop screenshots into cards).
 images:

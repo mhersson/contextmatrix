@@ -610,7 +610,6 @@ func main() {
 		MCPHandler:             mcpHandler,
 		ChatManager:            chatMgr,
 		ChatHub:                chatHub,
-		ChatConfig:             &cfg.Chat,
 		ChatBackendCfg:         chatBackendCfg,
 		ChatWorkerAPIKey:       chatWorkerAPIKey,
 		ImageStore:             imageStore,

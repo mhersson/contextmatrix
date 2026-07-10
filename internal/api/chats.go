@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -78,9 +77,8 @@ func (f *cachedEndpointFetcher) get(ctx context.Context) ([]chatModelEntry, erro
 }
 
 type chatHandlers struct {
-	mgr  *chat.Manager
-	hub  *chat.SSEHub
-	chat *config.ChatConfig
+	mgr *chat.Manager
+	hub *chat.SSEHub
 
 	// openRouter is true when the dedicated chat backend (contextmatrix-chat,
 	// OpenRouter) serves chat. In that mode the chat.models allowlist does not
@@ -102,17 +100,16 @@ type chatHandlers struct {
 	validateModel func(ctx context.Context, slug string) bool
 }
 
-func newChatHandlers(mgr *chat.Manager, hub *chat.SSEHub, chatCfg *config.ChatConfig, chatBackendCfg config.BackendConfig) *chatHandlers {
-	// The dedicated chat backend is the active chat server exactly when it is
-	// enabled and keyed — mirrors the route guard in router.go. An absent entry
-	// is a zero value whose IsEnabled() reports true, so the APIKey check is what
+func newChatHandlers(mgr *chat.Manager, hub *chat.SSEHub, chatBackendCfg config.BackendConfig) *chatHandlers {
+	// The chat backend is the active chat server exactly when it is enabled
+	// and keyed — mirrors the route guard in router.go. An absent entry is a
+	// zero value whose IsEnabled() reports true, so the APIKey check is what
 	// distinguishes "configured" from "absent".
 	openRouter := chatBackendCfg.IsEnabled() && chatBackendCfg.APIKey != ""
 
 	return &chatHandlers{
 		mgr:        mgr,
 		hub:        hub,
-		chat:       chatCfg,
 		openRouter: openRouter,
 		orDefault:  chatBackendCfg.DefaultModel,
 	}
@@ -259,18 +256,9 @@ func (h *chatHandlers) createChat(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	default:
-		if model == "" && h.chat != nil {
-			model = h.chat.DefaultModel
-		}
-
-		if model != "" && h.chat != nil {
-			if _, ok := h.chat.Models[model]; !ok {
-				writeError(w, http.StatusBadRequest, ErrCodeInvalidModel,
-					"model not in allowlist", model)
-
-				return
-			}
-		}
+		// No chat backend configured: accept the model untouched — sends
+		// fail at open time via the disabled-backend stub, so there is no
+		// catalog to validate against.
 	}
 
 	sess, err := h.mgr.CreateSession(r.Context(), chat.CreateInput{
@@ -308,14 +296,15 @@ func containsModelID(models []chatModelEntry, id string) bool {
 
 // listModels exposes the chat model picker source for the frontend. The
 // `source` field tells the picker which mode to render:
-//   - "config": the runner serves chat; Models is the chat.models allowlist and
-//     Default is chat.default_model (native Anthropic slugs).
-//   - "openrouter": the dedicated chat backend serves chat; Models is the
-//     vendor-screened OpenRouter catalog from CM's cached copy (empty only
-//     when the catalog has not been fetched) and Default seeds it with
+//   - "openrouter": the chat backend serves chat over OpenRouter; Models is
+//     the vendor-screened OpenRouter catalog from CM's cached copy (empty
+//     only when the catalog has not been fetched) and Default seeds it with
 //     backends.chat.default_model.
-//   - "endpoint": llm_endpoint.type is "openai"; Models comes from the endpoint's
-//     /v1/models response and Default is backends.chat.default_model.
+//   - "endpoint": llm_endpoint.type is "openai"; Models comes from the
+//     endpoint's /v1/models response and Default is
+//     backends.chat.default_model. Also returned (with an empty list) when
+//     no chat backend is configured — the picker renders nothing and new
+//     chats fall back to the server default.
 func (h *chatHandlers) listModels(w http.ResponseWriter, r *http.Request) {
 	type response struct {
 		Source     string           `json:"source"`
@@ -361,20 +350,9 @@ func (h *chatHandlers) listModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if h.chat == nil {
-		writeJSON(w, http.StatusOK, response{Source: "config", Models: []chatModelEntry{}, Default: ""})
-
-		return
-	}
-
-	models := make([]chatModelEntry, 0, len(h.chat.Models))
-	for id, m := range h.chat.Models {
-		models = append(models, chatModelEntry{ID: id, Label: m.Label, MaxTokens: m.MaxTokens})
-	}
-
-	sort.Slice(models, func(i, j int) bool { return models[i].ID < models[j].ID })
-
-	writeJSON(w, http.StatusOK, response{Source: "config", Models: models, Default: h.chat.DefaultModel})
+	// No chat backend configured: an empty endpoint-mode list renders
+	// nothing in the picker.
+	writeJSON(w, http.StatusOK, response{Source: "endpoint", Models: []chatModelEntry{}, Default: ""})
 }
 
 func (h *chatHandlers) getChat(w http.ResponseWriter, r *http.Request) {
