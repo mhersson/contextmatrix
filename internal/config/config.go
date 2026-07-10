@@ -93,8 +93,6 @@ var backendEnvSuffixes = []string{
 	"_URL",
 	"_API_KEY",
 	"_ENABLED",
-	"_ORCHESTRATOR_SONNET_MODEL",
-	"_ORCHESTRATOR_OPUS_MODEL",
 	"_RECONCILE_INTERVAL",
 	"_DEFAULT_MODEL",
 	"_AA_API_KEY",
@@ -114,9 +112,7 @@ type BackendConfig struct {
 	Name string `yaml:"-"`
 
 	// Runner-only task knobs; agent and chat entries must leave these empty.
-	OrchestratorSonnetModel string `yaml:"orchestrator_sonnet_model"`
-	OrchestratorOpusModel   string `yaml:"orchestrator_opus_model"`
-	ReconcileInterval       string `yaml:"reconcile_interval"`
+	ReconcileInterval string `yaml:"reconcile_interval"`
 
 	// DefaultModel is the default OpenRouter model slug.
 	//   - agent backend: default orchestrator model; per-card pins override it.
@@ -549,14 +545,6 @@ func (c *Config) Validate() error {
 		// apply. Checked before the duration-format check so the operator
 		// sees "must not be set" rather than a misleading format error.
 		if name == BackendNameChat {
-			if b.OrchestratorSonnetModel != "" {
-				return fmt.Errorf("backends[%q].orchestrator_sonnet_model must not be set on the chat backend", name)
-			}
-
-			if b.OrchestratorOpusModel != "" {
-				return fmt.Errorf("backends[%q].orchestrator_opus_model must not be set on the chat backend", name)
-			}
-
 			if b.ReconcileInterval != "" {
 				return fmt.Errorf("backends[%q].reconcile_interval must not be set on the chat backend", name)
 			}
@@ -568,19 +556,6 @@ func (c *Config) Validate() error {
 			// reports the exclusivity error first.
 
 			continue
-		}
-
-		// agent is a task-execution-only backend; the retired runner's
-		// steering-wheel fields (sonnet/opus model selection) are not
-		// applicable. agent uses default_model instead.
-		if name == BackendNameAgent {
-			if b.OrchestratorSonnetModel != "" {
-				return fmt.Errorf("backends[%q].orchestrator_sonnet_model must not be set: the agent backend uses default_model", name)
-			}
-
-			if b.OrchestratorOpusModel != "" {
-				return fmt.Errorf("backends[%q].orchestrator_opus_model must not be set: the agent backend uses default_model", name)
-			}
 		}
 
 		if b.ReconcileInterval != "" {
@@ -1266,14 +1241,6 @@ func applyEnvOverrides(cfg *Config) error {
 		// Task-only fields: the env layer just sets them; Validate rejects
 		// them on the chat entry and parses the interval, so misuse fails
 		// loudly with the entry-scoped error.
-		if v := os.Getenv(prefix + "_ORCHESTRATOR_SONNET_MODEL"); v != "" {
-			b.OrchestratorSonnetModel = v
-		}
-
-		if v := os.Getenv(prefix + "_ORCHESTRATOR_OPUS_MODEL"); v != "" {
-			b.OrchestratorOpusModel = v
-		}
-
 		if v := os.Getenv(prefix + "_RECONCILE_INTERVAL"); v != "" {
 			b.ReconcileInterval = v
 		}

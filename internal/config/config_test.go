@@ -2337,8 +2337,6 @@ func TestBackendsConfigDefaults(t *testing.T) {
 	// model defaults no longer exist.
 	b := cfg.Backends["agent"]
 	assert.Equal(t, "agent", b.Name)
-	assert.Empty(t, b.OrchestratorSonnetModel)
-	assert.Empty(t, b.OrchestratorOpusModel)
 	assert.Equal(t, "60s", b.ReconcileInterval)
 
 	// TaskBackendConfig: agent present+enabled → returns it with Name set.
@@ -2381,9 +2379,6 @@ backends:
 
 	b := cfg.Backends["chat"]
 	assert.Equal(t, "chat", b.Name)
-	// Orchestrator defaults must NOT be applied to the chat backend.
-	assert.Empty(t, b.OrchestratorSonnetModel)
-	assert.Empty(t, b.OrchestratorOpusModel)
 	assert.Empty(t, b.ReconcileInterval)
 }
 
@@ -2410,8 +2405,6 @@ backends:
 	b := cfg.Backends["agent"]
 	assert.Equal(t, "agent", b.Name)
 	assert.Equal(t, "60s", b.ReconcileInterval)
-	assert.Empty(t, b.OrchestratorSonnetModel)
-	assert.Empty(t, b.OrchestratorOpusModel)
 
 	tb, ok := cfg.TaskBackendConfig()
 	require.True(t, ok)

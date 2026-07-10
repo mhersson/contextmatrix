@@ -2785,117 +2785,60 @@ func TestPromoteCard_RecursionGuard(t *testing.T) {
 		"fake runner must receive exactly one POST /promote; guard must block the recursive call")
 }
 
-// TestRunCard_ModelInPayload verifies that the model field in TriggerPayload is
-// resolved per backend entry (config.BackendConfig). Runner backend:
-// OrchestratorOpusModel when use_opus_orchestrator is true,
-// OrchestratorSonnetModel otherwise. Agent backend: always DefaultModel —
-// use_opus_orchestrator is a runner-only field and is ignored (pin overrides
-// are agent-side). Non-default values are used so the test proves that the
-// config is threaded through rather than matching defaults by accident.
+// TestRunCard_ModelInPayload verifies that the model field in TriggerPayload
+// is the backend entry's default_model (per-card pin overrides are resolved
+// agent-side). A non-default value is used so the test proves the config is
+// threaded through rather than matching defaults by accident.
 func TestRunCard_ModelInPayload(t *testing.T) {
 	ctx := context.Background()
 
-	tests := []struct {
-		name       string
-		useOpus    bool
-		backendCfg config.BackendConfig
-		wantModel  string
-		wantMsg    string
-	}{
-		{
-			name: "runner backend sends sonnet model for default card",
-			backendCfg: config.BackendConfig{
-				Name:                    "runner",
-				APIKey:                  "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
-				OrchestratorSonnetModel: "test-sonnet-9",
-				OrchestratorOpusModel:   "test-opus-9",
-			},
-			wantModel: "test-sonnet-9",
-			wantMsg:   "default card must use OrchestratorSonnetModel",
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	defer cleanup()
+
+	var capturedPayload runner.TriggerPayload
+
+	mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&capturedPayload)
+
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
+	}))
+	defer mockRunner.Close()
+
+	runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	router := NewRouter(RouterConfig{
+		Service: svc, Bus: bus, Runner: runnerClient,
+		BackendCfg: config.BackendConfig{
+			Name:         config.BackendNameAgent,
+			APIKey:       "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
+			DefaultModel: "deepseek/deepseek-v4-flash",
 		},
-		{
-			name:    "runner backend sends opus model for use_opus_orchestrator card",
-			useOpus: true,
-			backendCfg: config.BackendConfig{
-				Name:                    "runner",
-				APIKey:                  "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
-				OrchestratorSonnetModel: "test-sonnet-9",
-				OrchestratorOpusModel:   "test-opus-9",
-			},
-			wantModel: "test-opus-9",
-			wantMsg:   "use_opus_orchestrator card must use OrchestratorOpusModel",
-		},
-		{
-			name: "agent backend sends default_model for default card",
-			backendCfg: config.BackendConfig{
-				Name:         config.BackendNameAgent,
-				APIKey:       "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
-				DefaultModel: "deepseek/deepseek-v4-flash",
-			},
-			wantModel: "deepseek/deepseek-v4-flash",
-			wantMsg:   "agent backend must use default_model for default card",
-		},
-		{
-			name:    "agent backend sends default_model for use_opus_orchestrator card",
-			useOpus: true,
-			backendCfg: config.BackendConfig{
-				Name:         config.BackendNameAgent,
-				APIKey:       "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
-				DefaultModel: "deepseek/deepseek-v4-flash",
-			},
-			wantModel: "deepseek/deepseek-v4-flash",
-			wantMsg:   "agent backend must ignore use_opus_orchestrator and use default_model",
-		},
-	}
+	})
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
-			defer cleanup()
+	server := httptest.NewServer(router)
+	defer server.Close()
 
-			var capturedPayload runner.TriggerPayload
+	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+		Title: "Model card", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
 
-			mockRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				_ = json.NewDecoder(r.Body).Decode(&capturedPayload)
+	req, _ := http.NewRequest("POST",
+		server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", nil)
 
-				writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
-			}))
-			defer mockRunner.Close()
+	resp, err := http.DefaultClient.Do(req)
 
-			runnerClient := runner.NewClient(mockRunner.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
-			router := NewRouter(RouterConfig{
-				Service: svc, Bus: bus, Runner: runnerClient,
-				BackendCfg: tc.backendCfg,
-			})
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
 
-			server := httptest.NewServer(router)
-			defer server.Close()
-
-			card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
-				Title: "Model card", Type: "task", Priority: "medium",
-				UseOpusOrchestrator: tc.useOpus,
-			})
-			require.NoError(t, err)
-
-			req, _ := http.NewRequest("POST",
-				server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", nil)
-
-			resp, err := http.DefaultClient.Do(req)
-
-			require.NoError(t, err)
-			defer closeBody(t, resp.Body)
-
-			assert.Equal(t, http.StatusAccepted, resp.StatusCode)
-			assert.Equal(t, tc.wantModel, capturedPayload.Model, tc.wantMsg)
-		})
-	}
+	assert.Equal(t, http.StatusAccepted, resp.StatusCode)
+	assert.Equal(t, "deepseek/deepseek-v4-flash", capturedPayload.Model,
+		"trigger model must be the backend entry's default_model")
 }
 
 // --- GET /api/v1/cards/{project}/{id}/autonomous ---
 //
-// The runner calls this during /promote to confirm the card's autonomous
-// flag. HMAC signing is the primary auth path; a Bearer fallback is kept
-// for runner compatibility.
+// The agent backend calls this during /promote to fail-closed confirm the
+// card's autonomous flag. HMAC-signed GET only.
 
 const testRunnerAPIKey = "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"
 
