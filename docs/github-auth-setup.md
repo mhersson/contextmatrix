@@ -1,8 +1,11 @@
 # GitHub authentication setup
 
-ContextMatrix authenticates to GitHub via a single identity used for both git
-operations (boards repo, task-skills repo, project repos in the runner) and REST
-API calls (issue importing, branch listing).
+ContextMatrix authenticates to GitHub via a **single identity held by CM
+only**. That identity covers CM's own git operations (boards repo, task-skills
+repo) and REST calls (issue import, branch listing), and it is the source of the
+**short-lived, per-run tokens CM mints for worker containers** so they can clone
+and push project repos. Workers never hold a long-lived credential; the backends
+never configure their own.
 
 This guide covers end-to-end setup for both supported methods.
 
@@ -13,26 +16,25 @@ This guide covers end-to-end setup for both supported methods.
 | **GitHub App** _(recommended)_ | Production deployments. Tokens are short-lived (1h), revocable per installation, and can be scoped finer than a PAT. |
 | **Fine-grained PAT**           | GitHub Enterprise tenants where App creation is restricted; small-scale or single-developer deployments.             |
 
-You can use the same method on the server and the runner, or mix them (App on
-the server, PAT on the runner — or vice versa). See
+The credential lives on CM regardless of method. See
 [github-auth-recommended-topologies.md](github-auth-recommended-topologies.md)
-for concrete examples.
+for how this maps onto all-in-one, CM-plus-worker-VM, and Kubernetes layouts.
 
 ## What permissions does ContextMatrix need?
 
-| Use case                                     | Used by                                      | App permission              | Equivalent PAT scope          |
-| -------------------------------------------- | -------------------------------------------- | --------------------------- | ----------------------------- |
-| Boards repo clone/pull/push                  | server                                       | Contents: read & write      | Contents: read and write      |
-| Task-skills repo clone/pull/push             | server, runner (pre-spawn pull)              | Contents: read & write      | Contents: read and write      |
-| Issue importing (project repos)              | server                                       | Issues: read                | Issues: read                  |
-| Branch listing (project repos)               | server                                       | Contents: read              | Contents: read                |
-| Project repo clone + push (worker container) | worker (via `CM_GIT_TOKEN` minted by runner) | Contents: read & write      | Contents: read and write      |
-| Pull request creation (project repos)        | worker via `gh`/Claude inside the container  | Pull requests: read & write | Pull requests: read and write |
+| Use case                                     | Used by                                        | App permission              | Equivalent PAT scope          |
+| -------------------------------------------- | ---------------------------------------------- | --------------------------- | ----------------------------- |
+| Boards repo clone/pull/push                  | CM                                             | Contents: read & write      | Contents: read and write      |
+| Task-skills repo clone/pull                  | CM (backends clone via a CM-minted token)      | Contents: read & write      | Contents: read and write      |
+| Issue importing (project repos)              | CM                                             | Issues: read                | Issues: read                  |
+| Branch listing (project repos)               | CM                                             | Contents: read              | Contents: read                |
+| Project repo clone + push (worker container) | worker (via a per-run token CM mints)          | Contents: read & write      | Contents: read and write      |
+| Pull request creation (project repos)        | worker via `gh`/model inside the container     | Pull requests: read & write | Pull requests: read and write |
 
-The runner itself does not call any GitHub REST endpoint for PR creation — it
-mints a token and hands it to the worker container, which runs `gh pr create`
-(or equivalent) using `CM_GIT_TOKEN`. The runner's only direct GitHub
-interaction is pulling the task-skills repo before spawning a worker.
+CM does not call GitHub's PR-creation endpoint itself — the worker container runs
+`gh pr create` (or equivalent) using the token CM minted for that run. CM's own
+direct GitHub traffic is boards sync, task-skills pull, issue import, and branch
+listing.
 
 App-installation tokens automatically include `Metadata: read` — that's not a
 separate setting. Fine-grained PAT users have to remember to include it
@@ -53,7 +55,7 @@ explicitly.
 3. Under **Permissions → Repository permissions**, set:
    - **Contents**: read & write
    - **Issues**: read (only if you'll use issue importing)
-   - **Pull requests**: read & write (the runner creates PRs)
+   - **Pull requests**: read & write (worker containers create PRs)
 4. Under **Where can this GitHub App be installed?**, choose **Only on this
    account** (recommended) or **Any account** if you want to install it on
    multiple orgs.
@@ -65,7 +67,7 @@ explicitly.
 2. Click **Generate a private key**. A `.pem` file downloads.
 3. Move the file to a secure location (e.g.,
    `/etc/contextmatrix/github-app/private-key.pem` on a single host, or a k8s
-   Secret in production).
+   Secret in production). It lives on CM only.
 4. Note the **App ID** at the top of the App's settings page.
 
 ### 3. Install the App on your repos
@@ -74,8 +76,9 @@ explicitly.
 2. Choose the account or org and select the repositories the App should access:
    - The **boards repo** (e.g., `contextmatrix-boards`).
    - The **task-skills repo** (e.g., `contextmatrix-task-skills`).
-   - Every project repo whose cards ContextMatrix tracks (issue import, branch
-     listing).
+   - Every project repo whose cards ContextMatrix tracks — needed both for
+     CM's issue import / branch listing and for the per-run tokens CM mints so
+     workers can clone and push.
 3. After installation, the URL shows the **installation ID** as a path segment
    (e.g., `https://github.com/settings/installations/12345678`).
 
@@ -99,12 +102,10 @@ CONTEXTMATRIX_GITHUB_INSTALLATION_ID=12345678
 CONTEXTMATRIX_GITHUB_PRIVATE_KEY_PATH=/etc/contextmatrix/github-app/private-key.pem
 ```
 
-The runner takes the same auth-mode fields (`auth_mode`, `app_id`,
-`installation_id`, `private_key_path`, `pat.token`, `host`, `api_base_url`) with
-the `CMR_GITHUB_*` env-var prefix — see the
-[contextmatrix-runner README](https://github.com/mhersson/contextmatrix-runner).
-Issue importing is server-only: there is no `CMR_GITHUB_ISSUE_IMPORTING_*`
-equivalent and the runner's `GitHubConfig` has no `IssueImporting` field.
+This is the only place the GitHub credential is configured. The agent and chat
+backends receive minted tokens from CM at run time (agent workers via
+`GET /api/agent/git-credentials`, chat workers via
+`GET /api/worker/git-credentials`); they have no `github:` block of their own.
 
 ### 5. Verify
 
@@ -117,8 +118,7 @@ INFO github token provider initialized auth_mode=app
 The server does not validate the private-key file at config-load — it only
 checks that `private_key_path` is non-empty. A missing or unreadable PEM file
 fails on the first GitHub call (e.g., `git clone` of the boards repo) rather
-than at startup. The runner is stricter: it `os.Stat`s `private_key_path` in
-`Validate()` and refuses to start if the file is missing.
+than at startup.
 
 If you see `github api: status 401` or `status 404` from a git clone or REST
 call, the App is not installed on the relevant repo (or the installation was not
@@ -131,8 +131,7 @@ granted the **Contents: read & write** permission).
 1. Navigate to **Settings → Developer settings → Personal access tokens →
    Fine-grained tokens → Generate new token**.
 2. Set:
-   - **Token name**: `contextmatrix-server` (or `contextmatrix-runner`; use
-     distinct tokens if you want separate audit trails).
+   - **Token name**: `contextmatrix`.
    - **Expiration**: as long as your security policy allows (90 days is typical;
      CM has no in-process refresh, so you'll rotate manually).
    - **Repository access**: **Only select repositories**, then add:
@@ -143,7 +142,7 @@ granted the **Contents: read & write** permission).
    - **Contents**: Read and write
    - **Issues**: Read (for issue importing)
    - **Metadata**: Read (auto-included; double-check it's there)
-   - **Pull requests**: Read and write (the runner creates PRs)
+   - **Pull requests**: Read and write (worker containers create PRs)
 4. Click **Generate token**, copy it (it's shown only once), and store it in
    your secrets manager.
 
@@ -176,8 +175,7 @@ Set `github.host` to your enterprise hostname (no scheme):
 github:
   auth_mode: "app" # or "pat"
   host: "acme.ghe.com"
-  # On the server, api_base_url is derived from host as
-  # https://api.acme.ghe.com when left blank.
+  # api_base_url is derived from host as https://api.acme.ghe.com when left blank.
   app:
     # ...
 ```
@@ -191,28 +189,23 @@ project's `repo` field in `.board.yaml`). This lets a single CM instance
 coordinate work across both surfaces with one identity, provided the App or PAT
 has access on both. See `internal/config/config.go` (`AllowedHosts`).
 
-Note: `api_base_url` derivation is server-only. The contextmatrix-runner does
-**not** derive `api_base_url` from `host`; if you set `host` on the runner you
-must also set `api_base_url` (or `CMR_GITHUB_API_BASE_URL`) explicitly,
-otherwise the runner passes an empty value to the GitHub auth provider.
-
 ## Common mistakes
 
 - **PAT created as classic instead of fine-grained.** Classic PATs work but give
   too-broad access and can't be repo-scoped.
 - **App not installed on every relevant repo.** Issue import on a repo the App
   isn't installed on returns 404; clone/push on the boards repo without
-  installation returns 403. Re-install and pick all the repos.
+  installation returns 403; a worker's per-run token for a project repo fails
+  the same way. Re-install and pick all the repos.
 - **Token committed to YAML in a public repo.** Always use env vars for secrets
   in production.
 - **Forgetting to renew a PAT.** PATs expire and ContextMatrix has no in-process
-  refresh; the day the PAT expires, all GitHub operations fail. Apps don't have
-  this problem: the App credentials (App ID + private key) don't expire, only
-  the installation tokens minted from them. The server wraps its provider in a
-  caching layer so it reuses installation tokens until they near expiry; the
-  runner deliberately does **not** cache and mints a fresh installation token
-  per worker spawn (so the token handed off to the long-lived worker container
-  is as far from expiry as possible).
+  refresh; the day the PAT expires, all GitHub operations fail — including the
+  worker tokens CM mints from it. Apps don't have this problem: the App
+  credentials (App ID + private key) don't expire, only the installation tokens
+  minted from them. CM wraps its provider in a caching layer that reuses
+  installation tokens until they near expiry, and mints the fresh, short-lived
+  per-run/per-repo tokens it hands to workers from that same identity.
 
 ## Configuration reference
 

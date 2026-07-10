@@ -3,8 +3,8 @@
 ## Agent Configuration
 
 No model specified — the orchestrator model is set by the invoker. Local
-autonomous runs on the user's model (typically Opus). Remote runner sets
-Sonnet via container config.
+autonomous runs on the user's model (typically Opus). Worker containers set the
+orchestrator model from the agent backend's config (default or per-card pin).
 
 ---
 

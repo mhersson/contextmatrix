@@ -80,7 +80,7 @@ You MUST complete each phase before proceeding to the next.
 
 4. **Multi-component evidence (when applicable).**
    - If the failure spans multiple boundaries (CI → build → signing,
-     API → service → DB, runner → container → MCP), enumerate the
+     API → service → DB, backend → worker container → MCP), enumerate the
      component boundaries and what data crosses each one.
    - Identify which boundary lacks observability — the diagnosis should
      include "add diagnostic logging at boundary X" as part of the fix

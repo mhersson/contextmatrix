@@ -479,16 +479,16 @@ Heartbeat before prompting. Heartbeat on resume. See the Heartbeat section.
 Do both of these before branching:
 
 1. Call `get_card(card_id=<parent_id>)` and read the `autonomous` flag.
-2. Detect whether you're running inside a runner container by checking for
-   the `CM_CARD_ID` env var. The runner sets `CM_CARD_ID`, `CM_PROJECT`,
-   `CM_REPO_URL`, and `CM_MCP_URL` on every worker container; a local
-   Claude Code session has none of them. Run:
+2. Detect whether you're running inside a worker container by checking for
+   the `CM_CARD_ID` env var. The worker container has `CM_CARD_ID`,
+   `CM_PROJECT`, `CM_REPO_URL`, and `CM_MCP_URL` set; a local agent session
+   (e.g. Claude Code) has none of them. Run:
 
    ```bash
    printenv CM_CARD_ID
    ```
 
-   If the command prints a value (and exits 0), the mode is `runner`.
+   If the command prints a value (and exits 0), the mode is `worker`.
    If it prints nothing (and exits non-zero), the mode is `local`.
 
 Select exactly one mode from the table — the two inputs fully determine it:
@@ -496,7 +496,7 @@ Select exactly one mode from the table — the two inputs fully determine it:
 | `autonomous` | Environment | Mode            | Path to follow            |
 | ------------ | ----------- | --------------- | ------------------------- |
 | `true`       | any         | **Autonomous**  | Auto-commit path (Step 2) |
-| `false`      | `runner`    | **Remote HITL** | Auto-commit path (Step 2) |
+| `false`      | `worker`    | **Remote HITL** | Auto-commit path (Step 2) |
 | `false`      | `local`     | **Local HITL**  | Prompt path (Step 3)      |
 
 Only one of Step 2 or Step 3 runs. Do not read the other step.
