@@ -3,9 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"strings"
-	"time"
 
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
@@ -24,9 +22,6 @@ var ErrReviewAttemptsCapped = fmt.Errorf("review attempts limit reached")
 
 // ErrCardTerminal is returned when an operation is not allowed on a card in a terminal state (done/not_planned).
 var ErrCardTerminal = fmt.Errorf("card is in a terminal state")
-
-// ErrRunnerDisabled is returned when runner operations are attempted but the runner is not enabled.
-var ErrRunnerDisabled = fmt.Errorf("remote execution is not enabled")
 
 // ErrPromoteRequiresHuman is returned when a non-human agent attempts to promote a card to autonomous mode.
 var ErrPromoteRequiresHuman = fmt.Errorf("promote requires human agent (agent_id must start with \"human:\")")
@@ -475,117 +470,4 @@ func (s *CardService) PromoteToAutonomous(ctx context.Context, project, cardID, 
 	s.enrichDependenciesMet(ctx, card)
 
 	return card, nil
-}
-
-// SkillEngagedDedupWindow is how long after a skill_engaged entry is recorded
-// the service suppresses subsequent duplicates for the same card+skill.
-// Tunable via package-level var so tests can override.
-var SkillEngagedDedupWindow = 60 * time.Second
-
-// RecordSkillEngaged appends a skill_engaged activity log entry for the
-// given card+skill, suppressing duplicates within SkillEngagedDedupWindow.
-// Source-agnostic: handles entries from the runner callback path AND from
-// agent-side add_log calls (Path A) via a single dedup point.
-func (s *CardService) RecordSkillEngaged(ctx context.Context, project, cardID, skillName string) error {
-	cardID = strings.ToUpper(cardID)
-
-	s.writeMu.Lock()
-
-	card, err := s.store.GetCard(ctx, project, cardID)
-	if err != nil {
-		s.writeMu.Unlock()
-
-		return fmt.Errorf("get card: %w", err)
-	}
-
-	// Snapshot for rollback on commit failure.
-	snapshot, err := s.store.GetCard(ctx, project, cardID)
-	if err != nil {
-		s.writeMu.Unlock()
-
-		return fmt.Errorf("get card snapshot: %w", err)
-	}
-
-	// Dedup: scan recent entries for a same-skill skill_engaged within the window.
-	cutoff := s.clk.Now().Add(-SkillEngagedDedupWindow)
-
-	for i := len(card.ActivityLog) - 1; i >= 0; i-- {
-		e := card.ActivityLog[i]
-		if e.Timestamp.Before(cutoff) {
-			break
-		}
-
-		if e.Action == "skill_engaged" && skillNameOf(e) == skillName {
-			// Already logged within the window; suppress.
-			s.writeMu.Unlock()
-
-			return nil
-		}
-	}
-
-	entry := board.ActivityEntry{
-		Agent:     s.backendAuthor(),
-		Timestamp: s.clk.Now(),
-		Action:    "skill_engaged",
-		Message:   "engaged " + skillName,
-		Skill:     skillName,
-	}
-
-	card.ActivityLog = append(card.ActivityLog, entry)
-	card.ActivityLog = trimActivityLog(card.ActivityLog)
-
-	card.Updated = s.clk.Now()
-
-	if err := s.store.UpdateCard(ctx, project, card); err != nil {
-		s.writeMu.Unlock()
-
-		return fmt.Errorf("save card: %w", err)
-	}
-
-	commitDone, notify := s.enqueueCardCommit(ctx, project, cardID, s.backendAuthor(), "log: skill_engaged")
-
-	s.writeMu.Unlock()
-
-	if err := s.awaitCommit(commitDone, notify); err != nil {
-		s.writeMu.Lock()
-		rollbackErr := s.rollbackCardOnCommitFailure(ctx, project, snapshot, err)
-		s.writeMu.Unlock()
-
-		return rollbackErr
-	}
-
-	slog.InfoContext(ctx, "skill engaged recorded",
-		"project", project,
-		"card_id", cardID,
-		"skill", skillName,
-	)
-
-	s.bus.Publish(events.Event{
-		Type:    events.CardLogAdded,
-		Project: project,
-		CardID:  cardID,
-		Agent:   s.backendAuthor(),
-		Data: map[string]any{
-			"action":  "skill_engaged",
-			"message": "engaged " + skillName,
-		},
-	})
-
-	return nil
-}
-
-// skillNameOf extracts the skill name from an activity entry. Prefers the
-// structured Skill field (set by the runner callback path); falls back to
-// parsing "engaged X" from the message (set by agent-side add_log calls).
-func skillNameOf(e board.ActivityEntry) string {
-	if e.Skill != "" {
-		return e.Skill
-	}
-
-	const prefix = "engaged "
-	if after, ok := strings.CutPrefix(e.Message, prefix); ok {
-		return after
-	}
-
-	return ""
 }
