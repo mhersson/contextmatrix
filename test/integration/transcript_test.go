@@ -16,10 +16,9 @@ import (
 )
 
 // transcriptEvent is the wire shape of one SSE event from CM's
-// /api/runner/logs?card_id=X endpoint (see remote-execution.md §
-// "ContextMatrix: GET /api/runner/logs"). The harness keeps the full
-// JSON payload as RawJSON so the friction analyzer can see whatever
-// fields CM's session log manager exposes.
+// /api/worker/logs?project=P&card_id=X endpoint. The harness keeps the full
+// JSON payload as RawJSON so a post-mortem can see whatever fields CM's
+// session log manager exposes.
 type transcriptEvent struct {
 	Type    string `json:"type"`
 	Content string `json:"content"`
@@ -73,14 +72,14 @@ func (b *transcriptBuffer) snapshot() []transcriptEvent {
 // scenario's combined log with source "transcript:<type>" so a reader
 // of combined.log sees the chat-loop events interleaved with subprocess
 // stderr in chronological order.
-func startTranscriptCapture(t *testing.T, cmBaseURL, project, cardID string, buf *transcriptBuffer, rl *runLog) {
+func startTranscriptCapture(t *testing.T, client *apiClient, project, cardID string, buf *transcriptBuffer, rl *runLog) {
 	t.Helper()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
 	go func() {
-		url := fmt.Sprintf("%s/api/runner/logs?project=%s&card_id=%s", cmBaseURL, project, cardID)
+		url := fmt.Sprintf("%s/api/worker/logs?project=%s&card_id=%s", client.baseURL, project, cardID)
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
@@ -89,15 +88,16 @@ func startTranscriptCapture(t *testing.T, cmBaseURL, project, cardID string, buf
 			return
 		}
 
-		req.Header.Set("X-Agent-ID", "human:harness")
 		req.Header.Set("Accept", "text/event-stream")
 
-		client := &http.Client{Timeout: 0} // no read timeout for SSE
+		// Share the authenticated client's cookie jar — /api/worker/logs is
+		// session-gated in multi mode — but with no read timeout for SSE.
+		sse := &http.Client{Jar: client.hc.Jar}
 
-		resp, err := client.Do(req)
+		resp, err := sse.Do(req)
 		if err != nil {
 			if !errors.Is(err, context.Canceled) {
-				t.Logf("transcript: GET /api/runner/logs: %v", err)
+				t.Logf("transcript: GET /api/worker/logs: %v", err)
 			}
 
 			return

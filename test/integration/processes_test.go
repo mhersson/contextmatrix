@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os/exec"
+	"strings"
 	"sync"
 	"syscall"
 	"testing"
@@ -43,7 +44,7 @@ func (b *threadSafeBuffer) String() string {
 	return b.buf.String()
 }
 
-// freePort grabs a kernel-assigned port from the wildcard.
+// freePort grabs a kernel-assigned loopback port.
 func freePort(t *testing.T) int {
 	t.Helper()
 
@@ -60,40 +61,45 @@ func freePort(t *testing.T) int {
 	return port
 }
 
-// startCM launches CM with the given config, polls /healthz, and tees
-// stdout+stderr into rl.cmSink (saved as cm.log on disk). CM output is
-// NOT forwarded to combined.log / run.md — it is high-volume request
-// noise that drowns out the runner events the operator
-// actually wants to read.
+// startCM launches CM (`contextmatrix --config <path>`), polls /healthz, and
+// tees stdout+stderr into rl.cmSink (saved as cm.log). CM output is NOT
+// forwarded to combined.log — it is high-volume request noise.
 func startCM(t *testing.T, configPath string, port int, rl *runLog) *process {
 	t.Helper()
 
-	return startProcess(t, "cm", cmBinary, configPath,
+	return startProcess(t, "cm", cmBinary, []string{"--config", configPath},
 		fmt.Sprintf("http://127.0.0.1:%d/healthz", port), rl, rl.cmSink, false)
 }
 
-// startRunner launches the runner with the given config, polls /readyz,
-// and tees stdout+stderr into rl.runnerSink (saved as runner.log) AND
-// forwards each line to combined.log so the runner state changes and
-// chat-loop debug logs interleave with transcript / user_chat events.
-// Runner state log lines (e.g., "Initializing", "Completing")
-// surface at debug level — config_test.go writes log_level: debug.
-func startRunner(t *testing.T, configPath string, port int, rl *runLog) *process {
+// startAgent launches the agent backend (`contextmatrix-agent serve --config
+// <path>`), polls /readyz, and tees output into rl.agentSink (agent.log) AND
+// forwards each line to combined.log so backend state changes interleave with
+// the transcript.
+func startAgent(t *testing.T, hostBinary, configPath string, port int, rl *runLog) *process {
 	t.Helper()
 
-	return startProcess(t, "runner", runnerBinary, configPath,
-		fmt.Sprintf("http://127.0.0.1:%d/readyz", port), rl, rl.runnerSink, true)
+	return startProcess(t, "agent", hostBinary, []string{"serve", "--config", configPath},
+		fmt.Sprintf("http://127.0.0.1:%d/readyz", port), rl, rl.agentSink, true)
 }
 
-func startProcess(t *testing.T, name, binary, configPath, healthURL string, rl *runLog, sink *bytes.Buffer, forwardToCombined bool) *process {
+// startChatBackend launches the chat backend (`contextmatrix-chat serve
+// --config <path>`), polls /readyz, and tees output into rl.chatSink (chat.log)
+// plus combined.log.
+func startChatBackend(t *testing.T, hostBinary, configPath string, port int, rl *runLog) *process {
+	t.Helper()
+
+	return startProcess(t, "chat", hostBinary, []string{"serve", "--config", configPath},
+		fmt.Sprintf("http://127.0.0.1:%d/readyz", port), rl, rl.chatSink, true)
+}
+
+func startProcess(t *testing.T, name, binary string, args []string, healthURL string, rl *runLog, sink *bytes.Buffer, forwardToCombined bool) *process {
 	t.Helper()
 
 	stderr := &threadSafeBuffer{}
 
-	// Tee subprocess output to: (1) the existing thread-safe buffer for
-	// in-test grep, (2) the per-scenario raw sink saved on disk as
-	// <name>.log, and (3) optionally the chronological combined log
-	// (runner only — see startCM rationale).
+	// Tee subprocess output to: (1) the thread-safe buffer for in-test grep,
+	// (2) the per-source sink saved as <name>.log, and (3) optionally the
+	// chronological combined log.
 	multiWriter := io.MultiWriter(stderr, sink)
 
 	onLine := func(string) {}
@@ -103,7 +109,7 @@ func startProcess(t *testing.T, name, binary, configPath, healthURL string, rl *
 
 	tee := newLineTee(multiWriter, onLine)
 
-	cmd := exec.Command(binary, "--config", configPath)
+	cmd := exec.Command(binary, args...)
 	cmd.Stderr = tee
 	cmd.Stdout = tee
 
@@ -131,8 +137,7 @@ func startProcess(t *testing.T, name, binary, configPath, healthURL string, rl *
 			<-done
 		}
 
-		// Emit any partial trailing line that was buffered by the tee
-		// when the process exited mid-write so it appears in combined.log.
+		// Emit any partial trailing line buffered by the tee at exit.
 		tee.Flush()
 	})
 
@@ -162,4 +167,15 @@ func waitForReady(url string, timeout time.Duration) error {
 	}
 
 	return fmt.Errorf("timeout waiting for %s", url)
+}
+
+// tail returns the last n lines of s, joined with newlines. Used for
+// truncated error context.
+func tail(s string, n int) string {
+	lines := strings.Split(s, "\n")
+	if len(lines) <= n {
+		return s
+	}
+
+	return strings.Join(lines[len(lines)-n:], "\n")
 }

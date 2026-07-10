@@ -14,12 +14,23 @@ import (
 )
 
 var (
-	harnessRoot  string
-	cmBinary     string
-	runnerBinary string
-	tmpRoot      string
+	harnessRoot string
+	cmBinary    string
+	tmpRoot     string
 )
 
+// workerLabels are the docker labels the agent and chat executors stamp on
+// their worker containers. The orphan sweep removes leftovers from crashed
+// runs by these labels.
+var workerLabels = []string{
+	"contextmatrix.agent=true",
+	"contextmatrix.chat=true",
+}
+
+// TestMain builds ONLY the CM binary up front — the sibling agent/chat repos
+// are built lazily by ensureAgentAssets/ensureChatAssets so backend-free tests
+// (TestMultiUserAdminSurface, TestChatREST, TestSmoke) run with no sibling
+// checkout present. Docker worker images are likewise built on demand.
 func TestMain(m *testing.M) {
 	if err := setup(); err != nil {
 		log.Fatalf("integration harness setup failed: %v", err)
@@ -43,7 +54,6 @@ func setup() error {
 	}
 
 	cmBinary = filepath.Join(tmpRoot, "contextmatrix")
-	runnerBinary = filepath.Join(tmpRoot, "contextmatrix-runner")
 
 	ctx := context.Background()
 
@@ -51,20 +61,11 @@ func setup() error {
 		return fmt.Errorf("build CM: %w", err)
 	}
 
-	if err := buildRunner(ctx, runnerBinary); err != nil {
-		return fmt.Errorf("build runner: %w", err)
-	}
-
-	if err := buildStubImage(ctx); err != nil {
-		return fmt.Errorf("build stub image: %w", err)
-	}
-
 	if err := sweepOrphans(ctx); err != nil {
 		log.Printf("orphan sweep failed (non-fatal): %v", err)
 	}
 
-	log.Printf("harness ready: cm=%s runner=%s tmp=%s",
-		cmBinary, runnerBinary, tmpRoot)
+	log.Printf("harness ready: cm=%s tmp=%s", cmBinary, tmpRoot)
 
 	return nil
 }
@@ -72,17 +73,15 @@ func setup() error {
 func buildCM(ctx context.Context, out string) error {
 	repoRoot := filepath.Join(harnessRoot, "..", "..")
 
-	// CM's binary embeds web/dist via embed.FS, so the frontend must
-	// exist before `go build`. We invoke `make build-frontend` rather
-	// than `npm run build` directly to honour any future changes to
-	// the project's frontend build pipeline.
+	// CM's binary embeds web/dist via embed.FS, so the frontend must exist
+	// before `go build`. Invoke `make build-frontend` (not `npm run build`
+	// directly) to honour any future frontend build-pipeline changes.
 	if _, err := os.Stat(filepath.Join(repoRoot, "web", "dist", "index.html")); err != nil {
-		// Install npm deps first if node_modules is absent (e.g. fresh worktree).
 		if _, err := os.Stat(filepath.Join(repoRoot, "web", "node_modules")); err != nil {
 			install := exec.CommandContext(ctx, "make", "install-frontend")
 			install.Dir = repoRoot
-
 			install.Stdout, install.Stderr = os.Stderr, os.Stderr
+
 			if err := install.Run(); err != nil {
 				return fmt.Errorf("make install-frontend: %w", err)
 			}
@@ -90,62 +89,34 @@ func buildCM(ctx context.Context, out string) error {
 
 		front := exec.CommandContext(ctx, "make", "build-frontend")
 		front.Dir = repoRoot
-
 		front.Stdout, front.Stderr = os.Stderr, os.Stderr
+
 		if err := front.Run(); err != nil {
 			return fmt.Errorf("make build-frontend: %w", err)
 		}
 	}
 
-	cmd := exec.CommandContext(ctx, "go", "build",
-		"-o", out, "./cmd/contextmatrix")
+	cmd := exec.CommandContext(ctx, "go", "build", "-o", out, "./cmd/contextmatrix")
 	cmd.Dir = repoRoot
 	cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
 
 	return cmd.Run()
 }
 
-func buildRunner(ctx context.Context, out string) error {
-	runnerRepo := filepath.Join(harnessRoot, "..", "..", "..", "contextmatrix-runner")
-	if _, err := os.Stat(runnerRepo); err != nil {
-		return fmt.Errorf("runner repo not found at %s: %w", runnerRepo, err)
-	}
-
-	cmd := exec.CommandContext(ctx, "go", "build",
-		"-o", out, "./cmd/contextmatrix-runner")
-	cmd.Dir = runnerRepo
-	cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
-
-	return cmd.Run()
-}
-
-func buildStubImage(ctx context.Context) error {
-	if imageExists(ctx, "cm-stub-legacy:test") {
-		return nil
-	}
-
-	stubDir := filepath.Join(harnessRoot, "stub-worker")
-	cmd := exec.CommandContext(ctx, "docker", "build",
-		"-t", "cm-stub-legacy:test", stubDir)
-	cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
-
-	return cmd.Run()
-}
-
-func imageExists(ctx context.Context, ref string) bool {
-	return exec.CommandContext(ctx, "docker", "image", "inspect", ref).Run() == nil
-}
-
-// sweepOrphans removes containers from prior crashed runs (by label).
-// The runner labels every managed container contextmatrix.runner=true.
+// sweepOrphans removes worker containers left over from prior crashed runs,
+// identified by the agent/chat executor labels.
 func sweepOrphans(ctx context.Context) error {
-	out, err := exec.CommandContext(ctx, "docker", "ps", "-aq",
-		"--filter", "label=contextmatrix.runner=true").Output()
-	if err != nil {
-		return fmt.Errorf("docker ps: %w", err)
+	var ids []string
+
+	for _, label := range workerLabels {
+		out, err := exec.CommandContext(ctx, "docker", "ps", "-aq", "--filter", "label="+label).Output()
+		if err != nil {
+			return fmt.Errorf("docker ps (label=%s): %w", label, err)
+		}
+
+		ids = append(ids, nonEmptyLines(string(out))...)
 	}
 
-	ids := nonEmptyLines(string(out))
 	if len(ids) == 0 {
 		return nil
 	}
@@ -168,4 +139,15 @@ func nonEmptyLines(s string) []string {
 	}
 
 	return out
+}
+
+// dockerListByLabel returns container IDs matching a single docker label
+// selector (e.g. "contextmatrix.agent=true").
+func dockerListByLabel(label string) []string {
+	out, err := exec.Command("docker", "ps", "-aq", "--filter", "label="+label).Output()
+	if err != nil {
+		return nil
+	}
+
+	return nonEmptyLines(string(out))
 }

@@ -30,27 +30,27 @@ func (wc *workerCapture) stop() {
 }
 
 // startWorkerCapture launches a goroutine that:
-//  1. Polls dockerListByScenario every 75ms until a container appears (or
+//  1. Polls dockerListByLabel(label) every 75ms until a container appears (or
 //     the context is cancelled or 90s elapses without a container).
 //  2. Runs "docker logs -f <id>" with combined stdout+stderr piped directly
 //     to <runlogDir>/worker.raw.jsonl on disk.
-//  3. Exits once the docker process exits (container removed) or the
-//     context is cancelled.
+//  3. Exits once the docker process exits (container removed) or the context
+//     is cancelled.
 //
-// The file is created immediately so that finalize always finds it, even
-// when no container ever appeared (the file will be empty in that case).
+// label is the executor's container label (contextmatrix.agent=true or
+// contextmatrix.chat=true). Scenarios run sequentially, so at most one worker
+// container of a given kind is live at a time.
 //
-// Call stop() on the returned workerCapture BEFORE reading worker.raw.jsonl
-// (i.e. before finalize) to ensure the file is fully flushed and closed.
-func startWorkerCapture(rl *runLog, scenarioID string) *workerCapture {
+// The file is created immediately so finalize always finds it, even when no
+// container ever appeared (empty in that case). Call stop() BEFORE reading
+// worker.raw.jsonl (i.e. before finalize).
+func startWorkerCapture(rl *runLog, label string) *workerCapture {
 	outPath := filepath.Join(rl.dir, "worker.raw.jsonl")
 
-	// Create the file immediately — finalize reads it at cleanup time and a
-	// missing file would silently fall back to the "no worker stdout" sentinel.
 	f, err := os.Create(outPath)
 	if err != nil {
 		rl.writeLine("harness", "worker_capture: create "+outPath+": "+err.Error())
-		// Return a no-op capture so callers don't need nil checks.
+
 		noop := &workerCapture{cancel: func() {}, done: make(chan struct{})}
 		close(noop.done)
 
@@ -75,12 +75,12 @@ func startWorkerCapture(rl *runLog, scenarioID string) *workerCapture {
 			}
 
 			if time.Now().After(deadline) {
-				rl.writeLine("harness", "worker_capture: no container within 90s ("+scenarioID+")")
+				rl.writeLine("harness", "worker_capture: no container within 90s (label="+label+")")
 
 				return
 			}
 
-			ids := dockerListByScenario(scenarioID)
+			ids := dockerListByLabel(label)
 			if len(ids) > 0 {
 				containerID = ids[0]
 
@@ -101,17 +101,15 @@ func startWorkerCapture(rl *runLog, scenarioID string) *workerCapture {
 		cmd.Stderr = f
 
 		if err := cmd.Run(); err != nil && ctx.Err() == nil {
-			// Container removal causes a non-nil error; log for diagnostics only.
 			rl.writeLine("harness", "worker_capture: docker logs -f "+containerID+": "+err.Error())
 		}
 
-		// Sync to ensure any OS-buffered writes land before finalize reads the file.
 		_ = f.Sync()
 
-		rl.writeLine("harness", "worker_capture: closed log for "+containerID+" ("+scenarioID+")")
+		rl.writeLine("harness", "worker_capture: closed log for "+containerID+" (label="+label+")")
 	}()
 
-	rl.writeLine("harness", "worker_capture: started for "+scenarioID+" -> "+outPath)
+	rl.writeLine("harness", "worker_capture: started for label="+label+" -> "+outPath)
 
 	return &workerCapture{cancel: cancel, done: done}
 }

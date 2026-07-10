@@ -25,16 +25,20 @@ import (
 //     post-mortems.
 //
 // Subprocess outputs are also written to per-source files (cm.log,
-// runner.log) so callers that want to grep one stream can do so without
-// mining the combined log. The transcript SSE stream is captured to
-// transcript.jsonl by the existing analyzer_test code.
+// agent.log, chat.log, stubllm.log) so callers that want to grep one stream
+// can do so without mining the combined log. The transcript SSE stream is
+// captured to transcript.jsonl by the transcript_test.go consumer.
 type runLog struct {
 	mu       sync.Mutex
 	dir      string
 	combined *os.File
 
-	cmSink     *bytes.Buffer
-	runnerSink *bytes.Buffer
+	// Per-source raw stderr sinks, flushed to <name>.log at finalize. The
+	// subprocess names map to the backend under test in each scenario.
+	cmSink      *bytes.Buffer
+	agentSink   *bytes.Buffer
+	chatSink    *bytes.Buffer
+	stubllmSink *bytes.Buffer
 }
 
 // runlogCard mirrors the subset of CM's card JSON shape that
@@ -80,10 +84,12 @@ func newRunLog(scenarioID string) (*runLog, error) {
 	}
 
 	return &runLog{
-		dir:        dir,
-		combined:   f,
-		cmSink:     &bytes.Buffer{},
-		runnerSink: &bytes.Buffer{},
+		dir:         dir,
+		combined:    f,
+		cmSink:      &bytes.Buffer{},
+		agentSink:   &bytes.Buffer{},
+		chatSink:    &bytes.Buffer{},
+		stubllmSink: &bytes.Buffer{},
 	}, nil
 }
 
@@ -112,7 +118,12 @@ func (r *runLog) finalize(scenarioID, status string, duration time.Duration, tra
 	defer r.mu.Unlock()
 
 	_ = os.WriteFile(filepath.Join(r.dir, "cm.log"), r.cmSink.Bytes(), 0o644)
-	_ = os.WriteFile(filepath.Join(r.dir, "runner.log"), r.runnerSink.Bytes(), 0o644)
+
+	// Only the backend(s) a scenario actually started leave content; empty
+	// sinks still write an empty file so the artifact layout is predictable.
+	_ = os.WriteFile(filepath.Join(r.dir, "agent.log"), r.agentSink.Bytes(), 0o644)
+	_ = os.WriteFile(filepath.Join(r.dir, "chat.log"), r.chatSink.Bytes(), 0o644)
+	_ = os.WriteFile(filepath.Join(r.dir, "stubllm.log"), r.stubllmSink.Bytes(), 0o644)
 
 	if len(transcriptJSONL) > 0 {
 		_ = os.WriteFile(filepath.Join(r.dir, "transcript.jsonl"), transcriptJSONL, 0o644)
@@ -213,10 +224,12 @@ func buildMarkdownReport(scenarioID, status string, duration time.Duration, comb
 	fmt.Fprintln(&b)
 	renderActivityLogSection(&b, cardsJSON)
 
-	fmt.Fprintln(&b, "## CM and runner stderr")
+	fmt.Fprintln(&b, "## Subprocess stderr")
 	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "- `cm.log` — CM stderr verbatim")
-	fmt.Fprintln(&b, "- `runner.log` — runner stderr verbatim")
+	fmt.Fprintln(&b, "- `cm.log` — ContextMatrix stderr verbatim")
+	fmt.Fprintln(&b, "- `agent.log` — agent backend stderr verbatim (agent scenario)")
+	fmt.Fprintln(&b, "- `chat.log` — chat backend stderr verbatim (chat scenario)")
+	fmt.Fprintln(&b, "- `stubllm.log` — scripted LLM request log")
 
 	return b.Bytes()
 }
