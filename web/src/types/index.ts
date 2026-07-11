@@ -34,6 +34,12 @@ export interface Card {
   model_coder?: string;
   model_reviewer?: string;
   best_of_n?: number;
+  /** Co-op discussion seats: 0/absent = off, 2..coop_max_participants = on. */
+  coop_participants?: number;
+  /** Phases that convene a discussion (subset of plan/review/execute). */
+  coop_phases?: string[];
+  /** Guest names from the server's coop.guests registry. */
+  coop_guests?: string[];
   phase?: string;
   feature_branch?: boolean;
   create_pr?: boolean;
@@ -213,6 +219,9 @@ export interface PatchCardInput {
   model_coder?: string;
   model_reviewer?: string;
   best_of_n?: number;
+  coop_participants?: number;
+  coop_phases?: string[];
+  coop_guests?: string[];
   feature_branch?: boolean;
   create_pr?: boolean;
   base_branch?: string;
@@ -378,6 +387,12 @@ export interface LogEntry {
   content: string;
   /** Sequence number from server, used for gap detection. */
   seq?: number;
+  /**
+   * Speaker attribution for co-op discussion frames ("seat-1",
+   * "guest-laptop", "moderator", "human"). Absent on ordinary
+   * single-agent frames.
+   */
+  agent?: string;
   /** True when this message was produced during a chat-mode rehydration phase. */
   rehydration_phase?: boolean;
   /**
@@ -420,6 +435,14 @@ export interface AppConfig {
    */
   best_of_n_max?: number;
   best_of_n_default?: number;
+  /**
+   * Co-op bounds and the guest registry NAMES for the card selector — same
+   * full-payload-only posture as the best_of_n fields. Tokens and URLs
+   * never reach the browser.
+   */
+  coop_max_participants?: number;
+  coop_default_participants?: number;
+  coop_guest_names?: string[];
 }
 
 export interface SessionUser {

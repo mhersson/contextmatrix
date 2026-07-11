@@ -190,6 +190,16 @@ starts reading the rest of the (now-rotated) pool under the new key.
   `contextmatrix-agent` and `contextmatrix-chat` callbacks into the server,
   independent of `auth.mode`. The backend is on a different host; the secret
   prevents arbitrary network callers from injecting status updates.
+- **Co-op guest endpoints** (`coop.guests` config) are operator-trusted
+  infrastructure, equivalent in trust to the `llm_endpoint` config: a
+  config-file-only registry with no UI or API management surface in either
+  mode, so multi mode gains no per-user guest attack surface. Guest bearer
+  tokens are secrets — CM ships them to the agent backend inside the trigger
+  payload, and the backend stages them into the per-run secrets file (never
+  plain container env) and registers them with its log redactor. The
+  moderator always dials out from the worker container to the guest's
+  http(s) URL; nothing listens inbound, and `GET /api/app/config` exposes
+  registry names only, never URLs or tokens.
 - **`/healthz` and `/readyz`** are open in both modes (`sessionExempt` lists
   them explicitly; there is no session guard at all in none mode).
 - **The admin listener** (pprof + `/metrics`, `admin_port`) is loopback-only

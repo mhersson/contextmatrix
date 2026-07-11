@@ -641,3 +641,48 @@ describe('useWorkerLogs — stream identity changes', () => {
     expect(result.current.logs[0].content).toBe('b');
   });
 });
+
+describe('useWorkerLogs — agent attribution passthrough', () => {
+  it('agent field survives into the LogEntry when present', () => {
+    const { result } = renderHook(() =>
+      useWorkerLogs({ project: 'proj', enabled: true }),
+    );
+
+    act(() => { latestES().simulateOpen(); });
+
+    act(() => {
+      latestES().simulateMessage({
+        type: 'text',
+        content: '[round 1] seat-1: I propose...',
+        card_id: 'C-1',
+        ts: new Date().toISOString(),
+        seq: 1,
+        agent: 'seat-1',
+      });
+    });
+
+    expect(result.current.logs).toHaveLength(1);
+    expect(result.current.logs[0].agent).toBe('seat-1');
+  });
+
+  it('agent is undefined when the frame carries none', () => {
+    const { result } = renderHook(() =>
+      useWorkerLogs({ project: 'proj', enabled: true }),
+    );
+
+    act(() => { latestES().simulateOpen(); });
+
+    act(() => {
+      latestES().simulateMessage({
+        type: 'text',
+        content: 'plain',
+        card_id: 'C-1',
+        ts: new Date().toISOString(),
+        seq: 1,
+      });
+    });
+
+    expect(result.current.logs).toHaveLength(1);
+    expect(result.current.logs[0].agent).toBeUndefined();
+  });
+});

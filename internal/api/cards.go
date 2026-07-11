@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
@@ -41,6 +42,10 @@ type cardHandlers struct {
 	// bestOfNMax is the configured config.BestOfNConfig.MaxCandidates, wired
 	// from RouterConfig. Bounds the accepted best_of_n range (0 or 2..max).
 	bestOfNMax int
+	// coop is the configured co-op block, wired from RouterConfig. Bounds
+	// coop_participants (0 or 2..MaxParticipants) and supplies the guest
+	// registry names for coop_guests validation.
+	coop config.CoopConfig
 }
 
 // createCardRequest is the JSON body for creating a card.
@@ -87,6 +92,9 @@ type updateCardRequest struct {
 	ModelCoder        string         `json:"model_coder,omitempty"`
 	ModelReviewer     string         `json:"model_reviewer,omitempty"`
 	BestOfN           int            `json:"best_of_n"`
+	CoopParticipants  int            `json:"coop_participants"`
+	CoopPhases        []string       `json:"coop_phases"`
+	CoopGuests        []string       `json:"coop_guests"`
 }
 
 // patchCardRequest is the JSON body for partial card updates.
@@ -116,6 +124,11 @@ type patchCardRequest struct {
 	ModelCoder        *string   `json:"model_coder,omitempty"`
 	ModelReviewer     *string   `json:"model_reviewer,omitempty"`
 	BestOfN           *int      `json:"best_of_n,omitempty"`
+	// Co-op fields: CoopParticipants nil = don't change; the two slices
+	// follow the Labels convention (nil = don't change, [] = clear).
+	CoopParticipants *int     `json:"coop_participants,omitempty"`
+	CoopPhases       []string `json:"coop_phases,omitempty"`
+	CoopGuests       []string `json:"coop_guests,omitempty"`
 	// Verify replaces the whole struct: omitting it preserves the card's
 	// override; a present object replaces it (zero value clears it).
 	Verify *board.VerifyConfig `json:"verify,omitempty"`
@@ -183,6 +196,59 @@ func validateAgentOwnership(r *http.Request, card *board.Card) string {
 // single candidate is meaningless.
 func validBestOfN(v, maxCandidates int) bool {
 	return v == 0 || (v >= 2 && v <= maxCandidates)
+}
+
+// coopPhaseAllowed is the closed set of phases a card may request
+// discussions in. "execute" is accepted at write time even while the
+// server-side coop.execute_checkpoints_enabled flag is off — the trigger
+// path drops it with a warning then, so flipping the flag later needs no
+// card rewrite.
+var coopPhaseAllowed = map[string]bool{"plan": true, "review": true, "execute": true}
+
+// validCoop validates the card-level co-op fields against the configured
+// bounds, mirroring validBestOfN: participants must be 0 (off) or
+// 2..cfg.MaxParticipants; phases must be a duplicate-free subset of
+// {plan, review, execute}; guests require participants >= 2 and every name
+// must be registered in cfg.Guests. Returns nil when valid.
+func validCoop(cfg config.CoopConfig, participants int, phases, guests []string) error {
+	if participants != 0 && (participants < 2 || participants > cfg.MaxParticipants) {
+		return fmt.Errorf("coop_participants must be 0 or 2..%d", cfg.MaxParticipants)
+	}
+
+	seen := make(map[string]bool, len(phases))
+
+	for _, p := range phases {
+		if !coopPhaseAllowed[p] {
+			return fmt.Errorf("invalid coop_phases entry %q: must be one of plan, review, execute", p)
+		}
+
+		if seen[p] {
+			return fmt.Errorf("duplicate coop_phases entry %q", p)
+		}
+
+		seen[p] = true
+	}
+
+	if len(guests) == 0 {
+		return nil
+	}
+
+	if participants < 2 {
+		return errors.New("coop_guests requires coop_participants >= 2")
+	}
+
+	registered := make(map[string]bool, len(cfg.Guests))
+	for _, g := range cfg.Guests {
+		registered[g.Name] = true
+	}
+
+	for _, name := range guests {
+		if !registered[name] {
+			return fmt.Errorf("unknown coop_guests entry %q: not in the coop.guests registry", name)
+		}
+	}
+
+	return nil
 }
 
 // listCards handles GET /api/projects/{project}/cards.
@@ -445,9 +511,12 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 		req.ModelOrchestrator != existingCard.ModelOrchestrator ||
 		req.ModelCoder != existingCard.ModelCoder ||
 		req.ModelReviewer != existingCard.ModelReviewer ||
-		req.BestOfN != existingCard.BestOfN) {
+		req.BestOfN != existingCard.BestOfN ||
+		req.CoopParticipants != existingCard.CoopParticipants ||
+		!slices.Equal(req.CoopPhases, existingCard.CoopPhases) ||
+		!slices.Equal(req.CoopGuests, existingCard.CoopGuests)) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
-			"forbidden", "autonomous, feature_branch, create_pr, vetted, model pins, and best_of_n can only be changed via the UI")
+			"forbidden", "autonomous, feature_branch, create_pr, vetted, model pins, best_of_n, and co-op fields can only be changed via the UI")
 
 		return
 	}
@@ -455,6 +524,12 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 	if !validBestOfN(req.BestOfN, h.bestOfNMax) {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest,
 			"invalid best_of_n", fmt.Sprintf("must be 0 or 2..%d", h.bestOfNMax))
+
+		return
+	}
+
+	if err := validCoop(h.coop, req.CoopParticipants, req.CoopPhases, req.CoopGuests); err != nil {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid co-op fields", err.Error())
 
 		return
 	}
@@ -488,6 +563,9 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 		ModelCoder:        req.ModelCoder,
 		ModelReviewer:     req.ModelReviewer,
 		BestOfN:           req.BestOfN,
+		CoopParticipants:  req.CoopParticipants,
+		CoopPhases:        req.CoopPhases,
+		CoopGuests:        req.CoopGuests,
 	}
 
 	card, err := h.svc.UpdateCard(r.Context(), projectName, cardID, input)
@@ -528,9 +606,12 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 		req.ModelCoder != nil ||
 		req.ModelReviewer != nil ||
 		req.BestOfN != nil ||
+		req.CoopParticipants != nil ||
+		req.CoopPhases != nil ||
+		req.CoopGuests != nil ||
 		req.Verify != nil) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
-			"forbidden", "autonomous, feature_branch, create_pr, vetted, base_branch, model pins, best_of_n, and verify can only be set via the UI")
+			"forbidden", "autonomous, feature_branch, create_pr, vetted, base_branch, model pins, best_of_n, co-op fields, and verify can only be set via the UI")
 
 		return
 	}
@@ -554,6 +635,30 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, ErrCodeAgentMismatch, "agent mismatch", errMsg)
 
 		return
+	}
+
+	if req.CoopParticipants != nil || req.CoopPhases != nil || req.CoopGuests != nil {
+		// Validate the RESULTING state, not the patch in isolation.
+		effParticipants := existingCard.CoopParticipants
+		if req.CoopParticipants != nil {
+			effParticipants = *req.CoopParticipants
+		}
+
+		effPhases := existingCard.CoopPhases
+		if req.CoopPhases != nil {
+			effPhases = req.CoopPhases
+		}
+
+		effGuests := existingCard.CoopGuests
+		if req.CoopGuests != nil {
+			effGuests = req.CoopGuests
+		}
+
+		if err := validCoop(h.coop, effParticipants, effPhases, effGuests); err != nil {
+			writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid co-op fields", err.Error())
+
+			return
+		}
 	}
 
 	if err := h.validateCardSkills(r, projectName, req.Skills); err != nil {
@@ -582,6 +687,9 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 		ModelCoder:        req.ModelCoder,
 		ModelReviewer:     req.ModelReviewer,
 		BestOfN:           req.BestOfN,
+		CoopParticipants:  req.CoopParticipants,
+		CoopPhases:        req.CoopPhases,
+		CoopGuests:        req.CoopGuests,
 		Verify:            req.Verify,
 	}
 
