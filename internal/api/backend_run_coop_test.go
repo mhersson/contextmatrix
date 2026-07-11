@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -161,6 +162,37 @@ func TestRunCard_CoopUnknownGuestDropped(t *testing.T) {
 	require.Len(t, msgs, 1)
 	assert.Contains(t, msgs[0], "desktop")
 	assert.Contains(t, msgs[0], "not registered")
+}
+
+func TestRunCard_CoopAllPhasesDroppedRunsSolo(t *testing.T) {
+	// An execute-only card with execute checkpoints off has every explicitly
+	// selected phase filtered out. The run must proceed SOLO: an empty Phases
+	// slice is the agent's "plan+review both on" default, so shipping the spec
+	// would silently run discussions the operator never chose.
+	cfg := coopRunConfig()
+	cfg.ExecuteCheckpointsEnabled = false
+
+	participants := 3
+	payload, svc, cardID := runCoopTrigger(t, cfg, &service.PatchCardInput{
+		CoopParticipants: &participants,
+		CoopPhases:       []string{"execute"},
+	})
+
+	assert.Nil(t, payload.Coop,
+		"all requested phases dropped must run solo, not fall back to the plan+review default")
+
+	msgs := coopWarnings(t, svc, cardID)
+	require.NotEmpty(t, msgs)
+
+	var sawSolo bool
+
+	for _, m := range msgs {
+		if strings.Contains(m, "solo") {
+			sawSolo = true
+		}
+	}
+
+	assert.True(t, sawSolo, "a warning must record that the run proceeds solo: %v", msgs)
 }
 
 func TestRunCard_CoopExecutePhaseMatrix(t *testing.T) {

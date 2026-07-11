@@ -374,6 +374,18 @@ func (h *backendHandlers) attachCoop(ctx context.Context, payload *backend.Trigg
 		spec.Phases = append(spec.Phases, phase)
 	}
 
+	// If the card explicitly selected phases but every one was filtered out
+	// (e.g. an execute-only card with execute checkpoints off), do NOT attach
+	// the spec: the agent reads empty Phases as its "plan+review both on"
+	// default, which would silently run discussions the operator never chose.
+	// Run solo instead. Cards that never set coop_phases keep that default.
+	if len(card.CoopPhases) > 0 && len(spec.Phases) == 0 {
+		h.recordCoopWarning(ctx, project, id,
+			"co-op skipped: all requested phases are unavailable for this run; proceeding solo")
+
+		return
+	}
+
 	payload.Coop = spec
 }
 
