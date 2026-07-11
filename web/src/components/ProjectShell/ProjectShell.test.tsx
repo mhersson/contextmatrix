@@ -528,3 +528,102 @@ describe('ProjectShell — ?card= deep-link', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Card-scoped worker-log liveness — the enabled flag passed to useWorkerLogs
+// must open for HITL runs AND for autonomous runs with co-op discussion on
+// (coop_participants >= 2), so the Chat tab's SSE stream populates for both.
+// ---------------------------------------------------------------------------
+
+describe('ProjectShell — card-scoped worker-log liveness', () => {
+  const config: ProjectConfig = {
+    name: 'test',
+    prefix: 'TEST',
+    next_id: 1,
+    states: ['todo', 'in_progress'],
+    types: ['task'],
+    priorities: ['medium'],
+    transitions: { todo: ['in_progress'], in_progress: [] },
+    remote_execution: { enabled: false },
+  };
+
+  function boardReturnFor(card: Card) {
+    return {
+      config,
+      cards: [card],
+      loading: false,
+      error: null,
+      connected: true,
+      refresh: vi.fn(),
+      updateCardLocally: vi.fn(),
+      removeCardLocally: vi.fn(),
+      suppressSSE: vi.fn(),
+      unsuppressSSE: vi.fn(),
+    };
+  }
+
+  it('enables the log stream for a running autonomous card with co-op discussion on', async () => {
+    const { useBoard } = await import('../../hooks/useBoard');
+    const { useWorkerLogs } = await import('../../hooks/useWorkerLogs');
+    const coopCard: Card = {
+      id: 'TEST-1',
+      title: 'Coop card',
+      project: 'test',
+      type: 'task',
+      state: 'in_progress',
+      priority: 'medium',
+      created: '2026-01-01T00:00:00Z',
+      updated: '2026-01-01T00:00:00Z',
+      body: '',
+      worker_status: 'running',
+      autonomous: true,
+      coop_participants: 3,
+    };
+    vi.mocked(useBoard).mockReturnValue(boardReturnFor(coopCard) as unknown as ReturnType<typeof useBoard>);
+
+    render(
+      <MemoryRouter initialEntries={['/projects/test?card=TEST-1']}>
+        <Routes>
+          <Route path="/projects/:project/*" element={<ProjectShell />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await screen.findByTestId('card-panel-TEST-1');
+    const lastCall = vi.mocked(useWorkerLogs).mock.calls.at(-1)?.[0];
+    expect(lastCall).toMatchObject({ cardId: 'TEST-1', enabled: true });
+  });
+
+  it('does NOT enable the log stream for a running autonomous card without co-op discussion', async () => {
+    const { useBoard } = await import('../../hooks/useBoard');
+    const { useWorkerLogs } = await import('../../hooks/useWorkerLogs');
+    const soloAutonomousCard: Card = {
+      id: 'TEST-1',
+      title: 'Solo autonomous card',
+      project: 'test',
+      type: 'task',
+      state: 'in_progress',
+      priority: 'medium',
+      created: '2026-01-01T00:00:00Z',
+      updated: '2026-01-01T00:00:00Z',
+      body: '',
+      worker_status: 'running',
+      autonomous: true,
+    };
+    vi.mocked(useBoard).mockReturnValue(
+      boardReturnFor(soloAutonomousCard) as unknown as ReturnType<typeof useBoard>,
+    );
+
+    render(
+      <MemoryRouter initialEntries={['/projects/test?card=TEST-1']}>
+        <Routes>
+          <Route path="/projects/:project/*" element={<ProjectShell />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await screen.findByTestId('card-panel-TEST-1');
+    const lastCall = vi.mocked(useWorkerLogs).mock.calls.at(-1)?.[0];
+    expect(lastCall).toMatchObject({ cardId: 'TEST-1', enabled: false });
+  });
+});

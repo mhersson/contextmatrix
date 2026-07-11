@@ -7,9 +7,11 @@ interface ChatTabProps {
 }
 
 /**
- * Chat rail tab — only rendered during an HITL-running session. The
- * wrapping flex container is kept here (not inside CardChat) so the
- * layout concern lives in the tab registry, matching the other tabs.
+ * Chat rail tab — rendered while chat is live (a HITL session, or an
+ * autonomous run with co-op discussion turned on) and remains available
+ * afterward as long as a transcript exists. The wrapping flex container is
+ * kept here (not inside CardChat) so the layout concern lives in the tab
+ * registry, matching the other tabs.
  */
 export function ChatTab({ card, cardLogs }: ChatTabProps) {
   return (

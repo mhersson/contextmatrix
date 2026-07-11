@@ -389,7 +389,7 @@ describe('CardPanel — MDEditor preview skipHtml XSS prevention', () => {
   });
 });
 
-describe('CardPanel — rail default tab follows isHITLRunning', () => {
+describe('CardPanel — rail default tab follows isChatLive', () => {
   it('mounts on Chat when the card arrives already running an HITL session', () => {
     render(
       <CardPanel
@@ -421,16 +421,16 @@ describe('CardPanel — rail default tab follows isHITLRunning', () => {
     const { rerender } = render(<CardPanel {...makeProps({ card: runningCard })} />);
     expect(screen.getByRole('tab', { name: /Chat/ })).toHaveAttribute('aria-selected', 'true');
 
-    // First render with isHITLRunning=false: chat tab stays (debounce — counter=1).
+    // First render with isChatLive=false: chat tab stays (debounce — counter=1).
     rerender(<CardPanel {...makeProps({ card: autonomousCard })} />);
-    // Second render with isHITLRunning still false: now the switch fires (counter=2).
+    // Second render with isChatLive still false: now the switch fires (counter=2).
     rerender(<CardPanel {...makeProps({ card: { ...autonomousCard, updated: '2026-01-02T00:00:00Z' } })} />);
 
     expect(screen.queryByRole('tab', { name: /Chat/ })).not.toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /Automation/ })).toHaveAttribute('aria-selected', 'true');
   });
 
-  it('does NOT switch activeTab to Automation on first render after isHITLRunning flips false (counter=1 guard)', () => {
+  it('does NOT switch activeTab to Automation on first render after isChatLive flips false (counter=1 guard)', () => {
     // Verifies the debounce: a single flip to false does NOT call setActiveTab(defaultTab).
     // After the flip back to true, the chat tab is re-mounted and selected (no stale automation state).
     const runningCard = { ...baseCard, state: 'in_progress', worker_status: 'running' as const, autonomous: false };
@@ -438,7 +438,7 @@ describe('CardPanel — rail default tab follows isHITLRunning', () => {
     expect(screen.getByRole('tab', { name: /Chat/ })).toHaveAttribute('aria-selected', 'true');
 
     // Render 2: transient HITL=false (SSE lag). Chat tab removed from tab set by buildCardPanelTabs
-    // (isHITLRunning=false), but activeTab must NOT be set to 'automation' by the sync block.
+    // (isChatLive=false), but activeTab must NOT be set to 'automation' by the sync block.
     const autonomousCard = { ...runningCard, autonomous: true };
     rerender(<CardPanel {...makeProps({ card: autonomousCard })} />);
 
@@ -469,6 +469,45 @@ describe('CardPanel — rail default tab follows isHITLRunning', () => {
     // One render with false is not enough — counter=1 is below the threshold.
     // The chat tab is no longer in the tab set (autonomous=true), so Automation
     // remains the effective tab regardless.
+    expect(screen.getByRole('tab', { name: /Automation/ })).toHaveAttribute('aria-selected', 'true');
+  });
+});
+
+describe('CardPanel — autonomous co-op chat visibility', () => {
+  it('adds the Chat tab with a live pulse and selects it by default for a running autonomous co-op card', () => {
+    render(
+      <CardPanel
+        {...makeProps({
+          card: {
+            ...baseCard,
+            state: 'in_progress',
+            worker_status: 'running',
+            autonomous: true,
+            coop_participants: 3,
+          },
+        })}
+      />,
+    );
+    const chatTab = screen.getByRole('tab', { name: /Chat/ });
+    expect(chatTab).toHaveAttribute('aria-selected', 'true');
+    expect(chatTab.querySelector('.animate-pulse')).not.toBeNull();
+  });
+
+  it('does NOT add the Chat tab for a running autonomous card without co-op discussion', () => {
+    render(
+      <CardPanel
+        {...makeProps({
+          card: {
+            ...baseCard,
+            state: 'in_progress',
+            worker_status: 'running',
+            autonomous: true,
+            coop_participants: 0,
+          },
+        })}
+      />,
+    );
+    expect(screen.queryByRole('tab', { name: /Chat/ })).not.toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /Automation/ })).toHaveAttribute('aria-selected', 'true');
   });
 });

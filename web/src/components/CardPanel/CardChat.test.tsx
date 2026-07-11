@@ -42,6 +42,17 @@ const autonomousCard: Card = {
   autonomous: true,
 };
 
+const coopAutonomousCard: Card = {
+  ...runningCard,
+  autonomous: true,
+  coop_participants: 3,
+};
+
+const endedCoopAutonomousCard: Card = {
+  ...coopAutonomousCard,
+  worker_status: 'failed',
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockSendCardMessage.mockResolvedValue({ ok: true, message_id: 'msg-1' });
@@ -62,6 +73,37 @@ describe('CardChat — visibility gate', () => {
     expect(screen.queryByRole('button', { name: /Send/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Switch to Autonomous/ })).not.toBeInTheDocument();
     expect(screen.getByText(/Promoted to autonomous — read-only/)).toBeInTheDocument();
+  });
+
+  it('renders an "Autonomous run" read-only footer with no compose for a running autonomous co-op card', () => {
+    render(<CardChat card={coopAutonomousCard} cardLogs={noLogs} />);
+    expect(screen.queryByPlaceholderText(/Type a message/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Send/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Switch to Autonomous/ })).not.toBeInTheDocument();
+    expect(screen.getByText(/Autonomous run — read-only/)).toBeInTheDocument();
+    expect(screen.queryByText(/Promoted to autonomous — read-only/)).not.toBeInTheDocument();
+  });
+
+  it('shows "Session ended" (not "Promoted to autonomous") for an ENDED autonomous co-op run', () => {
+    const logs: LogEntry[] = [
+      { ts: '2026-01-01T00:00:01Z', card_id: 'TEST-001', type: 'text', content: 'coop transcript entry' },
+    ];
+    render(<CardChat card={endedCoopAutonomousCard} cardLogs={logs} />);
+    expect(screen.queryByPlaceholderText(/Type a message/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Session ended — read-only/)).toBeInTheDocument();
+    expect(screen.queryByText(/Promoted to autonomous — read-only/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Autonomous run — read-only/)).not.toBeInTheDocument();
+  });
+
+  it('keeps the "Promoted to autonomous" caption for a running autonomous card WITHOUT co-op (mid-session promotion)', () => {
+    render(<CardChat card={autonomousCard} cardLogs={noLogs} />);
+    expect(screen.getByText(/Promoted to autonomous — read-only/)).toBeInTheDocument();
+    expect(screen.queryByText(/Autonomous run — read-only/)).not.toBeInTheDocument();
+  });
+
+  it('shows the compose textbox for a plain HITL running card (autonomous false)', () => {
+    render(<CardChat card={runningCard} cardLogs={noLogs} />);
+    expect(screen.getByPlaceholderText(/Type a message/)).toBeInTheDocument();
   });
 
   it('compose hides and read-only footer appears when autonomous flips from false to true (simulates promote)', () => {
