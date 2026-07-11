@@ -378,6 +378,12 @@ export interface LogEntry {
   content: string;
   /** Sequence number from server, used for gap detection. */
   seq?: number;
+  /**
+   * Speaker attribution for co-op discussion frames ("seat-1",
+   * "guest-laptop", "moderator", "human"). Absent on ordinary
+   * single-agent frames.
+   */
+  agent?: string;
   /** True when this message was produced during a chat-mode rehydration phase. */
   rehydration_phase?: boolean;
   /**

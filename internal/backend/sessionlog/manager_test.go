@@ -2406,6 +2406,31 @@ func TestParseSSEPayloadReadsWireTimestamp(t *testing.T) {
 	assert.True(t, evt.Timestamp.Equal(ts), "got %v want %v", evt.Timestamp, ts)
 }
 
+// TestParseSSEPayloadCarriesAgent verifies the speaker-attribution field
+// survives the wire → Event re-mapping (co-op discussion frames), and stays
+// empty when the backend sends none.
+func TestParseSSEPayloadCarriesAgent(t *testing.T) {
+	raw, err := json.Marshal(protocol.LogEntry{
+		Timestamp: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
+		CardID:    "CM-001",
+		Type:      "text",
+		Content:   "[round 1] seat-1: I propose...",
+		Agent:     "seat-1",
+	})
+	require.NoError(t, err)
+
+	evt, _, ok := parseSSEPayload(string(raw))
+	require.True(t, ok)
+	assert.Equal(t, "seat-1", evt.Agent)
+
+	raw, err = json.Marshal(protocol.LogEntry{CardID: "CM-001", Type: "text", Content: "plain"})
+	require.NoError(t, err)
+
+	evt, _, ok = parseSSEPayload(string(raw))
+	require.True(t, ok)
+	assert.Empty(t, evt.Agent)
+}
+
 // TestSignSSERequestMatchesProtocolSigner is the drift canary between
 // sessionlog's SSE signing and the canonical protocol signer. It fingerprints
 // the same (method, uri, empty-body, timestamp) tuple through both

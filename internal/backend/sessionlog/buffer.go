@@ -34,6 +34,10 @@ type Event struct {
 	// for card-scoped events (those sessions already carry the card ID as the
 	// session key).
 	CardID string
+	// Agent is the speaker attribution for co-op discussion frames
+	// ("seat-1", "guest-laptop", "moderator", "human"). Empty for ordinary
+	// single-agent frames.
+	Agent string
 }
 
 // droppedMarkerCount decodes the drop count stored in a dropped-marker event's

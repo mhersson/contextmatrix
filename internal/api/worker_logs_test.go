@@ -352,3 +352,123 @@ func TestStreamProjectSession_WireFramesCarryNoSeq(t *testing.T) {
 	assert.Equal(t, "world", m["content"])
 	assert.Equal(t, cardID, m["card_id"])
 }
+
+// TestStreamCardSession_AgentFieldOnlyWhenSet asserts the card-scoped SSE
+// frames carry "agent" for attributed frames and omit the key entirely for
+// ordinary frames (no noisy empty field).
+func TestStreamCardSession_AgentFieldOnlyWhenSet(t *testing.T) {
+	const (
+		cardID  = "AGENT-001"
+		project = "agenttest"
+	)
+
+	upstreamCh := make(chan protocol.LogEntry, 8)
+	readyCh := make(chan struct{})
+
+	upstream := fakeBackendServer(t, upstreamCh, readyCh)
+
+	mgr := sessionlog.NewManager(
+		sessionlog.WithBackendConfig(upstream.URL, "test-key"),
+	)
+
+	require.NoError(t, mgr.Start(context.Background(), cardID, project))
+	<-readyCh
+
+	upstreamCh <- protocol.LogEntry{Type: "text", Content: "[round 0] seat-2: hello", CardID: cardID, Agent: "seat-2"}
+
+	upstreamCh <- protocol.LogEntry{Type: "text", Content: "plain", CardID: cardID}
+
+	require.Eventually(t, func() bool {
+		return len(mgr.Snapshot(cardID)) == 2
+	}, 3*time.Second, 10*time.Millisecond)
+
+	rh := &backendHandlers{
+		sessionManager:    mgr,
+		keepaliveInterval: 1 * time.Hour,
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rh.streamWorkerLogs(w, r)
+	}))
+
+	clientURL := srv.URL + "/api/worker/logs?card_id=" + cardID + "&project=" + project
+
+	dataCh, cancelClient := connectSSEClient(t, clientURL)
+
+	frames := drainNStr(dataCh, 2, 5*time.Second)
+
+	cancelClient()
+	close(upstreamCh)
+	mgr.Stop(cardID)
+	srv.Close()
+	upstream.Close()
+
+	require.Len(t, frames, 2, "expected two SSE data frames")
+
+	withAgent := parseJSONMap(t, frames[0])
+	assert.Equal(t, "seat-2", withAgent["agent"])
+
+	plain := parseJSONMap(t, frames[1])
+	_, present := plain["agent"]
+	assert.False(t, present, "frames without attribution must omit the agent key entirely")
+}
+
+// TestStreamProjectSession_AgentFieldOnlyWhenSet is the project-scoped twin —
+// the two writeEvent closures are separate code paths and must both carry
+// the field.
+func TestStreamProjectSession_AgentFieldOnlyWhenSet(t *testing.T) {
+	const (
+		cardID  = "AGENT-PROJ-001"
+		project = "agentprojtest"
+	)
+
+	upstreamCh := make(chan protocol.LogEntry, 8)
+	readyCh := make(chan struct{})
+
+	upstream := fakeBackendServer(t, upstreamCh, readyCh)
+
+	mgr := sessionlog.NewManager(
+		sessionlog.WithBackendConfig(upstream.URL, "test-key"),
+	)
+
+	require.NoError(t, mgr.StartProject(context.Background(), project))
+	<-readyCh
+
+	upstreamCh <- protocol.LogEntry{Type: "text", Content: "[round 0] guest-laptop: hi", CardID: cardID, Agent: "guest-laptop"}
+
+	upstreamCh <- protocol.LogEntry{Type: "text", Content: "plain", CardID: cardID}
+
+	require.Eventually(t, func() bool {
+		return len(mgr.SnapshotProject(project)) == 2
+	}, 3*time.Second, 10*time.Millisecond)
+
+	rh := &backendHandlers{
+		sessionManager:    mgr,
+		keepaliveInterval: 1 * time.Hour,
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rh.streamWorkerLogs(w, r)
+	}))
+
+	clientURL := srv.URL + "/api/worker/logs?project=" + project
+
+	dataCh, cancelClient := connectSSEClient(t, clientURL)
+
+	frames := drainNStr(dataCh, 2, 5*time.Second)
+
+	cancelClient()
+	close(upstreamCh)
+	mgr.StopProject(project)
+	srv.Close()
+	upstream.Close()
+
+	require.Len(t, frames, 2, "expected two SSE data frames")
+
+	withAgent := parseJSONMap(t, frames[0])
+	assert.Equal(t, "guest-laptop", withAgent["agent"])
+
+	plain := parseJSONMap(t, frames[1])
+	_, present := plain["agent"]
+	assert.False(t, present, "frames without attribution must omit the agent key entirely")
+}
