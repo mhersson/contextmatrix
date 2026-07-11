@@ -88,6 +88,14 @@ interface ThemeContextValue {
    */
   bestOfNMax: number | undefined;
   bestOfNDefault: number | undefined;
+  /**
+   * Co-op bounds + guest registry names from `/api/app/config`. Undefined on
+   * the slim pre-login payload or on servers older than the co-op rollout —
+   * consumers apply their own fallback (`?? 5` / `?? 3` / `?? []`).
+   */
+  coopMaxParticipants: number | undefined;
+  coopDefaultParticipants: number | undefined;
+  coopGuestNames: string[] | undefined;
   toggleTheme: () => void;
   setPalette: (palette: Palette) => void;
 }
@@ -115,6 +123,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [favorites, setFavorites] = useState<Record<string, string[]> | null>(null);
   const [bestOfNMax, setBestOfNMax] = useState<number | undefined>(undefined);
   const [bestOfNDefault, setBestOfNDefault] = useState<number | undefined>(undefined);
+  const [coopMaxParticipants, setCoopMaxParticipants] = useState<number | undefined>(undefined);
+  const [coopDefaultParticipants, setCoopDefaultParticipants] = useState<number | undefined>(undefined);
+  const [coopGuestNames, setCoopGuestNames] = useState<string[] | undefined>(undefined);
 
   // Optional: AuthProvider does not yet sit above ThemeProvider in App.tsx
   // (wired in a later task), and pre-existing tests render ThemeProvider
@@ -152,6 +163,15 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       if (config.best_of_n_default !== undefined) {
         setBestOfNDefault(config.best_of_n_default);
       }
+      if (config.coop_max_participants !== undefined) {
+        setCoopMaxParticipants(config.coop_max_participants);
+      }
+      if (config.coop_default_participants !== undefined) {
+        setCoopDefaultParticipants(config.coop_default_participants);
+      }
+      if (config.coop_guest_names !== undefined) {
+        setCoopGuestNames(config.coop_guest_names);
+      }
     }).catch(() => {
       // swallow errors — leave default everforest palette
     });
@@ -173,9 +193,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const value = useMemo<ThemeContextValue>(
     () => ({
       theme, palette, version, taskBackend, favorites, bestOfNMax, bestOfNDefault,
+      coopMaxParticipants, coopDefaultParticipants, coopGuestNames,
       toggleTheme, setPalette,
     }),
-    [theme, palette, version, taskBackend, favorites, bestOfNMax, bestOfNDefault, toggleTheme, setPalette],
+    [theme, palette, version, taskBackend, favorites, bestOfNMax, bestOfNDefault,
+      coopMaxParticipants, coopDefaultParticipants, coopGuestNames, toggleTheme, setPalette],
   );
 
   return createElement(ThemeContext.Provider, { value }, children);

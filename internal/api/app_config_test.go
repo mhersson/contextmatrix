@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/config"
 )
 
 func TestGetAppConfig(t *testing.T) {
@@ -179,4 +180,83 @@ func TestGetAppConfig_BestOfN(t *testing.T) {
 		assert.NotContains(t, got, "best_of_n_max")
 		assert.NotContains(t, got, "best_of_n_default")
 	})
+}
+
+func TestGetAppConfig_Coop(t *testing.T) {
+	t.Run("full payload includes coop bounds and guest names only", func(t *testing.T) {
+		h := &appConfigHandlers{
+			theme:                   "everforest",
+			coopMaxParticipants:     5,
+			coopDefaultParticipants: 3,
+			coopGuestNames:          []string{"laptop"},
+		}
+
+		req := httptest.NewRequest(http.MethodGet, "/api/app/config", nil)
+		w := httptest.NewRecorder()
+		h.getAppConfig(w, req)
+
+		res := w.Result()
+		defer closeBody(t, res.Body)
+
+		require.Equal(t, http.StatusOK, res.StatusCode)
+
+		var got map[string]any
+		require.NoError(t, json.NewDecoder(res.Body).Decode(&got))
+		assert.EqualValues(t, 5, got["coop_max_participants"])
+		assert.EqualValues(t, 3, got["coop_default_participants"])
+		assert.Equal(t, []any{"laptop"}, got["coop_guest_names"])
+		// Names ONLY — URLs and tokens must never reach the browser.
+		assert.NotContains(t, w.Body.String(), "192.0.2.1")
+		assert.NotContains(t, w.Body.String(), "guest-secret")
+	})
+
+	t.Run("guest names omitted when registry empty", func(t *testing.T) {
+		h := &appConfigHandlers{theme: "everforest", coopMaxParticipants: 5, coopDefaultParticipants: 3}
+
+		req := httptest.NewRequest(http.MethodGet, "/api/app/config", nil)
+		w := httptest.NewRecorder()
+		h.getAppConfig(w, req)
+
+		res := w.Result()
+		defer closeBody(t, res.Body)
+
+		var got map[string]any
+		require.NoError(t, json.NewDecoder(res.Body).Decode(&got))
+		assert.NotContains(t, got, "coop_guest_names")
+	})
+
+	t.Run("slim payload omits coop fields", func(t *testing.T) {
+		// authMode "multi" + no session -> appConfigSlimResponse, which has
+		// no coop fields at all — same posture as best_of_n.
+		h := &appConfigHandlers{
+			theme:                   "everforest",
+			authMode:                "multi",
+			coopMaxParticipants:     5,
+			coopDefaultParticipants: 3,
+			coopGuestNames:          []string{"laptop"},
+		}
+
+		req := httptest.NewRequest(http.MethodGet, "/api/app/config", nil)
+		w := httptest.NewRecorder()
+		h.getAppConfig(w, req)
+
+		res := w.Result()
+		defer closeBody(t, res.Body)
+
+		require.Equal(t, http.StatusOK, res.StatusCode)
+
+		var got map[string]any
+		require.NoError(t, json.NewDecoder(res.Body).Decode(&got))
+		assert.NotContains(t, got, "coop_max_participants")
+		assert.NotContains(t, got, "coop_default_participants")
+		assert.NotContains(t, got, "coop_guest_names")
+	})
+}
+
+func TestCoopGuestNames(t *testing.T) {
+	assert.Nil(t, coopGuestNames(nil))
+	assert.Equal(t, []string{"laptop", "desk"}, coopGuestNames([]config.CoopGuest{
+		{Name: "laptop", URL: "http://a", Token: "x"},
+		{Name: "desk", URL: "http://b", Token: "y"},
+	}))
 }

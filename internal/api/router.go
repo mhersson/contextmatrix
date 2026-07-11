@@ -284,13 +284,16 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	}
 
 	ach := &appConfigHandlers{
-		theme:          cfg.Theme,
-		version:        cfg.Version,
-		taskBackend:    taskBackendName,
-		favorites:      extractFavorites(agentCfg.Favorites),
-		authMode:       cfg.AuthMode,
-		bestOfNMax:     cfg.BestOfN.MaxCandidates,
-		bestOfNDefault: cfg.BestOfN.DefaultCandidates,
+		theme:                   cfg.Theme,
+		version:                 cfg.Version,
+		taskBackend:             taskBackendName,
+		favorites:               extractFavorites(agentCfg.Favorites),
+		authMode:                cfg.AuthMode,
+		bestOfNMax:              cfg.BestOfN.MaxCandidates,
+		bestOfNDefault:          cfg.BestOfN.DefaultCandidates,
+		coopMaxParticipants:     cfg.Coop.MaxParticipants,
+		coopDefaultParticipants: cfg.Coop.DefaultParticipants,
+		coopGuestNames:          coopGuestNames(cfg.Coop.Guests),
 	}
 	bh := &branchHandlers{
 		svc:                cfg.Service,

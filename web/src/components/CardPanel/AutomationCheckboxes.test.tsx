@@ -137,10 +137,11 @@ describe('AutomationCheckboxes — Best of N selector', () => {
 
   it('offers Off, 2, 3, 4, 5 as options for the default max of 5', () => {
     render(<AutomationCheckboxes {...baseProps} taskBackend="agent" />);
-    expect(screen.getByRole('option', { name: 'Off' })).toBeInTheDocument();
-    for (const n of ['2', '3', '4', '5']) {
-      expect(screen.getByRole('option', { name: n })).toBeInTheDocument();
-    }
+    // Scoped to the Best-of-N select: the sibling Co-op selector renders the
+    // same Off/2/3/4/5 option text, so an unscoped query is ambiguous.
+    const select = screen.getByLabelText('Best of N');
+    const values = Array.from(select.querySelectorAll('option')).map((o) => o.textContent);
+    expect(values).toEqual(['Off', '2', '3', '4', '5']);
   });
 
   it('enabling from Off selects the default and calls onBestOfNChange with it', () => {
@@ -188,5 +189,128 @@ describe('AutomationCheckboxes — Best of N selector', () => {
     fireEvent.change(screen.getByLabelText('Best of N'), { target: { value: '5' } });
     expect(onBestOfNChange).toHaveBeenCalledWith(5);
     expect(onBestOfNChange).not.toHaveBeenCalledWith(3);
+  });
+});
+
+describe('AutomationCheckboxes — Co-op block', () => {
+  it('renders the "Co-op seats" select when taskBackend is agent', () => {
+    render(<AutomationCheckboxes {...baseProps} taskBackend="agent" />);
+    expect(screen.getByLabelText('Co-op seats')).toBeInTheDocument();
+  });
+
+  it('hides the Co-op block when taskBackend is not agent', () => {
+    render(<AutomationCheckboxes {...baseProps} />);
+    expect(screen.queryByLabelText('Co-op seats')).not.toBeInTheDocument();
+  });
+
+  it('hides the Co-op block in create mode even when taskBackend is agent', () => {
+    render(<AutomationCheckboxes {...baseProps} taskBackend="agent" mode="create" />);
+    expect(screen.queryByLabelText('Co-op seats')).not.toBeInTheDocument();
+  });
+
+  it('offers Off, 2, 3, 4, 5 for the default max of 5', () => {
+    render(<AutomationCheckboxes {...baseProps} taskBackend="agent" />);
+    const select = screen.getByLabelText('Co-op seats');
+    const values = Array.from(select.querySelectorAll('option')).map((o) => o.textContent);
+    expect(values).toEqual(['Off', '2', '3', '4', '5']);
+  });
+
+  it('respects coopMaxParticipants for the option range', () => {
+    render(<AutomationCheckboxes {...baseProps} taskBackend="agent" coopMaxParticipants={3} />);
+    const select = screen.getByLabelText('Co-op seats');
+    const values = Array.from(select.querySelectorAll('option')).map((o) => o.textContent);
+    expect(values).toEqual(['Off', '2', '3']);
+  });
+
+  it('enabling from Off defaults phases to plan+review', () => {
+    const onParticipants = vi.fn();
+    const onPhases = vi.fn();
+    render(
+      <AutomationCheckboxes
+        {...baseProps}
+        taskBackend="agent"
+        onCoopParticipantsChange={onParticipants}
+        onCoopPhasesChange={onPhases}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('Co-op seats'), { target: { value: '3' } });
+    expect(onParticipants).toHaveBeenCalledWith(3);
+    expect(onPhases).toHaveBeenCalledWith(['plan', 'review']);
+  });
+
+  it('turning Off clears phases and guests', () => {
+    const onPhases = vi.fn();
+    const onGuests = vi.fn();
+    render(
+      <AutomationCheckboxes
+        {...baseProps}
+        taskBackend="agent"
+        coopParticipants={3}
+        coopPhases={['plan']}
+        coopGuests={['laptop']}
+        coopGuestNames={['laptop']}
+        onCoopParticipantsChange={vi.fn()}
+        onCoopPhasesChange={onPhases}
+        onCoopGuestsChange={onGuests}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('Co-op seats'), { target: { value: '0' } });
+    expect(onPhases).toHaveBeenCalledWith([]);
+    expect(onGuests).toHaveBeenCalledWith([]);
+  });
+
+  it('phase chips render only while co-op is on and toggle the phase list', () => {
+    const onPhases = vi.fn();
+    const { rerender } = render(
+      <AutomationCheckboxes {...baseProps} taskBackend="agent" coopParticipants={0} />,
+    );
+    expect(screen.queryByLabelText('Co-op phase plan')).not.toBeInTheDocument();
+
+    rerender(
+      <AutomationCheckboxes
+        {...baseProps}
+        taskBackend="agent"
+        coopParticipants={3}
+        coopPhases={['plan', 'review']}
+        onCoopPhasesChange={onPhases}
+      />,
+    );
+    expect(screen.getByLabelText('Co-op phase plan')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByLabelText('Co-op phase execute')).toHaveAttribute('aria-pressed', 'false');
+
+    fireEvent.click(screen.getByLabelText('Co-op phase review'));
+    expect(onPhases).toHaveBeenCalledWith(['plan']);
+
+    fireEvent.click(screen.getByLabelText('Co-op phase execute'));
+    expect(onPhases).toHaveBeenCalledWith(['plan', 'review', 'execute']);
+  });
+
+  it('guest chips render from the registry names and toggle selection', () => {
+    const onGuests = vi.fn();
+    render(
+      <AutomationCheckboxes
+        {...baseProps}
+        taskBackend="agent"
+        coopParticipants={3}
+        coopGuests={['laptop']}
+        coopGuestNames={['laptop', 'desk']}
+        onCoopGuestsChange={onGuests}
+      />,
+    );
+    expect(screen.getByLabelText('Co-op guest laptop')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByLabelText('Co-op guest desk')).toHaveAttribute('aria-pressed', 'false');
+
+    fireEvent.click(screen.getByLabelText('Co-op guest desk'));
+    expect(onGuests).toHaveBeenCalledWith(['laptop', 'desk']);
+
+    fireEvent.click(screen.getByLabelText('Co-op guest laptop'));
+    expect(onGuests).toHaveBeenCalledWith([]);
+  });
+
+  it('renders no guest row when the registry is empty', () => {
+    render(
+      <AutomationCheckboxes {...baseProps} taskBackend="agent" coopParticipants={3} />,
+    );
+    expect(screen.queryByText('Co-op guests')).not.toBeInTheDocument();
   });
 });

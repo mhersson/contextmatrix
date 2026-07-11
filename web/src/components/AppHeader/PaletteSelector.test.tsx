@@ -31,6 +31,9 @@ describe('PaletteSelector', () => {
       favorites: null,
       bestOfNMax: undefined,
       bestOfNDefault: undefined,
+      coopMaxParticipants: undefined,
+      coopDefaultParticipants: undefined,
+      coopGuestNames: undefined,
       toggleTheme: vi.fn(),
       setPalette: mockSetPalette,
     });
@@ -68,6 +71,9 @@ describe('PaletteSelector', () => {
       favorites: null,
       bestOfNMax: undefined,
       bestOfNDefault: undefined,
+      coopMaxParticipants: undefined,
+      coopDefaultParticipants: undefined,
+      coopGuestNames: undefined,
       toggleTheme: vi.fn(),
       setPalette: mockSetPalette,
     });

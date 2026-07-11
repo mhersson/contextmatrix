@@ -133,6 +133,17 @@ export function CardChipRow({ card, compact = false, onParentClick }: CardChipRo
         </span>
       )}
 
+      {/* Co-op badge */}
+      {card.coop_participants != null && card.coop_participants >= 2 && (
+        <span
+          className="chip-pill"
+          style={chipTint('var(--purple)')}
+          title="Co-op: multiple agents discuss the plan and review"
+        >
+          co-op {card.coop_participants}
+        </span>
+      )}
+
       {/* Worker status badge */}
       {card.worker_status && workerStatusStyles[card.worker_status] && (
         <span

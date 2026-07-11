@@ -40,7 +40,10 @@ export function AutomationTab({
   clearForcedFeatureBranch,
   clearForcedCreatePR,
 }: AutomationTabProps) {
-  const { taskBackend, favorites: favsByTier, bestOfNMax, bestOfNDefault } = useTheme();
+  const {
+    taskBackend, favorites: favsByTier, bestOfNMax, bestOfNDefault,
+    coopMaxParticipants, coopDefaultParticipants, coopGuestNames,
+  } = useTheme();
   // Card model pins: CM's served catalog (GET /api/models) — the vendor-
   // screened OpenRouter list or the endpoint list. Agent path only.
   const catalog = useModelCatalog(taskBackend === 'agent');
@@ -74,6 +77,21 @@ export function AutomationTab({
           bestOfNDefault={bestOfNDefault}
           onBestOfNChange={(v) =>
             setEditedCard((prev) => ({ ...prev, best_of_n: v }))
+          }
+          coopParticipants={editedCard.coop_participants}
+          coopMaxParticipants={coopMaxParticipants}
+          coopDefaultParticipants={coopDefaultParticipants}
+          coopPhases={editedCard.coop_phases}
+          coopGuests={editedCard.coop_guests}
+          coopGuestNames={coopGuestNames}
+          onCoopParticipantsChange={(v) =>
+            setEditedCard((prev) => ({ ...prev, coop_participants: v }))
+          }
+          onCoopPhasesChange={(v) =>
+            setEditedCard((prev) => ({ ...prev, coop_phases: v }))
+          }
+          onCoopGuestsChange={(v) =>
+            setEditedCard((prev) => ({ ...prev, coop_guests: v }))
           }
           onAutonomousChange={(v) =>
             setEditedCard((prev) => ({ ...prev, autonomous: v, ...(v ? {} : { base_branch: undefined }) }))

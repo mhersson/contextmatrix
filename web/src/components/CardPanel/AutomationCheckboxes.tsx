@@ -3,6 +3,7 @@ import { ModelPinsSection, type ModelPinField } from './ModelPinsSection';
 
 const REVIEW_ATTEMPTS_WARN_THRESHOLD = 4;
 const REVIEW_ATTEMPTS_HALT = 5;
+const COOP_PHASES = ['plan', 'review', 'execute'] as const;
 
 interface AutomationCheckboxesProps {
   autonomous: boolean;
@@ -49,6 +50,25 @@ interface AutomationCheckboxesProps {
    * needs to wire this.
    */
   onBestOfNChange?: (value: number) => void;
+  /** Current co-op seat count. 0/undefined = off. */
+  coopParticipants?: number;
+  /** Upper bound for the seats selector, from app config (`coop_max_participants`). */
+  coopMaxParticipants?: number;
+  /** Operator-recommended seat count, surfaced in the control's tooltip. */
+  coopDefaultParticipants?: number;
+  /** Phases the card convenes discussions in (subset of plan/review/execute). */
+  coopPhases?: string[];
+  /** Guest names selected on the card. */
+  coopGuests?: string[];
+  /** Registry guest names from app config (`coop_guest_names`). */
+  coopGuestNames?: string[];
+  /**
+   * Co-op change handlers. Optional like `onBestOfNChange` — the block only
+   * renders in edit mode, and CreateCardInput has no co-op fields.
+   */
+  onCoopParticipantsChange?: (value: number) => void;
+  onCoopPhasesChange?: (value: string[]) => void;
+  onCoopGuestsChange?: (value: string[]) => void;
   branchName?: string;
   prUrl?: string;
   reviewAttempts?: number;
@@ -99,6 +119,9 @@ export function AutomationCheckboxes({
   modelOrchestrator = '', modelCoder = '', modelReviewer = '',
   onModelPinChange, models = [], favorites,
   bestOfN, bestOfNMax, bestOfNDefault, onBestOfNChange,
+  coopParticipants, coopMaxParticipants, coopDefaultParticipants,
+  coopPhases, coopGuests, coopGuestNames,
+  onCoopParticipantsChange, onCoopPhasesChange, onCoopGuestsChange,
   branchName, prUrl, reviewAttempts,
   baseBranch, onBaseBranchChange, branches, branchesLoading, branchesError,
   disabled = false,
@@ -116,6 +139,13 @@ export function AutomationCheckboxes({
     { length: Math.max(bestOfNMaxResolved - 1, 0) },
     (_, i) => i + 2,
   );
+  const coopMaxResolved = coopMaxParticipants ?? 5;
+  const coopDefaultResolved = coopDefaultParticipants ?? 3;
+  const coopOptions = Array.from(
+    { length: Math.max(coopMaxResolved - 1, 0) },
+    (_, i) => i + 2,
+  );
+  const coopOn = (coopParticipants ?? 0) >= 2;
 
   return (
     <div className={`bf-auto-stack ${disabled ? 'opacity-60' : ''}`}>
@@ -156,6 +186,112 @@ export function AutomationCheckboxes({
             ))}
           </select>
         </div>
+      )}
+
+      {/* Co-op discussions — agent backend only, edit mode only (mirrors the
+          Best-of-N rule: CreateCardInput has no co-op fields). */}
+      {agentBackend && !creating && (
+        <>
+          <div className="bf-spread">
+            <span className="bf-switch-label">Co-op seats</span>
+            <select
+              aria-label="Co-op seats"
+              value={coopParticipants ?? 0}
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                onCoopParticipantsChange?.(n);
+                if (n >= 2 && !coopOn) {
+                  // Enabling from Off: default the phase set.
+                  onCoopPhasesChange?.(['plan', 'review']);
+                } else if (n === 0) {
+                  // Turning Off: clear the dependent fields so a stale
+                  // guest list can't fail validation later.
+                  onCoopPhasesChange?.([]);
+                  onCoopGuestsChange?.([]);
+                }
+              }}
+              disabled={disabled}
+              className="bf-input"
+              style={{ width: 'auto', minWidth: '160px' }}
+              title={`Off, or 2–${coopMaxResolved} agents discussing plan/review (default ${coopDefaultResolved})`}
+            >
+              <option value={0}>Off</option>
+              {coopOptions.map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+          </div>
+
+          {coopOn && (
+            <div className="bf-spread">
+              <span className="bf-switch-label">Co-op phases</span>
+              <div className="flex items-center gap-2">
+                {COOP_PHASES.map((phase) => {
+                  const active = (coopPhases ?? []).includes(phase);
+                  return (
+                    <button
+                      key={phase}
+                      type="button"
+                      className="chip-pill"
+                      aria-pressed={active}
+                      aria-label={`Co-op phase ${phase}`}
+                      disabled={disabled}
+                      style={{
+                        backgroundColor: active ? 'var(--bg-purple)' : 'var(--bg2)',
+                        color: active ? 'var(--purple)' : 'var(--grey1)',
+                        cursor: disabled ? 'default' : 'pointer',
+                      }}
+                      onClick={() => {
+                        const current = coopPhases ?? [];
+                        const next = active
+                          ? current.filter((p) => p !== phase)
+                          : [...current, phase];
+                        onCoopPhasesChange?.(next);
+                      }}
+                    >
+                      {phase}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {coopOn && (coopGuestNames?.length ?? 0) > 0 && (
+            <div className="bf-spread">
+              <span className="bf-switch-label">Co-op guests</span>
+              <div className="flex items-center gap-2 flex-wrap">
+                {coopGuestNames!.map((name) => {
+                  const active = (coopGuests ?? []).includes(name);
+                  return (
+                    <button
+                      key={name}
+                      type="button"
+                      className="chip-pill"
+                      aria-pressed={active}
+                      aria-label={`Co-op guest ${name}`}
+                      disabled={disabled}
+                      style={{
+                        backgroundColor: active ? 'var(--bg-blue)' : 'var(--bg2)',
+                        color: active ? 'var(--aqua)' : 'var(--grey1)',
+                        cursor: disabled ? 'default' : 'pointer',
+                      }}
+                      onClick={() => {
+                        const current = coopGuests ?? [];
+                        const next = active
+                          ? current.filter((g) => g !== name)
+                          : [...current, name];
+                        onCoopGuestsChange?.(next);
+                      }}
+                    >
+                      {name}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {/* Orchestrator steering wheel — the agent backend uses per-role model

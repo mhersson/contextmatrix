@@ -245,3 +245,33 @@ describe('buildCardPatch', () => {
     expect(buildCardPatch(edited, original)).toEqual({ best_of_n: 0 });
   });
 });
+
+describe('isCardDirty / buildCardPatch — co-op fields', () => {
+  it('dirty when coop_participants changed', () => {
+    const original = makeCard({});
+    const edited = { ...original, coop_participants: 3 };
+    expect(isCardDirty(edited, original)).toBe(true);
+    expect(buildCardPatch(edited, original)).toEqual({ coop_participants: 3 });
+  });
+
+  it('treats undefined and 0 as equal for coop_participants', () => {
+    const a = makeCard({ coop_participants: undefined });
+    const b = makeCard({ coop_participants: 0 });
+    expect(isCardDirty(a, b)).toBe(false);
+  });
+
+  it('includes coop_phases and coop_guests when they changed', () => {
+    const original = makeCard({ coop_participants: 3, coop_phases: ['plan'] });
+    const edited = { ...original, coop_phases: ['plan', 'review'], coop_guests: ['laptop'] };
+    expect(buildCardPatch(edited, original)).toEqual({
+      coop_phases: ['plan', 'review'],
+      coop_guests: ['laptop'],
+    });
+  });
+
+  it('coerces coop_participants undefined → 0 in the diff (disabling)', () => {
+    const original = makeCard({ coop_participants: 3 });
+    const edited = { ...original, coop_participants: undefined };
+    expect(buildCardPatch(edited, original)).toEqual({ coop_participants: 0 });
+  });
+});
