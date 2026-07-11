@@ -329,6 +329,15 @@ func (s *CardService) markCardStalled(ctx context.Context, sc lock.StalledCard) 
 	card.State = board.StateStalled
 	card.AssignedAgent = ""
 	card.LastHeartbeat = nil
+
+	// A stalled worker is presumed dead. Leaving worker_status at queued/running
+	// makes runCard 409 (ErrCodeWorkerConflict) on every future trigger until a
+	// manual Stop — normalize to the terminal status the failed-callback path
+	// would have set. Terminal/blank statuses are left untouched.
+	if card.WorkerStatus == "queued" || card.WorkerStatus == "running" {
+		card.WorkerStatus = "failed"
+	}
+
 	card.Updated = s.clk.Now()
 
 	if previousState != board.StateStalled {
