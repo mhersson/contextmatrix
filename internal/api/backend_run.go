@@ -164,6 +164,8 @@ func (h *backendHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 		payload.BestOfN = min(card.BestOfN, h.bestOfN.MaxCandidates)
 	}
 
+	h.attachCoop(r.Context(), &payload, card, project, id)
+
 	// Verify: CM resolves card-over-project and sends it so the agent's
 	// verify gate uses the operator-declared command.
 	payload.Verify = resolveVerify(card.Verify, projectCfg.Verify)
@@ -308,6 +310,88 @@ func (h *backendHandlers) rejectRunForCredentialFailure(w http.ResponseWriter, r
 
 	writeError(w, http.StatusConflict, ErrCodeValidationError,
 		"project credential unavailable", sanitizeErrorDetails(err))
+}
+
+// attachCoop fills payload.Coop from the card's co-op fields. This handler
+// set exists only for the agent backend, so no backend-kind check is needed.
+// Participants are re-clamped against the CURRENT config (the trigger clamp
+// is authoritative — coop.max_participants may have been lowered since the
+// card was written); Rounds carries coop.default_rounds, which
+// applyCoopDefaults guarantees is within 1..max_rounds. Unknown guest names
+// and a blocked "execute" phase degrade with a warning instead of failing
+// the trigger — a discussion must never block a run.
+func (h *backendHandlers) attachCoop(ctx context.Context, payload *backend.TriggerPayload, card *board.Card, project, id string) {
+	if card.CoopParticipants < 2 {
+		return
+	}
+
+	spec := &protocol.CoopSpec{
+		Participants:       min(card.CoopParticipants, h.coop.MaxParticipants),
+		Rounds:             h.coop.DefaultRounds,
+		BudgetFactor:       h.coop.BudgetFactor,
+		ExecuteCheckpoints: h.coop.ExecuteCheckpointsEnabled,
+		CheckpointMinTier:  h.coop.CheckpointMinTier,
+	}
+
+	// Resolve guest names against the current registry; drop unknown names
+	// (the registry may have changed since the card was written).
+	byName := make(map[string]protocol.GuestSpec, len(h.coop.Guests))
+	for _, g := range h.coop.Guests {
+		byName[g.Name] = protocol.GuestSpec{Name: g.Name, URL: g.URL, Token: g.Token}
+	}
+
+	for _, name := range card.CoopGuests {
+		g, ok := byName[name]
+		if !ok {
+			h.recordCoopWarning(ctx, project, id,
+				fmt.Sprintf("co-op guest %q is not registered; dropped for this run", name))
+
+			continue
+		}
+
+		spec.Guests = append(spec.Guests, g)
+	}
+
+	// Phases pass through except "execute": dropped when the server flag is
+	// off, or when the run races Best-of-N candidates (checkpoints and BoN
+	// are mutually exclusive; BoN wins).
+	for _, phase := range card.CoopPhases {
+		if phase == "execute" {
+			switch {
+			case payload.BestOfN >= 2:
+				h.recordCoopWarning(ctx, project, id,
+					"co-op execute checkpoints skipped: best_of_n >= 2 (mutually exclusive; Best-of-N wins)")
+
+				continue
+			case !h.coop.ExecuteCheckpointsEnabled:
+				h.recordCoopWarning(ctx, project, id,
+					"co-op execute checkpoints skipped: coop.execute_checkpoints_enabled is off")
+
+				continue
+			}
+		}
+
+		spec.Phases = append(spec.Phases, phase)
+	}
+
+	payload.Coop = spec
+}
+
+// recordCoopWarning logs a trigger-time co-op degradation and appends a
+// best-effort activity entry so the drop is visible on the card — the same
+// slog + AddLogEntry mechanism as the run-rejected trace in
+// rejectRunForCredentialFailure. A failed append never blocks the trigger.
+func (h *backendHandlers) recordCoopWarning(ctx context.Context, project, id, msg string) {
+	ctxlog.Logger(ctx).Warn(msg, "card_id", id, "project", project)
+
+	if _, logErr := h.svc.AddLogEntry(ctx, project, id, board.ActivityEntry{
+		Agent:   "system",
+		Action:  "coop-warning",
+		Message: msg,
+	}); logErr != nil {
+		ctxlog.Logger(ctx).Error("failed to record co-op warning activity entry",
+			"card_id", id, "project", project, "error", logErr)
+	}
 }
 
 // resolveVerify merges a card's verify config over its project's (field-level,

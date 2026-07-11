@@ -432,6 +432,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		blacklist:              cfg.Blacklist,
 		outcomes:               cfg.Outcomes,
 		bestOfN:                cfg.BestOfN,
+		coop:                   cfg.Coop,
 		taskSkillsDir:          cfg.TaskSkillsDir,
 		taskSkillsGitRemoteURL: cfg.TaskSkillsGitRemoteURL,
 		providerForProject:     cfg.ProviderForProject,

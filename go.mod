@@ -65,3 +65,5 @@ require (
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/stretchr/testify v1.11.1
 )
+
+replace github.com/mhersson/contextmatrix-protocol => ../contextmatrix-protocol
