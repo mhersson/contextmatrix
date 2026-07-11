@@ -221,6 +221,11 @@ type RouterConfig struct {
 	// means only 0 validates — effectively disabling best_of_n until
 	// config.Load's applyBestOfNDefaults has populated it.
 	BestOfN config.BestOfNConfig
+	// Coop bounds the card-level co-op fields (participants range, phase
+	// set, guest-name registry) and feeds the trigger-time re-clamp. Zero
+	// value disables co-op (MaxParticipants 0 → only 0 validates), matching
+	// BestOfN's pre-config.Load-defaults contract.
+	Coop config.CoopConfig
 }
 
 // EndpointModelView is the api-package projection of modelcatalog.EndpointModel
@@ -266,7 +271,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		authEnabled:      cfg.AuthService != nil,
 		credentialExists: cfg.CredentialExists,
 	}
-	ch := &cardHandlers{svc: cfg.Service, taskSkills: taskSkillsLister, bestOfNMax: cfg.BestOfN.MaxCandidates}
+	ch := &cardHandlers{svc: cfg.Service, taskSkills: taskSkillsLister, bestOfNMax: cfg.BestOfN.MaxCandidates, coop: cfg.Coop}
 	ah := &agentHandlers{svc: cfg.Service}
 	acth := &activityHandlers{svc: cfg.Service}
 	eh := newEventHandlers(cfg.Bus)

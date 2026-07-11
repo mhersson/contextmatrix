@@ -40,6 +40,15 @@ type Card struct {
 	// implementations and judge a winner. 0/absent = normal run. Human-set
 	// only, like the model pins.
 	BestOfN int `yaml:"best_of_n,omitempty"          json:"best_of_n,omitempty"`
+	// Co-op discussion fields (agent backend). CoopParticipants >= 2 convenes
+	// N internal discussion seats in the phases listed in CoopPhases (subset
+	// of plan/review/execute; empty = backend default). CoopGuests names
+	// operator-registered external participants from the server's coop.guests
+	// registry. Human-set only, like the model pins — never writable via the
+	// MCP agent surface.
+	CoopParticipants int      `yaml:"coop_participants,omitempty" json:"coop_participants,omitempty"`
+	CoopPhases       []string `yaml:"coop_phases,omitempty"       json:"coop_phases,omitempty"`
+	CoopGuests       []string `yaml:"coop_guests,omitempty"       json:"coop_guests,omitempty"`
 	// Verify overrides the project's verify gate for this card, merged
 	// field-by-field over it at trigger time (see ResolveVerify). Human-set
 	// only, like the model pins — never writable via the MCP agent surface.

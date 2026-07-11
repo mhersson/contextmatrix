@@ -879,6 +879,71 @@ updated: 2026-03-30T10:00:00Z
 	assert.Zero(t, parsedEmpty.BestOfN)
 }
 
+func TestCardCoopYAMLRoundTrip(t *testing.T) {
+	input := `---
+id: TEST-001
+title: Coop test
+project: test-project
+type: task
+state: todo
+priority: medium
+coop_participants: 3
+coop_phases:
+  - plan
+  - review
+coop_guests:
+  - laptop
+created: 2026-03-30T10:00:00Z
+updated: 2026-03-30T10:00:00Z
+---
+`
+
+	card, err := ParseCard([]byte(input))
+	require.NoError(t, err)
+	assert.Equal(t, 3, card.CoopParticipants)
+	assert.Equal(t, []string{"plan", "review"}, card.CoopPhases)
+	assert.Equal(t, []string{"laptop"}, card.CoopGuests)
+
+	data, err := SerializeCard(card)
+	require.NoError(t, err)
+
+	str := string(data)
+	assert.Contains(t, str, "coop_participants: 3")
+
+	parsed, err := ParseCard(data)
+	require.NoError(t, err)
+	assert.Equal(t, 3, parsed.CoopParticipants)
+	assert.Equal(t, []string{"plan", "review"}, parsed.CoopPhases)
+	assert.Equal(t, []string{"laptop"}, parsed.CoopGuests)
+
+	// A card without co-op fields must serialize with none of the keys
+	// (omitempty).
+	created := time.Date(2026, 3, 30, 10, 0, 0, 0, time.UTC)
+
+	noCoop := &Card{
+		ID:       "TEST-002",
+		Title:    "No coop",
+		Project:  "test-project",
+		Type:     "task",
+		State:    "todo",
+		Priority: "medium",
+		Created:  created,
+		Updated:  created,
+	}
+
+	out, err := SerializeCard(noCoop)
+	require.NoError(t, err)
+	assert.NotContains(t, string(out), "coop_participants")
+	assert.NotContains(t, string(out), "coop_phases")
+	assert.NotContains(t, string(out), "coop_guests")
+
+	parsedEmpty, err := ParseCard(out)
+	require.NoError(t, err)
+	assert.Zero(t, parsedEmpty.CoopParticipants)
+	assert.Nil(t, parsedEmpty.CoopPhases)
+	assert.Nil(t, parsedEmpty.CoopGuests)
+}
+
 func TestActivityEntry_SkillField(t *testing.T) {
 	t.Run("skill field omitted when empty", func(t *testing.T) {
 		input := `---
