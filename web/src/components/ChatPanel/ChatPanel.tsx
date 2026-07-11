@@ -3,6 +3,7 @@ import type { LogEntry } from '../../types';
 import { useChatFilterPrefs } from '../../hooks/useChatFilterPrefs';
 import { safeUrlTransform } from '../../utils/safeUrlTransform';
 import { formatHHMM, formatTitle, TimestampLabel } from '../../utils/chatTimestamp';
+import { idColor } from '../../utils/colorHash';
 import { ChatComposer } from './ChatComposer';
 
 // Lazy-load the markdown previewer so the chat panel doesn't pay the
@@ -216,6 +217,7 @@ function ChatEntry({ entry, stamp }: { entry: LogEntry; stamp: { hhmm: string; t
       <div className="flex justify-start">
         <div className="flex flex-col items-start max-w-[85%]">
           {stamp && <TimestampLabel hhmm={stamp.hhmm} title={stamp.title} dateTime={entry.ts} />}
+          {entry.agent && <SpeakerChip author={entry.agent} />}
           <div
             className="rounded-lg px-3 py-2 text-sm break-words"
             style={{ backgroundColor: 'var(--bg2)', color: 'var(--fg)' }}
@@ -245,6 +247,31 @@ function ChatEntry({ entry, stamp }: { entry: LogEntry; stamp: { hhmm: string; t
     >
       {entry.content}
     </div>
+  );
+}
+
+/**
+ * Speaker attribution for co-op discussion messages. The hue is a
+ * deterministic bucket over the shared 5-accent palette (idColor hashes the
+ * author name onto CSS custom properties), so the same author always gets
+ * the same color and no hex ever appears here.
+ */
+function SpeakerChip({ author }: { author: string }) {
+  const accent = idColor(author);
+  return (
+    <span
+      className="chip-pill font-mono"
+      data-testid="speaker-chip"
+      style={{
+        backgroundColor: `color-mix(in srgb, ${accent} 16%, transparent)`,
+        color: accent,
+        fontSize: '10px',
+        marginBottom: '2px',
+      }}
+      title={`Speaker: ${author}`}
+    >
+      {author}
+    </span>
   );
 }
 

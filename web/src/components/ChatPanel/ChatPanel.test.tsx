@@ -101,6 +101,41 @@ describe('ChatPanel', () => {
     expect(screen.queryByTestId('chat-divider')).not.toBeInTheDocument();
   });
 
+  describe('speaker chips (co-op discussions)', () => {
+    it('renders a labeled chip on text entries that carry agent', () => {
+      const discussionLogs: LogEntry[] = [
+        {
+          ts: '2026-05-13T10:00:00Z', card_id: 'C-1', type: 'text',
+          content: 'I propose splitting the parser.', agent: 'seat-1',
+        },
+      ];
+      render(<ChatPanel logs={discussionLogs} onSend={() => {}} sendDisabled={false} />);
+      const chip = screen.getByTestId('speaker-chip');
+      expect(chip).toHaveTextContent('seat-1');
+      expect(screen.getByText('I propose splitting the parser.')).toBeInTheDocument();
+    });
+
+    it('renders no chip when agent is absent', () => {
+      const plainLogs: LogEntry[] = [
+        { ts: '2026-05-13T10:00:00Z', card_id: 'C-1', type: 'text', content: 'plain reply' },
+      ];
+      render(<ChatPanel logs={plainLogs} onSend={() => {}} sendDisabled={false} />);
+      expect(screen.queryByTestId('speaker-chip')).not.toBeInTheDocument();
+    });
+
+    it('gives different authors chips (one per attributed entry)', () => {
+      const discussionLogs: LogEntry[] = [
+        { ts: '2026-05-13T10:00:00Z', card_id: 'C-1', type: 'text', content: 'a', agent: 'seat-1' },
+        { ts: '2026-05-13T10:00:01Z', card_id: 'C-1', type: 'text', content: 'b', agent: 'guest-laptop' },
+      ];
+      render(<ChatPanel logs={discussionLogs} onSend={() => {}} sendDisabled={false} />);
+      const chips = screen.getAllByTestId('speaker-chip');
+      expect(chips).toHaveLength(2);
+      expect(chips[0]).toHaveTextContent('seat-1');
+      expect(chips[1]).toHaveTextContent('guest-laptop');
+    });
+  });
+
   describe('localStorage filter prefs', () => {
     it('restores showToolCalls=true from localStorage so tool_call entries are visible on first render', () => {
       localStorageMock.setItem('chat_filter_prefs', JSON.stringify({ showText: true, showToolCalls: true, showThinking: false }));
