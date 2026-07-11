@@ -12,6 +12,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/lock"
 	"github.com/mhersson/contextmatrix/internal/metrics"
+	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
 // ErrCardNotVetted is returned when an agent tries to claim a card that has not been vetted for agent use.
@@ -270,10 +271,134 @@ func (s *CardService) processStalled(ctx context.Context) error {
 		}
 	}
 
+	// FindStalled only covers CLAIMED cards. A parent card is never itself
+	// claimed (only its subtasks are), so a dead run leaves it in_progress +
+	// unclaimed forever — invisible to the loop above. Reap those on the same
+	// tick; log and continue so a janitor error never masks the stall sweep.
+	if err := s.processAbandonedParents(ctx); err != nil {
+		ctxlog.Logger(ctx).Error("process abandoned parents", "error", err)
+	}
+
 	return nil
 }
 
-// markCardStalled transitions a card to the "stalled" state.
+// processAbandonedParents reaps parent cards left in_progress + unclaimed after
+// their whole run died. FindStalled only flags claimed cards, but a parent is
+// never itself claimed (only its subtasks are), so a dead run strands the
+// parent in_progress with no heartbeat to ever time out. A parent is abandoned
+// only when it is in_progress AND unclaimed AND untouched within the stall
+// timeout AND has no active subtask — the last two guards prevent reaping a
+// parent that is merely between subtask claims.
+func (s *CardService) processAbandonedParents(ctx context.Context) error {
+	cutoff := s.clk.Now().Add(-s.lock.Timeout())
+
+	projects, err := s.store.ListProjects(ctx)
+	if err != nil {
+		return fmt.Errorf("list projects: %w", err)
+	}
+
+	for _, proj := range projects {
+		cards, err := s.store.ListCards(ctx, proj.Name, storage.CardFilter{})
+		if err != nil {
+			return fmt.Errorf("list cards for %s: %w", proj.Name, err)
+		}
+
+		for _, card := range cards {
+			// Cheap pre-filter without the write lock; reapAbandonedParent
+			// re-validates every guard authoritatively under writeMu.
+			if card.State != board.StateInProgress || card.AssignedAgent != "" {
+				continue
+			}
+
+			if card.Updated.After(cutoff) {
+				continue // touched within the stall window
+			}
+
+			active, err := s.hasActiveSubtask(ctx, proj.Name, card.ID)
+			if err != nil {
+				ctxlog.Logger(ctx).Error("abandoned-parent scan: list subtasks",
+					"project", proj.Name, "card_id", card.ID, "error", err)
+
+				continue
+			}
+
+			if active {
+				continue // still has runnable/claimed work
+			}
+
+			if err := s.reapAbandonedParent(ctx, proj.Name, card.ID, cutoff); err != nil {
+				ctxlog.Logger(ctx).Error("reap abandoned parent",
+					"project", proj.Name, "card_id", card.ID, "error", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// hasActiveSubtask reports whether any child of parentID still carries runnable
+// work: it is claimed, or in an active board state (todo/in_progress/review).
+// done/stalled/not_planned do not count.
+func (s *CardService) hasActiveSubtask(ctx context.Context, project, parentID string) (bool, error) {
+	subs, err := s.store.ListCards(ctx, project, storage.CardFilter{Parent: parentID})
+	if err != nil {
+		return false, fmt.Errorf("list subtasks: %w", err)
+	}
+
+	for _, sub := range subs {
+		if sub.AssignedAgent != "" {
+			return true, nil
+		}
+
+		switch sub.State {
+		case board.StateTodo, board.StateInProgress, board.StateReview:
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+// reapAbandonedParent stalls a single abandoned parent. It re-reads the card and
+// re-validates every abandonment guard under writeMu — a claim, transition, or
+// subtask update may have landed since the unlocked scan — before delegating the
+// mutation to stallCardLocked. writeMu is released on every return path.
+func (s *CardService) reapAbandonedParent(ctx context.Context, project, cardID string, cutoff time.Time) error {
+	s.writeMu.Lock()
+
+	card, err := s.store.GetCard(ctx, project, cardID)
+	if err != nil {
+		s.writeMu.Unlock()
+		// Deleted between scan and reap — skip silently.
+		return nil
+	}
+
+	// Re-validate under the lock: still an untouched, unclaimed in_progress parent?
+	if card.State != board.StateInProgress || card.AssignedAgent != "" || card.Updated.After(cutoff) {
+		s.writeMu.Unlock()
+
+		return nil
+	}
+
+	active, err := s.hasActiveSubtask(ctx, project, cardID)
+	if err != nil {
+		s.writeMu.Unlock()
+
+		return err
+	}
+
+	if active {
+		s.writeMu.Unlock()
+
+		return nil
+	}
+
+	return s.stallCardLocked(ctx, project, card, "stalled (abandoned run)")
+}
+
+// markCardStalled transitions a CLAIMED card to the "stalled" state after its
+// heartbeat timed out. It re-validates the live claim (TOCTOU) before handing
+// the mutation to stallCardLocked.
 func (s *CardService) markCardStalled(ctx context.Context, sc lock.StalledCard) error {
 	s.writeMu.Lock()
 
@@ -298,6 +423,16 @@ func (s *CardService) markCardStalled(ctx context.Context, sc lock.StalledCard) 
 		return nil
 	}
 
+	return s.stallCardLocked(ctx, sc.Project, card, "stalled (heartbeat timeout)")
+}
+
+// stallCardLocked performs the card→stalled mutation shared by markCardStalled
+// (heartbeat-timed-out claimed cards) and reapAbandonedParent (abandoned
+// in_progress + unclaimed parents). writeMu MUST be held on entry; it is
+// released on every return path. The card is the caller's fresh, writeMu-guarded
+// re-read. reason is the commit/audit message for the stall (each caller passes
+// its own so the git history distinguishes a heartbeat timeout from a reap).
+func (s *CardService) stallCardLocked(ctx context.Context, project string, card *board.Card, reason string) error {
 	// Defense-in-depth: never re-stall a card that has already reached a
 	// terminal state. Per the design tension noted in
 	// enforceTerminalStateInvariants, a card may legitimately retain a live
@@ -315,7 +450,7 @@ func (s *CardService) markCardStalled(ctx context.Context, sc lock.StalledCard) 
 	// Snapshot for rollback on commit failure. card is a deep copy but we
 	// are about to mutate it in place, so capture the pre-mutation state
 	// by loading a second copy.
-	snapshot, err := s.store.GetCard(ctx, sc.Project, sc.Card.ID)
+	snapshot, err := s.store.GetCard(ctx, project, card.ID)
 	if err != nil {
 		s.writeMu.Unlock()
 
@@ -347,7 +482,7 @@ func (s *CardService) markCardStalled(ctx context.Context, sc lock.StalledCard) 
 	// Validate the post-mutation card so card-level invariants (state-enum,
 	// agent/heartbeat consistency) hold even though the stall path bypasses
 	// the per-project transition map.
-	cfg, cfgErr := s.getConfig(ctx, sc.Project)
+	cfg, cfgErr := s.getConfig(ctx, project)
 	if cfgErr != nil {
 		s.writeMu.Unlock()
 
@@ -361,13 +496,13 @@ func (s *CardService) markCardStalled(ctx context.Context, sc lock.StalledCard) 
 	}
 
 	// Persist
-	if err := s.store.UpdateCard(ctx, sc.Project, card); err != nil {
+	if err := s.store.UpdateCard(ctx, project, card); err != nil {
 		s.writeMu.Unlock()
 
 		return fmt.Errorf("update card: %w", err)
 	}
 
-	commitDone, notify := s.enqueueCardCommit(ctx, sc.Project, card.ID, "", "stalled (heartbeat timeout)")
+	commitDone, notify := s.enqueueCardCommit(ctx, project, card.ID, "", reason)
 
 	s.writeMu.Unlock()
 
@@ -379,7 +514,7 @@ func (s *CardService) markCardStalled(ctx context.Context, sc lock.StalledCard) 
 	// be picked up by the next mutation/release.
 	if err := s.awaitCommit(commitDone, notify); err != nil {
 		s.writeMu.Lock()
-		rollbackErr := s.rollbackCardOnCommitFailure(ctx, sc.Project, snapshot, err)
+		rollbackErr := s.rollbackCardOnCommitFailure(ctx, project, snapshot, err)
 		s.writeMu.Unlock()
 
 		return rollbackErr
@@ -399,7 +534,7 @@ func (s *CardService) markCardStalled(ctx context.Context, sc lock.StalledCard) 
 	// Publish event
 	s.bus.Publish(events.Event{
 		Type:      events.CardStalled,
-		Project:   sc.Project,
+		Project:   project,
 		CardID:    card.ID,
 		Timestamp: card.Updated,
 		Data: map[string]any{
@@ -410,7 +545,7 @@ func (s *CardService) markCardStalled(ctx context.Context, sc lock.StalledCard) 
 	metrics.StallCardsMarked.Inc()
 
 	ctxlog.Logger(ctx).Info("card marked stalled",
-		"project", sc.Project,
+		"project", project,
 		"card_id", card.ID,
 		"previous_agent", previousAgent,
 	)
