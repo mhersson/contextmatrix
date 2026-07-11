@@ -14,7 +14,7 @@ interface BuildCardPanelTabsOptions {
   cardLogs: readonly LogEntry[];
   currentAgentId: string | null;
   workerAttached: boolean;
-  isHITLRunning: boolean;
+  isChatLive: boolean;
   onClaim: () => Promise<void>;
   onRelease: () => Promise<void>;
   onSubtaskClick: (cardId: string) => void;
@@ -38,11 +38,11 @@ interface BuildCardPanelTabsOptions {
  * Assembles the rail tab registry. Each tab's `content` is a dedicated
  * component so the JSX tree stays shallow and each tab can be updated or
  * memoised independently. The chat tab is pushed whenever a transcript
- * exists (live HITL or replayed history) so the conversation stays
- * accessible after the session ends or the card is promoted to autonomous.
- * The pulse indicator is only rendered while HITL is live; `defaultTab`
- * still flips to chat only on a live session so freshly opening a
- * finalized card lands on Automation by default.
+ * exists (a live session — HITL or autonomous co-op — or replayed history)
+ * so the conversation stays accessible after the session ends or the card
+ * is promoted to autonomous. The pulse indicator is only rendered while
+ * chat is live; `defaultTab` still flips to chat only on a live session so
+ * freshly opening a finalized card lands on Automation by default.
  *
  * Not a hook: no state, no effects — a pure builder. Named `buildCardPanelTabs`
  * so React/ESLint hook rules and readers don't mistake it for one.
@@ -54,11 +54,11 @@ export function buildCardPanelTabs(opts: BuildCardPanelTabsOptions): {
   const tabs: RailTab[] = [];
   const isSubtask = opts.card.type === 'subtask';
 
-  if (!isSubtask && (opts.isHITLRunning || opts.cardLogs.length > 0)) {
+  if (!isSubtask && (opts.isChatLive || opts.cardLogs.length > 0)) {
     tabs.push({
       key: 'chat',
       label: 'Chat',
-      indicator: opts.isHITLRunning ? (
+      indicator: opts.isChatLive ? (
         <span
           className="inline-block w-2 h-2 rounded-full animate-pulse"
           style={{ backgroundColor: 'var(--aqua)' }}
@@ -124,7 +124,7 @@ export function buildCardPanelTabs(opts: BuildCardPanelTabsOptions): {
     ),
   });
 
-  const defaultTab: RailTabKey = opts.isHITLRunning ? 'chat' : 'automation';
+  const defaultTab: RailTabKey = opts.isChatLive ? 'chat' : 'automation';
 
   return { tabs, defaultTab };
 }
