@@ -248,7 +248,7 @@ clients. The raw error is always logged server-side with the request's
 | Code               | HTTP | When                                                                                                                                               |
 | ------------------ | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `CARD_NOT_VETTED`  | 403  | A non-human agent calls `POST /claim` on a card with `source != null && vetted == false`.                                                          |
-| `HUMAN_ONLY_FIELD` | 403  | An agent without `human:` prefix attempts to set `autonomous`, `feature_branch`, `create_pr`, `vetted`, `base_branch`, a model pin (`model_orchestrator`, `model_coder`, `model_reviewer`), `best_of_n`, or `verify`. |
+| `HUMAN_ONLY_FIELD` | 403  | An agent without `human:` prefix attempts to set `autonomous`, `feature_branch`, `create_pr`, `vetted`, `base_branch`, a model pin (`model_orchestrator`, `model_coder`, `model_reviewer`), `best_of_n`, a co-op field (`coop_participants`, `coop_phases`, `coop_guests`), or `verify`. |
 
 ## Authentication (multi mode)
 
@@ -894,7 +894,10 @@ mode:**
   "task_backend": "agent",
   "favorites": { "complex": ["anthropic/claude-opus-4.8"] },
   "best_of_n_max": 5,
-  "best_of_n_default": 3
+  "best_of_n_default": 3,
+  "coop_max_participants": 5,
+  "coop_default_participants": 3,
+  "coop_guest_names": ["laptop"]
 }
 ```
 
@@ -913,9 +916,16 @@ omitted entirely when no favorites are configured. `best_of_n_max` /
 as its upper bound and recommended value. Both are effectively always present (the
 configured values default to 5 and 3 and are never valid below 2), but like
 `favorites` they ride only on the full payload.
+`coop_max_participants` / `coop_default_participants` mirror `config.yaml`'s
+`coop.max_participants` / `coop.default_participants` and bound the card
+panel's Co-op seats selector. `coop_guest_names` lists the `coop.guests`
+registry names for the guest multi-select — names only, never URLs or
+tokens; it is omitted when the registry is empty. All three ride only on the
+full payload, like the `best_of_n` fields.
 
 **Response — unauthenticated caller in `multi` mode:** `task_backend`,
-`favorites`, `best_of_n_max`, and `best_of_n_default` are not disclosed
+`favorites`, `best_of_n_max`, `best_of_n_default`, `coop_max_participants`,
+`coop_default_participants`, and `coop_guest_names` are not disclosed
 pre-login, so they are absent from the JSON entirely (not sent as zero
 values):
 
@@ -1488,8 +1498,9 @@ Each normal event carries a JSON payload:
   "ts": "2026-04-08T12:34:56.789Z",
   "card_id": "PROJ-042",
   "type": "text",
-  "content": "Planning the implementation...",
-  "seq": 42
+  "content": "[round 1] seat-1 (correctness): the parser change misses...",
+  "seq": 42,
+  "agent": "seat-1"
 }
 ```
 
@@ -1502,6 +1513,11 @@ Marker frames have a distinct shape:
 
 `type` for normal events is one of: `text`, `thinking`, `tool_call`,
 `stderr`, `system`, `user`.
+
+`agent` is present only on co-op discussion frames and carries the speaker
+attribution (`seat-1`..`seat-N`, `guest-<name>`, `moderator`, `human`);
+ordinary frames omit the key. See `docs/remote-execution.md` § Co-op
+discussions.
 
 The connection is closed when the browser disconnects or the session receives a
 terminal event.

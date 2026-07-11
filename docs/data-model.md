@@ -286,6 +286,9 @@ type Card struct {
     ModelCoder          string          `yaml:"model_coder,omitempty"           json:"model_coder,omitempty"`
     ModelReviewer       string          `yaml:"model_reviewer,omitempty"        json:"model_reviewer,omitempty"`
     BestOfN             int             `yaml:"best_of_n,omitempty"             json:"best_of_n,omitempty"`
+    CoopParticipants    int             `yaml:"coop_participants,omitempty"     json:"coop_participants,omitempty"`
+    CoopPhases          []string        `yaml:"coop_phases,omitempty"           json:"coop_phases,omitempty"`
+    CoopGuests          []string        `yaml:"coop_guests,omitempty"           json:"coop_guests,omitempty"`
     Verify              *VerifyConfig   `yaml:"verify,omitempty"                json:"verify,omitempty"`
     Vetted              bool            `yaml:"vetted,omitempty"                json:"vetted"`
     FeatureBranch       bool            `yaml:"feature_branch,omitempty"        json:"feature_branch,omitempty"`
@@ -474,7 +477,8 @@ via the `update_card` MCP tool and REST (PUT/PATCH).
 **Human-only fields** (may only be set by agents whose `X-Agent-ID` starts with
 `human:`): `vetted`, `autonomous`, `feature_branch`,
 `create_pr`, the three model pins (`model_orchestrator`, `model_coder`,
-`model_reviewer`), `base_branch`, `best_of_n`, and `verify`. `verify` is exposed
+`model_reviewer`), `base_branch`, `best_of_n`, the co-op fields
+(`coop_participants`, `coop_phases`, `coop_guests`), and `verify`. `verify` is exposed
 on POST (`createCardRequest`) and PATCH (`patchCardRequest`) only — there is no
 `verify` field on the full-update body — and an agent that sets it is rejected so
 it can never define its own verify gate. POST `/api/projects/{project}/cards`
@@ -493,6 +497,32 @@ subsequent run until a human changes or clears it, and it has effect only on
 the agent backend (see `docs/remote-execution.md`). Agents that attempt to set
 any of these fields receive 403 `HUMAN_ONLY_FIELD`. The MCP `update_card` tool
 does not expose them.
+
+### Co-op fields (optional)
+
+| Field               | Values                            | Default |
+| ------------------- | --------------------------------- | ------- |
+| `coop_participants` | 0 (off) or 2..`coop.max_participants` | 0   |
+| `coop_phases`       | subset of `plan, review, execute` | `[]`    |
+| `coop_guests`       | names from the `coop.guests` registry | `[]` |
+
+With `coop_participants >= 2`, agent-backend runs convene that many internal
+discussion seats in each phase listed in `coop_phases`; `coop_guests` adds
+operator-registered external participants on top. Like `best_of_n`, the
+fields are sticky (no per-trigger override), exposed on PUT and PATCH only
+(no `createCardRequest` fields), human-only, and excluded from the MCP
+`update_card` tool.
+
+Validation at write time runs against the config in effect then:
+participants must be 0 or `2..coop.max_participants`; phases must be a
+duplicate-free subset of `plan`/`review`/`execute` (`execute` is accepted
+even while `coop.execute_checkpoints_enabled` is off — the gate applies at
+trigger, not at write); guest names must exist in the registry and require
+`coop_participants >= 2`. PATCH validates the resulting state, so a patch
+that only adds a guest is checked against the card's stored participant
+count. At trigger time the values are re-clamped against the *current*
+config, and **the trigger clamp is authoritative** — see
+`docs/remote-execution.md` § Co-op discussions.
 
 ### `verify` (optional, `*VerifyConfig`)
 
