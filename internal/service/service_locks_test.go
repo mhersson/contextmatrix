@@ -103,6 +103,126 @@ func TestMarkCardStalled_RejectsInvariantViolation(t *testing.T) {
 	assert.Nil(t, got.LastHeartbeat)
 }
 
+// setupParentWithSubtask creates a parent card plus one subtask, then drives
+// the subtask through the real transition path. Moving the subtask to
+// in_progress auto-transitions the parent todo→in_progress
+// (maybeTransitionParent), leaving the parent in_progress + UNCLAIMED — exactly
+// the state a live run leaves a parent in while its subtasks execute, and the
+// state FindStalled can never reach because it only scans claimed cards. When
+// subtaskState is not in_progress the subtask is then transitioned on to that
+// (terminal) state.
+func setupParentWithSubtask(t *testing.T, svc *CardService, subtaskState string) (parent, sub *board.Card) {
+	t.Helper()
+
+	ctx := context.Background()
+
+	var err error
+
+	parent, err = svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Parent", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	sub, err = svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Sub", Type: "task", Priority: "medium", Parent: parent.ID,
+	})
+	require.NoError(t, err)
+
+	// First move to in_progress drags the parent along via maybeTransitionParent.
+	_, err = svc.TransitionTo(ctx, "test-project", sub.ID, board.StateInProgress)
+	require.NoError(t, err)
+
+	if subtaskState != board.StateInProgress {
+		_, err = svc.TransitionTo(ctx, "test-project", sub.ID, subtaskState)
+		require.NoError(t, err)
+	}
+
+	p, err := svc.store.GetCard(ctx, "test-project", parent.ID)
+	require.NoError(t, err)
+	require.Equal(t, board.StateInProgress, p.State, "parent must be in_progress after the first subtask claim")
+	require.Empty(t, p.AssignedAgent, "a parent is never itself claimed")
+
+	return parent, sub
+}
+
+// TestProcessAbandonedParents_ReapsStuckParent pins the janitor's core job: a
+// parent left in_progress + unclaimed after its whole run died (no active
+// subtask, untouched past the stall timeout) is reaped to stalled. FindStalled
+// never covers it — the parent carries no claim — so without this sweep it is
+// stuck forever.
+func TestProcessAbandonedParents_ReapsStuckParent(t *testing.T) {
+	svc, fake, cleanup := newStalledTestService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	parent, _ := setupParentWithSubtask(t, svc, board.StateDone)
+
+	// The run died: parent sits in_progress + unclaimed with no active subtask.
+	// Advance well past the stall timeout so it counts as abandoned.
+	fake.Advance(10 * svc.lock.Timeout())
+	require.NoError(t, svc.processAbandonedParents(ctx))
+
+	got, err := svc.store.GetCard(ctx, "test-project", parent.ID)
+	require.NoError(t, err)
+	assert.Equal(t, board.StateStalled, got.State, "abandoned parent is reaped to stalled")
+	assert.Empty(t, got.AssignedAgent)
+
+	// Idempotent: a second sweep leaves the already-stalled parent untouched.
+	require.NoError(t, svc.processAbandonedParents(ctx))
+
+	got2, err := svc.store.GetCard(ctx, "test-project", parent.ID)
+	require.NoError(t, err)
+	assert.Equal(t, board.StateStalled, got2.State)
+}
+
+// TestProcessAbandonedParents_SkipsParentWithActiveSubtask pins guard 3: a
+// parent whose subtask is still being worked (claimed / in_progress) must never
+// be reaped, even when the parent itself is old enough to trip the recency
+// guard. This is the "merely between subtask claims" case the janitor must not
+// disturb.
+func TestProcessAbandonedParents_SkipsParentWithActiveSubtask(t *testing.T) {
+	svc, fake, cleanup := newStalledTestService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	parent, sub := setupParentWithSubtask(t, svc, board.StateInProgress)
+
+	// An agent is actively working the subtask.
+	_, err := svc.ClaimCard(ctx, "test-project", sub.ID, "worker-agent")
+	require.NoError(t, err)
+
+	// Parent is old enough that only the active-subtask guard can save it.
+	fake.Advance(10 * svc.lock.Timeout())
+	require.NoError(t, svc.processAbandonedParents(ctx))
+
+	got, err := svc.store.GetCard(ctx, "test-project", parent.ID)
+	require.NoError(t, err)
+	assert.Equal(t, board.StateInProgress, got.State, "parent with an active subtask must not be reaped")
+}
+
+// TestProcessAbandonedParents_SkipsRecentlyUpdatedParent pins guard 4: a parent
+// touched within the stall timeout is not abandoned yet, even with no active
+// subtask, so the janitor must leave it alone.
+func TestProcessAbandonedParents_SkipsRecentlyUpdatedParent(t *testing.T) {
+	svc, _, cleanup := newStalledTestService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	parent, _ := setupParentWithSubtask(t, svc, board.StateDone)
+
+	// Subtask is terminal (guard 3 would allow a reap) but the clock is NOT
+	// advanced, so the parent stays inside the stall window and only the
+	// recency guard prevents the reap.
+	require.NoError(t, svc.processAbandonedParents(ctx))
+
+	got, err := svc.store.GetCard(ctx, "test-project", parent.ID)
+	require.NoError(t, err)
+	assert.Equal(t, board.StateInProgress, got.State, "recently-touched parent must not be reaped")
+}
+
 // TestMarkCardStalled_NormalizesWorkerStatus pins the fix for the Run Now
 // 409 bug: a card stalled mid-run keeps worker_status at "running" (or
 // "queued"), which makes runCard treat it as a live worker and reject every
