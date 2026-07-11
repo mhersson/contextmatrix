@@ -103,6 +103,39 @@ func TestMarkCardStalled_RejectsInvariantViolation(t *testing.T) {
 	assert.Nil(t, got.LastHeartbeat)
 }
 
+// TestMarkCardStalled_NormalizesWorkerStatus pins the fix for the Run Now
+// 409 bug: a card stalled mid-run keeps worker_status at "running" (or
+// "queued"), which makes runCard treat it as a live worker and reject every
+// future Run Now with ErrCodeWorkerConflict until a manual Stop. A stalled
+// worker is presumed dead, so markCardStalled must normalize it to the
+// terminal "failed" status the failed-callback path would have set.
+func TestMarkCardStalled_NormalizesWorkerStatus(t *testing.T) {
+	svc, fake, cleanup := newStalledTestService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Will Stall Running", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "dead-agent")
+	require.NoError(t, err)
+
+	_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "running", "")
+	require.NoError(t, err)
+
+	fake.Advance(10 * time.Millisecond)
+	require.NoError(t, svc.processStalled(ctx))
+
+	got, err := svc.store.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, board.StateStalled, got.State)
+	assert.Equal(t, "failed", got.WorkerStatus,
+		"a stalled worker is presumed dead; leaving queued/running blocks every future Run Now with a 409")
+}
+
 // TestMarkCardStalled_PersistGatedByValidator drives the validator-rejection
 // branch directly: a stub that always returns an error must short-circuit
 // the persist, leaving the card in its pre-stall state with the claim
