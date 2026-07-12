@@ -154,7 +154,7 @@ the payload in `internal/api/backend_run.go`:
   "interactive": false,
   "model": "deepseek/deepseek-v4-flash",
   "best_of_n": 3,
-  "coop": {
+  "mob": {
     "participants": 3,
     "phases": ["plan", "review"],
     "rounds": 2,
@@ -190,19 +190,19 @@ card can carry a value that exceeds the current max if the operator lowered it
 after the card was set. See [Best-of-N run](#best-of-n-run) for what the agent
 does with it.
 
-`coop` is present only when the card's `coop_participants` is `>= 2`.
+`mob` is present only when the card's `mob_participants` is `>= 2`.
 `participants` is the card value clamped to the current
-`coop.max_participants`; `rounds` and `budget_factor` carry
-`coop.default_rounds` and `coop.budget_factor`; `execute_checkpoints` /
+`mob.max_participants`; `rounds` and `budget_factor` carry
+`mob.default_rounds` and `mob.budget_factor`; `execute_checkpoints` /
 `checkpoint_min_tier` mirror the server flags. `guests` is the card's
-`coop_guests` resolved through the registry into full `{name, url, token}`
-specs — unknown names are dropped with a `coop-warning` activity entry. The
+`mob_guests` resolved through the registry into full `{name, url, token}`
+specs — unknown names are dropped with a `mob-warning` activity entry. The
 `execute` phase is likewise dropped (with a warning) when
-`coop.execute_checkpoints_enabled` is off or the same payload carries
+`mob.execute_checkpoints_enabled` is off or the same payload carries
 `best_of_n >= 2` (checkpoints and Best-of-N are mutually exclusive;
 Best-of-N wins). Guest tokens are bearer secrets: the backend stages them
 into the per-run secrets file, never plain container env, and registers
-them with its log redactor. See [Co-op discussions](#co-op-discussions).
+them with its log redactor. See [Mob sessions](#mob-sessions).
 
 `selection` (`protocol.SelectionContext`) carries the auto-selection inputs:
 the rated model `candidates` from CM's cached catalog, the operator `favorites`
@@ -476,7 +476,7 @@ Chat frames set `session_id` instead of `card_id`. `type` is one of:
 | `user`      | A human message echoed by the backend's `/message` handler.           |
 | `usage`     | Per-turn token accounting. `content` is empty; `usage` carries `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_creation_tokens`, and `model` carries the responding model ID. |
 
-`agent` is the optional speaker attribution for co-op discussion frames:
+`agent` is the optional speaker attribution for mob session discussion frames:
 the agent backend's log bridge maps its `discussion` JSONL events to
 `type: "text"` frames carrying `agent` (`seat-1`..`seat-N`,
 `guest-<name>`, `moderator`, `human`). CM threads the field through its
@@ -661,25 +661,25 @@ HEAD>` before the run's first push; losing worktrees are removed. Wall-clock
 time is roughly the slowest candidate plus the judge pass, and the per-card
 budget ceiling scales to `MaxCardCost × (N + 1)`.
 
-### Co-op discussions
+### Mob sessions
 
-Co-op is task-backend only: CM sends `coop` only to the agent, and only when
-the card's `coop_participants` is `>= 2`. A co-op run still gets exactly
-**one** worker container. Inside it, the orchestrator hosts every internal
-seat behind a loopback a2a-go JSON-RPC server (127.0.0.1, port never
+Mob session is task-backend only: CM sends `mob` only to the agent, and only
+when the card's `mob_participants` is `>= 2`. A mob session run still gets
+exactly **one** worker container. Inside it, the orchestrator hosts every
+internal seat behind a loopback a2a-go JSON-RPC server (127.0.0.1, port never
 published, bearer-protected) and acts as the only A2A client — dialing
 loopback seats and registered guest URLs over the same wire. Plan and review
 phase bodies convene a discussion (blind round 0, then critique rounds up to
 the payload's `rounds`), and the decision model synthesizes the group's
 answer into the phase's existing output format. Discussions degrade, never
-fail: quorum below 2 responding seats, engine errors, or an exhausted co-op
-budget (`budget_factor × max card cost`) fall back to the existing solo
-path.
+fail: quorum below 2 responding seats, engine errors, or an exhausted mob
+session budget (`budget_factor × max card cost`) fall back to the existing
+solo path.
 
 Wire conventions (shared by internal seats and guest shims): message bodies
 are markdown transcript deltas with entries formatted
 `[round N] author (lens): text`; control metadata rides A2A
-`Message.metadata` under key `cm_coop` as
+`Message.metadata` under key `cm_mob` as
 `{"control": "round" | "close", "round": <n>}`, with missing/unknown
 metadata treated as `"round"`. Live transcript lines reach the board as
 `discussion` JSONL events that serve's log bridge maps to `text` log frames
@@ -687,10 +687,10 @@ with the `agent` attribution field (see the log-stream section above); seat
 sub-run internals are emitted under debug kinds the bridge deliberately does
 not map.
 
-Composition with Best-of-N: co-op plan and review discussions compose freely
-with a Best-of-N execute race. The `execute` co-op phase (driver/navigator
-checkpoints) is the exception — it requires the server flag
-`coop.execute_checkpoints_enabled` and is skipped with a trigger-time
+Composition with Best-of-N: mob session plan and review discussions compose
+freely with a Best-of-N execute race. The `execute` mob session phase
+(driver/navigator checkpoints) is the exception — it requires the server
+flag `mob.execute_checkpoints_enabled` and is skipped with a trigger-time
 warning when the flag is off or `best_of_n >= 2`.
 
 ### GitHub token refresh

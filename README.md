@@ -71,12 +71,12 @@ Three shared Go modules underpin the services:
   own budget and an auto-selected coder model (distinct models where the
   eligible pool allows); a judge phase picks the winner, which is the only
   branch pushed.
-- **Co-op discussions (A2A)** — set `coop_participants` and the plan and
-  review phases become moderated multi-agent discussions over the A2A
-  protocol — internal seats plus optional registered guest agents — with the
-  live transcript streamed to the card's chat tab. Discussions degrade to the
-  solo path rather than failing the run, and co-op composes freely with a
-  Best-of-N execute race.
+- **Mob sessions (A2A)** — set `mob_participants` and the plan and review
+  phases become moderated multi-agent discussions over the A2A protocol —
+  internal seats plus optional registered guest agents — with the live
+  transcript streamed to the card's chat tab. Discussions degrade to the
+  solo path rather than failing the run, and a mob session composes freely
+  with a Best-of-N execute race.
 - **Global chat surface** — a `/chat` route hosts long-lived, board-aware chat
   sessions independent of any card. Up to 4 are tiled in a resizable layout,
   persisted across reloads.

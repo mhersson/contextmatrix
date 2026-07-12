@@ -190,7 +190,7 @@ starts reading the rest of the (now-rotated) pool under the new key.
   `contextmatrix-agent` and `contextmatrix-chat` callbacks into the server,
   independent of `auth.mode`. The backend is on a different host; the secret
   prevents arbitrary network callers from injecting status updates.
-- **Co-op guest endpoints** (`coop.guests` config) are operator-trusted
+- **Mob session guest endpoints** (`mob.guests` config) are operator-trusted
   infrastructure, equivalent in trust to the `llm_endpoint` config: a
   config-file-only registry with no UI or API management surface in either
   mode, so multi mode gains no per-user guest attack surface. Guest bearer

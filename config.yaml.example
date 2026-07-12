@@ -392,21 +392,21 @@ images:
 #   default_candidates: 3  # operator-recommended count shown in the UI tooltip (CONTEXTMATRIX_BEST_OF_N_DEFAULT_CANDIDATES)
 #   outcome_floor: 20      # per-model samples before win-rates bias selection (CONTEXTMATRIX_BEST_OF_N_OUTCOME_FLOOR)
 
-# Co-op discussions (agent backend only). A card with coop_participants >= 2
+# Mob sessions (agent backend only). A card with mob_participants >= 2
 # convenes N agents that discuss its plan and review over the A2A protocol;
 # a moderator synthesizes the group's answer. Guests are operator-registered
 # external A2A endpoints (e.g. a Claude Code shim on a laptop) that join
 # discussions over the same wire.
-# coop:
-#   max_participants: 5           # hard cap on a card's coop_participants (CONTEXTMATRIX_COOP_MAX_PARTICIPANTS)
-#   default_participants: 3       # operator-recommended seat count shown in the UI tooltip (CONTEXTMATRIX_COOP_DEFAULT_PARTICIPANTS)
-#   default_rounds: 2             # critique rounds per discussion; the blind round 0 never counts (CONTEXTMATRIX_COOP_DEFAULT_ROUNDS)
-#   max_rounds: 3                 # server clamp on critique rounds (CONTEXTMATRIX_COOP_MAX_ROUNDS)
-#   budget_factor: 0.75           # co-op budget = budget_factor x the run's max card cost (CONTEXTMATRIX_COOP_BUDGET_FACTOR)
-#   execute_checkpoints_enabled: false # allow "execute" in coop_phases; off = dropped at trigger with a warning (CONTEXTMATRIX_COOP_EXECUTE_CHECKPOINTS_ENABLED)
-#   checkpoint_min_tier: complex  # minimum subtask tier that gets an execute checkpoint: simple|moderate|complex|critical (CONTEXTMATRIX_COOP_CHECKPOINT_MIN_TIER)
+# mob:
+#   max_participants: 5           # hard cap on a card's mob_participants (CONTEXTMATRIX_MOB_MAX_PARTICIPANTS)
+#   default_participants: 3       # operator-recommended seat count shown in the UI tooltip (CONTEXTMATRIX_MOB_DEFAULT_PARTICIPANTS)
+#   default_rounds: 2             # critique rounds per discussion; the blind round 0 never counts (CONTEXTMATRIX_MOB_DEFAULT_ROUNDS)
+#   max_rounds: 3                 # server clamp on critique rounds (CONTEXTMATRIX_MOB_MAX_ROUNDS)
+#   budget_factor: 0.75           # mob session budget = budget_factor x the run's max card cost (CONTEXTMATRIX_MOB_BUDGET_FACTOR)
+#   execute_checkpoints_enabled: false # allow "execute" in mob_phases; off = dropped at trigger with a warning (CONTEXTMATRIX_MOB_EXECUTE_CHECKPOINTS_ENABLED)
+#   checkpoint_min_tier: complex  # minimum subtask tier that gets an execute checkpoint: simple|moderate|complex|critical (CONTEXTMATRIX_MOB_CHECKPOINT_MIN_TIER)
 #   # Guest registry — config file only (tokens are secrets; the env-override
-#   # mechanism is scalar-only). Cards reference entries by name in coop_guests.
+#   # mechanism is scalar-only). Cards reference entries by name in mob_guests.
 #   # guests:
 #   #   - name: laptop
 #   #     url: http://192.168.1.50:8484   # http(s), reachable from the worker container network
