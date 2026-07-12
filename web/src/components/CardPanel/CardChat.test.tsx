@@ -42,14 +42,14 @@ const autonomousCard: Card = {
   autonomous: true,
 };
 
-const coopAutonomousCard: Card = {
+const mobAutonomousCard: Card = {
   ...runningCard,
   autonomous: true,
-  coop_participants: 3,
+  mob_participants: 3,
 };
 
-const endedCoopAutonomousCard: Card = {
-  ...coopAutonomousCard,
+const endedMobAutonomousCard: Card = {
+  ...mobAutonomousCard,
   worker_status: 'failed',
 };
 
@@ -75,19 +75,19 @@ describe('CardChat — visibility gate', () => {
     expect(screen.getByText(/Autonomous run — read-only/)).toBeInTheDocument();
   });
 
-  it('renders an "Autonomous run" read-only footer with no compose for a running autonomous co-op card', () => {
-    render(<CardChat card={coopAutonomousCard} cardLogs={noLogs} />);
+  it('renders an "Autonomous run" read-only footer with no compose for a running autonomous mob session card', () => {
+    render(<CardChat card={mobAutonomousCard} cardLogs={noLogs} />);
     expect(screen.queryByPlaceholderText(/Type a message/)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Send/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Switch to Autonomous/ })).not.toBeInTheDocument();
     expect(screen.getByText(/Autonomous run — read-only/)).toBeInTheDocument();
   });
 
-  it('shows "Session ended" (not "Autonomous run") for an ENDED autonomous co-op run', () => {
+  it('shows "Session ended" (not "Autonomous run") for an ENDED autonomous mob session run', () => {
     const logs: LogEntry[] = [
-      { ts: '2026-01-01T00:00:01Z', card_id: 'TEST-001', type: 'text', content: 'coop transcript entry' },
+      { ts: '2026-01-01T00:00:01Z', card_id: 'TEST-001', type: 'text', content: 'mob transcript entry' },
     ];
-    render(<CardChat card={endedCoopAutonomousCard} cardLogs={logs} />);
+    render(<CardChat card={endedMobAutonomousCard} cardLogs={logs} />);
     expect(screen.queryByPlaceholderText(/Type a message/)).not.toBeInTheDocument();
     expect(screen.getByText(/Session ended — read-only/)).toBeInTheDocument();
     expect(screen.queryByText(/Autonomous run — read-only/)).not.toBeInTheDocument();

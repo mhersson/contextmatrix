@@ -478,7 +478,7 @@ describe('CardPanel — rail default tab follows isChatInteractive', () => {
 });
 
 describe('CardPanel — autonomous chat visibility', () => {
-  it('adds the Chat tab with a live pulse but does NOT select it by default for a running autonomous co-op card', () => {
+  it('adds the Chat tab with a live pulse but does NOT select it by default for a running autonomous mob session card', () => {
     render(
       <CardPanel
         {...makeProps({
@@ -487,7 +487,7 @@ describe('CardPanel — autonomous chat visibility', () => {
             state: 'in_progress',
             worker_status: 'running',
             autonomous: true,
-            coop_participants: 3,
+            mob_participants: 3,
           },
         })}
       />,
@@ -520,7 +520,7 @@ describe('CardPanel — autonomous chat visibility', () => {
     expect(screen.getByRole('tab', { name: /Chat/ })).toHaveAttribute('aria-selected', 'true');
   });
 
-  it('adds the Chat tab with a live pulse, unfocused, for a running autonomous card without co-op discussion', () => {
+  it('adds the Chat tab with a live pulse, unfocused, for a running autonomous card without mob session discussion', () => {
     render(
       <CardPanel
         {...makeProps({
@@ -529,7 +529,7 @@ describe('CardPanel — autonomous chat visibility', () => {
             state: 'in_progress',
             worker_status: 'running',
             autonomous: true,
-            coop_participants: 0,
+            mob_participants: 0,
           },
         })}
       />,

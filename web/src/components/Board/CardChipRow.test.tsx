@@ -15,17 +15,17 @@ const baseCard: Card = {
   body: '',
 };
 
-describe('CardChipRow — co-op badge', () => {
-  it('shows "co-op N" when coop_participants >= 2', () => {
-    render(<CardChipRow card={{ ...baseCard, coop_participants: 3 }} />);
-    expect(screen.getByText('co-op 3')).toBeInTheDocument();
+describe('CardChipRow — mob badge', () => {
+  it('shows "mob N" when mob_participants >= 2', () => {
+    render(<CardChipRow card={{ ...baseCard, mob_participants: 3 }} />);
+    expect(screen.getByText('mob 3')).toBeInTheDocument();
   });
 
-  it('hides the badge when co-op is off or undefined', () => {
+  it('hides the badge when mob is off or undefined', () => {
     const { rerender } = render(<CardChipRow card={baseCard} />);
-    expect(screen.queryByText(/co-op/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/mob/)).not.toBeInTheDocument();
 
-    rerender(<CardChipRow card={{ ...baseCard, coop_participants: 0 }} />);
-    expect(screen.queryByText(/co-op/)).not.toBeInTheDocument();
+    rerender(<CardChipRow card={{ ...baseCard, mob_participants: 0 }} />);
+    expect(screen.queryByText(/mob/)).not.toBeInTheDocument();
   });
 });

@@ -3,7 +3,7 @@ import { ModelPinsSection, type ModelPinField } from './ModelPinsSection';
 
 const REVIEW_ATTEMPTS_WARN_THRESHOLD = 4;
 const REVIEW_ATTEMPTS_HALT = 5;
-const COOP_PHASES = ['plan', 'review', 'execute'] as const;
+const MOB_PHASES = ['plan', 'review', 'execute'] as const;
 
 interface AutomationCheckboxesProps {
   autonomous: boolean;
@@ -49,26 +49,26 @@ interface AutomationCheckboxesProps {
    * wires it through CreateCardPanel.
    */
   onBestOfNChange?: (value: number) => void;
-  /** Current co-op seat count. 0/undefined = off. */
-  coopParticipants?: number;
-  /** Upper bound for the seats selector, from app config (`coop_max_participants`). */
-  coopMaxParticipants?: number;
+  /** Current mob seat count. 0/undefined = off. */
+  mobParticipants?: number;
+  /** Upper bound for the seats selector, from app config (`mob_max_participants`). */
+  mobMaxParticipants?: number;
   /** Operator-recommended seat count, surfaced in the control's tooltip. */
-  coopDefaultParticipants?: number;
+  mobDefaultParticipants?: number;
   /** Phases the card convenes discussions in (subset of plan/review/execute). */
-  coopPhases?: string[];
+  mobPhases?: string[];
   /** Guest names selected on the card. */
-  coopGuests?: string[];
-  /** Registry guest names from app config (`coop_guest_names`). */
-  coopGuestNames?: string[];
+  mobGuests?: string[];
+  /** Registry guest names from app config (`mob_guest_names`). */
+  mobGuestNames?: string[];
   /**
-   * Co-op change handlers. Optional like `onBestOfNChange` — the block only
+   * Mob change handlers. Optional like `onBestOfNChange` — the block only
    * renders on the agent backend path; create mode wires them through
    * CreateCardPanel.
    */
-  onCoopParticipantsChange?: (value: number) => void;
-  onCoopPhasesChange?: (value: string[]) => void;
-  onCoopGuestsChange?: (value: string[]) => void;
+  onMobParticipantsChange?: (value: number) => void;
+  onMobPhasesChange?: (value: string[]) => void;
+  onMobGuestsChange?: (value: string[]) => void;
   branchName?: string;
   prUrl?: string;
   reviewAttempts?: number;
@@ -119,9 +119,9 @@ export function AutomationCheckboxes({
   modelOrchestrator = '', modelCoder = '', modelReviewer = '',
   onModelPinChange, models = [], favorites,
   bestOfN, bestOfNMax, bestOfNDefault, onBestOfNChange,
-  coopParticipants, coopMaxParticipants, coopDefaultParticipants,
-  coopPhases, coopGuests, coopGuestNames,
-  onCoopParticipantsChange, onCoopPhasesChange, onCoopGuestsChange,
+  mobParticipants, mobMaxParticipants, mobDefaultParticipants,
+  mobPhases, mobGuests, mobGuestNames,
+  onMobParticipantsChange, onMobPhasesChange, onMobGuestsChange,
   branchName, prUrl, reviewAttempts,
   baseBranch, onBaseBranchChange, branches, branchesLoading, branchesError,
   disabled = false,
@@ -139,13 +139,13 @@ export function AutomationCheckboxes({
     { length: Math.max(bestOfNMaxResolved - 1, 0) },
     (_, i) => i + 2,
   );
-  const coopMaxResolved = coopMaxParticipants ?? 5;
-  const coopDefaultResolved = coopDefaultParticipants ?? 3;
-  const coopOptions = Array.from(
-    { length: Math.max(coopMaxResolved - 1, 0) },
+  const mobMaxResolved = mobMaxParticipants ?? 5;
+  const mobDefaultResolved = mobDefaultParticipants ?? 3;
+  const mobOptions = Array.from(
+    { length: Math.max(mobMaxResolved - 1, 0) },
     (_, i) => i + 2,
   );
-  const coopOn = (coopParticipants ?? 0) >= 2;
+  const mobOn = (mobParticipants ?? 0) >= 2;
 
   return (
     <div className={`bf-auto-stack ${disabled ? 'opacity-60' : ''}`}>
@@ -188,53 +188,53 @@ export function AutomationCheckboxes({
         </div>
       )}
 
-      {/* Co-op discussions — agent backend only. Renders in both edit and
+      {/* Mob discussions — agent backend only. Renders in both edit and
           create modes (mirrors the Best-of-N rule). */}
       {agentBackend && (
         <>
           <div className="bf-spread">
-            <span className="bf-switch-label">Co-op seats</span>
+            <span className="bf-switch-label">Mob seats</span>
             <select
-              aria-label="Co-op seats"
-              value={coopParticipants ?? 0}
+              aria-label="Mob seats"
+              value={mobParticipants ?? 0}
               onChange={(e) => {
                 const n = Number(e.target.value);
-                onCoopParticipantsChange?.(n);
-                if (n >= 2 && !coopOn) {
+                onMobParticipantsChange?.(n);
+                if (n >= 2 && !mobOn) {
                   // Enabling from Off: default the phase set.
-                  onCoopPhasesChange?.(['plan', 'review']);
+                  onMobPhasesChange?.(['plan', 'review']);
                 } else if (n === 0) {
                   // Turning Off: clear the dependent fields so a stale
                   // guest list can't fail validation later.
-                  onCoopPhasesChange?.([]);
-                  onCoopGuestsChange?.([]);
+                  onMobPhasesChange?.([]);
+                  onMobGuestsChange?.([]);
                 }
               }}
               disabled={disabled}
               className="bf-input"
               style={{ width: 'auto', minWidth: '160px' }}
-              title={`Off, or 2–${coopMaxResolved} agents discussing plan/review (default ${coopDefaultResolved})`}
+              title={`Off, or 2–${mobMaxResolved} agents discussing plan/review (default ${mobDefaultResolved})`}
             >
               <option value={0}>Off</option>
-              {coopOptions.map((n) => (
+              {mobOptions.map((n) => (
                 <option key={n} value={n}>{n}</option>
               ))}
             </select>
           </div>
 
-          {coopOn && (
+          {mobOn && (
             <div className="bf-spread">
-              <span className="bf-switch-label">Co-op phases</span>
+              <span className="bf-switch-label">Mob phases</span>
               <div className="flex items-center gap-2">
-                {COOP_PHASES.map((phase) => {
-                  const active = (coopPhases ?? []).includes(phase);
+                {MOB_PHASES.map((phase) => {
+                  const active = (mobPhases ?? []).includes(phase);
                   return (
                     <button
                       key={phase}
                       type="button"
                       className="chip-pill"
                       aria-pressed={active}
-                      aria-label={`Co-op phase ${phase}`}
+                      aria-label={`Mob phase ${phase}`}
                       disabled={disabled}
                       style={{
                         backgroundColor: active ? 'var(--bg-purple)' : 'var(--bg2)',
@@ -242,11 +242,11 @@ export function AutomationCheckboxes({
                         cursor: disabled ? 'default' : 'pointer',
                       }}
                       onClick={() => {
-                        const current = coopPhases ?? [];
+                        const current = mobPhases ?? [];
                         const next = active
                           ? current.filter((p) => p !== phase)
                           : [...current, phase];
-                        onCoopPhasesChange?.(next);
+                        onMobPhasesChange?.(next);
                       }}
                     >
                       {phase}
@@ -257,19 +257,19 @@ export function AutomationCheckboxes({
             </div>
           )}
 
-          {coopOn && (coopGuestNames?.length ?? 0) > 0 && (
+          {mobOn && (mobGuestNames?.length ?? 0) > 0 && (
             <div className="bf-spread">
-              <span className="bf-switch-label">Co-op guests</span>
+              <span className="bf-switch-label">Mob guests</span>
               <div className="flex items-center gap-2 flex-wrap">
-                {coopGuestNames!.map((name) => {
-                  const active = (coopGuests ?? []).includes(name);
+                {mobGuestNames!.map((name) => {
+                  const active = (mobGuests ?? []).includes(name);
                   return (
                     <button
                       key={name}
                       type="button"
                       className="chip-pill"
                       aria-pressed={active}
-                      aria-label={`Co-op guest ${name}`}
+                      aria-label={`Mob guest ${name}`}
                       disabled={disabled}
                       style={{
                         backgroundColor: active ? 'var(--bg-blue)' : 'var(--bg2)',
@@ -277,11 +277,11 @@ export function AutomationCheckboxes({
                         cursor: disabled ? 'default' : 'pointer',
                       }}
                       onClick={() => {
-                        const current = coopGuests ?? [];
+                        const current = mobGuests ?? [];
                         const next = active
                           ? current.filter((g) => g !== name)
                           : [...current, name];
-                        onCoopGuestsChange?.(next);
+                        onMobGuestsChange?.(next);
                       }}
                     >
                       {name}

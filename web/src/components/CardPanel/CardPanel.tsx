@@ -78,7 +78,7 @@ export function CardPanel(props: CardPanelProps) {
   // isCardChatLive predicate in ProjectShell.tsx — keep both in sync if the
   // liveness rule changes. Only a HITL session is *interactive*: it takes the
   // compose row, grabs the default tab, and auto-expands the rail. Autonomous
-  // runs (plain or co-op) keep the tab available but read-only and unfocused.
+  // runs (plain or mob session) keep the tab available but read-only and unfocused.
   const isChatLive = card.worker_status === 'running';
   const isChatInteractive = isChatLive && !(card.autonomous ?? false);
   const defaultTab: RailTabKey = isChatInteractive ? 'chat' : isMobile ? 'card' : 'automation';

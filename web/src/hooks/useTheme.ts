@@ -89,13 +89,13 @@ interface ThemeContextValue {
   bestOfNMax: number | undefined;
   bestOfNDefault: number | undefined;
   /**
-   * Co-op bounds + guest registry names from `/api/app/config`. Undefined on
-   * the slim pre-login payload or on servers older than the co-op rollout —
+   * Mob bounds + guest registry names from `/api/app/config`. Undefined on
+   * the slim pre-login payload or on servers older than the mob rollout —
    * consumers apply their own fallback (`?? 5` / `?? 3` / `?? []`).
    */
-  coopMaxParticipants: number | undefined;
-  coopDefaultParticipants: number | undefined;
-  coopGuestNames: string[] | undefined;
+  mobMaxParticipants: number | undefined;
+  mobDefaultParticipants: number | undefined;
+  mobGuestNames: string[] | undefined;
   toggleTheme: () => void;
   setPalette: (palette: Palette) => void;
 }
@@ -123,9 +123,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [favorites, setFavorites] = useState<Record<string, string[]> | null>(null);
   const [bestOfNMax, setBestOfNMax] = useState<number | undefined>(undefined);
   const [bestOfNDefault, setBestOfNDefault] = useState<number | undefined>(undefined);
-  const [coopMaxParticipants, setCoopMaxParticipants] = useState<number | undefined>(undefined);
-  const [coopDefaultParticipants, setCoopDefaultParticipants] = useState<number | undefined>(undefined);
-  const [coopGuestNames, setCoopGuestNames] = useState<string[] | undefined>(undefined);
+  const [mobMaxParticipants, setMobMaxParticipants] = useState<number | undefined>(undefined);
+  const [mobDefaultParticipants, setMobDefaultParticipants] = useState<number | undefined>(undefined);
+  const [mobGuestNames, setMobGuestNames] = useState<string[] | undefined>(undefined);
 
   // Optional: AuthProvider does not yet sit above ThemeProvider in App.tsx
   // (wired in a later task), and pre-existing tests render ThemeProvider
@@ -163,14 +163,14 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       if (config.best_of_n_default !== undefined) {
         setBestOfNDefault(config.best_of_n_default);
       }
-      if (config.coop_max_participants !== undefined) {
-        setCoopMaxParticipants(config.coop_max_participants);
+      if (config.mob_max_participants !== undefined) {
+        setMobMaxParticipants(config.mob_max_participants);
       }
-      if (config.coop_default_participants !== undefined) {
-        setCoopDefaultParticipants(config.coop_default_participants);
+      if (config.mob_default_participants !== undefined) {
+        setMobDefaultParticipants(config.mob_default_participants);
       }
-      if (config.coop_guest_names !== undefined) {
-        setCoopGuestNames(config.coop_guest_names);
+      if (config.mob_guest_names !== undefined) {
+        setMobGuestNames(config.mob_guest_names);
       }
     }).catch(() => {
       // swallow errors — leave default everforest palette
@@ -193,11 +193,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const value = useMemo<ThemeContextValue>(
     () => ({
       theme, palette, version, taskBackend, favorites, bestOfNMax, bestOfNDefault,
-      coopMaxParticipants, coopDefaultParticipants, coopGuestNames,
+      mobMaxParticipants, mobDefaultParticipants, mobGuestNames,
       toggleTheme, setPalette,
     }),
     [theme, palette, version, taskBackend, favorites, bestOfNMax, bestOfNDefault,
-      coopMaxParticipants, coopDefaultParticipants, coopGuestNames, toggleTheme, setPalette],
+      mobMaxParticipants, mobDefaultParticipants, mobGuestNames, toggleTheme, setPalette],
   );
 
   return createElement(ThemeContext.Provider, { value }, children);

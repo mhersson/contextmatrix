@@ -562,12 +562,12 @@ describe('ProjectShell — card-scoped worker-log liveness', () => {
     };
   }
 
-  it('enables the log stream for a running autonomous card with co-op discussion on', async () => {
+  it('enables the log stream for a running autonomous card with mob session discussion on', async () => {
     const { useBoard } = await import('../../hooks/useBoard');
     const { useWorkerLogs } = await import('../../hooks/useWorkerLogs');
-    const coopCard: Card = {
+    const mobCard: Card = {
       id: 'TEST-1',
-      title: 'Coop card',
+      title: 'Mob card',
       project: 'test',
       type: 'task',
       state: 'in_progress',
@@ -577,9 +577,9 @@ describe('ProjectShell — card-scoped worker-log liveness', () => {
       body: '',
       worker_status: 'running',
       autonomous: true,
-      coop_participants: 3,
+      mob_participants: 3,
     };
-    vi.mocked(useBoard).mockReturnValue(boardReturnFor(coopCard) as unknown as ReturnType<typeof useBoard>);
+    vi.mocked(useBoard).mockReturnValue(boardReturnFor(mobCard) as unknown as ReturnType<typeof useBoard>);
 
     render(
       <MemoryRouter initialEntries={['/projects/test?card=TEST-1']}>
@@ -594,7 +594,7 @@ describe('ProjectShell — card-scoped worker-log liveness', () => {
     expect(lastCall).toMatchObject({ cardId: 'TEST-1', enabled: true });
   });
 
-  it('enables the log stream for a running autonomous card without co-op discussion', async () => {
+  it('enables the log stream for a running autonomous card without mob session discussion', async () => {
     const { useBoard } = await import('../../hooks/useBoard');
     const { useWorkerLogs } = await import('../../hooks/useWorkerLogs');
     const soloAutonomousCard: Card = {

@@ -101,7 +101,7 @@ describe('ChatPanel', () => {
     expect(screen.queryByTestId('chat-divider')).not.toBeInTheDocument();
   });
 
-  describe('speaker chips (co-op discussions)', () => {
+  describe('speaker chips (mob session discussions)', () => {
     it('renders a labeled chip on text entries that carry agent', () => {
       const discussionLogs: LogEntry[] = [
         {

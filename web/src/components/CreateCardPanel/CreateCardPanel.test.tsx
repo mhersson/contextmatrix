@@ -11,9 +11,9 @@ vi.mock('../../hooks/useTheme', () => ({
     taskBackend: 'agent',
     bestOfNMax: 5,
     bestOfNDefault: 3,
-    coopMaxParticipants: 5,
-    coopDefaultParticipants: 3,
-    coopGuestNames: [],
+    mobMaxParticipants: 5,
+    mobDefaultParticipants: 3,
+    mobGuestNames: [],
   }),
 }));
 
@@ -169,11 +169,11 @@ describe('CreateCardPanel — onCreate contract', () => {
   });
 });
 
-describe('CreateCardPanel — Best-of-N and Co-op at create time', () => {
-  it('shows the Best-of-N and Co-op seats selectors in the create panel', () => {
+describe('CreateCardPanel — Best-of-N and Mob at create time', () => {
+  it('shows the Best-of-N and Mob seats selectors in the create panel', () => {
     render(<CreateCardPanel {...makeProps()} />);
     expect(screen.getByLabelText('Best of N')).toBeInTheDocument();
-    expect(screen.getByLabelText('Co-op seats')).toBeInTheDocument();
+    expect(screen.getByLabelText('Mob seats')).toBeInTheDocument();
   });
 
   it('selecting best_of_n: 3 and clicking Just create forwards it in onCreate', async () => {
@@ -192,12 +192,12 @@ describe('CreateCardPanel — Best-of-N and Co-op at create time', () => {
     expect(input).toMatchObject({ title: 'BoN card', best_of_n: 3 });
   });
 
-  it('selecting coop_participants: 3 and clicking Just create forwards it in onCreate', async () => {
+  it('selecting mob_participants: 3 and clicking Just create forwards it in onCreate', async () => {
     const onCreate = vi.fn().mockResolvedValue(undefined);
     render(<CreateCardPanel {...makeProps({ onCreate })} />);
 
-    fireEvent.change(screen.getByPlaceholderText(/Card title/), { target: { value: 'Coop card' } });
-    fireEvent.change(screen.getByLabelText('Co-op seats'), { target: { value: '3' } });
+    fireEvent.change(screen.getByPlaceholderText(/Card title/), { target: { value: 'Mob card' } });
+    fireEvent.change(screen.getByLabelText('Mob seats'), { target: { value: '3' } });
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Just create' }));
@@ -205,10 +205,10 @@ describe('CreateCardPanel — Best-of-N and Co-op at create time', () => {
 
     expect(onCreate).toHaveBeenCalledOnce();
     const [input] = onCreate.mock.calls[0];
-    expect(input).toMatchObject({ title: 'Coop card', coop_participants: 3, coop_phases: ['plan', 'review'] });
+    expect(input).toMatchObject({ title: 'Mob card', mob_participants: 3, mob_phases: ['plan', 'review'] });
   });
 
-  it('omits best_of_n and coop_participants when left at Off', async () => {
+  it('omits best_of_n and mob_participants when left at Off', async () => {
     const onCreate = vi.fn().mockResolvedValue(undefined);
     render(<CreateCardPanel {...makeProps({ onCreate })} />);
 
@@ -220,7 +220,7 @@ describe('CreateCardPanel — Best-of-N and Co-op at create time', () => {
 
     const [input] = onCreate.mock.calls[0];
     expect(input.best_of_n).toBeUndefined();
-    expect(input.coop_participants).toBeUndefined();
+    expect(input.mob_participants).toBeUndefined();
   });
 });
 

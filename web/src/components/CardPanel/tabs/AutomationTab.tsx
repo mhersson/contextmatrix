@@ -42,7 +42,7 @@ export function AutomationTab({
 }: AutomationTabProps) {
   const {
     taskBackend, favorites: favsByTier, bestOfNMax, bestOfNDefault,
-    coopMaxParticipants, coopDefaultParticipants, coopGuestNames,
+    mobMaxParticipants, mobDefaultParticipants, mobGuestNames,
   } = useTheme();
   // Card model pins: CM's served catalog (GET /api/models) — the vendor-
   // screened OpenRouter list or the endpoint list. Agent path only.
@@ -78,20 +78,20 @@ export function AutomationTab({
           onBestOfNChange={(v) =>
             setEditedCard((prev) => ({ ...prev, best_of_n: v }))
           }
-          coopParticipants={editedCard.coop_participants}
-          coopMaxParticipants={coopMaxParticipants}
-          coopDefaultParticipants={coopDefaultParticipants}
-          coopPhases={editedCard.coop_phases}
-          coopGuests={editedCard.coop_guests}
-          coopGuestNames={coopGuestNames}
-          onCoopParticipantsChange={(v) =>
-            setEditedCard((prev) => ({ ...prev, coop_participants: v }))
+          mobParticipants={editedCard.mob_participants}
+          mobMaxParticipants={mobMaxParticipants}
+          mobDefaultParticipants={mobDefaultParticipants}
+          mobPhases={editedCard.mob_phases}
+          mobGuests={editedCard.mob_guests}
+          mobGuestNames={mobGuestNames}
+          onMobParticipantsChange={(v) =>
+            setEditedCard((prev) => ({ ...prev, mob_participants: v }))
           }
-          onCoopPhasesChange={(v) =>
-            setEditedCard((prev) => ({ ...prev, coop_phases: v }))
+          onMobPhasesChange={(v) =>
+            setEditedCard((prev) => ({ ...prev, mob_phases: v }))
           }
-          onCoopGuestsChange={(v) =>
-            setEditedCard((prev) => ({ ...prev, coop_guests: v }))
+          onMobGuestsChange={(v) =>
+            setEditedCard((prev) => ({ ...prev, mob_guests: v }))
           }
           onAutonomousChange={(v) =>
             setEditedCard((prev) => ({ ...prev, autonomous: v, ...(v ? {} : { base_branch: undefined }) }))
