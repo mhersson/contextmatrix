@@ -177,26 +177,16 @@ export function ProjectShell() {
     [cards]
   );
 
-  // Card-scoped log stream for CardChat — enabled when chat is "live": a HITL
-  // session is running, or an autonomous run has co-op discussion turned on
-  // (coop_participants >= 2). This avoids opening a second EventSource from
-  // inside CardChat itself. Mirrors the isChatLive predicate in
-  // CardPanel/CardPanel.tsx — keep both in sync if the liveness rule changes.
-  const isCardChatLive = useMemo(
-    () =>
-      currentSelectedCard?.worker_status === 'running' &&
-      (!(currentSelectedCard?.autonomous ?? false) ||
-        (currentSelectedCard?.coop_participants ?? 0) >= 2),
-    [
-      currentSelectedCard?.worker_status,
-      currentSelectedCard?.autonomous,
-      currentSelectedCard?.coop_participants,
-    ],
-  );
+  // Card-scoped log stream for CardChat — enabled when chat is "live": any
+  // worker session is running (HITL or autonomous; autonomous renders
+  // read-only). This avoids opening a second EventSource from inside CardChat
+  // itself. Mirrors the isChatLive predicate in CardPanel/CardPanel.tsx —
+  // keep both in sync if the liveness rule changes.
+  const isCardChatLive = currentSelectedCard?.worker_status === 'running';
   const { logs: selectedCardLogs } = useWorkerLogs({
     project: project || '',
     cardId: currentSelectedCard?.id,
-    enabled: !!isCardChatLive,
+    enabled: isCardChatLive,
   });
 
   useKeyboardShortcuts(

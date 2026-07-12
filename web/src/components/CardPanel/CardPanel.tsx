@@ -73,19 +73,21 @@ export function CardPanel(props: CardPanelProps) {
   useFocusTrap(panelRef, true);
 
   const isMobile = useMediaQuery('(max-width: 768px)');
-  // Chat is "live" when a HITL session is running, or when an autonomous run
-  // has co-op discussion turned on (coop_participants >= 2). Mirrors the
+  // Chat is "live" (transcript streaming, tab shown with a pulse) whenever a
+  // worker session is running — HITL or autonomous. Mirrors the
   // isCardChatLive predicate in ProjectShell.tsx — keep both in sync if the
-  // liveness rule changes.
-  const isChatLive = card.worker_status === 'running' &&
-    (!(card.autonomous ?? false) || (card.coop_participants ?? 0) >= 2);
-  const defaultTab: RailTabKey = isChatLive ? 'chat' : isMobile ? 'card' : 'automation';
+  // liveness rule changes. Only a HITL session is *interactive*: it takes the
+  // compose row, grabs the default tab, and auto-expands the rail. Autonomous
+  // runs (plain or co-op) keep the tab available but read-only and unfocused.
+  const isChatLive = card.worker_status === 'running';
+  const isChatInteractive = isChatLive && !(card.autonomous ?? false);
+  const defaultTab: RailTabKey = isChatInteractive ? 'chat' : isMobile ? 'card' : 'automation';
 
   const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
 
   const { railExpanded, setRailExpanded, activeTab, onTabChange } = useRailSync(
     card,
-    isChatLive,
+    isChatInteractive,
     defaultTab,
     setEditedCard,
   );
@@ -187,6 +189,7 @@ export function CardPanel(props: CardPanelProps) {
     currentAgentId,
     workerAttached,
     isChatLive,
+    isChatInteractive,
     onClaim: handleClaim,
     onRelease: handleRelease,
     onSubtaskClick,
@@ -213,7 +216,7 @@ export function CardPanel(props: CardPanelProps) {
   // considered "missing" from the desktop-built tab set and reset to
   // `'automation'`.
   const mobileAwareDefault: RailTabKey =
-    isMobile && !isChatLive ? 'card' : resolvedDefaultTab;
+    isMobile && !isChatInteractive ? 'card' : resolvedDefaultTab;
   const effectiveTab =
     activeTab === 'card' || tabs.some((t) => t.key === activeTab)
       ? activeTab
