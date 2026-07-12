@@ -22,6 +22,12 @@ export interface CreateCardForm {
   featureBranch: boolean;
   createPR: boolean;
   baseBranch: string;
+  // Best-of-N and co-op — surfaced at create time when the agent backend is
+  // active (see AutomationCheckboxes). 0/[] = off / unset.
+  bestOfN: number;
+  coopParticipants: number;
+  coopPhases: string[];
+  coopGuests: string[];
   skills: string[] | null;
   isSubmitting: boolean;
   pendingTemplate: PendingTemplate | null;
@@ -37,6 +43,10 @@ export interface CreateCardForm {
   setFeatureBranch: (v: boolean) => void;
   setCreatePR: (v: boolean) => void;
   setBaseBranch: (v: string) => void;
+  setBestOfN: (v: number) => void;
+  setCoopParticipants: (v: number) => void;
+  setCoopPhases: (v: string[]) => void;
+  setCoopGuests: (v: string[]) => void;
   setSkills: (v: string[] | null) => void;
   setBody: (v: string) => void;
   setBodyDirty: (v: boolean) => void;
@@ -78,6 +88,12 @@ export function useCreateCardForm(
   const [featureBranch, setFeatureBranch] = useState(true);
   const [createPR, setCreatePR] = useState(true);
   const [baseBranch, setBaseBranch] = useState('');
+  // 0 = off / unset; the AutomationCheckboxes selector (create mode, agent
+  // backend only) writes here, and buildInput forwards non-zero values.
+  const [bestOfN, setBestOfN] = useState(0);
+  const [coopParticipants, setCoopParticipants] = useState(0);
+  const [coopPhases, setCoopPhases] = useState<string[]>([]);
+  const [coopGuests, setCoopGuests] = useState<string[]>([]);
   // null = inherit project default, [] = mount none, [...] = specific list.
   const [skills, setSkills] = useState<string[] | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -140,6 +156,12 @@ export function useCreateCardForm(
       model_orchestrator: modelOrchestrator || undefined,
       model_coder: modelCoder || undefined,
       model_reviewer: modelReviewer || undefined,
+      // Best-of-N and co-op — only forwarded when the user picked a value
+      // (0 / [] mean "off / unset" and are omitted to keep the input clean).
+      best_of_n: bestOfN || undefined,
+      coop_participants: coopParticipants || undefined,
+      coop_phases: coopPhases.length ? coopPhases : undefined,
+      coop_guests: coopGuests.length ? coopGuests : undefined,
       // Server force-enables both on Run; mirror that here so the persisted
       // record matches what the user sees in the form.
       feature_branch: forRun ? true : featureBranch || undefined,
@@ -148,7 +170,7 @@ export function useCreateCardForm(
       // null = inherit project default; only forward an explicit override.
       skills: skills === null ? undefined : skills,
     }),
-    [title, type, priority, labels, parent, body, autonomous, modelOrchestrator, modelCoder, modelReviewer, featureBranch, createPR, baseBranch, skills],
+    [title, type, priority, labels, parent, body, autonomous, modelOrchestrator, modelCoder, modelReviewer, bestOfN, coopParticipants, coopPhases, coopGuests, featureBranch, createPR, baseBranch, skills],
   );
 
   const ensureTitle = useCallback((): boolean => {
@@ -199,6 +221,10 @@ export function useCreateCardForm(
       featureBranch,
       createPR,
       baseBranch,
+      bestOfN,
+      coopParticipants,
+      coopPhases,
+      coopGuests,
       skills,
       isSubmitting,
       pendingTemplate,
@@ -212,6 +238,10 @@ export function useCreateCardForm(
       setFeatureBranch,
       setCreatePR,
       setBaseBranch,
+      setBestOfN,
+      setCoopParticipants,
+      setCoopPhases,
+      setCoopGuests,
       setSkills,
       setBody,
       setBodyDirty,

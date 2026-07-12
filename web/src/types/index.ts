@@ -201,6 +201,10 @@ export interface CreateCardInput {
   model_orchestrator?: string;
   model_coder?: string;
   model_reviewer?: string;
+  best_of_n?: number;
+  coop_participants?: number;
+  coop_phases?: string[];
+  coop_guests?: string[];
   feature_branch?: boolean;
   create_pr?: boolean;
   base_branch?: string;
