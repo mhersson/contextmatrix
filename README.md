@@ -63,8 +63,20 @@ Three shared Go modules underpin the services:
 - **Autonomous & HITL execution** — `autonomous: true` cards run the full plan →
   execute → document → review lifecycle with no gates; Human-in-the-Loop mode
   opens a per-card chat pane to approve or redirect the agent, with one-click
-  promotion to autonomous. The `simple` label triggers a fast path that skips
-  planning and review.
+  promotion to autonomous. Every run streams its live transcript into the
+  card's Chat tab — interactive for HITL, read-only for autonomous. The
+  `simple` label triggers a fast path that skips planning and review.
+- **Best-of-N execution** — set `best_of_n` on a card and the agent backend
+  races N candidate implementations in parallel git worktrees, each with its
+  own budget and an auto-selected coder model (distinct models where the
+  eligible pool allows); a judge phase picks the winner, which is the only
+  branch pushed.
+- **Co-op discussions (A2A)** — set `coop_participants` and the plan and
+  review phases become moderated multi-agent discussions over the A2A
+  protocol — internal seats plus optional registered guest agents — with the
+  live transcript streamed to the card's chat tab. Discussions degrade to the
+  solo path rather than failing the run, and co-op composes freely with a
+  Best-of-N execute race.
 - **Global chat surface** — a `/chat` route hosts long-lived, board-aware chat
   sessions independent of any card. Up to 4 are tiled in a resizable layout,
   persisted across reloads.
