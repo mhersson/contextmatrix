@@ -251,7 +251,7 @@ function ChatEntry({ entry, stamp }: { entry: LogEntry; stamp: { hhmm: string; t
 }
 
 /**
- * Speaker attribution for co-op discussion messages. The hue is a
+ * Speaker attribution for mob session discussion messages. The hue is a
  * deterministic bucket over the shared 5-accent palette (idColor hashes the
  * author name onto CSS custom properties), so the same author always gets
  * the same color and no hex ever appears here.

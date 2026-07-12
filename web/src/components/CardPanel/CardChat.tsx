@@ -67,7 +67,7 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
 
   // Derive readOnlyMessage for non-HITL states. When hitlActive is true this
   // is undefined and the compose row is shown. Every autonomous run — started
-  // autonomous (plain or co-op) or promoted mid-session — streams the same
+  // autonomous (plain or mob session) or promoted mid-session — streams the same
   // read-only transcript, so one caption covers them all while running.
   const readOnlyMessage = hitlActive
     ? undefined

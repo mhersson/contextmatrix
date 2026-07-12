@@ -3183,11 +3183,11 @@ func TestBestOfNConfigDefaultsAndOverrides(t *testing.T) {
 	})
 }
 
-// ---------- CoopConfig tests ----------
+// ---------- MobConfig tests ----------
 
-// coopBaseYAML mirrors loadConfigFromYAML's always-valid base so
+// mobBaseYAML mirrors loadConfigFromYAML's always-valid base so
 // expected-error tests can go through loadFromYAML directly.
-func coopBaseYAML(t *testing.T) string {
+func mobBaseYAML(t *testing.T) string {
 	t.Helper()
 
 	boardsDir := filepath.Join(t.TempDir(), "boards")
@@ -3196,21 +3196,21 @@ func coopBaseYAML(t *testing.T) string {
 	return "boards:\n  dir: " + boardsDir + "\ngithub:\n  auth_mode: \"pat\"\n  pat:\n    token: \"ghp_test\"\n"
 }
 
-func TestCoopConfigDefaultsAndOverrides(t *testing.T) {
+func TestMobConfigDefaultsAndOverrides(t *testing.T) {
 	t.Run("defaults", func(t *testing.T) {
 		cfg := loadConfigFromYAML(t, "port: 8080\n")
-		assert.Equal(t, 5, cfg.Coop.MaxParticipants)
-		assert.Equal(t, 3, cfg.Coop.DefaultParticipants)
-		assert.Equal(t, 2, cfg.Coop.DefaultRounds)
-		assert.Equal(t, 3, cfg.Coop.MaxRounds)
-		assert.InDelta(t, 0.75, cfg.Coop.BudgetFactor, 1e-9)
-		assert.False(t, cfg.Coop.ExecuteCheckpointsEnabled)
-		assert.Equal(t, "complex", cfg.Coop.CheckpointMinTier)
-		assert.Nil(t, cfg.Coop.Guests)
+		assert.Equal(t, 5, cfg.Mob.MaxParticipants)
+		assert.Equal(t, 3, cfg.Mob.DefaultParticipants)
+		assert.Equal(t, 2, cfg.Mob.DefaultRounds)
+		assert.Equal(t, 3, cfg.Mob.MaxRounds)
+		assert.InDelta(t, 0.75, cfg.Mob.BudgetFactor, 1e-9)
+		assert.False(t, cfg.Mob.ExecuteCheckpointsEnabled)
+		assert.Equal(t, "complex", cfg.Mob.CheckpointMinTier)
+		assert.Nil(t, cfg.Mob.Guests)
 	})
 
 	t.Run("yaml values", func(t *testing.T) {
-		cfg := loadConfigFromYAML(t, "coop:\n"+
+		cfg := loadConfigFromYAML(t, "mob:\n"+
 			"  max_participants: 4\n"+
 			"  default_participants: 2\n"+
 			"  default_rounds: 1\n"+
@@ -3222,117 +3222,117 @@ func TestCoopConfigDefaultsAndOverrides(t *testing.T) {
 			"    - name: laptop\n"+
 			"      url: http://192.0.2.1:8484\n"+
 			"      token: guest-secret\n")
-		assert.Equal(t, 4, cfg.Coop.MaxParticipants)
-		assert.Equal(t, 2, cfg.Coop.DefaultParticipants)
-		assert.Equal(t, 1, cfg.Coop.DefaultRounds)
-		assert.Equal(t, 2, cfg.Coop.MaxRounds)
-		assert.InDelta(t, 1.5, cfg.Coop.BudgetFactor, 1e-9)
-		assert.True(t, cfg.Coop.ExecuteCheckpointsEnabled)
-		assert.Equal(t, "critical", cfg.Coop.CheckpointMinTier)
-		require.Len(t, cfg.Coop.Guests, 1)
-		assert.Equal(t, CoopGuest{Name: "laptop", URL: "http://192.0.2.1:8484", Token: "guest-secret"}, cfg.Coop.Guests[0])
+		assert.Equal(t, 4, cfg.Mob.MaxParticipants)
+		assert.Equal(t, 2, cfg.Mob.DefaultParticipants)
+		assert.Equal(t, 1, cfg.Mob.DefaultRounds)
+		assert.Equal(t, 2, cfg.Mob.MaxRounds)
+		assert.InDelta(t, 1.5, cfg.Mob.BudgetFactor, 1e-9)
+		assert.True(t, cfg.Mob.ExecuteCheckpointsEnabled)
+		assert.Equal(t, "critical", cfg.Mob.CheckpointMinTier)
+		require.Len(t, cfg.Mob.Guests, 1)
+		assert.Equal(t, MobGuest{Name: "laptop", URL: "http://192.0.2.1:8484", Token: "guest-secret"}, cfg.Mob.Guests[0])
 	})
 
 	t.Run("env overrides (scalars only)", func(t *testing.T) {
-		t.Setenv("CONTEXTMATRIX_COOP_MAX_PARTICIPANTS", "6")
-		t.Setenv("CONTEXTMATRIX_COOP_DEFAULT_PARTICIPANTS", "4")
-		t.Setenv("CONTEXTMATRIX_COOP_DEFAULT_ROUNDS", "3")
-		t.Setenv("CONTEXTMATRIX_COOP_MAX_ROUNDS", "4")
-		t.Setenv("CONTEXTMATRIX_COOP_BUDGET_FACTOR", "1.25")
-		t.Setenv("CONTEXTMATRIX_COOP_EXECUTE_CHECKPOINTS_ENABLED", "true")
-		t.Setenv("CONTEXTMATRIX_COOP_CHECKPOINT_MIN_TIER", "moderate")
+		t.Setenv("CONTEXTMATRIX_MOB_MAX_PARTICIPANTS", "6")
+		t.Setenv("CONTEXTMATRIX_MOB_DEFAULT_PARTICIPANTS", "4")
+		t.Setenv("CONTEXTMATRIX_MOB_DEFAULT_ROUNDS", "3")
+		t.Setenv("CONTEXTMATRIX_MOB_MAX_ROUNDS", "4")
+		t.Setenv("CONTEXTMATRIX_MOB_BUDGET_FACTOR", "1.25")
+		t.Setenv("CONTEXTMATRIX_MOB_EXECUTE_CHECKPOINTS_ENABLED", "true")
+		t.Setenv("CONTEXTMATRIX_MOB_CHECKPOINT_MIN_TIER", "moderate")
 		cfg := loadConfigFromYAML(t, "port: 8080\n")
-		assert.Equal(t, 6, cfg.Coop.MaxParticipants)
-		assert.Equal(t, 4, cfg.Coop.DefaultParticipants)
-		assert.Equal(t, 3, cfg.Coop.DefaultRounds)
-		assert.Equal(t, 4, cfg.Coop.MaxRounds)
-		assert.InDelta(t, 1.25, cfg.Coop.BudgetFactor, 1e-9)
-		assert.True(t, cfg.Coop.ExecuteCheckpointsEnabled)
-		assert.Equal(t, "moderate", cfg.Coop.CheckpointMinTier)
+		assert.Equal(t, 6, cfg.Mob.MaxParticipants)
+		assert.Equal(t, 4, cfg.Mob.DefaultParticipants)
+		assert.Equal(t, 3, cfg.Mob.DefaultRounds)
+		assert.Equal(t, 4, cfg.Mob.MaxRounds)
+		assert.InDelta(t, 1.25, cfg.Mob.BudgetFactor, 1e-9)
+		assert.True(t, cfg.Mob.ExecuteCheckpointsEnabled)
+		assert.Equal(t, "moderate", cfg.Mob.CheckpointMinTier)
 	})
 
 	t.Run("invalid values normalized", func(t *testing.T) {
-		cfg := loadConfigFromYAML(t, "coop:\n"+
+		cfg := loadConfigFromYAML(t, "mob:\n"+
 			"  max_participants: 1\n"+ // < 2 → default 5
 			"  default_participants: 9\n"+ // > max → min(3, max)
 			"  default_rounds: 0\n"+ // < 1 → min(2, max_rounds)
 			"  max_rounds: 6\n"+ // > 5 → default 3
 			"  budget_factor: -1\n") // <= 0 → default 0.75
-		assert.Equal(t, 5, cfg.Coop.MaxParticipants, "max_participants outside 2..10 falls back")
-		assert.Equal(t, 3, cfg.Coop.DefaultParticipants, "default_participants outside 2..max falls back")
-		assert.Equal(t, 2, cfg.Coop.DefaultRounds, "default_rounds outside 1..max_rounds falls back")
-		assert.Equal(t, 3, cfg.Coop.MaxRounds, "max_rounds outside 1..5 falls back")
-		assert.InDelta(t, 0.75, cfg.Coop.BudgetFactor, 1e-9, "budget_factor outside (0, 5] falls back")
+		assert.Equal(t, 5, cfg.Mob.MaxParticipants, "max_participants outside 2..10 falls back")
+		assert.Equal(t, 3, cfg.Mob.DefaultParticipants, "default_participants outside 2..max falls back")
+		assert.Equal(t, 2, cfg.Mob.DefaultRounds, "default_rounds outside 1..max_rounds falls back")
+		assert.Equal(t, 3, cfg.Mob.MaxRounds, "max_rounds outside 1..5 falls back")
+		assert.InDelta(t, 0.75, cfg.Mob.BudgetFactor, 1e-9, "budget_factor outside (0, 5] falls back")
 	})
 
 	t.Run("max_participants above 10 normalized", func(t *testing.T) {
-		cfg := loadConfigFromYAML(t, "coop:\n  max_participants: 11\n")
-		assert.Equal(t, 5, cfg.Coop.MaxParticipants)
+		cfg := loadConfigFromYAML(t, "mob:\n  max_participants: 11\n")
+		assert.Equal(t, 5, cfg.Mob.MaxParticipants)
 	})
 
 	t.Run("default_rounds above max_rounds normalized", func(t *testing.T) {
-		cfg := loadConfigFromYAML(t, "coop:\n  max_rounds: 2\n  default_rounds: 3\n")
-		assert.Equal(t, 2, cfg.Coop.MaxRounds)
-		assert.Equal(t, 2, cfg.Coop.DefaultRounds, "default_rounds clamps into 1..max_rounds via min(2, max)")
+		cfg := loadConfigFromYAML(t, "mob:\n  max_rounds: 2\n  default_rounds: 3\n")
+		assert.Equal(t, 2, cfg.Mob.MaxRounds)
+		assert.Equal(t, 2, cfg.Mob.DefaultRounds, "default_rounds clamps into 1..max_rounds via min(2, max)")
 	})
 
 	t.Run("budget_factor above 5 normalized", func(t *testing.T) {
-		cfg := loadConfigFromYAML(t, "coop:\n  budget_factor: 6.0\n")
-		assert.InDelta(t, 0.75, cfg.Coop.BudgetFactor, 1e-9)
+		cfg := loadConfigFromYAML(t, "mob:\n  budget_factor: 6.0\n")
+		assert.InDelta(t, 0.75, cfg.Mob.BudgetFactor, 1e-9)
 	})
 
 	t.Run("invalid env values normalized", func(t *testing.T) {
 		// applyEnvOverrides runs AFTER the pre-env defaults pass in Load, so
 		// an out-of-range env value must be caught by the second
-		// applyCoopDefaults call inside Validate — same two-pass contract as
+		// applyMobDefaults call inside Validate — same two-pass contract as
 		// applyBestOfNDefaults.
-		t.Setenv("CONTEXTMATRIX_COOP_MAX_PARTICIPANTS", "1")
+		t.Setenv("CONTEXTMATRIX_MOB_MAX_PARTICIPANTS", "1")
 		cfg := loadConfigFromYAML(t, "port: 8080\n")
-		assert.Equal(t, 5, cfg.Coop.MaxParticipants, "env-supplied max < 2 must still fall back to default")
+		assert.Equal(t, 5, cfg.Mob.MaxParticipants, "env-supplied max < 2 must still fall back to default")
 	})
 }
 
-func TestCoopConfigValidation(t *testing.T) {
-	load := func(t *testing.T, coopFragment string) error {
+func TestMobConfigValidation(t *testing.T) {
+	load := func(t *testing.T, mobFragment string) error {
 		t.Helper()
 
-		_, err := loadFromYAML(t, coopBaseYAML(t)+coopFragment)
+		_, err := loadFromYAML(t, mobBaseYAML(t)+mobFragment)
 
 		return err
 	}
 
 	t.Run("guest missing name rejected", func(t *testing.T) {
-		err := load(t, "coop:\n  guests:\n    - url: http://192.0.2.1:8484\n      token: s\n")
+		err := load(t, "mob:\n  guests:\n    - url: http://192.0.2.1:8484\n      token: s\n")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "name is required")
 	})
 
 	t.Run("guest missing url rejected", func(t *testing.T) {
-		err := load(t, "coop:\n  guests:\n    - name: laptop\n      token: s\n")
+		err := load(t, "mob:\n  guests:\n    - name: laptop\n      token: s\n")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "http://")
 	})
 
 	t.Run("guest non-http url rejected", func(t *testing.T) {
-		err := load(t, "coop:\n  guests:\n    - name: laptop\n      url: ssh://192.0.2.1\n      token: s\n")
+		err := load(t, "mob:\n  guests:\n    - name: laptop\n      url: ssh://192.0.2.1\n      token: s\n")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "http://")
 	})
 
 	t.Run("guest https url accepted", func(t *testing.T) {
-		_, err := loadFromYAML(t, coopBaseYAML(t)+
-			"coop:\n  guests:\n    - name: laptop\n      url: https://guest.example:8484\n      token: s\n")
+		_, err := loadFromYAML(t, mobBaseYAML(t)+
+			"mob:\n  guests:\n    - name: laptop\n      url: https://guest.example:8484\n      token: s\n")
 		require.NoError(t, err)
 	})
 
 	t.Run("guest missing token rejected", func(t *testing.T) {
-		err := load(t, "coop:\n  guests:\n    - name: laptop\n      url: http://192.0.2.1:8484\n")
+		err := load(t, "mob:\n  guests:\n    - name: laptop\n      url: http://192.0.2.1:8484\n")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "token is required")
 	})
 
 	t.Run("duplicate guest name rejected", func(t *testing.T) {
-		err := load(t, "coop:\n  guests:\n"+
+		err := load(t, "mob:\n  guests:\n"+
 			"    - name: laptop\n      url: http://192.0.2.1:8484\n      token: a\n"+
 			"    - name: laptop\n      url: http://192.0.2.2:8484\n      token: b\n")
 		require.Error(t, err)
@@ -3340,7 +3340,7 @@ func TestCoopConfigValidation(t *testing.T) {
 	})
 
 	t.Run("invalid checkpoint_min_tier rejected", func(t *testing.T) {
-		err := load(t, "coop:\n  checkpoint_min_tier: extreme\n")
+		err := load(t, "mob:\n  checkpoint_min_tier: extreme\n")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "checkpoint_min_tier")
 	})

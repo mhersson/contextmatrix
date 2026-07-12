@@ -22,12 +22,12 @@ export interface CreateCardForm {
   featureBranch: boolean;
   createPR: boolean;
   baseBranch: string;
-  // Best-of-N and co-op — surfaced at create time when the agent backend is
+  // Best-of-N and mob session — surfaced at create time when the agent backend is
   // active (see AutomationCheckboxes). 0/[] = off / unset.
   bestOfN: number;
-  coopParticipants: number;
-  coopPhases: string[];
-  coopGuests: string[];
+  mobParticipants: number;
+  mobPhases: string[];
+  mobGuests: string[];
   skills: string[] | null;
   isSubmitting: boolean;
   pendingTemplate: PendingTemplate | null;
@@ -44,9 +44,9 @@ export interface CreateCardForm {
   setCreatePR: (v: boolean) => void;
   setBaseBranch: (v: string) => void;
   setBestOfN: (v: number) => void;
-  setCoopParticipants: (v: number) => void;
-  setCoopPhases: (v: string[]) => void;
-  setCoopGuests: (v: string[]) => void;
+  setMobParticipants: (v: number) => void;
+  setMobPhases: (v: string[]) => void;
+  setMobGuests: (v: string[]) => void;
   setSkills: (v: string[] | null) => void;
   setBody: (v: string) => void;
   setBodyDirty: (v: boolean) => void;
@@ -91,9 +91,9 @@ export function useCreateCardForm(
   // 0 = off / unset; the AutomationCheckboxes selector (create mode, agent
   // backend only) writes here, and buildInput forwards non-zero values.
   const [bestOfN, setBestOfN] = useState(0);
-  const [coopParticipants, setCoopParticipants] = useState(0);
-  const [coopPhases, setCoopPhases] = useState<string[]>([]);
-  const [coopGuests, setCoopGuests] = useState<string[]>([]);
+  const [mobParticipants, setMobParticipants] = useState(0);
+  const [mobPhases, setMobPhases] = useState<string[]>([]);
+  const [mobGuests, setMobGuests] = useState<string[]>([]);
   // null = inherit project default, [] = mount none, [...] = specific list.
   const [skills, setSkills] = useState<string[] | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -156,12 +156,12 @@ export function useCreateCardForm(
       model_orchestrator: modelOrchestrator || undefined,
       model_coder: modelCoder || undefined,
       model_reviewer: modelReviewer || undefined,
-      // Best-of-N and co-op — only forwarded when the user picked a value
+      // Best-of-N and mob session — only forwarded when the user picked a value
       // (0 / [] mean "off / unset" and are omitted to keep the input clean).
       best_of_n: bestOfN || undefined,
-      coop_participants: coopParticipants || undefined,
-      coop_phases: coopPhases.length ? coopPhases : undefined,
-      coop_guests: coopGuests.length ? coopGuests : undefined,
+      mob_participants: mobParticipants || undefined,
+      mob_phases: mobPhases.length ? mobPhases : undefined,
+      mob_guests: mobGuests.length ? mobGuests : undefined,
       // Server force-enables both on Run; mirror that here so the persisted
       // record matches what the user sees in the form.
       feature_branch: forRun ? true : featureBranch || undefined,
@@ -170,7 +170,7 @@ export function useCreateCardForm(
       // null = inherit project default; only forward an explicit override.
       skills: skills === null ? undefined : skills,
     }),
-    [title, type, priority, labels, parent, body, autonomous, modelOrchestrator, modelCoder, modelReviewer, bestOfN, coopParticipants, coopPhases, coopGuests, featureBranch, createPR, baseBranch, skills],
+    [title, type, priority, labels, parent, body, autonomous, modelOrchestrator, modelCoder, modelReviewer, bestOfN, mobParticipants, mobPhases, mobGuests, featureBranch, createPR, baseBranch, skills],
   );
 
   const ensureTitle = useCallback((): boolean => {
@@ -222,9 +222,9 @@ export function useCreateCardForm(
       createPR,
       baseBranch,
       bestOfN,
-      coopParticipants,
-      coopPhases,
-      coopGuests,
+      mobParticipants,
+      mobPhases,
+      mobGuests,
       skills,
       isSubmitting,
       pendingTemplate,
@@ -239,9 +239,9 @@ export function useCreateCardForm(
       setCreatePR,
       setBaseBranch,
       setBestOfN,
-      setCoopParticipants,
-      setCoopPhases,
-      setCoopGuests,
+      setMobParticipants,
+      setMobPhases,
+      setMobGuests,
       setSkills,
       setBody,
       setBodyDirty,

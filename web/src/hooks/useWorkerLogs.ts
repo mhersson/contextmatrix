@@ -165,8 +165,8 @@ export function useWorkerLogs({
         }
 
         // Normal log entry — check for seq gap before appending.
-        // The cast forwards every wire field, including the optional co-op
-        // speaker attribution `agent` — no per-field copying here.
+        // The cast forwards every wire field, including the optional mob
+        // session speaker attribution `agent` — no per-field copying here.
         const entry = data as unknown as LogEntry;
         const seq = typeof data.seq === 'number' ? (data.seq as number) : null;
 

@@ -34,12 +34,12 @@ export interface Card {
   model_coder?: string;
   model_reviewer?: string;
   best_of_n?: number;
-  /** Co-op discussion seats: 0/absent = off, 2..coop_max_participants = on. */
-  coop_participants?: number;
+  /** Mob discussion seats: 0/absent = off, 2..mob_max_participants = on. */
+  mob_participants?: number;
   /** Phases that convene a discussion (subset of plan/review/execute). */
-  coop_phases?: string[];
-  /** Guest names from the server's coop.guests registry. */
-  coop_guests?: string[];
+  mob_phases?: string[];
+  /** Guest names from the server's mob.guests registry. */
+  mob_guests?: string[];
   phase?: string;
   feature_branch?: boolean;
   create_pr?: boolean;
@@ -202,9 +202,9 @@ export interface CreateCardInput {
   model_coder?: string;
   model_reviewer?: string;
   best_of_n?: number;
-  coop_participants?: number;
-  coop_phases?: string[];
-  coop_guests?: string[];
+  mob_participants?: number;
+  mob_phases?: string[];
+  mob_guests?: string[];
   feature_branch?: boolean;
   create_pr?: boolean;
   base_branch?: string;
@@ -223,9 +223,9 @@ export interface PatchCardInput {
   model_coder?: string;
   model_reviewer?: string;
   best_of_n?: number;
-  coop_participants?: number;
-  coop_phases?: string[];
-  coop_guests?: string[];
+  mob_participants?: number;
+  mob_phases?: string[];
+  mob_guests?: string[];
   feature_branch?: boolean;
   create_pr?: boolean;
   base_branch?: string;
@@ -392,7 +392,7 @@ export interface LogEntry {
   /** Sequence number from server, used for gap detection. */
   seq?: number;
   /**
-   * Speaker attribution for co-op discussion frames ("seat-1",
+   * Speaker attribution for mob session discussion frames ("seat-1",
    * "guest-laptop", "moderator", "human"). Absent on ordinary
    * single-agent frames.
    */
@@ -440,13 +440,13 @@ export interface AppConfig {
   best_of_n_max?: number;
   best_of_n_default?: number;
   /**
-   * Co-op bounds and the guest registry NAMES for the card selector — same
+   * Mob bounds and the guest registry NAMES for the card selector — same
    * full-payload-only posture as the best_of_n fields. Tokens and URLs
    * never reach the browser.
    */
-  coop_max_participants?: number;
-  coop_default_participants?: number;
-  coop_guest_names?: string[];
+  mob_max_participants?: number;
+  mob_default_participants?: number;
+  mob_guest_names?: string[];
 }
 
 export interface SessionUser {

@@ -23,25 +23,25 @@ type appConfigHandlers struct {
 	// bounds (full payload only — see appConfigSlimResponse).
 	bestOfNMax     int
 	bestOfNDefault int
-	// coopMaxParticipants/coopDefaultParticipants/coopGuestNames surface the
-	// coop block's UI-facing bounds and the registry guest NAMES (never URLs
+	// mobMaxParticipants/mobDefaultParticipants/mobGuestNames surface the
+	// mob block's UI-facing bounds and the registry guest NAMES (never URLs
 	// or tokens). Full payload only, like the best_of_n fields.
-	coopMaxParticipants     int
-	coopDefaultParticipants int
-	coopGuestNames          []string
+	mobMaxParticipants     int
+	mobDefaultParticipants int
+	mobGuestNames          []string
 }
 
 type appConfigResponse struct {
-	Theme                   string              `json:"theme"`
-	Version                 string              `json:"version"`
-	AuthMode                string              `json:"auth_mode"`
-	TaskBackend             string              `json:"task_backend"`
-	Favorites               map[string][]string `json:"favorites,omitempty"`
-	BestOfNMax              int                 `json:"best_of_n_max,omitempty"`
-	BestOfNDefault          int                 `json:"best_of_n_default,omitempty"`
-	CoopMaxParticipants     int                 `json:"coop_max_participants,omitempty"`
-	CoopDefaultParticipants int                 `json:"coop_default_participants,omitempty"`
-	CoopGuestNames          []string            `json:"coop_guest_names,omitempty"`
+	Theme                  string              `json:"theme"`
+	Version                string              `json:"version"`
+	AuthMode               string              `json:"auth_mode"`
+	TaskBackend            string              `json:"task_backend"`
+	Favorites              map[string][]string `json:"favorites,omitempty"`
+	BestOfNMax             int                 `json:"best_of_n_max,omitempty"`
+	BestOfNDefault         int                 `json:"best_of_n_default,omitempty"`
+	MobMaxParticipants     int                 `json:"mob_max_participants,omitempty"`
+	MobDefaultParticipants int                 `json:"mob_default_participants,omitempty"`
+	MobGuestNames          []string            `json:"mob_guest_names,omitempty"`
 }
 
 // appConfigSlimResponse is served to unauthenticated callers in multi mode:
@@ -96,22 +96,22 @@ func (h *appConfigHandlers) getAppConfig(w http.ResponseWriter, r *http.Request)
 
 	// None mode, or an authenticated caller in multi mode: full, as always.
 	writeJSON(w, http.StatusOK, appConfigResponse{
-		Theme:                   h.theme,
-		Version:                 h.version,
-		AuthMode:                mode,
-		TaskBackend:             h.taskBackend,
-		Favorites:               h.favorites,
-		BestOfNMax:              h.bestOfNMax,
-		BestOfNDefault:          h.bestOfNDefault,
-		CoopMaxParticipants:     h.coopMaxParticipants,
-		CoopDefaultParticipants: h.coopDefaultParticipants,
-		CoopGuestNames:          h.coopGuestNames,
+		Theme:                  h.theme,
+		Version:                h.version,
+		AuthMode:               mode,
+		TaskBackend:            h.taskBackend,
+		Favorites:              h.favorites,
+		BestOfNMax:             h.bestOfNMax,
+		BestOfNDefault:         h.bestOfNDefault,
+		MobMaxParticipants:     h.mobMaxParticipants,
+		MobDefaultParticipants: h.mobDefaultParticipants,
+		MobGuestNames:          h.mobGuestNames,
 	})
 }
 
-// coopGuestNames extracts just the registry names for the UI guest
+// mobGuestNames extracts just the registry names for the UI guest
 // multi-select — URLs and bearer tokens never leave the server.
-func coopGuestNames(guests []config.CoopGuest) []string {
+func mobGuestNames(guests []config.MobGuest) []string {
 	if len(guests) == 0 {
 		return nil
 	}

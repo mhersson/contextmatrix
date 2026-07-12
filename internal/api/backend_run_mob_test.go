@@ -17,27 +17,27 @@ import (
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
-// coopRunConfig returns the CoopConfig used by the trigger tests. Callers
+// mobRunConfig returns the MobConfig used by the trigger tests. Callers
 // mutate ExecuteCheckpointsEnabled per case.
-func coopRunConfig() config.CoopConfig {
-	return config.CoopConfig{
+func mobRunConfig() config.MobConfig {
+	return config.MobConfig{
 		MaxParticipants:     5,
 		DefaultParticipants: 3,
 		DefaultRounds:       2,
 		MaxRounds:           3,
 		BudgetFactor:        0.75,
 		CheckpointMinTier:   "complex",
-		Guests: []config.CoopGuest{
+		Guests: []config.MobGuest{
 			{Name: "laptop", URL: "http://192.0.2.1:8484", Token: "guest-secret"},
 		},
 	}
 }
 
-// runCoopTrigger creates a todo card, applies patch (co-op fields, best_of_n),
-// triggers /run against a payload-capturing mock backend wired with coopCfg,
+// runMobTrigger creates a todo card, applies patch (mob fields, best_of_n),
+// triggers /run against a payload-capturing mock backend wired with mobCfg,
 // and returns the captured payload, the service (for activity assertions),
 // and the card ID.
-func runCoopTrigger(t *testing.T, coopCfg config.CoopConfig, patch *service.PatchCardInput) (backend.TriggerPayload, *service.CardService, string) {
+func runMobTrigger(t *testing.T, mobCfg config.MobConfig, patch *service.PatchCardInput) (backend.TriggerPayload, *service.CardService, string) {
 	t.Helper()
 
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
@@ -46,7 +46,7 @@ func runCoopTrigger(t *testing.T, coopCfg config.CoopConfig, patch *service.Patc
 	ctx := context.Background()
 
 	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
-		Title: "Coop task", Type: "task", Priority: "medium",
+		Title: "Mob task", Type: "task", Priority: "medium",
 		Autonomous: true, FeatureBranch: true,
 	})
 	require.NoError(t, err)
@@ -70,7 +70,7 @@ func runCoopTrigger(t *testing.T, coopCfg config.CoopConfig, patch *service.Patc
 		Service: svc, Bus: bus, Backend: backendClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
 		BestOfN:         config.BestOfNConfig{MaxCandidates: 5, DefaultCandidates: 3, OutcomeFloor: 20},
-		Coop:            coopCfg,
+		Mob:             mobCfg,
 	})
 
 	server := httptest.NewServer(router)
@@ -89,9 +89,9 @@ func runCoopTrigger(t *testing.T, coopCfg config.CoopConfig, patch *service.Patc
 	return received, svc, card.ID
 }
 
-// coopWarnings collects the card's activity-log messages recorded under the
-// "coop-warning" action.
-func coopWarnings(t *testing.T, svc *service.CardService, cardID string) []string {
+// mobWarnings collects the card's activity-log messages recorded under the
+// "mob-warning" action.
+func mobWarnings(t *testing.T, svc *service.CardService, cardID string) []string {
 	t.Helper()
 
 	card, err := svc.GetCard(context.Background(), "test-project", cardID)
@@ -100,7 +100,7 @@ func coopWarnings(t *testing.T, svc *service.CardService, cardID string) []strin
 	var msgs []string
 
 	for _, e := range card.ActivityLog {
-		if e.Action == "coop-warning" {
+		if e.Action == "mob-warning" {
 			msgs = append(msgs, e.Message)
 		}
 	}
@@ -108,80 +108,80 @@ func coopWarnings(t *testing.T, svc *service.CardService, cardID string) []strin
 	return msgs
 }
 
-func TestRunCard_CoopPayloadShape(t *testing.T) {
+func TestRunCard_MobPayloadShape(t *testing.T) {
 	participants := 3
-	payload, _, _ := runCoopTrigger(t, coopRunConfig(), &service.PatchCardInput{
-		CoopParticipants: &participants,
-		CoopPhases:       []string{"plan", "review"},
-		CoopGuests:       []string{"laptop"},
+	payload, _, _ := runMobTrigger(t, mobRunConfig(), &service.PatchCardInput{
+		MobParticipants: &participants,
+		MobPhases:       []string{"plan", "review"},
+		MobGuests:       []string{"laptop"},
 	})
 
-	require.NotNil(t, payload.Coop)
-	assert.Equal(t, 3, payload.Coop.Participants)
-	assert.Equal(t, []string{"plan", "review"}, payload.Coop.Phases)
-	assert.Equal(t, 2, payload.Coop.Rounds, "rounds = coop.default_rounds")
-	assert.InDelta(t, 0.75, payload.Coop.BudgetFactor, 1e-9)
-	assert.False(t, payload.Coop.ExecuteCheckpoints)
-	assert.Equal(t, "complex", payload.Coop.CheckpointMinTier)
-	require.Len(t, payload.Coop.Guests, 1)
-	assert.Equal(t, protocol.GuestSpec{Name: "laptop", URL: "http://192.0.2.1:8484", Token: "guest-secret"}, payload.Coop.Guests[0])
+	require.NotNil(t, payload.Mob)
+	assert.Equal(t, 3, payload.Mob.Participants)
+	assert.Equal(t, []string{"plan", "review"}, payload.Mob.Phases)
+	assert.Equal(t, 2, payload.Mob.Rounds, "rounds = mob.default_rounds")
+	assert.InDelta(t, 0.75, payload.Mob.BudgetFactor, 1e-9)
+	assert.False(t, payload.Mob.ExecuteCheckpoints)
+	assert.Equal(t, "complex", payload.Mob.CheckpointMinTier)
+	require.Len(t, payload.Mob.Guests, 1)
+	assert.Equal(t, protocol.GuestSpec{Name: "laptop", URL: "http://192.0.2.1:8484", Token: "guest-secret"}, payload.Mob.Guests[0])
 }
 
-func TestRunCard_CoopAbsentWhenOff(t *testing.T) {
-	payload, _, _ := runCoopTrigger(t, coopRunConfig(), nil)
-	assert.Nil(t, payload.Coop, "cards without coop_participants >= 2 must not carry a Coop spec")
+func TestRunCard_MobAbsentWhenOff(t *testing.T) {
+	payload, _, _ := runMobTrigger(t, mobRunConfig(), nil)
+	assert.Nil(t, payload.Mob, "cards without mob_participants >= 2 must not carry a Mob spec")
 }
 
-func TestRunCard_CoopParticipantsClampedToCurrentMax(t *testing.T) {
-	// The stored card value can exceed the max if coop.max_participants was
+func TestRunCard_MobParticipantsClampedToCurrentMax(t *testing.T) {
+	// The stored card value can exceed the max if mob.max_participants was
 	// lowered after the card was written (svc.PatchCard in the fixture
 	// bypasses REST validation, standing in for a write under the old max) —
 	// the trigger clamp is authoritative.
-	cfg := coopRunConfig()
+	cfg := mobRunConfig()
 	cfg.MaxParticipants = 3
 
 	participants := 5
-	payload, _, _ := runCoopTrigger(t, cfg, &service.PatchCardInput{CoopParticipants: &participants})
+	payload, _, _ := runMobTrigger(t, cfg, &service.PatchCardInput{MobParticipants: &participants})
 
-	require.NotNil(t, payload.Coop)
-	assert.Equal(t, 3, payload.Coop.Participants)
+	require.NotNil(t, payload.Mob)
+	assert.Equal(t, 3, payload.Mob.Participants)
 }
 
-func TestRunCard_CoopUnknownGuestDropped(t *testing.T) {
+func TestRunCard_MobUnknownGuestDropped(t *testing.T) {
 	participants := 2
-	payload, svc, cardID := runCoopTrigger(t, coopRunConfig(), &service.PatchCardInput{
-		CoopParticipants: &participants,
-		CoopGuests:       []string{"laptop", "desktop"}, // "desktop" is not registered
+	payload, svc, cardID := runMobTrigger(t, mobRunConfig(), &service.PatchCardInput{
+		MobParticipants: &participants,
+		MobGuests:       []string{"laptop", "desktop"}, // "desktop" is not registered
 	})
 
-	require.NotNil(t, payload.Coop)
-	require.Len(t, payload.Coop.Guests, 1, "unknown guest must be dropped, registered one kept")
-	assert.Equal(t, "laptop", payload.Coop.Guests[0].Name)
+	require.NotNil(t, payload.Mob)
+	require.Len(t, payload.Mob.Guests, 1, "unknown guest must be dropped, registered one kept")
+	assert.Equal(t, "laptop", payload.Mob.Guests[0].Name)
 
-	msgs := coopWarnings(t, svc, cardID)
+	msgs := mobWarnings(t, svc, cardID)
 	require.Len(t, msgs, 1)
 	assert.Contains(t, msgs[0], "desktop")
 	assert.Contains(t, msgs[0], "not registered")
 }
 
-func TestRunCard_CoopAllPhasesDroppedRunsSolo(t *testing.T) {
+func TestRunCard_MobAllPhasesDroppedRunsSolo(t *testing.T) {
 	// An execute-only card with execute checkpoints off has every explicitly
 	// selected phase filtered out. The run must proceed SOLO: an empty Phases
 	// slice is the agent's "plan+review both on" default, so shipping the spec
 	// would silently run discussions the operator never chose.
-	cfg := coopRunConfig()
+	cfg := mobRunConfig()
 	cfg.ExecuteCheckpointsEnabled = false
 
 	participants := 3
-	payload, svc, cardID := runCoopTrigger(t, cfg, &service.PatchCardInput{
-		CoopParticipants: &participants,
-		CoopPhases:       []string{"execute"},
+	payload, svc, cardID := runMobTrigger(t, cfg, &service.PatchCardInput{
+		MobParticipants: &participants,
+		MobPhases:       []string{"execute"},
 	})
 
-	assert.Nil(t, payload.Coop,
+	assert.Nil(t, payload.Mob,
 		"all requested phases dropped must run solo, not fall back to the plan+review default")
 
-	msgs := coopWarnings(t, svc, cardID)
+	msgs := mobWarnings(t, svc, cardID)
 	require.NotEmpty(t, msgs)
 
 	var sawSolo bool
@@ -195,7 +195,7 @@ func TestRunCard_CoopAllPhasesDroppedRunsSolo(t *testing.T) {
 	assert.True(t, sawSolo, "a warning must record that the run proceeds solo: %v", msgs)
 }
 
-func TestRunCard_CoopExecutePhaseMatrix(t *testing.T) {
+func TestRunCard_MobExecutePhaseMatrix(t *testing.T) {
 	cases := []struct {
 		name          string
 		checkpointsOn bool
@@ -225,25 +225,25 @@ func TestRunCard_CoopExecutePhaseMatrix(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			cfg := coopRunConfig()
+			cfg := mobRunConfig()
 			cfg.ExecuteCheckpointsEnabled = tc.checkpointsOn
 
 			participants := 2
 			patch := &service.PatchCardInput{
-				CoopParticipants: &participants,
-				CoopPhases:       []string{"plan", "execute"},
+				MobParticipants: &participants,
+				MobPhases:       []string{"plan", "execute"},
 			}
 
 			if tc.bestOfN > 0 {
 				patch.BestOfN = &tc.bestOfN
 			}
 
-			payload, svc, cardID := runCoopTrigger(t, cfg, patch)
+			payload, svc, cardID := runMobTrigger(t, cfg, patch)
 
-			require.NotNil(t, payload.Coop)
-			assert.Equal(t, tc.wantPhases, payload.Coop.Phases)
+			require.NotNil(t, payload.Mob)
+			assert.Equal(t, tc.wantPhases, payload.Mob.Phases)
 
-			msgs := coopWarnings(t, svc, cardID)
+			msgs := mobWarnings(t, svc, cardID)
 			if tc.wantWarning == "" {
 				assert.Empty(t, msgs)
 			} else {

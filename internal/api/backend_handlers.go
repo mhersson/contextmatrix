@@ -84,12 +84,12 @@ type backendHandlers struct {
 	// pre-config.Load-defaults zero-value contract.
 	bestOfN config.BestOfNConfig
 
-	// coop supplies the trigger-time co-op re-clamp bounds and the guest
+	// mob supplies the trigger-time mob session re-clamp bounds and the guest
 	// registry. The stored card values were validated against the config in
 	// effect at WRITE time; the trigger clamp against the CURRENT config is
 	// authoritative. Zero value (MaxParticipants 0) clamps everything off,
 	// matching bestOfN's zero-value contract.
-	coop config.CoopConfig
+	mob config.MobConfig
 
 	// replayCache guards the backend-callback authentication path against
 	// replayed HMAC signatures. Populated at construction time; non-nil

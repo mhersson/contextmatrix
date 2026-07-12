@@ -53,7 +53,7 @@ type createCardInput struct {
 }
 
 // NOTE: vetted, autonomous, feature_branch, create_pr, base_branch, best_of_n,
-// the co-op fields (coop_participants, coop_phases, coop_guests), and model pin
+// the mob session fields (mob_participants, mob_phases, mob_guests), and model pin
 // fields (model_orchestrator, model_coder, model_reviewer) are intentionally
 // excluded — they are human-only fields. Model pins are excluded for the same
 // reason: they express human intent about which model to use and must not be

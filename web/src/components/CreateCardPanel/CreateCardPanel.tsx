@@ -59,9 +59,9 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
     taskBackend,
     bestOfNMax,
     bestOfNDefault,
-    coopMaxParticipants,
-    coopDefaultParticipants,
-    coopGuestNames,
+    mobMaxParticipants,
+    mobDefaultParticipants,
+    mobGuestNames,
   } = useTheme();
   // Card model pins: CM's served catalog (GET /api/models) — the vendor-
   // screened OpenRouter list or the endpoint list. Agent path only.
@@ -145,15 +145,15 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
             bestOfNMax={bestOfNMax}
             bestOfNDefault={bestOfNDefault}
             onBestOfNChange={form.setBestOfN}
-            coopParticipants={form.coopParticipants}
-            coopMaxParticipants={coopMaxParticipants}
-            coopDefaultParticipants={coopDefaultParticipants}
-            coopPhases={form.coopPhases}
-            onCoopParticipantsChange={form.setCoopParticipants}
-            onCoopPhasesChange={form.setCoopPhases}
-            coopGuests={form.coopGuests}
-            coopGuestNames={coopGuestNames}
-            onCoopGuestsChange={form.setCoopGuests}
+            mobParticipants={form.mobParticipants}
+            mobMaxParticipants={mobMaxParticipants}
+            mobDefaultParticipants={mobDefaultParticipants}
+            mobPhases={form.mobPhases}
+            onMobParticipantsChange={form.setMobParticipants}
+            onMobPhasesChange={form.setMobPhases}
+            mobGuests={form.mobGuests}
+            mobGuestNames={mobGuestNames}
+            onMobGuestsChange={form.setMobGuests}
             baseBranch={form.baseBranch}
             onBaseBranchChange={form.setBaseBranch}
             branches={branches}

@@ -16,27 +16,27 @@ import (
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
-// coopTestConfig is the CoopConfig wired into the router for these tests:
+// mobTestConfig is the MobConfig wired into the router for these tests:
 // max 5 seats, one registered guest ("laptop").
-func coopTestConfig() config.CoopConfig {
-	return config.CoopConfig{
+func mobTestConfig() config.MobConfig {
+	return config.MobConfig{
 		MaxParticipants:     5,
 		DefaultParticipants: 3,
 		DefaultRounds:       2,
 		MaxRounds:           3,
 		BudgetFactor:        0.75,
 		CheckpointMinTier:   "complex",
-		Guests: []config.CoopGuest{
+		Guests: []config.MobGuest{
 			{Name: "laptop", URL: "http://192.0.2.1:8484", Token: "guest-secret"},
 		},
 	}
 }
 
-func TestPatchCardCoop_ValidationMatrix(t *testing.T) {
+func TestPatchCardMob_ValidationMatrix(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Coop: coopTestConfig()})
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Mob: mobTestConfig()})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
@@ -45,7 +45,7 @@ func TestPatchCardCoop_ValidationMatrix(t *testing.T) {
 		t.Helper()
 
 		card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
-			Title: "coop matrix", Type: "task", Priority: "medium",
+			Title: "mob matrix", Type: "task", Priority: "medium",
 		})
 		require.NoError(t, err)
 
@@ -69,26 +69,26 @@ func TestPatchCardCoop_ValidationMatrix(t *testing.T) {
 		return resp
 	}
 
-	t.Run("human enables co-op with phases and registered guest", func(t *testing.T) {
+	t.Run("human enables mob session with phases and registered guest", func(t *testing.T) {
 		card := newCard(t)
 
 		resp := patchAs(t, card.ID,
-			`{"coop_participants":3,"coop_phases":["plan","review"],"coop_guests":["laptop"]}`, "")
+			`{"mob_participants":3,"mob_phases":["plan","review"],"mob_guests":["laptop"]}`, "")
 		defer closeBody(t, resp.Body)
 
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 
 		var updated board.Card
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&updated))
-		assert.Equal(t, 3, updated.CoopParticipants)
-		assert.Equal(t, []string{"plan", "review"}, updated.CoopPhases)
-		assert.Equal(t, []string{"laptop"}, updated.CoopGuests)
+		assert.Equal(t, 3, updated.MobParticipants)
+		assert.Equal(t, []string{"plan", "review"}, updated.MobPhases)
+		assert.Equal(t, []string{"laptop"}, updated.MobGuests)
 	})
 
 	t.Run("participants 1 rejected", func(t *testing.T) {
 		card := newCard(t)
 
-		resp := patchAs(t, card.ID, `{"coop_participants":1}`, "")
+		resp := patchAs(t, card.ID, `{"mob_participants":1}`, "")
 		defer closeBody(t, resp.Body)
 
 		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
@@ -97,7 +97,7 @@ func TestPatchCardCoop_ValidationMatrix(t *testing.T) {
 	t.Run("participants above max rejected", func(t *testing.T) {
 		card := newCard(t)
 
-		resp := patchAs(t, card.ID, `{"coop_participants":6}`, "")
+		resp := patchAs(t, card.ID, `{"mob_participants":6}`, "")
 		defer closeBody(t, resp.Body)
 
 		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
@@ -106,7 +106,7 @@ func TestPatchCardCoop_ValidationMatrix(t *testing.T) {
 	t.Run("unknown phase rejected", func(t *testing.T) {
 		card := newCard(t)
 
-		resp := patchAs(t, card.ID, `{"coop_participants":3,"coop_phases":["plan","judge"]}`, "")
+		resp := patchAs(t, card.ID, `{"mob_participants":3,"mob_phases":["plan","judge"]}`, "")
 		defer closeBody(t, resp.Body)
 
 		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
@@ -119,7 +119,7 @@ func TestPatchCardCoop_ValidationMatrix(t *testing.T) {
 	t.Run("duplicate phase rejected", func(t *testing.T) {
 		card := newCard(t)
 
-		resp := patchAs(t, card.ID, `{"coop_participants":3,"coop_phases":["plan","plan"]}`, "")
+		resp := patchAs(t, card.ID, `{"mob_participants":3,"mob_phases":["plan","plan"]}`, "")
 		defer closeBody(t, resp.Body)
 
 		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
@@ -130,7 +130,7 @@ func TestPatchCardCoop_ValidationMatrix(t *testing.T) {
 		// card write — flipping the flag later must not require a card edit.
 		card := newCard(t)
 
-		resp := patchAs(t, card.ID, `{"coop_participants":2,"coop_phases":["execute"]}`, "")
+		resp := patchAs(t, card.ID, `{"mob_participants":2,"mob_phases":["execute"]}`, "")
 		defer closeBody(t, resp.Body)
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -139,7 +139,7 @@ func TestPatchCardCoop_ValidationMatrix(t *testing.T) {
 	t.Run("unregistered guest rejected", func(t *testing.T) {
 		card := newCard(t)
 
-		resp := patchAs(t, card.ID, `{"coop_participants":3,"coop_guests":["desktop"]}`, "")
+		resp := patchAs(t, card.ID, `{"mob_participants":3,"mob_guests":["desktop"]}`, "")
 		defer closeBody(t, resp.Body)
 
 		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
@@ -152,7 +152,7 @@ func TestPatchCardCoop_ValidationMatrix(t *testing.T) {
 	t.Run("guests without participants rejected", func(t *testing.T) {
 		card := newCard(t)
 
-		resp := patchAs(t, card.ID, `{"coop_guests":["laptop"]}`, "")
+		resp := patchAs(t, card.ID, `{"mob_guests":["laptop"]}`, "")
 		defer closeBody(t, resp.Body)
 
 		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
@@ -163,11 +163,11 @@ func TestPatchCardCoop_ValidationMatrix(t *testing.T) {
 		// set by an earlier patch, this one only adds the guest.
 		card := newCard(t)
 
-		first := patchAs(t, card.ID, `{"coop_participants":2}`, "")
+		first := patchAs(t, card.ID, `{"mob_participants":2}`, "")
 		closeBody(t, first.Body)
 		require.Equal(t, http.StatusOK, first.StatusCode)
 
-		resp := patchAs(t, card.ID, `{"coop_guests":["laptop"]}`, "")
+		resp := patchAs(t, card.ID, `{"mob_guests":["laptop"]}`, "")
 		defer closeBody(t, resp.Body)
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -176,29 +176,29 @@ func TestPatchCardCoop_ValidationMatrix(t *testing.T) {
 	t.Run("turning off clears via zero and empty arrays", func(t *testing.T) {
 		card := newCard(t)
 
-		on := patchAs(t, card.ID, `{"coop_participants":3,"coop_phases":["plan"],"coop_guests":["laptop"]}`, "")
+		on := patchAs(t, card.ID, `{"mob_participants":3,"mob_phases":["plan"],"mob_guests":["laptop"]}`, "")
 		closeBody(t, on.Body)
 		require.Equal(t, http.StatusOK, on.StatusCode)
 
-		resp := patchAs(t, card.ID, `{"coop_participants":0,"coop_phases":[],"coop_guests":[]}`, "")
+		resp := patchAs(t, card.ID, `{"mob_participants":0,"mob_phases":[],"mob_guests":[]}`, "")
 		defer closeBody(t, resp.Body)
 
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 
 		var updated board.Card
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&updated))
-		assert.Zero(t, updated.CoopParticipants)
-		assert.Empty(t, updated.CoopPhases)
-		assert.Empty(t, updated.CoopGuests)
+		assert.Zero(t, updated.MobParticipants)
+		assert.Empty(t, updated.MobPhases)
+		assert.Empty(t, updated.MobGuests)
 	})
 
-	t.Run("agent setting any co-op field rejected 403", func(t *testing.T) {
+	t.Run("agent setting any mob field rejected 403", func(t *testing.T) {
 		card := newCard(t)
 
 		for _, body := range []string{
-			`{"coop_participants":3}`,
-			`{"coop_phases":["plan"]}`,
-			`{"coop_guests":["laptop"]}`,
+			`{"mob_participants":3}`,
+			`{"mob_phases":["plan"]}`,
+			`{"mob_guests":["laptop"]}`,
 		} {
 			resp := patchAs(t, card.ID, body, "agent-1")
 
@@ -212,17 +212,17 @@ func TestPatchCardCoop_ValidationMatrix(t *testing.T) {
 	})
 }
 
-func TestUpdateCardCoop_PutSemantics(t *testing.T) {
+func TestUpdateCardMob_PutSemantics(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Coop: coopTestConfig()})
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Mob: mobTestConfig()})
 
 	server := httptest.NewServer(router)
 	defer server.Close()
 
 	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
-		Title: "coop put", Type: "task", Priority: "medium",
+		Title: "mob put", Type: "task", Priority: "medium",
 	})
 	require.NoError(t, err)
 
@@ -243,22 +243,22 @@ func TestUpdateCardCoop_PutSemantics(t *testing.T) {
 		return resp
 	}
 
-	base := `"title":"coop put","type":"task","state":"todo","priority":"medium"`
+	base := `"title":"mob put","type":"task","state":"todo","priority":"medium"`
 
-	t.Run("human sets co-op fields via PUT", func(t *testing.T) {
-		resp := putAs(t, `{`+base+`,"coop_participants":2,"coop_phases":["review"],"coop_guests":["laptop"]}`, "")
+	t.Run("human sets mob fields via PUT", func(t *testing.T) {
+		resp := putAs(t, `{`+base+`,"mob_participants":2,"mob_phases":["review"],"mob_guests":["laptop"]}`, "")
 		defer closeBody(t, resp.Body)
 
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 
 		var updated board.Card
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&updated))
-		assert.Equal(t, 2, updated.CoopParticipants)
-		assert.Equal(t, []string{"review"}, updated.CoopPhases)
-		assert.Equal(t, []string{"laptop"}, updated.CoopGuests)
+		assert.Equal(t, 2, updated.MobParticipants)
+		assert.Equal(t, []string{"review"}, updated.MobPhases)
+		assert.Equal(t, []string{"laptop"}, updated.MobGuests)
 	})
 
-	t.Run("agent clearing co-op via PUT omission rejected 403", func(t *testing.T) {
+	t.Run("agent clearing mob via PUT omission rejected 403", func(t *testing.T) {
 		// PUT is full-replace: an agent body that omits the fields would
 		// clear them — the guard compares against the existing card.
 		resp := putAs(t, `{`+base+`}`, "agent-1")
@@ -271,7 +271,7 @@ func TestUpdateCardCoop_PutSemantics(t *testing.T) {
 		assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
 	})
 
-	t.Run("human clears co-op via PUT omission", func(t *testing.T) {
+	t.Run("human clears mob via PUT omission", func(t *testing.T) {
 		resp := putAs(t, `{`+base+`}`, "human:alice")
 		defer closeBody(t, resp.Body)
 
@@ -279,8 +279,8 @@ func TestUpdateCardCoop_PutSemantics(t *testing.T) {
 
 		var updated board.Card
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&updated))
-		assert.Zero(t, updated.CoopParticipants)
-		assert.Empty(t, updated.CoopPhases)
-		assert.Empty(t, updated.CoopGuests)
+		assert.Zero(t, updated.MobParticipants)
+		assert.Empty(t, updated.MobPhases)
+		assert.Empty(t, updated.MobGuests)
 	})
 }

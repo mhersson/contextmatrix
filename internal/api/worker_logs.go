@@ -157,7 +157,7 @@ func (h *backendHandlers) streamCardSession(w http.ResponseWriter, r *http.Reque
 				"ts":      evt.Timestamp.UTC().Format(time.RFC3339Nano),
 				"seq":     evt.Seq,
 			}
-			// Speaker attribution (co-op discussions): attach only when set
+			// Speaker attribution (mob session discussions): attach only when set
 			// so ordinary frames don't grow a noisy empty field.
 			if evt.Agent != "" {
 				payload["agent"] = evt.Agent
@@ -275,7 +275,7 @@ func (h *backendHandlers) streamProjectSession(w http.ResponseWriter, r *http.Re
 				"ts":      evt.Timestamp.UTC().Format(time.RFC3339Nano),
 				"seq":     evt.Seq,
 			}
-			// Speaker attribution (co-op discussions): attach only when set
+			// Speaker attribution (mob session discussions): attach only when set
 			// so ordinary frames don't grow a noisy empty field.
 			if evt.Agent != "" {
 				payload["agent"] = evt.Agent
