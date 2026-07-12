@@ -128,11 +128,11 @@ describe('AutomationCheckboxes — Best of N selector', () => {
     expect(screen.queryByLabelText('Best of N')).not.toBeInTheDocument();
   });
 
-  it('hides the "Best of N" select in create mode even when taskBackend is agent', () => {
-    // best_of_n is edit-only in this task: CreateCardInput has no field for
-    // it yet, so the create-mode panel must not offer a dead control.
+  it('renders the "Best of N" select in create mode when taskBackend is agent', () => {
+    // best_of_n now wires through CreateCardInput, so create mode offers
+    // the selector (the branch/PR hints still branch on mode separately).
     render(<AutomationCheckboxes {...baseProps} taskBackend="agent" mode="create" />);
-    expect(screen.queryByLabelText('Best of N')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Best of N')).toBeInTheDocument();
   });
 
   it('offers Off, 2, 3, 4, 5 as options for the default max of 5', () => {
@@ -203,9 +203,16 @@ describe('AutomationCheckboxes — Co-op block', () => {
     expect(screen.queryByLabelText('Co-op seats')).not.toBeInTheDocument();
   });
 
-  it('hides the Co-op block in create mode even when taskBackend is agent', () => {
-    render(<AutomationCheckboxes {...baseProps} taskBackend="agent" mode="create" />);
+  it('hides the Co-op block in create mode when taskBackend is not agent', () => {
+    render(<AutomationCheckboxes {...baseProps} mode="create" />);
     expect(screen.queryByLabelText('Co-op seats')).not.toBeInTheDocument();
+  });
+
+  it('renders the "Co-op seats" select in create mode when taskBackend is agent', () => {
+    // Co-op fields now wire through CreateCardInput, so create mode offers
+    // the selector alongside the Best-of-N one.
+    render(<AutomationCheckboxes {...baseProps} taskBackend="agent" mode="create" />);
+    expect(screen.getByLabelText('Co-op seats')).toBeInTheDocument();
   });
 
   it('offers Off, 2, 3, 4, 5 for the default max of 5', () => {

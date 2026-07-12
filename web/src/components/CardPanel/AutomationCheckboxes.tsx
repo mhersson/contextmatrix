@@ -44,10 +44,9 @@ interface AutomationCheckboxesProps {
   /** Operator-recommended candidate count, surfaced in the control's tooltip. */
   bestOfNDefault?: number;
   /**
-   * Best-of-N change handler. Optional (unlike `onModelPinChange`): the row
-   * only ever renders in edit mode (`mode !== 'create'`), since
-   * `CreateCardInput` has no `best_of_n` field yet — CreateCardPanel never
-   * needs to wire this.
+   * Best-of-N change handler. Optional only because edit-mode callers may
+   * leave it unmounted when the backend is not the agent path; create mode
+   * wires it through CreateCardPanel.
    */
   onBestOfNChange?: (value: number) => void;
   /** Current co-op seat count. 0/undefined = off. */
@@ -64,7 +63,8 @@ interface AutomationCheckboxesProps {
   coopGuestNames?: string[];
   /**
    * Co-op change handlers. Optional like `onBestOfNChange` — the block only
-   * renders in edit mode, and CreateCardInput has no co-op fields.
+   * renders on the agent backend path; create mode wires them through
+   * CreateCardPanel.
    */
   onCoopParticipantsChange?: (value: number) => void;
   onCoopPhasesChange?: (value: string[]) => void;
@@ -166,9 +166,9 @@ export function AutomationCheckboxes({
         </span>
       </div>
 
-      {/* Best of N — agent backend only, and edit mode only (CreateCardInput
-          has no best_of_n field yet, so create mode never wires this). */}
-      {agentBackend && !creating && (
+      {/* Best of N — agent backend only. Renders in both edit and create
+          modes when the agent backend is active. */}
+      {agentBackend && (
         <div className="bf-spread">
           <span className="bf-switch-label">Best of N</span>
           <select
@@ -188,9 +188,9 @@ export function AutomationCheckboxes({
         </div>
       )}
 
-      {/* Co-op discussions — agent backend only, edit mode only (mirrors the
-          Best-of-N rule: CreateCardInput has no co-op fields). */}
-      {agentBackend && !creating && (
+      {/* Co-op discussions — agent backend only. Renders in both edit and
+          create modes (mirrors the Best-of-N rule). */}
+      {agentBackend && (
         <>
           <div className="bf-spread">
             <span className="bf-switch-label">Co-op seats</span>

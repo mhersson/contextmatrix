@@ -65,6 +65,10 @@ type createCardRequest struct {
 	ModelOrchestrator string              `json:"model_orchestrator,omitempty"`
 	ModelCoder        string              `json:"model_coder,omitempty"`
 	ModelReviewer     string              `json:"model_reviewer,omitempty"`
+	BestOfN           int                 `json:"best_of_n"`
+	CoopParticipants  int                 `json:"coop_participants"`
+	CoopPhases        []string            `json:"coop_phases"`
+	CoopGuests        []string            `json:"coop_guests"`
 	Verify            *board.VerifyConfig `json:"verify,omitempty"`
 }
 
@@ -407,15 +411,30 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 	// never by agents — mirrors the update and patch guards. Pins set at
 	// create time flow onto the card and reach the agent via get_task_context.
 	if isNonHumanAgent(r) && (req.Autonomous || req.FeatureBranch || req.CreatePR || req.Vetted ||
-		req.ModelOrchestrator != "" || req.ModelCoder != "" || req.ModelReviewer != "" || req.Verify != nil) {
+		req.ModelOrchestrator != "" || req.ModelCoder != "" || req.ModelReviewer != "" ||
+		req.BestOfN != 0 || req.CoopParticipants != 0 || len(req.CoopPhases) > 0 || len(req.CoopGuests) > 0 ||
+		req.Verify != nil) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
-			"forbidden", "autonomous, feature_branch, create_pr, vetted, model pins, and verify can only be set via the UI")
+			"forbidden", "autonomous, feature_branch, create_pr, vetted, model pins, best_of_n, co-op fields, and verify can only be set via the UI")
 
 		return
 	}
 
 	if err := h.validateCardSkills(r, projectName, req.Skills); err != nil {
 		writeError(w, http.StatusBadRequest, ErrCodeValidationError, err.Error(), "")
+
+		return
+	}
+
+	if !validBestOfN(req.BestOfN, h.bestOfNMax) {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest,
+			"invalid best_of_n", fmt.Sprintf("must be 0 or 2..%d", h.bestOfNMax))
+
+		return
+	}
+
+	if err := validCoop(h.coop, req.CoopParticipants, req.CoopPhases, req.CoopGuests); err != nil {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid co-op fields", err.Error())
 
 		return
 	}
@@ -436,6 +455,10 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 		ModelOrchestrator: req.ModelOrchestrator,
 		ModelCoder:        req.ModelCoder,
 		ModelReviewer:     req.ModelReviewer,
+		BestOfN:           req.BestOfN,
+		CoopParticipants:  req.CoopParticipants,
+		CoopPhases:        req.CoopPhases,
+		CoopGuests:        req.CoopGuests,
 		Verify:            req.Verify,
 	}
 

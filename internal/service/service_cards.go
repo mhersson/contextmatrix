@@ -41,6 +41,13 @@ type CreateCardInput struct {
 	ModelOrchestrator string
 	ModelCoder        string
 	ModelReviewer     string
+	// BestOfN: human-set only, like the model pins. 0 (the zero value) means
+	// off; a value in 2..maxCandidates races that many candidates.
+	BestOfN int
+	// Co-op fields: human-set only, like the model pins. 0 / nil means off.
+	CoopParticipants int
+	CoopPhases       []string
+	CoopGuests       []string
 	// Verify overrides the project's verify gate for this card. Human-set only,
 	// like the model pins. Validated and normalized before it lands on the card.
 	Verify *board.VerifyConfig
@@ -496,6 +503,10 @@ func (s *CardService) buildNewCardFromInput(
 		ModelOrchestrator: input.ModelOrchestrator,
 		ModelCoder:        input.ModelCoder,
 		ModelReviewer:     input.ModelReviewer,
+		BestOfN:           input.BestOfN,
+		CoopParticipants:  input.CoopParticipants,
+		CoopPhases:        input.CoopPhases,
+		CoopGuests:        input.CoopGuests,
 		Verify:            normalizeVerify(input.Verify),
 		Created:           now,
 		Updated:           now,

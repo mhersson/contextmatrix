@@ -487,9 +487,8 @@ it can never define its own verify gate. POST `/api/projects/{project}/cards`
 `base_branch` is **only exposed via PATCH** (`patchCardRequest`) — there is no
 `base_branch` field on the create or full-update request bodies, so the
 human-only check for it applies only on PATCH. The model pins are gated on
-create, full-update, and PATCH. `best_of_n` is exposed on PUT and PATCH only —
-like `base_branch` it has no field on `createCardRequest` — and, independent
-of the human-only gate, is range-validated to `0` (off) or
+create, full-update, and PATCH. `best_of_n` is exposed on POST (`createCardRequest`), PUT, and PATCH — and,
+independent of the human-only gate, is range-validated to `0` (off) or
 `2..best_of_n.max_candidates`; a value outside that range is rejected with 400
 `BAD_REQUEST` regardless of caller. Like the model pins, it is sticky: there
 is no per-trigger override, so the card's stored value applies to every
@@ -509,8 +508,8 @@ does not expose them.
 With `coop_participants >= 2`, agent-backend runs convene that many internal
 discussion seats in each phase listed in `coop_phases`; `coop_guests` adds
 operator-registered external participants on top. Like `best_of_n`, the
-fields are sticky (no per-trigger override), exposed on PUT and PATCH only
-(no `createCardRequest` fields), human-only, and excluded from the MCP
+fields are sticky (no per-trigger override), exposed on POST
+(`createCardRequest`), PUT, and PATCH, human-only, and excluded from the MCP
 `update_card` tool.
 
 Validation at write time runs against the config in effect then:

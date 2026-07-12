@@ -55,7 +55,14 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
 
   const { form, titleInputRef } = useCreateCardForm(config, onCreate);
 
-  const { taskBackend } = useTheme();
+  const {
+    taskBackend,
+    bestOfNMax,
+    bestOfNDefault,
+    coopMaxParticipants,
+    coopDefaultParticipants,
+    coopGuestNames,
+  } = useTheme();
   // Card model pins: CM's served catalog (GET /api/models) — the vendor-
   // screened OpenRouter list or the endpoint list. Agent path only.
   const catalog = useModelCatalog(taskBackend === 'agent');
@@ -134,6 +141,19 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
               if (!v) form.setCreatePR(false);
             }}
             onCreatePRChange={form.setCreatePR}
+            bestOfN={form.bestOfN}
+            bestOfNMax={bestOfNMax}
+            bestOfNDefault={bestOfNDefault}
+            onBestOfNChange={form.setBestOfN}
+            coopParticipants={form.coopParticipants}
+            coopMaxParticipants={coopMaxParticipants}
+            coopDefaultParticipants={coopDefaultParticipants}
+            coopPhases={form.coopPhases}
+            onCoopParticipantsChange={form.setCoopParticipants}
+            onCoopPhasesChange={form.setCoopPhases}
+            coopGuests={form.coopGuests}
+            coopGuestNames={coopGuestNames}
+            onCoopGuestsChange={form.setCoopGuests}
             baseBranch={form.baseBranch}
             onBaseBranchChange={form.setBaseBranch}
             branches={branches}
