@@ -46,8 +46,8 @@ type CreateCardInput struct {
 	BestOfN int
 	// Co-op fields: human-set only, like the model pins. 0 / nil means off.
 	CoopParticipants int
-	CoopPhases        []string
-	CoopGuests        []string
+	CoopPhases       []string
+	CoopGuests       []string
 	// Verify overrides the project's verify gate for this card. Human-set only,
 	// like the model pins. Validated and normalized before it lands on the card.
 	Verify *board.VerifyConfig
