@@ -879,19 +879,19 @@ updated: 2026-03-30T10:00:00Z
 	assert.Zero(t, parsedEmpty.BestOfN)
 }
 
-func TestCardCoopYAMLRoundTrip(t *testing.T) {
+func TestCardMobYAMLRoundTrip(t *testing.T) {
 	input := `---
 id: TEST-001
-title: Coop test
+title: Mob test
 project: test-project
 type: task
 state: todo
 priority: medium
-coop_participants: 3
-coop_phases:
+mob_participants: 3
+mob_phases:
   - plan
   - review
-coop_guests:
+mob_guests:
   - laptop
 created: 2026-03-30T10:00:00Z
 updated: 2026-03-30T10:00:00Z
@@ -900,29 +900,29 @@ updated: 2026-03-30T10:00:00Z
 
 	card, err := ParseCard([]byte(input))
 	require.NoError(t, err)
-	assert.Equal(t, 3, card.CoopParticipants)
-	assert.Equal(t, []string{"plan", "review"}, card.CoopPhases)
-	assert.Equal(t, []string{"laptop"}, card.CoopGuests)
+	assert.Equal(t, 3, card.MobParticipants)
+	assert.Equal(t, []string{"plan", "review"}, card.MobPhases)
+	assert.Equal(t, []string{"laptop"}, card.MobGuests)
 
 	data, err := SerializeCard(card)
 	require.NoError(t, err)
 
 	str := string(data)
-	assert.Contains(t, str, "coop_participants: 3")
+	assert.Contains(t, str, "mob_participants: 3")
 
 	parsed, err := ParseCard(data)
 	require.NoError(t, err)
-	assert.Equal(t, 3, parsed.CoopParticipants)
-	assert.Equal(t, []string{"plan", "review"}, parsed.CoopPhases)
-	assert.Equal(t, []string{"laptop"}, parsed.CoopGuests)
+	assert.Equal(t, 3, parsed.MobParticipants)
+	assert.Equal(t, []string{"plan", "review"}, parsed.MobPhases)
+	assert.Equal(t, []string{"laptop"}, parsed.MobGuests)
 
-	// A card without co-op fields must serialize with none of the keys
+	// A card without mob fields must serialize with none of the keys
 	// (omitempty).
 	created := time.Date(2026, 3, 30, 10, 0, 0, 0, time.UTC)
 
-	noCoop := &Card{
+	noMob := &Card{
 		ID:       "TEST-002",
-		Title:    "No coop",
+		Title:    "No mob",
 		Project:  "test-project",
 		Type:     "task",
 		State:    "todo",
@@ -931,17 +931,17 @@ updated: 2026-03-30T10:00:00Z
 		Updated:  created,
 	}
 
-	out, err := SerializeCard(noCoop)
+	out, err := SerializeCard(noMob)
 	require.NoError(t, err)
-	assert.NotContains(t, string(out), "coop_participants")
-	assert.NotContains(t, string(out), "coop_phases")
-	assert.NotContains(t, string(out), "coop_guests")
+	assert.NotContains(t, string(out), "mob_participants")
+	assert.NotContains(t, string(out), "mob_phases")
+	assert.NotContains(t, string(out), "mob_guests")
 
 	parsedEmpty, err := ParseCard(out)
 	require.NoError(t, err)
-	assert.Zero(t, parsedEmpty.CoopParticipants)
-	assert.Nil(t, parsedEmpty.CoopPhases)
-	assert.Nil(t, parsedEmpty.CoopGuests)
+	assert.Zero(t, parsedEmpty.MobParticipants)
+	assert.Nil(t, parsedEmpty.MobPhases)
+	assert.Nil(t, parsedEmpty.MobGuests)
 }
 
 func TestActivityEntry_SkillField(t *testing.T) {

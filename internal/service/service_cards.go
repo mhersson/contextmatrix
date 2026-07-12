@@ -44,10 +44,10 @@ type CreateCardInput struct {
 	// BestOfN: human-set only, like the model pins. 0 (the zero value) means
 	// off; a value in 2..maxCandidates races that many candidates.
 	BestOfN int
-	// Co-op fields: human-set only, like the model pins. 0 / nil means off.
-	CoopParticipants int
-	CoopPhases       []string
-	CoopGuests       []string
+	// Mob session fields: human-set only, like the model pins. 0 / nil means off.
+	MobParticipants int
+	MobPhases       []string
+	MobGuests       []string
 	// Verify overrides the project's verify gate for this card. Human-set only,
 	// like the model pins. Validated and normalized before it lands on the card.
 	Verify *board.VerifyConfig
@@ -83,11 +83,11 @@ type UpdateCardInput struct {
 	// BestOfN: human-set only, like the model pins. Value type matches PUT's
 	// full-replacement semantics — omitted/zero clears the field.
 	BestOfN int
-	// Co-op fields: human-set only, like the model pins. PUT full-replacement
+	// Mob session fields: human-set only, like the model pins. PUT full-replacement
 	// semantics — omitted/zero values clear them.
-	CoopParticipants int
-	CoopPhases       []string
-	CoopGuests       []string
+	MobParticipants int
+	MobPhases       []string
+	MobGuests       []string
 }
 
 // PatchCardInput contains optional fields for partial card updates.
@@ -121,12 +121,12 @@ type PatchCardInput struct {
 	// BestOfN: human-set only, like the model pins. nil = don't change;
 	// non-nil (including pointer-to-zero) sets/clears the field.
 	BestOfN *int
-	// Co-op fields: human-set only. CoopParticipants nil = don't change.
-	// CoopPhases/CoopGuests follow the Labels convention: nil = don't
+	// Mob session fields: human-set only. MobParticipants nil = don't change.
+	// MobPhases/MobGuests follow the Labels convention: nil = don't
 	// change, empty slice = clear.
-	CoopParticipants *int
-	CoopPhases       []string
-	CoopGuests       []string
+	MobParticipants *int
+	MobPhases       []string
+	MobGuests       []string
 	// Verify: human-set only, like the model pins. nil = don't change; non-nil
 	// replaces the whole struct, then normalizes (zero value clears it).
 	Verify *board.VerifyConfig
@@ -504,9 +504,9 @@ func (s *CardService) buildNewCardFromInput(
 		ModelCoder:        input.ModelCoder,
 		ModelReviewer:     input.ModelReviewer,
 		BestOfN:           input.BestOfN,
-		CoopParticipants:  input.CoopParticipants,
-		CoopPhases:        input.CoopPhases,
-		CoopGuests:        input.CoopGuests,
+		MobParticipants:   input.MobParticipants,
+		MobPhases:         input.MobPhases,
+		MobGuests:         input.MobGuests,
 		Verify:            normalizeVerify(input.Verify),
 		Created:           now,
 		Updated:           now,
@@ -774,10 +774,10 @@ func (s *CardService) buildUpdateApply(ctx context.Context, input UpdateCardInpu
 		card.ModelOrchestrator = input.ModelOrchestrator
 		card.ModelCoder = input.ModelCoder
 		card.ModelReviewer = input.ModelReviewer
-		card.BestOfN = input.BestOfN                   // PUT full-replace; zero/absent clears, like Autonomous
-		card.CoopParticipants = input.CoopParticipants // PUT full-replace, like BestOfN
-		card.CoopPhases = input.CoopPhases
-		card.CoopGuests = input.CoopGuests
+		card.BestOfN = input.BestOfN                 // PUT full-replace; zero/absent clears, like Autonomous
+		card.MobParticipants = input.MobParticipants // PUT full-replace, like BestOfN
+		card.MobPhases = input.MobPhases
+		card.MobGuests = input.MobGuests
 		enforceVettingInvariant(card)
 
 		if input.Phase != nil {
@@ -1015,16 +1015,16 @@ func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput)
 			card.BestOfN = *input.BestOfN
 		}
 
-		if input.CoopParticipants != nil {
-			card.CoopParticipants = *input.CoopParticipants
+		if input.MobParticipants != nil {
+			card.MobParticipants = *input.MobParticipants
 		}
 
-		if input.CoopPhases != nil {
-			card.CoopPhases = input.CoopPhases
+		if input.MobPhases != nil {
+			card.MobPhases = input.MobPhases
 		}
 
-		if input.CoopGuests != nil {
-			card.CoopGuests = input.CoopGuests
+		if input.MobGuests != nil {
+			card.MobGuests = input.MobGuests
 		}
 
 		// Verify replaces the whole struct (nil preserves; a zero-value config

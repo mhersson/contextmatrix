@@ -164,7 +164,7 @@ func (h *backendHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 		payload.BestOfN = min(card.BestOfN, h.bestOfN.MaxCandidates)
 	}
 
-	h.attachCoop(r.Context(), &payload, card, project, id)
+	h.attachMob(r.Context(), &payload, card, project, id)
 
 	// Verify: CM resolves card-over-project and sends it so the agent's
 	// verify gate uses the operator-declared command.
@@ -312,39 +312,39 @@ func (h *backendHandlers) rejectRunForCredentialFailure(w http.ResponseWriter, r
 		"project credential unavailable", sanitizeErrorDetails(err))
 }
 
-// attachCoop fills payload.Coop from the card's co-op fields. This handler
-// set exists only for the agent backend, so no backend-kind check is needed.
-// Participants are re-clamped against the CURRENT config (the trigger clamp
-// is authoritative — coop.max_participants may have been lowered since the
-// card was written); Rounds carries coop.default_rounds, which
-// applyCoopDefaults guarantees is within 1..max_rounds. Unknown guest names
-// and a blocked "execute" phase degrade with a warning instead of failing
-// the trigger — a discussion must never block a run.
-func (h *backendHandlers) attachCoop(ctx context.Context, payload *backend.TriggerPayload, card *board.Card, project, id string) {
-	if card.CoopParticipants < 2 {
+// attachMob fills payload.Mob from the card's mob session fields. This
+// handler set exists only for the agent backend, so no backend-kind check is
+// needed. Participants are re-clamped against the CURRENT config (the
+// trigger clamp is authoritative — mob.max_participants may have been
+// lowered since the card was written); Rounds carries mob.default_rounds,
+// which applyMobDefaults guarantees is within 1..max_rounds. Unknown guest
+// names and a blocked "execute" phase degrade with a warning instead of
+// failing the trigger — a discussion must never block a run.
+func (h *backendHandlers) attachMob(ctx context.Context, payload *backend.TriggerPayload, card *board.Card, project, id string) {
+	if card.MobParticipants < 2 {
 		return
 	}
 
-	spec := &protocol.CoopSpec{
-		Participants:       min(card.CoopParticipants, h.coop.MaxParticipants),
-		Rounds:             h.coop.DefaultRounds,
-		BudgetFactor:       h.coop.BudgetFactor,
-		ExecuteCheckpoints: h.coop.ExecuteCheckpointsEnabled,
-		CheckpointMinTier:  h.coop.CheckpointMinTier,
+	spec := &protocol.MobSpec{
+		Participants:       min(card.MobParticipants, h.mob.MaxParticipants),
+		Rounds:             h.mob.DefaultRounds,
+		BudgetFactor:       h.mob.BudgetFactor,
+		ExecuteCheckpoints: h.mob.ExecuteCheckpointsEnabled,
+		CheckpointMinTier:  h.mob.CheckpointMinTier,
 	}
 
 	// Resolve guest names against the current registry; drop unknown names
 	// (the registry may have changed since the card was written).
-	byName := make(map[string]protocol.GuestSpec, len(h.coop.Guests))
-	for _, g := range h.coop.Guests {
+	byName := make(map[string]protocol.GuestSpec, len(h.mob.Guests))
+	for _, g := range h.mob.Guests {
 		byName[g.Name] = protocol.GuestSpec{Name: g.Name, URL: g.URL, Token: g.Token}
 	}
 
-	for _, name := range card.CoopGuests {
+	for _, name := range card.MobGuests {
 		g, ok := byName[name]
 		if !ok {
-			h.recordCoopWarning(ctx, project, id,
-				fmt.Sprintf("co-op guest %q is not registered; dropped for this run", name))
+			h.recordMobWarning(ctx, project, id,
+				fmt.Sprintf("mob guest %q is not registered; dropped for this run", name))
 
 			continue
 		}
@@ -355,17 +355,17 @@ func (h *backendHandlers) attachCoop(ctx context.Context, payload *backend.Trigg
 	// Phases pass through except "execute": dropped when the server flag is
 	// off, or when the run races Best-of-N candidates (checkpoints and BoN
 	// are mutually exclusive; BoN wins).
-	for _, phase := range card.CoopPhases {
+	for _, phase := range card.MobPhases {
 		if phase == "execute" {
 			switch {
 			case payload.BestOfN >= 2:
-				h.recordCoopWarning(ctx, project, id,
-					"co-op execute checkpoints skipped: best_of_n >= 2 (mutually exclusive; Best-of-N wins)")
+				h.recordMobWarning(ctx, project, id,
+					"mob execute checkpoints skipped: best_of_n >= 2 (mutually exclusive; Best-of-N wins)")
 
 				continue
-			case !h.coop.ExecuteCheckpointsEnabled:
-				h.recordCoopWarning(ctx, project, id,
-					"co-op execute checkpoints skipped: coop.execute_checkpoints_enabled is off")
+			case !h.mob.ExecuteCheckpointsEnabled:
+				h.recordMobWarning(ctx, project, id,
+					"mob execute checkpoints skipped: mob.execute_checkpoints_enabled is off")
 
 				continue
 			}
@@ -378,30 +378,30 @@ func (h *backendHandlers) attachCoop(ctx context.Context, payload *backend.Trigg
 	// (e.g. an execute-only card with execute checkpoints off), do NOT attach
 	// the spec: the agent reads empty Phases as its "plan+review both on"
 	// default, which would silently run discussions the operator never chose.
-	// Run solo instead. Cards that never set coop_phases keep that default.
-	if len(card.CoopPhases) > 0 && len(spec.Phases) == 0 {
-		h.recordCoopWarning(ctx, project, id,
-			"co-op skipped: all requested phases are unavailable for this run; proceeding solo")
+	// Run solo instead. Cards that never set mob_phases keep that default.
+	if len(card.MobPhases) > 0 && len(spec.Phases) == 0 {
+		h.recordMobWarning(ctx, project, id,
+			"mob skipped: all requested phases are unavailable for this run; proceeding solo")
 
 		return
 	}
 
-	payload.Coop = spec
+	payload.Mob = spec
 }
 
-// recordCoopWarning logs a trigger-time co-op degradation and appends a
+// recordMobWarning logs a trigger-time mob session degradation and appends a
 // best-effort activity entry so the drop is visible on the card — the same
 // slog + AddLogEntry mechanism as the run-rejected trace in
 // rejectRunForCredentialFailure. A failed append never blocks the trigger.
-func (h *backendHandlers) recordCoopWarning(ctx context.Context, project, id, msg string) {
+func (h *backendHandlers) recordMobWarning(ctx context.Context, project, id, msg string) {
 	ctxlog.Logger(ctx).Warn(msg, "card_id", id, "project", project)
 
 	if _, logErr := h.svc.AddLogEntry(ctx, project, id, board.ActivityEntry{
 		Agent:   "system",
-		Action:  "coop-warning",
+		Action:  "mob-warning",
 		Message: msg,
 	}); logErr != nil {
-		ctxlog.Logger(ctx).Error("failed to record co-op warning activity entry",
+		ctxlog.Logger(ctx).Error("failed to record mob warning activity entry",
 			"card_id", id, "project", project, "error", logErr)
 	}
 }

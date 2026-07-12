@@ -345,20 +345,20 @@ type BestOfNConfig struct {
 	OutcomeFloor int `yaml:"outcome_floor"`
 }
 
-// CoopGuest is one operator-registered external A2A discussion participant.
+// MobGuest is one operator-registered external A2A discussion participant.
 // Config-file-only by design — Token is a bearer secret and the env-override
 // mechanism is scalar-only, so guests have no CONTEXTMATRIX_* override.
-type CoopGuest struct {
+type MobGuest struct {
 	Name  string `yaml:"name"`
 	URL   string `yaml:"url"`
 	Token string `yaml:"token"`
 }
 
-// CoopConfig bounds the co-op discussion mode (agent backend). A card with
-// coop_participants >= 2 convenes N internal discussion seats in its
+// MobConfig bounds the mob session discussion mode (agent backend). A card
+// with mob_participants >= 2 convenes N internal discussion seats in its
 // plan/review phases; guests join by registry name.
-type CoopConfig struct {
-	// MaxParticipants is the hard cap on a card's coop_participants value
+type MobConfig struct {
+	// MaxParticipants is the hard cap on a card's mob_participants value
 	// (and the UI selector bound). Default 5, sane range 2..10.
 	MaxParticipants int `yaml:"max_participants"`
 	// DefaultParticipants is the operator-recommended seat count, surfaced in
@@ -370,18 +370,18 @@ type CoopConfig struct {
 	// MaxRounds is the server clamp on critique rounds. Default 3, max 5.
 	MaxRounds int `yaml:"max_rounds"`
 	// BudgetFactor scales the per-card cost ceiling for discussions:
-	// coop budget = budget_factor x max card cost. Default 0.75, range (0, 5].
+	// mob budget = budget_factor x max card cost. Default 0.75, range (0, 5].
 	BudgetFactor float64 `yaml:"budget_factor"`
-	// ExecuteCheckpointsEnabled gates the "execute" co-op phase server-side.
-	// Default false; while off, a card requesting "execute" has that phase
-	// dropped at trigger time with a warning.
+	// ExecuteCheckpointsEnabled gates the "execute" mob session phase
+	// server-side. Default false; while off, a card requesting "execute" has
+	// that phase dropped at trigger time with a warning.
 	ExecuteCheckpointsEnabled bool `yaml:"execute_checkpoints_enabled"`
 	// CheckpointMinTier is the minimum subtask tier that gets an execute
 	// checkpoint: simple|moderate|complex|critical. Default "complex".
 	CheckpointMinTier string `yaml:"checkpoint_min_tier"`
 	// Guests is the operator-managed guest registry. Cards reference entries
-	// by Name in coop_guests.
-	Guests []CoopGuest `yaml:"guests"`
+	// by Name in mob_guests.
+	Guests []MobGuest `yaml:"guests"`
 }
 
 // AuthConfig controls multi-user authentication.
@@ -451,7 +451,7 @@ type Config struct {
 	Images        ImagesConfig  `yaml:"images"`
 	OpStore       OpStoreConfig `yaml:"op_store"`
 	BestOfN       BestOfNConfig `yaml:"best_of_n"`
-	Coop          CoopConfig    `yaml:"coop"`
+	Mob           MobConfig     `yaml:"mob"`
 	Auth          AuthConfig    `yaml:"auth"`
 }
 
@@ -692,7 +692,7 @@ func (c *Config) Validate() error {
 	applyImagesDefaults(c)
 	applyOpStoreDefaults(c)
 	applyBestOfNDefaults(c)
-	applyCoopDefaults(c)
+	applyMobDefaults(c)
 
 	if c.Chat.IdleTTL <= 0 {
 		return fmt.Errorf("chat.idle_ttl must be positive (got %s)", c.Chat.IdleTTL)
@@ -710,36 +710,36 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("chat.rehydration_timeout must be positive (got %s)", c.Chat.RehydrationTimeout)
 	}
 
-	// Co-op hard checks: numeric fields were normalized by applyCoopDefaults
+	// Mob hard checks: numeric fields were normalized by applyMobDefaults
 	// above (warn + default, never fatal); explicit bad enum/guest entries
 	// fail startup loudly instead.
-	switch c.Coop.CheckpointMinTier {
+	switch c.Mob.CheckpointMinTier {
 	case "simple", "moderate", "complex", "critical":
 		// valid
 	default:
-		return fmt.Errorf("coop.checkpoint_min_tier must be one of \"simple\", \"moderate\", \"complex\", \"critical\" (got %q)",
-			c.Coop.CheckpointMinTier)
+		return fmt.Errorf("mob.checkpoint_min_tier must be one of \"simple\", \"moderate\", \"complex\", \"critical\" (got %q)",
+			c.Mob.CheckpointMinTier)
 	}
 
-	seenGuests := make(map[string]bool, len(c.Coop.Guests))
+	seenGuests := make(map[string]bool, len(c.Mob.Guests))
 
-	for i, g := range c.Coop.Guests {
+	for i, g := range c.Mob.Guests {
 		if g.Name == "" {
-			return fmt.Errorf("coop.guests[%d]: name is required", i)
+			return fmt.Errorf("mob.guests[%d]: name is required", i)
 		}
 
 		if seenGuests[g.Name] {
-			return fmt.Errorf("coop.guests[%d]: duplicate guest name %q", i, g.Name)
+			return fmt.Errorf("mob.guests[%d]: duplicate guest name %q", i, g.Name)
 		}
 
 		seenGuests[g.Name] = true
 
 		if !strings.HasPrefix(g.URL, "http://") && !strings.HasPrefix(g.URL, "https://") {
-			return fmt.Errorf("coop.guests[%d] (%s): url must start with http:// or https:// (got %q)", i, g.Name, g.URL)
+			return fmt.Errorf("mob.guests[%d] (%s): url must start with http:// or https:// (got %q)", i, g.Name, g.URL)
 		}
 
 		if g.Token == "" {
-			return fmt.Errorf("coop.guests[%d] (%s): token is required", i, g.Name)
+			return fmt.Errorf("mob.guests[%d] (%s): token is required", i, g.Name)
 		}
 	}
 
@@ -789,7 +789,7 @@ func Load(path string) (*Config, error) {
 			applyImagesDefaults(cfg)
 			applyOpStoreDefaults(cfg)
 			applyBestOfNDefaults(cfg)
-			applyCoopDefaults(cfg)
+			applyMobDefaults(cfg)
 			applyAuthDefaults(cfg)
 			applyBackendDefaults(cfg)
 
@@ -826,7 +826,7 @@ func Load(path string) (*Config, error) {
 	applyImagesDefaults(cfg)
 	applyOpStoreDefaults(cfg)
 	applyBestOfNDefaults(cfg)
-	applyCoopDefaults(cfg)
+	applyMobDefaults(cfg)
 	applyAuthDefaults(cfg)
 	applyBackendDefaults(cfg)
 
@@ -956,55 +956,55 @@ func applyBestOfNDefaults(cfg *Config) {
 	}
 }
 
-// applyCoopDefaults sets Coop fields that are zero or out of range.
+// applyMobDefaults sets Mob fields that are zero or out of range.
 // Idempotent — safe to call again after applyEnvOverrides may have
 // introduced a new out-of-range value (see the call inside Validate, which
 // runs after applyEnvOverrides completes in Load). Order matters:
 // MaxParticipants before DefaultParticipants, MaxRounds before DefaultRounds
 // — the dependent checks read the already-normalized bound.
-func applyCoopDefaults(cfg *Config) {
-	if cfg.Coop.MaxParticipants < 2 || cfg.Coop.MaxParticipants > 10 {
-		if cfg.Coop.MaxParticipants != 0 {
-			slog.Warn("coop.max_participants outside 2..10; using default", "value", cfg.Coop.MaxParticipants)
+func applyMobDefaults(cfg *Config) {
+	if cfg.Mob.MaxParticipants < 2 || cfg.Mob.MaxParticipants > 10 {
+		if cfg.Mob.MaxParticipants != 0 {
+			slog.Warn("mob.max_participants outside 2..10; using default", "value", cfg.Mob.MaxParticipants)
 		}
 
-		cfg.Coop.MaxParticipants = 5
+		cfg.Mob.MaxParticipants = 5
 	}
 
-	if cfg.Coop.DefaultParticipants < 2 || cfg.Coop.DefaultParticipants > cfg.Coop.MaxParticipants {
-		if cfg.Coop.DefaultParticipants != 0 {
-			slog.Warn("coop.default_participants out of range; using default", "value", cfg.Coop.DefaultParticipants)
+	if cfg.Mob.DefaultParticipants < 2 || cfg.Mob.DefaultParticipants > cfg.Mob.MaxParticipants {
+		if cfg.Mob.DefaultParticipants != 0 {
+			slog.Warn("mob.default_participants out of range; using default", "value", cfg.Mob.DefaultParticipants)
 		}
 
-		cfg.Coop.DefaultParticipants = min(3, cfg.Coop.MaxParticipants)
+		cfg.Mob.DefaultParticipants = min(3, cfg.Mob.MaxParticipants)
 	}
 
-	if cfg.Coop.MaxRounds < 1 || cfg.Coop.MaxRounds > 5 {
-		if cfg.Coop.MaxRounds != 0 {
-			slog.Warn("coop.max_rounds outside 1..5; using default", "value", cfg.Coop.MaxRounds)
+	if cfg.Mob.MaxRounds < 1 || cfg.Mob.MaxRounds > 5 {
+		if cfg.Mob.MaxRounds != 0 {
+			slog.Warn("mob.max_rounds outside 1..5; using default", "value", cfg.Mob.MaxRounds)
 		}
 
-		cfg.Coop.MaxRounds = 3
+		cfg.Mob.MaxRounds = 3
 	}
 
-	if cfg.Coop.DefaultRounds < 1 || cfg.Coop.DefaultRounds > cfg.Coop.MaxRounds {
-		if cfg.Coop.DefaultRounds != 0 {
-			slog.Warn("coop.default_rounds outside 1..max_rounds; using default", "value", cfg.Coop.DefaultRounds)
+	if cfg.Mob.DefaultRounds < 1 || cfg.Mob.DefaultRounds > cfg.Mob.MaxRounds {
+		if cfg.Mob.DefaultRounds != 0 {
+			slog.Warn("mob.default_rounds outside 1..max_rounds; using default", "value", cfg.Mob.DefaultRounds)
 		}
 
-		cfg.Coop.DefaultRounds = min(2, cfg.Coop.MaxRounds)
+		cfg.Mob.DefaultRounds = min(2, cfg.Mob.MaxRounds)
 	}
 
-	if cfg.Coop.BudgetFactor <= 0 || cfg.Coop.BudgetFactor > 5 {
-		if cfg.Coop.BudgetFactor != 0 {
-			slog.Warn("coop.budget_factor outside (0, 5]; using default", "value", cfg.Coop.BudgetFactor)
+	if cfg.Mob.BudgetFactor <= 0 || cfg.Mob.BudgetFactor > 5 {
+		if cfg.Mob.BudgetFactor != 0 {
+			slog.Warn("mob.budget_factor outside (0, 5]; using default", "value", cfg.Mob.BudgetFactor)
 		}
 
-		cfg.Coop.BudgetFactor = 0.75
+		cfg.Mob.BudgetFactor = 0.75
 	}
 
-	if cfg.Coop.CheckpointMinTier == "" {
-		cfg.Coop.CheckpointMinTier = "complex"
+	if cfg.Mob.CheckpointMinTier == "" {
+		cfg.Mob.CheckpointMinTier = "complex"
 	}
 }
 
@@ -1296,10 +1296,10 @@ func applyEnvOverrides(cfg *Config) error {
 		env string
 		dst *int
 	}{
-		{"CONTEXTMATRIX_COOP_MAX_PARTICIPANTS", &cfg.Coop.MaxParticipants},
-		{"CONTEXTMATRIX_COOP_DEFAULT_PARTICIPANTS", &cfg.Coop.DefaultParticipants},
-		{"CONTEXTMATRIX_COOP_DEFAULT_ROUNDS", &cfg.Coop.DefaultRounds},
-		{"CONTEXTMATRIX_COOP_MAX_ROUNDS", &cfg.Coop.MaxRounds},
+		{"CONTEXTMATRIX_MOB_MAX_PARTICIPANTS", &cfg.Mob.MaxParticipants},
+		{"CONTEXTMATRIX_MOB_DEFAULT_PARTICIPANTS", &cfg.Mob.DefaultParticipants},
+		{"CONTEXTMATRIX_MOB_DEFAULT_ROUNDS", &cfg.Mob.DefaultRounds},
+		{"CONTEXTMATRIX_MOB_MAX_ROUNDS", &cfg.Mob.MaxRounds},
 	} {
 		if v := os.Getenv(o.env); v != "" {
 			n, err := strconv.Atoi(v)
@@ -1313,24 +1313,24 @@ func applyEnvOverrides(cfg *Config) error {
 		}
 	}
 
-	if v := os.Getenv("CONTEXTMATRIX_COOP_BUDGET_FACTOR"); v != "" {
+	if v := os.Getenv("CONTEXTMATRIX_MOB_BUDGET_FACTOR"); v != "" {
 		if f, err := strconv.ParseFloat(v, 64); err == nil {
-			cfg.Coop.BudgetFactor = f
+			cfg.Mob.BudgetFactor = f
 		} else {
-			slog.Warn("ignoring invalid CONTEXTMATRIX_COOP_BUDGET_FACTOR", "value", v, "error", err)
+			slog.Warn("ignoring invalid CONTEXTMATRIX_MOB_BUDGET_FACTOR", "value", v, "error", err)
 		}
 	}
 
-	if v := os.Getenv("CONTEXTMATRIX_COOP_EXECUTE_CHECKPOINTS_ENABLED"); v != "" {
+	if v := os.Getenv("CONTEXTMATRIX_MOB_EXECUTE_CHECKPOINTS_ENABLED"); v != "" {
 		if b, err := strconv.ParseBool(v); err == nil {
-			cfg.Coop.ExecuteCheckpointsEnabled = b
+			cfg.Mob.ExecuteCheckpointsEnabled = b
 		} else {
-			slog.Warn("ignoring invalid CONTEXTMATRIX_COOP_EXECUTE_CHECKPOINTS_ENABLED", "value", v, "error", err)
+			slog.Warn("ignoring invalid CONTEXTMATRIX_MOB_EXECUTE_CHECKPOINTS_ENABLED", "value", v, "error", err)
 		}
 	}
 
-	if v := os.Getenv("CONTEXTMATRIX_COOP_CHECKPOINT_MIN_TIER"); v != "" {
-		cfg.Coop.CheckpointMinTier = v
+	if v := os.Getenv("CONTEXTMATRIX_MOB_CHECKPOINT_MIN_TIER"); v != "" {
+		cfg.Mob.CheckpointMinTier = v
 	}
 
 	// Backend entries can be configured entirely via env: a variable for one

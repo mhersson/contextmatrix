@@ -42,10 +42,10 @@ type cardHandlers struct {
 	// bestOfNMax is the configured config.BestOfNConfig.MaxCandidates, wired
 	// from RouterConfig. Bounds the accepted best_of_n range (0 or 2..max).
 	bestOfNMax int
-	// coop is the configured co-op block, wired from RouterConfig. Bounds
-	// coop_participants (0 or 2..MaxParticipants) and supplies the guest
-	// registry names for coop_guests validation.
-	coop config.CoopConfig
+	// mob is the configured mob session block, wired from RouterConfig. Bounds
+	// mob_participants (0 or 2..MaxParticipants) and supplies the guest
+	// registry names for mob_guests validation.
+	mob config.MobConfig
 }
 
 // createCardRequest is the JSON body for creating a card.
@@ -66,9 +66,9 @@ type createCardRequest struct {
 	ModelCoder        string              `json:"model_coder,omitempty"`
 	ModelReviewer     string              `json:"model_reviewer,omitempty"`
 	BestOfN           int                 `json:"best_of_n"`
-	CoopParticipants  int                 `json:"coop_participants"`
-	CoopPhases        []string            `json:"coop_phases"`
-	CoopGuests        []string            `json:"coop_guests"`
+	MobParticipants   int                 `json:"mob_participants"`
+	MobPhases         []string            `json:"mob_phases"`
+	MobGuests         []string            `json:"mob_guests"`
 	Verify            *board.VerifyConfig `json:"verify,omitempty"`
 }
 
@@ -96,9 +96,9 @@ type updateCardRequest struct {
 	ModelCoder        string         `json:"model_coder,omitempty"`
 	ModelReviewer     string         `json:"model_reviewer,omitempty"`
 	BestOfN           int            `json:"best_of_n"`
-	CoopParticipants  int            `json:"coop_participants"`
-	CoopPhases        []string       `json:"coop_phases"`
-	CoopGuests        []string       `json:"coop_guests"`
+	MobParticipants   int            `json:"mob_participants"`
+	MobPhases         []string       `json:"mob_phases"`
+	MobGuests         []string       `json:"mob_guests"`
 }
 
 // patchCardRequest is the JSON body for partial card updates.
@@ -128,11 +128,11 @@ type patchCardRequest struct {
 	ModelCoder        *string   `json:"model_coder,omitempty"`
 	ModelReviewer     *string   `json:"model_reviewer,omitempty"`
 	BestOfN           *int      `json:"best_of_n,omitempty"`
-	// Co-op fields: CoopParticipants nil = don't change; the two slices
+	// Mob session fields: MobParticipants nil = don't change; the two slices
 	// follow the Labels convention (nil = don't change, [] = clear).
-	CoopParticipants *int     `json:"coop_participants,omitempty"`
-	CoopPhases       []string `json:"coop_phases,omitempty"`
-	CoopGuests       []string `json:"coop_guests,omitempty"`
+	MobParticipants *int     `json:"mob_participants,omitempty"`
+	MobPhases       []string `json:"mob_phases,omitempty"`
+	MobGuests       []string `json:"mob_guests,omitempty"`
 	// Verify replaces the whole struct: omitting it preserves the card's
 	// override; a present object replaces it (zero value clears it).
 	Verify *board.VerifyConfig `json:"verify,omitempty"`
@@ -202,32 +202,32 @@ func validBestOfN(v, maxCandidates int) bool {
 	return v == 0 || (v >= 2 && v <= maxCandidates)
 }
 
-// coopPhaseAllowed is the closed set of phases a card may request
+// mobPhaseAllowed is the closed set of phases a card may request
 // discussions in. "execute" is accepted at write time even while the
-// server-side coop.execute_checkpoints_enabled flag is off — the trigger
+// server-side mob.execute_checkpoints_enabled flag is off — the trigger
 // path drops it with a warning then, so flipping the flag later needs no
 // card rewrite.
-var coopPhaseAllowed = map[string]bool{"plan": true, "review": true, "execute": true}
+var mobPhaseAllowed = map[string]bool{"plan": true, "review": true, "execute": true}
 
-// validCoop validates the card-level co-op fields against the configured
-// bounds, mirroring validBestOfN: participants must be 0 (off) or
+// validMob validates the card-level mob session fields against the
+// configured bounds, mirroring validBestOfN: participants must be 0 (off) or
 // 2..cfg.MaxParticipants; phases must be a duplicate-free subset of
 // {plan, review, execute}; guests require participants >= 2 and every name
 // must be registered in cfg.Guests. Returns nil when valid.
-func validCoop(cfg config.CoopConfig, participants int, phases, guests []string) error {
+func validMob(cfg config.MobConfig, participants int, phases, guests []string) error {
 	if participants != 0 && (participants < 2 || participants > cfg.MaxParticipants) {
-		return fmt.Errorf("coop_participants must be 0 or 2..%d", cfg.MaxParticipants)
+		return fmt.Errorf("mob_participants must be 0 or 2..%d", cfg.MaxParticipants)
 	}
 
 	seen := make(map[string]bool, len(phases))
 
 	for _, p := range phases {
-		if !coopPhaseAllowed[p] {
-			return fmt.Errorf("invalid coop_phases entry %q: must be one of plan, review, execute", p)
+		if !mobPhaseAllowed[p] {
+			return fmt.Errorf("invalid mob_phases entry %q: must be one of plan, review, execute", p)
 		}
 
 		if seen[p] {
-			return fmt.Errorf("duplicate coop_phases entry %q", p)
+			return fmt.Errorf("duplicate mob_phases entry %q", p)
 		}
 
 		seen[p] = true
@@ -238,7 +238,7 @@ func validCoop(cfg config.CoopConfig, participants int, phases, guests []string)
 	}
 
 	if participants < 2 {
-		return errors.New("coop_guests requires coop_participants >= 2")
+		return errors.New("mob_guests requires mob_participants >= 2")
 	}
 
 	registered := make(map[string]bool, len(cfg.Guests))
@@ -248,7 +248,7 @@ func validCoop(cfg config.CoopConfig, participants int, phases, guests []string)
 
 	for _, name := range guests {
 		if !registered[name] {
-			return fmt.Errorf("unknown coop_guests entry %q: not in the coop.guests registry", name)
+			return fmt.Errorf("unknown mob_guests entry %q: not in the mob.guests registry", name)
 		}
 	}
 
@@ -412,10 +412,10 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 	// create time flow onto the card and reach the agent via get_task_context.
 	if isNonHumanAgent(r) && (req.Autonomous || req.FeatureBranch || req.CreatePR || req.Vetted ||
 		req.ModelOrchestrator != "" || req.ModelCoder != "" || req.ModelReviewer != "" ||
-		req.BestOfN != 0 || req.CoopParticipants != 0 || len(req.CoopPhases) > 0 || len(req.CoopGuests) > 0 ||
+		req.BestOfN != 0 || req.MobParticipants != 0 || len(req.MobPhases) > 0 || len(req.MobGuests) > 0 ||
 		req.Verify != nil) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
-			"forbidden", "autonomous, feature_branch, create_pr, vetted, model pins, best_of_n, co-op fields, and verify can only be set via the UI")
+			"forbidden", "autonomous, feature_branch, create_pr, vetted, model pins, best_of_n, mob fields, and verify can only be set via the UI")
 
 		return
 	}
@@ -433,8 +433,8 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := validCoop(h.coop, req.CoopParticipants, req.CoopPhases, req.CoopGuests); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid co-op fields", err.Error())
+	if err := validMob(h.mob, req.MobParticipants, req.MobPhases, req.MobGuests); err != nil {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid mob fields", err.Error())
 
 		return
 	}
@@ -456,9 +456,9 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 		ModelCoder:        req.ModelCoder,
 		ModelReviewer:     req.ModelReviewer,
 		BestOfN:           req.BestOfN,
-		CoopParticipants:  req.CoopParticipants,
-		CoopPhases:        req.CoopPhases,
-		CoopGuests:        req.CoopGuests,
+		MobParticipants:   req.MobParticipants,
+		MobPhases:         req.MobPhases,
+		MobGuests:         req.MobGuests,
 		Verify:            req.Verify,
 	}
 
@@ -535,11 +535,11 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 		req.ModelCoder != existingCard.ModelCoder ||
 		req.ModelReviewer != existingCard.ModelReviewer ||
 		req.BestOfN != existingCard.BestOfN ||
-		req.CoopParticipants != existingCard.CoopParticipants ||
-		!slices.Equal(req.CoopPhases, existingCard.CoopPhases) ||
-		!slices.Equal(req.CoopGuests, existingCard.CoopGuests)) {
+		req.MobParticipants != existingCard.MobParticipants ||
+		!slices.Equal(req.MobPhases, existingCard.MobPhases) ||
+		!slices.Equal(req.MobGuests, existingCard.MobGuests)) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
-			"forbidden", "autonomous, feature_branch, create_pr, vetted, model pins, best_of_n, and co-op fields can only be changed via the UI")
+			"forbidden", "autonomous, feature_branch, create_pr, vetted, model pins, best_of_n, and mob fields can only be changed via the UI")
 
 		return
 	}
@@ -551,8 +551,8 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := validCoop(h.coop, req.CoopParticipants, req.CoopPhases, req.CoopGuests); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid co-op fields", err.Error())
+	if err := validMob(h.mob, req.MobParticipants, req.MobPhases, req.MobGuests); err != nil {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid mob fields", err.Error())
 
 		return
 	}
@@ -586,9 +586,9 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 		ModelCoder:        req.ModelCoder,
 		ModelReviewer:     req.ModelReviewer,
 		BestOfN:           req.BestOfN,
-		CoopParticipants:  req.CoopParticipants,
-		CoopPhases:        req.CoopPhases,
-		CoopGuests:        req.CoopGuests,
+		MobParticipants:   req.MobParticipants,
+		MobPhases:         req.MobPhases,
+		MobGuests:         req.MobGuests,
 	}
 
 	card, err := h.svc.UpdateCard(r.Context(), projectName, cardID, input)
@@ -629,12 +629,12 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 		req.ModelCoder != nil ||
 		req.ModelReviewer != nil ||
 		req.BestOfN != nil ||
-		req.CoopParticipants != nil ||
-		req.CoopPhases != nil ||
-		req.CoopGuests != nil ||
+		req.MobParticipants != nil ||
+		req.MobPhases != nil ||
+		req.MobGuests != nil ||
 		req.Verify != nil) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
-			"forbidden", "autonomous, feature_branch, create_pr, vetted, base_branch, model pins, best_of_n, co-op fields, and verify can only be set via the UI")
+			"forbidden", "autonomous, feature_branch, create_pr, vetted, base_branch, model pins, best_of_n, mob fields, and verify can only be set via the UI")
 
 		return
 	}
@@ -660,25 +660,25 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.CoopParticipants != nil || req.CoopPhases != nil || req.CoopGuests != nil {
+	if req.MobParticipants != nil || req.MobPhases != nil || req.MobGuests != nil {
 		// Validate the RESULTING state, not the patch in isolation.
-		effParticipants := existingCard.CoopParticipants
-		if req.CoopParticipants != nil {
-			effParticipants = *req.CoopParticipants
+		effParticipants := existingCard.MobParticipants
+		if req.MobParticipants != nil {
+			effParticipants = *req.MobParticipants
 		}
 
-		effPhases := existingCard.CoopPhases
-		if req.CoopPhases != nil {
-			effPhases = req.CoopPhases
+		effPhases := existingCard.MobPhases
+		if req.MobPhases != nil {
+			effPhases = req.MobPhases
 		}
 
-		effGuests := existingCard.CoopGuests
-		if req.CoopGuests != nil {
-			effGuests = req.CoopGuests
+		effGuests := existingCard.MobGuests
+		if req.MobGuests != nil {
+			effGuests = req.MobGuests
 		}
 
-		if err := validCoop(h.coop, effParticipants, effPhases, effGuests); err != nil {
-			writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid co-op fields", err.Error())
+		if err := validMob(h.mob, effParticipants, effPhases, effGuests); err != nil {
+			writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid mob fields", err.Error())
 
 			return
 		}
@@ -710,9 +710,9 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 		ModelCoder:        req.ModelCoder,
 		ModelReviewer:     req.ModelReviewer,
 		BestOfN:           req.BestOfN,
-		CoopParticipants:  req.CoopParticipants,
-		CoopPhases:        req.CoopPhases,
-		CoopGuests:        req.CoopGuests,
+		MobParticipants:   req.MobParticipants,
+		MobPhases:         req.MobPhases,
+		MobGuests:         req.MobGuests,
 		Verify:            req.Verify,
 	}
 

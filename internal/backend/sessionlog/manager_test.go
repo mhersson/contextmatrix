@@ -2407,8 +2407,8 @@ func TestParseSSEPayloadReadsWireTimestamp(t *testing.T) {
 }
 
 // TestParseSSEPayloadCarriesAgent verifies the speaker-attribution field
-// survives the wire → Event re-mapping (co-op discussion frames), and stays
-// empty when the backend sends none.
+// survives the wire → Event re-mapping (mob session discussion frames), and
+// stays empty when the backend sends none.
 func TestParseSSEPayloadCarriesAgent(t *testing.T) {
 	raw, err := json.Marshal(protocol.LogEntry{
 		Timestamp: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
