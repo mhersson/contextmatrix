@@ -98,10 +98,10 @@
   Never open more than one `EventSource` per distinct URL; use the subscriber
   API for additional consumers of the same stream. For worker logs specifically,
   `ProjectShell` owns a single card-scoped `useWorkerLogs` call (enabled while
-  the selected card's chat is live — a HITL running session, or an autonomous
-  run with co-op discussion turned on) and passes the resulting `LogEntry[]`
-  array down to `CardChat` as a prop — `CardChat` does not open its own
-  `EventSource`.
+  the selected card's chat is live — any running worker session, HITL or
+  autonomous; autonomous renders read-only) and passes the resulting
+  `LogEntry[]` array down to `CardChat` as a prop — `CardChat` does not open
+  its own `EventSource`.
 - **`sessionlog.Manager` fan-out invariants:** `readUpstream` (card-scoped) and
   `readProjectUpstream` (project-scoped) both append to the ring buffer and fan
   out to subscribers under a single `m.mu` lock. These two operations must stay

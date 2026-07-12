@@ -531,8 +531,8 @@ describe('ProjectShell — ?card= deep-link', () => {
 
 // ---------------------------------------------------------------------------
 // Card-scoped worker-log liveness — the enabled flag passed to useWorkerLogs
-// must open for HITL runs AND for autonomous runs with co-op discussion on
-// (coop_participants >= 2), so the Chat tab's SSE stream populates for both.
+// must open for ANY running worker session (HITL or autonomous), so the Chat
+// tab's SSE stream populates for every run; autonomous renders read-only.
 // ---------------------------------------------------------------------------
 
 describe('ProjectShell — card-scoped worker-log liveness', () => {
@@ -594,7 +594,7 @@ describe('ProjectShell — card-scoped worker-log liveness', () => {
     expect(lastCall).toMatchObject({ cardId: 'TEST-1', enabled: true });
   });
 
-  it('does NOT enable the log stream for a running autonomous card without co-op discussion', async () => {
+  it('enables the log stream for a running autonomous card without co-op discussion', async () => {
     const { useBoard } = await import('../../hooks/useBoard');
     const { useWorkerLogs } = await import('../../hooks/useWorkerLogs');
     const soloAutonomousCard: Card = {
@@ -612,6 +612,39 @@ describe('ProjectShell — card-scoped worker-log liveness', () => {
     };
     vi.mocked(useBoard).mockReturnValue(
       boardReturnFor(soloAutonomousCard) as unknown as ReturnType<typeof useBoard>,
+    );
+
+    render(
+      <MemoryRouter initialEntries={['/projects/test?card=TEST-1']}>
+        <Routes>
+          <Route path="/projects/:project/*" element={<ProjectShell />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await screen.findByTestId('card-panel-TEST-1');
+    const lastCall = vi.mocked(useWorkerLogs).mock.calls.at(-1)?.[0];
+    expect(lastCall).toMatchObject({ cardId: 'TEST-1', enabled: true });
+  });
+
+  it('does NOT enable the log stream for a card without a running worker', async () => {
+    const { useBoard } = await import('../../hooks/useBoard');
+    const { useWorkerLogs } = await import('../../hooks/useWorkerLogs');
+    const idleCard: Card = {
+      id: 'TEST-1',
+      title: 'Idle card',
+      project: 'test',
+      type: 'task',
+      state: 'in_progress',
+      priority: 'medium',
+      created: '2026-01-01T00:00:00Z',
+      updated: '2026-01-01T00:00:00Z',
+      body: '',
+      worker_status: 'failed',
+      autonomous: true,
+    };
+    vi.mocked(useBoard).mockReturnValue(
+      boardReturnFor(idleCard) as unknown as ReturnType<typeof useBoard>,
     );
 
     render(

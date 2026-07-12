@@ -389,7 +389,7 @@ describe('CardPanel — MDEditor preview skipHtml XSS prevention', () => {
   });
 });
 
-describe('CardPanel — rail default tab follows isChatLive', () => {
+describe('CardPanel — rail default tab follows isChatInteractive', () => {
   it('mounts on Chat when the card arrives already running an HITL session', () => {
     render(
       <CardPanel
@@ -415,34 +415,38 @@ describe('CardPanel — rail default tab follows isChatLive', () => {
     expect(screen.getByRole('tab', { name: /Chat/ })).toHaveAttribute('aria-selected', 'true');
   });
 
-  it('switches the active tab back to Automation when the HITL session ends (two consecutive renders)', () => {
+  it('switches the active tab back to Automation when HITL is promoted to autonomous (two consecutive renders)', () => {
     const runningCard = { ...baseCard, state: 'in_progress', worker_status: 'running' as const, autonomous: false };
     const autonomousCard = { ...baseCard, state: 'in_progress', worker_status: 'running' as const, autonomous: true };
     const { rerender } = render(<CardPanel {...makeProps({ card: runningCard })} />);
     expect(screen.getByRole('tab', { name: /Chat/ })).toHaveAttribute('aria-selected', 'true');
 
-    // First render with isChatLive=false: chat tab stays (debounce — counter=1).
+    // Flip render (isChatInteractive true→false): counter resets, chat stays selected.
     rerender(<CardPanel {...makeProps({ card: autonomousCard })} />);
-    // Second render with isChatLive still false: now the switch fires (counter=2).
+    // Two consecutive renders both observing false: counter reaches 2, switch fires.
     rerender(<CardPanel {...makeProps({ card: { ...autonomousCard, updated: '2026-01-02T00:00:00Z' } })} />);
+    rerender(<CardPanel {...makeProps({ card: { ...autonomousCard, updated: '2026-01-03T00:00:00Z' } })} />);
 
-    expect(screen.queryByRole('tab', { name: /Chat/ })).not.toBeInTheDocument();
+    // The chat tab stays in the tab set (the worker is still running, now
+    // read-only) but focus moves back to Automation.
+    expect(screen.getByRole('tab', { name: /Chat/ })).toHaveAttribute('aria-selected', 'false');
     expect(screen.getByRole('tab', { name: /Automation/ })).toHaveAttribute('aria-selected', 'true');
   });
 
-  it('does NOT switch activeTab to Automation on first render after isChatLive flips false (counter=1 guard)', () => {
+  it('does NOT switch activeTab to Automation on first render after isChatInteractive flips false (counter=1 guard)', () => {
     // Verifies the debounce: a single flip to false does NOT call setActiveTab(defaultTab).
-    // After the flip back to true, the chat tab is re-mounted and selected (no stale automation state).
+    // After the flip back to true, the chat tab remains selected (no stale automation state).
     const runningCard = { ...baseCard, state: 'in_progress', worker_status: 'running' as const, autonomous: false };
     const { rerender } = render(<CardPanel {...makeProps({ card: runningCard })} />);
     expect(screen.getByRole('tab', { name: /Chat/ })).toHaveAttribute('aria-selected', 'true');
 
-    // Render 2: transient HITL=false (SSE lag). Chat tab removed from tab set by buildCardPanelTabs
-    // (isChatLive=false), but activeTab must NOT be set to 'automation' by the sync block.
+    // Render 2: transient HITL=false (SSE lag). Chat stays in the tab set
+    // (still running), and activeTab must NOT be set to 'automation' by the sync block.
     const autonomousCard = { ...runningCard, autonomous: true };
     rerender(<CardPanel {...makeProps({ card: autonomousCard })} />);
+    expect(screen.getByRole('tab', { name: /Chat/ })).toHaveAttribute('aria-selected', 'true');
 
-    // Render 3: HITL flips back to true (SSE corrects). Chat tab re-added, counter reset.
+    // Render 3: HITL flips back to true (SSE corrects), counter reset.
     // Since activeTab was NOT set to 'automation' during render 2, the flip-back to true
     // triggers setActiveTab('chat') cleanly (no stale 'automation' state to overcome).
     rerender(<CardPanel {...makeProps({ card: runningCard })} />);
@@ -467,14 +471,14 @@ describe('CardPanel — rail default tab follows isChatLive', () => {
     rerender(<CardPanel {...makeProps({ card: autonomousCard })} />);
 
     // One render with false is not enough — counter=1 is below the threshold.
-    // The chat tab is no longer in the tab set (autonomous=true), so Automation
-    // remains the effective tab regardless.
+    // Automation remains the selected tab; the chat tab stays available read-only.
     expect(screen.getByRole('tab', { name: /Automation/ })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: /Chat/ })).toBeInTheDocument();
   });
 });
 
-describe('CardPanel — autonomous co-op chat visibility', () => {
-  it('adds the Chat tab with a live pulse and selects it by default for a running autonomous co-op card', () => {
+describe('CardPanel — autonomous chat visibility', () => {
+  it('adds the Chat tab with a live pulse but does NOT select it by default for a running autonomous co-op card', () => {
     render(
       <CardPanel
         {...makeProps({
@@ -489,11 +493,34 @@ describe('CardPanel — autonomous co-op chat visibility', () => {
       />,
     );
     const chatTab = screen.getByRole('tab', { name: /Chat/ });
-    expect(chatTab).toHaveAttribute('aria-selected', 'true');
+    expect(chatTab).toHaveAttribute('aria-selected', 'false');
     expect(chatTab.querySelector('.animate-pulse')).not.toBeNull();
+    expect(screen.getByRole('tab', { name: /Automation/ })).toHaveAttribute('aria-selected', 'true');
   });
 
-  it('does NOT add the Chat tab for a running autonomous card without co-op discussion', () => {
+  it('keeps the Chat tab selected across SSE card refreshes while an autonomous run is live (debounce stays disarmed)', () => {
+    const autoCard = {
+      ...baseCard,
+      state: 'in_progress',
+      worker_status: 'running' as const,
+      autonomous: true,
+    };
+    const { rerender } = render(<CardPanel {...makeProps({ card: autoCard })} />);
+
+    // User deliberately opens the read-only chat of the autonomous run.
+    fireEvent.click(screen.getByRole('tab', { name: /Chat/ }));
+    expect(screen.getByRole('tab', { name: /Chat/ })).toHaveAttribute('aria-selected', 'true');
+
+    // SSE churn: every log append / heartbeat hands CardPanel a new card
+    // object. isChatInteractive never flipped (always false), so the
+    // switch-back debounce must never arm — the user stays on Chat.
+    for (const updated of ['2026-01-01T00:01:00Z', '2026-01-01T00:02:00Z', '2026-01-01T00:03:00Z']) {
+      rerender(<CardPanel {...makeProps({ card: { ...autoCard, updated } })} />);
+    }
+    expect(screen.getByRole('tab', { name: /Chat/ })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('adds the Chat tab with a live pulse, unfocused, for a running autonomous card without co-op discussion', () => {
     render(
       <CardPanel
         {...makeProps({
@@ -507,7 +534,9 @@ describe('CardPanel — autonomous co-op chat visibility', () => {
         })}
       />,
     );
-    expect(screen.queryByRole('tab', { name: /Chat/ })).not.toBeInTheDocument();
+    const chatTab = screen.getByRole('tab', { name: /Chat/ });
+    expect(chatTab).toHaveAttribute('aria-selected', 'false');
+    expect(chatTab.querySelector('.animate-pulse')).not.toBeNull();
     expect(screen.getByRole('tab', { name: /Automation/ })).toHaveAttribute('aria-selected', 'true');
   });
 });

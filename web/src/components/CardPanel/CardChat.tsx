@@ -65,25 +65,15 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
     }
   };
 
-  // An autonomous card with co-op discussion turned on never went through
-  // HITL, so "Promoted to autonomous" would be misleading — while running it
-  // gets its own caption, and once ended it reuses the standard ended caption
-  // (consistent with ended HITL sessions). (An autonomous card WITHOUT co-op
-  // is only reachable via mid-session promotion, where "Promoted to
-  // autonomous" is correct and unchanged.)
-  const isAutonomousCoop = card.autonomous && (card.coop_participants ?? 0) >= 2;
-
-  // Derive readOnlyMessage for non-HITL states. When hitlActive is true
-  // this is undefined and the compose row is shown.
-  const readOnlyMessage = isAutonomousCoop
-    ? card.worker_status === 'running'
+  // Derive readOnlyMessage for non-HITL states. When hitlActive is true this
+  // is undefined and the compose row is shown. Every autonomous run — started
+  // autonomous (plain or co-op) or promoted mid-session — streams the same
+  // read-only transcript, so one caption covers them all while running.
+  const readOnlyMessage = hitlActive
+    ? undefined
+    : card.worker_status === 'running'
       ? 'Autonomous run — read-only'
-      : 'Session ended — read-only'
-    : !hitlActive
-      ? card.autonomous
-        ? 'Promoted to autonomous — read-only'
-        : 'Session ended — read-only'
-      : undefined;
+      : 'Session ended — read-only';
 
   // Footer renders only when HITL is active: the "Switch to Autonomous"
   // button. Once promoted, card.autonomous flips to true so hitlActive
