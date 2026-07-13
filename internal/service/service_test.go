@@ -2660,6 +2660,83 @@ func TestUpdateProject_RemoteExecutionNormalizesToNil(t *testing.T) {
 	assert.Nil(t, reloaded.RemoteExecution, "normalized-away config must be absent from .board.yaml on disk")
 }
 
+// TestUpdateProject_FailedValidationLeavesStateUntouched pins the atomicity
+// contract of a rejected UpdateProject: a validation failure — whether caught
+// at the deepest point (SaveProjectConfig, e.g. states missing "stalled") or
+// earlier (worker-image hygiene) — leaves both the on-disk .board.yaml and
+// the store's cached config untouched. The contract holds by construction:
+// FilesystemStore.GetProject returns a copy, SaveProjectConfig validates
+// before writing, and caches update only after a successful save+commit.
+// This test is the tripwire for any refactor that breaks one of those three
+// properties.
+func TestUpdateProject_FailedValidationLeavesStateUntouched(t *testing.T) {
+	strPtr := func(s string) *string { return &s }
+
+	tests := []struct {
+		name    string
+		input   UpdateProjectInput
+		wantErr error
+	}{
+		{
+			// Travels past all local-copy mutation down to SaveProject →
+			// validateProjectConfig — the deepest validation point. Works
+			// because the fixture project has zero cards, so the earlier
+			// in-use-state check never fires.
+			name: "states missing stalled fail in SaveProjectConfig",
+			input: UpdateProjectInput{
+				States:     []string{"todo", "in_progress", "done", "not_planned"},
+				Types:      []string{"task", "bug", "feature"},
+				Priorities: []string{"low", "medium", "high"},
+				Transitions: map[string][]string{
+					"todo":        {"in_progress"},
+					"in_progress": {"done", "todo"},
+					"done":        {"todo"},
+					"not_planned": {"todo"},
+				},
+			},
+			wantErr: board.ErrMissingStalledState,
+		},
+		{
+			// Fails earlier, in the remote-execution merge's hygiene screen.
+			name: "invalid worker image fails in validateWorkerImage",
+			input: remoteExecBaseInput(&RemoteExecutionUpdate{
+				WorkerImage: strPtr("bad image!"),
+			}),
+			wantErr: board.ErrInvalidProjectConfig,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, tmpDir, cleanup := setupTest(t)
+			defer cleanup()
+
+			projectDir := filepath.Join(tmpDir, "boards", "test-project")
+			ctx := context.Background()
+
+			pre, err := svc.GetProject(ctx, "test-project")
+			require.NoError(t, err)
+
+			_, err = svc.UpdateProject(ctx, "test-project", tt.input)
+			require.Error(t, err)
+			require.ErrorIs(t, err, tt.wantErr)
+
+			// Store-cache view: svc.GetProject reads the store's cached
+			// config (a fresh copy per call), the same path card operations
+			// resolve project config through.
+			cached, err := svc.GetProject(ctx, "test-project")
+			require.NoError(t, err)
+			assert.Equal(t, pre, cached, "store cache must be untouched after a failed PUT")
+
+			// On-disk view, read fresh off the filesystem.
+			onDisk, err := board.LoadProjectConfig(projectDir)
+			require.NoError(t, err)
+			assert.Equal(t, pre.States, onDisk.States, "on-disk states must be untouched")
+			assert.Nil(t, onDisk.RemoteExecution, "a failed PUT must not write remote_execution to disk")
+		})
+	}
+}
+
 // TestUpdateProject_RemoteExecutionImageValidation covers the hygiene screen on
 // the worker image: length cap, allowed characters, empty-is-clear.
 func TestUpdateProject_RemoteExecutionImageValidation(t *testing.T) {
