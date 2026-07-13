@@ -28,6 +28,11 @@ const (
 	ErrCodeWorkerConflict     = "WORKER_CONFLICT"
 	ErrCodeBackendUnavailable = "BACKEND_UNAVAILABLE"
 	ErrCodeWorkerNotRunning   = "WORKER_NOT_RUNNING"
+	// ErrCodeBackendNotFound → 404: the {backend} path segment on
+	// GET /api/backends/{backend}/images isn't a known backend name
+	// (agent|chat). Distinct from ErrCodeBackendDisabled, which means the
+	// name is known but that backend isn't configured in this deployment.
+	ErrCodeBackendNotFound = "BACKEND_NOT_FOUND"
 )
 
 // catalogProvider supplies the current auto-selectable model candidates.

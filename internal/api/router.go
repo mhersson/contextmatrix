@@ -465,6 +465,24 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		mux.HandleFunc("GET /api/v1/cards/{project}/{id}/autonomous", rh.getCardAutonomous)
 	}
 
+	// Per-backend worker-image lists for the project-settings dropdowns.
+	// Registered unconditionally: per-backend availability is decided inside
+	// the handler (503 BACKEND_DISABLED), since a path-param pattern registers
+	// all-or-nothing. The chat side gets its own signed-GET client — the chat
+	// manager deliberately never exposes its webhook client.
+	imh := &imagesHandlers{
+		authEnabled: cfg.AuthService != nil,
+	}
+	if cfg.Backend != nil {
+		imh.agent = cfg.Backend
+	}
+
+	if cfg.ChatBackendCfg.IsEnabled() && cfg.ChatBackendCfg.APIKey != "" && cfg.ChatBackendCfg.URL != "" {
+		imh.chat = backend.NewClient(cfg.ChatBackendCfg.URL, cfg.ChatBackendCfg.APIKey)
+	}
+
+	mux.HandleFunc("GET /api/backends/{backend}/images", imh.listImages)
+
 	// Chat routes — registered only when both the manager and hub are wired.
 	if cfg.ChatManager != nil && cfg.ChatHub != nil {
 		chh := newChatHandlers(cfg.ChatManager, cfg.ChatHub, cfg.ChatBackendCfg)
