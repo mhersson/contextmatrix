@@ -180,8 +180,7 @@ model pins are applied agent-side, not here.
 `worker_image` is the project's `remote_execution.worker_image` when set,
 otherwise empty and the backend falls back to its configured base image. This
 is the task backend's **language-toolchain seam** — it answers "what toolchain
-does this project's code need" for card runs, independent of
-`remote_execution.enabled` (which gates only whether cards run at all). See
+does this project's code need" for card runs. See
 [Worker image split](#worker-image-split) for how this differs from the chat
 backend's own `chat_worker_image`. The default worker image already carries
 Go, Node, Python, and Rust toolchains; a project in another ecosystem sets
@@ -426,9 +425,8 @@ clean cut, not a shared field:
   there is no fallback to the other field. The two image families bake
   different entrypoints, so a task image on a chat session (or vice versa)
   would not run correctly.
-- `chat_worker_image` applies to every chat session regardless of
-  `remote_execution.enabled` — that flag gates autonomous card execution only,
-  not whether a project's chat sessions get a toolchain image.
+- `chat_worker_image` applies to every chat session — chat is gated only by
+  the chat backend's own configuration, never by the task backend.
 - Both fields share the same hygiene validation (charset-restricted, capped at
   512 bytes, whitespace-trimmed) and the same pointer-merge PUT semantics on
   `PUT /api/projects/{project}`: an omitted field preserves the stored value,
@@ -612,7 +610,7 @@ the CLAUDE.md trust model).
 
 | Endpoint                                          | Behavior                                                                                                                                                                    |
 | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /api/projects/{project}/cards/{id}/run`     | Body `{"interactive": bool}` (empty body OK). Requires state `todo`, `worker_status ∉ {queued, running}`, and per-project remote execution enabled. Auto-patches `feature_branch=true, create_pr=true`, sets `worker_status: queued`, sends `/trigger`. Returns `202`. |
+| `POST /api/projects/{project}/cards/{id}/run`     | Body `{"interactive": bool}` (empty body OK). Requires state `todo` and `worker_status ∉ {queued, running}`. Auto-patches `feature_branch=true, create_pr=true`, sets `worker_status: queued`, sends `/trigger`. Returns `202`. |
 | `POST /api/projects/{project}/cards/{id}/stop`    | Requires `worker_status ∈ {queued, running}`. Sends `/kill`, then sets `worker_status: killed`. Returns `202`.                                                             |
 | `POST /api/projects/{project}/cards/{id}/message` | Body `{"content": "..."}` (≤ 8 KiB). Requires `worker_status == running`. CM generates the `message_id`, forwards to `/message`, returns `202 {"ok": true, "message_id": "..."}`. |
 | `POST /api/projects/{project}/cards/{id}/promote` | Idempotent. When `autonomous` is already true, short-circuits with `202` (no outbound webhook, preventing verify recursion). Otherwise flips `autonomous`, ensures `feature_branch/create_pr`, sends `/promote`, and rolls all three back if the webhook fails. Returns `202`. |
@@ -622,7 +620,7 @@ the CLAUDE.md trust model).
 
 | Code                 | Status    | Meaning                                                                     |
 | -------------------- | --------- | --------------------------------------------------------------------------- |
-| `BACKEND_DISABLED`   | 503 / 403 | No execution backend is configured (503), or remote execution is disabled for this project (403). |
+| `BACKEND_DISABLED`   | 503       | No execution backend is configured.                                          |
 | `WORKER_CONFLICT`    | 409       | Card is already `queued` or `running` on a worker.                          |
 | `WORKER_NOT_RUNNING` | 409       | Card is not currently being executed (stop / message / promote).            |
 | `BACKEND_UNAVAILABLE`| 502       | The outbound webhook to the backend failed.                                 |
@@ -785,22 +783,6 @@ and per-repo credentials fetched on demand from `GET
   can trigger, stop, message, or promote a run, or set the `autonomous`,
   `feature_branch`, and `create_pr` flags. A worker inside a container cannot
   escalate itself to autonomous mode — promotion is verified server-side.
-
-### Per-project kill switch
-
-Each project toggles remote execution in `.board.yaml`:
-
-```yaml
-remote_execution:
-  enabled: true # or false to disable runs for this project
-  worker_image: "my-org/go-worker:latest" # optional task-backend toolchain image (card runs only)
-  chat_worker_image: "my-org/go-chat-worker:latest" # optional chat-backend toolchain image (chat sessions only)
-```
-
-Effective state resolves as: the project's `remote_execution.enabled` if set,
-otherwise whether a task backend is enabled globally. `GET /api/projects` and
-`GET /api/projects/{project}` return the resolved value, so a client never has
-to consult the global config to decide whether the run button is live.
 
 ### Global kill switch
 
@@ -1020,7 +1002,6 @@ on CM's loopback admin listener. Scrape both to cover the full path.
 
 ```yaml
 remote_execution:
-  enabled: true
   worker_image: "my-org/go-worker:latest"
   chat_worker_image: "my-org/go-chat-worker:latest"
 ```
@@ -1032,7 +1013,6 @@ remote_execution:
 | Stop (card)                  | Single card          | Kills the container, sets `worker_status: killed`.   |
 | Stop All                     | All cards in project | Kills every container for the project.               |
 | No task backend enabled      | Global               | Disables all card execution (restart required).      |
-| Per-project `enabled: false` | Single project       | Hides the run button for that project.               |
 
 ## Graceful Shutdown
 
