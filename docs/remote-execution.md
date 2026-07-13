@@ -2,7 +2,7 @@
 
 Remote execution lets a human trigger a worker task from the ContextMatrix web
 UI. Two backends carry that work over the same signed-webhook protocol
-(`contextmatrix-protocol`, currently v0.8.0):
+(`contextmatrix-protocol`, currently v0.11.0):
 
 - **contextmatrix-agent** — the **task backend**. It executes cards: each run
   spawns a disposable Docker container running a multi-model Go orchestrator
@@ -89,8 +89,9 @@ timestamp, and body, so a valid signature for one endpoint cannot be replayed
 against a different endpoint with an identical body (for example `/kill` and
 `/end-session`, which both carry `{card_id, project}`). The scheme covers every
 signed request in both directions: POST webhooks, the signed GETs (`/logs`,
-`/containers`, `/health`, `/autonomous`), and the backend's status callbacks to
-CM. The canonical implementation is `contextmatrix-protocol`'s `hmac.go`.
+`/containers`, `/images`, `/health`, `/autonomous`), and the backend's status
+callbacks to CM. The canonical implementation is `contextmatrix-protocol`'s
+`hmac.go`.
 
 **Signed content:**
 
@@ -134,6 +135,7 @@ backend's base URL (`backends.agent.url`). The task backend exposes:
 | `POST /promote`      | Switch a running HITL card to autonomous mode.     |
 | `POST /end-session`  | Close a HITL container's stdin so it exits.        |
 | `GET /containers`    | List every worker container the backend manages.   |
+| `GET /images`        | List node-local worker images, filtered per-tag by `image_list_filters`. |
 | `GET /logs`          | Subscribe to the live log SSE stream.              |
 | `GET /health`        | Capacity snapshot (running containers, max cap).   |
 | `GET /readyz`        | Backend readiness probe (drain-aware).             |
@@ -177,10 +179,11 @@ model pins are applied agent-side, not here.
 
 `worker_image` is the project's `remote_execution.worker_image` when set,
 otherwise empty and the backend falls back to its configured base image. This
-is the per-project **language-toolchain seam**, shared by task runs (this
-payload) and chat sessions (`/chat/start`): it answers "what toolchain does
-this project's code need", independent of `remote_execution.enabled` (which
-gates only whether cards run at all). The default worker image already carries
+is the task backend's **language-toolchain seam** — it answers "what toolchain
+does this project's code need" for card runs, independent of
+`remote_execution.enabled` (which gates only whether cards run at all). See
+[Worker image split](#worker-image-split) for how this differs from the chat
+backend's own `chat_worker_image`. The default worker image already carries
 Go, Node, Python, and Rust toolchains; a project in another ecosystem sets
 `worker_image` to a custom image built on the worker base.
 
@@ -304,6 +307,34 @@ in-memory tracker and of CM's card-level `worker_status`.
 false` with `state: "running"` is the divergence signature the sweep is built
 to catch — a container Docker is running that the tracker has forgotten.
 
+#### GET {agent_url}/images
+
+Returns the worker images present on the backend's node — the source for CM's
+`GET /api/backends/agent/images` proxy (see [Backend capacity: GET
+/api/backend/health](#backend-capacity-get-apibackendhealth) for the sibling
+health probe, and `docs/api-reference.md` for the CM-side route). Signed GET
+(empty body).
+
+```json
+{
+  "ok": true,
+  "images": [
+    {
+      "tags": ["ghcr.io/example-org/contextmatrix-agent-worker:2026-07-01"],
+      "digests": ["sha256:abc123..."],
+      "created": 1751328000,
+      "size": 1073741824
+    }
+  ]
+}
+```
+
+The backend keeps only tags containing one of its configured
+`image_list_filters` substrings (default `[contextmatrix-agent]`; the chat
+backend's default is `[contextmatrix-chat]`), and skips dangling images (no
+repo tags). A Docker daemon failure returns a generic `502 upstream_failure` —
+see [Backend response format](#backend-response-format).
+
 #### POST {agent_url}/stop-all
 
 ```json
@@ -383,12 +414,37 @@ when it sees a card with `state ∈ {done, not_planned}` and `assigned_agent ==
 [Terminal-state cleanup](#terminal-state-cleanup) for why, and why
 `/end-session` is always followed by an unconditional idempotent `/kill`.
 
+### Worker image split
+
+`remote_execution.worker_image` and `remote_execution.chat_worker_image` are a
+clean cut, not a shared field:
+
+- `worker_image` feeds `/trigger` only (card runs on the task backend).
+- `chat_worker_image` feeds `/chat/start` only (chat sessions on the chat
+  backend).
+- Either one empty means "use that backend's own configured `base_image`" —
+  there is no fallback to the other field. The two image families bake
+  different entrypoints, so a task image on a chat session (or vice versa)
+  would not run correctly.
+- `chat_worker_image` applies to every chat session regardless of
+  `remote_execution.enabled` — that flag gates autonomous card execution only,
+  not whether a project's chat sessions get a toolchain image.
+- Both fields share the same hygiene validation (charset-restricted, capped at
+  512 bytes, whitespace-trimmed) and the same pointer-merge PUT semantics on
+  `PUT /api/projects/{project}`: an omitted field preserves the stored value,
+  an explicit empty string clears it. See `docs/data-model.md` § Project
+  configuration.
+
 ### CM → chat backend webhooks
 
 The chat backend exposes `POST /chat/start`, `POST /chat/end`, `POST /message`,
-and the signed GETs `/logs` / `/health` / `/readyz`. Chat containers run the
-same worker image as card containers but stay long-lived (no per-task cleanup)
-and dispatch on the session ID.
+and the signed GETs `/logs` / `/images` / `/health` / `/readyz`. Chat
+containers run their own worker image (the chat backend's `base_image`, or the
+project's `remote_execution.chat_worker_image` override — never the task
+backend's `worker_image`) but stay long-lived (no per-task cleanup) and
+dispatch on the session ID. `GET /images` behaves exactly as it does for the
+task backend, filtered by the chat backend's own `image_list_filters` (default
+`[contextmatrix-chat]`).
 
 #### POST {chat_url}/chat/start
 
@@ -397,7 +453,7 @@ and dispatch on the session ID.
   "session_id": "01K8ZQH7R3VYJE9XPK4MBWN5T2",
   "project": "contextmatrix",
   "repo_url": "https://github.com/mhersson/contextmatrix.git",
-  "worker_image": "ghcr.io/example-org/cm-worker:2026-07-01",
+  "worker_image": "ghcr.io/example-org/contextmatrix-chat-worker:2026-07-01",
   "mcp_api_key": "<forwarded as CM_MCP_API_KEY>",
   "model": "anthropic/claude-sonnet-4",
   "resume": { "turns": [], "clipped": false, "original_seq": 0 },
@@ -410,8 +466,10 @@ and dispatch on the session ID.
 `mcp_api_key` may be empty when CM's MCP listener has no auth (loopback dev
 mode). `model` is required: the chat backend has no server-side default, so CM
 always populates it from the session row, falling back to
-`backends.chat.default_model`. `worker_image` mirrors `/trigger` — CM populates
-it from `remote_execution.worker_image` on every cold open.
+`backends.chat.default_model`. The wire field is still named `worker_image`
+(the chat protocol's own field), but CM populates it from the project's
+`remote_execution.chat_worker_image` on every cold open — never from
+`remote_execution.worker_image`. See [Worker image split](#worker-image-split).
 
 `resume` is the rehydration payload built by CM's transcript builder. When
 present, the backend materializes it inside the container and switches the
@@ -590,7 +648,7 @@ not on `message`:
 | `conflict`         | 409    | State conflict (card already tracked, or wrong container mode).    |
 | `limit_reached`    | 429    | `max_concurrent` reached.                                          |
 | `too_large`        | 413    | A field exceeds its size cap (the `/message` content cap).         |
-| `upstream_failure` | 502    | An upstream dependency (CM's verify-autonomous) failed.            |
+| `upstream_failure` | 502    | An upstream dependency failed (CM's verify-autonomous check, or the local Docker daemon for `/images`). |
 | `draining`         | 503    | Graceful shutdown started; mutating endpoints refuse new work.     |
 | `internal`         | 500    | Server-side bug; the message is fixed and never echoes `err`.      |
 
@@ -735,7 +793,8 @@ Each project toggles remote execution in `.board.yaml`:
 ```yaml
 remote_execution:
   enabled: true # or false to disable runs for this project
-  worker_image: "my-org/go-worker:latest" # optional per-project toolchain image; used by card runs AND chat sessions
+  worker_image: "my-org/go-worker:latest" # optional task-backend toolchain image (card runs only)
+  chat_worker_image: "my-org/go-chat-worker:latest" # optional chat-backend toolchain image (chat sessions only)
 ```
 
 Effective state resolves as: the project's `remote_execution.enabled` if set,
@@ -824,6 +883,27 @@ a backend outage never storm the backend with redundant probes. It returns
 `503 BACKEND_DISABLED` when no task backend is configured and `502
 BACKEND_UNAVAILABLE` when the backend is unreachable; callers fail soft (hide
 the meter).
+
+### Backend worker images: GET /api/backends/{backend}/images
+
+The project-settings image pickers read `GET /api/backends/{backend}/images`
+(`backend` is `agent` or `chat`), which proxies that backend's own `GET
+/images`. `internal/api/backend_images.go` caches each backend's probe result
+for 30 seconds behind a singleflight, coalescing concurrent callers; the probe
+itself runs on a detached context so a departing caller's cancellation cannot
+poison the cache for the next one. The 30-second window is longer than the
+health cache and is load-bearing, not just an optimization: concurrent
+same-second signed GETs would otherwise produce identical HMAC signatures and
+collide in the backend's replay cache.
+
+The route is session-guarded like the rest of the API in multi mode, and
+additionally admin-gated inside the handler — the same gate as the
+project-settings `PUT` the picker feeds; open in none mode, like the rest of
+the API. It returns `404 BACKEND_NOT_FOUND` for an unknown `{backend}` value,
+`503 BACKEND_DISABLED` when that backend isn't configured, and `502
+BACKEND_UNAVAILABLE` when the upstream probe fails; callers fail soft (the
+picker degrades to "Backend default" plus any saved value). See
+`docs/api-reference.md` for the full response shape.
 
 ## Card worker status
 
@@ -942,6 +1022,7 @@ on CM's loopback admin listener. Scrape both to cover the full path.
 remote_execution:
   enabled: true
   worker_image: "my-org/go-worker:latest"
+  chat_worker_image: "my-org/go-chat-worker:latest"
 ```
 
 ## Kill Switch Semantics
@@ -959,8 +1040,9 @@ Each backend handles `SIGTERM` with a structured drain: `/readyz` flips to `503
 draining` so load balancers stop routing new webhooks; in-flight requests
 finish; the mutating endpoints (`/trigger`, `/message`, `/promote`,
 `/end-session`) short-circuit with `503 draining` while `/kill`, `/stop-all`,
-`/containers`, `/health`, and `/readyz` stay reachable so operators can still
-read state and stop work; tracked containers are stopped; and the process exits
+`/containers`, `/images`, `/health`, and `/readyz` stay reachable so operators
+can still read state and stop work; tracked containers are stopped; and the
+process exits
 after a bounded drain window. The exact drain timeout and force-cleanup behavior
 are backend-internal — see each backend's repository.
 
