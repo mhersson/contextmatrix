@@ -65,9 +65,11 @@ type UpdateProjectInput struct {
 // RemoteExecutionUpdate carries per-field edits to a project's remote-execution
 // config. Each pointer is applied independently: nil leaves the subfield
 // untouched; non-nil sets it. A non-nil WorkerImage of "" clears the image.
+// A non-nil ChatWorkerImage of "" clears the chat image.
 type RemoteExecutionUpdate struct {
-	Enabled     *bool
-	WorkerImage *string
+	Enabled         *bool
+	WorkerImage     *string
+	ChatWorkerImage *string
 }
 
 // validWorkerImage is a hygiene-only screen for a per-project worker image
@@ -277,11 +279,20 @@ func (s *CardService) UpdateProject(ctx context.Context, name string, input Upda
 
 		if input.RemoteExecution.WorkerImage != nil {
 			image := strings.TrimSpace(*input.RemoteExecution.WorkerImage)
-			if err := validateWorkerImage(image); err != nil {
+			if err := validateWorkerImage("worker_image", image); err != nil {
 				return nil, err
 			}
 
 			re.WorkerImage = image
+		}
+
+		if input.RemoteExecution.ChatWorkerImage != nil {
+			image := strings.TrimSpace(*input.RemoteExecution.ChatWorkerImage)
+			if err := validateWorkerImage("chat_worker_image", image); err != nil {
+				return nil, err
+			}
+
+			re.ChatWorkerImage = image
 		}
 
 		// Normalize: drop a zero-value config so .board.yaml stays clean.
@@ -739,20 +750,20 @@ func copyProjectConfig(cfg *board.ProjectConfig) *board.ProjectConfig {
 
 // validateWorkerImage screens a per-project worker image reference for hygiene
 // only (length + allowed characters); exact OCI reference grammar is left to
-// the container runtime. Empty is allowed — it clears the image. Wraps
-// ErrInvalidProjectConfig so the API layer maps it to 422, matching the other
-// project-config validation failures.
-func validateWorkerImage(image string) error {
+// the container runtime. Empty is allowed — it clears the image. field names
+// the offending key in the error. Wraps ErrInvalidProjectConfig so the API
+// layer maps it to 422, matching the other project-config validation failures.
+func validateWorkerImage(field, image string) error {
 	if image == "" {
 		return nil
 	}
 
 	if len(image) > maxWorkerImageLen {
-		return fmt.Errorf("%w: worker_image exceeds %d bytes", board.ErrInvalidProjectConfig, maxWorkerImageLen)
+		return fmt.Errorf("%w: %s exceeds %d bytes", board.ErrInvalidProjectConfig, field, maxWorkerImageLen)
 	}
 
 	if !validWorkerImage.MatchString(image) {
-		return fmt.Errorf("%w: worker_image contains invalid characters", board.ErrInvalidProjectConfig)
+		return fmt.Errorf("%w: %s contains invalid characters", board.ErrInvalidProjectConfig, field)
 	}
 
 	return nil
@@ -764,7 +775,7 @@ func validateWorkerImage(image string) error {
 // meaningful per-project override of the global default (see
 // backendHandlers.isRemoteExecutionEnabled) and must be preserved.
 func remoteExecutionIsZero(re *board.RemoteExecutionConfig) bool {
-	return re.Enabled == nil && re.WorkerImage == ""
+	return re.Enabled == nil && re.WorkerImage == "" && re.ChatWorkerImage == ""
 }
 
 // toSet converts a slice to a set for membership checks.

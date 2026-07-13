@@ -40,10 +40,12 @@ type updateProjectRequest struct {
 // remoteExecutionUpdate is the field-level merge shape for remote_execution on
 // PUT /api/projects/{project}. Each pointer is applied independently: nil
 // preserves the current subfield, non-nil sets it (worker_image "" clears the
-// image). Omitting the whole object preserves the existing config.
+// image; chat_worker_image "" clears the chat image). Omitting the whole
+// object preserves the existing config.
 type remoteExecutionUpdate struct {
-	Enabled     *bool   `json:"enabled"`
-	WorkerImage *string `json:"worker_image"`
+	Enabled         *bool   `json:"enabled"`
+	WorkerImage     *string `json:"worker_image"`
+	ChatWorkerImage *string `json:"chat_worker_image"`
 }
 
 // projectHandlers contains handlers for project-related endpoints.
@@ -282,8 +284,9 @@ func (h *projectHandlers) updateProject(w http.ResponseWriter, r *http.Request) 
 	var remoteExecution *service.RemoteExecutionUpdate
 	if req.RemoteExecution != nil {
 		remoteExecution = &service.RemoteExecutionUpdate{
-			Enabled:     req.RemoteExecution.Enabled,
-			WorkerImage: req.RemoteExecution.WorkerImage,
+			Enabled:         req.RemoteExecution.Enabled,
+			WorkerImage:     req.RemoteExecution.WorkerImage,
+			ChatWorkerImage: req.RemoteExecution.ChatWorkerImage,
 		}
 	}
 
