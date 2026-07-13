@@ -294,6 +294,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		mobMaxParticipants:     cfg.Mob.MaxParticipants,
 		mobDefaultParticipants: cfg.Mob.DefaultParticipants,
 		mobGuestNames:          mobGuestNames(cfg.Mob.Guests),
+		chatEnabled:            cfg.ChatManager != nil && cfg.ChatHub != nil,
 	}
 	bh := &branchHandlers{
 		svc:                cfg.Service,

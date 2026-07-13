@@ -29,6 +29,10 @@ type appConfigHandlers struct {
 	mobMaxParticipants     int
 	mobDefaultParticipants int
 	mobGuestNames          []string
+	// chatEnabled mirrors the chat-routes gate (ChatManager + ChatHub both
+	// wired). Full payload only — lets the settings UI decide whether to
+	// render the chat image picker.
+	chatEnabled bool
 }
 
 type appConfigResponse struct {
@@ -42,6 +46,7 @@ type appConfigResponse struct {
 	MobMaxParticipants     int                 `json:"mob_max_participants,omitempty"`
 	MobDefaultParticipants int                 `json:"mob_default_participants,omitempty"`
 	MobGuestNames          []string            `json:"mob_guest_names,omitempty"`
+	ChatEnabled            bool                `json:"chat_enabled"`
 }
 
 // appConfigSlimResponse is served to unauthenticated callers in multi mode:
@@ -106,6 +111,7 @@ func (h *appConfigHandlers) getAppConfig(w http.ResponseWriter, r *http.Request)
 		MobMaxParticipants:     h.mobMaxParticipants,
 		MobDefaultParticipants: h.mobDefaultParticipants,
 		MobGuestNames:          h.mobGuestNames,
+		ChatEnabled:            h.chatEnabled,
 	})
 }
 

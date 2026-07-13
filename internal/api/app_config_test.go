@@ -253,6 +253,49 @@ func TestGetAppConfig_Mob(t *testing.T) {
 	})
 }
 
+func TestAppConfig_ChatEnabledFollowsChatWiring(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	t.Cleanup(cleanup)
+
+	// Without chat wiring: chat_enabled is false.
+	server := httptest.NewServer(NewRouter(RouterConfig{Service: svc, Bus: bus}))
+	t.Cleanup(server.Close)
+
+	resp := doGet(t, server.URL+"/api/app/config")
+	defer closeBody(t, resp.Body)
+
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var cfg struct {
+		ChatEnabled bool `json:"chat_enabled"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&cfg))
+	assert.False(t, cfg.ChatEnabled)
+}
+
+// TestAppConfig_ChatEnabledTrue exercises the true case at the
+// appConfigHandlers unit level: constructing a full RouterConfig with a real
+// chat.Manager + chat.SSEHub just to flip chat_enabled would be disproportionate
+// (no other app-config test wires the router that deep), and no existing
+// chat-route test builds RouterConfig with ChatManager/ChatHub to mirror —
+// the chat handler tests call newChatHandlers directly instead.
+func TestAppConfig_ChatEnabledTrue(t *testing.T) {
+	h := &appConfigHandlers{theme: "everforest", chatEnabled: true}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/app/config", nil)
+	w := httptest.NewRecorder()
+	h.getAppConfig(w, req)
+
+	res := w.Result()
+	defer closeBody(t, res.Body)
+
+	require.Equal(t, http.StatusOK, res.StatusCode)
+
+	var got appConfigResponse
+	require.NoError(t, json.NewDecoder(res.Body).Decode(&got))
+	assert.True(t, got.ChatEnabled)
+}
+
 func TestMobGuestNames(t *testing.T) {
 	assert.Nil(t, mobGuestNames(nil))
 	assert.Equal(t, []string{"laptop", "desk"}, mobGuestNames([]config.MobGuest{
