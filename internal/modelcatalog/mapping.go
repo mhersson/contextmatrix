@@ -52,7 +52,7 @@ func mapAASlug(aaSlug, aaCreator string) (string, bool) {
 // auto-selection. Overridable via config (see Builder.Allowlist).
 var trustedCreators = []string{
 	"openai", "anthropic", "google", "deepseek", "alibaba",
-	"zai", "kimi", "xiaomi", "minimax", "mistral", "x-ai",
+	"zai", "minimax", "x-ai",
 }
 
 func isTrusted(creator string, allow []string) bool {
