@@ -30,8 +30,7 @@ function ghToString(gh: GitHubImportConfig | undefined): string {
 
 // verifyToString normalizes a verify config to a stable shape so the diff-guard
 // treats absent and zero-value fields identically. remote_execution uses a
-// touched flag instead (its GET/PUT baselines diverge); verify has no such
-// divergence, so a value diff is a reliable dirty signal here.
+// touched flag instead (see handleSave).
 function verifyToString(v: VerifyConfig | undefined): string {
   const vv = v ?? emptyVerify;
   return JSON.stringify({
