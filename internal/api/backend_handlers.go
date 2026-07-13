@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"net/http"
 	"sync"
 	"time"
 
@@ -155,18 +154,3 @@ const backendHealthCacheTTL = 2 * time.Second
 // calls. Tighter than the backend client's default 10s so a hung backend
 // doesn't pin every browser tab for that long.
 const backendHealthProbeTimeout = 3 * time.Second
-
-// isRemoteExecutionEnabled checks if remote execution is enabled for the given project,
-// falling back to whether a task backend is configured when not set per-project.
-func (h *backendHandlers) isRemoteExecutionEnabled(r *http.Request, project string) bool {
-	projectCfg, err := h.svc.GetProject(r.Context(), project)
-	if err != nil {
-		return h.backend != nil
-	}
-
-	if projectCfg.RemoteExecution != nil && projectCfg.RemoteExecution.Enabled != nil {
-		return *projectCfg.RemoteExecution.Enabled
-	}
-
-	return h.backend != nil
-}

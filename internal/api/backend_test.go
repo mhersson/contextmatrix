@@ -525,8 +525,11 @@ func TestRunCard_ContextCancelledDuringWebhook(t *testing.T) {
 		"card must be reverted to failed even when client context is cancelled mid-webhook")
 }
 
-func TestRunCard_PerProjectDisabled(t *testing.T) {
-	boardConfigDisabled := `name: test-project
+// TestRunCard_IgnoresStoredEnabledFalse pins the skew-safety contract: a
+// legacy per-project `enabled: false` left in .board.yaml must not block
+// runs — the only run gate is whether a task backend is configured.
+func TestRunCard_IgnoresStoredEnabledFalse(t *testing.T) {
+	boardConfigLegacyDisabled := `name: test-project
 prefix: TEST
 next_id: 1
 repo: https://github.com/example/project.git
@@ -543,7 +546,7 @@ remote_execution:
   enabled: false
 `
 
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigDisabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigLegacyDisabled)
 	defer cleanup()
 
 	ctx := context.Background()
@@ -576,11 +579,8 @@ remote_execution:
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
-	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
-
-	var apiErr APIError
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
-	assert.Equal(t, ErrCodeBackendDisabled, apiErr.Code)
+	assert.Equal(t, http.StatusAccepted, resp.StatusCode,
+		"a stored enabled:false must be ignored; the global backend is the only gate")
 }
 
 // --- Trigger minting: project git token + LLM endpoint (S6b token authority) ---
