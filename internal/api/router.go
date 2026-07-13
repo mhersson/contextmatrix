@@ -283,6 +283,13 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		taskBackendName = config.BackendNameAgent
 	}
 
+	// chatBackendConfigured reports whether a dedicated chat backend entry is
+	// enabled with both url and api_key set. This is the single source of
+	// truth for "a chat backend is configured": it feeds chat_enabled in app
+	// config below and the images route's chat probe client further down —
+	// both express the same condition, so it is computed once here.
+	chatBackendConfigured := cfg.ChatBackendCfg.IsEnabled() && cfg.ChatBackendCfg.APIKey != "" && cfg.ChatBackendCfg.URL != ""
+
 	ach := &appConfigHandlers{
 		theme:                  cfg.Theme,
 		version:                cfg.Version,
@@ -294,7 +301,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		mobMaxParticipants:     cfg.Mob.MaxParticipants,
 		mobDefaultParticipants: cfg.Mob.DefaultParticipants,
 		mobGuestNames:          mobGuestNames(cfg.Mob.Guests),
-		chatEnabled:            cfg.ChatManager != nil && cfg.ChatHub != nil,
+		chatEnabled:            chatBackendConfigured,
 	}
 	bh := &branchHandlers{
 		svc:                cfg.Service,
@@ -478,7 +485,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		imh.agent = cfg.Backend
 	}
 
-	if cfg.ChatBackendCfg.IsEnabled() && cfg.ChatBackendCfg.APIKey != "" && cfg.ChatBackendCfg.URL != "" {
+	if chatBackendConfigured {
 		imh.chat = backend.NewClient(cfg.ChatBackendCfg.URL, cfg.ChatBackendCfg.APIKey)
 	}
 

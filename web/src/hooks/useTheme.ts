@@ -75,7 +75,7 @@ interface ThemeContextValue {
    */
   taskBackend: string;
   /**
-   * Whether the chat subsystem is wired, from `/api/app/config`
+   * Whether a chat backend is configured, from `/api/app/config`
    * (`chat_enabled`). False on the slim pre-login payload and on servers
    * older than this field. Drives the chat worker-image picker.
    */

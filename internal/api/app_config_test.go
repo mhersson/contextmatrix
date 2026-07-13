@@ -273,26 +273,32 @@ func TestAppConfig_ChatEnabledFollowsChatWiring(t *testing.T) {
 	assert.False(t, cfg.ChatEnabled)
 }
 
-// TestAppConfig_ChatEnabledTrue exercises the true case at the
-// appConfigHandlers unit level: constructing a full RouterConfig with a real
-// chat.Manager + chat.SSEHub just to flip chat_enabled would be disproportionate
-// (no other app-config test wires the router that deep), and no existing
-// chat-route test builds RouterConfig with ChatManager/ChatHub to mirror —
-// the chat handler tests call newChatHandlers directly instead.
+// TestAppConfig_ChatEnabledTrue exercises the true case at the router level:
+// chat_enabled now means "a chat backend is configured" (an enabled
+// backends.chat entry with url and api_key set), the same condition the
+// images route uses to build its chat probe client (mirrors
+// TestBackendImages_Chat in backend_images_test.go). No ChatManager/ChatHub
+// wiring is needed for this to be true.
 func TestAppConfig_ChatEnabledTrue(t *testing.T) {
-	h := &appConfigHandlers{theme: "everforest", chatEnabled: true}
+	svc, bus, cleanup := testSetup(t)
+	t.Cleanup(cleanup)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/app/config", nil)
-	w := httptest.NewRecorder()
-	h.getAppConfig(w, req)
+	server := httptest.NewServer(NewRouter(RouterConfig{
+		Service: svc, Bus: bus,
+		ChatBackendCfg: &config.ChatBackendConfig{
+			URL:    "http://chat-backend.invalid",
+			APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
+		},
+	}))
+	t.Cleanup(server.Close)
 
-	res := w.Result()
-	defer closeBody(t, res.Body)
+	resp := doGet(t, server.URL+"/api/app/config")
+	defer closeBody(t, resp.Body)
 
-	require.Equal(t, http.StatusOK, res.StatusCode)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var got appConfigResponse
-	require.NoError(t, json.NewDecoder(res.Body).Decode(&got))
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
 	assert.True(t, got.ChatEnabled)
 }
 

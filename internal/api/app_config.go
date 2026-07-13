@@ -29,9 +29,10 @@ type appConfigHandlers struct {
 	mobMaxParticipants     int
 	mobDefaultParticipants int
 	mobGuestNames          []string
-	// chatEnabled mirrors the chat-routes gate (ChatManager + ChatHub both
-	// wired). Full payload only — lets the settings UI decide whether to
-	// render the chat image picker.
+	// chatEnabled reports whether a chat backend is configured (an enabled
+	// backends.chat entry with url and api_key set — see NewRouter's
+	// chatBackendConfigured). Full payload only — lets the settings UI decide
+	// whether to render the chat image picker.
 	chatEnabled bool
 }
 

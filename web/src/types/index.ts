@@ -444,9 +444,9 @@ export interface AppConfig {
    */
   task_backend?: string;
   /**
-   * Whether the chat subsystem is wired (chat routes registered). Drives the
-   * chat worker-image picker in project settings. Full-payload-only, same
-   * posture as task_backend.
+   * Whether a chat backend is configured. Drives the chat worker-image
+   * picker in project settings. Full-payload-only, same posture as
+   * task_backend.
    */
   chat_enabled?: boolean;
   /**

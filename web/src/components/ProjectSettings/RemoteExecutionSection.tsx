@@ -14,7 +14,7 @@ export interface RemoteExecutionSectionProps {
   inputStyle: CSSProperties;
   /** Non-admins in multi mode: pickers skip their fetch and render text. */
   readOnly: boolean;
-  /** Whether the chat subsystem is wired (AppConfig.chat_enabled). */
+  /** Whether a chat backend is configured (AppConfig.chat_enabled). */
   chatEnabled: boolean;
 }
 

@@ -926,11 +926,13 @@ panel's mob session seats selector. `mob_guest_names` lists the `mob.guests`
 registry names for the guest multi-select — names only, never URLs or
 tokens; it is omitted when the registry is empty. All three ride only on the
 full payload, like the `best_of_n` fields.
-`chat_enabled` mirrors whether the chat routes are registered (the chat
-manager and SSE hub are both wired) — the settings UI uses it to decide
-whether to render the chat image picker. Unlike the other UI-facing fields
-above, it has no `omitempty`: it is always present on the full payload, `true`
-or `false`, and simply absent from the slim pre-login payload below.
+`chat_enabled` is true when a chat backend is configured (an enabled
+`backends.chat` entry with `url` and `api_key` set — the same condition the
+per-backend images route uses for its chat probe client) — the settings UI
+uses it to decide whether to render the chat image picker. Unlike the other
+UI-facing fields above, it has no `omitempty`: it is always present on the
+full payload, `true` or `false`, and simply absent from the slim pre-login
+payload below.
 
 **Response — unauthenticated caller in `multi` mode:** `task_backend`,
 `favorites`, `best_of_n_max`, `best_of_n_default`, `mob_max_participants`,
