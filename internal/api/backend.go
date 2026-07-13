@@ -24,6 +24,7 @@ type TaskBackend interface {
 	EndSession(ctx context.Context, p backend.EndSessionPayload) error
 	Health(ctx context.Context) (backend.HealthInfo, error)
 	ListContainers(ctx context.Context) ([]backend.ContainerInfo, error)
+	ListImages(ctx context.Context) ([]backend.ImageInfo, error)
 }
 
 // Compile-time check: the backend webhook client implements the contract.

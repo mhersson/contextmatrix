@@ -615,3 +615,43 @@ func TestClient_DecodesProtocolErrorCodeOn4xx(t *testing.T) {
 	assert.Contains(t, err.Error(), "card already tracked")
 	assert.NotContains(t, err.Error(), "{", "raw JSON must not be embedded in the error")
 }
+
+func TestListImages_ParsesAndSigns(t *testing.T) {
+	var gotSig, gotTS string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodGet, r.Method)
+		assert.Equal(t, "/images", r.URL.Path)
+		gotSig = r.Header.Get(protocol.SignatureHeader)
+		gotTS = r.Header.Get(protocol.TimestampHeader)
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"images":[{"tags":["contextmatrix-agent-worker:go-node"],` +
+			`"digests":["contextmatrix-agent-worker@sha256:abc"],"created":1750000000,"size":42}]}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	client := NewClient(srv.URL, "test-key")
+
+	images, err := client.ListImages(context.Background())
+	require.NoError(t, err)
+
+	require.Len(t, images, 1)
+	assert.Equal(t, []string{"contextmatrix-agent-worker:go-node"}, images[0].Tags)
+	assert.Equal(t, []string{"contextmatrix-agent-worker@sha256:abc"}, images[0].Digests)
+	assert.Equal(t, int64(1750000000), images[0].Created)
+	assert.Equal(t, int64(42), images[0].Size)
+
+	assert.NotEmpty(t, gotSig, "GET /images must be HMAC-signed")
+	assert.NotEmpty(t, gotTS)
+}
+
+func TestListImages_NotOKIsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"ok":false,"images":[]}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	_, err := NewClient(srv.URL, "test-key").ListImages(context.Background())
+	require.Error(t, err)
+}

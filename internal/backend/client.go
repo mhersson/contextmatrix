@@ -182,6 +182,49 @@ func (c *Client) ListContainers(ctx context.Context) ([]ContainerInfo, error) {
 	return out, nil
 }
 
+// ImageInfo is a decoded entry from GET /images: one worker image present on
+// the backend's node, already filtered by the backend's image_list_filters.
+// Created is unix seconds and Size bytes, both passed through verbatim from
+// the Docker daemon; Digests may be empty for locally built images.
+type ImageInfo struct {
+	Tags    []string
+	Digests []string
+	Created int64
+	Size    int64
+}
+
+// ListImages queries the backend's /images endpoint for the worker images
+// available on its node. The backend applies its own name filtering; CM does
+// not second-guess the list. Works against any backend speaking the shared
+// HMAC GET scheme — the images route uses one Client per configured backend.
+func (c *Client) ListImages(ctx context.Context) ([]ImageInfo, error) {
+	body, err := c.sendGet(ctx, c.baseURL+"/images")
+	if err != nil {
+		return nil, err
+	}
+
+	var parsed protocol.ListImagesResponse
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return nil, fmt.Errorf("parse /images response: %w", err)
+	}
+
+	if !parsed.OK {
+		return nil, fmt.Errorf("backend /images returned ok=false")
+	}
+
+	out := make([]ImageInfo, 0, len(parsed.Images))
+	for _, img := range parsed.Images {
+		out = append(out, ImageInfo{
+			Tags:    img.Tags,
+			Digests: img.Digests,
+			Created: img.Created,
+			Size:    img.Size,
+		})
+	}
+
+	return out, nil
+}
+
 // requestURI extracts the request-target form (path + "?" + raw query) of an
 // absolute URL for HMAC signing. The receiver binds the signature to
 // r.URL.RequestURI(), so sender and receiver must agree — any URI-rewriting
