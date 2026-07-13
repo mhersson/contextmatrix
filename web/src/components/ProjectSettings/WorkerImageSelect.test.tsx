@@ -79,6 +79,46 @@ describe('WorkerImageSelect', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/not present on the worker node/i);
   });
 
+  it('recognizes a digest-pinned saved value via the image digests, no warning', async () => {
+    mocks.getBackendImages.mockResolvedValue({
+      ok: true,
+      images: [
+        {
+          tags: ['contextmatrix-agent-worker:go-node'],
+          digests: ['contextmatrix-agent-worker@sha256:abc123'],
+        },
+      ],
+    });
+
+    renderSelect({ value: 'contextmatrix-agent-worker@sha256:abc123' });
+    await waitFor(() => expect(mocks.getBackendImages).toHaveBeenCalled());
+
+    expect(
+      await screen.findByRole('option', { name: 'contextmatrix-agent-worker@sha256:abc123' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('combobox')).toHaveValue('contextmatrix-agent-worker@sha256:abc123');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('shows the saved value as a selectable option before the fetch resolves', () => {
+    let resolveFetch: (value: { ok: true; images: never[] }) => void = () => {};
+    mocks.getBackendImages.mockReturnValue(
+      new Promise((resolve) => {
+        resolveFetch = resolve;
+      }),
+    );
+
+    renderSelect({ value: 'contextmatrix-agent-worker:pinned' });
+
+    expect(
+      screen.getByRole('option', { name: 'contextmatrix-agent-worker:pinned' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('combobox')).toHaveValue('contextmatrix-agent-worker:pinned');
+
+    // Resolve so the pending promise doesn't leak state updates into later tests.
+    resolveFetch({ ok: true, images: [] });
+  });
+
   it('degrades to Backend default + saved value with a notice when the fetch fails', async () => {
     mocks.getBackendImages.mockRejectedValue({ error: 'backend images probe failed', code: 'BACKEND_UNAVAILABLE' });
 
