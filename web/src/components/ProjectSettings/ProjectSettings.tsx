@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo, useEffect, useId } from 'react';
 import { api, isAPIError } from '../../api/client';
 import { useOptionalAuth } from '../../hooks/useAuth';
+import { useTheme } from '../../hooks/useTheme';
 import type { GitHubImportConfig, ProjectConfig, UpdateProjectInput } from '../../types';
 import { DefaultSkillsSelector } from './DefaultSkillsSelector';
 import { GitHubCredentialSection } from './GitHubCredentialSection';
@@ -52,6 +53,8 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
   const mode = auth?.mode ?? 'none';
   const isAdmin = Boolean(auth?.user?.is_admin);
   const readOnly = mode === 'multi' && !isAdmin;
+
+  const { chatEnabled } = useTheme();
 
   const repoId = useId();
 
@@ -218,6 +221,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
               remote_execution: {
                 enabled: !!remoteExecution.enabled,
                 worker_image: remoteExecution.worker_image ?? '',
+                chat_worker_image: remoteExecution.chat_worker_image ?? '',
               },
             }
           : {}),
@@ -460,6 +464,8 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
             setRemoteExecutionTouched(true);
           }}
           inputStyle={inputStyle}
+          readOnly={readOnly}
+          chatEnabled={chatEnabled}
         />
 
         {/* Verify gate */}

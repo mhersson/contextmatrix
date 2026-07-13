@@ -1,19 +1,30 @@
 import { useId } from 'react';
 import type { CSSProperties } from 'react';
+import { WorkerImageSelect } from './WorkerImageSelect';
 
 export interface RemoteExecutionConfig {
   enabled?: boolean;
   worker_image?: string;
+  chat_worker_image?: string;
 }
 
 export interface RemoteExecutionSectionProps {
   value: RemoteExecutionConfig;
   onChange: (next: RemoteExecutionConfig) => void;
   inputStyle: CSSProperties;
+  /** Non-admins in multi mode: pickers skip their fetch and render text. */
+  readOnly: boolean;
+  /** Whether the chat subsystem is wired (AppConfig.chat_enabled). */
+  chatEnabled: boolean;
 }
 
-export function RemoteExecutionSection({ value, onChange, inputStyle }: RemoteExecutionSectionProps) {
-  const workerImageId = useId();
+export function RemoteExecutionSection({
+  value,
+  onChange,
+  inputStyle,
+  readOnly,
+  chatEnabled,
+}: RemoteExecutionSectionProps) {
   const headingId = useId();
 
   const update = (patch: Partial<RemoteExecutionConfig>) =>
@@ -41,27 +52,26 @@ export function RemoteExecutionSection({ value, onChange, inputStyle }: RemoteEx
           </span>
         </label>
         {value.enabled && (
-          <div>
-            <label
-              htmlFor={workerImageId}
-              className="block text-xs mb-1"
-              style={{ color: 'var(--grey1)' }}
-            >
-              Worker image
-            </label>
-            <input
-              id={workerImageId}
-              type="text"
-              value={value.worker_image ?? ''}
-              onChange={(e) => update({ worker_image: e.target.value || undefined })}
-              placeholder="e.g. ghcr.io/org/worker:latest"
-              className="w-full px-3 py-2 rounded text-sm border focus:outline-none"
-              style={inputStyle}
-            />
-            <p className="mt-1 text-xs" style={{ color: 'var(--grey1)' }}>
-              Worker image must contain this project&apos;s language toolchain.
-            </p>
-          </div>
+          <WorkerImageSelect
+            backend="agent"
+            label="Task worker image"
+            value={value.worker_image ?? ''}
+            onChange={(img) => update({ worker_image: img || undefined })}
+            readOnly={readOnly}
+            inputStyle={inputStyle}
+            hint="Runs cards. Must contain this project's language toolchain."
+          />
+        )}
+        {chatEnabled && (
+          <WorkerImageSelect
+            backend="chat"
+            label="Chat worker image"
+            value={value.chat_worker_image ?? ''}
+            onChange={(img) => update({ chat_worker_image: img || undefined })}
+            readOnly={readOnly}
+            inputStyle={inputStyle}
+            hint="Chat sessions use this image even while remote execution is disabled."
+          />
         )}
       </div>
     </div>

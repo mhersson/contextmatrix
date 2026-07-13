@@ -11,7 +11,9 @@ const mocks = vi.hoisted(() => ({
   updateProject: vi.fn(),
   adminListCredentials: vi.fn(),
   getTaskSkills: vi.fn(),
+  getBackendImages: vi.fn(),
   useOptionalAuth: vi.fn(),
+  useTheme: vi.fn(),
 }));
 
 vi.mock('../../api/client', async (importOriginal) => {
@@ -27,6 +29,7 @@ vi.mock('../../api/client', async (importOriginal) => {
       // DefaultSkillsSelector (always mounted as a ProjectSettings child)
       // calls this on mount — not otherwise relevant to this test file.
       getTaskSkills: mocks.getTaskSkills,
+      getBackendImages: mocks.getBackendImages,
     },
   };
 });
@@ -36,6 +39,12 @@ vi.mock('../../api/client', async (importOriginal) => {
 // mirrors web/src/hooks/useIdentity.test.tsx's vi.mock('./useAuth', ...) style.
 vi.mock('../../hooks/useAuth', () => ({
   useOptionalAuth: mocks.useOptionalAuth,
+}));
+
+// ProjectSettings now consumes useTheme() for chatEnabled; the test file
+// renders without a ThemeProvider, so mock the hook directly.
+vi.mock('../../hooks/useTheme', () => ({
+  useTheme: mocks.useTheme,
 }));
 
 function baseConfig(overrides: Partial<ProjectConfig> = {}): ProjectConfig {
@@ -78,6 +87,8 @@ beforeEach(() => {
   mocks.getCards.mockResolvedValue([]);
   mocks.adminListCredentials.mockResolvedValue([]);
   mocks.getTaskSkills.mockResolvedValue([]);
+  mocks.getBackendImages.mockResolvedValue({ ok: true, images: [] });
+  mocks.useTheme.mockReturnValue({ chatEnabled: true });
 });
 
 async function renderSettings() {
@@ -160,6 +171,10 @@ describe('ProjectSettings — handleSave payload construction for remote_executi
 
   it('changed: enabling remote execution and setting an image sends the pointer-shaped payload', async () => {
     mocks.getProject.mockResolvedValue(baseConfig());
+    mocks.getBackendImages.mockResolvedValue({
+      ok: true,
+      images: [{ tags: ['ghcr.io/org/worker:latest'] }],
+    });
     mocks.updateProject.mockResolvedValue(
       baseConfig({ remote_execution: { enabled: true, worker_image: 'ghcr.io/org/worker:latest' } }),
     );
@@ -168,8 +183,8 @@ describe('ProjectSettings — handleSave payload construction for remote_executi
 
     fireEvent.click(screen.getByRole('checkbox', { name: /enable remote execution/i }));
 
-    const imageInput = await screen.findByLabelText(/worker image/i);
-    fireEvent.change(imageInput, { target: { value: 'ghcr.io/org/worker:latest' } });
+    const imageSelect = await screen.findByLabelText(/task worker image/i);
+    fireEvent.change(imageSelect, { target: { value: 'ghcr.io/org/worker:latest' } });
 
     const saveButton = screen.getByRole('button', { name: /save/i });
     await waitFor(() => expect(saveButton).not.toBeDisabled());
@@ -180,7 +195,60 @@ describe('ProjectSettings — handleSave payload construction for remote_executi
     expect(body.remote_execution).toEqual({
       enabled: true,
       worker_image: 'ghcr.io/org/worker:latest',
+      chat_worker_image: '',
     });
+  });
+
+  it('changed: picking a chat image sends chat_worker_image in the payload', async () => {
+    mocks.getProject.mockResolvedValue(baseConfig());
+    mocks.getBackendImages.mockImplementation((backend: string) =>
+      Promise.resolve({
+        ok: true,
+        images:
+          backend === 'chat'
+            ? [{ tags: ['contextmatrix-chat-worker:go-node'] }]
+            : [{ tags: ['contextmatrix-agent-worker:go-node'] }],
+      }),
+    );
+    mocks.updateProject.mockResolvedValue(
+      baseConfig({ remote_execution: { chat_worker_image: 'contextmatrix-chat-worker:go-node' } }),
+    );
+
+    await renderSettings();
+
+    const chatSelect = await screen.findByLabelText(/chat worker image/i);
+    await screen.findByRole('option', { name: 'contextmatrix-chat-worker:go-node' });
+    fireEvent.change(chatSelect, { target: { value: 'contextmatrix-chat-worker:go-node' } });
+
+    const saveButton = screen.getByRole('button', { name: /save/i });
+    await waitFor(() => expect(saveButton).not.toBeDisabled());
+    fireEvent.click(saveButton);
+
+    await waitFor(() => expect(mocks.updateProject).toHaveBeenCalled());
+    const [, body] = mocks.updateProject.mock.calls[0];
+    expect(body.remote_execution).toEqual({
+      enabled: false,
+      worker_image: '',
+      chat_worker_image: 'contextmatrix-chat-worker:go-node',
+    });
+  });
+
+  it('chat picker renders without the remote-execution toggle; hidden when chat is not wired', async () => {
+    mocks.getProject.mockResolvedValue(baseConfig());
+
+    await renderSettings();
+    // enabled is false, yet the chat picker is present:
+    expect(screen.getByLabelText(/chat worker image/i)).toBeInTheDocument();
+    // and the task picker is not (it is gated on the toggle):
+    expect(screen.queryByLabelText(/task worker image/i)).not.toBeInTheDocument();
+  });
+
+  it('chat picker is hidden when chat_enabled is false', async () => {
+    mocks.useTheme.mockReturnValue({ chatEnabled: false });
+    mocks.getProject.mockResolvedValue(baseConfig());
+
+    await renderSettings();
+    expect(screen.queryByLabelText(/chat worker image/i)).not.toBeInTheDocument();
   });
 
   it('two consecutive unrelated-field saves never leak remote_execution (effective-vs-raw baseline)', async () => {
