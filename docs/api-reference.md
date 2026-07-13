@@ -35,6 +35,7 @@ POST   /api/agent/status                               # task-backend worker-sta
 GET    /api/agent/task-skills-source                   # task-skills {git_remote_url, ref} pointer (HMAC-signed; also /api/chat/... for the chat backend)
 GET    /api/agent/git-credentials  ?project=&card_id=  # mid-run project git-token refresh (HMAC-signed; task-backend required)
 GET    /api/backend/health                             # proxied backend /health (capacity meter; 2s cached; fixed path)
+GET    /api/backends/{backend}/images                  # proxied backend /images (worker-image picker; agent|chat; 30s cached; admin-gated in multi mode)
 GET    /api/worker/logs  ?project=&card_id=            # SSE log stream (card-scoped or project-scoped; fixed path; task-backend required)
 GET    /api/v1/cards/{project}/{id}/autonomous         # backend autonomous-flag read (HMAC-signed; task-backend required)
 # /api/agent/* — task-backend callback path; /api/chat/* — chat-backend callback path (paths are fixed)
@@ -284,8 +285,10 @@ router level does not mean unauthenticated — `GET /api/auth/session` and
 every `/api/admin/*` route below, plus four project-management REST call
 sites: `POST /api/projects`, `PUT /api/projects/{project}`,
 `DELETE /api/projects/{project}`, and
-`POST /api/projects/{project}/recalculate-costs`. Ordinary card work — claim,
-release, update, transition, activity — needs only a valid session, any role.
+`POST /api/projects/{project}/recalculate-costs` — and, separately,
+`GET /api/backends/{backend}/images` (the worker-image picker source).
+Ordinary card work — claim, release, update, transition, activity — needs
+only a valid session, any role.
 
 **The 401 / 403 contract:**
 
@@ -897,7 +900,8 @@ mode:**
   "best_of_n_default": 3,
   "mob_max_participants": 5,
   "mob_default_participants": 3,
-  "mob_guest_names": ["laptop"]
+  "mob_guest_names": ["laptop"],
+  "chat_enabled": true
 }
 ```
 
@@ -922,12 +926,19 @@ panel's mob session seats selector. `mob_guest_names` lists the `mob.guests`
 registry names for the guest multi-select — names only, never URLs or
 tokens; it is omitted when the registry is empty. All three ride only on the
 full payload, like the `best_of_n` fields.
+`chat_enabled` is true when a chat backend is configured (an enabled
+`backends.chat` entry with `url` and `api_key` set — the same condition the
+per-backend images route uses for its chat probe client) — the settings UI
+uses it to decide whether to render the chat image picker. Unlike the other
+UI-facing fields above, it has no `omitempty`: it is always present on the
+full payload, `true` or `false`, and simply absent from the slim pre-login
+payload below.
 
 **Response — unauthenticated caller in `multi` mode:** `task_backend`,
 `favorites`, `best_of_n_max`, `best_of_n_default`, `mob_max_participants`,
-`mob_default_participants`, and `mob_guest_names` are not disclosed
-pre-login, so they are absent from the JSON entirely (not sent as zero
-values):
+`mob_default_participants`, `mob_guest_names`, and `chat_enabled` are not
+disclosed pre-login, so they are absent from the JSON entirely (not sent as
+zero values):
 
 ```json
 { "theme": "everforest", "version": "v0.42.0", "auth_mode": "multi" }
@@ -1035,7 +1046,8 @@ Update the project configuration. The update body is a **subset** of
 not accepted here. Extra fields are available: `github` (GitHub import
 configuration), `default_skills` (project-wide task-skill fallback),
 `github_credential` (credential-pool binding for this project's GitHub
-operations), and `verify` (project-wide verify gate).
+operations), `verify` (project-wide verify gate), and `remote_execution`
+(per-project execution toggle and worker images).
 
 **Accepted fields:**
 
@@ -1053,7 +1065,12 @@ operations), and `verify` (project-wide verify gate).
   "github": { "...": "..." },
   "default_skills": ["go-development", "documentation"],
   "github_credential": "org-app",
-  "verify": { "command": "make test", "timeout_seconds": 600, "env": ["JAVA_HOME"] }
+  "verify": { "command": "make test", "timeout_seconds": 600, "env": ["JAVA_HOME"] },
+  "remote_execution": {
+    "enabled": true,
+    "worker_image": "my-org/go-worker:latest",
+    "chat_worker_image": "my-org/go-chat-worker:latest"
+  }
 }
 ```
 
@@ -1092,6 +1109,16 @@ documented in `docs/data-model.md`'s `verify` section. The same object is
 accepted on card create (`POST .../cards`) and card PATCH — both human-only (an
 agent setting `verify` gets 403 `HUMAN_ONLY_FIELD`) — where the card value
 overrides the project's field by field at trigger time.
+
+**`remote_execution` field** — per-field pointer-merge semantics, unlike
+`verify`'s replace-whole-struct: each of `enabled`, `worker_image`, and
+`chat_worker_image` is independently omittable (preserves the stored value) or
+explicitly set. For the two image fields, an explicit empty string clears the
+override back to that backend's own default image. `worker_image` feeds the
+task backend's runs only; `chat_worker_image` feeds chat sessions only —
+neither field falls back to the other. Both are hygiene-validated (charset,
+512-byte cap) — invalid values return 422 `VALIDATION_ERROR`. Full field
+semantics are documented in `docs/data-model.md`'s remote-execution section.
 
 Returns 200 with the updated `ProjectConfig`.
 
@@ -1457,6 +1484,43 @@ coalesced through singleflight, so many open tabs and a backend outage never
 storm the backend with redundant probes. Probes use a tighter upstream timeout
 (3 s) than the backend client's default to keep the endpoint responsive during
 an outage.
+
+### GET /api/backends/{backend}/images
+
+Proxies a `GET /images` to the named backend and returns the worker images
+present on its node — feeds the project-settings image pickers. `{backend}` is
+`agent` or `chat`.
+
+In multi mode this route requires a session (like the rest of the API) and is
+additionally admin-gated inside the handler; in none mode it is open, like the
+rest of the API.
+
+Returns:
+
+```json
+{
+  "ok": true,
+  "images": [
+    {
+      "tags": ["ghcr.io/example-org/contextmatrix-agent-worker:2026-07-01"],
+      "digests": ["ghcr.io/example-org/contextmatrix-agent-worker@sha256:abc123..."],
+      "created": 1751328000,
+      "size": 1073741824
+    }
+  ]
+}
+```
+
+`digests`, `created`, and `size` are omitted when zero/empty.
+
+- 404 `BACKEND_NOT_FOUND` when `{backend}` is not `agent` or `chat`.
+- 503 `BACKEND_DISABLED` when that backend is not configured.
+- 502 `BACKEND_UNAVAILABLE` when the backend is configured but the probe fails.
+
+Probe results are cached server-side per backend for 30 seconds behind a
+singleflight — longer than the health cache, and load-bearing: concurrent
+same-second signed GETs would otherwise collide in the backend's HMAC replay
+cache.
 
 ### GET /api/worker/logs
 

@@ -19,6 +19,7 @@ import type {
   ModelCatalogResponse,
   ActivityFeedResponse,
   BackendHealth,
+  BackendImagesResponse,
   SessionUser,
   TokenInfo,
   RedeemTokenInput,
@@ -260,6 +261,16 @@ class APIClient {
 
   async getBackendHealth(signal?: AbortSignal): Promise<BackendHealth> {
     return this.request<BackendHealth>(`/backend/health`, { signal });
+  }
+
+  async getBackendImages(
+    backend: 'agent' | 'chat',
+    signal?: AbortSignal,
+  ): Promise<BackendImagesResponse> {
+    return this.request<BackendImagesResponse>(
+      `/backends/${encodeURIComponent(backend)}/images`,
+      { signal },
+    );
   }
 
   // App config

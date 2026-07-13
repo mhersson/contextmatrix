@@ -107,6 +107,7 @@ export interface ProjectConfig {
   remote_execution?: {
     enabled?: boolean;
     worker_image?: string;
+    chat_worker_image?: string;
   };
   /**
    * Operator-declared verify gate every card inherits unless it overrides.
@@ -322,6 +323,22 @@ export interface BackendHealth {
   max_concurrent: number;
 }
 
+/** One worker image on a backend's node, from GET /api/backends/{backend}/images. */
+export interface BackendImageEntry {
+  /** Repo tags that matched the backend's image_list_filters. */
+  tags: string[];
+  digests?: string[];
+  /** Image creation time, unix seconds. */
+  created?: number;
+  /** Image size in bytes. */
+  size?: number;
+}
+
+export interface BackendImagesResponse {
+  ok: boolean;
+  images: BackendImageEntry[];
+}
+
 export interface CreateProjectInput {
   name: string;
   display_name?: string;
@@ -356,6 +373,7 @@ export interface UpdateProjectInput {
   remote_execution?: {
     enabled?: boolean;
     worker_image?: string;
+    chat_worker_image?: string;
   };
   /**
    * Replace-whole-struct on the server: the object omitted preserves the
@@ -425,6 +443,12 @@ export interface AppConfig {
    * is configured). Drives which automation controls render.
    */
   task_backend?: string;
+  /**
+   * Whether a chat backend is configured. Drives the chat worker-image
+   * picker in project settings. Full-payload-only, same posture as
+   * task_backend.
+   */
+  chat_enabled?: boolean;
   /**
    * Operator-configured favorite model slugs per tier (key = tier name,
    * value = All slugs for that tier). Only present when the agent backend

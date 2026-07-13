@@ -39,6 +39,20 @@ func closeBody(t *testing.T, body io.Closer) {
 	}
 }
 
+// doGet issues a GET with the CSRF header the router requires on browser routes.
+func doGet(t *testing.T, url string) *http.Response {
+	t.Helper()
+
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	require.NoError(t, err)
+	req.Header.Set("X-Requested-With", "contextmatrix")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	return resp
+}
+
 // testSetup creates a test environment with all dependencies.
 func testSetup(t *testing.T) (*service.CardService, *events.Bus, func()) {
 	t.Helper()

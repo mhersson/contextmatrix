@@ -93,3 +93,83 @@ func TestUpdateProject_RemoteExecution_InvalidImage422(t *testing.T) {
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodeValidationError, apiErr.Code)
 }
+
+func TestUpdateProject_ChatWorkerImage_RoundTrip(t *testing.T) {
+	server := noneModeServer(t)
+
+	image := "contextmatrix-chat-worker:go-node"
+
+	body := validUpdateProjectBody(nil)
+	body.RemoteExecution = &remoteExecutionUpdate{ChatWorkerImage: &image}
+
+	resp := putProject(t, server.URL, nil, body)
+	defer closeBody(t, resp.Body)
+
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var cfg board.ProjectConfig
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&cfg))
+	require.NotNil(t, cfg.RemoteExecution,
+		"a lone chat_worker_image must survive zero-value normalization")
+	assert.Equal(t, "contextmatrix-chat-worker:go-node", cfg.RemoteExecution.ChatWorkerImage)
+	assert.Empty(t, cfg.RemoteExecution.WorkerImage)
+}
+
+func TestUpdateProject_ChatWorkerImage_OmittedPreservesAndEmptyClears(t *testing.T) {
+	server := noneModeServer(t)
+
+	image := "contextmatrix-chat-worker:go-node"
+	setBody := validUpdateProjectBody(nil)
+	setBody.RemoteExecution = &remoteExecutionUpdate{ChatWorkerImage: &image}
+
+	resp := putProject(t, server.URL, nil, setBody)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	closeBody(t, resp.Body)
+
+	// Omitting chat_worker_image (nil pointer) preserves it.
+	worker := "ghcr.io/org/worker:latest"
+	otherBody := validUpdateProjectBody(nil)
+	otherBody.RemoteExecution = &remoteExecutionUpdate{WorkerImage: &worker}
+
+	resp = putProject(t, server.URL, nil, otherBody)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// A fresh decode target per response: chat_worker_image and worker_image
+	// both carry "omitempty" on the wire, so an empty value is an absent key,
+	// not an explicit reset — decoding into a var already populated from an
+	// earlier response would silently keep its stale value for the omitted key.
+	var afterPreserve board.ProjectConfig
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&afterPreserve))
+	closeBody(t, resp.Body)
+	assert.Equal(t, "contextmatrix-chat-worker:go-node", afterPreserve.RemoteExecution.ChatWorkerImage,
+		"omitting chat_worker_image must preserve it")
+	assert.Equal(t, "ghcr.io/org/worker:latest", afterPreserve.RemoteExecution.WorkerImage)
+
+	// A non-nil "" clears it.
+	empty := ""
+	clearBody := validUpdateProjectBody(nil)
+	clearBody.RemoteExecution = &remoteExecutionUpdate{ChatWorkerImage: &empty}
+
+	resp = putProject(t, server.URL, nil, clearBody)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var afterClear board.ProjectConfig
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&afterClear))
+	closeBody(t, resp.Body)
+	assert.Empty(t, afterClear.RemoteExecution.ChatWorkerImage)
+	assert.Equal(t, "ghcr.io/org/worker:latest", afterClear.RemoteExecution.WorkerImage,
+		"clearing chat_worker_image must not touch worker_image")
+}
+
+func TestUpdateProject_ChatWorkerImage_InvalidCharactersRejected(t *testing.T) {
+	server := noneModeServer(t)
+
+	image := "bad image!"
+	body := validUpdateProjectBody(nil)
+	body.RemoteExecution = &remoteExecutionUpdate{ChatWorkerImage: &image}
+
+	resp := putProject(t, server.URL, nil, body)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode)
+}

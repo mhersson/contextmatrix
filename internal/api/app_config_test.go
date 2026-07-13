@@ -253,6 +253,55 @@ func TestGetAppConfig_Mob(t *testing.T) {
 	})
 }
 
+func TestAppConfig_ChatEnabledFollowsChatWiring(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	t.Cleanup(cleanup)
+
+	// Without chat wiring: chat_enabled is false.
+	server := httptest.NewServer(NewRouter(RouterConfig{Service: svc, Bus: bus}))
+	t.Cleanup(server.Close)
+
+	resp := doGet(t, server.URL+"/api/app/config")
+	defer closeBody(t, resp.Body)
+
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var cfg struct {
+		ChatEnabled bool `json:"chat_enabled"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&cfg))
+	assert.False(t, cfg.ChatEnabled)
+}
+
+// TestAppConfig_ChatEnabledTrue exercises the true case at the router level:
+// chat_enabled now means "a chat backend is configured" (an enabled
+// backends.chat entry with url and api_key set), the same condition the
+// images route uses to build its chat probe client (mirrors
+// TestBackendImages_Chat in backend_images_test.go). No ChatManager/ChatHub
+// wiring is needed for this to be true.
+func TestAppConfig_ChatEnabledTrue(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	t.Cleanup(cleanup)
+
+	server := httptest.NewServer(NewRouter(RouterConfig{
+		Service: svc, Bus: bus,
+		ChatBackendCfg: &config.ChatBackendConfig{
+			URL:    "http://chat-backend.invalid",
+			APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
+		},
+	}))
+	t.Cleanup(server.Close)
+
+	resp := doGet(t, server.URL+"/api/app/config")
+	defer closeBody(t, resp.Body)
+
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var got appConfigResponse
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
+	assert.True(t, got.ChatEnabled)
+}
+
 func TestMobGuestNames(t *testing.T) {
 	assert.Nil(t, mobGuestNames(nil))
 	assert.Equal(t, []string{"laptop", "desk"}, mobGuestNames([]config.MobGuest{

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/mhersson/contextmatrix/internal/api"
+	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/chat"
 	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/config"
@@ -100,13 +101,7 @@ func wireChat(
 				}
 			}
 
-			// Chat uses worker_image regardless of remote_execution.enabled:
-			// enabled gates autonomous card execution, while the image answers
-			// "what toolchain does this project need", which applies to
-			// interactive sessions identically.
-			if p.RemoteExecution != nil {
-				info.WorkerImage = p.RemoteExecution.WorkerImage
-			}
+			info.WorkerImage = chatWorkerImageFor(p)
 
 			return info, nil
 		},
@@ -210,4 +205,19 @@ func wireChat(
 	}
 
 	return chatMgr, chatHub, cleanup, chatWorkerAPIKey
+}
+
+// chatWorkerImageFor returns the chat worker image for a project:
+// remote_execution.chat_worker_image, applied regardless of
+// remote_execution.enabled (enabled gates autonomous card execution; the
+// image answers "what toolchain does this project need", which applies to
+// interactive sessions identically). worker_image deliberately does NOT flow
+// to chat — the task and chat image families bake different worker
+// entrypoints and are not interchangeable.
+func chatWorkerImageFor(p *board.ProjectConfig) string {
+	if p.RemoteExecution == nil {
+		return ""
+	}
+
+	return p.RemoteExecution.ChatWorkerImage
 }

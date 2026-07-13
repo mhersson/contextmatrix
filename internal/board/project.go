@@ -20,9 +20,14 @@ type Repo struct {
 }
 
 // RemoteExecutionConfig controls per-project remote execution settings.
+// WorkerImage feeds the task backend's /trigger only; ChatWorkerImage feeds
+// the chat backend's /chat/start only. The two image families are not
+// interchangeable (each bakes its own worker entrypoint), so neither field
+// ever falls back to the other.
 type RemoteExecutionConfig struct {
-	Enabled     *bool  `yaml:"enabled,omitempty"      json:"enabled,omitempty"`
-	WorkerImage string `yaml:"worker_image,omitempty"  json:"worker_image,omitempty"`
+	Enabled         *bool  `yaml:"enabled,omitempty"           json:"enabled,omitempty"`
+	WorkerImage     string `yaml:"worker_image,omitempty"      json:"worker_image,omitempty"`
+	ChatWorkerImage string `yaml:"chat_worker_image,omitempty" json:"chat_worker_image,omitempty"`
 }
 
 // GitHubImportConfig controls per-project GitHub issue import settings.

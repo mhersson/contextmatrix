@@ -399,8 +399,9 @@ type Repo struct {
 }
 
 type RemoteExecutionConfig struct {
-    Enabled     *bool  `yaml:"enabled,omitempty"      json:"enabled,omitempty"`
-    WorkerImage string `yaml:"worker_image,omitempty" json:"worker_image,omitempty"`
+    Enabled         *bool  `yaml:"enabled,omitempty"           json:"enabled,omitempty"`
+    WorkerImage     string `yaml:"worker_image,omitempty"      json:"worker_image,omitempty"`
+    ChatWorkerImage string `yaml:"chat_worker_image,omitempty" json:"chat_worker_image,omitempty"`
 }
 
 type VerifyConfig struct {
@@ -644,6 +645,33 @@ unbound projects in `auth.mode: multi` too. Admin-only to set — see
 the credential pool on write in `auth.mode: multi` (unknown name → 422
 `VALIDATION_ERROR`); in `auth.mode: none` a non-empty binding is rejected
 outright (422) rather than silently falling back to the instance credential.
+
+### `remote_execution` (optional, `*RemoteExecutionConfig`)
+
+`enabled` toggles whether cards may be run remotely for this project (nil
+falls back to whether a task backend is configured globally).
+
+`worker_image` and `chat_worker_image` are a clean-cut pair of per-project
+toolchain-image overrides, one per backend:
+
+- `worker_image` feeds the task backend's card runs only.
+- `chat_worker_image` feeds the chat backend's chat sessions only, and applies
+  regardless of `enabled` — `enabled` gates autonomous card execution, not
+  whether a project's chat sessions get a toolchain image.
+- Neither field falls back to the other: the two backends bake different
+  entrypoints into their images, so a task image cannot serve a chat session or
+  vice versa. Empty (the default) means "use that backend's own configured
+  `base_image`".
+
+Both fields share the same hygiene validation and write semantics: a
+charset-restricted screen (`^[a-zA-Z0-9][a-zA-Z0-9._:/@-]*$`), a 512-byte cap,
+and leading/trailing whitespace trimmed before validation — violations return
+422 `VALIDATION_ERROR` naming the field. On `PUT /api/projects/{project}` each
+field is merged independently by pointer semantics: omitted preserves the
+stored value, an explicit empty string clears it. See
+`docs/remote-execution.md` § Worker image split for the full wire-level
+contract (the `/trigger` and `/chat/start` payloads each carry only their own
+field).
 
 ## Server-side field-length limits
 
