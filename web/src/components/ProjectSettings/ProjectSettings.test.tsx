@@ -226,8 +226,10 @@ describe('ProjectSettings — handleSave payload construction for remote_executi
 
     await waitFor(() => expect(mocks.updateProject).toHaveBeenCalled());
     const [, body] = mocks.updateProject.mock.calls[0];
+    // enabled was never touched (only the chat image select changed) — the
+    // toggle's echo would risk overwriting a stored enabled:true in a
+    // chat-only deployment, so it must be omitted, not fabricated as false.
     expect(body.remote_execution).toEqual({
-      enabled: false,
       worker_image: '',
       chat_worker_image: 'contextmatrix-chat-worker:go-node',
     });

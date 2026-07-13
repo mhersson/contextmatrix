@@ -74,6 +74,13 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
   // effective value (effectiveRemoteExecution forces `enabled`) while PUT
   // returns the raw value, so after a save the two diverge. See handleSave.
   const [remoteExecutionTouched, setRemoteExecutionTouched] = useState(false);
+  // Separately tracks whether the `enabled` toggle itself was flipped this
+  // session. GET's `enabled` is always fabricated (effectiveRemoteExecution
+  // forces it true/false based on whether a task backend is configured), so
+  // echoing it back on every image-only save could silently overwrite a
+  // stored value — e.g. writing enabled:false into .board.yaml for a
+  // chat-only deployment that has enabled:true stored. See handleSave.
+  const [remoteExecutionEnabledTouched, setRemoteExecutionEnabledTouched] = useState(false);
   const [verify, setVerify] = useState<VerifyConfig>(emptyVerify);
   const [defaultSkills, setDefaultSkills] = useState<string[] | null>(null);
   const [githubCredential, setGithubCredential] = useState('');
@@ -114,6 +121,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
         setGitHub(cfg.github ?? emptyGitHub);
         setRemoteExecution(cfg.remote_execution ?? emptyRemoteExecution);
         setRemoteExecutionTouched(false);
+        setRemoteExecutionEnabledTouched(false);
         setVerify(cfg.verify ?? emptyVerify);
         setDefaultSkills(cfg.default_skills ?? null);
         setGithubCredential(cfg.github_credential ?? '');
@@ -216,10 +224,18 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
         // echo-back would then persist a forced enabled:false (wiping an opt-in)
         // or fabricate an explicit flag on a project that relied on the global
         // default. The touched flag sidesteps that baseline entirely.
+        //
+        // `enabled` itself joins the payload only when the toggle was
+        // actually flipped (remoteExecutionEnabledTouched), independent of
+        // remoteExecutionTouched: an image-only save (e.g. picking a chat
+        // image in a chat-only deployment) must not echo GET's fabricated
+        // `enabled` back, or it can silently overwrite a stored true with
+        // false. The server preserves the current value when the key is
+        // omitted (pointer semantics), so leaving it out is safe.
         ...(remoteExecutionTouched
           ? {
               remote_execution: {
-                enabled: !!remoteExecution.enabled,
+                ...(remoteExecutionEnabledTouched ? { enabled: !!remoteExecution.enabled } : {}),
                 worker_image: remoteExecution.worker_image ?? '',
                 chat_worker_image: remoteExecution.chat_worker_image ?? '',
               },
@@ -246,8 +262,10 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
       const updated = await api.updateProject(project, input);
       setConfig(updated);
       // The save landed; the section state is now the baseline. Clearing the
-      // flag keeps the form from reading as dirty against the raw PUT response.
+      // flags keeps the form from reading as dirty against the raw PUT
+      // response and resets the enabled-touched signal for the next save.
       setRemoteExecutionTouched(false);
+      setRemoteExecutionEnabledTouched(false);
       onUpdated(updated);
       showToast('Project settings saved', 'success');
     } catch (err) {
@@ -269,6 +287,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
     github,
     remoteExecution,
     remoteExecutionTouched,
+    remoteExecutionEnabledTouched,
     verify,
     defaultSkills,
     githubCredential,
@@ -460,6 +479,9 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
         <RemoteExecutionSection
           value={remoteExecution}
           onChange={(next) => {
+            if (next.enabled !== remoteExecution.enabled) {
+              setRemoteExecutionEnabledTouched(true);
+            }
             setRemoteExecution(next);
             setRemoteExecutionTouched(true);
           }}
