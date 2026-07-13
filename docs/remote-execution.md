@@ -321,7 +321,7 @@ health probe, and `docs/api-reference.md` for the CM-side route). Signed GET
   "images": [
     {
       "tags": ["ghcr.io/example-org/contextmatrix-agent-worker:2026-07-01"],
-      "digests": ["sha256:abc123..."],
+      "digests": ["ghcr.io/example-org/contextmatrix-agent-worker@sha256:abc123..."],
       "created": 1751328000,
       "size": 1073741824
     }
