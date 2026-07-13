@@ -32,7 +32,6 @@ transitions:
   stalled: [todo, in_progress]
   not_planned: [todo]
 remote_execution:
-  enabled: true
   worker_image: my-worker:latest
 verify:
   command: make test
@@ -147,7 +146,7 @@ func TestRunCard_VerifyResolution(t *testing.T) {
 	})
 
 	t.Run("no verify anywhere yields nil for agent backend", func(t *testing.T) {
-		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 		defer cleanup()
 
 		card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{

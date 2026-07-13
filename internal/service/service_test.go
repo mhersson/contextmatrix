@@ -2628,7 +2628,7 @@ func TestUpdateProject_RemoteExecutionMerge(t *testing.T) {
 }
 
 // TestUpdateProject_RemoteExecutionNormalizesToNil confirms a merge whose result
-// carries no operator intent (enabled unset, image empty) drops the config so
+// carries no operator intent (both images empty) drops the config so
 // .board.yaml stays clean.
 func TestUpdateProject_RemoteExecutionNormalizesToNil(t *testing.T) {
 	svc, tmpDir, cleanup := setupTest(t)
@@ -2639,7 +2639,7 @@ func TestUpdateProject_RemoteExecutionNormalizesToNil(t *testing.T) {
 
 	strPtr := func(s string) *string { return &s }
 
-	// Set image only — enabled stays unset (nil).
+	// Set the worker image only.
 	cfg, err := svc.UpdateProject(ctx, "test-project", remoteExecBaseInput(&RemoteExecutionUpdate{
 		WorkerImage: strPtr("ghcr.io/org/worker:latest"),
 	}))
@@ -2647,7 +2647,7 @@ func TestUpdateProject_RemoteExecutionNormalizesToNil(t *testing.T) {
 	require.NotNil(t, cfg.RemoteExecution)
 	assert.Equal(t, "ghcr.io/org/worker:latest", cfg.RemoteExecution.WorkerImage)
 
-	// Clear the image; with enabled unset the config is the zero value and the
+	// Clear the image; the config is now the zero value and the
 	// whole struct is dropped.
 	cfg, err = svc.UpdateProject(ctx, "test-project", remoteExecBaseInput(&RemoteExecutionUpdate{
 		WorkerImage: strPtr("   "), // whitespace trims to empty

@@ -557,7 +557,7 @@ func runGit(t *testing.T, dir string, args ...string) {
 func setupTaskSkillsSourceEndpoint(t *testing.T) (*httptest.Server, func()) {
 	t.Helper()
 
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 
 	backendClient := backend.NewClient("http://localhost:9090", testBackendAPIKey)
 	router := NewRouter(RouterConfig{
@@ -630,7 +630,7 @@ const testChatBackendAPIKey = "chat-backend-test-key-0123456789abcdef"
 func setupChatTaskSkillsSourceEndpoint(t *testing.T) (*httptest.Server, func()) {
 	t.Helper()
 
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 
 	router := NewRouter(RouterConfig{
 		Service:        svc,
@@ -708,7 +708,7 @@ func TestGetChatTaskSkillsSource_HMAC_Unsigned(t *testing.T) {
 // TestChatTaskSkillsSource_NotRegisteredWithoutBackend verifies the route is
 // absent when no chat backend entry is configured.
 func TestChatTaskSkillsSource_NotRegisteredWithoutBackend(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
@@ -743,7 +743,7 @@ func TestChatTaskSkillsSource_NotRegisteredWithoutBackend(t *testing.T) {
 // task-backend variant attaches token + token_expires_at when the instance provider mints
 // successfully.
 func TestGetTaskSkillsSource_InstanceProvider_IncludesToken(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	backendClient := backend.NewClient("http://localhost:9090", testBackendAPIKey)
@@ -783,7 +783,7 @@ func TestGetTaskSkillsSource_InstanceProvider_IncludesToken(t *testing.T) {
 // best-effort asymmetry: a mint failure never fails the request — the
 // response is still 200, just without the token fields.
 func TestGetTaskSkillsSource_MintFailure_OmitsTokenBestEffort(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	backendClient := backend.NewClient("http://localhost:9090", testBackendAPIKey)
@@ -821,7 +821,7 @@ func TestGetTaskSkillsSource_MintFailure_OmitsTokenBestEffort(t *testing.T) {
 // TestGetChatTaskSkillsSource_InstanceProvider_IncludesToken mirrors the
 // task-backend-variant token test for the dedicated chat backend callback.
 func TestGetChatTaskSkillsSource_InstanceProvider_IncludesToken(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	fakeExpiry := time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC)

@@ -208,10 +208,7 @@ func wireChat(
 }
 
 // chatWorkerImageFor returns the chat worker image for a project:
-// remote_execution.chat_worker_image, applied regardless of
-// remote_execution.enabled (enabled gates autonomous card execution; the
-// image answers "what toolchain does this project need", which applies to
-// interactive sessions identically). worker_image deliberately does NOT flow
+// remote_execution.chat_worker_image. worker_image deliberately does NOT flow
 // to chat — the task and chat image families bake different worker
 // entrypoints and are not interchangeable.
 func chatWorkerImageFor(p *board.ProjectConfig) string {

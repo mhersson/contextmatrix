@@ -66,9 +66,9 @@ func signHMACAt(t *testing.T, key, method, path string, body []byte, ts string) 
 	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
 }
 
-// boardConfigRemoteExecEnabled is a board config with remote_execution enabled
+// boardConfigRemoteExec is a board config with remote_execution configured
 // and a repo URL for backend trigger payloads.
-const boardConfigRemoteExecEnabled = `name: test-project
+const boardConfigRemoteExec = `name: test-project
 prefix: TEST
 next_id: 1
 repo: https://github.com/example/project.git
@@ -82,14 +82,13 @@ transitions:
   stalled: [todo, in_progress]
   not_planned: [todo]
 remote_execution:
-  enabled: true
   worker_image: my-worker:latest
 `
 
 // --- POST /api/projects/{project}/cards/{id}/run ---
 
 func TestRunCard_HumanOnly(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	ctx := context.Background()
@@ -207,7 +206,7 @@ func TestRunCard_BackendDisabled(t *testing.T) {
 }
 
 func TestRunCard_NonAutonomousCardNowSucceeds(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	ctx := context.Background()
@@ -255,7 +254,7 @@ func TestRunCard_NonAutonomousCardNowSucceeds(t *testing.T) {
 }
 
 func TestRunCard_CardNotInTodo(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	ctx := context.Background()
@@ -303,7 +302,7 @@ func TestRunCard_CardNotInTodo(t *testing.T) {
 }
 
 func TestRunCard_AlreadyQueued(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	ctx := context.Background()
@@ -348,7 +347,7 @@ func TestRunCard_AlreadyQueued(t *testing.T) {
 }
 
 func TestRunCard_CardNotFound(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -382,7 +381,7 @@ func TestRunCard_WebhookFailure(t *testing.T) {
 
 	t.Cleanup(func() { backend.BackoffBase = origBackoff })
 
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	ctx := context.Background()
@@ -434,7 +433,7 @@ func TestRunCard_WebhookFailure(t *testing.T) {
 // the revert to "failed" still succeeds because the handler uses
 // context.WithoutCancel for the rollback path.
 func TestRunCard_ContextCancelledDuringWebhook(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	ctx := context.Background()
@@ -590,7 +589,7 @@ remote_execution:
 // project and attaches the minted token + its RFC3339 expiry to the trigger
 // payload sent to the backend.
 func TestRunCard_ProviderForProject_MintsGitToken(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	ctx := context.Background()
@@ -648,7 +647,7 @@ func TestRunCard_ProviderForProject_MintsGitToken(t *testing.T) {
 // case) leaves GitTokenExpiresAt empty rather than formatting the Go zero
 // value ("0001-01-01T00:00:00Z") onto the wire.
 func TestRunCard_ProviderForProject_PATZeroExpiry_ExpiryOmitted(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	ctx := context.Background()
@@ -702,7 +701,7 @@ func TestRunCard_ProviderForProject_PATZeroExpiry_ExpiryOmitted(t *testing.T) {
 // NEVER calls the backend client (no silent fallback to an instance
 // credential).
 func TestRunCard_ProviderForProject_CredentialUnavailable(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	ctx := context.Background()
@@ -771,7 +770,7 @@ func TestRunCard_ProviderForProject_CredentialUnavailable(t *testing.T) {
 // errors (e.g. GitHub App exchange failure). Same 409 + activity-log
 // treatment as an unresolvable provider.
 func TestRunCard_ProviderForProject_GenerateTokenFails(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	ctx := context.Background()
@@ -859,7 +858,7 @@ func TestRunCard_ProviderForProject_GenerateTokenFails(t *testing.T) {
 // worker_status to failed — i.e. runCard applies no fallback of its own on
 // top of whatever the resolver returns.
 func TestRunCard_ProviderForProject_BrokenBindingNeverFallsBackToInstance(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	ctx := context.Background()
@@ -985,7 +984,7 @@ func TestRunCard_ProviderForProject_BrokenBindingNeverFallsBackToInstance(t *tes
 // token actually reaches the task backend's trigger payload (202, not just
 // "no panic").
 func TestRunCard_ProviderForProject_NoneMode_ReturnsInstanceProvider(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	ctx := context.Background()
@@ -1080,7 +1079,7 @@ func TestRunCard_ProviderForProject_NoneMode_ReturnsInstanceProvider(t *testing.
 // existing tests), runCard neither attaches a git token nor rejects the
 // trigger — the payload goes out exactly as it did before token authority.
 func TestRunCard_NoProviderForProject_BackwardsCompat(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	ctx := context.Background()
@@ -1135,7 +1134,7 @@ func TestRunCard_NoProviderForProject_BackwardsCompat(t *testing.T) {
 // TestRunCard_LLMEndpoint_PresentWhenConfigured asserts that a configured
 // RouterConfig.LLMEndpoint is attached to every trigger payload verbatim.
 func TestRunCard_LLMEndpoint_PresentWhenConfigured(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	ctx := context.Background()
@@ -1183,7 +1182,7 @@ func TestRunCard_LLMEndpoint_PresentWhenConfigured(t *testing.T) {
 // --- POST /api/projects/{project}/cards/{id}/stop ---
 
 func TestStopCard_HumanOnly(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	ctx := context.Background()
@@ -1279,7 +1278,7 @@ func TestStopCard_BackendDisabled(t *testing.T) {
 }
 
 func TestStopCard_NotRunning(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	ctx := context.Background()
@@ -1319,7 +1318,7 @@ func TestStopCard_NotRunning(t *testing.T) {
 }
 
 func TestStopCard_CardNotFound(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1350,7 +1349,7 @@ func TestStopCard_CardNotFound(t *testing.T) {
 // --- POST /api/projects/{project}/stop-all ---
 
 func TestStopAll_HumanOnly(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1427,7 +1426,7 @@ func TestStopAll_BackendDisabled(t *testing.T) {
 }
 
 func TestStopAll_StopsActiveCards(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	ctx := context.Background()
@@ -1499,7 +1498,7 @@ func TestStopAll_WebhookFailure(t *testing.T) {
 
 	t.Cleanup(func() { backend.BackoffBase = origBackoff })
 
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1535,7 +1534,7 @@ func TestStopAll_WebhookFailure(t *testing.T) {
 // --- POST /api/agent/status ---
 
 func TestWorkerStatusUpdate_ValidSignature(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	ctx := context.Background()
@@ -1581,7 +1580,7 @@ func TestWorkerStatusUpdate_ValidSignature(t *testing.T) {
 // Backend callbacks mount at the fixed config.AgentCallbackPath — prove the
 // agent backend's callbacks land at /api/agent.
 func TestAgentBackendCallbackMount(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	ctx := context.Background()
@@ -1625,7 +1624,7 @@ func TestAgentBackendCallbackMount(t *testing.T) {
 }
 
 func TestWorkerStatusUpdate_InvalidSignature(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	const apiKey = "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"
@@ -1662,7 +1661,7 @@ func TestWorkerStatusUpdate_InvalidSignature(t *testing.T) {
 }
 
 func TestWorkerStatusUpdate_MissingSignature(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	const apiKey = "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"
@@ -1735,7 +1734,7 @@ func TestWorkerStatusUpdate_MissingSignature(t *testing.T) {
 }
 
 func TestWorkerStatusUpdate_InvalidCallbackStatus(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	ctx := context.Background()
@@ -1784,7 +1783,7 @@ func TestWorkerStatusUpdate_InvalidCallbackStatus(t *testing.T) {
 }
 
 func TestWorkerStatusUpdate_NoAPIKeyConfigured(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	// Backend without API key configured.
@@ -1817,7 +1816,7 @@ func TestWorkerStatusUpdate_NoAPIKeyConfigured(t *testing.T) {
 }
 
 func TestWorkerStatusUpdate_InvalidJSON(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	const apiKey = "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"
@@ -1855,7 +1854,7 @@ func TestWorkerStatusUpdate_InvalidJSON(t *testing.T) {
 
 func newRunningCardSetup(t *testing.T) (*service.CardService, *events.Bus, func(), *board.Card) {
 	t.Helper()
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 
 	ctx := context.Background()
 	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
@@ -1937,7 +1936,7 @@ func TestMessageCard_BackendDisabled(t *testing.T) {
 }
 
 func TestMessageCard_NotRunning(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	ctx := context.Background()
@@ -2158,7 +2157,7 @@ func newInteractiveRunningCard(t *testing.T, svc *service.CardService) *board.Ca
 }
 
 func TestPromoteCard_HumanOnly(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	card := newInteractiveRunningCard(t, svc)
@@ -2194,7 +2193,7 @@ func TestPromoteCard_HumanOnly(t *testing.T) {
 }
 
 func TestPromoteCard_NotRunning(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	ctx := context.Background()
@@ -2235,7 +2234,7 @@ func TestPromoteCard_NotRunning(t *testing.T) {
 }
 
 func TestPromoteCard_AlreadyAutonomous(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	ctx := context.Background()
@@ -2295,7 +2294,7 @@ func TestPromoteCard_AlreadyAutonomous(t *testing.T) {
 }
 
 func TestPromoteCard_HappyPath(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	card := newInteractiveRunningCard(t, svc)
@@ -2378,7 +2377,7 @@ func TestPromoteCard_WebhookFailure_RevertsFlag(t *testing.T) {
 
 	t.Cleanup(func() { backend.BackoffBase = origBackoff })
 
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	card := newInteractiveRunningCard(t, svc)
@@ -2444,7 +2443,7 @@ func TestPromoteCard_WebhookFailure_RevertsFlag(t *testing.T) {
 // An autonomous card must run the FSM, never the linear HITL path, even when
 // the run request body explicitly asks for interactive. CM forces it off.
 func TestRunCard_AutonomousForcesNonInteractive(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	ctx := context.Background()
@@ -2494,7 +2493,7 @@ func TestRunCard_Interactive(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("non-autonomous with interactive body succeeds", func(t *testing.T) {
-		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 		defer cleanup()
 
 		var receivedPayload backend.TriggerPayload
@@ -2540,7 +2539,7 @@ func TestRunCard_Interactive(t *testing.T) {
 	})
 
 	t.Run("autonomous with empty body auto-enables feature_branch and create_pr", func(t *testing.T) {
-		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 		defer cleanup()
 
 		var receivedPayload backend.TriggerPayload
@@ -2585,7 +2584,7 @@ func TestRunCard_Interactive(t *testing.T) {
 	})
 
 	t.Run("autonomous with interactive body auto-enables feature_branch/create_pr", func(t *testing.T) {
-		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 		defer cleanup()
 
 		var receivedPayload backend.TriggerPayload
@@ -2635,7 +2634,7 @@ func TestRunCard_Interactive(t *testing.T) {
 	})
 
 	t.Run("HITL run on card with feature_branch already true does not redundantly patch", func(t *testing.T) {
-		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 		defer cleanup()
 
 		var (
@@ -2698,7 +2697,7 @@ func TestRunCard_Interactive(t *testing.T) {
 // 2-second client deadline fires; with the guard the top-level call returns 200
 // and the fake backend receives exactly one POST /promote.
 func TestPromoteCard_RecursionGuard(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	ctx := context.Background()
@@ -2789,7 +2788,7 @@ func TestPromoteCard_RecursionGuard(t *testing.T) {
 func TestRunCard_ModelInPayload(t *testing.T) {
 	ctx := context.Background()
 
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	var capturedPayload backend.TriggerPayload
@@ -2841,7 +2840,7 @@ const testBackendAPIKey = "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"
 func setupAutonomousEndpoint(t *testing.T, autonomous bool) (*httptest.Server, string, func()) {
 	t.Helper()
 
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 
 	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
 		Title: "Promote target", Type: "task", Priority: "medium", Autonomous: autonomous,
@@ -3003,7 +3002,7 @@ func TestGetCardAutonomous_CardNotFound(t *testing.T) {
 }
 
 func TestGetCardAutonomous_BackendDisabled(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
@@ -3054,7 +3053,6 @@ transitions:
   stalled: [todo, in_progress]
   not_planned: [todo]
 remote_execution:
-  enabled: true
   worker_image: my-worker:latest
 default_skills:
   - go-development
@@ -3131,7 +3129,7 @@ default_skills:
 	})
 
 	t.Run("nil when neither set", func(t *testing.T) {
-		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 		defer cleanup()
 
 		card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
@@ -3214,7 +3212,6 @@ transitions:
   stalled: [todo, in_progress]
   not_planned: [todo]
 remote_execution:
-  enabled: true
   worker_image: my-worker:latest
 favorites:
   critical:
@@ -3318,7 +3315,7 @@ favorites:
 // mutex lock on nil → panic. The test boxes the typed-nil deliberately, then
 // drives runCard and asserts no panic + 202 Accepted.
 func TestRunCardTypedNilCatalogDoesNotPanic(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	ctx := context.Background()
@@ -3388,7 +3385,7 @@ func TestRunCardBestOfNPayload(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+			svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 			defer cleanup()
 
 			ctx := context.Background()
@@ -3454,7 +3451,7 @@ func TestRunCardSelectionCarriesOutcomeStats(t *testing.T) {
 	newRouterFor := func(t *testing.T, oc outcomeStatsReader) (*board.Card, *http.Client, string, *backend.TriggerPayload, *stubCatalog) {
 		t.Helper()
 
-		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 		t.Cleanup(cleanup)
 
 		ctx := context.Background()
@@ -3653,7 +3650,7 @@ func setupGitCredentialsEndpoint(
 ) (server *httptest.Server, cardID string, cleanup func()) {
 	t.Helper()
 
-	svc, bus, svcCleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, svcCleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 
 	ctx := context.Background()
 
@@ -3950,7 +3947,7 @@ func TestGetGitCredentials_MissingParams_BadRequest(t *testing.T) {
 }
 
 func TestGetGitCredentials_BackendDisabled_NotFound(t *testing.T) {
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
 
 	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{

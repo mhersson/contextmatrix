@@ -263,15 +263,9 @@ func initBoardsRepo(t *testing.T, sc *scenarioConfig, project string) {
 
 	// The legacy singular `repo:` field is intentionally scheme-unvalidated
 	// (unlike repos[]), so the plain-HTTP git-server URL is accepted.
-	remoteExec := "remote_execution:\n  enabled: false\n"
+	remoteExec := ""
 	if sc.workerImage != "" {
-		enabled := "false"
-		if sc.workerImage == agentWorkerImage {
-			enabled = "true"
-		}
-
-		remoteExec = fmt.Sprintf("remote_execution:\n  enabled: %s\n  worker_image: %s\n",
-			enabled, sc.workerImage)
+		remoteExec = fmt.Sprintf("remote_execution:\n  worker_image: %s\n", sc.workerImage)
 	}
 
 	repoLine := ""

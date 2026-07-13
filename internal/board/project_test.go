@@ -67,7 +67,6 @@ transitions:
   stalled: [todo, in_progress]
   not_planned: [todo]
 remote_execution:
-  enabled: true
   runner_image: ghcr.io/org/worker:legacy
 `
 
@@ -79,6 +78,40 @@ remote_execution:
 
 	require.NotNil(t, cfg.RemoteExecution)
 	assert.Empty(t, cfg.RemoteExecution.WorkerImage, "legacy runner_image must be ignored, not mapped")
+}
+
+// TestProjectConfigIgnoresLegacyEnabled pins the removal's read-side
+// tolerance: a .board.yaml written when remote_execution.enabled existed
+// still loads without error. The legacy key is simply ignored (yaml.v3 is
+// non-strict) and drops off on the next rewrite.
+func TestProjectConfigIgnoresLegacyEnabled(t *testing.T) {
+	dir := t.TempDir()
+	raw := `name: test-project
+prefix: TEST
+next_id: 1
+states: [todo, in_progress, done, stalled, not_planned]
+types: [task]
+priorities: [medium]
+transitions:
+  todo: [in_progress]
+  in_progress: [done, todo]
+  done: [todo]
+  stalled: [todo, in_progress]
+  not_planned: [todo]
+remote_execution:
+  enabled: false
+  worker_image: ghcr.io/org/worker:latest
+`
+
+	err := os.WriteFile(filepath.Join(dir, ".board.yaml"), []byte(raw), 0o644)
+	require.NoError(t, err)
+
+	cfg, err := LoadProjectConfig(dir)
+	require.NoError(t, err)
+
+	require.NotNil(t, cfg.RemoteExecution)
+	assert.Equal(t, "ghcr.io/org/worker:latest", cfg.RemoteExecution.WorkerImage,
+		"legacy enabled key must be ignored without disturbing the images")
 }
 
 func TestLoadProjectConfig_NotFound(t *testing.T) {

@@ -39,7 +39,7 @@ func TestChatScenario(t *testing.T) {
 	t.Cleanup(capture.stop)
 
 	// Project-scoped chat so the worker image resolves from the board's
-	// remote_execution.worker_image.
+	// remote_execution.chat_worker_image.
 	var created struct {
 		ID     string `json:"id"`
 		Status string `json:"status"`

@@ -68,10 +68,7 @@ type StartChatOpts struct {
 	RepoURL   string
 	// WorkerImage is the project's remote_execution.chat_worker_image — the
 	// per-project toolchain image the chat worker container should run. Empty
-	// means "use the chat backend's configured base_image". Chat applies it
-	// regardless of remote_execution.enabled: enabled gates autonomous card
-	// execution, whereas the image answers "what toolchain does this project
-	// need", which is identical for interactive sessions.
+	// means "use the chat backend's configured base_image".
 	WorkerImage string
 	Model       string
 	Resume      *ResumeContext
