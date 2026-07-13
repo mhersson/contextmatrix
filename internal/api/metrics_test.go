@@ -29,7 +29,7 @@ func TestMetricsEndpoint(t *testing.T) {
 	svc, _, cleanup := testSetup(t)
 	defer cleanup()
 
-	ph := &projectHandlers{svc: svc, backendEnabled: false}
+	ph := &projectHandlers{svc: svc}
 
 	apiMux := http.NewServeMux()
 	apiMux.HandleFunc("GET /api/projects", ph.listProjects)
