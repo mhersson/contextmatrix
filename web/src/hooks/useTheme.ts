@@ -75,6 +75,12 @@ interface ThemeContextValue {
    */
   taskBackend: string;
   /**
+   * Whether the chat subsystem is wired, from `/api/app/config`
+   * (`chat_enabled`). False on the slim pre-login payload and on servers
+   * older than this field. Drives the chat worker-image picker.
+   */
+  chatEnabled: boolean;
+  /**
    * Operator-configured favorite model slugs per tier, from `/api/app/config`.
    * Key = tier name, value = All slugs for that tier. Null when the backend
    * has no favorites configured.
@@ -120,6 +126,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   });
   const [version, setVersion] = useState('');
   const [taskBackend, setTaskBackend] = useState('');
+  const [chatEnabled, setChatEnabled] = useState(false);
   const [favorites, setFavorites] = useState<Record<string, string[]> | null>(null);
   const [bestOfNMax, setBestOfNMax] = useState<number | undefined>(undefined);
   const [bestOfNDefault, setBestOfNDefault] = useState<number | undefined>(undefined);
@@ -153,6 +160,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       }
       if (config.task_backend) {
         setTaskBackend(config.task_backend);
+      }
+      if (config.chat_enabled !== undefined) {
+        setChatEnabled(config.chat_enabled);
       }
       if (config.favorites) {
         setFavorites(config.favorites);
@@ -192,11 +202,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<ThemeContextValue>(
     () => ({
-      theme, palette, version, taskBackend, favorites, bestOfNMax, bestOfNDefault,
+      theme, palette, version, taskBackend, chatEnabled, favorites, bestOfNMax, bestOfNDefault,
       mobMaxParticipants, mobDefaultParticipants, mobGuestNames,
       toggleTheme, setPalette,
     }),
-    [theme, palette, version, taskBackend, favorites, bestOfNMax, bestOfNDefault,
+    [theme, palette, version, taskBackend, chatEnabled, favorites, bestOfNMax, bestOfNDefault,
       mobMaxParticipants, mobDefaultParticipants, mobGuestNames, toggleTheme, setPalette],
   );
 
