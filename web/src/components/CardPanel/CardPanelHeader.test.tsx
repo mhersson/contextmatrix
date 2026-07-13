@@ -30,7 +30,6 @@ const baseConfig: ProjectConfig = {
     stalled: ['todo'],
     done: ['todo'],
   },
-  remote_execution: { enabled: true },
 };
 
 const defaultProps = {

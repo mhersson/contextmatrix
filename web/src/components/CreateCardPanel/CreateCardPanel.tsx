@@ -84,7 +84,7 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
   useFocusTrap(panelRef, true);
 
   const { branches, loading: branchesLoading, error: branchesError } =
-    useBranches(config.name, form.autonomous && !!config.remote_execution?.enabled);
+    useBranches(config.name, form.autonomous && !!taskBackend);
 
   // Esc closes the panel.
   useEffect(() => {

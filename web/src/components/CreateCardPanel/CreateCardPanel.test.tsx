@@ -62,7 +62,6 @@ const config: ProjectConfig = {
   priorities: ['low', 'medium', 'high'],
   transitions: { todo: ['in_progress'], in_progress: ['done'], done: [] },
   templates: { task: '## Task template\n' },
-  remote_execution: { enabled: true },
 };
 
 const noCards: Card[] = [];

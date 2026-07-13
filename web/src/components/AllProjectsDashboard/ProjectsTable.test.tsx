@@ -13,7 +13,6 @@ function project(name: string, prefix: string): ProjectConfig {
     types: ['task'],
     priorities: ['medium'],
     transitions: { todo: ['done'], done: [] },
-    remote_execution: { enabled: false },
   } as ProjectConfig;
 }
 

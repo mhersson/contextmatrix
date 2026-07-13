@@ -3,8 +3,14 @@ import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
 import { CardPanel } from './CardPanel';
 import type { Card, ProjectConfig } from '../../types';
 
+const theme = vi.hoisted(() => ({
+  theme: 'dark',
+  palette: 'everforest',
+  toggleTheme: () => {},
+  taskBackend: 'agent',
+}));
 vi.mock('../../hooks/useTheme', () => ({
-  useTheme: () => ({ theme: 'dark', palette: 'everforest', toggleTheme: vi.fn() }),
+  useTheme: () => theme,
 }));
 
 // MDEditor is only mounted in edit mode. The mock exposes a textarea under
@@ -82,7 +88,6 @@ const config: ProjectConfig = {
     done: ['todo'],
     blocked: ['todo'],
   },
-  remote_execution: { enabled: true },
 };
 
 function makeProps(overrides?: Partial<Parameters<typeof CardPanel>[0]>) {
@@ -273,6 +278,23 @@ describe('CardPanel — Run handler (save-before-run)', () => {
     expect(onSave).toHaveBeenLastCalledWith(
       expect.objectContaining({ feature_branch: true, create_pr: true }),
     );
+  });
+});
+
+describe('CardPanel — run gating on global task backend', () => {
+  afterEach(() => {
+    theme.taskBackend = 'agent';
+  });
+
+  it('offers Run HITL when a task backend is configured', () => {
+    render(<CardPanel {...makeProps()} />);
+    expect(screen.getByRole('button', { name: /Run HITL/ })).toBeInTheDocument();
+  });
+
+  it('hides the Run action when no task backend is configured', () => {
+    theme.taskBackend = '';
+    render(<CardPanel {...makeProps()} />);
+    expect(screen.queryByRole('button', { name: /Run HITL/ })).not.toBeInTheDocument();
   });
 });
 

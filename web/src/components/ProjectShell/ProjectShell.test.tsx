@@ -18,7 +18,6 @@ vi.mock('../../hooks/useBoard', () => ({
       types: ['task'],
       priorities: ['medium'],
       transitions: { todo: ['done'], done: [] },
-      remote_execution: { enabled: false },
     } as ProjectConfig,
     cards: [] as Card[],
     loading: false,
@@ -192,6 +191,16 @@ vi.mock('../../context/ConsoleStateContext', () => ({
   useConsoleState: vi.fn(() => ({ isOpen: false, toggle: vi.fn(), close: vi.fn(), setOpen: vi.fn() })),
 }));
 
+// ProjectShell now calls useTheme, which throws outside ThemeProvider.
+vi.mock('../../hooks/useTheme', () => ({
+  useTheme: () => ({
+    theme: 'dark',
+    palette: 'everforest',
+    toggleTheme: () => {},
+    taskBackend: 'agent',
+  }),
+}));
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -346,7 +355,6 @@ describe('ProjectShell — ?card= deep-link', () => {
       types: ['task'],
       priorities: ['medium'],
       transitions: { todo: ['done'], done: [] },
-      remote_execution: { enabled: false },
     } as ProjectConfig,
     cards: [deepLinkCard],
     loading: false,
@@ -544,7 +552,6 @@ describe('ProjectShell — card-scoped worker-log liveness', () => {
     types: ['task'],
     priorities: ['medium'],
     transitions: { todo: ['in_progress'], in_progress: [] },
-    remote_execution: { enabled: false },
   };
 
   function boardReturnFor(card: Card) {
