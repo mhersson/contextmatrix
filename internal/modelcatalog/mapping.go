@@ -11,14 +11,11 @@ import (
 var aaCreatorToOR = map[string]string{
 	"zai":       "z-ai",
 	"alibaba":   "qwen",
-	"kimi":      "moonshotai",
 	"openai":    "openai",
 	"anthropic": "anthropic",
 	"google":    "google",
 	"deepseek":  "deepseek",
-	"xiaomi":    "xiaomi",
 	"minimax":   "minimax",
-	"mistral":   "mistralai",
 	"x-ai":      "x-ai",
 }
 
