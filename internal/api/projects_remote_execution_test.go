@@ -31,11 +31,10 @@ func noneModeServer(t *testing.T) *httptest.Server {
 func TestUpdateProject_RemoteExecution_RoundTrip(t *testing.T) {
 	server := noneModeServer(t)
 
-	enabled := true
 	image := "ghcr.io/org/worker:latest"
 
 	body := validUpdateProjectBody(nil)
-	body.RemoteExecution = &remoteExecutionUpdate{Enabled: &enabled, WorkerImage: &image}
+	body.RemoteExecution = &remoteExecutionUpdate{WorkerImage: &image}
 
 	resp := putProject(t, server.URL, nil, body)
 	defer closeBody(t, resp.Body)
@@ -45,19 +44,16 @@ func TestUpdateProject_RemoteExecution_RoundTrip(t *testing.T) {
 	var cfg board.ProjectConfig
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&cfg))
 	require.NotNil(t, cfg.RemoteExecution)
-	require.NotNil(t, cfg.RemoteExecution.Enabled)
-	assert.True(t, *cfg.RemoteExecution.Enabled)
 	assert.Equal(t, "ghcr.io/org/worker:latest", cfg.RemoteExecution.WorkerImage)
 }
 
 func TestUpdateProject_RemoteExecution_OmittedPreserves(t *testing.T) {
 	server := noneModeServer(t)
 
-	enabled := true
 	image := "ghcr.io/org/worker:latest"
 
 	setBody := validUpdateProjectBody(nil)
-	setBody.RemoteExecution = &remoteExecutionUpdate{Enabled: &enabled, WorkerImage: &image}
+	setBody.RemoteExecution = &remoteExecutionUpdate{WorkerImage: &image}
 
 	resp := putProject(t, server.URL, nil, setBody)
 	require.Equal(t, http.StatusOK, resp.StatusCode)

@@ -25,7 +25,6 @@ type Repo struct {
 // interchangeable (each bakes its own worker entrypoint), so neither field
 // ever falls back to the other.
 type RemoteExecutionConfig struct {
-	Enabled         *bool  `yaml:"enabled,omitempty"           json:"enabled,omitempty"`
 	WorkerImage     string `yaml:"worker_image,omitempty"      json:"worker_image,omitempty"`
 	ChatWorkerImage string `yaml:"chat_worker_image,omitempty" json:"chat_worker_image,omitempty"`
 }

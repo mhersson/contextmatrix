@@ -14,6 +14,7 @@ import { useDashboardPolling } from '../../hooks/useDashboardPolling';
 import { useActivityFeed } from '../../hooks/useActivityFeed';
 import { useResizeDivider } from '../../hooks/useResizeDivider';
 import { useConsoleState } from '../../context/ConsoleStateContext';
+import { useTheme } from '../../hooks/useTheme';
 import { AppHeader } from '../AppHeader';
 import { Board } from '../Board';
 import { CardPanel } from '../CardPanel';
@@ -46,6 +47,7 @@ export function ProjectShell() {
   const { projects } = useProjects();
   const { showToast } = useToast();
   const { identity } = useIdentity();
+  const { taskBackend } = useTheme();
 
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
   const [createPanelOpen, setCreatePanelOpen] = useState(false);
@@ -195,13 +197,13 @@ export function ProjectShell() {
         { key: 'n', handler: () => { if (!panelOpen && config) handleOpenCreate(); } },
         { key: 'b', handler: () => { if (!panelOpen) navigate(`/projects/${project}`); } },
         { key: 's', handler: () => { if (!panelOpen) navigate(`/projects/${project}/settings`); } },
-        { key: 'c', handler: () => { if (!panelOpen && config?.remote_execution?.enabled) toggleConsole(); } },
+        { key: 'c', handler: () => { if (!panelOpen && config && taskBackend) toggleConsole(); } },
         ...projects.map((_, i) => ({
           key: String(i + 1),
           handler: () => { if (i < projects.length) navigate(`/projects/${projects[i].name}`); },
         })),
       ],
-      [panelOpen, config, project, projects, handleOpenCreate, navigate, toggleConsole]
+      [panelOpen, config, taskBackend, project, projects, handleOpenCreate, navigate, toggleConsole]
     )
   );
 
@@ -211,7 +213,7 @@ export function ProjectShell() {
         project={project || ''}
         hasActiveWorkers={hasActiveWorkers}
         onStopAll={handleStopAll}
-        remoteExecutionEnabled={!!config?.remote_execution?.enabled}
+        taskBackendConfigured={!!taskBackend}
         consoleOpen={consoleOpen}
         onToggleConsole={toggleConsole}
       />

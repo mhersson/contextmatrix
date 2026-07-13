@@ -225,7 +225,7 @@ otherwise the server generates a UUID. The same id is emitted as the
 | `VALIDATION_ERROR`        | 422     | mutation body semantically invalid                            |
 | `INVALID_MODEL`           | 400     | chat `model` not in the active model source (endpoint list, or CM's vendor-screened OpenRouter catalog) |
 | `WORKER_CONFLICT`         | 409     | card already queued/running                                   |
-| `BACKEND_DISABLED`        | 503/403 | no task backend configured globally (503) or disabled for the project (403) |
+| `BACKEND_DISABLED`        | 503     | no task backend configured globally                           |
 | `BACKEND_UNAVAILABLE`     | 502     | backend webhook failed (host unreachable)                     |
 | `WORKER_NOT_RUNNING`      | 409     | card is not currently running; also a cold (non-live) chat session on `GET /api/worker/git-credentials` |
 | `REVIEW_ATTEMPTS_CAPPED`  | 409     | review attempts limit reached                                 |
@@ -1047,7 +1047,7 @@ not accepted here. Extra fields are available: `github` (GitHub import
 configuration), `default_skills` (project-wide task-skill fallback),
 `github_credential` (credential-pool binding for this project's GitHub
 operations), `verify` (project-wide verify gate), and `remote_execution`
-(per-project execution toggle and worker images).
+(per-project worker images).
 
 **Accepted fields:**
 
@@ -1067,7 +1067,6 @@ operations), `verify` (project-wide verify gate), and `remote_execution`
   "github_credential": "org-app",
   "verify": { "command": "make test", "timeout_seconds": 600, "env": ["JAVA_HOME"] },
   "remote_execution": {
-    "enabled": true,
     "worker_image": "my-org/go-worker:latest",
     "chat_worker_image": "my-org/go-chat-worker:latest"
   }
@@ -1111,7 +1110,7 @@ agent setting `verify` gets 403 `HUMAN_ONLY_FIELD`) — where the card value
 overrides the project's field by field at trigger time.
 
 **`remote_execution` field** — per-field pointer-merge semantics, unlike
-`verify`'s replace-whole-struct: each of `enabled`, `worker_image`, and
+`verify`'s replace-whole-struct: each of `worker_image` and
 `chat_worker_image` is independently omittable (preserves the stored value) or
 explicitly set. For the two image fields, an explicit empty string clears the
 override back to that backend's own default image. `worker_image` feeds the
@@ -1365,8 +1364,7 @@ the full webhook protocol, HMAC signing details, and backend configuration.
 
 Trigger remote execution for a card. Human-only (rejects `X-Agent-ID` without
 `human:` prefix). Requires card to be in `todo` state and a task backend
-configured globally + per-project remote execution enabled. The `autonomous`
-flag is **not** required.
+configured globally. The `autonomous` flag is **not** required.
 
 Accepts an optional JSON body:
 

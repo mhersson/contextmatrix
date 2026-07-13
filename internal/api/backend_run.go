@@ -88,14 +88,6 @@ func (h *backendHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check per-project remote execution setting.
-	if !h.isRemoteExecutionEnabled(r, project) {
-		writeError(w, http.StatusForbidden, ErrCodeBackendDisabled,
-			"remote execution is disabled for this project", "")
-
-		return
-	}
-
 	// Auto-enable feature_branch and create_pr for all "Run now" triggers —
 	// both autonomous and HITL (interactive) runs get a feature branch and PR.
 	// The patched card is intentionally discarded here: UpdateWorkerStatus

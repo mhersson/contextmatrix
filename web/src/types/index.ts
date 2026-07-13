@@ -105,7 +105,6 @@ export interface ProjectConfig {
   priorities: string[];
   transitions: Record<string, string[]>;
   remote_execution?: {
-    enabled?: boolean;
     worker_image?: string;
     chat_worker_image?: string;
   };
@@ -367,11 +366,10 @@ export interface UpdateProjectInput {
   /**
    * Field-level merge on the server: the whole object omitted preserves the
    * current config; each subfield present is applied (worker_image "" clears
-   * the image). Send only when the value changed from the loaded config —
-   * see the echo-back note in ProjectSettings.handleSave.
+   * the image). Sent only when the operator touched the section — see
+   * ProjectSettings.handleSave.
    */
   remote_execution?: {
-    enabled?: boolean;
     worker_image?: string;
     chat_worker_image?: string;
   };

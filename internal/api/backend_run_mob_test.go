@@ -40,7 +40,7 @@ func mobRunConfig() config.MobConfig {
 func runMobTrigger(t *testing.T, mobCfg config.MobConfig, patch *service.PatchCardInput) (backend.TriggerPayload, *service.CardService, string) {
 	t.Helper()
 
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExecEnabled)
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	t.Cleanup(cleanup)
 
 	ctx := context.Background()

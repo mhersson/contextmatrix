@@ -20,7 +20,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	githubauth "github.com/mhersson/contextmatrix-githubauth"
-	"github.com/mhersson/contextmatrix/internal/backend"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/events"
@@ -2317,8 +2316,14 @@ func testSetupWithRemoteExecution(t *testing.T, boardConfigYAML string) (*servic
 	return svc, bus, func() {}
 }
 
-func TestGetProjectRemoteExecutionStatus(t *testing.T) {
-	boardConfigWithRemoteExec := `name: test-project
+// TestProjectGETReturnsStoredRemoteExecution pins that GET /api/projects and
+// GET /api/projects/{project} return remote_execution exactly as stored in
+// .board.yaml — no fabricated fields. Runnability is instance-global (a
+// configured task backend), surfaced to clients via GET /api/app/config
+// task_backend, never via project config. Decodes into a raw map so the
+// assertion is about the wire shape, not the Go struct.
+func TestProjectGETReturnsStoredRemoteExecution(t *testing.T) {
+	boardConfigWithImage := `name: test-project
 prefix: TEST
 next_id: 1
 states: [todo, in_progress, done, stalled, not_planned]
@@ -2331,32 +2336,24 @@ transitions:
   stalled: [todo, in_progress]
   not_planned: [todo]
 remote_execution:
-  enabled: true
   worker_image: my-worker:latest
 `
 
-	boardConfigPerProjectDisabled := `name: test-project
-prefix: TEST
-next_id: 1
-states: [todo, in_progress, done, stalled, not_planned]
-types: [task, bug, feature]
-priorities: [low, medium, high]
-transitions:
-  todo: [in_progress]
-  in_progress: [done, todo]
-  done: [todo]
-  stalled: [todo, in_progress]
-  not_planned: [todo]
-remote_execution:
-  enabled: false
-  worker_image: my-worker:latest
-`
+	assertStored := func(t *testing.T, raw map[string]any) {
+		t.Helper()
 
-	t.Run("backend disabled globally returns remote_execution.enabled false", func(t *testing.T) {
-		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigWithRemoteExec)
+		re, ok := raw["remote_execution"].(map[string]any)
+		require.True(t, ok, "stored remote_execution must be present")
+		assert.Equal(t, "my-worker:latest", re["worker_image"])
+
+		_, hasEnabled := re["enabled"]
+		assert.False(t, hasEnabled, "GET must not fabricate an enabled field")
+	}
+
+	t.Run("single project", func(t *testing.T) {
+		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigWithImage)
 		defer cleanup()
 
-		// No task backend passed → backendEnabled = false
 		router := NewRouter(RouterConfig{Service: svc, Bus: bus, Backend: nil})
 
 		server := httptest.NewServer(router)
@@ -2369,100 +2366,13 @@ remote_execution:
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-		var project board.ProjectConfig
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&project))
-
-		require.NotNil(t, project.RemoteExecution)
-		require.NotNil(t, project.RemoteExecution.Enabled)
-		assert.False(t, *project.RemoteExecution.Enabled,
-			"remote_execution.enabled should be false when no task backend is configured")
+		var raw map[string]any
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&raw))
+		assertStored(t, raw)
 	})
 
-	t.Run("task backend configured but per-project disabled returns false", func(t *testing.T) {
-		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigPerProjectDisabled)
-		defer cleanup()
-
-		// Passing a non-nil task backend → backendEnabled = true
-		backendClient := backend.NewClient("http://localhost:9090", "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
-		router := NewRouter(RouterConfig{
-			Service:         svc,
-			Bus:             bus,
-			Backend:         backendClient,
-			AgentBackendCfg: &config.AgentBackendConfig{},
-		})
-
-		server := httptest.NewServer(router)
-		defer server.Close()
-
-		resp, err := http.Get(server.URL + "/api/projects/test-project")
-
-		require.NoError(t, err)
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-		var project board.ProjectConfig
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&project))
-
-		require.NotNil(t, project.RemoteExecution)
-		require.NotNil(t, project.RemoteExecution.Enabled)
-		assert.False(t, *project.RemoteExecution.Enabled,
-			"remote_execution.enabled should be false when per-project config disables it")
-	})
-
-	t.Run("task backend configured with no per-project override returns nil remote_execution", func(t *testing.T) {
-		// Use the default board config (no remote_execution section)
-		svc, bus, cleanup := testSetup(t)
-		defer cleanup()
-
-		backendClient := backend.NewClient("http://localhost:9090", "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
-		router := NewRouter(RouterConfig{
-			Service:         svc,
-			Bus:             bus,
-			Backend:         backendClient,
-			AgentBackendCfg: &config.AgentBackendConfig{},
-		})
-
-		server := httptest.NewServer(router)
-		defer server.Close()
-
-		resp, err := http.Get(server.URL + "/api/projects/test-project")
-
-		require.NoError(t, err)
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-		var project board.ProjectConfig
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&project))
-
-		require.NotNil(t, project.RemoteExecution,
-			"remote_execution should be injected when a task backend is configured")
-		assert.True(t, *project.RemoteExecution.Enabled,
-			"remote_execution.enabled should be true when a task backend is configured")
-	})
-}
-
-func TestListProjectsRemoteExecutionStatus(t *testing.T) {
-	boardConfigWithRemoteExec := `name: test-project
-prefix: TEST
-next_id: 1
-states: [todo, in_progress, done, stalled, not_planned]
-types: [task, bug, feature]
-priorities: [low, medium, high]
-transitions:
-  todo: [in_progress]
-  in_progress: [done, todo]
-  done: [todo]
-  stalled: [todo, in_progress]
-  not_planned: [todo]
-remote_execution:
-  enabled: true
-  worker_image: my-worker:latest
-`
-
-	t.Run("backend disabled globally returns remote_execution.enabled false for all projects", func(t *testing.T) {
-		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigWithRemoteExec)
+	t.Run("project list", func(t *testing.T) {
+		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigWithImage)
 		defer cleanup()
 
 		router := NewRouter(RouterConfig{Service: svc, Bus: bus, Backend: nil})
@@ -2477,14 +2387,10 @@ remote_execution:
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-		var projects []board.ProjectConfig
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&projects))
-
-		require.Len(t, projects, 1)
-		require.NotNil(t, projects[0].RemoteExecution)
-		require.NotNil(t, projects[0].RemoteExecution.Enabled)
-		assert.False(t, *projects[0].RemoteExecution.Enabled,
-			"remote_execution.enabled should be false in list when no task backend is configured")
+		var raws []map[string]any
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&raws))
+		require.Len(t, raws, 1)
+		assertStored(t, raws[0])
 	})
 }
 

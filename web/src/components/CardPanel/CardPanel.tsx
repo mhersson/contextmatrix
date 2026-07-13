@@ -11,6 +11,7 @@ import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useBranches } from '../../hooks/useBranches';
 import { useCardPanelKeyboard } from '../../hooks/useCardPanelKeyboard';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
+import { useTheme } from '../../hooks/useTheme';
 import { ConfirmModal } from '../ConfirmModal/ConfirmModal';
 
 interface CardPanelProps {
@@ -72,6 +73,8 @@ export function CardPanel(props: CardPanelProps) {
 
   useFocusTrap(panelRef, true);
 
+  const { taskBackend } = useTheme();
+
   const isMobile = useMediaQuery('(max-width: 768px)');
   // Chat is "live" (transcript streaming, tab shown with a pulse) whenever a
   // worker session is running — HITL or autonomous. Mirrors the
@@ -93,7 +96,7 @@ export function CardPanel(props: CardPanelProps) {
   );
 
   const { branches, loading: branchesLoading, error: branchesError } =
-    useBranches(card.project, !!config.remote_execution?.enabled);
+    useBranches(card.project, !!taskBackend);
 
   const handleClaim = useCallback(async () => {
     // currentAgentId is the unified identity (session-derived in multi mode,
@@ -132,7 +135,7 @@ export function CardPanel(props: CardPanelProps) {
   useCardPanelKeyboard(handleClose, handleSave);
 
   const canRun =
-    config.remote_execution?.enabled !== false &&
+    !!taskBackend &&
     card.state === 'todo' &&
     (!card.worker_status || card.worker_status === 'failed' || card.worker_status === 'killed');
 

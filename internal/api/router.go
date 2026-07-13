@@ -266,7 +266,6 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	ph := &projectHandlers{
 		svc:              cfg.Service,
-		backendEnabled:   cfg.Backend != nil,
 		taskSkills:       taskSkillsLister,
 		authEnabled:      cfg.AuthService != nil,
 		credentialExists: cfg.CredentialExists,

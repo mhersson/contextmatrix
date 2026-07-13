@@ -2576,8 +2576,7 @@ func remoteExecBaseInput(re *RemoteExecutionUpdate) UpdateProjectInput {
 }
 
 // TestUpdateProject_RemoteExecutionMerge exercises the field-level merge
-// semantics: preserve on nil, per-subfield merge, clear-via-empty-image, and
-// preservation of an explicit enabled=false (which must NOT normalize away).
+// semantics: preserve on nil, per-subfield merge, and clear-via-empty-image.
 func TestUpdateProject_RemoteExecutionMerge(t *testing.T) {
 	svc, tmpDir, cleanup := setupTest(t)
 	defer cleanup()
@@ -2585,19 +2584,17 @@ func TestUpdateProject_RemoteExecutionMerge(t *testing.T) {
 	projectDir := filepath.Join(tmpDir, "boards", "test-project")
 	ctx := context.Background()
 
-	boolPtr := func(b bool) *bool { return &b }
 	strPtr := func(s string) *string { return &s }
 
-	// Set both subfields and confirm it round-trips to .board.yaml on disk.
+	// Set both images and confirm they round-trip to .board.yaml on disk.
 	cfg, err := svc.UpdateProject(ctx, "test-project", remoteExecBaseInput(&RemoteExecutionUpdate{
-		Enabled:     boolPtr(true),
-		WorkerImage: strPtr("ghcr.io/org/worker:latest"),
+		WorkerImage:     strPtr("ghcr.io/org/worker:latest"),
+		ChatWorkerImage: strPtr("ghcr.io/org/chat:latest"),
 	}))
 	require.NoError(t, err)
 	require.NotNil(t, cfg.RemoteExecution)
-	require.NotNil(t, cfg.RemoteExecution.Enabled)
-	assert.True(t, *cfg.RemoteExecution.Enabled)
 	assert.Equal(t, "ghcr.io/org/worker:latest", cfg.RemoteExecution.WorkerImage)
+	assert.Equal(t, "ghcr.io/org/chat:latest", cfg.RemoteExecution.ChatWorkerImage)
 
 	reloaded, err := board.LoadProjectConfig(projectDir)
 	require.NoError(t, err)
@@ -2608,42 +2605,30 @@ func TestUpdateProject_RemoteExecutionMerge(t *testing.T) {
 	cfg, err = svc.UpdateProject(ctx, "test-project", remoteExecBaseInput(nil))
 	require.NoError(t, err)
 	require.NotNil(t, cfg.RemoteExecution)
-	require.NotNil(t, cfg.RemoteExecution.Enabled)
-	assert.True(t, *cfg.RemoteExecution.Enabled)
 	assert.Equal(t, "ghcr.io/org/worker:latest", cfg.RemoteExecution.WorkerImage)
+	assert.Equal(t, "ghcr.io/org/chat:latest", cfg.RemoteExecution.ChatWorkerImage)
 
-	// Merge image-only: enabled must survive.
+	// Merge worker-image-only: the chat image must survive.
 	cfg, err = svc.UpdateProject(ctx, "test-project", remoteExecBaseInput(&RemoteExecutionUpdate{
 		WorkerImage: strPtr("ghcr.io/org/worker:v2"),
 	}))
 	require.NoError(t, err)
-	require.NotNil(t, cfg.RemoteExecution.Enabled)
-	assert.True(t, *cfg.RemoteExecution.Enabled, "enabled must survive an image-only merge")
 	assert.Equal(t, "ghcr.io/org/worker:v2", cfg.RemoteExecution.WorkerImage)
+	assert.Equal(t, "ghcr.io/org/chat:latest", cfg.RemoteExecution.ChatWorkerImage,
+		"chat image must survive a worker-image-only merge")
 
-	// Merge enabled-only: image must survive.
-	cfg, err = svc.UpdateProject(ctx, "test-project", remoteExecBaseInput(&RemoteExecutionUpdate{
-		Enabled: boolPtr(false),
-	}))
-	require.NoError(t, err)
-	require.NotNil(t, cfg.RemoteExecution.Enabled)
-	assert.False(t, *cfg.RemoteExecution.Enabled)
-	assert.Equal(t, "ghcr.io/org/worker:v2", cfg.RemoteExecution.WorkerImage, "image must survive an enabled-only merge")
-
-	// Clear via empty image: with an explicit enabled=false still set, the
-	// config is a meaningful per-project opt-out and must NOT normalize to nil.
+	// Clear via empty worker image: the chat image alone keeps the config alive.
 	cfg, err = svc.UpdateProject(ctx, "test-project", remoteExecBaseInput(&RemoteExecutionUpdate{
 		WorkerImage: strPtr(""),
 	}))
 	require.NoError(t, err)
-	require.NotNil(t, cfg.RemoteExecution, "explicit enabled=false must be preserved, not normalized away")
-	require.NotNil(t, cfg.RemoteExecution.Enabled)
-	assert.False(t, *cfg.RemoteExecution.Enabled)
+	require.NotNil(t, cfg.RemoteExecution, "a set chat image must survive clearing the worker image")
 	assert.Empty(t, cfg.RemoteExecution.WorkerImage)
+	assert.Equal(t, "ghcr.io/org/chat:latest", cfg.RemoteExecution.ChatWorkerImage)
 }
 
 // TestUpdateProject_RemoteExecutionNormalizesToNil confirms a merge whose result
-// carries no operator intent (enabled unset, image empty) drops the config so
+// carries no operator intent (both images empty) drops the config so
 // .board.yaml stays clean.
 func TestUpdateProject_RemoteExecutionNormalizesToNil(t *testing.T) {
 	svc, tmpDir, cleanup := setupTest(t)
@@ -2654,16 +2639,15 @@ func TestUpdateProject_RemoteExecutionNormalizesToNil(t *testing.T) {
 
 	strPtr := func(s string) *string { return &s }
 
-	// Set image only — enabled stays unset (nil).
+	// Set the worker image only.
 	cfg, err := svc.UpdateProject(ctx, "test-project", remoteExecBaseInput(&RemoteExecutionUpdate{
 		WorkerImage: strPtr("ghcr.io/org/worker:latest"),
 	}))
 	require.NoError(t, err)
 	require.NotNil(t, cfg.RemoteExecution)
-	assert.Nil(t, cfg.RemoteExecution.Enabled)
 	assert.Equal(t, "ghcr.io/org/worker:latest", cfg.RemoteExecution.WorkerImage)
 
-	// Clear the image; with enabled unset the config is the zero value and the
+	// Clear the image; the config is now the zero value and the
 	// whole struct is dropped.
 	cfg, err = svc.UpdateProject(ctx, "test-project", remoteExecBaseInput(&RemoteExecutionUpdate{
 		WorkerImage: strPtr("   "), // whitespace trims to empty
@@ -2674,6 +2658,83 @@ func TestUpdateProject_RemoteExecutionNormalizesToNil(t *testing.T) {
 	reloaded, err := board.LoadProjectConfig(projectDir)
 	require.NoError(t, err)
 	assert.Nil(t, reloaded.RemoteExecution, "normalized-away config must be absent from .board.yaml on disk")
+}
+
+// TestUpdateProject_FailedValidationLeavesStateUntouched pins the atomicity
+// contract of a rejected UpdateProject: a validation failure — whether caught
+// at the deepest point (SaveProjectConfig, e.g. states missing "stalled") or
+// earlier (worker-image hygiene) — leaves both the on-disk .board.yaml and
+// the store's cached config untouched. The contract holds by construction:
+// FilesystemStore.GetProject returns a copy, SaveProjectConfig validates
+// before writing, and caches update only after a successful save+commit.
+// This test is the tripwire for any refactor that breaks one of those three
+// properties.
+func TestUpdateProject_FailedValidationLeavesStateUntouched(t *testing.T) {
+	strPtr := func(s string) *string { return &s }
+
+	tests := []struct {
+		name    string
+		input   UpdateProjectInput
+		wantErr error
+	}{
+		{
+			// Travels past all local-copy mutation down to SaveProject →
+			// validateProjectConfig — the deepest validation point. Works
+			// because the fixture project has zero cards, so the earlier
+			// in-use-state check never fires.
+			name: "states missing stalled fail in SaveProjectConfig",
+			input: UpdateProjectInput{
+				States:     []string{"todo", "in_progress", "done", "not_planned"},
+				Types:      []string{"task", "bug", "feature"},
+				Priorities: []string{"low", "medium", "high"},
+				Transitions: map[string][]string{
+					"todo":        {"in_progress"},
+					"in_progress": {"done", "todo"},
+					"done":        {"todo"},
+					"not_planned": {"todo"},
+				},
+			},
+			wantErr: board.ErrMissingStalledState,
+		},
+		{
+			// Fails earlier, in the remote-execution merge's hygiene screen.
+			name: "invalid worker image fails in validateWorkerImage",
+			input: remoteExecBaseInput(&RemoteExecutionUpdate{
+				WorkerImage: strPtr("bad image!"),
+			}),
+			wantErr: board.ErrInvalidProjectConfig,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, tmpDir, cleanup := setupTest(t)
+			defer cleanup()
+
+			projectDir := filepath.Join(tmpDir, "boards", "test-project")
+			ctx := context.Background()
+
+			pre, err := svc.GetProject(ctx, "test-project")
+			require.NoError(t, err)
+
+			_, err = svc.UpdateProject(ctx, "test-project", tt.input)
+			require.Error(t, err)
+			require.ErrorIs(t, err, tt.wantErr)
+
+			// Store-cache view: svc.GetProject reads the store's cached
+			// config (a fresh copy per call), the same path card operations
+			// resolve project config through.
+			cached, err := svc.GetProject(ctx, "test-project")
+			require.NoError(t, err)
+			assert.Equal(t, pre, cached, "store cache must be untouched after a failed PUT")
+
+			// On-disk view, read fresh off the filesystem.
+			onDisk, err := board.LoadProjectConfig(projectDir)
+			require.NoError(t, err)
+			assert.Equal(t, pre.States, onDisk.States, "on-disk states must be untouched")
+			assert.Nil(t, onDisk.RemoteExecution, "a failed PUT must not write remote_execution to disk")
+		})
+	}
 }
 
 // TestUpdateProject_RemoteExecutionImageValidation covers the hygiene screen on

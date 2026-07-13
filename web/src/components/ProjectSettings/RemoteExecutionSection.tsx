@@ -3,7 +3,6 @@ import type { CSSProperties } from 'react';
 import { WorkerImageSelect } from './WorkerImageSelect';
 
 export interface RemoteExecutionConfig {
-  enabled?: boolean;
   worker_image?: string;
   chat_worker_image?: string;
 }
@@ -14,6 +13,8 @@ export interface RemoteExecutionSectionProps {
   inputStyle: CSSProperties;
   /** Non-admins in multi mode: pickers skip their fetch and render text. */
   readOnly: boolean;
+  /** Whether a task backend is configured (AppConfig.task_backend non-empty). */
+  taskBackendConfigured: boolean;
   /** Whether a chat backend is configured (AppConfig.chat_enabled). */
   chatEnabled: boolean;
 }
@@ -23,6 +24,7 @@ export function RemoteExecutionSection({
   onChange,
   inputStyle,
   readOnly,
+  taskBackendConfigured,
   chatEnabled,
 }: RemoteExecutionSectionProps) {
   const headingId = useId();
@@ -40,18 +42,7 @@ export function RemoteExecutionSection({
         style={{ backgroundColor: 'var(--bg1)' }}
         aria-labelledby={headingId}
       >
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={value.enabled ?? false}
-            onChange={(e) => update({ enabled: e.target.checked })}
-            className="accent-[var(--green)]"
-          />
-          <span className="text-sm" style={{ color: 'var(--fg)' }}>
-            Enable remote execution
-          </span>
-        </label>
-        {value.enabled && (
+        {taskBackendConfigured && (
           <WorkerImageSelect
             backend="agent"
             label="Task worker image"
@@ -70,8 +61,13 @@ export function RemoteExecutionSection({
             onChange={(img) => update({ chat_worker_image: img || undefined })}
             readOnly={readOnly}
             inputStyle={inputStyle}
-            hint="Chat sessions use this image even while remote execution is disabled."
+            hint="Chat sessions use this image."
           />
+        )}
+        {!taskBackendConfigured && !chatEnabled && (
+          <p className="text-xs" style={{ color: 'var(--grey1)' }}>
+            No execution backend is configured on this instance.
+          </p>
         )}
       </div>
     </div>

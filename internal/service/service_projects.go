@@ -67,7 +67,6 @@ type UpdateProjectInput struct {
 // untouched; non-nil sets it. A non-nil WorkerImage of "" clears the image.
 // A non-nil ChatWorkerImage of "" clears the chat image.
 type RemoteExecutionUpdate struct {
-	Enabled         *bool
 	WorkerImage     *string
 	ChatWorkerImage *string
 }
@@ -270,11 +269,6 @@ func (s *CardService) UpdateProject(ctx context.Context, name string, input Upda
 		re := board.RemoteExecutionConfig{}
 		if cfg.RemoteExecution != nil {
 			re = *cfg.RemoteExecution
-		}
-
-		if input.RemoteExecution.Enabled != nil {
-			v := *input.RemoteExecution.Enabled
-			re.Enabled = &v
 		}
 
 		if input.RemoteExecution.WorkerImage != nil {
@@ -718,11 +712,6 @@ func copyProjectConfig(cfg *board.ProjectConfig) *board.ProjectConfig {
 
 	if cfg.RemoteExecution != nil {
 		re := *cfg.RemoteExecution
-		if cfg.RemoteExecution.Enabled != nil {
-			v := *cfg.RemoteExecution.Enabled
-			re.Enabled = &v
-		}
-
 		cp.RemoteExecution = &re
 	}
 
@@ -770,12 +759,9 @@ func validateWorkerImage(field, image string) error {
 }
 
 // remoteExecutionIsZero reports whether a merged remote-execution config carries
-// no operator intent and can be dropped so .board.yaml stays clean. Only the Go
-// zero value qualifies: an explicit Enabled (even a pointer to false) is a
-// meaningful per-project override of the global default (see
-// backendHandlers.isRemoteExecutionEnabled) and must be preserved.
+// no operator intent and can be dropped so .board.yaml stays clean.
 func remoteExecutionIsZero(re *board.RemoteExecutionConfig) bool {
-	return re.Enabled == nil && re.WorkerImage == "" && re.ChatWorkerImage == ""
+	return re.WorkerImage == "" && re.ChatWorkerImage == ""
 }
 
 // toSet converts a slice to a set for membership checks.

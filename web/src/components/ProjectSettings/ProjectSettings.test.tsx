@@ -88,7 +88,7 @@ beforeEach(() => {
   mocks.adminListCredentials.mockResolvedValue([]);
   mocks.getTaskSkills.mockResolvedValue([]);
   mocks.getBackendImages.mockResolvedValue({ ok: true, images: [] });
-  mocks.useTheme.mockReturnValue({ chatEnabled: true });
+  mocks.useTheme.mockReturnValue({ chatEnabled: true, taskBackend: 'agent' });
 });
 
 async function renderSettings() {
@@ -169,19 +169,17 @@ describe('ProjectSettings — handleSave payload construction for remote_executi
     expect(body).not.toHaveProperty('remote_execution');
   });
 
-  it('changed: enabling remote execution and setting an image sends the pointer-shaped payload', async () => {
+  it('changed: picking a task image sends the images-only payload', async () => {
     mocks.getProject.mockResolvedValue(baseConfig());
     mocks.getBackendImages.mockResolvedValue({
       ok: true,
       images: [{ tags: ['ghcr.io/org/worker:latest'] }],
     });
     mocks.updateProject.mockResolvedValue(
-      baseConfig({ remote_execution: { enabled: true, worker_image: 'ghcr.io/org/worker:latest' } }),
+      baseConfig({ remote_execution: { worker_image: 'ghcr.io/org/worker:latest' } }),
     );
 
     await renderSettings();
-
-    fireEvent.click(screen.getByRole('checkbox', { name: /enable remote execution/i }));
 
     const imageSelect = await screen.findByLabelText(/task worker image/i);
     fireEvent.change(imageSelect, { target: { value: 'ghcr.io/org/worker:latest' } });
@@ -193,7 +191,6 @@ describe('ProjectSettings — handleSave payload construction for remote_executi
     await waitFor(() => expect(mocks.updateProject).toHaveBeenCalled());
     const [, body] = mocks.updateProject.mock.calls[0];
     expect(body.remote_execution).toEqual({
-      enabled: true,
       worker_image: 'ghcr.io/org/worker:latest',
       chat_worker_image: '',
     });
@@ -226,46 +223,49 @@ describe('ProjectSettings — handleSave payload construction for remote_executi
 
     await waitFor(() => expect(mocks.updateProject).toHaveBeenCalled());
     const [, body] = mocks.updateProject.mock.calls[0];
-    // enabled was never touched (only the chat image select changed) — the
-    // toggle's echo would risk overwriting a stored enabled:true in a
-    // chat-only deployment, so it must be omitted, not fabricated as false.
+    // The payload is always the two image fields — nothing else exists to send.
     expect(body.remote_execution).toEqual({
       worker_image: '',
       chat_worker_image: 'contextmatrix-chat-worker:go-node',
     });
   });
 
-  it('chat picker renders without the remote-execution toggle; hidden when chat is not wired', async () => {
+  it('task picker is gated on a configured task backend; no enable toggle exists', async () => {
     mocks.getProject.mockResolvedValue(baseConfig());
 
     await renderSettings();
-    // enabled is false, yet the chat picker is present:
+    expect(screen.getByLabelText(/task worker image/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/chat worker image/i)).toBeInTheDocument();
-    // and the task picker is not (it is gated on the toggle):
+    expect(
+      screen.queryByRole('checkbox', { name: /enable remote execution/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('task picker is hidden when no task backend is configured', async () => {
+    mocks.useTheme.mockReturnValue({ chatEnabled: true, taskBackend: '' });
+    mocks.getProject.mockResolvedValue(baseConfig());
+
+    await renderSettings();
     expect(screen.queryByLabelText(/task worker image/i)).not.toBeInTheDocument();
   });
 
   it('chat picker is hidden when chat_enabled is false', async () => {
-    mocks.useTheme.mockReturnValue({ chatEnabled: false });
+    mocks.useTheme.mockReturnValue({ chatEnabled: false, taskBackend: 'agent' });
     mocks.getProject.mockResolvedValue(baseConfig());
 
     await renderSettings();
     expect(screen.queryByLabelText(/chat worker image/i)).not.toBeInTheDocument();
   });
 
-  it('two consecutive unrelated-field saves never leak remote_execution (effective-vs-raw baseline)', async () => {
-    // GET returns the EFFECTIVE config — the backend is globally disabled so
-    // effectiveRemoteExecution forces enabled:false, while the stored/raw value
-    // is enabled:true. PUT echoes the RAW config back (enabled:true), which is
-    // what setConfig makes the new baseline. That divergence is the trap.
+  it('consecutive unrelated-field saves keep omitting remote_execution', async () => {
     mocks.getProject.mockResolvedValue(
-      baseConfig({ remote_execution: { enabled: false, worker_image: 'ghcr.io/org/worker:latest' } }),
+      baseConfig({ remote_execution: { worker_image: 'ghcr.io/org/worker:latest' } }),
     );
     mocks.updateProject.mockImplementation((_project: string, input: { repo?: string }) =>
       Promise.resolve(
         baseConfig({
           repo: input.repo ?? '',
-          remote_execution: { enabled: true, worker_image: 'ghcr.io/org/worker:latest' },
+          remote_execution: { worker_image: 'ghcr.io/org/worker:latest' },
         }),
       ),
     );
@@ -274,7 +274,6 @@ describe('ProjectSettings — handleSave payload construction for remote_executi
 
     const repoInput = screen.getByLabelText(/repository url/i);
 
-    // Save #1: edit only the repo; remote_execution must be omitted.
     fireEvent.change(repoInput, { target: { value: 'git@github.com:org/two.git' } });
     await waitFor(() => expect(screen.getByRole('button', { name: /save/i })).not.toBeDisabled());
     fireEvent.click(screen.getByRole('button', { name: /save/i }));
@@ -282,12 +281,9 @@ describe('ProjectSettings — handleSave payload construction for remote_executi
     await waitFor(() => expect(mocks.updateProject).toHaveBeenCalledTimes(1));
     expect(mocks.updateProject.mock.calls[0][1]).not.toHaveProperty('remote_execution');
 
-    // The raw PUT response becoming the baseline must NOT leave the form
-    // spuriously dirty — nothing about remote execution was touched.
+    // The PUT response becoming the baseline must not leave the form dirty.
     await waitFor(() => expect(screen.getByRole('button', { name: /save/i })).toBeDisabled());
 
-    // Save #2: edit the repo again; remote_execution must STILL be omitted, so
-    // the operator's enabled:true opt-in is never silently overwritten.
     fireEvent.change(repoInput, { target: { value: 'git@github.com:org/three.git' } });
     await waitFor(() => expect(screen.getByRole('button', { name: /save/i })).not.toBeDisabled());
     fireEvent.click(screen.getByRole('button', { name: /save/i }));

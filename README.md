@@ -504,12 +504,10 @@ backends:
 mcp_api_key: "your-mcp-bearer-token" # MCP auth for container connections
 ```
 
-Per-project, override the enabled flag and set a custom worker image in
-`.board.yaml`:
+Per-project, set a custom worker image in `.board.yaml`:
 
 ```yaml
 remote_execution:
-  enabled: true
   worker_image: "ghcr.io/org/custom-worker:latest"
 ```
 

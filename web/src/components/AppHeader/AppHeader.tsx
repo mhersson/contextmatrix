@@ -9,12 +9,12 @@ interface AppHeaderProps {
   project: string;
   hasActiveWorkers?: boolean;
   onStopAll?: () => void;
-  remoteExecutionEnabled?: boolean;
+  taskBackendConfigured?: boolean;
   consoleOpen?: boolean;
   onToggleConsole?: () => void;
 }
 
-export function AppHeader({ project, hasActiveWorkers, onStopAll, remoteExecutionEnabled, consoleOpen, onToggleConsole }: AppHeaderProps) {
+export function AppHeader({ project, hasActiveWorkers, onStopAll, taskBackendConfigured, consoleOpen, onToggleConsole }: AppHeaderProps) {
   const base = `/projects/${project}`;
   const { toggle } = useMobileSidebar();
   const [confirmStopAllOpen, setConfirmStopAllOpen] = useState(false);
@@ -51,7 +51,7 @@ export function AppHeader({ project, hasActiveWorkers, onStopAll, remoteExecutio
           >
             Board
           </NavLink>
-          {remoteExecutionEnabled && (
+          {taskBackendConfigured && (
             <button
               type="button"
               onClick={onToggleConsole}

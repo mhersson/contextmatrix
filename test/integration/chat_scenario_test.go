@@ -38,8 +38,8 @@ func TestChatScenario(t *testing.T) {
 	capture := startWorkerCapture(h.rl, "contextmatrix.chat=true")
 	t.Cleanup(capture.stop)
 
-	// Project-scoped chat so the worker image resolves from the board's
-	// remote_execution.worker_image.
+	// Project-scoped chat; the harness board sets no chat_worker_image, so the
+	// worker runs the chat backend's configured base_image.
 	var created struct {
 		ID     string `json:"id"`
 		Status string `json:"status"`
