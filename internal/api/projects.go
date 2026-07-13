@@ -43,7 +43,6 @@ type updateProjectRequest struct {
 // image; chat_worker_image "" clears the chat image). Omitting the whole
 // object preserves the existing config.
 type remoteExecutionUpdate struct {
-	Enabled         *bool   `json:"enabled"`
 	WorkerImage     *string `json:"worker_image"`
 	ChatWorkerImage *string `json:"chat_worker_image"`
 }
@@ -246,7 +245,6 @@ func (h *projectHandlers) updateProject(w http.ResponseWriter, r *http.Request) 
 	var remoteExecution *service.RemoteExecutionUpdate
 	if req.RemoteExecution != nil {
 		remoteExecution = &service.RemoteExecutionUpdate{
-			Enabled:         req.RemoteExecution.Enabled,
 			WorkerImage:     req.RemoteExecution.WorkerImage,
 			ChatWorkerImage: req.RemoteExecution.ChatWorkerImage,
 		}

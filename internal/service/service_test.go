@@ -2576,8 +2576,7 @@ func remoteExecBaseInput(re *RemoteExecutionUpdate) UpdateProjectInput {
 }
 
 // TestUpdateProject_RemoteExecutionMerge exercises the field-level merge
-// semantics: preserve on nil, per-subfield merge, clear-via-empty-image, and
-// preservation of an explicit enabled=false (which must NOT normalize away).
+// semantics: preserve on nil, per-subfield merge, and clear-via-empty-image.
 func TestUpdateProject_RemoteExecutionMerge(t *testing.T) {
 	svc, tmpDir, cleanup := setupTest(t)
 	defer cleanup()
@@ -2585,19 +2584,17 @@ func TestUpdateProject_RemoteExecutionMerge(t *testing.T) {
 	projectDir := filepath.Join(tmpDir, "boards", "test-project")
 	ctx := context.Background()
 
-	boolPtr := func(b bool) *bool { return &b }
 	strPtr := func(s string) *string { return &s }
 
-	// Set both subfields and confirm it round-trips to .board.yaml on disk.
+	// Set both images and confirm they round-trip to .board.yaml on disk.
 	cfg, err := svc.UpdateProject(ctx, "test-project", remoteExecBaseInput(&RemoteExecutionUpdate{
-		Enabled:     boolPtr(true),
-		WorkerImage: strPtr("ghcr.io/org/worker:latest"),
+		WorkerImage:     strPtr("ghcr.io/org/worker:latest"),
+		ChatWorkerImage: strPtr("ghcr.io/org/chat:latest"),
 	}))
 	require.NoError(t, err)
 	require.NotNil(t, cfg.RemoteExecution)
-	require.NotNil(t, cfg.RemoteExecution.Enabled)
-	assert.True(t, *cfg.RemoteExecution.Enabled)
 	assert.Equal(t, "ghcr.io/org/worker:latest", cfg.RemoteExecution.WorkerImage)
+	assert.Equal(t, "ghcr.io/org/chat:latest", cfg.RemoteExecution.ChatWorkerImage)
 
 	reloaded, err := board.LoadProjectConfig(projectDir)
 	require.NoError(t, err)
@@ -2608,38 +2605,26 @@ func TestUpdateProject_RemoteExecutionMerge(t *testing.T) {
 	cfg, err = svc.UpdateProject(ctx, "test-project", remoteExecBaseInput(nil))
 	require.NoError(t, err)
 	require.NotNil(t, cfg.RemoteExecution)
-	require.NotNil(t, cfg.RemoteExecution.Enabled)
-	assert.True(t, *cfg.RemoteExecution.Enabled)
 	assert.Equal(t, "ghcr.io/org/worker:latest", cfg.RemoteExecution.WorkerImage)
+	assert.Equal(t, "ghcr.io/org/chat:latest", cfg.RemoteExecution.ChatWorkerImage)
 
-	// Merge image-only: enabled must survive.
+	// Merge worker-image-only: the chat image must survive.
 	cfg, err = svc.UpdateProject(ctx, "test-project", remoteExecBaseInput(&RemoteExecutionUpdate{
 		WorkerImage: strPtr("ghcr.io/org/worker:v2"),
 	}))
 	require.NoError(t, err)
-	require.NotNil(t, cfg.RemoteExecution.Enabled)
-	assert.True(t, *cfg.RemoteExecution.Enabled, "enabled must survive an image-only merge")
 	assert.Equal(t, "ghcr.io/org/worker:v2", cfg.RemoteExecution.WorkerImage)
+	assert.Equal(t, "ghcr.io/org/chat:latest", cfg.RemoteExecution.ChatWorkerImage,
+		"chat image must survive a worker-image-only merge")
 
-	// Merge enabled-only: image must survive.
-	cfg, err = svc.UpdateProject(ctx, "test-project", remoteExecBaseInput(&RemoteExecutionUpdate{
-		Enabled: boolPtr(false),
-	}))
-	require.NoError(t, err)
-	require.NotNil(t, cfg.RemoteExecution.Enabled)
-	assert.False(t, *cfg.RemoteExecution.Enabled)
-	assert.Equal(t, "ghcr.io/org/worker:v2", cfg.RemoteExecution.WorkerImage, "image must survive an enabled-only merge")
-
-	// Clear via empty image: with an explicit enabled=false still set, the
-	// config is a meaningful per-project opt-out and must NOT normalize to nil.
+	// Clear via empty worker image: the chat image alone keeps the config alive.
 	cfg, err = svc.UpdateProject(ctx, "test-project", remoteExecBaseInput(&RemoteExecutionUpdate{
 		WorkerImage: strPtr(""),
 	}))
 	require.NoError(t, err)
-	require.NotNil(t, cfg.RemoteExecution, "explicit enabled=false must be preserved, not normalized away")
-	require.NotNil(t, cfg.RemoteExecution.Enabled)
-	assert.False(t, *cfg.RemoteExecution.Enabled)
+	require.NotNil(t, cfg.RemoteExecution, "a set chat image must survive clearing the worker image")
 	assert.Empty(t, cfg.RemoteExecution.WorkerImage)
+	assert.Equal(t, "ghcr.io/org/chat:latest", cfg.RemoteExecution.ChatWorkerImage)
 }
 
 // TestUpdateProject_RemoteExecutionNormalizesToNil confirms a merge whose result
@@ -2660,7 +2645,6 @@ func TestUpdateProject_RemoteExecutionNormalizesToNil(t *testing.T) {
 	}))
 	require.NoError(t, err)
 	require.NotNil(t, cfg.RemoteExecution)
-	assert.Nil(t, cfg.RemoteExecution.Enabled)
 	assert.Equal(t, "ghcr.io/org/worker:latest", cfg.RemoteExecution.WorkerImage)
 
 	// Clear the image; with enabled unset the config is the zero value and the
