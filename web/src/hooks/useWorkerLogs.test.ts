@@ -685,4 +685,27 @@ describe('useWorkerLogs — agent attribution passthrough', () => {
     expect(result.current.logs).toHaveLength(1);
     expect(result.current.logs[0].agent).toBeUndefined();
   });
+
+  it('model field survives into the LogEntry when present (regression for the cast passthrough)', () => {
+    const { result } = renderHook(() =>
+      useWorkerLogs({ project: 'proj', enabled: true }),
+    );
+
+    act(() => { latestES().simulateOpen(); });
+
+    act(() => {
+      latestES().simulateMessage({
+        type: 'text',
+        content: '[round 1] moderator: framing the plan',
+        card_id: 'C-1',
+        ts: new Date().toISOString(),
+        seq: 1,
+        agent: 'moderator',
+        model: 'z-ai/glm-5.2',
+      });
+    });
+
+    expect(result.current.logs).toHaveLength(1);
+    expect(result.current.logs[0].model).toBe('z-ai/glm-5.2');
+  });
 });

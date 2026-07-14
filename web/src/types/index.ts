@@ -413,6 +413,13 @@ export interface LogEntry {
    * single-agent frames.
    */
   agent?: string;
+  /**
+   * The model backing the speaker for mob session discussion frames
+   * (e.g. "z-ai/glm-5.2"). Absent/empty on ordinary single-agent
+   * frames and human participants. Rendered as a second pill on the
+   * same line as the speaker chip (see SpeakerChip in ChatPanel).
+   */
+  model?: string;
   /** True when this message was produced during a chat-mode rehydration phase. */
   rehydration_phase?: boolean;
   /**

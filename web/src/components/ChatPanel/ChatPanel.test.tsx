@@ -134,6 +134,80 @@ describe('ChatPanel', () => {
       expect(chips[0]).toHaveTextContent('seat-1');
       expect(chips[1]).toHaveTextContent('guest-laptop');
     });
+
+    it('renders speaker and model pills side-by-side when agent and model are both present', () => {
+      // Two mob frames: moderator + z-ai/glm-5.2, seat-1 + anthropic/sonnet-5.
+      const discussionLogs: LogEntry[] = [
+        {
+          ts: '2026-05-13T10:00:00Z', card_id: 'C-1', type: 'text',
+          content: 'framing the plan', agent: 'moderator', model: 'z-ai/glm-5.2',
+        },
+        {
+          ts: '2026-05-13T10:00:01Z', card_id: 'C-1', type: 'text',
+          content: 'drafting the parser', agent: 'seat-1', model: 'anthropic/sonnet-5',
+        },
+      ];
+      render(<ChatPanel logs={discussionLogs} onSend={() => {}} sendDisabled={false} />);
+      const speakerChips = screen.getAllByTestId('speaker-chip');
+      const modelChips = screen.getAllByTestId('model-chip');
+      expect(speakerChips).toHaveLength(2);
+      expect(modelChips).toHaveLength(2);
+      expect(speakerChips[0]).toHaveTextContent('moderator');
+      expect(modelChips[0]).toHaveTextContent('z-ai/glm-5.2');
+      expect(speakerChips[1]).toHaveTextContent('seat-1');
+      expect(modelChips[1]).toHaveTextContent('anthropic/sonnet-5');
+      // Both pills are rendered on the same line within one flex row container.
+      expect(speakerChips[0].parentElement).toBe(modelChips[0].parentElement);
+      expect(speakerChips[0].parentElement?.className).toContain('flex');
+    });
+
+    it('renders only the speaker pill when model is absent (regression guard for ordinary frames and human participants)', () => {
+      const plainLogs: LogEntry[] = [
+        { ts: '2026-05-13T10:00:00Z', card_id: 'C-1', type: 'text', content: 'single-agent reply', agent: 'claude' },
+        { ts: '2026-05-13T10:00:01Z', card_id: 'C-1', type: 'text', content: 'human note', agent: 'human:alice' },
+      ];
+      render(<ChatPanel logs={plainLogs} onSend={() => {}} sendDisabled={false} />);
+      const speakerChips = screen.getAllByTestId('speaker-chip');
+      expect(speakerChips).toHaveLength(2);
+      expect(speakerChips[0]).toHaveTextContent('claude');
+      expect(speakerChips[1]).toHaveTextContent('human:alice');
+      // No model pill rendered when model is absent.
+      expect(screen.queryByTestId('model-chip')).not.toBeInTheDocument();
+    });
+
+    it('renders only the speaker pill when model is an empty string (not empty parens or "undefined")', () => {
+      const emptyModelLogs: LogEntry[] = [
+        {
+          ts: '2026-05-13T10:00:00Z', card_id: 'C-1', type: 'text',
+          content: 'reply', agent: 'seat-2', model: '',
+        },
+      ];
+      render(<ChatPanel logs={emptyModelLogs} onSend={() => {}} sendDisabled={false} />);
+      expect(screen.getAllByTestId('speaker-chip')).toHaveLength(1);
+      expect(screen.queryByTestId('model-chip')).not.toBeInTheDocument();
+      // No "(undefined)" or empty parens leak into the DOM.
+      expect(document.body).not.toHaveTextContent('(undefined)');
+      expect(document.body).not.toHaveTextContent('()');
+    });
+
+    it('the model pill uses the purple CSS custom properties, not a hardcoded hex', () => {
+      const discussionLogs: LogEntry[] = [
+        {
+          ts: '2026-05-13T10:00:00Z', card_id: 'C-1', type: 'text',
+          content: 'reply', agent: 'seat-1', model: 'z-ai/glm-5.2',
+        },
+      ];
+      render(<ChatPanel logs={discussionLogs} onSend={() => {}} sendDisabled={false} />);
+      const modelChip = screen.getByTestId('model-chip');
+      // Assert the semantic tokens are referenced (no hardcoded hex).
+      expect(modelChip.style.backgroundColor).toBe('var(--bg-purple)');
+      expect(modelChip.style.color).toBe('var(--purple)');
+      // The speaker chip, by contrast, must NOT use the purple token — it
+      // uses the per-author idColor accent, keeping the two pills visually
+      // distinct.
+      const speakerChip = screen.getByTestId('speaker-chip');
+      expect(speakerChip.style.color).not.toBe('var(--purple)');
+    });
   });
 
   describe('localStorage filter prefs', () => {
