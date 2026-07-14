@@ -38,6 +38,10 @@ type Event struct {
 	// ("seat-1", "guest-laptop", "moderator", "human"). Empty for ordinary
 	// single-agent frames.
 	Agent string
+	// Model is the LLM model slug the speaker used for this frame
+	// (e.g. "z-ai/glm-5.2"). Empty for ordinary single-agent frames and
+	// legacy events from a rolling-deploy buffer.
+	Model string
 }
 
 // droppedMarkerCount decodes the drop count stored in a dropped-marker event's

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, renderHook, act } from '@testing-library/react';
 import { ChatPanel } from './ChatPanel';
+import { useWorkerLogs } from '../../hooks/useWorkerLogs';
 import { formatHHMM, formatTitle } from '../../utils/chatTimestamp';
 import type { LogEntry } from '../../types';
 
@@ -26,6 +27,48 @@ const localStorageMock = (() => {
 })();
 
 Object.defineProperty(globalThis, 'localStorage', { value: localStorageMock, configurable: true });
+
+// ---------------------------------------------------------------------------
+// Fake EventSource for the composed useWorkerLogs → ChatPanel integration test
+// ---------------------------------------------------------------------------
+
+type ESListener = (event: MessageEvent) => void;
+
+class FakeEventSource {
+  static instances: FakeEventSource[] = [];
+
+  url: string;
+  readyState: number = 0;
+  onopen: (() => void) | null = null;
+  onmessage: ESListener | null = null;
+  onerror: (() => void) | null = null;
+  closed = false;
+
+  constructor(url: string) {
+    this.url = url;
+    FakeEventSource.instances.push(this);
+  }
+
+  simulateOpen() {
+    this.readyState = 1;
+    this.onopen?.();
+  }
+
+  simulateMessage(data: unknown) {
+    const evt = { data: JSON.stringify(data) } as MessageEvent;
+    this.onmessage?.(evt);
+  }
+
+  simulateError() {
+    this.readyState = 2;
+    this.onerror?.();
+  }
+
+  close() {
+    this.readyState = 2;
+    this.closed = true;
+  }
+}
 
 const logs: LogEntry[] = [
   { ts: '2026-05-13T10:00:00Z', card_id: '', type: 'user', content: 'hello' },
@@ -102,6 +145,17 @@ describe('ChatPanel', () => {
   });
 
   describe('speaker chips (mob session discussions)', () => {
+    /**
+     * External producer boundary — real e2e proof against live
+     * contextmatrix-agent mob-session traffic is out of scope for this
+     * repository. The agent backend (contextmatrix-agent) must populate
+     * protocol.LogEntry.Model for moderator and seat discussion frames;
+     * if it does not, that is a separate external card in the
+     * contextmatrix-agent repo. The tests here can only prove passthrough
+     * correctness with synthetic fixtures, not against real agent traffic.
+     * This limitation is explicitly scoped so the card is not mistakenly
+     * treated as fully done.
+     */
     it('renders a labeled chip on text entries that carry agent', () => {
       const discussionLogs: LogEntry[] = [
         {
@@ -133,6 +187,128 @@ describe('ChatPanel', () => {
       expect(chips).toHaveLength(2);
       expect(chips[0]).toHaveTextContent('seat-1');
       expect(chips[1]).toHaveTextContent('guest-laptop');
+    });
+
+    it('renders speaker and model pills side-by-side when agent and model are both present', () => {
+      // Two mob frames: moderator + z-ai/glm-5.2, seat-1 + anthropic/sonnet-5.
+      const discussionLogs: LogEntry[] = [
+        {
+          ts: '2026-05-13T10:00:00Z', card_id: 'C-1', type: 'text',
+          content: 'framing the plan', agent: 'moderator', model: 'z-ai/glm-5.2',
+        },
+        {
+          ts: '2026-05-13T10:00:01Z', card_id: 'C-1', type: 'text',
+          content: 'drafting the parser', agent: 'seat-1', model: 'anthropic/sonnet-5',
+        },
+      ];
+      render(<ChatPanel logs={discussionLogs} onSend={() => {}} sendDisabled={false} />);
+      const speakerChips = screen.getAllByTestId('speaker-chip');
+      const modelChips = screen.getAllByTestId('model-chip');
+      expect(speakerChips).toHaveLength(2);
+      expect(modelChips).toHaveLength(2);
+      expect(speakerChips[0]).toHaveTextContent('moderator');
+      expect(modelChips[0]).toHaveTextContent('z-ai/glm-5.2');
+      expect(speakerChips[1]).toHaveTextContent('seat-1');
+      expect(modelChips[1]).toHaveTextContent('anthropic/sonnet-5');
+      // Both pills are rendered on the same line within one flex row container.
+      expect(speakerChips[0].parentElement).toBe(modelChips[0].parentElement);
+      expect(speakerChips[0].parentElement?.className).toContain('flex');
+    });
+
+    it('renders only the speaker pill when model is absent (regression guard for ordinary frames and human participants)', () => {
+      const plainLogs: LogEntry[] = [
+        { ts: '2026-05-13T10:00:00Z', card_id: 'C-1', type: 'text', content: 'single-agent reply', agent: 'claude' },
+        { ts: '2026-05-13T10:00:01Z', card_id: 'C-1', type: 'text', content: 'human note', agent: 'human:alice' },
+      ];
+      render(<ChatPanel logs={plainLogs} onSend={() => {}} sendDisabled={false} />);
+      const speakerChips = screen.getAllByTestId('speaker-chip');
+      expect(speakerChips).toHaveLength(2);
+      expect(speakerChips[0]).toHaveTextContent('claude');
+      expect(speakerChips[1]).toHaveTextContent('human:alice');
+      // No model pill rendered when model is absent.
+      expect(screen.queryByTestId('model-chip')).not.toBeInTheDocument();
+    });
+
+    it('renders only the speaker pill when model is an empty string (not empty parens or "undefined")', () => {
+      const emptyModelLogs: LogEntry[] = [
+        {
+          ts: '2026-05-13T10:00:00Z', card_id: 'C-1', type: 'text',
+          content: 'reply', agent: 'seat-2', model: '',
+        },
+      ];
+      render(<ChatPanel logs={emptyModelLogs} onSend={() => {}} sendDisabled={false} />);
+      expect(screen.getAllByTestId('speaker-chip')).toHaveLength(1);
+      expect(screen.queryByTestId('model-chip')).not.toBeInTheDocument();
+      // No "(undefined)" or empty parens leak into the DOM.
+      expect(document.body).not.toHaveTextContent('(undefined)');
+      expect(document.body).not.toHaveTextContent('()');
+    });
+
+    it('the model pill uses the purple CSS custom properties, not a hardcoded hex', () => {
+      const discussionLogs: LogEntry[] = [
+        {
+          ts: '2026-05-13T10:00:00Z', card_id: 'C-1', type: 'text',
+          content: 'reply', agent: 'seat-1', model: 'z-ai/glm-5.2',
+        },
+      ];
+      render(<ChatPanel logs={discussionLogs} onSend={() => {}} sendDisabled={false} />);
+      const modelChip = screen.getByTestId('model-chip');
+      // Assert the semantic tokens are referenced (no hardcoded hex).
+      expect(modelChip.style.backgroundColor).toBe('var(--bg-purple)');
+      expect(modelChip.style.color).toBe('var(--purple)');
+      // The speaker chip, by contrast, must NOT use the purple token — it
+      // uses the per-author idColor accent, keeping the two pills visually
+      // distinct.
+      const speakerChip = screen.getByTestId('speaker-chip');
+      expect(speakerChip.style.color).not.toBe('var(--purple)');
+    });
+  });
+
+  describe('composed integration: useWorkerLogs → LogEntry → ChatPanel', () => {
+    beforeEach(() => {
+      FakeEventSource.instances = [];
+      vi.stubGlobal('EventSource', FakeEventSource);
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    /** Returns the most recently created FakeEventSource instance. */
+    function latestES(): FakeEventSource {
+      const es = FakeEventSource.instances[FakeEventSource.instances.length - 1];
+      if (!es) throw new Error('No EventSource created');
+      return es;
+    }
+
+    it('renders speaker and model pills from a wire-shaped {agent, model} frame through useWorkerLogs', () => {
+      const { result } = renderHook(() =>
+        useWorkerLogs({ project: 'proj', enabled: true }),
+      );
+
+      // Open the connection
+      act(() => { latestES().simulateOpen(); });
+
+      const ts = new Date().toISOString();
+
+      // Send a mob-session frame with both agent and model
+      act(() => {
+        latestES().simulateMessage({
+          type: 'text', content: 'framing the plan', card_id: 'C-1', ts, seq: 1,
+          agent: 'moderator', model: 'z-ai/glm-5.2',
+        });
+      });
+
+      // Render ChatPanel with the logs from useWorkerLogs
+      render(<ChatPanel logs={result.current.logs} onSend={() => {}} sendDisabled={false} />);
+
+      // Both pills must render
+      const speakerChip = screen.getByTestId('speaker-chip');
+      const modelChip = screen.getByTestId('model-chip');
+      expect(speakerChip).toHaveTextContent('moderator');
+      expect(modelChip).toHaveTextContent('z-ai/glm-5.2');
+      // Content is visible
+      expect(screen.getByText('framing the plan')).toBeInTheDocument();
     });
   });
 

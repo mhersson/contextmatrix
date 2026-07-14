@@ -162,6 +162,11 @@ func (h *backendHandlers) streamCardSession(w http.ResponseWriter, r *http.Reque
 			if evt.Agent != "" {
 				payload["agent"] = evt.Agent
 			}
+			// LLM model slug for the speaker (mob session discussions): attach
+			// only when set so legacy/ordinary frames omit the key entirely.
+			if evt.Model != "" {
+				payload["model"] = evt.Model
+			}
 		}
 
 		b, err := json.Marshal(payload)
@@ -279,6 +284,11 @@ func (h *backendHandlers) streamProjectSession(w http.ResponseWriter, r *http.Re
 			// so ordinary frames don't grow a noisy empty field.
 			if evt.Agent != "" {
 				payload["agent"] = evt.Agent
+			}
+			// LLM model slug for the speaker (mob session discussions): attach
+			// only when set so legacy/ordinary frames omit the key entirely.
+			if evt.Model != "" {
+				payload["model"] = evt.Model
 			}
 		}
 

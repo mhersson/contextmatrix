@@ -2408,7 +2408,8 @@ func TestParseSSEPayloadReadsWireTimestamp(t *testing.T) {
 
 // TestParseSSEPayloadCarriesAgent verifies the speaker-attribution field
 // survives the wire → Event re-mapping (mob session discussion frames), and
-// stays empty when the backend sends none.
+// stays empty when the backend sends none. It also asserts the Model slug is
+// carried through the same re-mapping and stays empty when absent.
 func TestParseSSEPayloadCarriesAgent(t *testing.T) {
 	raw, err := json.Marshal(protocol.LogEntry{
 		Timestamp: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
@@ -2416,12 +2417,14 @@ func TestParseSSEPayloadCarriesAgent(t *testing.T) {
 		Type:      "text",
 		Content:   "[round 1] seat-1: I propose...",
 		Agent:     "seat-1",
+		Model:     "anthropic/sonnet-5",
 	})
 	require.NoError(t, err)
 
 	evt, _, ok := parseSSEPayload(string(raw))
 	require.True(t, ok)
 	assert.Equal(t, "seat-1", evt.Agent)
+	assert.Equal(t, "anthropic/sonnet-5", evt.Model, "Model slug must survive the wire → Event re-mapping")
 
 	raw, err = json.Marshal(protocol.LogEntry{CardID: "CM-001", Type: "text", Content: "plain"})
 	require.NoError(t, err)
@@ -2429,6 +2432,7 @@ func TestParseSSEPayloadCarriesAgent(t *testing.T) {
 	evt, _, ok = parseSSEPayload(string(raw))
 	require.True(t, ok)
 	assert.Empty(t, evt.Agent)
+	assert.Empty(t, evt.Model, "Model must be empty when the backend sends none")
 }
 
 // TestSignSSERequestMatchesProtocolSigner is the drift canary between

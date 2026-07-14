@@ -642,6 +642,102 @@ describe('useWorkerLogs — stream identity changes', () => {
   });
 });
 
+describe('useWorkerLogs — reconnect/snapshot replay preserves model and agent', () => {
+  /**
+   * Reconnect scenario: a worker connection is closed and reopened; the
+   * server sends a snapshot replay of the session log. All entries in the
+   * snapshot must carry the `agent` and `model` fields through to the
+   * LogEntry, exactly as a fresh connection would.
+   *
+   * This test uses synthetic fixtures only — it proves passthrough
+   * correctness of the frontend wire path (EventSource → useWorkerLogs →
+   * LogEntry). Real end-to-end proof against live contextmatrix-agent
+   * mob-session traffic is out of scope for this repository. The agent
+   * backend (contextmatrix-agent) must populate protocol.LogEntry.Model
+   * for moderator and seat discussion frames; if it does not, that is a
+   * separate external card in the contextmatrix-agent repo. The frontend
+   * can only prove it faithfully forwards whatever the backend sends.
+   */
+  it('reconnect snapshot replay preserves agent and model on every entry', () => {
+    const { result, rerender } = renderHook(
+      ({ enabled }: { enabled: boolean }) =>
+        useWorkerLogs({ project: 'proj', enabled, cardId: 'CARD-1' }),
+      { initialProps: { enabled: true } },
+    );
+
+    act(() => { latestES().simulateOpen(); });
+    expect(result.current.connected).toBe(true);
+
+    const ts = new Date().toISOString();
+
+    // Deliver a mixed-model snapshot: moderator + glm, seat-1 + sonnet, seat-2 + gpt
+    act(() => {
+      latestES().simulateMessage({
+        type: 'text', content: 'round 1 start', card_id: 'CARD-1', ts, seq: 1,
+        agent: 'moderator', model: 'z-ai/glm-5.2',
+      });
+    });
+    act(() => {
+      latestES().simulateMessage({
+        type: 'text', content: 'drafting parser', card_id: 'CARD-1', ts, seq: 2,
+        agent: 'seat-1', model: 'anthropic/sonnet-5',
+      });
+    });
+    act(() => {
+      latestES().simulateMessage({
+        type: 'text', content: 'reviewing edge cases', card_id: 'CARD-1', ts, seq: 3,
+        agent: 'seat-2', model: 'openai/gpt-4.1',
+      });
+    });
+
+    // Assert all three entries have agent and model before reconnect
+    expect(result.current.logs).toHaveLength(3);
+    expect(result.current.logs[0].agent).toBe('moderator');
+    expect(result.current.logs[0].model).toBe('z-ai/glm-5.2');
+    expect(result.current.logs[1].agent).toBe('seat-1');
+    expect(result.current.logs[1].model).toBe('anthropic/sonnet-5');
+    expect(result.current.logs[2].agent).toBe('seat-2');
+    expect(result.current.logs[2].model).toBe('openai/gpt-4.1');
+
+    // Close the connection (simulate a disconnect/reconnect)
+    act(() => { rerender({ enabled: false }); });
+
+    // Reopen the connection
+    act(() => { rerender({ enabled: true }); });
+    act(() => { latestES().simulateOpen(); });
+
+    // Send the same snapshot again (server replay)
+    act(() => {
+      latestES().simulateMessage({
+        type: 'text', content: 'round 1 start', card_id: 'CARD-1', ts, seq: 1,
+        agent: 'moderator', model: 'z-ai/glm-5.2',
+      });
+    });
+    act(() => {
+      latestES().simulateMessage({
+        type: 'text', content: 'drafting parser', card_id: 'CARD-1', ts, seq: 2,
+        agent: 'seat-1', model: 'anthropic/sonnet-5',
+      });
+    });
+    act(() => {
+      latestES().simulateMessage({
+        type: 'text', content: 'reviewing edge cases', card_id: 'CARD-1', ts, seq: 3,
+        agent: 'seat-2', model: 'openai/gpt-4.1',
+      });
+    });
+
+    // After reconnect, both agent and model fields must be preserved on all
+    // entries (no duplicates due to buffer clear).
+    expect(result.current.logs).toHaveLength(3);
+    expect(result.current.logs[0].agent).toBe('moderator');
+    expect(result.current.logs[0].model).toBe('z-ai/glm-5.2');
+    expect(result.current.logs[1].agent).toBe('seat-1');
+    expect(result.current.logs[1].model).toBe('anthropic/sonnet-5');
+    expect(result.current.logs[2].agent).toBe('seat-2');
+    expect(result.current.logs[2].model).toBe('openai/gpt-4.1');
+  });
+});
+
 describe('useWorkerLogs — agent attribution passthrough', () => {
   it('agent field survives into the LogEntry when present', () => {
     const { result } = renderHook(() =>
@@ -684,5 +780,28 @@ describe('useWorkerLogs — agent attribution passthrough', () => {
 
     expect(result.current.logs).toHaveLength(1);
     expect(result.current.logs[0].agent).toBeUndefined();
+  });
+
+  it('model field survives into the LogEntry when present (regression for the cast passthrough)', () => {
+    const { result } = renderHook(() =>
+      useWorkerLogs({ project: 'proj', enabled: true }),
+    );
+
+    act(() => { latestES().simulateOpen(); });
+
+    act(() => {
+      latestES().simulateMessage({
+        type: 'text',
+        content: '[round 1] moderator: framing the plan',
+        card_id: 'C-1',
+        ts: new Date().toISOString(),
+        seq: 1,
+        agent: 'moderator',
+        model: 'z-ai/glm-5.2',
+      });
+    });
+
+    expect(result.current.logs).toHaveLength(1);
+    expect(result.current.logs[0].model).toBe('z-ai/glm-5.2');
   });
 });
