@@ -642,12 +642,12 @@ describe('useWorkerLogs — stream identity changes', () => {
   });
 });
 
-describe('useWorkerLogs — reconnect/snapshot replay preserves model field', () => {
+describe('useWorkerLogs — reconnect/snapshot replay preserves model and agent', () => {
   /**
    * Reconnect scenario: a worker connection is closed and reopened; the
    * server sends a snapshot replay of the session log. All entries in the
-   * snapshot must carry the `model` field through to the LogEntry, exactly
-   * as a fresh connection would.
+   * snapshot must carry the `agent` and `model` fields through to the
+   * LogEntry, exactly as a fresh connection would.
    *
    * This test uses synthetic fixtures only — it proves passthrough
    * correctness of the frontend wire path (EventSource → useWorkerLogs →
@@ -658,7 +658,7 @@ describe('useWorkerLogs — reconnect/snapshot replay preserves model field', ()
    * separate external card in the contextmatrix-agent repo. The frontend
    * can only prove it faithfully forwards whatever the backend sends.
    */
-  it('reconnect snapshot replay preserves the model field on each entry', () => {
+  it('reconnect snapshot replay preserves agent and model on every entry', () => {
     const { result, rerender } = renderHook(
       ({ enabled }: { enabled: boolean }) =>
         useWorkerLogs({ project: 'proj', enabled, cardId: 'CARD-1' }),
@@ -726,49 +726,15 @@ describe('useWorkerLogs — reconnect/snapshot replay preserves model field', ()
       });
     });
 
-    // After reconnect, model field must be preserved on all entries (no duplicates due to buffer clear)
+    // After reconnect, both agent and model fields must be preserved on all
+    // entries (no duplicates due to buffer clear).
     expect(result.current.logs).toHaveLength(3);
-    expect(result.current.logs[0].model).toBe('z-ai/glm-5.2');
-    expect(result.current.logs[1].model).toBe('anthropic/sonnet-5');
-    expect(result.current.logs[2].model).toBe('openai/gpt-4.1');
-  });
-
-  it('reconnect snapshot replay preserves model alongside agent on each entry', () => {
-    const { result, rerender } = renderHook(
-      ({ enabled }: { enabled: boolean }) =>
-        useWorkerLogs({ project: 'proj', enabled, cardId: 'CARD-1' }),
-      { initialProps: { enabled: true } },
-    );
-
-    act(() => { latestES().simulateOpen(); });
-    expect(result.current.connected).toBe(true);
-
-    const ts = new Date().toISOString();
-
-    // Deliver a single mob entry with model
-    act(() => {
-      latestES().simulateMessage({
-        type: 'text', content: 'planning', card_id: 'CARD-1', ts, seq: 1,
-        agent: 'moderator', model: 'z-ai/glm-5.2',
-      });
-    });
-
-    // Close & reopen
-    act(() => { rerender({ enabled: false }); });
-    act(() => { rerender({ enabled: true }); });
-    act(() => { latestES().simulateOpen(); });
-
-    // Replay
-    act(() => {
-      latestES().simulateMessage({
-        type: 'text', content: 'planning', card_id: 'CARD-1', ts, seq: 1,
-        agent: 'moderator', model: 'z-ai/glm-5.2',
-      });
-    });
-
-    expect(result.current.logs).toHaveLength(1);
     expect(result.current.logs[0].agent).toBe('moderator');
     expect(result.current.logs[0].model).toBe('z-ai/glm-5.2');
+    expect(result.current.logs[1].agent).toBe('seat-1');
+    expect(result.current.logs[1].model).toBe('anthropic/sonnet-5');
+    expect(result.current.logs[2].agent).toBe('seat-2');
+    expect(result.current.logs[2].model).toBe('openai/gpt-4.1');
   });
 });
 

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, renderHook, act } from '@testing-library/react';
 import { ChatPanel } from './ChatPanel';
+import { useWorkerLogs } from '../../hooks/useWorkerLogs';
 import { formatHHMM, formatTitle } from '../../utils/chatTimestamp';
 import type { LogEntry } from '../../types';
 
@@ -26,6 +27,48 @@ const localStorageMock = (() => {
 })();
 
 Object.defineProperty(globalThis, 'localStorage', { value: localStorageMock, configurable: true });
+
+// ---------------------------------------------------------------------------
+// Fake EventSource for the composed useWorkerLogs → ChatPanel integration test
+// ---------------------------------------------------------------------------
+
+type ESListener = (event: MessageEvent) => void;
+
+class FakeEventSource {
+  static instances: FakeEventSource[] = [];
+
+  url: string;
+  readyState: number = 0;
+  onopen: (() => void) | null = null;
+  onmessage: ESListener | null = null;
+  onerror: (() => void) | null = null;
+  closed = false;
+
+  constructor(url: string) {
+    this.url = url;
+    FakeEventSource.instances.push(this);
+  }
+
+  simulateOpen() {
+    this.readyState = 1;
+    this.onopen?.();
+  }
+
+  simulateMessage(data: unknown) {
+    const evt = { data: JSON.stringify(data) } as MessageEvent;
+    this.onmessage?.(evt);
+  }
+
+  simulateError() {
+    this.readyState = 2;
+    this.onerror?.();
+  }
+
+  close() {
+    this.readyState = 2;
+    this.closed = true;
+  }
+}
 
 const logs: LogEntry[] = [
   { ts: '2026-05-13T10:00:00Z', card_id: '', type: 'user', content: 'hello' },
@@ -218,6 +261,54 @@ describe('ChatPanel', () => {
       // distinct.
       const speakerChip = screen.getByTestId('speaker-chip');
       expect(speakerChip.style.color).not.toBe('var(--purple)');
+    });
+  });
+
+  describe('composed integration: useWorkerLogs → LogEntry → ChatPanel', () => {
+    beforeEach(() => {
+      FakeEventSource.instances = [];
+      vi.stubGlobal('EventSource', FakeEventSource);
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    /** Returns the most recently created FakeEventSource instance. */
+    function latestES(): FakeEventSource {
+      const es = FakeEventSource.instances[FakeEventSource.instances.length - 1];
+      if (!es) throw new Error('No EventSource created');
+      return es;
+    }
+
+    it('renders speaker and model pills from a wire-shaped {agent, model} frame through useWorkerLogs', () => {
+      const { result } = renderHook(() =>
+        useWorkerLogs({ project: 'proj', enabled: true }),
+      );
+
+      // Open the connection
+      act(() => { latestES().simulateOpen(); });
+
+      const ts = new Date().toISOString();
+
+      // Send a mob-session frame with both agent and model
+      act(() => {
+        latestES().simulateMessage({
+          type: 'text', content: 'framing the plan', card_id: 'C-1', ts, seq: 1,
+          agent: 'moderator', model: 'z-ai/glm-5.2',
+        });
+      });
+
+      // Render ChatPanel with the logs from useWorkerLogs
+      render(<ChatPanel logs={result.current.logs} onSend={() => {}} sendDisabled={false} />);
+
+      // Both pills must render
+      const speakerChip = screen.getByTestId('speaker-chip');
+      const modelChip = screen.getByTestId('model-chip');
+      expect(speakerChip).toHaveTextContent('moderator');
+      expect(modelChip).toHaveTextContent('z-ai/glm-5.2');
+      // Content is visible
+      expect(screen.getByText('framing the plan')).toBeInTheDocument();
     });
   });
 
