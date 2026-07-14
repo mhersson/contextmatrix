@@ -519,7 +519,8 @@ Each event is a JSON `protocol.LogEntry`:
   "project": "alpha",
   "type": "text",
   "content": "[round 1] seat-1 (correctness): the parser change misses...",
-  "agent": "seat-1"
+  "agent": "seat-1",
+  "model": "z-ai/glm-5.2"
 }
 ```
 
@@ -541,6 +542,14 @@ the agent backend's log bridge maps its `discussion` JSONL events to
 `guest-<name>`, `moderator`, `human`). CM threads the field through its
 session-log buffer into the browser SSE stream, where the chat panel
 renders it as a speaker chip. Ordinary single-agent frames omit it.
+
+`model` is the optional LLM model slug that produced the speaker's turn
+(e.g. `z-ai/glm-5.2`, `anthropic/sonnet-5`). It appears alongside `agent`
+on mob session discussion frames and is absent on ordinary single-agent
+frames and human participants. The chat panel renders it as a second pill
+(in the `--purple` accent) on the same line as the speaker chip. The agent
+backend populates it from its seat configuration; if it does not, the field
+is simply absent from the log frame.
 
 The backend redacts common credential patterns (GitHub tokens, API keys, Bearer
 tokens) before publishing, and sends keepalive comments to hold the connection

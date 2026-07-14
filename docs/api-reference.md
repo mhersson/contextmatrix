@@ -1569,7 +1569,8 @@ Each normal event carries a JSON payload:
   "type": "text",
   "content": "[round 1] seat-1 (correctness): the parser change misses...",
   "seq": 42,
-  "agent": "seat-1"
+  "agent": "seat-1",
+  "model": "z-ai/glm-5.2"
 }
 ```
 
@@ -1587,6 +1588,12 @@ Marker frames have a distinct shape:
 speaker attribution (`seat-1`..`seat-N`, `guest-<name>`, `moderator`,
 `human`); ordinary frames omit the key. See
 [`docs/remote-execution.md` § Mob sessions](remote-execution.md#mob-sessions).
+
+`model` is present only on mob session discussion frames alongside `agent`
+and carries the LLM model slug that produced the speaker's turn
+(e.g. `z-ai/glm-5.2`); ordinary frames omit the key. The chat panel renders
+it as a second pill in the `--purple` accent on the same line as the speaker
+chip.
 
 The connection is closed when the browser disconnects or the session receives a
 terminal event.
