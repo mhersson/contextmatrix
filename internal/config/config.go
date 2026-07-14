@@ -972,7 +972,8 @@ func applyBestOfNDefaults(cfg *Config) {
 // introduced a new out-of-range value (see the call inside Validate, which
 // runs after applyEnvOverrides completes in Load). Order matters:
 // MaxParticipants before DefaultParticipants, MaxRounds before DefaultRounds
-// — the dependent checks read the already-normalized bound.
+// and before CheckpointRounds — the dependent checks read the
+// already-normalized bound.
 func applyMobDefaults(cfg *Config) {
 	if cfg.Mob.MaxParticipants < 2 || cfg.Mob.MaxParticipants > 10 {
 		if cfg.Mob.MaxParticipants != 0 {

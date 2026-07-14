@@ -762,10 +762,14 @@ moderator returns `proceed` or `revise` with at most 3 fixes. A revise
 triggers one fix pass on the same coder before the push; the revised diff
 is not re-checkpointed. Checkpoints are best-effort: any failure logs and
 the run proceeds. Transcripts stream as `discussion` events; the card gets
-one activity entry per checkpoint. Checkpoints draw from the shared mob
-budget term (`mob.budget_factor × max card cost`) — operators enabling the
-`execute` phase on multi-subtask cards should consider raising
-`mob.budget_factor` so plan and review discussions are not starved.
+one activity entry per checkpoint outcome (proceed, revise, or unparsable),
+plus a second entry (`revise skipped — budget exhausted`) when a revise
+verdict then hits the card budget ceiling. The checkpoint *discussion* draws
+from the shared mob budget term (`mob.budget_factor × max card cost`) —
+operators enabling the `execute` phase on multi-subtask cards should
+consider raising `mob.budget_factor` so plan and review discussions are not
+starved. The revise fix pass itself spends from the card budget like any
+other coder run, and is skipped once that budget is exhausted.
 
 ### GitHub token refresh
 
