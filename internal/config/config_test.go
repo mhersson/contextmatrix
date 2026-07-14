@@ -3204,8 +3204,9 @@ func TestMobConfigDefaultsAndOverrides(t *testing.T) {
 		assert.Equal(t, 2, cfg.Mob.DefaultRounds)
 		assert.Equal(t, 3, cfg.Mob.MaxRounds)
 		assert.InDelta(t, 0.75, cfg.Mob.BudgetFactor, 1e-9)
-		assert.False(t, cfg.Mob.ExecuteCheckpointsEnabled)
-		assert.Equal(t, "complex", cfg.Mob.CheckpointMinTier)
+		assert.True(t, cfg.Mob.ExecuteCheckpoints())
+		assert.Equal(t, "simple", cfg.Mob.CheckpointMinTier)
+		assert.Equal(t, 3, cfg.Mob.CheckpointRounds)
 		assert.Nil(t, cfg.Mob.Guests)
 	})
 
@@ -3227,7 +3228,7 @@ func TestMobConfigDefaultsAndOverrides(t *testing.T) {
 		assert.Equal(t, 1, cfg.Mob.DefaultRounds)
 		assert.Equal(t, 2, cfg.Mob.MaxRounds)
 		assert.InDelta(t, 1.5, cfg.Mob.BudgetFactor, 1e-9)
-		assert.True(t, cfg.Mob.ExecuteCheckpointsEnabled)
+		assert.True(t, cfg.Mob.ExecuteCheckpoints())
 		assert.Equal(t, "critical", cfg.Mob.CheckpointMinTier)
 		require.Len(t, cfg.Mob.Guests, 1)
 		assert.Equal(t, MobGuest{Name: "laptop", URL: "http://192.0.2.1:8484", Token: "guest-secret"}, cfg.Mob.Guests[0])
@@ -3247,7 +3248,7 @@ func TestMobConfigDefaultsAndOverrides(t *testing.T) {
 		assert.Equal(t, 3, cfg.Mob.DefaultRounds)
 		assert.Equal(t, 4, cfg.Mob.MaxRounds)
 		assert.InDelta(t, 1.25, cfg.Mob.BudgetFactor, 1e-9)
-		assert.True(t, cfg.Mob.ExecuteCheckpointsEnabled)
+		assert.True(t, cfg.Mob.ExecuteCheckpoints())
 		assert.Equal(t, "moderate", cfg.Mob.CheckpointMinTier)
 	})
 
@@ -3289,6 +3290,40 @@ func TestMobConfigDefaultsAndOverrides(t *testing.T) {
 		t.Setenv("CONTEXTMATRIX_MOB_MAX_PARTICIPANTS", "1")
 		cfg := loadConfigFromYAML(t, "port: 8080\n")
 		assert.Equal(t, 5, cfg.Mob.MaxParticipants, "env-supplied max < 2 must still fall back to default")
+	})
+}
+
+func TestMobCheckpointDefaults(t *testing.T) {
+	t.Run("flag nil means enabled", func(t *testing.T) {
+		cfg := &Config{}
+		applyMobDefaults(cfg)
+		assert.True(t, cfg.Mob.ExecuteCheckpoints())
+	})
+
+	t.Run("explicit false wins", func(t *testing.T) {
+		off := false
+		cfg := &Config{}
+		cfg.Mob.ExecuteCheckpointsEnabled = &off
+		applyMobDefaults(cfg)
+		assert.False(t, cfg.Mob.ExecuteCheckpoints())
+	})
+
+	t.Run("min tier defaults to simple", func(t *testing.T) {
+		cfg := &Config{}
+		applyMobDefaults(cfg)
+		assert.Equal(t, "simple", cfg.Mob.CheckpointMinTier)
+	})
+
+	t.Run("checkpoint rounds default 3, clamped to max_rounds", func(t *testing.T) {
+		cfg := &Config{}
+		applyMobDefaults(cfg)
+		assert.Equal(t, 3, cfg.Mob.CheckpointRounds)
+
+		cfg = &Config{}
+		cfg.Mob.MaxRounds = 2
+		cfg.Mob.CheckpointRounds = 5
+		applyMobDefaults(cfg)
+		assert.Equal(t, 2, cfg.Mob.CheckpointRounds)
 	})
 }
 

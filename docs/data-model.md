@@ -493,16 +493,18 @@ independent of the human-only gate, is range-validated to `0` (off) or
 `BAD_REQUEST` regardless of caller. Like the model pins, it is sticky: there
 is no per-trigger override, so the card's stored value applies to every
 subsequent run until a human changes or clears it, and it has effect only on
-the agent backend (see `docs/remote-execution.md`). Agents that attempt to set
-any of these fields receive 403 `HUMAN_ONLY_FIELD`. The MCP `update_card` tool
-does not expose them.
+the agent backend (see `docs/remote-execution.md`). Ignored (zeroed at
+trigger, with a warning) when the card's mob session covers the `execute`
+phase and the server allows checkpoints. Agents that attempt to set any of
+these fields receive 403 `HUMAN_ONLY_FIELD`. The MCP `update_card` tool does
+not expose them.
 
 ### Mob fields (optional)
 
 | Field              | Values                               | Default |
 | ------------------ | ------------------------------------- | ------- |
 | `mob_participants` | 0 (off) or 2..`mob.max_participants` | 0       |
-| `mob_phases`       | subset of `plan, review, execute`    | `[]`    |
+| `mob_phases`       | subset of `plan, review, execute` — `execute` is functional; mob coding takes priority over `best_of_n` at trigger | `[]` |
 | `mob_guests`       | names from the `mob.guests` registry | `[]`    |
 
 With `mob_participants >= 2`, agent-backend runs convene that many internal

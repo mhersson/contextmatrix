@@ -279,6 +279,7 @@ describe('AutomationCheckboxes — Mob block', () => {
         taskBackend="agent"
         mobParticipants={3}
         mobPhases={['plan', 'review']}
+        mobExecuteCheckpoints
         onMobPhasesChange={onPhases}
       />,
     );
@@ -319,5 +320,75 @@ describe('AutomationCheckboxes — Mob block', () => {
       <AutomationCheckboxes {...baseProps} taskBackend="agent" mobParticipants={3} />,
     );
     expect(screen.queryByText('Mob guests')).not.toBeInTheDocument();
+  });
+});
+
+describe('AutomationCheckboxes — mob execute vs Best-of-N', () => {
+  const noop = () => {};
+  const base = {
+    autonomous: false,
+    featureBranch: false,
+    createPR: false,
+    onAutonomousChange: noop,
+    onFeatureBranchChange: noop,
+    onCreatePRChange: noop,
+    onModelPinChange: noop,
+    onBaseBranchChange: noop,
+    branches: [] as string[],
+    taskBackend: 'agent',
+    mobParticipants: 3,
+    mobExecuteCheckpoints: true,
+  };
+
+  it('disables Best of N and warns while the execute pill is active', () => {
+    render(
+      <AutomationCheckboxes
+        {...base}
+        mobPhases={['plan', 'review', 'execute']}
+        bestOfN={3}
+      />,
+    );
+    expect(screen.getByLabelText('Best of N')).toBeDisabled();
+    expect(
+      screen.getByText(
+        'Mob coding takes priority — Best of N is ignored while the mob execute phase is selected.',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('disables Best of N without the warning when no value is set', () => {
+    render(
+      <AutomationCheckboxes
+        {...base}
+        mobPhases={['plan', 'execute']}
+        bestOfN={0}
+      />,
+    );
+    expect(screen.getByLabelText('Best of N')).toBeDisabled();
+    expect(screen.queryByText(/Mob coding takes priority/)).not.toBeInTheDocument();
+  });
+
+  it('leaves Best of N alone when execute is not selected', () => {
+    render(
+      <AutomationCheckboxes {...base} mobPhases={['plan', 'review']} bestOfN={3} />,
+    );
+    expect(screen.getByLabelText('Best of N')).toBeEnabled();
+  });
+
+  it('no exclusion when the server has checkpoints off', () => {
+    render(
+      <AutomationCheckboxes
+        {...base}
+        mobExecuteCheckpoints={false}
+        mobPhases={['plan', 'execute']}
+        bestOfN={3}
+      />,
+    );
+    expect(screen.getByLabelText('Best of N')).toBeEnabled();
+    expect(screen.getByLabelText('Mob phase execute')).toBeDisabled();
+    expect(screen.getByLabelText('Mob phase execute')).toHaveAttribute(
+      'title',
+      'Execute checkpoints are disabled on this server',
+    );
   });
 });

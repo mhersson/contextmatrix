@@ -62,6 +62,12 @@ interface AutomationCheckboxesProps {
   /** Registry guest names from app config (`mob_guest_names`). */
   mobGuestNames?: string[];
   /**
+   * Whether the server allows the mob "execute" phase
+   * (`mob_execute_checkpoints`). Gates the execute pill and the Best-of-N
+   * exclusion: mob coding takes priority over Best-of-N.
+   */
+  mobExecuteCheckpoints?: boolean;
+  /**
    * Mob change handlers. Optional like `onBestOfNChange` — the block only
    * renders on the agent backend path; create mode wires them through
    * CreateCardPanel.
@@ -120,7 +126,7 @@ export function AutomationCheckboxes({
   onModelPinChange, models = [], favorites,
   bestOfN, bestOfNMax, bestOfNDefault, onBestOfNChange,
   mobParticipants, mobMaxParticipants, mobDefaultParticipants,
-  mobPhases, mobGuests, mobGuestNames,
+  mobPhases, mobGuests, mobGuestNames, mobExecuteCheckpoints,
   onMobParticipantsChange, onMobPhasesChange, onMobGuestsChange,
   branchName, prUrl, reviewAttempts,
   baseBranch, onBaseBranchChange, branches, branchesLoading, branchesError,
@@ -146,6 +152,10 @@ export function AutomationCheckboxes({
     (_, i) => i + 2,
   );
   const mobOn = (mobParticipants ?? 0) >= 2;
+  const executeSelected = mobOn && (mobPhases ?? []).includes('execute');
+  // Best-of-N is excluded only when the execute phase will actually run:
+  // with the server flag off the trigger drops execute and Best-of-N runs.
+  const exclusionActive = executeSelected && (mobExecuteCheckpoints ?? false);
 
   return (
     <div className={`bf-auto-stack ${disabled ? 'opacity-60' : ''}`}>
@@ -169,23 +179,32 @@ export function AutomationCheckboxes({
       {/* Best of N — agent backend only. Renders in both edit and create
           modes when the agent backend is active. */}
       {agentBackend && (
-        <div className="bf-spread">
-          <span className="bf-switch-label">Best of N</span>
-          <select
-            aria-label="Best of N"
-            value={bestOfN ?? 0}
-            onChange={(e) => onBestOfNChange?.(Number(e.target.value))}
-            disabled={disabled}
-            className="bf-input"
-            style={{ width: 'auto', minWidth: '160px' }}
-            title={`Off, or 2–${bestOfNMaxResolved} candidate models judged per run (default ${bestOfNDefaultResolved})`}
-          >
-            <option value={0}>Off</option>
-            {bestOfNOptions.map((n) => (
-              <option key={n} value={n}>{n}</option>
-            ))}
-          </select>
-        </div>
+        <>
+          <div className="bf-spread">
+            <span className={`bf-switch-label ${exclusionActive ? 'opacity-50' : ''}`}>Best of N</span>
+            <select
+              aria-label="Best of N"
+              value={bestOfN ?? 0}
+              onChange={(e) => onBestOfNChange?.(Number(e.target.value))}
+              disabled={disabled || exclusionActive}
+              className="bf-input"
+              style={{ width: 'auto', minWidth: '160px' }}
+              title={exclusionActive
+                ? 'Disabled — mob coding takes priority'
+                : `Off, or 2–${bestOfNMaxResolved} candidate models judged per run (default ${bestOfNDefaultResolved})`}
+            >
+              <option value={0}>Off</option>
+              {bestOfNOptions.map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+          </div>
+          {exclusionActive && (bestOfN ?? 0) >= 2 && (
+            <div className="text-xs -mt-1" style={{ color: 'var(--yellow)' }}>
+              Mob coding takes priority — Best of N is ignored while the mob execute phase is selected.
+            </div>
+          )}
+        </>
       )}
 
       {/* Mob discussions — agent backend only. Renders in both edit and
@@ -213,7 +232,7 @@ export function AutomationCheckboxes({
               disabled={disabled}
               className="bf-input"
               style={{ width: 'auto', minWidth: '160px' }}
-              title={`Off, or 2–${mobMaxResolved} agents discussing plan/review (default ${mobDefaultResolved})`}
+              title={`Off, or 2–${mobMaxResolved} agents discussing plan/review/execute (default ${mobDefaultResolved})`}
             >
               <option value={0}>Off</option>
               {mobOptions.map((n) => (
@@ -228,6 +247,7 @@ export function AutomationCheckboxes({
               <div className="flex items-center gap-2">
                 {MOB_PHASES.map((phase) => {
                   const active = (mobPhases ?? []).includes(phase);
+                  const serverOff = phase === 'execute' && !(mobExecuteCheckpoints ?? false);
                   return (
                     <button
                       key={phase}
@@ -235,11 +255,13 @@ export function AutomationCheckboxes({
                       className="chip-pill"
                       aria-pressed={active}
                       aria-label={`Mob phase ${phase}`}
-                      disabled={disabled}
+                      disabled={disabled || serverOff}
+                      title={serverOff ? 'Execute checkpoints are disabled on this server' : undefined}
                       style={{
                         backgroundColor: active ? 'var(--bg-purple)' : 'var(--bg2)',
                         color: active ? 'var(--purple)' : 'var(--grey1)',
-                        cursor: disabled ? 'default' : 'pointer',
+                        cursor: disabled || serverOff ? 'default' : 'pointer',
+                        opacity: serverOff ? 0.5 : undefined,
                       }}
                       onClick={() => {
                         const current = mobPhases ?? [];

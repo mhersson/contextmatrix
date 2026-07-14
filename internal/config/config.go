@@ -373,15 +373,26 @@ type MobConfig struct {
 	// mob budget = budget_factor x max card cost. Default 0.75, range (0, 5].
 	BudgetFactor float64 `yaml:"budget_factor"`
 	// ExecuteCheckpointsEnabled gates the "execute" mob session phase
-	// server-side. Default false; while off, a card requesting "execute" has
-	// that phase dropped at trigger time with a warning.
-	ExecuteCheckpointsEnabled bool `yaml:"execute_checkpoints_enabled"`
+	// server-side. nil/omitted = enabled (the default); set false to have a
+	// card's "execute" phase dropped at trigger time with a warning.
+	ExecuteCheckpointsEnabled *bool `yaml:"execute_checkpoints_enabled"`
 	// CheckpointMinTier is the minimum subtask tier that gets an execute
-	// checkpoint: simple|moderate|complex|critical. Default "complex".
+	// checkpoint: simple|moderate|complex|critical. Default "simple" —
+	// checkpoint everything until outcome data argues for a higher floor.
 	CheckpointMinTier string `yaml:"checkpoint_min_tier"`
+	// CheckpointRounds is the critique-round count for execute-checkpoint
+	// discussions (plan/review keep default_rounds). Default 3, clamped
+	// 1..max_rounds.
+	CheckpointRounds int `yaml:"checkpoint_rounds"`
 	// Guests is the operator-managed guest registry. Cards reference entries
 	// by Name in mob_guests.
 	Guests []MobGuest `yaml:"guests"`
+}
+
+// ExecuteCheckpoints reports whether the "execute" mob phase is allowed:
+// enabled unless the operator set execute_checkpoints_enabled: false.
+func (m MobConfig) ExecuteCheckpoints() bool {
+	return m.ExecuteCheckpointsEnabled == nil || *m.ExecuteCheckpointsEnabled
 }
 
 // AuthConfig controls multi-user authentication.
@@ -961,7 +972,8 @@ func applyBestOfNDefaults(cfg *Config) {
 // introduced a new out-of-range value (see the call inside Validate, which
 // runs after applyEnvOverrides completes in Load). Order matters:
 // MaxParticipants before DefaultParticipants, MaxRounds before DefaultRounds
-// — the dependent checks read the already-normalized bound.
+// and before CheckpointRounds — the dependent checks read the
+// already-normalized bound.
 func applyMobDefaults(cfg *Config) {
 	if cfg.Mob.MaxParticipants < 2 || cfg.Mob.MaxParticipants > 10 {
 		if cfg.Mob.MaxParticipants != 0 {
@@ -1003,8 +1015,16 @@ func applyMobDefaults(cfg *Config) {
 		cfg.Mob.BudgetFactor = 0.75
 	}
 
+	if cfg.Mob.CheckpointRounds < 1 || cfg.Mob.CheckpointRounds > cfg.Mob.MaxRounds {
+		if cfg.Mob.CheckpointRounds != 0 {
+			slog.Warn("mob.checkpoint_rounds outside 1..max_rounds; using default", "value", cfg.Mob.CheckpointRounds)
+		}
+
+		cfg.Mob.CheckpointRounds = min(3, cfg.Mob.MaxRounds)
+	}
+
 	if cfg.Mob.CheckpointMinTier == "" {
-		cfg.Mob.CheckpointMinTier = "complex"
+		cfg.Mob.CheckpointMinTier = "simple"
 	}
 }
 
@@ -1300,6 +1320,7 @@ func applyEnvOverrides(cfg *Config) error {
 		{"CONTEXTMATRIX_MOB_DEFAULT_PARTICIPANTS", &cfg.Mob.DefaultParticipants},
 		{"CONTEXTMATRIX_MOB_DEFAULT_ROUNDS", &cfg.Mob.DefaultRounds},
 		{"CONTEXTMATRIX_MOB_MAX_ROUNDS", &cfg.Mob.MaxRounds},
+		{"CONTEXTMATRIX_MOB_CHECKPOINT_ROUNDS", &cfg.Mob.CheckpointRounds},
 	} {
 		if v := os.Getenv(o.env); v != "" {
 			n, err := strconv.Atoi(v)
@@ -1323,7 +1344,7 @@ func applyEnvOverrides(cfg *Config) error {
 
 	if v := os.Getenv("CONTEXTMATRIX_MOB_EXECUTE_CHECKPOINTS_ENABLED"); v != "" {
 		if b, err := strconv.ParseBool(v); err == nil {
-			cfg.Mob.ExecuteCheckpointsEnabled = b
+			cfg.Mob.ExecuteCheckpointsEnabled = &b
 		} else {
 			slog.Warn("ignoring invalid CONTEXTMATRIX_MOB_EXECUTE_CHECKPOINTS_ENABLED", "value", v, "error", err)
 		}

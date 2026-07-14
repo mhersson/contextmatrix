@@ -42,7 +42,7 @@ export function AutomationTab({
 }: AutomationTabProps) {
   const {
     taskBackend, favorites: favsByTier, bestOfNMax, bestOfNDefault,
-    mobMaxParticipants, mobDefaultParticipants, mobGuestNames,
+    mobMaxParticipants, mobDefaultParticipants, mobGuestNames, mobExecuteCheckpoints,
   } = useTheme();
   // Card model pins: CM's served catalog (GET /api/models) — the vendor-
   // screened OpenRouter list or the endpoint list. Agent path only.
@@ -84,6 +84,7 @@ export function AutomationTab({
           mobPhases={editedCard.mob_phases}
           mobGuests={editedCard.mob_guests}
           mobGuestNames={mobGuestNames}
+          mobExecuteCheckpoints={mobExecuteCheckpoints}
           onMobParticipantsChange={(v) =>
             setEditedCard((prev) => ({ ...prev, mob_participants: v }))
           }

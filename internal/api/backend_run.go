@@ -311,7 +311,10 @@ func (h *backendHandlers) rejectRunForCredentialFailure(w http.ResponseWriter, r
 // lowered since the card was written); Rounds carries mob.default_rounds,
 // which applyMobDefaults guarantees is within 1..max_rounds. Unknown guest
 // names and a blocked "execute" phase degrade with a warning instead of
-// failing the trigger — a discussion must never block a run.
+// failing the trigger — a discussion must never block a run. Mob coding
+// takes trigger-time priority over Best-of-N: a live execute phase zeroes
+// payload.BestOfN with a warning; with the flag off, execute is dropped
+// (also with a warning) and Best-of-N is left untouched.
 func (h *backendHandlers) attachMob(ctx context.Context, payload *backend.TriggerPayload, card *board.Card, project, id string) {
 	if card.MobParticipants < 2 {
 		return
@@ -321,8 +324,9 @@ func (h *backendHandlers) attachMob(ctx context.Context, payload *backend.Trigge
 		Participants:       min(card.MobParticipants, h.mob.MaxParticipants),
 		Rounds:             h.mob.DefaultRounds,
 		BudgetFactor:       h.mob.BudgetFactor,
-		ExecuteCheckpoints: h.mob.ExecuteCheckpointsEnabled,
+		ExecuteCheckpoints: h.mob.ExecuteCheckpoints(),
 		CheckpointMinTier:  h.mob.CheckpointMinTier,
+		CheckpointRounds:   h.mob.CheckpointRounds,
 	}
 
 	// Resolve guest names against the current registry; drop unknown names
@@ -344,23 +348,15 @@ func (h *backendHandlers) attachMob(ctx context.Context, payload *backend.Trigge
 		spec.Guests = append(spec.Guests, g)
 	}
 
-	// Phases pass through except "execute": dropped when the server flag is
-	// off, or when the run races Best-of-N candidates (checkpoints and BoN
-	// are mutually exclusive; BoN wins).
+	// Phases pass through except "execute", which is dropped when the server
+	// flag is off. The Best-of-N interaction is resolved AFTER the loop: mob
+	// coding wins (the reverse of the original rule).
 	for _, phase := range card.MobPhases {
-		if phase == "execute" {
-			switch {
-			case payload.BestOfN >= 2:
-				h.recordMobWarning(ctx, project, id,
-					"mob execute checkpoints skipped: best_of_n >= 2 (mutually exclusive; Best-of-N wins)")
+		if phase == "execute" && !h.mob.ExecuteCheckpoints() {
+			h.recordMobWarning(ctx, project, id,
+				"mob execute checkpoints skipped: mob.execute_checkpoints_enabled is off")
 
-				continue
-			case !h.mob.ExecuteCheckpointsEnabled:
-				h.recordMobWarning(ctx, project, id,
-					"mob execute checkpoints skipped: mob.execute_checkpoints_enabled is off")
-
-				continue
-			}
+			continue
 		}
 
 		spec.Phases = append(spec.Phases, phase)
@@ -376,6 +372,17 @@ func (h *backendHandlers) attachMob(ctx context.Context, payload *backend.Trigge
 			"mob skipped: all requested phases are unavailable for this run; proceeding solo")
 
 		return
+	}
+
+	// Mob coding takes priority over Best-of-N: a live execute phase zeroes
+	// the candidate race. Checkpointing candidates would multiply cost xN
+	// and break race independence, so one of the two must win — and the
+	// operator's explicit execute selection is the stronger signal.
+	if payload.BestOfN >= 2 && slices.Contains(spec.Phases, "execute") {
+		h.recordMobWarning(ctx, project, id,
+			"best_of_n ignored: mob coding takes priority (mutually exclusive with execute checkpoints)")
+
+		payload.BestOfN = 0
 	}
 
 	payload.Mob = spec

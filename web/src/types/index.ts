@@ -469,6 +469,7 @@ export interface AppConfig {
   mob_max_participants?: number;
   mob_default_participants?: number;
   mob_guest_names?: string[];
+  mob_execute_checkpoints?: boolean;
 }
 
 export interface SessionUser {

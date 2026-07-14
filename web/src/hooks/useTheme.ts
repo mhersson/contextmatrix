@@ -102,6 +102,12 @@ interface ThemeContextValue {
   mobMaxParticipants: number | undefined;
   mobDefaultParticipants: number | undefined;
   mobGuestNames: string[] | undefined;
+  /**
+   * Whether the server allows the mob "execute" phase, from
+   * `/api/app/config` (`mob_execute_checkpoints`). False on the slim
+   * pre-login payload and on older servers.
+   */
+  mobExecuteCheckpoints: boolean;
   toggleTheme: () => void;
   setPalette: (palette: Palette) => void;
 }
@@ -133,6 +139,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [mobMaxParticipants, setMobMaxParticipants] = useState<number | undefined>(undefined);
   const [mobDefaultParticipants, setMobDefaultParticipants] = useState<number | undefined>(undefined);
   const [mobGuestNames, setMobGuestNames] = useState<string[] | undefined>(undefined);
+  const [mobExecuteCheckpoints, setMobExecuteCheckpoints] = useState(false);
 
   // Optional: AuthProvider does not yet sit above ThemeProvider in App.tsx
   // (wired in a later task), and pre-existing tests render ThemeProvider
@@ -182,6 +189,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       if (config.mob_guest_names !== undefined) {
         setMobGuestNames(config.mob_guest_names);
       }
+      if (config.mob_execute_checkpoints !== undefined) {
+        setMobExecuteCheckpoints(config.mob_execute_checkpoints);
+      }
     }).catch(() => {
       // swallow errors — leave default everforest palette
     });
@@ -203,11 +213,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const value = useMemo<ThemeContextValue>(
     () => ({
       theme, palette, version, taskBackend, chatEnabled, favorites, bestOfNMax, bestOfNDefault,
-      mobMaxParticipants, mobDefaultParticipants, mobGuestNames,
+      mobMaxParticipants, mobDefaultParticipants, mobGuestNames, mobExecuteCheckpoints,
       toggleTheme, setPalette,
     }),
     [theme, palette, version, taskBackend, chatEnabled, favorites, bestOfNMax, bestOfNDefault,
-      mobMaxParticipants, mobDefaultParticipants, mobGuestNames, toggleTheme, setPalette],
+      mobMaxParticipants, mobDefaultParticipants, mobGuestNames, mobExecuteCheckpoints,
+      toggleTheme, setPalette],
   );
 
   return createElement(ThemeContext.Provider, { value }, children);

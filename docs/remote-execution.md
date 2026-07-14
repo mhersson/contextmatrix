@@ -161,7 +161,9 @@ the payload in `internal/api/backend_run.go`:
     "phases": ["plan", "review"],
     "rounds": 2,
     "budget_factor": 0.75,
-    "checkpoint_min_tier": "complex",
+    "execute_checkpoints": true,
+    "checkpoint_min_tier": "simple",
+    "checkpoint_rounds": 3,
     "guests": [{ "name": "laptop", "url": "http://192.168.1.50:8484", "token": "bearer-secret" }]
   },
   "task_skills": ["go-development", "documentation"],
@@ -195,16 +197,17 @@ does with it.
 `mob` is present only when the card's `mob_participants` is `>= 2`.
 `participants` is the card value clamped to the current
 `mob.max_participants`; `rounds` and `budget_factor` carry
-`mob.default_rounds` and `mob.budget_factor`; `execute_checkpoints` /
-`checkpoint_min_tier` mirror the server flags. `guests` is the card's
-`mob_guests` resolved through the registry into full `{name, url, token}`
-specs — unknown names are dropped with a `mob-warning` activity entry. The
-`execute` phase is likewise dropped (with a warning) when
-`mob.execute_checkpoints_enabled` is off or the same payload carries
-`best_of_n >= 2` (checkpoints and Best-of-N are mutually exclusive;
-Best-of-N wins). Guest tokens are bearer secrets: the backend stages them
-into the per-run secrets file, never plain container env, and registers
-them with its log redactor. See [Mob sessions](#mob-sessions).
+`mob.default_rounds` and `mob.budget_factor`; `execute_checkpoints`,
+`checkpoint_min_tier`, and `checkpoint_rounds` mirror the server flags.
+`guests` is the card's `mob_guests` resolved through the registry into full
+`{name, url, token}` specs — unknown names are dropped with a `mob-warning`
+activity entry. The `execute` phase is dropped (with a warning) when
+`mob.execute_checkpoints_enabled` is off; when the flag is on and the same
+payload carries `best_of_n >= 2`, mob coding takes trigger-time priority
+instead — `best_of_n` is zeroed with a warning rather than the phase being
+dropped. Guest tokens are bearer secrets: the backend stages them into the
+per-run secrets file, never plain container env, and registers them with
+its log redactor. See [Mob sessions](#mob-sessions).
 
 `selection` (`protocol.SelectionContext`) carries the auto-selection inputs:
 the rated model `candidates` from CM's cached catalog, the operator `favorites`
@@ -743,11 +746,30 @@ with the `agent` attribution field (see the log-stream section above); seat
 sub-run internals are emitted under debug kinds the bridge deliberately does
 not map.
 
-Composition with Best-of-N: mob session plan and review discussions compose
-freely with a Best-of-N execute race. The `execute` mob session phase
-(driver/navigator checkpoints) is the exception — it requires the server
-flag `mob.execute_checkpoints_enabled` and is skipped with a trigger-time
-warning when the flag is off or `best_of_n >= 2`.
+Composition with Best-of-N: plan and review mob discussions compose freely
+with a Best-of-N execute race. The `execute` phase does not: when a card
+requests both, **mob coding wins** — the trigger zeroes `best_of_n` with a
+`mob-warning` activity entry. When `mob.execute_checkpoints_enabled` is
+`false`, the `execute` phase is dropped at trigger time instead and
+Best-of-N runs normally.
+
+Execute checkpoints: with `execute` in the card's phases (and the server
+flag on, its default), the worker convenes a non-blind discussion after
+each committed subtask at or above `mob.checkpoint_min_tier` (default
+`simple`): the seats argue over the subtask's diff (40 KB cap, diffstat
+fallback) for `mob.checkpoint_rounds` rounds (default 3), and the
+moderator returns `proceed` or `revise` with at most 3 fixes. A revise
+triggers one fix pass on the same coder before the push; the revised diff
+is not re-checkpointed. Checkpoints are best-effort: any failure logs and
+the run proceeds. Transcripts stream as `discussion` events; the card gets
+one activity entry per checkpoint outcome (proceed, revise, or unparsable),
+plus a second entry (`revise skipped — budget exhausted`) when a revise
+verdict then hits the card budget ceiling. The checkpoint *discussion* draws
+from the shared mob budget term (`mob.budget_factor × max card cost`) —
+operators enabling the `execute` phase on multi-subtask cards should
+consider raising `mob.budget_factor` so plan and review discussions are not
+starved. The revise fix pass itself spends from the card budget like any
+other coder run, and is skipped once that budget is exhausted.
 
 ### GitHub token refresh
 

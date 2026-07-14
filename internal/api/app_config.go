@@ -29,6 +29,9 @@ type appConfigHandlers struct {
 	mobMaxParticipants     int
 	mobDefaultParticipants int
 	mobGuestNames          []string
+	// mobExecuteCheckpoints reports whether the server allows the "execute"
+	// mob phase, so the UI can enable the pill and the Best-of-N exclusion.
+	mobExecuteCheckpoints bool
 	// chatEnabled reports whether a chat backend is configured (an enabled
 	// backends.chat entry with url and api_key set — see NewRouter's
 	// chatBackendConfigured). Full payload only — lets the settings UI decide
@@ -47,6 +50,7 @@ type appConfigResponse struct {
 	MobMaxParticipants     int                 `json:"mob_max_participants,omitempty"`
 	MobDefaultParticipants int                 `json:"mob_default_participants,omitempty"`
 	MobGuestNames          []string            `json:"mob_guest_names,omitempty"`
+	MobExecuteCheckpoints  bool                `json:"mob_execute_checkpoints,omitempty"`
 	ChatEnabled            bool                `json:"chat_enabled"`
 }
 
@@ -112,6 +116,7 @@ func (h *appConfigHandlers) getAppConfig(w http.ResponseWriter, r *http.Request)
 		MobMaxParticipants:     h.mobMaxParticipants,
 		MobDefaultParticipants: h.mobDefaultParticipants,
 		MobGuestNames:          h.mobGuestNames,
+		MobExecuteCheckpoints:  h.mobExecuteCheckpoints,
 		ChatEnabled:            h.chatEnabled,
 	})
 }

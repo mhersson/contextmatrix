@@ -29,3 +29,24 @@ describe('CardChipRow — mob badge', () => {
     expect(screen.queryByText(/mob/)).not.toBeInTheDocument();
   });
 });
+
+describe('CardChipRow — Best of N vs mob execute', () => {
+  it('suppresses the Best of N chip when mob execute is active', () => {
+    render(
+      <CardChipRow
+        card={{ ...baseCard, best_of_n: 3, mob_participants: 3, mob_phases: ['plan', 'execute'] }}
+      />,
+    );
+    expect(screen.queryByText('Best of 3')).not.toBeInTheDocument();
+    expect(screen.getByText('mob 3')).toBeInTheDocument();
+  });
+
+  it('keeps the Best of N chip when the mob skips execute', () => {
+    render(
+      <CardChipRow
+        card={{ ...baseCard, best_of_n: 3, mob_participants: 3, mob_phases: ['plan', 'review'] }}
+      />,
+    );
+    expect(screen.getByText('Best of 3')).toBeInTheDocument();
+  });
+});

@@ -403,8 +403,9 @@ images:
 #   default_rounds: 2             # critique rounds per discussion; the blind round 0 never counts (CONTEXTMATRIX_MOB_DEFAULT_ROUNDS)
 #   max_rounds: 3                 # server clamp on critique rounds (CONTEXTMATRIX_MOB_MAX_ROUNDS)
 #   budget_factor: 0.75           # mob session budget = budget_factor x the run's max card cost (CONTEXTMATRIX_MOB_BUDGET_FACTOR)
-#   execute_checkpoints_enabled: false # allow "execute" in mob_phases; off = dropped at trigger with a warning (CONTEXTMATRIX_MOB_EXECUTE_CHECKPOINTS_ENABLED)
-#   checkpoint_min_tier: complex  # minimum subtask tier that gets an execute checkpoint: simple|moderate|complex|critical (CONTEXTMATRIX_MOB_CHECKPOINT_MIN_TIER)
+#   execute_checkpoints_enabled: true # allow "execute" in mob_phases; false = dropped at trigger with a warning (CONTEXTMATRIX_MOB_EXECUTE_CHECKPOINTS_ENABLED)
+#   checkpoint_min_tier: simple   # minimum subtask tier that gets an execute checkpoint: simple|moderate|complex|critical (CONTEXTMATRIX_MOB_CHECKPOINT_MIN_TIER)
+#   checkpoint_rounds: 3          # critique rounds per checkpoint discussion, clamped 1..max_rounds (CONTEXTMATRIX_MOB_CHECKPOINT_ROUNDS)
 #   # Guest registry — config file only (tokens are secrets; the env-override
 #   # mechanism is scalar-only). Cards reference entries by name in mob_guests.
 #   # guests:
