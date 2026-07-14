@@ -35,6 +35,7 @@ describe('PaletteSelector', () => {
       mobMaxParticipants: undefined,
       mobDefaultParticipants: undefined,
       mobGuestNames: undefined,
+      mobExecuteCheckpoints: false,
       toggleTheme: vi.fn(),
       setPalette: mockSetPalette,
     });
@@ -76,6 +77,7 @@ describe('PaletteSelector', () => {
       mobMaxParticipants: undefined,
       mobDefaultParticipants: undefined,
       mobGuestNames: undefined,
+      mobExecuteCheckpoints: false,
       toggleTheme: vi.fn(),
       setPalette: mockSetPalette,
     });

@@ -62,6 +62,7 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
     mobMaxParticipants,
     mobDefaultParticipants,
     mobGuestNames,
+    mobExecuteCheckpoints,
   } = useTheme();
   // Card model pins: CM's served catalog (GET /api/models) — the vendor-
   // screened OpenRouter list or the endpoint list. Agent path only.
@@ -153,6 +154,7 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
             onMobPhasesChange={form.setMobPhases}
             mobGuests={form.mobGuests}
             mobGuestNames={mobGuestNames}
+            mobExecuteCheckpoints={mobExecuteCheckpoints}
             onMobGuestsChange={form.setMobGuests}
             baseBranch={form.baseBranch}
             onBaseBranchChange={form.setBaseBranch}
