@@ -1028,6 +1028,7 @@ func parseSSEPayload(raw string) (Event, string, bool) {
 		Type:      p.Type,
 		Payload:   []byte(p.Content),
 		Agent:     p.Agent,
+		Model:     p.Model,
 	}, p.CardID, true
 }
 
