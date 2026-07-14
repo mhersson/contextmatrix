@@ -102,6 +102,17 @@ describe('ChatPanel', () => {
   });
 
   describe('speaker chips (mob session discussions)', () => {
+    /**
+     * External producer boundary — real e2e proof against live
+     * contextmatrix-agent mob-session traffic is out of scope for this
+     * repository. The agent backend (contextmatrix-agent) must populate
+     * protocol.LogEntry.Model for moderator and seat discussion frames;
+     * if it does not, that is a separate external card in the
+     * contextmatrix-agent repo. The tests here can only prove passthrough
+     * correctness with synthetic fixtures, not against real agent traffic.
+     * This limitation is explicitly scoped so the card is not mistakenly
+     * treated as fully done.
+     */
     it('renders a labeled chip on text entries that carry agent', () => {
       const discussionLogs: LogEntry[] = [
         {
