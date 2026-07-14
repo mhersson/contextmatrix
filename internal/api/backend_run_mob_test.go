@@ -121,7 +121,7 @@ func TestRunCard_MobPayloadShape(t *testing.T) {
 	assert.Equal(t, []string{"plan", "review"}, payload.Mob.Phases)
 	assert.Equal(t, 2, payload.Mob.Rounds, "rounds = mob.default_rounds")
 	assert.InDelta(t, 0.75, payload.Mob.BudgetFactor, 1e-9)
-	assert.False(t, payload.Mob.ExecuteCheckpoints)
+	assert.True(t, payload.Mob.ExecuteCheckpoints, "fixture leaves the flag nil, which means enabled")
 	assert.Equal(t, "complex", payload.Mob.CheckpointMinTier)
 	require.Len(t, payload.Mob.Guests, 1)
 	assert.Equal(t, protocol.GuestSpec{Name: "laptop", URL: "http://192.0.2.1:8484", Token: "guest-secret"}, payload.Mob.Guests[0])
@@ -170,7 +170,8 @@ func TestRunCard_MobAllPhasesDroppedRunsSolo(t *testing.T) {
 	// slice is the agent's "plan+review both on" default, so shipping the spec
 	// would silently run discussions the operator never chose.
 	cfg := mobRunConfig()
-	cfg.ExecuteCheckpointsEnabled = false
+	off := false
+	cfg.ExecuteCheckpointsEnabled = &off
 
 	participants := 3
 	payload, svc, cardID := runMobTrigger(t, cfg, &service.PatchCardInput{
@@ -226,7 +227,7 @@ func TestRunCard_MobExecutePhaseMatrix(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := mobRunConfig()
-			cfg.ExecuteCheckpointsEnabled = tc.checkpointsOn
+			cfg.ExecuteCheckpointsEnabled = &tc.checkpointsOn
 
 			participants := 2
 			patch := &service.PatchCardInput{

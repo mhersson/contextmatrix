@@ -321,7 +321,7 @@ func (h *backendHandlers) attachMob(ctx context.Context, payload *backend.Trigge
 		Participants:       min(card.MobParticipants, h.mob.MaxParticipants),
 		Rounds:             h.mob.DefaultRounds,
 		BudgetFactor:       h.mob.BudgetFactor,
-		ExecuteCheckpoints: h.mob.ExecuteCheckpointsEnabled,
+		ExecuteCheckpoints: h.mob.ExecuteCheckpoints(),
 		CheckpointMinTier:  h.mob.CheckpointMinTier,
 	}
 
@@ -355,7 +355,7 @@ func (h *backendHandlers) attachMob(ctx context.Context, payload *backend.Trigge
 					"mob execute checkpoints skipped: best_of_n >= 2 (mutually exclusive; Best-of-N wins)")
 
 				continue
-			case !h.mob.ExecuteCheckpointsEnabled:
+			case !h.mob.ExecuteCheckpoints():
 				h.recordMobWarning(ctx, project, id,
 					"mob execute checkpoints skipped: mob.execute_checkpoints_enabled is off")
 
