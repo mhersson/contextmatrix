@@ -27,6 +27,7 @@ func mobRunConfig() config.MobConfig {
 		MaxRounds:           3,
 		BudgetFactor:        0.75,
 		CheckpointMinTier:   "complex",
+		CheckpointRounds:    3,
 		Guests: []config.MobGuest{
 			{Name: "laptop", URL: "http://192.0.2.1:8484", Token: "guest-secret"},
 		},
@@ -123,6 +124,7 @@ func TestRunCard_MobPayloadShape(t *testing.T) {
 	assert.InDelta(t, 0.75, payload.Mob.BudgetFactor, 1e-9)
 	assert.True(t, payload.Mob.ExecuteCheckpoints, "fixture leaves the flag nil, which means enabled")
 	assert.Equal(t, "complex", payload.Mob.CheckpointMinTier)
+	assert.Equal(t, 3, payload.Mob.CheckpointRounds)
 	require.Len(t, payload.Mob.Guests, 1)
 	assert.Equal(t, protocol.GuestSpec{Name: "laptop", URL: "http://192.0.2.1:8484", Token: "guest-secret"}, payload.Mob.Guests[0])
 }
@@ -202,6 +204,7 @@ func TestRunCard_MobExecutePhaseMatrix(t *testing.T) {
 		checkpointsOn bool
 		bestOfN       int
 		wantPhases    []string
+		wantBestOfN   int
 		wantWarning   string // substring; "" = no warning expected
 	}{
 		{
@@ -211,16 +214,25 @@ func TestRunCard_MobExecutePhaseMatrix(t *testing.T) {
 			wantWarning:   "execute_checkpoints_enabled",
 		},
 		{
+			name:          "flag off keeps best-of-n",
+			checkpointsOn: false,
+			bestOfN:       3,
+			wantPhases:    []string{"plan"},
+			wantBestOfN:   3,
+			wantWarning:   "execute_checkpoints_enabled",
+		},
+		{
 			name:          "flag on keeps execute",
 			checkpointsOn: true,
 			wantPhases:    []string{"plan", "execute"},
 		},
 		{
-			name:          "best-of-n wins over execute even with flag on",
+			name:          "mob coding wins over best-of-n",
 			checkpointsOn: true,
 			bestOfN:       3,
-			wantPhases:    []string{"plan"},
-			wantWarning:   "best_of_n",
+			wantPhases:    []string{"plan", "execute"},
+			wantBestOfN:   0,
+			wantWarning:   "best_of_n ignored: mob coding takes priority",
 		},
 	}
 
@@ -243,6 +255,8 @@ func TestRunCard_MobExecutePhaseMatrix(t *testing.T) {
 
 			require.NotNil(t, payload.Mob)
 			assert.Equal(t, tc.wantPhases, payload.Mob.Phases)
+			assert.Equal(t, tc.wantBestOfN, payload.BestOfN)
+			assert.Equal(t, 3, payload.Mob.CheckpointRounds)
 
 			msgs := mobWarnings(t, svc, cardID)
 			if tc.wantWarning == "" {
@@ -250,7 +264,6 @@ func TestRunCard_MobExecutePhaseMatrix(t *testing.T) {
 			} else {
 				require.Len(t, msgs, 1)
 				assert.Contains(t, msgs[0], tc.wantWarning)
-				assert.Contains(t, msgs[0], "skipped", "warning should say the phase was skipped: %s", msgs[0])
 			}
 		})
 	}
