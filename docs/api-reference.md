@@ -901,6 +901,7 @@ mode:**
   "mob_max_participants": 5,
   "mob_default_participants": 3,
   "mob_guest_names": ["laptop"],
+  "mob_execute_checkpoints": true,
   "chat_enabled": true
 }
 ```
@@ -926,6 +927,10 @@ panel's mob session seats selector. `mob_guest_names` lists the `mob.guests`
 registry names for the guest multi-select — names only, never URLs or
 tokens; it is omitted when the registry is empty. All three ride only on the
 full payload, like the `best_of_n` fields.
+`mob_execute_checkpoints` is a bool reporting whether the server allows the
+`execute` mob phase (`mob.execute_checkpoints_enabled`, default on) — the
+card panel uses it to enable the `execute` phase pill and the Best-of-N
+exclusion it implies. Full payload only, like the other mob fields.
 `chat_enabled` is true when a chat backend is configured (an enabled
 `backends.chat` entry with `url` and `api_key` set — the same condition the
 per-backend images route uses for its chat probe client) — the settings UI
