@@ -122,8 +122,10 @@ export function CardChipRow({ card, compact = false, onParentClick }: CardChipRo
         </span>
       )}
 
-      {/* Best of N badge */}
-      {card.best_of_n != null && card.best_of_n >= 2 && (
+      {/* Best of N badge — suppressed when the card's mob session covers the
+          execute phase: mob coding takes priority and the race will not run. */}
+      {card.best_of_n != null && card.best_of_n >= 2 &&
+        !((card.mob_participants ?? 0) >= 2 && (card.mob_phases ?? []).includes('execute')) && (
         <span
           className="chip-pill"
           style={chipTint('var(--purple)')}
@@ -138,7 +140,7 @@ export function CardChipRow({ card, compact = false, onParentClick }: CardChipRo
         <span
           className="chip-pill"
           style={chipTint('var(--purple)')}
-          title="Mob session: multiple agents discuss the plan and review"
+          title="Mob session: multiple agents discuss the selected phases"
         >
           mob {card.mob_participants}
         </span>
