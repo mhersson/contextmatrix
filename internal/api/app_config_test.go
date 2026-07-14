@@ -189,6 +189,7 @@ func TestGetAppConfig_Mob(t *testing.T) {
 			mobMaxParticipants:     5,
 			mobDefaultParticipants: 3,
 			mobGuestNames:          []string{"laptop"},
+			mobExecuteCheckpoints:  true,
 		}
 
 		req := httptest.NewRequest(http.MethodGet, "/api/app/config", nil)
@@ -205,6 +206,7 @@ func TestGetAppConfig_Mob(t *testing.T) {
 		assert.EqualValues(t, 5, got["mob_max_participants"])
 		assert.EqualValues(t, 3, got["mob_default_participants"])
 		assert.Equal(t, []any{"laptop"}, got["mob_guest_names"])
+		assert.True(t, got["mob_execute_checkpoints"].(bool))
 		// Names ONLY — URLs and tokens must never reach the browser.
 		assert.NotContains(t, w.Body.String(), "192.0.2.1")
 		assert.NotContains(t, w.Body.String(), "guest-secret")
