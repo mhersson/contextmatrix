@@ -36,7 +36,7 @@ Present the detected defaults and ask the human to confirm or adjust:
 ```
 Project name:  my-app
 Prefix:        MYAPP
-Repository:    git@github.com:org/my-app.git
+Repository:    https://github.com/org/my-app.git
 
 States:        [todo, in_progress, blocked, review, done, stalled, not_planned]
 Types:         [task, bug, feature]

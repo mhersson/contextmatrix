@@ -197,7 +197,7 @@ mkdir -p ~/boards/contextmatrix/my-project/templates
 name: my-project
 prefix: MYPROJ
 next_id: 1
-repo: git@github.com:org/my-project.git
+repo: https://github.com/org/my-project.git
 states: [todo, in_progress, blocked, review, done, stalled, not_planned]
 types: [task, bug, feature]
 priorities: [low, medium, high, critical]

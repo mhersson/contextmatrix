@@ -380,7 +380,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
             type="text"
             value={repo}
             onChange={(e) => setRepo(e.target.value)}
-            placeholder="git@github.com:org/repo.git"
+            placeholder="https://github.com/org/repo.git"
             className="w-full px-3 py-2 rounded text-sm border focus:outline-none"
             style={inputStyle}
           />

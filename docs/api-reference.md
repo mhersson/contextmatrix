@@ -988,10 +988,10 @@ provided together.
 
 ```json
 {
-  "name": "epic-planner",
-  "display_name": "Epic Planner",
-  "prefix": "EPIC",
-  "repo": "git@github.com:org/epic-planner.git",
+  "name": "my-project",
+  "display_name": "My Project",
+  "prefix": "MYPRO",
+  "repo": "https://github.com/org/my-project.git",
   "states": ["todo", "in_progress", "review", "done", "stalled", "not_planned"],
   "types": ["task", "bug"],
   "priorities": ["low", "medium", "high"],
@@ -1012,13 +1012,13 @@ provided together.
 | -------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `name`         | conditional | Slug — filesystem directory name, URL path segment, API identifier. Must match `^[a-zA-Z0-9][a-zA-Z0-9_-]*$`. Auto-derived from `display_name` when omitted. |
 | `display_name` | conditional | Human-readable project name. May contain spaces and any printable characters. Stored in `.board.yaml`; shown in the UI sidebar.                              |
-| `prefix`       | required    | Card ID prefix (e.g. `EPIC` → `EPIC-001`).                                                                                                                   |
+| `prefix`       | required    | Card ID prefix (e.g. `MYPRO` → `MYPRO-001`).                                                                                                                   |
 
 At least one of `name` or `display_name` is required (400 if both are absent).
 
 **Slug auto-derivation:** when `name` is omitted, the server derives it from
 `display_name` by lowercasing and collapsing runs of non-alphanumeric characters
-to hyphens (e.g. `"Epic Planner"` → `"epic-planner"`). A 409 is returned if the
+to hyphens (e.g. `"My Project"` → `"my-project"`). A 409 is returned if the
 derived or explicit slug already exists as a project directory.
 
 **Response:** 201 Created with the full `ProjectConfig` object, including the
@@ -1031,9 +1031,9 @@ List all projects or get a single project by slug. Both responses include
 
 ```json
 {
-  "name": "epic-planner",
-  "display_name": "Epic Planner",
-  "prefix": "EPIC",
+  "name": "my-project",
+  "display_name": "My Project",
+  "prefix": "MYPRO",
   "next_id": 1,
   "states": ["..."],
   "..."
@@ -1060,7 +1060,7 @@ operations), `verify` (project-wide verify gate), and `remote_execution`
 
 ```json
 {
-  "repo": "git@github.com:org/epic-planner.git",
+  "repo": "https://github.com/org/my-project.git",
   "states": ["todo", "in_progress", "review", "done", "stalled", "not_planned"],
   "types": ["task", "bug"],
   "priorities": ["low", "medium", "high"],

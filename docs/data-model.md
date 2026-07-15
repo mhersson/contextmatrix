@@ -590,7 +590,7 @@ name: project-alpha
 display_name: "Project Alpha" # optional — human-readable name shown in the UI
 prefix: ALPHA
 next_id: 1
-repo: git@github.com:org/project-alpha.git
+repo: https://github.com/org/project-alpha.git
 states: [todo, in_progress, blocked, review, done, stalled, not_planned]
 types: [task, bug, feature] # "subtask" is built-in — do not add it here
 priorities: [low, medium, high, critical]
