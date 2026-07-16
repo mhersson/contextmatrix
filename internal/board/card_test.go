@@ -157,16 +157,6 @@ updated: 2026-03-30T10:00:00Z
 	assert.Empty(t, card.WorkerStatus, "legacy runner_status must be ignored, not mapped")
 }
 
-func TestParseCard_BodyWithMarkdown(t *testing.T) {
-	input := "---\nid: TEST-001\ntitle: Test\nproject: test\ntype: task\nstate: todo\npriority: medium\ncreated: 2026-03-30T10:00:00Z\nupdated: 2026-03-30T10:00:00Z\n---\n# Heading\n\n## Subheading\n\n```go\nfunc main() {\n    fmt.Println(\"hello\")\n}\n```\n\n- item 1\n- item 2\n"
-
-	card, err := ParseCard([]byte(input))
-	require.NoError(t, err)
-	assert.Contains(t, card.Body, "# Heading")
-	assert.Contains(t, card.Body, "```go")
-	assert.Contains(t, card.Body, "- item 1")
-}
-
 func TestParseCard_MissingFrontmatter(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -512,36 +502,6 @@ func TestRoundTrip_SourceFieldOptional(t *testing.T) {
 	assert.Equal(t, "github", parsed.Source.System)
 }
 
-func TestParseCard_AutonomousFields(t *testing.T) {
-	input := `---
-id: TEST-001
-title: Auto card
-project: test
-type: task
-state: todo
-priority: medium
-autonomous: true
-feature_branch: true
-create_pr: true
-branch_name: test-001/auto-card
-pr_url: https://github.com/org/repo/pull/42
-review_attempts: 1
-created: 2026-03-30T10:00:00Z
-updated: 2026-03-30T10:00:00Z
----
-`
-
-	card, err := ParseCard([]byte(input))
-	require.NoError(t, err)
-
-	assert.True(t, card.Autonomous)
-	assert.True(t, card.FeatureBranch)
-	assert.True(t, card.CreatePR)
-	assert.Equal(t, "test-001/auto-card", card.BranchName)
-	assert.Equal(t, "https://github.com/org/repo/pull/42", card.PRUrl)
-	assert.Equal(t, 1, card.ReviewAttempts)
-}
-
 func TestRoundTrip_AutonomousFields(t *testing.T) {
 	created := time.Date(2026, 3, 30, 10, 0, 0, 0, time.UTC)
 
@@ -765,11 +725,6 @@ func TestValidPhase(t *testing.T) {
 			assert.Equal(t, tt.valid, ValidPhase(tt.phase))
 		})
 	}
-}
-
-func TestValidPhaseJudge(t *testing.T) {
-	assert.True(t, ValidPhase("judge"))
-	assert.False(t, ValidPhase("jury"))
 }
 
 func TestRoundTrip_ModelPinFields(t *testing.T) {

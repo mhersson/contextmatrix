@@ -539,8 +539,8 @@ and commit completion. The service layer closes that gap on failure:
   counter (`contextmatrix_event_bus_drops_total`) — subscribers that fall behind
   the per-subscriber channel cap drop events rather than blocking the publisher.
 - **gitsync Syncer** (`gitsync.Syncer`): background loop that pulls the boards
-  remote (when `boards.auto_pull` is enabled) and pushes after each successful
-  commit (when `boards.auto_push` is enabled). Coordinates with the service
+  remote (when `boards.git_auto_pull` is enabled) and pushes after each successful
+  commit (when `boards.git_auto_push` is enabled). Coordinates with the service
   layer through `LockWrites`/`UnlockWrites` and with the commit queue through
   `Pause`/`Resume`/`AwaitIdle` so rebases never race against in-flight go-git
   commits.
@@ -549,7 +549,7 @@ and commit completion. The service layer closes that gap on failure:
   → card mapping rules), `syncer.go` (per-project import loop driven by
   `github.import_issues`). Auth is delegated to the shared
   `githubauth.TokenGenerator` provider; the package never reads tokens directly.
-- **Config** (`config`): typed YAML loader. Every field has a documented
+- **Config** (`config`): typed YAML loader. Most fields have a documented
   `CONTEXTMATRIX_*` env override; `config.yaml.example` is the canonical
   reference.
 - **Metrics** (`metrics`): declares all Prometheus metric vars and exposes a
@@ -613,13 +613,16 @@ internal/
   lock/              # claim/release/heartbeat + stall scan
   service/           # CardService orchestration (split across service_*.go)
   api/               # REST handlers + SSE + middleware chain + CSRF gate
+  auth/              # sessions, users, one-time tokens, credential-pool crypto, master key
+  authstore/         # auth.db (SQLite): users, sessions, tokens, credentials
   mcp/               # MCP server (Streamable HTTP /mcp) + mcpcontext/
   backend/           # task-backend webhook client + reconcile sweep + end-session subscriber + signature cache (HMAC via contextmatrix-protocol)
     sessionlog/      # per-card SSE buffer + fan-out hub
   chat/              # chat.Manager + Store + SSEHub + IdleReaper + chat-backend log bridge
     transcript/      # pure transcript-shaping for cold-reopen resume payloads
-  opstore/           # shared operational SQLite store (chat + model blacklist)
+  opstore/           # shared operational SQLite store (chat + model blacklist + Best-of-N outcomes + cost archive)
     sqlite/          # ensureSchema + Store impl (ops.db)
+  modelcatalog/      # cached model catalog + candidate rating (Artificial Analysis + OpenRouter or OpenAI-compatible endpoint)
   images/            # content-hashed image blob store + processor (resize/EXIF strip)
   github/            # GitHub client + issue parser + import syncer
   gitsync/           # boards repo background pull/push syncer

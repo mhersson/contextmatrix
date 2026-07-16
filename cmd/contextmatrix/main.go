@@ -152,7 +152,6 @@ func main() {
 
 	slog.Info("github token provider initialized", "auth_mode", cfg.GitHub.AuthMode)
 
-	// Parse heartbeat timeout
 	heartbeatTimeout, err := cfg.HeartbeatDuration()
 	if err != nil {
 		slog.Error("invalid heartbeat_timeout", "error", err)
@@ -544,8 +543,7 @@ func main() {
 
 	// Wire backend subsystems: client, end-session subscriber, reconcile sweep,
 	// and session-log manager.
-	backendSys, backendCleanup := wireBackendSubsystems(ctx, cfg, svc, bus)
-	defer backendCleanup()
+	backendSys := wireBackendSubsystems(ctx, cfg, svc, bus)
 
 	// Interface fields must stay untyped-nil when the backend is disabled —
 	// a nil *backend.Client wrapped in the interface would defeat every

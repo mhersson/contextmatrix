@@ -23,13 +23,14 @@ type backendSubsystems struct {
 // wireBackendSubsystems constructs the task-backend client, starts the
 // end-session subscriber, creates the session-log manager, starts its idle
 // sweeper, and (when enabled) launches the Docker-authoritative reconciliation
-// sweep. Returns the aggregate and a cleanup closure the caller must defer.
+// sweep. Teardown is owned by the shutdown sequence (wire_shutdown.go), which
+// closes the session-log manager.
 func wireBackendSubsystems(
 	ctx context.Context,
 	cfg *config.Config,
 	svc *service.CardService,
 	bus *events.Bus,
-) (*backendSubsystems, func()) {
+) *backendSubsystems {
 	sys := &backendSubsystems{}
 
 	taskCfg, taskEnabled := cfg.AgentBackend()
@@ -80,5 +81,5 @@ func wireBackendSubsystems(
 	svc.SetSessionManager(sys.SessionLog)
 	slog.Info("session log manager initialized")
 
-	return sys, func() {}
+	return sys
 }

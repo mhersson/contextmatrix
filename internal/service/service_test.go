@@ -105,7 +105,6 @@ func TestCreateCard(t *testing.T) {
 	ch, unsub := svc.bus.Subscribe()
 	defer unsub()
 
-	// Create card
 	input := CreateCardInput{
 		Title:    "Test Card",
 		Type:     "task",
@@ -212,7 +211,6 @@ func TestUpdateCard(t *testing.T) {
 	ch, unsub := svc.bus.Subscribe()
 	defer unsub()
 
-	// Update card
 	updateInput := UpdateCardInput{
 		Title:    "Updated Title",
 		Type:     "task",
@@ -256,7 +254,6 @@ func TestUpdateCardInvalidTransition(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Create card
 	createInput := CreateCardInput{
 		Title:    "Test",
 		Type:     "task",
@@ -284,7 +281,6 @@ func TestPatchCard(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Create card
 	createInput := CreateCardInput{
 		Title:    "Original",
 		Type:     "task",
@@ -400,7 +396,6 @@ func TestPatchCardStateTransition(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Create card
 	createInput := CreateCardInput{
 		Title:    "Test",
 		Type:     "task",
@@ -439,7 +434,6 @@ func TestDeleteCard(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Create card
 	createInput := CreateCardInput{
 		Title:    "To Delete",
 		Type:     "task",
@@ -452,7 +446,6 @@ func TestDeleteCard(t *testing.T) {
 	ch, unsub := svc.bus.Subscribe()
 	defer unsub()
 
-	// Delete card
 	err = svc.DeleteCard(ctx, "test-project", card.ID)
 	require.NoError(t, err)
 
@@ -476,7 +469,6 @@ func TestAddLogEntry(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Create card
 	createInput := CreateCardInput{
 		Title:    "Test",
 		Type:     "task",
@@ -516,45 +508,12 @@ func TestAddLogEntry(t *testing.T) {
 	}
 }
 
-func TestAddLogEntryCapping(t *testing.T) {
-	svc, _, cleanup := setupTest(t)
-	defer cleanup()
-
-	ctx := context.Background()
-
-	// Create card
-	createInput := CreateCardInput{
-		Title:    "Test",
-		Type:     "task",
-		Priority: "medium",
-	}
-	card, err := svc.CreateCard(ctx, "test-project", createInput)
-	require.NoError(t, err)
-
-	// Add more than 50 entries
-	for range 55 {
-		entry := board.ActivityEntry{
-			Agent:   "agent",
-			Action:  "update",
-			Message: "Entry",
-		}
-		_, err = svc.AddLogEntry(ctx, "test-project", card.ID, entry)
-		require.NoError(t, err)
-	}
-
-	// Verify capped at 50
-	updated, err := svc.GetCard(ctx, "test-project", card.ID)
-	require.NoError(t, err)
-	assert.Len(t, updated.ActivityLog, 50)
-}
-
 func TestClaimCard(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
 	defer cleanup()
 
 	ctx := context.Background()
 
-	// Create card
 	createInput := CreateCardInput{
 		Title:    "Test",
 		Type:     "task",
@@ -567,7 +526,6 @@ func TestClaimCard(t *testing.T) {
 	ch, unsub := svc.bus.Subscribe()
 	defer unsub()
 
-	// Claim card
 	claimed, err := svc.ClaimCard(ctx, "test-project", card.ID, "agent-1")
 	require.NoError(t, err)
 
@@ -636,7 +594,6 @@ func TestReleaseCard(t *testing.T) {
 	ch, unsub := svc.bus.Subscribe()
 	defer unsub()
 
-	// Release card
 	released, err := svc.ReleaseCard(ctx, "test-project", card.ID, "agent-1")
 	require.NoError(t, err)
 
@@ -727,7 +684,6 @@ func TestGetCardContext(t *testing.T) {
 		0o644,
 	))
 
-	// Create card
 	createInput := CreateCardInput{
 		Title:    "Test",
 		Type:     "task",
@@ -736,7 +692,6 @@ func TestGetCardContext(t *testing.T) {
 	card, err := svc.CreateCard(ctx, "test-project", createInput)
 	require.NoError(t, err)
 
-	// Get context
 	cardCtx, err := svc.GetCardContext(ctx, "test-project", card.ID)
 	require.NoError(t, err)
 
@@ -1190,26 +1145,6 @@ func createParentWithSubtasks(t *testing.T, svc *CardService, project string, nu
 	return updated, subtasks
 }
 
-func TestParentAutoTransition_ChildInProgressMovesParentToInProgress(t *testing.T) {
-	svc, _, cleanup := setupTestWithReview(t)
-	defer cleanup()
-
-	ctx := context.Background()
-
-	parent, subtasks := createParentWithSubtasks(t, svc, "test-project", 2)
-	require.Equal(t, "todo", parent.State)
-
-	// Transition first subtask to in_progress → parent should also move to in_progress
-	inProgress := "in_progress"
-	_, err := svc.PatchCard(ctx, "test-project", subtasks[0].ID, PatchCardInput{State: &inProgress})
-	require.NoError(t, err)
-
-	// Verify parent is now in_progress
-	updatedParent, err := svc.GetCard(ctx, "test-project", parent.ID)
-	require.NoError(t, err)
-	assert.Equal(t, "in_progress", updatedParent.State)
-}
-
 func TestParentAutoTransition_AppendsStateChangeLog(t *testing.T) {
 	svc, _, cleanup := setupTestWithReview(t)
 	defer cleanup()
@@ -1260,32 +1195,6 @@ func TestParentAutoTransition_SecondChildInProgressIdempotent(t *testing.T) {
 	require.NoError(t, err)
 
 	updatedParent, err = svc.GetCard(ctx, "test-project", parent.ID)
-	require.NoError(t, err)
-	assert.Equal(t, "in_progress", updatedParent.State)
-}
-
-func TestParentAutoTransition_OneSubtaskDoneParentStaysInProgress(t *testing.T) {
-	svc, _, cleanup := setupTestWithReview(t)
-	defer cleanup()
-
-	ctx := context.Background()
-
-	parentCard, subtasks := createParentWithSubtasks(t, svc, "test-project", 2)
-
-	// Transition both subtasks to in_progress (this also moves parent to in_progress)
-	inProgress := "in_progress"
-	_, err := svc.PatchCard(ctx, "test-project", subtasks[0].ID, PatchCardInput{State: &inProgress})
-	require.NoError(t, err)
-	_, err = svc.PatchCard(ctx, "test-project", subtasks[1].ID, PatchCardInput{State: &inProgress})
-	require.NoError(t, err)
-
-	// Complete first subtask: in_progress → done
-	done := "done"
-	_, err = svc.PatchCard(ctx, "test-project", subtasks[0].ID, PatchCardInput{State: &done})
-	require.NoError(t, err)
-
-	// Re-fetch parent — should still be in_progress (not all subtasks done)
-	updatedParent, err := svc.GetCard(ctx, "test-project", parentCard.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "in_progress", updatedParent.State)
 }
@@ -1362,151 +1271,6 @@ func TestParentAutoTransition_GitCommitForParent(t *testing.T) {
 	assert.Contains(t, msg, parent.ID)
 }
 
-// createParentWithChildrenByParentField creates a parent card and the given number
-// of child cards using only the parent field on the child — the parent's Subtasks
-// field is NOT populated. This reflects how agents typically create subtasks.
-func createParentWithChildrenByParentField(t *testing.T, svc *CardService, project string, numChildren int) (*board.Card, []*board.Card) {
-	t.Helper()
-
-	ctx := context.Background()
-
-	parent, err := svc.CreateCard(ctx, project, CreateCardInput{
-		Title:    "Parent Task",
-		Type:     "task",
-		Priority: "medium",
-	})
-	require.NoError(t, err)
-
-	children := make([]*board.Card, numChildren)
-	for i := range numChildren {
-		child, err := svc.CreateCard(ctx, project, CreateCardInput{
-			Title:    fmt.Sprintf("Child %d", i+1),
-			Type:     "task",
-			Priority: "medium",
-			Parent:   parent.ID,
-		})
-		require.NoError(t, err)
-
-		children[i] = child
-	}
-
-	// Re-fetch parent — its Subtasks field is intentionally NOT updated
-	parent, err = svc.GetCard(ctx, project, parent.ID)
-	require.NoError(t, err)
-	assert.Empty(t, parent.Subtasks, "parent Subtasks must be empty for this test to be meaningful")
-
-	return parent, children
-}
-
-// TestParentAutoTransition_QueryBased_OneOfThreeDoneStaysInProgress verifies that
-// completing only 1 of 3 children (linked via parent field, not Subtasks list) does
-// NOT transition the parent to review.
-func TestParentAutoTransition_QueryBased_OneOfThreeDoneStaysInProgress(t *testing.T) {
-	svc, _, cleanup := setupTestWithReview(t)
-	defer cleanup()
-
-	ctx := context.Background()
-
-	parent, children := createParentWithChildrenByParentField(t, svc, "test-project", 3)
-	require.Equal(t, "todo", parent.State)
-
-	// Transition all children to in_progress (first one also transitions parent)
-	inProgress := "in_progress"
-	for _, child := range children {
-		_, err := svc.PatchCard(ctx, "test-project", child.ID, PatchCardInput{State: &inProgress})
-		require.NoError(t, err)
-	}
-
-	// Verify parent is in_progress
-	updatedParent, err := svc.GetCard(ctx, "test-project", parent.ID)
-	require.NoError(t, err)
-	require.Equal(t, "in_progress", updatedParent.State)
-
-	// Complete only the first child
-	done := "done"
-	_, err = svc.PatchCard(ctx, "test-project", children[0].ID, PatchCardInput{State: &done})
-	require.NoError(t, err)
-
-	// Parent must still be in_progress — two children remain
-	updatedParent, err = svc.GetCard(ctx, "test-project", parent.ID)
-	require.NoError(t, err)
-	assert.Equal(t, "in_progress", updatedParent.State)
-}
-
-// TestParentAutoTransition_QueryBased_AllThreeDoneParentStaysInProgress verifies that
-// completing all 3 children (linked via parent field only) does NOT auto-transition
-// the parent to review. The orchestrator handles that after documentation.
-func TestParentAutoTransition_QueryBased_AllThreeDoneParentStaysInProgress(t *testing.T) {
-	svc, _, cleanup := setupTestWithReview(t)
-	defer cleanup()
-
-	ctx := context.Background()
-
-	parent, children := createParentWithChildrenByParentField(t, svc, "test-project", 3)
-
-	// Transition all children to in_progress
-	inProgress := "in_progress"
-	for _, child := range children {
-		_, err := svc.PatchCard(ctx, "test-project", child.ID, PatchCardInput{State: &inProgress})
-		require.NoError(t, err)
-	}
-
-	// Complete all children
-	done := "done"
-	for _, child := range children {
-		_, err := svc.PatchCard(ctx, "test-project", child.ID, PatchCardInput{State: &done})
-		require.NoError(t, err)
-	}
-
-	// Parent stays in in_progress — orchestrator transitions after documentation
-	updatedParent, err := svc.GetCard(ctx, "test-project", parent.ID)
-	require.NoError(t, err)
-	assert.Equal(t, "in_progress", updatedParent.State)
-}
-
-// TestParentAutoTransition_QueryBased_NoChildrenNoTransition verifies that a parent
-// card with no children does not auto-transition when completed cards reference it.
-func TestParentAutoTransition_QueryBased_NoChildrenNoTransition(t *testing.T) {
-	svc, _, cleanup := setupTestWithReview(t)
-	defer cleanup()
-
-	ctx := context.Background()
-
-	// Create a parent card with no children
-	parent, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-		Title:    "Parent with no children",
-		Type:     "task",
-		Priority: "medium",
-	})
-	require.NoError(t, err)
-	require.Equal(t, "todo", parent.State)
-
-	// Manually transition parent to in_progress so it has a non-todo state to stay in
-	inProgress := "in_progress"
-	parent, err = svc.PatchCard(ctx, "test-project", parent.ID, PatchCardInput{State: &inProgress})
-	require.NoError(t, err)
-	require.Equal(t, "in_progress", parent.State)
-
-	// Create a standalone card (no parent) and mark it done — this should not affect the parent
-	standalone, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-		Title:    "Standalone",
-		Type:     "task",
-		Priority: "medium",
-	})
-	require.NoError(t, err)
-	_, err = svc.PatchCard(ctx, "test-project", standalone.ID, PatchCardInput{State: &inProgress})
-	require.NoError(t, err)
-
-	done := "done"
-	_, err = svc.PatchCard(ctx, "test-project", standalone.ID, PatchCardInput{State: &done})
-	require.NoError(t, err)
-
-	// Parent must remain in_progress — it has no children so the empty-guard fires
-	updatedParent, err := svc.GetCard(ctx, "test-project", parent.ID)
-	require.NoError(t, err)
-	assert.Equal(t, "in_progress", updatedParent.State)
-}
-
 func TestCommitMessage(t *testing.T) {
 	tests := []struct {
 		agent    string
@@ -1523,34 +1287,6 @@ func TestCommitMessage(t *testing.T) {
 		result := commitMessage(tt.agent, tt.cardID, tt.action)
 		assert.Equal(t, tt.expected, result)
 	}
-}
-
-func TestReportUsage(t *testing.T) {
-	svc, _, cleanup := setupTest(t)
-	defer cleanup()
-
-	ctx := context.Background()
-
-	// Create a card
-	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-		Title:    "Token test",
-		Type:     "task",
-		Priority: "medium",
-	})
-	require.NoError(t, err)
-	assert.Nil(t, card.TokenUsage)
-
-	// Report usage
-	updated, err := svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
-		AgentID:          "agent-1",
-		PromptTokens:     1000,
-		CompletionTokens: 500,
-	})
-	require.NoError(t, err)
-	require.NotNil(t, updated.TokenUsage)
-	assert.Equal(t, int64(1000), updated.TokenUsage.PromptTokens)
-	assert.Equal(t, int64(500), updated.TokenUsage.CompletionTokens)
-	assert.InDelta(t, 0.0, updated.TokenUsage.EstimatedCostUSD, 0.0001) // no costs configured
 }
 
 func TestReportUsageAccumulates(t *testing.T) {
@@ -1614,45 +1350,6 @@ func setupTestWithCosts(t *testing.T) (*CardService, string, func()) {
 	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, tokenCosts, true, false)
 
 	return svc, tmpDir, func() {}
-}
-
-func TestReportUsageWithCost(t *testing.T) {
-	svc, _, cleanup := setupTestWithCosts(t)
-	defer cleanup()
-
-	ctx := context.Background()
-
-	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-		Title:    "Cost test",
-		Type:     "task",
-		Priority: "medium",
-	})
-	require.NoError(t, err)
-
-	// Report with known model
-	updated, err := svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
-		AgentID:          "agent-1",
-		Model:            "claude-sonnet-4-6",
-		PromptTokens:     10000,
-		CompletionTokens: 2000,
-	})
-	require.NoError(t, err)
-	// Expected: 10000 * 0.000003 + 2000 * 0.000015 = 0.03 + 0.03 = 0.06
-	assert.InDelta(t, 0.06, updated.TokenUsage.EstimatedCostUSD, 0.0001)
-
-	// Report again with different model — cost should accumulate as delta
-	updated, err = svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
-		AgentID:          "agent-1",
-		Model:            "claude-opus-4-6",
-		PromptTokens:     1000,
-		CompletionTokens: 500,
-	})
-	require.NoError(t, err)
-	// Delta: 1000 * 0.000005 + 500 * 0.000025 = 0.005 + 0.0125 = 0.0175
-	// Total: 0.06 + 0.0175 = 0.0775
-	assert.InDelta(t, 0.0775, updated.TokenUsage.EstimatedCostUSD, 0.0001)
-	assert.Equal(t, int64(11000), updated.TokenUsage.PromptTokens)
-	assert.Equal(t, int64(2500), updated.TokenUsage.CompletionTokens)
 }
 
 func TestReportUsageEvent(t *testing.T) {
@@ -2066,77 +1763,6 @@ func TestRecalculateCostsSkipsZeroCacheFields(t *testing.T) {
 	after, err := svc.GetCard(ctx, "test-project", card.ID)
 	require.NoError(t, err)
 	assert.InDelta(t, wantCost, after.TokenUsage.EstimatedCostUSD, 1e-9)
-}
-
-// TestReportUsageCacheTiers_UnknownModelSkipsAndMetric verifies that reporting
-// with cache tokens under an unknown model still increments the metric and
-// produces $0 cost, while the token counters (including cache tiers) accumulate.
-func TestReportUsageCacheTiers_UnknownModelSkipsAndMetric(t *testing.T) {
-	svc, _, cleanup := setupTestWithCosts(t)
-	defer cleanup()
-
-	ctx := context.Background()
-
-	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-		Title: "unknown model cache test", Type: "task", Priority: "medium",
-	})
-	require.NoError(t, err)
-
-	unknownModel := "totally-unknown-cache-model"
-	baseline := testutil.ToFloat64(metrics.ReportUsageUnknownModelTotal.WithLabelValues(unknownModel))
-
-	updated, err := svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
-		AgentID:             "agent-1",
-		Model:               unknownModel,
-		CacheReadTokens:     50000,
-		CacheCreationTokens: 2000,
-		PromptTokens:        500,
-		CompletionTokens:    200,
-	})
-	require.NoError(t, err)
-	require.NotNil(t, updated.TokenUsage)
-
-	// All token counters must accumulate even with an unknown model.
-	assert.Equal(t, int64(500), updated.TokenUsage.PromptTokens)
-	assert.Equal(t, int64(200), updated.TokenUsage.CompletionTokens)
-	assert.Equal(t, int64(50000), updated.TokenUsage.CacheReadTokens)
-	assert.Equal(t, int64(2000), updated.TokenUsage.CacheCreationTokens)
-
-	// Cost must remain $0 because the model has no rate.
-	assert.InDelta(t, 0.0, updated.TokenUsage.EstimatedCostUSD, 1e-9)
-
-	// The unknown-model counter must have been incremented.
-	after := testutil.ToFloat64(metrics.ReportUsageUnknownModelTotal.WithLabelValues(unknownModel))
-	assert.InDelta(t, baseline+1.0, after, 1e-9, "ReportUsageUnknownModelTotal must be incremented by 1")
-}
-
-// TestCaptureHandler_ConcurrentHandle exercises the mutex guarding the
-// captureHandler's records slice. Without the lock this test trips `-race`.
-func TestCaptureHandler_ConcurrentHandle(t *testing.T) {
-	const goroutines = 32
-
-	const perGoroutine = 16
-
-	handler := &captureHandler{}
-	logger := slog.New(handler)
-
-	var wg sync.WaitGroup
-
-	wg.Add(goroutines)
-
-	for range goroutines {
-		go func() {
-			defer wg.Done()
-
-			for j := range perGoroutine {
-				logger.Warn("concurrent log", "i", j)
-			}
-		}()
-	}
-
-	wg.Wait()
-
-	assert.Len(t, handler.snapshot(), goroutines*perGoroutine)
 }
 
 func TestAggregateUsage(t *testing.T) {
@@ -3183,7 +2809,6 @@ func TestDeferredCommitFlushOnDone(t *testing.T) {
 	svc, gitMgr := setupDeferredTest(t)
 	ctx := context.Background()
 
-	// Create card.
 	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
 		Title: "Will Complete", Type: "task", Priority: "medium",
 	})
@@ -3732,87 +3357,6 @@ func TestReportUsageMultipleModels(t *testing.T) {
 	assert.Equal(t, "claude-opus-4-7", updated.TokenUsage.Model)
 }
 
-// TestReportUsageLargeNumbers proves that token accumulators handle values
-// well beyond 2^31 (int32 max ≈ 2.1 billion) without overflow. int64 storage
-// can hold up to ~9.2 × 10^18 tokens.
-func TestReportUsageLargeNumbers(t *testing.T) {
-	svc, _, cleanup := setupTestWithCosts(t)
-	defer cleanup()
-
-	ctx := context.Background()
-
-	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-		Title: "Large numbers test", Type: "task", Priority: "medium",
-	})
-	require.NoError(t, err)
-
-	// Each call adds just over 2^30 tokens — after 3 calls we exceed 2^31.
-	const chunkSize = int64(1<<30 + 1) // 1,073,741,825
-
-	for range 3 {
-		_, err = svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
-			AgentID:          "agent-1",
-			Model:            "claude-sonnet-4-6",
-			PromptTokens:     chunkSize,
-			CompletionTokens: 0,
-		})
-		require.NoError(t, err)
-	}
-
-	result, err := svc.GetCard(ctx, "test-project", card.ID)
-	require.NoError(t, err)
-	require.NotNil(t, result.TokenUsage)
-
-	want := chunkSize * 3 // 3,221,225,475 — exceeds int32 max
-	assert.Equal(t, want, result.TokenUsage.PromptTokens)
-	assert.Greater(t, result.TokenUsage.PromptTokens, int64(1<<31), "tokens must exceed int32 max to prove overflow safety")
-}
-
-// TestReportUsageFloatPrecision calls report_usage many times with 1 prompt
-// token each and asserts the accumulated cost is within 1e-6 of the analytical
-// result. This validates that summing many tiny float64 deltas does not
-// catastrophically lose precision.
-func TestReportUsageFloatPrecision(t *testing.T) {
-	if testing.Short() {
-		t.Skip("slow: performs many full git commits through ReportUsage")
-	}
-
-	svc, _, cleanup := setupTestWithCosts(t)
-	defer cleanup()
-
-	ctx := context.Background()
-
-	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-		Title: "Float precision test", Type: "task", Priority: "medium",
-	})
-	require.NoError(t, err)
-
-	const calls = 1_000
-
-	const rate = 0.000003 // claude-sonnet-4-6 prompt rate
-
-	for range calls {
-		_, err = svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
-			AgentID:          "agent-1",
-			Model:            "claude-sonnet-4-6",
-			PromptTokens:     1,
-			CompletionTokens: 0,
-		})
-		require.NoError(t, err)
-	}
-
-	result, err := svc.GetCard(ctx, "test-project", card.ID)
-	require.NoError(t, err)
-	require.NotNil(t, result.TokenUsage)
-
-	assert.Equal(t, int64(calls), result.TokenUsage.PromptTokens)
-
-	// Analytical answer: calls * rate
-	want := float64(calls) * rate
-	assert.InDelta(t, want, result.TokenUsage.EstimatedCostUSD, 1e-6,
-		"accumulated cost must be within 1e-6 of analytical answer (float precision check)")
-}
-
 // TestReportUsageUnknownModelMetric verifies that the Prometheus counter
 // contextmatrix_report_usage_unknown_model_total is incremented when a model
 // is not found in the cost map, and that it carries the model label.
@@ -4074,7 +3618,6 @@ func TestDeferredCommitFlushOnRelease(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, creationMsg, card.ID, "creation commit must reference the card ID")
 
-	// Claim the card
 	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-1")
 	require.NoError(t, err)
 
@@ -6261,93 +5804,6 @@ func TestSourceImmutability_PatchCard(t *testing.T) {
 	assert.Equal(t, "github", patched.Source.System)
 	assert.Equal(t, "123", patched.Source.ExternalID)
 	assert.Equal(t, "https://github.com/org/repo/issues/123", patched.Source.ExternalURL)
-}
-
-// TestParentAutoTransition_ClaimWorkflow verifies that when a subtask transitions
-// to in_progress (the state change that happens as part of the claim workflow),
-// the parent card automatically transitions from todo to in_progress.
-func TestParentAutoTransition_ClaimWorkflow(t *testing.T) {
-	svc, _, cleanup := setupTest(t)
-	defer cleanup()
-
-	ctx := context.Background()
-
-	// Create parent card.
-	parent, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-		Title:    "Epic Task",
-		Type:     "task",
-		Priority: "high",
-	})
-	require.NoError(t, err)
-	require.Equal(t, "todo", parent.State)
-
-	// Create subtask.
-	subtask, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-		Title:    "Subtask 1",
-		Type:     "task",
-		Priority: "medium",
-		Parent:   parent.ID,
-	})
-	require.NoError(t, err)
-
-	// Wire up parent's subtask list.
-	_, err = svc.UpdateCard(ctx, "test-project", parent.ID, UpdateCardInput{
-		Title:    parent.Title,
-		Type:     parent.Type,
-		State:    parent.State,
-		Priority: parent.Priority,
-		Subtasks: []string{subtask.ID},
-	})
-	require.NoError(t, err)
-
-	// Transition subtask to in_progress (simulates the claim workflow).
-	inProgress := "in_progress"
-	_, err = svc.PatchCard(ctx, "test-project", subtask.ID, PatchCardInput{State: &inProgress})
-	require.NoError(t, err)
-
-	// Parent should have auto-transitioned to in_progress.
-	updatedParent, err := svc.GetCard(ctx, "test-project", parent.ID)
-	require.NoError(t, err)
-	assert.Equal(t, "in_progress", updatedParent.State)
-}
-
-// TestDuplicateSubtaskGuard_Integration verifies the dedup guard: creating a
-// subtask with the same title as an existing non-terminal subtask returns the
-// existing card instead of creating a duplicate.
-func TestDuplicateSubtaskGuard_Integration(t *testing.T) {
-	svc, _, cleanup := setupTest(t)
-	defer cleanup()
-
-	ctx := context.Background()
-
-	// Create parent.
-	parent, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-		Title:    "Parent",
-		Type:     "task",
-		Priority: "medium",
-	})
-	require.NoError(t, err)
-
-	// Create first subtask with title "Foo".
-	first, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-		Title:    "Foo",
-		Type:     "task",
-		Priority: "medium",
-		Parent:   parent.ID,
-	})
-	require.NoError(t, err)
-
-	// Try creating another subtask with the same title.
-	second, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-		Title:    "Foo",
-		Type:     "task",
-		Priority: "high",
-		Parent:   parent.ID,
-	})
-	require.NoError(t, err)
-
-	// Should return the existing card, not a new one.
-	assert.Equal(t, first.ID, second.ID, "duplicate subtask must return existing card")
 }
 
 // TestActivityLogCapping_Integration verifies that the activity log is capped

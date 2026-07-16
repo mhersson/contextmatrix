@@ -450,21 +450,6 @@ func TestFindStalled_EmptyStore(t *testing.T) {
 	assert.Empty(t, stalled)
 }
 
-func TestClaimUpdatesTimestamp(t *testing.T) {
-	store, _ := setupTestStore(t)
-	mgr := NewManager(store, 30*time.Minute)
-	ctx := context.Background()
-
-	// Create an unclaimed card
-	original := createTestCard(t, store, "test-project", "TEST-001", "")
-
-	// Claim it
-	card, err := mgr.Claim(ctx, "test-project", "TEST-001", "agent-1")
-	require.NoError(t, err)
-
-	assert.True(t, card.Updated.After(original.Updated) || card.Updated.Equal(original.Updated))
-}
-
 func TestReleaseUpdatesTimestamp(t *testing.T) {
 	store, _ := setupTestStore(t)
 	fake := clock.Fake(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))

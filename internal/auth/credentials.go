@@ -43,7 +43,7 @@ type CredentialInput struct {
 type CredentialChecker func(ctx context.Context, in CredentialInput) error
 
 // credNameRe: 1-64 chars a-z 0-9 . _ -, no edge punctuation. The name is the
-// immutable binding key .board.yaml references (S5).
+// immutable binding key .board.yaml references.
 var credNameRe = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$`)
 
 // SetCredentialKey wires the HKDF-derived 32-byte credential subkey.
@@ -196,8 +196,7 @@ func (s *Service) SetCredentialDisabled(ctx context.Context, name string, disabl
 }
 
 // DeleteCredential removes a pool entry.
-// NOTE(S5): once .board.yaml bindings exist, this must refuse (409, listing
-// the bound projects) while any project references the name.
+// The bound-projects 409 guard is enforced by the API handler (admin_credentials.go deleteCredential).
 func (s *Service) DeleteCredential(ctx context.Context, name string) error {
 	return s.store.DeleteCredential(ctx, name)
 }

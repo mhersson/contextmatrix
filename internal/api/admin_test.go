@@ -15,7 +15,7 @@ import (
 // adminTestServer: multi-mode router with admin "root" and non-admin "bob",
 // both with password "password12345". Reuses newAuthTestServer's store/svc
 // plumbing — extract a shared helper if that reads better, but do not change
-// newAuthTestServer's existing behavior (S2/S3 tests depend on it).
+// newAuthTestServer's existing behavior (other tests depend on it).
 func adminTestServer(t *testing.T) (*httptest.Server, *http.Cookie, *http.Cookie) {
 	t.Helper()
 
@@ -392,8 +392,8 @@ func TestAdminCredentials_ValidationErrors(t *testing.T) {
 // nil-safe wiring: adminTestServer (via newAuthTestServer) never sets
 // RouterConfig.Service, so listProjectConfigs must stay nil rather than
 // binding a method value on a nil *service.CardService — which would compile
-// and assign fine but panic on the first call. Delete must fall back to the
-// pre-S5 behavior (no guard) instead of 500ing.
+// and assign fine but panic on the first call. Delete must fall back to
+// skipping the guard instead of 500ing.
 func TestDeleteCredential_NoProjectService_GuardSkipped(t *testing.T) {
 	server, admin, _ := adminTestServer(t)
 

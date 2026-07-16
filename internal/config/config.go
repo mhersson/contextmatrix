@@ -417,7 +417,7 @@ type ChatConfig struct {
 	IdleTTL time.Duration `yaml:"idle_ttl"`
 
 	// MaxConcurrent caps the number of simultaneously-running chat
-	// containers. 0 means unlimited. Leave unset to use the default (8).
+	// containers. 0 (the default when unset) means unlimited.
 	MaxConcurrent int `yaml:"max_concurrent"`
 
 	// ResumeBudgetTokens caps the rough token estimate the transcript
@@ -466,7 +466,6 @@ type Config struct {
 	Auth          AuthConfig    `yaml:"auth"`
 }
 
-// defaults returns a Config with default values.
 func defaults() *Config {
 	return &Config{
 		Port: 8080,

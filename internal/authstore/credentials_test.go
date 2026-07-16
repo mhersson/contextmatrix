@@ -99,16 +99,6 @@ func TestCredentialMutators(t *testing.T) {
 	assert.Equal(t, int64(9), got.AppID)
 	assert.True(t, got.Disabled)
 	assert.Equal(t, later, got.UpdatedAt)
-
-	// last_used_at tracking for pool hygiene; deliberately no updated_at bump.
-	used := later.Add(time.Hour)
-	require.NoError(t, store.TouchCredentialUsed(ctx, "rot", used))
-
-	got, err = store.CredentialByName(ctx, "rot")
-	require.NoError(t, err)
-	require.NotNil(t, got.LastUsedAt)
-	assert.Equal(t, used, *got.LastUsedAt)
-	assert.Equal(t, later, got.UpdatedAt, "usage tracking must not bump updated_at")
 }
 
 func TestCredentialMutators_NotFound(t *testing.T) {
@@ -117,7 +107,6 @@ func TestCredentialMutators_NotFound(t *testing.T) {
 
 	require.ErrorIs(t, store.UpdateCredentialSecret(ctx, "ghost", []byte("x"), testNow), authstore.ErrNotFound)
 	require.ErrorIs(t, store.SetCredentialDisabled(ctx, "ghost", true, testNow), authstore.ErrNotFound)
-	assert.ErrorIs(t, store.TouchCredentialUsed(ctx, "ghost", testNow), authstore.ErrNotFound)
 }
 
 func TestRotateCredentialSecrets_RewritesAllInOrder(t *testing.T) {

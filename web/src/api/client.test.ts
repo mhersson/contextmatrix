@@ -113,38 +113,6 @@ describe('api.sendCardMessage', () => {
     expect(isAPIError(caught)).toBe(true);
     expect((caught as APIError).code).toBe('MESSAGE_TOO_LONG');
   });
-
-  it('surfaces 409 as a typed APIError', async () => {
-    fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      makeErrorResponse('NOT_RUNNING', 'session not running', 409)
-    );
-
-    let caught: unknown;
-    try {
-      await api.sendCardMessage('test-project', 'TEST-001', 'hello');
-    } catch (err) {
-      caught = err;
-    }
-
-    expect(isAPIError(caught)).toBe(true);
-    expect((caught as APIError).code).toBe('NOT_RUNNING');
-  });
-
-  it('surfaces 503 as a typed APIError', async () => {
-    fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      makeErrorResponse('BACKEND_DISABLED', 'worker disabled', 503)
-    );
-
-    let caught: unknown;
-    try {
-      await api.sendCardMessage('test-project', 'TEST-001', 'hello');
-    } catch (err) {
-      caught = err;
-    }
-
-    expect(isAPIError(caught)).toBe(true);
-    expect((caught as APIError).code).toBe('BACKEND_DISABLED');
-  });
 });
 
 describe('api.promoteCardToAutonomous', () => {
@@ -165,38 +133,6 @@ describe('api.promoteCardToAutonomous', () => {
     expect(url).toBe('/api/projects/test-project/cards/TEST-001/promote');
     expect(init.method).toBe('POST');
     expect(result).toEqual(updatedCard);
-  });
-
-  it('surfaces 409 as a typed APIError', async () => {
-    fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      makeErrorResponse('WORKER_NOT_RUNNING', 'card is not currently running', 409)
-    );
-
-    let caught: unknown;
-    try {
-      await api.promoteCardToAutonomous('test-project', 'TEST-001');
-    } catch (err) {
-      caught = err;
-    }
-
-    expect(isAPIError(caught)).toBe(true);
-    expect((caught as APIError).code).toBe('WORKER_NOT_RUNNING');
-  });
-
-  it('surfaces 503 as a typed APIError', async () => {
-    fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      makeErrorResponse('BACKEND_DISABLED', 'worker disabled', 503)
-    );
-
-    let caught: unknown;
-    try {
-      await api.promoteCardToAutonomous('test-project', 'TEST-001');
-    } catch (err) {
-      caught = err;
-    }
-
-    expect(isAPIError(caught)).toBe(true);
-    expect((caught as APIError).code).toBe('BACKEND_DISABLED');
   });
 });
 

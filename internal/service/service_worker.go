@@ -240,7 +240,7 @@ func (s *CardService) UpdateWorkerStatus(ctx context.Context, project, cardID, s
 	// post-terminal failure/killed callbacks to `completed` so the card UI
 	// reflects what actually happened.
 	//
-	// The user-initiated Stop path (stopTask → UpdateWorkerStatus("killed"))
+	// The user-initiated Stop path (stopCard → UpdateWorkerStatus("killed"))
 	// targets non-terminal cards, so the normalization only fires for the
 	// cleanup case it is intended for. If a user manages to Stop a card that
 	// is already done (rare race — human clicking just after the agent

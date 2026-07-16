@@ -304,7 +304,6 @@ func (s *CardService) UnlockWrites() {
 	s.writeMu.Unlock()
 }
 
-// HeartbeatTimeout returns the configured heartbeat timeout duration.
 func (s *CardService) HeartbeatTimeout() time.Duration {
 	return s.lock.Timeout()
 }

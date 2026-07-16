@@ -128,26 +128,6 @@ func (s *Store) DeleteCredential(ctx context.Context, name string) error {
 	return nil
 }
 
-// TouchCredentialUsed stamps last_used_at on token mint. Deliberately does
-// not bump updated_at — usage is not an edit.
-func (s *Store) TouchCredentialUsed(ctx context.Context, name string, now time.Time) error {
-	res, err := s.db.ExecContext(ctx, `UPDATE credentials SET last_used_at = ? WHERE name = ?`, toUnix(now), name)
-	if err != nil {
-		return fmt.Errorf("authstore: touch credential: %w", err)
-	}
-
-	n, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("authstore: touch credential rows: %w", err)
-	}
-
-	if n == 0 {
-		return ErrNotFound
-	}
-
-	return nil
-}
-
 // RotateCredentialSecrets re-encrypts every pool secret inside a single
 // transaction. reencrypt receives each stored ciphertext blob and returns its
 // replacement; the first error it returns — or any failed write — rolls back

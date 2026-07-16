@@ -49,7 +49,7 @@ WORKDIR /home/user
 ENTRYPOINT ["contextmatrix-chat", "work"]
 `
 
-// agentAssets/chatAssets hold the built host serve binary path for a sibling
+// agentBuilt/chatBuilt hold the built host serve binary path for a sibling
 // backend. The worker image is built and tagged (agentWorkerImage /
 // chatWorkerImage) as a side effect.
 type siblingAssets struct {

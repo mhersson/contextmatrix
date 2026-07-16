@@ -1,5 +1,5 @@
 // Package gitops provides git operations for auto-committing card mutations.
-// The git repository is the boards directory itself (cfg.BoardsDir).
+// The git repository is the boards directory itself (cfg.Boards.Dir).
 package gitops
 
 import (
@@ -533,7 +533,6 @@ func (m *Manager) runGit(ctx context.Context, args ...string) error {
 	return nil
 }
 
-// AddRemote adds a remote to the repository.
 func (m *Manager) AddRemote(ctx context.Context, name, url string) error {
 	if err := ctx.Err(); err != nil {
 		return err

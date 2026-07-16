@@ -189,7 +189,6 @@ func (m *Manager) FindStalled(ctx context.Context) ([]StalledCard, error) {
 	return stalled, nil
 }
 
-// Timeout returns the configured heartbeat timeout duration.
 func (m *Manager) Timeout() time.Duration {
 	return m.timeout
 }

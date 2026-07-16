@@ -60,11 +60,7 @@ func isTrusted(creator string, allow []string) bool {
 		allow = trustedCreators
 	}
 
-	return strings.TrimSpace(creator) != "" && contains(allow, creator)
-}
-
-func contains(s []string, v string) bool {
-	return slices.Contains(s, v)
+	return strings.TrimSpace(creator) != "" && slices.Contains(allow, creator)
 }
 
 // allowedORPrefixes maps the effective creator allowlist (config override or

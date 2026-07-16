@@ -20,8 +20,7 @@ import (
 
 const (
 	// maxRetries is the number of retry attempts for transient failures.
-	maxRetries = 3
-	// requestTimeout is the per-request timeout.
+	maxRetries     = 3
 	requestTimeout = 10 * time.Second
 )
 
@@ -68,7 +67,6 @@ type Client struct {
 	apiKey     string
 }
 
-// NewClient creates a new backend webhook client.
 func NewClient(baseURL, apiKey string) *Client {
 	return &Client{
 		httpClient: &http.Client{Timeout: requestTimeout},

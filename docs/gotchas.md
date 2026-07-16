@@ -194,7 +194,8 @@
 - **Op-store schema is a clean-cut create — existing `chats.db` must be deleted
   on upgrade:** `ensureSchema` in `internal/opstore/sqlite/schema.go` runs plain
   `CREATE TABLE IF NOT EXISTS` DDL for every table (`model_blacklist`,
-  `chat_sessions`, `chat_messages`, `chat_cost_archive`) in the shared `ops.db`.
+  `chat_sessions`, `chat_messages`, `chat_cost_archive`, `model_outcomes`) in
+  the shared `ops.db`.
   There is **no migration ledger** — no `schema_migrations(version, applied_at)`
   table, no stepwise history, no `addColumnIfMissing` helper. The DB is not
   migrated: an obsolete one is deleted and recreated by the operator. To change
@@ -209,16 +210,14 @@
   falls inside the bootstrap window are deduped on the client. Reverting to
   SSE-only (no bootstrap) loses everything older than the server-side 128-entry
   ring on refresh.
-- **Chat rehydration is best-effort and never blocks `/open`:** CM's chat-start
+- **Chat rehydration seeds in-process from `resume.jsonl`:** CM's chat-start
   payload carries the resume context (`Resume *ResumeContext`); the chat backend
   writes it to `resume.jsonl` in the per-session run dir and sets
-  `CM_CHAT_RESUME=1` before starting the container. If that write fails (host
-  tmp not writable, disk full, etc.), the backend starts a fresh agent anyway.
-  The stdin priming envelope is still written (it is gated on the CM payload's
-  `resume`, not on the file-write outcome), so the agent receives the
-  instructions, fails to read `/run/cm-chat/resume.jsonl`, and calls
-  `chat_rehydration_complete` with a summary that says so. `/open` always returns
-  `200`; surface failures via the transcript, never by refusing to open.
+  `CM_CHAT_RESUME=1` before starting the container. A failed write fails the
+  chat-start with 500 — no container is created. Inside the container, the
+  worker reads the file and seeds its own history in-process; a failed read
+  logs a warning and starts fresh. There is no stdin priming envelope — stdin
+  carries only user messages and end/clear frames.
 - **`rehydration_phase` stamping prevents reopen pollution:** every message
   appended while `Session.RehydrationActive=TRUE` gets stamped with
   `rehydration_phase=TRUE` in `chat_messages`. `chat.transcript.Build` drops
@@ -227,11 +226,3 @@
   plus the prior `chat_rehydration_complete` summaries. Without this filter,
   each reopen would compound the previous reopen's rehydration noise into the
   next transcript.
-- **`claude -p PROMPT --input-format stream-json` does NOT auto-execute
-  `PROMPT`:** Claude treats `-p` as system context when stream-json input is
-  enabled, not as a user message. The rehydration priming therefore has to
-  arrive as a stream-json `user`-typed envelope written to stdin _after_
-  `AttachChatStdin` succeeds — see `webhook/chat.go` and
-  `streammsg.BuildUserMessage`. The same applies to any "kick the agent off
-  with X" pattern in chat or HITL modes: use a stream-json user envelope on
-  stdin, not `-p`.

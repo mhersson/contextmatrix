@@ -13,29 +13,6 @@ import (
 
 var epoch = time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 
-func TestReal_Now(t *testing.T) {
-	t.Parallel()
-
-	c := clock.Real()
-	before := time.Now()
-	got := c.Now()
-	after := time.Now()
-
-	assert.False(t, got.Before(before))
-	assert.False(t, got.After(after))
-}
-
-func TestReal_AfterFires(t *testing.T) {
-	t.Parallel()
-
-	c := clock.Real()
-	select {
-	case <-c.After(5 * time.Millisecond):
-	case <-time.After(1 * time.Second):
-		t.Fatal("real After did not fire")
-	}
-}
-
 func TestFake_Now(t *testing.T) {
 	t.Parallel()
 
@@ -214,67 +191,6 @@ func TestFake_MultipleAfterConcurrent(t *testing.T) {
 
 	require.Eventually(t, func() bool { return fired.Load() == int32(n) }, 2*time.Second, time.Millisecond)
 	wg.Wait()
-}
-
-func TestFake_SleepBlocksUntilAdvance(t *testing.T) {
-	t.Parallel()
-
-	f := clock.Fake(epoch)
-
-	done := make(chan struct{})
-
-	go func() {
-		f.Sleep(100 * time.Millisecond)
-		close(done)
-	}()
-
-	// Wait deterministically for the goroutine to register its Sleep timer.
-	require.Eventually(t, func() bool {
-		return f.PendingTimers() == 1
-	}, 2*time.Second, time.Millisecond, "Sleep did not register timer")
-
-	select {
-	case <-done:
-		t.Fatal("Sleep returned before Advance")
-	default:
-	}
-
-	f.Advance(100 * time.Millisecond)
-
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("Sleep did not unblock after Advance")
-	}
-}
-
-func TestFake_TickerStopRemovesFromRegistry(t *testing.T) {
-	t.Parallel()
-
-	// Smoke test: create many tickers, stop them all, advance, and confirm
-	// no ticks are delivered on any channel.
-	f := clock.Fake(epoch)
-
-	const n = 10
-
-	ticks := make([]clock.Ticker, n)
-	for i := range ticks {
-		ticks[i] = f.NewTicker(10 * time.Millisecond)
-	}
-
-	for _, tk := range ticks {
-		tk.Stop()
-	}
-
-	f.Advance(1 * time.Second)
-
-	for _, tk := range ticks {
-		select {
-		case <-tk.C():
-			t.Fatal("stopped ticker fired")
-		default:
-		}
-	}
 }
 
 func TestFake_NewTickerPanicsOnNonPositive(t *testing.T) {

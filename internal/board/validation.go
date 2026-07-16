@@ -72,7 +72,6 @@ func (e *ValidationError) Unwrap() error {
 // All methods are pure functions - they do not modify any state.
 type Validator struct{}
 
-// NewValidator creates a new Validator instance.
 func NewValidator() *Validator {
 	return &Validator{}
 }

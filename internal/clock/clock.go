@@ -4,7 +4,7 @@
 // deterministically advance time via (*FakeClock).Advance.
 //
 // Only the subset of time operations actually needed by this codebase is
-// exposed: Now, NewTicker, After, Sleep. Anything else should be added with
+// exposed: Now, NewTicker, After. Anything else should be added with
 // care — every primitive must have a deterministic fake semantics.
 package clock
 
@@ -18,7 +18,6 @@ type Clock interface {
 	Now() time.Time
 	NewTicker(d time.Duration) Ticker
 	After(d time.Duration) <-chan time.Time
-	Sleep(d time.Duration)
 }
 
 // Ticker abstracts *time.Ticker. The channel-accessor shape (C() rather than
@@ -36,7 +35,6 @@ type realClock struct{}
 
 func (realClock) Now() time.Time                         { return time.Now() }
 func (realClock) After(d time.Duration) <-chan time.Time { return time.After(d) }
-func (realClock) Sleep(d time.Duration)                  { time.Sleep(d) }
 func (realClock) NewTicker(d time.Duration) Ticker {
 	return &realTicker{t: time.NewTicker(d)}
 }
@@ -125,14 +123,6 @@ func (f *FakeClock) After(d time.Duration) <-chan time.Time {
 	f.mu.Unlock()
 
 	return ch
-}
-
-// Sleep blocks until the fake clock has been advanced by at least d.
-// Note: tests rarely want this — prefer structuring code so the subsystem
-// under test uses After/NewTicker and is signalled via Advance. Sleep is
-// provided only for completeness (Clock interface parity).
-func (f *FakeClock) Sleep(d time.Duration) {
-	<-f.After(d)
 }
 
 // NewTicker registers a ticker that fires every d. d must be > 0, matching

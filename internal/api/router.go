@@ -245,7 +245,7 @@ type ServedModelView struct {
 }
 
 // NewRouter creates a new HTTP router with all API routes registered.
-// corsOrigin specifies the allowed CORS origin (e.g. "http://localhost:5173").
+// cfg.CORSOrigin specifies the allowed CORS origin (e.g. "http://localhost:5173").
 // If empty, CORS headers are not set.
 // Returns http.Handler (wraps mux with metrics and other middleware).
 func NewRouter(cfg RouterConfig) http.Handler {
@@ -961,7 +961,6 @@ func writeJSON(w http.ResponseWriter, status int, data any) {
 	}
 }
 
-// writeError writes an error response.
 func writeError(w http.ResponseWriter, status int, code, message, details string) {
 	writeJSON(w, status, APIError{
 		Error:   message,

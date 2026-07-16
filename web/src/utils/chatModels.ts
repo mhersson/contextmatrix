@@ -20,7 +20,7 @@ export interface ChatModelsResult {
 // every component that needs the model list (PaneHeader, etc).
 const cache: { promise?: Promise<ChatModelsResult>; result?: ChatModelsResult } = {};
 
-export function loadChatModels(): Promise<ChatModelsResult> {
+function loadChatModels(): Promise<ChatModelsResult> {
   if (cache.result) return Promise.resolve(cache.result);
   if (cache.promise) return cache.promise;
   cache.promise = api

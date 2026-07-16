@@ -52,7 +52,6 @@
 
   /* Layout */
   --col-width: 280px;
-  --sidebar-width: 240px;
   --rail-collapsed-width: 340px;
   --rail-expanded-width: 600px;
 }
@@ -426,20 +425,6 @@ input, select, textarea {
   flex-direction: column;
 }
 
-/* Reverts the typography stack on a subtree to the original system fonts
-   (no Fraunces / Geist / JetBrains Mono). Used on the Board and Dashboard
-   surfaces — the panels keep the new design fonts. Overrides the CSS
-   custom properties locally so descendants that look up `var(--font-*)`
-   pick up the system stacks transparently (chips, eyebrows, etc.). */
-.use-system-fonts {
-  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, monospace;
-  --font-display: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  font-family: var(--font-sans);
-  letter-spacing: 0;
-  font-feature-settings: normal;
-}
-
 /* Pill chip — matches the design mock. Mono font, tight tracking, fully
    rounded. Color tints are applied via inline style at the call site. */
 .chip-pill {
@@ -602,20 +587,6 @@ input, select, textarea {
 .bf-rail-expand-arrow {
   font-size: 15px;
   letter-spacing: -0.05em;
-}
-
-/* Pulsing dot indicator on the chat tab — same animation as worker-active. */
-.bf-dot-indicator {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--aqua);
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--aqua) 25%, transparent);
-  animation: bf-dot-pulse 1.6s ease-in-out infinite;
-  display: inline-block;
-}
-@keyframes bf-dot-pulse {
-  50% { opacity: 0.25; }
 }
 
 /* Section card for the rail's stacked sections — used in Info, Source, etc. */
@@ -2026,9 +1997,6 @@ input, select, textarea {
 }
 .apd-card-row:hover:not(:disabled) { background-color: var(--bg2); }
 
-.apd-link { transition: color 140ms ease; }
-.apd-link:hover:not(:disabled) { color: var(--aqua); }
-
 .apd-tab-strip {
   display: flex;
   align-items: center;
@@ -2134,8 +2102,7 @@ input, select, textarea {
 .apd-card-row:focus-visible,
 .apd-agent-row:focus-visible,
 .apd-activity-row:focus-visible,
-.apd-project-link:focus-visible,
-.apd-link:focus-visible {
+.apd-project-link:focus-visible {
   outline: 2px solid color-mix(in oklab, var(--aqua) 60%, var(--bg3));
   outline-offset: -2px;
   border-radius: 5px;

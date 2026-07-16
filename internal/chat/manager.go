@@ -526,7 +526,7 @@ func (m *Manager) startConsumer(sessionID string) {
 		// Exponential backoff retry loop. A bare StreamLogs failure used
 		// to log WARN and exit, stranding the SSE bridge permanently
 		// across a transient backend restart. Mirror the pattern from
-		// internal/backend/sessionlog/manager.go runPump: retry with
+		// internal/backend/sessionlog/manager.go runUpstream: retry with
 		// exponential backoff, cap at 30s, exit cleanly on ctx
 		// cancellation.
 		const (

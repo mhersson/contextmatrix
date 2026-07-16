@@ -6,7 +6,7 @@
  * Don't reach for this directly when you need transition logic — the state
  * machine still keys on the raw values. This is presentation only.
  */
-export const STATE_DISPLAY_LABEL: Record<string, string> = {
+const STATE_DISPLAY_LABEL: Record<string, string> = {
   todo: 'Backlog',
   in_progress: 'In Progress',
   review: 'In Review',

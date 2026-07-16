@@ -167,7 +167,6 @@ func (s *Syncer) TriggerSync(ctx context.Context) error {
 	return nil
 }
 
-// Status returns the current sync status.
 func (s *Syncer) Status() SyncStatus {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -222,7 +221,6 @@ func (s *Syncer) pullRebase(ctx context.Context, trigger string) error {
 		slog.Warn("git sync: could not obtain auth env", "error", authErr)
 	}
 
-	// Fetch from origin.
 	if _, err := runGit(ctx, s.repoPath, authEnv, "fetch", "origin"); err != nil {
 		s.setError(err)
 		s.publishError(trigger, err)
@@ -437,7 +435,6 @@ func (s *Syncer) isBehind(ctx context.Context, local, remote string) (bool, erro
 	return count != "0", nil
 }
 
-// setSyncing updates the syncing flag.
 func (s *Syncer) setSyncing(syncing bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -445,7 +442,6 @@ func (s *Syncer) setSyncing(syncing bool) {
 	s.syncing = syncing
 }
 
-// setSuccess records a successful sync.
 func (s *Syncer) setSuccess() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -454,7 +450,6 @@ func (s *Syncer) setSuccess() {
 	s.lastSyncError = ""
 }
 
-// setError records a sync error.
 func (s *Syncer) setError(err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

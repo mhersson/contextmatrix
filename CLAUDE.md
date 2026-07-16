@@ -198,7 +198,7 @@ make build              # binary with embedded frontend
 make run                # runs on :8080
 make test               # all Go tests; stubs web/dist for the embed (run first in a fresh clone)
 make lint               # golangci-lint run (read-only, never rewrites the tree)
-make test-integration   # real-binary harness, stub worker, requires Docker
+make test-integration   # real-binary harness, stub LLM, requires Docker
 cd web && npm run dev   # frontend hot reload, proxies /api → :8080
 make install-config     # copy config.yaml.example + workflow skills into your XDG config dir
 ```

@@ -28,7 +28,9 @@ func TestIdleReaper_EndsWarmIdlePastTTL(t *testing.T) {
 		IdleTTL: 30 * time.Minute,
 	})
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "x"})
 	require.NoError(t, err)
 	// Set to warm-idle with last_active far in the past
@@ -38,8 +40,6 @@ func TestIdleReaper_EndsWarmIdlePastTTL(t *testing.T) {
 
 	reaper := chat.NewIdleReaper(mgr, 1*time.Millisecond)
 	go reaper.Run(ctx)
-
-	t.Cleanup(reaper.Stop)
 
 	require.Eventually(t, func() bool {
 		got, err := store.GetSession(ctx, sess.ID)

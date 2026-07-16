@@ -2,7 +2,6 @@ package chat
 
 import (
 	"context"
-	"sync"
 	"time"
 )
 
@@ -11,17 +10,15 @@ import (
 type IdleReaper struct {
 	mgr      *Manager
 	interval time.Duration
-	stopCh   chan struct{}
-	stopOnce sync.Once
 }
 
 // NewIdleReaper wires a reaper. interval should be << IdleTTL in production;
 // tests pass a tiny interval for quick triggering.
 func NewIdleReaper(mgr *Manager, interval time.Duration) *IdleReaper {
-	return &IdleReaper{mgr: mgr, interval: interval, stopCh: make(chan struct{})}
+	return &IdleReaper{mgr: mgr, interval: interval}
 }
 
-// Run blocks until ctx is cancelled or Stop is called.
+// Run blocks until ctx is cancelled.
 func (r *IdleReaper) Run(ctx context.Context) {
 	ticker := time.NewTicker(r.interval)
 	defer ticker.Stop()
@@ -30,16 +27,11 @@ func (r *IdleReaper) Run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-r.stopCh:
-			return
 		case <-ticker.C:
 			r.tick(ctx)
 		}
 	}
 }
-
-// Stop ends Run. Safe to call any number of times — repeated calls are no-ops.
-func (r *IdleReaper) Stop() { r.stopOnce.Do(func() { close(r.stopCh) }) }
 
 func (r *IdleReaper) tick(ctx context.Context) {
 	r.sweepWarmIdle(ctx)

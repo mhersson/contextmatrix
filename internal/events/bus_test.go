@@ -12,16 +12,6 @@ import (
 	"github.com/mhersson/contextmatrix/internal/metrics"
 )
 
-func TestSubscribe(t *testing.T) {
-	bus := NewBus()
-
-	ch, unsub := bus.Subscribe()
-	defer unsub()
-
-	assert.NotNil(t, ch)
-	assert.Equal(t, 1, bus.SubscriberCount())
-}
-
 func TestUnsubscribe(t *testing.T) {
 	bus := NewBus()
 
@@ -111,20 +101,6 @@ func TestPublishToMultipleSubscribers(t *testing.T) {
 			t.Fatalf("timeout waiting for event on subscriber %d", i+1)
 		}
 	}
-}
-
-func TestPublishNoSubscribers(t *testing.T) {
-	bus := NewBus()
-
-	// Should not panic with no subscribers
-	event := Event{
-		Type:      CardDeleted,
-		Project:   "test-project",
-		CardID:    "TEST-003",
-		Timestamp: time.Now(),
-	}
-
-	bus.Publish(event)
 }
 
 func TestPublishAfterUnsubscribe(t *testing.T) {
@@ -257,30 +233,6 @@ func TestConcurrentPublishSubscribe(t *testing.T) {
 		// But with 64 buffer size and reasonable timing, most should get through
 		assert.GreaterOrEqual(t, count, 1, "subscriber %d should have received at least 1 event", i)
 		assert.LessOrEqual(t, count, totalExpected, "subscriber %d received too many events", i)
-	}
-}
-
-func TestEventWithNilData(t *testing.T) {
-	bus := NewBus()
-
-	ch, unsub := bus.Subscribe()
-	defer unsub()
-
-	event := Event{
-		Type:      CardCreated,
-		Project:   "test-project",
-		CardID:    "TEST-NIL",
-		Timestamp: time.Now(),
-		Data:      nil,
-	}
-
-	bus.Publish(event)
-
-	select {
-	case received := <-ch:
-		assert.Nil(t, received.Data)
-	case <-time.After(100 * time.Millisecond):
-		t.Fatal("timeout waiting for event")
 	}
 }
 

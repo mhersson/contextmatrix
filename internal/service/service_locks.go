@@ -30,8 +30,8 @@ func (s *CardService) ClaimCard(ctx context.Context, project, id, agentID string
 	// Block non-human agents from claiming cards that have an external source
 	// but have not been vetted. This prevents prompt-injection attacks where a
 	// malicious issue body could instruct an agent to perform unintended actions.
-	if !isHumanAgent(agentID) {
-		card, err := s.store.GetCard(ctx, project, strings.ToUpper(id))
+	if !board.IsHumanAgentID(agentID) {
+		card, err := s.store.GetCard(ctx, project, id)
 		if err != nil {
 			return nil, fmt.Errorf("get card for vetting check: %w", err)
 		}
@@ -59,7 +59,6 @@ func (s *CardService) ClaimCard(ctx context.Context, project, id, agentID string
 		return nil, fmt.Errorf("claim card: %w", err)
 	}
 
-	// Persist
 	if err := s.store.UpdateCard(ctx, project, card); err != nil {
 		s.writeMu.Unlock()
 
@@ -81,7 +80,6 @@ func (s *CardService) ClaimCard(ctx context.Context, project, id, agentID string
 		return nil, rollbackErr
 	}
 
-	// Publish event
 	s.bus.Publish(events.Event{
 		Type:      events.CardClaimed,
 		Project:   project,
@@ -115,7 +113,6 @@ func (s *CardService) ReleaseCard(ctx context.Context, project, id, agentID stri
 		return nil, fmt.Errorf("release card: %w", err)
 	}
 
-	// Persist
 	if err := s.store.UpdateCard(ctx, project, card); err != nil {
 		s.writeMu.Unlock()
 
@@ -145,7 +142,6 @@ func (s *CardService) ReleaseCard(ctx context.Context, project, id, agentID stri
 		return nil, rollbackErr
 	}
 
-	// Publish event
 	s.bus.Publish(events.Event{
 		Type:      events.CardReleased,
 		Project:   project,
@@ -185,7 +181,6 @@ func (s *CardService) HeartbeatCard(ctx context.Context, project, id, agentID st
 		return fmt.Errorf("heartbeat card: %w", err)
 	}
 
-	// Persist
 	if err := s.store.UpdateCard(ctx, project, card); err != nil {
 		s.writeMu.Unlock()
 
@@ -460,7 +455,6 @@ func (s *CardService) stallCardLocked(ctx context.Context, project string, card 
 	previousAgent := card.AssignedAgent
 	previousState := card.State
 
-	// Update card state
 	card.State = board.StateStalled
 	card.AssignedAgent = ""
 	card.LastHeartbeat = nil
@@ -495,7 +489,6 @@ func (s *CardService) stallCardLocked(ctx context.Context, project string, card 
 		return fmt.Errorf("validate stalled card: %w", err)
 	}
 
-	// Persist
 	if err := s.store.UpdateCard(ctx, project, card); err != nil {
 		s.writeMu.Unlock()
 
@@ -531,7 +524,6 @@ func (s *CardService) stallCardLocked(ctx context.Context, project string, card 
 		ctxlog.Logger(ctx).Error("flush deferred commit after stall", "card_id", card.ID, "error", flushErr)
 	}
 
-	// Publish event
 	s.bus.Publish(events.Event{
 		Type:      events.CardStalled,
 		Project:   project,
@@ -551,13 +543,6 @@ func (s *CardService) stallCardLocked(ctx context.Context, project string, card 
 	)
 
 	return nil
-}
-
-// isHumanAgent returns true if the agent ID represents a human user.
-// Human agent IDs are prefixed with "human:" with a non-empty suffix
-// (e.g. "human:alice"); see board.IsHumanAgentID.
-func isHumanAgent(agentID string) bool {
-	return board.IsHumanAgentID(agentID)
 }
 
 // validateAgentIDFormat checks that an agent ID is within length limits.
