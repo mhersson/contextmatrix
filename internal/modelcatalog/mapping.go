@@ -11,6 +11,7 @@ import (
 var aaCreatorToOR = map[string]string{
 	"zai":       "z-ai",
 	"alibaba":   "qwen",
+	"kimi":      "moonshotai",
 	"openai":    "openai",
 	"anthropic": "anthropic",
 	"google":    "google",
@@ -52,7 +53,7 @@ func mapAASlug(aaSlug, aaCreator string) (string, bool) {
 // auto-selection. Overridable via config (see Builder.Allowlist).
 var trustedCreators = []string{
 	"openai", "anthropic", "google", "deepseek", "alibaba",
-	"zai", "minimax", "x-ai",
+	"zai", "kimi", "minimax", "x-ai",
 }
 
 func isTrusted(creator string, allow []string) bool {
