@@ -397,7 +397,6 @@ func (s *FilesystemStore) matchesFilter(c *board.Card, f CardFilter) bool {
 	return true
 }
 
-// ListProjects returns all discovered projects.
 func (s *FilesystemStore) ListProjects(ctx context.Context) ([]board.ProjectConfig, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -414,7 +413,6 @@ func (s *FilesystemStore) ListProjects(ctx context.Context) ([]board.ProjectConf
 	return configs, nil
 }
 
-// GetProject returns the configuration for a specific project.
 func (s *FilesystemStore) GetProject(ctx context.Context, name string) (*board.ProjectConfig, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -433,7 +431,6 @@ func (s *FilesystemStore) GetProject(ctx context.Context, name string) (*board.P
 	return &cfg, nil
 }
 
-// SaveProject persists a project configuration.
 func (s *FilesystemStore) SaveProject(ctx context.Context, cfg *board.ProjectConfig) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -464,7 +461,6 @@ func (s *FilesystemStore) SaveProject(ctx context.Context, cfg *board.ProjectCon
 	return nil
 }
 
-// DeleteProject removes a project and its directory from disk.
 func (s *FilesystemStore) DeleteProject(ctx context.Context, name string) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -492,7 +488,6 @@ func (s *FilesystemStore) DeleteProject(ctx context.Context, name string) error 
 	return nil
 }
 
-// ProjectCardCount returns the number of cards in a project.
 func (s *FilesystemStore) ProjectCardCount(ctx context.Context, name string) (int, error) {
 	if err := ctx.Err(); err != nil {
 		return 0, err
@@ -618,7 +613,6 @@ func (s *FilesystemStore) GetCard(ctx context.Context, project, id string) (*boa
 	return card, nil
 }
 
-// CreateCard persists a new card.
 func (s *FilesystemStore) CreateCard(ctx context.Context, project string, card *board.Card) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -662,7 +656,6 @@ func (s *FilesystemStore) CreateCard(ctx context.Context, project string, card *
 	return nil
 }
 
-// UpdateCard persists changes to an existing card.
 func (s *FilesystemStore) UpdateCard(ctx context.Context, project string, card *board.Card) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -707,7 +700,6 @@ func (s *FilesystemStore) UpdateCard(ctx context.Context, project string, card *
 	return nil
 }
 
-// DeleteCard removes a card.
 func (s *FilesystemStore) DeleteCard(ctx context.Context, project, id string) error {
 	if err := ctx.Err(); err != nil {
 		return err

@@ -216,7 +216,6 @@ func SerializeCard(card *Card) ([]byte, error) {
 	// Write closing delimiter
 	buf.WriteString("---\n")
 
-	// Write body
 	buf.WriteString(card.Body)
 
 	// Ensure trailing newline

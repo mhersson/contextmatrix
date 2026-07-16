@@ -418,7 +418,6 @@ func DiscoverProjects(boardsDir string) ([]ProjectConfig, error) {
 			continue
 		}
 
-		// Load templates for this project
 		templates, err := LoadTemplates(projectPath)
 		if err != nil {
 			slog.Warn("skipping project with template errors",

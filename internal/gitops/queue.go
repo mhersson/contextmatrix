@@ -72,11 +72,6 @@ type Committer interface {
 	ReloadRepo(ctx context.Context) error
 }
 
-// committer is kept as an internal alias so existing references in this
-// package (and the queue's mgr field) compile without touching every
-// call site.
-type committer = Committer
-
 // projectWorker bundles a per-project commit channel with the synchronization
 // state needed to safely tear it down on idle.
 //
@@ -98,8 +93,9 @@ type projectWorker struct {
 // Ordering guarantee: for a fixed Project, commits execute in enqueue
 // order. No ordering is implied across projects.
 //
-// Lifecycle: create with NewCommitQueue, then Start(ctx). Call Close(ctx)
-// on shutdown to drain all pending jobs before the process exits.
+// Lifecycle: create with NewCommitQueue; per-project workers spawn lazily on
+// Enqueue. Call Close(ctx) on shutdown to drain all pending jobs before the
+// process exits.
 //
 // Idle teardown: when constructed with WithIdleTimeout, a worker that has
 // been idle (no jobs in its channel) for the configured duration exits and
@@ -107,7 +103,7 @@ type projectWorker struct {
 // a fresh worker. Per-project workers are otherwise long-lived; default
 // behaviour (idleTimeout == 0) is to keep the worker alive forever.
 type CommitQueue struct {
-	mgr     committer
+	mgr     Committer
 	onAfter func() // optional hook, called after a successful commit
 
 	mu       sync.Mutex
@@ -152,14 +148,13 @@ func WithIdleTimeout(d time.Duration) CommitQueueOption {
 }
 
 // NewCommitQueue constructs a queue that routes commits through mgr.
-// The queue is not started until Start is called.
 //
 // bufferSize bounds each per-project job channel; a value <= 0 defaults
 // to 1024. The total in-flight backlog is therefore N*bufferSize for N
 // active projects, which is plenty in practice (cards-per-second per
 // project is tiny compared to this).
 func NewCommitQueue(mgr *Manager, bufferSize int, opts ...CommitQueueOption) *CommitQueue {
-	return newCommitQueueFromCommitter(mgr, bufferSize, opts...)
+	return NewCommitQueueWithCommitter(mgr, bufferSize, opts...)
 }
 
 // NewCommitQueueWithCommitter constructs a queue backed by any Committer
@@ -167,10 +162,6 @@ func NewCommitQueue(mgr *Manager, bufferSize int, opts ...CommitQueueOption) *Co
 // fake committer (e.g. one that always fails) to exercise the service
 // layer's commit-failure rollback path.
 func NewCommitQueueWithCommitter(c Committer, bufferSize int, opts ...CommitQueueOption) *CommitQueue {
-	return newCommitQueueFromCommitter(c, bufferSize, opts...)
-}
-
-func newCommitQueueFromCommitter(c committer, bufferSize int, opts ...CommitQueueOption) *CommitQueue {
 	if bufferSize <= 0 {
 		bufferSize = 1024
 	}

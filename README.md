@@ -27,7 +27,7 @@ remote, unattended, or chat execution.
 | Repository                                                                   | Role                                                                                                                                                                                                             |
 | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **[contextmatrix](https://github.com/mhersson/contextmatrix)** (this repo)   | Coordination server, web UI, REST API, and MCP hub. Tracks tasks; never touches your code repos.                                                                                                                 |
-| **[contextmatrix-agent](https://github.com/mhersson/contextmatrix-agent)**   | Primary task backend — a custom Go harness with per-role model selection over **OpenRouter** or any OpenAI-compatible gateway. Executes cards only; pair with contextmatrix-chat for the chat surface.           |
+| **[contextmatrix-agent](https://github.com/mhersson/contextmatrix-agent)**   | Task backend — a custom Go harness with per-role model selection over **OpenRouter** or any OpenAI-compatible gateway. Executes cards only; pair with contextmatrix-chat for the chat surface.           |
 | **[contextmatrix-chat](https://github.com/mhersson/contextmatrix-chat)**     | Chat backend for the global `/chat` surface — long-lived, board-aware interactive sessions. Pairs with the agent and uses the same OpenRouter / OpenAI-compatible `llm_endpoint`.                                |
 
 The backend topology is the **agent + chat** pair: the agent runs cards and chat
@@ -40,7 +40,7 @@ Three shared Go modules underpin the services:
 **[contextmatrix-githubauth](https://github.com/mhersson/contextmatrix-githubauth)**
 (GitHub App/PAT authentication), and
 **[contextmatrix-harness](https://github.com/mhersson/contextmatrix-harness)**
-(the interactive agent loop shared by the agent and chat backends).
+(the agentic tool-use loop shared by the agent and chat backends).
 
 ## Features
 
@@ -55,7 +55,7 @@ Three shared Go modules underpin the services:
   and diffable. No database required.
 - **Git audit trail** — every card mutation is auto-committed. Optional deferred
   batching groups an agent's entire work session into a single commit.
-- **MCP-first agent interface** — 28 MCP tools and 3 slash commands give agents
+- **MCP-first agent interface** — 29 MCP tools and 3 slash commands give agents
   structured access to the board. Agents work through MCP, never the REST API.
 - **Pluggable execution backends** — trigger work from the UI and a backend runs
   it in a sandboxed Docker container: the **agent** (a Go harness on OpenRouter
@@ -276,8 +276,8 @@ After a fresh install, edit `boards.dir` in
 ## MCP Integration
 
 ContextMatrix exposes an MCP server on `POST /mcp` (Streamable HTTP transport).
-Connect Claude Code by adding this to your MCP config (`~/claude.json` or
-project `.claude/claude.json`):
+Connect Claude Code by adding this to your MCP config (`~/.claude.json` for
+user scope, or `.mcp.json` in the project root):
 
 ```json
 {
@@ -320,6 +320,7 @@ block if `mcp_api_key` is empty.
 | `recalculate_costs`         | Recalculate token costs for cards with missing cost data                             |
 | `release_card`              | Release a claim                                                                      |
 | `report_incapable_model`    | Record that a model could not drive the tool loop so it is never auto-selected again |
+| `report_model_outcome`      | Record per-candidate Best-of-N outcomes (win/loss/failed) after the judge phase      |
 | `report_push`               | Report a git push for a card                                                         |
 | `report_usage`              | Report token usage and estimated cost                                                |
 | `start_review`              | Atomically transition a card to review and return the review-task skill              |
@@ -380,15 +381,19 @@ contract — the server, MCP tools, and built-in workflow skills branch on these
 exact strings, so they cannot be renamed or removed. You can add extra states
 and control which transitions are allowed between any of them via `.board.yaml`.
 
-| Built-in state | Role                                                                            |
-| -------------- | ------------------------------------------------------------------------------- |
-| `todo`         | Ready to be claimed. `claim_card` auto-transitions `todo → in_progress`.        |
-| `in_progress`  | Actively being worked. Parent auto-moves to `in_progress` when a child does.    |
-| `blocked`      | Waiting on an external dependency. (Required only by the `execute-task` skill.) |
-| `review`       | Work complete, awaiting review. `complete_task` moves parent cards here.        |
-| `done`         | Accepted and finished. `complete_task` moves subtasks here.                     |
-| `stalled`      | Heartbeat timed out; system-managed. Server auto-injects transitions into it.   |
-| `not_planned`  | Deprioritized; clears agent claim and flushes deferred commits on entry.        |
+| Built-in state | Role                                                                          |
+| -------------- | ----------------------------------------------------------------------------- |
+| `todo`         | Ready to be claimed. `claim_card` auto-transitions `todo → in_progress`.      |
+| `in_progress`  | Actively being worked. Parent auto-moves to `in_progress` when a child does.  |
+| `review`       | Work complete, awaiting review. `complete_task` moves parent cards here.      |
+| `done`         | Accepted and finished. `complete_task` moves subtasks here.                   |
+| `stalled`      | Heartbeat timed out; system-managed. Server auto-injects transitions into it. |
+| `not_planned`  | Deprioritized; clears agent claim and flushes deferred commits on entry.      |
+
+The `blocked` state seen on default boards is **not** one of the six — the
+server attaches no meaning to it. It is an ordinary `.board.yaml`-defined state:
+the `execute-task` workflow skill transitions into it when work waits on an
+external dependency, and `init-project` ships it in the default board.
 
 `stalled` and `not_planned` are enforced by the config validator — projects that
 omit them are rejected at load time. The other four (`todo`, `in_progress`,
@@ -435,7 +440,7 @@ See [`docs/data-model.md`](docs/data-model.md) § Reserved labels.
   `main` or `master`.
 - **Maximum review cycles** — the `run-autonomous` skill halts after 3 review
   cycles and asks a human to intervene. The server caps the `review_attempts`
-  counter at 5 as defense-in-depth, so even a misbehaving orchestrator cannot
+  counter at 7 as defense-in-depth, so even a misbehaving orchestrator cannot
   loop indefinitely.
 - **Heartbeat-based stall detection** — if a sub-agent's heartbeat times out,
   the service layer marks the card `stalled` and releases the claim. The
@@ -596,8 +601,10 @@ complete endpoint reference, request/response shapes, and error format.
 
 ## Configuration
 
-ContextMatrix reads `config.yaml` from the working directory or the XDG config
-directory. [`config.yaml.example`](config.yaml.example) is the fully-commented
+ContextMatrix finds `config.yaml` via the `-config` flag, else
+`$XDG_CONFIG_HOME/contextmatrix/config.yaml` (when `XDG_CONFIG_HOME` is set),
+else `~/.config/contextmatrix/config.yaml`; with no flag and no file in either
+XDG location the server exits. [`config.yaml.example`](config.yaml.example) is the fully-commented
 canonical reference — it documents every field, its default, and the matching
 `CONTEXTMATRIX_*` environment-variable override. A minimal config:
 
@@ -617,7 +624,8 @@ backends:
     default_model: "deepseek/deepseek-v4-flash"
 ```
 
-Every field has a `CONTEXTMATRIX_*` environment override (e.g.
+Most fields have a `CONTEXTMATRIX_*` environment override — see
+`config.yaml.example` for which (e.g.
 `CONTEXTMATRIX_PORT`, `CONTEXTMATRIX_BOARDS_DIR`,
 `CONTEXTMATRIX_BACKEND_AGENT_URL`). Token cost rates (`token_costs`), GitHub
 auth, chat limits, image storage, and the operational store (`op_store.db_path`,
@@ -695,9 +703,10 @@ self-hosted runner and read the Go toolchain version from `go.mod`.
 
 ## Troubleshooting
 
-- **Config file not found** — ContextMatrix looks for `config.yaml` in the
-  current directory, then in `~/.config/contextmatrix/config.yaml`. Run
-  `make install-config` to create the default config.
+- **Config file not found** — ContextMatrix uses the `-config` flag if given,
+  else `$XDG_CONFIG_HOME/contextmatrix/config.yaml`, else
+  `~/.config/contextmatrix/config.yaml`. Run `make install-config` to create
+  the default config.
 - **Boards directory errors** — `boards.dir` must point to an initialized git
   repository
   (`mkdir -p ~/boards/contextmatrix && cd ~/boards/contextmatrix && git init`).

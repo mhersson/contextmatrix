@@ -1168,17 +1168,6 @@ func TestResolvedAPIBaseURL_APIBaseURLTrimmed(t *testing.T) {
 	assert.Equal(t, "https://api.example.com", gh.ResolvedAPIBaseURL())
 }
 
-func TestResolvedAPIBaseURL_APIBaseURLSetWithoutHost(t *testing.T) {
-	gh := GitHubConfig{APIBaseURL: "https://api.custom.com"}
-	assert.Equal(t, "https://api.custom.com", gh.ResolvedAPIBaseURL())
-}
-
-func TestResolvedAPIBaseURL_HostGitHubCom(t *testing.T) {
-	// Host set to github.com explicitly — should still derive correctly.
-	gh := GitHubConfig{Host: "github.com"}
-	assert.Equal(t, "https://api.github.com", gh.ResolvedAPIBaseURL())
-}
-
 // ---------- AllowedHosts tests ----------
 
 func TestAllowedHosts_EmptyHost(t *testing.T) {
@@ -1195,12 +1184,6 @@ func TestAllowedHosts_CustomHost(t *testing.T) {
 	gh := GitHubConfig{Host: "acme.ghe.com"}
 	hosts := gh.AllowedHosts()
 	assert.Equal(t, []string{"github.com", "acme.ghe.com"}, hosts)
-}
-
-func TestAllowedHosts_CustomHostNotDuplicated(t *testing.T) {
-	gh := GitHubConfig{Host: "acme.ghe.com"}
-	hosts := gh.AllowedHosts()
-	assert.Len(t, hosts, 2)
 }
 
 // ---------- Theme config tests ----------
@@ -1522,7 +1505,7 @@ func TestBuildSlogHandler_LevelInfo_FiltersDebug(t *testing.T) {
 	assert.Contains(t, buf.String(), "should appear")
 }
 
-// ---------- New auth-mode schema tests (Task 2) ----------
+// ---------- auth-mode schema tests ----------
 
 func TestLoad_GitHubAuthModeApp_Parses(t *testing.T) {
 	dir := t.TempDir()
@@ -1673,7 +1656,7 @@ func TestBuildSlogHandler_JSONEmitsValidStructure(t *testing.T) {
 	assert.Contains(t, output, `"value"`)
 }
 
-// ---------- auth_mode discriminator validation tests (Task 3) ----------
+// ---------- auth_mode discriminator validation tests ----------
 
 func TestValidate_AuthModeMissing(t *testing.T) {
 	cfg := &Config{
@@ -1817,7 +1800,7 @@ func TestConfigYamlExampleTokenCosts(t *testing.T) {
 	}
 }
 
-// ---------- HTTPS-only URL validation tests (Task 5) ----------
+// ---------- HTTPS-only URL validation tests ----------
 
 // validBaseConfig returns a Config that passes Validate() except for the
 // field under test.
@@ -1872,7 +1855,7 @@ func TestValidate_TaskSkillsCloneOnEmptyRequiresURL(t *testing.T) {
 	assert.Contains(t, err.Error(), "task_skills.git_remote_url is required when task_skills.git_clone_on_empty")
 }
 
-// ---------- Env-var overrides for new fields (Task 6) ----------
+// ---------- Env-var overrides for new fields ----------
 
 func TestEnvOverrides_GitHub(t *testing.T) {
 	t.Setenv("CONTEXTMATRIX_GITHUB_AUTH_MODE", "app")

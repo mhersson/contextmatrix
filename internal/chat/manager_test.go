@@ -586,7 +586,7 @@ func TestManager_EndSession_PublishesSessionUpdate(t *testing.T) {
 
 	require.NoError(t, mgr.EndSession(ctx, sess.ID))
 
-	// publishStatus runs in a goroutine, so we may receive status events
+	// publishSessionUpdate runs in a goroutine, so we may receive status events
 	// from earlier transitions (e.g. active from OpenSession) before cold.
 	// Drain until we find the cold event or time out.
 	deadline := time.After(2 * time.Second)
@@ -631,7 +631,7 @@ func TestManager_MarkActive_WarmIdleToActive_PublishesUpdate(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { hub.Unsubscribe(sess.ID, ch) })
 
-	// publishStatus runs in a goroutine, so the warm-idle event from
+	// publishSessionUpdate runs in a goroutine, so the warm-idle event from
 	// MarkWarmIdle may race with our subscribe. We snapshot LastActive
 	// before calling MarkActive and drain events until we find active.
 
@@ -765,7 +765,7 @@ func TestManager_OpenSession_MaxConcurrent_ParallelTOCTOU(t *testing.T) {
 
 	const total = 10
 
-	// slowBackend stalls StartChat briefly to widen the race window.
+	// slowStartBackend stalls StartChat briefly to widen the race window.
 	backend := &slowStartBackend{delay: 10 * time.Millisecond}
 
 	mgr := chat.NewManager(chat.Config{
@@ -1172,7 +1172,7 @@ func TestManager_OpenSession_BridgesWorkerLogs(t *testing.T) {
 	}
 
 	// Drain until we find the assistant_text message event. The goroutine-based
-	// publishStatus from OpenSession (cold→active) may deliver a session_updated
+	// publishSessionUpdate from OpenSession (cold→active) may deliver a session_updated
 	// event first — skip those.
 	deadline := time.After(2 * time.Second)
 
@@ -2363,7 +2363,7 @@ func TestClearContext_BackendFailure_ClearStep(t *testing.T) {
 	require.NoError(t, err)
 
 	// Arm the failure: the next SendChatMessage (i.e. the /clear call) returns
-	// an error. SendCalls are indexed from 0; StartChat does not count.
+	// an error. sendCalls are indexed from 0; StartChat does not count.
 	backend.mu.Lock()
 	backend.sendErrSeq = []error{errors.New("backend unreachable")}
 	backend.mu.Unlock()
@@ -2716,7 +2716,7 @@ func TestClearContext_EndingSession(t *testing.T) {
 // TestMarkActive_OnSubscribe_NoDeadlock is a regression test for the
 // OnSubscribe → MarkActive → PublishSessionUpdate deadlock. SSEHub.Subscribe
 // holds the per-session lock (sh.mu) while invoking OnSubscribe. When the
-// session is warm-idle, MarkActive calls publishStatus, which runs
+// session is warm-idle, MarkActive calls publishSessionUpdate, which runs
 // hub.PublishSessionUpdate in a separate goroutine to avoid re-entering
 // sh.mu on the same thread. Without that separate goroutine, this test
 // would hang forever (deadlock) with:

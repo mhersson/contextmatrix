@@ -55,8 +55,8 @@ sibling backends and their worker images are built **lazily**, guarded by
   kernel's module tree.
 - For `TestAgentScenario` / `TestChatScenario`: the `contextmatrix-agent` /
   `contextmatrix-chat` source repos checked out next to this one, at a
-  protocol-v0.8.0-compatible revision. The harness builds them as-is; it does
-  not use installed binaries.
+  revision compatible with CM's pinned `contextmatrix-protocol` version (see
+  `go.mod`). The harness builds them as-is; it does not use installed binaries.
 
 ## Auth bootstrap
 

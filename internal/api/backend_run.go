@@ -108,7 +108,6 @@ func (h *backendHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set worker_status to queued.
 	card, err = h.svc.UpdateWorkerStatus(r.Context(), project, id, "queued", "task queued for worker")
 	if err != nil {
 		handleServiceError(w, r, err)
@@ -241,7 +240,6 @@ func (h *backendHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 
 	payload.LLMEndpoint = h.llmEndpoint
 
-	// Send trigger webhook.
 	if err := h.backend.Trigger(r.Context(), payload); err != nil {
 		ctxlog.Logger(r.Context()).Error("backend webhook failed", "card_id", id, "project", project, "error", err)
 		// Webhook failed — revert status to failed.

@@ -22,7 +22,6 @@ type aaModel struct {
 type aaRaw struct {
 	Data []struct {
 		Slug         string `json:"slug"`
-		ReleaseDate  string `json:"release_date"`
 		ModelCreator struct {
 			Slug string `json:"slug"`
 		} `json:"model_creator"`

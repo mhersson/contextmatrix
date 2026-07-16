@@ -582,7 +582,7 @@ remote_execution:
 		"a stored enabled:false must be ignored; the global backend is the only gate")
 }
 
-// --- Trigger minting: project git token + LLM endpoint (S6b token authority) ---
+// --- Trigger minting: project git token + LLM endpoint ---
 
 // TestRunCard_ProviderForProject_MintsGitToken asserts that when
 // ProviderForProject is wired, runCard resolves a token provider for the

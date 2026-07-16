@@ -9,7 +9,8 @@ import (
 
 // ErrLastAdmin guards the invariant that at least one active admin exists —
 // demoting or disabling the last one would lock everyone out of user
-// management (the CLI escape hatch is an S7 deliverable, not a substitute).
+// management (the reset-admin CLI only resets a password; it cannot restore
+// the admin role).
 var ErrLastAdmin = errors.New("auth: cannot remove the last admin")
 
 // ListUsers returns all accounts ordered by username.
@@ -33,7 +34,6 @@ func (s *Service) CreateUserWithInvite(ctx context.Context, username, displayNam
 	return user, raw, nil
 }
 
-// SetUserDisplayName updates a display name.
 func (s *Service) SetUserDisplayName(ctx context.Context, username, displayName string) error {
 	user, err := s.store.UserByUsername(ctx, username)
 	if err != nil {

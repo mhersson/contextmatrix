@@ -60,6 +60,10 @@ GET    /api/sync                                       # sync status
 
 GET    /api/task-skills                                # list available task skill names
 GET    /api/app/config                                 # server-side app config (theme/palette/version/auth_mode; slim pre-login payload in multi mode)
+GET    /api/models                                     # model catalog for the card model-pin pickers (source: openrouter|endpoint|none)
+
+POST   /api/images                                     # multipart image upload (content-hashed id; 10 MB cap)
+GET    /api/images/{id}                                # serve stored image blob (immutable cache headers)
 
 POST   /api/auth/login                                  # session-cookie login (multi mode only)
 POST   /api/auth/logout                                 # clear session (multi mode only)
@@ -76,6 +80,10 @@ GET    /api/admin/credentials                            # list GitHub credentia
 POST   /api/admin/credentials                            # add a pool credential (admin-only, multi mode only)
 PUT    /api/admin/credentials/{name}                      # rotate secret / update metadata / disable (admin-only, multi mode only)
 DELETE /api/admin/credentials/{name}                      # remove a pool credential (admin-only, multi mode only)
+
+GET    /api/admin/chats                                  # list all chat sessions, metadata only (admin-only, multi mode only; chat manager required)
+POST   /api/admin/chats/{id}/end                          # force-end any session (admin-only, multi mode only; chat manager required)
+DELETE /api/admin/chats/{id}                              # delete any session (admin-only, multi mode only; chat manager required)
 
 GET    /api/admin/model-outcomes                            # Best-of-N per-model outcome stats (both auth modes; admin-gated only in multi)
 DELETE /api/admin/model-outcomes                            # reset recorded outcomes (both auth modes; admin-gated only in multi)
@@ -2161,11 +2169,11 @@ Returns 404 with `IMAGE_NOT_FOUND` when no row matches.
 
 ## MCP Endpoints
 
-The MCP (Model Context Protocol) server is mounted at `/mcp` when an MCP API key
-is configured. The same handler is registered for `POST /mcp`, `GET /mcp`, and
-`DELETE /mcp` per the MCP Streamable HTTP transport spec. Authentication uses a
-`Bearer <api-key>` `Authorization` header. The path is exempt from the CSRF
-guard. See [`docs/agent-workflow.md`](agent-workflow.md) for the tool and prompt
+The MCP (Model Context Protocol) server is mounted at `/mcp`. The same handler
+is registered for `POST /mcp`, `GET /mcp`, and `DELETE /mcp` per the MCP
+Streamable HTTP transport spec. When `mcp_api_key` is set, requests must carry
+an `Authorization: Bearer <key>` header; with no key the endpoint is
+unauthenticated. The path is exempt from the CSRF guard. See [`docs/agent-workflow.md`](agent-workflow.md) for the tool and prompt
 catalogue.
 
 ### `get_card` / `get_task_context` — inline image attachments

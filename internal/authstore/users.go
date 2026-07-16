@@ -150,7 +150,6 @@ func (s *Store) SetPasswordHash(ctx context.Context, id int64, hash string, now 
 	return s.updateUser(ctx, id, `password_hash = ?`, hash, now)
 }
 
-// SetDisplayName updates the display name.
 func (s *Store) SetDisplayName(ctx context.Context, id int64, displayName string, now time.Time) error {
 	return s.updateUser(ctx, id, `display_name = ?`, displayName, now)
 }

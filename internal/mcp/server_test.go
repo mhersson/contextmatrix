@@ -174,7 +174,6 @@ func createTestCard(t *testing.T, env *testEnv, title, typ, priority string) *bo
 func TestCreateAndGetCard(t *testing.T) {
 	env := setupMCP(t)
 
-	// Create a card
 	result := callTool(t, env, "create_card", map[string]any{
 		"project":  "test-project",
 		"title":    "Implement feature X",
@@ -242,7 +241,6 @@ func TestCreateCardAcceptsAgentID(t *testing.T) {
 func TestUpdateCard(t *testing.T) {
 	env := setupMCP(t)
 
-	// Create a card
 	createTestCard(t, env, "Original title", "task", "low")
 
 	// Update title and body
@@ -371,7 +369,6 @@ func TestClaimAndRelease(t *testing.T) {
 
 	createTestCard(t, env, "Claim test", "task", "medium")
 
-	// Claim the card
 	claimResult := callTool(t, env, "claim_card", map[string]any{
 		"project":  "test-project",
 		"card_id":  "TEST-001",
@@ -384,7 +381,6 @@ func TestClaimAndRelease(t *testing.T) {
 	assert.Equal(t, "agent-abc", claimed.AssignedAgent)
 	assert.NotNil(t, claimed.LastHeartbeat)
 
-	// Release the card
 	releaseResult := callTool(t, env, "release_card", map[string]any{
 		"project":  "test-project",
 		"card_id":  "TEST-001",
@@ -593,7 +589,6 @@ func TestCompleteTask_Subtask(t *testing.T) {
 	env := setupMCP(t)
 	ctx := context.Background()
 
-	// Create parent card
 	createTestCard(t, env, "Parent task", "feature", "high")
 
 	// Create subtask with parent set
@@ -643,7 +638,6 @@ func TestCompleteTask_LastSubtaskInfoMessage(t *testing.T) {
 	env := setupMCP(t)
 	ctx := context.Background()
 
-	// Create parent card
 	createTestCard(t, env, "Parent task", "feature", "high")
 
 	// Create a single subtask (so completing it makes parent the last one done)
@@ -694,7 +688,6 @@ func TestCompleteTask_NonLastSubtaskNoReviewSkill(t *testing.T) {
 	env := setupMCP(t)
 	ctx := context.Background()
 
-	// Create parent card
 	parent := createTestCard(t, env, "Parent task", "feature", "high")
 
 	// Create two subtasks so completing one is not the last
@@ -869,7 +862,6 @@ func TestGetTaskContext(t *testing.T) {
 	env := setupMCP(t)
 	ctx := context.Background()
 
-	// Create a parent card
 	parent := createTestCard(t, env, "Parent task", "feature", "high")
 
 	// Create child cards with parent set
@@ -942,7 +934,6 @@ func TestGetTaskContext(t *testing.T) {
 func TestGetSubtaskSummary(t *testing.T) {
 	env := setupMCP(t)
 
-	// Create a parent card
 	parent := createTestCard(t, env, "Epic task", "feature", "high")
 
 	// Create subtasks in various states
@@ -988,7 +979,6 @@ func TestGetSubtaskSummary(t *testing.T) {
 		"new_state": "done",
 	})
 
-	// Get subtask summary
 	result := callTool(t, env, "get_subtask_summary", map[string]any{
 		"project":   "test-project",
 		"parent_id": parent.ID,
@@ -1008,7 +998,6 @@ func TestGetSubtaskSummary(t *testing.T) {
 func TestCheckAgentHealth(t *testing.T) {
 	env := setupMCP(t)
 
-	// Create parent
 	parent := createTestCard(t, env, "Health check parent", "feature", "high")
 
 	// Create 3 subtasks
@@ -1041,7 +1030,6 @@ func TestCheckAgentHealth(t *testing.T) {
 		"agent_id": "agent-c", "summary": "Done",
 	})
 
-	// Check health
 	result := callTool(t, env, "check_agent_health", map[string]any{
 		"project":   "test-project",
 		"parent_id": parent.ID,
@@ -1099,7 +1087,6 @@ func TestCheckAgentHealth_Stalled(t *testing.T) {
 	err = env.store.UpdateCard(ctx, "test-project", card)
 	require.NoError(t, err)
 
-	// Check health
 	result := callTool(t, env, "check_agent_health", map[string]any{
 		"project":   "test-project",
 		"parent_id": parent.ID,
@@ -1119,7 +1106,6 @@ func TestCheckAgentHealth_Stalled(t *testing.T) {
 func TestGetReadyTasks(t *testing.T) {
 	env := setupMCP(t)
 
-	// Create a parent card
 	parent := createTestCard(t, env, "Project plan", "feature", "high")
 
 	// Create task A (no deps, should be ready)
@@ -1262,7 +1248,6 @@ func TestTransitionCard_BlockedByDependency(t *testing.T) {
 func TestGetReadyTasks_ScopedToParent(t *testing.T) {
 	env := setupMCP(t)
 
-	// Create a parent
 	parent := createTestCard(t, env, "Scoped parent", "feature", "high")
 
 	// Create two tasks under the parent
@@ -1319,7 +1304,6 @@ func TestGetReadyTasks_VettingFilter(t *testing.T) {
 	storedVetted.Vetted = true
 	require.NoError(t, env.store.UpdateCard(ctx, "test-project", storedVetted))
 
-	// Get ready tasks
 	result := callTool(t, env, "get_ready_tasks", map[string]any{
 		"project": "test-project",
 	})
@@ -1381,7 +1365,6 @@ func TestListCards(t *testing.T) {
 	createTestCard(t, env, "Bug two", "bug", "critical")
 	createTestCard(t, env, "Feature three", "feature", "low")
 
-	// List all cards
 	result := callTool(t, env, "list_cards", map[string]any{
 		"project": "test-project",
 	})
@@ -1653,10 +1636,8 @@ func TestMultipleTransitions(t *testing.T) {
 func TestReportUsage(t *testing.T) {
 	env := setupMCP(t)
 
-	// Create a card
 	card := createTestCard(t, env, "Usage test", "task", "medium")
 
-	// Report usage
 	result := callTool(t, env, "report_usage", map[string]any{
 		"project":           "test-project",
 		"card_id":           card.ID,
@@ -2012,7 +1993,6 @@ func TestDeleteProject_MCP(t *testing.T) {
 func TestCreateCard_SubtaskTypeEnforced(t *testing.T) {
 	env := setupMCP(t)
 
-	// Create parent card
 	parent := createTestCard(t, env, "Parent task", "feature", "high")
 
 	// Create a subtask passing type="task" explicitly — backend should override to "subtask"

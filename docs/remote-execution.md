@@ -2,7 +2,7 @@
 
 Remote execution lets a human trigger a worker task from the ContextMatrix web
 UI. Two backends carry that work over the same signed-webhook protocol
-(`contextmatrix-protocol`, currently v0.11.0):
+(`contextmatrix-protocol`, pinned in `go.mod`):
 
 - **contextmatrix-agent** — the **task backend**. It executes cards: each run
   spawns a disposable Docker container running a multi-model Go orchestrator
@@ -294,7 +294,6 @@ in-memory tracker and of CM's card-level `worker_status`.
   "containers": [
     {
       "container_id": "778fe6561d75abc...",
-      "container_name": "cm-agent-alpha-ALPHA-042",
       "card_id": "ALPHA-042",
       "project": "alpha",
       "state": "running",
@@ -371,8 +370,8 @@ Chat payload (CM's chat manager sends this when a user submits a turn):
 }
 ```
 
-Exactly one of `(card_id + project)` or `session_id` is set —
-`MessagePayload.IsChat()` dispatches on it. The backend writes the content to
+Exactly one of `(card_id + project)` or `session_id` is set — the backend
+dispatches on which is present. The backend writes the content to
 the container's stdin as a stream-json `user` message and echoes it as a `user`
 log entry so the browser sees it in the console. Content is capped at 8 KiB.
 

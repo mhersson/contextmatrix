@@ -534,7 +534,7 @@ which phase to resume from.
   calls `increment_review_attempts` and then checks whether the returned count
   is `>= 3`; if so it calls `report_usage`, prints `AUTONOMOUS_HALTED`, and
   stops, requiring human intervention. The skill enforces an at-most-3 cap this
-  way. The server applies a higher defense-in-depth cap (`maxReviewAttempts = 5`
+  way. The server applies a higher defense-in-depth cap (`maxReviewAttempts = 7`
   in `internal/service/service.go`) so a manual override can still proceed past
   3 if needed without bypassing the skill gate.
 - **Heartbeat-based stall detection** — the orchestrator calls `heartbeat` on
@@ -696,7 +696,7 @@ Local (Claude Code) orchestration uses two models: **Opus** (strongest
 reasoning) and **Sonnet** (cost-effective workhorse); Haiku is not used. The
 agent backend instead runs an OpenRouter / OpenAI-gateway model as orchestrator
 and selects per-task models by complexity tier (see the agent-backend table
-below and `docs/agent-backend-parity.md`). In every case the orchestrator
+below). In every case the orchestrator
 decides whether each phase runs inline or as a sub-agent — the `inline` field
 returned by `get_skill` (and by `start_review`, which loads the review-task
 skill atomically with the state transition) uses exact model match, but the

@@ -26,7 +26,6 @@ export function Column({ state, cards, config, collapsed, onToggleCollapse, onCa
     id: state,
   });
 
-  // Determine if this column is a valid drop target
   const isValidTarget = activeCardState
     ? config.transitions[activeCardState]?.includes(state) || activeCardState === state
     : false;

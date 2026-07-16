@@ -176,7 +176,6 @@ func (h *backendHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Send promote webhook to the backend.
 	if err := h.backend.Promote(r.Context(), backend.PromotePayload{
 		CardID:  id,
 		Project: project,
@@ -275,7 +274,6 @@ func (h *backendHandlers) stopCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Send kill webhook.
 	if err := h.backend.Kill(r.Context(), backend.KillPayload{CardID: id, Project: project}); err != nil {
 		ctxlog.Logger(r.Context()).Error("backend kill webhook failed", "card_id", id, "project", project, "error", err)
 		writeError(w, http.StatusBadGateway, ErrCodeBackendUnavailable,

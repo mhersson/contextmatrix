@@ -330,8 +330,7 @@ func contains(s, substr string) bool {
 	return strings.Contains(s, substr)
 }
 
-// realCommitter wraps a *gitops.Manager to satisfy the Committer interface
-// without the cross-package visibility of the unexported committer alias.
+// realCommitter wraps a *gitops.Manager to satisfy the Committer interface.
 type realCommitter struct {
 	mgr *gitops.Manager
 }

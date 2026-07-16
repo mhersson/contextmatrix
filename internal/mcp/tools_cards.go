@@ -342,7 +342,6 @@ func registerGetTaskContext(server *mcp.Server, svc *service.CardService, imageS
 			Config: cfg,
 		}
 
-		// Load parent if set
 		if card.Parent != "" {
 			parent, err := svc.GetCard(ctx, project, card.Parent)
 			if err == nil {

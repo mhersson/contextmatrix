@@ -49,7 +49,7 @@ export function stateColor(state: string): string {
 }
 
 /** Fill colour for the distribution mini-bar segments in the projects table. */
-export function distributionColor(state: string): string {
+function distributionColor(state: string): string {
   return DISTRIBUTION_OVERRIDE[state] ?? STATE_COLOR[state] ?? 'var(--grey0)';
 }
 
@@ -200,7 +200,7 @@ export function aggregateDashboards(
   };
 }
 
-export function totalCardCount(counts: Record<string, number>): number {
+function totalCardCount(counts: Record<string, number>): number {
   return Object.values(counts).reduce((a, b) => a + b, 0);
 }
 

@@ -98,12 +98,10 @@ func slugifyDisplayName(name string) string {
 	return s
 }
 
-// ListProjects returns all discovered projects.
 func (s *CardService) ListProjects(ctx context.Context) ([]board.ProjectConfig, error) {
 	return s.store.ListProjects(ctx)
 }
 
-// GetProject returns the configuration for a specific project.
 func (s *CardService) GetProject(ctx context.Context, name string) (*board.ProjectConfig, error) {
 	return s.store.GetProject(ctx, name)
 }
@@ -118,12 +116,10 @@ func (s *CardService) CreateProject(ctx context.Context, input CreateProjectInpu
 		input.Name = slugifyDisplayName(input.DisplayName)
 	}
 
-	// Validate name format
 	if !validProjectName.MatchString(input.Name) {
 		return nil, fmt.Errorf("invalid project name %q: must be alphanumeric with hyphens/underscores: %w", input.Name, board.ErrInvalidProjectConfig)
 	}
 
-	// Check not already exists
 	_, err := s.store.GetProject(ctx, input.Name)
 	if err == nil {
 		return nil, fmt.Errorf("project %q: %w", input.Name, storage.ErrProjectExists)
@@ -146,7 +142,6 @@ func (s *CardService) CreateProject(ctx context.Context, input CreateProjectInpu
 		return nil, fmt.Errorf("save project: %w", err)
 	}
 
-	// Create tasks subdirectory
 	tasksDir := filepath.Join(s.boardsDir, input.Name, "tasks")
 	if err := os.MkdirAll(tasksDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create tasks directory: %w", err)
@@ -165,12 +160,10 @@ func (s *CardService) CreateProject(ctx context.Context, input CreateProjectInpu
 		s.notifyCommit()
 	}
 
-	// Update cache
 	s.mu.Lock()
 	s.configs[input.Name] = cfg
 	s.mu.Unlock()
 
-	// Publish event
 	s.bus.Publish(events.Event{
 		Type:      events.ProjectCreated,
 		Project:   input.Name,
@@ -186,7 +179,6 @@ func (s *CardService) UpdateProject(ctx context.Context, name string, input Upda
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
-	// Load existing config
 	cfg, err := s.store.GetProject(ctx, name)
 	if err != nil {
 		return nil, fmt.Errorf("get project: %w", err)
@@ -344,7 +336,6 @@ func (s *CardService) UpdateProject(ctx context.Context, name string, input Upda
 	s.configs[name] = cfg
 	s.mu.Unlock()
 
-	// Publish event
 	s.bus.Publish(events.Event{
 		Type:      events.ProjectUpdated,
 		Project:   name,
@@ -473,7 +464,6 @@ func (s *CardService) DeleteProject(ctx context.Context, name string) error {
 	delete(s.templates, name)
 	s.mu.Unlock()
 
-	// Publish event
 	s.bus.Publish(events.Event{
 		Type:      events.ProjectDeleted,
 		Project:   name,

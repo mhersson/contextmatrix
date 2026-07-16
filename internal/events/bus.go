@@ -65,7 +65,6 @@ type Bus struct {
 	subscribers map[*subscriber]struct{}
 }
 
-// NewBus creates a new event bus.
 func NewBus() *Bus {
 	return &Bus{
 		subscribers: make(map[*subscriber]struct{}),

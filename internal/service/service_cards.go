@@ -175,7 +175,7 @@ func appendStateChangeLog(card *board.Card, oldState, newState, agent string, ts
 // trimActivityLog enforces the activity-log cap while preserving
 // state_changed entries preferentially. The dashboard's 7-day sparkline
 // reconstructs end-of-day state by walking these entries (see
-// stateAtTime in service_dashboard.go); dropping them silently makes
+// stateAtTimeFromChanges in service_dashboard.go); dropping them silently makes
 // the sparkline paint the wrong history for high-activity cards.
 //
 // Strategy: drop non-state-changed entries oldest-first until under the
@@ -214,9 +214,6 @@ var ErrFieldTooLong = fmt.Errorf("field exceeds maximum length")
 // ErrInvalidModelPin indicates a model pin slug is not in the served catalog.
 var ErrInvalidModelPin = fmt.Errorf("model pin not in catalog")
 
-// ErrSourceImmutable is returned when an update attempts to change a card's source after creation.
-var ErrSourceImmutable = fmt.Errorf("source is immutable after creation")
-
 // branchNameSlugPattern matches anything that's not lowercase alphanumeric.
 var branchNameSlugPattern = regexp.MustCompile(`[^a-z0-9]+`)
 
@@ -251,8 +248,8 @@ type PageOpts struct {
 //
 // NextCursor is empty when the current page is the last page; otherwise it is
 // the base64url-encoded ID of the last item, suitable for passing back in
-// PageOpts.Cursor. Total is populated only when IncludeTotal is requested (see
-// ListCardsPage doc), derived from the un-filtered project card count — not
+// PageOpts.Cursor. Total is populated only on the first page (empty
+// PageOpts.Cursor; see ListCardsPage doc), derived from the un-filtered project card count — not
 // the filtered page count.
 type ListCardsPageResult struct {
 	Items      []*board.Card
@@ -370,7 +367,6 @@ func (s *CardService) ListCardsPage(
 	return result, nil
 }
 
-// GetCard returns a specific card.
 func (s *CardService) GetCard(ctx context.Context, project, id string) (*board.Card, error) {
 	id = strings.ToUpper(id)
 
@@ -1095,7 +1091,6 @@ func (s *CardService) DeleteCard(ctx context.Context, project, id string) error 
 		})
 	}
 
-	// Delete from store
 	if err := s.store.DeleteCard(ctx, project, id); err != nil {
 		s.writeMu.Unlock()
 
@@ -1172,7 +1167,6 @@ func (s *CardService) DeleteCard(ctx context.Context, project, id string) error 
 		return fmt.Errorf("git commit delete: %w", err)
 	}
 
-	// Publish event
 	s.bus.Publish(events.Event{
 		Type:      events.CardDeleted,
 		Project:   project,
@@ -1198,7 +1192,6 @@ func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry
 
 	s.writeMu.Lock()
 
-	// Load card
 	card, err := s.store.GetCard(ctx, project, id)
 	if err != nil {
 		s.writeMu.Unlock()
@@ -1221,18 +1214,15 @@ func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry
 		return nil, fmt.Errorf("agent authorization: %w", lock.ErrAgentMismatch)
 	}
 
-	// Set timestamp if not provided
 	if entry.Timestamp.IsZero() {
 		entry.Timestamp = s.clk.Now()
 	}
 
-	// Append entry
 	card.ActivityLog = append(card.ActivityLog, entry)
 	card.ActivityLog = trimActivityLog(card.ActivityLog)
 
 	card.Updated = s.clk.Now()
 
-	// Persist
 	if err := s.store.UpdateCard(ctx, project, card); err != nil {
 		s.writeMu.Unlock()
 
@@ -1252,7 +1242,6 @@ func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry
 		return nil, rollbackErr
 	}
 
-	// Publish event
 	s.bus.Publish(events.Event{
 		Type:      events.CardLogAdded,
 		Project:   project,
@@ -1273,19 +1262,17 @@ func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry
 // GetCardContext returns a card with its project configuration and template.
 func (s *CardService) GetCardContext(ctx context.Context, project, id string) (*CardContext, error) {
 	id = strings.ToUpper(id)
-	// Load card
+
 	card, err := s.store.GetCard(ctx, project, id)
 	if err != nil {
 		return nil, fmt.Errorf("get card: %w", err)
 	}
 
-	// Load project config
 	cfg, err := s.getConfig(ctx, project)
 	if err != nil {
 		return nil, fmt.Errorf("get project config: %w", err)
 	}
 
-	// Load templates
 	templates, err := s.getTemplates(project)
 	if err != nil {
 		return nil, fmt.Errorf("load templates: %w", err)

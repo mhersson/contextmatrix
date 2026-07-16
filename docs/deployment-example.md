@@ -97,7 +97,9 @@ CM writes to the boards git repo on every mutation and keeps `ops.db` and
 strategy and a single ReadWriteOnce PVC that holds all three:
 
 - **Boards repo** — if the mounted directory is empty on startup, CM clones it
-  from `boards.git_remote_url`. No manual init needed.
+  from `boards.git_remote_url` — but only when `boards.git_clone_on_empty: true`
+  (`CONTEXTMATRIX_BOARDS_GIT_CLONE_ON_EMPTY`, default `false`; without it CM
+  runs `git init` on the empty directory instead). No manual init needed.
 - **`ops.db`** — chat sessions/transcripts, model outcomes, the self-learning
   blacklist, and the cost archive (`CONTEXTMATRIX_OP_STORE_DB_PATH`).
 - **`auth.db`** — users, sessions, one-time tokens, and the encrypted instance
@@ -145,12 +147,14 @@ spec:
               value: /data/boards
             - name: CONTEXTMATRIX_BOARDS_GIT_REMOTE_URL
               value: https://github.com/org/boards.git
+            - name: CONTEXTMATRIX_BOARDS_GIT_CLONE_ON_EMPTY
+              value: "true"
             - name: CONTEXTMATRIX_OP_STORE_DB_PATH
               value: /data/ops.db
             - name: CONTEXTMATRIX_AUTH_DB_PATH
               value: /data/auth.db
             - name: CONTEXTMATRIX_AUTH_MASTER_KEY_FILE
-              value: /secrets/master.key
+              value: /secrets/auth/master.key
             # GitHub App auth — CM is the only holder of this key.
             - name: CONTEXTMATRIX_GITHUB_AUTH_MODE
               value: app
@@ -159,7 +163,7 @@ spec:
             - name: CONTEXTMATRIX_GITHUB_INSTALLATION_ID
               valueFrom: { secretKeyRef: { name: contextmatrix-github, key: installation-id } }
             - name: CONTEXTMATRIX_GITHUB_PRIVATE_KEY_PATH
-              value: /secrets/github-app.pem
+              value: /secrets/github/private-key.pem
             # MCP bearer handed to every worker container.
             - name: CONTEXTMATRIX_MCP_API_KEY
               valueFrom: { secretKeyRef: { name: contextmatrix-secrets, key: mcp-api-key } }
@@ -185,14 +189,17 @@ spec:
               value: anthropic/claude-sonnet-4
           volumeMounts:
             - { name: data, mountPath: /data }
-            - { name: secrets, mountPath: /secrets, readOnly: true }
+            - { name: github, mountPath: /secrets/github, readOnly: true }
+            - { name: master-key, mountPath: /secrets/auth, readOnly: true }
             - { name: tmp, mountPath: /tmp }
             - { name: home, mountPath: /home/nobody }
       volumes:
         - name: data
           persistentVolumeClaim: { claimName: contextmatrix-data }
-        - name: secrets
+        - name: github
           secret: { secretName: contextmatrix-github }
+        - name: master-key
+          secret: { secretName: contextmatrix-auth-master-key }
         - name: tmp
           emptyDir: {}
         - name: home
@@ -208,12 +215,23 @@ Notes:
   login by design** (memory-hardness is the point). 128Mi request / 512Mi limit
   suits a small team; a 128Mi *limit* OOM-kills the pod under normal login load.
 - **Read-only root filesystem** works with `emptyDir` mounts for `/tmp` and
-  `/home/nobody`; `/data` is the writable PVC and `/secrets` is a read-only
-  Secret mount.
-- **Master key.** Mount `master.key` (`openssl rand -hex 32`) as a Secret and
-  point `CONTEXTMATRIX_AUTH_MASTER_KEY_FILE` at it — it encrypts the credential
-  pool. CM auto-generates one on the data volume if unset; that is fine for a
-  first boot but move it to real secret management.
+  `/home/nobody`; `/data` is the writable PVC and the two `/secrets/*` paths are
+  read-only Secret mounts.
+- **Secrets.** The `contextmatrix-github` Secret (keys `app-id`,
+  `installation-id`, `private-key.pem`) is defined in
+  [github-auth-recommended-topologies.md](github-auth-recommended-topologies.md)
+  (Topology 3). Create the master-key Secret with a fresh key:
+
+  ```bash
+  kubectl create secret generic contextmatrix-auth-master-key \
+    --from-literal=master.key="$(openssl rand -hex 32)"
+  ```
+
+  The master key encrypts the credential pool. If
+  `CONTEXTMATRIX_AUTH_MASTER_KEY_FILE` is unset, CM auto-generates a key under
+  `~/.local/state/contextmatrix/` — in this manifest that is the `/home/nobody`
+  `emptyDir`, which a pod restart wipes, leaving the pool undecryptable. Always
+  mount a real key.
 
 On first start the pod log prints a one-time `/auth/token/<token>` bootstrap
 link — open it to create the admin account.

@@ -242,12 +242,8 @@ func TestFetchBranches_Pagination(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	// Override the allowedAPIHost check by using a client that sets baseURL to srv.URL.
-	// parseLinkNext rejects non-api.github.com hosts, so pagination via Link header
-	// won't work in tests without host override. Instead, verify that FetchBranches
-	// correctly sends per_page parameter and returns sorted results.
-	// For the pagination path, we test fetchBranchPage directly below.
-	_ = srv // srv used in handler closure
+	// Link-header pagination is covered by TestParseLinkNext_PaginationWithCustomBaseURL;
+	// here verify per_page and sorted results.
 
 	// Test that per_page is correctly sent.
 	reqCount := 0

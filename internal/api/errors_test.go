@@ -154,18 +154,6 @@ func TestSanitizeErrorDetails_JSON(t *testing.T) {
 		})
 }
 
-// TestErrProjectNotFound_SentinelIdentity pins the invariant that
-// storage.ErrProjectNotFound and board.ErrProjectNotFound resolve to the same
-// underlying sentinel. Without this identity, errors originating in the board
-// package (e.g. board.LoadProjectConfig) silently bypass the 404 branch of
-// handleServiceError that only checks storage.ErrProjectNotFound.
-func TestErrProjectNotFound_SentinelIdentity(t *testing.T) {
-	assert.Same(t, board.ErrProjectNotFound, storage.ErrProjectNotFound,
-		"storage.ErrProjectNotFound must alias board.ErrProjectNotFound")
-	require.ErrorIs(t, board.ErrProjectNotFound, storage.ErrProjectNotFound)
-	require.ErrorIs(t, storage.ErrProjectNotFound, board.ErrProjectNotFound)
-}
-
 // TestHandleServiceError_BoardProjectNotFound_Returns404 exercises the
 // handleServiceError dispatch path with an error chain rooted in
 // board.ErrProjectNotFound (as produced by board.LoadProjectConfig) and

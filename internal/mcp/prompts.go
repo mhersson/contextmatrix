@@ -177,7 +177,6 @@ func registerPrompts(server *mcp.Server, svc *service.CardService, workflowSkill
 	}, startWorkflowPromptHandler(svc, workflowSkillsDir))
 }
 
-// createTaskPromptHandler returns the handler for create-task prompt.
 func createTaskPromptHandler(svc *service.CardService, workflowSkillsDir string) mcp.PromptHandler {
 	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 		result, err := buildSkillContent(ctx, svc, workflowSkillsDir, "create-task", skillArgs{
@@ -196,7 +195,6 @@ func createTaskPromptHandler(svc *service.CardService, workflowSkillsDir string)
 	}
 }
 
-// initProjectPromptHandler returns the handler for init-project prompt.
 func initProjectPromptHandler(svc *service.CardService, workflowSkillsDir string) mcp.PromptHandler {
 	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 		name := req.Params.Arguments["name"]
@@ -530,7 +528,6 @@ func buildInitProject(ctx context.Context, svc *service.CardService, workflowSki
 
 // --- Helpers ---
 
-// readSkillFile reads a skill file from the skills directory.
 func readSkillFile(workflowSkillsDir, filename string) (string, error) {
 	data, err := os.ReadFile(filepath.Join(workflowSkillsDir, filename))
 	if err != nil {
