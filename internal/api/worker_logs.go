@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -93,139 +94,65 @@ func (h *backendHandlers) workerLogKeepalive() time.Duration {
 	return defaultWorkerLogKeepalive
 }
 
-// streamCardSession is the card-scoped SSE path.  It subscribes to the session
-// manager, replays the snapshot, then tails the live event channel until the
-// session terminates or the client disconnects.
-func (h *backendHandlers) streamCardSession(w http.ResponseWriter, r *http.Request, flusher http.Flusher, cardID, project string) {
-	if h.sessionManager == nil {
-		// Session manager not configured - return 204 so the frontend can retry.
-		w.WriteHeader(http.StatusNoContent)
-
-		return
-	}
-
-	// Set SSE headers before subscribing so that the first flush can go out.
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
-	flusher.Flush()
-
-	// Start is idempotent - safe to call on every connection, exactly like
-	// streamProjectSession calls StartProject below. This revives a session
-	// the idle sweeper force-closed mid-run: the worker_status transition
-	// that originally triggered Start fires only once per run, so without
-	// this call a reconnect after a sweep would park in pendingSubs forever.
-	if err := h.sessionManager.Start(r.Context(), cardID, project); err != nil {
-		ctxlog.Logger(r.Context()).Error("worker-log SSE: failed to start card session",
-			"card_id", cardID, "project", project, "error", err)
-
-		_, _ = fmt.Fprintf(w, "data: {\"type\":\"error\",\"content\":\"session unavailable\"}\n\n")
-
-		flusher.Flush()
-
-		return
-	}
-
-	ch, unsub := h.sessionManager.Subscribe(cardID)
-	defer unsub()
-
-	ctxlog.Logger(r.Context()).Info("worker-log SSE session connected",
-		"card_id", cardID,
-		"project", project,
-		"remote_addr", r.RemoteAddr,
-	)
-
-	// writeEvent formats a sessionlog.Event as an SSE data frame and flushes.
-	writeEvent := func(evt sessionlog.Event) bool {
-		var payload map[string]any
-
-		switch evt.Type {
-		case sessionlog.EventTypeTerminal:
-			payload = map[string]any{"type": "terminal", "seq": evt.Seq}
-		case sessionlog.EventTypeDropped:
-			payload = map[string]any{
-				"type":  "dropped",
-				"seq":   evt.Seq,
-				"count": sessionlog.DroppedMarkerCount(evt),
-			}
-		default:
-			payload = map[string]any{
-				"type":    evt.Type,
-				"content": string(evt.Payload),
-				"card_id": cardID,
-				"ts":      evt.Timestamp.UTC().Format(time.RFC3339Nano),
-				"seq":     evt.Seq,
-			}
-			// Speaker attribution (mob session discussions): attach only when set
-			// so ordinary frames don't grow a noisy empty field.
-			if evt.Agent != "" {
-				payload["agent"] = evt.Agent
-			}
-			// LLM model slug for the speaker (mob session discussions): attach
-			// only when set so legacy/ordinary frames omit the key entirely.
-			if evt.Model != "" {
-				payload["model"] = evt.Model
-			}
-		}
-
-		b, err := json.Marshal(payload)
-		if err != nil {
-			return false
-		}
-
-		if _, err := fmt.Fprintf(w, "data: %s\n\n", b); err != nil {
-			return false
-		}
-
-		flusher.Flush()
-
-		return true
-	}
-
-	ticker := time.NewTicker(h.workerLogKeepalive())
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-r.Context().Done():
-			ctxlog.Logger(r.Context()).Info("worker-log SSE session: client disconnected",
-				"card_id", cardID,
-				"remote_addr", r.RemoteAddr,
-			)
-
-			return
-
-		case <-ticker.C:
-			if _, err := fmt.Fprintf(w, ": keepalive\n\n"); err != nil {
-				ctxlog.Logger(r.Context()).Debug("worker-log SSE card keepalive write failed", "error", err)
-
-				return
-			}
-
-			flusher.Flush()
-
-		case evt, open := <-ch:
-			if !open {
-				// Channel closed by manager (stop or unsubscribe).
-				return
-			}
-
-			if !writeEvent(evt) {
-				return
-			}
-
-			if evt.Type == sessionlog.EventTypeTerminal {
-				return
-			}
-		}
-	}
+// sessionStreamConfig parameterizes streamSession over the card-scoped and
+// project-scoped worker-log SSE paths.
+type sessionStreamConfig struct {
+	start     func(ctx context.Context) error
+	subscribe func() (<-chan sessionlog.Event, func())
+	// cardIDFor picks the card_id for a data frame: the fixed card on the
+	// card-scoped path, the event's own card on the project-scoped path.
+	cardIDFor func(evt sessionlog.Event) string
+	// logAttrs scopes the start-failure and connected logs; disconnectAttrs
+	// scopes the client-disconnected log (the card path drops "project" there).
+	logAttrs        []any
+	disconnectAttrs []any
+	startErrMsg     string
+	connectedMsg    string
+	disconnectedMsg string
+	keepaliveMsg    string
 }
 
-// streamProjectSession is the project-scoped SSE path.  It subscribes to the
-// session manager for the project, replays the snapshot, then tails the live
-// event channel until the session terminates or the client disconnects.
+func (h *backendHandlers) streamCardSession(w http.ResponseWriter, r *http.Request, flusher http.Flusher, cardID, project string) {
+	h.streamSession(w, r, flusher, sessionStreamConfig{
+		start: func(ctx context.Context) error {
+			return h.sessionManager.Start(ctx, cardID, project)
+		},
+		subscribe: func() (<-chan sessionlog.Event, func()) {
+			return h.sessionManager.Subscribe(cardID)
+		},
+		cardIDFor:       func(sessionlog.Event) string { return cardID },
+		logAttrs:        []any{"card_id", cardID, "project", project},
+		disconnectAttrs: []any{"card_id", cardID},
+		startErrMsg:     "worker-log SSE: failed to start card session",
+		connectedMsg:    "worker-log SSE session connected",
+		disconnectedMsg: "worker-log SSE session: client disconnected",
+		keepaliveMsg:    "worker-log SSE card keepalive write failed",
+	})
+}
+
 func (h *backendHandlers) streamProjectSession(w http.ResponseWriter, r *http.Request, flusher http.Flusher, project string) {
+	h.streamSession(w, r, flusher, sessionStreamConfig{
+		start: func(ctx context.Context) error {
+			return h.sessionManager.StartProject(ctx, project)
+		},
+		subscribe: func() (<-chan sessionlog.Event, func()) {
+			return h.sessionManager.SubscribeProject(project)
+		},
+		cardIDFor:       func(evt sessionlog.Event) string { return evt.CardID },
+		logAttrs:        []any{"project", project},
+		disconnectAttrs: []any{"project", project},
+		startErrMsg:     "worker-log SSE: failed to start project session",
+		connectedMsg:    "worker-log SSE project session connected",
+		disconnectedMsg: "worker-log SSE project session: client disconnected",
+		keepaliveMsg:    "worker-log SSE project keepalive write failed",
+	})
+}
+
+// streamSession is the shared SSE path behind streamCardSession and
+// streamProjectSession. It starts the session per cfg, subscribes, replays the
+// snapshot, then tails the live event channel until the session terminates or
+// the client disconnects.
+func (h *backendHandlers) streamSession(w http.ResponseWriter, r *http.Request, flusher http.Flusher, cfg sessionStreamConfig) {
 	if h.sessionManager == nil {
 		// Session manager not configured - return 204 so the frontend can retry.
 		w.WriteHeader(http.StatusNoContent)
@@ -240,9 +167,15 @@ func (h *backendHandlers) streamProjectSession(w http.ResponseWriter, r *http.Re
 	w.Header().Set("X-Accel-Buffering", "no")
 	flusher.Flush()
 
-	// StartProject is idempotent - safe to call on every connection.
-	if err := h.sessionManager.StartProject(r.Context(), project); err != nil {
-		ctxlog.Logger(r.Context()).Error("worker-log SSE: failed to start project session", "project", project, "error", err)
+	scopedLog := ctxlog.Logger(r.Context()).With(cfg.logAttrs...)
+
+	// Start is idempotent - safe to call on every connection. On the
+	// card-scoped path this revives a session the idle sweeper force-closed
+	// mid-run: the worker_status transition that originally triggered Start
+	// fires only once per run, so without this call a reconnect after a sweep
+	// would park in pendingSubs forever.
+	if err := cfg.start(r.Context()); err != nil {
+		scopedLog.Error(cfg.startErrMsg, "error", err)
 
 		_, _ = fmt.Fprintf(w, "data: {\"type\":\"error\",\"content\":\"session unavailable\"}\n\n")
 
@@ -251,13 +184,10 @@ func (h *backendHandlers) streamProjectSession(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	ch, unsub := h.sessionManager.SubscribeProject(project)
+	ch, unsub := cfg.subscribe()
 	defer unsub()
 
-	ctxlog.Logger(r.Context()).Info("worker-log SSE project session connected",
-		"project", project,
-		"remote_addr", r.RemoteAddr,
-	)
+	scopedLog.Info(cfg.connectedMsg, "remote_addr", r.RemoteAddr)
 
 	// writeEvent formats a sessionlog.Event as an SSE data frame and flushes.
 	writeEvent := func(evt sessionlog.Event) bool {
@@ -276,7 +206,7 @@ func (h *backendHandlers) streamProjectSession(w http.ResponseWriter, r *http.Re
 			payload = map[string]any{
 				"type":    evt.Type,
 				"content": string(evt.Payload),
-				"card_id": evt.CardID,
+				"card_id": cfg.cardIDFor(evt),
 				"ts":      evt.Timestamp.UTC().Format(time.RFC3339Nano),
 				"seq":     evt.Seq,
 			}
@@ -312,16 +242,13 @@ func (h *backendHandlers) streamProjectSession(w http.ResponseWriter, r *http.Re
 	for {
 		select {
 		case <-r.Context().Done():
-			ctxlog.Logger(r.Context()).Info("worker-log SSE project session: client disconnected",
-				"project", project,
-				"remote_addr", r.RemoteAddr,
-			)
+			ctxlog.Logger(r.Context()).With(cfg.disconnectAttrs...).Info(cfg.disconnectedMsg, "remote_addr", r.RemoteAddr)
 
 			return
 
 		case <-ticker.C:
 			if _, err := fmt.Fprintf(w, ": keepalive\n\n"); err != nil {
-				ctxlog.Logger(r.Context()).Debug("worker-log SSE project keepalive write failed", "error", err)
+				ctxlog.Logger(r.Context()).Debug(cfg.keepaliveMsg, "error", err)
 
 				return
 			}
