@@ -96,14 +96,14 @@ func (h *backendHandlers) getTaskSkillsSource(w http.ResponseWriter, r *http.Req
 	url, ref := taskSkillsSource(h.taskSkillsDir, h.taskSkillsGitRemoteURL)
 	token, tokenExpiresAt := mintInstanceToken(r.Context(), h.instanceTokenProvider)
 
-	writeJSON(w, http.StatusOK, taskSkillsSourceResponse{
+	writeJSON(w, http.StatusOK, protocol.TaskSkillsSource{
 		GitRemoteURL: url, Ref: ref, Token: token, TokenExpiresAt: tokenExpiresAt,
 	})
 }
 
 // mintInstanceToken best-effort mints an instance-scoped git token for a
-// task-skills-source response. See the asymmetry comment on
-// taskSkillsSourceResponse: unlike getGitCredentials (fail-closed on a broken
+// task-skills-source response. See the doc comment on
+// protocol.TaskSkillsSource: unlike getGitCredentials (fail-closed on a broken
 // project binding), this never fails the request - a nil provider or a mint
 // error just returns empty strings, and the caller falls back to its own
 // configured credential during the compat window.

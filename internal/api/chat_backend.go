@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	githubauth "github.com/mhersson/contextmatrix-githubauth"
+	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/backend"
 )
 
@@ -35,7 +36,7 @@ func (h *chatBackendHandlers) getTaskSkillsSource(w http.ResponseWriter, r *http
 	url, ref := taskSkillsSource(h.taskSkillsDir, h.taskSkillsGitRemoteURL)
 	token, tokenExpiresAt := mintInstanceToken(r.Context(), h.instanceTokenProvider)
 
-	writeJSON(w, http.StatusOK, taskSkillsSourceResponse{
+	writeJSON(w, http.StatusOK, protocol.TaskSkillsSource{
 		GitRemoteURL: url, Ref: ref, Token: token, TokenExpiresAt: tokenExpiresAt,
 	})
 }

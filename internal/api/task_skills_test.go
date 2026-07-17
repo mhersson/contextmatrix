@@ -593,7 +593,7 @@ func TestGetTaskSkillsSource_HMAC_Valid(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var body taskSkillsSourceResponse
+	var body protocol.TaskSkillsSource
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
 	// dir and fallback are both empty in this test fixture - both fields are empty strings.
 	assert.Empty(t, body.GitRemoteURL)
@@ -664,7 +664,7 @@ func TestGetChatTaskSkillsSource_HMAC_Valid(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var body taskSkillsSourceResponse
+	var body protocol.TaskSkillsSource
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
 	// dir and fallback are both empty in this fixture - both fields are empty.
 	assert.Empty(t, body.GitRemoteURL)
@@ -773,7 +773,7 @@ func TestGetTaskSkillsSource_InstanceProvider_IncludesToken(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var body taskSkillsSourceResponse
+	var body protocol.TaskSkillsSource
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
 	assert.Equal(t, "ghs_instance", body.Token)
 	assert.Equal(t, fakeExpiry.UTC().Format(time.RFC3339), body.TokenExpiresAt)
@@ -812,7 +812,7 @@ func TestGetTaskSkillsSource_MintFailure_OmitsTokenBestEffort(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "mint failure must not fail the whole response")
 
-	var body taskSkillsSourceResponse
+	var body protocol.TaskSkillsSource
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
 	assert.Empty(t, body.Token)
 	assert.Empty(t, body.TokenExpiresAt)
@@ -849,7 +849,7 @@ func TestGetChatTaskSkillsSource_InstanceProvider_IncludesToken(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var body taskSkillsSourceResponse
+	var body protocol.TaskSkillsSource
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
 	assert.Equal(t, "ghs_chat_instance", body.Token)
 	assert.Equal(t, fakeExpiry.UTC().Format(time.RFC3339), body.TokenExpiresAt)
