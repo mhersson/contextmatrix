@@ -1983,39 +1983,29 @@ func TestSlowSubscriberDropCounter_Pump(t *testing.T) {
 		return m.DroppedEvents() > 0
 	}, 5*time.Second, 5*time.Millisecond, "expected at least one fan-out drop")
 
-	// Drain one event from the channel to open a slot for a drop marker.
-	select {
-	case <-ch:
-	case <-time.After(time.Second):
-		t.Fatal("timed out draining first event")
-	}
-
-	// Give the pump a moment to enqueue a drop marker into the freed slot.
-	// Since the pump may have already finished processing by now, we also
-	// directly call notifyDrop to guarantee a marker arrives.
-	m.mu.Lock()
-
-	var sub *subscriber
-	if sess, ok := m.activeSessions[cardID]; ok && len(sess.subs) > 0 {
-		sub = sess.subs[0]
-	}
-	m.mu.Unlock()
-
-	if sub != nil {
-		m.notifyDrop(sub)
-	}
-
-	// DroppedEvents counter must be >= 1 (accumulated from the pump and our call).
+	// DroppedEvents counter must be >= 1 (established by the Eventually above).
 	dropped := m.DroppedEvents()
 	assert.GreaterOrEqual(t, dropped, uint64(1), "DroppedEvents should be >= 1")
 
-	// Drain channel events looking for a drop marker.
+	// Drop markers are best-effort: notifyDrop enqueues one only when the
+	// subscriber channel has a free slot, and while the pump is still
+	// streaming, a slot freed by a receive below can be re-filled by a live
+	// event before a marker send. Re-notify before every receive so that once
+	// the stream is exhausted, nothing competes for the freed slot and a
+	// marker lands deterministically.
 	var gotDropMarker bool
 
-	deadline := time.After(time.Second)
+	deadline := time.After(5 * time.Second)
 
 drainLoop:
 	for {
+		m.mu.Lock()
+
+		if sess, ok := m.activeSessions[cardID]; ok && len(sess.subs) > 0 {
+			m.notifyDrop(sess.subs[0])
+		}
+		m.mu.Unlock()
+
 		select {
 		case evt, ok := <-ch:
 			if !ok {
