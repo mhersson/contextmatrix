@@ -37,7 +37,7 @@ function isMobileLayout(): boolean {
  * two separate reads.
  *
  * When the soft keyboard is open, iOS scrolls the focused element into view so
- * the content above the editor is no longer visible — subtracting
+ * the content above the editor is no longer visible - subtracting
  * MOBILE_ABOVE_EDITOR_PX would over-correct. Instead we use a small
  * KEYBOARD_OPEN_RESERVE covering only what remains visible (toolbar + label).
  *

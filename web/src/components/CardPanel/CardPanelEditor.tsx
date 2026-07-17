@@ -35,7 +35,7 @@ interface CardPanelEditorProps {
  * status banner.
  *
  * The visible label is associated via `aria-labelledby` on a wrapping
- * `role="group"` element — MDEditor does not expose a way to set an `id` on
+ * `role="group"` element - MDEditor does not expose a way to set an `id` on
  * its internal textarea.
  */
 export function CardPanelEditor({ body, onChange, editable, editing, onToggleEditing }: CardPanelEditorProps) {

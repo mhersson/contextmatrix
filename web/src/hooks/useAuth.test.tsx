@@ -105,7 +105,7 @@ describe('AuthProvider', () => {
     expect(mocks.getAppConfig).toHaveBeenCalledTimes(3);
   });
 
-  it('unmount mid-backoff cancels the retry loop — no stray request fires', async () => {
+  it('unmount mid-backoff cancels the retry loop - no stray request fires', async () => {
     mocks.getAppConfig.mockRejectedValue(new TypeError('Failed to fetch'));
 
     const { unmount } = render(<AuthProvider><Probe /></AuthProvider>);
@@ -119,7 +119,7 @@ describe('AuthProvider', () => {
     expect(mocks.getAppConfig).toHaveBeenCalledTimes(1);
   });
 
-  it('does not retry a structured non-transient app-config error — falls back to none immediately', async () => {
+  it('does not retry a structured non-transient app-config error - falls back to none immediately', async () => {
     mocks.getAppConfig.mockRejectedValue({ error: 'nope', code: 'SOME_REAL_ERROR' });
 
     render(<AuthProvider><Probe /></AuthProvider>);

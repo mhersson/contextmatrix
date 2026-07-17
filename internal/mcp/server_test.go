@@ -94,7 +94,7 @@ func setupMCP(t *testing.T) *testEnv {
 		"systematic-debugging.md": "claude-sonnet-4-6",
 	}
 	for name, model := range skillModels {
-		content := fmt.Sprintf("# %s\n\n## Agent Configuration\n\n- **Model:** %s — Test model.\n\n---\n\nSkill instructions here.", name, model)
+		content := fmt.Sprintf("# %s\n\n## Agent Configuration\n\n- **Model:** %s - Test model.\n\n---\n\nSkill instructions here.", name, model)
 		require.NoError(t, os.WriteFile(filepath.Join(workflowSkillsDir, name), []byte(content), 0o644))
 	}
 
@@ -431,7 +431,7 @@ func TestAddLog(t *testing.T) {
 
 	createTestCard(t, env, "Log test", "task", "medium")
 
-	// add_log now requires the caller to hold the card claim — the previous
+	// add_log now requires the caller to hold the card claim - the previous
 	// behaviour (anyone can write log entries for any agent_id on an
 	// unclaimed card) was an audit-trail forgery vector.
 	callTool(t, env, "claim_card", map[string]any{
@@ -476,7 +476,7 @@ func TestAddLog_RejectsUnclaimedCard(t *testing.T) {
 
 	createTestCard(t, env, "Unclaimed log target", "task", "medium")
 
-	// No claim before add_log — the handler must reject so attacker-supplied
+	// No claim before add_log - the handler must reject so attacker-supplied
 	// agent_ids cannot land in the activity log.
 	result, err := env.session.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: "add_log",
@@ -512,7 +512,7 @@ func TestAddLog_RejectsMismatchedAgent(t *testing.T) {
 		"agent_id": "agent-owner",
 	})
 
-	// A different agent attempts to write the log — must be rejected.
+	// A different agent attempts to write the log - must be rejected.
 	result, err := env.session.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: "add_log",
 		Arguments: map[string]any{
@@ -547,7 +547,7 @@ func TestCompleteTask_MainTask(t *testing.T) {
 		"agent_id": "agent-done",
 	})
 
-	// Complete the main task (no parent) — should auto-walk to review, not done
+	// Complete the main task (no parent) - should auto-walk to review, not done
 	result := callTool(t, env, "complete_task", map[string]any{
 		"project":  "test-project",
 		"card_id":  "TEST-001",
@@ -607,7 +607,7 @@ func TestCompleteTask_Subtask(t *testing.T) {
 		"agent_id": "agent-sub",
 	})
 
-	// Complete the subtask — should auto-walk all the way to done
+	// Complete the subtask - should auto-walk all the way to done
 	result := callTool(t, env, "complete_task", map[string]any{
 		"project":  "test-project",
 		"card_id":  "TEST-002",
@@ -621,7 +621,7 @@ func TestCompleteTask_Subtask(t *testing.T) {
 
 	assert.Equal(t, "done", output.Card.State, "subtask should go all the way to done")
 	assert.Empty(t, output.Card.AssignedAgent)
-	// When there is only one subtask, this is the last subtask done — the
+	// When there is only one subtask, this is the last subtask done - the
 	// response should include an informational next_step about documentation.
 	assert.NotEmpty(t, output.NextStep, "last subtask completion should include next_step about documentation")
 
@@ -656,7 +656,7 @@ func TestCompleteTask_LastSubtaskInfoMessage(t *testing.T) {
 		"agent_id": "agent-sub",
 	})
 
-	// Complete the last (only) subtask — parent stays in in_progress
+	// Complete the last (only) subtask - parent stays in in_progress
 	result := callTool(t, env, "complete_task", map[string]any{
 		"project":  "test-project",
 		"card_id":  "TEST-002",
@@ -672,7 +672,7 @@ func TestCompleteTask_LastSubtaskInfoMessage(t *testing.T) {
 	assert.Equal(t, "done", output.Card.State, "subtask should be done")
 	assert.Empty(t, output.Card.AssignedAgent)
 
-	// Parent stays in in_progress — orchestrator transitions after documentation
+	// Parent stays in in_progress - orchestrator transitions after documentation
 	parent, err := env.svc.GetCard(ctx, "test-project", "TEST-001")
 	require.NoError(t, err)
 	assert.Equal(t, "in_progress", parent.State, "parent should stay in in_progress for documentation")
@@ -787,7 +787,7 @@ func TestCompleteTask_RejectsMismatchedAgent(t *testing.T) {
 		"agent_id": "agent-owner",
 	})
 
-	// A different agent attempts to complete — must be rejected.
+	// A different agent attempts to complete - must be rejected.
 	result, err := env.session.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: "complete_task",
 		Arguments: map[string]any{
@@ -843,7 +843,7 @@ func TestClaimCard_NoAutoTransitionFromReview(t *testing.T) {
 	_, err = env.svc.TransitionTo(ctx, "test-project", "TEST-001", "review")
 	require.NoError(t, err)
 
-	// Claim the card in review state — should NOT auto-transition to in_progress
+	// Claim the card in review state - should NOT auto-transition to in_progress
 	result := callTool(t, env, "claim_card", map[string]any{
 		"project":  "test-project",
 		"card_id":  "TEST-001",
@@ -1014,12 +1014,12 @@ func TestCheckAgentHealth(t *testing.T) {
 		"priority": "medium", "parent": parent.ID,
 	})
 
-	// Claim Sub A (TEST-002) — will be "active"
+	// Claim Sub A (TEST-002) - will be "active"
 	callTool(t, env, "claim_card", map[string]any{
 		"project": "test-project", "card_id": "TEST-002", "agent_id": "agent-a",
 	})
 
-	// Sub B (TEST-003) stays unclaimed — "unassigned"
+	// Sub B (TEST-003) stays unclaimed - "unassigned"
 
 	// Complete Sub C (TEST-004) via claim + complete
 	callTool(t, env, "claim_card", map[string]any{
@@ -1211,7 +1211,7 @@ func TestTransitionCard_BlockedByDependency(t *testing.T) {
 	var card board.Card
 	unmarshalResult(t, result, &card)
 
-	// Try to transition to in_progress — should fail
+	// Try to transition to in_progress - should fail
 	blocked := callTool(t, env, "transition_card", map[string]any{
 		"project":   "test-project",
 		"card_id":   card.ID,
@@ -1283,7 +1283,7 @@ func TestGetReadyTasks_VettingFilter(t *testing.T) {
 	env := setupMCP(t)
 	ctx := context.Background()
 
-	// Create an internal card (no source) — should always appear
+	// Create an internal card (no source) - should always appear
 	internalCard := createTestCard(t, env, "Internal task", "task", "medium")
 
 	// Create an unvetted external card via store directly (source set, vetted=false)
@@ -1336,7 +1336,7 @@ func TestClaimCard_UnvettedExternal(t *testing.T) {
 	stored.Vetted = false
 	require.NoError(t, env.store.UpdateCard(ctx, "test-project", stored))
 
-	// Agent tries to claim the unvetted card — must fail
+	// Agent tries to claim the unvetted card - must fail
 	result, err := env.session.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: "claim_card",
 		Arguments: map[string]any{
@@ -1498,7 +1498,7 @@ func TestPrompt_StartWorkflow_NonAutonomous(t *testing.T) {
 	content, ok := result.Messages[0].Content.(*mcp.TextContent)
 	require.True(t, ok)
 
-	// Must produce the create-plan skill content (HITL path — start-workflow
+	// Must produce the create-plan skill content (HITL path - start-workflow
 	// inlines the create-plan dispatch when the card is not autonomous).
 	assert.Contains(t, content.Text, "create-plan.md")
 	assert.Contains(t, content.Text, "Skill instructions here.")
@@ -1510,7 +1510,7 @@ func TestPrompt_StartWorkflow_NonAutonomous(t *testing.T) {
 	assert.NotContains(t, content.Text, "autonomous orchestrator")
 	// Must NOT contain old delegation-wrapper text.
 	assert.NotContains(t, content.Text, "Planning Workflow")
-	assert.NotContains(t, content.Text, "Plan Drafting — Always Inline")
+	assert.NotContains(t, content.Text, "Plan Drafting - Always Inline")
 }
 
 // TestPrompt_StartWorkflow_Autonomous verifies that start-workflow routes to
@@ -1654,7 +1654,7 @@ func TestReportUsage(t *testing.T) {
 	assert.Equal(t, int64(5000), updated.TokenUsage.PromptTokens)
 	assert.Equal(t, int64(1500), updated.TokenUsage.CompletionTokens)
 
-	// Report again — verify accumulation
+	// Report again - verify accumulation
 	result = callTool(t, env, "report_usage", map[string]any{
 		"project":           "test-project",
 		"card_id":           card.ID,
@@ -1995,7 +1995,7 @@ func TestCreateCard_SubtaskTypeEnforced(t *testing.T) {
 
 	parent := createTestCard(t, env, "Parent task", "feature", "high")
 
-	// Create a subtask passing type="task" explicitly — backend should override to "subtask"
+	// Create a subtask passing type="task" explicitly - backend should override to "subtask"
 	result := callTool(t, env, "create_card", map[string]any{
 		"project":  "test-project",
 		"title":    "Child card",
@@ -2011,7 +2011,7 @@ func TestCreateCard_SubtaskTypeEnforced(t *testing.T) {
 	assert.Equal(t, "subtask", card.Type, "type should be overridden to 'subtask' when parent is set")
 	assert.Equal(t, parent.ID, card.Parent)
 
-	// Also verify with type="bug" — it should still be overridden
+	// Also verify with type="bug" - it should still be overridden
 	result2 := callTool(t, env, "create_card", map[string]any{
 		"project":  "test-project",
 		"title":    "Another child",
@@ -2050,7 +2050,7 @@ func TestCreateCard_TypePreservedWithoutParent(t *testing.T) {
 func TestInitProjectPrompt(t *testing.T) {
 	env := setupMCP(t)
 
-	// List prompts — should include init-project
+	// List prompts - should include init-project
 	result, err := env.session.ListPrompts(context.Background(), nil)
 	require.NoError(t, err)
 
@@ -2165,7 +2165,7 @@ func TestGetSkill_SystematicDebugging(t *testing.T) {
 	env := setupMCP(t)
 	card := createTestCard(t, env, "Login crashes on submit", "bug", "high")
 
-	// systematic-debugging is NOT inline-eligible — it always runs as a
+	// systematic-debugging is NOT inline-eligible - it always runs as a
 	// sub-agent. Even when caller_model matches, Inline must be false so
 	// the orchestrator spawns it via the Agent tool with worktree isolation.
 	result := callTool(t, env, "get_skill", map[string]any{
@@ -2266,17 +2266,17 @@ func TestParseSkillModel(t *testing.T) {
 	}{
 		{
 			name:    "sonnet model",
-			content: "## Agent Configuration\n\n- **Model:** claude-sonnet-4-6 — Workhorse.\n\n---\n\nInstructions.",
+			content: "## Agent Configuration\n\n- **Model:** claude-sonnet-4-6 - Workhorse.\n\n---\n\nInstructions.",
 			want:    "sonnet",
 		},
 		{
 			name:    "opus model",
-			content: "## Agent Configuration\n\n- **Model:** claude-opus-4-6 — Planning.\n\n---\n\nInstructions.",
+			content: "## Agent Configuration\n\n- **Model:** claude-opus-4-6 - Planning.\n\n---\n\nInstructions.",
 			want:    "opus",
 		},
 		{
 			name:    "haiku model",
-			content: "## Agent Configuration\n\n- **Model:** claude-haiku-4-5 — Fast.\n\n---\n\nInstructions.",
+			content: "## Agent Configuration\n\n- **Model:** claude-haiku-4-5 - Fast.\n\n---\n\nInstructions.",
 			want:    "haiku",
 		},
 		{
@@ -2298,7 +2298,7 @@ func TestParseSkillModel(t *testing.T) {
 }
 
 func TestStripAgentConfig(t *testing.T) {
-	input := "# Skill\n\n## Agent Configuration\n\n- **Model:** claude-sonnet-4-6 — Test.\n\n---\n\nInstructions here."
+	input := "# Skill\n\n## Agent Configuration\n\n- **Model:** claude-sonnet-4-6 - Test.\n\n---\n\nInstructions here."
 	got := stripAgentConfig(input)
 	assert.NotContains(t, got, "Agent Configuration")
 	assert.NotContains(t, got, "claude-sonnet")
@@ -2307,7 +2307,7 @@ func TestStripAgentConfig(t *testing.T) {
 }
 
 // TestGetSkill_StripsAgentConfig verifies that get_skill output never contains
-// the "## Agent Configuration" section — that metadata is for the orchestrator.
+// the "## Agent Configuration" section - that metadata is for the orchestrator.
 func TestGetSkill_StripsAgentConfig(t *testing.T) {
 	env := setupMCP(t)
 
@@ -2381,7 +2381,7 @@ func TestGetSkill_InlineWhenModelMatches(t *testing.T) {
 	result := callTool(t, env, "get_skill", map[string]any{
 		"skill_name":   "review-task",
 		"card_id":      card.ID,
-		"caller_model": "opus", // review-task requires opus — match
+		"caller_model": "opus", // review-task requires opus - match
 	})
 	require.False(t, result.IsError)
 
@@ -2394,7 +2394,7 @@ func TestGetSkill_InlineWhenModelMatches(t *testing.T) {
 }
 
 // TestGetSkill_InlineCaseInsensitive verifies that caller_model matching is
-// case-insensitive — agents may pass "Opus" from their system context.
+// case-insensitive - agents may pass "Opus" from their system context.
 func TestGetSkill_InlineCaseInsensitive(t *testing.T) {
 	env := setupMCP(t)
 	card := createTestCard(t, env, "Case test", "feature", "high")
@@ -2406,7 +2406,7 @@ func TestGetSkill_InlineCaseInsensitive(t *testing.T) {
 	result := callTool(t, env, "get_skill", map[string]any{
 		"skill_name":   "review-task",
 		"card_id":      card.ID,
-		"caller_model": "Opus", // Capital O — should still match "opus"
+		"caller_model": "Opus", // Capital O - should still match "opus"
 	})
 	require.False(t, result.IsError)
 
@@ -2430,7 +2430,7 @@ func TestGetSkill_InlineFullModelID(t *testing.T) {
 	result := callTool(t, env, "get_skill", map[string]any{
 		"skill_name":   "review-task",
 		"card_id":      card.ID,
-		"caller_model": "claude-opus-4-6", // full model ID — should match "opus"
+		"caller_model": "claude-opus-4-6", // full model ID - should match "opus"
 	})
 	require.False(t, result.IsError)
 
@@ -2453,7 +2453,7 @@ func TestGetSkill_DelegatesWhenModelMismatch(t *testing.T) {
 	result := callTool(t, env, "get_skill", map[string]any{
 		"skill_name":   "review-task",
 		"card_id":      card.ID,
-		"caller_model": "sonnet", // review-task requires opus — mismatch
+		"caller_model": "sonnet", // review-task requires opus - mismatch
 	})
 	require.False(t, result.IsError)
 
@@ -2476,7 +2476,7 @@ func TestGetSkill_DelegatesWhenCallerModelAbsent(t *testing.T) {
 	result := callTool(t, env, "get_skill", map[string]any{
 		"skill_name": "review-task",
 		"card_id":    card.ID,
-		// No caller_model — backward compat
+		// No caller_model - backward compat
 	})
 	require.False(t, result.IsError)
 
@@ -2495,7 +2495,7 @@ func TestGetSkill_InlineNotEligibleSkill(t *testing.T) {
 	result := callTool(t, env, "get_skill", map[string]any{
 		"skill_name":   "execute-task",
 		"card_id":      card.ID,
-		"caller_model": "sonnet", // execute-task requires sonnet — match, but not eligible
+		"caller_model": "sonnet", // execute-task requires sonnet - match, but not eligible
 	})
 	require.False(t, result.IsError)
 
@@ -2514,7 +2514,7 @@ func TestGetSkill_CreatePlanInline(t *testing.T) {
 	result := callTool(t, env, "get_skill", map[string]any{
 		"skill_name":   "create-plan",
 		"card_id":      card.ID,
-		"caller_model": "sonnet", // create-plan uses sonnet — match
+		"caller_model": "sonnet", // create-plan uses sonnet - match
 	})
 	require.False(t, result.IsError)
 
@@ -2532,7 +2532,7 @@ func TestGetCard_WithoutProject(t *testing.T) {
 
 	card := createTestCard(t, env, "No-project get", "task", "medium")
 
-	// Call get_card without project — should resolve from card ID
+	// Call get_card without project - should resolve from card ID
 	result := callTool(t, env, "get_card", map[string]any{
 		"card_id": card.ID,
 	})
@@ -2574,7 +2574,7 @@ func TestCompleteTask_WithoutProject(t *testing.T) {
 	})
 	require.False(t, claimResult.IsError)
 
-	// Complete without project — should resolve from card ID
+	// Complete without project - should resolve from card ID
 	result := callTool(t, env, "complete_task", map[string]any{
 		"card_id":  card.ID,
 		"agent_id": "test-agent",
@@ -2607,7 +2607,7 @@ func TestClaimCard_WithoutProject(t *testing.T) {
 // TestCreatePlanSkill_AutonomousGates verifies that workflow-skills/create-plan.md
 // contains the autonomous-mode conditional branches at all four user-prompt
 // gates: plan-approval, execution, review-approval, and commit/push/PR. This is
-// a regression guard — if the autonomous branches are removed from the skill
+// a regression guard - if the autonomous branches are removed from the skill
 // file, this test will fail.
 func TestCreatePlanSkill_AutonomousGates(t *testing.T) {
 	// Read the real skill file directly. The working directory for go test is
@@ -2622,21 +2622,21 @@ func TestCreatePlanSkill_AutonomousGates(t *testing.T) {
 	assert.Contains(t, content, "autonomous: true",
 		"create-plan.md must reference autonomous: true")
 
-	// Gate 1 (Phase 2): plan-approval gate — autonomous skips the plan approval prompt.
+	// Gate 1 (Phase 2): plan-approval gate - autonomous skips the plan approval prompt.
 	assert.Contains(t, content, "Phase 2: Plan Approval Gate",
 		"create-plan.md must have Phase 2: Plan Approval Gate")
 	assert.Regexp(t, `(?si)Phase 2: Plan Approval Gate.*autonomous: true.*skip this phase`,
 		content,
 		"create-plan.md Phase 2 must have autonomous skip instruction")
 
-	// Gate 2 (Phase 4): execution gate — autonomous skips "Want me to start execution?" prompt.
+	// Gate 2 (Phase 4): execution gate - autonomous skips "Want me to start execution?" prompt.
 	assert.Contains(t, content, "Phase 4: Execution Gate",
 		"create-plan.md must have Phase 4: Execution Gate")
 	assert.Regexp(t, `(?si)Phase 4: Execution Gate.*autonomous: true.*skip this phase`,
 		content,
 		"create-plan.md Phase 4 must have autonomous skip instruction")
 
-	// Gate 3 (Phase 8): review approval gate — autonomous skips "Do you approve this work" prompt.
+	// Gate 3 (Phase 8): review approval gate - autonomous skips "Do you approve this work" prompt.
 	assert.Contains(t, content, "Phase 8: Review Decision Gate",
 		"create-plan.md must have Phase 8: Review Decision Gate")
 	assert.Contains(t, content, "AUTONOMOUS_HALTED",
@@ -2644,7 +2644,7 @@ func TestCreatePlanSkill_AutonomousGates(t *testing.T) {
 	assert.Contains(t, content, "increment_review_attempts",
 		"create-plan.md must call increment_review_attempts in the autonomous review gate")
 
-	// Gate 4 (Phase 9): commit/push/PR gate — autonomous skips both prompts.
+	// Gate 4 (Phase 9): commit/push/PR gate - autonomous skips both prompts.
 	assert.Contains(t, content, "Phase 9: Commit/Push/PR Gate",
 		"create-plan.md must have Phase 9: Commit/Push/PR Gate")
 	// Phase 9 must distinguish the autonomous mode and wire it to the
@@ -2737,7 +2737,7 @@ func TestCreatePlanSkillIsSelfContained(t *testing.T) {
 	}
 
 	// Old split-phase heading must not exist.
-	assert.NotContains(t, content, "# After subtasks are created — Execution (orchestrator)",
+	assert.NotContains(t, content, "# After subtasks are created - Execution (orchestrator)",
 		"create-plan.md must not contain the old split-phase heading")
 
 	// PLAN_DRAFTED structured output must be present.

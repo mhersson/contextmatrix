@@ -37,7 +37,7 @@ var DefaultAuthor = object.Signature{
 // Lock discipline (two mutexes, never nested):
 //
 //   - worktreeMu serializes operations that touch the go-git in-memory
-//     repository (m.repo), the working tree, or the .git/index — i.e. all
+//     repository (m.repo), the working tree, or the .git/index - i.e. all
 //     stage/commit/reload operations and read accessors that consult m.repo.
 //   - netMu serializes shell-git network operations (push, pull, fetch).
 //     Network ops are slow (remote round-trip) and must not block the
@@ -46,7 +46,7 @@ var DefaultAuthor = object.Signature{
 // Methods that need both locks acquire and release netMu first, then
 // briefly take worktreeMu for the post-network reload. They are NEVER
 // nested: holding netMu while acquiring worktreeMu (or vice versa) is a
-// bug — see the doc comment on Pull for the prescribed sequence. This
+// bug - see the doc comment on Pull for the prescribed sequence. This
 // keeps gitsync's upstream svc.writeMu → netMu order clean and prevents
 // any deadlock between the two manager-level locks.
 type Manager struct {
@@ -201,7 +201,7 @@ func (m *Manager) CommitFile(ctx context.Context, path, message string) error {
 	metrics.GitSyncDuration.Observe(time.Since(start).Seconds())
 
 	if err != nil {
-		// ErrEmptyCommit means the file content already matches HEAD — a
+		// ErrEmptyCommit means the file content already matches HEAD - a
 		// concurrent writer's commit captured our changes first. Treat as
 		// a no-op success: the desired state is already committed.
 		if errors.Is(err, git.ErrEmptyCommit) {
@@ -422,7 +422,7 @@ func (m *Manager) Push(ctx context.Context) error {
 // holding netMu therefore cannot wedge this method on shutdown.
 func (m *Manager) CommitFilesShell(ctx context.Context, paths []string, message string) error {
 	// Bail out before acquiring the lock if the caller's context is already
-	// done — e.g. during shutdown when a push held netMu and the call site
+	// done - e.g. during shutdown when a push held netMu and the call site
 	// has given up. Matches CommitFile/CommitFiles/CommitAll.
 	if err := ctx.Err(); err != nil {
 		return err
@@ -664,7 +664,7 @@ func (m *Manager) CommitCount() (int, error) {
 // removes the file from the worktree via go-git's filesystem layer. If
 // it fails (file untracked, repository broken, etc.) we have not yet
 // touched disk, so the working tree stays consistent. If wt.Remove
-// succeeds but the on-disk file is still present (rare — go-git
+// succeeds but the on-disk file is still present (rare - go-git
 // occasionally leaves the file on disk for untracked entries), we
 // best-effort os.Remove as a follow-up and tolerate ErrNotExist.
 func (m *Manager) DeleteFile(ctx context.Context, path string) error {
@@ -690,7 +690,7 @@ func (m *Manager) DeleteFile(ctx context.Context, path string) error {
 	// Belt-and-suspenders: if go-git left the file behind on disk (e.g.
 	// for filesystem-specific edge cases), remove it. os.Remove returns
 	// ErrNotExist when the file is already gone, which is the expected
-	// outcome — swallow that error only.
+	// outcome - swallow that error only.
 	fullPath := filepath.Join(m.repoPath, path)
 	if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove file: %w", err)

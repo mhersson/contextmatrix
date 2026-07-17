@@ -32,7 +32,7 @@ import type {
 
 const BASE_URL = '/api';
 
-// Fired (on window) when any non-auth request gets a 401 — the session
+// Fired (on window) when any non-auth request gets a 401 - the session
 // died under us. AuthProvider listens and flips the app back to login.
 export const SESSION_EXPIRED_EVENT = 'cm:session-expired';
 
@@ -46,7 +46,7 @@ export const SESSION_EXPIRED_EVENT = 'cm:session-expired';
 // the target browser matrix for this project.
 const DEFAULT_TIMEOUT_MS = 30_000;
 
-// Wire shape for GET /api/projects/:project/cards. Not exported — callers see
+// Wire shape for GET /api/projects/:project/cards. Not exported - callers see
 // the flat Card[] returned by getCards().
 interface CardPage {
   items: Card[];
@@ -199,7 +199,7 @@ class APIClient {
       cursor = page.next_cursor;
     }
     // Cursor still set after the loop means the server returned more pages than
-    // the sanity bound allows — surface this as an error rather than silently
+    // the sanity bound allows - surface this as an error rather than silently
     // returning a truncated result.
     throw new Error(`getCards: pagination exceeded ${MAX_PAGES} pages; result truncated`);
   }
@@ -515,7 +515,7 @@ class APIClient {
     );
   }
 
-  // Images — POST /api/images with multipart/form-data. The request() helper
+  // Images - POST /api/images with multipart/form-data. The request() helper
   // hard-codes Content-Type: application/json, so this method talks to fetch
   // directly and threads the same X-Agent-ID / X-Requested-With headers used
   // by mutation endpoints. `signal` lets callers (e.g. useImageUpload) cancel

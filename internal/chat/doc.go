@@ -4,12 +4,12 @@
 // fan-out for browser subscribers.
 //
 // File layout:
-//   - doc.go         — package documentation.
-//   - types.go       — Session, Message, Status enums.
-//   - store.go       — Store interface used by Manager.
-//   - sqlite/        — SQLite implementation of Store.
-//   - manager.go     — Manager: session lifecycle orchestration.
-//   - backend_client.go — Backend (webhook-backed): wraps chat-backend webhooks.
-//   - reaper.go      — IdleReaper: TTL goroutine.
-//   - sse.go         — Per-session SSE buffer and fan-out hub.
+//   - doc.go         - package documentation.
+//   - types.go       - Session, Message, Status enums.
+//   - store.go       - Store interface used by Manager.
+//   - sqlite/        - SQLite implementation of Store.
+//   - manager.go     - Manager: session lifecycle orchestration.
+//   - backend_client.go - Backend (webhook-backed): wraps chat-backend webhooks.
+//   - reaper.go      - IdleReaper: TTL goroutine.
+//   - sse.go         - Per-session SSE buffer and fan-out hub.
 package chat

@@ -47,7 +47,7 @@ describe('useImageUpload', () => {
 
   it('surfaces an upload failure on uploadError', async () => {
     // Use Promise.reject directly so the value flows verbatim through await
-    // — some mock wrappers re-shape non-Error rejections, which would hide
+    // - some mock wrappers re-shape non-Error rejections, which would hide
     // the type guard in useImageUpload.
     uploadMock.mockImplementationOnce(() => Promise.reject({ error: 'image exceeds 10 MB limit', code: 'CONTENT_TOO_LARGE' }));
     const onInsert = vi.fn();

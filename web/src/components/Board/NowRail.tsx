@@ -25,7 +25,7 @@ function shortAgent(agentId: string): string {
 // actionDotClass maps an activity-log Action string to the NowRail dot
 // modifier class. The vocabulary mirrors what the server writes into the
 // activity log (see service_cards.go appendStateChangeLog and AddLogEntry
-// callers) — `claimed` / `released` / `state_changed` from the state-machine
+// callers) - `claimed` / `released` / `state_changed` from the state-machine
 // layer, plus `done` / `shipped` / `review_requested` from agent-emitted log
 // entries. Unknown actions fall through to no class (default dot styling).
 function actionDotClass(action: string): string {
@@ -99,7 +99,7 @@ function relativeTime(iso: string): string {
  * capacity section; `hasBackfill` switches the activity label once the
  * one-shot /activity backfill has loaded.
  * The Capacity meter shows `runningContainers / maxAgents` (worker-container
- * counts), not agent counts — the "Now · agents" section is the canonical
+ * counts), not agent counts - the "Now · agents" section is the canonical
  * place for active-agent display.
  */
 const ACTIVITY_MAX = 8;
@@ -123,7 +123,7 @@ export function NowRail({ agents, activityEntries, maxAgents, runningContainers,
     : 0;
   // Now · agents head-row shows the active-agent count only. The worker cap
   // (max_concurrent) is a container-capacity number, not an agent-capacity
-  // number — using it as a denominator here would be a category mismatch.
+  // number - using it as a denominator here would be a category mismatch.
   const agentsCount = `${agents.length}`;
   const visibleActivity = activityEntries.slice(0, ACTIVITY_MAX);
 
@@ -174,7 +174,7 @@ export function NowRail({ agents, activityEntries, maxAgents, runningContainers,
         ) : (
           <div className="cap-meta">
             <span>{containerCount} active · no cap set</span>
-            <span>—</span>
+            <span> - </span>
           </div>
         )}
       </div>

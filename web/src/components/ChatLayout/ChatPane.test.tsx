@@ -58,7 +58,7 @@ function makeDropEvent(data: Record<string, string>) {
   };
 }
 
-describe('ChatPane — drop routing', () => {
+describe('ChatPane - drop routing', () => {
   beforeEach(() => {
     vi.mocked(isTouchDevice).mockReturnValue(false);
   });
@@ -128,7 +128,7 @@ describe('ChatPane — drop routing', () => {
 
   it('PaneHeader is not draggable when chatId is null (no chat loaded)', () => {
     // TOUCH is a module-scope constant (false in test env). The other half of
-    // the guard is chatId != null — verify it controls draggability too.
+    // the guard is chatId != null - verify it controls draggability too.
     const { container } = render(
       <ChatPane {...defaultProps({ slot: 'TL', chatId: null })} />,
     );
@@ -144,7 +144,7 @@ describe('ChatPane — drop routing', () => {
     );
     const pane = container.querySelector('.chat-pane')!;
 
-    // 'XX' is not a valid Slot — should fall through to sidebar path.
+    // 'XX' is not a valid Slot - should fall through to sidebar path.
     fireEvent.drop(pane, {
       dataTransfer: makeDropEvent({
         [PANE_SOURCE_MIME]: 'XX',

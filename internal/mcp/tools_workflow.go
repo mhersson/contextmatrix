@@ -31,7 +31,7 @@ func registerStartWorkflow(server *mcp.Server, svc *service.CardService, workflo
 			"'start workflow', 'start', 'plan', 'work on', 'begin', or 'run' a card. " +
 			"Inspects the card's autonomous flag and returns the full workflow skill content: " +
 			"run-autonomous (for autonomous cards) or create-plan (for human-in-the-loop cards). " +
-			"Always returns inline: true — execute the content directly.",
+			"Always returns inline: true - execute the content directly.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input startWorkflowInput) (*mcp.CallToolResult, startWorkflowOutput, error) {
 		card, _, err := findCard(ctx, svc, input.CardID)
 		if err != nil {
@@ -54,7 +54,7 @@ func registerStartWorkflow(server *mcp.Server, svc *service.CardService, workflo
 
 		content := stripAgentConfig(result.Content)
 
-		// start_workflow always returns inline content — both create-plan
+		// start_workflow always returns inline content - both create-plan
 		// and run-autonomous are executed directly by the orchestrator.
 		content = buildInlineExecutionPrompt(content, input.CardID, skill)
 
@@ -71,8 +71,8 @@ func registerStartWorkflow(server *mcp.Server, svc *service.CardService, workflo
 type startReviewInput struct {
 	Project         string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
 	CardID          string `json:"card_id" jsonschema:"required,parent card ID to enter review (e.g. ALPHA-001)"`
-	AgentID         string `json:"agent_id" jsonschema:"required,agent performing the transition — must own the card claim"`
-	CallerModel     string `json:"caller_model,omitempty" jsonschema:"your model family (opus, sonnet, haiku) — enables inline execution when matching the skill model"`
+	AgentID         string `json:"agent_id" jsonschema:"required,agent performing the transition - must own the card claim"`
+	CallerModel     string `json:"caller_model,omitempty" jsonschema:"your model family (opus, sonnet, haiku) - enables inline execution when matching the skill model"`
 	IncludePreamble *bool  `json:"include_preamble,omitempty" jsonschema:"include workflow rules preamble (default true, pass false to skip on subsequent calls when you already have it)"`
 }
 
@@ -80,7 +80,7 @@ func registerStartReview(server *mcp.Server, svc *service.CardService, workflowS
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "start_review",
 		Description: "Atomically transition a parent card to 'review' and return the review-task skill. " +
-			"Replaces the two-call pattern transition_card + get_skill('review-task') — there is no way to " +
+			"Replaces the two-call pattern transition_card + get_skill('review-task') - there is no way to " +
 			"load the review skill without committing the transition. Caller must own the card claim " +
 			"(agent_id is required and is verified against the assigned agent). Returns the same shape as " +
 			"get_skill (skill_name, model, content, inline). If the transition fails (forbidden state, " +
@@ -118,7 +118,7 @@ func registerStartReview(server *mcp.Server, svc *service.CardService, workflowS
 		// the Agent tool, which is only available to the top-level (calling)
 		// session. Running review-task as a spawned sub-agent silently
 		// degrades to a single-perspective review because spawned sub-agents
-		// lack Agent. Keep this gate-free — do not reintroduce model match.
+		// lack Agent. Keep this gate-free - do not reintroduce model match.
 		content = buildInlineExecutionPrompt(content, input.CardID, "review-task")
 
 		return nil, getSkillOutput{
@@ -135,7 +135,7 @@ func registerGetSkill(server *mcp.Server, svc *service.CardService, workflowSkil
 		Name: "get_skill",
 		Description: "Get a skill prompt with injected card/project context. Returns the full skill instructions, " +
 			"plus a 'model' field indicating which model to use when spawning a sub-agent (e.g. 'sonnet', 'opus'). " +
-			"When the response has 'inline: true', you MAY execute the content directly instead of spawning a sub-agent — " +
+			"When the response has 'inline: true', you MAY execute the content directly instead of spawning a sub-agent - " +
 			"the content already includes lifecycle enforcement instructions. " +
 			"When 'inline' is false or absent, you MUST spawn a sub-agent via the Agent tool with the returned model.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input getSkillInput) (*mcp.CallToolResult, getSkillOutput, error) {

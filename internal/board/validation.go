@@ -78,7 +78,7 @@ func NewValidator() *Validator {
 
 // ValidateType checks if cardType is valid for the project.
 // SubtaskType ("subtask") is always valid as a built-in type, even if not listed
-// in ProjectConfig.Types — callers do not need to add it to their board config.
+// in ProjectConfig.Types - callers do not need to add it to their board config.
 // Returns nil if valid, *ValidationError if invalid.
 func (v *Validator) ValidateType(cfg *ProjectConfig, cardType string) error {
 	if cardType == SubtaskType {
@@ -133,7 +133,7 @@ func (v *Validator) ValidatePriority(cfg *ProjectConfig, cardPriority string) er
 // ValidateTransition checks if transitioning from fromState to toState is allowed.
 // Special rule: any state can transition TO "stalled" (system-managed),
 // but FROM "stalled" only follows Transitions["stalled"].
-// The "not_planned" state follows normal transition rules — only states that
+// The "not_planned" state follows normal transition rules - only states that
 // explicitly list "not_planned" in their transitions can reach it.
 // Returns nil if valid, *ValidationError if invalid.
 func (v *Validator) ValidateTransition(cfg *ProjectConfig, fromState, toState string) error {
@@ -265,7 +265,7 @@ func (v *Validator) ValidateWorkerStatus(status string) error {
 }
 
 // ValidateWorkerCallbackStatus checks if the status is valid for a backend callback.
-// Only "running" and "failed" are accepted from the backend — other statuses are server-managed.
+// Only "running" and "failed" are accepted from the backend - other statuses are server-managed.
 func (v *Validator) ValidateWorkerCallbackStatus(status string) error {
 	if !slices.Contains(validWorkerCallbackStatuses, status) {
 		return &ValidationError{
@@ -304,7 +304,7 @@ func (v *Validator) CanTransition(cfg *ProjectConfig, fromState, toState string)
 // AllowedTransitions returns the list of valid target states from the given state.
 // For the "stalled" state, returns Transitions["stalled"].
 // For any other state, includes the explicit Transitions[state] plus "stalled".
-// The "not_planned" state is not auto-injected — it only appears if explicitly
+// The "not_planned" state is not auto-injected - it only appears if explicitly
 // listed in the source state's transitions in .board.yaml.
 // Returns nil if fromState is not a valid state.
 func (v *Validator) AllowedTransitions(cfg *ProjectConfig, fromState string) []string {

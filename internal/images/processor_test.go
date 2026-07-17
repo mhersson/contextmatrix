@@ -62,7 +62,7 @@ func makeAnimatedGIF(t *testing.T, numFrames int) []byte {
 }
 
 // makeJPEGWithEXIF creates a JPEG with a minimal EXIF APP1 marker embedded.
-// The EXIF data is synthetic — just enough to have the marker present.
+// The EXIF data is synthetic - just enough to have the marker present.
 func makeJPEGWithEXIF(t *testing.T) []byte {
 	t.Helper()
 

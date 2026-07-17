@@ -18,7 +18,7 @@ interface CreateUserModalProps {
 /**
  * Presentational new-user form. AdminUsersPage owns the adminCreateUser
  * call, the busy/error state, and what happens on success (opening
- * InviteLinkDialog) — this component only collects input and reports it.
+ * InviteLinkDialog) - this component only collects input and reports it.
  */
 export function CreateUserModal({ open, busy, error, onClose, onCreate }: CreateUserModalProps) {
   const [username, setUsername] = useState('');
@@ -29,7 +29,7 @@ export function CreateUserModal({ open, busy, error, onClose, onCreate }: Create
 
   useFocusTrap(dialogRef, open);
 
-  // Fresh fields every time the dialog opens (render-time pattern — see
+  // Fresh fields every time the dialog opens (render-time pattern - see
   // useBoard.ts / web/CLAUDE.md § rail sync for why this isn't a useEffect).
   const [wasOpen, setWasOpen] = useState(open);
   if (open !== wasOpen) {

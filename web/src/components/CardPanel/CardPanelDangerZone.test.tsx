@@ -18,7 +18,7 @@ function makeCard(overrides: Partial<Card> = {}): Card {
   };
 }
 
-describe('DangerZoneTab — enabled delete flow', () => {
+describe('DangerZoneTab - enabled delete flow', () => {
   it('opens the ConfirmModal on first click (does not call onDelete yet)', () => {
     const onDelete = vi.fn().mockResolvedValue(undefined);
     render(
@@ -72,13 +72,13 @@ describe('DangerZoneTab — enabled delete flow', () => {
   });
 });
 
-describe('DangerZoneTab — disabled states', () => {
+describe('DangerZoneTab - disabled states', () => {
   it('disables the Delete button and shows reason when an agent holds the claim', () => {
     render(
       <DangerZoneTab
         card={makeCard({ assigned_agent: 'human:someone', state: 'todo' })}
         canDelete={false}
-        deleteTooltip="Claimed — cannot delete"
+        deleteTooltip="Claimed - cannot delete"
         isDeleting={false}
         onDelete={vi.fn()}
       />,
@@ -135,7 +135,7 @@ describe('DangerZoneTab — disabled states', () => {
   });
 });
 
-describe('DangerZoneTab — force release placeholder', () => {
+describe('DangerZoneTab - force release placeholder', () => {
   it('renders the force-release card as disabled with reason copy', () => {
     render(
       <DangerZoneTab

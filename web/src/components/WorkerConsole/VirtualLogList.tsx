@@ -82,7 +82,7 @@ interface VirtualLogListProps {
   getKey: (item: LogEntry, index: number) => string;
   className?: string;
   emptyState?: React.ReactNode;
-  // Accessibility props for the scrolling viewport — log surfaces use these
+  // Accessibility props for the scrolling viewport - log surfaces use these
   // to announce updates to screen readers.
   role?: string;
   ariaLive?: 'off' | 'polite' | 'assertive';
@@ -175,7 +175,7 @@ export function VirtualLogList({
   // heightVersion is a versioned signal: the memo body reads heights via
   // heightStore.getHeight, but the ESLint exhaustive-deps rule flags heightVersion
   // as "unused inside the callback" because it is not referenced by name inside
-  // the body. It IS necessary — without it the memo would not re-run after new
+  // the body. It IS necessary - without it the memo would not re-run after new
   // measurements land and offsets would remain stale at the 24px estimates.
   const offsets = useMemo(
     () => {

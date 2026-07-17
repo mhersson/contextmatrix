@@ -27,11 +27,11 @@ Violating these rules leaves cards orphaned with no tracking. Follow them exactl
 - **Never work on a card without claiming it first.** Before writing any code or
   making any changes for a card, you MUST call claim_card (or use the execute-task
   skill which handles this automatically). Working without claiming leaves the card
-  orphaned — no tracking, no heartbeats, no completion record.
+  orphaned - no tracking, no heartbeats, no completion record.
 - **Follow the full lifecycle to completion: claim → work → heartbeat → complete.**
   Every card you work on must go through this entire sequence. Call heartbeat
   periodically during work. Call complete_task when done. Do NOT stop after making
-  code changes — the lifecycle ends when complete_task is called, not when the code
+  code changes - the lifecycle ends when complete_task is called, not when the code
   is written.
 - **Never stop mid-lifecycle.** Do NOT ask the user to commit, review your diff,
   or approve your changes instead of completing the card lifecycle. Do NOT abandon
@@ -48,7 +48,7 @@ Violating these rules leaves cards orphaned with no tracking. Follow them exactl
   interface for agent operations.
 - **Ask the user in plain text.** When you need a decision or clarification,
   ask as a normal message with any options listed inline. Do not use the
-  AskUserQuestion tool — it is not supported in this workflow.
+  AskUserQuestion tool - it is not supported in this workflow.
 - **When in doubt, use /contextmatrix:start-workflow <card_id>.** It routes
   the card through its full lifecycle for you.
 
@@ -122,11 +122,11 @@ func isInlineEligible(skillName string) bool {
 
 // buildInlineExecutionPrompt wraps skill content in a lifecycle-enforcing
 // envelope for inline execution. This is structurally different from raw
-// content delivery — the lifecycle gates are entry/exit conditions that
+// content delivery - the lifecycle gates are entry/exit conditions that
 // frame the skill instructions, not a prepended suggestion.
 func buildInlineExecutionPrompt(content, cardID, skillName string) string {
 	var b strings.Builder
-	fmt.Fprintln(&b, "## INLINE EXECUTION — Lifecycle Checkpoints Required")
+	fmt.Fprintln(&b, "## INLINE EXECUTION - Lifecycle Checkpoints Required")
 	fmt.Fprintln(&b)
 	fmt.Fprintf(&b, "You are executing **%s** for card **%s** inline.\n", skillName, cardID)
 	fmt.Fprintln(&b, "YOU are responsible for the full card lifecycle. These steps are MANDATORY:")
@@ -264,7 +264,7 @@ type skillArgs struct {
 
 // skillBuilder builds a skill's raw content (without the workflow preamble).
 // If skipPreamble is true, buildSkillContent never prepends workflowPreamble
-// regardless of the caller's includePreamble flag — for skills that are not
+// regardless of the caller's includePreamble flag - for skills that are not
 // part of the card lifecycle.
 type skillBuilder struct {
 	build        func(ctx context.Context, svc *service.CardService, workflowSkillsDir string, args skillArgs) (string, error)
@@ -491,7 +491,7 @@ func buildRunAutonomous(ctx context.Context, svc *service.CardService, workflowS
 // path (skip planning/review/docs). A task is simple only if it has the
 // "simple" label AND has no existing subtasks.
 func classifyComplexity(card *board.Card, subtasks []*board.Card, subtaskErr error) string {
-	// Already has subtasks — standard pipeline needed.
+	// Already has subtasks - standard pipeline needed.
 	if subtaskErr == nil && len(subtasks) > 0 {
 		return "standard"
 	}
@@ -542,7 +542,7 @@ func readSkillFile(workflowSkillsDir, filename string) (string, error) {
 //
 // Treating every non-nil GetCard error as a miss would mask transient store
 // failures (e.g. a brief SQLite/filesystem hiccup on the correct project) as
-// a missing card and confuse callers — they would chase a phantom "card not
+// a missing card and confuse callers - they would chase a phantom "card not
 // found" instead of the real I/O error. Only storage.ErrCardNotFound counts
 // as a miss; any other error returns immediately.
 func findCard(ctx context.Context, svc *service.CardService, cardID string) (*board.Card, string, error) {
@@ -558,7 +558,7 @@ func findCard(ctx context.Context, svc *service.CardService, cardID string) (*bo
 		}
 
 		if !errors.Is(err, storage.ErrCardNotFound) {
-			// Real store failure — propagate so the caller sees the actual
+			// Real store failure - propagate so the caller sees the actual
 			// cause instead of a misleading "not found in any project".
 			return nil, "", fmt.Errorf("lookup card %s in project %s: %w", cardID, p.Name, err)
 		}
@@ -650,7 +650,7 @@ func formatCardContext(c *board.Card, project, verifyCommand string) string {
 
 	// Skill prompts always flow into agent (non-human) context, so redact
 	// unvetted bodies to block prompt-injection payloads from externally
-	// imported cards. The empty agent ID is non-human by definition —
+	// imported cards. The empty agent ID is non-human by definition -
 	// redactUnvettedBody substitutes the placeholder for unvetted cards.
 	body := redactUnvettedBody(c, "")
 	if body != "" {
@@ -702,7 +702,7 @@ func formatCardBrief(c *board.Card) string {
 // Unvetted external cards are redacted first via redactCardForPrompt so both
 // the brief header (title, source, activity log) and the appended body are
 // replaced with safe placeholders, blocking prompt injection from externally
-// imported cards — skill prompts always flow into agent context.
+// imported cards - skill prompts always flow into agent context.
 func formatCardBriefWithBody(c *board.Card) string {
 	c = redactCardForPrompt(c)
 

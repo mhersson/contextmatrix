@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install_test.sh — Shell-based tests for scripts/install.sh.
+# install_test.sh - Shell-based tests for scripts/install.sh.
 #
 # Runs in a temporary directory with a mocked XDG_CONFIG_HOME.
 # All tests are self-contained and clean up after themselves.
@@ -56,7 +56,7 @@ assert_file_contains() {
     if grep -q "${pattern}" "${path}" 2>/dev/null; then
         pass "${desc}"
     else
-        fail "${desc} — pattern '${pattern}' not found in ${path}"
+        fail "${desc} - pattern '${pattern}' not found in ${path}"
     fi
 }
 
@@ -67,7 +67,7 @@ assert_file_not_contains() {
     if ! grep -q "${pattern}" "${path}" 2>/dev/null; then
         pass "${desc}"
     else
-        fail "${desc} — pattern '${pattern}' unexpectedly found in ${path}"
+        fail "${desc} - pattern '${pattern}' unexpectedly found in ${path}"
     fi
 }
 
@@ -141,7 +141,7 @@ run_test_rerun_skips_config() {
     # Overwrite config.yaml with a sentinel value.
     echo "# SENTINEL_VALUE_DO_NOT_OVERWRITE" > "${config_dir}/config.yaml"
 
-    # Second install — should not overwrite.
+    # Second install - should not overwrite.
     "${INSTALL_SCRIPT}"
 
     assert_file_contains "${config_dir}/config.yaml" "SENTINEL_VALUE_DO_NOT_OVERWRITE" \

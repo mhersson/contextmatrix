@@ -3,7 +3,7 @@
  * the wire stay unchanged ("todo", "in_progress", etc.); this map only
  * affects rendering.
  *
- * Don't reach for this directly when you need transition logic — the state
+ * Don't reach for this directly when you need transition logic - the state
  * machine still keys on the raw values. This is presentation only.
  */
 const STATE_DISPLAY_LABEL: Record<string, string> = {

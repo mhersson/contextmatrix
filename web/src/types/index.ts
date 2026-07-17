@@ -55,9 +55,9 @@ export interface Card {
   usage_breakdown?: UsageBucket[];
   body: string;
   // skills uses three-state semantics (matching the backend):
-  //   undefined / null — use project default (or full set if project default is null)
-  //   []               — mount no skills for this card
-  //   [name, ...]      — constrain to listed skills
+  //   undefined / null - use project default (or full set if project default is null)
+  //   []               - mount no skills for this card
+  //   [name, ...]      - constrain to listed skills
   skills?: string[] | null;
 }
 
@@ -121,9 +121,9 @@ export interface ProjectConfig {
   github?: GitHubImportConfig;
   templates?: Record<string, string>;
   // default_skills uses three-state semantics:
-  //   undefined / null — mount the full task-skills set for cards that don't override
-  //   []               — mount no skills (cards override per-card if needed)
-  //   [name, ...]      — constrain cards to listed skills
+  //   undefined / null - mount the full task-skills set for cards that don't override
+  //   []               - mount no skills (cards override per-card if needed)
+  //   [name, ...]      - constrain cards to listed skills
   default_skills?: string[] | null;
   /**
    * Reference-only instance credential-pool entry name (multi-user mode).
@@ -366,7 +366,7 @@ export interface UpdateProjectInput {
   /**
    * Field-level merge on the server: the whole object omitted preserves the
    * current config; each subfield present is applied (worker_image "" clears
-   * the image). Sent only when the operator touched the section — see
+   * the image). Sent only when the operator touched the section - see
    * ProjectSettings.handleSave.
    */
   remote_execution?: {
@@ -423,7 +423,7 @@ export interface LogEntry {
   /** True when this message was produced during a chat-mode rehydration phase. */
   rehydration_phase?: boolean;
   /**
-   * Structural marker for chat messages — e.g. "divider" for the "Context
+   * Structural marker for chat messages - e.g. "divider" for the "Context
    * cleared" sentinel appended on Clear Context. Empty / absent means a
    * regular message. The frontend matches on this rather than content
    * strings so the rendering rule is unambiguous and survives reloads.
@@ -438,7 +438,7 @@ export interface AppConfig {
   version: string;
   /**
    * Active auth mode: "multi" (login required) or "none" (single-tenant,
-   * no auth). Absent on servers older than the multi-user rollout — treat
+   * no auth). Absent on servers older than the multi-user rollout - treat
    * as "none". The slim pre-login shape (unauthenticated multi-mode
    * response) omits task_backend/favorites, hence both are optional below.
    */
@@ -463,13 +463,13 @@ export interface AppConfig {
   /**
    * Best-of-N bounds for the card selector: the hard cap (`max_candidates`)
    * and the operator-recommended candidate count, surfaced in the control's
-   * tooltip. Only present on the full (post-login) payload — absent from the
+   * tooltip. Only present on the full (post-login) payload - absent from the
    * slim pre-login multi-mode response, same as task_backend/favorites.
    */
   best_of_n_max?: number;
   best_of_n_default?: number;
   /**
-   * Mob bounds and the guest registry NAMES for the card selector — same
+   * Mob bounds and the guest registry NAMES for the card selector - same
    * full-payload-only posture as the best_of_n fields. Tokens and URLs
    * never reach the browser.
    */
@@ -496,7 +496,7 @@ export interface RedeemTokenInput {
   password: string;
 }
 
-// Admin — user and credential management (multi-user mode, admin-only).
+// Admin - user and credential management (multi-user mode, admin-only).
 export interface AdminUser {
   username: string;
   display_name: string;
@@ -526,7 +526,7 @@ export interface CredentialInfo {
   last_used_at?: string;
 }
 
-// Request-only input — carries the plaintext secret up to the server. Never
+// Request-only input - carries the plaintext secret up to the server. Never
 // mirrored back in CredentialInfo (the response type has no secret field).
 export interface CreateCredentialInput {
   name: string;
@@ -538,7 +538,7 @@ export interface CreateCredentialInput {
   secret: string;
 }
 
-// Admin — Best-of-N model-outcome stats. Registered in both auth modes (see
+// Admin - Best-of-N model-outcome stats. Registered in both auth modes (see
 // docs/api-reference.md § GET /api/admin/model-outcomes); `win_rate` is a
 // fraction (0..1), not a percentage.
 export interface ModelOutcomeEntry {
@@ -573,7 +573,7 @@ export interface ChatSession {
   context_tokens?: number;
   context_tokens_updated_at?: string;
   rehydration_active?: boolean;
-  // Token counters and cost — cumulative totals from all usage frames.
+  // Token counters and cost - cumulative totals from all usage frames.
   prompt_tokens?: number;
   completion_tokens?: number;
   cache_read_tokens?: number;
@@ -631,7 +631,7 @@ export interface ChatSessionUpdate {
   model?: string;
   rehydration_active?: boolean;
   status?: ChatStatus;
-  // Cost and token counters — new running totals after each usage frame.
+  // Cost and token counters - new running totals after each usage frame.
   estimated_cost_usd?: number;
   prompt_tokens?: number;
   completion_tokens?: number;

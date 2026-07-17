@@ -45,7 +45,7 @@ GOOGLE_FONTS_URL = (
 
 # Subsets we ship. "latin" covers ASCII/English; "latin-ext" covers the
 # diacritics used across French/German/Italian/Spanish/Nordic/Polish/Czech
-# and is cheap. We drop cyrillic, cyrillic-ext, greek and vietnamese —
+# and is cheap. We drop cyrillic, cyrillic-ext, greek and vietnamese -
 # ContextMatrix is a developer-facing tool authored in English; glyphs
 # outside these ranges fall back to system fonts, which is fine.
 SUBSETS_KEEP = {"latin", "latin-ext"}
@@ -53,7 +53,7 @@ SUBSETS_KEEP = {"latin", "latin-ext"}
 # Upstream SIL OFL 1.1 license sources per family. Keyed by the slugified
 # family name (matching the subdirectory under web/public/fonts/). Update
 # when adding a new family, and re-run the script to fetch its license.
-# Branch names vary across upstreams — these URLs were probed directly;
+# Branch names vary across upstreams - these URLs were probed directly;
 # re-verify before bumping.
 LICENSE_SOURCES = {
     "fraunces": "https://raw.githubusercontent.com/undercasetype/Fraunces/master/OFL.txt",
@@ -122,7 +122,7 @@ def download_license(family_slug: str) -> None:
     """Fetch the upstream OFL license into the per-family directory.
 
     Idempotent: skips if the file already exists (licenses rarely change).
-    Exits the script if the family has no known upstream URL — callers must
+    Exits the script if the family has no known upstream URL - callers must
     add an entry to LICENSE_SOURCES before shipping a new family.
     """
     url = LICENSE_SOURCES.get(family_slug)

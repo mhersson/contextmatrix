@@ -10,7 +10,7 @@ interface ActivityFeedProps {
 }
 
 interface FeedEntry {
-  /** Stable React key — never reused, never collides. */
+  /** Stable React key - never reused, never collides. */
   id: string;
   /** Server-side wall-clock millis for ordering. NaN-tolerant. */
   tsMs: number;
@@ -18,7 +18,7 @@ interface FeedEntry {
 }
 
 const MAX_ENTRIES = 20;
-/** Maximum number of keys held in the dedupe FIFO — twice the visible window. */
+/** Maximum number of keys held in the dedupe FIFO - twice the visible window. */
 const DEDUPE_CAP = MAX_ENTRIES * 2;
 
 const TRACKED: ReadonlySet<BoardEvent['type']> = new Set<BoardEvent['type']>([
@@ -36,7 +36,7 @@ interface RenderedBody {
 }
 
 function renderEvent(event: BoardEvent): RenderedBody {
-  const agent = event.agent ?? '—';
+  const agent = event.agent ?? ' - ';
   switch (event.type) {
     case 'card.state_changed': {
       const to = typeof event.data?.to_state === 'string' ? event.data.to_state : '';
@@ -47,7 +47,7 @@ function renderEvent(event: BoardEvent): RenderedBody {
     case 'card.released':
       return { prefix: 'released by', agent };
     case 'card.stalled':
-      return { state: 'stalled', prefix: '→', agent: '—' };
+      return { state: 'stalled', prefix: '→', agent: ' - ' };
     case 'card.log_added':
       return { prefix: 'log entry by', agent };
     default:

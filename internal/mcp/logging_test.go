@@ -100,7 +100,7 @@ func TestMCPRequestInfoMiddleware(t *testing.T) {
 }
 
 // TestMCPRequestInfoMiddleware_nilContext verifies that a nil MCPCall in context
-// (no /mcp route injection) is handled defensively — middleware delegates to next
+// (no /mcp route injection) is handled defensively - middleware delegates to next
 // without panicking.
 func TestMCPRequestInfoMiddleware_nilContext(t *testing.T) {
 	called := false

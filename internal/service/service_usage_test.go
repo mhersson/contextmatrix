@@ -184,7 +184,7 @@ func TestReportUsageCatalogFallbackRecordsNonZeroCost(t *testing.T) {
 }
 
 // byModelOf returns a map from model name to UsageBucket for easy lookup in
-// tests. It assumes all buckets belong to a single agent — with multiple
+// tests. It assumes all buckets belong to a single agent - with multiple
 // agents reporting the same model, later buckets would overwrite earlier ones.
 func byModelOf(card *board.Card) map[string]board.UsageBucket {
 	m := make(map[string]board.UsageBucket, len(card.UsageBreakdown))
@@ -230,7 +230,7 @@ func TestReportUsageBreakdown(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Second call: actual cost provided, model also in cost map — actual wins.
+	// Second call: actual cost provided, model also in cost map - actual wins.
 	cost := 0.42
 	got, err := svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
 		AgentID:          "cmx-agent-x",
@@ -275,7 +275,7 @@ func TestReportUsageBreakdown(t *testing.T) {
 
 // TestReportUsageBreakdownStickyActual verifies that a bucket which starts as
 // "estimated" flips to "actual" on an actual-cost report and stays "actual"
-// on a subsequent estimated report — protecting real spend from rate-table
+// on a subsequent estimated report - protecting real spend from rate-table
 // recalculation.
 func TestReportUsageBreakdownStickyActual(t *testing.T) {
 	svc, _, cleanup := setupTestWithCosts(t)
@@ -382,7 +382,7 @@ func TestReportUsageSeedsMigrationBucketForLegacyCost(t *testing.T) {
 
 	// Seed a legacy card directly: cumulative $5.00 of estimated spend, an
 	// existing model, and NO usage breakdown. AssignedAgent is empty, matching
-	// a released legacy card — the migration bucket inherits it.
+	// a released legacy card - the migration bucket inherits it.
 	refreshed, err := svc.GetCard(ctx, "test-project", card.ID)
 	require.NoError(t, err)
 
@@ -396,7 +396,7 @@ func TestReportUsageSeedsMigrationBucketForLegacyCost(t *testing.T) {
 	refreshed.UsageBreakdown = nil
 	require.NoError(t, svc.store.UpdateCard(ctx, "test-project", refreshed))
 
-	// A new agent reports a $1.00 delta — the first bucketed report.
+	// A new agent reports a $1.00 delta - the first bucketed report.
 	delta := 1.0
 	got, err := svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
 		AgentID:          "cmx-agent-new",
@@ -455,7 +455,7 @@ func TestReportUsageSeedsMigrationBucketForLegacyCost(t *testing.T) {
 
 // TestReportUsageSeedsMigrationBucketForLegacyTokensZeroCost verifies the seed
 // also fires for the fill-missing legacy population: tokens accrued but $0
-// cost. Without it, the legacy tokens never reach a bucket — token rollups
+// cost. Without it, the legacy tokens never reach a bucket - token rollups
 // under-count and RecalculateCosts loses the chance to price them once the
 // dashboard switches to the breakdown path.
 func TestReportUsageSeedsMigrationBucketForLegacyTokensZeroCost(t *testing.T) {
@@ -575,7 +575,7 @@ func TestRecalculateCostsSkipsActualBuckets(t *testing.T) {
 
 	// Seed the card directly: bucket A estimated (model in rate table, cost 0),
 	// bucket B actual (cost 0.42). The estimated bucket at CostUSD=0 is what
-	// gets re-priced — the breakdown path processes the card regardless of the
+	// gets re-priced - the breakdown path processes the card regardless of the
 	// cumulative EstimatedCostUSD.
 	refreshed, err := svc.GetCard(ctx, "test-project", card.ID)
 	require.NoError(t, err)
@@ -647,7 +647,7 @@ func TestRecalculateCostsSkipsActualBuckets(t *testing.T) {
 // different price (e.g. rates were corrected after the usage was reported).
 // The actual bucket stays untouched and the cumulative cost equals the bucket
 // sum. This also exercises the breakdown path on a card whose cumulative
-// EstimatedCostUSD is already non-zero — the legacy "skip costed cards" gate
+// EstimatedCostUSD is already non-zero - the legacy "skip costed cards" gate
 // must not apply to breakdown cards.
 func TestRecalculateCostsRepricesStaleEstimatedBuckets(t *testing.T) {
 	svc, _, cleanup := setupTestWithCosts(t)
@@ -804,7 +804,7 @@ func TestCostByAgentSurvivesRelease(t *testing.T) {
 
 // TestReportUsageResolvesRateOutsideWriteMu pins the lock ordering: the
 // catalog rate lookup can block on network I/O (stale-cache refresh under the
-// Builder's own mutex), so it must never run while writeMu is held — otherwise
+// Builder's own mutex), so it must never run while writeMu is held - otherwise
 // a catalog-provider outage serializes every card mutation behind the fetch
 // timeout. The lookup probes writeMu with TryLock: a failed TryLock means the
 // lookup ran inside the critical section.

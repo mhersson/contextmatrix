@@ -8,9 +8,9 @@ import (
 
 // TaskBackend is the task-execution lifecycle channel CM drives:
 // trigger/kill/message/promote.
-// backend.Client — the webhook client for the agent backend — is the sole
+// backend.Client - the webhook client for the agent backend - is the sole
 // implementation. Card progress and usage reporting are NOT part of this
-// surface — in-container agents report via CM's MCP tools.
+// surface - in-container agents report via CM's MCP tools.
 //
 // Payload types are aliases of contextmatrix-protocol DTOs, so the
 // interface is protocol-shaped. HealthInfo is a parsed

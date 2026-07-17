@@ -43,7 +43,7 @@
   --blue: #7fbbb3;
   --purple: #d699b6;
 
-  /* Fonts — self-hosted via @font-face declarations in fonts.css; woff2
+  /* Fonts - self-hosted via @font-face declarations in fonts.css; woff2
      binaries under public/fonts/<family>/. System font stacks are retained
      as fallbacks. See fonts.css for details. */
   --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -56,7 +56,7 @@
   --rail-expanded-width: 600px;
 }
 
-/* Everforest Hard Light — sole light mode for everforest */
+/* Everforest Hard Light - sole light mode for everforest */
 [data-theme="light"] {
   color-scheme: light;
 
@@ -88,7 +88,7 @@
    *   --grey1 #5b6e6d → ratio ≈ 4.81
    *   --aqua  #1f7050 → ratio ≈ 5.47
    * The original values (#a6b0a0, #939f91, #35a77c) sit at 2.19, 2.64, 2.92.
-   * `--grey2` and other accents are unchanged — only the variables called
+   * `--grey2` and other accents are unchanged - only the variables called
    * out in the audit are modified.
    */
   --fg:    #5c6a72;
@@ -96,7 +96,7 @@
   --grey1: #5b6e6d;
   --grey2: #829181;
 
-  /* Accent colors — same as Everforest Medium light, except --aqua darkened
+  /* Accent colors - same as Everforest Medium light, except --aqua darkened
    * to clear AA 4.5:1 on --bg0. */
   --red:    #f85552;
   --orange: #f57d26;
@@ -109,32 +109,32 @@
 
 /* Radix Colors Dark palette */
 [data-palette="radix"] {
-  /* Slate dark scale — Backgrounds */
-  --bg-dim: #111113;   /* slate1 — deepest background */
-  --bg0:    #18191b;   /* slate2 — default background */
-  --bg1:    #212225;   /* slate3 — raised surfaces: cards, panels */
-  --bg2:    #272a2d;   /* slate4 — popups, modals, dropdowns */
-  --bg3:    #363a3f;   /* slate6 — borders, dividers */
-  --bg4:    #43484e;   /* slate7 — subtle UI elements, disabled states */
-  --bg5:    #5a6169;   /* slate8 — hover states on muted elements */
+  /* Slate dark scale - Backgrounds */
+  --bg-dim: #111113;   /* slate1 - deepest background */
+  --bg0:    #18191b;   /* slate2 - default background */
+  --bg1:    #212225;   /* slate3 - raised surfaces: cards, panels */
+  --bg2:    #272a2d;   /* slate4 - popups, modals, dropdowns */
+  --bg3:    #363a3f;   /* slate6 - borders, dividers */
+  --bg4:    #43484e;   /* slate7 - subtle UI elements, disabled states */
+  --bg5:    #5a6169;   /* slate8 - hover states on muted elements */
 
-  /* Semantic backgrounds — colored scales, step 3 */
+  /* Semantic backgrounds - colored scales, step 3 */
   --bg-red:    #3e1f19;  /* tomato3 */
   --bg-yellow: #302008;  /* amber3 */
   --bg-green:  #132819;  /* grass3 */
   --bg-blue:   #0d2847;  /* blue3 */
   --bg-purple: #351a35;  /* plum3 */
-  --bg-aqua:   #112e25;  /* teal3 — sits in the same step as the others */
+  --bg-aqua:   #112e25;  /* teal3 - sits in the same step as the others */
   --bg-orange: #331a0d;  /* orange3 */
-  --bg-visual: #351a35;  /* plum3 — selection/drag highlight */
+  --bg-visual: #351a35;  /* plum3 - selection/drag highlight */
 
-  /* Slate dark scale — Foreground */
-  --fg:    #edeef0;   /* slate12 — primary text */
-  --grey0: #777b84;   /* slate10 — muted text, placeholders */
-  --grey1: #b0b4ba;   /* slate11 — secondary text, timestamps */
-  --grey2: #b0b4ba;   /* slate11 — tertiary text, labels */
+  /* Slate dark scale - Foreground */
+  --fg:    #edeef0;   /* slate12 - primary text */
+  --grey0: #777b84;   /* slate10 - muted text, placeholders */
+  --grey1: #b0b4ba;   /* slate11 - secondary text, timestamps */
+  --grey2: #b0b4ba;   /* slate11 - tertiary text, labels */
 
-  /* Accent colors — step 11 from each dark scale (low-contrast text step) */
+  /* Accent colors - step 11 from each dark scale (low-contrast text step) */
   --red:    #ff977d;  /* tomato11 */
   --orange: #ffa057;  /* orange11 */
   --yellow: #ffca16;  /* amber11 */
@@ -146,16 +146,16 @@
 
 /* Radix Colors Light palette */
 [data-palette="radix"][data-theme="light"] {
-  /* Slate light scale — Backgrounds */
-  --bg-dim: #f8f9fa;   /* slate2 — deepest background */
-  --bg0:    #fbfcfd;   /* slate1 — default background */
-  --bg1:    #f1f3f5;   /* slate3 — raised surfaces: cards, panels */
-  --bg2:    #eceef0;   /* slate4 — popups, modals, dropdowns */
-  --bg3:    #dfe3e6;   /* slate6 — borders, dividers */
-  --bg4:    #d7dbdf;   /* slate7 — subtle UI elements, disabled states */
-  --bg5:    #c1c8cd;   /* slate8 — hover states on muted elements */
+  /* Slate light scale - Backgrounds */
+  --bg-dim: #f8f9fa;   /* slate2 - deepest background */
+  --bg0:    #fbfcfd;   /* slate1 - default background */
+  --bg1:    #f1f3f5;   /* slate3 - raised surfaces: cards, panels */
+  --bg2:    #eceef0;   /* slate4 - popups, modals, dropdowns */
+  --bg3:    #dfe3e6;   /* slate6 - borders, dividers */
+  --bg4:    #d7dbdf;   /* slate7 - subtle UI elements, disabled states */
+  --bg5:    #c1c8cd;   /* slate8 - hover states on muted elements */
 
-  /* Semantic backgrounds — colored scales, step 3 */
+  /* Semantic backgrounds - colored scales, step 3 */
   --bg-red:    #feebe7;  /* tomato3 */
   --bg-yellow: #fff4d5;  /* amber3 */
   --bg-green:  #ebf9eb;  /* grass3 */
@@ -163,15 +163,15 @@
   --bg-purple: #fbebff;  /* plum3 */
   --bg-aqua:   #e0f8f3;  /* teal3 */
   --bg-orange: #ffefd6;  /* orange3 */
-  --bg-visual: #fbebff;  /* plum3 — selection/drag highlight */
+  --bg-visual: #fbebff;  /* plum3 - selection/drag highlight */
 
-  /* Slate light scale — Foreground */
-  --fg:    #11181c;   /* slate12 — primary text */
-  --grey0: #7e868c;   /* slate10 — muted text, placeholders */
-  --grey1: #687076;   /* slate11 — secondary text, timestamps */
-  --grey2: #687076;   /* slate11 — tertiary text, labels */
+  /* Slate light scale - Foreground */
+  --fg:    #11181c;   /* slate12 - primary text */
+  --grey0: #7e868c;   /* slate10 - muted text, placeholders */
+  --grey1: #687076;   /* slate11 - secondary text, timestamps */
+  --grey2: #687076;   /* slate11 - tertiary text, labels */
 
-  /* Accent colors — step 11 from each light scale (low-contrast text step) */
+  /* Accent colors - step 11 from each light scale (low-contrast text step) */
   --red:    #ca3214;  /* tomato11 */
   --orange: #bd4b00;  /* orange11 */
   --yellow: #ab6400;  /* amber11 */
@@ -181,18 +181,18 @@
   --purple: #953ea3;  /* plum11 */
 }
 
-/* Catppuccin Mocha — dark palette with high contrast pastels */
+/* Catppuccin Mocha - dark palette with high contrast pastels */
 [data-palette="catppuccin"] {
-  /* Backgrounds — Mantle/Base/Surface/Overlay scale */
-  --bg-dim: #181825;   /* mantle — deepest background */
-  --bg0:    #1e1e2e;   /* base — default background */
-  --bg1:    #313244;   /* surface0 — raised surfaces: cards, panels */
-  --bg2:    #45475a;   /* surface1 — popups, modals, dropdowns */
-  --bg3:    #585b70;   /* surface2 — borders, dividers */
-  --bg4:    #6c7086;   /* overlay0 — subtle UI elements, disabled states */
-  --bg5:    #7f849c;   /* overlay1 — hover states on muted elements */
+  /* Backgrounds - Mantle/Base/Surface/Overlay scale */
+  --bg-dim: #181825;   /* mantle - deepest background */
+  --bg0:    #1e1e2e;   /* base - default background */
+  --bg1:    #313244;   /* surface0 - raised surfaces: cards, panels */
+  --bg2:    #45475a;   /* surface1 - popups, modals, dropdowns */
+  --bg3:    #585b70;   /* surface2 - borders, dividers */
+  --bg4:    #6c7086;   /* overlay0 - subtle UI elements, disabled states */
+  --bg5:    #7f849c;   /* overlay1 - hover states on muted elements */
 
-  /* Semantic backgrounds — darkened tints of accents */
+  /* Semantic backgrounds - darkened tints of accents */
   --bg-visual: #382a45;
   --bg-red:    #3a2432;
   --bg-yellow: #3d362a;
@@ -202,11 +202,11 @@
   --bg-aqua:   #1f3537;
   --bg-orange: #3d2a1d;
 
-  /* Foreground — Text and Subtext scale */
-  --fg:    #cdd6f4;   /* text — primary */
-  --grey0: #9399b2;   /* overlay2 — muted/placeholder */
-  --grey1: #a6adc8;   /* subtext0 — secondary */
-  --grey2: #bac2de;   /* subtext1 — tertiary */
+  /* Foreground - Text and Subtext scale */
+  --fg:    #cdd6f4;   /* text - primary */
+  --grey0: #9399b2;   /* overlay2 - muted/placeholder */
+  --grey1: #a6adc8;   /* subtext0 - secondary */
+  --grey2: #bac2de;   /* subtext1 - tertiary */
 
   /* Accent colors */
   --red:    #f38ba8;   /* red */
@@ -218,18 +218,18 @@
   --purple: #cba6f7;   /* mauve */
 }
 
-/* Catppuccin Latte — light palette */
+/* Catppuccin Latte - light palette */
 [data-palette="catppuccin"][data-theme="light"] {
   /* Backgrounds */
-  --bg-dim: #dce0e8;   /* crust — deepest/page background */
-  --bg0:    #eff1f5;   /* base — default background */
-  --bg1:    #e6e9ef;   /* mantle — raised surfaces: cards, panels */
-  --bg2:    #ccd0da;   /* surface0 — popups, modals, dropdowns */
-  --bg3:    #bcc0cc;   /* surface1 — borders, dividers */
-  --bg4:    #acb0be;   /* surface2 — subtle UI elements, disabled states */
-  --bg5:    #9ca0b0;   /* overlay0 — hover states on muted elements */
+  --bg-dim: #dce0e8;   /* crust - deepest/page background */
+  --bg0:    #eff1f5;   /* base - default background */
+  --bg1:    #e6e9ef;   /* mantle - raised surfaces: cards, panels */
+  --bg2:    #ccd0da;   /* surface0 - popups, modals, dropdowns */
+  --bg3:    #bcc0cc;   /* surface1 - borders, dividers */
+  --bg4:    #acb0be;   /* surface2 - subtle UI elements, disabled states */
+  --bg5:    #9ca0b0;   /* overlay0 - hover states on muted elements */
 
-  /* Semantic backgrounds — pale tints of accents */
+  /* Semantic backgrounds - pale tints of accents */
   --bg-visual: #e6d9f4;
   --bg-red:    #f6d5dc;
   --bg-yellow: #f7ecc9;
@@ -240,10 +240,10 @@
   --bg-orange: #fbd9c1;
 
   /* Foreground */
-  --fg:    #4c4f69;   /* text — primary */
-  --grey0: #7c7f93;   /* overlay2 — muted/placeholder */
-  --grey1: #6c6f85;   /* subtext0 — secondary */
-  --grey2: #5c5f77;   /* subtext1 — tertiary */
+  --fg:    #4c4f69;   /* text - primary */
+  --grey0: #7c7f93;   /* overlay2 - muted/placeholder */
+  --grey1: #6c6f85;   /* subtext0 - secondary */
+  --grey2: #5c5f77;   /* subtext1 - tertiary */
 
   /* Accent colors */
   --red:    #d20f39;   /* red */
@@ -425,7 +425,7 @@ input, select, textarea {
   flex-direction: column;
 }
 
-/* Pill chip — matches the design mock. Mono font, tight tracking, fully
+/* Pill chip - matches the design mock. Mono font, tight tracking, fully
    rounded. Color tints are applied via inline style at the call site. */
 .chip-pill {
   display: inline-flex;
@@ -442,7 +442,7 @@ input, select, textarea {
   white-space: nowrap;
 }
 
-/* Small uppercase section label — mono, wide tracking, matches the mock's
+/* Small uppercase section label - mono, wide tracking, matches the mock's
    h4 style in the rail and left column. */
 .section-eyebrow {
   font-family: var(--font-mono);
@@ -453,7 +453,7 @@ input, select, textarea {
   color: var(--grey0);
 }
 
-/* Automation rail — spread rows from the design mock. Each row puts the
+/* Automation rail - spread rows from the design mock. Each row puts the
    control label on the left and a hint/value on the right. */
 .bf-auto-stack {
   display: flex;
@@ -502,7 +502,7 @@ input, select, textarea {
   white-space: nowrap;
 }
 
-/* Bifold state-style select — used for State picker, Base branch selector,
+/* Bifold state-style select - used for State picker, Base branch selector,
    etc. Matches the design mock's `.bf-state-select`: rounded-lg, custom
    chevron SVG painted onto the background, mono label, focus-aqua. */
 .bf-state-select {
@@ -536,7 +536,7 @@ input, select, textarea {
   cursor: not-allowed;
   background-color: var(--bg1);
 }
-/* Right-rail tab strip — mono labels, sticky bg, aqua underline on the
+/* Right-rail tab strip - mono labels, sticky bg, aqua underline on the
    active tab. Mirrors the design mock's `.rail-tab` / `.rail-expand`. */
 .bf-rail-tab {
   padding: 10px 11px;
@@ -589,7 +589,7 @@ input, select, textarea {
   letter-spacing: -0.05em;
 }
 
-/* Section card for the rail's stacked sections — used in Info, Source, etc. */
+/* Section card for the rail's stacked sections - used in Info, Source, etc. */
 .bf-aside-section {
   padding: 16px 18px;
   border-bottom: 1px solid color-mix(in oklab, var(--bg3) 60%, transparent);
@@ -605,7 +605,7 @@ input, select, textarea {
   margin: 0 0 10px;
 }
 
-/* Chip color variants — bg/fg derived from the mock palette. All built on
+/* Chip color variants - bg/fg derived from the mock palette. All built on
    `.chip-pill` for shape/typography. */
 .chip-state-todo        { background-color: var(--bg2);        color: var(--grey2); }
 .chip-state-in_progress { background-color: var(--bg-blue);    color: var(--blue); }
@@ -616,7 +616,7 @@ input, select, textarea {
 .chip-state-stalled     { background-color: var(--bg-orange);  color: var(--orange); }
 .chip-state-not_planned { background-color: color-mix(in srgb, var(--bg-purple) 85%, transparent);  color: var(--purple); }
 
-/* Related-card row — used for Subtasks and Depends-on. */
+/* Related-card row - used for Subtasks and Depends-on. */
 .bf-rel-card {
   display: flex;
   align-items: center;
@@ -654,7 +654,7 @@ input, select, textarea {
   min-width: 0;
 }
 
-/* External-source pill — used in the header eyebrow and the Info → Source
+/* External-source pill - used in the header eyebrow and the Info → Source
    section. Matches the mock's `.source-link`. */
 .bf-source-link {
   display: inline-flex;
@@ -678,7 +678,7 @@ input, select, textarea {
 }
 .bf-source-link svg { display: block; }
 
-/* Activity log — grid: dot | body | time. */
+/* Activity log - grid: dot | body | time. */
 .bf-act {
   display: grid;
   grid-template-columns: 16px 1fr auto;
@@ -754,7 +754,7 @@ input, select, textarea {
   min-height: 0;
 }
 
-/* Chat compose — grid label-area + send button. */
+/* Chat compose - grid label-area + send button. */
 .bf-tk-compose {
   padding: 14px 18px;
   border-top: 1px solid color-mix(in oklab, var(--bg3) 80%, transparent);
@@ -771,7 +771,7 @@ input, select, textarea {
   min-height: 56px;
 }
 
-/* Generic input/textarea base — matches the mock's `.input`. */
+/* Generic input/textarea base - matches the mock's `.input`. */
 .bf-input {
   width: 100%;
   background: var(--bg-dim);
@@ -785,7 +785,7 @@ input, select, textarea {
 .bf-input:focus { border-color: var(--aqua); }
 .bf-input:disabled { opacity: 0.55; cursor: not-allowed; }
 
-/* Aqua primary button (Send, etc.) — matches `.btn-primary` in the mock. */
+/* Aqua primary button (Send, etc.) - matches `.btn-primary` in the mock. */
 .bf-btn-primary {
   display: inline-flex;
   align-items: center;
@@ -804,7 +804,7 @@ input, select, textarea {
 .bf-btn-primary:hover:not(:disabled) { filter: brightness(1.08); }
 .bf-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* Ghost button — used for "Just claim", "Release", "+ add dependency". */
+/* Ghost button - used for "Just claim", "Release", "+ add dependency". */
 .bf-btn-ghost {
   display: inline-flex;
   align-items: center;
@@ -899,11 +899,11 @@ input, select, textarea {
 }
 .bf-btn-danger.bf-btn-sm { padding: 5px 10px; font-size: 11.5px; }
 
-/* Bifold card detail panel — two-column drawer. Collapsed rail = 820px,
+/* Bifold card detail panel - two-column drawer. Collapsed rail = 820px,
    expanded rail = 1240px / 90vw, reshaped to 40/60. Overrides .card-panel
    width constraints; retains position, height, theming, z-index. */
 .card-panel-bifold {
-  /* Panel width is constant in both default and expanded modes —
+  /* Panel width is constant in both default and expanded modes -
      `Expand rail` reshapes the internal split (see CardPanelBody.tsx
      grid-template) instead of growing the drawer. The left column
      gives up width to the rail when expanded. `min(1040px, 100vw)`
@@ -916,7 +916,7 @@ input, select, textarea {
   box-shadow: -30px 0 80px -20px rgba(0, 0, 0, 0.5);
 }
 /* Rail column runs slightly darker than the left column so the two halves
-   of the bifold read as related-but-distinct surfaces — matches the mock. */
+   of the bifold read as related-but-distinct surfaces - matches the mock. */
 .card-panel-bifold [data-testid="body-rail"] {
   background-color: color-mix(in oklab, var(--bg-dim) 40%, var(--bg0));
 }
@@ -932,7 +932,7 @@ input, select, textarea {
  *
  * The library's CSS is lazy-loaded with the MDEditor chunk and appended to
  * <head> *after* this stylesheet. With equal selector specificity, a later
- * `!important` rule beats an earlier one — so flat `.w-md-editor-text-input`
+ * `!important` rule beats an earlier one - so flat `.w-md-editor-text-input`
  * overrides here lose to the library's identical-specificity rules. Two
  * defenses, applied together:
  *   1. Set `--md-editor-font-family` here so the library's own
@@ -1062,7 +1062,7 @@ input, select, textarea {
  * Card-panel read-only markdown: render prose in the display font so the
  * body text flows visually from the panel title (which also uses
  * var(--font-display)). Scoped via the `.bf-markdown` class applied in
- * CardPanelEditor — editor-mode preview, chat logs, and other wmde-markdown
+ * CardPanelEditor - editor-mode preview, chat logs, and other wmde-markdown
  * consumers keep the default sans stack.
  *
  * Code blocks and inline code override back to the mono stack so snippets
@@ -1144,7 +1144,7 @@ input, select, textarea {
 /* ─── Multi-pane chat layout ──────────────────────────────────────────
    Shell + per-pane styling for the global /chat route's tiled view.
    Mirrors the CardPanel visual vocabulary (Everforest vars, .bf-rail-tab
-   typography, panel-slide-in animation). See web/CLAUDE.md § Global Chat —
+   typography, panel-slide-in animation). See web/CLAUDE.md § Global Chat -
    multi-pane layout. */
 
 .chat-layout {
@@ -1404,7 +1404,7 @@ input, select, textarea {
   transition: background 0.15s;
 }
 
-/* Drop target — STATIC GLOW variant (no pulse) per the captured playground
+/* Drop target - STATIC GLOW variant (no pulse) per the captured playground
    build prompt. */
 .chat-pane--drop-target {
   border-color: var(--aqua);
@@ -1567,7 +1567,7 @@ input, select, textarea {
 }
 .chat-pane-empty-link:hover { background: var(--bg1); }
 
-/* Resize handles — driven by react-resizable-panels PanelResizeHandle.
+/* Resize handles - driven by react-resizable-panels PanelResizeHandle.
    The library adds [data-resize-handle-active] during drag, so we use it
    alongside :hover to drive the lit state. */
 .chat-pane-handle {
@@ -2124,7 +2124,7 @@ input, select, textarea {
 }
 
 /* ════════════════════════════════════════════════════════════════════════
-   Board redesign — surfaces composed by Board.tsx
+   Board redesign - surfaces composed by Board.tsx
    ════════════════════════════════════════════════════════════════════════ */
 
 /* ── Board band (header) ──────────────────────────────────────────────── */
@@ -2653,7 +2653,7 @@ input, select, textarea {
 }
 
 /* ════════════════════════════════════════════════════════════════════════
-   Board redesign — mobile (≤768px)
+   Board redesign - mobile (≤768px)
    See docs/superpowers/specs/2026-05-18-board-mobile-design.md
    ════════════════════════════════════════════════════════════════════════ */
 @media (max-width: 768px) {
@@ -2738,7 +2738,7 @@ input, select, textarea {
     flex: 1;
     min-width: 0;
   }
-  /* Hide the verbose online/offline label on phone-sized viewports — the
+  /* Hide the verbose online/offline label on phone-sized viewports - the
      coloured dot still surfaces SSE connection status without crowding the
      footer. */
   .board-footer__conn-label {
@@ -2774,7 +2774,7 @@ input, select, textarea {
 }
 
 /* ============================================================
-   Auth screens — AuthShell split layout, fields, vignette.
+   Auth screens - AuthShell split layout, fields, vignette.
    Palette-portable: CSS custom properties only.
    ============================================================ */
 
@@ -3055,7 +3055,7 @@ input, select, textarea {
   color: var(--grey1);
 }
 
-/* Static anchor dot for the brand caption — a "commit node", deliberately
+/* Static anchor dot for the brand caption - a "commit node", deliberately
    not pulsing: the caption states product facts, not live telemetry. */
 .auth-commitdot {
   width: 6px;

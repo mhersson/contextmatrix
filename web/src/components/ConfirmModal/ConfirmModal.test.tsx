@@ -14,7 +14,7 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe('ConfirmModal — rendering', () => {
+describe('ConfirmModal - rendering', () => {
   it('renders title, message, and both button labels when open=true', () => {
     render(<ConfirmModal {...defaultProps} />);
     expect(screen.getByRole('dialog')).toBeInTheDocument();
@@ -47,7 +47,7 @@ describe('ConfirmModal — rendering', () => {
   });
 });
 
-describe('ConfirmModal — callbacks', () => {
+describe('ConfirmModal - callbacks', () => {
   it('clicking Confirm calls onConfirm', () => {
     render(<ConfirmModal {...defaultProps} />);
     fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
@@ -63,7 +63,7 @@ describe('ConfirmModal — callbacks', () => {
   });
 });
 
-describe('ConfirmModal — keyboard', () => {
+describe('ConfirmModal - keyboard', () => {
   it('pressing Escape calls onCancel', () => {
     render(<ConfirmModal {...defaultProps} />);
     fireEvent.keyDown(window, { key: 'Escape' });
@@ -71,7 +71,7 @@ describe('ConfirmModal — keyboard', () => {
   });
 });
 
-describe('ConfirmModal — backdrop', () => {
+describe('ConfirmModal - backdrop', () => {
   it('clicking backdrop calls onCancel', () => {
     render(<ConfirmModal {...defaultProps} />);
     // The backdrop is aria-hidden div that wraps behind the dialog
@@ -88,7 +88,7 @@ describe('ConfirmModal — backdrop', () => {
   });
 });
 
-describe('ConfirmModal — variant', () => {
+describe('ConfirmModal - variant', () => {
   it('variant="danger" applies red accent to confirm button', () => {
     render(<ConfirmModal {...defaultProps} confirmLabel="Delete" variant="danger" />);
     const confirmBtn = screen.getByRole('button', { name: 'Delete' });
@@ -105,7 +105,7 @@ describe('ConfirmModal — variant', () => {
   });
 });
 
-describe('ConfirmModal — accessibility', () => {
+describe('ConfirmModal - accessibility', () => {
   it('dialog has role="dialog" and aria-modal="true"', () => {
     render(<ConfirmModal {...defaultProps} />);
     const dialog = screen.getByRole('dialog');

@@ -11,7 +11,7 @@ import (
 const schemaVersion = 2
 
 // ensureSchema creates every operational table if absent. Clean-cut: there is
-// no migration ledger and no backward-compat path — an obsolete DB is deleted
+// no migration ledger and no backward-compat path - an obsolete DB is deleted
 // and recreated by the operator. Holds the chat schema (sessions, messages,
 // cost archive), the model blacklist, and Best-of-N model outcomes in a
 // single ops.db.

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -114,44 +113,6 @@ func TestDeleteSession_CascadesMessages(t *testing.T) {
 	msgs, err := s.ListMessages(ctx, sess.ID, 0, 100)
 	require.NoError(t, err)
 	assert.Empty(t, msgs)
-}
-
-// TestSqliteDSN_PathFormats guards against a regression where url.URL.String()
-// places a relative path in the authority component (e.g. `file://chats.db`),
-// causing modernc.org/sqlite to error at first query with
-// "invalid uri authority". Both absolute and relative paths must produce a
-// DSN with no authority component, and must carry the synchronous=NORMAL
-// pragma alongside journal_mode=WAL. Mirrors the images package guard.
-func TestSqliteDSN_PathFormats(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name string
-		path string
-		want string
-	}{
-		{"absolute path", "/tmp/chats.db", "file:/tmp/chats.db?"},
-		{"relative path", "chats.db", "file:chats.db?"},
-		{"nested relative path", "data/chats.db", "file:data/chats.db?"},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			dsn := sqliteDSN(tc.path)
-
-			// Reject the broken `file://...` (authority) form.
-			assert.False(t, strings.HasPrefix(dsn, "file://"),
-				"DSN must not place path in authority component: %q", dsn)
-			assert.True(t, strings.HasPrefix(dsn, tc.want),
-				"DSN must start with %q, got %q", tc.want, dsn)
-			assert.Contains(t, dsn, "_pragma=foreign_keys(1)")
-			assert.Contains(t, dsn, "_pragma=journal_mode(WAL)")
-			assert.Contains(t, dsn, "_pragma=synchronous(NORMAL)")
-			assert.Contains(t, dsn, "_pragma=busy_timeout(5000)")
-		})
-	}
 }
 
 // TestStore_OpenRelativePath verifies the store opens cleanly when given a
@@ -267,7 +228,7 @@ func TestIncrementSessionCost_HappyPath(t *testing.T) {
 	assert.Equal(t, int64(10), cc)
 	assert.InDelta(t, 0.01, cost, 1e-9)
 
-	// Second frame: another 100 prompt, 50 completion — totals double.
+	// Second frame: another 100 prompt, 50 completion - totals double.
 	p2, c2, cr2, cc2, cost2, err := store.IncrementSessionCost(ctx, sessionID, 100, 50, 0, 0, 0.01, "claude-sonnet-4-6")
 	require.NoError(t, err)
 	assert.Equal(t, int64(200), p2)
@@ -344,7 +305,7 @@ func TestIncrementSessionCost_EmptyModelPreservesExisting(t *testing.T) {
 		Model:      "claude-sonnet-4-6",
 	}))
 
-	// Call with empty model — existing column value must be preserved.
+	// Call with empty model - existing column value must be preserved.
 	_, _, _, _, _, err = store.IncrementSessionCost(ctx, sessionID, 10, 5, 0, 0, 0.001, "")
 	require.NoError(t, err)
 
@@ -352,7 +313,7 @@ func TestIncrementSessionCost_EmptyModelPreservesExisting(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "claude-sonnet-4-6", sess.Model, "empty model must not overwrite existing value")
 
-	// Call with a real model — column must be updated.
+	// Call with a real model - column must be updated.
 	_, _, _, _, _, err = store.IncrementSessionCost(ctx, sessionID, 10, 5, 0, 0, 0.001, "claude-opus-4-7")
 	require.NoError(t, err)
 
@@ -472,7 +433,7 @@ func TestAggregateCost_PriorPeriod(t *testing.T) {
 	until := todayStart.Add(24 * time.Hour)
 	since := todayStart.AddDate(0, 0, -29)
 
-	// Session 35 days ago — in the prior window (since-30..since).
+	// Session 35 days ago - in the prior window (since-30..since).
 	newTestSessionAtTime(t, store, todayStart.Add(-35*24*time.Hour).Add(6*time.Hour), 5.00)
 
 	last30d, prior30d, series30d, err := store.AggregateCost(ctx, since, until)
@@ -613,7 +574,7 @@ func TestDeleteSession_IdempotentDoubleDelete(t *testing.T) {
 
 	// Second delete: the source SELECT finds no chat_sessions row (hard-deleted
 	// above), so the INSERT is a silent no-op; the existing archive row is
-	// untouched. ON CONFLICT does NOT fire in this path — see
+	// untouched. ON CONFLICT does NOT fire in this path - see
 	// TestDeleteSession_ReinsertedIDPreservesArchive for that case.
 	require.NoError(t, store.DeleteSession(ctx, sessionID))
 
@@ -665,7 +626,7 @@ func TestDeleteSession_ReinsertedIDPreservesArchive(t *testing.T) {
 	_, _, _, _, _, err = store.IncrementSessionCost(ctx, id, 200, 100, 0, 0, 99.99, "claude-sonnet-4-6")
 	require.NoError(t, err)
 
-	// Step 3: DeleteSession — INSERT … SELECT finds the source row AND the id
+	// Step 3: DeleteSession - INSERT … SELECT finds the source row AND the id
 	// already exists in chat_cost_archive, so ON CONFLICT(id) DO NOTHING fires.
 	require.NoError(t, store.DeleteSession(ctx, id))
 

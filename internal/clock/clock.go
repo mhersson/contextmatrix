@@ -5,7 +5,7 @@
 //
 // Only the subset of time operations actually needed by this codebase is
 // exposed: Now, NewTicker, After. Anything else should be added with
-// care — every primitive must have a deterministic fake semantics.
+// care - every primitive must have a deterministic fake semantics.
 package clock
 
 import (
@@ -50,7 +50,7 @@ func (r *realTicker) Stop()               { r.t.Stop() }
 //
 // Channel design: every fake timer/ticker uses a buffered-1 channel so that
 // Advance never blocks. If a ticker fires while the previous tick is still
-// buffered, the new tick is dropped — this matches stdlib time.Ticker behaviour
+// buffered, the new tick is dropped - this matches stdlib time.Ticker behaviour
 // and means tests should drain the channel between advances if they need to
 // observe each tick individually.
 type FakeClock struct {
@@ -84,8 +84,8 @@ func (t *fakeTicker) Stop() {
 	t.stopped = true
 	t.mu.Unlock()
 	// Best-effort remove from the clock's registry so Advance doesn't keep
-	// considering us. Not strictly required for correctness — stopped tickers
-	// are also skipped at fire time — but prevents unbounded slice growth in
+	// considering us. Not strictly required for correctness - stopped tickers
+	// are also skipped at fire time - but prevents unbounded slice growth in
 	// long-running tests that create/stop many tickers.
 	t.clock.removeTicker(t)
 }
@@ -149,7 +149,7 @@ func (f *FakeClock) NewTicker(d time.Duration) Ticker {
 // Advance moves the clock forward by d and fires any timers/tickers whose
 // wake time is ≤ the new now. Timers fire once; tickers reschedule. If a
 // ticker's interval has elapsed multiple times during d, it fires once per
-// elapsed interval *up to the channel buffer capacity* (1) — extra ticks are
+// elapsed interval *up to the channel buffer capacity* (1) - extra ticks are
 // coalesced, matching stdlib behaviour under slow consumers.
 func (f *FakeClock) Advance(d time.Duration) {
 	f.mu.Lock()
@@ -211,7 +211,7 @@ func (f *FakeClock) Advance(d time.Duration) {
 		select {
 		case t.ch <- newNow:
 		default:
-			// Buffer full — caller hasn't drained yet. Drop, matching stdlib.
+			// Buffer full - caller hasn't drained yet. Drop, matching stdlib.
 		}
 	}
 

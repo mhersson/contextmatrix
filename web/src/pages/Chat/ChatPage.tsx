@@ -8,6 +8,7 @@ import { useChatLayout, type ChatLayoutState, type LRUEvictionEvent } from '../.
 import { useChatSessions, notifyChatSessionsChanged } from '../../hooks/useChatSessions';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { api, isAPIError } from '../../api/client';
+import { safeRemove } from '../../utils/safeStorage';
 import { ConfirmModal } from '../../components/ConfirmModal/ConfirmModal';
 import {
   CHAT_DRAG_START_EVENT,
@@ -101,10 +102,10 @@ export function ChatPage() {
 
   // /chat/:id deep links: open the chat as a new pane on top of the
   // hydrated layout, then bounce back to /chat so refresh doesn't re-fire.
-  // In-render marker (CardPanel idiom) — not useEffect — so the redirect
+  // In-render marker (CardPanel idiom) - not useEffect - so the redirect
   // is synchronous with the prop change and avoids a double render.
   // Initialize to undefined (not deepLinkId) so the marker fires on a
-  // fresh mount at /chat/:id — typical on mobile, where a sidebar-drawer
+  // fresh mount at /chat/:id - typical on mobile, where a sidebar-drawer
   // click navigates straight from another route.
   const [prevDeepLinkId, setPrevDeepLinkId] = useState<string | undefined>(undefined);
   if (deepLinkId && deepLinkId !== prevDeepLinkId) {
@@ -219,7 +220,7 @@ export function ChatPage() {
     try {
       await api.deleteChat(chatId);
       layout.closePane(slot);
-      try { window.localStorage.removeItem('last_chat_id'); } catch { /* ignore */ }
+      safeRemove('last_chat_id');
     } catch (e) {
       const code = isAPIError(e) ? (e.code ?? 'UNKNOWN') : 'UNKNOWN';
       if (clearErrorTimerRef.current) clearTimeout(clearErrorTimerRef.current);

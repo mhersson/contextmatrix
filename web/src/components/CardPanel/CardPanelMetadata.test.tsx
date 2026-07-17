@@ -55,7 +55,7 @@ const defaultProps = {
   excludeStateFromPicker: null,
 };
 
-describe('CardPanelMetadata — status section', () => {
+describe('CardPanelMetadata - status section', () => {
   it('renders a state <select> with the current state first', () => {
     render(<CardPanelMetadata {...defaultProps} />);
     const select = screen.getByRole('combobox', { name: 'State' }) as HTMLSelectElement;
@@ -84,7 +84,7 @@ describe('CardPanelMetadata — status section', () => {
   });
 });
 
-describe('CardPanelMetadata — agent section', () => {
+describe('CardPanelMetadata - agent section', () => {
   it('shows "unassigned" + "worker ready" hint and a Just claim button when no agent holds a todo card', () => {
     render(<CardPanelMetadata {...defaultProps} />);
     expect(screen.getByText('unassigned')).toBeInTheDocument();
@@ -174,7 +174,7 @@ describe('CardPanelMetadata — agent section', () => {
   });
 });
 
-describe('CardPanelMetadata — parent section', () => {
+describe('CardPanelMetadata - parent section', () => {
   it('renders Parent section when card.parent is defined', () => {
     render(<CardPanelMetadata {...defaultProps} card={subtaskCard} editedCard={subtaskCard} />);
     expect(screen.getByText('Parent')).toBeInTheDocument();
@@ -201,7 +201,7 @@ describe('CardPanelMetadata — parent section', () => {
   });
 });
 
-describe('CardPanelMetadata — source section', () => {
+describe('CardPanelMetadata - source section', () => {
   it('renders the vetted checkbox when card.source is set', () => {
     const sourced: Card = {
       ...baseCard,

@@ -18,7 +18,7 @@ const (
 )
 
 // Credential is one instance-pool entry. Name is the immutable key that
-// .board.yaml bindings reference. EncryptedSecret is opaque here — the store
+// .board.yaml bindings reference. EncryptedSecret is opaque here - the store
 // never sees plaintext secrets (encryption lives in internal/auth).
 type Credential struct {
 	Name            string
@@ -62,7 +62,7 @@ func (s *Store) CredentialByName(ctx context.Context, name string) (*Credential,
 }
 
 // ListCredentials returns all pool entries ordered by name. EncryptedSecret
-// is included — the API layer is responsible for never serializing it.
+// is included - the API layer is responsible for never serializing it.
 func (s *Store) ListCredentials(ctx context.Context) ([]*Credential, error) {
 	rows, err := s.db.QueryContext(ctx, credentialSelect+` ORDER BY name`)
 	if err != nil {
@@ -88,7 +88,7 @@ func (s *Store) ListCredentials(ctx context.Context) ([]*Credential, error) {
 	return creds, nil
 }
 
-// UpdateCredentialSecret rotates the encrypted secret in place — bindings
+// UpdateCredentialSecret rotates the encrypted secret in place - bindings
 // reference the name, so nothing else moves.
 func (s *Store) UpdateCredentialSecret(ctx context.Context, name string, encryptedSecret []byte, now time.Time) error {
 	return s.updateCredential(ctx, name,
@@ -102,14 +102,14 @@ func (s *Store) UpdateCredentialMetadata(ctx context.Context, name, host, apiBas
 		host, apiBaseURL, appID, installationID, toUnix(now))
 }
 
-// SetCredentialDisabled toggles the disabled flag — the softer alternative
+// SetCredentialDisabled toggles the disabled flag - the softer alternative
 // to deletion.
 func (s *Store) SetCredentialDisabled(ctx context.Context, name string, disabled bool, now time.Time) error {
 	return s.updateCredential(ctx, name, `disabled = ?, updated_at = ?`, boolToInt(disabled), toUnix(now))
 }
 
 // DeleteCredential removes a pool entry. The "still bound to projects" guard
-// is API-layer policy — the store has no view of .board.yaml.
+// is API-layer policy - the store has no view of .board.yaml.
 func (s *Store) DeleteCredential(ctx context.Context, name string) error {
 	res, err := s.db.ExecContext(ctx, `DELETE FROM credentials WHERE name = ?`, name)
 	if err != nil {
@@ -130,12 +130,12 @@ func (s *Store) DeleteCredential(ctx context.Context, name string) error {
 
 // RotateCredentialSecrets re-encrypts every pool secret inside a single
 // transaction. reencrypt receives each stored ciphertext blob and returns its
-// replacement; the first error it returns — or any failed write — rolls back
+// replacement; the first error it returns - or any failed write - rolls back
 // the whole batch, so the pool is never left half-rotated. It returns the
 // number of entries rewritten. updated_at is deliberately not bumped: rotation
 // re-wraps the same secret under a new key, it is not a metadata edit.
 //
-// The store stays crypto-agnostic — the decrypt-with-old/encrypt-with-new logic
+// The store stays crypto-agnostic - the decrypt-with-old/encrypt-with-new logic
 // lives in the reencrypt closure (internal/auth). All rows are read into memory
 // before any UPDATE runs so the single-connection transaction never interleaves
 // an open query with a write.

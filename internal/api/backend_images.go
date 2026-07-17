@@ -15,7 +15,7 @@ import (
 )
 
 // imageLister is the one backend capability the images route needs.
-// *backend.Client satisfies it for both the agent and chat backends — the
+// *backend.Client satisfies it for both the agent and chat backends - the
 // HMAC GET transport is identical.
 type imageLister interface {
 	ListImages(ctx context.Context) ([]backend.ImageInfo, error)
@@ -23,7 +23,7 @@ type imageLister interface {
 
 // backendImagesCacheTTL is how long a /images probe result is reused. Image
 // inventories change on redeploys, not per-request, so this is deliberately
-// longer than the health cache — and the CM-side cache is load-bearing:
+// longer than the health cache - and the CM-side cache is load-bearing:
 // concurrent same-second signed GETs produce identical signatures and would
 // collide in the backend's replay cache.
 const backendImagesCacheTTL = 30 * time.Second

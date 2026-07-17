@@ -30,7 +30,7 @@ func (f fakeProjectGetter) GetProject(_ context.Context, _ string) (*board.Proje
 }
 
 // fakeInstanceTokenProvider is a githubauth.TokenGenerator test double
-// standing in for the instance-wide fallback provider — distinct from
+// standing in for the instance-wide fallback provider - distinct from
 // whatever newTestAuthService's credential pool produces, so assert.Same /
 // assert.NotSame prove which provider newProviderForProject actually chose.
 type fakeInstanceTokenProvider struct {
@@ -72,7 +72,7 @@ func newTestAuthService(t *testing.T) *auth.Service {
 	return authSvc
 }
 
-// TestNewProviderForProject directly exercises newProviderForProject — the
+// TestNewProviderForProject directly exercises newProviderForProject - the
 // extracted, named form of the resolution logic that used to live only as an
 // inline closure in main() (see provider.go). Before this extraction,
 // internal/api/backend_test.go could only pin a hand-typed replica of this

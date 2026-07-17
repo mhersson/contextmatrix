@@ -63,7 +63,7 @@ type Syncer struct {
 }
 
 // NewSyncer creates a new Syncer. Returns nil if the repository has no remote
-// configured or the git binary is not found — sync is silently disabled.
+// configured or the git binary is not found - sync is silently disabled.
 // Auth credentials are obtained at call time via the Manager's AuthEnv method.
 func NewSyncer(
 	git *gitops.Manager,
@@ -113,7 +113,7 @@ func (s *Syncer) SetClock(c clock.Clock) {
 }
 
 // PullOnStartup performs an initial pull+rebase. Errors are returned but
-// should not abort startup — the caller decides.
+// should not abort startup - the caller decides.
 func (s *Syncer) PullOnStartup(ctx context.Context) error {
 	return s.pullRebase(ctx, "startup")
 }
@@ -212,7 +212,7 @@ func (s *Syncer) pullRebase(ctx context.Context, trigger string) error {
 	}
 
 	// Obtain auth credentials once and reuse for all network operations.
-	// A nil-provider error means SSH mode — proceed without injecting env
+	// A nil-provider error means SSH mode - proceed without injecting env
 	// (the SSH agent handles auth). Any other error (e.g. token-mint failure)
 	// is logged as a warning so the root cause is visible; the subsequent
 	// network call will then fail with the real permission error.
@@ -234,7 +234,7 @@ func (s *Syncer) pullRebase(ctx context.Context, trigger string) error {
 	behind, err := s.isBehind(ctx, branch, remote)
 	if err != nil {
 		// Remote tracking ref may not exist (e.g., first push hasn't happened).
-		// This is not an error — just means nothing to pull.
+		// This is not an error - just means nothing to pull.
 		slog.Debug("git sync: cannot determine if behind", "error", err)
 		s.setSuccess()
 		s.publishCompleted(trigger, false, time.Since(start))
@@ -254,7 +254,7 @@ func (s *Syncer) pullRebase(ctx context.Context, trigger string) error {
 	// uncommitted changes before the rebase and restores them after, so a
 	// dirty worktree does not block the sync.
 	if _, err := runGit(ctx, s.repoPath, authEnv, "rebase", "--autostash", remote); err != nil {
-		// Rebase conflict — abort and report.
+		// Rebase conflict - abort and report.
 		slog.Error("git sync: rebase conflict, aborting", "error", err)
 
 		if abortErr := runGitAbort(ctx, s.repoPath); abortErr != nil {
@@ -306,7 +306,7 @@ var reNonFastForward = regexp.MustCompile(`(?i)(non-fast-forward|fetch first|can
 //
 // Each call to git.Push is made while holding the service write lock so that
 // push's shell git subprocess cannot race against pullRebase's shell fetch/rebase
-// subprocess — both touch the same .git directory and can collide on
+// subprocess - both touch the same .git directory and can collide on
 // .git/index.lock without this serialization. pullRebase acquires writeMu
 // itself, so the lock must be released before calling it to avoid a deadlock.
 func (s *Syncer) pushWithRetry(ctx context.Context) error {
@@ -338,7 +338,7 @@ func (s *Syncer) pushWithRetry(ctx context.Context) error {
 		return ctx.Err()
 	}
 
-	// pullRebase acquires writeMu itself — must NOT be called under writeMu.
+	// pullRebase acquires writeMu itself - must NOT be called under writeMu.
 	slog.Info("git sync: push rejected (non-fast-forward), pulling first")
 
 	if err := s.pullRebase(ctx, "push_retry"); err != nil {

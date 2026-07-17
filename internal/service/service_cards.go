@@ -81,10 +81,10 @@ type UpdateCardInput struct {
 	ModelCoder        string
 	ModelReviewer     string
 	// BestOfN: human-set only, like the model pins. Value type matches PUT's
-	// full-replacement semantics — omitted/zero clears the field.
+	// full-replacement semantics - omitted/zero clears the field.
 	BestOfN int
 	// Mob session fields: human-set only, like the model pins. PUT full-replacement
-	// semantics — omitted/zero values clear them.
+	// semantics - omitted/zero values clear them.
 	MobParticipants int
 	MobPhases       []string
 	MobGuests       []string
@@ -249,7 +249,7 @@ type PageOpts struct {
 // NextCursor is empty when the current page is the last page; otherwise it is
 // the base64url-encoded ID of the last item, suitable for passing back in
 // PageOpts.Cursor. Total is populated only on the first page (empty
-// PageOpts.Cursor; see ListCardsPage doc), derived from the un-filtered project card count — not
+// PageOpts.Cursor; see ListCardsPage doc), derived from the un-filtered project card count - not
 // the filtered page count.
 type ListCardsPageResult struct {
 	Items      []*board.Card
@@ -297,7 +297,7 @@ func decodePageCursor(cursor string) (string, error) {
 // project card count so clients can show a "X cards total" hint without
 // paying the filter cost on every request.
 //
-// Callers are responsible for limit/cursor validation — this method trusts
+// Callers are responsible for limit/cursor validation - this method trusts
 // the inputs and only rejects cursors that fail base64url decoding.
 func (s *CardService) ListCardsPage(
 	ctx context.Context, project string, filter storage.CardFilter, opts PageOpts,
@@ -422,7 +422,7 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 		return nil, errors.Join(append([]error{err}, s.rollbackCreate(ctx, project, card, cfg)...)...)
 	}
 
-	// Publish event — include source metadata so SSE listeners can
+	// Publish event - include source metadata so SSE listeners can
 	// display contextual notifications (e.g. "New issue from GitHub").
 	var eventData map[string]any
 	if input.Source != nil {
@@ -602,7 +602,7 @@ func (s *CardService) applyDedupGuard(
 
 // commitNewCardWithNextID persists the card to the store and commits both the
 // card file and the updated .board.yaml (NextID increment) to git. Card
-// creation always commits immediately — even when gitDeferredCommit is true —
+// creation always commits immediately - even when gitDeferredCommit is true -
 // because a new card is a discrete, durable event that must survive a git pull
 // on another machine. The commit is routed through the queue when configured,
 // but awaited under writeMu (held by CreateCard) so a failed commit can be
@@ -644,7 +644,7 @@ func (s *CardService) commitNewCardWithNextID(ctx context.Context, project strin
 // rollbackCreate removes an orphaned card file and restores NextID after a
 // git commit failure, mirroring the snapshot/restore discipline of
 // applyCardMutation. Any rollback errors are returned so the caller can join
-// them with the primary git error — this surfaces partial-rollback scenarios
+// them with the primary git error - this surfaces partial-rollback scenarios
 // (e.g. orphaned card on disk) to the caller rather than silently discarding
 // them.
 func (s *CardService) rollbackCreate(ctx context.Context, project string, card *board.Card, cfg *board.ProjectConfig) []error {
@@ -731,7 +731,7 @@ func (s *CardService) buildUpdateApply(ctx context.Context, input UpdateCardInpu
 				input.Type = cfg.Types[0]
 			}
 		case input.Parent == "" && card.Parent == "":
-			// No parent before or after: reject "subtask" — it requires a parent.
+			// No parent before or after: reject "subtask" - it requires a parent.
 			if input.Type == board.SubtaskType {
 				return fmt.Errorf("validate card: %w", &board.ValidationError{
 					Err:     board.ErrInvalidType,
@@ -789,7 +789,7 @@ func (s *CardService) buildUpdateApply(ctx context.Context, input UpdateCardInpu
 			card.Phase = *input.Phase
 		}
 
-		// BranchName is immutable after first generation — only set when empty.
+		// BranchName is immutable after first generation - only set when empty.
 		if card.FeatureBranch && card.BranchName == "" {
 			card.BranchName = generateBranchName(card.ID, card.Title)
 		}
@@ -963,7 +963,7 @@ func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput)
 
 		if input.FeatureBranch != nil {
 			card.FeatureBranch = *input.FeatureBranch
-			// BranchName is immutable after first generation — only set when empty.
+			// BranchName is immutable after first generation - only set when empty.
 			if card.FeatureBranch && card.BranchName == "" {
 				card.BranchName = generateBranchName(card.ID, card.Title)
 			}
@@ -1305,8 +1305,8 @@ type mutationOpts struct {
 // It owns the standard flow:
 //
 //  1. Acquire writeMu.
-//  2. Load card and project config. The loaded card — a deep copy owned by
-//     this goroutine — is retained as a snapshot for rollback.
+//  2. Load card and project config. The loaded card - a deep copy owned by
+//     this goroutine - is retained as a snapshot for rollback.
 //  3. Call apply to mutate the card in place and perform mutation-specific
 //     validation (state transition, dependency check, etc.). Apply receives
 //     the card and cfg; it returns an error to abort with no side effects.
@@ -1552,7 +1552,7 @@ func (s *CardService) publishStateOrUpdate(
 	// Carry the acting agent on every published event so SSE consumers that
 	// filter by agent (e.g. NowRail activity feed) can render the row
 	// without needing to refetch the card. Empty agent (UpdateCard without
-	// an X-Agent-ID) normalises to "system" — matches the convention
+	// an X-Agent-ID) normalises to "system" - matches the convention
 	// appendStateChangeLog uses when writing the activity-log entry.
 	eventAgent := agentID
 	if eventAgent == "" {

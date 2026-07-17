@@ -7,7 +7,7 @@ import "strings"
 const HumanAgentIDPrefix = "human:"
 
 // IsHumanAgentID reports whether id is a non-empty human-prefixed agent ID.
-// The check is intentionally weak per the trust model — it enforces a workflow
+// The check is intentionally weak per the trust model - it enforces a workflow
 // contract ("only humans may invoke this"), not a security boundary. The
 // non-empty-suffix requirement keeps audit values meaningful: a bare "human:"
 // token would otherwise pass and persist as a useless owner string.

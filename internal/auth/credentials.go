@@ -22,12 +22,12 @@ var (
 	ErrNoCredentialKey    = errors.New("auth: credential key not configured")
 )
 
-// ErrCredentialUnavailable — missing, disabled, or undecryptable pool entry.
+// ErrCredentialUnavailable - missing, disabled, or undecryptable pool entry.
 // Callers fail closed: never substitute the instance credential.
 var ErrCredentialUnavailable = errors.New("auth: credential unavailable")
 
 // CredentialInput is a create/rotate submission. Secret is plaintext in
-// memory only — it is encrypted before storage and never returned.
+// memory only - it is encrypted before storage and never returned.
 type CredentialInput struct {
 	Name           string
 	Kind           authstore.CredentialKind
@@ -150,7 +150,7 @@ func (s *Service) RotateMasterKey(ctx context.Context, oldMaster, newMaster []by
 	return s.store.RotateCredentialSecrets(ctx, func(blob []byte) ([]byte, error) {
 		plaintext, err := DecryptSecret(oldKey, blob)
 		if err != nil {
-			// Wrong old key or a corrupt entry — abort the whole rotation.
+			// Wrong old key or a corrupt entry - abort the whole rotation.
 			return nil, err
 		}
 
@@ -160,7 +160,7 @@ func (s *Service) RotateMasterKey(ctx context.Context, oldMaster, newMaster []by
 
 // UpdateCredentialMetadata edits the non-secret fields, re-validating the
 // credential against GitHub with the DECRYPTED stored secret and the merged
-// metadata — a host or installation change can silently invalidate an entry
+// metadata - a host or installation change can silently invalidate an entry
 // otherwise.
 func (s *Service) UpdateCredentialMetadata(ctx context.Context, name, host, apiBaseURL string, appID, installationID int64) error {
 	if s.credKey == nil {
@@ -202,7 +202,7 @@ func (s *Service) DeleteCredential(ctx context.Context, name string) error {
 }
 
 // CredentialExists reports whether a pool entry with this name exists.
-// Disabled entries still count as existing — .board.yaml bindings validate
+// Disabled entries still count as existing - .board.yaml bindings validate
 // against the name space, not current usability; a disabled credential is a
 // runtime resolution failure (fail-closed), not an invalid binding.
 func (s *Service) CredentialExists(ctx context.Context, name string) (bool, error) {
@@ -218,7 +218,7 @@ func (s *Service) CredentialExists(ctx context.Context, name string) (bool, erro
 	return true, nil
 }
 
-// ListCredentials returns pool entries with even the ciphertext stripped —
+// ListCredentials returns pool entries with even the ciphertext stripped -
 // no caller of this method has any business holding encrypted bytes.
 func (s *Service) ListCredentials(ctx context.Context) ([]*authstore.Credential, error) {
 	creds, err := s.store.ListCredentials(ctx)
@@ -291,7 +291,7 @@ func CheckCredentialAgainstGitHub(ctx context.Context, in CredentialInput) error
 		}
 
 		// TokenGenerator.GenerateToken returns (token, expiresAt, err); the
-		// brief's sketch assumed a 2-value signature (adaptation point —
+		// brief's sketch assumed a 2-value signature (adaptation point -
 		// verified via `go doc ... TokenGenerator`).
 		if _, _, err := provider.GenerateToken(ctx); err != nil {
 			return err
@@ -331,7 +331,7 @@ func CheckCredentialAgainstGitHub(ctx context.Context, in CredentialInput) error
 // was built from. authstore's UpdatedAt is whole-second granularity, and a
 // single admin request can do a metadata update followed by a secret rotate
 // as two sequential writes landing in the same second (see putCredential in
-// internal/api/admin_credentials.go) — so UpdatedAt alone is NOT sufficient
+// internal/api/admin_credentials.go) - so UpdatedAt alone is NOT sufficient
 // to make rotation self-invalidating. secretFP (a fingerprint of the
 // encrypted secret) closes that gap: a cache hit requires both to match.
 type providerCacheEntry struct {

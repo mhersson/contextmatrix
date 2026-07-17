@@ -27,7 +27,7 @@ var workerLabels = []string{
 	"contextmatrix.chat=true",
 }
 
-// TestMain builds ONLY the CM binary up front — the sibling agent/chat repos
+// TestMain builds ONLY the CM binary up front - the sibling agent/chat repos
 // are built lazily by ensureAgentAssets/ensureChatAssets so backend-free tests
 // (TestMultiUserAdminSurface, TestChatREST, TestSmoke) run with no sibling
 // checkout present. Docker worker images are likewise built on demand.

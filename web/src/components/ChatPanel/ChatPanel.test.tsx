@@ -5,7 +5,7 @@ import { useWorkerLogs } from '../../hooks/useWorkerLogs';
 import { formatHHMM, formatTitle } from '../../utils/chatTimestamp';
 import type { LogEntry } from '../../types';
 
-// Local formatter matching the production instance — locale pinned to 'en-GB'
+// Local formatter matching the production instance - locale pinned to 'en-GB'
 // so HH:MM output is deterministic regardless of the test environment's locale.
 const hhmmFormatter = new Intl.DateTimeFormat('en-GB', {
   hour: '2-digit',
@@ -146,7 +146,7 @@ describe('ChatPanel', () => {
 
   describe('speaker chips (mob session discussions)', () => {
     /**
-     * External producer boundary — real e2e proof against live
+     * External producer boundary - real e2e proof against live
      * contextmatrix-agent mob-session traffic is out of scope for this
      * repository. The agent backend (contextmatrix-agent) must populate
      * protocol.LogEntry.Model for moderator and seat discussion frames;
@@ -256,7 +256,7 @@ describe('ChatPanel', () => {
       // Assert the semantic tokens are referenced (no hardcoded hex).
       expect(modelChip.style.backgroundColor).toBe('var(--bg-purple)');
       expect(modelChip.style.color).toBe('var(--purple)');
-      // The speaker chip, by contrast, must NOT use the purple token — it
+      // The speaker chip, by contrast, must NOT use the purple token - it
       // uses the per-author idColor accent, keeping the two pills visually
       // distinct.
       const speakerChip = screen.getByTestId('speaker-chip');

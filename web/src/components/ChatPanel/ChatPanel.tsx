@@ -33,7 +33,7 @@ export interface ChatPanelProps {
    * Imperative-style focus trigger: whenever this value changes (and the
    * compose textarea is mounted, i.e. not in read-only/cold state), the
    * textarea grabs focus. Multi-pane chat passes the active pane's
-   * sessionID — so opening / focusing a pane puts the cursor in its
+   * sessionID - so opening / focusing a pane puts the cursor in its
    * compose box without an extra click. Leave undefined to opt out.
    */
   focusKey?: string | number;
@@ -258,8 +258,8 @@ function ChatEntry({ entry, stamp }: { entry: LogEntry; stamp: { hhmm: string; t
  *
  * When `model` is present and non-empty, a second pill is rendered on the
  * same line (flex row) beside the speaker pill. The model pill uses the
- * `--purple` accent — the same semantic token the Automation tab uses for
- * mob-phase chips (background `--bg-purple`, text `--purple`) — so it reads
+ * `--purple` accent - the same semantic token the Automation tab uses for
+ * mob-phase chips (background `--bg-purple`, text `--purple`) - so it reads
  * as a consistent, mob-related accent regardless of the author's own color.
  * Long model slugs (e.g. `z-ai/glm-5.2`) wrap naturally; truncation, if
  * needed on narrow panes, is a follow-up.

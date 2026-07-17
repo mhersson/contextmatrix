@@ -61,7 +61,7 @@ type CardCost struct {
 // MetricSeries holds an 8-sample daily window (oldest first, today last) for
 // each tile on the board's metrics ribbon. Shipped is bucketed by Updated
 // across cards in the done state. The other three are reconstructed by
-// walking each card's state_changed activity-log entries — accurate for cards
+// walking each card's state_changed activity-log entries - accurate for cards
 // that have state-change entries; for older cards without state-change entries
 // the sparkline falls back to the card's
 // current state. ActiveAgents counts cards where the reconstructed state
@@ -69,7 +69,7 @@ type CardCost struct {
 // (claim history isn't tracked, so per-day agent presence is approximate).
 // The *Parents variants (InFlightParents, StalledParents, ShippedParents)
 // mirror the above but exclude subtasks (cards with a non-empty Parent field).
-// ActiveAgents has no parents variant by design — an agent working a subtask
+// ActiveAgents has no parents variant by design - an agent working a subtask
 // is still real activity.
 type MetricSeries struct {
 	ActiveAgents    []int `json:"active_agents"`
@@ -122,7 +122,7 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 	now := s.clk.Now()
 	tz := now.Location()
 
-	// State counts: too trivial to extract — just two lines per card.
+	// State counts: too trivial to extract - just two lines per card.
 	stateCounts := make(map[string]int)
 	stateCountsParents := make(map[string]int)
 
@@ -355,12 +355,12 @@ func bucketSparkline(cards []*board.Card, now time.Time, tz *time.Location) Metr
 // the wire, the per-card cost list, and the grand total.
 //
 // For cards with UsageBreakdown the per-(agent, model) rows are the source of
-// truth — this fixes post-release attribution where card.AssignedAgent is empty.
+// truth - this fixes post-release attribution where card.AssignedAgent is empty.
 // Legacy cards without breakdown fall back to card.AssignedAgent for the agent
 // rollup so historical data is not regressed.
 //
 // Map iteration is randomized, so the sort is a determinism guarantee at the
-// API boundary — the frontend re-sorts for display.
+// API boundary - the frontend re-sorts for display.
 func aggregateCostsByAgentModel(cards []*board.Card) (agentCosts []AgentCost, modelCosts []ModelCost, cardCosts []CardCost, totalCostUSD float64) {
 	agentCostMap := make(map[string]*AgentCost)
 	modelCostMap := make(map[string]*ModelCost)
@@ -385,7 +385,7 @@ func aggregateCostsByAgentModel(cards []*board.Card) (agentCosts []AgentCost, mo
 		if len(card.UsageBreakdown) > 0 {
 			// Breakdown path: sum each (agent, model) bucket directly.
 			// CardCount on both rollups is incremented once per card, not
-			// per bucket — two buckets on the same agent or model (e.g. two
+			// per bucket - two buckets on the same agent or model (e.g. two
 			// agents using one model) must not double-count the card.
 			cardAccounted := make(map[string]bool)  // agent → counted
 			modelAccounted := make(map[string]bool) // model → counted
@@ -593,8 +593,8 @@ type ActivityFeedEntry struct {
 // Today this iterates the card cache, flattens each card's log, sorts, and
 // truncates. For projects in the low-thousands of cards it is fine; if it
 // ever becomes a hot path, the store can grow a dedicated index. Lives in
-// the service layer (not the handler) so future consumers — MCP tool, CLI,
-// alternate UI — reuse the same primitive.
+// the service layer (not the handler) so future consumers - MCP tool, CLI,
+// alternate UI - reuse the same primitive.
 func (s *CardService) ListActivity(ctx context.Context, project string, limit int) ([]ActivityFeedEntry, error) {
 	if limit <= 0 {
 		limit = 50
@@ -673,7 +673,7 @@ func extractStateChanges(card *board.Card) ([]stateChange, string) {
 	}
 
 	// Stable sort preserves activity-log insertion order as the tiebreaker
-	// when two state_changed entries share a timestamp — important because
+	// when two state_changed entries share a timestamp - important because
 	// stateAtTimeFromChanges treats the latest entry at-or-before t as
 	// authoritative and we want that to be the latest by insertion order
 	// when timestamps collide.

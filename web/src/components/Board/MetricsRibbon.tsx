@@ -78,7 +78,7 @@ export function MetricsRibbon({
       </div>
       {/*
         "Shipped today" is a point-in-time count and intentionally has no
-        sparkline — the trend belongs on the 7d tile, where the series
+        sparkline - the trend belongs on the 7d tile, where the series
         covers the same window the number measures. Rendering the 7d
         series under both tiles produced identical sparklines side-by-side.
       */}

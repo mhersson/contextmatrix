@@ -18,13 +18,13 @@ type chatBackendHandlers struct {
 	taskSkillsDir          string
 	taskSkillsGitRemoteURL string
 
-	// instanceTokenProvider mirrors backendHandlers.instanceTokenProvider —
+	// instanceTokenProvider mirrors backendHandlers.instanceTokenProvider -
 	// same instance-scoped, best-effort mint for the chat variant's
 	// task-skills-source response.
 	instanceTokenProvider githubauth.TokenGenerator
 }
 
-// getTaskSkillsSource serves GET /api/chat/task-skills-source — the chat service
+// getTaskSkillsSource serves GET /api/chat/task-skills-source - the chat service
 // fetches this {git_remote_url, ref} pointer and clones the task-skills repo
 // itself, mirroring the agent backend. CM stays the single source of truth.
 func (h *chatBackendHandlers) getTaskSkillsSource(w http.ResponseWriter, r *http.Request) {

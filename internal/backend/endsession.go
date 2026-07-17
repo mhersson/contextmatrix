@@ -29,7 +29,7 @@ type CardGetter interface {
 // board.StateStalled is intentionally NOT terminal here: a stalled card
 // means the agent's heartbeat timed out, which typically implies the
 // container is already dead or about to be killed by the backend's container
-// timeout — firing /end-session would be a best-effort no-op.
+// timeout - firing /end-session would be a best-effort no-op.
 var terminalStates = map[string]struct{}{
 	board.StateDone:       {},
 	board.StateNotPlanned: {},
@@ -42,7 +42,7 @@ var terminalStates = map[string]struct{}{
 //
 // Each candidate event is handled in a short-lived goroutine so a slow
 // webhook call never blocks the bus pump (events.Bus drops events for slow
-// subscribers — see internal/events/bus.go).
+// subscribers - see internal/events/bus.go).
 func StartEndSessionSubscriber(ctx context.Context, bus *events.Bus, svc CardGetter, client EndSessionClient, logger *slog.Logger) {
 	if logger == nil {
 		logger = slog.Default()
@@ -119,7 +119,7 @@ func handleEndSessionEvent(ctx context.Context, svc CardGetter, client EndSessio
 // leaked container can be traced back to the path that handled it.
 func endSessionAndKill(ctx context.Context, client EndSessionClient, logger *slog.Logger, project, cardID, state, workerStatus, source string) {
 	// Phase 1: try graceful stdin close. This is a no-op for autonomous
-	// (non-interactive) containers, where stdin was never attached — the
+	// (non-interactive) containers, where stdin was never attached - the
 	// webhook returns 409 and we fall through to the kill step below. For
 	// interactive containers where stdin is still open it signals EOF to
 	// claude; claude may or may not exit on EOF (stream-json mode has been
@@ -134,7 +134,7 @@ func endSessionAndKill(ctx context.Context, client EndSessionClient, logger *slo
 
 	// Phase 2: force-kill the container so a terminal-state card never leaves
 	// a live container behind, even if claude ignored the EOF. /kill is
-	// idempotent — it returns 200 no-op when the container is already gone
+	// idempotent - it returns 200 no-op when the container is already gone
 	// (e.g. claude did exit on EOF, or reportCompleted already cleaned up).
 	if err := client.Kill(ctx, KillPayload{CardID: cardID, Project: project}); err != nil {
 		logger.Warn("kill webhook failed after end-session",
@@ -161,8 +161,8 @@ type statusCoder interface {
 // isExpectedEndSessionErr returns true for backend responses that are normal
 // in the terminal-state flow and don't warrant a warning:
 //
-//   - 404: no container tracked (already cleaned up — kill is a no-op)
-//   - 409: no stdin attached (autonomous container — never had stdin)
+//   - 404: no container tracked (already cleaned up - kill is a no-op)
+//   - 409: no stdin attached (autonomous container - never had stdin)
 //   - 410: stdin already closed (prior /promote or prior /end-session)
 //
 // All three are handled by the follow-up /kill step, which is idempotent.

@@ -14,7 +14,7 @@ const (
 
 // Limiter is an in-memory login rate limiter keyed on account+IP. Deliberately
 // not persisted: an attacker who can restart the server has host access, which
-// is game over anyway — and memory keeps the login path allocation-free.
+// is game over anyway - and memory keeps the login path allocation-free.
 type Limiter struct {
 	mu      sync.Mutex
 	entries map[string]*limiterEntry
@@ -73,7 +73,7 @@ func (l *Limiter) Failure(key string) {
 		// The shift wraps once the count is large (shift ≥ 34 overflows
 		// int64 nanoseconds), but every wrapped value still lands in the
 		// guard below: it is negative, zero (shift ≥ 55 pushes all set bits
-		// out), or a positive multiple of 2^43 ns (~2.4h) — so each arm
+		// out), or a positive multiple of 2^43 ns (~2.4h) - so each arm
 		// clamps it to limiterMaxBlock, never a shorter-than-intended block.
 		block := time.Second << uint(e.failures-limiterFreeFailures) //nolint:gosec // overflow clamped below
 		if block > limiterMaxBlock || block <= 0 {

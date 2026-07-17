@@ -9,7 +9,7 @@ beforeEach(() => {
   clearChatLiveData(CHAT_ID);
 });
 
-describe('useChatLiveData — cost fields', () => {
+describe('useChatLiveData - cost fields', () => {
   it('stores and reads cost fields', () => {
     const { result } = renderHook(() => useChatLiveData(CHAT_ID));
 
@@ -30,7 +30,7 @@ describe('useChatLiveData — cost fields', () => {
     expect(result.current?.cacheCreationTokens).toBe(10);
   });
 
-  it('no-op writes are skipped — identical cost values trigger only one notification', () => {
+  it('no-op writes are skipped - identical cost values trigger only one notification', () => {
     const subscriber = vi.fn();
     const unsubscribe = subscribeChatLiveData(subscriber);
 
@@ -43,11 +43,11 @@ describe('useChatLiveData — cost fields', () => {
     };
 
     try {
-      // First write — changes state, must notify.
+      // First write - changes state, must notify.
       setChatLiveData(CHAT_ID, costPayload);
       expect(subscriber).toHaveBeenCalledTimes(1);
 
-      // Second write with identical values — shallowEqualLive must suppress notify.
+      // Second write with identical values - shallowEqualLive must suppress notify.
       setChatLiveData(CHAT_ID, costPayload);
       expect(subscriber).toHaveBeenCalledTimes(1);
     } finally {

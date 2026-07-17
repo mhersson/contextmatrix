@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -33,7 +32,7 @@ func toCredentialResponse(c *authstore.Credential) credentialResponse {
 	}
 }
 
-// listCredentials handles GET /api/admin/credentials — metadata only.
+// listCredentials handles GET /api/admin/credentials - metadata only.
 func (h *adminHandlers) listCredentials(w http.ResponseWriter, r *http.Request) {
 	if requireAdmin(w, r) == nil {
 		return
@@ -54,7 +53,7 @@ func (h *adminHandlers) listCredentials(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, out)
 }
 
-// createCredential handles POST /api/admin/credentials — shape-checked,
+// createCredential handles POST /api/admin/credentials - shape-checked,
 // validated live against GitHub, encrypted, stored. The secret exists only
 // in the request body.
 func (h *adminHandlers) createCredential(w http.ResponseWriter, r *http.Request) {
@@ -73,9 +72,7 @@ func (h *adminHandlers) createCredential(w http.ResponseWriter, r *http.Request)
 		Secret         string `json:"secret"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", "")
-
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 
@@ -126,9 +123,7 @@ func (h *adminHandlers) putCredential(w http.ResponseWriter, r *http.Request) {
 		Disabled       *bool   `json:"disabled"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", "")
-
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 
@@ -198,7 +193,7 @@ func (h *adminHandlers) deleteCredential(w http.ResponseWriter, r *http.Request)
 
 	name := r.PathValue("name")
 
-	// Refuse to delete a credential that projects are bound to — the admin
+	// Refuse to delete a credential that projects are bound to - the admin
 	// rebinds them first. 409 lists the blockers by name.
 	if h.listProjectConfigs != nil {
 		configs, err := h.listProjectConfigs(r.Context())

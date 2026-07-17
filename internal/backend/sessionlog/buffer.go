@@ -122,7 +122,7 @@ func (b *sessionBuffer) append(evt Event) {
 		b.totalBytes -= len(oldest.Payload)
 
 		if oldest.Type == EventTypeDropped {
-			// Absorb the count from the evicted marker — it summarised
+			// Absorb the count from the evicted marker - it summarised
 			// events already gone, carry that count forward.
 			droppedNow += droppedMarkerCount(oldest)
 		} else {

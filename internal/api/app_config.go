@@ -20,7 +20,7 @@ type appConfigHandlers struct {
 	// what the login page needs.
 	authMode string
 	// bestOfNMax/bestOfNDefault surface config.BestOfNConfig's UI-facing
-	// bounds (full payload only — see appConfigSlimResponse).
+	// bounds (full payload only - see appConfigSlimResponse).
 	bestOfNMax     int
 	bestOfNDefault int
 	// mobMaxParticipants/mobDefaultParticipants/mobGuestNames surface the
@@ -33,8 +33,8 @@ type appConfigHandlers struct {
 	// mob phase, so the UI can enable the pill and the Best-of-N exclusion.
 	mobExecuteCheckpoints bool
 	// chatEnabled reports whether a chat backend is configured (an enabled
-	// backends.chat entry with url and api_key set — see NewRouter's
-	// chatBackendConfigured). Full payload only — lets the settings UI decide
+	// backends.chat entry with url and api_key set - see NewRouter's
+	// chatBackendConfigured). Full payload only - lets the settings UI decide
 	// whether to render the chat image picker.
 	chatEnabled bool
 }
@@ -56,7 +56,7 @@ type appConfigResponse struct {
 
 // appConfigSlimResponse is served to unauthenticated callers in multi mode:
 // only what the login page needs. task_backend and favorites must be
-// genuinely absent from the JSON, not just empty — a shared struct with an
+// genuinely absent from the JSON, not just empty - a shared struct with an
 // `omitempty` tag on TaskBackend can't distinguish "not configured" (still
 // full payload, e.g. none mode with no backend wired) from "not permitted to
 // see" (slim payload), since both collapse to the zero value.
@@ -122,7 +122,7 @@ func (h *appConfigHandlers) getAppConfig(w http.ResponseWriter, r *http.Request)
 }
 
 // mobGuestNames extracts just the registry names for the UI guest
-// multi-select — URLs and bearer tokens never leave the server.
+// multi-select - URLs and bearer tokens never leave the server.
 func mobGuestNames(guests []config.MobGuest) []string {
 	if len(guests) == 0 {
 		return nil

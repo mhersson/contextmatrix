@@ -11,16 +11,16 @@ interface DangerZoneTabProps {
 }
 
 /**
- * Danger Zone rail tab — mirrors the design mock's `.bf-danger-wrap`
+ * Danger Zone rail tab - mirrors the design mock's `.bf-danger-wrap`
  * (`/tmp/card-panel-explorer.html:2232-2257`). Red-tinted intro followed by
  * a list of action cards. Each card uses the `.bf-danger-card` shell:
  * title (Fraunces 15px) → description (grey2 12.5px) → reason text (mono
  * 11px yellow, conditional) on the left, action button on the right.
  *
  * Currently lists:
- *   1. Delete card — enabled only when state ∈ {todo, not_planned} AND no
+ *   1. Delete card - enabled only when state ∈ {todo, not_planned} AND no
  *      worker attached.
- *   2. Force-release agent claim — always disabled; the backend does not
+ *   2. Force-release agent claim - always disabled; the backend does not
  *      expose the operation.
  */
 export function DangerZoneTab({ card, canDelete, deleteTooltip, isDeleting, onDelete }: DangerZoneTabProps) {
@@ -34,13 +34,13 @@ export function DangerZoneTab({ card, canDelete, deleteTooltip, isDeleting, onDe
     void onDelete();
   };
 
-  // Reason text mirrors the mock's logic — explain why the action is
+  // Reason text mirrors the mock's logic - explain why the action is
   // disabled so the user knows what to fix.
   const deleteReason = canDelete
     ? null
     : card.assigned_agent
       ? 'An agent has an active claim on this card. Release it first.'
-      : `Only cards in todo or not_planned can be deleted — current state is ${card.state.replace(/_/g, ' ')}.`;
+      : `Only cards in todo or not_planned can be deleted - current state is ${card.state.replace(/_/g, ' ')}.`;
 
   return (
     <>

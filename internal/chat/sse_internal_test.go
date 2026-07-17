@@ -57,8 +57,8 @@ func TestSSEHub_Drop_Idempotent(t *testing.T) {
 
 // TestSSEHub_PerSessNoLeak_ManyDrops verifies that after a flurry of
 // Subscribe + Publish + Drop + Unsubscribe cycles the perSess map size returns
-// to zero. It exercises Subscribe before Drop — the Subscribe +
-// deferred-Unsubscribe pattern the streamChat HTTP handler uses — so that
+// to zero. It exercises Subscribe before Drop - the Subscribe +
+// deferred-Unsubscribe pattern the streamChat HTTP handler uses - so that
 // Unsubscribe cannot lazy-create a fresh perSess entry that defeats Drop.
 func TestSSEHub_PerSessNoLeak_ManyDrops(t *testing.T) {
 	hub := NewSSEHub(8)
@@ -151,7 +151,7 @@ func TestSSEHub_PublishUnsubscribeRace_NoPanic(t *testing.T) {
 // OnLastUnsubscribe is running. Without the fix the callback fired outside
 // the per-session mutex, so a fast resubscribe could fire OnSubscribe BEFORE
 // the OnLastUnsubscribe that was supposed to seed the grace timer to be
-// cancelled by that OnSubscribe — leaving a stale 30s timer.
+// cancelled by that OnSubscribe - leaving a stale 30s timer.
 func TestSSEHub_OnLastUnsubscribeHoldsLockAgainstSubscribe(t *testing.T) {
 	hub := NewSSEHub(8)
 
@@ -197,16 +197,16 @@ func TestSSEHub_OnLastUnsubscribeHoldsLockAgainstSubscribe(t *testing.T) {
 
 	go func() {
 		<-deadline.C
-		// Racing Subscribe — it MUST block until OnLastUnsubscribe returns.
+		// Racing Subscribe - it MUST block until OnLastUnsubscribe returns.
 		_, _, _ = hub.Subscribe("S1", 0)
 	}()
 
 	// Give the racing Subscribe a chance to register if it weren't blocked.
 	select {
 	case <-subscribeFired:
-		t.Fatal("Subscribe callback fired while OnLastUnsubscribe was still running — callbacks are not under the per-session lock")
+		t.Fatal("Subscribe callback fired while OnLastUnsubscribe was still running - callbacks are not under the per-session lock")
 	case <-time.After(100 * time.Millisecond):
-		// Good — racing Subscribe is properly blocked.
+		// Good - racing Subscribe is properly blocked.
 	}
 
 	close(gate)

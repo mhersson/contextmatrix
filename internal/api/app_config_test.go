@@ -95,13 +95,13 @@ func TestGetAppConfig_Favorites(t *testing.T) {
 		var got appConfigResponse
 		require.NoError(t, json.NewDecoder(res.Body).Decode(&got))
 
-		// "fast" and "balanced" have All slugs — they appear in the response.
+		// "fast" and "balanced" have All slugs - they appear in the response.
 		require.Contains(t, got.Favorites, "fast")
 		assert.Equal(t, []string{"openrouter/auto", "anthropic/claude-haiku-4"}, got.Favorites["fast"])
 		require.Contains(t, got.Favorites, "balanced")
 		assert.Equal(t, []string{"anthropic/claude-sonnet-4-5"}, got.Favorites["balanced"])
 
-		// "frontier" only has ByRole slugs, no All — excluded from the response.
+		// "frontier" only has ByRole slugs, no All - excluded from the response.
 		assert.NotContains(t, got.Favorites, "frontier")
 	})
 
@@ -207,7 +207,7 @@ func TestGetAppConfig_Mob(t *testing.T) {
 		assert.EqualValues(t, 3, got["mob_default_participants"])
 		assert.Equal(t, []any{"laptop"}, got["mob_guest_names"])
 		assert.True(t, got["mob_execute_checkpoints"].(bool))
-		// Names ONLY — URLs and tokens must never reach the browser.
+		// Names ONLY - URLs and tokens must never reach the browser.
 		assert.NotContains(t, w.Body.String(), "192.0.2.1")
 		assert.NotContains(t, w.Body.String(), "guest-secret")
 	})
@@ -229,7 +229,7 @@ func TestGetAppConfig_Mob(t *testing.T) {
 
 	t.Run("slim payload omits mob fields", func(t *testing.T) {
 		// authMode "multi" + no session -> appConfigSlimResponse, which has
-		// no mob fields at all — same posture as best_of_n.
+		// no mob fields at all - same posture as best_of_n.
 		h := &appConfigHandlers{
 			theme:                  "everforest",
 			authMode:               "multi",

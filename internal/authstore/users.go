@@ -11,7 +11,7 @@ import (
 )
 
 // User is a human account. PasswordHash is nil until the user redeems their
-// invite link — and stays nullable as the seam for future OAuth-only users.
+// invite link - and stays nullable as the seam for future OAuth-only users.
 type User struct {
 	ID           int64
 	Username     string
@@ -71,7 +71,7 @@ func (s *Store) CreateUser(ctx context.Context, username, displayName string, is
 
 // CreateFirstAdmin inserts the bootstrap admin if and only if the users
 // table is empty. The guarded INSERT…SELECT makes the zero-user check atomic
-// with the insert — two concurrent bootstrap redemptions cannot both win.
+// with the insert - two concurrent bootstrap redemptions cannot both win.
 func (s *Store) CreateFirstAdmin(ctx context.Context, username, displayName string, now time.Time) (*User, error) {
 	username = NormalizeUsername(username)
 	if !usernameRe.MatchString(username) {
@@ -155,13 +155,13 @@ func (s *Store) SetDisplayName(ctx context.Context, id int64, displayName string
 }
 
 // SetAdmin toggles the admin flag. The last-admin guard lives in the API
-// layer via CountActiveAdmins — the store stays policy-free.
+// layer via CountActiveAdmins - the store stays policy-free.
 func (s *Store) SetAdmin(ctx context.Context, id int64, isAdmin bool, now time.Time) error {
 	return s.updateUser(ctx, id, `is_admin = ?`, boolToInt(isAdmin), now)
 }
 
 // SetDisabled toggles the disabled flag. Callers must also delete the user's
-// sessions (see DeleteSessionsForUser) — the store does not couple the two.
+// sessions (see DeleteSessionsForUser) - the store does not couple the two.
 func (s *Store) SetDisabled(ctx context.Context, id int64, disabled bool, now time.Time) error {
 	return s.updateUser(ctx, id, `disabled = ?`, boolToInt(disabled), now)
 }
@@ -171,7 +171,7 @@ func (s *Store) TouchLastLogin(ctx context.Context, id int64, now time.Time) err
 	return s.updateUser(ctx, id, `last_login_at = ?`, toUnix(now), now)
 }
 
-// CountActiveAdmins counts admins that are not disabled — the input to the
+// CountActiveAdmins counts admins that are not disabled - the input to the
 // last-admin guard.
 func (s *Store) CountActiveAdmins(ctx context.Context) (int, error) {
 	var n int
@@ -185,7 +185,7 @@ func (s *Store) CountActiveAdmins(ctx context.Context) (int, error) {
 }
 
 // SetAdminGuarded demotes an admin only if at least one OTHER active admin
-// exists — the guard and the write are one statement, so concurrent demotes
+// exists - the guard and the write are one statement, so concurrent demotes
 // cannot strand the instance with zero admins.
 func (s *Store) SetAdminGuarded(ctx context.Context, id int64, now time.Time) error {
 	return s.guardedAdminUpdate(ctx, id, `is_admin = 0`, now)

@@ -50,7 +50,7 @@ type ProjectConfig struct {
 	Repos       []Repo `yaml:"repos,omitempty" json:"repos,omitempty"`
 	// GitHubCredential names an instance credential-pool entry that all
 	// GitHub operations for this project use (multi-user mode). Empty means
-	// the instance github.* credential — the pre-multi-user behavior. A
+	// the instance github.* credential - the pre-multi-user behavior. A
 	// reference only; never secret material.
 	GitHubCredential string                 `yaml:"github_credential,omitempty" json:"github_credential,omitempty"`
 	States           []string               `yaml:"states" json:"states"`

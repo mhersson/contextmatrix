@@ -40,7 +40,7 @@ export function NewChatDialog({ open, onClose }: NewChatDialogProps) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [open, onClose]);
 
-  // Fetch the available models once on mount. Failures are non-fatal —
+  // Fetch the available models once on mount. Failures are non-fatal -
   // we fall back to an empty list, the picker disappears, and the create
   // POST omits the model field (the server applies its default).
   //
@@ -71,7 +71,7 @@ export function NewChatDialog({ open, onClose }: NewChatDialogProps) {
   // Reset form state when the dialog opens. Uses the in-render reset
   // pattern (web/CLAUDE.md § CardPanel) so the reset is synchronous with
   // the prop change and the React 19 lint rule (no setState in effects)
-  // stays happy. We intentionally DO NOT reset `model` here — the user's
+  // stays happy. We intentionally DO NOT reset `model` here - the user's
   // last selection persists across dialog open/close cycles, and the
   // initial value comes from the listChatModels useEffect above.
   const [prevOpen, setPrevOpen] = useState(open);
@@ -95,7 +95,7 @@ export function NewChatDialog({ open, onClose }: NewChatDialogProps) {
         project: project || undefined,
         model: model || undefined,
       });
-      // Tell any mounted sidebar to refresh its list before we navigate —
+      // Tell any mounted sidebar to refresh its list before we navigate -
       // otherwise the user lands on the new chat but the sidebar still
       // shows the old set until a manual refresh.
       notifyChatSessionsChanged();
@@ -176,7 +176,7 @@ export function NewChatDialog({ open, onClose }: NewChatDialogProps) {
           onChange={(e) => setProject(e.target.value)}
           className="bf-input w-full mb-3"
         >
-          <option value="">— Cross-project (no clone) —</option>
+          <option value="">- Cross-project (no clone) -</option>
           {projects.map((p) => (
             <option key={p.name} value={p.name}>
               {p.display_name ?? p.name}

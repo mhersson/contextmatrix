@@ -31,12 +31,12 @@ for how this maps onto all-in-one, CM-plus-worker-VM, and Kubernetes layouts.
 | Project repo clone + push (worker container) | worker (via a per-run token CM mints)          | Contents: read & write      | Contents: read and write      |
 | Pull request creation (project repos)        | worker via `gh`/model inside the container     | Pull requests: read & write | Pull requests: read and write |
 
-CM does not call GitHub's PR-creation endpoint itself — the worker container runs
+CM does not call GitHub's PR-creation endpoint itself - the worker container runs
 `gh pr create` (or equivalent) using the token CM minted for that run. CM's own
 direct GitHub traffic is boards sync, task-skills pull, issue import, and branch
 listing.
 
-App-installation tokens automatically include `Metadata: read` — that's not a
+App-installation tokens automatically include `Metadata: read` - that's not a
 separate setting. Fine-grained PAT users have to remember to include it
 explicitly.
 
@@ -49,7 +49,7 @@ explicitly.
    live).
 2. Fill in:
    - **GitHub App name**: `contextmatrix-yourorg` (must be globally unique).
-   - **Homepage URL**: any URL — required, but unused by ContextMatrix.
+   - **Homepage URL**: any URL - required, but unused by ContextMatrix.
    - **Webhook**: uncheck "Active". ContextMatrix doesn't receive webhooks from
      GitHub directly.
 3. Under **Permissions → Repository permissions**, set:
@@ -76,7 +76,7 @@ explicitly.
 2. Choose the account or org and select the repositories the App should access:
    - The **boards repo** (e.g., `contextmatrix-boards`).
    - The **task-skills repo** (e.g., `contextmatrix-task-skills`).
-   - Every project repo whose cards ContextMatrix tracks — needed both for
+   - Every project repo whose cards ContextMatrix tracks - needed both for
      CM's issue import / branch listing and for the per-run tokens CM mints so
      workers can clone and push.
 3. After installation, the URL shows the **installation ID** as a path segment
@@ -115,7 +115,7 @@ Start the server. The startup log should show:
 INFO github token provider initialized auth_mode=app
 ```
 
-The server does not validate the private-key file at config-load — it only
+The server does not validate the private-key file at config-load - it only
 checks that `private_key_path` is non-empty. A missing or unreadable PEM file
 fails on the first GitHub call (e.g., `git clone` of the boards repo) rather
 than at startup.
@@ -200,7 +200,7 @@ has access on both. See `internal/config/config.go` (`AllowedHosts`).
 - **Token committed to YAML in a public repo.** Always use env vars for secrets
   in production.
 - **Forgetting to renew a PAT.** PATs expire and ContextMatrix has no in-process
-  refresh; the day the PAT expires, all GitHub operations fail — including the
+  refresh; the day the PAT expires, all GitHub operations fail - including the
   worker tokens CM mints from it. Apps don't have this problem: the App
   credentials (App ID + private key) don't expire, only the installation tokens
   minted from them. CM wraps its provider in a caching layer that reuses

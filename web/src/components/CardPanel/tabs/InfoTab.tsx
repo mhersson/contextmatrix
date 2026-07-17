@@ -16,7 +16,7 @@ interface InfoTabProps {
 }
 
 /**
- * Info rail tab — wraps CardPanelMetadata (which is itself a composition
+ * Info rail tab - wraps CardPanelMetadata (which is itself a composition
  * of four peer files under `./metadata/`). Keeping this as a thin
  * adapter isolates the two state-change closures that need to be
  * converted to `setEditedCard` calls.

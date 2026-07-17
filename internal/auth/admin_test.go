@@ -94,7 +94,7 @@ func TestRegenerateLink_PurposeByPasswordState(t *testing.T) {
 func TestPatchGuard_MultiFieldNoPartialApply(t *testing.T) {
 	// Demote+rename in one conceptual patch: when the demote is refused
 	// (last admin), the display name must not have been applied either.
-	// The handler evaluates guards before applying — this test pins the
+	// The handler evaluates guards before applying - this test pins the
 	// service-level building block it uses.
 	svc, store, _ := newTestService(t)
 	ctx := context.Background()

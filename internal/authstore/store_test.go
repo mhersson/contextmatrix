@@ -33,7 +33,7 @@ func TestOpen_IsIdempotent(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, first.Close())
 
-	// Re-opening an already-migrated database must be a clean no-op — this is
+	// Re-opening an already-migrated database must be a clean no-op - this is
 	// the ledger property that makes upgrades safe.
 	second, err := authstore.Open(path)
 	require.NoError(t, err)

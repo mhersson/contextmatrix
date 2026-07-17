@@ -314,7 +314,7 @@ func TestGetDashboard_ModelCosts_BucketsByModel(t *testing.T) {
 
 // TestGetDashboard_ModelCosts_SameModelTwoBucketsCountsCardOnce verifies that a
 // card with two breakdown buckets on the SAME model (different agents) counts
-// once in ModelCost.CardCount — matching the legacy once-per-card semantics —
+// once in ModelCost.CardCount - matching the legacy once-per-card semantics -
 // while tokens and cost still sum across both buckets.
 func TestGetDashboard_ModelCosts_SameModelTwoBucketsCountsCardOnce(t *testing.T) {
 	ctx := context.Background()
@@ -838,7 +838,7 @@ func TestGetDashboard_NilChatCostSummarizer_ReturnsZero(t *testing.T) {
 	svc, project, cleanup := setupDashboardServiceAt(t, now)
 	t.Cleanup(cleanup)
 
-	// No SetChatCostSummarizer call — chatCostSummarizer is nil.
+	// No SetChatCostSummarizer call - chatCostSummarizer is nil.
 	data, err := svc.GetDashboard(ctx, project)
 	require.NoError(t, err)
 
@@ -848,7 +848,7 @@ func TestGetDashboard_NilChatCostSummarizer_ReturnsZero(t *testing.T) {
 }
 
 // concurrentSafeSummarizer is a minimal ChatCostSummarizer that is safe for
-// concurrent use. It returns fixed zero values and has no mutable fields —
+// concurrent use. It returns fixed zero values and has no mutable fields -
 // used only to exercise the atomic load/store path without a racy counter.
 type concurrentSafeSummarizer struct {
 	last30d   float64
@@ -863,7 +863,7 @@ func (c *concurrentSafeSummarizer) GetChatCostSummary(_ context.Context) (float6
 
 // TestSetChatCostSummarizer_ConcurrentReadWrite exercises SetChatCostSummarizer
 // and GetDashboard concurrently to confirm there is no data race under -race.
-// The test does not assert specific values — correctness is secondary to the
+// The test does not assert specific values - correctness is secondary to the
 // absence of a race-detector report.
 func TestSetChatCostSummarizer_ConcurrentReadWrite(t *testing.T) {
 	ctx := context.Background()
@@ -934,7 +934,7 @@ func TestSetChatCostSummarizer_NilDisablesBranch(t *testing.T) {
 	stub := &stubChatCostSummarizer{last30d: 9.99, prior30d: 4.44, series30d: make([]float64, 30)}
 	svc.SetChatCostSummarizer(stub)
 
-	// First call — summarizer is active.
+	// First call - summarizer is active.
 	data, err := svc.GetDashboard(ctx, project)
 	require.NoError(t, err)
 	assert.InDelta(t, 9.99, data.ChatCostUSDLast30d, 1e-9, "summarizer active: should see stub value")
@@ -950,11 +950,11 @@ func TestSetChatCostSummarizer_NilDisablesBranch(t *testing.T) {
 
 func TestStateAtTimeFromChanges_IdenticalTimestampPicksLastInsertedDeterministically(t *testing.T) {
 	t0 := time.Date(2026, 5, 17, 10, 0, 0, 0, time.UTC)
-	// Two changes at the same timestamp — extractStateChanges uses stable
+	// Two changes at the same timestamp - extractStateChanges uses stable
 	// sort so insertion order is preserved. After sort, both remain in
 	// their original relative order, and sort.Search picks the index where
-	// changes[i].ts > t, so the entry just before that index — the LAST
-	// of the two — wins. Verify the result is deterministic across runs.
+	// changes[i].ts > t, so the entry just before that index - the LAST
+	// of the two - wins. Verify the result is deterministic across runs.
 	card := &board.Card{
 		ActivityLog: []board.ActivityEntry{
 			{Action: stateChangedAction, Timestamp: t0, Message: "todo -> in_progress"},
@@ -988,7 +988,7 @@ func TestGetChatCostSummary_DeletePreservesCost(t *testing.T) {
 	now := time.Date(2026, 5, 23, 14, 0, 0, 0, time.UTC)
 	clk := clock.Fake(now)
 
-	// Build the first manager — used to capture the baseline and delete the session.
+	// Build the first manager - used to capture the baseline and delete the session.
 	mgr := chat.NewManager(chat.Config{
 		Store:   realStore,
 		Backend: noopChatBackend{},
@@ -1016,7 +1016,7 @@ func TestGetChatCostSummary_DeletePreservesCost(t *testing.T) {
 	require.NoError(t, err)
 	assert.InDelta(t, 1.50, baseline, 1e-9, "baseline last30d must include the seeded session cost")
 
-	// Delete the session — DeleteSession archives cost into chat_cost_archive.
+	// Delete the session - DeleteSession archives cost into chat_cost_archive.
 	require.NoError(t, mgr.DeleteSession(ctx, sessID))
 
 	// Build a fresh manager on the same store to bypass the 30s costCache TTL.

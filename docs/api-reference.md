@@ -16,7 +16,7 @@ DELETE /api/projects/{project}/cards/{id}
 
 POST   /api/projects/{project}/cards/{id}/claim      # agent identity from X-Agent-ID header
 POST   /api/projects/{project}/cards/{id}/release     # agent identity from X-Agent-ID header
-# heartbeat, log, context, usage, and report-push have no REST endpoint — the
+# heartbeat, log, context, usage, and report-push have no REST endpoint - the
 # MCP tools (`heartbeat`, `add_log`, `get_task_context`, `report_usage`,
 # `report_push`) are the only interface; agents never call REST directly.
 
@@ -38,7 +38,7 @@ GET    /api/backend/health                             # proxied backend /health
 GET    /api/backends/{backend}/images                  # proxied backend /images (worker-image picker; agent|chat; 30s cached; admin-gated in multi mode)
 GET    /api/worker/logs  ?project=&card_id=            # SSE log stream (card-scoped or project-scoped; fixed path; task-backend required)
 GET    /api/v1/cards/{project}/{id}/autonomous         # backend autonomous-flag read (HMAC-signed; task-backend required)
-# /api/agent/* — task-backend callback path; /api/chat/* — chat-backend callback path (paths are fixed)
+# /api/agent/* - task-backend callback path; /api/chat/* - chat-backend callback path (paths are fixed)
 
 GET    /api/worker/git-credentials  ?host=&path=       # per-repo git credentials for chat workers (bearer-authed, not HMAC; chat backend + manager required)
 
@@ -100,16 +100,16 @@ DELETE /mcp                                            # MCP Streamable HTTP ses
 **Admin/debug server:** when `admin_port` is configured (non-zero), a separate
 HTTP server binds to `admin_bind_addr` (default `127.0.0.1`) and serves:
 
-- `GET /metrics` — Prometheus text exposition format.
-- `GET /debug/pprof/*` — Go runtime profiling (heap, goroutine, profile, etc.).
+- `GET /metrics` - Prometheus text exposition format.
+- `GET /debug/pprof/*` - Go runtime profiling (heap, goroutine, profile, etc.).
 
 Neither endpoint is exposed on the main listener. The admin listener has no
-built-in authentication — keep it loopback-only, or gate it with a firewall /
+built-in authentication - keep it loopback-only, or gate it with a firewall /
 NetworkPolicy / service-mesh rule.
 
 **Agent identification:** `X-Agent-ID` header supplies agent identity. It is
 required on the agent endpoints (`/claim`, `/release`) and on any mutation of
-a claimed card — there the header value must match `assigned_agent` (403 on
+a claimed card - there the header value must match `assigned_agent` (403 on
 mismatch). It also gates human-only fields and human-only endpoints (`/run`,
 `/stop`, `/message`, `/promote`, `/stop-all`): those require an `X-Agent-ID`
 value beginning with `human:`. Read endpoints, project CRUD, sync, branches,
@@ -121,18 +121,18 @@ In `auth.mode: multi`, a logged-in session's identity (`human:<username>`)
 takes precedence over `X-Agent-ID` on any request that carries a valid session
 cookie; the header is consulted only when there is no session (MCP, HMAC
 backend callbacks, or `auth.mode: none`). This upgrades the claim/release
-ownership check above from a courtesy into real enforcement — see §
+ownership check above from a courtesy into real enforcement - see §
 Authentication (multi mode) below.
 
 **Identity is a tag, not auth (`auth.mode: none`).** In `none` mode
 ContextMatrix is single-tenant with no auth layer below `X-Agent-ID`; spoofing
 it accomplishes nothing because there is no permission gradient to escalate
 into. The `human:` prefix gates workflow contracts (only humans promote), not
-security boundaries — true in both modes, since MCP never gained a session
+security boundaries - true in both modes, since MCP never gained a session
 concept. The web UI generates a per-browser identity (`human:web-<8 hex
 chars>`) and never prompts the operator for a username. Routes that act on
 behalf of the web UI fall back to `human:web` or `human:api` when no header is
-present — intentional, because the UI is the only legitimate caller. In
+present - intentional, because the UI is the only legitimate caller. In
 `multi` mode these fallbacks are unreachable dead code on session-gated
 routes: the session guard has already rejected any request with no session
 before the fallback would run.
@@ -142,15 +142,15 @@ See § Trust model in `CLAUDE.md` and in `docs/architecture.md`.
 carry `X-Requested-With: contextmatrix`. The web UI sets this header on every
 non-GET fetch in `web/src/api/client.ts`. Cross-origin browsers cannot set
 custom headers on a "simple request" without a CORS preflight, and the server
-serves no permissive CORS for state-changing routes — a missing header is
+serves no permissive CORS for state-changing routes - a missing header is
 therefore a strong cross-origin signal and the request is rejected with 403
 `BAD_REQUEST`. Exempt paths:
 
 - `GET` / `HEAD` / `OPTIONS` on any route (read-only).
-- `/api/agent/*`, `/api/chat/*` — backend callback paths, authenticated via
+- `/api/agent/*`, `/api/chat/*` - backend callback paths, authenticated via
   per-backend HMAC; not browser paths.
-- `/mcp` — Bearer-authed MCP endpoint.
-- `/healthz`, `/readyz` — probe endpoints.
+- `/mcp` - Bearer-authed MCP endpoint.
+- `/healthz`, `/readyz` - probe endpoints.
 
 The guard sits just outside the mux; any new state-changing route must opt in to
 the guard by _not_ adding itself to the exempt list.
@@ -175,17 +175,17 @@ otherwise the server generates a UUID. The same id is emitted as the
 - 200: success (GET, PUT, PATCH; also `POST /claim`, `/release`,
   `/stop-all`, `/api/agent/status`,
   `POST /api/chats/{id}/open`, `POST /api/chats/{id}/end`,
-  `GET /api/v1/cards/.../autonomous`, `DELETE /api/admin/model-outcomes` —
+  `GET /api/v1/cards/.../autonomous`, `DELETE /api/admin/model-outcomes` -
   the latter returns the deleted row count rather than an empty 204 body)
 - 201: created (`POST /api/projects`, `POST /api/projects/{p}/cards`,
   `POST /api/chats`, `POST /api/admin/users`, `POST /api/admin/credentials`)
-- 202: accepted — async endpoint kicked off background work (`POST /run`,
+- 202: accepted - async endpoint kicked off background work (`POST /run`,
   `/stop`, `/message`, `/promote`, chat `/messages`)
 - 204: deleted (DELETE); also `POST /api/auth/logout`,
   `POST /api/auth/password`, `DELETE /api/admin/credentials/{name}`
 - 400: malformed input (bad JSON, missing/bad query param, unknown filter value,
-  missing CSRF header) — emitted with code `BAD_REQUEST`
-- 401: no/expired session, multi mode only (`UNAUTHORIZED`) — the SPA
+  missing CSRF header) - emitted with code `BAD_REQUEST`
+- 401: no/expired session, multi mode only (`UNAUTHORIZED`) - the SPA
   redirects to the login page; also a missing/invalid bearer on
   `GET /api/worker/git-credentials`, independent of `auth.mode`
 - 403: agent mismatch (wrong agent trying to modify claimed card), unvetted card
@@ -193,7 +193,7 @@ otherwise the server generates a UUID. The same id is emitted as the
   mutation (`HUMAN_ONLY_FIELD`), HMAC signature / timestamp invalid on a
   backend-callback endpoint (`INVALID_SIGNATURE`), authenticated but not admin on
   an admin-gated route, multi mode only (`FORBIDDEN`)
-- 404: card, project, chat session, or referenced parent not found —
+- 404: card, project, chat session, or referenced parent not found -
   parent-not-found uses code `PARENT_NOT_FOUND`; also unknown one-time token
   or unknown admin username (`TOKEN_INVALID`, `USER_NOT_FOUND`)
 - 409: conflict (invalid transition, card already claimed, already-running
@@ -205,7 +205,7 @@ otherwise the server generates a UUID. The same id is emitted as the
 - 410: one-time token already redeemed or past its 48-hour expiry
   (`TOKEN_INVALID`)
 - 413: request body / chat message exceeds the size cap (`CONTENT_TOO_LARGE`)
-- 422: semantic validation error — mutation body references an unknown type,
+- 422: semantic validation error - mutation body references an unknown type,
   state, priority, or invalid autonomous combination. Emitted with code
   `VALIDATION_ERROR`. **Not** used for 400-class failures.
 - 429: concurrent chat cap reached (`TOO_MANY_CHATS`), or too many failed
@@ -262,9 +262,9 @@ clients. The raw error is always logged server-side with the request's
 ## Authentication (multi mode)
 
 `/api/auth/*` and `/api/admin/*` are registered only when `auth.mode: multi`
-(the config default — see the `auth` block in `config.yaml.example`). In
+(the config default - see the `auth` block in `config.yaml.example`). In
 `auth.mode: none`, `RouterConfig.AuthService` is nil and `NewRouter` skips
-these routes, the admin routes, and the `sessionGuard` middleware entirely —
+these routes, the admin routes, and the `sessionGuard` middleware entirely -
 the router is byte-for-byte identical to a build with no auth concept, and
 every endpoint documented in this section simply is not registered: a plain
 `404 page not found` (no JSON body), not `401`. See § Trust model in
@@ -272,30 +272,30 @@ every endpoint documented in this section simply is not registered: a plain
 documents the wire contract.
 
 **Exception:** `GET`/`DELETE /api/admin/model-outcomes` is the one
-`/api/admin/*` pair registered in **both** auth modes — Best-of-N outcome
+`/api/admin/*` pair registered in **both** auth modes - Best-of-N outcome
 tracking does not depend on the auth system. It is documented at the end of
 this section, after the chat admin routes.
 
 **Session gate.** `sessionGuard` runs on every request in multi mode and
-rejects any request with no valid session — reads as well as writes, unlike
+rejects any request with no valid session - reads as well as writes, unlike
 none mode's write-only agent-identity checks. Exempt paths (reachable without
 a session): `/healthz`, `/readyz`, `/mcp`, `/api/auth/*` itself,
-`/api/app/config` (serves a slim pre-login payload — see below), the
+`/api/app/config` (serves a slim pre-login payload - see below), the
 HMAC-signed backend-callback prefixes `/api/agent/*`, `/api/chat/*`,
-`/api/v1/*`, and `/api/worker/*` (bearer-authed, not HMAC — see § Worker
+`/api/v1/*`, and `/api/worker/*` (bearer-authed, not HMAC - see § Worker
 Endpoints below). The browser-facing `/api/worker/logs` and
 `/api/backend/health` are not backend-callback paths and do require a session.
 `/api/auth/*` being session-exempt at the
-router level does not mean unauthenticated — `GET /api/auth/session` and
+router level does not mean unauthenticated - `GET /api/auth/session` and
 `POST /api/auth/password` check the session themselves and 401 without one.
 
 **Admin gate.** `requireAdmin` layers on top of the session gate. It guards
 every `/api/admin/*` route below, plus four project-management REST call
 sites: `POST /api/projects`, `PUT /api/projects/{project}`,
 `DELETE /api/projects/{project}`, and
-`POST /api/projects/{project}/recalculate-costs` — and, separately,
+`POST /api/projects/{project}/recalculate-costs` - and, separately,
 `GET /api/backends/{backend}/images` (the worker-image picker source).
-Ordinary card work — claim, release, update, transition, activity — needs
+Ordinary card work - claim, release, update, transition, activity - needs
 only a valid session, any role.
 
 **The 401 / 403 contract:**
@@ -305,10 +305,10 @@ only a valid session, any role.
 | 401    | `UNAUTHORIZED` | No session cookie, or the session is invalid/expired/for a disabled user. The SPA redirects to the login page. |
 | 403    | `FORBIDDEN`    | A valid session exists but the user is not an admin, on an admin-gated route. |
 
-Neither code is returned by `auth.mode: none` — there is no session concept,
+Neither code is returned by `auth.mode: none` - there is no session concept,
 so the code paths that produce them do not run.
 
-**Session cookie:** `cm_session` — `HttpOnly`, `SameSite=Lax` always, `Secure`
+**Session cookie:** `cm_session` - `HttpOnly`, `SameSite=Lax` always, `Secure`
 when the request arrived over TLS (directly or via `X-Forwarded-Proto`). The
 value is a random 256-bit token; only its SHA-256 hash is persisted
 server-side, so a stolen `auth.db` yields no usable session. A session idle
@@ -317,18 +317,18 @@ past 5 minutes gets a sliding renewal to `now + auth.session_idle_ttl`
 re-sets the cookie with the refreshed `Max-Age`.
 
 **CSRF still applies.** `/api/auth/*` and `/api/admin/*` are ordinary
-state-changing routes — they are **not** in the CSRF-exempt path list (see §
+state-changing routes - they are **not** in the CSRF-exempt path list (see §
 CSRF protection above). Every non-GET call, including `POST /api/auth/login`
 itself, needs `X-Requested-With: contextmatrix` or it is rejected with 403
 `BAD_REQUEST` before the session/credentials are even checked.
 
 The token-authority endpoints (`GET /api/agent/task-skills-source`,
 `GET /api/agent/git-credentials`) are a separate, HMAC-signed machine
-channel documented under § Worker & Backend Endpoints below — they are unrelated to the
+channel documented under § Worker & Backend Endpoints below - they are unrelated to the
 session/admin system here and exist in both auth modes. `GET
 /api/worker/git-credentials` (§ Worker Endpoints below) is a further machine
-channel with its own auth — a deterministic per-session bearer token, not
-HMAC request signing — likewise unrelated to sessions/admin and present in
+channel with its own auth - a deterministic per-session bearer token, not
+HMAC request signing - likewise unrelated to sessions/admin and present in
 both modes.
 
 ### POST /api/auth/login
@@ -346,7 +346,7 @@ identity:
 
 Failures are deliberately uniform: an unknown username, a disabled account, a
 wrong password, and an account whose invite was never redeemed (no password
-set) all return the same **401 `UNAUTHORIZED`** ("invalid credentials") — the
+set) all return the same **401 `UNAUTHORIZED`** ("invalid credentials") - the
 response never discloses whether a username exists.
 
 Repeated failures for the same (normalized username, client IP) pair trip an
@@ -357,7 +357,7 @@ attempt returns **429 `RATE_LIMITED`** with a `Retry-After` header (seconds).
 The client IP is the TCP peer address (`RemoteAddr`); `X-Forwarded-For` is
 deliberately not consulted, since honoring it without a trusted-proxy
 allowlist would let any client spoof its limiter key. Behind a reverse proxy
-all logins therefore share the proxy's IP in limiter keys — the per-account
+all logins therefore share the proxy's IP in limiter keys - the per-account
 half still applies. A trusted-proxy knob is recorded as future work.
 
 ```bash
@@ -369,7 +369,7 @@ curl -i -X POST http://localhost:8080/api/auth/login \
 
 ### POST /api/auth/logout
 
-No request body — deletes the session behind the `cm_session` cookie (if any)
+No request body - deletes the session behind the `cm_session` cookie (if any)
 and clears the cookie. Idempotent: logging out with no session, or an
 already-expired one, still returns **204 No Content**.
 
@@ -383,7 +383,7 @@ as the login response above.
 ### GET /api/auth/token/{token}
 
 Inspects a one-time token (bootstrap / invite / password-reset link)
-**without consuming it** — the redemption page uses this to render the right
+**without consuming it** - the redemption page uses this to render the right
 form before the user submits anything.
 
 ```json
@@ -410,7 +410,7 @@ Redeems the token: sets a password and logs the user in.
 ```
 
 `username` / `display_name` apply only to a `bootstrap` token, where they
-create the first admin account (`is_admin: true` unconditionally — bootstrap
+create the first admin account (`is_admin: true` unconditionally - bootstrap
 is refused once any user exists). For `invite` / `reset` tokens only
 `password` is read; redeeming a `reset` token additionally kills every other
 live session for the account.
@@ -428,7 +428,7 @@ consumed, so a rejected form does not burn the link.
 | 409    | `VALIDATION_ERROR`  | Bootstrap token redeemed after a user already exists                    |
 | 410    | `TOKEN_INVALID`     | Token already redeemed or expired                                      |
 | 422    | `VALIDATION_ERROR`  | `password` under 10 characters                                          |
-| 422    | `VALIDATION_ERROR`  | (bootstrap only) username invalid — "1-32 chars: a-z 0-9 . _ -, no leading/trailing punctuation" |
+| 422    | `VALIDATION_ERROR`  | (bootstrap only) username invalid - "1-32 chars: a-z 0-9 . _ -, no leading/trailing punctuation" |
 | 422    | `VALIDATION_ERROR`  | (bootstrap only) username already taken                                |
 
 ### POST /api/auth/password
@@ -441,7 +441,7 @@ session gate like `/session` above; the handler enforces auth itself.
 ```
 
 Verifies `current_password`, sets `new_password`, and deletes every other
-session for the account — the session making this call survives. Returns
+session for the account - the session making this call survives. Returns
 **204 No Content**.
 
 **Errors:**
@@ -452,7 +452,7 @@ session for the account — the session making this call survives. Returns
 | 422    | `VALIDATION_ERROR` | `new_password` under 10 characters                |
 
 **Admin endpoints.** Every route below additionally requires an admin session
-(**403 `FORBIDDEN`** otherwise — see § Admin gate above).
+(**403 `FORBIDDEN`** otherwise - see § Admin gate above).
 
 ### GET /api/admin/users
 
@@ -494,15 +494,15 @@ Response **201**:
 The server does not know its own public address, so it returns the raw token
 rather than a composed link; the admin UI builds the shareable
 `/auth/token/<token>` frontend route from it. The token is valid for 48 hours
-(`auth.OneTimeTokenTTL`) — use `POST /api/admin/users/{username}/invite` to
+(`auth.OneTimeTokenTTL`) - use `POST /api/admin/users/{username}/invite` to
 mint a replacement if it expires or is lost.
 
-**Errors:** `422 VALIDATION_ERROR` — username already taken, or invalid
+**Errors:** `422 VALIDATION_ERROR` - username already taken, or invalid
 ("1-32 chars: a-z 0-9 . _ -, no leading/trailing punctuation").
 
 ### PATCH /api/admin/users/{username}
 
-Partial update — only keys present in the body are applied, in the order
+Partial update - only keys present in the body are applied, in the order
 `display_name`, `is_admin`, `disabled`:
 
 ```json
@@ -537,7 +537,7 @@ had a password, `reset` otherwise.
 
 ### GET /api/admin/credentials
 
-Lists the GitHub credential pool — metadata only; encrypted secrets never
+Lists the GitHub credential pool - metadata only; encrypted secrets never
 leave the server.
 
 ```json
@@ -560,7 +560,7 @@ leave the server.
 
 `kind` is `app` or `pat`. `last_used_at` is omitted until the credential is
 actually resolved for a token. A project binds to one pool entry via its
-`.board.yaml` `github_credential` field — see `docs/data-model.md`.
+`.board.yaml` `github_credential` field - see `docs/data-model.md`.
 
 ### POST /api/admin/credentials
 
@@ -597,7 +597,7 @@ list above.
 
 ### PUT /api/admin/credentials/{name}
 
-Rotate the secret, update metadata, and/or toggle `disabled` — any subset in
+Rotate the secret, update metadata, and/or toggle `disabled` - any subset in
 one call, applied in that order (metadata, then secret, then disabled):
 
 ```json
@@ -628,24 +628,24 @@ Refuses to delete a credential that any project's `.board.yaml`
 { "error": "credential is bound to projects", "code": "VALIDATION_ERROR", "details": "rebind first: alpha, beta" }
 ```
 
-**409** in that case — rebind the listed projects first. Otherwise **204 No
+**409** in that case - rebind the listed projects first. Otherwise **204 No
 Content**, or **404 `VALIDATION_ERROR`** for an unknown `name` (same
 not-found convention as `PUT` above).
 
 ### GET /api/admin/chats
 
-Lists every chat session on the instance — no owner scoping. Metadata
+Lists every chat session on the instance - no owner scoping. Metadata
 and cost totals only; transcript content is never included. Query
 parameters `project`, `status`, and `limit` (default 500, max 5000)
 mirror `GET /api/chats`; `created_by` is not part of the admin filter
 surface.
 
-**Response:** `200 OK` — array of session objects (same shape as
+**Response:** `200 OK` - array of session objects (same shape as
 `GET /api/chats`).
 
 ### POST /api/admin/chats/{id}/end
 
-Force-ends any session regardless of owner — the remedy when a stuck
+Force-ends any session regardless of owner - the remedy when a stuck
 active session holds a slot of the global concurrency cap. Same
 semantics and error mapping as `POST /api/chats/{id}/end`; returns the
 updated session.
@@ -654,23 +654,23 @@ updated session.
 
 ### DELETE /api/admin/chats/{id}
 
-Deletes any session regardless of owner. Unknown IDs return 404 — the
+Deletes any session regardless of owner. Unknown IDs return 404 - the
 session is loaded before deletion (existing manager semantics). Cost
 tombstones survive, so dashboard aggregates stay accurate.
 
 **Response:** `204 No Content` · `404 CHAT_NOT_FOUND` unknown ID.
 
 There is deliberately no admin route that returns transcript content
-(no messages, stream, or open) — admin chat management is metadata and
+(no messages, stream, or open) - admin chat management is metadata and
 lifecycle only.
 
 ### GET /api/admin/model-outcomes
 
-Unlike every route above, this pair is registered in **both** auth modes —
+Unlike every route above, this pair is registered in **both** auth modes -
 Best-of-N outcome tracking does not depend on the auth system. In
 `auth.mode: none` it is open (same trust posture as project management); in
 `auth.mode: multi` it requires an admin session, same as the routes above
-(**403 `FORBIDDEN`** otherwise — see § Admin gate above).
+(**403 `FORBIDDEN`** otherwise - see § Admin gate above).
 
 Returns aggregated per-model head-to-head stats recorded by the Best-of-N
 judge phase (agent backend only; see `docs/remote-execution.md`), as reported
@@ -696,12 +696,12 @@ by the MCP `report_model_outcome` tool:
 
 `outcome_floor` echoes the configured `best_of_n.outcome_floor`
 (`config.yaml`). `active` is `true` once a model's `samples` reaches that
-floor — below it, `win_rate` is too thin a sample to bias selection, and the
+floor - below it, `win_rate` is too thin a sample to bias selection, and the
 agent's registry ignores the entry. `win_rate` is `0` when `samples` is `0`.
 
 ### DELETE /api/admin/model-outcomes
 
-Deletes every recorded outcome row. Returns **200 OK** (not 204 — the body
+Deletes every recorded outcome row. Returns **200 OK** (not 204 - the body
 reports what was deleted) with the row count:
 
 ```json
@@ -719,7 +719,7 @@ Shallow liveness probe. Always returns `200 OK` with JSON body `{"status":"ok"}`
 dependency checks are performed.
 
 Use this as a k8s `livenessProbe` target (or equivalent). Do not use it to gate
-traffic — a `200` from `/healthz` only means the process has not crashed.
+traffic - a `200` from `/healthz` only means the process has not crashed.
 
 ```bash
 curl http://localhost:8080/healthz
@@ -820,16 +820,16 @@ livenessProbe:
 }
 ```
 
-- `items` — page of cards, ordered by ID ascending. Always present (may be
+- `items` - page of cards, ordered by ID ascending. Always present (may be
   `[]`).
-- `next_cursor` — opaque base64url token; pass back in `?cursor=` to fetch the
+- `next_cursor` - opaque base64url token; pass back in `?cursor=` to fetch the
   next page. Omitted when the current page is the last page.
-- `total` — total un-filtered card count for the project. Emitted **only on the
+- `total` - total un-filtered card count for the project. Emitted **only on the
   first page** (when the request has no `cursor`). Callers can use it for
   "showing X of Y" indicators even while a filter is active.
 
-Cursors encode the last card ID of the page and are stable across filter changes
-— callers must treat them as opaque. Invalid cursors (not valid base64url)
+Cursors encode the last card ID of the page and are stable across filter changes -
+callers must treat them as opaque. Invalid cursors (not valid base64url)
 return 400 `BAD_REQUEST`.
 
 Ordering is by card ID ascending. The server sorts before slicing, so walking
@@ -837,7 +837,7 @@ Ordering is by card ID ascending. The server sorts before slicing, so walking
 once even though the underlying store iterates a map.
 
 ```bash
-# First page — 1 item, includes total.
+# First page - 1 item, includes total.
 curl "http://localhost:8080/api/projects/alpha/cards?limit=1"
 # → {"items":[{"id":"ALPHA-001", ...}],"next_cursor":"QUxQSEEtMDAx","total":3}
 
@@ -845,7 +845,7 @@ curl "http://localhost:8080/api/projects/alpha/cards?limit=1"
 curl "http://localhost:8080/api/projects/alpha/cards?limit=1&cursor=QUxQSEEtMDAx"
 # → {"items":[{"id":"ALPHA-002", ...}],"next_cursor":"QUxQSEEtMDAy"}
 
-# Last page — next_cursor omitted.
+# Last page - next_cursor omitted.
 curl "http://localhost:8080/api/projects/alpha/cards?limit=1&cursor=QUxQSEEtMDAy"
 # → {"items":[{"id":"ALPHA-003", ...}]}
 ```
@@ -889,12 +889,12 @@ is empty. Used by the Project Settings UI to populate the
 ### GET /api/app/config
 
 Returns the server-configured application settings. Exempt from the session
-guard in multi mode — the SPA needs `theme` and `auth_mode` before a session
-exists — but an unauthenticated caller in multi mode gets a slimmer payload
+guard in multi mode - the SPA needs `theme` and `auth_mode` before a session
+exists - but an unauthenticated caller in multi mode gets a slimmer payload
 (see below). Called by the frontend on startup to determine which color
 palette to apply and whether to route to the login page.
 
-**Response — `none` mode (always), or an authenticated caller in `multi`
+**Response - `none` mode (always), or an authenticated caller in `multi`
 mode:**
 
 ```json
@@ -925,31 +925,31 @@ configured). `favorites` maps each tier to its operator-configured preferred
 model slugs (the leaderboard "favorites as pin presets" surface); the field is
 omitted entirely when no favorites are configured. `best_of_n_max` /
 `best_of_n_default` mirror `config.yaml`'s `best_of_n.max_candidates` /
-`best_of_n.default_candidates` — the card panel's Best-of-N selector uses them
+`best_of_n.default_candidates` - the card panel's Best-of-N selector uses them
 as its upper bound and recommended value. Both are effectively always present (the
 configured values default to 5 and 3 and are never valid below 2), but like
 `favorites` they ride only on the full payload.
 `mob_max_participants` / `mob_default_participants` mirror `config.yaml`'s
 `mob.max_participants` / `mob.default_participants` and bound the card
 panel's mob session seats selector. `mob_guest_names` lists the `mob.guests`
-registry names for the guest multi-select — names only, never URLs or
+registry names for the guest multi-select - names only, never URLs or
 tokens; it is omitted when the registry is empty. All three ride only on the
 full payload, like the `best_of_n` fields.
 `mob_execute_checkpoints` is a bool reporting whether the server allows the
-`execute` mob phase (`mob.execute_checkpoints_enabled`, default on) — the
+`execute` mob phase (`mob.execute_checkpoints_enabled`, default on) - the
 card panel uses it to enable the `execute` phase pill and the Best-of-N
 exclusion it implies. It carries `omitempty` on the wire: when the flag is
 off the key is absent from the JSON entirely, not present as `false`. Full
 payload only, like the other mob fields.
 `chat_enabled` is true when a chat backend is configured (an enabled
-`backends.chat` entry with `url` and `api_key` set — the same condition the
-per-backend images route uses for its chat probe client) — the settings UI
+`backends.chat` entry with `url` and `api_key` set - the same condition the
+per-backend images route uses for its chat probe client) - the settings UI
 uses it to decide whether to render the chat image picker. Unlike the other
 UI-facing fields above, it has no `omitempty`: it is always present on the
 full payload, `true` or `false`, and simply absent from the slim pre-login
 payload below.
 
-**Response — unauthenticated caller in `multi` mode:** `task_backend`,
+**Response - unauthenticated caller in `multi` mode:** `task_backend`,
 `favorites`, `best_of_n_max`, `best_of_n_default`, `mob_max_participants`,
 `mob_default_participants`, `mob_guest_names`, and `chat_enabled` are not
 disclosed pre-login, so they are absent from the JSON entirely (not sent as
@@ -969,7 +969,7 @@ curl http://localhost:8080/api/app/config
 Model catalog for the card model-pin pickers. Returns the vendor-screened
 OpenRouter list (source `openrouter`) or the endpoint's served list (source
 `endpoint`) from the server-side catalog cache; `source: "none"` with an empty
-list when no catalog builder is configured. Independent of the chat mode —
+list when no catalog builder is configured. Independent of the chat mode -
 pins are an agent-backend concern.
 
 ```json
@@ -979,15 +979,15 @@ pins are an agent-backend concern.
 Card model pins (`model_orchestrator` / `model_coder` / `model_reviewer` on
 card create, update, and patch) are validated against this same served set:
 setting a pin to a slug outside it returns 422 `VALIDATION_ERROR` ("model pin
-not in catalog"). Only changed values are checked — a pre-existing pin never
-blocks unrelated card edits — and an empty or unfetched catalog disables
+not in catalog"). Only changed values are checked - a pre-existing pin never
+blocks unrelated card edits - and an empty or unfetched catalog disables
 validation entirely (fail-open).
 
 ## Project Endpoints
 
 ### POST /api/projects
 
-Admin-only in `auth.mode: multi` (403 `FORBIDDEN` for a non-admin session) —
+Admin-only in `auth.mode: multi` (403 `FORBIDDEN` for a non-admin session) -
 see § Authentication (multi mode) above. Create a new project. Either `name`
 (slug) or `display_name` (human-readable) must be provided; both may be
 provided together.
@@ -1018,7 +1018,7 @@ provided together.
 
 | Field          | Required?   | Description                                                                                                                                                  |
 | -------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `name`         | conditional | Slug — filesystem directory name, URL path segment, API identifier. Must match `^[a-zA-Z0-9][a-zA-Z0-9_-]*$`. Auto-derived from `display_name` when omitted. |
+| `name`         | conditional | Slug - filesystem directory name, URL path segment, API identifier. Must match `^[a-zA-Z0-9][a-zA-Z0-9_-]*$`. Auto-derived from `display_name` when omitted. |
 | `display_name` | conditional | Human-readable project name. May contain spaces and any printable characters. Stored in `.board.yaml`; shown in the UI sidebar.                              |
 | `prefix`       | required    | Card ID prefix (e.g. `MYPRO` → `MYPRO-001`).                                                                                                                   |
 
@@ -1053,11 +1053,11 @@ back to displaying `name`.
 
 ### PUT /api/projects/{project}
 
-Admin-only in `auth.mode: multi` (403 `FORBIDDEN` for a non-admin session) —
+Admin-only in `auth.mode: multi` (403 `FORBIDDEN` for a non-admin session) -
 see § Authentication (multi mode) above.
 
 Update the project configuration. The update body is a **subset** of
-`POST /api/projects` — `name`, `display_name`, and `prefix` are immutable and
+`POST /api/projects` - `name`, `display_name`, and `prefix` are immutable and
 not accepted here. Extra fields are available: `github` (GitHub import
 configuration), `default_skills` (project-wide task-skill fallback),
 `github_credential` (credential-pool binding for this project's GitHub
@@ -1090,13 +1090,13 @@ operations), `verify` (project-wide verify gate), and `remote_execution`
 
 To rename a project or change its prefix, recreate it via `POST /api/projects`.
 
-**`github_credential` field** — binds this project's GitHub operations
+**`github_credential` field** - binds this project's GitHub operations
 (branch listing, issue import) to one instance credential-pool entry (see
 `GET /api/admin/credentials` above). Full validation rules and both-mode
-behavior are documented in `docs/data-model.md`'s `github_credential` section
-— not repeated here.
+behavior are documented in `docs/data-model.md`'s `github_credential` section -
+not repeated here.
 
-**`default_skills` field** — three-state semantics for the project-wide
+**`default_skills` field** - three-state semantics for the project-wide
 task-skill fallback:
 
 | Value                                 | Meaning                                                           |
@@ -1105,7 +1105,7 @@ task-skill fallback:
 | `[]` (empty array)                    | Mount no task skills for cards without an explicit `skills` field |
 | `["go-development", "documentation"]` | Constrain cards without explicit `skills` to this list            |
 
-Each name in `default_skills` must exist in the configured `task_skills.dir` —
+Each name in `default_skills` must exist in the configured `task_skills.dir` -
 unknown names return 400 `VALIDATION_ERROR`. (This is the one place
 `VALIDATION_ERROR` is paired with a 400 status; the error table above maps it to
 422 for mutation bodies that are semantically invalid.) A card's own `skills`
@@ -1115,23 +1115,23 @@ The Project Settings UI exposes this as the **Default task skills** selector
 with "Mount full set" / "Mount no skills" / "Constrain to selected skills" radio
 buttons.
 
-**`verify` field** — replace-whole-struct semantics: omitting the object
+**`verify` field** - replace-whole-struct semantics: omitting the object
 preserves the stored config; a present object replaces it, and a zero-value
 object clears it. The server validates the config (invalid → 422
 `VALIDATION_ERROR`) and normalizes a zero value to absent. Fields and limits are
 documented in `docs/data-model.md`'s `verify` section. The same object is
-accepted on card create (`POST .../cards`) and card PATCH — both human-only (an
-agent setting `verify` gets 403 `HUMAN_ONLY_FIELD`) — where the card value
+accepted on card create (`POST .../cards`) and card PATCH - both human-only (an
+agent setting `verify` gets 403 `HUMAN_ONLY_FIELD`) - where the card value
 overrides the project's field by field at trigger time.
 
-**`remote_execution` field** — per-field pointer-merge semantics, unlike
+**`remote_execution` field** - per-field pointer-merge semantics, unlike
 `verify`'s replace-whole-struct: each of `worker_image` and
 `chat_worker_image` is independently omittable (preserves the stored value) or
 explicitly set. For the two image fields, an explicit empty string clears the
 override back to that backend's own default image. `worker_image` feeds the
-task backend's runs only; `chat_worker_image` feeds chat sessions only —
+task backend's runs only; `chat_worker_image` feeds chat sessions only -
 neither field falls back to the other. Both are hygiene-validated (charset,
-512-byte cap) — invalid values return 422 `VALIDATION_ERROR`. Full field
+512-byte cap) - invalid values return 422 `VALIDATION_ERROR`. Full field
 semantics are documented in `docs/data-model.md`'s remote-execution section.
 
 Returns 200 with the updated `ProjectConfig`.
@@ -1267,7 +1267,7 @@ partial day occupies `chat_cost_series_30d[29]`. **Important caching behavior:**
 All Projects view fans out one request per project), all responses within the same
 30-second window return identical chat-cost values. Frontend aggregation picks the
 **first response with a numeric `chat_cost_usd_last_30d`** (i.e. `typeof ... ===
-'number'`) — not the first non-zero value — so a genuinely-zero last30d with
+'number'`) - not the first non-zero value - so a genuinely-zero last30d with
 non-zero prior30d still propagates correctly. `chat_cost_series_30d` is omitted
 when empty; treat a missing value as `0`.
 
@@ -1286,7 +1286,7 @@ fall back to their current `state` for the whole window.
 | Counter                                           | Labels  | Meaning                                                                                                                                |
 | ------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `contextmatrix_chat_usage_unknown_model_total`    | `model` | Incremented when `handleUsageEntry` prices a frame whose model is not in `token_costs`. Tokens accumulate normally; cost stays `$0` for that frame. |
-| `contextmatrix_chat_cost_summary_errors_total`    | —       | Incremented when `GetChatCostSummary` fails inside `GetDashboard`. The dashboard still renders with zero-valued chat-cost fields on each error. |
+| `contextmatrix_chat_cost_summary_errors_total`    | -       | Incremented when `GetChatCostSummary` fails inside `GetDashboard`. The dashboard still renders with zero-valued chat-cost fields on each error. |
 
 ### GET /api/projects/{project}/activity
 
@@ -1297,10 +1297,10 @@ forward).
 
 Query parameters:
 
-- `limit` (optional, default 50, max 500) — maximum number of entries to
+- `limit` (optional, default 50, max 500) - maximum number of entries to
   return. Invalid values (non-integer or `<= 0`) return 400.
 
-Response envelope mirrors `/cards` — uses `items` rather than a bare array:
+Response envelope mirrors `/cards` - uses `items` rather than a bare array:
 
 ```json
 {
@@ -1321,7 +1321,7 @@ clients receive at most `limit` entries and refresh by re-fetching.
 
 ### POST /api/projects/{project}/recalculate-costs
 
-Admin-only in `auth.mode: multi` (403 `FORBIDDEN` for a non-admin session) —
+Admin-only in `auth.mode: multi` (403 `FORBIDDEN` for a non-admin session) -
 see § Authentication (multi mode) above. Recalculate estimated costs for all
 cards in a project using current `token_costs` rates. Requires
 `default_model` for cards that have tokens but no model recorded.
@@ -1329,7 +1329,7 @@ cards in a project using current `token_costs` rates. Requires
 Cards with a `usage_breakdown`: every bucket with `cost_source: estimated` is
 re-priced from the current rates (stale prices are corrected); buckets with
 `cost_source: actual` are never modified. Legacy cards without a breakdown:
-fill-missing-only — cards with non-zero tokens but $0 cost get a cost; cards
+fill-missing-only - cards with non-zero tokens but $0 cost get a cost; cards
 with an existing cost are not modified.
 
 ```json
@@ -1397,7 +1397,7 @@ Regardless of `interactive`, `feature_branch` and `create_pr` are automatically
 enabled on the card for all run triggers (both autonomous and HITL).
 
 Returns **202 Accepted** with the updated card (`worker_status: "queued"`). The
-response is returned as soon as the backend webhook is accepted — the backend
+response is returned as soon as the backend webhook is accepted - the backend
 then provisions the container asynchronously.
 
 ### POST /api/projects/{project}/cards/{id}/message
@@ -1429,7 +1429,7 @@ The endpoint performs two steps in order:
 1. Calls `CardService.PromoteToAutonomous` to flip the card's `autonomous` flag
    to `true`, append an activity log entry, commit the change to the boards git
    repository, and publish a `CardUpdated` SSE event. This step is
-   **idempotent** — if the card is already autonomous, it short-circuits and
+   **idempotent** - if the card is already autonomous, it short-circuits and
    returns the current card without sending any webhook (preventing the
    backend's verify from recursing).
 2. Sends a `/promote` webhook to the task backend, which fail-closed confirms
@@ -1444,8 +1444,8 @@ The endpoint performs two steps in order:
 - 403 `HUMAN_ONLY_FIELD` if the caller is not a human agent
 - 409 `WORKER_NOT_RUNNING` if `worker_status` is not `"running"`
 - 409 `INVALID_TRANSITION` if the card is in a terminal state (`done` or
-  `not_planned`) — the flag flip itself is rejected before any webhook is sent
-- 502 `BACKEND_UNAVAILABLE` if the backend webhook fails — CM rolls back the
+  `not_planned`) - the flag flip itself is rejected before any webhook is sent
+- 502 `BACKEND_UNAVAILABLE` if the backend webhook fails - CM rolls back the
   `autonomous`, `feature_branch`, and `create_pr` changes it made so the card's
   declared mode matches the worker's actual mode, and records a
   `promote-webhook-failed` activity entry
@@ -1489,7 +1489,7 @@ Returns:
 - 503 `BACKEND_DISABLED` when no task backend is configured.
 - 502 `BACKEND_UNAVAILABLE` when a task backend is configured but the probe
   fails (timeout, transport error, non-2xx response). Upstream error
-  details are not surfaced in the response body — the underlying error
+  details are not surfaced in the response body - the underlying error
   is logged server-side. Callers should fail soft (hide capacity).
 
 Probe results are cached server-side for ~2 seconds and concurrent callers are
@@ -1501,7 +1501,7 @@ an outage.
 ### GET /api/backends/{backend}/images
 
 Proxies a `GET /images` to the named backend and returns the worker images
-present on its node — feeds the project-settings image pickers. `{backend}` is
+present on its node - feeds the project-settings image pickers. `{backend}` is
 `agent` or `chat`.
 
 In multi mode this route requires a session (like the rest of the API) and is
@@ -1531,14 +1531,14 @@ Returns:
 - 502 `BACKEND_UNAVAILABLE` when the backend is configured but the probe fails.
 
 Probe results are cached server-side per backend for 30 seconds behind a
-singleflight — longer than the health cache, and load-bearing: concurrent
+singleflight - longer than the health cache, and load-bearing: concurrent
 same-second signed GETs would otherwise collide in the backend's HMAC replay
 cache.
 
 ### GET /api/worker/logs
 
 SSE log stream. Browser-facing fixed path. Only available when a task backend
-is configured. Not authenticated — the browser connects directly; HMAC signing
+is configured. Not authenticated - the browser connects directly; HMAC signing
 is performed server-side toward the backend.
 
 **Query parameters:**
@@ -1558,7 +1558,7 @@ is performed server-side toward the backend.
   `completed`). Returns 204 if the session manager is unavailable.
 - **Project-scoped** (`?project=P`, no `card_id`): connects to the server-side
   session manager for the project. The server first replays all buffered project
-  events (snapshot), then tails live events — identical replay guarantee as the
+  events (snapshot), then tails live events - identical replay guarantee as the
   card-scoped path. Used by the Worker Console panel. A reconnecting client
   receives all events buffered since the console was first opened. Returns 204
   if the session manager is unavailable.
@@ -1612,7 +1612,7 @@ terminal event.
   client-side gap marker (`type: 'gap'`) indicating the number of missing
   events.
 - `dropped` frames render as gap markers (not as ordinary log lines).
-- `terminal` frames clear `connected` and stop the reconnect loop — no further
+- `terminal` frames clear `connected` and stop the reconnect loop - no further
   reconnect is attempted after a clean session end.
 
 See [`docs/remote-execution.md`](remote-execution.md) for the full log streaming
@@ -1672,7 +1672,7 @@ for itself:
 (the task-skills repo is instance-scoped, never bound to a project pool
 entry). It is best-effort: when minting fails, the response carries only the
 pointer and the backend falls back to its own credential. `token_expires_at`
-is RFC3339 and absent for PAT-backed credentials (no server-managed TTL —
+is RFC3339 and absent for PAT-backed credentials (no server-managed TTL -
 absent means "do not schedule a refresh"). The chat-backend variant at
 `GET /api/chat/task-skills-source` returns the same shape.
 
@@ -1682,11 +1682,11 @@ Only registered when a task backend is configured.
 
 Backend-callback endpoint at the derived path (e.g.
 `/api/agent/git-credentials`), HMAC-signed like `task-skills-source`. Re-mints
-the project-scoped git token mid-run — App installation tokens live ~1h while
+the project-scoped git token mid-run - App installation tokens live ~1h while
 card runs can go far longer.
 
 Query parameters: `project` and `card_id` (both required). The card must exist
-and have `worker_status: running` — a non-running card gets 409, so the
+and have `worker_status: running` - a non-running card gets 409, so the
 endpoint is not a free token faucet. The token is minted from the project's
 `github_credential` binding (or the instance credential when unbound); a
 broken binding fails closed with 409, never the instance credential.
@@ -1697,7 +1697,7 @@ broken binding fails closed with 409, never the instance credential.
 
 `expires_at` is absent for PAT-backed credentials (same omission semantics as
 `token_expires_at` above; the key names differ because the two responses are
-different shapes — consumers read each endpoint's own key).
+different shapes - consumers read each endpoint's own key).
 
 Trigger-time minting: `POST .../cards/{id}/run` populates
 `TriggerPayload.git_token` / `git_token_expires_at` / `llm_endpoint` the same
@@ -1722,30 +1722,30 @@ The token is minted once per chat session at chat-start
 `backends.chat` `api_key` and the session id. It is deterministic: CM never
 persists it anywhere, so verification just re-derives the expected token
 from the same `api_key` plus the session id embedded in the presented
-token, and compares with `hmac.Equal` (constant-time — a timing
+token, and compares with `hmac.Equal` (constant-time - a timing
 side-channel cannot help an attacker guess a valid token byte-by-byte).
 This auth model is identical in `auth.mode: none` and `auth.mode: multi`:
 the bearer is independent of sessions, of `X-Agent-ID`, and of HMAC request
 signing.
 
-Query parameters (required as a pair — see below for the one exception):
+Query parameters (required as a pair - see below for the one exception):
 
 | Param  | Meaning                                                       |
 | ------ | -------------------------------------------------------------- |
 | `host` | Bare host of the repo the worker is about to operate on (e.g. `github.com`) |
 | `path` | `owner/repo`, with or without a trailing `.git`                |
 
-Resolution: `(host, path)` is matched — case-insensitively, `.git` suffix
-tolerated on either side — against every project's effective repo(s)
+Resolution: `(host, path)` is matched - case-insensitively, `.git` suffix
+tolerated on either side - against every project's effective repo(s)
 (`.board.yaml` `repo` or `repos`; a project with neither field set, or an
 unparseable repo URL, is skipped). Only an **exact** owner/repo match
-selects a project — a request path that is merely a prefix/superset of a
+selects a project - a request path that is merely a prefix/superset of a
 project's repo path never matches. A match resolves the credential via that
 project's `github_credential` binding, **fail-closed**: a broken binding
 rejects with 409 and never substitutes the instance credential. No match
-resolves directly to the instance-wide `github.*` credential — the correct
+resolves directly to the instance-wide `github.*` credential - the correct
 credential for a non-project repo, not a degraded fallback. An empty pair
-(both `host` and `path` omitted — the shape a repo-less `gh` call sends,
+(both `host` and `path` omitted - the shape a repo-less `gh` call sends,
 e.g. `gh repo create`, `gh api /user`, run from a cwd with no origin remote)
 skips project matching entirely and also resolves to the instance credential;
 exactly one of the two present without the other is still a 400.
@@ -1758,7 +1758,7 @@ Success response:
 
 `username` is always the literal `x-access-token` (the Basic-auth username a
 GitHub App/PAT-backed HTTPS clone expects alongside the token). `expires_at`
-is RFC3339 and omitted for PAT-backed credentials — same omission semantics
+is RFC3339 and omitted for PAT-backed credentials - same omission semantics
 as `GET /api/agent/git-credentials` above (no server-managed TTL; absent
 means "do not schedule a refresh").
 
@@ -1766,22 +1766,22 @@ Status contract:
 
 | Status | Code                 | When                                                                                                             |
 | ------ | -------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| 400    | `BAD_REQUEST`        | Exactly one of `host`/`path` is missing (both missing is not an error — see above) |
+| 400    | `BAD_REQUEST`        | Exactly one of `host`/`path` is missing (both missing is not an error - see above) |
 | 401    | `UNAUTHORIZED`       | Bearer header absent, malformed, or fails the HMAC comparison                                                   |
 | 404    | `CHAT_NOT_FOUND`     | The session id embedded in the bearer does not exist                                                            |
 | 500    | `INTERNAL_ERROR`     | Session-liveness lookup failed for a reason other than "session not found" (backend/store error)                |
 | 409    | `WORKER_NOT_RUNNING` | The session exists but is cold (no live worker container)                                                       |
-| 409    | `VALIDATION_ERROR`   | Matched project's credential binding is broken, or no provider is configured at all — fail-closed, never the instance credential |
+| 409    | `VALIDATION_ERROR`   | Matched project's credential binding is broken, or no provider is configured at all - fail-closed, never the instance credential |
 | 502    | `INTERNAL_ERROR`     | A credential provider resolved, but minting the token itself failed                                             |
 
 **Secrets hygiene:** the bearer token and every minted git token are opaque
-to logging — neither is ever written to a log line or an
+to logging - neither is ever written to a log line or an
 `APIError.details` field (`sanitizeErrorDetails` still runs over provider
 errors here, same as every other credential-minting endpoint, so transport
 errors don't leak filesystem paths or hostnames either).
 
 Registered only when a chat backend is configured with a non-empty
-`api_key` **and** the chat manager is wired — otherwise the route is not
+`api_key` **and** the chat manager is wired - otherwise the route is not
 registered at all (a plain 404, not 401), the same posture as every other
 backend-callback route in this document. Because the endpoint is `GET`-only,
 it is exempt from the CSRF guard via the "GET/HEAD/OPTIONS" rule (§ CSRF
@@ -1798,12 +1798,12 @@ in `CLAUDE.md`); the web UI defaults to `human:web` when the header is absent.
 that created it (`created_by`, `human:<username>`). The list is
 force-scoped to the caller (`?created_by=` is ignored), and every per-ID
 endpoint returns an identical `404 CHAT_NOT_FOUND` for foreign and
-nonexistent IDs — existence is not leaked. (`DELETE` of a missing ID is
-404 in every mode — existing behavior; the session is loaded before
+nonexistent IDs - existence is not leaked. (`DELETE` of a missing ID is
+404 in every mode - existing behavior; the session is loaded before
 deletion.) In `none` mode
 the surface is unscoped and `?created_by=` remains a client-side filter.
 Admin management lives under `/api/admin/chats` (see Authentication
-section) — metadata and lifecycle only.
+section) - metadata and lifecycle only.
 
 ### POST /api/chats
 
@@ -1844,15 +1844,15 @@ Response (`201 Created`): the new `ChatSession` row.
 Tells the New Chat dialog which model picker to render. The `source` field
 selects the mode:
 
-- `"openrouter"` — the chat backend serves chat over OpenRouter. `models` is
+- `"openrouter"` - the chat backend serves chat over OpenRouter. `models` is
   CM's vendor-screened OpenRouter catalog (`id`/`label` = the OpenRouter slug,
   `max_tokens` = the model's context window), served from the server-side
   catalog cache; empty only when the catalog has not been fetched. `default` is
   `backends.chat.default_model`.
-- `"endpoint"` — the LLM endpoint is an OpenAI-compatible one (`llm_endpoint.type:
+- `"endpoint"` - the LLM endpoint is an OpenAI-compatible one (`llm_endpoint.type:
   openai`). `models` is the endpoint's served model list (cached server-side);
   `default` is `backends.chat.default_model`. Also returned, with an empty list,
-  when no chat backend is configured — the picker renders nothing.
+  when no chat backend is configured - the picker renders nothing.
 
 Response (`source: "openrouter"`):
 
@@ -1879,9 +1879,9 @@ List sessions, newest-first by `last_active`. Query parameters:
 
 | Param        | Default | Max  | Effect                                                                           |
 | ------------ | ------- | ---- | -------------------------------------------------------------------------------- |
-| `project`    | —       | —    | Filter by project name (omit for all)                                            |
-| `status`     | —       | —    | Filter by `cold` / `active` / `warm-idle` / `ending`. Unknown values return 400. |
-| `created_by` | —       | —    | Filter by agent ID (e.g. `human:web-1a2b3c4d`)                                   |
+| `project`    | -       | -    | Filter by project name (omit for all)                                            |
+| `status`     | -       | -    | Filter by `cold` / `active` / `warm-idle` / `ending`. Unknown values return 400. |
+| `created_by` | -       | -    | Filter by agent ID (e.g. `human:web-1a2b3c4d`)                                   |
 | `limit`      | `500`   | 5000 | Cap on rows returned; out-of-range values clamp / 400                            |
 
 Response: a JSON array of `Session`. Always `[]`, never `null`.
@@ -1953,14 +1953,14 @@ Responses:
 
 | Status | Code                 | Meaning                                              |
 | ------ | -------------------- | ---------------------------------------------------- |
-| 202    | —                    | Cleared; body `{"ok": true}`                         |
+| 202    | -                    | Cleared; body `{"ok": true}`                         |
 | 403    | `BAD_REQUEST`        | Missing `X-Requested-With: contextmatrix`            |
 | 404    | `CHAT_NOT_FOUND`     | Unknown session id                                   |
 | 409    | `WORKER_NOT_RUNNING` | Session is not active or warm-idle (no live worker)  |
 | 502    | `BACKEND_UNAVAILABLE`| Backend `/clear` send failed (`detail: clear_failed`)|
 | 500    | `INTERNAL_ERROR`     | Persistence failure (rare; transcript-side)          |
 
-On a `502` the transcript is left untouched — the operator can retry once
+On a `502` the transcript is left untouched - the operator can retry once
 the backend is reachable again. On `500` the worker has already been
 cleared but the transcript mark/divider step failed; the session is still
 usable, the divider just won't appear in the UI until the next clear.
@@ -2012,7 +2012,7 @@ Query parameters:
 
 | Param       | Default | Max  | Effect                                    |
 | ----------- | ------- | ---- | ----------------------------------------- |
-| `since_seq` | `0`     | —    | Exclusive lower bound: returns `seq > N`. |
+| `since_seq` | `0`     | -    | Exclusive lower bound: returns `seq > N`. |
 | `limit`     | `200`   | 1000 | Cap on rows returned. Values above clamp. |
 
 Response:
@@ -2053,7 +2053,7 @@ inside the REST window are deduped on the client.
 Server-Sent Events stream of new transcript entries for one session. Two event
 kinds share the wire:
 
-- **Default (transcript) event** — emitted without an SSE `event:` header so
+- **Default (transcript) event** - emitted without an SSE `event:` header so
   older `EventSource.onmessage` listeners keep working. Payload:
 
   ```json
@@ -2068,7 +2068,7 @@ kinds share the wire:
   `rehydration_phase` is omitted when false so the UI can group rehydration
   turns distinctly from normal traffic.
 
-- **`session_updated` event** — emitted with `event: session_updated` so the
+- **`session_updated` event** - emitted with `event: session_updated` so the
   browser can listen on a named channel. The payload is a `SessionUpdate` object
   (zero-valued fields omitted via `omitempty`; merge into your local session view):
 
@@ -2078,7 +2078,7 @@ kinds share the wire:
   | `context_tokens_updated_at`  | timestamp | When `context_tokens` was last updated.                                      |
   | `model`                      | string    | Model name, set on first usage event.                                        |
   | `rehydration_active`         | boolean   | `false` once `chat_rehydration_complete` is called.                          |
-  | `status`                     | string    | Lifecycle transition. Only present when the status changed — pointer semantics distinguish "no change" from a deliberate value. See `ChatStatus` values below. |
+  | `status`                     | string    | Lifecycle transition. Only present when the status changed - pointer semantics distinguish "no change" from a deliberate value. See `ChatStatus` values below. |
   | `prompt_tokens`              | int64     | New cumulative prompt-token total after this usage frame. Omitted when zero (no cost update in this event). |
   | `completion_tokens`          | int64     | New cumulative completion-token total. Omitted when zero.                    |
   | `cache_read_tokens`          | int64     | New cumulative cache-read-token total. Omitted when zero.                    |
@@ -2117,7 +2117,7 @@ Backs the paste / drag-drop image upload flow in `CardPanelEditor` and the
 inline image attachments on the MCP `get_card` / `get_task_context` tools.
 Images live in a separate SQLite DB (`images.db`, configurable via
 `images.db_path` / `CONTEXTMATRIX_IMAGES_DB_PATH`). IDs are the first 16 hex
-chars of `sha256(processed_bytes)` — identical uploads dedup naturally and
+chars of `sha256(processed_bytes)` - identical uploads dedup naturally and
 URLs are stable.
 
 ### POST /api/images
@@ -2126,7 +2126,7 @@ Multipart form upload. Single field `file`. Returns the content-hashed id and
 the canonical URL for embedding in markdown via `![](...)`.
 
 Body size cap: 10 MB (the global 5 MB `bodyLimit` is overridden to 11 MB on
-this route alone — 1 MB headroom for the multipart envelope).
+this route alone - 1 MB headroom for the multipart envelope).
 
 Server-side processing (`internal/images/processor.go`):
 
@@ -2141,7 +2141,7 @@ Server-side processing (`internal/images/processor.go`):
 - Resizes to fit within 1024x768 preserving aspect ratio (CatmullRom).
 - Re-encodes in the same format (PNG / JPEG q85). Single-frame GIF and WebP
   are re-encoded as PNG since stdlib lacks a WebP encoder. The re-encode
-  strips EXIF naturally — no separate parser.
+  strips EXIF naturally - no separate parser.
 
 ```bash
 curl -X POST http://localhost:8080/api/images \
@@ -2176,7 +2176,7 @@ an `Authorization: Bearer <key>` header; with no key the endpoint is
 unauthenticated. The path is exempt from the CSRF guard. See [`docs/agent-workflow.md`](agent-workflow.md) for the tool and prompt
 catalogue.
 
-### `get_card` / `get_task_context` — inline image attachments
+### `get_card` / `get_task_context` - inline image attachments
 
 Both tools scan the primary card body for markdown image refs of the form
 `![](/api/images/<16-hex>)` (relative or absolute against this server). Matching
@@ -2192,7 +2192,7 @@ can *see* screenshots, not just URL strings.
   operator can correlate.
 - Unknown IDs (e.g. dangling references after migration) are silently skipped.
 - Pass `include_images: false` to opt out and get a text-only result.
-- `get_task_context` only scans the primary card body — sibling cards stay
+- `get_task_context` only scans the primary card body - sibling cards stay
   text-only. `list_cards` is unaffected (it does not return full bodies).
 
 ### `chat_rehydration_complete`
@@ -2209,4 +2209,4 @@ must still resolve to an active chat session.
 **Parameters:**
 
 - `session_id` (string, required)
-- `summary` (string, required) — surfaced to the UI as an assistant message
+- `summary` (string, required) - surfaced to the UI as an assistant message

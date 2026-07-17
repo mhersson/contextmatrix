@@ -17,9 +17,9 @@ import (
 // wireChat builds the chat subsystem: backend client, SSE hub, manager, idle
 // reaper, warm-idle grace timers, and the startup reattach loop. The chat
 // store is the shared operational store (ops.db), opened and owned by the
-// caller — wireChat does not open or close it. Returns the manager, the hub,
+// caller - wireChat does not open or close it. Returns the manager, the hub,
 // a cleanup function the caller must defer, and the resolved chat-backend
-// api_key (empty when no chat backend is configured) — the caller wires this
+// api_key (empty when no chat backend is configured) - the caller wires this
 // into RouterConfig.ChatWorkerAPIKey so GET /api/worker/git-credentials
 // verifies bearer tokens against the exact key that minted them below.
 func wireChat(
@@ -32,7 +32,7 @@ func wireChat(
 
 	// chatDefaultModel is the cold-open fallback used when a session row has
 	// an empty model: the chat backend entry's default_model (an OpenRouter
-	// slug). Empty when no chat backend is configured — sends fail at open
+	// slug). Empty when no chat backend is configured - sends fail at open
 	// time via the disabled stub anyway.
 	var chatDefaultModel string
 
@@ -53,7 +53,7 @@ func wireChat(
 		chatDefaultModel = chatBackendEntry.DefaultModel
 	} else {
 		// Nil backend causes nil-pointer panics at call sites. Use a no-op
-		// stub that errors on every operation — chat features require a
+		// stub that errors on every operation - chat features require a
 		// configured chat backend.
 		chatBackend = chatBackendDisabled{}
 	}
@@ -119,7 +119,7 @@ func wireChat(
 
 		timer := time.AfterFunc(30*time.Second, func() {
 			// If the entry is still in the map it means no new subscriber
-			// arrived during the grace window — proceed with warm-idle.
+			// arrived during the grace window - proceed with warm-idle.
 			if _, loaded := graceTimers.LoadAndDelete(sessionID); !loaded {
 				return
 			}
@@ -136,7 +136,7 @@ func wireChat(
 		}
 		// A browser subscriber is a strong "I want this chat" signal.
 		// Reattach the worker-log consumer if one isn't already bridging
-		// /logs for this session — covers the case where CM restarted
+		// /logs for this session - covers the case where CM restarted
 		// while worker containers stayed alive, stranding their consumer
 		// goroutines. No-op on cold/ending sessions. The returned Session
 		// tells us the current status so we can skip a redundant GetSession
@@ -168,7 +168,7 @@ func wireChat(
 	// Without this, active/warm-idle sessions stay marked alive in the DB
 	// while their consumer goroutines are gone (in-memory state lost), so
 	// the UI can't see worker output even though the container is still
-	// up. Reattach is idempotent and tolerant of dead containers — the
+	// up. Reattach is idempotent and tolerant of dead containers - the
 	// consumer exits on first /logs error and the reconcile sweep below
 	// will flip orphaned sessions to cold.
 	go func() {
@@ -209,7 +209,7 @@ func wireChat(
 
 // chatWorkerImageFor returns the chat worker image for a project:
 // remote_execution.chat_worker_image. worker_image deliberately does NOT flow
-// to chat — the task and chat image families bake different worker
+// to chat - the task and chat image families bake different worker
 // entrypoints and are not interchangeable.
 func chatWorkerImageFor(p *board.ProjectConfig) string {
 	if p.RemoteExecution == nil {

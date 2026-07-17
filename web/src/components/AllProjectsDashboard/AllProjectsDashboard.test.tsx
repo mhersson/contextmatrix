@@ -48,7 +48,7 @@ function ToastWrap({ children }: { children: ReactNode }) {
   return <ToastContext.Provider value={toastState}>{children}</ToastContext.Provider>;
 }
 
-describe('AllProjectsDashboard — mount fetch count', () => {
+describe('AllProjectsDashboard - mount fetch count', () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     // @ts-expect-error stub for tests

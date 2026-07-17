@@ -49,7 +49,7 @@ export function useProjectSummaries(projectNames: string[]): UseProjectSummaries
       }),
     );
 
-    if (reqId !== reqIdRef.current) return; // stale — newer request already in flight
+    if (reqId !== reqIdRef.current) return; // stale - newer request already in flight
 
     const map = new Map<string, DashboardData>();
     const failed = new Set<string>();

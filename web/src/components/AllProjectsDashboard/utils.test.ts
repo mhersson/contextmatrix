@@ -268,7 +268,7 @@ describe('aggregateDashboards 30-day cost fields', () => {
 });
 
 describe('aggregateDashboards chat cost picker', () => {
-  it('picker_picks_first_numeric_even_when_zero — preserves zero last30d with non-zero prior30d', () => {
+  it('picker_picks_first_numeric_even_when_zero - preserves zero last30d with non-zero prior30d', () => {
     // First response has chat_cost_usd_last_30d: 0 and chat_cost_usd_prior_30d: 50.
     // A truthiness-based picker would drop this and pick nothing (or a wrong source).
     const first = summary({
@@ -291,7 +291,7 @@ describe('aggregateDashboards chat cost picker', () => {
     expect(result.chat_cost_usd_prior_30d).toBe(50);
   });
 
-  it('picker_skips_undefined — falls back to second response when first has no chat cost', () => {
+  it('picker_skips_undefined - falls back to second response when first has no chat cost', () => {
     const first = summary({
       // chat_cost_usd_last_30d is absent (undefined)
     });

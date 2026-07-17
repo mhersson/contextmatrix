@@ -192,7 +192,7 @@ export function NewProjectWizard({ onClose, onCreated }: NewProjectWizardProps) 
               <p className="text-xs mt-1" style={{ color: 'var(--red)' }}>{slugError}</p>
             ) : (
               <p className="text-xs mt-1" style={{ color: 'var(--grey0)' }}>
-                Used in URLs and on disk — letters, numbers, hyphens.
+                Used in URLs and on disk - letters, numbers, hyphens.
               </p>
             )}
           </div>

@@ -4,17 +4,17 @@ Remote execution lets a human trigger a worker task from the ContextMatrix web
 UI. Two backends carry that work over the same signed-webhook protocol
 (`contextmatrix-protocol`, pinned in `go.mod`):
 
-- **contextmatrix-agent** — the **task backend**. It executes cards: each run
+- **contextmatrix-agent** - the **task backend**. It executes cards: each run
   spawns a disposable Docker container running a multi-model Go orchestrator
   harness that claims the card over MCP, works it in the project repo, and
   reports progress back to the board.
-- **contextmatrix-chat** — the **chat backend**. It serves the global chat
+- **contextmatrix-chat** - the **chat backend**. It serves the global chat
   panel: each session runs a long-lived worker container that answers over
   MCP.
 
 ContextMatrix is the coordination layer. It stores cards, manages state, mints
 credentials, and drives the backends over webhooks. **It never clones, builds,
-or touches project code repositories** — the worker container does, using the
+or touches project code repositories** - the worker container does, using the
 repo URL and credentials CM hands it.
 
 The agent and chat backends live in their own repositories and carry their own
@@ -53,28 +53,28 @@ with a chat-specific webhook surface (`/chat/start`, `/chat/end`, `/message`).
 
 **Message paths:**
 
-- **Run Auto / Run HITL / Stop / Stop All** — trigger / kill / stop-all
+- **Run Auto / Run HITL / Stop / Stop All** - trigger / kill / stop-all
   webhooks from CM to the task backend.
-- **Live log streaming** — the backend exposes a `GET /logs` SSE endpoint; CM
+- **Live log streaming** - the backend exposes a `GET /logs` SSE endpoint; CM
   subscribes to it, buffers, and re-serves the browser as `GET
   /api/worker/logs`. The web UI opens an `EventSource` only while the log
   console panel is open.
-- **Chat input** (HITL and chat modes) — the web UI POSTs a message to CM; CM
+- **Chat input** (HITL and chat modes) - the web UI POSTs a message to CM; CM
   generates a `message_id` and forwards `{card_id, project, message_id,
   content}` (card HITL) or `{session_id, message_id, content}` (chat) to the
   backend's `/message` endpoint, then returns the id to the browser.
-- **Promote to autonomous** — the web UI POSTs to CM; CM flips the card's
+- **Promote to autonomous** - the web UI POSTs to CM; CM flips the card's
   `autonomous` flag server-side (git commit + SSE event), ensures
   `feature_branch` and `create_pr`, then forwards `/promote` to the task
   backend. The backend verifies the flag via `GET
   /api/v1/cards/{project}/{id}/autonomous` (fail closed) before it acts.
 
 **CM-side interface seams:** `api.TaskBackend` (in `internal/api/backend.go`)
-covers the card lifecycle — trigger, kill, stop-all, message, promote,
+covers the card lifecycle - trigger, kill, stop-all, message, promote,
 end-session, health, containers. `internal/backend.Client` is its sole
 implementation. The chat lifecycle (`/chat/start`, `/chat/end`, `/message`,
 plus the `/logs` SSE bridge) is driven by `internal/chat.backendClient`. Card
-progress and usage reporting do **not** flow through these seams — the
+progress and usage reporting do **not** flow through these seams - the
 in-container worker reports directly through CM's MCP tools (`complete_task`,
 `report_usage`, `add_log`).
 
@@ -99,22 +99,22 @@ callbacks to CM. The canonical implementation is `contextmatrix-protocol`'s
 <METHOD>\n<URI>\n<TIMESTAMP>.<BODY>
 ```
 
-- `METHOD` — uppercase HTTP method (`POST`, `GET`).
-- `URI` — request-target form: path, plus `?<raw-query>` when a query is
+- `METHOD` - uppercase HTTP method (`POST`, `GET`).
+- `URI` - request-target form: path, plus `?<raw-query>` when a query is
   present (`/kill`, `/logs?project=alpha`, `/api/agent/status`). This is the
   value `r.URL.RequestURI()` returns on the receiver. Binding the query string
   keeps two concurrent requests to the same path (`GET /logs?project=A` vs `GET
   /logs?project=B`) from sharing a signature in the same Unix second. Sender and
   receiver must agree: a proxy that rewrites the path or query breaks auth.
-- `TIMESTAMP` — Unix seconds, decimal string.
-- `BODY` — JSON payload bytes, empty for GET.
+- `TIMESTAMP` - Unix seconds, decimal string.
+- `BODY` - JSON payload bytes, empty for GET.
 
 **Headers:** `X-Signature-256: sha256=<hex>` and `X-Webhook-Timestamp: <ts>`.
 
 **Verification:** the receiver recomputes the HMAC from method + URI +
 timestamp + body and compares in constant time. It rejects timestamps outside
-an asymmetric skew window — up to **5 minutes** in the past
-(`DefaultMaxClockSkew`), **30 seconds** in the future (`DefaultMaxFutureSkew`) —
+an asymmetric skew window - up to **5 minutes** in the past
+(`DefaultMaxClockSkew`), **30 seconds** in the future (`DefaultMaxFutureSkew`) -
 so a captured signature cannot be pre-issued or replayed long after the fact. A
 per-backend replay cache rejects a `(timestamp, signature)` pair it has already
 seen. On the CM side each callback path closes over its own key and replay
@@ -181,7 +181,7 @@ model pins are applied agent-side, not here.
 
 `worker_image` is the project's `remote_execution.worker_image` when set,
 otherwise empty and the backend falls back to its configured base image. This
-is the task backend's **language-toolchain seam** — it answers "what toolchain
+is the task backend's **language-toolchain seam** - it answers "what toolchain
 does this project's code need" for card runs. See
 [Worker image split](#worker-image-split) for how this differs from the chat
 backend's own `chat_worker_image`. The default worker image already carries
@@ -200,11 +200,11 @@ does with it.
 `mob.default_rounds` and `mob.budget_factor`; `execute_checkpoints`,
 `checkpoint_min_tier`, and `checkpoint_rounds` mirror the server flags.
 `guests` is the card's `mob_guests` resolved through the registry into full
-`{name, url, token}` specs — unknown names are dropped with a `mob-warning`
+`{name, url, token}` specs - unknown names are dropped with a `mob-warning`
 activity entry. The `execute` phase is dropped (with a warning) when
 `mob.execute_checkpoints_enabled` is off; when the flag is on and the same
 payload carries `best_of_n >= 2`, mob coding takes trigger-time priority
-instead — `best_of_n` is zeroed with a warning rather than the phase being
+instead - `best_of_n` is zeroed with a warning rather than the phase being
 dropped. Guest tokens are bearer secrets: the backend stages them into the
 per-run secrets file, never plain container env, and registers them with
 its log redactor. See [Mob sessions](#mob-sessions).
@@ -225,7 +225,7 @@ through by name (never value) on top of its scrubbed allowlist.
 `git_token` is a short-lived credential for the project repo, minted by CM from
 the project's `github_credential` binding (or the instance `github.*`
 credential when unbound). A broken binding rejects the run with `409` before
-any webhook is sent — CM never substitutes the instance credential for a named
+any webhook is sent - CM never substitutes the instance credential for a named
 binding. `git_token_expires_at` is RFC3339, absent for PAT-backed credentials
 (absent means "no refresh needed"). App-backed tokens live ~1h; the backend
 re-mints mid-run via `GET /api/agent/git-credentials` (see
@@ -235,7 +235,7 @@ re-mints mid-run via `GET /api/agent/git-credentials` (see
 inference key is administered in one place. It is omitted when CM has no
 endpoint configured; the backend then uses its own local configuration.
 
-`task_skills` is the resolved skill list — see [Task skills](#task-skills).
+`task_skills` is the resolved skill list - see [Task skills](#task-skills).
 
 `base_branch` is omitted when unset. When present, the backend clones against
 it and opens PRs against that branch instead of the repository default.
@@ -248,7 +248,7 @@ regardless of the launch mode.
 
 CM resolves the skill list `card.skills > project.default_skills > nil` and
 ships it in the `task_skills` field: a `nil` list is omitted (the backend
-mounts its full set), an empty array means "explicit none — mount nothing", and
+mounts its full set), an empty array means "explicit none - mount nothing", and
 a populated array is the exact subset.
 
 The backend does not receive the skill files over the webhook. Instead it
@@ -285,7 +285,7 @@ has to distinguish "not found" from "killed".
 
 Returns every worker container the backend manages, running or exited. Signed
 GET (empty body). Consumed by CM's reconcile sweep as the authoritative answer
-to "what is actually running right now" — independent of the backend's
+to "what is actually running right now" - independent of the backend's
 in-memory tracker and of CM's card-level `worker_status`.
 
 ```json
@@ -306,11 +306,11 @@ in-memory tracker and of CM's card-level `worker_status`.
 
 `tracked` reflects the backend's tracker state at response time. `tracked:
 false` with `state: "running"` is the divergence signature the sweep is built
-to catch — a container Docker is running that the tracker has forgotten.
+to catch - a container Docker is running that the tracker has forgotten.
 
 #### GET {agent_url}/images
 
-Returns the worker images present on the backend's node — the source for CM's
+Returns the worker images present on the backend's node - the source for CM's
 `GET /api/backends/agent/images` proxy (see [Backend capacity: GET
 /api/backend/health](#backend-capacity-get-apibackendhealth) for the sibling
 health probe, and `docs/api-reference.md` for the CM-side route). Signed GET
@@ -333,7 +333,7 @@ health probe, and `docs/api-reference.md` for the CM-side route). Signed GET
 The backend keeps only tags containing one of its configured
 `image_list_filters` substrings (default `[contextmatrix-agent]`; the chat
 backend's default is `[contextmatrix-chat]`), and skips dangling images (no
-repo tags). A Docker daemon failure returns a generic `502 upstream_failure` —
+repo tags). A Docker daemon failure returns a generic `502 upstream_failure` -
 see [Backend response format](#backend-response-format).
 
 #### POST {agent_url}/stop-all
@@ -370,7 +370,7 @@ Chat payload (CM's chat manager sends this when a user submits a turn):
 }
 ```
 
-Exactly one of `(card_id + project)` or `session_id` is set — the backend
+Exactly one of `(card_id + project)` or `session_id` is set - the backend
 dispatches on which is present. The backend writes the content to
 the container's stdin as a stream-json `user` message and echoes it as a `user`
 log entry so the browser sees it in the console. Content is capped at 8 KiB.
@@ -389,8 +389,8 @@ The backend runs a strict, fail-closed sequence:
    {contextmatrix_url}/api/v1/cards/{project}/{id}/autonomous` (HMAC-signed,
    empty body) and checks that the body `{"autonomous": bool}` is `true`. CM
    already flipped the flag before sending this webhook, so the GET is a
-   read-only confirmation. On any failure — network error, non-2xx, or
-   `autonomous != true` — the backend returns `502` and does **not** touch
+   read-only confirmation. On any failure - network error, non-2xx, or
+   `autonomous != true` - the backend returns `502` and does **not** touch
    stdin; the card stays in HITL mode.
 2. **Inject the canned message.** It emits a `system` log entry, then writes a
    stream-json user message to stdin telling the worker to re-read the card at
@@ -411,7 +411,7 @@ worker sees EOF and exits.
 
 An event-bus subscriber in CM (`internal/backend/endsession.go`) fires this
 when it sees a card with `state ∈ {done, not_planned}` and `assigned_agent ==
-""`. `worker_status` is deliberately **not** part of that predicate — see
+""`. `worker_status` is deliberately **not** part of that predicate - see
 [Terminal-state cleanup](#terminal-state-cleanup) for why, and why
 `/end-session` is always followed by an unconditional idempotent `/kill`.
 
@@ -423,11 +423,11 @@ clean cut, not a shared field:
 - `worker_image` feeds `/trigger` only (card runs on the task backend).
 - `chat_worker_image` feeds `/chat/start` only (chat sessions on the chat
   backend).
-- Either one empty means "use that backend's own configured `base_image`" —
+- Either one empty means "use that backend's own configured `base_image`" -
   there is no fallback to the other field. The two image families bake
   different entrypoints, so a task image on a chat session (or vice versa)
   would not run correctly.
-- `chat_worker_image` applies to every chat session — chat is gated only by
+- `chat_worker_image` applies to every chat session - chat is gated only by
   the chat backend's own configuration, never by the task backend.
 - Both fields share the same hygiene validation (charset-restricted, capped at
   512 bytes, whitespace-trimmed) and the same pointer-merge PUT semantics on
@@ -440,7 +440,7 @@ clean cut, not a shared field:
 The chat backend exposes `POST /chat/start`, `POST /chat/end`, `POST /message`,
 and the signed GETs `/logs` / `/images` / `/health` / `/readyz`. Chat
 containers run their own worker image (the chat backend's `base_image`, or the
-project's `remote_execution.chat_worker_image` override — never the task
+project's `remote_execution.chat_worker_image` override - never the task
 backend's `worker_image`) but stay long-lived (no per-task cleanup) and
 dispatch on the session ID. `GET /images` behaves exactly as it does for the
 task backend, filtered by the chat backend's own `image_list_filters` (default
@@ -462,13 +462,13 @@ task backend, filtered by the chat backend's own `image_list_filters` (default
 }
 ```
 
-`project` and `repo_url` are both optional — omit for a cross-project chat.
+`project` and `repo_url` are both optional - omit for a cross-project chat.
 `mcp_api_key` may be empty when CM's MCP listener has no auth (loopback dev
 mode). `model` is required: the chat backend has no server-side default, so CM
 always populates it from the session row, falling back to
 `backends.chat.default_model`. The wire field is still named `worker_image`
 (the chat protocol's own field), but CM populates it from the project's
-`remote_execution.chat_worker_image` on every cold open — never from
+`remote_execution.chat_worker_image` on every cold open - never from
 `remote_execution.worker_image`. See [Worker image split](#worker-image-split).
 
 `resume` is the rehydration payload built by CM's transcript builder. When
@@ -479,9 +479,9 @@ user turn. When absent, the worker starts fresh.
 `git_credentials_token` is the chat credential story, deliberately different
 from `/trigger`'s upfront `git_token`: a chat session is long-lived and can be
 cross-project, so there is no single card-scoped repo to mint a token for ahead
-of time. CM hands the worker a deterministic per-session bearer —
+of time. CM hands the worker a deterministic per-session bearer -
 `<session_id>.<base64url HMAC-SHA256 mac>`, keyed by the chat backend's
-`api_key` — and the worker fetches a fresh per-repo credential on demand from
+`api_key` - and the worker fetches a fresh per-repo credential on demand from
 `GET /api/worker/git-credentials`. CM never persists the bearer; it re-derives
 and compares. The field is empty when no chat-backend `api_key` is configured;
 the chat backend then fails the session closed.
@@ -501,7 +501,7 @@ the tracker entry is gone.
 
 #### GET {backend_url}/logs
 
-Streams live log frames via Server-Sent Events. CM subscribes to this — the
+Streams live log frames via Server-Sent Events. CM subscribes to this - the
 browser never calls it directly. Signed GET (empty body).
 
 | Query param  | Effect                                                    |
@@ -557,7 +557,7 @@ open through proxy idle timeouts.
 ### Task backend → CM: callbacks
 
 Callback POSTs are HMAC-signed with the backend's own `api_key`. Each backend's
-callback endpoints mount at its fixed callback path — `/api/agent` for the task
+callback endpoints mount at its fixed callback path - `/api/agent` for the task
 backend, `/api/chat` for the chat backend (`config.AgentCallbackPath` /
 `config.ChatCallbackPath`; the agent and chat repos hardcode these). Those paths
 are exempt from the CSRF guard because they carry no browser POST. CM rejects a
@@ -582,7 +582,7 @@ normalization: a `failed` or `killed` callback that arrives after the card has
 already reached `done` / `not_planned` is rewritten to `completed` (activity
 message "container cleaned up after run completed") so a cleanup-driven kill
 does not retroactively flip a successful run to failed. Task completion is
-**not** reported here — the in-container worker uses the MCP `complete_task`
+**not** reported here - the in-container worker uses the MCP `complete_task`
 tool.
 
 #### GET /api/v1/cards/{project}/{id}/autonomous
@@ -607,7 +607,7 @@ provider never falls back to the instance credential.
 #### GET /api/agent/task-skills-source
 
 Serves the `{git_remote_url, ref}` skills pointer plus a best-effort
-instance-scoped git token — see [Task skills](#task-skills). The chat backend
+instance-scoped git token - see [Task skills](#task-skills). The chat backend
 uses the identical `GET /api/chat/task-skills-source`.
 
 ### CM operator endpoints
@@ -615,7 +615,7 @@ uses the identical `GET /api/chat/task-skills-source`.
 These are the CM-side handlers the web UI calls. They wrap the outbound task
 webhooks, enforce card-state and per-project checks, and update CM bookkeeping
 (`worker_status`, `feature_branch`, `create_pr`, `autonomous`). All five gate on
-`isNonHumanAgent` — an agent hitting them with a non-`human:*` `X-Agent-ID`
+`isNonHumanAgent` - an agent hitting them with a non-`human:*` `X-Agent-ID`
 gets `403 HUMAN_ONLY_FIELD`; an absent header counts as human (UI = human, per
 the CLAUDE.md trust model).
 
@@ -625,7 +625,7 @@ the CLAUDE.md trust model).
 | `POST /api/projects/{project}/cards/{id}/stop`    | Requires `worker_status ∈ {queued, running}`. Sends `/kill`, then sets `worker_status: killed`. Returns `202`.                                                             |
 | `POST /api/projects/{project}/cards/{id}/message` | Body `{"content": "..."}` (≤ 8 KiB). Requires `worker_status == running`. CM generates the `message_id`, forwards to `/message`, returns `202 {"ok": true, "message_id": "..."}`. |
 | `POST /api/projects/{project}/cards/{id}/promote` | Idempotent. When `autonomous` is already true, short-circuits with `202` (no outbound webhook, preventing verify recursion). Otherwise flips `autonomous`, ensures `feature_branch/create_pr`, sends `/promote`, and rolls all three back if the webhook fails. Returns `202`. |
-| `POST /api/projects/{project}/stop-all`           | Sends `/stop-all`, then flips `worker_status` to `killed` for every project card in `{queued, running}`. Returns `200 {"affected_cards": [...]}` — or `207` with `failed_to_update` when the webhook succeeded but a CM-side status write drifted. |
+| `POST /api/projects/{project}/stop-all`           | Sends `/stop-all`, then flips `worker_status` to `killed` for every project card in `{queued, running}`. Returns `200 {"affected_cards": [...]}` - or `207` with `failed_to_update` when the webhook succeeded but a CM-side status write drifted. |
 
 **CM operator error codes** (status / `code`):
 
@@ -645,7 +645,7 @@ the CLAUDE.md trust model).
 
 A 2xx webhook returns `protocol.SuccessResponse` (`{ok: true, message?,
 message_id?}`); a non-2xx returns `protocol.ErrorResponse` (`{ok: false, code,
-message}`). `code` is a stable enum from `protocol/codes.go` — branch on it,
+message}`). `code` is a stable enum from `protocol/codes.go` - branch on it,
 not on `message`:
 
 | Code               | Status | Meaning                                                             |
@@ -676,7 +676,7 @@ A `/trigger` starts one disposable container that runs the card end to end:
 clone the repo, claim the card over MCP, plan, execute, document, review,
 integrate, and complete via `complete_task`. The container exits when the run
 finishes, and the backend removes it. A `/kill` destroys the container
-immediately — uncommitted work is discarded.
+immediately - uncommitted work is discarded.
 
 CM is the single authority on whether a container should be running. Two
 mechanisms enforce that, reasoning from different truths so a bug in either
@@ -684,7 +684,7 @@ cannot silently hide a live container.
 
 ### Terminal-state cleanup
 
-A HITL container's worker process does not exit when its stdin closes — in
+A HITL container's worker process does not exit when its stdin closes - in
 stream-json mode it treats EOF as "no more input for now" and keeps running. A
 card that reaches a terminal state (`done` / `not_planned`) and is released must
 therefore be stopped by CM explicitly.
@@ -703,7 +703,7 @@ therefore be stopped by CM explicitly.
    container Docker is actually running, kills it when the card is missing, is
    in `done` / `not_planned`, or has outlived `ContainerMaxAge`. The sweep
    reasons only from Docker ("is it running?") and the card store ("should it
-   be?") — never from `worker_status` — which keeps the drift bug unreachable.
+   be?") - never from `worker_status` - which keeps the drift bug unreachable.
    **This sweep is the agent backend's only reconcile mechanism; the backend has
    no internal reconcile loop of its own.** Setting `reconcile_interval` to
    `"0s"` disables the sweep and is not recommended: the event path is
@@ -734,7 +734,7 @@ Mob session is task-backend only: CM sends `mob` only to the agent, and only
 when the card's `mob_participants` is `>= 2`. A mob session run still gets
 exactly **one** worker container. Inside it, the orchestrator hosts every
 internal seat behind a loopback a2a-go JSON-RPC server (127.0.0.1, port never
-published, bearer-protected) and acts as the only A2A client — dialing
+published, bearer-protected) and acts as the only A2A client - dialing
 loopback seats and registered guest URLs over the same wire. Plan and review
 phase bodies convene a discussion (blind round 0, then critique rounds up to
 the payload's `rounds`), and the decision model synthesizes the group's
@@ -756,7 +756,7 @@ not map.
 
 Composition with Best-of-N: plan and review mob discussions compose freely
 with a Best-of-N execute race. The `execute` phase does not: when a card
-requests both, **mob coding wins** — the trigger zeroes `best_of_n` with a
+requests both, **mob coding wins** - the trigger zeroes `best_of_n` with a
 `mob-warning` activity entry. When `mob.execute_checkpoints_enabled` is
 `false`, the `execute` phase is dropped at trigger time instead and
 Best-of-N runs normally.
@@ -771,9 +771,9 @@ triggers one fix pass on the same coder before the push; the revised diff
 is not re-checkpointed. Checkpoints are best-effort: any failure logs and
 the run proceeds. Transcripts stream as `discussion` events; the card gets
 one activity entry per checkpoint outcome (proceed, revise, or unparsable),
-plus a second entry (`revise skipped — budget exhausted`) when a revise
+plus a second entry (`revise skipped - budget exhausted`) when a revise
 verdict then hits the card budget ceiling. The checkpoint *discussion* draws
-from the shared mob budget term (`mob.budget_factor × max card cost`) —
+from the shared mob budget term (`mob.budget_factor × max card cost`) -
 operators enabling the `execute` phase on multi-subtask cards should
 consider raising `mob.budget_factor` so plan and review discussions are not
 starved. The revise fix pass itself spends from the card budget like any
@@ -788,7 +788,7 @@ fail-closed). PAT-backed credentials carry no expiry and need no refresh.
 
 The chat backend uses a different flow: no upfront token, a per-session bearer,
 and per-repo credentials fetched on demand from `GET
-/api/worker/git-credentials` — see the `/chat/start` payload above and
+/api/worker/git-credentials` - see the `/chat/start` payload above and
 `docs/api-reference.md` § Worker & Backend Endpoints for the full contract.
 
 ## Security Model
@@ -802,7 +802,7 @@ and per-repo credentials fetched on demand from `GET
   trigger / chat-start payload; the backend injects it into the container's MCP
   configuration, and every MCP request from the worker carries `Authorization:
   Bearer <key>`.
-- **CM-provisioned git credentials.** CM mints all git tokens — a card-scoped
+- **CM-provisioned git credentials.** CM mints all git tokens - a card-scoped
   token per run (refreshed on demand), or a per-session bearer that fetches
   per-repo credentials on demand for chat. A broken project credential binding
   fails the run closed; CM never silently substitutes the instance credential.
@@ -812,13 +812,13 @@ and per-repo credentials fetched on demand from `GET
 - **Human-only controls.** Only humans (no `X-Agent-ID`, or a `human:*` prefix)
   can trigger, stop, message, or promote a run, or set the `autonomous`,
   `feature_branch`, and `create_pr` flags. A worker inside a container cannot
-  escalate itself to autonomous mode — promotion is verified server-side.
+  escalate itself to autonomous mode - promotion is verified server-side.
 
 ### Global kill switch
 
 Disable or remove the task backend from `backends` to stop all card execution:
 the run button disappears and trigger endpoints return `503 BACKEND_DISABLED`.
-This is a restart-required change — backends are read once at startup.
+This is a restart-required change - backends are read once at startup.
 
 ## Interactive Mode
 
@@ -862,7 +862,7 @@ worker stdout  →  backend log bridge  →  protocol.LogEntry over backend GET 
 
 - **Backend log bridge.** The backend demultiplexes each container's
   stdout/stderr, parses it into `protocol.LogEntry` frames, redacts secrets,
-  and publishes them on its `GET /logs` SSE stream — filterable by `project`
+  and publishes them on its `GET /logs` SSE stream - filterable by `project`
   (card mode) or `session_id` (chat mode).
 - **CM session-log manager** (`internal/backend/sessionlog`). CM opens one
   long-lived HMAC-signed upstream connection per card (or per project, or per
@@ -909,7 +909,7 @@ same-second signed GETs would otherwise produce identical HMAC signatures and
 collide in the backend's replay cache.
 
 The route is session-guarded like the rest of the API in multi mode, and
-additionally admin-gated inside the handler — the same gate as the
+additionally admin-gated inside the handler - the same gate as the
 project-settings `PUT` the picker feeds; open in none mode, like the rest of
 the API. It returns `404 BACKEND_NOT_FOUND` for an unknown `{backend}` value,
 `503 BACKEND_DISABLED` when that backend isn't configured, and `502
@@ -946,7 +946,7 @@ as the status changes, which drive the UI's SSE updates.
 
 ### ContextMatrix (`config.yaml`)
 
-CM drives backends through the typed `backends` map — a closed set of two entry
+CM drives backends through the typed `backends` map - a closed set of two entry
 names, `agent` and `chat`. Their roles and callback paths are fixed and not
 selectable. Backends are read once at startup; any change requires a restart.
 An unknown backend name fails startup rather than being silently ignored. See
@@ -967,7 +967,7 @@ backends:
     # Catalog + selection inputs (agent only):
     aa_api_key: ""                  # Artificial Analysis key for rating models
     model_allowlist: []             # restricts the catalog (openrouter type)
-    # favorites, aa_model_map, model_priors — see config.yaml.example
+    # favorites, aa_model_map, model_priors - see config.yaml.example
   chat:
     url: "http://localhost:9091"
     api_key: "another-hmac-secret"
@@ -988,7 +988,7 @@ chat:
 **Validation.** Each enabled entry requires `url` and an `api_key` of at least
 32 characters (`MinBackendAPIKeyLength`). A disabled entry (`enabled: false`)
 skips further validation. `reconcile_interval` is valid on the `agent` entry
-only (default 60s); it — and every other unknown per-entry key — fails startup
+only (default 60s); it - and every other unknown per-entry key - fails startup
 on the `chat` entry. `default_model` is required on an enabled `chat` entry.
 Decoding is strict: an unknown backend name or a stale per-entry field fails
 startup loudly rather than being silently dropped.
@@ -1021,9 +1021,9 @@ uses to reach it.
 
 The task backend exposes its own Prometheus surface on a loopback admin
 listener, HMAC-signed with the backend's `api_key`. Series are namespaced
-`cm_agent_*` — webhook request count and duration, container duration by
+`cm_agent_*` - webhook request count and duration, container duration by
 outcome, a running-containers gauge, callback retries, and log-broadcaster
-drops — alongside the standard `go_*` / `process_*` collectors. CM's own
+drops - alongside the standard `go_*` / `process_*` collectors. CM's own
 `/metrics` (namespaced `contextmatrix_*`, including
 `contextmatrix_backend_webhook_total` for outbound webhook outcomes) is served
 on CM's loopback admin listener. Scrape both to cover the full path.
@@ -1054,14 +1054,14 @@ finish; the mutating endpoints (`/trigger`, `/message`, `/promote`,
 can still read state and stop work; tracked containers are stopped; and the
 process exits
 after a bounded drain window. The exact drain timeout and force-cleanup behavior
-are backend-internal — see each backend's repository.
+are backend-internal - see each backend's repository.
 
 ## See Also
 
-- `docs/api-reference.md` § Worker & Backend Endpoints, § Chat Endpoints — the
+- `docs/api-reference.md` § Worker & Backend Endpoints, § Chat Endpoints - the
   REST surface the web UI calls.
-- `docs/architecture.md` — component responsibilities and the full trust model.
-- `docs/agent-workflow.md` — how the in-container worker chooses models, engages
+- `docs/architecture.md` - component responsibilities and the full trust model.
+- `docs/agent-workflow.md` - how the in-container worker chooses models, engages
   task skills, and grounds on the repo.
-- The `contextmatrix-agent` and `contextmatrix-chat` repositories — backend
+- The `contextmatrix-agent` and `contextmatrix-chat` repositories - backend
   internals and their `serve.yaml.example`.

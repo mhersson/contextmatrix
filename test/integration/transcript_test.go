@@ -90,8 +90,8 @@ func startTranscriptCapture(t *testing.T, client *apiClient, project, cardID str
 
 		req.Header.Set("Accept", "text/event-stream")
 
-		// Share the authenticated client's cookie jar — /api/worker/logs is
-		// session-gated in multi mode — but with no read timeout for SSE.
+		// Share the authenticated client's cookie jar - /api/worker/logs is
+		// session-gated in multi mode - but with no read timeout for SSE.
 		sse := &http.Client{Jar: client.hc.Jar}
 
 		resp, err := sse.Do(req)

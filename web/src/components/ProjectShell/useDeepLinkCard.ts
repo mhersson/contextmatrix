@@ -22,13 +22,13 @@ interface UseDeepLinkCardArgs {
  * open the CardPanel (set `selectedCard`).
  *
  * Dead-link: when `?card=ID` is set but no matching card exists in the loaded
- * board (not the same as still-loading — we wait for `loading=false`), strip
+ * board (not the same as still-loading - we wait for `loading=false`), strip
  * the URL once so the dead link does not interfere with future interactions.
  *
  * Outbound: when a consumed deep-link panel closes, strip `?card=` from the
  * URL (the user closed the deep-linked panel).
  *
- * Click-driven panel opens deliberately do NOT write to the URL — full
+ * Click-driven panel opens deliberately do NOT write to the URL - full
  * URL ↔ panel sync is a deferred follow-up.
  *
  * State is reset on project change so a cross-project SPA navigation

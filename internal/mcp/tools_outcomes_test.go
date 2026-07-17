@@ -32,7 +32,7 @@ func (f *fakeOutcomeWriter) RecordModelOutcomes(_ context.Context, rows []sqlite
 }
 
 // setupOutcomeMCP mirrors setupMCP/setupMCPWithCosts (server_test.go) but wires
-// a caller-supplied OutcomeWriter into ServerConfig — setupMCP has no Outcomes
+// a caller-supplied OutcomeWriter into ServerConfig - setupMCP has no Outcomes
 // hook, and this file must not modify server_test.go.
 func setupOutcomeMCP(t *testing.T, w OutcomeWriter) *testEnv {
 	t.Helper()
@@ -207,7 +207,7 @@ func TestReportModelOutcomeTool(t *testing.T) {
 	})
 
 	// Case 4 needs real store validation (RecordModelOutcomes rejects unknown
-	// result values) — fakeOutcomeWriter accepts everything, so this uses the
+	// result values) - fakeOutcomeWriter accepts everything, so this uses the
 	// real *sqlite.Store against a t.TempDir ops.db instead of the fake.
 	t.Run("invalid result value surfaces store validation", func(t *testing.T) {
 		st, err := sqlite.Open(filepath.Join(t.TempDir(), "ops.db"))

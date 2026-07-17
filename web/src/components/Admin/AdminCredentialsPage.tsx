@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 import { api } from '../../api/client';
-import { errorMessage } from '../../lib/errors';
+import { useAdminResource } from '../../hooks/useAdminResource';
 import type { CredentialInfo } from '../../types';
 import { ConfirmModal } from '../ConfirmModal/ConfirmModal';
 import { CredentialModal } from './CredentialModal';
@@ -12,41 +12,28 @@ interface PendingConfirm {
   kind: ConfirmKind;
 }
 
+const fetchCredentials = () => api.adminListCredentials();
+
 /** Admin-only Credentials page: list, create/rotate (via CredentialModal),
  * and per-row disable/enable/delete management. Owns all data fetching and
  * mutations; the table and row it renders are purely presentational, and
  * CredentialModal owns its own create/rotate API call (see that file's
  * doc comment for why). */
 export function AdminCredentialsPage() {
-  const [credentials, setCredentials] = useState<CredentialInfo[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [listError, setListError] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const {
+    items: credentials,
+    loading,
+    listError,
+    actionError,
+    refetch,
+    act,
+  } = useAdminResource(fetchCredentials, [], 'Failed to load credentials.');
 
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<'create' | 'rotate'>('create');
   const [modalExisting, setModalExisting] = useState<CredentialInfo | undefined>(undefined);
 
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
-
-  const refetch = useCallback(async () => {
-    try {
-      const list = await api.adminListCredentials();
-      setCredentials(list);
-      setListError(null);
-    } catch (err) {
-      setListError(errorMessage(err, 'Failed to load credentials.'));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  // Mount-only fetch, delegated to refetch (also used after every mutation
-  // below) rather than duplicated inline — mirrors AdminUsersPage.
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void refetch();
-  }, [refetch]);
 
   const openCreate = () => {
     setModalMode('create');
@@ -60,31 +47,10 @@ export function AdminCredentialsPage() {
     setModalOpen(true);
   };
 
-  const setDisabled = useCallback(
-    async (name: string, disabled: boolean) => {
-      setActionError(null);
-      try {
-        await api.adminUpdateCredential(name, { disabled });
-        await refetch();
-      } catch (err) {
-        setActionError(errorMessage(err, 'Action failed.'));
-      }
-    },
-    [refetch],
-  );
+  const setDisabled = (name: string, disabled: boolean) =>
+    act(() => api.adminUpdateCredential(name, { disabled }), 'Action failed.');
 
-  const remove = useCallback(
-    async (name: string) => {
-      setActionError(null);
-      try {
-        await api.adminDeleteCredential(name);
-        await refetch();
-      } catch (err) {
-        setActionError(errorMessage(err, 'Failed to delete credential.'));
-      }
-    },
-    [refetch],
-  );
+  const remove = (name: string) => act(() => api.adminDeleteCredential(name), 'Failed to delete credential.');
 
   const confirmPending = async () => {
     if (!pendingConfirm) return;

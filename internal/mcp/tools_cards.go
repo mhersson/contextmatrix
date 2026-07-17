@@ -21,7 +21,7 @@ type listCardsInput struct {
 	Label   string `json:"label,omitempty" jsonschema:"filter by label"`
 	Agent   string `json:"agent,omitempty" jsonschema:"filter by assigned agent"`
 	Parent  string `json:"parent,omitempty" jsonschema:"filter by parent card ID"`
-	AgentID string `json:"agent_id,omitempty" jsonschema:"caller identity — unvetted external card bodies are redacted for non-human callers"`
+	AgentID string `json:"agent_id,omitempty" jsonschema:"caller identity - unvetted external card bodies are redacted for non-human callers"`
 }
 type listCardsOutput struct {
 	Cards []*board.Card `json:"cards"`
@@ -30,7 +30,7 @@ type listCardsOutput struct {
 type getCardInput struct {
 	Project       string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
 	CardID        string `json:"card_id" jsonschema:"required,card ID (e.g. ALPHA-001)"`
-	AgentID       string `json:"agent_id,omitempty" jsonschema:"caller identity — unvetted external card bodies are redacted for non-human callers"`
+	AgentID       string `json:"agent_id,omitempty" jsonschema:"caller identity - unvetted external card bodies are redacted for non-human callers"`
 	IncludeImages *bool  `json:"include_images,omitempty" jsonschema:"attach inline image bytes for cm-server-hosted markdown image references in the body (default true; capped at 10 images per call and ~20 MiB cumulative bytes, with later references in body order omitted when over budget)"`
 }
 
@@ -55,13 +55,13 @@ type createCardInput struct {
 // NOTE: vetted, autonomous, feature_branch, create_pr, base_branch, best_of_n,
 // the mob session fields (mob_participants, mob_phases, mob_guests), and model pin
 // fields (model_orchestrator, model_coder, model_reviewer) are intentionally
-// excluded — they are human-only fields. Model pins are excluded for the same
+// excluded - they are human-only fields. Model pins are excluded for the same
 // reason: they express human intent about which model to use and must not be
 // overridden by the agent that is itself subject to the pin.
 type updateCardInput struct {
 	Project  string    `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
 	CardID   string    `json:"card_id" jsonschema:"required,card ID"`
-	AgentID  string    `json:"agent_id,omitempty" jsonschema:"agent performing the update — if set and card is claimed by a different agent, returns ErrAgentMismatch"`
+	AgentID  string    `json:"agent_id,omitempty" jsonschema:"agent performing the update - if set and card is claimed by a different agent, returns ErrAgentMismatch"`
 	Title    *string   `json:"title,omitempty" jsonschema:"new title"`
 	Priority *string   `json:"priority,omitempty" jsonschema:"new priority"`
 	Labels   []string  `json:"labels,omitempty" jsonschema:"new labels (replaces all)"`
@@ -73,14 +73,14 @@ type updateCardInput struct {
 type transitionCardInput struct {
 	Project  string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
 	CardID   string `json:"card_id" jsonschema:"required,card ID"`
-	AgentID  string `json:"agent_id,omitempty" jsonschema:"agent performing the transition — if set and card is claimed by a different agent, returns ErrAgentMismatch"`
+	AgentID  string `json:"agent_id,omitempty" jsonschema:"agent performing the transition - if set and card is claimed by a different agent, returns ErrAgentMismatch"`
 	NewState string `json:"new_state" jsonschema:"required,target state"`
 }
 
 type getTaskContextInput struct {
 	Project       string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
 	CardID        string `json:"card_id" jsonschema:"required,card ID"`
-	AgentID       string `json:"agent_id,omitempty" jsonschema:"caller identity — unvetted external card bodies are redacted for non-human callers"`
+	AgentID       string `json:"agent_id,omitempty" jsonschema:"caller identity - unvetted external card bodies are redacted for non-human callers"`
 	IncludeImages *bool  `json:"include_images,omitempty" jsonschema:"attach inline image bytes for cm-server-hosted markdown image references in the primary card body (default true; capped at 10 images per call and ~20 MiB cumulative bytes, with later references in body order omitted when over budget; siblings stay text-only)"`
 }
 type getTaskContextOutput struct {
@@ -261,7 +261,7 @@ func registerCreateCard(server *mcp.Server, svc *service.CardService) {
 func registerUpdateCard(server *mcp.Server, svc *service.CardService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "update_card",
-		Description: "Update a card's mutable fields. Only provided fields are changed; omitted fields keep their current values. Does NOT change state — use transition_card for state changes.",
+		Description: "Update a card's mutable fields. Only provided fields are changed; omitted fields keep their current values. Does NOT change state - use transition_card for state changes.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input updateCardInput) (*mcp.CallToolResult, *board.Card, error) {
 		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
 		if err != nil {
@@ -315,7 +315,7 @@ func registerTransitionCard(server *mcp.Server, svc *service.CardService) {
 func registerGetTaskContext(server *mcp.Server, svc *service.CardService, imageStore images.Store) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "get_task_context",
-		Description: "Get a card with its parent card, sibling cards (same parent), and project config in a single call. Sub-agents should call this first before touching anything — it eliminates multiple round-trips. By default, attaches inline image bytes for any cm-server-hosted markdown images in the primary card body (capped at 10); pass include_images=false to skip. Sibling card bodies stay text-only. Cumulative attached image bytes are capped at ~20 MiB; later references in body order are omitted when over budget.",
+		Description: "Get a card with its parent card, sibling cards (same parent), and project config in a single call. Sub-agents should call this first before touching anything - it eliminates multiple round-trips. By default, attaches inline image bytes for any cm-server-hosted markdown images in the primary card body (capped at 10); pass include_images=false to skip. Sibling card bodies stay text-only. Cumulative attached image bytes are capped at ~20 MiB; later references in body order are omitted when over budget.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input getTaskContextInput) (*mcp.CallToolResult, getTaskContextOutput, error) {
 		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
 		if err != nil {
@@ -332,7 +332,7 @@ func registerGetTaskContext(server *mcp.Server, svc *service.CardService, imageS
 			return nil, getTaskContextOutput{}, fmt.Errorf("get project config: %w", err)
 		}
 
-		// Redact unvetted card body for non-human callers — get_task_context
+		// Redact unvetted card body for non-human callers - get_task_context
 		// is the primary prompt-injection vector because its response is fed
 		// straight into agent context.
 		primary := redactCardForAgent(card, input.AgentID)
@@ -485,7 +485,7 @@ func registerCheckAgentHealth(server *mcp.Server, svc *service.CardService) {
 func registerGetReadyTasks(server *mcp.Server, svc *service.CardService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "get_ready_tasks",
-		Description: "Get unclaimed 'todo' cards that are ready to start — all depends_on cards are in 'done' state. Optionally scoped to a parent card's subtasks. Use this to find which tasks can be started in parallel.",
+		Description: "Get unclaimed 'todo' cards that are ready to start - all depends_on cards are in 'done' state. Optionally scoped to a parent card's subtasks. Use this to find which tasks can be started in parallel.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input getReadyTasksInput) (*mcp.CallToolResult, getReadyTasksOutput, error) {
 		filter := storage.CardFilter{State: board.StateTodo}
 		if input.ParentID != "" {
@@ -573,7 +573,7 @@ func registerReportUsage(server *mcp.Server, svc *service.CardService) {
 func registerRecalculateCosts(server *mcp.Server, svc *service.CardService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "recalculate_costs",
-		Description: "Recompute estimated costs from the current rate table. Cards with a usage breakdown: every estimated bucket is re-priced (stale prices corrected); actual provider-reported costs are never modified. Legacy cards without a breakdown: fill-missing-only — cards with non-zero tokens but $0 cost get a cost, cards with an existing cost are not modified.",
+		Description: "Recompute estimated costs from the current rate table. Cards with a usage breakdown: every estimated bucket is re-priced (stale prices corrected); actual provider-reported costs are never modified. Legacy cards without a breakdown: fill-missing-only - cards with non-zero tokens but $0 cost get a cost, cards with an existing cost are not modified.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input recalculateCostsInput) (*mcp.CallToolResult, recalculateCostsOutput, error) {
 		result, err := svc.RecalculateCosts(ctx, input.Project, input.DefaultModel)
 		if err != nil {

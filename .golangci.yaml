@@ -43,7 +43,7 @@ linters:
     - std-error-handling
     - comments
     rules:
-    # G706: structured slog logging is safe — values are key-value pairs, not format strings
+    # G706: structured slog logging is safe - values are key-value pairs, not format strings
     - linters: [gosec]
       text: "G706"
     # G118: context cancel stored in a struct and called on session stop (false positive)
@@ -62,7 +62,7 @@ linters:
       text: "G101|G107|G115|G124"
       path: "_test\\.go$"
     # Integration harness fixtures: bind 0.0.0.0, math/rand for ports,
-    # net/http/cgi for git-http-backend — all test-only, all reviewed.
+    # net/http/cgi for git-http-backend - all test-only, all reviewed.
     - linters: [gosec]
       text: "G102|G404|G504"
       path: "test/integration/.*_test\\.go$"
@@ -80,7 +80,7 @@ linters:
     # test helpers with a single call site don't need flexible params
     - linters: [unparam]
       path: "_test\\.go$"
-    # internal/api.APIError — internal package, stutter rule doesn't apply
+    # internal/api.APIError - internal package, stutter rule doesn't apply
     - linters: [revive]
       text: "exported"
       path: "internal/api/router\\.go$"

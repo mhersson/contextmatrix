@@ -60,12 +60,12 @@ type Session struct {
 	ContextTokensUpdatedAt time.Time `json:"context_tokens_updated_at"`
 	RehydrationActive      bool      `json:"rehydration_active,omitempty"`
 	// RehydrationStartedAt is set when SetRehydrationActive(true) is called and
-	// cleared (nil) when called with false. The reaper compares this — not
-	// LastActive — against the rehydration timeout so an actively-typing user
+	// cleared (nil) when called with false. The reaper compares this - not
+	// LastActive - against the rehydration timeout so an actively-typing user
 	// whose agent crashed mid-rehydration does not prevent the sweep from firing.
 	RehydrationStartedAt *time.Time `json:"rehydration_started_at,omitempty"`
 
-	// Token counters — cumulative totals from all usage frames for this session.
+	// Token counters - cumulative totals from all usage frames for this session.
 	PromptTokens        int64 `json:"prompt_tokens,omitempty"`
 	CompletionTokens    int64 `json:"completion_tokens,omitempty"`
 	CacheReadTokens     int64 `json:"cache_read_tokens,omitempty"`
@@ -109,7 +109,7 @@ type LogEntry struct {
 
 // TokenUsage carries per-turn (per-assistant-message) token counts from the
 // Anthropic Messages-API usage block emitted by the backend for each assistant
-// turn. These are NOT cumulative session totals — each frame reports only the
+// turn. These are NOT cumulative session totals - each frame reports only the
 // tokens consumed by that single turn. The sum of all four fields approximates
 // the prompt size Claude actually processed; the UI typically displays
 // InputTokens + CacheReadTokens + CacheCreateTokens as "context used.".

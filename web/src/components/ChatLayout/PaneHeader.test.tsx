@@ -12,7 +12,7 @@ vi.mock('../../utils/chatModels', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../utils/chatModels')>();
   return {
     ...actual,
-    // Inline the default — vi.mock factories are hoisted before const declarations.
+    // Inline the default - vi.mock factories are hoisted before const declarations.
     useChatModels: vi.fn().mockReturnValue({
       models: [{ id: 'model-x', label: 'Model X', max_tokens: 200_000 }],
       source: 'endpoint' as const,
@@ -244,7 +244,7 @@ describe('PaneContextUsage openrouter mode context-window denominator', () => {
     render(<PaneHeader {...baseProps} />);
 
     // 25_000 / 100_000 = 25%. Openrouter mode must read max_tokens from the
-    // CM-served model list — no direct browser fetch to the OpenRouter API.
+    // CM-served model list - no direct browser fetch to the OpenRouter API.
     expect(screen.getByText('25%')).toBeInTheDocument();
     expect(screen.getByText('model-b')).toBeInTheDocument();
   });

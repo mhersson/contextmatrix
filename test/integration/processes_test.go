@@ -63,7 +63,7 @@ func freePort(t *testing.T) int {
 
 // startCM launches CM (`contextmatrix --config <path>`), polls /healthz, and
 // tees stdout+stderr into rl.cmSink (saved as cm.log). CM output is NOT
-// forwarded to combined.log — it is high-volume request noise.
+// forwarded to combined.log - it is high-volume request noise.
 func startCM(t *testing.T, configPath string, port int, rl *runLog) *process {
 	t.Helper()
 

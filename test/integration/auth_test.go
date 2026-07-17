@@ -13,7 +13,7 @@ import (
 )
 
 // Shared multi-mode auth fixtures. Every password/secret below is obviously
-// fake — the values live only in a throwaway auth.db and are never asserted on.
+// fake - the values live only in a throwaway auth.db and are never asserted on.
 const (
 	adminUser = "harness-admin"
 	adminPass = "harness-admin-pw" // >= MinPasswordLength (10)
@@ -58,7 +58,7 @@ func scrapeBootstrapToken(t *testing.T, cm *process) string {
 
 // bootAdminSession scrapes the bootstrap token, redeems it to create the first
 // admin, and returns an authenticated cookie-jar client. Scenario clients use
-// this — in multi mode X-Agent-ID alone does not authenticate browser routes.
+// this - in multi mode X-Agent-ID alone does not authenticate browser routes.
 func bootAdminSession(t *testing.T, baseURL string, cm *process) *apiClient {
 	t.Helper()
 

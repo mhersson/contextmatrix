@@ -25,7 +25,7 @@ function getCatalog(): Promise<ModelCatalogResponse> {
 }
 
 /**
- * Model catalog for the card pin pickers (GET /api/models) — CM's
+ * Model catalog for the card pin pickers (GET /api/models) - CM's
  * vendor-screened OpenRouter list or the endpoint's served list. On failure
  * returns the empty catalog; the pin comboboxes then degrade to free text.
  */

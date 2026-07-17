@@ -112,7 +112,7 @@ export function MetadataAgent({
       <ConfirmModal
         open={confirmReleaseOpen}
         title={`Release claim held by ${assignedAgent}?`}
-        message="Only do this if the agent is no longer running — the current claimant will lose its ability to update the card."
+        message="Only do this if the agent is no longer running - the current claimant will lose its ability to update the card."
         confirmLabel="Release"
         variant="danger"
         onConfirm={handleReleaseConfirm}

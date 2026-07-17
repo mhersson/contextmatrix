@@ -87,7 +87,7 @@ func TestCredentialMutators(t *testing.T) {
 
 	later := testNow.Add(time.Hour)
 
-	// Rotation replaces the secret under the same name — bindings don't move.
+	// Rotation replaces the secret under the same name - bindings don't move.
 	require.NoError(t, store.UpdateCredentialSecret(ctx, "rot", []byte("new-secret"), later))
 	require.NoError(t, store.UpdateCredentialMetadata(ctx, "rot", "ghe.example", "https://api.ghe.example", 9, 10, later))
 	require.NoError(t, store.SetCredentialDisabled(ctx, "rot", true, later))
@@ -152,7 +152,7 @@ func TestRotateCredentialSecrets_RollsBackOnCallbackError(t *testing.T) {
 	require.NoError(t, store.CreateCredential(ctx,
 		&authstore.Credential{Name: "bbb", Kind: authstore.CredentialKindPAT, EncryptedSecret: []byte("blob-b"), CreatedBy: "x"}, testNow))
 
-	// The callback rewrites the first entry, then fails on the second — a
+	// The callback rewrites the first entry, then fails on the second - a
 	// genuine mid-loop abort, not a pre-flight rejection. The already-written
 	// first entry must be rolled back too.
 	boom := errors.New("boom")

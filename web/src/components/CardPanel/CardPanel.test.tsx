@@ -107,7 +107,7 @@ function makeProps(overrides?: Partial<Parameters<typeof CardPanel>[0]>) {
   };
 }
 
-describe('CardPanel — bifold layout', () => {
+describe('CardPanel - bifold layout', () => {
   it('renders the primary tabs (Automation, Info, Danger) for a non-HITL card', () => {
     render(<CardPanel {...makeProps()} />);
     expect(screen.getByRole('tab', { name: /Automation/ })).toBeInTheDocument();
@@ -165,7 +165,7 @@ describe('CardPanel — bifold layout', () => {
     const { rerender } = render(<CardPanel {...makeProps({ card: initial })} />);
     const grid = screen.getByTestId('body-bifold');
 
-    // HITL cards auto-expand the rail on mount — no manual click needed.
+    // HITL cards auto-expand the rail on mount - no manual click needed.
     expect(grid.style.gridTemplateColumns).toContain('600px');
     expect(screen.getByRole('button', { name: 'Collapse rail' })).toHaveAttribute('aria-pressed', 'true');
 
@@ -200,7 +200,7 @@ describe('CardPanel — bifold layout', () => {
   });
 });
 
-describe('CardPanel — Info tab hosts the state picker', () => {
+describe('CardPanel - Info tab hosts the state picker', () => {
   it('switches to Info and reveals the State select', async () => {
     render(<CardPanel {...makeProps()} />);
     fireEvent.click(screen.getByRole('tab', { name: 'Info' }));
@@ -208,7 +208,7 @@ describe('CardPanel — Info tab hosts the state picker', () => {
   });
 });
 
-describe('CardPanel — Run handler (save-before-run)', () => {
+describe('CardPanel - Run handler (save-before-run)', () => {
   beforeEach(() => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
   });
@@ -268,7 +268,7 @@ describe('CardPanel — Run handler (save-before-run)', () => {
     expect(onSave).toHaveBeenCalledOnce();
     expect(onRunCard).not.toHaveBeenCalled();
 
-    // Clicking Run again must re-send the same optimistic patch — the revert
+    // Clicking Run again must re-send the same optimistic patch - the revert
     // put feature_branch/create_pr back to their pre-Run values, so the card
     // is still dirty relative to the server and a fresh save is attempted.
     await act(async () => {
@@ -281,7 +281,7 @@ describe('CardPanel — Run handler (save-before-run)', () => {
   });
 });
 
-describe('CardPanel — run gating on global task backend', () => {
+describe('CardPanel - run gating on global task backend', () => {
   afterEach(() => {
     theme.taskBackend = 'agent';
   });
@@ -298,7 +298,7 @@ describe('CardPanel — run gating on global task backend', () => {
   });
 });
 
-describe('CardPanel — transition primary rollback', () => {
+describe('CardPanel - transition primary rollback', () => {
   it('reverts optimistic state transition when onSave rejects', async () => {
     const onSave = vi.fn().mockRejectedValue({ error: 'save failed' });
     render(
@@ -313,7 +313,7 @@ describe('CardPanel — transition primary rollback', () => {
 
     expect(onSave).toHaveBeenCalledOnce();
 
-    // Info tab reveals the state picker — confirm it reverted to 'review'.
+    // Info tab reveals the state picker - confirm it reverted to 'review'.
     fireEvent.click(screen.getByRole('tab', { name: 'Info' }));
     const stateSelect = (await screen.findByRole(
       'combobox', { name: 'State' },
@@ -322,7 +322,7 @@ describe('CardPanel — transition primary rollback', () => {
   });
 });
 
-describe('CardPanel — Delete via Danger Zone', () => {
+describe('CardPanel - Delete via Danger Zone', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
   });
@@ -370,7 +370,7 @@ describe('CardPanel — Delete via Danger Zone', () => {
   });
 });
 
-describe('CardPanel — MDEditor preview skipHtml XSS prevention', () => {
+describe('CardPanel - MDEditor preview skipHtml XSS prevention', () => {
   const xssBody = '<iframe src="https://example.com"></iframe>\n<script>alert(\'xss\')</script>\nhello';
 
   beforeEach(() => {
@@ -395,7 +395,7 @@ describe('CardPanel — MDEditor preview skipHtml XSS prevention', () => {
 
   it('does not render anchors with javascript: hrefs in the preview pane', async () => {
     // The skipHtml-honoring mock stores the raw markdown under md-preview.
-    // Assert by inspecting every anchor in the DOM — if the real renderer
+    // Assert by inspecting every anchor in the DOM - if the real renderer
     // ever starts producing anchors from markdown link syntax and forgets
     // to filter javascript: URLs, this test fails.
     const body = '[click](javascript:alert(1))\nhello';
@@ -411,7 +411,7 @@ describe('CardPanel — MDEditor preview skipHtml XSS prevention', () => {
   });
 });
 
-describe('CardPanel — rail default tab follows isChatInteractive', () => {
+describe('CardPanel - rail default tab follows isChatInteractive', () => {
   it('mounts on Chat when the card arrives already running an HITL session', () => {
     render(
       <CardPanel
@@ -492,14 +492,14 @@ describe('CardPanel — rail default tab follows isChatInteractive', () => {
     const autonomousCard = { ...runningCard, autonomous: true };
     rerender(<CardPanel {...makeProps({ card: autonomousCard })} />);
 
-    // One render with false is not enough — counter=1 is below the threshold.
+    // One render with false is not enough - counter=1 is below the threshold.
     // Automation remains the selected tab; the chat tab stays available read-only.
     expect(screen.getByRole('tab', { name: /Automation/ })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('tab', { name: /Chat/ })).toBeInTheDocument();
   });
 });
 
-describe('CardPanel — autonomous chat visibility', () => {
+describe('CardPanel - autonomous chat visibility', () => {
   it('adds the Chat tab with a live pulse but does NOT select it by default for a running autonomous mob session card', () => {
     render(
       <CardPanel
@@ -535,7 +535,7 @@ describe('CardPanel — autonomous chat visibility', () => {
 
     // SSE churn: every log append / heartbeat hands CardPanel a new card
     // object. isChatInteractive never flipped (always false), so the
-    // switch-back debounce must never arm — the user stays on Chat.
+    // switch-back debounce must never arm - the user stays on Chat.
     for (const updated of ['2026-01-01T00:01:00Z', '2026-01-01T00:02:00Z', '2026-01-01T00:03:00Z']) {
       rerender(<CardPanel {...makeProps({ card: { ...autoCard, updated } })} />);
     }
@@ -563,7 +563,7 @@ describe('CardPanel — autonomous chat visibility', () => {
   });
 });
 
-describe('CardPanel — description editability tracks workerAttached', () => {
+describe('CardPanel - description editability tracks workerAttached', () => {
   beforeEach(() => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
   });
@@ -605,7 +605,7 @@ describe('CardPanel — description editability tracks workerAttached', () => {
   });
 });
 
-describe('CardPanel — mobile layout (≤ 768px)', () => {
+describe('CardPanel - mobile layout (≤ 768px)', () => {
   const originalMatchMedia = window.matchMedia;
 
   beforeEach(() => {
@@ -669,7 +669,7 @@ describe('CardPanel — mobile layout (≤ 768px)', () => {
   });
 });
 
-describe('CardPanel — keydown listener stability', () => {
+describe('CardPanel - keydown listener stability', () => {
   beforeEach(() => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
   });
@@ -699,7 +699,7 @@ describe('CardPanel — keydown listener stability', () => {
   });
 });
 
-describe('CardPanel — rail auto-expand behavior', () => {
+describe('CardPanel - rail auto-expand behavior', () => {
   it('HITL card mounts with rail expanded and Chat tab selected', () => {
     render(
       <CardPanel
@@ -765,7 +765,7 @@ describe('CardPanel — rail auto-expand behavior', () => {
     expect(grid.style.gridTemplateColumns).toContain('340px');
     expect(screen.getByRole('button', { name: 'Expand rail' })).toHaveAttribute('aria-pressed', 'false');
 
-    // SSE refresh: same id, new object, state change — rail must stay collapsed.
+    // SSE refresh: same id, new object, state change - rail must stay collapsed.
     const refreshed = { ...initial, state: 'review' };
     rerender(<CardPanel {...makeProps({ card: refreshed })} />);
 
@@ -774,7 +774,7 @@ describe('CardPanel — rail auto-expand behavior', () => {
   });
 });
 
-describe('CardPanel — automation lock on subtasks', () => {
+describe('CardPanel - automation lock on subtasks', () => {
   it('disables automation checkboxes and shows the parent-card reason on a subtask in todo', () => {
     render(
       <CardPanel

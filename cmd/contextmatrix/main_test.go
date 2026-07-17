@@ -25,7 +25,7 @@ func staticMainTestProvider(t *testing.T) githubauth.TokenGenerator {
 func TestDirHasGit_PresentAbsent(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// No .git yet — should return false.
+	// No .git yet - should return false.
 	assert.False(t, dirHasGit(tmpDir), "dir without .git should return false")
 
 	// Create .git directory.
@@ -34,7 +34,7 @@ func TestDirHasGit_PresentAbsent(t *testing.T) {
 
 	assert.True(t, dirHasGit(tmpDir), "dir with .git directory should return true")
 
-	// Empty string — should return false.
+	// Empty string - should return false.
 	assert.False(t, dirHasGit(""), "empty string should return false")
 }
 

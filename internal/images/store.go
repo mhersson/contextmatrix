@@ -40,7 +40,7 @@ var IDPatternFragment = fmt.Sprintf(`[a-f0-9]{%d}`, IDLen)
 // be safe for concurrent use.
 type Store interface {
 	// Put processes raw bytes, derives a content-hash ID, and persists the
-	// result. Identical payloads are deduplicated — a second Put with the
+	// result. Identical payloads are deduplicated - a second Put with the
 	// same content returns the existing ID without inserting a new row.
 	Put(ctx context.Context, raw []byte) (id string, contentType string, err error)
 

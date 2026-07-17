@@ -250,7 +250,7 @@ beforeEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('ProjectShell — onCreateCard', () => {
+describe('ProjectShell - onCreateCard', () => {
   it('"Create & Run" opens the card panel and does not flash', async () => {
     renderProjectShell();
 
@@ -330,10 +330,10 @@ describe('ProjectShell — onCreateCard', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Deep-link tests — ?card=ID opens the CardPanel; closing strips ?card=
+// Deep-link tests - ?card=ID opens the CardPanel; closing strips ?card=
 // ---------------------------------------------------------------------------
 
-describe('ProjectShell — ?card= deep-link', () => {
+describe('ProjectShell - ?card= deep-link', () => {
   const deepLinkCard: Card = {
     id: 'TEST-1',
     title: 'Deep-linked card',
@@ -454,7 +454,7 @@ describe('ProjectShell — ?card= deep-link', () => {
     expect(await screen.findByTestId('card-panel-TEST-2')).toBeInTheDocument();
     expect(screen.queryByTestId('card-panel-TEST-1')).not.toBeInTheDocument();
 
-    // The new project's ?card= must survive — without the prev-project
+    // The new project's ?card= must survive - without the prev-project
     // reset of deepLinkConsumed/pendingUrlStrip, the outbound branch
     // would trip in the gap between the inbound rejection and the
     // self-healing re-fire, stripping the URL as a side effect.
@@ -538,12 +538,12 @@ describe('ProjectShell — ?card= deep-link', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Card-scoped worker-log liveness — the enabled flag passed to useWorkerLogs
+// Card-scoped worker-log liveness - the enabled flag passed to useWorkerLogs
 // must open for ANY running worker session (HITL or autonomous), so the Chat
 // tab's SSE stream populates for every run; autonomous renders read-only.
 // ---------------------------------------------------------------------------
 
-describe('ProjectShell — card-scoped worker-log liveness', () => {
+describe('ProjectShell - card-scoped worker-log liveness', () => {
   const config: ProjectConfig = {
     name: 'test',
     prefix: 'TEST',

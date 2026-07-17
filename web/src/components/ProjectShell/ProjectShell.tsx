@@ -26,7 +26,7 @@ import { api, isAPIError } from '../../api/client';
 import type { BoardEvent, Card, CreateCardInput } from '../../types';
 import { useDeepLinkCard } from './useDeepLinkCard';
 
-// Lazy-load secondary routes — only downloaded when the user navigates to them.
+// Lazy-load secondary routes - only downloaded when the user navigates to them.
 const ProjectSettings = lazy(() =>
   import('../ProjectSettings/ProjectSettings').then((m) => ({ default: m.ProjectSettings }))
 );
@@ -68,7 +68,7 @@ export function ProjectShell() {
 
   // In-render reset on project change. This pattern (a `prev*` state marker
   // compared in render) replaces a `useEffect(..., [project])` that called
-  // setState — the effect path was flagged by react-hooks/set-state-in-effect
+  // setState - the effect path was flagged by react-hooks/set-state-in-effect
   // because it produced a cascading render after the project switch.
   const [prevProject, setPrevProject] = useState(project);
   if (project !== prevProject) {
@@ -86,7 +86,7 @@ export function ProjectShell() {
 
   const { config, cards, loading, error, connected, updateCardLocally, removeCardLocally, suppressSSE, unsuppressSSE } = useBoard(project || '', undefined, handleSyncEvent, handleCardCreated);
 
-  // Deep-link handling for ?card=ID — see useDeepLinkCard for full rationale.
+  // Deep-link handling for ?card=ID - see useDeepLinkCard for full rationale.
   // Click-driven panel opens deliberately do NOT write to the URL.
   useDeepLinkCard({ cards, loading, selectedCard, setSelectedCard, project });
 
@@ -179,10 +179,10 @@ export function ProjectShell() {
     [cards]
   );
 
-  // Card-scoped log stream for CardChat — enabled when chat is "live": any
+  // Card-scoped log stream for CardChat - enabled when chat is "live": any
   // worker session is running (HITL or autonomous; autonomous renders
   // read-only). This avoids opening a second EventSource from inside CardChat
-  // itself. Mirrors the isChatLive predicate in CardPanel/CardPanel.tsx —
+  // itself. Mirrors the isChatLive predicate in CardPanel/CardPanel.tsx -
   // keep both in sync if the liveness rule changes.
   const isCardChatLive = currentSelectedCard?.worker_status === 'running';
   const { logs: selectedCardLogs } = useWorkerLogs({

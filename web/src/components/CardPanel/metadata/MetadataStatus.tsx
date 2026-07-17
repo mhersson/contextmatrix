@@ -49,7 +49,7 @@ export function MetadataStatus({
       </select>
       <div className="font-mono mt-2" style={{ fontSize: '11px', color: 'var(--grey1)', lineHeight: 1.45 }}>
         {workerAttached
-          ? '🔒 Worker owns this card — only the agent or Stop can transition it.'
+          ? '🔒 Worker owns this card - only the agent or Stop can transition it.'
           : validTransitions.length === 0
             ? 'No transitions available from this state.'
             : 'Select a target state to move the card through the board.'}

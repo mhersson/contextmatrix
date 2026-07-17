@@ -39,7 +39,7 @@ func newAuthTestServer(t *testing.T) (*httptest.Server, *auth.Service, *authstor
 
 	// Credential-pool wiring: a random 32-byte subkey and a success-stub
 	// GitHub checker, so admin-credential HTTP tests never touch the network.
-	// Additive only — no existing behavior/assertion depends on this.
+	// Additive only - no existing behavior/assertion depends on this.
 	credKey := make([]byte, 32)
 	_, err = rand.Read(credKey)
 	require.NoError(t, err)
@@ -425,7 +425,7 @@ func TestAppConfig_NoneModeUnchanged(t *testing.T) {
 }
 
 func TestAuthJourney_BootstrapOverHTTP(t *testing.T) {
-	// Fresh store with ZERO users — the bootstrap situation.
+	// Fresh store with ZERO users - the bootstrap situation.
 	store, err := authstore.Open(filepath.Join(t.TempDir(), "auth.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })

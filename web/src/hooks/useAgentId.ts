@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
+import { safeGetString, safeSetString } from '../utils/safeStorage';
 
 const STORAGE_KEY = 'contextmatrix-agent-id';
 
@@ -20,35 +21,18 @@ function generateAgentId(): string {
   return `human:web-${suffix}`;
 }
 
-// Safari Private Browsing, quota exhaustion, and disabled storage all throw
-// on localStorage.getItem / setItem. Wrap both so a throw does not unmount
-// ProjectShell — fall back to a per-session in-memory id, which is
-// functionally identical for this single-tenant tool (the only loss is id
-// continuity across page reloads, but the CSRF/UI-origin signal is unaffected).
-function safeGet(key: string): string | null {
-  try {
-    return localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-function safeSet(key: string, value: string): void {
-  try {
-    localStorage.setItem(key, value);
-  } catch {
-    // ignore — caller already has the in-memory id
-  }
-}
-
 export function useAgentId(enabled: boolean) {
+  // When storage throws, fall back to a per-session in-memory id - the only
+  // loss is id continuity across page reloads; the CSRF/UI-origin signal is
+  // unaffected.
   const [agentId] = useState<string | null>(() => {
     if (!enabled) return null;
 
-    const existing = safeGet(STORAGE_KEY);
+    const existing = safeGetString(STORAGE_KEY);
     if (existing) return existing;
 
     const fresh = generateAgentId();
-    safeSet(STORAGE_KEY, fresh);
+    safeSetString(STORAGE_KEY, fresh);
     return fresh;
   });
 

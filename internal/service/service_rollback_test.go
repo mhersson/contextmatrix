@@ -204,7 +204,7 @@ func TestAddLogEntry_RollbackOnCommitFailure(t *testing.T) {
 // TestParentAutoTransition_FailedCommitIncrementsCounter verifies that a
 // parent auto-transition that cannot commit increments the
 // ParentAutoTransitionErrors counter. The child's own mutation must
-// still succeed — auto-transitions are best-effort and their failure
+// still succeed - auto-transitions are best-effort and their failure
 // is surfaced via the metric, not the caller's error.
 func TestParentAutoTransition_FailedCommitIncrementsCounter(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
@@ -550,7 +550,7 @@ func TestDeleteProject_HappyPathNoRollback(t *testing.T) {
 	svc.SetCommitQueue(queue)
 
 	// Create a project. CreateProject auto-commits via CommitAll directly
-	// (not through the queue) — this is fine for test setup.
+	// (not through the queue) - this is fine for test setup.
 	input := validCreateProjectInput()
 	_, err := svc.CreateProject(ctx, input)
 	require.NoError(t, err)

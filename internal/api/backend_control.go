@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -25,7 +24,7 @@ type messageResponse struct {
 	MessageID string `json:"message_id"`
 }
 
-// messageCard handles POST /api/projects/{project}/cards/{id}/message — send a human message.
+// messageCard handles POST /api/projects/{project}/cards/{id}/message - send a human message.
 func (h *backendHandlers) messageCard(w http.ResponseWriter, r *http.Request) {
 	if isNonHumanAgent(r) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField, "only humans can send messages", "")
@@ -60,9 +59,7 @@ func (h *backendHandlers) messageCard(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Content string `json:"content"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", "")
-
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 
@@ -95,7 +92,7 @@ func (h *backendHandlers) messageCard(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, messageResponse{OK: true, MessageID: messageID})
 }
 
-// promoteCard handles POST /api/projects/{project}/cards/{id}/promote — promote to autonomous.
+// promoteCard handles POST /api/projects/{project}/cards/{id}/promote - promote to autonomous.
 func (h *backendHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 	if isNonHumanAgent(r) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField, "only humans can promote cards", "")
@@ -190,7 +187,7 @@ func (h *backendHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 		// canned stdin message, leaving the agent unaware of the promotion).
 		//
 		// Detached context: callers that timed out / disconnected must not
-		// strand the rollback — mirror the runCard revert pattern.
+		// strand the rollback - mirror the runCard revert pattern.
 		h.revertPromote(r.Context(), project, id, agentID, hadFeatureBranch)
 
 		writeError(w, http.StatusBadGateway, ErrCodeBackendUnavailable, "failed to promote backend task", "")
@@ -242,7 +239,7 @@ func (h *backendHandlers) revertPromote(ctx context.Context, project, id, agentI
 	}
 }
 
-// stopCard handles POST /api/projects/{project}/cards/{id}/stop — "Stop".
+// stopCard handles POST /api/projects/{project}/cards/{id}/stop - "Stop".
 func (h *backendHandlers) stopCard(w http.ResponseWriter, r *http.Request) {
 	if isNonHumanAgent(r) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField, "only humans can stop worker tasks", "")
@@ -297,14 +294,14 @@ func (h *backendHandlers) stopCard(w http.ResponseWriter, r *http.Request) {
 // FailedToUpdate is a parallel list of card IDs for which the backend kill
 // webhook succeeded but the subsequent CM-side UpdateWorkerStatus call
 // failed. The backend has stopped the container, but CM's view of the card
-// has drifted from reality — callers should treat these as "manual
+// has drifted from reality - callers should treat these as "manual
 // reconciliation required". Empty when all updates succeeded.
 type stopAllResponse struct {
 	AffectedCards  []string `json:"affected_cards"`
 	FailedToUpdate []string `json:"failed_to_update,omitempty"`
 }
 
-// stopAll handles POST /api/projects/{project}/stop-all — "Stop All".
+// stopAll handles POST /api/projects/{project}/stop-all - "Stop All".
 func (h *backendHandlers) stopAll(w http.ResponseWriter, r *http.Request) {
 	if isNonHumanAgent(r) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField, "only humans can stop worker tasks", "")

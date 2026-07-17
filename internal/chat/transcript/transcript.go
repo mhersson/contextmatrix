@@ -6,7 +6,7 @@
 // first user turn (the original goal) and the last K turns (recent context).
 //
 // The package is intentionally free of dependencies on the surrounding chat
-// package — Build operates on its own Message type so callers can convert
+// package - Build operates on its own Message type so callers can convert
 // once and unit-test the filtering rules in isolation.
 package transcript
 
@@ -62,7 +62,7 @@ type Message struct {
 	RehydrationPhase bool
 }
 
-// ResumeContext is the rehydration payload wire shape — protocol-owned
+// ResumeContext is the rehydration payload wire shape - protocol-owned
 // (the backend writes it to /run/cm-chat/resume.jsonl). Aliased so the
 // builder and the chat package keep their local names.
 type ResumeContext = protocol.ChatResumeContext
@@ -174,14 +174,14 @@ func applyHardTurnCap(turns []ResumeTurn) ([]ResumeTurn, bool) {
 	}
 
 	// No user turn in the early section, or the first user turn is
-	// already inside the kept tail — just take the tail.
+	// already inside the kept tail - just take the tail.
 	return turns[tailStart:], true
 }
 
 // applyBudget drops oldest "middle" turns until the rough token estimate
 // fits within budget. The first user turn and the last AlwaysKeepLastK
 // turns are pinned. If the pinned set alone exceeds budget, we accept
-// that — never refuse to build.
+// that - never refuse to build.
 func applyBudget(turns []ResumeTurn, budget int) ([]ResumeTurn, bool) {
 	if budget <= 0 {
 		return turns, false
@@ -278,7 +278,7 @@ func capContent(s string) string {
 }
 
 // summarizeToolResult collapses a tool_result body into a one-liner. The
-// agent does not need to re-see the original payload — it can re-Read /
+// agent does not need to re-see the original payload - it can re-Read /
 // re-run the producing tool_call if the content matters. The summary
 // preserves the load-bearing signal (success vs. failure) and the tail
 // of any error text.
@@ -307,7 +307,7 @@ func summarizeToolResult(content string) string {
 }
 
 // looksLikeError heuristically classifies a tool_result body as a failure.
-// We err on the side of "ok" — a noisy success that happens to contain the
+// We err on the side of "ok" - a noisy success that happens to contain the
 // word "error" is preferable to mis-labelling a clean success as failure.
 func looksLikeError(s string) bool {
 	lower := strings.ToLower(s)

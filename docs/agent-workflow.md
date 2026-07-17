@@ -48,7 +48,7 @@ is available to spawn the three parallel specialists); specialists run on
 All agents access ContextMatrix via MCP tools over HTTP (`POST /mcp`).
 
 **Agents MUST always use MCP tools for all ContextMatrix interactions.** This
-means `claim_card`, `heartbeat`, `update_card`, `complete_task`, etc. — never
+means `claim_card`, `heartbeat`, `update_card`, `complete_task`, etc. - never
 `curl`, `wget`, or any direct REST API call. Direct HTTP is for human developers
 verifying API handler code; it is not a supported interface for agent board
 operations. This rule is enforced in the `workflowPreamble` injected into every
@@ -59,15 +59,15 @@ skill prompt and is explicitly stated in each skill file's Rules section.
 Skill files are markdown documents in `workflow-skills/`. They serve two
 purposes:
 
-1. **Human reference** — read directly from the repo
-2. **MCP prompts** — served via `prompts/list` + `prompts/get` as Claude Code
+1. **Human reference** - read directly from the repo
+2. **MCP prompts** - served via `prompts/list` + `prompts/get` as Claude Code
    slash commands
 
 The MCP server reads skill files from disk and serves them as named prompts. No
-duplication — single source of truth.
+duplication - single source of truth.
 
 When a slash command is invoked, the prompt handler returns a **delegation
-wrapper** for most skills — not the raw skill content. The wrapper instructs the
+wrapper** for most skills - not the raw skill content. The wrapper instructs the
 receiving agent to call `get_skill(...)` to fetch the full instructions and the
 required model, then spawn a sub-agent via the `Agent` tool with the returned
 `model` and `content`. Skill files include an `## Agent Configuration` section
@@ -82,7 +82,7 @@ Allocation** section below for the full decision model).
 
 **Why delegation wrappers exist:** Returning the full skill content directly to
 the orchestrator agent lets it ignore model requirements, skip sub-agent
-spawning, and bypass the ContextMatrix workflow (claim/heartbeat/complete) —
+spawning, and bypass the ContextMatrix workflow (claim/heartbeat/complete) -
 solving the underlying task while leaving orphaned cards across the board. The
 delegation wrapper forces agents through the `get_skill` → `Agent` tool →
 sub-agent pipeline, where lifecycle enforcement is structurally guaranteed
@@ -91,7 +91,7 @@ preserve the forced indirection. The server-side inline execution mechanism (see
 below) is the approved alternative: it still enforces lifecycle steps by wrapping
 the content in a lifecycle-enforcing preamble before returning it.
 
-**Exception — interview skills run inline:** `create-task` and `init-project`
+**Exception - interview skills run inline:** `create-task` and `init-project`
 require multi-turn conversations with the user, so their prompt handlers return
 the **raw skill content** (with `## Agent Configuration` stripped) rather than a
 delegation wrapper. These skills run directly in the main agent's context, never
@@ -114,13 +114,13 @@ rules:
 - **`review-task`** (always inline via `start_review`): the `start_review` MCP
   tool unconditionally returns `inline: true` for `review-task`, regardless of
   `caller_model`. The review skill spawns three specialist sub-agents in
-  parallel via the `Agent` tool — and only the top-level (calling) session has
+  parallel via the `Agent` tool - and only the top-level (calling) session has
   the `Agent` tool; sub-agents spawned via `Agent` do not get `Agent`
   themselves. If the review ran in a spawned sub-agent it would silently degrade
   to a single-perspective walkthrough because the parallel spawn would not
   happen. The synthesizer runs on the orchestrator's own model (often Sonnet);
   the three specialists each run on `claude-opus-4-8`. Do not reintroduce the
-  model-match gate on `start_review` — it would reproduce the regression.
+  model-match gate on `start_review` - it would reproduce the regression.
   (`get_skill('review-task')` still uses the model-match logic for any
   out-of-band callers; the workflow always goes through `start_review`.)
 
@@ -135,7 +135,7 @@ workflow-skills/
   run-autonomous.md       # skill only (routed to by start_workflow when autonomous)
   brainstorming.md        # skill only
   systematic-debugging.md # skill only
-                          # /contextmatrix:start-workflow (server-side only — no skill file)
+                          # /contextmatrix:start-workflow (server-side only - no skill file)
 ```
 
 Three slash commands exist: `create-task`, `init-project`, and `start-workflow`.
@@ -151,7 +151,7 @@ addressable by `get_skill`.
 command) and a **tool** (`start_workflow`). Both are server-side only: they
 fetch the card, inspect the `autonomous` flag, and return the full skill content
 for `run-autonomous` or `create-plan`. The tool enables natural-language
-triggering — when a user writes "start workflow for ALPHA-001" (without a slash
+triggering - when a user writes "start workflow for ALPHA-001" (without a slash
 command), the agent sees the `start_workflow` tool and calls it to get the
 executable workflow content directly. If the card cannot be found, both paths
 return an error.
@@ -163,7 +163,7 @@ scaffolding), the active task backend mounts a set of operator-provided **task
 skills** at `~/.claude/skills/` in the worker container. These are standard
 Claude Code skills with `SKILL.md` files, discovered by the model via the native
 Skill tool and engaged when their descriptions match the work being done. CM
-ships no skills — operators point `task_skills.dir` at their own repo.
+ships no skills - operators point `task_skills.dir` at their own repo.
 
 ### Two-channel design
 
@@ -210,9 +210,9 @@ guidance, not a one-line marker. Engagement stays scoped to the right phase:
 ### Backends
 
 Both backends consume the per-card `task_skills` subset through the same
-selection logic above. Each fetches a `{git_remote_url, ref}` pointer from CM —
+selection logic above. Each fetches a `{git_remote_url, ref}` pointer from CM -
 the agent backend from `GET /api/agent/task-skills-source`, the chat backend
-from `GET /api/chat/task-skills-source` — clones the repo server-side (CM mints
+from `GET /api/chat/task-skills-source` - clones the repo server-side (CM mints
 an instance-scoped clone token alongside the pointer), and read-only-mounts the
 resolved subset at `~/.claude/skills/` in the worker container. A model-driven
 Skill tool engages matching skills; engagement is reported via MCP
@@ -221,7 +221,7 @@ recording and dedup.
 
 ### Authoring convention
 
-Task-skills are operator-provided — CM ships none. Point `task_skills.dir`
+Task-skills are operator-provided - CM ships none. Point `task_skills.dir`
 (optionally git-backed via `task_skills.git_remote_url`) at your own repo, laid
 out as one directory per skill **at the repo root**. The directory name is the
 skill name (referenced in `card.skills` and `project.default_skills`); flat, no
@@ -234,7 +234,7 @@ typescript-react/SKILL.md
 ```
 
 Skills are engaged by description match, so anchor each `description` in
-**observable activities and file types**, not subject areas — a topic-shaped
+**observable activities and file types**, not subject areas - a topic-shaped
 description ("Go programming guidance") engages too eagerly; a task-shaped one
 ("Use when implementing or modifying Go source files") engages on real work.
 
@@ -264,13 +264,13 @@ derives on each run.
 A card's work is verified before it can pass review. The agent resolves the
 verify command in this order:
 
-1. **Declared** — the resolved `verify` command CM sends in the trigger payload
+1. **Declared** - the resolved `verify` command CM sends in the trigger payload
    (the card's `verify` merged over the project's; see `docs/data-model.md`). If
    present, the agent runs it as-is.
-2. **Detected** — with no declared command, the agent detects the project's own
+2. **Detected** - with no declared command, the agent detects the project's own
    command (test target, build script) from the repo.
-3. **Model-proposed** — with nothing detected, the agent proposes a command.
-4. **Loud skip** — if it cannot verify at all, it says so loudly rather than
+3. **Model-proposed** - with nothing detected, the agent proposes a command.
+4. **Loud skip** - if it cannot verify at all, it says so loudly rather than
    claiming success silently.
 
 An operator can promote a model-proposed command into the project's `verify`
@@ -292,7 +292,7 @@ CC exposes these slash commands via the MCP `prompts` capability:
 card's `autonomous` flag and routes to `run-autonomous` (autonomous cards) or
 `create-plan` (HITL cards). Phase-specific prompts for `create-plan`,
 `execute-task`, `review-task`, `document-task`, and `run-autonomous` are not on
-the slash-command surface — they're internal orchestration steps, not user entry
+the slash-command surface - they're internal orchestration steps, not user entry
 points. The orchestrator loads each phase's skill via `get_skill` (or
 `start_review` for the review-entry transition).
 
@@ -306,7 +306,7 @@ Usage examples:
 ```
 
 The interview-style prompts (`create-task`, `init-project`)
-return raw skill content for inline execution by the main agent — no sub-agent
+return raw skill content for inline execution by the main agent - no sub-agent
 involved. `start-workflow` returns the workflow skill (`create-plan` or
 `run-autonomous`) wrapped in the inline-execution envelope; the orchestrator
 runs it directly. Phase-specific skills loaded later via `get_skill` either run
@@ -321,12 +321,12 @@ required model, `review-task` always) or are spawned as sub-agents via the
 **1. Task creation** (`/contextmatrix:create-task <description>`)
 
 The prompt handler returns raw skill content (not a delegation wrapper). Main
-agent (CC) runs the interview inline — gathering details from the human,
-creating the card on the board, and offering next steps — all without spawning a
+agent (CC) runs the interview inline - gathering details from the human,
+creating the card on the board, and offering next steps - all without spawning a
 sub-agent. This is required because the interview needs multi-turn
 back-and-forth with the user, which only works in the main agent's context.
 
-**2. Planning** (loaded internally — orchestrator calls
+**2. Planning** (loaded internally - orchestrator calls
 `get_skill('create-plan')`)
 
 When a user invokes `/contextmatrix:start-workflow` on a HITL card (or the
@@ -336,27 +336,27 @@ and creates subtasks directly.
 The flow is:
 
 0. **Claim the card immediately**: The orchestrator calls `claim_card` as its
-   very first action — before any exploration or planning begins. This moves the
+   very first action - before any exploration or planning begins. This moves the
    card to `in_progress` at the start of planning, not after subtasks are
    created. The card stays claimed through drafting, user approval, and subtask
    creation.
 1. **Plan drafting (inline)**: The orchestrator runs the create-plan skill
-   inline — no sub-agent. It drafts the plan, writes it to the parent card body
+   inline - no sub-agent. It drafts the plan, writes it to the parent card body
    via `update_card`, and produces `PLAN_DRAFTED` structured output. Running
    inline retains the plan context for subtask creation.
 2. **User approval (orchestrator handles directly)**: The orchestrator presents
    the `## Plan` section to the user and asks for approval. No sub-agent needed.
 3. **Subtask creation (inline)**: Once the user approves, the orchestrator
    creates all subtasks directly by calling `create_card` for each subtask in
-   the plan. No sub-agent is spawned — this is trivial work that doesn't justify
+   the plan. No sub-agent is spawned - this is trivial work that doesn't justify
    the overhead of a separate agent.
 
-**3. Execution** (loaded internally — orchestrator calls
+**3. Execution** (loaded internally - orchestrator calls
 `get_skill('execute-task')`)
 
 CC spawns sub-agents in parallel (one per ready subtask). Each sub-agent:
 
-1. Calls `get_task_context(id)` — reads everything before touching anything
+1. Calls `get_task_context(id)` - reads everything before touching anything
 2. Calls `claim_card(id, agent_id)`
 3. Writes `## Plan` to card body, calls `update_card`
 4. Works through the task, updating `## Progress` in card body as it goes
@@ -367,26 +367,26 @@ CC spawns sub-agents in parallel (one per ready subtask). Each sub-agent:
 Main agent awaits all `Agent` tool completions and checks for blockers. **Parent
 card state is managed by the service layer and the orchestrator:** when the
 first subtask is claimed, the parent transitions `todo → in_progress`. When all
-subtasks reach `done`, the parent stays in `in_progress` — the orchestrator runs
+subtasks reach `done`, the parent stays in `in_progress` - the orchestrator runs
 documentation first, then manually transitions the parent to `review`.
-Execute-task sub-agents ignore any `next_step` field returned by `complete_task`
-— they print `TASK_COMPLETE` and stop.
+Execute-task sub-agents ignore any `next_step` field returned by `complete_task` -
+they print `TASK_COMPLETE` and stop.
 
 During the monitoring loop the orchestrator (CC) calls `heartbeat` on the parent
 card every 5 minutes and immediately follows each heartbeat with `report_usage`
 to record the orchestrator's own token consumption against the parent card. The
 `model` field must be the orchestrator's own model identifier (from its system
-context — "You are powered by the model named X") — it must not be hardcoded.
+context - "You are powered by the model named X") - it must not be hardcoded.
 This is separate from sub-agents' own `report_usage` calls; both are required.
 After review completes, the orchestrator makes one final `report_usage` call to
 capture remaining tokens before transitioning the parent to `done`.
 
-**4. Documentation** (loaded internally — orchestrator calls
+**4. Documentation** (loaded internally - orchestrator calls
 `get_skill('document-task')`)
 
 Uses a single-phase fire-and-report flow. CC spawns a short-lived documentation
 sub-agent that reads the parent card + all subtasks and writes external
-documentation (README updates, API docs, architecture notes) directly to disk —
+documentation (README updates, API docs, architecture notes) directly to disk -
 no human approval gate before writing. The sub-agent returns `DOCS_WRITTEN`
 immediately with a list of files written. CC presents the summary to the user.
 The parent card remains in `in_progress` during this phase.
@@ -395,28 +395,28 @@ The parent card remains in `in_progress` during this phase.
 
 The orchestrator calls `start_review(card_id, agent_id, caller_model)`, which
 atomically transitions the parent to `review` AND returns the `review-task`
-skill in one call — there is no path to load the review skill without committing
+skill in one call - there is no path to load the review skill without committing
 the transition. The response always has `inline: true`; the orchestrator runs
 the skill in its own session (see "Server-side inline execution" above for why).
 The flow:
 
-- **Pass 1 — Spec compliance and test gate (synthesizer = orchestrator):** the
+- **Pass 1 - Spec compliance and test gate (synthesizer = orchestrator):** the
   orchestrator runs the project test suite and lint, plus a spec / scope check
   against the plan and acceptance criteria. If Pass 1 fails, it skips Pass 2
   entirely, writes findings with `recommendation: revise`, and prints
   `REVIEW_FINDINGS`. No specialists are spawned.
-- **Pass 2 — Three parallel specialists:** if Pass 1 succeeds, the orchestrator
+- **Pass 2 - Three parallel specialists:** if Pass 1 succeeds, the orchestrator
   spawns three `Agent` calls in a single message (`model: claude-opus-4-8`,
   `subagent_type: general-purpose`): Correctness (bugs, edges, errors, races,
   test quality), Design & Maintainability (architecture, naming, complexity,
   docs), and Security & Performance (input validation, secrets, CVEs,
   complexity, leaks). Each specialist prompt carries the synthesizer's
   `agent_id` because `report_usage` and `add_log` enforce
-  `agent_id == AssignedAgent` — specialists act on the synthesizer's behalf for
+  `agent_id == AssignedAgent` - specialists act on the synthesizer's behalf for
   board writes. Before returning, each specialist calls `report_usage` against
   the parent card with its own token consumption (model `claude-opus-4-8`); this
   is what makes the specialists' cost visible on the card. Specialists do not
-  claim, transition, or write findings to the card body — they return a
+  claim, transition, or write findings to the card body - they return a
   structured Markdown report with severity-tiered findings.
 - **Synthesis (synthesizer = orchestrator):** the orchestrator dedupes
   overlapping findings, applies the strictest-defensible severity, and decides
@@ -425,17 +425,17 @@ The flow:
   `approve` or `approve_with_notes`). It writes the synthesized
   `## Review Findings` section to the parent card body via `update_card`, calls
   `report_usage` for the synthesizer work, and prints `REVIEW_FINDINGS`. The
-  orchestrator does NOT release the claim — it keeps ownership for the next
+  orchestrator does NOT release the claim - it keeps ownership for the next
   phase.
 - **User decision (CC handles directly)**: CC reads the card body, presents the
   `## Review Findings` section to the user, and asks for approve/reject. No
-  sub-agent — the orchestrator already holds the claim and is alive.
+  sub-agent - the orchestrator already holds the claim and is alive.
 - Based on the user's response, the orchestrator prints one of:
-  - `REVIEW_APPROVED` — proceeds to finalization (transitions parent to `done`).
-  - `REVIEW_REJECTED` — the rejection loop:
+  - `REVIEW_APPROVED` - proceeds to finalization (transitions parent to `done`).
+  - `REVIEW_REJECTED` - the rejection loop:
     1. Calls `transition_card` to move parent from `review` back to
        `in_progress`.
-    2. Leaves existing `done` subtasks untouched — their work is preserved.
+    2. Leaves existing `done` subtasks untouched - their work is preserved.
     3. Spawns a new planning sub-agent (create-plan) with the rejection feedback
        injected into the prompt, so it creates fix subtasks scoped to the
        issues.
@@ -451,7 +451,7 @@ Cards with `autonomous: true` bypass human approval gates. The
 `/contextmatrix:start-workflow` slash command (or the `start_workflow` MCP tool)
 routes the card to `run-autonomous` automatically and drives the entire
 lifecycle using the `run-autonomous.md` skill. The orchestrator model is set by
-the invoker — the user's own model for local autonomous (typically Opus), the
+the invoker - the user's own model for local autonomous (typically Opus), the
 agent backend's configured or per-card-selected model for a worker container.
 
 ## HITL chat surface
@@ -459,14 +459,14 @@ agent backend's configured or per-card-selected model for a worker container.
 HITL runs and the global chat panel both expose a typed message channel back to
 a live worker session. Two surfaces exist:
 
-- **Per-card worker messages** —
+- **Per-card worker messages** -
   `POST /api/projects/{project}/cards/{id}/message` forwards human-typed content
   to a running worker container (`card.worker_status == "running"`). The
   endpoint is human-only (rejects non-human `X-Agent-ID`), bounds content to 8
   KB; the backend writes it to the worker's stdin as a user-typed stream-json
   frame and echoes it back through the worker-log stream so the UI shows it in
   the same transcript as the agent's output.
-- **Global chat panel** — `/api/chats/*` drives `internal/chat.Manager`, which
+- **Global chat panel** - `/api/chats/*` drives `internal/chat.Manager`, which
   owns a SQLite-backed transcript store (sessions + messages), an idle-TTL
   reaper that warms sessions down to cold, an SSE hub for browser fan-out
   (`GET /api/chats/{id}/stream`), and a worker-log bridge that maps each worker
@@ -476,7 +476,7 @@ a live worker session. Two surfaces exist:
   `chat_rehydration_complete` call. Orientation is the chat backend's own
   concern: the worker opens every epoch (cold open, resume, post-`/clear`)
   with an embedded primer that lives next to the environment it describes
-  (`contextmatrix-chat`'s `internal/chatwork/primer.md`) — CM ships no
+  (`contextmatrix-chat`'s `internal/chatwork/primer.md`) - CM ships no
   orientation text and serves no `chat-mode` skill.
 
 **Promote to autonomous from chat.** A human can promote a running HITL card
@@ -485,7 +485,7 @@ mid-flight: `POST /api/projects/{project}/cards/{id}/promote` (web UI) or the
 `service.PromoteToAutonomous` first (fail-closed: rejects terminal cards, flips
 `autonomous: true`, appends an activity log entry, fires an SSE event); only on
 success does the API endpoint fire the backend's `/promote` webhook so the
-worker-side stdin message is written. Both surfaces gate on `human:` prefix —
+worker-side stdin message is written. Both surfaces gate on `human:` prefix -
 agents cannot self-promote. The backend verifies the flag out-of-band via
 `GET /api/v1/cards/{project}/{id}/autonomous` (HMAC-signed) before writing its
 canned stdin message.
@@ -522,25 +522,25 @@ Phase 6: Finalization          → transitions parent to done, final report_usag
 
 The orchestrator claims the card and moves it to `in_progress` before
 determining the starting phase. If the card is already `in_progress` or
-`review`, the claim is still required — the starting-phase table determines
+`review`, the claim is still required - the starting-phase table determines
 which phase to resume from.
 
 **Guardrails:**
 
-- **Branch protection** — agents must never push to `main` or `master`. The
+- **Branch protection** - agents must never push to `main` or `master`. The
   `report_push` tool returns a hard error if the branch name is `main` or
   `master`.
-- **Maximum review cycles** — when a review returns `revise`, the orchestrator
+- **Maximum review cycles** - when a review returns `revise`, the orchestrator
   calls `increment_review_attempts` and then checks whether the returned count
   is `>= 3`; if so it calls `report_usage`, prints `AUTONOMOUS_HALTED`, and
   stops, requiring human intervention. The skill enforces an at-most-3 cap this
   way. The server applies a higher defense-in-depth cap (`maxReviewAttempts = 7`
   in `internal/service/service.go`) so a manual override can still proceed past
   3 if needed without bypassing the skill gate.
-- **Heartbeat-based stall detection** — the orchestrator calls `heartbeat` on
+- **Heartbeat-based stall detection** - the orchestrator calls `heartbeat` on
   the parent card every 5 minutes and uses `check_agent_health` to detect and
   respawn stalled sub-agents.
-- **Human vetting gate** — cards imported from external sources (GitHub Issues,
+- **Human vetting gate** - cards imported from external sources (GitHub Issues,
   Jira, etc.) require explicit human approval before agents can work on them.
   `get_ready_tasks` automatically filters out unvetted external cards; a
   `claim_card` call on an unvetted card returns 403 `CARD_NOT_VETTED`. A human
@@ -559,10 +559,10 @@ exhausted or a sub-agent reports `needs_human: true`.
   approve/reject decisions
 - **Review agent** evaluates the work, writes `## Review Findings` to the parent
   card body via `update_card`, releases its claim, and prints `REVIEW_FINDINGS`.
-  It never asks the user for a decision — the orchestrator handles that after
+  It never asks the user for a decision - the orchestrator handles that after
   the sub-agent returns.
 - **Documentation agent** writes documentation files only, never modifies cards.
-  Returns `DOCS_WRITTEN` immediately — no human approval gate before writing.
+  Returns `DOCS_WRITTEN` immediately - no human approval gate before writing.
 
 ## Sub-agent structured output
 
@@ -595,13 +595,13 @@ needs_human: false
 TASK_BLOCKED
 card_id: ALPHA-003
 status: blocked
-reason: Missing API credentials in config — cannot proceed
+reason: Missing API credentials in config - cannot proceed
 blocker_cards: []
 needs_human: true
 ```
 
 **`needs_human: false`** ONLY if every card in `blocker_cards` is currently in
-`{in_progress, review, done}` — i.e., being worked by another agent in this same
+`{in_progress, review, done}` - i.e., being worked by another agent in this same
 execution batch. In all other cases, `needs_human: true`.
 
 ## Blocker recovery
@@ -641,7 +641,7 @@ Decided approach and rationale.
 Gotchas, decisions made, alternatives rejected.
 ```
 
-This is the durable audit trail. The structured stdout is ephemeral — the card
+This is the durable audit trail. The structured stdout is ephemeral - the card
 body is what persists in git history.
 
 ## Heartbeat discipline
@@ -649,26 +649,26 @@ body is what persists in git history.
 Sub-agents **must** call `heartbeat` proactively after every significant unit of
 work, before moving to the next step. The timeout checker (default 30min) will
 mark a card `stalled` if heartbeat lapses. This is explicitly called out in
-`execute-task.md` — it is not optional.
+`execute-task.md` - it is not optional.
 
 **Idle waits are the most common cause of stalled cards.** Any agent that holds
 an active claim and waits for a sub-agent to complete must call `heartbeat`
 every 5 minutes during that wait. This rule is enforced in the workflow preamble
 injected into every skill prompt, and is explicitly called out in each skill
 that has sub-agent-facing idle waits (`execute-task.md`). The main agent (CC)
-never holds a card claim during user-facing waits — it handles those directly
+never holds a card claim during user-facing waits - it handles those directly
 between turns, making stalls in the main context impossible.
 
 The fire-and-report design (used by `review-task` and `document-task`)
 eliminates the most common idle-wait failure mode: sub-agents write their output
 to the card body and return immediately; the always-alive orchestrator handles
 all user interactions. `create-plan` avoids the problem entirely by running
-inline on the orchestrator — no sub-agent is spawned. No sub-agent in the
+inline on the orchestrator - no sub-agent is spawned. No sub-agent in the
 current workflow idles for user input.
 
 ## Token cost configuration
 
-Each skill step — and the orchestrator itself — calls `report_usage` with the
+Each skill step - and the orchestrator itself - calls `report_usage` with the
 model that ran it so costs accumulate on the parent card. Model rates are
 configured in `config.yaml` under `token_costs` as cost-per-token values:
 
@@ -682,7 +682,7 @@ token_costs:
 ```
 
 The `report_usage` call must pass `model` matching one of these keys. The model
-used depends on the orchestrator and phase — see the **Model Allocation**
+used depends on the orchestrator and phase - see the **Model Allocation**
 section below for the full breakdown. The `recalculate_costs` tool reprices
 from the current rate table: on cards with a usage breakdown every estimated
 bucket is re-priced (stale prices corrected) while actual provider-reported
@@ -697,7 +697,7 @@ reasoning) and **Sonnet** (cost-effective workhorse); Haiku is not used. The
 agent backend instead runs an OpenRouter / OpenAI-gateway model as orchestrator
 and selects per-task models by complexity tier (see the agent-backend table
 below). In every case the orchestrator
-decides whether each phase runs inline or as a sub-agent — the `inline` field
+decides whether each phase runs inline or as a sub-agent - the `inline` field
 returned by `get_skill` (and by `start_review`, which loads the review-task
 skill atomically with the state transition) uses exact model match, but the
 orchestrator overrides it for phases where the decision is driven by context
@@ -708,11 +708,11 @@ management rather than model compatibility.
 | Phase            | Model  | Method                                               | Why                                                                                                             |
 | ---------------- | ------ | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
 | Orchestrator     | Opus   | User's session (HITL) or run-autonomous (local auto) | Strongest reasoning for planning, review, and coordination                                                      |
-| Planning         | Opus   | Inline on orchestrator                               | Orchestrator already is Opus — no spawn needed, retains plan context for subtask creation                       |
-| Subtask creation | Opus   | Inline — calls `create_card()` directly              | Trivial work; spawning a sub-agent costs more in overhead than it saves                                         |
+| Planning         | Opus   | Inline on orchestrator                               | Orchestrator already is Opus - no spawn needed, retains plan context for subtask creation                       |
+| Subtask creation | Opus   | Inline - calls `create_card()` directly              | Trivial work; spawning a sub-agent costs more in overhead than it saves                                         |
 | Execution        | Sonnet | Sub-agent per subtask                                | Context isolation (fresh ~50K vs accumulated 150K+) and parallel execution; Sonnet is 1.67x cheaper at scale    |
 | Review           | Opus   | Inline (start_review inline=true, Opus==Opus)        | Devil's advocate reasoning benefits from Opus; inline keeps findings in orchestrator context for human approval |
-| Documentation    | Sonnet | Sub-agent                                            | Context isolation — orchestrator has 150K+ accumulated context by this phase; fresh sub-agent starts at ~25K    |
+| Documentation    | Sonnet | Sub-agent                                            | Context isolation - orchestrator has 150K+ accumulated context by this phase; fresh sub-agent starts at ~25K    |
 
 ### Agent backend (worker container)
 
@@ -720,31 +720,31 @@ The agent backend has no fixed Opus/Sonnet split. CM sets the **orchestrator**
 model per trigger (`backends.agent.default_model`, overridden by a card's model
 pin); the harness's complexity selector picks the per-task **coder** and
 **reviewer** models within the card's budget. The phase structure is the same as
-local orchestration — only the concrete model per row differs.
+local orchestration - only the concrete model per row differs.
 
 | Phase            | Model                         | Method                                        | Why                                                                            |
 | ---------------- | ----------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------ |
 | Orchestrator     | CM default or per-card pin     | Set at trigger time by CM                      | One orchestrator model drives planning, subtask creation, review synthesis, docs |
 | Planning         | orchestrator model             | Inline on orchestrator                         | Inline avoids spawn overhead and retains plan context                          |
-| Subtask creation | orchestrator model             | Inline — calls `create_card()` directly        | Trivial work, no sub-agent needed                                              |
+| Subtask creation | orchestrator model             | Inline - calls `create_card()` directly        | Trivial work, no sub-agent needed                                              |
 | Execution        | complexity-selected (coder)    | Sub-agent per subtask                          | Context isolation + parallel execution; selector matches model to task tier    |
 | Review           | complexity-selected (reviewer) | Inline or sub-agent per `start_review`         | Stronger reviewer catches issues before costly rework loops                    |
-| Documentation    | orchestrator model             | Sub-agent                                      | Context isolation — the worker container has no human to intervene if context grows too large |
+| Documentation    | orchestrator model             | Sub-agent                                      | Context isolation - the worker container has no human to intervene if context grows too large |
 
 ### Inline/sub-agent decision model
 
 The `inline` field returned by `get_skill` (and by `start_review`) uses **exact
-model match** — it returns `true` when the caller's model family matches the
+model match** - it returns `true` when the caller's model family matches the
 skill's model family AND the skill is on the inline-eligible whitelist
 (`review-task`, `create-plan`, `brainstorming`):
 
-- **Planning, subtask creation:** Always inline — orchestrator instructions
+- **Planning, subtask creation:** Always inline - orchestrator instructions
   override the inline field. The orchestrator retains context for downstream
   phases.
-- **Execution, documentation:** Always sub-agent — orchestrator instructions
+- **Execution, documentation:** Always sub-agent - orchestrator instructions
   specify this for context isolation and parallel execution. The inline field is
   not consulted.
-- **Review:** Follow the inline field returned by `start_review` — this is the
+- **Review:** Follow the inline field returned by `start_review` - this is the
   one phase where model compatibility matters. Opus caller gets `inline: true`
   (Opus==Opus) and runs review directly. Sonnet caller gets `inline: false`
   (Sonnet!=Opus) and spawns an Opus sub-agent. Either way, `start_review` has
@@ -762,7 +762,7 @@ both workflows without model override logic.
 ## Required permissions for target projects
 
 Worker-container tool policy is the agent backend's concern, not a per-project
-setting: the harness provisions a fixed internal tool set on every container —
+setting: the harness provisions a fixed internal tool set on every container -
 file read/edit/write, search, an `Agent`/`Task` sub-agent tool in autonomous
 runs, the `mcp__contextmatrix__*` board tools, and a bounded Bash surface. See
 `docs/remote-execution.md` and the agent repo's harness tool policy for the

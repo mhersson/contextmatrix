@@ -44,7 +44,7 @@ function createRingBufferStore(maxEntries: number): RingBufferStore {
       return () => listeners.delete(listener);
     },
 
-    // Rebuilt on demand once per version bump — append stays O(1).
+    // Rebuilt on demand once per version bump - append stays O(1).
     getSnapshot() {
       if (cachedVersion !== version) {
         cachedSnapshot = buildSnapshot();

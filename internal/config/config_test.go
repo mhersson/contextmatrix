@@ -434,7 +434,7 @@ func TestValidate_RejectsNegativeChatIdleTTL(t *testing.T) {
 }
 
 func TestValidate_AcceptsZeroChatIdleTTL(t *testing.T) {
-	// Zero IdleTTL means "use the default" — applyChatDefaults bumps it
+	// Zero IdleTTL means "use the default" - applyChatDefaults bumps it
 	// inside Validate so callers that bypass Load still get the default.
 	cfg := &Config{
 		Boards:           BoardsConfig{Dir: "/some/path"},
@@ -841,7 +841,7 @@ func TestLoad_WorkflowSkillsDirMissingFileDerivedFromConfigPath(t *testing.T) {
 	boardsDir := filepath.Join(dir, "boards")
 	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
 
-	// Use a config file with required auth_mode — workflow_skills_dir derived from its directory
+	// Use a config file with required auth_mode - workflow_skills_dir derived from its directory
 	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\ngithub:\n  auth_mode: \"pat\"\n  pat:\n    token: \"ghp_test\"\n")
 	cfg, err := Load(path)
 	require.NoError(t, err)
@@ -970,7 +970,7 @@ func TestLoad_GitHubIssueImporting_DefaultSyncInterval(t *testing.T) {
 	boardsDir := filepath.Join(dir, "boards")
 	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
 
-	// No sync_interval specified — should default to "5m" during Validate.
+	// No sync_interval specified - should default to "5m" during Validate.
 	path := writeConfigFile(t, dir, `
 boards:
   dir: `+boardsDir+`
@@ -1759,7 +1759,7 @@ func TestValidate_PATMode_RejectsAppFields(t *testing.T) {
 // TestConfigYamlExampleTokenCosts verifies that config.yaml.example ships with
 // sane token cost entries for every supported model:
 //   - every entry has both prompt and completion > 0 (non-zero rates)
-//   - no rate is absurdly high (> $1000/M tokens = > 0.001/token) — catches unit errors
+//   - no rate is absurdly high (> $1000/M tokens = > 0.001/token) - catches unit errors
 //   - the expected set of model keys is present
 func TestConfigYamlExampleTokenCosts(t *testing.T) {
 	examplePath := filepath.Join("..", "..", "config.yaml.example")
@@ -1774,7 +1774,7 @@ func TestConfigYamlExampleTokenCosts(t *testing.T) {
 
 	require.NotEmpty(t, cfg.TokenCosts, "token_costs must not be empty in config.yaml.example")
 
-	const maxRatePerToken = 0.001 // $1000 per million tokens — unit-error sentinel
+	const maxRatePerToken = 0.001 // $1000 per million tokens - unit-error sentinel
 
 	for model, cost := range cfg.TokenCosts {
 		t.Run(model, func(t *testing.T) {
@@ -2187,7 +2187,7 @@ backends:
 			wantErr: "field reconcile_interval not found",
 		},
 		{
-			// The value never matters — the field itself is unknown.
+			// The value never matters - the field itself is unknown.
 			name: "unparseable reconcile_interval on chat entry",
 			yaml: `
 backends:
@@ -2281,7 +2281,7 @@ backends:
 }
 
 // TestValidateRejectsRunnerBackend pins the removal of the runner backend:
-// any declared backends.runner entry — enabled or not — fails Load with the
+// any declared backends.runner entry - enabled or not - fails Load with the
 // dedicated removal error, never a silent skip or a generic name error. The
 // rejection fires during Load's YAML parse (Backends.UnmarshalYAML carries
 // the closed key set), not in Validate.
@@ -2302,7 +2302,7 @@ backends:
 `,
 		},
 		{
-			// The name check applies to ALL entries, enabled or not — a
+			// The name check applies to ALL entries, enabled or not - a
 			// disabled leftover entry must still fail loudly.
 			name: "disabled runner entry still rejected",
 			yaml: `
@@ -2445,7 +2445,7 @@ backends:
 	require.NoError(t, err)
 
 	// The chat entry resolves; no agent entry appears as a side effect (the
-	// old map code stamped task defaults per entry — the typed chat entry has
+	// old map code stamped task defaults per entry - the typed chat entry has
 	// no task knobs by construction).
 	cb, ok := cfg.ChatBackend()
 	require.True(t, ok)
@@ -2606,7 +2606,7 @@ func TestBackendsRoleDerivation(t *testing.T) {
 }
 
 // validBackendsBlock (minimal agent entry) is the fixture for env override
-// tests — no selectors to set anymore, URL/API key come from env.
+// tests - no selectors to set anymore, URL/API key come from env.
 func TestBackendEnvOverrides(t *testing.T) {
 	dir := t.TempDir()
 	boardsDir := t.TempDir()
@@ -2659,7 +2659,7 @@ backends:
 	t.Setenv("CONTEXTMATRIX_BACKEND_CHAT_RECONCILE_INTERVAL", "60s")
 
 	// RECONCILE_INTERVAL is not in the chat entry's env suffix set, so
-	// checkBackendEnvKeys rejects the variable by name — same loud-failure
+	// checkBackendEnvKeys rejects the variable by name - same loud-failure
 	// posture as the YAML unknown-field decode.
 	_, err := Load(path)
 	require.Error(t, err)
@@ -3158,7 +3158,7 @@ func TestBestOfNConfigDefaultsAndOverrides(t *testing.T) {
 		// Judgment point: applyEnvOverrides runs AFTER the pre-env defaults
 		// pass in Load, so an out-of-range env value must still be caught by
 		// the second applyBestOfNDefaults call inside Validate (which runs
-		// after applyEnvOverrides completes) — mirroring how AuthConfig's
+		// after applyEnvOverrides completes) - mirroring how AuthConfig's
 		// defaults survive env overrides via the same Validate-internal call.
 		t.Setenv("CONTEXTMATRIX_BEST_OF_N_MAX_CANDIDATES", "1")
 		cfg := loadConfigFromYAML(t, "port: 8080\n")
@@ -3268,7 +3268,7 @@ func TestMobConfigDefaultsAndOverrides(t *testing.T) {
 	t.Run("invalid env values normalized", func(t *testing.T) {
 		// applyEnvOverrides runs AFTER the pre-env defaults pass in Load, so
 		// an out-of-range env value must be caught by the second
-		// applyMobDefaults call inside Validate — same two-pass contract as
+		// applyMobDefaults call inside Validate - same two-pass contract as
 		// applyBestOfNDefaults.
 		t.Setenv("CONTEXTMATRIX_MOB_MAX_PARTICIPANTS", "1")
 		cfg := loadConfigFromYAML(t, "port: 8080\n")

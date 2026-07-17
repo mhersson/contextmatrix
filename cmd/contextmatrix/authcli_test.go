@@ -69,7 +69,7 @@ func seedUser(t *testing.T, dbPath, username string, admin bool) {
 // store. It goes through the store's plain SetDisabled rather than
 // auth.Service.SetUserDisabled because the service enforces a last-active-
 // admin guard that would refuse to disable the sole admin in a fresh test
-// store — irrelevant for seeding, since this account starts and stays the
+// store - irrelevant for seeding, since this account starts and stays the
 // only user.
 func seedDisabledAdmin(t *testing.T, dbPath, username string) {
 	t.Helper()
@@ -190,7 +190,7 @@ func TestAuthCLI_ResetAdmin_IssuesResetToken(t *testing.T) {
 // TestAuthCLI_ResetAdmin_RejectsMisplacedConfigFlag covers a stdlib flag
 // gotcha: FlagSet.Parse stops at the first non-flag argument, so
 // `reset-admin <username> --config PATH` never parses --config as a flag at
-// all — "--config" and "PATH" land as extra positional arguments instead,
+// all - "--config" and "PATH" land as extra positional arguments instead,
 // and --config is silently dropped. To prove the CLI actually rejects this
 // (rather than merely happening to fail some other way), XDG discovery is
 // pointed at a DIFFERENT config with its own admin "alice": if --config were
@@ -206,7 +206,7 @@ func TestAuthCLI_ResetAdmin_RejectsMisplacedConfigFlag(t *testing.T) {
 	seedUser(t, discoveredDBPath, "alice", true)
 
 	// The config the operator actually intended via --config. Distinct
-	// store, no seeded user — a spurious success against it is easy to spot.
+	// store, no seeded user - a spurious success against it is easy to spot.
 	cfgPath, _, _ := writeAuthConfig(t, "multi")
 
 	var out, errBuf bytes.Buffer
@@ -238,12 +238,12 @@ func TestAuthCLI_RefusesNoneMode(t *testing.T) {
 // flag gotcha from the operator's other likely mistake: forgetting --config
 // entirely and passing the path positionally, e.g.
 // `rotate-master-key ./prod.yaml`. FlagSet.Parse stops at the first non-flag
-// argument, so "./prod.yaml" is never read as --config's value — it lands as
+// argument, so "./prod.yaml" is never read as --config's value - it lands as
 // an ignored positional argument, and *configPath stays empty, falling back
 // to XDG discovery. XDG discovery is pointed at a scratch config here so
 // that, pre-fix, the command would silently succeed against THAT config
 // (mutating its master key) instead of the path the operator actually named
-// — proving the fix stops the command, not merely that "some-path" fails to
+// - proving the fix stops the command, not merely that "some-path" fails to
 // resolve as a config on its own.
 func TestAuthCLI_RotateMasterKey_RejectsPositionalArgs(t *testing.T) {
 	xdgHome := t.TempDir()
@@ -379,7 +379,7 @@ func TestAuthCLI_RotateMasterKey_StaleStaging(t *testing.T) {
 		auth.CredentialInput{Name: "acme", Kind: authstore.CredentialKindPAT, Secret: "placeholder-secret"}, "human:root"))
 	require.NoError(t, store.Close())
 
-	// A stale .new from a previously interrupted rotation — garbage, not
+	// A stale .new from a previously interrupted rotation - garbage, not
 	// even valid hex.
 	require.NoError(t, os.WriteFile(keyPath+".new", []byte("leftover-garbage-not-a-key\n"), 0o600))
 
@@ -388,7 +388,7 @@ func TestAuthCLI_RotateMasterKey_StaleStaging(t *testing.T) {
 	code := authCLI([]string{"rotate-master-key", "--config", cfgPath}, &out, &errBuf)
 	require.Equal(t, 0, code, "stderr: %s", errBuf.String())
 
-	// The stale file did not survive — this run's own staged key replaced
+	// The stale file did not survive - this run's own staged key replaced
 	// and then consumed it.
 	_, err = os.Stat(keyPath + ".new")
 	assert.True(t, os.IsNotExist(err), "%s.new must not survive a successful rotation", keyPath)
@@ -420,7 +420,7 @@ func TestAuthCLI_RotateMasterKey_StaleStaging(t *testing.T) {
 // the exact crash/retry scenario an unconditional-overwrite staging step is
 // vulnerable to: a previous rotation committed the re-encrypted pool (so the
 // pool now decrypts ONLY under X) but crashed before installing the new key
-// file, leaving <path> = the OLD key W and <path>.new = the LIVE key X — the
+// file, leaving <path> = the OLD key W and <path>.new = the LIVE key X - the
 // only surviving copy of the key the pool now actually needs. An operator's
 // natural response is to just run the command again. The pre-stage probe
 // must catch that <path> (W) does not decrypt the pool and refuse BEFORE
@@ -448,14 +448,14 @@ func TestAuthCLI_RotateMasterKey_RefusesRetryThatWouldDestroyLiveKey(t *testing.
 		auth.CredentialInput{Name: "acme", Kind: authstore.CredentialKindPAT, Secret: "placeholder-secret"}, "human:root"))
 	require.NoError(t, store.Close())
 
-	// <path> holds a DIFFERENT key W — the old key from before the crashed
+	// <path> holds a DIFFERENT key W - the old key from before the crashed
 	// rotation. LoadOrCreateMasterKey will read this as "oldMaster".
 	masterW := make([]byte, 32)
 	_, err = rand.Read(masterW)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(keyPath, []byte(hex.EncodeToString(masterW)+"\n"), 0o600))
 
-	// <path>.new holds X — the crashed rotation's only surviving recovery
+	// <path>.new holds X - the crashed rotation's only surviving recovery
 	// artifact.
 	stagedPath := keyPath + ".new"
 	stagedBefore := []byte(hex.EncodeToString(masterX) + "\n")
@@ -474,11 +474,11 @@ func TestAuthCLI_RotateMasterKey_RefusesRetryThatWouldDestroyLiveKey(t *testing.
 	require.NoError(t, err)
 	assert.Equal(t, stagedBefore, stagedAfter, "%s must be untouched by a refused rotation", stagedPath)
 
-	// No backup, no partial install — a refusal must not write anything.
+	// No backup, no partial install - a refusal must not write anything.
 	_, err = os.Stat(keyPath + ".bak")
 	assert.True(t, os.IsNotExist(err), "a refused rotation must not write a backup")
 
-	// The pool still decrypts under X — proof the DB was never touched.
+	// The pool still decrypts under X - proof the DB was never touched.
 	store2, err := authstore.Open(dbPath)
 	require.NoError(t, err)
 
@@ -576,7 +576,7 @@ func TestAuthCLI_RotateMasterKey_RefusesMissingKeyFile(t *testing.T) {
 }
 
 func TestAuthCLI_ResetAdmin_UsageErrorPrecedesConfigLoad(t *testing.T) {
-	// An empty XDG home makes config discovery fail — the missing-username
+	// An empty XDG home makes config discovery fail - the missing-username
 	// usage error must fire before config loading is ever attempted.
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 

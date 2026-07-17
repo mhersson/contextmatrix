@@ -10,7 +10,7 @@ export function ThemeToggle() {
       className="cm-header-icon-btn flex items-center justify-center w-8 h-8 rounded transition-colors"
     >
       {theme === 'dark' ? (
-        // Sun icon — shown in dark mode, click to switch to light
+        // Sun icon - shown in dark mode, click to switch to light
         <svg
           xmlns="http://www.w3.org/2000/svg"
           width="18"
@@ -34,7 +34,7 @@ export function ThemeToggle() {
           <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
         </svg>
       ) : (
-        // Moon icon — shown in light mode, click to switch to dark
+        // Moon icon - shown in light mode, click to switch to dark
         <svg
           xmlns="http://www.w3.org/2000/svg"
           width="18"

@@ -54,8 +54,8 @@ func NewSignatureCache() *SignatureCache {
 }
 
 // CheckAndInsert looks up (timestamp, signature) in the cache.
-// Returns true (duplicate — reject) when the pair is already present.
-// Returns false (first-seen — accept) and inserts the entry otherwise.
+// Returns true (duplicate - reject) when the pair is already present.
+// Returns false (first-seen - accept) and inserts the entry otherwise.
 // Lazy eviction runs when the map exceeds maxSignatureCacheSize.
 // It implements protocol.ReplayCache.
 func (c *SignatureCache) CheckAndInsert(timestamp, signature string) bool {

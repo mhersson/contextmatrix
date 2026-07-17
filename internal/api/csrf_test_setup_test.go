@@ -11,7 +11,7 @@ import (
 // include the X-Requested-With header that csrfGuard requires on every
 // mutation, and the X-Agent-ID header derived from any JSON body that carries
 // an agent_id field. Existing tests POST agent_id in the body and never set
-// the header — without a body-fallback for agent identity they would all 400
+// the header - without a body-fallback for agent identity they would all 400
 // unless the test transport copies the field up. Tests that explicitly
 // exercise the CSRF guard or the missing-header behavior build their own
 // *http.Client without this transport.

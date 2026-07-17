@@ -6,7 +6,7 @@ interface LabelsSectionProps {
   onLabelsChange: (labels: string[]) => void;
   /**
    * Optional message shown next to the locked-state hint. Same pattern as
-   * AutomationCheckboxes — caller supplies the reason ("during remote
+   * AutomationCheckboxes - caller supplies the reason ("during remote
    * run" vs. "outside todo") so the user knows what to do.
    */
   lockedReason?: string;

@@ -416,7 +416,7 @@ func TestParseLinkNext_PaginationWithCustomBaseURL(t *testing.T) {
 		if r.URL.Query().Get("page") == "2" {
 			_ = json.NewEncoder(w).Encode(page2)
 		} else {
-			// Link header points at same host — SSRF check must pass.
+			// Link header points at same host - SSRF check must pass.
 			w.Header().Set("Link", fmt.Sprintf(`<%s/repos/o/r/issues?page=2>; rel="next"`, srv.URL))
 			_ = json.NewEncoder(w).Encode(page1)
 		}
@@ -450,7 +450,7 @@ func TestParseLinkNext_SSRFRejectedWithCustomBaseURL(t *testing.T) {
 	client := NewClientWithBaseURL(p, srv.URL)
 	result, err := client.FetchOpenIssues(context.Background(), "o", "r", nil)
 	require.NoError(t, err)
-	// Only one page returned — the evil next URL was rejected.
+	// Only one page returned - the evil next URL was rejected.
 	require.Len(t, result, 1)
 	assert.Equal(t, "Only issue", result[0].Title)
 }

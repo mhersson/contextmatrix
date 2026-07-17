@@ -1,13 +1,14 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 import { api } from '../../api/client';
+import { useAdminResource } from '../../hooks/useAdminResource';
 import { errorMessage } from '../../lib/errors';
-import type { AdminUser, InviteInfo } from '../../types';
+import type { InviteInfo } from '../../types';
 import { ConfirmModal } from '../ConfirmModal/ConfirmModal';
 import { CreateUserModal, type CreateUserInput } from './CreateUserModal';
 import { InviteLinkDialog } from './InviteLinkDialog';
 import { UsersTable } from './UsersTable';
 
-// Destructive direction of each row toggle — the other direction (promote,
+// Destructive direction of each row toggle - the other direction (promote,
 // enable) runs immediately without confirmation.
 type ConfirmKind = 'demote' | 'disable';
 interface PendingConfirm {
@@ -15,14 +16,21 @@ interface PendingConfirm {
   kind: ConfirmKind;
 }
 
+const fetchUsers = () => api.adminListUsers();
+
 /** Admin-only Users page: list, create (with invite link), and per-row
  * role/status management. Owns all data fetching and mutations; the
  * modals and table row it renders are purely presentational. */
 export function AdminUsersPage() {
-  const [users, setUsers] = useState<AdminUser[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [listError, setListError] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const {
+    items: users,
+    loading,
+    listError,
+    actionError,
+    setActionError,
+    refetch,
+    act,
+  } = useAdminResource(fetchUsers, [], 'Failed to load users.');
 
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -31,39 +39,8 @@ export function AdminUsersPage() {
   const [invite, setInvite] = useState<InviteInfo | null>(null);
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
 
-  const refetch = useCallback(async () => {
-    try {
-      const list = await api.adminListUsers();
-      setUsers(list);
-      setListError(null);
-    } catch (err) {
-      setListError(errorMessage(err, 'Failed to load users.'));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  // Mount-only fetch, delegated to refetch (also used after every mutation
-  // below) rather than duplicated inline — mirrors useBoard.ts's fetchData
-  // effect. setState-in-effect is intentional: this effect's whole purpose
-  // is to trigger the initial load.
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void refetch();
-  }, [refetch]);
-
-  const patch = useCallback(
-    async (username: string, body: { is_admin?: boolean; disabled?: boolean }) => {
-      setActionError(null);
-      try {
-        await api.adminPatchUser(username, body);
-        await refetch();
-      } catch (err) {
-        setActionError(errorMessage(err, 'Action failed.'));
-      }
-    },
-    [refetch],
-  );
+  const patch = (username: string, body: { is_admin?: boolean; disabled?: boolean }) =>
+    act(() => api.adminPatchUser(username, body), 'Action failed.');
 
   const createUser = async (input: CreateUserInput) => {
     setCreating(true);
@@ -80,6 +57,7 @@ export function AdminUsersPage() {
     }
   };
 
+  // Deliberately no refetch - regenerating a link changes no listed field.
   const regenerateLink = async (username: string) => {
     setActionError(null);
     try {

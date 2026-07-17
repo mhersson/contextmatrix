@@ -36,7 +36,7 @@ function saveToStorage(prefs: ChatFilterPrefs): void {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
   } catch (err) {
     // Quota exceeded or storage blocked (private mode). Surface once so a dev
-    // notices regressions; do not block the UI — persistence is best-effort.
+    // notices regressions; do not block the UI - persistence is best-effort.
     console.warn('chat_filter_prefs: persist failed', err);
   }
 }

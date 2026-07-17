@@ -19,7 +19,7 @@ func credService(t *testing.T) (*Service, *authstore.Store, *[]CredentialInput) 
 
 	// Advance the clock by a second on every read: authstore truncates
 	// UpdatedAt to whole seconds, and TokenProviderFor's cache is keyed on
-	// (name, UpdatedAt) — sequential writes in a test (e.g. create then
+	// (name, UpdatedAt) - sequential writes in a test (e.g. create then
 	// rotate) must observe distinct timestamps for that self-invalidation
 	// contract to be testable against the otherwise-frozen test clock.
 	clock := svcNow
@@ -150,7 +150,7 @@ func TestCredentialExists(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, exists)
 
-	// Disabled entries still count as existing — the binding target must
+	// Disabled entries still count as existing - the binding target must
 	// exist; whether it's usable is a runtime resolution concern.
 	require.NoError(t, svc.SetCredentialDisabled(ctx, "acme-pat", true))
 
@@ -168,7 +168,7 @@ func TestUpdateCredentialMetadata_ReValidates(t *testing.T) {
 	require.Len(t, *checked, 1)
 
 	// Metadata change re-runs the checker with the DECRYPTED stored secret
-	// and the merged metadata — a host change can invalidate a credential.
+	// and the merged metadata - a host change can invalidate a credential.
 	require.NoError(t, svc.UpdateCredentialMetadata(ctx, "meta", "ghe.example", "", 0, 0))
 	require.Len(t, *checked, 2)
 	assert.Equal(t, "sekret", (*checked)[1].Secret, "checker sees the stored secret")
@@ -243,7 +243,7 @@ func TestTokenProviderFor_CacheAndInvalidation(t *testing.T) {
 // cache keyed on UpdatedAt alone would serve the pre-rotation secret forever
 // since the entry never sees a timestamp change. Uses newTestService
 // directly (frozen clock, no per-read auto-advance) so both writes land on
-// literally the same instant — the worst case of the same-second collision.
+// literally the same instant - the worst case of the same-second collision.
 func TestTokenProviderFor_SameSecondRotationInvalidatesCache(t *testing.T) {
 	svc, _, _ := newTestService(t)
 	ctx := context.Background()

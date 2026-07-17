@@ -58,7 +58,7 @@ func registerChatRehydrationComplete(server *mcp.Server, mgr *chat.Manager) {
 			"Call this exactly once per resumed chat session after reading " +
 			"/run/cm-chat/resume.jsonl and re-establishing any workspace state " +
 			"(re-cloning repos, restoring branches, etc.). The summary argument " +
-			"becomes the first visible message of the resumed chat — keep it " +
+			"becomes the first visible message of the resumed chat - keep it " +
 			"to one short paragraph.",
 	}, buildChatRehydrationCompleteTool(mgr))
 }

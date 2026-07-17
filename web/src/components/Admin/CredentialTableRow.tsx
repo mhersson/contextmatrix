@@ -14,10 +14,10 @@ function formatLastUsed(ts?: string): string {
 }
 
 /**
- * One row of the Credentials table. Purely presentational — AdminCredentialsPage
+ * One row of the Credentials table. Purely presentational - AdminCredentialsPage
  * decides whether a toggle needs confirmation and owns the API calls; this
  * component only renders the row and reports clicks. Never receives or
- * renders a secret value — CredentialInfo has no secret field.
+ * renders a secret value - CredentialInfo has no secret field.
  */
 export function CredentialTableRow({ credential, onRotate, onToggleDisabled, onDelete }: CredentialTableRowProps) {
   return (
@@ -32,10 +32,10 @@ export function CredentialTableRow({ credential, onRotate, onToggleDisabled, onD
         {credential.host || 'github.com'}
       </td>
       <td className="px-4 py-2 font-mono" style={{ color: 'var(--grey1)' }}>
-        {credential.kind === 'app' ? credential.app_id : '—'}
+        {credential.kind === 'app' ? credential.app_id : ' - '}
       </td>
       <td className="px-4 py-2 font-mono" style={{ color: 'var(--grey1)' }}>
-        {credential.kind === 'app' ? credential.installation_id : '—'}
+        {credential.kind === 'app' ? credential.installation_id : ' - '}
       </td>
       <td className="px-4 py-2">{credential.created_by}</td>
       <td className="px-4 py-2" style={{ color: 'var(--grey1)' }}>

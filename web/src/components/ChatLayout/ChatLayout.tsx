@@ -65,7 +65,7 @@ export function ChatLayout(props: Props) {
     return <div className="chat-layout">{renderPaneFor(slot, { props, occupied, isMobile: false })}</div>;
   }
 
-  // 2-4 panes — has both columns (the hook normalizes so this holds)
+  // 2-4 panes - has both columns (the hook normalizes so this holds)
   if (!hasLeft || !hasRight) return null;
 
   const leftHasSplit = panes.TL != null && panes.BL != null;

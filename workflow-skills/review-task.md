@@ -6,23 +6,23 @@
 
 ---
 
-You run the review phase inline. You hold the claim from earlier phases — do not
+You run the review phase inline. You hold the claim from earlier phases - do not
 release it.
 
 This is a **production-ready gate**. Code passes review only when free of
 Critical and Important defects. Minor findings are fixed inline by the reviewer
-(Step 4). Polish-level Nits do not block. When in doubt, send the work back — a
+(Step 4). Polish-level Nits do not block. When in doubt, send the work back - a
 revise cycle is cheaper than a regression in main.
 
 ## Step 1: Confirm claim and load context
 
-`claim_card(card_id, agent_id)` is idempotent — call it to re-affirm. Reclaim if
+`claim_card(card_id, agent_id)` is idempotent - call it to re-affirm. Reclaim if
 the heartbeat timed out.
 
 Review the parent card body, all subtasks, and dependencies from the context
 above. Call `get_task_context` only if you need the latest state.
 
-## Step 2: Pass 1 — Spec compliance and test gate
+## Step 2: Pass 1 - Spec compliance and test gate
 
 If Pass 1 fails, skip Step 3 entirely and jump to Step 5 with
 `recommendation: revise`.
@@ -37,7 +37,7 @@ If Pass 1 fails, skip Step 3 entirely and jump to Step 5 with
 
 On success, call `heartbeat(card_id, agent_id)` before Step 3.
 
-## Step 3: Pass 2 — Three parallel specialists
+## Step 3: Pass 2 - Three parallel specialists
 
 ### Pick the specialist model
 
@@ -53,7 +53,7 @@ The output is one line, e.g.
 `4 files changed, 187 insertions(+), 1 deletion(-)`. Parse all three numbers.
 Sum insertions and deletions for the line check; use the files-changed value
 directly for the file check. Either or both line fields may be absent if the
-diff is pure-add or pure-delete — treat missing as zero. Upgrade if either
+diff is pure-add or pure-delete - treat missing as zero. Upgrade if either
 threshold is exceeded.
 
 The chosen model applies to all three specialists in this review cycle.
@@ -65,7 +65,7 @@ Spawn three `Agent` calls in a **single message**. Each:
 - `subagent_type: "general-purpose"`
 - `model: <the model chosen above>`
 
-Do not pre-read files and embed content in the prompts — specialists read what
+Do not pre-read files and embed content in the prompts - specialists read what
 they need.
 
 A missing or malformed specialist report (nothing returned, or output that fails
@@ -80,10 +80,10 @@ missing specialty's coverage.
 - Change-set computation:
   1. **Determine the diff base.** Read the parent card's activity log.
      - If a prior entry has `action="review_completed"`, parse `head=<sha>` from
-       its message — this is a working-tree snapshot from the prior pass.
+       its message - this is a working-tree snapshot from the prior pass.
      - Otherwise use the card's `base_branch` if set, else `main`.
   2. **Compute the review surface:**
-     - Snapshot base: `git diff <sha> --name-only` (working tree vs. snapshot —
+     - Snapshot base: `git diff <sha> --name-only` (working tree vs. snapshot -
        single command captures the delta).
      - Branch base: `git diff <base>..HEAD --name-only` plus
        `git status --porcelain` for working-tree (`M`, `A`, `??`). Union is the
@@ -99,32 +99,32 @@ missing specialty's coverage.
   `usage.output_tokens` → `completion_tokens`, `usage.cache_read_input_tokens` →
   `cache_read_tokens`, `usage.cache_creation_input_tokens` →
   `cache_creation_tokens`.
-- Return the output format below — nothing else.
+- Return the output format below - nothing else.
 
 Specialist hard constraints:
 
 - No `claim_card`, `release_card`, `update_card`, or `transition_card`.
 - No `REVIEW_FINDINGS` print.
-- Stay strictly within your topic. Do not opine outside your specialty — the
+- Stay strictly within your topic. Do not opine outside your specialty - the
   synthesizer handles cross-cutting concerns.
 - Commit status is not a review concern; do not flag uncommitted files.
 - Every finding must cite a file in the change set.
-- Severity must follow the 4-tier scale below. Use Nits sparingly — only for
+- Severity must follow the 4-tier scale below. Use Nits sparingly - only for
   pure polish (spelling, formatting, naming preference) with no functional or
   design impact. When uncertain between Minor and Nit, choose Minor.
 
-### Specialist A — Correctness
+### Specialist A - Correctness
 
 - Bugs, logic errors, off-by-one, edge cases.
 - Error / exception handling completeness (silent failures, swallowed errors).
 - Concurrency, races, lock ordering, leaked concurrent workers (threads, tasks,
   coroutines, goroutines), unawaited promises/tasks.
 - Observability: structured logging, metric emission, debuggable error context.
-- Test coverage and quality — do tests exercise new behavior, or are they
+- Test coverage and quality - do tests exercise new behavior, or are they
   vacuous (asserting on self-configured mocks)? Flag flakiness, time coupling,
   ordering dependencies, non-hermetic state.
 
-### Specialist B — Design & Maintainability
+### Specialist B - Design & Maintainability
 
 - Architecture, separation of concerns, cross-package coupling.
 - API / interface design at module boundaries.
@@ -132,12 +132,12 @@ Specialist hard constraints:
   schemas, IPC contracts. Flag breaking changes without migration.
 - Readability, naming, complexity, function length.
 - Duplication, dead code, unused exports.
-- Docs accuracy — do they reflect what shipped? Internal-only changes typically
+- Docs accuracy - do they reflect what shipped? Internal-only changes typically
   need no external docs.
 - If the diff touches UI: accessibility, semantics, keyboard navigation,
   theming, framework hazards (effects, lifecycles).
 
-### Specialist C — Security & Performance
+### Specialist C - Security & Performance
 
 - Input validation; injection (SQL, command, path traversal, template).
 - AuthN/AuthZ deviations from the trust model documented in `CLAUDE.md`. Do not
@@ -158,19 +158,19 @@ Specialist hard constraints:
 
 ### Critical (Must Fix)
 
-- **Where:** `file:line` — **What:** ... — **Why:** ... — **Fix:** ...
+- **Where:** `file:line` - **What:** ... - **Why:** ... - **Fix:** ...
 
 ### Important (Should Fix)
 
-- **Where:** ... — **What:** ... — **Why:** ... — **Fix:** ...
+- **Where:** ... - **What:** ... - **Why:** ... - **Fix:** ...
 
 ### Minor (Should Fix)
 
-- **Where:** ... — **What:** ... — **Why:** ... — **Fix:** ...
+- **Where:** ... - **What:** ... - **Why:** ... - **Fix:** ...
 
 ### Nits (Nice to Have)
 
-- **Where:** ... — **What:** ... — **Why:** ... (Optional fix.)
+- **Where:** ... - **What:** ... - **Why:** ... (Optional fix.)
 
 (Omit empty tiers.)
 
@@ -207,7 +207,7 @@ output, no specialists were spawned.
 Fix Minors inline when all of the following hold:
 
 - Every Minor has a concrete Fix field (no design rework needed).
-- Fixes are bounded — no multi-file refactors or API changes.
+- Fixes are bounded - no multi-file refactors or API changes.
 - Fixes do not couple to each other or to the original change.
 
 If any condition fails, `revise` the original card. When in doubt, `revise`.
@@ -226,7 +226,7 @@ orchestrator and activity log show what was changed.
 
 ## Step 5: Write findings, report, return
 
-**Always append — never replace.** If the card body already has a
+**Always append - never replace.** If the card body already has a
 `## Review Findings` section from a prior round, do not overwrite it. Append a
 new section with the round number: `## Review Findings (Round 2)`,
 `## Review Findings (Round 3)`, etc. The first round uses the bare heading.
@@ -244,25 +244,25 @@ Append to the parent card body via `update_card`:
 
 #### Critical (Must Fix)
 
-- **[Where]:** [What] — [Why]. Fix: [How].
+- **[Where]:** [What] - [Why]. Fix: [How].
 
 #### Important (Should Fix)
 
-- **[Where]:** [What] — [Why]. Fix: [How].
+- **[Where]:** [What] - [Why]. Fix: [How].
 
 #### Minor (Should Fix)
 
-- **[Where]:** [What] — [Why]. Fix: [How].
+- **[Where]:** [What] - [Why]. Fix: [How].
 
 #### Nits (Nice to Have)
 
-- **[Where]:** [What] — [Why]. (Optional fix.)
+- **[Where]:** [What] - [Why]. (Optional fix.)
 
 (Omit empty tiers.)
 
 ### Recommendation
 
-approve | revise — <one-line rationale>
+approve | revise - <one-line rationale>
 ```
 
 Call `report_usage` for synthesis only:
@@ -271,7 +271,7 @@ Call `report_usage` for synthesis only:
 - `agent_id`: your id
 - `model`: your own running model
 - `prompt_tokens` / `completion_tokens`: synthesizer-only consumption (Pass 1,
-  prompt construction, merging). Specialists already reported their own — do not
+  prompt construction, merging). Specialists already reported their own - do not
   add them.
 - `cache_read_tokens` / `cache_creation_tokens`: from the stream-json `usage`
   frame if available
@@ -288,7 +288,7 @@ summary: <one-line summary>
 Then capture a working-tree snapshot and call `add_log`:
 
 1. Run `git stash create -u`. If the output is non-empty, that is the snapshot
-   SHA — skip step 2.
+   SHA - skip step 2.
 2. If the output is empty (no uncommitted changes), run `git rev-parse HEAD`.
    That is the snapshot SHA.
 3. Call `add_log`:
@@ -311,7 +311,7 @@ Do **not** call `release_card`. Do **not** call `transition_card`.
 - `REVIEW_FINDINGS` block format is exact.
 - All three specialists in one message; sequential spawning is wrong.
 - Pass 1 failure short-circuits Pass 2.
-- MCP tools only — never curl, wget, or HTTP.
+- MCP tools only - never curl, wget, or HTTP.
 - Categorize severity honestly. Critical = broken or unsafe. Important = real
   design or correctness defect with non-trivial impact. Minor = a real defect
   with limited blast radius. Nits = pure polish only. Not everything is

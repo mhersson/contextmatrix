@@ -3,7 +3,7 @@ import type { Card, ProjectConfig, BoardEvent, CardFilter } from '../types';
 import { api, isAPIError } from '../api/client';
 import { useSSEBus } from './useSSEBus';
 
-// Monotonic request counter — mirrors the useProjectSummaries pattern so only
+// Monotonic request counter - mirrors the useProjectSummaries pattern so only
 // the latest fetchData call commits its result to state.  Declared at module
 // scope to avoid needing to thread it through the hook signature.
 let _globalReqId = 0;
@@ -26,7 +26,7 @@ interface UseBoardResult {
  * board updates.
  *
  * Caller contract for `filter`: callers may pass a literal object each render
- * (e.g. `useBoard(project, { state: 'todo' })`) — the hook stabilizes the
+ * (e.g. `useBoard(project, { state: 'todo' })`) - the hook stabilizes the
  * reference internally using a JSON-string key, so inline object literals do
  * not trigger re-fetch loops.
  */
@@ -49,7 +49,7 @@ export function useBoard(
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const stableFilter = useMemo(() => filter, [filterKey]);
 
-  // Per-instance monotonic request id — only the latest fetchData call commits
+  // Per-instance monotonic request id - only the latest fetchData call commits
   // its results to state. This prevents a slower response from a stale request
   // (e.g. triggered by SSE sync.completed) from overwriting a newer one.
   const reqIdRef = useRef(0);
@@ -75,7 +75,7 @@ export function useBoard(
         api.getProject(project),
         api.getCards(project, stableFilter),
       ]);
-      // Discard stale results — a newer fetchData call already took over.
+      // Discard stale results - a newer fetchData call already took over.
       if (reqId !== reqIdRef.current) return;
       setConfig(projectConfig);
       setCards(projectCards);
@@ -105,7 +105,7 @@ export function useBoard(
   }
 
   // Single mount/re-mount effect that delegates entirely to fetchData.
-  // No duplicate inline fetch — avoids the stale-cancel race the old code had.
+  // No duplicate inline fetch - avoids the stale-cancel race the old code had.
   // setState-in-effect is intentional here: this effect's purpose is to trigger
   // a data refetch when project/filter changes, and fetchData necessarily
   // manages loading/error state as part of that fetch.

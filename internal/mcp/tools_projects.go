@@ -63,7 +63,7 @@ func registerListProjects(server *mcp.Server, svc *service.CardService) {
 func registerCreateProject(server *mcp.Server, svc *service.CardService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "create_project",
-		Description: "Create a new project board with directory structure and configuration. The project name becomes the directory name. States must include 'stalled' and 'not_planned' (validator-enforced). The names 'todo', 'in_progress', 'review', and 'done' are also hardcoded into lifecycle behaviour (claim auto-transitions, complete_task, parent/child orchestration, dashboard metrics) — extra states may be added freely but these six built-in names should not be renamed. All states must have transition entries.",
+		Description: "Create a new project board with directory structure and configuration. The project name becomes the directory name. States must include 'stalled' and 'not_planned' (validator-enforced). The names 'todo', 'in_progress', 'review', and 'done' are also hardcoded into lifecycle behaviour (claim auto-transitions, complete_task, parent/child orchestration, dashboard metrics) - extra states may be added freely but these six built-in names should not be renamed. All states must have transition entries.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input createProjectToolInput) (*mcp.CallToolResult, *board.ProjectConfig, error) {
 		cfg, err := svc.CreateProject(ctx, service.CreateProjectInput{
 			Name:        input.Name,
@@ -120,7 +120,7 @@ func registerUpdateProject(server *mcp.Server, svc *service.CardService) {
 func registerDeleteProject(server *mcp.Server, svc *service.CardService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "delete_project",
-		Description: "Delete a project. The project must have zero cards — delete all cards first. Removes the project directory and configuration.",
+		Description: "Delete a project. The project must have zero cards - delete all cards first. Removes the project directory and configuration.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input deleteProjectToolInput) (*mcp.CallToolResult, deleteProjectOutput, error) {
 		if err := svc.DeleteProject(ctx, input.Project); err != nil {
 			return nil, deleteProjectOutput{}, fmt.Errorf("delete project %s: %w", input.Project, err)

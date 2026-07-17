@@ -105,7 +105,7 @@ type ProjectUsage struct {
 //
 // TotalCostRecalculated accumulates each updated card's full new cost: for
 // breakdown cards that is the complete bucket sum (including untouched actual
-// buckets), not the re-pricing delta — consistent with the legacy whole-card
+// buckets), not the re-pricing delta - consistent with the legacy whole-card
 // semantics. Cards that were not written contribute nothing.
 type RecalculateCostsResult struct {
 	CardsUpdated          int     `json:"cards_updated"`
@@ -116,14 +116,14 @@ type RecalculateCostsResult struct {
 //
 // Zero-token calls (PromptTokens=0 and CompletionTokens=0) are intentionally
 // written and emit an event. This makes a heartbeat+report_usage pair at idle
-// a useful health signal even when no new tokens are consumed — removing this
+// a useful health signal even when no new tokens are consumed - removing this
 // write would silently drop that observability.
 //
 // Multiple calls with different model names cause the stored TokenUsage.Model
 // to be overwritten with the most recently reported model. Cost arithmetic is
 // unaffected: each delta is priced using the model passed in that call. The
-// overwrite ensures that RecalculateCosts — which uses TokenUsage.Model as a
-// fallback — always applies the most recent model, which is the correct default
+// overwrite ensures that RecalculateCosts - which uses TokenUsage.Model as a
+// fallback - always applies the most recent model, which is the correct default
 // for the typical single-primary-model-per-card agent pattern.
 func (s *CardService) ReportUsage(ctx context.Context, project, id string, input ReportUsageInput) (*board.Card, error) {
 	id = strings.ToUpper(id)
@@ -131,7 +131,7 @@ func (s *CardService) ReportUsage(ctx context.Context, project, id string, input
 	// Resolve the model rate BEFORE taking writeMu: the catalog fallback can
 	// block on network I/O (stale-cache refresh), and holding the global card
 	// write lock across that stalls every claim/heartbeat/transition. Nothing
-	// the lookup reads is guarded by writeMu — tokenCosts is immutable after
+	// the lookup reads is guarded by writeMu - tokenCosts is immutable after
 	// construction and catalogRate is wired once at startup.
 	var (
 		rate   ModelRate
@@ -175,8 +175,8 @@ func (s *CardService) ReportUsage(ctx context.Context, project, id string, input
 	// Migration bucket: when a legacy card (cumulative spend or tokens, no
 	// buckets) starts bucketing, seed a bucket carrying the pre-existing
 	// cumulative so the bucket sum stays equal to the cumulative cost. Without
-	// this the dashboard — which switches to the breakdown path on
-	// len(UsageBreakdown) > 0 — would attribute only the new delta and silently
+	// this the dashboard - which switches to the breakdown path on
+	// len(UsageBreakdown) > 0 - would attribute only the new delta and silently
 	// drop the legacy spend. Tokens-but-zero-cost cards (the old fill-missing
 	// population) are seeded too so token rollups stay complete and
 	// RecalculateCosts can later price the migrated bucket from the rate table.
@@ -265,7 +265,7 @@ func (s *CardService) ReportUsage(ctx context.Context, project, id string, input
 		return nil, rollbackErr
 	}
 
-	// If the card has no active agent, flush immediately — there is no
+	// If the card has no active agent, flush immediately - there is no
 	// subsequent ReleaseCard call to flush deferred paths (e.g. report_usage
 	// called after complete_task). Re-acquire writeMu because
 	// flushDeferredCommit mutates deferredPaths.
@@ -325,7 +325,7 @@ func (s *CardService) AggregateUsage(ctx context.Context, project string) (*Proj
 // RecalculateCosts recomputes estimated costs for cards.
 //
 // Cards with UsageBreakdown: every bucket with CostSource "estimated" is
-// re-priced from the current rate table — including buckets that already have
+// re-priced from the current rate table - including buckets that already have
 // a non-zero cost (stale prices are corrected). Actual-cost buckets are never
 // modified; that is what the cost_source flag exists for. The model fallback
 // chain per bucket is bucket model → card's stored model → defaultModel; a
@@ -334,7 +334,7 @@ func (s *CardService) AggregateUsage(ctx context.Context, project string) (*Proj
 // price actually changed.
 //
 // Legacy cards (no breakdown): fill-missing-only, verbatim pre-breakdown
-// behavior — only cards with non-zero tokens and a zero EstimatedCostUSD are
+// behavior - only cards with non-zero tokens and a zero EstimatedCostUSD are
 // updated; cards that already have a cost are not modified.
 func (s *CardService) RecalculateCosts(ctx context.Context, project, defaultModel string) (*RecalculateCostsResult, error) {
 	// Pre-resolve every rate this pass could need BEFORE taking writeMu: the
@@ -342,7 +342,7 @@ func (s *CardService) RecalculateCosts(ctx context.Context, project, defaultMode
 	// global card write lock. The lock-free ListCards pass walks the same
 	// model fallback chains as the locked pass below; resolveRate memoizes,
 	// so a model that only appears mid-pass (concurrent ReportUsage between
-	// the two listings) costs at most one bounded lookup under the lock —
+	// the two listings) costs at most one bounded lookup under the lock -
 	// bounded by the catalog Builder's failure backoff. Memoization also
 	// means each model is priced from a single rate snapshot for the whole
 	// pass.
@@ -466,7 +466,7 @@ func (s *CardService) RecalculateCosts(ctx context.Context, project, defaultMode
 			}
 
 			if card.TokenUsage.EstimatedCostUSD != 0 {
-				continue // already has a cost — don't double-count
+				continue // already has a cost - don't double-count
 			}
 
 			model := usageModel("", card.TokenUsage.Model, defaultModel)
@@ -564,7 +564,7 @@ func usageModel(bucketModel, cardModel, defaultModel string) string {
 }
 
 // upsertUsageBucket merges one report into the card's (agent, model) bucket.
-// A bucket that has ever received an actual-cost report stays "actual" —
+// A bucket that has ever received an actual-cost report stays "actual" -
 // mixed-source sums are still real spend, and the flag's job is to protect
 // the bucket from rate-table recalculation.
 func upsertUsageBucket(card *board.Card, in ReportUsageInput, cost float64, source string) {

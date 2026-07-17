@@ -28,7 +28,7 @@ import (
 // backoffs are collapsed to zero real wall-clock time. It wires a fake clock
 // and spawns a janitor goroutine that repeatedly advances the clock so any
 // pump goroutine parked on clk.After(backoff) wakes immediately. The janitor
-// exits when the returned context is cancelled — the caller passes the
+// exits when the returned context is cancelled - the caller passes the
 // cleanup func to t.Cleanup.
 func newFailFastManager(t *testing.T, extra ...Option) (*Manager, func()) {
 	t.Helper()
@@ -161,7 +161,7 @@ func sseServerOnDemand(t *testing.T, eventCh <-chan Event, readyCh chan struct{}
 			select {
 			case evt, ok := <-eventCh:
 				if !ok {
-					// No more events will ever be pushed — hold the connection
+					// No more events will ever be pushed - hold the connection
 					// open until the client (the manager's pump) disconnects.
 					<-r.Context().Done()
 
@@ -246,7 +246,7 @@ func TestStartSubscribeLiveAndSnapshot(t *testing.T) {
 	m := NewManager(WithBackendConfig(srv.URL, "test-key"))
 	defer stopThenClose(m, cardID, srv)
 
-	// Subscribe before Start — goes into pendingSubs, picked up when Start runs.
+	// Subscribe before Start - goes into pendingSubs, picked up when Start runs.
 	ch, unsub := m.Subscribe(cardID)
 	defer unsub()
 
@@ -271,7 +271,7 @@ func TestStartSubscribeLiveAndSnapshot(t *testing.T) {
 		return len(m.Snapshot(cardID)) == len(events)
 	}, 2*time.Second, 10*time.Millisecond)
 
-	// Late subscribe — should receive snapshot.
+	// Late subscribe - should receive snapshot.
 	lateCh, lateUnsub := m.Subscribe(cardID)
 	defer lateUnsub()
 
@@ -471,7 +471,7 @@ func TestIdleSweeper(t *testing.T) {
 //
 // Sequence:
 //  1. Start a session against an on-demand SSE server and advance the fake
-//     clock 5x past TTL — well past what the old startTime-keyed sweep would
+//     clock 5x past TTL - well past what the old startTime-keyed sweep would
 //     tolerate.
 //  2. Deliver one event, which stamps activeSession.lastEventTime at the
 //     current (advanced) fake time.
@@ -504,7 +504,7 @@ func TestIdleSweeper_KeyedOnLastEventNotStartTime(t *testing.T) {
 	require.NoError(t, m.Start(context.Background(), cardID, ""))
 	<-readyCh
 
-	// Advance well past the TTL (5x) before delivering an event — under the
+	// Advance well past the TTL (5x) before delivering an event - under the
 	// old startTime-keyed sweep this alone would already be stale.
 	fake.Advance(5 * ttl)
 
@@ -523,7 +523,7 @@ func TestIdleSweeper_KeyedOnLastEventNotStartTime(t *testing.T) {
 	m.mu.Unlock()
 	assert.True(t, stillRunning, "an actively-streaming session must survive the sweep")
 
-	// Now advance past TTL again with no further events — the session is
+	// Now advance past TTL again with no further events - the session is
 	// genuinely idle and must be swept.
 	fake.Advance(ttl + 20*time.Millisecond)
 	m.sweepIdleSessions(context.Background())
@@ -605,7 +605,7 @@ func TestSubscribeBeforeStart(t *testing.T) {
 // Subscribe. The bug: Subscribe releases m.mu after registering the subscriber
 // but before the snapshot goroutine writes to the channel. The pump goroutine
 // can immediately acquire m.mu and fan out live events, so a live event can be
-// sent directly to ch while the snapshot goroutine is still delivering —
+// sent directly to ch while the snapshot goroutine is still delivering -
 // producing a duplicate (event in both snapshot and direct fan-out) or an
 // out-of-order delivery (newer event before older snapshot events).
 //
@@ -620,7 +620,7 @@ func TestSubscribeBeforeStart(t *testing.T) {
 //  1. Ordering: N is strictly increasing across the channel (ignoring
 //     markers). Snapshot events stable-sort to insertion order (all live
 //     events have Seq==0), sub.pending preserves arrival order, and primed
-//     live delivery continues it — so any pump write that bypasses the
+//     live delivery continues it - so any pump write that bypasses the
 //     primed check shows up as a non-increasing N even when delivered once.
 //  2. No duplicates: each "live-N" content appears at most once. A duplicate
 //     means an event was delivered both via the snapshot goroutine AND
@@ -717,17 +717,17 @@ func TestSubscribeSnapshotLiveOrdering(t *testing.T) {
 				}
 			}
 
-			require.NotEmpty(t, received, "subscriber received no events — test is vacuous")
+			require.NotEmpty(t, received, "subscriber received no events - test is vacuous")
 
 			// Assertion 1: N must be strictly increasing across the channel
 			// (ignoring markers). Snapshot stable-sorts to insertion order (all
 			// Seq==0), pending preserves arrival order, primed live continues
 			// it. A pump write that bypasses the primed check mid-snapshot
-			// delivers a newer event before older snapshot events — caught here
+			// delivers a newer event before older snapshot events - caught here
 			// as a non-increasing N even when the event arrives exactly once.
 			//
 			// Assertion 2: no duplicate content. A duplicate means an event was
-			// delivered both via the snapshot goroutine AND directly — the
+			// delivered both via the snapshot goroutine AND directly - the
 			// primed-flag race. Seq is not a wire field (always 0 for live
 			// events) so the content counter is identity and order signal here.
 			var prevN uint64
@@ -748,9 +748,9 @@ func TestSubscribeSnapshotLiveOrdering(t *testing.T) {
 				require.NoError(t, err, "iter %d: unparsable payload %q at position %d", iter, content, i)
 
 				if n <= prevN {
-					// Fail once per iteration — a real regression would otherwise
+					// Fail once per iteration - a real regression would otherwise
 					// spew an error line for every subsequent event.
-					t.Errorf("iter %d: out-of-order delivery: live-%d at position %d after live-%d — primed-flag bypass",
+					t.Errorf("iter %d: out-of-order delivery: live-%d at position %d after live-%d - primed-flag bypass",
 						iter, n, i, prevN)
 
 					break
@@ -759,7 +759,7 @@ func TestSubscribeSnapshotLiveOrdering(t *testing.T) {
 				prevN = n
 
 				if first, dup := seen[content]; dup {
-					t.Errorf("iter %d: duplicate content %q at positions %d and %d — primed-flag race",
+					t.Errorf("iter %d: duplicate content %q at positions %d and %d - primed-flag race",
 						iter, content, first, i)
 				}
 
@@ -781,7 +781,7 @@ func TestSubscribeSnapshotLiveOrdering(t *testing.T) {
 //   - No upstream session is started; the snapshot goroutine runs
 //     unconditionally inside Subscribe, so no pump is needed.
 //   - 1000 events (Seq 1..1000) are pre-populated via m.Append.
-//   - A consumer goroutine sleeps 100µs between reads — slow enough that the
+//   - A consumer goroutine sleeps 100µs between reads - slow enough that the
 //     256-slot buffer fills before it can drain, triggering the tail-drop.
 //
 // Assertions:
@@ -836,7 +836,7 @@ func TestSubscribeSnapshotTailDropOnSlowSubscriber(t *testing.T) {
 
 				collected = append(collected, evt)
 
-				// Deliberate wall-clock pause — the whole point of this test is
+				// Deliberate wall-clock pause - the whole point of this test is
 				// to simulate a slow consumer so the fan-out channel fills and
 				// the tail-drop bug is exposed. A fake clock cannot substitute.
 				time.Sleep(readDelay)
@@ -934,7 +934,7 @@ func TestSubscribeUnsubUnblocksSnapshot(t *testing.T) {
 		})
 	}
 
-	// Subscribe but do NOT read from ch — the channel will fill up and the
+	// Subscribe but do NOT read from ch - the channel will fill up and the
 	// snapshot goroutine will block on the (subscriberChanBuf+1)th event.
 	_, unsub := m.Subscribe(cardID)
 
@@ -950,7 +950,7 @@ func TestSubscribeUnsubUnblocksSnapshot(t *testing.T) {
 
 	require.NotNil(t, sub, "expected subscriber in pendingSubs")
 
-	// Call unsub — this should unblock the snapshot goroutine.
+	// Call unsub - this should unblock the snapshot goroutine.
 	unsub()
 
 	// Assert that snapDone is closed within the timeout.
@@ -1014,7 +1014,7 @@ func TestSubscribeStopUnblocksSnapshot(t *testing.T) {
 
 	require.NotNil(t, sub, "expected subscriber in active session")
 
-	// Call Stop — this should unblock the snapshot goroutine and then close ch.
+	// Call Stop - this should unblock the snapshot goroutine and then close ch.
 	stopDone := make(chan struct{})
 
 	go func() {
@@ -1035,7 +1035,7 @@ func TestSubscribeStopUnblocksSnapshot(t *testing.T) {
 	select {
 	case _, ok := <-ch:
 		if ok {
-			// Received the terminal event — drain until closed.
+			// Received the terminal event - drain until closed.
 			for range ch {
 			}
 		}
@@ -1058,7 +1058,7 @@ func TestSubscribeStopUnblocksSnapshot(t *testing.T) {
 //
 // Setup:
 //  1. No upstream session is started (subscriber goes to pendingSubs).
-//  2. Subscribe is called so the snapshot goroutine spawns (empty snapshot — it
+//  2. Subscribe is called so the snapshot goroutine spawns (empty snapshot - it
 //     exits the snapshot loop instantly and tries to acquire m.mu for pending drain).
 //  3. Test thread holds m.mu while injecting one pre-pending event and filling
 //     sub.ch to capacity so the goroutine blocks on the first pending send.
@@ -1076,7 +1076,7 @@ func TestSnapshotDrainConcurrentAppend(t *testing.T) {
 	)
 
 	m := NewManager()
-	// No upstream session — subscriber will go to pendingSubs.
+	// No upstream session - subscriber will go to pendingSubs.
 
 	// Subscribe returns immediately and spawns the snapshot goroutine.
 	// Since the buffer is empty the goroutine will exit the snapshot loop
@@ -1139,7 +1139,7 @@ func TestSnapshotDrainConcurrentAppend(t *testing.T) {
 
 	go func() {
 		// The snapshot goroutine unlocks m.mu when it blocks on a full-channel send.
-		// We acquire m.mu here to inject late events — this races with the goroutine
+		// We acquire m.mu here to inject late events - this races with the goroutine
 		// re-acquiring it. The snapshot goroutine is blocked on a full channel, so in
 		// practice we win the lock before it can set sub.primed.
 		defer close(injected)
@@ -1148,7 +1148,7 @@ func TestSnapshotDrainConcurrentAppend(t *testing.T) {
 		defer m.mu.Unlock()
 
 		if sub.primed {
-			// Too late — goroutine already finished. Injection is a no-op.
+			// Too late - goroutine already finished. Injection is a no-op.
 			return
 		}
 
@@ -1223,7 +1223,7 @@ func TestSnapshotDrainConcurrentAppend_HighContention(t *testing.T) {
 
 			m := NewManager()
 
-			// Subscribe — goroutine spawns immediately, subscriber lands in pendingSubs.
+			// Subscribe - goroutine spawns immediately, subscriber lands in pendingSubs.
 			ch, unsub := m.Subscribe(cardID)
 			defer unsub()
 
@@ -1266,7 +1266,7 @@ func TestSnapshotDrainConcurrentAppend_HighContention(t *testing.T) {
 			m.mu.Unlock()
 
 			// Concurrently append late events to sub.pending while draining ch.
-			// We track only events confirmed appended while !sub.primed —
+			// We track only events confirmed appended while !sub.primed -
 			// those are the ones the snapshot goroutine MUST deliver.
 			var (
 				appendedMu sync.Mutex
@@ -1285,7 +1285,7 @@ func TestSnapshotDrainConcurrentAppend_HighContention(t *testing.T) {
 
 					m.mu.Lock()
 					if !sub.primed {
-						// Goroutine is still draining — this append MUST be delivered.
+						// Goroutine is still draining - this append MUST be delivered.
 						sub.pending = append(sub.pending, evt)
 
 						appendedMu.Lock()
@@ -1405,7 +1405,7 @@ func TestAttemptResetOnSuccessfulFrame(t *testing.T) {
 		connMu.Unlock()
 
 		if idx < reconnectCycles {
-			// Send one frame then close — triggers a reconnect.
+			// Send one frame then close - triggers a reconnect.
 			_, _ = fmt.Fprintf(w, "data: %s\n\n", payload)
 
 			flusher.Flush()
@@ -1439,7 +1439,7 @@ func TestAttemptResetOnSuccessfulFrame(t *testing.T) {
 	}, 60*time.Second, 50*time.Millisecond,
 		"expected all %d reconnect cycles to complete", reconnectCycles)
 
-	// The session must still be active — not terminated as a permanent failure.
+	// The session must still be active - not terminated as a permanent failure.
 	m.mu.Lock()
 	_, active := m.activeSessions[cardID]
 	_, failed := m.failedSessions[cardID]
@@ -1561,7 +1561,7 @@ func TestSubscribeProject_SnapshotThenLive(t *testing.T) {
 	}
 	// Register as subscriber through the pending path so we can inject live events
 	// by starting a session after subscription, but here we simply verify snapshot
-	// ordering was correct — no live events means no ordering violation.
+	// ordering was correct - no live events means no ordering violation.
 	_ = liveEvt
 }
 
@@ -1573,7 +1573,7 @@ func TestSubscribeProject_BuffersAllCards(t *testing.T) {
 	readyCh := make(chan struct{})
 
 	// Build events for two different cards under the same project.
-	// Seq is not a wire field — protocol.LogEntry frames carry ts/type/content/card_id.
+	// Seq is not a wire field - protocol.LogEntry frames carry ts/type/content/card_id.
 	payloads := []protocol.LogEntry{
 		{Timestamp: time.Now(), Type: "log", Content: "card-X-1", CardID: "PROJ-X"},
 		{Timestamp: time.Now(), Type: "log", Content: "card-Y-1", CardID: "PROJ-Y"},
@@ -1644,7 +1644,7 @@ func TestStartProject_Idempotent(t *testing.T) {
 func TestProjectKeyNamespacing(t *testing.T) {
 	const (
 		cardID  = "CARD-001"
-		project = "CARD-001" // same string as the card ID — must not collide
+		project = "CARD-001" // same string as the card ID - must not collide
 	)
 
 	srv := sseServerInfinite(t)
@@ -1698,13 +1698,13 @@ func TestPermanentFailure_ClosesPendingAndActive(t *testing.T) {
 	m, cleanup := newFailFastManager(t, WithBackendConfig(srv.URL, "test-key"))
 	t.Cleanup(cleanup)
 
-	// Subscribe before Start — lands in pendingSubs.
+	// Subscribe before Start - lands in pendingSubs.
 	pendingCh, pendingUnsub := m.Subscribe(cardID)
 	defer pendingUnsub()
 
 	require.NoError(t, m.Start(context.Background(), cardID, ""))
 
-	// Subscribe after Start — lands in activeSessions.subs.
+	// Subscribe after Start - lands in activeSessions.subs.
 	activeCh, activeUnsub := m.Subscribe(cardID)
 	defer activeUnsub()
 
@@ -1770,7 +1770,7 @@ func TestPermanentFailure_ClosesPendingAndActive(t *testing.T) {
 		cleanup2()
 	}
 	// Give goroutines time to exit. This is a genuine wall-clock poll for
-	// goroutine teardown — goroutines exit on the real OS scheduler, so
+	// goroutine teardown - goroutines exit on the real OS scheduler, so
 	// the fake-clock abstraction cannot drive it.
 	runtime.GC()
 	time.Sleep(100 * time.Millisecond)
@@ -1809,7 +1809,7 @@ func TestPermanentFailure_SubscribeAfterFailure(t *testing.T) {
 		t.Fatal("timed out waiting for initial terminal event")
 	}
 
-	// Now the session has permanently failed. Subscribe again — should immediately
+	// Now the session has permanently failed. Subscribe again - should immediately
 	// return a terminal event and a closed channel without hanging.
 	laterCh, laterUnsub := m.Subscribe(cardID)
 	defer laterUnsub()
@@ -1824,7 +1824,7 @@ func TestPermanentFailure_SubscribeAfterFailure(t *testing.T) {
 		}
 		// ok==false (channel already closed) is also acceptable.
 	case <-time.After(2 * time.Second):
-		t.Fatal("Subscribe after permanent failure blocked for >2s — possible hang")
+		t.Fatal("Subscribe after permanent failure blocked for >2s - possible hang")
 	}
 }
 
@@ -1911,7 +1911,7 @@ func TestSlowSubscriberDropCounter_Direct(t *testing.T) {
 	// Counter must start at zero.
 	assert.Equal(t, uint64(0), m.DroppedEvents(), "initial DroppedEvents should be 0")
 
-	// Call notifyDrop; channel has room — drop marker should land in ch.
+	// Call notifyDrop; channel has room - drop marker should land in ch.
 	m.notifyDrop(sub)
 	assert.Equal(t, uint64(1), m.DroppedEvents(), "DroppedEvents should be 1 after first drop")
 
@@ -1929,7 +1929,7 @@ func TestSlowSubscriberDropCounter_Direct(t *testing.T) {
 	// Fill the channel to capacity so the next notifyDrop cannot enqueue.
 	ch <- Event{Type: "log"}
 
-	// notifyDrop with a full channel — counter still increments, no panic.
+	// notifyDrop with a full channel - counter still increments, no panic.
 	m.notifyDrop(sub)
 	assert.Equal(t, uint64(2), m.DroppedEvents(), "DroppedEvents should be 2 after second drop")
 
@@ -1971,7 +1971,7 @@ func TestSlowSubscriberDropCounter_Pump(t *testing.T) {
 	m := NewManager(WithBackendConfig(srv.URL, "test-key"))
 	defer stopThenClose(m, cardID, srv)
 
-	// Subscribe before Start — channel has subscriberChanBuf (256) slots.
+	// Subscribe before Start - channel has subscriberChanBuf (256) slots.
 	ch, unsub := m.Subscribe(cardID)
 	defer unsub()
 
@@ -1983,39 +1983,29 @@ func TestSlowSubscriberDropCounter_Pump(t *testing.T) {
 		return m.DroppedEvents() > 0
 	}, 5*time.Second, 5*time.Millisecond, "expected at least one fan-out drop")
 
-	// Drain one event from the channel to open a slot for a drop marker.
-	select {
-	case <-ch:
-	case <-time.After(time.Second):
-		t.Fatal("timed out draining first event")
-	}
-
-	// Give the pump a moment to enqueue a drop marker into the freed slot.
-	// Since the pump may have already finished processing by now, we also
-	// directly call notifyDrop to guarantee a marker arrives.
-	m.mu.Lock()
-
-	var sub *subscriber
-	if sess, ok := m.activeSessions[cardID]; ok && len(sess.subs) > 0 {
-		sub = sess.subs[0]
-	}
-	m.mu.Unlock()
-
-	if sub != nil {
-		m.notifyDrop(sub)
-	}
-
-	// DroppedEvents counter must be >= 1 (accumulated from the pump and our call).
+	// DroppedEvents counter must be >= 1 (established by the Eventually above).
 	dropped := m.DroppedEvents()
 	assert.GreaterOrEqual(t, dropped, uint64(1), "DroppedEvents should be >= 1")
 
-	// Drain channel events looking for a drop marker.
+	// Drop markers are best-effort: notifyDrop enqueues one only when the
+	// subscriber channel has a free slot, and while the pump is still
+	// streaming, a slot freed by a receive below can be re-filled by a live
+	// event before a marker send. Re-notify before every receive so that once
+	// the stream is exhausted, nothing competes for the freed slot and a
+	// marker lands deterministically.
 	var gotDropMarker bool
 
-	deadline := time.After(time.Second)
+	deadline := time.After(5 * time.Second)
 
 drainLoop:
 	for {
+		m.mu.Lock()
+
+		if sess, ok := m.activeSessions[cardID]; ok && len(sess.subs) > 0 {
+			m.notifyDrop(sess.subs[0])
+		}
+		m.mu.Unlock()
+
 		select {
 		case evt, ok := <-ch:
 			if !ok {
@@ -2241,7 +2231,7 @@ func TestClose_DrainsActiveSessions(t *testing.T) {
 func TestClose_DrainsOrphanPendingSubs(t *testing.T) {
 	const cardID = "ORPHAN-1"
 
-	// No upstream server is wired — Subscribe against a never-started session
+	// No upstream server is wired - Subscribe against a never-started session
 	// parks the subscriber in m.pendingSubs.
 	m := NewManager()
 
@@ -2257,7 +2247,7 @@ func TestClose_DrainsOrphanPendingSubs(t *testing.T) {
 	require.Equal(t, 1, pendingCount, "subscriber must be parked in pendingSubs")
 	require.False(t, hasSession, "no active session should exist")
 
-	// Close with a bounded context — the test fails if the drain hangs.
+	// Close with a bounded context - the test fails if the drain hangs.
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -2302,7 +2292,7 @@ loop:
 }
 
 // TestSignSSERequestBindsPath asserts signSSERequest treats the path
-// argument as load-bearing — different paths yield different sigs.
+// argument as load-bearing - different paths yield different sigs.
 // Regression-detects the simpler half of the bug class.
 func TestSignSSERequestBindsPath(t *testing.T) {
 	pathOnly, _ := signSSERequest("k", "/logs")
@@ -2313,8 +2303,8 @@ func TestSignSSERequestBindsPath(t *testing.T) {
 }
 
 // TestSSESignatureBindsFullURI is an integration-style regression test that
-// signSSERequest signs over req.URL.RequestURI() — the full URI including the
-// query string — at both project and per-card call sites. Dropping the query
+// signSSERequest signs over req.URL.RequestURI() - the full URI including the
+// query string - at both project and per-card call sites. Dropping the query
 // string from the signed payload causes the HMAC verification on the server
 // side to fail; this test fails closed in that case.
 func TestSSESignatureBindsFullURI(t *testing.T) {
@@ -2380,7 +2370,7 @@ func TestSSESignatureBindsFullURI(t *testing.T) {
 	uri, _ := captured.Load().(string)
 	assert.Contains(t, uri, "/logs", "URI should hit /logs endpoint")
 	assert.Contains(t, uri, "project=harness-project",
-		"URI must carry the project query — that's the bytes the signature binds")
+		"URI must carry the project query - that's the bytes the signature binds")
 }
 
 // TestParseSSEPayloadReadsWireTimestamp verifies that parseSSEPayload honors
@@ -2402,7 +2392,7 @@ func TestParseSSEPayloadReadsWireTimestamp(t *testing.T) {
 	assert.Equal(t, "CM-001", cardID)
 	assert.Equal(t, "text", evt.Type)
 	assert.Equal(t, []byte("hello"), evt.Payload)
-	// The wire timestamp must be honored — not replaced with time.Now().
+	// The wire timestamp must be honored - not replaced with time.Now().
 	assert.True(t, evt.Timestamp.Equal(ts), "got %v want %v", evt.Timestamp, ts)
 }
 
@@ -2440,8 +2430,8 @@ func TestParseSSEPayloadCarriesAgent(t *testing.T) {
 // the same (method, uri, empty-body, timestamp) tuple through both
 // signSSERequest and protocol.SignPayloadWithTimestamp and verifies the
 // resulting signatures are byte-identical. If signSSERequest ever stops
-// delegating to the protocol module — different algorithm, different
-// newline/separator, body-not-empty bug — backend-side HMAC verification
+// delegating to the protocol module - different algorithm, different
+// newline/separator, body-not-empty bug - backend-side HMAC verification
 // will fail at runtime; this test catches that at compile-and-test time
 // instead. The signature recomputation reuses signSSERequest's own
 // timestamp, so it cannot catch granularity drift by itself; the explicit
@@ -2467,7 +2457,7 @@ func TestSignSSERequestMatchesProtocolSigner(t *testing.T) {
 				"signSSERequest must emit sha256= prefix")
 
 			// Timestamp granularity: the wire contract stamps with
-			// time.Now().Unix() — a seconds-scale Unix value. A wrapper
+			// time.Now().Unix() - a seconds-scale Unix value. A wrapper
 			// emitting milliseconds (or nanoseconds) would still self-match
 			// the recomputation below, so pin the scale explicitly.
 			// 1.7e9 ≈ 2023-11, 4.1e9 ≈ 2099-12; millisecond timestamps are
@@ -2477,7 +2467,7 @@ func TestSignSSERequestMatchesProtocolSigner(t *testing.T) {
 			assert.Greater(t, parsed, int64(1_700_000_000),
 				"timestamp must be a seconds-scale Unix value (too small)")
 			assert.Less(t, parsed, int64(4_100_000_000),
-				"timestamp must be a seconds-scale Unix value — a larger value "+
+				"timestamp must be a seconds-scale Unix value - a larger value "+
 					"means millisecond/nanosecond granularity, which the backend rejects")
 
 			// The core invariant: given identical (key, method, uri, ts,
@@ -2489,7 +2479,7 @@ func TestSignSSERequestMatchesProtocolSigner(t *testing.T) {
 			assert.Equal(t, want, sig,
 				"signSSERequest and protocol.SignPayloadWithTimestamp have drifted; "+
 					"sessionlog's SSE signing is no longer byte-compatible with the "+
-					"canonical protocol signer — backend-side HMAC verification "+
+					"canonical protocol signer - backend-side HMAC verification "+
 					"will reject sessionlog's SSE requests in production")
 		})
 	}

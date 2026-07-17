@@ -34,7 +34,7 @@ func WorkerCredentialsToken(chatAPIKey, sessionID string) string {
 // UUIDs/ULIDs and never contain a dot), recomputes the expected token from
 // chatAPIKey + the extracted session id, and constant-time-compares it
 // against the presented token via hmac.Equal. Returns the session id and
-// ok=true only when the whole reconstructed token matches byte-for-byte —
+// ok=true only when the whole reconstructed token matches byte-for-byte -
 // a tampered mac OR a session id swapped in from a different token both fail
 // this comparison, since the mac only matches the session id it was minted
 // for.
@@ -64,7 +64,7 @@ func workerCredentialsMAC(chatAPIKey, sessionID string) string {
 // chatSessionLiveness is the narrow slice of *chat.Manager the worker
 // credentials endpoint needs: whether a session currently owns a live
 // worker container. Defined here, in the consuming package, per project
-// convention (interfaces belong where they're used) — *chat.Manager
+// convention (interfaces belong where they're used) - *chat.Manager
 // satisfies it via SessionLiveness without either package importing the
 // other's handler types.
 type chatSessionLiveness interface {
@@ -86,7 +86,7 @@ type workerGitCredentialsResponse struct {
 // (ChatStartPayload.GitCredentialsToken), independent of auth.mode. See
 // docs/api-reference.md § Worker Endpoints for the full contract.
 type workerCredentialsHandlers struct {
-	// chatAPIKey is the resolved chat backend's api_key — the same secret
+	// chatAPIKey is the resolved chat backend's api_key - the same secret
 	// WorkerCredentialsToken minted the bearer with. NewRouter only registers
 	// this handler when the key is non-empty.
 	chatAPIKey string
@@ -98,7 +98,7 @@ type workerCredentialsHandlers struct {
 
 	// listProjects enumerates every project so the handler can match the
 	// request's (host, path) against each project's effective repo(s). nil
-	// when no card service is configured — resolution then always falls
+	// when no card service is configured - resolution then always falls
 	// through to the instance provider (no projects to match against).
 	listProjects func(ctx context.Context) ([]board.ProjectConfig, error)
 
@@ -109,7 +109,7 @@ type workerCredentialsHandlers struct {
 	providerForProject func(ctx context.Context, project string) (githubauth.TokenGenerator, string, error)
 
 	// instanceProvider mints the instance-wide credential used when no
-	// project's repo matches the request — the correct credential for
+	// project's repo matches the request - the correct credential for
 	// non-project repos, not a degraded fallback.
 	instanceProvider githubauth.TokenGenerator
 }
@@ -136,14 +136,14 @@ func (h *workerCredentialsHandlers) getGitCredentials(w http.ResponseWriter, r *
 	}
 
 	// host is canonicalized (case, trailing FQDN dot, ":port") so it compares
-	// bare against a project's parsed repo host — see canonicalGitHost. Both
+	// bare against a project's parsed repo host - see canonicalGitHost. Both
 	// sides of that comparison must go through the same normalization, or a
 	// caller could "unmatch" a project by respelling its host and fall
 	// through to the instance provider.
 	host := canonicalGitHost(r.URL.Query().Get("host"))
 	path := normalizeWorkerRepoPath(r.URL.Query().Get("path"))
 
-	// An empty (host, path) pair means no repo context — the caller gets the
+	// An empty (host, path) pair means no repo context - the caller gets the
 	// instance credential, the same credential any unmatched repo resolves
 	// to (see resolveProvider). This covers the chat worker's gh wrapper when
 	// cwd has no origin remote (gh repo create, gh api /user): before this
@@ -208,10 +208,10 @@ func (h *workerCredentialsHandlers) getGitCredentials(w http.ResponseWriter, r *
 // resolveProvider matches (host, path) against every project's effective
 // repo(s) and resolves the corresponding credential provider. A match routes
 // through providerForProject, which is itself fail-closed on a broken
-// binding — this function never substitutes the instance provider for a
+// binding - this function never substitutes the instance provider for a
 // matched project's error. No match returns instanceProvider directly: the
 // correct credential for a non-project repo, not a fallback. An empty
-// (host, path) pair — no repo context — short-circuits to instanceProvider
+// (host, path) pair - no repo context - short-circuits to instanceProvider
 // before any project matching, so a repo-less caller's credential does not
 // depend on listProjects succeeding.
 func (h *workerCredentialsHandlers) resolveProvider(ctx context.Context, host, path string) (githubauth.TokenGenerator, error) {
@@ -299,10 +299,10 @@ func normalizeWorkerRepoPath(path string) string {
 // git-equivalent host spellings, so both sides of a host comparison can be
 // compared byte-for-byte instead of just case-insensitively: trims
 // surrounding whitespace, lowercases, strips a single trailing "." (FQDN dot
-// notation), and strips a ":port" suffix — including a bracketed IPv6
+// notation), and strips a ":port" suffix - including a bracketed IPv6
 // literal's port, e.g. "[::1]:443" -> "::1". A bare (unbracketed) host with
 // more than one colon is left untouched: that shape is an IPv6 literal, never
-// host:port, and must not be truncated at the last colon. Takes no scheme —
+// host:port, and must not be truncated at the last colon. Takes no scheme -
 // the input is always a bare host, never a URL.
 func canonicalGitHost(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
@@ -312,7 +312,7 @@ func canonicalGitHost(s string) string {
 			return strings.TrimSuffix(s[1:end], ".")
 		}
 
-		return strings.TrimSuffix(s, ".") // malformed bracket — nothing better to do
+		return strings.TrimSuffix(s, ".") // malformed bracket - nothing better to do
 	}
 
 	if strings.Count(s, ":") == 1 {
@@ -328,7 +328,7 @@ func canonicalGitHost(s string) string {
 // git@host:owner/repo(.git) form. The returned host is already canonicalized
 // via canonicalGitHost, so a trailing-dot or odd-cased repo URL still matches
 // a plainly-spelled request host. Returns ok=false for empty or unparseable
-// input — callers treat that as "skip this repo", not an error.
+// input - callers treat that as "skip this repo", not an error.
 func workerRepoHostPath(rawURL string) (host, path string, ok bool) {
 	rawURL = strings.TrimSpace(rawURL)
 	if rawURL == "" {
@@ -364,8 +364,8 @@ func workerRepoHostPath(rawURL string) (host, path string, ok bool) {
 	return canonicalGitHost(u.Hostname()), p, true
 }
 
-// workerRepoMatches reports whether (host, path) — host already
-// canonicalized and path already normalized by the caller — match repoURL.
+// workerRepoMatches reports whether (host, path) - host already
+// canonicalized and path already normalized by the caller - match repoURL.
 // Host is compared bare (both sides went through canonicalGitHost); path is
 // compared case-insensitively. An unparseable repoURL never matches.
 func workerRepoMatches(host, path, repoURL string) bool {

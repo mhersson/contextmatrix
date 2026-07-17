@@ -77,7 +77,7 @@ describe('ChatModelPicker', () => {
     );
     // Renders even though the server `models` list is empty (regression guard
     // for the old `models.length > 0` visibility gate). The fallback input has
-    // an implicit role of `textbox` (not `combobox`) — query by label so both
+    // an implicit role of `textbox` (not `combobox`) - query by label so both
     // branches (combobox vs. plain input) resolve the same way.
     const input = screen.getByLabelText('Model');
     expect(input.tagName).toBe('INPUT');

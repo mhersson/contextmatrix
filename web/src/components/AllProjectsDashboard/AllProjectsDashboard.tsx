@@ -32,7 +32,7 @@ export function AllProjectsDashboard({ onNewProject }: AllProjectsDashboardProps
   const { subscribe } = useSSEBus();
   const { showToast } = useToast();
 
-  // UX honesty, not a security boundary — the API 403s a non-admin project
+  // UX honesty, not a security boundary - the API 403s a non-admin project
   // create anyway (multi mode is admin-gated). Mirrors Sidebar's gating.
   const auth = useOptionalAuth();
   const canCreateProject = !(auth?.mode === 'multi' && !auth?.user?.is_admin);

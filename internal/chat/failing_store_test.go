@@ -12,7 +12,7 @@ import (
 
 // failingStore wraps a real chat.Store and can inject a one-shot error on
 // SetRehydrationActive. All other methods delegate to the inner store via
-// embedding — only methods that inject faults need explicit overrides.
+// embedding - only methods that inject faults need explicit overrides.
 // Used only in tests.
 type failingStore struct {
 	chat.Store
@@ -65,7 +65,7 @@ func (ts *trackingStore) writtenStatuses() []chat.Status {
 // so the natural race window between the two writes is tight enough to
 // hide a store/cache ordering bug under -race -count. The variable
 // sleeps scatter cache writes out of the order their preceding store
-// writes committed in — the schedule that exposes the regression.
+// writes committed in - the schedule that exposes the regression.
 type yieldingStore struct {
 	chat.Store
 	rng atomic.Int64
@@ -76,7 +76,7 @@ func (y *yieldingStore) SetRehydrationActive(ctx context.Context, sessionID stri
 	// xorshift-style scramble of an atomic counter gives each call a
 	// different sleep duration without pulling in math/rand and without
 	// introducing a shared mutex. Range is [0, ~2ms). Single-millisecond
-	// jitter is what reliably surfaces the bug — narrower windows are
+	// jitter is what reliably surfaces the bug - narrower windows are
 	// hidden by SQLite serialisation and the race detector's coarser
 	// scheduling.
 	n := y.rng.Add(1)
@@ -148,7 +148,7 @@ func (g *sessionGate) waiting(sessionID string) bool {
 }
 
 // release closes the gate channel for sessionID, unblocking the parked call.
-// Safe to call before any goroutine has reached the gate — the close happens
+// Safe to call before any goroutine has reached the gate - the close happens
 // before the channel receive.
 func (g *sessionGate) release(sessionID string) {
 	g.mu.Lock()

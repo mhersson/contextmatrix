@@ -114,7 +114,7 @@ export function buildCardPatch(edited: Card, original: Card): PatchCardInput {
   if (!skillsEqual(edited.skills, original.skills)) {
     const next = edited.skills;
     if (next === null || next === undefined) {
-      // Explicit clear via the sentinel — pure JSON cannot distinguish
+      // Explicit clear via the sentinel - pure JSON cannot distinguish
       // absent from null, so the backend needs this flag to know the
       // user actively chose "use project default" rather than just
       // omitting the field.
@@ -150,7 +150,7 @@ export function formatRelativeTime(dateStr: string): string {
 }
 
 /**
- * True when the card is "owned" by a worker or an agent claim — i.e. humans
+ * True when the card is "owned" by a worker or an agent claim - i.e. humans
  * should not perform free-form state transitions or edit metadata that would
  * conflict with the agent's in-flight work.
  *

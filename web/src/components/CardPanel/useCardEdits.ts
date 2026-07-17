@@ -68,7 +68,7 @@ export function useCardEdits(
       } catch {
         // Revert only the two fields we optimistically forced to `true`. Use
         // a functional update and check that `curr` still holds the optimistic
-        // values before reverting — a concurrent user toggle between the
+        // values before reverting - a concurrent user toggle between the
         // optimistic set and the catch would otherwise be silently overwritten.
         setEditedCard((curr) => ({
           ...curr,

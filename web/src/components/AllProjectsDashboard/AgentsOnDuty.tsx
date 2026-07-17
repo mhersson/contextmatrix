@@ -174,7 +174,7 @@ export function AgentsOnDuty({
       >
         <FooterCell
           label="Median heartbeat"
-          value={median !== null ? compactSeconds(median) : '—'}
+          value={median !== null ? compactSeconds(median) : ' - '}
         />
         <FooterCell label="Oldest claim" value={oldest} />
         <FooterCell

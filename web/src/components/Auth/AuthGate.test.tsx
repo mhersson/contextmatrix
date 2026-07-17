@@ -39,7 +39,7 @@ function renderGate(path = '/') {
 beforeEach(() => vi.resetAllMocks());
 
 describe('AuthGate', () => {
-  it('none mode renders the app directly — the none-mode invariant', async () => {
+  it('none mode renders the app directly - the none-mode invariant', async () => {
     mocks.getAppConfig.mockResolvedValue({ theme: 'everforest', version: 'x', auth_mode: 'none' });
 
     renderGate();
@@ -49,14 +49,14 @@ describe('AuthGate', () => {
     expect(screen.queryByText(/sign in/i)).not.toBeInTheDocument();
   });
 
-  it('none mode + SSE CLOSED dispatch keeps the app rendered — no login bounce', async () => {
+  it('none mode + SSE CLOSED dispatch keeps the app rendered - no login bounce', async () => {
     mocks.getAppConfig.mockResolvedValue({ theme: 'everforest', version: 'x', auth_mode: 'none' });
 
     renderGate();
     await waitFor(() => expect(screen.getByText('THE APP')).toBeInTheDocument());
 
     // What useSSEBus dispatches when the server closes the stream for good
-    // (readyState CLOSED) — in none mode e.g. a server restart, never a dead
+    // (readyState CLOSED) - in none mode e.g. a server restart, never a dead
     // session. The provider flips its internal status, but the gate only
     // bounces to the login page in multi mode.
     act(() => {

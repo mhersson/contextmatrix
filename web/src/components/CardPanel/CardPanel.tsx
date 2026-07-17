@@ -30,7 +30,7 @@ interface CardPanelProps {
 }
 
 /**
- * Bifold card detail panel — full-width header row over a two-column body
+ * Bifold card detail panel - full-width header row over a two-column body
  * (left: labels + description, right: tabbed rail). The rail can be expanded
  * to widen the whole drawer and reshape the grid to 40/60 so the plan and
  * the rail can sit side-by-side.
@@ -77,8 +77,8 @@ export function CardPanel(props: CardPanelProps) {
 
   const isMobile = useMediaQuery('(max-width: 768px)');
   // Chat is "live" (transcript streaming, tab shown with a pulse) whenever a
-  // worker session is running — HITL or autonomous. Mirrors the
-  // isCardChatLive predicate in ProjectShell.tsx — keep both in sync if the
+  // worker session is running - HITL or autonomous. Mirrors the
+  // isCardChatLive predicate in ProjectShell.tsx - keep both in sync if the
   // liveness rule changes. Only a HITL session is *interactive*: it takes the
   // compose row, grabs the default tab, and auto-expands the rail. Autonomous
   // runs (plain or mob session) keep the tab available but read-only and unfocused.
@@ -101,7 +101,7 @@ export function CardPanel(props: CardPanelProps) {
   const handleClaim = useCallback(async () => {
     // currentAgentId is the unified identity (session-derived in multi mode,
     // localStorage id in none mode). Null only while logged out behind the
-    // gate — unreachable in practice; the guard is just type narrowing.
+    // gate - unreachable in practice; the guard is just type narrowing.
     if (!currentAgentId) return;
     await onClaim(currentAgentId);
   }, [currentAgentId, onClaim]);
@@ -163,7 +163,7 @@ export function CardPanel(props: CardPanelProps) {
 
   // Editable surfaces lock under two predicates with different remediations.
   // Worker-attached is automatic and clears when the worker releases.
-  // State-driven asks the user to move the card back to `todo` — the only
+  // State-driven asks the user to move the card back to `todo` - the only
   // state that can re-run. Both feed the left column (Labels) and the
   // Automation tab (checkbox rail), so compute once here.
   const isTodo = card.state === 'todo';

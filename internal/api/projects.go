@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 
 	"github.com/mhersson/contextmatrix/internal/board"
@@ -51,7 +50,7 @@ type remoteExecutionUpdate struct {
 type projectHandlers struct {
 	svc        *service.CardService
 	taskSkills *taskSkillsLister
-	// authEnabled mirrors NewRouter's cfg.AuthService != nil signal — the
+	// authEnabled mirrors NewRouter's cfg.AuthService != nil signal - the
 	// existing multi-vs-none-mode distinction, not a new one. When false,
 	// github_credential bindings are rejected outright (fail-closed).
 	authEnabled bool
@@ -138,9 +137,7 @@ func (h *projectHandlers) createProject(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var req createProjectRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid request body", sanitizeErrorDetails(err))
-
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 
@@ -191,9 +188,7 @@ func (h *projectHandlers) updateProject(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var req updateProjectRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid request body", sanitizeErrorDetails(err))
-
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 
@@ -217,7 +212,7 @@ func (h *projectHandlers) updateProject(w http.ResponseWriter, r *http.Request) 
 
 	// Validate github_credential: reference-only, must resolve within the
 	// instance credential pool in multi mode. In none mode a real binding is
-	// rejected outright rather than silently ignored — a named-but-broken
+	// rejected outright rather than silently ignored - a named-but-broken
 	// credential binding must never quietly fall back to the instance
 	// credential.
 	if req.GitHubCredential != nil && *req.GitHubCredential != "" {
@@ -298,9 +293,7 @@ func (h *projectHandlers) recalculateCosts(w http.ResponseWriter, r *http.Reques
 	}
 
 	var req recalculateCostsRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid request body", sanitizeErrorDetails(err))
-
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 

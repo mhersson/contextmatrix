@@ -50,7 +50,7 @@ func newTestChatManager(t *testing.T) (*chat.Manager, *chatTestDeps) {
 
 // chatStubBackend is the minimal Backend stub needed for chat manager tests
 // in the mcp package. It satisfies the chat.Backend interface without any
-// real behaviour — we never actually start containers in these tests.
+// real behaviour - we never actually start containers in these tests.
 type chatStubBackend struct{}
 
 func (r *chatStubBackend) StartChat(_ context.Context, _ chat.StartChatOpts) (string, error) {
@@ -113,7 +113,7 @@ func TestChatRehydrationCompleteTool_AlreadyInactive(t *testing.T) {
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Project: "p", CreatedBy: "human:t"})
 	require.NoError(t, err)
 
-	// rehydration_active is false by default — call should be a no-op success.
+	// rehydration_active is false by default - call should be a no-op success.
 	tool := buildChatRehydrationCompleteTool(mgr)
 	_, out, err := tool(ctx, nil, chatRehydrationCompleteInput{
 		SessionID: sess.ID,

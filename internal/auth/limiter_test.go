@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// Note: internal (package auth) test — the fake clock field is unexported.
+// Note: internal (package auth) test - the fake clock field is unexported.
 
 func newTestLimiter(start time.Time) (*Limiter, *time.Time) {
 	clock := start

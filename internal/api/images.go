@@ -28,7 +28,7 @@ const imageUploadEnvelopeBytes = images.MaxUploadBytes + multipartEnvelopeHeadro
 const multipartInMemoryBytes = 1 * 1024 * 1024
 
 // imageIDPattern is the canonical content-hash ID shape. Anything else is
-// rejected at handler entry — keeping malformed user-controlled path segments
+// rejected at handler entry - keeping malformed user-controlled path segments
 // out of logs and SQL. The pattern fragment is owned by the images package
 // so changing the ID shape is a one-line edit there.
 var imageIDPattern = regexp.MustCompile(`^` + images.IDPatternFragment + `$`)

@@ -102,7 +102,7 @@ describe('Sidebar', () => {
 
     it('does not render overlay backdrop when mobileOpen is false', () => {
       renderSidebar({ mobileOpen: false });
-      // The backdrop has aria-hidden="true" and no role — check it's absent
+      // The backdrop has aria-hidden="true" and no role - check it's absent
       const backdrop = document.querySelector('[aria-hidden="true"]');
       expect(backdrop).toBeNull();
     });

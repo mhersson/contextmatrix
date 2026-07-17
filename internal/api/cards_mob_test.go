@@ -127,7 +127,7 @@ func TestPatchCardMob_ValidationMatrix(t *testing.T) {
 
 	t.Run("execute phase accepted at write time", func(t *testing.T) {
 		// The server-side execute_checkpoints flag gates the TRIGGER, not the
-		// card write — flipping the flag later must not require a card edit.
+		// card write - flipping the flag later must not require a card edit.
 		card := newCard(t)
 
 		resp := patchAs(t, card.ID, `{"mob_participants":2,"mob_phases":["execute"]}`, "")
@@ -260,7 +260,7 @@ func TestUpdateCardMob_PutSemantics(t *testing.T) {
 
 	t.Run("agent clearing mob via PUT omission rejected 403", func(t *testing.T) {
 		// PUT is full-replace: an agent body that omits the fields would
-		// clear them — the guard compares against the existing card.
+		// clear them - the guard compares against the existing card.
 		resp := putAs(t, `{`+base+`}`, "agent-1")
 		defer closeBody(t, resp.Body)
 

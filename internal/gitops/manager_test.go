@@ -123,7 +123,7 @@ func TestCommitFile_EmptyDiffReturnsNil(t *testing.T) {
 	err = mgr.CommitFile(context.Background(), file, "no-op duplicate")
 	require.NoError(t, err)
 
-	// The HEAD commit should still be the original — no extra commit
+	// The HEAD commit should still be the original - no extra commit
 	// was created.
 	last, err := mgr.GetLastCommitMessage()
 	require.NoError(t, err)
@@ -245,7 +245,7 @@ func TestPushPull_BareRemote(t *testing.T) {
 	err = mgr.AddRemote(context.Background(), "origin", "file://"+bareDir)
 	require.NoError(t, err)
 
-	// Push to the bare remote — should succeed.
+	// Push to the bare remote - should succeed.
 	err = mgr.Push(ctx)
 	require.NoError(t, err, "push to local bare remote should succeed")
 
@@ -268,7 +268,7 @@ func TestPushPull_BareRemote(t *testing.T) {
 	err = cloneMgr.Push(ctx)
 	require.NoError(t, err)
 
-	// Pull (rebase) in the original working repo — should succeed and bring in world.txt.
+	// Pull (rebase) in the original working repo - should succeed and bring in world.txt.
 	err = mgr.Pull(ctx)
 	require.NoError(t, err, "pull --rebase from local bare remote should succeed")
 
@@ -434,7 +434,7 @@ func TestPullFastForward_NonFastForwardReturnsError(t *testing.T) {
 	require.NoError(t, cloneMgr.CommitFile(ctx, "remote.txt", "remote-side commit"))
 
 	// Force-push so the remote head is now a different commit than what the
-	// original has locally — a true divergence.
+	// original has locally - a true divergence.
 	cmd := exec.Command("git", "push", "--force", "origin", "HEAD")
 	cmd.Dir = cloneDir
 	require.NoError(t, cmd.Run())
@@ -846,7 +846,7 @@ func TestCommitFilesShell_NoGlobalGitIdentity(t *testing.T) {
 
 	// Sterile environments (worker containers, CI) have no global git
 	// config, so the CLI commit cannot fall back to a configured committer
-	// identity — the -c flags on the commit invocation must supply it.
+	// identity - the -c flags on the commit invocation must supply it.
 	// Neutralize the host's config files to reproduce that environment.
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 	t.Setenv("GIT_CONFIG_SYSTEM", os.DevNull)
@@ -1039,7 +1039,7 @@ func TestNewManager_ExistingRepo_IgnoresCloneURL(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "file.txt"), []byte("local"), 0o644))
 	require.NoError(t, mgr.CommitFile(context.Background(), "file.txt", "local commit"))
 
-	// Re-open with a clone URL — should open existing, not clone
+	// Re-open with a clone URL - should open existing, not clone
 	mgr2, err := NewManager(tmpDir, "git@example.com:user/repo.git", "test", staticTestProvider(t))
 	require.NoError(t, err)
 
@@ -1056,7 +1056,7 @@ func TestNewManager_CloneURL_AddsRemoteToExistingRepo(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, mgr.HasRemote())
 
-	// Re-open with a clone URL — should add origin remote
+	// Re-open with a clone URL - should add origin remote
 	mgr2, err := NewManager(tmpDir, "git@example.com:user/boards.git", "test", staticTestProvider(t))
 	require.NoError(t, err)
 	assert.True(t, mgr2.HasRemote())
@@ -1090,7 +1090,7 @@ func TestAuthEnvFromProvider_PATProvider(t *testing.T) {
 }
 
 // TestAuthEnvFromProvider_TokenNotInArgs verifies that the PAT token never
-// appears in git command arguments — it must only travel via environment.
+// appears in git command arguments - it must only travel via environment.
 func TestAuthEnvFromProvider_TokenNotInArgs(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git binary not found")
@@ -1156,7 +1156,7 @@ func TestCommitFile_ObservesGitSyncDuration(t *testing.T) {
 
 	before := histSampleCount(t, metrics.GitSyncDuration)
 
-	// Create and commit a file — this must trigger an observation.
+	// Create and commit a file - this must trigger an observation.
 	err = os.WriteFile(filepath.Join(tmpDir, "metric-test.txt"), []byte("data"), 0o644)
 	require.NoError(t, err)
 	err = mgr.CommitFile(context.Background(), "metric-test.txt", "metric test commit")
@@ -1185,10 +1185,10 @@ func TestCommitFile_NonexistentFile(t *testing.T) {
 // during staging and commit; chmod 0500 on .git makes those writes fail.
 //
 // The test skips on platforms/users where chmod has no effect (root, some CI
-// sandboxes) — detected by attempting to write to .git after chmod.
+// sandboxes) - detected by attempting to write to .git after chmod.
 func TestCommitFile_ReadOnlyRepo(t *testing.T) {
 	if os.Geteuid() == 0 {
-		t.Skip("chmod does not restrict root — skipping read-only repo test")
+		t.Skip("chmod does not restrict root - skipping read-only repo test")
 	}
 
 	tmpDir := t.TempDir()
@@ -1209,12 +1209,12 @@ func TestCommitFile_ReadOnlyRepo(t *testing.T) {
 	})
 
 	// Probe: verify the chmod is actually enforced. If we can still create a
-	// file inside .git, the test cannot exercise the failure path — skip.
+	// file inside .git, the test cannot exercise the failure path - skip.
 	probe := filepath.Join(gitDir, "rw-probe")
 	if err := os.WriteFile(probe, []byte("x"), 0o644); err == nil {
 		_ = os.Remove(probe)
 
-		t.Skip("chmod 0500 on .git was not enforced — skipping")
+		t.Skip("chmod 0500 on .git was not enforced - skipping")
 	}
 
 	err = mgr.CommitFile(context.Background(), "card.md", "[ctxmx] RO-001: test")
@@ -1225,7 +1225,7 @@ func TestCommitFile_ReadOnlyRepo(t *testing.T) {
 // (simulating a crashed/concurrent git process) causes CommitFile to fail
 // cleanly rather than silently corrupting state.
 //
-// Note: go-git does not itself respect .git/index.lock — it manages its own
+// Note: go-git does not itself respect .git/index.lock - it manages its own
 // locking.  However, the shell-based CommitFilesShell does respect it.  This
 // test therefore exercises both commit paths and asserts at least the shell
 // path fails; the go-git path may or may not fail depending on the internal
@@ -1242,7 +1242,7 @@ func TestCommitFile_IndexLocked(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "seed.md"), []byte("seed"), 0o644))
 	require.NoError(t, mgr.CommitFile(context.Background(), "seed.md", "[ctxmx] seed"))
 
-	// Create the index.lock sentinel — this is what git itself uses to
+	// Create the index.lock sentinel - this is what git itself uses to
 	// prevent concurrent index mutations.
 	lockPath := filepath.Join(tmpDir, ".git", "index.lock")
 	require.NoError(t, os.WriteFile(lockPath, []byte("pid 99999"), 0o644))
@@ -1266,7 +1266,7 @@ func TestCommitFile_IndexLocked(t *testing.T) {
 // remote fails with a clearly wrapped error rather than hanging or producing
 // a partial push. The test points the remote at a file:// URL under a
 // temp directory that we then rename, making the remote vanish after the
-// remote is configured — a reliable way to trigger "cannot access remote"
+// remote is configured - a reliable way to trigger "cannot access remote"
 // without requiring network access.
 func TestPush_RemoteUnreachable(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {

@@ -16,7 +16,7 @@ import (
 
 // maxAttachedImages caps how many image blocks a single tool response can
 // carry. Screenshot-heavy cards otherwise risk blowing the agent's context
-// window. The cap is intentionally low — agents needing more can fetch images
+// window. The cap is intentionally low - agents needing more can fetch images
 // individually via `GET /api/images/{id}`.
 const maxAttachedImages = 10
 
@@ -48,7 +48,7 @@ var mdImage = regexp.MustCompile(`!\[[^\]]*\]\(([^)]+)\)`)
 // group enforces the canonical ID shape produced by images.Store; the
 // pattern fragment is sourced from the images package so any future change
 // to the ID alphabet/length propagates here automatically. An optional query
-// string suffix (`?param=val`) is allowed and ignored — the query is stripped
+// string suffix (`?param=val`) is allowed and ignored - the query is stripped
 // before the ID is looked up.
 var cmImageURL = regexp.MustCompile(`^(?:https?://[^/]+)?/api/images/(` + images.IDPatternFragment + `)(\?[^)]*)?$`)
 
@@ -97,8 +97,8 @@ func extractCMImageIDs(body string) []string {
 // attachContext bundles the metadata that attachImagesToResult and
 // loadImageContent emit on truncation / fetch-failure logs. `Tool` is the
 // MCP tool name (e.g. "get_card"); `CardID` is the primary card whose body
-// produced the image refs. Both fields are server-side constants — they
-// never carry user input — so logging them verbatim is safe. Unexported
+// produced the image refs. Both fields are server-side constants - they
+// never carry user input - so logging them verbatim is safe. Unexported
 // because no caller outside this package needs to construct one.
 type attachContext struct {
 	Tool   string
@@ -111,7 +111,7 @@ type attachContext struct {
 // cm-server image referenced in `body`.
 //
 // When `include` is non-nil and false, no images are attached and the function
-// returns nil — the SDK's default auto-marshal of `output` then takes over.
+// returns nil - the SDK's default auto-marshal of `output` then takes over.
 // When no referenced images resolve, also returns nil for the same reason.
 //
 // Production callers pass byteCap == 0 to use defaultMaxAttachedImageBytes;
@@ -122,7 +122,7 @@ type attachContext struct {
 // SDK would auto-marshal for the same output (see TestAttachImagesPinsSDKShape,
 // which uses require.JSONEq). The SDK auto-path re-marshals through
 // map[string]any (alphabetical keys), so bytes may differ even when JSON
-// semantics match — drift in field names or values would still silently
+// semantics match - drift in field names or values would still silently
 // change the structured data an agent sees only on image-bearing cards.
 func attachImagesToResult(ctx context.Context, store images.Store, attach attachContext, output any, body string, include *bool, byteCap int) *mcp.CallToolResult {
 	if include != nil && !*include {
@@ -240,7 +240,7 @@ func loadImageContent(ctx context.Context, store images.Store, attach attachCont
 
 		if total+len(img.Data) > byteCap {
 			// `dropped_by_cap` counts images whose bytes were fetched but
-			// dropped because the cumulative byte budget was exhausted — this
+			// dropped because the cumulative byte budget was exhausted - this
 			// includes the current image at i (which broke the cap) plus any
 			// non-nil entries after it. ErrNotFound entries at later positions
 			// are nil here and logged separately during fetch above, so they

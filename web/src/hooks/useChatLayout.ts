@@ -99,7 +99,7 @@ function isValidSize(n: unknown): n is number {
 }
 
 function loadPersisted(): ChatLayoutState | null {
-  // Does not filter against availableChats — that list comes from
+  // Does not filter against availableChats - that list comes from
   // useChatSessions which loads async, so it's empty on the first render
   // after ChatPage remounts (returning to /chat from another route).
   // Filtering here would drop every persisted pane and the debounced save
@@ -149,7 +149,7 @@ function savePersisted(state: ChatLayoutState): void {
     };
     window.localStorage.setItem(PERSIST_KEY, JSON.stringify(payload));
   } catch {
-    // Storage disabled — non-fatal.
+    // Storage disabled - non-fatal.
   }
 }
 
@@ -250,7 +250,7 @@ export function useChatLayout(options: UseChatLayoutOptions): UseChatLayoutResul
   }, []);
 
   // Persist focused-pane chat id to last_chat_id. Tab title stays at the
-  // index.html default ("ContextMatrix") — match the board view.
+  // index.html default ("ContextMatrix") - match the board view.
   useEffect(() => {
     const focusedChat = state.focused ? state.panes[state.focused]?.chatId : null;
     if (focusedChat) {
@@ -341,7 +341,7 @@ export function useChatLayout(options: UseChatLayoutOptions): UseChatLayoutResul
       }
       const existing = SLOTS.find((sl) => s.panes[sl]?.chatId === chatId);
       if (existing && existing !== slot) {
-        // swap pane contents — the "swap" same-chat-twice policy
+        // swap pane contents - the "swap" same-chat-twice policy
         const targetChat = s.panes[slot]!.chatId;
         const panes: PaneSlots = {
           ...s.panes,
@@ -356,10 +356,10 @@ export function useChatLayout(options: UseChatLayoutOptions): UseChatLayoutResul
         });
       }
       if (existing && existing === slot) {
-        // dropped on itself — no-op aside from focus
+        // dropped on itself - no-op aside from focus
         return { ...s, focused: slot, lastFocusedAt: { ...s.lastFocusedAt, [slot]: Date.now() } };
       }
-      // chat not currently open elsewhere — replace target's contents
+      // chat not currently open elsewhere - replace target's contents
       return {
         ...s,
         panes: { ...s.panes, [slot]: { chatId } },
@@ -374,7 +374,7 @@ export function useChatLayout(options: UseChatLayoutOptions): UseChatLayoutResul
     setState((s) => {
       const fromPane = s.panes[fromSlot];
       const toPane = s.panes[toSlot];
-      // Unconditional swap — even if one side is null (source becomes empty,
+      // Unconditional swap - even if one side is null (source becomes empty,
       // target gets the chat). Normalize collapses any resulting empty slots.
       const panes: PaneSlots = {
         ...s.panes,

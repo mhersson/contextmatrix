@@ -2,7 +2,7 @@
 
 ## Agent Configuration
 
-- **Model:** claude-sonnet-4-6 — runs inline inside the create-plan
+- **Model:** claude-sonnet-4-6 - runs inline inside the create-plan
   orchestrator session.
 
 ---
@@ -10,7 +10,7 @@
 Run inline within the create-plan orchestrator session. Turn the card's
 stated intent into a fully-formed design through dialogue with the user,
 then update the card body with the agreed `## Design`. Do NOT transition
-the card. Do NOT invoke other skills. Do NOT spawn sub-agents — sub-agents
+the card. Do NOT invoke other skills. Do NOT spawn sub-agents - sub-agents
 have no chat channel back to the user. When done, control returns to
 create-plan.
 
@@ -45,8 +45,8 @@ Map stream-json `usage` frame fields to `report_usage` parameters:
 ## HARD-GATE
 
 If create-plan invoked you, the card has already been gated as
-creative work that warrants design discussion. Complete the process
-— present a design and get user approval before returning. Do not
+creative work that warrants design discussion. Complete the process -
+present a design and get user approval before returning. Do not
 bail out mid-flight because the card seems simple once you start
 reading it.
 
@@ -54,8 +54,8 @@ reading it.
 
 create-plan filters out non-creative cards (bugs, chores, refactors,
 dependency bumps, cards labelled `simple`) before invoking you. If
-you're running, the card needs design. Small creative work — a single
-function, a UI tweak, a config change — still benefits from a
+you're running, the card needs design. Small creative work - a single
+function, a UI tweak, a config change - still benefits from a
 confirmed design. The design can be short (a few sentences), but you
 MUST present it and get the user's confirmation before returning.
 
@@ -71,7 +71,7 @@ the existing design and ask:
 
 - **User picks "proceed straight to planning":** return immediately.
   Control passes to create-plan Phase 1.
-- **User wants to walk through:** do a focused review pass — any gaps,
+- **User wants to walk through:** do a focused review pass - any gaps,
   ambiguities, or new requirements? Update the body via `update_card`
   if anything changes, get user confirmation, then return.
 
@@ -81,26 +81,26 @@ If the body has no design section, proceed with the full process below.
 
 You MUST complete each of these in order:
 
-1. **Explore project context** — read files referenced in the card body,
+1. **Explore project context** - read files referenced in the card body,
    recent commits, and any other relevant code. Understand the current
    structure before proposing changes.
-2. **Ask clarifying questions** — one at a time, understand purpose,
+2. **Ask clarifying questions** - one at a time, understand purpose,
    constraints, success criteria.
-3. **Propose 2–3 approaches** — with trade-offs and your recommendation.
-4. **Present design** — in sections scaled to their complexity, get
+3. **Propose 2–3 approaches** - with trade-offs and your recommendation.
+4. **Present design** - in sections scaled to their complexity, get
    user approval after each section.
-5. **Update card body** — via `update_card`, add or replace a
+5. **Update card body** - via `update_card`, add or replace a
    `## Design` section with the agreed design.
-6. **Description self-review** — quick inline check for placeholders,
+6. **Description self-review** - quick inline check for placeholders,
    contradictions, ambiguity, scope (see below); fix and re-update.
-7. **User confirms updated body** — last gate before returning.
-8. **Return** — control passes back to create-plan Phase 1 Step 2 (Draft).
+7. **User confirms updated body** - last gate before returning.
+8. **Return** - control passes back to create-plan Phase 1 Step 2 (Draft).
 
 ## The Process
 
 **Understanding the idea:**
 
-- Read the card body first via `get_card` — that's the user's stated intent.
+- Read the card body first via `get_card` - that's the user's stated intent.
 - Check related files, project architecture docs, recent commits.
 - Before asking detailed questions, assess scope: if the card describes
   multiple independent subsystems (e.g., "build a feature with new API,
@@ -112,8 +112,8 @@ You MUST complete each of these in order:
   piece through the normal flow.
 - For appropriately-scoped cards, ask questions one at a time.
 - Ask in plain text. If there are distinct options, list them inline as a
-  short numbered list. The AskUserQuestion tool is not available — do not use it.
-- Only one question per message — if a topic needs more exploration, break
+  short numbered list. The AskUserQuestion tool is not available - do not use it.
+- Only one question per message - if a topic needs more exploration, break
   it into multiple questions.
 - Focus on understanding: purpose, constraints, success criteria.
 
@@ -142,8 +142,8 @@ You MUST complete each of these in order:
 - Can someone understand what a unit does without reading its internals?
   Can you change the internals without breaking consumers? If not, the
   boundaries need work.
-- Smaller, well-bounded units are also easier for an agent to work with
-  — agents reason better about code they can hold in context at once,
+- Smaller, well-bounded units are also easier for an agent to work with -
+  agents reason better about code they can hold in context at once,
   and edits are more reliable when files are focused.
 
 **Working in existing codebases:**
@@ -178,13 +178,13 @@ After updating the card, look at the new body with fresh eyes:
 4. **Ambiguity check:** Could any requirement be interpreted two
    different ways? If so, pick one and make it explicit.
 
-Fix any issues inline. No need to re-review — just fix and move on.
+Fix any issues inline. No need to re-review - just fix and move on.
 
 **User Confirmation:**
 
 After the self-review, ask the user to confirm the updated card body:
 
-> "Card description updated with the agreed design. Please confirm —
+> "Card description updated with the agreed design. Please confirm -
 >  any last changes before I hand back to create-plan to draft the
 >  subtasks?"
 
@@ -200,23 +200,23 @@ Do NOT transition the card.
 
 ## Key Principles
 
-- **One question at a time** — don't overwhelm with multiple questions.
-- **Plain-text questions** — ask as a normal message; list any options inline.
-- **YAGNI ruthlessly** — remove unnecessary features from all designs.
-- **Explore alternatives** — always propose 2–3 approaches before settling.
-- **Incremental validation** — present design, get approval before moving on.
-- **Be flexible** — go back and clarify when something doesn't make sense.
-- **The card is the spec** — never write the design to a separate file.
+- **One question at a time** - don't overwhelm with multiple questions.
+- **Plain-text questions** - ask as a normal message; list any options inline.
+- **YAGNI ruthlessly** - remove unnecessary features from all designs.
+- **Explore alternatives** - always propose 2–3 approaches before settling.
+- **Incremental validation** - present design, get approval before moving on.
+- **Be flexible** - go back and clarify when something doesn't make sense.
+- **The card is the spec** - never write the design to a separate file.
 
 ## Anti-Patterns
 
-- **"This card is too simple to need design"** — every card goes through
+- **"This card is too simple to need design"** - every card goes through
   this. The design can be one sentence for trivial work, but it must
   exist and the user must confirm it.
-- **"I'll just draft the plan and let create-plan figure it out"** —
+- **"I'll just draft the plan and let create-plan figure it out"** -
   that's exactly what Phase 0 exists to prevent. Brainstorm first.
-- **Spawning sub-agents** — you have no channel to the user from a
+- **Spawning sub-agents** - you have no channel to the user from a
   sub-agent. Run inline.
-- **Transitioning the card** — that's create-plan's responsibility.
-- **Invoking another skill** — return and let create-plan continue.
-- **Writing the design to a separate file** — the card body IS the spec.
+- **Transitioning the card** - that's create-plan's responsibility.
+- **Invoking another skill** - return and let create-plan continue.
+- **Writing the design to a separate file** - the card body IS the spec.

@@ -68,13 +68,13 @@ const (
 	LLMEndpointTypeOpenAI     = "openai"
 )
 
-// Backend name constants — the closed set of valid backends mapping keys.
+// Backend name constants - the closed set of valid backends mapping keys.
 const (
 	BackendNameAgent = "agent"
 	BackendNameChat  = "chat"
 )
 
-// Backend callback paths. The agent and chat repos hardcode these — they
+// Backend callback paths. The agent and chat repos hardcode these - they
 // must not change.
 const (
 	AgentCallbackPath = "/api/agent"
@@ -90,7 +90,7 @@ const (
 
 // Per-backend CONTEXTMATRIX_BACKEND_<NAME>_* env var suffixes.
 // applyAgentBackendEnv / applyChatBackendEnv read each one;
-// checkBackendEnvKeys allowlists the same sets — keep them in sync.
+// checkBackendEnvKeys allowlists the same sets - keep them in sync.
 var (
 	agentBackendEnvSuffixes = []string{
 		"_URL",
@@ -110,7 +110,7 @@ var (
 )
 
 // Backends declares the execution backends CM drives over the
-// contextmatrix-protocol webhook contract. Read once at startup —
+// contextmatrix-protocol webhook contract. Read once at startup -
 // changing backends requires a CM restart.
 type Backends struct {
 	Agent *AgentBackendConfig
@@ -177,7 +177,7 @@ type AgentBackendConfig struct {
 	URL     string `yaml:"url"`     // base URL, e.g. http://localhost:9090
 	APIKey  string `yaml:"api_key"` // shared HMAC secret for this backend
 	Enabled *bool  `yaml:"enabled"` // nil means enabled (omitting = active)
-	// ReconcileInterval — CM's sweep is the agent backend's only reconcile
+	// ReconcileInterval - CM's sweep is the agent backend's only reconcile
 	// mechanism; defaults to 60s when the entry is enabled.
 	ReconcileInterval string `yaml:"reconcile_interval"`
 	// DefaultModel is the default orchestrator model slug; per-card pins override it.
@@ -205,7 +205,7 @@ type ChatBackendConfig struct {
 	URL     string `yaml:"url"`
 	APIKey  string `yaml:"api_key"`
 	Enabled *bool  `yaml:"enabled"`
-	// DefaultModel — required when enabled (contextmatrix-chat has no
+	// DefaultModel - required when enabled (contextmatrix-chat has no
 	// server-side default; CM supplies it as CM_MODEL).
 	DefaultModel string `yaml:"default_model"`
 }
@@ -346,7 +346,7 @@ type BestOfNConfig struct {
 }
 
 // MobGuest is one operator-registered external A2A discussion participant.
-// Config-file-only by design — Token is a bearer secret and the env-override
+// Config-file-only by design - Token is a bearer secret and the env-override
 // mechanism is scalar-only, so guests have no CONTEXTMATRIX_* override.
 type MobGuest struct {
 	Name  string `yaml:"name"`
@@ -377,7 +377,7 @@ type MobConfig struct {
 	// card's "execute" phase dropped at trigger time with a warning.
 	ExecuteCheckpointsEnabled *bool `yaml:"execute_checkpoints_enabled"`
 	// CheckpointMinTier is the minimum subtask tier that gets an execute
-	// checkpoint: simple|moderate|complex|critical. Default "simple" —
+	// checkpoint: simple|moderate|complex|critical. Default "simple" -
 	// checkpoint everything until outcome data argues for a higher floor.
 	CheckpointMinTier string `yaml:"checkpoint_min_tier"`
 	// CheckpointRounds is the critique-round count for execute-checkpoint
@@ -398,7 +398,7 @@ func (m MobConfig) ExecuteCheckpoints() bool {
 // AuthConfig controls multi-user authentication.
 type AuthConfig struct {
 	// Mode is "multi" (default: login required, sessions, admin role) or
-	// "none" (single-user, no login — exactly the pre-multi-user behavior).
+	// "none" (single-user, no login - exactly the pre-multi-user behavior).
 	Mode string `yaml:"mode"`
 	// MasterKeyFile is the hex-encoded 32-byte key that encrypts credential
 	// secrets at rest. Auto-generated (0600) when absent.
@@ -451,7 +451,7 @@ type Config struct {
 	LLMEndpoint          LLMEndpointConfig    `yaml:"llm_endpoint"`
 	MCPAPIKey            string               `yaml:"mcp_api_key"`
 	// Backends declares the agent (task execution) and chat backend entries.
-	// The mapping's key set is closed — see Backends.UnmarshalYAML.
+	// The mapping's key set is closed - see Backends.UnmarshalYAML.
 	Backends      Backends      `yaml:"backends"`
 	GitHub        GitHubConfig  `yaml:"github"`
 	LogFormat     string        `yaml:"log_format"`      // "json" or "text", default "text"
@@ -470,7 +470,7 @@ func defaults() *Config {
 	return &Config{
 		Port: 8080,
 		Boards: BoardsConfig{
-			Dir:             "", // No default — must be configured
+			Dir:             "", // No default - must be configured
 			GitAutoCommit:   true,
 			GitAutoPush:     false,
 			GitAutoPull:     false,
@@ -557,7 +557,7 @@ func (c *Config) Validate() error {
 	if c.Boards.GitCloneOnEmpty && c.Boards.GitRemoteURL == "" {
 		return fmt.Errorf("boards.git_remote_url is required when boards.git_clone_on_empty is enabled")
 	}
-	// All git remote URLs must be HTTPS — SSH is not supported.
+	// All git remote URLs must be HTTPS - SSH is not supported.
 	if c.Boards.GitRemoteURL != "" && !strings.HasPrefix(c.Boards.GitRemoteURL, "https://") {
 		return fmt.Errorf("boards.git_remote_url must start with https:// (got %q)", c.Boards.GitRemoteURL)
 	}
@@ -604,7 +604,7 @@ func (c *Config) Validate() error {
 	// callers that bypass Load still get defaults applied.
 	//
 	// Unknown backend names, leftover runner entries, and stale per-entry
-	// fields are rejected earlier, during Load's YAML parse — see
+	// fields are rejected earlier, during Load's YAML parse - see
 	// Backends.UnmarshalYAML. Only enabled-entry field checks remain here;
 	// disabled entries are inert placeholders.
 	applyBackendDefaults(c)
@@ -635,7 +635,7 @@ func (c *Config) Validate() error {
 		}
 
 		// The dedicated chat backend (contextmatrix-chat) has no server-side
-		// default model — CM supplies it as CM_MODEL on every chat-start — so
+		// default model - CM supplies it as CM_MODEL on every chat-start - so
 		// default_model is mandatory when the entry is enabled.
 		if ch.DefaultModel == "" {
 			return fmt.Errorf("backends.chat.default_model is required when the chat backend " +
@@ -695,7 +695,7 @@ func (c *Config) Validate() error {
 	// Chat: applyChatDefaults turns zero values into safe defaults during
 	// Load. Run it again here so callers that bypass Load (tests, embedded
 	// uses) still get defaults applied; the function is idempotent. Then
-	// reject negatives — a negative IdleTTL would have the reaper end every
+	// reject negatives - a negative IdleTTL would have the reaper end every
 	// session immediately and a negative MaxConcurrent would reject every
 	// open.
 	applyChatDefaults(c)
@@ -937,7 +937,7 @@ func applyOpStoreDefaults(cfg *Config) {
 }
 
 // applyBestOfNDefaults sets BestOfN fields that are zero or out of range.
-// Idempotent — safe to call again after applyEnvOverrides may have
+// Idempotent - safe to call again after applyEnvOverrides may have
 // introduced a new out-of-range value (see the call inside Validate, which
 // runs after applyEnvOverrides completes in Load).
 func applyBestOfNDefaults(cfg *Config) {
@@ -967,11 +967,11 @@ func applyBestOfNDefaults(cfg *Config) {
 }
 
 // applyMobDefaults sets Mob fields that are zero or out of range.
-// Idempotent — safe to call again after applyEnvOverrides may have
+// Idempotent - safe to call again after applyEnvOverrides may have
 // introduced a new out-of-range value (see the call inside Validate, which
 // runs after applyEnvOverrides completes in Load). Order matters:
 // MaxParticipants before DefaultParticipants, MaxRounds before DefaultRounds
-// and before CheckpointRounds — the dependent checks read the
+// and before CheckpointRounds - the dependent checks read the
 // already-normalized bound.
 func applyMobDefaults(cfg *Config) {
 	if cfg.Mob.MaxParticipants < 2 || cfg.Mob.MaxParticipants > 10 {
@@ -1071,7 +1071,7 @@ func (c *Config) ChatBackend() (*ChatBackendConfig, bool) {
 // applyBackendDefaults fills per-entry defaults for fields not supplied by
 // YAML. Idempotent. Load calls it before applyEnvOverrides, so an entry
 // flipped on via CONTEXTMATRIX_BACKEND_<NAME>_ENABLED gets its task defaults
-// only from the second run inside Validate — keep that re-run if the Load
+// only from the second run inside Validate - keep that re-run if the Load
 // sequence is ever reordered (pinned by TestBackendEnvEnableGetsDefaults).
 //
 // The reconcile default applies to the agent entry only. CM's sweep is the
@@ -1383,7 +1383,7 @@ func anyBackendEnvSet(prefix string, suffixes []string) bool {
 func parseBackendEnabledEnv(prefix string) (*bool, error) {
 	v := os.Getenv(prefix + "_ENABLED")
 	if v == "" {
-		return nil, nil //nolint:nilnil // nil means "env var unset — leave YAML value"
+		return nil, nil //nolint:nilnil // nil means "env var unset - leave YAML value"
 	}
 
 	enabled, err := strconv.ParseBool(v)
@@ -1497,10 +1497,10 @@ func applyChatBackendEnv(cfg *Config) error {
 
 // checkBackendEnvKeys rejects CONTEXTMATRIX_BACKEND_* variables that do not
 // map to a known (name, suffix) pair: the name must be agent or chat, and the
-// suffix must be in that backend's suffix set. A typo'd or stale variable —
+// suffix must be in that backend's suffix set. A typo'd or stale variable -
 // including any CONTEXTMATRIX_BACKEND_RUNNER_* leftover, or an agent-only
-// suffix on the chat entry — must fail loudly, not silently configure
-// nothing. The entry does not need to be declared in YAML —
+// suffix on the chat entry - must fail loudly, not silently configure
+// nothing. The entry does not need to be declared in YAML -
 // applyEnvOverrides creates it.
 func checkBackendEnvKeys() error {
 	known := map[string]bool{}
@@ -1521,7 +1521,7 @@ func checkBackendEnvKeys() error {
 
 		if !known[key] {
 			return fmt.Errorf("%s is not a recognised backend env var "+
-				"(agent suffixes: %s; chat suffixes: %s) — fix the variable name",
+				"(agent suffixes: %s; chat suffixes: %s) - fix the variable name",
 				key,
 				strings.Join(agentBackendEnvSuffixes, ", "),
 				strings.Join(chatBackendEnvSuffixes, ", "))

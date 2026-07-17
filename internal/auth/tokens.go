@@ -67,7 +67,7 @@ func (s *Service) issueToken(ctx context.Context, purpose authstore.TokenPurpose
 }
 
 // InspectToken reports a token's purpose (and target username, when it has
-// one) WITHOUT consuming it — the GET endpoint behind the redemption page.
+// one) WITHOUT consuming it - the GET endpoint behind the redemption page.
 func (s *Service) InspectToken(ctx context.Context, rawToken string) (*TokenInfo, error) {
 	tok, err := s.lookupLiveToken(ctx, rawToken)
 	if err != nil {

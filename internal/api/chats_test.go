@@ -69,10 +69,10 @@ type fixtureOpts struct {
 	// the handler, matching the production path in NewRouter.
 	endpointModels func(ctx context.Context) ([]chatModelEntry, error)
 	// servedModels, when non-nil, is wired directly into chatHandlers.servedModels
-	// (no caching wrapper — the catalog builder handles its own caching).
+	// (no caching wrapper - the catalog builder handles its own caching).
 	servedModels func(ctx context.Context) []chatModelEntry
 	// validateModel, when non-nil, is wired directly into chatHandlers.validateModel
-	// (no caching wrapper — the catalog builder handles its own caching).
+	// (no caching wrapper - the catalog builder handles its own caching).
 	validateModel func(ctx context.Context, slug string) bool
 }
 
@@ -314,7 +314,7 @@ func TestStreamChat_ConnectedBeforeAnyEvent(t *testing.T) {
 		assert.True(t, strings.HasPrefix(line, ": connected"),
 			"expected first SSE line to be `: connected`, got %q", line)
 	case <-time.After(500 * time.Millisecond):
-		t.Fatal("did not receive `: connected` within 500ms — handler is not flushing before blocking")
+		t.Fatal("did not receive `: connected` within 500ms - handler is not flushing before blocking")
 	}
 }
 
@@ -502,7 +502,7 @@ func TestCreateChat_NoBackend_AcceptsAnyModel(t *testing.T) {
 }
 
 // openRouterFixtureOpts builds fixtureOpts with the dedicated chat backend
-// enabled + keyed and a default OpenRouter slug — i.e. the contextmatrix-chat
+// enabled + keyed and a default OpenRouter slug - i.e. the contextmatrix-chat
 // (OpenRouter) chat-server topology, which puts listModels/createChat in
 // openRouter mode.
 func openRouterFixtureOpts() fixtureOpts {
@@ -779,7 +779,7 @@ func TestClearChat_ColdSession(t *testing.T) {
 		chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
 	require.NoError(t, err)
 
-	// Session is cold — do NOT open it.
+	// Session is cold - do NOT open it.
 	req := httptest.NewRequest(http.MethodPost, "/api/chats/"+sess.ID+"/clear",
 		bytes.NewBufferString(`{}`))
 	w := httptest.NewRecorder()
@@ -792,7 +792,7 @@ func TestClearChat_ColdSession(t *testing.T) {
 }
 
 // TestClearChat_BackendFailure_TranscriptUntouched asserts that when the backend
-// /clear call fails (502 path) the transcript remains empty — no rows were
+// /clear call fails (502 path) the transcript remains empty - no rows were
 // persisted and no divider was inserted.
 func TestClearChat_BackendFailure_TranscriptUntouched(t *testing.T) {
 	mux, mgr, backend := newChatFixtureWithBackend(t, defaultFixtureOpts())
@@ -868,7 +868,7 @@ func TestListModelsServesCachedEndpoint(t *testing.T) {
 	}
 
 	require.Equal(t, int64(1), calls.Load(),
-		"upstream endpoint model fetch must be cached — two requests should trigger only one call")
+		"upstream endpoint model fetch must be cached - two requests should trigger only one call")
 }
 
 // TestListModelsSurfacesFetchError verifies that when the endpoint model fetch

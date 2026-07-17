@@ -23,7 +23,7 @@ func callToolRaw(t *testing.T, env *testEnv, name string, args map[string]any) (
 	})
 }
 
-// resultIsError returns true when the tool result contains an error — either a
+// resultIsError returns true when the tool result contains an error - either a
 // protocol-level error (non-nil err) or an IsError result payload.
 func resultIsError(result *mcp.CallToolResult, err error) bool {
 	if err != nil {
@@ -67,7 +67,7 @@ func TestUpdateCard_AgentOwnership(t *testing.T) {
 		})
 		require.False(t, claimResult.IsError, "claim should succeed")
 
-		// Agent-B tries to update — must be rejected.
+		// Agent-B tries to update - must be rejected.
 		result, err := callToolRaw(t, env, "update_card", map[string]any{
 			"project":  "test-project",
 			"card_id":  "TEST-001",
@@ -125,7 +125,7 @@ func TestUpdateCard_AgentOwnership(t *testing.T) {
 			"agent_id": "agent-A",
 		})
 
-		// Caller omits agent_id entirely — ownership check is skipped.
+		// Caller omits agent_id entirely - ownership check is skipped.
 		result, err := callToolRaw(t, env, "update_card", map[string]any{
 			"project": "test-project",
 			"card_id": "TEST-001",
@@ -163,7 +163,7 @@ func TestTransitionCard_AgentOwnership(t *testing.T) {
 			"agent_id": "agent-A",
 		})
 
-		// Agent-B tries to transition — must be rejected.
+		// Agent-B tries to transition - must be rejected.
 		result, err := callToolRaw(t, env, "transition_card", map[string]any{
 			"project":   "test-project",
 			"card_id":   "TEST-001",
@@ -222,7 +222,7 @@ func TestTransitionCard_AgentOwnership(t *testing.T) {
 			"agent_id": "agent-A",
 		})
 
-		// Caller omits agent_id — ownership check is skipped.
+		// Caller omits agent_id - ownership check is skipped.
 		result, err := callToolRaw(t, env, "transition_card", map[string]any{
 			"project":   "test-project",
 			"card_id":   "TEST-001",
@@ -366,7 +366,7 @@ func TestStartReview_HappyPath(t *testing.T) {
 // start_review returns inline=true for review-task even when the caller's
 // model does not match the skill's model. The review skill must run inline
 // in the orchestrator's session so its Agent tool is available to spawn
-// the three parallel specialist sub-agents — sub-agents spawned via Agent
+// the three parallel specialist sub-agents - sub-agents spawned via Agent
 // lack the Agent tool themselves. Regressing this gate would silently
 // degrade the review to a single-perspective walkthrough.
 func TestStartReview_AlwaysInlineRegardlessOfCallerModel(t *testing.T) {

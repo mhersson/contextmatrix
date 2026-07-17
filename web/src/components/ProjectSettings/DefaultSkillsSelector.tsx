@@ -50,7 +50,7 @@ export function DefaultSkillsSelector({ value, onChange }: Props) {
     setLocalMode(next);
     if (next === 'inherit') onChange(null);
     else if (next === 'none') onChange([]);
-    // 'specific': do NOT call onChange — checkboxes become visible via localMode
+    // 'specific': do NOT call onChange - checkboxes become visible via localMode
   };
 
   const toggle = (name: string) => {

@@ -31,7 +31,7 @@ type Card struct {
 	Custom          map[string]any `yaml:"custom,omitempty"          json:"custom,omitempty"`
 	Autonomous      bool           `yaml:"autonomous,omitempty"           json:"autonomous"`
 	// Model pins (agent backend): explicit per-card OpenRouter slugs overriding
-	// the complexity selector. Human-set only — never writable via the MCP
+	// the complexity selector. Human-set only - never writable via the MCP
 	// agent surface. Empty = selector/default applies.
 	ModelOrchestrator string `yaml:"model_orchestrator,omitempty" json:"model_orchestrator,omitempty"`
 	ModelCoder        string `yaml:"model_coder,omitempty"        json:"model_coder,omitempty"`
@@ -44,14 +44,14 @@ type Card struct {
 	// convenes N internal discussion seats in the phases listed in MobPhases
 	// (subset of plan/review/execute; empty = backend default). MobGuests
 	// names operator-registered external participants from the server's
-	// mob.guests registry. Human-set only, like the model pins — never
+	// mob.guests registry. Human-set only, like the model pins - never
 	// writable via the MCP agent surface.
 	MobParticipants int      `yaml:"mob_participants,omitempty" json:"mob_participants,omitempty"`
 	MobPhases       []string `yaml:"mob_phases,omitempty"       json:"mob_phases,omitempty"`
 	MobGuests       []string `yaml:"mob_guests,omitempty"       json:"mob_guests,omitempty"`
 	// Verify overrides the project's verify gate for this card, merged
 	// field-by-field over it at trigger time (see ResolveVerify). Human-set
-	// only, like the model pins — never writable via the MCP agent surface.
+	// only, like the model pins - never writable via the MCP agent surface.
 	Verify         *VerifyConfig `yaml:"verify,omitempty"             json:"verify,omitempty"`
 	Vetted         bool          `yaml:"vetted,omitempty"             json:"vetted"`
 	FeatureBranch  bool          `yaml:"feature_branch,omitempty"     json:"feature_branch,omitempty"`

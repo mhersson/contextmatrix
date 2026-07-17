@@ -39,14 +39,14 @@ interface BuildCardPanelTabsOptions {
  * Assembles the rail tab registry. Each tab's `content` is a dedicated
  * component so the JSX tree stays shallow and each tab can be updated or
  * memoised independently. The chat tab is pushed whenever a transcript
- * exists (any running session — HITL or autonomous — or replayed history)
+ * exists (any running session - HITL or autonomous - or replayed history)
  * so the conversation stays accessible after the session ends or the card
  * is promoted to autonomous. The pulse indicator is only rendered while
  * chat is live; `defaultTab` flips to chat only for an interactive (HITL)
  * session, so autonomous runs and freshly opened finalized cards land on
  * Automation by default.
  *
- * Not a hook: no state, no effects — a pure builder. Named `buildCardPanelTabs`
+ * Not a hook: no state, no effects - a pure builder. Named `buildCardPanelTabs`
  * so React/ESLint hook rules and readers don't mistake it for one.
  */
 export function buildCardPanelTabs(opts: BuildCardPanelTabsOptions): {

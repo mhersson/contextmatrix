@@ -29,7 +29,7 @@ func (h *syncHandlers) triggerSync(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.syncer.TriggerSync(r.Context()); err != nil {
-		// Log the raw error server-side — go-git transport errors typically
+		// Log the raw error server-side - go-git transport errors typically
 		// embed the remote URL and on-disk path. Sanitize before emitting
 		// to the client so auth hints / filesystem layout don't leak.
 		ctxlog.Logger(r.Context()).Error("sync failed", "error", err.Error())

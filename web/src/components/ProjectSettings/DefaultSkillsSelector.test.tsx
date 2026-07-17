@@ -12,7 +12,7 @@ beforeEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('DefaultSkillsSelector — initial radio state', () => {
+describe('DefaultSkillsSelector - initial radio state', () => {
   it('value=null → "Mount the full task-skills set" radio is checked', async () => {
     vi.spyOn(api, 'getTaskSkills').mockResolvedValue(mockSkills);
     render(<DefaultSkillsSelector value={null} onChange={vi.fn()} />);
@@ -35,7 +35,7 @@ describe('DefaultSkillsSelector — initial radio state', () => {
   });
 });
 
-describe('DefaultSkillsSelector — clicking "Constrain to selected skills" from inherit mode', () => {
+describe('DefaultSkillsSelector - clicking "Constrain to selected skills" from inherit mode', () => {
   it('radio becomes checked and onChange is NOT called', async () => {
     vi.spyOn(api, 'getTaskSkills').mockResolvedValue(mockSkills);
     const onChange = vi.fn();
@@ -69,7 +69,7 @@ describe('DefaultSkillsSelector — clicking "Constrain to selected skills" from
   });
 });
 
-describe('DefaultSkillsSelector — toggling a checkbox', () => {
+describe('DefaultSkillsSelector - toggling a checkbox', () => {
   it('calls onChange with the updated sorted list when a checkbox is toggled', async () => {
     vi.spyOn(api, 'getTaskSkills').mockResolvedValue(mockSkills);
     const onChange = vi.fn();
@@ -97,7 +97,7 @@ describe('DefaultSkillsSelector — toggling a checkbox', () => {
   });
 });
 
-describe('DefaultSkillsSelector — clicking "Mount no skills"', () => {
+describe('DefaultSkillsSelector - clicking "Mount no skills"', () => {
   it('calls onChange([])', () => {
     vi.spyOn(api, 'getTaskSkills').mockResolvedValue(mockSkills);
     const onChange = vi.fn();
@@ -108,7 +108,7 @@ describe('DefaultSkillsSelector — clicking "Mount no skills"', () => {
   });
 });
 
-describe('DefaultSkillsSelector — clicking "Mount the full task-skills set"', () => {
+describe('DefaultSkillsSelector - clicking "Mount the full task-skills set"', () => {
   it('calls onChange(null)', () => {
     vi.spyOn(api, 'getTaskSkills').mockResolvedValue(mockSkills);
     const onChange = vi.fn();
@@ -119,7 +119,7 @@ describe('DefaultSkillsSelector — clicking "Mount the full task-skills set"', 
   });
 });
 
-describe('DefaultSkillsSelector — loading state', () => {
+describe('DefaultSkillsSelector - loading state', () => {
   it('shows loading state while getTaskSkills resolves', async () => {
     let resolve: (v: typeof mockSkills) => void;
     const promise = new Promise<typeof mockSkills>(r => { resolve = r; });
@@ -137,7 +137,7 @@ describe('DefaultSkillsSelector — loading state', () => {
   });
 });
 
-describe('DefaultSkillsSelector — error state', () => {
+describe('DefaultSkillsSelector - error state', () => {
   it('shows error state when getTaskSkills rejects', async () => {
     vi.spyOn(api, 'getTaskSkills').mockRejectedValue({ error: 'Failed to fetch' });
 

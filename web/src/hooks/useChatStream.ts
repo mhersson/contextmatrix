@@ -105,7 +105,7 @@ export function useChatStream(sessionID: string): UseChatStream {
 
     // Reset the status tracker for the new session. Done here (not in the
     // in-render state-marker block above) so the write happens outside
-    // render — the react-hooks/refs lint rule forbids ref writes during
+    // render - the react-hooks/refs lint rule forbids ref writes during
     // render. The previous effect's cleanup has already closed the old
     // EventSource by this point, so no handler from the old session can
     // race the reset.
@@ -141,13 +141,13 @@ export function useChatStream(sessionID: string): UseChatStream {
           }
           append([eventToLog(data)]);
         } catch {
-          // malformed payload — skip
+          // malformed payload - skip
         }
       };
       es.addEventListener('session_updated', (ev) => {
         try {
           const raw = JSON.parse((ev as MessageEvent).data) as Record<string, unknown>;
-          // Narrow the status field before use — a malformed value from the
+          // Narrow the status field before use - a malformed value from the
           // server must not pollute React state with an unexpected string.
           const data: ChatSessionUpdate = {
             ...(typeof raw.context_tokens === 'number' && { context_tokens: raw.context_tokens }),
@@ -165,7 +165,7 @@ export function useChatStream(sessionID: string): UseChatStream {
             ...(typeof raw.cache_read_tokens === 'number' && { cache_read_tokens: raw.cache_read_tokens }),
             ...(typeof raw.cache_creation_tokens === 'number' && { cache_creation_tokens: raw.cache_creation_tokens }),
           };
-          // Compare status once per real event using a ref — avoids the
+          // Compare status once per real event using a ref - avoids the
           // double-dispatch that would occur if the comparison lived inside
           // the setSessionUpdate setter (which StrictMode invokes twice).
           if (data.status !== undefined && data.status !== prevStatusRef.current) {
@@ -174,7 +174,7 @@ export function useChatStream(sessionID: string): UseChatStream {
           }
           setSessionUpdate((prev) => ({ ...(prev ?? {}), ...data }));
         } catch {
-          // malformed payload — skip
+          // malformed payload - skip
         }
       });
       es.onerror = () => {
@@ -203,7 +203,7 @@ export function useChatStream(sessionID: string): UseChatStream {
           lastSeq = result.messages[result.messages.length - 1].seq;
         }
       } catch {
-        // Bootstrap failed — fall back to SSE-only.
+        // Bootstrap failed - fall back to SSE-only.
       }
       // Guard against the effect being torn down while the bootstrap await
       // was in flight (e.g. React StrictMode double-invoke, or the user

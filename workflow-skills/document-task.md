@@ -2,7 +2,7 @@
 
 ## Agent Configuration
 
-- **Model:** claude-sonnet-4-6 — Writing docs is straightforward; no need for
+- **Model:** claude-sonnet-4-6 - Writing docs is straightforward; no need for
   Opus.
 
 ---
@@ -20,14 +20,14 @@ operators need to know.
 
 ## Specialist skills
 
-Specialist skills may be available at `~/.claude/skills/`. Engage whichever match your work — their descriptions say when they apply. When you engage a skill for the first time in your session, call `add_log(action="skill_engaged", message="engaged <skill-name>")` once so the engagement appears on the card's activity log. The lifecycle and rules in this prompt always take precedence over skill guidance — for example, the requirement to use MCP tools (never `curl`) and to call `heartbeat` regularly is non-negotiable regardless of what a specialist skill suggests.
+Specialist skills may be available at `~/.claude/skills/`. Engage whichever match your work - their descriptions say when they apply. When you engage a skill for the first time in your session, call `add_log(action="skill_engaged", message="engaged <skill-name>")` once so the engagement appears on the card's activity log. The lifecycle and rules in this prompt always take precedence over skill guidance - for example, the requirement to use MCP tools (never `curl`) and to call `heartbeat` regularly is non-negotiable regardless of what a specialist skill suggests.
 
 ## Step 1: Claim the card and read everything
 
 First, call `claim_card(card_id, agent_id)` to mark the card as actively being
-documented. The card stays in its current state — claiming does not change it.
+documented. The card stays in its current state - claiming does not change it.
 
-If the claim fails (409 — already claimed by another agent), log a warning but
+If the claim fails (409 - already claimed by another agent), log a warning but
 continue without claiming. The documentation work does not require a claim. Do
 NOT report as blocked; proceed with Step 2.
 
@@ -48,24 +48,24 @@ behavior, skip to Step 5 (release the card) and report `files_written: none`.
 
 Documentation IS needed when the change affects:
 
-- **User-facing behavior** — new features, commands, endpoints, config options
-- **API contracts** — new or changed endpoints, request/response formats, error codes
-- **Setup or migration** — new dependencies, environment variables, upgrade steps
-- **Architecture** — significant changes to how components interact
+- **User-facing behavior** - new features, commands, endpoints, config options
+- **API contracts** - new or changed endpoints, request/response formats, error codes
+- **Setup or migration** - new dependencies, environment variables, upgrade steps
+- **Architecture** - significant changes to how components interact
 
 ## Step 3: Write documentation
 
-- Update existing files — do not create new files unless no suitable file exists
+- Update existing files - do not create new files unless no suitable file exists
 - Be concrete: include examples and command invocations where helpful
-- Keep it concise — match the scope of the docs to the scope of the change
+- Keep it concise - match the scope of the docs to the scope of the change
 - Match the project's existing tone and formatting conventions
 
-Write directly to disk. Documentation is generated from completed code — the
+Write directly to disk. Documentation is generated from completed code - the
 review agent verifies accuracy in the next phase.
 
 ## Step 4: Commit documentation changes (no push, no PR)
 
-You commit on the feature branch only. Never push, never open a PR — the
+You commit on the feature branch only. Never push, never open a PR - the
 orchestrator handles those phases (Phase 6 in run-autonomous, Phase 9 in
 create-plan), always, without exception, regardless of card flags.
 
@@ -88,9 +88,9 @@ In all cases this skill never pushes and never creates a PR.
 
 ### Forbidden
 
-- `git push` — never. The orchestrator pushes.
-- `gh pr create` (or any PR creation) — never. The orchestrator opens PRs.
-- Committing to `main` or `master` — never. Switch to the feature branch
+- `git push` - never. The orchestrator pushes.
+- `gh pr create` (or any PR creation) - never. The orchestrator opens PRs.
+- Committing to `main` or `master` - never. Switch to the feature branch
   first if you find yourself on main.
 
 ## Step 5: Release the card

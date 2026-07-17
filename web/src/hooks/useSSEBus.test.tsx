@@ -251,7 +251,7 @@ describe('pattern filtering', () => {
     // A literal type 'card' (no dot) should reach the exact subscriber only;
     // the prefix subscriber is filtering on 'card.*' and never matches a bare
     // type with no suffix. The cast goes through `unknown` because 'card' is
-    // deliberately not in the EventType union — this test exists to prove
+    // deliberately not in the EventType union - this test exists to prove
     // that even a hypothetical future event with such a shape would not
     // cross-fire the 'card.*' bucket.
     act(() => {
@@ -347,7 +347,7 @@ describe('provider value memoization', () => {
 
     function Consumer({ onRender }: { onRender: () => void }) {
       useSSEBus();
-      // Side effect in render is the point of this test — we want to count
+      // Side effect in render is the point of this test - we want to count
       // every render of this consumer. Intentional bypass of the usual lint
       // rule, applied narrowly.
       onRender();
@@ -525,7 +525,7 @@ describe('reconnect epoch', () => {
 
     expect(captured.epoch).toBe(0);
 
-    // Initial connect succeeds — nothing to resync yet, epoch must stay 0.
+    // Initial connect succeeds - nothing to resync yet, epoch must stay 0.
     act(() => {
       latestInstance()._triggerOpen();
     });

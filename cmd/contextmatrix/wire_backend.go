@@ -35,7 +35,7 @@ func wireBackendSubsystems(
 
 	taskCfg, taskEnabled := cfg.AgentBackend()
 
-	// taskURL/taskAPIKey stay empty when no agent backend is enabled — the
+	// taskURL/taskAPIKey stay empty when no agent backend is enabled - the
 	// session-log manager below is always constructed and treats an empty
 	// URL as "disabled".
 	var taskURL, taskAPIKey string

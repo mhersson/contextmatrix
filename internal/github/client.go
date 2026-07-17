@@ -24,7 +24,7 @@ import (
 var ErrRateLimited = errors.New("github: rate limit exceeded")
 
 // ErrPermissionDenied is returned when GitHub responds with 403 for reasons
-// other than rate limiting — revoked PAT, SAML SSO not authorised, missing
+// other than rate limiting - revoked PAT, SAML SSO not authorised, missing
 // repo permissions, IP allowlist denial, etc. The syncer must surface these
 // as configuration problems rather than silently retrying on the next cycle
 // the way it does for transient rate-limit responses.
@@ -232,7 +232,7 @@ func doPage[T pageDecoder](ctx context.Context, c *Client, rawURL string) ([]T, 
 
 	defer func() { _ = resp.Body.Close() }()
 
-	// 429 is unambiguously rate-limiting. 403 is overloaded — GitHub returns
+	// 429 is unambiguously rate-limiting. 403 is overloaded - GitHub returns
 	// it for genuine rate-limit responses (primary or secondary) and for many
 	// non-rate-limit failures (revoked PAT, SAML SSO not authorised, missing
 	// repo permissions, IP allowlist denial). The syncer treats ErrRateLimited
@@ -282,8 +282,8 @@ func doPage[T pageDecoder](ctx context.Context, c *Client, rawURL string) ([]T, 
 // isRateLimitForbidden distinguishes a rate-limit 403 from a permission 403.
 // GitHub uses 403 for both primary rate limits (X-RateLimit-Remaining: 0) and
 // secondary abuse-detection rate limits (the body contains "secondary rate
-// limit"). Everything else — revoked PAT, SAML SSO, missing repo permissions,
-// IP allowlist denial — is treated as a permission error so the syncer
+// limit"). Everything else - revoked PAT, SAML SSO, missing repo permissions,
+// IP allowlist denial - is treated as a permission error so the syncer
 // surfaces it instead of looping forever.
 func isRateLimitForbidden(header http.Header, body []byte) bool {
 	if remaining := header.Get("X-RateLimit-Remaining"); remaining != "" {
@@ -320,7 +320,7 @@ var linkNextRe = regexp.MustCompile(`<([^>]+)>;\s*rel="next"`)
 
 // parseLinkNext extracts the "next" URL from a Link header.
 // Returns empty string if absent, if the URL host does not match the host of
-// c.baseURL, or if the URL scheme would downgrade from HTTPS to HTTP —
+// c.baseURL, or if the URL scheme would downgrade from HTTPS to HTTP -
 // preventing SSRF via manipulated Link headers and token leakage over plain HTTP.
 func (c *Client) parseLinkNext(header string) string {
 	if header == "" {

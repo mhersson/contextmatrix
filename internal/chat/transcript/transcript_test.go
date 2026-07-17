@@ -235,7 +235,7 @@ func TestBuild_FirstUserAndLastKCollision(t *testing.T) {
 }
 
 // TestBuild_SkipsClearedMessages verifies that rehydration_phase=true rows
-// — the marker stamped by Manager.ClearContext — are excluded from the
+// - the marker stamped by Manager.ClearContext - are excluded from the
 // resume payload while phase=false rows pass through normally. This is
 // the wire-side guarantee that a cleared session does not re-feed pre-clear
 // turns into the backend on the next cold reopen.

@@ -11,19 +11,19 @@ zero-login behavior. The router-level switch is a nil vs. non-nil
 session-guard middleware, and the admin routes entirely, leaving the router
 byte-for-byte identical to single-user CM (`internal/api/router.go`
 documents this as "the auth.mode 'none' guarantee"). The two modes have
-materially different security properties — the material below is organized by
+materially different security properties - the material below is organized by
 mode, then by what stays constant across both.
 
 **`auth.mode: none` is single-tenant and unauthenticated by design.** There
 are no user accounts, no logins, no per-user permissions, no session tokens.
 Deployment assumes loopback or a trusted-network ACL (firewall,
-NetworkPolicy, service-mesh rule) — same posture as the admin/debug listener
+NetworkPolicy, service-mesh rule) - same posture as the admin/debug listener
 documented in `docs/api-reference.md`.
 
 The implications for code review, in none mode:
 
 **Identity is not authentication.** The `X-Agent-ID` header tags writes for
-audit purposes — boards-repo commit author, activity-log entries,
+audit purposes - boards-repo commit author, activity-log entries,
 `assigned_agent` on cards. It is treated like `git config user.name` on a
 personal machine: useful for blame, trivial to spoof, and that's fine because
 there is no permission gradient to escalate into.
@@ -34,7 +34,7 @@ persists it in localStorage, and wires it into every API request via
 `api.setAgentId`. `useIdentity` (`web/src/hooks/useIdentity.ts`) only invokes
 this hook when the auth mode is `none`; in multi mode it derives identity from
 the logged-in session instead (below). We do **not** prompt users for
-usernames in none mode — there is nothing to authenticate them against, so a
+usernames in none mode - there is nothing to authenticate them against, so a
 prompt is theatre. Per-browser uniqueness prevents two tabs/users from
 accidentally releasing each other's card claims; that is the only reason a
 unique-per-browser id is needed.
@@ -45,7 +45,7 @@ to `human:api` for the human-only worker endpoints; `agentIDForChat` in
 `internal/api/chats.go` falls back to `human:web`. These markers are honest ("this came from the web UI /
 direct API call by an unspecified human") and they preserve write
 functionality without inventing fake usernames. In multi mode both fallbacks
-are unreachable dead code on the routes that use them — the session guard has
+are unreachable dead code on the routes that use them - the session guard has
 already rejected any request with no session before the handler runs (below).
 
 **Where identity gates do exist, they enforce workflow contracts, not access
@@ -53,7 +53,7 @@ control (in none mode):**
 
 - **Card claim / heartbeat / release**: the supplied `X-Agent-ID` must match
   `assigned_agent`. This stops two agents from accidentally clobbering each
-  other's claim — it does not stop a malicious caller (who can simply send the
+  other's claim - it does not stop a malicious caller (who can simply send the
   matching value). In multi mode the identity comes from the session instead
   of a spoofable header, so this same check becomes real ownership enforcement
   (below).
@@ -61,7 +61,7 @@ control (in none mode):**
   must start with `human:`. The check rejects callers that follow the agent
   convention of using a non-human identifier (e.g. `agent-foo`); a malicious
   caller can pass `human:anything` and the gate yields. The intent is to encode
-  "this operation is part of the human workflow," not to prevent forgery —
+  "this operation is part of the human workflow," not to prevent forgery -
   true in multi mode too, since MCP never gained a session concept.
 - **Human-only operations on cards** (e.g. flipping `autonomous: true` via
   `PromoteToAutonomous` / the `promote_to_autonomous` MCP tool): the same
@@ -82,7 +82,7 @@ and rejects any request with no valid session unless the path is exempt
 (`sessionExempt`): `/healthz`, `/readyz`, `/mcp`, `/api/auth/*`,
 `/api/app/config` (serves a slim payload pre-login), the HMAC-signed
 backend-callback prefixes (`/api/agent/*`, `/api/chat/*`, `/api/v1/*`), and the
-Bearer-authed worker-callback prefix (`/api/worker/*`) — with
+Bearer-authed worker-callback prefix (`/api/worker/*`) - with
 `/api/worker/logs` and `/api/backend/health` explicitly carved back out of the
 exemption because they are browser-facing despite the machine-flavored prefix.
 Board reads (`GET /api/projects`, `GET /api/events`, and so on)
@@ -100,13 +100,13 @@ directly or via `X-Forwarded-Proto` (`requestIsTLS`). Sessions idle past a
 720h / 30 days) on the next validated request. Because cookies and the
 bootstrap/invite/reset links carry bearer-equivalent secrets, multi mode
 expects TLS termination in front (reverse proxy or ingress) so they never
-cross an untrusted network in the clear — CM does not enforce this at the
+cross an untrusted network in the clear - CM does not enforce this at the
 application layer.
 
 **Identity is derived from the session and is authoritative.**
 `withSessionIdentity` stamps `human:<username>` into the request context;
 `extractAgentID` (`internal/api/agents.go`) checks the context first and only
-falls back to the `X-Agent-ID` header when there is no session — so a
+falls back to the `X-Agent-ID` header when there is no session - so a
 logged-in browser cannot claim a different identity by header. This is what
 upgrades the card-claim/heartbeat/release ownership check (above) from a
 courtesy into real enforcement in multi mode: another authenticated user
@@ -120,9 +120,9 @@ gates: user management (`GET`/`POST /api/admin/users`,
 credential pool (`GET`/`POST /api/admin/credentials`,
 `PUT`/`DELETE /api/admin/credentials/{name}`), and project management
 (`POST`/`PUT`/`DELETE /api/projects*`,
-`POST /api/projects/{project}/recalculate-costs` — see the `authEnabled` /
-`requireAdmin` calls in `internal/api/projects.go`). Ordinary card work —
-claim, release, update, transition, activity — needs only a valid session, any
+`POST /api/projects/{project}/recalculate-costs` - see the `authEnabled` /
+`requireAdmin` calls in `internal/api/projects.go`). Ordinary card work -
+claim, release, update, transition, activity - needs only a valid session, any
 role. The store refuses to demote or disable the last active admin
 (`ErrLastAdmin`), enforced as a guarded atomic update rather than a
 check-then-write race.
@@ -131,8 +131,8 @@ check-then-write race.
 (`human:<username>`) as the owner. The `/api/chats*` surface is owner-scoped:
 `GET /api/chats` lists only the caller's sessions, and every per-ID endpoint
 (get, update, delete, open, end, clear, messages, stream) returns an identical
-404 for foreign and nonexistent IDs — ownership is not leaked. Admins manage
-chats via `/api/admin/chats*` (list all sessions, force-end, delete) — a
+404 for foreign and nonexistent IDs - ownership is not leaked. Admins manage
+chats via `/api/admin/chats*` (list all sessions, force-end, delete) - a
 metadata and lifecycle interface with no transcript routes. None mode keeps
 chats unscoped.
 
@@ -147,8 +147,8 @@ project's `.board.yaml` `github_credential` field binds it to one pool entry;
 a cached `githubauth.TokenGenerator`, scoping that project's GitHub operations
 (boards push, issue import, branch listing) to the bound credential.
 `newProviderForProject` (`cmd/contextmatrix/provider.go`) builds this
-resolver — `main.go` only wires it (as `providerForProject`) into
-`RouterConfig` and the GitHub-issue-sync path — and it fails closed on a
+resolver - `main.go` only wires it (as `providerForProject`) into
+`RouterConfig` and the GitHub-issue-sync path - and it fails closed on a
 broken binding, never silently substituting the instance-wide credential.
 Projects with no binding keep using the instance-wide `githubauth` provider,
 identical to none-mode behavior.
@@ -160,28 +160,28 @@ multi-mode-only CLI subcommands: each loads config the same way the server
 does (`--config` flag, else XDG discovery) and then opens `auth.db` directly.
 Host access to run this binary against the server's config is root trust,
 same posture as any other operator escape hatch. `reset-admin <username>`
-prints a one-time, 48-hour password-reset link for an existing, enabled admin
-— the recovery path when every admin account is locked out. `rotate-master-key`
+prints a one-time, 48-hour password-reset link for an existing, enabled admin -
+the recovery path when every admin account is locked out. `rotate-master-key`
 re-encrypts the entire credential pool under a freshly generated master key
 inside one `auth.db` transaction: the new key is staged at `<path>.new` before
 the transaction commits, installed over `<path>` once it has committed, and
-the previous key is saved to `<path>.bak` for reference only — restoring it
+the previous key is saved to `<path>.bak` for reference only - restoring it
 does NOT roll the rotation back, since the pool is already re-encrypted under
 the new key by the time the file swap happens. Run both on the host against
 the same config file the running server uses, and restart the server
 afterward so it loads the new key file. Safest is to stop the server first;
 at minimum, do not create or rotate pool credentials through the *live*
-server between `rotate-master-key`'s commit and that restart —
+server between `rotate-master-key`'s commit and that restart -
 `SetCredentialKey` (`cmd/contextmatrix/main.go`) wires the HKDF-derived
 credential key into `auth.Service` once, at startup, so a running process
 keeps encrypting under the OLD key regardless of what the CLI does to the key
 file. `CreateCredential` and `RotateCredentialSecret`
-(`internal/auth/credentials.go`) only ever encrypt — they never decrypt
-existing pool data — so such a write still succeeds in the moment; it just
+(`internal/auth/credentials.go`) only ever encrypt - they never decrypt
+existing pool data - so such a write still succeeds in the moment; it just
 produces a pool entry that fails to decrypt once the server is restarted and
 starts reading the rest of the (now-rotated) pool under the new key.
 
-**What stays constant across both modes — the machine channels:**
+**What stays constant across both modes - the machine channels:**
 
 - **MCP Bearer token** (`mcp_api_key` config) gates `/mcp`, independent of
   `auth.mode`. Optional for loopback deployments; set it whenever `/mcp` is
@@ -194,7 +194,7 @@ starts reading the rest of the (now-rotated) pool under the new key.
   infrastructure, equivalent in trust to the `llm_endpoint` config: a
   config-file-only registry with no UI or API management surface in either
   mode, so multi mode gains no per-user guest attack surface. Guest bearer
-  tokens are secrets — CM ships them to the agent backend inside the trigger
+  tokens are secrets - CM ships them to the agent backend inside the trigger
   payload, and the backend stages them into the per-run secrets file (never
   plain container env) and registers them with its log redactor. The
   moderator always dials out from the worker container to the guest's
@@ -203,10 +203,10 @@ starts reading the rest of the (now-rotated) pool under the new key.
 - **`/healthz` and `/readyz`** are open in both modes (`sessionExempt` lists
   them explicitly; there is no session guard at all in none mode).
 - **The admin listener** (pprof + `/metrics`, `admin_port`) is loopback-only
-  in both modes — see `docs/api-reference.md`.
+  in both modes - see `docs/api-reference.md`.
 - **The CSRF gate** (`csrfGuard` in `internal/api/router.go`, requiring
   `X-Requested-With: contextmatrix`) is unconditional middleware in both
-  modes, independent of session auth — it defends against cross-origin
+  modes, independent of session auth - it defends against cross-origin
   browser requests, a separate concern from the session guard's defense
   against unauthenticated ones.
 - **GitHub authentication** via the shared
@@ -214,44 +214,44 @@ starts reading the rest of the (now-rotated) pool under the new key.
   auth against an external system in every mode; do not weaken or bypass.
 
 **MCP's project-management tools are NOT behind the admin gate, in either
-mode — this is not a gap.** `create_project`, `update_project`, and
+mode - this is not a gap.** `create_project`, `update_project`, and
 `delete_project` (`internal/mcp/tools_projects.go`) call `CardService`
 directly with no role check; MCP has no admin/role concept at all, for any
-tool — the Bearer-key check on `/mcp` is the only gate, uniform across every
+tool - the Bearer-key check on `/mcp` is the only gate, uniform across every
 tool. This is safe because `updateProjectToolInput` (same file) has no
 `github_credential` field, so the MCP `update_project` tool cannot touch
-credential bindings by construction — there is no privilege-escalation path
+credential bindings by construction - there is no privilege-escalation path
 from "holds the MCP bearer key" to "controls the credential pool." Contrast
 the REST `PUT /api/projects/{project}` handler, which does accept
 `github_credential` and is admin-gated in multi mode
 (`internal/api/projects.go`).
 
 **"UI = human" holds in both modes, with different strength.** In `none` mode
-the web UI is operated by an unauthenticated human behind the CSRF gate — a
+the web UI is operated by an unauthenticated human behind the CSRF gate - a
 convention, not a proof. In `multi` mode the UI is operated by an
-authenticated, session-bound human — a proof.
+authenticated, session-bound human - a proof.
 
 **What to do during a code review:**
 
 - In `none` mode: treat any "missing X-Agent-ID is a security hole" or
-  "fabricated human:web is identity spoofing" finding as **out of scope** —
+  "fabricated human:web is identity spoofing" finding as **out of scope** -
   it's the documented trust model there. If the deployment posture is wrong
   (CM exposed publicly without a network gate), that's an ops concern, not a
   code-fix concern.
 - In `multi` mode: a state-changing or read request reaching a handler without
-  a valid session is a real bug — `sessionGuard` should have rejected it
+  a valid session is a real bug - `sessionGuard` should have rejected it
   upstream. A new user-management, credential-pool, or project-management
   route that skips `requireAdmin` is a real finding; a new card-scoped route
   (claim, update, transition, chat) that adds `requireAdmin` is over-gating in
   the other direction.
-- Do not propose admin-gating the MCP project tools "to match REST" — see
+- Do not propose admin-gating the MCP project tools "to match REST" - see
   above. MCP has no role concept; fixing that would mean redesigning MCP auth
   entirely, not a one-line change.
 - The MCP human-only checks are workflow gates in every mode; do not propose
   tightening them to session-backed auth without changing the trust model
   first.
 - The browser-generated agent ID (none mode) is intentional. Do not propose
-  adding a username prompt, OAuth, or per-user permissions to none mode —
+  adding a username prompt, OAuth, or per-user permissions to none mode -
   that's what multi mode is for.
 - `githubauth` is the one place where real authentication matters in every
   mode. Token-handling code there should be reviewed strictly.
@@ -270,7 +270,7 @@ and CSP, `cors` (only registered when `cors_origin` is non-empty) emits the CORS
 preamble, `requestID` mints or accepts an `X-Request-ID` and stashes a
 request-scoped `*slog.Logger` in context via `ctxlog.WithRequestID`, `observe`
 records RED metrics + emits the per-request log line, `bodyLimit` caps inbound
-bodies at 5 MB (with per-route overrides via `bodyLimitOverrides` — currently
+bodies at 5 MB (with per-route overrides via `bodyLimitOverrides` - currently
 `POST /api/images` gets the 11 MB image-upload envelope so screenshots fit),
 and `csrfGuard` rejects state-changing requests that lack
 `X-Requested-With: contextmatrix` (with narrow exemptions: GET/HEAD/OPTIONS,
@@ -282,21 +282,21 @@ Card mutations follow the same pipeline through the service layer:
 API handler (deserialize, validate)
   → CardService.<Mutation>
     → writeMu.Lock()
-    → Validator.ValidateCard()    — type, state, priority checks
+    → Validator.ValidateCard()    - type, state, priority checks
     → Store.UpdateCard()/CreateCard()
-                                  — write .md file under storage's writeMu,
+                                  - write .md file under storage's writeMu,
                                     update in-memory index
-    → enqueueCardCommit(...)      — push gitops.CommitJob on the per-project
+    → enqueueCardCommit(...)      - push gitops.CommitJob on the per-project
                                     queue (or run inline when no queue is wired)
     → writeMu.Unlock()
-    → awaitCommit(...)            — block on the queue result without holding
+    → awaitCommit(...)            - block on the queue result without holding
                                     writeMu, so other writers don't stall
-    → events.Bus.Publish()        — notify SSE subscribers
+    → events.Bus.Publish()        - notify SSE subscribers
   ← return card
 ← serialize response
 ```
 
-The MCP server follows the same path — it calls `CardService` methods, never the
+The MCP server follows the same path - it calls `CardService` methods, never the
 store or git layer directly. The `/mcp` handler is registered on the same inner
 `http.ServeMux` as the REST API, so MCP traffic shares every middleware listed
 above plus an inner stack
@@ -315,7 +315,7 @@ Card mutations take an eager-write, async-commit shape:
 `gitops.CommitQueue` runs one worker goroutine per project; commits for the same
 project execute strictly in enqueue order, but different projects commit in
 parallel. Workers are spawned lazily on first enqueue, and (when constructed
-with `WithIdleTimeout`) tear themselves down after a configurable idle window —
+with `WithIdleTimeout`) tear themselves down after a configurable idle window -
 `main.go` wires the production queue with a 30-minute idle timeout so long-quiet
 projects free their goroutine. The queue exposes `Pause` / `AwaitIdle` so the
 gitsync layer can drain in-flight commits before running a shell rebase or push;
@@ -332,7 +332,7 @@ and commit completion. The service layer closes that gap on failure:
   `ReportUsage` snapshot the pre-mutation card via `store.GetCard` (which
   returns a deep copy) before mutating, then reapply that snapshot via
   `store.UpdateCard` (or `store.CreateCard` for `DeleteCard`) after a failed
-  commit. The caller receives `fmt.Errorf("git commit: %w", err)` — equivalent
+  commit. The caller receives `fmt.Errorf("git commit: %w", err)` - equivalent
   to the pre-async behaviour.
 - **Rollback failure (rare):** cache and disk become inconsistent with each
   other. A `slog.Error` line carrying `committed=false`, `rollback_failed=true`,
@@ -340,12 +340,12 @@ and commit completion. The service layer closes that gap on failure:
   the `errors.Join` of the original commit error (wrapped with "rollback failed,
   state inconsistent") and the rollback error. The
   `contextmatrix_rollback_failures_total` counter increments on every such
-  event. **Alerting:** page on any non-zero rate — each increment is a
+  event. **Alerting:** page on any non-zero rate - each increment is a
   data-integrity event that leaves the named card's cache + on-disk state
   diverged and requires manual reconciliation (typically: inspect the error log
   for the card ID, then re-run the mutation or restore from the git HEAD copy).
 - **Heartbeats are a deliberate exception:** `HeartbeatCard` does not roll back.
-  A failed heartbeat commit is self-healing — the next heartbeat (typically
+  A failed heartbeat commit is self-healing - the next heartbeat (typically
   within the heartbeat interval) produces another commit and restores
   consistency.
 - **Parent auto-transitions are a deliberate exception:** they are
@@ -362,7 +362,7 @@ and commit completion. The service layer closes that gap on failure:
 - **gitops.Manager** (`gitops.Manager`): stages and commits files, handles
   push/pull with remote repositories. No knowledge of cards or events.
 - **Lock Manager** (`lock.Manager`): enforces claim/release/heartbeat rules.
-  Reads cards via the store to check ownership but does not write — it returns
+  Reads cards via the store to check ownership but does not write - it returns
   modified card data to the caller (the service layer).
 - **Event Bus** (`events.Bus`): in-process pub/sub. Receives events, fans out to
   subscribers.
@@ -407,7 +407,7 @@ and commit completion. The service layer closes that gap on failure:
 
   **Cost accumulation:** each `usage` stream-json frame from the backend log
   stream reaches `handleUsageEntry`. Usage frames carry per-turn
-  (per-assistant-message) token counts — the backend emits one
+  (per-assistant-message) token counts - the backend emits one
   `message.usage` block per assistant turn following the Anthropic
   Messages-API contract; these are NOT cumulative session totals. The
   values are passed directly (no snapshot subtraction) to
@@ -416,8 +416,8 @@ and commit completion. The service layer closes that gap on failure:
   `internal/chat/pricer.go`; satisfied by `*service.CardService`) applies
   the same cache-tier cost formula used on the card-scoped `report_usage`
   path. `Store.IncrementSessionCost` persists the
-  result via a single atomic `UPDATE ... SET col = col + ? ... RETURNING ...`
-  — one SQL round-trip, no read-modify-write window. On persist error the
+  result via a single atomic `UPDATE ... SET col = col + ? ... RETURNING ...` -
+  one SQL round-trip, no read-modify-write window. On persist error the
   function returns without publishing an SSE `session_updated` event, mirroring
   the `UpdateContextTokens` early-return pattern. On success, a
   `session_updated` event carrying the new running totals (`prompt_tokens`,
@@ -431,7 +431,7 @@ and commit completion. The service layer closes that gap on failure:
   § `GET /api/projects/{project}/dashboard` for the full field specification
   and caching semantics.
 
-- **chat.Transcript** (`chat/transcript`): pure transcript-shaping function — no
+- **chat.Transcript** (`chat/transcript`): pure transcript-shaping function - no
   I/O, no state. `Build(messages, opts)` filters out `rehydration_phase=TRUE`
   entries, drops non-conversation roles (stderr, tool results), pins the first
   user turn and the last 20 turns, and truncates middle turns to fit
@@ -441,7 +441,7 @@ and commit completion. The service layer closes that gap on failure:
 - **chat.Store** (`chat.Store`, default impl `opstore/sqlite.Store`):
   SQLite-backed persistence for `chat_sessions`, `chat_messages`, and
   `chat_cost_archive`. Schema created by `ensureSchema` in
-  `internal/opstore/sqlite/schema.go` — a clean-cut `CREATE TABLE IF NOT EXISTS`
+  `internal/opstore/sqlite/schema.go` - a clean-cut `CREATE TABLE IF NOT EXISTS`
   create with no migration ledger (see `docs/data-model.md` for column details).
   The store lives in the shared `ops.db`, which also holds the model blacklist.
   WAL mode with `MaxOpenConns=5`
@@ -457,25 +457,25 @@ and commit completion. The service layer closes that gap on failure:
   gapless. `Manager.DeleteSession` calls `Hub.Drop(sessionID)` to release the
   per-session hub so memory does not grow with session churn. Two event kinds
   share the hub: `message` (a new transcript row, with seq + role + content) and
-  `session_updated` (a metadata change — `context_tokens`, `rehydration_active`,
+  `session_updated` (a metadata change - `context_tokens`, `rehydration_active`,
   model, `status` for lifecycle transitions, and the five cost/token running-total
   fields (`prompt_tokens`, `completion_tokens`, `cache_read_tokens`,
-  `cache_creation_tokens`, `estimated_cost_usd`) — with no transcript content).
+  `cache_creation_tokens`, `estimated_cost_usd`) - with no transcript content).
   The `status` field uses a pointer so `omitempty` distinguishes "no lifecycle
   change" from a deliberate transition.
 
   Server-side, `publishSessionUpdate` fans out the event in a goroutine so callers
   holding a sessionHub lock don't deadlock. Lifecycle entry points that emit `status`:
-  - `OpenSession` — cold→active and warm-idle→active
-  - `OnSubscribe` callback — warm-idle→active
-  - `MarkWarmIdle` — active→warm-idle
-  - `EndSession` — any→cold (paired with `RehydrationActive: false` when the
+  - `OpenSession` - cold→active and warm-idle→active
+  - `OnSubscribe` callback - warm-idle→active
+  - `MarkWarmIdle` - active→warm-idle
+  - `EndSession` - any→cold (paired with `RehydrationActive: false` when the
     persist succeeded)
 
   Client-side, `useChatStream` routes `session_updated` events into header state.
   When the `status` field changes, a `prevStatusRef` ref (scoped to the SSE handler)
   detects the transition exactly once per real event and calls
-  `notifyChatSessionsChanged()` directly — `useChatSessions` debounces that event
+  `notifyChatSessionsChanged()` directly - `useChatSessions` debounces that event
   with a 100 ms window to coalesce fan-out from multiple open panes into a single
   `/api/chats` refetch that updates the sidebar status dot.
 - **chat.IdleReaper** (`chat.IdleReaper`): scans `warm-idle` sessions older than
@@ -494,13 +494,13 @@ and commit completion. The service layer closes that gap on failure:
 - **auth.Service** (`internal/auth`): multi-mode authentication. Argon2id
   password hashing + session issuance/validation (`password.go`, `token.go`),
   one-time bootstrap/invite/reset tokens (`tokens.go`; 48h TTL), and the GitHub
-  credential-pool crypto (`crypto.go`, `masterkey.go`) — AES-256-GCM secrets
+  credential-pool crypto (`crypto.go`, `masterkey.go`) - AES-256-GCM secrets
   under a key HKDF-derived from the auth master key. `TokenProviderFor`
   resolves a project's `.board.yaml` `github_credential` binding into a cached
   `githubauth.TokenGenerator`, fail-closed on a broken binding (see Trust
   model above). Nil (`RouterConfig.AuthService == nil`) in `auth.mode: none`.
 - **authstore.Store** (`internal/authstore`): SQLite persistence backing
-  `auth.Service` — `auth.db` holds the `users`, `sessions`, `one_time_tokens`,
+  `auth.Service` - `auth.db` holds the `users`, `sessions`, `one_time_tokens`,
   and `credentials` tables. No business logic; `auth.Service` is its only
   caller.
 - **API handlers** (`api/*`): thin HTTP layer. Deserialize → call CardService →
@@ -533,10 +533,10 @@ and commit completion. The service layer closes that gap on failure:
   all read time through this interface so a single fake drives every
   time-sensitive subsystem deterministically. The service layer adopts the lock
   manager's clock so stall detection and the timeout-checker ticker share one
-  monotonic reading — wiring two different clocks across these subsystems is a
+  monotonic reading - wiring two different clocks across these subsystems is a
   latent test-flake source.
 - **Event Bus** (`events.Bus`): in-process publish/subscribe. The bus has a drop
-  counter (`contextmatrix_event_bus_drops_total`) — subscribers that fall behind
+  counter (`contextmatrix_event_bus_drops_total`) - subscribers that fall behind
   the per-subscriber channel cap drop events rather than blocking the publisher.
 - **gitsync Syncer** (`gitsync.Syncer`): background loop that pulls the boards
   remote (when `boards.git_auto_pull` is enabled) and pushes after each successful
@@ -544,7 +544,7 @@ and commit completion. The service layer closes that gap on failure:
   layer through `LockWrites`/`UnlockWrites` and with the commit queue through
   `Pause`/`Resume`/`AwaitIdle` so rebases never race against in-flight go-git
   commits.
-- **GitHub integration** (`github`): three pieces — `client.go` (HTTP client for
+- **GitHub integration** (`github`): three pieces - `client.go` (HTTP client for
   GitHub REST API used during issue import / branch listing), `parse.go` (issue
   → card mapping rules), `syncer.go` (per-project import loop driven by
   `github.import_issues`). Auth is delegated to the shared
@@ -567,7 +567,7 @@ and commit completion. The service layer closes that gap on failure:
   `internal/service/`, unknown-model counter
   (`contextmatrix_report_usage_unknown_model_total`, labeled by model) in
   `internal/service/service_usage.go` (incremented when `report_usage` is called
-  with a model absent from `token_costs` — alert on a sustained non-zero rate to
+  with a model absent from `token_costs` - alert on a sustained non-zero rate to
   detect misconfigured or newly deployed models). Two chat-specific counters are
   also registered: `contextmatrix_chat_usage_unknown_model_total` (labeled by
   model, incremented in `handleUsageEntry` when a chat usage frame references an
@@ -597,7 +597,7 @@ passed to `CommitFile()` / `CommitFiles()` are relative to that directory (e.g.,
 If the boards directory does not exist or is not a git repo on startup, the
 server creates it and runs `git init`.
 
-`boards.dir` in `config.yaml` should point outside the source tree — an absolute
+`boards.dir` in `config.yaml` should point outside the source tree - an absolute
 path or a path like `~/boards/contextmatrix`, not `./boards`.
 
 ## File layout

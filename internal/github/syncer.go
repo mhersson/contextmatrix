@@ -54,7 +54,7 @@ func NewSyncer(
 // SetClientFor installs a per-project GitHub client resolver. When set,
 // syncAll resolves the client for each project (by its credential binding)
 // just before syncing it; a resolution error is logged and that project is
-// skipped for the cycle — other projects keep syncing. Nil (the default)
+// skipped for the cycle - other projects keep syncing. Nil (the default)
 // keeps every project on the constructor-injected static client, unchanged
 // (none mode / no seam configured).
 func (s *Syncer) SetClientFor(f func(ctx context.Context, cfg *board.ProjectConfig) (*Client, error)) {
@@ -136,7 +136,7 @@ func (s *Syncer) syncAll(ctx context.Context) {
 			if err != nil {
 				// Fail closed: a broken per-project credential binding must
 				// never fall back to the syncer's static client. Log the
-				// project and error only — TokenProviderFor's error text
+				// project and error only - TokenProviderFor's error text
 				// carries the credential name, never secret material.
 				slog.Warn("github sync: resolve client for project; skipping for this cycle",
 					"project", cfg.Name, "error", err)
@@ -226,7 +226,7 @@ func (s *Syncer) syncProject(ctx context.Context, cfg *board.ProjectConfig, clie
 			labels = append(labels, l.Name)
 		}
 
-		// Vetted intentionally left false — imported cards must be vetted by a human
+		// Vetted intentionally left false - imported cards must be vetted by a human
 		// before agents can claim them.
 		_, err = s.svc.CreateCard(ctx, cfg.Name, service.CreateCardInput{
 			Title:    issue.Title,

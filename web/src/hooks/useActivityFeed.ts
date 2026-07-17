@@ -16,7 +16,7 @@ export function useActivityFeed(project: string | null | undefined): ActivityFee
 
   // In-render reset on project change. This pattern (a `prev*` state marker
   // compared in render) replaces a `useEffect(..., [project])` that called
-  // setState — the effect path was flagged by react-hooks/set-state-in-effect
+  // setState - the effect path was flagged by react-hooks/set-state-in-effect
   // because it produced a cascading render after the project switch.
   const [prevProject, setPrevProject] = useState(project);
   if (project !== prevProject) {
@@ -27,12 +27,12 @@ export function useActivityFeed(project: string | null | undefined): ActivityFee
 
   // Subscribe to SSE for the NowRail activity feed.
   // Action vocabulary is normalised to the same set the backfill emits
-  // (the raw activity_log `Action` field — `"claimed"`, `"state_changed"`,
+  // (the raw activity_log `Action` field - `"claimed"`, `"state_changed"`,
   // `"released"`) so the dedup-by-id below is symmetric across both channels.
   // The event id includes the action so the same card_id+timestamp+agent
   // tuple from two different SSE events doesn't collide.
   //
-  // `agent` defaults to "system" when missing — matches the activity log
+  // `agent` defaults to "system" when missing - matches the activity log
   // convention used by appendStateChangeLog for stall/parent auto-transitions
   // and other server-side state changes. Without this, system-driven SSE
   // events would silently never reach NowRail.
@@ -63,7 +63,7 @@ export function useActivityFeed(project: string | null | undefined): ActivityFee
   // One-shot historical activity backfill on mount / project change. SSE
   // handles forward updates; this fills in entries older than the page load.
   // Backfill ids use the same shape as the SSE branch above so the merge
-  // dedup is symmetric — an event delivered by both channels collapses to
+  // dedup is symmetric - an event delivered by both channels collapses to
   // a single entry.
   useEffect(() => {
     if (!project) return;

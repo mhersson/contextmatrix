@@ -4,19 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"time"
+
+	"github.com/mhersson/contextmatrix/internal/sqliteutil"
 )
 
-// migration is a single versioned schema change for auth.db.
-type migration struct {
-	version int
-	up      func(ctx context.Context, db *sql.DB) error
-}
-
-var migrations = []migration{
+var migrations = []sqliteutil.Migration{
 	{
-		version: 1,
-		up: func(ctx context.Context, db *sql.DB) error {
+		Version: 1,
+		Up: func(ctx context.Context, db *sql.DB) error {
 			stmts := []string{
 				`CREATE TABLE IF NOT EXISTS users (
 					id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -72,58 +67,4 @@ var migrations = []migration{
 			return nil
 		},
 	},
-}
-
-// migrate applies schema migrations using a schema_migrations ledger. It is
-// idempotent: re-running against a fully migrated database is a no-op. Same
-// pattern as internal/images.
-func migrate(db *sql.DB) error {
-	ctx := context.Background()
-
-	if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
-		version    INTEGER PRIMARY KEY,
-		applied_at INTEGER NOT NULL
-	)`); err != nil {
-		return fmt.Errorf("authstore: schema_migrations table: %w", err)
-	}
-
-	rows, err := db.QueryContext(ctx, `SELECT version FROM schema_migrations`)
-	if err != nil {
-		return fmt.Errorf("authstore: schema_migrations query: %w", err)
-	}
-	defer rows.Close()
-
-	applied := map[int]bool{}
-
-	for rows.Next() {
-		var v int
-		if err := rows.Scan(&v); err != nil {
-			return fmt.Errorf("authstore: schema_migrations scan: %w", err)
-		}
-
-		applied[v] = true
-	}
-
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("authstore: schema_migrations rows: %w", err)
-	}
-
-	for _, m := range migrations {
-		if applied[m.version] {
-			continue
-		}
-
-		if err := m.up(ctx, db); err != nil {
-			return fmt.Errorf("authstore: migration v%d: %w", m.version, err)
-		}
-
-		if _, err := db.ExecContext(ctx,
-			`INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)`,
-			m.version, time.Now().Unix(),
-		); err != nil {
-			return fmt.Errorf("authstore: record migration v%d: %w", m.version, err)
-		}
-	}
-
-	return nil
 }

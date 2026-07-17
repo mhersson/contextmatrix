@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"net/http"
@@ -37,7 +36,7 @@ func (h *backendHandlers) enableFeatureBranchAndPR(ctx context.Context, project,
 	})
 }
 
-// runCard handles POST /api/projects/{project}/cards/{id}/run — "Run Now".
+// runCard handles POST /api/projects/{project}/cards/{id}/run - "Run Now".
 func (h *backendHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 	if isNonHumanAgent(r) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField, "only humans can trigger remote execution", "")
@@ -65,13 +64,8 @@ func (h *backendHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 	var runBody struct {
 		Interactive bool `json:"interactive"`
 	}
-	if r.Body != nil && r.ContentLength != 0 {
-		// Tolerate empty body — only parse when there's content.
-		if decodeErr := json.NewDecoder(r.Body).Decode(&runBody); decodeErr != nil {
-			writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", "")
-
-			return
-		}
+	if !decodeJSONAllowEmpty(w, r, &runBody) {
+		return
 	}
 
 	if card.State != board.StateTodo {
@@ -88,7 +82,7 @@ func (h *backendHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Auto-enable feature_branch and create_pr for all "Run now" triggers —
+	// Auto-enable feature_branch and create_pr for all "Run now" triggers -
 	// both autonomous and HITL (interactive) runs get a feature branch and PR.
 	// The patched card is intentionally discarded here: UpdateWorkerStatus
 	// a few lines below refreshes `card` from disk, so any flags set above
@@ -115,7 +109,7 @@ func (h *backendHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build trigger payload. Model is the backend's default_model — per-card
+	// Build trigger payload. Model is the backend's default_model - per-card
 	// pin overrides are resolved agent-side.
 	model := h.backendCfg.DefaultModel
 
@@ -131,7 +125,7 @@ func (h *backendHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 
 	// Autonomous cards always run the backend's autonomous path (the agent
 	// FSM). interactive is a HITL-only mode,
-	// so force it off for autonomous cards — CM owns this invariant server-side
+	// so force it off for autonomous cards - CM owns this invariant server-side
 	// rather than trusting the client flag (defense in depth: a stray trigger
 	// cannot push an autonomous card down the HITL path).
 	interactive := runBody.Interactive && !card.Autonomous
@@ -147,7 +141,7 @@ func (h *backendHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 		TaskSkills:  taskSkills,
 	}
 
-	// Clamp Best-of-N against the configured max — the stored card value can
+	// Clamp Best-of-N against the configured max - the stored card value can
 	// exceed it if max_candidates was lowered after the card was set, since
 	// the REST PATCH/PUT validation only checks the max in effect at write
 	// time.
@@ -170,7 +164,7 @@ func (h *backendHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 
 		if h.blacklist != nil {
 			// Best-effort: a blacklist read failure must not block the trigger,
-			// but it is logged — a silent miss would let the agent re-select a
+			// but it is logged - a silent miss would let the agent re-select a
 			// known-incapable model with no trace.
 			var blErr error
 			if bl, blErr = h.blacklist.BlacklistedSlugs(r.Context()); blErr != nil {
@@ -218,7 +212,7 @@ func (h *backendHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Mint the project-scoped git token. Fail closed: a broken binding
-	// rejects the run — never the instance credential by accident.
+	// rejects the run - never the instance credential by accident.
 	if h.providerForProject != nil {
 		provider, _, providerErr := h.providerForProject(r.Context(), project)
 		if providerErr != nil {
@@ -242,7 +236,7 @@ func (h *backendHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.backend.Trigger(r.Context(), payload); err != nil {
 		ctxlog.Logger(r.Context()).Error("backend webhook failed", "card_id", id, "project", project, "error", err)
-		// Webhook failed — revert status to failed.
+		// Webhook failed - revert status to failed.
 		// Use context.WithoutCancel so the revert succeeds even when the HTTP client
 		// has already disconnected and r.Context() is cancelled.
 		revertCtx := context.WithoutCancel(r.Context())
@@ -266,7 +260,7 @@ func (h *backendHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 // itself failed, or the resolved provider's GenerateToken call did).
 //
 // runCard has already set worker_status to "queued" by this point, so the
-// rejection first reverts it to "failed" — mirroring the webhook-failure
+// rejection first reverts it to "failed" - mirroring the webhook-failure
 // revert below (context.WithoutCancel so a client disconnect cannot strand
 // the rollback). Without the revert, the already-queued guard at the top of
 // runCard would 409 every future trigger of this card until a manual stop.
@@ -305,11 +299,11 @@ func (h *backendHandlers) rejectRunForCredentialFailure(w http.ResponseWriter, r
 // attachMob fills payload.Mob from the card's mob session fields. This
 // handler set exists only for the agent backend, so no backend-kind check is
 // needed. Participants are re-clamped against the CURRENT config (the
-// trigger clamp is authoritative — mob.max_participants may have been
+// trigger clamp is authoritative - mob.max_participants may have been
 // lowered since the card was written); Rounds carries mob.default_rounds,
 // which applyMobDefaults guarantees is within 1..max_rounds. Unknown guest
 // names and a blocked "execute" phase degrade with a warning instead of
-// failing the trigger — a discussion must never block a run. Mob coding
+// failing the trigger - a discussion must never block a run. Mob coding
 // takes trigger-time priority over Best-of-N: a live execute phase zeroes
 // payload.BestOfN with a warning; with the flag off, execute is dropped
 // (also with a warning) and Best-of-N is left untouched.
@@ -374,7 +368,7 @@ func (h *backendHandlers) attachMob(ctx context.Context, payload *backend.Trigge
 
 	// Mob coding takes priority over Best-of-N: a live execute phase zeroes
 	// the candidate race. Checkpointing candidates would multiply cost xN
-	// and break race independence, so one of the two must win — and the
+	// and break race independence, so one of the two must win - and the
 	// operator's explicit execute selection is the stronger signal.
 	if payload.BestOfN >= 2 && slices.Contains(spec.Phases, "execute") {
 		h.recordMobWarning(ctx, project, id,
@@ -387,7 +381,7 @@ func (h *backendHandlers) attachMob(ctx context.Context, payload *backend.Trigge
 }
 
 // recordMobWarning logs a trigger-time mob session degradation and appends a
-// best-effort activity entry so the drop is visible on the card — the same
+// best-effort activity entry so the drop is visible on the card - the same
 // slog + AddLogEntry mechanism as the run-rejected trace in
 // rejectRunForCredentialFailure. A failed append never blocks the trigger.
 func (h *backendHandlers) recordMobWarning(ctx context.Context, project, id, msg string) {

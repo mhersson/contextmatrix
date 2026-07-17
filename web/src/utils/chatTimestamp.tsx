@@ -1,4 +1,4 @@
-// Module-level formatter — re-used across every render, never re-created.
+// Module-level formatter - re-used across every render, never re-created.
 // Locale pinned to 'en-GB' to guarantee HH:MM (24-hour) output regardless of
 // the runtime's default locale.
 const hhmmFormatter = new Intl.DateTimeFormat('en-GB', {

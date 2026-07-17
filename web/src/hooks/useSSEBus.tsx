@@ -25,7 +25,7 @@ interface SSEBusContextValue {
   error: string | null;
   /**
    * Increments once per true reconnect (a successful open that follows at
-   * least one prior successful open) — never on the initial connect.
+   * least one prior successful open) - never on the initial connect.
    * Consumers that need to resync state lost during an SSE outage (e.g.
    * useBoard) watch this: any change after mount means "we just recovered
    * from a disconnect, missed events may exist, refetch."
@@ -46,7 +46,7 @@ interface SSEProviderProps {
 // - '*'              → '*'        (wildcard bucket, receives every event)
 // - 'card.*'         → 'p:card'   (prefix bucket)
 // - 'card.updated'   → 'e:card.updated' (exact bucket)
-// - 'card'           → 'e:card'   (exact bucket — distinct from 'p:card')
+// - 'card'           → 'e:card'   (exact bucket - distinct from 'p:card')
 function bucketKey(pattern: SSEPattern): string {
   if (pattern === '*') return '*';
   if (pattern.endsWith('.*')) return 'p:' + pattern.slice(0, -2);
@@ -57,7 +57,7 @@ function bucketKey(pattern: SSEPattern): string {
 // 'card.updated' → 'card'; 'worker.started' → 'worker'.
 //
 // Returns '' for types with no dot ('card', 'sync') so prefix-pattern
-// dispatch skips them entirely — a 'card.*' subscriber should not match a
+// dispatch skips them entirely - a 'card.*' subscriber should not match a
 // bare event whose type is the literal string 'card'.
 function eventPrefix(type: string): string {
   const dot = type.indexOf('.');

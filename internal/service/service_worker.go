@@ -40,7 +40,7 @@ func isProtectedBranch(branch string) bool {
 func (s *CardService) RecordPush(ctx context.Context, project, id, agentID, branch, prURL string) (*board.Card, error) {
 	id = strings.ToUpper(id)
 
-	// Service-layer branch protection — defense in depth.
+	// Service-layer branch protection - defense in depth.
 	if isProtectedBranch(branch) {
 		return nil, ErrProtectedBranch
 	}
@@ -234,7 +234,7 @@ func (s *CardService) UpdateWorkerStatus(ctx context.Context, project, cardID, s
 	// terminal state (done/not_planned), the reconcile sweep and end-session
 	// subscriber kill the container as a cleanup step. The backend reports
 	// that cleanup through the same callback path it uses for a genuine
-	// mid-run failure — "failed: killed by operator". Recording that as
+	// mid-run failure - "failed: killed by operator". Recording that as
 	// `failed` would lie about the run (the work succeeded; only the
 	// container lingered past the card's done transition). Translate such
 	// post-terminal failure/killed callbacks to `completed` so the card UI
@@ -243,13 +243,13 @@ func (s *CardService) UpdateWorkerStatus(ctx context.Context, project, cardID, s
 	// The user-initiated Stop path (stopCard → UpdateWorkerStatus("killed"))
 	// targets non-terminal cards, so the normalization only fires for the
 	// cleanup case it is intended for. If a user manages to Stop a card that
-	// is already done (rare race — human clicking just after the agent
+	// is already done (rare race - human clicking just after the agent
 	// transitions), that is semantically identical to the sweep cleanup
 	// anyway: the work is already done, the container is being reaped.
 	//
 	// The activity log message is rewritten alongside the status so the UI
 	// doesn't display "failed: killed by operator" on a card recorded as
-	// completed — the two would contradict each other otherwise.
+	// completed - the two would contradict each other otherwise.
 	if (status == "failed" || status == "killed") &&
 		(card.State == board.StateDone || card.State == board.StateNotPlanned) {
 		ctxlog.Logger(ctx).Info("normalizing post-terminal cleanup callback to completed",

@@ -39,7 +39,7 @@ export function CardPanelHeaderChips({
   const stateTint = stateColors[card.state] || 'var(--grey1)';
   const priorityTint = priorityColors[editedCard.priority] || 'var(--grey1)';
 
-  // Priority — like Automation/Labels — should only be editable while the
+  // Priority - like Automation/Labels - should only be editable while the
   // card is still in `todo`. Outside todo the value already shaped how the
   // last run was queued and editing it would silently drift from history.
   const priorityLocked = workerAttached || card.state !== 'todo';
@@ -113,7 +113,7 @@ export function CardPanelHeaderChips({
         {card.state.replace(/_/g, ' ')}
       </span>
 
-      {/* Phase chip — surfaces the agent orchestrator's progress
+      {/* Phase chip - surfaces the agent orchestrator's progress
           (plan/execute/document/review/integrate/done). Plain text chip, only
           rendered when the orchestrator has set a phase. */}
       {card.phase && (
@@ -147,7 +147,7 @@ export function CardPanelHeaderChips({
           target="_blank"
           rel="noopener noreferrer"
           className="bf-source-link"
-          title={`Imported from ${card.source.system} · ${card.source.external_id} — opens externally`}
+          title={`Imported from ${card.source.system} · ${card.source.external_id} - opens externally`}
         >
           {card.source.system === 'github' ? (
             <>

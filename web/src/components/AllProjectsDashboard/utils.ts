@@ -74,7 +74,7 @@ export function distributionSegments(counts: Record<string, number>): Distributi
       seen.add(state);
     }
   }
-  // Unknown states (custom .board.yaml additions) — sort by state name so
+  // Unknown states (custom .board.yaml additions) - sort by state name so
   // the order is deterministic across servers and renders.
   const extras: Array<[string, number]> = [];
   for (const [state, count] of Object.entries(counts)) {
@@ -162,7 +162,7 @@ export function aggregateDashboards(
   }
 
   // Chat cost is server-wide (not per-project). Pick the first response that
-  // carries a numeric value — using `typeof === 'number'` rather than a
+  // carries a numeric value - using `typeof === 'number'` rather than a
   // truthiness check so a genuinely-zero last30d with non-zero prior30d is
   // not silently dropped.
   const responses = Array.from(summaries.values());
@@ -298,7 +298,7 @@ export function medianHeartbeatSeconds(agents: ActiveAgent[], now: number = Date
 
 /**
  * Oldest claim duration, formatted as "Nh Mm" / "Nm" / "Ns". Falls back
- * to "—" when no agent has a valid `since` timestamp.
+ * to " - " when no agent has a valid `since` timestamp.
  */
 export function oldestClaim(agents: ActiveAgent[], now: number = Date.now()): string {
   let oldestMs = 0;
@@ -309,7 +309,7 @@ export function oldestClaim(agents: ActiveAgent[], now: number = Date.now()): st
     const delta = now - t;
     if (delta > oldestMs) oldestMs = delta;
   }
-  if (oldestMs === 0) return '—';
+  if (oldestMs === 0) return ' - ';
   const sec = Math.floor(oldestMs / 1000);
   if (sec < 60) return `${sec}s`;
   const min = Math.floor(sec / 60);

@@ -14,7 +14,7 @@ import (
 
 // adminTestServer: multi-mode router with admin "root" and non-admin "bob",
 // both with password "password12345". Reuses newAuthTestServer's store/svc
-// plumbing — extract a shared helper if that reads better, but do not change
+// plumbing - extract a shared helper if that reads better, but do not change
 // newAuthTestServer's existing behavior (other tests depend on it).
 func adminTestServer(t *testing.T) (*httptest.Server, *http.Cookie, *http.Cookie) {
 	t.Helper()
@@ -304,7 +304,7 @@ func TestAdminCredentials_Journey(t *testing.T) {
 	_ = resp.Body.Close()
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
 
-	// Create (checker is stubbed to success in newAuthTestServer's service —
+	// Create (checker is stubbed to success in newAuthTestServer's service -
 	// see Step 3 note below).
 	req, _ = http.NewRequest(http.MethodPost, server.URL+"/api/admin/credentials",
 		jsonBody(t, map[string]any{"name": "acme-pat", "kind": "pat", "secret": "ghp_zzz"}))
@@ -391,7 +391,7 @@ func TestAdminCredentials_ValidationErrors(t *testing.T) {
 // TestDeleteCredential_NoProjectService_GuardSkipped covers adminHandlers'
 // nil-safe wiring: adminTestServer (via newAuthTestServer) never sets
 // RouterConfig.Service, so listProjectConfigs must stay nil rather than
-// binding a method value on a nil *service.CardService — which would compile
+// binding a method value on a nil *service.CardService - which would compile
 // and assign fine but panic on the first call. Delete must fall back to
 // skipping the guard instead of 500ing.
 func TestDeleteCredential_NoProjectService_GuardSkipped(t *testing.T) {

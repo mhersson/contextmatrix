@@ -21,7 +21,7 @@ export function useDashboardPolling(project: string | null | undefined, interval
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const { subscribe } = useSSEBus();
 
-  // Polling fallback — keeps the dashboard fresh even when SSE is unavailable.
+  // Polling fallback - keeps the dashboard fresh even when SSE is unavailable.
   useEffect(() => {
     if (!project) return;
     let cancelled = false;
@@ -36,7 +36,7 @@ export function useDashboardPolling(project: string | null | undefined, interval
     };
   }, [project, intervalMs]);
 
-  // SSE subscriptions — trigger an immediate re-fetch on agent state changes
+  // SSE subscriptions - trigger an immediate re-fetch on agent state changes
   // so the Now Agents rail updates within ~1 second instead of waiting for
   // the next poll cycle.
   useEffect(() => {
@@ -60,7 +60,7 @@ export function useDashboardPolling(project: string | null | undefined, interval
       unsubStateChanged();
       unsubReleased();
     };
-  // subscribe is a stable useCallback (empty deps in useSSEBus) — omitting it
+  // subscribe is a stable useCallback (empty deps in useSSEBus) - omitting it
   // is intentional so identity changes never recreate duplicate subscriptions.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project]);

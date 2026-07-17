@@ -20,13 +20,13 @@ const BACKEND_DEFAULT_LABEL = 'Backend default (base_image)';
 
 /**
  * Project-settings picker for a per-backend worker image. Options come from
- * GET /api/backends/{backend}/images — the images actually present on that
+ * GET /api/backends/{backend}/images - the images actually present on that
  * backend's node, pre-filtered by its image_list_filters. Strict select, no
  * free text: registry refs not on the node are configured by pulling them to
  * the node (or via the REST API, which stays hygiene-validated only).
  *
  * The saved-value "is it on the node" check matches against each image's
- * tags AND digests — operators are encouraged to pin by digest
+ * tags AND digests - operators are encouraged to pin by digest
  * (`repo@sha256:...`), which never appears in `tags`.
  *
  * A saved value missing from the fetched list (by tag or digest) stays
@@ -120,12 +120,12 @@ export function WorkerImageSelect({
       </select>
       {error && (
         <div className="text-xs mt-1" style={{ color: 'var(--grey1)' }}>
-          could not load the image list — {error}
+          could not load the image list - {error}
         </div>
       )}
       {isMissing && (
         <div className="text-xs mt-1" role="alert" style={{ color: 'var(--red)' }}>
-          image not present on the worker node — runs will fail until it is
+          image not present on the worker node - runs will fail until it is
           rebuilt or a listed image is selected
         </div>
       )}

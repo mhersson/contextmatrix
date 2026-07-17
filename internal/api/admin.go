@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
@@ -13,13 +12,13 @@ import (
 )
 
 // adminHandlers maps auth.Service admin operations onto /api/admin/*.
-// Every handler starts with requireAdmin — the session guard has already
+// Every handler starts with requireAdmin - the session guard has already
 // authenticated the caller; this adds the role check.
 type adminHandlers struct {
 	svc *auth.Service
 	// listProjectConfigs backs deleteCredential's bound-project guard; wired
 	// from cfg.Service.ListProjects in NewRouter. nil when no card service is
-	// configured (narrow-scope test routers) — the guard is then skipped
+	// configured (narrow-scope test routers) - the guard is then skipped
 	// rather than dereferencing a nil *service.CardService.
 	listProjectConfigs func(ctx context.Context) ([]board.ProjectConfig, error)
 }
@@ -83,7 +82,7 @@ func (h *adminHandlers) listUsers(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-// createUser handles POST /api/admin/users — creates the account and returns
+// createUser handles POST /api/admin/users - creates the account and returns
 // the invite token (the UI composes the /auth/token/<raw> URL; the server
 // does not know its public address).
 func (h *adminHandlers) createUser(w http.ResponseWriter, r *http.Request) {
@@ -97,9 +96,7 @@ func (h *adminHandlers) createUser(w http.ResponseWriter, r *http.Request) {
 		IsAdmin     bool   `json:"is_admin"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", "")
-
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 
@@ -135,9 +132,7 @@ func (h *adminHandlers) patchUser(w http.ResponseWriter, r *http.Request) {
 		Disabled    *bool   `json:"disabled"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", "")
-
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 

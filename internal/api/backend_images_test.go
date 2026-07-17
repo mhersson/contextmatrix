@@ -155,7 +155,7 @@ func TestImagesProbeCache_CachesSuccessForTTL(t *testing.T) {
 // TestProjectMutations_NonAdminForbidden_MultiMode's session harness: a
 // logged-in non-admin must be rejected with 403 in multi mode, and an admin
 // session must reach the real handler (200 if a backend is configured, 503
-// if not — either proves the gate passed).
+// if not - either proves the gate passed).
 func TestBackendImages_NonAdminForbidden_MultiMode(t *testing.T) {
 	server, admin, bob := projectsAuthTestServerWithNonAdmin(t)
 

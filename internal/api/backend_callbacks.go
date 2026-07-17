@@ -16,7 +16,7 @@ import (
 // Callback request bodies are protocol-owned; aliased so handlers keep their local names.
 type workerStatusRequest = protocol.StatusCallbackPayload
 
-// workerStatusUpdate handles POST <AgentCallbackPath>/status — the backend's
+// workerStatusUpdate handles POST <AgentCallbackPath>/status - the backend's
 // worker-status callback.
 func (h *backendHandlers) workerStatusUpdate(w http.ResponseWriter, r *http.Request) {
 	body, ok := h.authenticatePost(w, r)
@@ -51,7 +51,7 @@ func (h *backendHandlers) workerStatusUpdate(w http.ResponseWriter, r *http.Requ
 }
 
 // cardAutonomousResponse is the minimal read-only shape returned to the
-// backend's VerifyAutonomous call. Deliberately narrow — only the boolean
+// backend's VerifyAutonomous call. Deliberately narrow - only the boolean
 // is needed, and a backend-facing endpoint must not leak unrelated card
 // fields.
 type cardAutonomousResponse struct {
@@ -85,7 +85,7 @@ func (h *backendHandlers) getCardAutonomous(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, cardAutonomousResponse{Autonomous: card.Autonomous})
 }
 
-// getTaskSkillsSource serves GET /api/<backend>/task-skills-source — the agent
+// getTaskSkillsSource serves GET /api/<backend>/task-skills-source - the agent
 // backend fetches this {git_remote_url, ref} pointer and clones the task-skills
 // repo itself. Signed-GET like getCardAutonomous.
 func (h *backendHandlers) getTaskSkillsSource(w http.ResponseWriter, r *http.Request) {
@@ -104,12 +104,12 @@ func (h *backendHandlers) getTaskSkillsSource(w http.ResponseWriter, r *http.Req
 // mintInstanceToken best-effort mints an instance-scoped git token for a
 // task-skills-source response. See the asymmetry comment on
 // taskSkillsSourceResponse: unlike getGitCredentials (fail-closed on a broken
-// project binding), this never fails the request — a nil provider or a mint
+// project binding), this never fails the request - a nil provider or a mint
 // error just returns empty strings, and the caller falls back to its own
 // configured credential during the compat window.
 //
 // err is only ever a githubauth provider error (JWT/HTTP-status class
-// messages, never the token itself), so logging "error", err here is safe —
+// messages, never the token itself), so logging "error", err here is safe -
 // mirrors the class-only logging already used for provider errors elsewhere
 // in this file.
 func mintInstanceToken(ctx context.Context, provider githubauth.TokenGenerator) (token, expiresAt string) {
@@ -129,7 +129,7 @@ func mintInstanceToken(ctx context.Context, provider githubauth.TokenGenerator) 
 }
 
 // tokenExpiryString formats a minted token's expiry for the wire. Zero and
-// far-future sentinel expiries (githubauth's PATProvider reports year 9999 —
+// far-future sentinel expiries (githubauth's PATProvider reports year 9999 -
 // a PAT has no server-managed TTL) are omitted entirely: an absent expiry
 // means "do not schedule a refresh", which is exactly the PAT semantic.
 func tokenExpiryString(t time.Time) string {
@@ -140,14 +140,14 @@ func tokenExpiryString(t time.Time) string {
 	return t.UTC().Format(time.RFC3339)
 }
 
-// getGitCredentials handles GET /api/<backend>/git-credentials — re-mints the
+// getGitCredentials handles GET /api/<backend>/git-credentials - re-mints the
 // project-scoped git token for a running card. Long runs outlive ~1h GitHub
 // App installation tokens, so the backend calls this mid-run to refresh.
 // HMAC-signed like every backend callback.
 //
 // Fail-closed on the project binding, mirroring rejectRunForCredentialFailure:
 // a broken/unresolvable providerForProject NEVER falls back to the instance
-// credential — unlike task-skills-source (mintInstanceToken), which is
+// credential - unlike task-skills-source (mintInstanceToken), which is
 // deliberately best-effort because it has no binding to be wrong about.
 func (h *backendHandlers) getGitCredentials(w http.ResponseWriter, r *http.Request) {
 	if !h.authenticateGet(w, r) {

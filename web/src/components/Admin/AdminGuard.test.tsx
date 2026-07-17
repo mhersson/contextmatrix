@@ -42,8 +42,8 @@ function Demoter() {
 
 beforeEach(() => vi.resetAllMocks());
 
-describe('AdminGuard — none mode', () => {
-  it('passes non-admin sessions through in none mode — no admin role exists', async () => {
+describe('AdminGuard - none mode', () => {
+  it('passes non-admin sessions through in none mode - no admin role exists', async () => {
     mocks.getAppConfig.mockResolvedValue({ theme: 'everforest', version: 'x', auth_mode: 'none' });
 
     render(
@@ -58,12 +58,12 @@ describe('AdminGuard — none mode', () => {
 
     await waitFor(() => expect(screen.getByText('secret admin content')).toBeInTheDocument());
     expect(screen.queryByText('Page not found')).not.toBeInTheDocument();
-    // None mode never probes a session — getAuthSession must not be called.
+    // None mode never probes a session - getAuthSession must not be called.
     expect(mocks.getAuthSession).not.toHaveBeenCalled();
   });
 });
 
-describe('AdminGuard — live is_admin read', () => {
+describe('AdminGuard - live is_admin read', () => {
   it('hides guarded content for a non-admin session', async () => {
     mocks.getAppConfig.mockResolvedValue({ theme: 'everforest', version: 'x', auth_mode: 'multi' });
     mocks.getAuthSession.mockResolvedValue({ username: 'alice', display_name: 'Alice', is_admin: false });
@@ -82,7 +82,7 @@ describe('AdminGuard — live is_admin read', () => {
     expect(screen.queryByText('secret admin content')).not.toBeInTheDocument();
   });
 
-  it('reflects a mid-session promotion to admin without remounting — no reload required', async () => {
+  it('reflects a mid-session promotion to admin without remounting - no reload required', async () => {
     mocks.getAppConfig.mockResolvedValue({ theme: 'everforest', version: 'x', auth_mode: 'multi' });
     mocks.getAuthSession.mockResolvedValue({ username: 'alice', display_name: 'Alice', is_admin: false });
 
@@ -114,7 +114,7 @@ describe('AdminGuard — live is_admin read', () => {
     expect(screen.queryByText('Page not found')).not.toBeInTheDocument();
   });
 
-  it('reflects a mid-session demotion to non-admin without remounting — content disappears', async () => {
+  it('reflects a mid-session demotion to non-admin without remounting - content disappears', async () => {
     mocks.getAppConfig.mockResolvedValue({ theme: 'everforest', version: 'x', auth_mode: 'multi' });
     mocks.getAuthSession.mockResolvedValue({ username: 'alice', display_name: 'Alice', is_admin: true });
 

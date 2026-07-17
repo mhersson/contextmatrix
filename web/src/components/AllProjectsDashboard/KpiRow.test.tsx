@@ -16,7 +16,7 @@ function renderKpiRow(overrides: Partial<Parameters<typeof KpiRow>[0]> = {}) {
   return render(<KpiRow {...defaults} {...overrides} />);
 }
 
-describe('KpiRow — Cost · 30d tile', () => {
+describe('KpiRow - Cost · 30d tile', () => {
   it('renders the tile label "Cost · 30d"', () => {
     const { getByText } = renderKpiRow();
     expect(getByText('Cost · 30d')).toBeTruthy();
@@ -81,7 +81,7 @@ describe('KpiRow — Cost · 30d tile', () => {
   });
 });
 
-describe('KpiRow — Chat cost · 30d tile', () => {
+describe('KpiRow - Chat cost · 30d tile', () => {
   it('renders the tile label "Chat cost · 30d"', () => {
     const { getByText } = renderKpiRow();
     expect(getByText('Chat cost · 30d')).toBeTruthy();
@@ -89,14 +89,14 @@ describe('KpiRow — Chat cost · 30d tile', () => {
 
   it('renders $0.00 when chatCostLast30dUsd is 0', () => {
     const { getAllByText } = renderKpiRow({ chatCostLast30dUsd: 0 });
-    // The CostValue component renders "$0" + ".00" — getByText matches the
+    // The CostValue component renders "$0" + ".00" - getByText matches the
     // dollar amount; we just ensure the tile renders without crashing.
     expect(getAllByText(/\$/).length).toBeGreaterThan(0);
   });
 
   it('does not render a delta when chatCostPrior30dUsd is 0', () => {
     const { container } = renderKpiRow({ chatCostLast30dUsd: 5, chatCostPrior30dUsd: 0 });
-    // Count delta elements — one for card cost (also 0 prior), check total.
+    // Count delta elements - one for card cost (also 0 prior), check total.
     // Both tiles have costPrior30dUsd: 0, so neither should render a delta.
     expect(container.querySelector('.metric-tile__delta')).toBeNull();
   });
@@ -106,7 +106,7 @@ describe('KpiRow — Chat cost · 30d tile', () => {
       chatCostLast30dUsd: 10,
       chatCostSeries30d: Array.from({ length: 30 }, (_, i) => i * 0.5),
     });
-    // Two sparklines now exist (Cost · 30d and Chat cost · 30d) — assert at least one.
+    // Two sparklines now exist (Cost · 30d and Chat cost · 30d) - assert at least one.
     expect(container.querySelectorAll('svg.spark').length).toBeGreaterThanOrEqual(1);
   });
 

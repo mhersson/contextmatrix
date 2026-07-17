@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"regexp"
@@ -46,7 +47,7 @@ const maxRequestBodySize = 5 * 1024 * 1024 // 5 MB
 //   - ErrCodeValidationError    → 422 (mutation body semantically invalid:
 //     unknown type, unknown state, bad autonomous combo, empty message, ...)
 //
-// Do not reuse ErrCodeValidationError for 400-class failures — clients
+// Do not reuse ErrCodeValidationError for 400-class failures - clients
 // disambiguate by code, and collapsing the two broke that.
 const (
 	ErrCodeProjectNotFound      = "PROJECT_NOT_FOUND"
@@ -87,7 +88,7 @@ const (
 	ErrCodeForbidden = "FORBIDDEN"
 
 	// USER_NOT_FOUND → 404: unknown username on an admin user-management
-	// route. Deliberately distinct from ErrCodeCardNotFound — no card-flavored
+	// route. Deliberately distinct from ErrCodeCardNotFound - no card-flavored
 	// code should leak into the auth/admin surface (brief's adaptation note).
 	ErrCodeUserNotFound = "USER_NOT_FOUND"
 
@@ -140,14 +141,14 @@ type RouterConfig struct {
 	// authenticates GET /api/chat/task-skills-source (the chat service's
 	// pointer fetch). nil when no dedicated chat backend is configured.
 	ChatBackendCfg *config.ChatBackendConfig
-	// ChatWorkerAPIKey is the chat entry's api_key — the same secret
+	// ChatWorkerAPIKey is the chat entry's api_key - the same secret
 	// cmd/contextmatrix/wire_chat.go used to mint
 	// StartChatOpts.GitCredentialsToken. GET /api/worker/git-credentials
 	// verifies bearer tokens against this exact value, so mint and verify
 	// never disagree. Empty disables the route (no chat backend, or one with
 	// no configured api_key) regardless of ChatManager.
 	ChatWorkerAPIKey string
-	// ImageStore is required in production — main.go always opens a
+	// ImageStore is required in production - main.go always opens a
 	// SQLite-backed store and wires it in unconditionally. Tests that do
 	// not exercise /api/images may omit it; the routes are then unregistered
 	// and the body-limit envelope still treats /api/images as a 404.
@@ -162,16 +163,16 @@ type RouterConfig struct {
 	// Outcomes supplies Best-of-N head-to-head aggregates attached per-candidate
 	// on SelectionContext (runCard guards on it via h.outcomes != nil, same
 	// best-effort posture as Blacklist). In main.go this is the same opstore
-	// handle passed as Blacklist — one store, two read-only interfaces.
+	// handle passed as Blacklist - one store, two read-only interfaces.
 	Outcomes outcomeStatsReader
 	// OutcomesAdmin supplies the read+reset surface for the admin
 	// model-outcomes endpoints (GET/DELETE /api/admin/model-outcomes).
-	// Outcomes (above) is deliberately read-only — runCard's selection path
-	// never resets data — so widening it to add ResetModelOutcomes would
+	// Outcomes (above) is deliberately read-only - runCard's selection path
+	// never resets data - so widening it to add ResetModelOutcomes would
 	// force every consumer/test double of that narrow interface to grow a
 	// method it never calls; this is a separate, wider interface instead.
 	// In main.go this is the same opstore handle passed as
-	// Outcomes/Blacklist/Catalog — one store, several narrowly sliced
+	// Outcomes/Blacklist/Catalog - one store, several narrowly sliced
 	// interfaces.
 	OutcomesAdmin outcomeAdminStore
 
@@ -196,7 +197,7 @@ type RouterConfig struct {
 	// AuthService enables multi-user mode: the session guard middleware and
 	// the /api/auth/* routes are installed only when it is non-nil. A nil
 	// AuthService leaves the router byte-for-byte identical to single-user
-	// CM — that is the auth.mode "none" guarantee.
+	// CM - that is the auth.mode "none" guarantee.
 	AuthService *auth.Service
 	// AuthMode is surfaced in GET /api/app/config ("multi"/"none"); empty
 	// is reported as "none".
@@ -207,18 +208,18 @@ type RouterConfig struct {
 	CredentialExists func(ctx context.Context, name string) (bool, error)
 	// ProviderForProject resolves the token provider for a project's GitHub
 	// operations: the project's binding when set (fail-closed on a broken
-	// one), else the instance provider. Never nil in production — main.go
+	// one), else the instance provider. Never nil in production - main.go
 	// wires it in both auth modes; nil in tests preserves the old
 	// fixed-provider path.
 	ProviderForProject func(ctx context.Context, project string) (githubauth.TokenGenerator, string /*apiBase*/, error)
 	// LLMEndpoint is the CM-provisioned inference endpoint attached to every
 	// task-backend trigger payload (single admin-managed key, rotated in one
-	// place). nil when llm_endpoint is unset — backends then fall back to
+	// place). nil when llm_endpoint is unset - backends then fall back to
 	// their own local config, matching pre-token-authority behavior.
 	LLMEndpoint *protocol.LLMEndpoint
 	// BestOfN bounds the card-level best_of_n field: cardHandlers rejects
 	// any value outside 0 or 2..MaxCandidates. Zero value (MaxCandidates 0)
-	// means only 0 validates — effectively disabling best_of_n until
+	// means only 0 validates - effectively disabling best_of_n until
 	// config.Load's applyBestOfNDefaults has populated it.
 	BestOfN config.BestOfNConfig
 	// Mob bounds the card-level mob session fields (participants range, phase
@@ -238,7 +239,7 @@ type EndpointModelView struct {
 }
 
 // ServedModelView is the api-package projection of modelcatalog.ServedModel
-// (same pattern as EndpointModelView — keeps modelcatalog independent of api).
+// (same pattern as EndpointModelView - keeps modelcatalog independent of api).
 type ServedModelView struct {
 	ID            string
 	ContextWindow int
@@ -285,7 +286,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	// chatBackendConfigured reports whether a dedicated chat backend entry is
 	// enabled with both url and api_key set. This is the single source of
 	// truth for "a chat backend is configured": it feeds chat_enabled in app
-	// config below and the images route's chat probe client further down —
+	// config below and the images route's chat probe client further down -
 	// both express the same condition, so it is computed once here.
 	chatBackendConfigured := cfg.ChatBackendCfg.IsEnabled() && cfg.ChatBackendCfg.APIKey != "" && cfg.ChatBackendCfg.URL != ""
 
@@ -320,7 +321,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
 		if cfg.Service == nil {
-			// No card service wired — a router built for narrower coverage
+			// No card service wired - a router built for narrower coverage
 			// (e.g. auth-only or task-skills-only tests) has nothing to
 			// report on, so readiness trivially holds rather than panicking
 			// on a nil svc inside handleReadyz.
@@ -367,7 +368,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	mux.HandleFunc("GET /api/app/config", ach.getAppConfig)
 
 	// Admin model-outcomes: registered in both auth modes (open in none
-	// mode; admin-gated in multi via outcomeAdminHandlers.gate) — same
+	// mode; admin-gated in multi via outcomeAdminHandlers.gate) - same
 	// trust posture as project management above.
 	if cfg.OutcomesAdmin != nil {
 		oh := &outcomeAdminHandlers{
@@ -379,7 +380,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		mux.HandleFunc("DELETE /api/admin/model-outcomes", oh.reset)
 	}
 
-	// Auth routes — only in multi mode.
+	// Auth routes - only in multi mode.
 	if cfg.AuthService != nil {
 		authh := &authHandlers{svc: cfg.AuthService}
 		mux.HandleFunc("POST /api/auth/login", authh.login)
@@ -392,7 +393,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		adh := &adminHandlers{svc: cfg.AuthService}
 		if cfg.Service != nil {
 			// Method-value note: cfg.Service.ListProjects on a nil *CardService
-			// would still bind to a non-nil func value that panics on call — so
+			// would still bind to a non-nil func value that panics on call - so
 			// this must stay behind the nil check, not become an unconditional
 			// assignment.
 			adh.listProjectConfigs = cfg.Service.ListProjects
@@ -408,7 +409,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		mux.HandleFunc("PUT /api/admin/credentials/{name}", adh.putCredential)
 		mux.HandleFunc("DELETE /api/admin/credentials/{name}", adh.deleteCredential)
 
-		// Chat administration — metadata + lifecycle only; no transcript
+		// Chat administration - metadata + lifecycle only; no transcript
 		// routes exist on this surface by design (docs/api-reference.md).
 		// Mirrors the ChatManager gate on the /api/chats block below.
 		if cfg.ChatManager != nil {
@@ -422,7 +423,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	// Task-skills (used by project default + per-card skill selectors in the UI)
 	mux.HandleFunc("GET /api/task-skills", tsh.listTaskSkills)
 
-	// Model catalog for the card pin pickers — available regardless of chat
+	// Model catalog for the card pin pickers - available regardless of chat
 	// mode; returns source "none" when no catalog builder is configured.
 	mch := &modelCatalogHandlers{served: cfg.ServedModels, source: cfg.ServedModelsSource}
 	mux.HandleFunc("GET /api/models", mch.listModels)
@@ -457,11 +458,11 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	mux.HandleFunc("POST /api/projects/{project}/stop-all", rh.stopAll)
 	// Backend-callback endpoints mount at the fixed config.AgentCallbackPath
 	// (the agent repo hardcodes it). The HMAC key is selected by path at
-	// registration time — each handler set closes over exactly one backend's
+	// registration time - each handler set closes over exactly one backend's
 	// key + replay cache, resolved before any card lookup.
 	//
 	// GET /api/worker/logs and /api/backend/health are BROWSER-facing (the
-	// web UI's EventSource and capacity meter), not backend callbacks —
+	// web UI's EventSource and capacity meter), not backend callbacks -
 	// they mount at fixed literal paths. So does the backend-called
 	// GET /api/v1/cards/.../autonomous.
 	if cfg.Backend != nil {
@@ -476,7 +477,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	// Per-backend worker-image lists for the project-settings dropdowns.
 	// Registered unconditionally: per-backend availability is decided inside
 	// the handler (503 BACKEND_DISABLED), since a path-param pattern registers
-	// all-or-nothing. The chat side gets its own signed-GET client — the chat
+	// all-or-nothing. The chat side gets its own signed-GET client - the chat
 	// manager deliberately never exposes its webhook client.
 	imh := &imagesHandlers{
 		authEnabled: cfg.AuthService != nil,
@@ -491,7 +492,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	mux.HandleFunc("GET /api/backends/{backend}/images", imh.listImages)
 
-	// Chat routes — registered only when both the manager and hub are wired.
+	// Chat routes - registered only when both the manager and hub are wired.
 	if cfg.ChatManager != nil && cfg.ChatHub != nil {
 		chh := newChatHandlers(cfg.ChatManager, cfg.ChatHub, cfg.ChatBackendCfg)
 
@@ -561,7 +562,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	// Worker git-credentials: chat workers fetch per-repo git credentials on
 	// demand, authenticated by the deterministic per-session bearer minted at
-	// chat-start (ChatStartPayload.GitCredentialsToken) — not HMAC, not the
+	// chat-start (ChatStartPayload.GitCredentialsToken) - not HMAC, not the
 	// session cookie. Registered only when both a chat manager (session
 	// liveness lookup) AND a resolved chat-backend api_key (bearer secret)
 	// are wired; either missing means worker-fetched credentials are not in
@@ -583,11 +584,11 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	// bodyLimitOverrides maps a registered mux pattern (e.g.
 	// "POST /api/images") to a per-route body cap. Populated by
 	// registerWithBodyLimit so the pattern, handler, and limit are written
-	// together in one place — there is no second literal to keep in sync.
+	// together in one place - there is no second literal to keep in sync.
 	//
 	// Invariant: overrides only RAISE the cap above maxRequestBodySize. The
 	// short-circuit in bodyLimitN (skipping the mux.Handler walk when
-	// ContentLength fits the global cap) relies on this — a smaller override
+	// ContentLength fits the global cap) relies on this - a smaller override
 	// would be silently ignored for declared-length requests. Enforced at
 	// registration so a too-small override panics at server startup, before
 	// any traffic arrives, with a message pointing at the dependent code.
@@ -609,7 +610,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		mux.HandleFunc("GET /api/images/{id}", ih.get)
 	}
 
-	// MCP server routes — registered on the inner mux so they share the
+	// MCP server routes - registered on the inner mux so they share the
 	// same middleware chain as every other route (recovery, requestID,
 	// observe, bodyLimit, ...).
 	if cfg.MCPHandler != nil {
@@ -619,7 +620,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	}
 
 	// bodyLimit is built per-router so the override lookup walks this mux's
-	// registered patterns via mux.Handler(r) — that lets templated routes opt
+	// registered patterns via mux.Handler(r) - that lets templated routes opt
 	// in to per-route caps in the future without changing the middleware.
 	bodyLimit := bodyLimitN(maxRequestBodySize, mux, bodyLimitOverrides)
 
@@ -635,7 +636,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		middlewares = []func(http.Handler) http.Handler{recovery, securityHeaders, corsMiddleware(cfg.CORSOrigin), requestID, observe, bodyLimit, csrfGuard}
 	}
 
-	// Session guard sits innermost — just outside the mux — so machine
+	// Session guard sits innermost - just outside the mux - so machine
 	// channels and probes are exempted with the same path logic as the CSRF
 	// guard, and every gated handler sees the identity context.
 	if cfg.AuthService != nil {
@@ -649,14 +650,14 @@ func NewRouter(cfg RouterConfig) http.Handler {
 // requests by requiring an X-Requested-With: contextmatrix header on every
 // non-safe method. Browsers refuse to set arbitrary custom headers in a
 // "simple request"; a CORS preflight is required, and we serve no permissive
-// CORS for state-changing routes — so a missing header is a strong signal of
+// CORS for state-changing routes - so a missing header is a strong signal of
 // a cross-origin attempt that bypassed the SOP.
 //
 // Exempt paths:
 //   - GET / HEAD / OPTIONS (read-only)
-//   - /api/agent/*, /api/chat/* — HMAC-signed backend-callback space; no browser POST path here
-//   - /mcp           — Bearer-authed MCP endpoint
-//   - /healthz, /readyz — probe endpoints, no body
+//   - /api/agent/*, /api/chat/* - HMAC-signed backend-callback space; no browser POST path here
+//   - /mcp           - Bearer-authed MCP endpoint
+//   - /healthz, /readyz - probe endpoints, no body
 //
 // The web UI sets the header on every fetch via web/src/api/client.ts.
 func csrfGuard(next http.Handler) http.Handler {
@@ -679,7 +680,7 @@ func csrfGuard(next http.Handler) http.Handler {
 }
 
 // csrfExempt reports whether the request is excluded from the CSRF guard.
-// The branches are intentionally narrow — any new state-changing route must
+// The branches are intentionally narrow - any new state-changing route must
 // opt in to the guard, not out.
 func csrfExempt(r *http.Request) bool {
 	switch r.Method {
@@ -750,10 +751,10 @@ func observe(next http.Handler) http.Handler {
 		ctxlog.Logger(r.Context()).Info("request", attrs...)
 
 		// SSE streams would pollute the REST latency histogram and the
-		// path label set — skip them entirely for metrics. MCP Streamable
+		// path label set - skip them entirely for metrics. MCP Streamable
 		// HTTP GET /mcp is a long-lived SSE connection for the same reason.
 		// Chat session SSE streams (/api/chats/{id}/stream) follow the same
-		// pattern — match by suffix since the id is variable.
+		// pattern - match by suffix since the id is variable.
 		if r.URL.Path == "/api/events" || r.URL.Path == "/api/worker/logs" ||
 			(r.Method == http.MethodGet && r.URL.Path == "/mcp") ||
 			(r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/chats/") && strings.HasSuffix(r.URL.Path, "/stream")) {
@@ -776,7 +777,7 @@ func observe(next http.Handler) http.Handler {
 
 // redactPath masks path segments that carry secrets. One-time tokens travel
 // in the URL (/api/auth/token/<raw>); the raw value must never reach a log
-// line. Metrics are unaffected — they label by r.Pattern, not the raw path.
+// line. Metrics are unaffected - they label by r.Pattern, not the raw path.
 func redactPath(path string) string {
 	if strings.HasPrefix(path, "/api/auth/token/") {
 		return "/api/auth/token/[redacted]"
@@ -888,7 +889,7 @@ func validateOverrideLimit(pattern string, limit int64) {
 //
 // overrides maps a registered mux pattern (e.g. "POST /api/images") to a
 // per-route cap. The pattern is recovered from mux.Handler(r), which returns
-// the pattern that would dispatch the request — so templated routes opt in
+// the pattern that would dispatch the request - so templated routes opt in
 // by registering with the same pattern they use on the mux. Requests that do
 // not match any registered pattern fall through to maxBytes.
 func bodyLimitN(maxBytes int64, mux *http.ServeMux, overrides map[string]int64) func(http.Handler) http.Handler {
@@ -969,13 +970,47 @@ func writeError(w http.ResponseWriter, status int, code, message, details string
 	})
 }
 
+// decodeJSON decodes the request body into dst; on failure it writes the
+// canonical 400 response and reports false.
+func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
+	if err := json.NewDecoder(r.Body).Decode(dst); err != nil {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", sanitizeErrorDetails(err))
+
+		return false
+	}
+
+	return true
+}
+
+// decodeJSONAllowEmpty is decodeJSON for endpoints that treat an empty body
+// as valid; dst keeps its zero value when the body is empty.
+func decodeJSONAllowEmpty(w http.ResponseWriter, r *http.Request, dst any) bool {
+	err := json.NewDecoder(r.Body).Decode(dst)
+	if err != nil && !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", sanitizeErrorDetails(err))
+
+		return false
+	}
+
+	return true
+}
+
+func validationDetails(err error) string {
+	var ve *board.ValidationError
+	if errors.As(err, &ve) {
+		return ve.Error()
+	}
+
+	return ""
+}
+
 // handleServiceError maps service/storage errors to HTTP responses.
 //
 // Ordering is load-bearing: specific "resource not found" sentinels must be
 // matched before generic board.Err* validation sentinels. ValidationError
 // wraps a board.Err* sentinel, so errors.Is(err, board.ErrInvalidType) can
 // also be true for a ValidationError that semantically represents a missing
-// parent — without explicit ordering, the parent-not-found case would fall
+// parent - without explicit ordering, the parent-not-found case would fall
 // into the generic 422 branch and lie to the caller.
 //
 // The raw error is logged once at the top with the request's correlation ID
@@ -993,14 +1028,7 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, storage.ErrCardNotFound):
 		writeError(w, http.StatusNotFound, ErrCodeCardNotFound, "card not found", "")
 	case errors.Is(err, board.ErrParentNotFound):
-		var ve *board.ValidationError
-
-		details := ""
-		if errors.As(err, &ve) {
-			details = ve.Error()
-		}
-
-		writeError(w, http.StatusNotFound, ErrCodeParentNotFound, "parent card not found", details)
+		writeError(w, http.StatusNotFound, ErrCodeParentNotFound, "parent card not found", validationDetails(err))
 
 	// --- Conflict sentinels (409) ---
 	case errors.Is(err, storage.ErrProjectExists):
@@ -1010,23 +1038,9 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, storage.ErrCardExists):
 		writeError(w, http.StatusConflict, ErrCodeCardExists, "card already exists", "")
 	case errors.Is(err, board.ErrDependenciesNotMet):
-		var ve *board.ValidationError
-
-		details := ""
-		if errors.As(err, &ve) {
-			details = ve.Error()
-		}
-
-		writeError(w, http.StatusConflict, ErrCodeDependenciesNotMet, "dependencies not met", details)
+		writeError(w, http.StatusConflict, ErrCodeDependenciesNotMet, "dependencies not met", validationDetails(err))
 	case errors.Is(err, board.ErrInvalidTransition):
-		var ve *board.ValidationError
-
-		details := ""
-		if errors.As(err, &ve) {
-			details = ve.Error()
-		}
-
-		writeError(w, http.StatusConflict, ErrCodeInvalidTransition, "invalid state transition", details)
+		writeError(w, http.StatusConflict, ErrCodeInvalidTransition, "invalid state transition", validationDetails(err))
 	case errors.Is(err, service.ErrReviewAttemptsCapped):
 		writeError(w, http.StatusConflict, ErrCodeReviewAttemptsCapped, "review attempts limit reached", sanitizeErrorDetails(err))
 	case errors.Is(err, lock.ErrAlreadyClaimed):
@@ -1054,7 +1068,7 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, storage.ErrInvalidInput):
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid input", sanitizeErrorDetails(err))
 
-	// --- Validation sentinels (422) — mutation body shape/semantics ---
+	// --- Validation sentinels (422) - mutation body shape/semantics ---
 	case errors.Is(err, board.ErrInvalidProjectConfig),
 		errors.Is(err, board.ErrMissingStalledState),
 		errors.Is(err, board.ErrMissingStalledTransitions),
@@ -1065,14 +1079,7 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 		errors.Is(err, board.ErrInvalidAutonomousConfig),
 		errors.Is(err, board.ErrInvalidExternalURL), errors.Is(err, board.ErrInvalidWorkerStatus),
 		errors.Is(err, board.ErrInvalidPhase):
-		var ve *board.ValidationError
-
-		details := ""
-		if errors.As(err, &ve) {
-			details = ve.Error()
-		}
-
-		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "validation error", details)
+		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "validation error", validationDetails(err))
 	case errors.Is(err, service.ErrInvalidPRUrl):
 		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "invalid PR URL", sanitizeErrorDetails(err))
 	case errors.Is(err, service.ErrInvalidModelPin):

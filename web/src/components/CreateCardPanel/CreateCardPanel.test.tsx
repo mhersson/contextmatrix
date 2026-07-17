@@ -76,14 +76,14 @@ function makeProps(overrides?: Partial<Parameters<typeof CreateCardPanel>[0]>) {
   };
 }
 
-describe('CreateCardPanel — bifold shell', () => {
+describe('CreateCardPanel - bifold shell', () => {
   it('omits the Danger Zone tab in create mode', () => {
     render(<CreateCardPanel {...makeProps()} />);
     expect(screen.queryByRole('tab', { name: /Danger/ })).not.toBeInTheDocument();
   });
 });
 
-describe('CreateCardPanel — header action cluster', () => {
+describe('CreateCardPanel - header action cluster', () => {
   it('Create & Run button label tracks the autonomous checkbox', () => {
     render(<CreateCardPanel {...makeProps()} />);
     expect(screen.getByRole('button', { name: /Create & Run HITL/ })).toBeInTheDocument();
@@ -119,7 +119,7 @@ describe('CreateCardPanel — header action cluster', () => {
   });
 });
 
-describe('CreateCardPanel — onCreate contract', () => {
+describe('CreateCardPanel - onCreate contract', () => {
   it('Just create calls onCreate with run=false and the form input', async () => {
     const onCreate = vi.fn().mockResolvedValue(undefined);
     render(<CreateCardPanel {...makeProps({ onCreate })} />);
@@ -168,7 +168,7 @@ describe('CreateCardPanel — onCreate contract', () => {
   });
 });
 
-describe('CreateCardPanel — Best-of-N and Mob at create time', () => {
+describe('CreateCardPanel - Best-of-N and Mob at create time', () => {
   it('shows the Best-of-N and Mob seats selectors in the create panel', () => {
     render(<CreateCardPanel {...makeProps()} />);
     expect(screen.getByLabelText('Best of N')).toBeInTheDocument();
@@ -223,7 +223,7 @@ describe('CreateCardPanel — Best-of-N and Mob at create time', () => {
   });
 });
 
-describe('CreateCardPanel — type templates', () => {
+describe('CreateCardPanel - type templates', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
   });
@@ -299,7 +299,7 @@ describe('CreateCardPanel — type templates', () => {
   });
 });
 
-describe('CreateCardPanel — mobile layout (≤ 768px)', () => {
+describe('CreateCardPanel - mobile layout (≤ 768px)', () => {
   const originalMatchMedia = window.matchMedia;
 
   beforeEach(() => {
@@ -352,7 +352,7 @@ describe('CreateCardPanel — mobile layout (≤ 768px)', () => {
   });
 });
 
-describe('CreateCardPanel — MDEditor preview skipHtml XSS prevention', () => {
+describe('CreateCardPanel - MDEditor preview skipHtml XSS prevention', () => {
   const xssBody = '<iframe src="https://example.com"></iframe>\n<script>alert(\'xss\')</script>\nhello';
 
   it('does not render iframe in the preview pane', async () => {

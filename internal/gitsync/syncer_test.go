@@ -171,7 +171,7 @@ Body.
 	run(t, clone2, "git", "commit", "-m", "add card from remote")
 	run(t, clone2, "git", "push", "origin", "HEAD")
 
-	// Pull on the original clone — should get the new card.
+	// Pull on the original clone - should get the new card.
 	err := syncer.pullRebase(ctx, "test")
 	require.NoError(t, err)
 
@@ -307,7 +307,7 @@ func TestTriggerSync(t *testing.T) {
 func TestNotifyCommit_NonBlocking(t *testing.T) {
 	syncer, _, _, _ := setupSyncTest(t)
 
-	// Send multiple notifications — should not block.
+	// Send multiple notifications - should not block.
 	for range 10 {
 		syncer.NotifyCommit()
 	}
@@ -401,7 +401,7 @@ func TestNewSyncer_PATMode(t *testing.T) {
 }
 
 // TestNewSyncer_PATMode_TokenNotInArgs verifies that the PAT token never
-// appears in git command arguments — it must only travel via environment.
+// appears in git command arguments - it must only travel via environment.
 func TestNewSyncer_PATMode_TokenNotInArgs(t *testing.T) {
 	const token = "ghp_supersecret_should_not_leak"
 
@@ -413,7 +413,7 @@ func TestNewSyncer_PATMode_TokenNotInArgs(t *testing.T) {
 	require.NotNil(t, env)
 
 	// The token (and its base64-encoded credential) must appear exactly once
-	// — in GIT_CONFIG_VALUE_0 only.
+	// - in GIT_CONFIG_VALUE_0 only.
 	expectedCred := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
 
 	for _, e := range env {
@@ -464,12 +464,12 @@ func TestSyncer_PushWithRetry_BlocksOnWriteMu(t *testing.T) {
 	// pushWithRetry must NOT complete while writeMu is held.
 	select {
 	case <-pushDone:
-		t.Fatal("pushWithRetry completed while writeMu was held — expected it to block")
+		t.Fatal("pushWithRetry completed while writeMu was held - expected it to block")
 	case <-time.After(100 * time.Millisecond):
 		// Good: still blocked on LockWrites.
 	}
 
-	// Release the lock — pushWithRetry should acquire it and finish quickly.
+	// Release the lock - pushWithRetry should acquire it and finish quickly.
 	syncer.svc.UnlockWrites()
 
 	select {
@@ -495,7 +495,7 @@ func TestSyncer_PushWithRetry_BlocksOnWriteMu(t *testing.T) {
 	case <-lockAcquired:
 		// Good: lock is not leaked.
 	case <-time.After(1 * time.Second):
-		t.Fatal("writeMu still held after pushWithRetry returned — lock was leaked")
+		t.Fatal("writeMu still held after pushWithRetry returned - lock was leaked")
 	}
 }
 
@@ -525,7 +525,7 @@ func TestSyncer_PushWithRetry_RetryPath_NoDeadlock(t *testing.T) {
 	run(t, clone2, "git", "push", "origin", "HEAD")
 
 	// pushWithRetry should detect non-fast-forward, call pullRebase (which
-	// needs writeMu), then retry the push — all without deadlocking.
+	// needs writeMu), then retry the push - all without deadlocking.
 	done := make(chan error, 1)
 
 	go func() {
@@ -534,7 +534,7 @@ func TestSyncer_PushWithRetry_RetryPath_NoDeadlock(t *testing.T) {
 
 	select {
 	case err := <-done:
-		// The retry path completed. Either success or an error from the push —
+		// The retry path completed. Either success or an error from the push -
 		// both outcomes are valid here; what matters is no deadlock.
 		_ = err
 	case <-time.After(15 * time.Second):
@@ -643,7 +643,7 @@ func TestPeriodicPull_SurvivesPanic(t *testing.T) {
 		t.Fatal("first pull (panic) did not complete within 2s")
 	}
 
-	// Fire the second tick — must reach the success branch.
+	// Fire the second tick - must reach the success branch.
 	fake.Advance(10 * time.Millisecond)
 
 	select {
@@ -710,7 +710,7 @@ func TestPushListener_SurvivesPanic(t *testing.T) {
 		t.Fatal("first push (panic) did not complete within 5s")
 	}
 
-	// Now send the second notification — the loop must still be running.
+	// Now send the second notification - the loop must still be running.
 	syncer.NotifyCommit()
 
 	// Wait for confirmation the second notification was processed.

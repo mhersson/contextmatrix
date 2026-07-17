@@ -64,12 +64,12 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
     mobGuestNames,
     mobExecuteCheckpoints,
   } = useTheme();
-  // Card model pins: CM's served catalog (GET /api/models) — the vendor-
+  // Card model pins: CM's served catalog (GET /api/models) - the vendor-
   // screened OpenRouter list or the endpoint list. Agent path only.
   const catalog = useModelCatalog(taskBackend === 'agent');
   const models = catalog.models.map((m) => m.id);
 
-  // Field-keyed dispatch — a future ModelPinField union extension fails the
+  // Field-keyed dispatch - a future ModelPinField union extension fails the
   // Record exhaustiveness check at compile time instead of silently routing
   // to the wrong setter.
   const pinSetters: Record<ModelPinField, (v: string) => void> = {
@@ -100,7 +100,7 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
   const priorityTint = priorityColors[form.priority] || 'var(--grey1)';
   const projectName = config.name;
 
-  // Left column — labels + description (always editable in create mode).
+  // Left column - labels + description (always editable in create mode).
   const left = (
     <>
       <LabelsSection
@@ -117,7 +117,7 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
     </>
   );
 
-  // Right rail — Automation + Info. No Chat (no worker) and no Danger Zone
+  // Right rail - Automation + Info. No Chat (no worker) and no Danger Zone
   // (the card doesn't exist yet, so there's nothing destructive to do).
   const tabs = [
     {
@@ -280,7 +280,7 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
                 autoFocus
                 className="w-full bg-transparent text-[var(--fg)] focus:outline-none focus:bg-[var(--bg2)] rounded px-1 -mx-1 border border-transparent focus:border-[var(--bg3)]"
                 style={headerTitleStyle}
-                placeholder="Card title — one sentence, imperative ideally"
+                placeholder="Card title - one sentence, imperative ideally"
               />
             </>
           }

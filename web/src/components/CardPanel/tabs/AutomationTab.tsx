@@ -21,10 +21,10 @@ interface AutomationTabProps {
 }
 
 /**
- * Automation rail tab — the checkbox rail + inline activity log. The
+ * Automation rail tab - the checkbox rail + inline activity log. The
  * `onXxxChange` setters inline as fresh arrows here; they aren't stable
  * across renders, but that's fine because AutomationCheckboxes isn't
- * memoised — memoising it would be a placebo given the prop shape.
+ * memoised - memoising it would be a placebo given the prop shape.
  */
 export function AutomationTab({
   card,
@@ -44,7 +44,7 @@ export function AutomationTab({
     taskBackend, favorites: favsByTier, bestOfNMax, bestOfNDefault,
     mobMaxParticipants, mobDefaultParticipants, mobGuestNames, mobExecuteCheckpoints,
   } = useTheme();
-  // Card model pins: CM's served catalog (GET /api/models) — the vendor-
+  // Card model pins: CM's served catalog (GET /api/models) - the vendor-
   // screened OpenRouter list or the endpoint list. Agent path only.
   const catalog = useModelCatalog(taskBackend === 'agent');
   const models = catalog.models.map((m) => m.id);

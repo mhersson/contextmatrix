@@ -10,7 +10,7 @@ interface CardPanelActivityProps {
  * `.bf-act` grid (`/tmp/card-panel-explorer.html:1975-1990`):
  *
  *   ●   <agent>          <relative-time>
- *       <action> — <message>
+ *       <action> - <message>
  *
  * Dot color reflects the action kind (claim, transition/progress, complete,
  * error). Outer wrapper is `.bf-auto-activity` with sticky header.
@@ -49,7 +49,7 @@ export function CardPanelActivity({ activityLog }: CardPanelActivityProps) {
                     <span style={{ color: 'var(--fg)' }}>{entry.action}</span>
                     {entry.message && (
                       <>
-                        <span style={{ color: 'var(--grey1)' }}> — </span>
+                        <span style={{ color: 'var(--grey1)' }}> - </span>
                         <span>{entry.message}</span>
                       </>
                     )}

@@ -4,19 +4,19 @@
 //
 // The package is split across several files along domain axes:
 //
-//   - service.go           — CardService struct, constructor, lifecycle
+//   - service.go           - CardService struct, constructor, lifecycle
 //     accessors, TransitionTo orchestrator, HealthCheck.
-//   - service_cards.go     — Card CRUD + applyCardMutation driver + helpers.
-//   - service_projects.go  — Project CRUD + config/template accessors.
-//   - service_locks.go     — Claim/Release/Heartbeat + stall detection.
-//   - service_usage.go     — Token usage + cost aggregation/recalculation.
-//   - service_worker.go    — Worker lifecycle (push, review attempts, status,
+//   - service_cards.go     - Card CRUD + applyCardMutation driver + helpers.
+//   - service_projects.go  - Project CRUD + config/template accessors.
+//   - service_locks.go     - Claim/Release/Heartbeat + stall detection.
+//   - service_usage.go     - Token usage + cost aggregation/recalculation.
+//   - service_worker.go    - Worker lifecycle (push, review attempts, status,
 //     promote-to-autonomous).
-//   - service_dashboard.go — GetDashboard.
-//   - service_transitions.go — Parent auto-transitions + state-change side
+//   - service_dashboard.go - GetDashboard.
+//   - service_transitions.go - Parent auto-transitions + state-change side
 //     effects shared between the card write path and TransitionTo.
-//   - service_validation.go  — Dependency/reference validators.
-//   - service_git.go         — enqueueCardCommit / awaitCommit /
+//   - service_validation.go  - Dependency/reference validators.
+//   - service_git.go         - enqueueCardCommit / awaitCommit /
 //     flushDeferredCommit / cardPath.
 package service
 
@@ -135,7 +135,7 @@ type CardService struct {
 
 // SetChatCostSummarizer wires a ChatCostSummarizer into the service. Nil-safe:
 // passing nil disables the chat-cost branch in GetDashboard. Safe to call
-// concurrently with GetDashboard — the value is stored atomically.
+// concurrently with GetDashboard - the value is stored atomically.
 func (s *CardService) SetChatCostSummarizer(cs ChatCostSummarizer) {
 	if cs == nil {
 		s.chatCostSummarizer.Store(nil)
@@ -161,14 +161,14 @@ func (s *CardService) chatCostSummarizerOrNil() ChatCostSummarizer {
 // CLOCK COUPLING (IMPORTANT):
 //
 // The service adopts lockMgr.Clock() as its own time source. This is not a
-// cosmetic choice — stall detection, the timeout-checker ticker, and the
+// cosmetic choice - stall detection, the timeout-checker ticker, and the
 // lock manager's stall cutoff all compare timestamps against the same
 // monotonic reading. If these subsystems ran on different clocks, a stall
 // could be detected by the ticker but not by the lock manager (or vice
 // versa) and cards would bounce between states.
 //
 // WARNING: Tests that mock time MUST construct the lock.Manager with their
-// fake clock first — via lock.NewManagerWithClock(fake) — and then pass that
+// fake clock first - via lock.NewManagerWithClock(fake) - and then pass that
 // manager into NewCardService. Passing a real-clock lock.Manager while
 // expecting a fake clock elsewhere will silently produce non-deterministic
 // timing. There is no type-level guard against this; the inferred-from-
@@ -443,7 +443,7 @@ func (s *CardService) transitionStep(
 	// TransitionTo is currently called only by system-driven paths
 	// (stall checker, MCP transition_card without agent context). Tag
 	// the SSE event with "system" so consumers that filter by agent
-	// (e.g. NowRail) don't drop these silently — and the displayed
+	// (e.g. NowRail) don't drop these silently - and the displayed
 	// agent matches the "system" stamp appendStateChangeLog writes
 	// into the activity log.
 	s.bus.Publish(events.Event{
@@ -478,7 +478,7 @@ type CheckResult struct {
 func (s *CardService) HealthCheck(ctx context.Context) []CheckResult {
 	results := make([]CheckResult, 0, 3)
 
-	// Check 1: store — list projects to verify the filesystem store is accessible.
+	// Check 1: store - list projects to verify the filesystem store is accessible.
 	_, err := s.store.ListProjects(ctx)
 	results = append(results, CheckResult{
 		Name: "store",
@@ -486,7 +486,7 @@ func (s *CardService) HealthCheck(ctx context.Context) []CheckResult {
 		Err:  err,
 	})
 
-	// Check 2: git — verify git manager is configured and the repo is accessible.
+	// Check 2: git - verify git manager is configured and the repo is accessible.
 	var gitErr error
 	if s.git == nil {
 		gitErr = fmt.Errorf("git manager not configured")
@@ -500,7 +500,7 @@ func (s *CardService) HealthCheck(ctx context.Context) []CheckResult {
 		Err:  gitErr,
 	})
 
-	// Check 3: session_log — always ok; nil means no task backend (healthy),
+	// Check 3: session_log - always ok; nil means no task backend (healthy),
 	// non-nil means it is operational.
 	results = append(results, CheckResult{
 		Name: "session_log",

@@ -1,9 +1,6 @@
 package api
 
 import (
-	"encoding/json"
-	"errors"
-	"io"
 	"net/http"
 	"strings"
 
@@ -30,9 +27,7 @@ func (h *agentHandlers) claimCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req agentRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", sanitizeErrorDetails(err))
-
+	if !decodeJSONAllowEmpty(w, r, &req) {
 		return
 	}
 
@@ -65,9 +60,7 @@ func (h *agentHandlers) releaseCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req agentRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", sanitizeErrorDetails(err))
-
+	if !decodeJSONAllowEmpty(w, r, &req) {
 		return
 	}
 
@@ -90,7 +83,7 @@ func (h *agentHandlers) releaseCard(w http.ResponseWriter, r *http.Request) {
 
 // extractAgentID returns the caller identity. In multi-user mode the session
 // middleware stamps "human:<username>" into the request context and that
-// ALWAYS wins — a browser cannot claim a different identity via header. The
+// ALWAYS wins - a browser cannot claim a different identity via header. The
 // X-Agent-ID header remains the sole source on machine channels and in
 // single-user mode (where no session middleware runs).
 func extractAgentID(r *http.Request) string {

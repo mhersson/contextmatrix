@@ -32,7 +32,7 @@ export function BoardFooter({
 }: BoardFooterProps) {
   // Local 30s tick so the "Xs ago" portion of the sync label refreshes even
   // when the parent doesn't re-render. Only runs while we have a sync time
-  // to format — if there isn't one, there's nothing to refresh.
+  // to format - if there isn't one, there's nothing to refresh.
   const [now, setNow] = useState(() => Date.now());
   const lastSyncTime = syncStatus?.last_sync_time ?? null;
   useEffect(() => {
@@ -46,7 +46,7 @@ export function BoardFooter({
     ? syncStatus.last_sync_error
     : null;
 
-  // Compute the label from syncStatus. When no status is supplied (rare —
+  // Compute the label from syncStatus. When no status is supplied (rare -
   // tests / detached usage), fall back to a static idle label.
   let computedLabel: string;
   if (syncing) {
@@ -81,7 +81,7 @@ export function BoardFooter({
   ) : null;
 
   // While syncing we render the label as a span (with aria-busy) rather
-  // than a disabled button — keeps the markup honest and avoids the
+  // than a disabled button - keeps the markup honest and avoids the
   // "looks-like-a-button-but-isn't" disabled state.
   const renderSyncContent = () => {
     if (syncing) {

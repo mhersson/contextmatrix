@@ -10,7 +10,7 @@ import (
 )
 
 // TestChatREST validates the chat REST surface (create/get/list/patch/delete)
-// against a real CM with a live SQLite store and no backend configured — the
+// against a real CM with a live SQLite store and no backend configured - the
 // chat routes register whenever the manager is wired.
 func TestChatREST(t *testing.T) {
 	const project = "harness"
@@ -38,7 +38,7 @@ func TestChatREST(t *testing.T) {
 
 	client := bootAdminSession(t, fmt.Sprintf("http://127.0.0.1:%d", sc.cmPort), cm)
 
-	// Create — no project field means a cross-project chat (no container).
+	// Create - no project field means a cross-project chat (no container).
 	var createdChat struct {
 		ID     string `json:"id"`
 		Status string `json:"status"`
@@ -63,7 +63,7 @@ func TestChatREST(t *testing.T) {
 		t.Fatalf("get chat id mismatch: %s vs %s", got.ID, createdChat.ID)
 	}
 
-	// List — the new chat must appear.
+	// List - the new chat must appear.
 	var list []map[string]any
 	if status, body := client.do(t, http.MethodGet, "/api/chats", nil, &list); status != http.StatusOK {
 		t.Fatalf("list chats: HTTP %d body=%s", status, body)

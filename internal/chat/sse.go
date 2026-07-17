@@ -47,7 +47,7 @@ type SSEEvent struct {
 }
 
 // SessionUpdate is the payload of an SSEKindSessionUpdate event. Zero-valued
-// fields mean "unchanged" — the client merges these into its session view.
+// fields mean "unchanged" - the client merges these into its session view.
 // Fields: ContextTokens, ContextTokensUpdatedAt, Model, RehydrationActive,
 // Status, EstimatedCostUSD, PromptTokens, CompletionTokens, CacheReadTokens,
 // CacheCreationTokens.
@@ -60,7 +60,7 @@ type SessionUpdate struct {
 	// omitempty can distinguish "no status change" from a deliberate value.
 	Status *Status `json:"status,omitempty"`
 
-	// Cost and token counters — new running totals after the most recent
+	// Cost and token counters - new running totals after the most recent
 	// IncrementSessionCost call. Zero means "no cost update in this event".
 	EstimatedCostUSD    float64 `json:"estimated_cost_usd,omitempty"`
 	PromptTokens        int64   `json:"prompt_tokens,omitempty"`
@@ -129,7 +129,7 @@ func (h *SSEHub) Publish(sessionID string, e SSEEvent) {
 	defer sh.mu.Unlock()
 
 	// Only persistent transcript events go into the replay ring. Session
-	// updates are pure state push — late subscribers should fetch fresh
+	// updates are pure state push - late subscribers should fetch fresh
 	// state via GET /api/chats/{id} rather than seeing a stale update.
 	if e.Kind == SSEKindMessage {
 		sh.ring = append(sh.ring, e)
@@ -142,7 +142,7 @@ func (h *SSEHub) Publish(sessionID string, e SSEEvent) {
 		select {
 		case s.ch <- e:
 		default:
-			// slow subscriber — drop rather than block the producer
+			// slow subscriber - drop rather than block the producer
 		}
 	}
 }
@@ -166,7 +166,7 @@ func (h *SSEHub) PublishSessionUpdate(sessionID string, u SessionUpdate) {
 //
 // The OnSubscribe callback fires inside the per-session lock so that the
 // (Unsubscribe → OnLastUnsubscribe → Subscribe → OnSubscribe) sequence is
-// strict — a fast resubscribe cannot race the prior unsubscribe's callback
+// strict - a fast resubscribe cannot race the prior unsubscribe's callback
 // and leave a stale grace timer.
 func (h *SSEHub) Subscribe(sessionID string, sinceSeq int64) (<-chan SSEEvent, []SSEEvent, error) {
 	sh := h.hub(sessionID)
@@ -229,10 +229,10 @@ func (h *SSEHub) Drop(sessionID string) {
 // gone and this is a no-op. (The streamChat HTTP handler defers Unsubscribe
 // after Subscribe; when a concurrent DeleteSession runs Drop, the handler's
 // receive loop sees the channel close and returns, then the deferred
-// Unsubscribe arrives — without this lookup-only guard it would resurrect
+// Unsubscribe arrives - without this lookup-only guard it would resurrect
 // the per-session entry and defeat Drop's cleanup.)
 //
-// OnLastUnsubscribe fires inside the per-session lock — see Subscribe for
+// OnLastUnsubscribe fires inside the per-session lock - see Subscribe for
 // the ordering rationale.
 func (h *SSEHub) Unsubscribe(sessionID string, ch <-chan SSEEvent) {
 	h.mu.Lock()
