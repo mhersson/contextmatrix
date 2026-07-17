@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
@@ -97,9 +96,7 @@ func (h *adminHandlers) createUser(w http.ResponseWriter, r *http.Request) {
 		IsAdmin     bool   `json:"is_admin"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", "")
-
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 
@@ -135,9 +132,7 @@ func (h *adminHandlers) patchUser(w http.ResponseWriter, r *http.Request) {
 		Disabled    *bool   `json:"disabled"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", "")
-
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 

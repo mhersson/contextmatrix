@@ -228,9 +228,7 @@ func (h *chatHandlers) createChat(w http.ResponseWriter, r *http.Request) {
 		Project string `json:"project"`
 		Model   string `json:"model"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid body", err.Error())
-
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 
@@ -483,9 +481,7 @@ func (h *chatHandlers) sendMessage(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Content string `json:"content"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid body", err.Error())
-
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 
@@ -579,9 +575,7 @@ func (h *chatHandlers) patchChat(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Title *string `json:"title,omitempty"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid body", err.Error())
-
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 

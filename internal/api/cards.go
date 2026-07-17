@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -395,9 +394,7 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req createCardRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", sanitizeErrorDetails(err))
-
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 
@@ -505,9 +502,7 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req updateCardRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", sanitizeErrorDetails(err))
-
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 
@@ -613,9 +608,7 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req patchCardRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", sanitizeErrorDetails(err))
-
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 

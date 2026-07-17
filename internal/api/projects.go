@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 
 	"github.com/mhersson/contextmatrix/internal/board"
@@ -138,9 +137,7 @@ func (h *projectHandlers) createProject(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var req createProjectRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid request body", sanitizeErrorDetails(err))
-
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 
@@ -191,9 +188,7 @@ func (h *projectHandlers) updateProject(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var req updateProjectRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid request body", sanitizeErrorDetails(err))
-
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 
@@ -298,9 +293,7 @@ func (h *projectHandlers) recalculateCosts(w http.ResponseWriter, r *http.Reques
 	}
 
 	var req recalculateCostsRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid request body", sanitizeErrorDetails(err))
-
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 

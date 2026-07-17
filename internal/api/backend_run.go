@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"net/http"
@@ -65,13 +64,8 @@ func (h *backendHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 	var runBody struct {
 		Interactive bool `json:"interactive"`
 	}
-	if r.Body != nil && r.ContentLength != 0 {
-		// Tolerate empty body - only parse when there's content.
-		if decodeErr := json.NewDecoder(r.Body).Decode(&runBody); decodeErr != nil {
-			writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", "")
-
-			return
-		}
+	if !decodeJSONAllowEmpty(w, r, &runBody) {
+		return
 	}
 
 	if card.State != board.StateTodo {

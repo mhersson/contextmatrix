@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"regexp"
@@ -969,6 +970,40 @@ func writeError(w http.ResponseWriter, status int, code, message, details string
 	})
 }
 
+// decodeJSON decodes the request body into dst; on failure it writes the
+// canonical 400 response and reports false.
+func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
+	if err := json.NewDecoder(r.Body).Decode(dst); err != nil {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", sanitizeErrorDetails(err))
+
+		return false
+	}
+
+	return true
+}
+
+// decodeJSONAllowEmpty is decodeJSON for endpoints that treat an empty body
+// as valid; dst keeps its zero value when the body is empty.
+func decodeJSONAllowEmpty(w http.ResponseWriter, r *http.Request, dst any) bool {
+	err := json.NewDecoder(r.Body).Decode(dst)
+	if err != nil && !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", sanitizeErrorDetails(err))
+
+		return false
+	}
+
+	return true
+}
+
+func validationDetails(err error) string {
+	var ve *board.ValidationError
+	if errors.As(err, &ve) {
+		return ve.Error()
+	}
+
+	return ""
+}
+
 // handleServiceError maps service/storage errors to HTTP responses.
 //
 // Ordering is load-bearing: specific "resource not found" sentinels must be
@@ -993,14 +1028,7 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, storage.ErrCardNotFound):
 		writeError(w, http.StatusNotFound, ErrCodeCardNotFound, "card not found", "")
 	case errors.Is(err, board.ErrParentNotFound):
-		var ve *board.ValidationError
-
-		details := ""
-		if errors.As(err, &ve) {
-			details = ve.Error()
-		}
-
-		writeError(w, http.StatusNotFound, ErrCodeParentNotFound, "parent card not found", details)
+		writeError(w, http.StatusNotFound, ErrCodeParentNotFound, "parent card not found", validationDetails(err))
 
 	// --- Conflict sentinels (409) ---
 	case errors.Is(err, storage.ErrProjectExists):
@@ -1010,23 +1038,9 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, storage.ErrCardExists):
 		writeError(w, http.StatusConflict, ErrCodeCardExists, "card already exists", "")
 	case errors.Is(err, board.ErrDependenciesNotMet):
-		var ve *board.ValidationError
-
-		details := ""
-		if errors.As(err, &ve) {
-			details = ve.Error()
-		}
-
-		writeError(w, http.StatusConflict, ErrCodeDependenciesNotMet, "dependencies not met", details)
+		writeError(w, http.StatusConflict, ErrCodeDependenciesNotMet, "dependencies not met", validationDetails(err))
 	case errors.Is(err, board.ErrInvalidTransition):
-		var ve *board.ValidationError
-
-		details := ""
-		if errors.As(err, &ve) {
-			details = ve.Error()
-		}
-
-		writeError(w, http.StatusConflict, ErrCodeInvalidTransition, "invalid state transition", details)
+		writeError(w, http.StatusConflict, ErrCodeInvalidTransition, "invalid state transition", validationDetails(err))
 	case errors.Is(err, service.ErrReviewAttemptsCapped):
 		writeError(w, http.StatusConflict, ErrCodeReviewAttemptsCapped, "review attempts limit reached", sanitizeErrorDetails(err))
 	case errors.Is(err, lock.ErrAlreadyClaimed):
@@ -1065,14 +1079,7 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 		errors.Is(err, board.ErrInvalidAutonomousConfig),
 		errors.Is(err, board.ErrInvalidExternalURL), errors.Is(err, board.ErrInvalidWorkerStatus),
 		errors.Is(err, board.ErrInvalidPhase):
-		var ve *board.ValidationError
-
-		details := ""
-		if errors.As(err, &ve) {
-			details = ve.Error()
-		}
-
-		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "validation error", details)
+		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "validation error", validationDetails(err))
 	case errors.Is(err, service.ErrInvalidPRUrl):
 		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "invalid PR URL", sanitizeErrorDetails(err))
 	case errors.Is(err, service.ErrInvalidModelPin):

@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -73,9 +72,7 @@ func (h *adminHandlers) createCredential(w http.ResponseWriter, r *http.Request)
 		Secret         string `json:"secret"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", "")
-
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 
@@ -126,9 +123,7 @@ func (h *adminHandlers) putCredential(w http.ResponseWriter, r *http.Request) {
 		Disabled       *bool   `json:"disabled"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", "")
-
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 

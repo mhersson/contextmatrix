@@ -1,9 +1,6 @@
 package api
 
 import (
-	"encoding/json"
-	"errors"
-	"io"
 	"net/http"
 	"strings"
 
@@ -30,9 +27,7 @@ func (h *agentHandlers) claimCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req agentRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", sanitizeErrorDetails(err))
-
+	if !decodeJSONAllowEmpty(w, r, &req) {
 		return
 	}
 
@@ -65,9 +60,7 @@ func (h *agentHandlers) releaseCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req agentRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid JSON body", sanitizeErrorDetails(err))
-
+	if !decodeJSONAllowEmpty(w, r, &req) {
 		return
 	}
 
