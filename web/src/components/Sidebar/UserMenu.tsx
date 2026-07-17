@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useOptionalAuth } from '../../hooks/useAuth';
+import { useMenuDismiss } from '../../hooks/useMenuDismiss';
 import { ChangePasswordModal } from '../Auth/ChangePasswordModal';
 
 /**
@@ -26,28 +27,7 @@ export function UserMenu({ onNavigate }: { onNavigate?: () => void } = {}) {
     navigate(path);
   };
 
-  useEffect(() => {
-    if (!open) return;
-
-    function handleMouseDown(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    }
-
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
-        setOpen(false);
-      }
-    }
-
-    document.addEventListener('mousedown', handleMouseDown);
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', handleMouseDown);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [open]);
+  useMenuDismiss(containerRef, open, () => setOpen(false));
 
   if (!auth || auth.mode !== 'multi' || !auth.user) return null;
 

@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import type { AvailableChat, Slot } from './types';
 import { PaneAccentStripe } from './PaneAccentStripe';
 import { useChatLiveData } from '../../hooks/useChatLiveData';
+import { useMenuDismiss } from '../../hooks/useMenuDismiss';
 import { contextPct, formatCostTooltip, modelMaxTokens, useChatModels, usageColor } from '../../utils/chatModels';
 import {
   PANE_SOURCE_MIME,
@@ -44,24 +45,7 @@ export function PaneHeader({
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRootRef = useRef<HTMLDivElement | null>(null);
 
-  // Close the menu on any outside click. Captured at the document level so
-  // clicks anywhere outside the pane header (other panes, sidebar, body)
-  // dismiss it. Esc also closes.
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onDocClick = (e: MouseEvent) => {
-      if (!menuRootRef.current?.contains(e.target as Node)) setMenuOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setMenuOpen(false);
-    };
-    document.addEventListener('mousedown', onDocClick);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onDocClick);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [menuOpen]);
+  useMenuDismiss(menuRootRef, menuOpen, () => setMenuOpen(false));
 
   const title = chatId ? (chat?.title ?? chatId) : 'empty pane';
   const titleStyle = chatId ? undefined : { color: 'var(--grey1)' };
