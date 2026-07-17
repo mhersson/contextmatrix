@@ -193,12 +193,12 @@ export function PaneHeader({
 /**
  * Compact model + context-usage display for the pane header. The live
  * chat-stream data (context_tokens, model) is published by ChatThread into a
- * module-level store (useChatLiveData) so the PaneHeader — a sibling above
- * ChatThread — can read it without prop-drilling. Falls back to the model
+ * module-level store (useChatLiveData) so the PaneHeader - a sibling above
+ * ChatThread - can read it without prop-drilling. Falls back to the model
  * id from the persisted session row until the first session_updated event
  * arrives. Hidden entirely when no model is known. The context window
  * denominator always comes from `GET /api/chats/models` (`useChatModels`),
- * in every source mode — config, endpoint, and openrouter alike.
+ * in every source mode - config, endpoint, and openrouter alike.
  */
 function PaneContextUsage({ chatId, fallbackModel }: { chatId: string; fallbackModel?: string }) {
   const live = useChatLiveData(chatId);

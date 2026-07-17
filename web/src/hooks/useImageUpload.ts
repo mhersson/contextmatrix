@@ -3,7 +3,7 @@ import { api } from '../api/client';
 
 // Client-side guards that mirror the server's validation so users get
 // immediate feedback instead of a round-trip rejection.
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MiB — matches server MaxUploadBytes
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MiB - matches server MaxUploadBytes
 const ALLOWED_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
 // Maximum number of uploads that may be in flight simultaneously.
 const MAX_CONCURRENT = 3;
@@ -14,7 +14,7 @@ const MAX_CONCURRENT = 3;
  * four input-event handlers. The consumer owns the hidden `<input
  * type="file">` element and its ref, attaches `handleFileSelect` to that
  * input's `onChange`, and triggers the picker by calling `.click()` on its
- * own ref — keeping all ref handling outside the hook so the React refs
+ * own ref - keeping all ref handling outside the hook so the React refs
  * lint rule sees no ref reads through this object.
  *
  * Each upload is sent through `api.uploadImage` and the resulting `![](url)`
@@ -80,7 +80,7 @@ export function useImageUpload(onInsert: (url: string) => void): UseImageUpload 
         return;
       }
       if (inflightRef.current >= MAX_CONCURRENT) {
-        setUploadError(`Too many simultaneous uploads — please wait for the current uploads to finish.`);
+        setUploadError(`Too many simultaneous uploads - please wait for the current uploads to finish.`);
         return;
       }
       inflightRef.current += 1;
@@ -89,7 +89,7 @@ export function useImageUpload(onInsert: (url: string) => void): UseImageUpload 
         const result = await api.uploadImage(file, controller.signal);
         if (controller.signal.aborted) return;
         onInsert(result.url);
-        // Clear stale error only on a successful upload — failures from
+        // Clear stale error only on a successful upload - failures from
         // earlier files should not vanish silently when a later file
         // succeeds first, but a clean success means there's nothing to
         // report any more.

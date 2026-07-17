@@ -227,7 +227,7 @@ func TestEndSessionSubscriber_MidWorkflow_NoCall(t *testing.T) {
 // verifies the subscriber fires on terminal + released, ignoring
 // worker_status. A card whose worker_status has drifted to "" (or
 // "completed", "failed") but still has a live container on the backend must
-// still get a /kill — the backend's /kill is idempotent, so a spurious call
+// still get a /kill - the backend's /kill is idempotent, so a spurious call
 // against an already-dead container is a 200 no-op, and silent-skip bugs
 // around worker_status drift are eliminated at the source.
 func TestEndSessionSubscriber_TerminalAndReleased_FiresRegardlessOfWorkerStatus(t *testing.T) {
@@ -239,7 +239,7 @@ func TestEndSessionSubscriber_TerminalAndReleased_FiresRegardlessOfWorkerStatus(
 			ID:            "SUB-001",
 			State:         "done",
 			AssignedAgent: "",
-			// Empty worker_status — the subscriber fires anyway because
+			// Empty worker_status - the subscriber fires anyway because
 			// the card is terminal and released, which is all the truth
 			// it needs.
 			WorkerStatus: "",
@@ -363,13 +363,13 @@ func TestEndSessionSubscriber_WebhookError_NoCrash(t *testing.T) {
 	bus.Publish(events.Event{Type: events.CardReleased, Project: "proj", CardID: "C-001"})
 
 	waitForCalls(t, fc, 1)
-	// Kill is the safety net — even if end-session errors, kill must still
+	// Kill is the safety net - even if end-session errors, kill must still
 	// fire so a wedged container can't outlive the terminal state.
 	waitForKillCalls(t, fc, 1)
 }
 
 // TestEndSessionSubscriber_EndSession409_KillStillFires verifies that a 409
-// from /end-session (autonomous container — no stdin attached) doesn't
+// from /end-session (autonomous container - no stdin attached) doesn't
 // prevent the follow-up /kill. This is the common path for pure-autonomous
 // runs that reach a terminal state: there's no interactive stdin to close,
 // but the container must still be terminated.

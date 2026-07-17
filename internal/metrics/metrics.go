@@ -120,7 +120,7 @@ var (
 	// commit fails AND the subsequent cache+disk rollback also fails. When
 	// non-zero, the cache and on-disk state for the named card are
 	// inconsistent until manual intervention. Operators should alert on
-	// any non-zero value — every increment is a data-integrity event.
+	// any non-zero value - every increment is a data-integrity event.
 	RollbackFailuresTotal = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "contextmatrix_rollback_failures_total",
 		Help: "Card-mutation rollback failures after a commit failure (cache + disk left inconsistent).",

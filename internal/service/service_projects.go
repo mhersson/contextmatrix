@@ -42,23 +42,23 @@ type UpdateProjectInput struct {
 	Transitions map[string][]string
 	GitHub      *board.GitHubImportConfig
 	// GitHubCredential uses pointer-presence semantics (matches GitHub above):
-	//   nil pointer   — preserve the existing value
-	//   non-nil ""    — clear the binding (fall back to the instance credential)
-	//   non-nil value — set the binding to this pool entry name
+	//   nil pointer   - preserve the existing value
+	//   non-nil ""    - clear the binding (fall back to the instance credential)
+	//   non-nil value - set the binding to this pool entry name
 	GitHubCredential *string
 	// DefaultSkills uses wholesale-PUT semantics (replaces existing):
-	//   nil pointer       — clear (mount the full task-skills set)
-	//   non-nil empty     — mount no skills
-	//   non-nil populated — constrain to listed skills
+	//   nil pointer       - clear (mount the full task-skills set)
+	//   non-nil empty     - mount no skills
+	//   non-nil populated - constrain to listed skills
 	DefaultSkills *[]string
 	// RemoteExecution uses field-level merge semantics (unlike DefaultSkills'
 	// wholesale replace):
-	//   nil pointer   — preserve the existing remote_execution config
-	//   non-nil       — merge each set subfield into the existing config
+	//   nil pointer   - preserve the existing remote_execution config
+	//   non-nil       - merge each set subfield into the existing config
 	RemoteExecution *RemoteExecutionUpdate
 	// Verify uses replace-whole-struct semantics:
-	//   nil pointer   — preserve the existing verify config
-	//   non-nil       — replace it wholesale, then normalize (zero value → nil)
+	//   nil pointer   - preserve the existing verify config
+	//   non-nil       - replace it wholesale, then normalize (zero value → nil)
 	Verify *board.VerifyConfig
 }
 
@@ -78,7 +78,7 @@ type RemoteExecutionUpdate struct {
 var validWorkerImage = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._:/@-]*$`)
 
 // maxWorkerImageLen caps the worker image reference length before it reaches
-// .board.yaml. Hygiene only — well above any real image reference.
+// .board.yaml. Hygiene only - well above any real image reference.
 const maxWorkerImageLen = 512
 
 // validProjectName matches safe directory names: alphanumeric, hyphens, underscores.
@@ -397,7 +397,7 @@ func (s *CardService) rollbackProjectUpdateOnCommitFailure(
 // project tree is snapshotted into an in-memory buffer. If the git commit
 // fails, the snapshot is written back to disk and the store's on-disk view
 // is reconciled with a targeted ReloadIndex so the project reappears in the
-// cache. This is self-contained — no GitManager API change — and safe for a
+// cache. This is self-contained - no GitManager API change - and safe for a
 // project being deleted because the invariant is zero cards, so the tree is
 // small (.board.yaml plus any template files).
 func (s *CardService) DeleteProject(ctx context.Context, name string) error {
@@ -432,7 +432,7 @@ func (s *CardService) DeleteProject(ctx context.Context, name string) error {
 		return fmt.Errorf("delete project: %w", err)
 	}
 
-	// Git commit. CommitAll stages everything — the now-absent project dir
+	// Git commit. CommitAll stages everything - the now-absent project dir
 	// is recorded as deletions. Route through the commit queue when
 	// configured so a failing committer injected by tests can exercise the
 	// rollback path; fall back to an inline Manager call otherwise.
@@ -535,7 +535,7 @@ func (s *CardService) rollbackProjectDeleteOnCommitFailure(
 // reloadStoreIndex invokes the store's ReloadIndex method when available.
 // Used by the project-delete rollback to re-pick up a restored project. The
 // storage.Store interface does not declare ReloadIndex, but the concrete
-// FilesystemStore does — and that's the only implementation in production
+// FilesystemStore does - and that's the only implementation in production
 // use. Tests using alternative Store fakes simply skip this step.
 func (s *CardService) reloadStoreIndex(ctx context.Context) error {
 	type reloader interface {
@@ -568,7 +568,7 @@ type snapshotEntry struct {
 
 // snapshotProjectDir walks dir and records every file/directory (excluding
 // symlinks) into a projectDirSnapshot. Missing dir yields an empty
-// snapshot — the caller can still use it to "restore" a nonexistent dir
+// snapshot - the caller can still use it to "restore" a nonexistent dir
 // (no-op).
 func snapshotProjectDir(dir string) (*projectDirSnapshot, error) {
 	snap := &projectDirSnapshot{}
@@ -583,7 +583,7 @@ func snapshotProjectDir(dir string) (*projectDirSnapshot, error) {
 			return walkErr
 		}
 
-		// Skip symlinks defensively — the store rejects them, but be safe.
+		// Skip symlinks defensively - the store rejects them, but be safe.
 		if d.Type()&fs.ModeSymlink != 0 {
 			return nil
 		}
@@ -729,7 +729,7 @@ func copyProjectConfig(cfg *board.ProjectConfig) *board.ProjectConfig {
 
 // validateWorkerImage screens a per-project worker image reference for hygiene
 // only (length + allowed characters); exact OCI reference grammar is left to
-// the container runtime. Empty is allowed — it clears the image. field names
+// the container runtime. Empty is allowed - it clears the image. field names
 // the offending key in the error. Wraps ErrInvalidProjectConfig so the API
 // layer maps it to 422, matching the other project-config validation failures.
 func validateWorkerImage(field, image string) error {

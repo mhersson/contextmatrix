@@ -107,7 +107,7 @@ func sessionGuard(svc *auth.Service) func(http.Handler) http.Handler {
 					r = r.WithContext(withSessionIdentity(r.Context(), user))
 				} else {
 					// The browser presented a cookie that no longer maps to a
-					// live session — expire it so subsequent requests stop
+					// live session - expire it so subsequent requests stop
 					// re-sending (and re-validating) the dead value.
 					clearSessionCookie(w, r)
 				}
@@ -126,7 +126,7 @@ func sessionGuard(svc *auth.Service) func(http.Handler) http.Handler {
 
 // sessionExempt lists the paths reachable without a session in multi mode.
 // Browser-facing routes under a machine prefix are carved back OUT of the
-// exemption — any new browser route must be gated, not exempted.
+// exemption - any new browser route must be gated, not exempted.
 func sessionExempt(r *http.Request) bool {
 	path := r.URL.Path
 
@@ -152,11 +152,11 @@ func sessionExempt(r *http.Request) bool {
 		strings.HasPrefix(path, "/api/chat/"),
 		strings.HasPrefix(path, "/api/v1/"):
 		// HMAC-signed backend-callback space (and the backend-called
-		// autonomous check) — machine channels with their own auth.
+		// autonomous check) - machine channels with their own auth.
 		return true
 	case strings.HasPrefix(path, "/api/worker/"):
 		// Bearer-authed worker-callback space (GET /api/worker/git-credentials)
-		// — its own per-session auth, independent of the session cookie.
+		// - its own per-session auth, independent of the session cookie.
 		// Mirrors /mcp's treatment: a machine channel with its own auth, not a
 		// browser route.
 		return true
@@ -208,7 +208,7 @@ func (h *authHandlers) login(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Uniform 401 — never reveals whether the username exists.
+		// Uniform 401 - never reveals whether the username exists.
 		writeError(w, http.StatusUnauthorized, ErrCodeUnauthorized, "invalid credentials", "")
 
 		return
@@ -228,7 +228,7 @@ func (h *authHandlers) logout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// getSession handles GET /api/auth/session — "who am I". The path is
+// getSession handles GET /api/auth/session - "who am I". The path is
 // session-exempt (login page probes it), so the handler enforces auth itself.
 func (h *authHandlers) getSession(w http.ResponseWriter, r *http.Request) {
 	user := sessionUserFromContext(r.Context())
@@ -256,7 +256,7 @@ func (h *authHandlers) inspectToken(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// redeemToken handles POST /api/auth/token/{token} — burns the token, sets
+// redeemToken handles POST /api/auth/token/{token} - burns the token, sets
 // the password (creating the admin account for bootstrap), and auto-logs-in.
 func (h *authHandlers) redeemToken(w http.ResponseWriter, r *http.Request) {
 	rawToken := r.PathValue("token")
@@ -300,7 +300,7 @@ func (h *authHandlers) redeemToken(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, authstore.ErrDuplicate):
 			writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "username already taken", "")
 		case errors.Is(err, auth.ErrNotBootstrappable):
-			writeError(w, http.StatusConflict, ErrCodeValidationError, "users already exist — bootstrap is closed", "")
+			writeError(w, http.StatusConflict, ErrCodeValidationError, "users already exist - bootstrap is closed", "")
 		default:
 			writeTokenError(w, err)
 		}
@@ -362,7 +362,7 @@ func writeTokenError(w http.ResponseWriter, err error) {
 	case errors.Is(err, auth.ErrTokenSpent):
 		writeError(w, http.StatusGone, ErrCodeTokenInvalid, "link already used", "")
 	case errors.Is(err, auth.ErrTokenExpired):
-		writeError(w, http.StatusGone, ErrCodeTokenInvalid, "link expired — ask an admin for a new one", "")
+		writeError(w, http.StatusGone, ErrCodeTokenInvalid, "link expired - ask an admin for a new one", "")
 	default:
 		writeError(w, http.StatusNotFound, ErrCodeTokenInvalid, "unknown link", "")
 	}

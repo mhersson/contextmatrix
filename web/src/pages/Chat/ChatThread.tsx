@@ -61,7 +61,7 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true }: Ch
     } as ChatSession;
   }, [session, sessionUpdate]);
 
-  // Reset local state synchronously when the sessionID prop changes — see
+  // Reset local state synchronously when the sessionID prop changes - see
   // web/CLAUDE.md § CardPanel for why this lives in render, not useEffect.
   const [prevSessionID, setPrevSessionID] = useState(sessionID);
   if (sessionID !== prevSessionID) {
@@ -88,7 +88,7 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true }: Ch
   // Re-fetch the session whenever the sidebar's chat list refreshes (which
   // fires after any external state-changing action: Reopen / End / Delete
   // from another pane, NewChatDialog, etc). Without this, the local
-  // `session.status` stays at whatever GetChat returned on mount — so e.g.
+  // `session.status` stays at whatever GetChat returned on mount - so e.g.
   // clicking "Reopen" from the pane header would flip the backend to
   // active but the compose box would keep showing "Waiting for worker…".
   //
@@ -107,7 +107,7 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true }: Ch
         if (!alive) return;
         api.getChat(sessionID)
           .then((s) => { if (alive) setSession(s); })
-          .catch(() => { /* transient — next event will retry */ });
+          .catch(() => { /* transient - next event will retry */ });
       }, 75);
     };
     window.addEventListener(CHAT_SESSIONS_CHANGED_EVENT, handler);
@@ -126,17 +126,17 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true }: Ch
     try {
       window.localStorage.setItem('last_chat_id', sessionID);
     } catch {
-      // Storage disabled (privacy mode, quota) — non-fatal.
+      // Storage disabled (privacy mode, quota) - non-fatal.
     }
   }, [sessionID, embedded]);
 
   // Refresh the sidebar's session list whenever this chat's status changes
   // (cold → active after Reopen, active → ending after End, etc). Backend
   // doesn't broadcast status updates over SSE, so each ChatThread is the
-  // first to learn — propagate via the existing notify event.
+  // first to learn - propagate via the existing notify event.
   //
   // Sentinel: undefined means "not yet seen". The first time merged resolves
-  // we record the status silently (no notification) — this avoids a
+  // we record the status silently (no notification) - this avoids a
   // spurious refetch on every ChatThread mount.
   const lastNotifiedStatusRef = useRef<ChatSession['status'] | undefined>(undefined);
   useEffect(() => {
@@ -177,7 +177,7 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true }: Ch
 
   // Suppress the "Restoring workspace…" banner once the user has successfully
   // sent at least one message in this session. If they're chatting, the worker
-  // is clearly ready — the rehydration_active flag can stick true forever when
+  // is clearly ready - the rehydration_active flag can stick true forever when
   // the agent forgets to call chat_rehydration_complete (per the
   // sweepStaleRehydration comment in internal/chat/reaper.go). This is a UX
   // workaround for that backend signaling gap; the reaper still clears the
@@ -243,7 +243,7 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true }: Ch
             aria-hidden="true"
           />
           <span>
-            Restoring workspace from prior session — the agent is re-establishing
+            Restoring workspace from prior session - the agent is re-establishing
             context (cloning repos, restoring branches). You can start typing as
             soon as it announces it's ready.
           </span>

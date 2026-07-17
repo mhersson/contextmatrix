@@ -130,7 +130,7 @@ func TestFake_TickerCoalescesMultipleIntervals(t *testing.T) {
 	default:
 	}
 
-	// Ticker should still work after the big jump — advance to the next
+	// Ticker should still work after the big jump - advance to the next
 	// scheduled tick and verify it fires.
 	f.Advance(10 * time.Millisecond)
 
@@ -182,7 +182,7 @@ func TestFake_MultipleAfterConcurrent(t *testing.T) {
 
 	// Wait deterministically for all n goroutines to have registered their
 	// timers with the fake clock. Uses PendingTimers(), the clock's own view
-	// of registered work — no wall-clock wait.
+	// of registered work - no wall-clock wait.
 	require.Eventually(t, func() bool {
 		return f.PendingTimers() == n
 	}, 2*time.Second, time.Millisecond, "goroutines did not register timers")

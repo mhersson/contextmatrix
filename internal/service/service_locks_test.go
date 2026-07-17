@@ -106,7 +106,7 @@ func TestMarkCardStalled_RejectsInvariantViolation(t *testing.T) {
 // setupParentWithSubtask creates a parent card plus one subtask, then drives
 // the subtask through the real transition path. Moving the subtask to
 // in_progress auto-transitions the parent todo→in_progress
-// (maybeTransitionParent), leaving the parent in_progress + UNCLAIMED — exactly
+// (maybeTransitionParent), leaving the parent in_progress + UNCLAIMED - exactly
 // the state a live run leaves a parent in while its subtasks execute, and the
 // state FindStalled can never reach because it only scans claimed cards. When
 // subtaskState is not in_progress the subtask is then transitioned on to that
@@ -148,7 +148,7 @@ func setupParentWithSubtask(t *testing.T, svc *CardService, subtaskState string)
 // TestProcessAbandonedParents_ReapsStuckParent pins the janitor's core job: a
 // parent left in_progress + unclaimed after its whole run died (no active
 // subtask, untouched past the stall timeout) is reaped to stalled. FindStalled
-// never covers it — the parent carries no claim — so without this sweep it is
+// never covers it - the parent carries no claim - so without this sweep it is
 // stuck forever.
 func TestProcessAbandonedParents_ReapsStuckParent(t *testing.T) {
 	svc, fake, cleanup := newStalledTestService(t)
@@ -260,7 +260,7 @@ func TestMarkCardStalled_NormalizesWorkerStatus(t *testing.T) {
 // branch directly: a stub that always returns an error must short-circuit
 // the persist, leaving the card in its pre-stall state with the claim
 // intact. This guards against a future regression that removes the
-// validateStalledCardFn call from markCardStalled — without the gate, the
+// validateStalledCardFn call from markCardStalled - without the gate, the
 // card would be persisted as stalled despite the validator's veto.
 func TestMarkCardStalled_PersistGatedByValidator(t *testing.T) {
 	svc, fake, cleanup := newStalledTestService(t)
@@ -291,7 +291,7 @@ func TestMarkCardStalled_PersistGatedByValidator(t *testing.T) {
 	err = svc.markCardStalled(ctx, lock.StalledCard{Project: "test-project", Card: claimed})
 	require.ErrorIs(t, err, rejected)
 
-	// Card must NOT have been persisted with state=stalled — the validator
+	// Card must NOT have been persisted with state=stalled - the validator
 	// rejection short-circuits UpdateCard. The pre-stall claim must remain.
 	got, err := svc.store.GetCard(ctx, "test-project", card.ID)
 	require.NoError(t, err)

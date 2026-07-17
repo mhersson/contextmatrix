@@ -9,17 +9,17 @@ interface ChatsTableProps {
 }
 
 function fmtCost(v?: number): string {
-  return v != null && v > 0 ? `$${v.toFixed(2)}` : '—';
+  return v != null && v > 0 ? `$${v.toFixed(2)}` : ' - ';
 }
 
 function fmtWhen(iso: string): string {
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString();
+  return Number.isNaN(d.getTime()) ? ' - ' : d.toLocaleString();
 }
 
 /** Presentational table for the admin chats page. End is offered for any
  * non-cold session; Delete always. Deliberately renders no link into a
- * transcript — this surface is metadata + lifecycle only. */
+ * transcript - this surface is metadata + lifecycle only. */
 export function ChatsTable({ chats, loading, error, onEnd, onDelete }: ChatsTableProps) {
   if (loading) {
     return (
@@ -64,7 +64,7 @@ export function ChatsTable({ chats, loading, error, onEnd, onDelete }: ChatsTabl
             <tr key={c.id} className="border-t" style={{ borderColor: 'var(--bg3)' }}>
               <td className="px-4 py-2">{c.title || c.id}</td>
               <td className="px-4 py-2 font-mono text-xs">{c.created_by}</td>
-              <td className="px-4 py-2">{c.project || '—'}</td>
+              <td className="px-4 py-2">{c.project || ' - '}</td>
               <td className="px-4 py-2">{c.status}</td>
               <td className="px-4 py-2">{fmtCost(c.estimated_cost_usd)}</td>
               <td className="px-4 py-2">{fmtWhen(c.last_active)}</td>

@@ -5,7 +5,7 @@
 // at maxConcurrentDecodes goroutines. Each slot may allocate up to ~128 MiB of
 // RGBA pixel data (maxPixels × 4 bytes), so the worst-case resident increase is
 // maxConcurrentDecodes × ~128 MiB. Callers that exceed the cap block until a
-// slot becomes available — they are not rejected.
+// slot becomes available - they are not rejected.
 package images
 
 import (
@@ -25,7 +25,7 @@ import (
 
 // MaxUploadBytes caps the raw-byte size of any image accepted by Process and,
 // transitively, by the upload handler and middleware. Exported so the HTTP
-// layer can size its own caps off the same source of truth — the user-facing
+// layer can size its own caps off the same source of truth - the user-facing
 // "exceeds N MB" message and the bodyLimit envelope must never drift from this.
 const MaxUploadBytes = 10 << 20 // 10 MiB
 
@@ -38,7 +38,7 @@ const (
 // maxPixels caps the *decoded* image area before we materialize an RGBA
 // buffer. A highly-compressed PNG (e.g. solid colour) can decode to enormous
 // dimensions and trigger a ~4*W*H byte allocation that OOM-kills the server
-// — the so-called "decompression bomb" pattern. 32 megapixels (≈5800x5800)
+// - the so-called "decompression bomb" pattern. 32 megapixels (≈5800x5800)
 // peaks at ~128 MB RGBA per image, giving defense-in-depth against
 // concurrent decode storms while still admitting any legitimate cropped
 // screenshot (the resize step caps egress at 1024x768 regardless).
@@ -137,7 +137,7 @@ func validateDims(width, height int) error {
 }
 
 func processStdlib(raw []byte, ct string, dec decoder, enc encoder) ([]byte, string, error) {
-	// DecodeConfig reads only the header — verify the format and bound the
+	// DecodeConfig reads only the header - verify the format and bound the
 	// pixel area before we let the full decoder allocate a backing buffer.
 	cfg, _, err := image.DecodeConfig(bytes.NewReader(raw))
 	if err != nil {
@@ -152,7 +152,7 @@ func processStdlib(raw []byte, ct string, dec decoder, enc encoder) ([]byte, str
 	if err != nil {
 		// Header was acceptable but the full decoder rejected the body.
 		// That is still a malformed-content problem, not a server-internal
-		// one — map to ErrUnsupportedFormat (handler → 415) for parity
+		// one - map to ErrUnsupportedFormat (handler → 415) for parity
 		// with the GIF path. Underlying cause is preserved in logs.
 		slog.Debug("images: decode failed after dim check",
 			"content_type", ct, "error", err)
@@ -202,7 +202,7 @@ func processGIF(raw []byte) ([]byte, string, error) {
 
 	g, err := gif.DecodeAll(bytes.NewReader(raw))
 	if err != nil {
-		// Walker passed but the full decoder rejected the stream — that is
+		// Walker passed but the full decoder rejected the stream - that is
 		// still a malformed-content problem, not a server-internal one. Map
 		// to ErrUnsupportedFormat (handler → 415) while keeping the cause in
 		// the structured log for triage.

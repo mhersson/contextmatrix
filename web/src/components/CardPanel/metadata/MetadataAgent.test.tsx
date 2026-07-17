@@ -18,7 +18,7 @@ function makeCard(overrides: Partial<Card> = {}): Card {
   };
 }
 
-describe('MetadataAgent — worker attached + agent branch', () => {
+describe('MetadataAgent - worker attached + agent branch', () => {
   it('shows the assigned agent ID and heartbeat when worker is attached', () => {
     render(
       <MetadataAgent
@@ -77,7 +77,7 @@ describe('MetadataAgent — worker attached + agent branch', () => {
   });
 });
 
-describe('MetadataAgent — Release ConfirmModal flow', () => {
+describe('MetadataAgent - Release ConfirmModal flow', () => {
   it('opens ConfirmModal on Release click without calling onRelease', () => {
     const onRelease = vi.fn();
     render(
@@ -107,7 +107,7 @@ describe('MetadataAgent — Release ConfirmModal flow', () => {
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Release' }));
-    // The modal confirm button carries the confirmLabel "Release" — there are
+    // The modal confirm button carries the confirmLabel "Release" - there are
     // now two buttons with name "Release" (the one in the agent row and the
     // modal confirm). getAllByRole → the last one is the modal confirm.
     const releaseButtons = screen.getAllByRole('button', { name: 'Release' });
@@ -134,7 +134,7 @@ describe('MetadataAgent — Release ConfirmModal flow', () => {
   });
 });
 
-describe('MetadataAgent — released (previously claimed) branch', () => {
+describe('MetadataAgent - released (previously claimed) branch', () => {
   it('shows "released · no active claim" when an agent is recorded but worker not attached', () => {
     render(
       <MetadataAgent
@@ -170,7 +170,7 @@ describe('MetadataAgent — released (previously claimed) branch', () => {
   });
 });
 
-describe('MetadataAgent — fresh unassigned todo branch', () => {
+describe('MetadataAgent - fresh unassigned todo branch', () => {
   it('shows "unassigned · worker ready" and the Just claim button', () => {
     render(
       <MetadataAgent

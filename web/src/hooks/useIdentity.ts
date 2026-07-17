@@ -6,7 +6,7 @@ import { useAgentId } from './useAgentId';
  * modes: multi derives human:<username> from the session (matching what the
  * server writes to assigned_agent, so ownership comparisons hold); none
  * keeps the per-browser localStorage id. Null only while logged out in
- * multi mode — unreachable behind the AuthGate.
+ * multi mode - unreachable behind the AuthGate.
  */
 export function useIdentity(): { identity: string | null } {
   const { mode, user } = useAuth();

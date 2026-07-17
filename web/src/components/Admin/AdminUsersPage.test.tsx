@@ -40,7 +40,7 @@ beforeEach(() => {
   mocks.adminRegenerateLink.mockResolvedValue({ token: 'unused', purpose: 'invite', expires_at: '2026-01-01T00:00:00Z' });
 });
 
-describe('AdminUsersPage — list', () => {
+describe('AdminUsersPage - list', () => {
   it('renders the user list from adminListUsers, with role/status chips and invite-pending badge', async () => {
     mocks.adminListUsers.mockResolvedValue([
       user({ username: 'alice', display_name: 'Alice', is_admin: true, has_password: true }),
@@ -68,7 +68,7 @@ describe('AdminUsersPage — list', () => {
   });
 });
 
-describe('AdminUsersPage — create flow', () => {
+describe('AdminUsersPage - create flow', () => {
   it('calls adminCreateUser and shows the composed invite link', async () => {
     mocks.adminListUsers
       .mockResolvedValueOnce([])
@@ -97,7 +97,7 @@ describe('AdminUsersPage — create flow', () => {
   });
 });
 
-describe('AdminUsersPage — last-admin guard', () => {
+describe('AdminUsersPage - last-admin guard', () => {
   it('surfaces a 409 from adminPatchUser as an inline error without crashing', async () => {
     mocks.adminListUsers.mockResolvedValue([
       user({ username: 'root', display_name: 'Root', is_admin: true, has_password: true }),
@@ -116,7 +116,7 @@ describe('AdminUsersPage — last-admin guard', () => {
     await waitFor(() => expect(mocks.adminPatchUser).toHaveBeenCalledWith('root', { is_admin: false }));
     await waitFor(() => expect(screen.getByText(/cannot remove the last admin/i)).toBeInTheDocument());
 
-    // Component survives the error — the row is still rendered, not crashed.
+    // Component survives the error - the row is still rendered, not crashed.
     expect(screen.getByText('root')).toBeInTheDocument();
   });
 });

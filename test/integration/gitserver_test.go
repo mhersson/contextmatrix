@@ -15,7 +15,7 @@ import (
 
 // gitServer is a smart-HTTP git server backed by `git http-backend` run
 // through net/http/cgi. It serves a single seeded bare repository at
-// /work.git and accepts anonymous clone AND push (receive-pack) — the
+// /work.git and accepts anonymous clone AND push (receive-pack) - the
 // worker authenticates with a bearer token embedded in the clone URL, but
 // the server ignores it (GIT_HTTP_EXPORT_ALL + http.receivepack=true).
 //
@@ -23,7 +23,7 @@ import (
 // host.docker.internal:<port>; the port is kernel-assigned.
 type gitServer struct {
 	srv     *http.Server
-	rootDir string // GIT_PROJECT_ROOT — holds work.git
+	rootDir string // GIT_PROJECT_ROOT - holds work.git
 	workGit string // absolute path to the bare repo
 	port    int
 }

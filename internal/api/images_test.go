@@ -138,7 +138,7 @@ func TestImageUploadAndGet_PNG(t *testing.T) {
 func TestImageUpload_Oversize(t *testing.T) {
 	url, _ := imageTestServer(t)
 
-	// 12 MB body — exceeds imageUploadEnvelopeBytes; bodyLimit middleware
+	// 12 MB body - exceeds imageUploadEnvelopeBytes; bodyLimit middleware
 	// should reject with 413 before reaching the handler.
 	big := bytes.Repeat([]byte("x"), 12*1024*1024)
 

@@ -274,7 +274,7 @@ func TestSafeSyncAll_DoesNotPropagateSync(t *testing.T) {
 
 	ctx := context.Background()
 
-	// safeSyncAll must return normally — the panic must not escape.
+	// safeSyncAll must return normally - the panic must not escape.
 	require.NotPanics(t, func() {
 		syncer.safeSyncAll(ctx)
 	})
@@ -322,7 +322,7 @@ func TestSyncProject_CustomTypeAndPriority(t *testing.T) {
 // TestSyncAll_SetClientFor_SkipsProjectOnResolveError asserts that when a
 // per-project client resolver is installed via SetClientFor, a resolution
 // error for one project is logged and that project is skipped for the
-// cycle — it must not panic, and it must not prevent other projects from
+// cycle - it must not panic, and it must not prevent other projects from
 // syncing normally (fail-closed: a broken binding never falls back to the
 // syncer's constructor-injected static client).
 func TestSyncAll_SetClientFor_SkipsProjectOnResolveError(t *testing.T) {

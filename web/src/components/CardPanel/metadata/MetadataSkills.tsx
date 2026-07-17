@@ -9,7 +9,7 @@ interface MetadataSkillsProps {
   config: ProjectConfig;
   onSkillsChange: (next: string[] | null) => void;
   /**
-   * Lock the selector once the workflow has started — skills are mounted
+   * Lock the selector once the workflow has started - skills are mounted
    * into the worker's working directory at run start, so changes after
    * that point do not reach the live agent.
    */
@@ -25,15 +25,15 @@ function modeFor(value: string[] | null | undefined): Mode {
 }
 
 /**
- * Skills selector — three-state radio (inherit / specific / none) shared
+ * Skills selector - three-state radio (inherit / specific / none) shared
  * between the card detail panel's Info tab and the create-card panel's Info
  * tab. When the project has `default_skills` set, the per-card list must be
  * a subset of the project default; other entries are hidden from the options
  * list to make the constraint visible.
  *
  * `value` is the current selection (null = inherit, [] = none, [...] =
- * specific). The parent owns the state — this component is purely
- * controlled — so it works equally well backed by `editedCard.skills` in
+ * specific). The parent owns the state - this component is purely
+ * controlled - so it works equally well backed by `editedCard.skills` in
  * CardPanel or by local React state in CreateCardPanel.
  */
 export function MetadataSkills({
@@ -69,7 +69,7 @@ export function MetadataSkills({
     return () => { cancelled = true; };
   }, []);
 
-  // Constrain the option list when the project has a default — only those
+  // Constrain the option list when the project has a default - only those
   // skills can appear on the card. Otherwise show the full available set.
   const options = useMemo(() => {
     if (!allSkills) return [];
@@ -91,7 +91,7 @@ export function MetadataSkills({
     setLocalMode(next);
     if (next === 'inherit') onSkillsChange(null);
     else if (next === 'none') onSkillsChange([]);
-    // 'specific': do NOT call onSkillsChange — checkboxes appear via localMode
+    // 'specific': do NOT call onSkillsChange - checkboxes appear via localMode
   };
 
   const toggle = (name: string) => {

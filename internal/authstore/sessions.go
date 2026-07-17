@@ -9,7 +9,7 @@ import (
 )
 
 // Session is one logged-in browser. Only the SHA-256 of the cookie token is
-// stored — a leaked database yields no usable sessions.
+// stored - a leaked database yields no usable sessions.
 type Session struct {
 	TokenHash  string
 	UserID     int64
@@ -32,7 +32,7 @@ func (s *Store) CreateSession(ctx context.Context, tokenHash string, userID int6
 	return nil
 }
 
-// SessionByTokenHash fetches a session row. Expired rows are still returned —
+// SessionByTokenHash fetches a session row. Expired rows are still returned -
 // expiry policy (reject + renew-or-delete) is the middleware's decision.
 func (s *Store) SessionByTokenHash(ctx context.Context, tokenHash string) (*Session, error) {
 	var (
@@ -81,7 +81,7 @@ func (s *Store) RenewSession(ctx context.Context, tokenHash string, now, expires
 	return nil
 }
 
-// DeleteSession removes one session. Idempotent — deleting a missing session
+// DeleteSession removes one session. Idempotent - deleting a missing session
 // is not an error (logout must never fail).
 func (s *Store) DeleteSession(ctx context.Context, tokenHash string) error {
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE token_hash = ?`, tokenHash); err != nil {
@@ -101,7 +101,7 @@ func (s *Store) DeleteSessionsForUser(ctx context.Context, userID int64) (int64,
 	return res.RowsAffected()
 }
 
-// DeleteSessionsForUserExcept removes all of a user's sessions except one —
+// DeleteSessionsForUserExcept removes all of a user's sessions except one -
 // a password change keeps the session that performed it.
 func (s *Store) DeleteSessionsForUserExcept(ctx context.Context, userID int64, keepTokenHash string) (int64, error) {
 	res, err := s.db.ExecContext(ctx,

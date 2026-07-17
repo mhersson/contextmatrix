@@ -17,7 +17,7 @@ interface MetadataRelatedProps {
 /**
  * Related-card sections of the Info rail tab: Parent (subtask cards
  * only), Subtasks, and Depends on. All three share one hydration effect
- * — the combined set of IDs is fetched via `api.getCard` on mount and
+ * - the combined set of IDs is fetched via `api.getCard` on mount and
  * whenever the id membership changes. `Promise.allSettled` + a per-id
  * catch fallback means one 404 doesn't wipe the whole related map.
  *
@@ -44,7 +44,7 @@ export function MetadataRelated({
         const c = await api.getCard(card.project, id, signal);
         out[id] = { state: c.state, title: c.title };
       } catch (err) {
-        // Ignore abort errors — cleanup fired before the request completed.
+        // Ignore abort errors - cleanup fired before the request completed.
         if (err instanceof DOMException && err.name === 'AbortError') return;
         out[id] = { state: 'unknown', title: id };
       }

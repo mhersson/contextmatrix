@@ -16,7 +16,7 @@ func (m *Manager) SetRehydrationActiveForTest(ctx context.Context, sessionID str
 
 // RehydrationActiveCacheForTest reads only the in-memory cache value under
 // m.mu, returning (value, present). Unlike isRehydrationActive, it does not
-// fall back to the store on miss — tests use it to assert that the cache
+// fall back to the store on miss - tests use it to assert that the cache
 // reflects exactly what setRehydrationActive committed, without masking a
 // store/cache divergence by silently re-populating from disk.
 func (m *Manager) RehydrationActiveCacheForTest(sessionID string) (bool, bool) {

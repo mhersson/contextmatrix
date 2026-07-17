@@ -30,7 +30,7 @@ export interface DeriveMetricsResult {
 
 /**
  * Derives all computed props for MetricsRibbon and BoardBand from the raw
- * dashboard counts and card list. Pure function — no React hooks, no side effects.
+ * dashboard counts and card list. Pure function - no React hooks, no side effects.
  *
  * Fallback contracts when source data is partial:
  *   - inFlight/stalled: total falls back to cards-derived count so the headline
@@ -65,7 +65,7 @@ export function deriveMetricsProps({
   // openCount + inReviewCount: BoardBand subheader counts delivery units only
   // (parents + standalone cards), so subtasks do not inflate the rolling
   // headline. Prefer server-side stateCountsParents; fall back to filtering
-  // cards by !parent. openCount keeps the pre-PR semantics — stalled counts
+  // cards by !parent. openCount keeps the pre-PR semantics - stalled counts
   // as open (only done/not_planned are excluded).
   const openCount = stateCountsParents !== undefined
     ? Object.entries(stateCountsParents).reduce(
@@ -90,7 +90,7 @@ export function deriveMetricsProps({
     : stalledTotal;
 
   // Compute *Subtasks only when stateCountsParents is available (inFlightTotal is
-  // always a number now). Otherwise pass undefined — suppresses the muted "+N sub"
+  // always a number now). Otherwise pass undefined - suppresses the muted "+N sub"
   // suffix until parent data is ready.
   const inFlightSubtasks =
     stateCountsParents !== undefined

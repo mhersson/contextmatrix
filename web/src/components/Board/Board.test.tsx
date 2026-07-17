@@ -86,7 +86,7 @@ describe('isTouchDevice', () => {
 // Board integration: DnD disabled on touch devices
 // ---------------------------------------------------------------------------
 
-// Minimal mock for @dnd-kit/core — we only care that DndContext receives the
+// Minimal mock for @dnd-kit/core - we only care that DndContext receives the
 // correct sensors prop. We capture it via a spy on DndContext.
 vi.mock('@dnd-kit/core', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dnd-kit/core')>();
@@ -129,7 +129,7 @@ const sampleCard: Card = {
 };
 
 // ---------------------------------------------------------------------------
-// Board — mobile NowRail drawer
+// Board - mobile NowRail drawer
 // ---------------------------------------------------------------------------
 
 // Helper: build a matchMedia stub that returns true only for the given query.
@@ -152,7 +152,7 @@ function mockMatchMediaTrueFor(trueQuery: string) {
   });
 }
 
-describe('Board — mobile NowRail drawer', () => {
+describe('Board - mobile NowRail drawer', () => {
   const originalMatchMedia = window.matchMedia;
 
   afterEach(() => {
@@ -240,10 +240,10 @@ describe('Board — mobile NowRail drawer', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Board — NowRail open-state persistence
+// Board - NowRail open-state persistence
 // ---------------------------------------------------------------------------
 
-describe('Board — NowRail persistence to localStorage', () => {
+describe('Board - NowRail persistence to localStorage', () => {
   const originalMatchMedia = window.matchMedia;
 
   afterEach(() => {
@@ -287,10 +287,10 @@ describe('Board — NowRail persistence to localStorage', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Board — MetricsRibbon headline fallback during initial mount
+// Board - MetricsRibbon headline fallback during initial mount
 // ---------------------------------------------------------------------------
 
-describe('Board — MetricsRibbon inFlight fallback', () => {
+describe('Board - MetricsRibbon inFlight fallback', () => {
   const originalMatchMedia = window.matchMedia;
 
   afterEach(() => {
@@ -408,7 +408,7 @@ describe('Board — MetricsRibbon inFlight fallback', () => {
       makeCard('A4', 'review'),
       makeCard('A5', 'stalled'),
       makeCard('A6', 'done'),
-      // Subtasks below — should be excluded from open / in review counts.
+      // Subtasks below - should be excluded from open / in review counts.
       makeCard('A7', 'todo', 'A1'),
       makeCard('A8', 'review', 'A1'),
     ];

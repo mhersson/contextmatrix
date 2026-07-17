@@ -2,7 +2,7 @@
 
 ## Agent Configuration
 
-No model specified — the orchestrator model is set by the invoker. Local
+No model specified - the orchestrator model is set by the invoker. Local
 autonomous runs on the user's model (typically Opus). Worker containers set the
 orchestrator model from the agent backend's config (default or per-card pin).
 
@@ -16,12 +16,12 @@ up from whatever state the card is currently in.
 
 - The card MUST have `autonomous: true` set. If it does not, stop and inform
   the user.
-- Read the card context provided above carefully — it tells you the current
+- Read the card context provided above carefully - it tells you the current
   state, whether subtasks exist, and what phase to start from.
 
 ## Specialist skills
 
-Specialist skills at `~/.claude/skills/` are intended for sub-agents during their work phase. As orchestrator, do NOT engage them via the Skill tool — your role is coordination, not implementation. Sub-agents will engage them as needed.
+Specialist skills at `~/.claude/skills/` are intended for sub-agents during their work phase. As orchestrator, do NOT engage them via the Skill tool - your role is coordination, not implementation. Sub-agents will engage them as needed.
 
 ## Task Complexity
 
@@ -34,7 +34,7 @@ If `Complexity: simple`:
 
 1. Claim the card: `claim_card(card_id, agent_id)`.
 2. Create or switch to the feature branch (if `branch_name` is set).
-3. Execute the work directly — make the changes described in the card body.
+3. Execute the work directly - make the changes described in the card body.
 4. Run the project's test command (from the repo's own instructions or CI
    config). If tests fail, fix and retry once. If still failing, report blocked
    and stop.
@@ -63,7 +63,7 @@ Hold this claim through the entire lifecycle.
 ## Step 1: Create feature branch
 
 If `feature_branch` is true and `branch_name` is non-empty, create and switch
-to the feature branch now — before planning or spawning any sub-agents:
+to the feature branch now - before planning or spawning any sub-agents:
 
 `git checkout -b <branch_name>` (or `git checkout <branch_name>` if it already
 exists).
@@ -81,7 +81,7 @@ Based on the card's current state and body content:
 | `todo` or `in_progress`, has subtasks, not all done | Phase 3: Execution |
 | `in_progress`, all subtasks done, no `## Review Findings` | Phase 4: Documentation |
 | `review` | Phase 5: Review |
-| `done` | Nothing to do — inform the user |
+| `done` | Nothing to do - inform the user |
 
 ## Phase 1: Plan Drafting (always inline)
 
@@ -90,7 +90,7 @@ Based on the card's current state and body content:
 2. Append `\n\nYou are executing **Phase 1: Plan Drafting** only.` to the
    returned content.
 3. Execute inline. Produce `PLAN_DRAFTED` output.
-4. Skip user approval — proceed directly to Phase 2.
+4. Skip user approval - proceed directly to Phase 2.
 
 ## Phase 2: Subtask Creation (always inline)
 
@@ -118,7 +118,7 @@ Based on the card's current state and body content:
     parent every 5 minutes. After each `heartbeat`, call `report_usage` with
     your token consumption since the last report (`prompt_tokens`,
     `completion_tokens`, and `cache_read_tokens` / `cache_creation_tokens` if
-    available) — this is mandatory, not optional.
+    available) - this is mandatory, not optional.
 
     Map stream-json `usage` frame fields to `report_usage` parameters:
     - `usage.input_tokens` → `prompt_tokens`
@@ -129,15 +129,15 @@ Based on the card's current state and body content:
     a. Wait 1 minute between checks.
     b. Call `check_agent_health(parent_id=<card_id>)`.
     c. Act on each subtask's status:
-       - **`active`** — no action.
-       - **`completed`** — call `get_card(card_id=<id>)` to verify the card
+       - **`active`** - no action.
+       - **`completed`** - call `get_card(card_id=<id>)` to verify the card
          is in `done` state. If still in `todo` or `in_progress`, claim it
-         and call `complete_task` — or respawn if work is incomplete. Then
+         and call `complete_task` - or respawn if work is incomplete. Then
          call `get_ready_tasks` and spawn agents for newly unblocked tasks
          (same as step 9).
-       - **`warning`** — note it, do not act yet.
-       - **`stalled`** — respawn (see below).
-       - **`unassigned`** — if `todo`, `get_ready_tasks` picks it up. If
+       - **`warning`** - note it, do not act yet.
+       - **`stalled`** - respawn (see below).
+       - **`unassigned`** - if `todo`, `get_ready_tasks` picks it up. If
          `in_progress` or `stalled` with no agent, respawn it.
     d. Call `get_subtask_summary(parent_id=<card_id>)`. When all subtasks are
        `done`, exit the loop.
@@ -180,8 +180,8 @@ Based on the card's current state and body content:
 ## Phase 5: Review (inline)
 
 15. Call `start_review(card_id='<card_id>', agent_id=<your_agent_id>,
-    caller_model='<your_model>')`. The response always has `inline: true`
-    — review-task is forced to inline because it spawns three specialist
+    caller_model='<your_model>')`. The response always has `inline: true` -
+    review-task is forced to inline because it spawns three specialist
     sub-agents in parallel via the `Agent` tool, which only the top-level
     (your) session has.
 16. Execute the returned `content` inline. Do NOT release your claim.
@@ -212,12 +212,12 @@ Based on the card's current state and body content:
            the fixes inline yourself**, even when the change is a
            one-line tweak to a comment or a moved import. Inline
            iteration on review findings recycles the same context that
-           produced the defect — the next review cycle then finds new
+           produced the defect - the next review cycle then finds new
            variants of the same problem.
         5. After all fix subtasks reach `done`, return to Phase 4
            (Documentation), then Phase 5 (Review).
 
-        **Red flag — stop, you're iterating inline.** If you find
+        **Red flag - stop, you're iterating inline.** If you find
         yourself opening a file mentioned in `REVIEW_FINDINGS` to
         "address a finding quickly", stop. Create the subtask. Spawn
         the sub-agent. The protocol is identical whether the fix is
@@ -277,7 +277,7 @@ Based on the card's current state and body content:
 - Conventional commits: `type(scope): summary` + bullet-point body.
   **No card IDs in commit messages.**
 - When `base_branch` is set, PRs target that branch. The "never push to
-  main/master" rule still applies — the feature branch is pushed to origin,
+  main/master" rule still applies - the feature branch is pushed to origin,
   and the PR is opened against `base_branch`.
 
 ## Git Workflow

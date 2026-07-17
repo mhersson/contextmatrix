@@ -7,7 +7,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/authstore"
 )
 
-// ErrLastAdmin guards the invariant that at least one active admin exists —
+// ErrLastAdmin guards the invariant that at least one active admin exists -
 // demoting or disabling the last one would lock everyone out of user
 // management (the reset-admin CLI only resets a password; it cannot restore
 // the admin role).
@@ -18,7 +18,7 @@ func (s *Service) ListUsers(ctx context.Context) ([]*authstore.User, error) {
 	return s.store.ListUsers(ctx)
 }
 
-// CreateUserWithInvite creates an account (no password — none exists anywhere)
+// CreateUserWithInvite creates an account (no password - none exists anywhere)
 // and returns the RAW invite token for the admin to hand over out-of-band.
 func (s *Service) CreateUserWithInvite(ctx context.Context, username, displayName string, isAdmin bool) (*authstore.User, string, error) {
 	user, err := s.store.CreateUser(ctx, username, displayName, isAdmin, s.now())
@@ -45,7 +45,7 @@ func (s *Service) SetUserDisplayName(ctx context.Context, username, displayName 
 
 // SetUserAdmin toggles the admin flag, refusing to demote the last active
 // admin. The dangerous direction (demoting an active admin) routes through
-// the guarded store update so the check and the write are atomic — closing
+// the guarded store update so the check and the write are atomic - closing
 // the race where two concurrent demotes both pass a prior count check.
 func (s *Service) SetUserAdmin(ctx context.Context, username string, isAdmin bool) error {
 	user, err := s.store.UserByUsername(ctx, username)
@@ -72,7 +72,7 @@ func (s *Service) SetUserAdmin(ctx context.Context, username string, isAdmin boo
 // sessions immediately (they are logged out mid-flight) and refuses to
 // disable the last active admin. Re-enabling never resurrects sessions. The
 // dangerous direction (disabling an active admin) routes through the guarded
-// store update — see SetUserAdmin.
+// store update - see SetUserAdmin.
 func (s *Service) SetUserDisabled(ctx context.Context, username string, disabled bool) error {
 	user, err := s.store.UserByUsername(ctx, username)
 	if err != nil {
@@ -126,7 +126,7 @@ func (s *Service) UserByUsername(ctx context.Context, username string) (*authsto
 }
 
 // CheckNotLastAdmin reports ErrLastAdmin when only one active admin exists.
-// Advisory pre-flight — the guarded store updates remain the real barrier.
+// Advisory pre-flight - the guarded store updates remain the real barrier.
 func (s *Service) CheckNotLastAdmin(ctx context.Context) error {
 	n, err := s.store.CountActiveAdmins(ctx)
 	if err != nil {

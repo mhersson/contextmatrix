@@ -16,7 +16,7 @@ interface ModelComboboxProps {
 
 /**
  * Strict searchable combobox for model slugs: typing filters the option list,
- * but only a listed option (or the empty string) can be committed — free text
+ * but only a listed option (or the empty string) can be committed - free text
  * never reaches onChange. With an empty option list it degrades to a plain
  * input, mirroring the server's fail-open validation. A committed value that
  * is missing from the catalog (legacy pin, delisted model) is flagged but

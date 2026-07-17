@@ -12,8 +12,8 @@ export interface CardChipRowProps {
 /**
  * Renders the chip row for a board card.
  *
- * compact=true  — collapsed card header: type initial, source badges, parent badge.
- * compact=false — expanded card footer: priority dot, parent, agent, deps, autonomous,
+ * compact=true  - collapsed card header: type initial, source badges, parent badge.
+ * compact=false - expanded card footer: priority dot, parent, agent, deps, autonomous,
  *                 best-of-n, worker status, branch, labels.
  */
 export function CardChipRow({ card, compact = false, onParentClick }: CardChipRowProps) {
@@ -122,7 +122,7 @@ export function CardChipRow({ card, compact = false, onParentClick }: CardChipRo
         </span>
       )}
 
-      {/* Best of N badge — suppressed when the card's mob session covers the
+      {/* Best of N badge - suppressed when the card's mob session covers the
           execute phase: mob coding takes priority and the race will not run. */}
       {card.best_of_n != null && card.best_of_n >= 2 &&
         !((card.mob_participants ?? 0) >= 2 && (card.mob_phases ?? []).includes('execute')) && (

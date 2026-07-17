@@ -249,7 +249,7 @@ describe('admin endpoints', () => {
     const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
     expect(url).toBe('/api/admin/users/bob');
     expect(init.method).toBe('PATCH');
-    // Only the supplied field should be present on the wire — display_name
+    // Only the supplied field should be present on the wire - display_name
     // and disabled were omitted by the caller and must not appear as
     // explicit nulls/undefined keys in the JSON body.
     expect(JSON.parse(init.body as string)).toEqual({ is_admin: true });
@@ -257,7 +257,7 @@ describe('admin endpoints', () => {
   });
 
   it('adminDeleteCredential issues a DELETE request to /admin/credentials/{name}', async () => {
-    // A 204 response cannot carry a body per the Fetch spec — construct it
+    // A 204 response cannot carry a body per the Fetch spec - construct it
     // directly rather than through makeResponse (which always JSON-encodes).
     fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 204 }));
 

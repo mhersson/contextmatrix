@@ -23,14 +23,14 @@ interface CardPanelMetadataProps {
 }
 
 /**
- * Info rail tab — mirrors the design mock's `renderBifoldTab` info branch
+ * Info rail tab - mirrors the design mock's `renderBifoldTab` info branch
  * (`/tmp/card-panel-explorer.html:2188-2224`). Stacked sections in four
  * peer files under `./metadata/`:
  *
- *   1. MetadataStatus  — state picker + hint + worker-status badge
- *   2. MetadataAgent   — claim/release (with ConfirmModal)
- *   3. MetadataRelated — Parent / Subtasks / Depends-on (shares hydration)
- *   4. MetadataSource  — external-link pill + vetted checkbox
+ *   1. MetadataStatus  - state picker + hint + worker-status badge
+ *   2. MetadataAgent   - claim/release (with ConfirmModal)
+ *   3. MetadataRelated - Parent / Subtasks / Depends-on (shares hydration)
+ *   4. MetadataSource  - external-link pill + vetted checkbox
  *
  * This wrapper just composes them and renders the Created/Updated footer.
  */

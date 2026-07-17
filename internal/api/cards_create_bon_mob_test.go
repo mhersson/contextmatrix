@@ -165,7 +165,7 @@ func TestCreateCardBestOfNAndMob(t *testing.T) {
 	})
 
 	t.Run("create with no human-only fields as non-human agent succeeds", func(t *testing.T) {
-		// Sanity check: an agent creating a plain card is still allowed —
+		// Sanity check: an agent creating a plain card is still allowed -
 		// only the new fields are gated, not the whole create path.
 		body, _ := json.Marshal(createCardRequest{
 			Title:    "Agent plain",

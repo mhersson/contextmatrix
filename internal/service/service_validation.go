@@ -98,13 +98,13 @@ func (s *CardService) validateCardReferences(ctx context.Context, project, paren
 // dependsOn list. Returns the ID that completes a cycle, or "" if none.
 //
 // Uses DFS with an explicit recursion stack so we can distinguish "already
-// visited on a different branch" (safe — diamond graph A→B→D, A→C→D) from
+// visited on a different branch" (safe - diamond graph A→B→D, A→C→D) from
 // "ancestor on the current path" (a true cycle). A BFS that marks-on-pop
 // would flag a re-enqueued node as a cycle even when it was reached via
 // two independent ancestors, producing false positives on diamond graphs.
 func (s *CardService) detectDependencyCycle(ctx context.Context, project, cardID string, dependsOn []string) string {
 	// visited tracks every node we have finished exploring. Re-visiting a
-	// finished node is not a cycle — it just means two paths converge.
+	// finished node is not a cycle - it just means two paths converge.
 	visited := make(map[string]bool)
 	// onStack tracks nodes on the current DFS path. Re-visiting a node on
 	// the stack IS a cycle.

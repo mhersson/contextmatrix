@@ -11,7 +11,7 @@ export type AuthStatus = 'loading' | 'anonymous' | 'authenticated';
 // ~400ms in the worst case before falling back).
 const APP_CONFIG_RETRY_BACKOFFS_MS = [100, 300];
 
-// Resolves after ms, or immediately when the signal aborts mid-wait — the
+// Resolves after ms, or immediately when the signal aborts mid-wait - the
 // caller decides what abort means (getAppConfigWithRetry stops retrying).
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
@@ -40,14 +40,14 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 //   (api/client.ts) used when a response body fails to parse as JSON.
 //   `/api/app/config` is session-exempt (internal/api/auth.go's
 //   sessionExempt) and its handler always responds 200 with valid JSON
-//   (internal/api/app_config.go) — it cannot itself produce a 401, or any
+//   (internal/api/app_config.go) - it cannot itself produce a 401, or any
 //   other structured error. An UNKNOWN_ERROR here therefore means something
 //   in front of the app (reverse proxy, load balancer) returned a non-JSON
 //   error page, almost always a transient mid-deploy 5xx. Worth retrying.
 // - Any other structured error code would mean the app itself rejected the
 //   request, which is structurally impossible on this route today; treated
 //   as non-transient defensively (fail fast rather than retry something
-//   that can't be transient — this is also why a 401 specifically is never
+//   that can't be transient - this is also why a 401 specifically is never
 //   retried, though it cannot occur on this exempt route).
 function isTransientAppConfigError(err: unknown): boolean {
   if (!isAPIError(err)) return true;
@@ -85,7 +85,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 /**
  * AuthProvider resolves the deployment's auth mode and (in multi mode) the
  * current session. In "none" mode it authenticates immediately with no
- * session probe — the none-mode invariant: zero extra requests, zero UI.
+ * session probe - the none-mode invariant: zero extra requests, zero UI.
  */
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [mode, setMode] = useState<AuthMode>('none');
@@ -130,7 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
 
     return () => {
-      // Aborting also stops the retry loop mid-backoff — no stray request
+      // Aborting also stops the retry loop mid-backoff - no stray request
       // after unmount.
       controller.abort();
     };
@@ -158,7 +158,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await api.logout();
     } catch {
-      // ignore — state flip in finally still runs
+      // ignore - state flip in finally still runs
     } finally {
       setUserState(null);
       setStatus('anonymous');

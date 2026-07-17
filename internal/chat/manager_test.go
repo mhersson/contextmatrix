@@ -27,7 +27,7 @@ import (
 
 // stubBackend is a fake chat.Backend used by manager tests. Counters are atomic
 // because Manager.startConsumer spawns a goroutine that calls StreamLogs
-// independently of the test goroutine — plain ints would race under -race.
+// independently of the test goroutine - plain ints would race under -race.
 type stubBackend struct {
 	startCalls    atomic.Int64
 	endCalls      atomic.Int64
@@ -244,7 +244,7 @@ func TestManager_Reattach_Active(t *testing.T) {
 
 // TestManager_Reattach_WarmIdle starts a consumer for a warm-idle session
 // and refreshes LastActive so the idle reaper doesn't end it. Status is
-// intentionally left at warm-idle — Reattach is infrastructure-only;
+// intentionally left at warm-idle - Reattach is infrastructure-only;
 // lifecycle promotion (warm-idle → active) is handled separately by
 // MarkActive, called from the OnSubscribe callback.
 func TestManager_Reattach_WarmIdle(t *testing.T) {
@@ -273,7 +273,7 @@ func TestManager_Reattach_WarmIdle(t *testing.T) {
 	assert.Equal(t, int64(0), backend.startCalls.Load())
 }
 
-// TestManager_Reattach_Cold is a no-op — cold sessions have no container
+// TestManager_Reattach_Cold is a no-op - cold sessions have no container
 // to reattach to.
 func TestManager_Reattach_Cold(t *testing.T) {
 	mgr, backend, _ := newManagerWithStubs(t)
@@ -367,7 +367,7 @@ func TestManager_EndSession_RecoversFromStuckEnding(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, chat.StatusCold, got.Status, "session must be cold after EndSession recovers from stuck-ending")
 
-	// The recovered session must be openable again — a stuck status=ending
+	// The recovered session must be openable again - a stuck status=ending
 	// row must not prevent reopening.
 	_, err = mgr.OpenSession(ctx, sess.ID)
 	require.NoError(t, err, "session must be openable after EndSession clears the stuck-ending state")
@@ -377,7 +377,7 @@ func TestManager_EndSession_RecoversFromStuckEnding(t *testing.T) {
 // EndSession call never writes status=ending to the store (single-write
 // contract). If the first write in the old two-step pattern had written
 // status=ending, the injected fault on that write would cause EndSession to
-// fail — but with the single-write pattern the fault is never triggered.
+// fail - but with the single-write pattern the fault is never triggered.
 func TestManager_EndSession_NeverPersistsEndingStatus(t *testing.T) {
 	t.Parallel()
 
@@ -606,7 +606,7 @@ func TestManager_EndSession_PublishesSessionUpdate(t *testing.T) {
 
 				return
 			}
-			// Any other status (e.g. active from OpenSession's goroutine) — keep draining.
+			// Any other status (e.g. active from OpenSession's goroutine) - keep draining.
 		case <-deadline:
 			t.Fatal("expected session_updated event for cold transition")
 		}
@@ -663,7 +663,7 @@ func TestManager_MarkActive_WarmIdleToActive_PublishesUpdate(t *testing.T) {
 			if *e.SessionUpdate.Status == chat.StatusActive {
 				return // found it
 			}
-			// warm-idle event from the earlier goroutine — keep draining.
+			// warm-idle event from the earlier goroutine - keep draining.
 		case <-deadline:
 			t.Fatal("expected session_updated event for active promotion")
 		}
@@ -820,7 +820,7 @@ func TestManager_OpenSession_MaxConcurrent_ParallelTOCTOU(t *testing.T) {
 // TestManager_AppendMessage_SeqMonotonicUnderConcurrency exercises the
 // serialisation fix: concurrent AppendMessage calls on the same session must
 // land in the store both (a) with strictly monotonic seq values and (b) in
-// insertion order — so the rowid order matches the seq order. Without
+// insertion order - so the rowid order matches the seq order. Without
 // holding m.mu across the store insert, two appends can race past one
 // another and land out of seq order on disk.
 func TestManager_AppendMessage_SeqMonotonicUnderConcurrency(t *testing.T) {
@@ -866,7 +866,7 @@ func TestManager_AppendMessage_SeqMonotonicUnderConcurrency(t *testing.T) {
 	}
 
 	// (b) Open the DB directly and query in rowid order. The seq column
-	// must increase monotonically with rowid — i.e. the insertion order
+	// must increase monotonically with rowid - i.e. the insertion order
 	// matches the seq order. This is the assertion that fails when the
 	// store write happens outside the seq-assignment lock.
 	db, err := sql.Open("sqlite", dbPath)
@@ -1041,7 +1041,7 @@ func TestManager_SendUserMessage_BackendErrorDoesNotPersist(t *testing.T) {
 	require.Error(t, err, "backend failure must propagate to the caller")
 	assert.Contains(t, err.Error(), "backend unreachable")
 
-	// No persisted user message — the backend-first ordering means we never
+	// No persisted user message - the backend-first ordering means we never
 	// got past the backend call.
 	msgs, err := store.ListMessages(ctx, sess.ID, 0, 100)
 	require.NoError(t, err)
@@ -1067,7 +1067,7 @@ func TestManager_SendUserMessage_AutoRecoverColdOnRepeatedBackendUnreachable(t *
 	dialErr := fmt.Errorf("dial tcp 127.0.0.1:8090: connect: connection refused: %w", chat.ErrBackendUnreachable)
 	backend.sendErr = dialErr
 
-	// First two failures must NOT flip the session — only the threshold does.
+	// First two failures must NOT flip the session - only the threshold does.
 	for range 2 {
 		_, sendErr := mgr.SendUserMessage(ctx, sess.ID, "hello")
 		require.Error(t, sendErr)
@@ -1100,7 +1100,7 @@ func TestManager_SendUserMessage_OpensColdSession(t *testing.T) {
 
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "x"})
 	require.NoError(t, err)
-	// Session remains cold — SendUserMessage must open it first.
+	// Session remains cold - SendUserMessage must open it first.
 
 	_, err = mgr.SendUserMessage(ctx, sess.ID, "hi")
 	require.NoError(t, err)
@@ -1173,7 +1173,7 @@ func TestManager_OpenSession_BridgesWorkerLogs(t *testing.T) {
 
 	// Drain until we find the assistant_text message event. The goroutine-based
 	// publishSessionUpdate from OpenSession (cold→active) may deliver a session_updated
-	// event first — skip those.
+	// event first - skip those.
 	deadline := time.After(2 * time.Second)
 
 	for {
@@ -1208,7 +1208,7 @@ foundMessage:
 // stopConsumer cancels the consumer context and returns immediately; the
 // goroutine's deferred map-delete runs asynchronously. A fast Reopen that
 // runs while the deferred delete is still pending finds a stale entry in
-// m.consumers and returns early — the new session has no log bridge.
+// m.consumers and returns early - the new session has no log bridge.
 //
 // We simulate slow goroutine exit with a streamLogsFn that sleeps after
 // ctx.Done. With the fix, stopConsumer waits on a per-consumer done channel
@@ -1221,7 +1221,7 @@ func TestManager_EndThenReopen_SpawnsFreshConsumer(t *testing.T) {
 	backend := &stubBackend{
 		streamLogsFn: func(ctx context.Context, _ string, _ func(chat.LogEntry)) error {
 			<-ctx.Done()
-			// Simulate slow goroutine exit — the goroutine has received cancel
+			// Simulate slow goroutine exit - the goroutine has received cancel
 			// but has not yet run its cleanup defers.
 			time.Sleep(50 * time.Millisecond)
 
@@ -1413,7 +1413,7 @@ func TestManager_CompleteRehydration_PersistsSummaryAndFlipsFlag(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, reopened.RehydrationActive, "reopen with prior transcript should set rehydration_active=true")
 
-	err = mgr.CompleteRehydration(ctx, sess.ID, "Picking up where we left off — re-cloned foo.")
+	err = mgr.CompleteRehydration(ctx, sess.ID, "Picking up where we left off - re-cloned foo.")
 	require.NoError(t, err)
 
 	flipped, err := store.GetSession(ctx, sess.ID)
@@ -1449,7 +1449,7 @@ func TestManager_CompleteRehydration_Idempotent(t *testing.T) {
 	require.NoError(t, mgr.SetRehydrationActiveForTest(ctx, sess.ID, true))
 	require.NoError(t, mgr.CompleteRehydration(ctx, sess.ID, "first call"))
 
-	// Second call — must succeed and NOT append a second summary.
+	// Second call - must succeed and NOT append a second summary.
 	before, err := store.ListMessages(ctx, sess.ID, 0, 100)
 	require.NoError(t, err)
 
@@ -1516,7 +1516,7 @@ func TestManager_EndSession_ResetsRehydrationActive(t *testing.T) {
 // TestManager_OpenSession_RollbackOnRehydrationPersistFailure verifies that if
 // the store.SetRehydrationActive write fails after the container is already up,
 // OpenSession rolls back the container (EndChat), clears the in-memory cache,
-// resets the session row to cold, and returns an error — leaving no orphaned
+// resets the session row to cold, and returns an error - leaving no orphaned
 // active container with an unset rehydration flag.
 func TestManager_OpenSession_RollbackOnRehydrationPersistFailure(t *testing.T) {
 	t.Parallel()
@@ -1580,7 +1580,7 @@ func TestManager_OpenSession_RollbackOnRehydrationPersistFailure(t *testing.T) {
 // relative to the trivial cache write that follows, so without an
 // explicit, variable post-store delay the cache writes drain in lockstep
 // with the store commits and the race window collapses. The jitter
-// scatters cache writes out of store-commit order — the schedule that
+// scatters cache writes out of store-commit order - the schedule that
 // exposes the regression. Multiple flips per goroutine compound the
 // variance; iterating the outer batch a few times makes a single CI run
 // likely to catch the bug.
@@ -1606,7 +1606,7 @@ func TestSetRehydrationActive_StoreAndCacheStayInSync(t *testing.T) {
 	require.NoError(t, err)
 
 	// Several batches of 100 concurrent flips. After each batch the
-	// cache value must equal the persisted store value — they are
+	// cache value must equal the persisted store value - they are
 	// written under the same lock, so no schedule should split them.
 	// Each batch is an independent observation; running enough of them
 	// makes a single -count=10 CI run very likely to surface a
@@ -1614,7 +1614,7 @@ func TestSetRehydrationActive_StoreAndCacheStayInSync(t *testing.T) {
 	//
 	// flipErr captures any error from inside the goroutines. testifylint
 	// (go-require) bans require.* in goroutines because it Goexits the
-	// caller, not the test — flip errors are funneled out here instead.
+	// caller, not the test - flip errors are funneled out here instead.
 	var flipErr atomic.Pointer[error]
 
 	for batch := range 5 {
@@ -1794,7 +1794,7 @@ func newManagerWithStubsAndConfig(t *testing.T, base chat.Config) (*chat.Manager
 
 // TestManager_BuildResume_UsesTailOnLongSession is a regression for
 // buildResume loading the oldest 600 messages instead of the newest.
-// Sessions past ~600 messages would lose recent context — the "pin last 20
+// Sessions past ~600 messages would lose recent context - the "pin last 20
 // turns" guarantee in transcript.Build operated on a stale prefix.
 func TestManager_BuildResume_UsesTailOnLongSession(t *testing.T) {
 	t.Parallel()
@@ -1806,7 +1806,7 @@ func TestManager_BuildResume_UsesTailOnLongSession(t *testing.T) {
 	require.NoError(t, err)
 
 	// Seed 650 messages directly via the store (bypasses Manager seq tracking,
-	// which is intentional — we are testing the read path, not the write path).
+	// which is intentional - we are testing the read path, not the write path).
 	// maxMessagesForBuild is 600, so messages 1..50 must be excluded when
 	// using the old ListMessages(0, 600) call but present when using the tail.
 	const total = 650
@@ -2321,7 +2321,7 @@ func TestClearContext_HappyPath(t *testing.T) {
 
 	require.NoError(t, mgr.ClearContext(ctx, sess.ID))
 
-	// Backend saw exactly the /clear control message — the worker re-orients
+	// Backend saw exactly the /clear control message - the worker re-orients
 	// its next epoch from its own embedded primer.
 	backend.mu.Lock()
 	args := append([]sendArg(nil), backend.sendArgs...)
@@ -2391,7 +2391,7 @@ func TestClearContext_RepeatedClears(t *testing.T) {
 	_, err = mgr.OpenSession(ctx, sess.ID)
 	require.NoError(t, err)
 
-	// Batch A — 2 messages, then clear.
+	// Batch A - 2 messages, then clear.
 	for i := range 2 {
 		_, err := mgr.AppendMessage(ctx, sess.ID, chat.RoleAssistantText, "a-"+strconv.Itoa(i))
 		require.NoError(t, err)
@@ -2399,7 +2399,7 @@ func TestClearContext_RepeatedClears(t *testing.T) {
 
 	require.NoError(t, mgr.ClearContext(ctx, sess.ID))
 
-	// Batch B — 1 message, then clear again.
+	// Batch B - 1 message, then clear again.
 	_, err = mgr.AppendMessage(ctx, sess.ID, chat.RoleAssistantText, "b-0")
 	require.NoError(t, err)
 	require.NoError(t, mgr.ClearContext(ctx, sess.ID))
@@ -2411,7 +2411,7 @@ func TestClearContext_RepeatedClears(t *testing.T) {
 
 	// Cumulative marking: every row prior to the latest divider is in
 	// phase=true. The most recent divider (appended AFTER the mark step)
-	// stays phase=false — it is the "current marker" until the next clear.
+	// stays phase=false - it is the "current marker" until the next clear.
 	for _, m := range msgs[:4] {
 		assert.True(t, m.RehydrationPhase,
 			"seq=%d role=%s must be flipped after the second clear", m.Seq, m.Role)
@@ -2434,7 +2434,7 @@ func TestClearContext_SessionNotFound(t *testing.T) {
 // SendChatMessage call on a release channel, signalling its arrival on
 // `started`. Used by TestClearContext_ConcurrentCallsSerialised to hold
 // the singleflight slot open long enough for every concurrent caller to
-// arrive at clearGroup.Do — otherwise the in-flight body would finish
+// arrive at clearGroup.Do - otherwise the in-flight body would finish
 // before the others arrive, the slot would reopen, and each late arrival
 // would execute its own /clear, producing multiple dividers and
 // defeating the deduplication invariant under test.
@@ -2526,7 +2526,7 @@ func TestClearContext_ConcurrentCallsSerialised(t *testing.T) {
 
 	// The other n-1 goroutines were started but may not yet have reached
 	// clearGroup.Do (the path from ClearContext entry to Do is GetSession
-	// plus a status check — a few microseconds). 100ms is overwhelming
+	// plus a status check - a few microseconds). 100ms is overwhelming
 	// for that even on a loaded CI scheduler; without this wait, the
 	// in-flight slot would release before late arrivals queue up and
 	// each would execute its own fn on its own.
@@ -2544,7 +2544,7 @@ func TestClearContext_ConcurrentCallsSerialised(t *testing.T) {
 		require.NoError(t, e, "goroutine %d got unexpected error", i)
 	}
 
-	// Exactly one divider row should be in the transcript — singleflight
+	// Exactly one divider row should be in the transcript - singleflight
 	// deduplicates concurrent calls so only one tx commits.
 	msgs, err := store.ListMessagesTail(ctx, sess.ID, 100)
 	require.NoError(t, err)
@@ -2650,13 +2650,13 @@ func TestClearContext_ColdReopen_RehydrationPayloadEmpty(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Clear — marks all 3 messages as rehydration_phase=true.
+	// Clear - marks all 3 messages as rehydration_phase=true.
 	require.NoError(t, mgr.ClearContext(ctx, sess.ID))
 
 	// End the session so the next open is a cold start.
 	require.NoError(t, mgr.EndSession(ctx, sess.ID))
 
-	// Reopen — cold path, buildResume reads the transcript.
+	// Reopen - cold path, buildResume reads the transcript.
 	_, err = mgr.OpenSession(ctx, sess.ID)
 	require.NoError(t, err)
 
@@ -2750,7 +2750,7 @@ func TestMarkActive_OnSubscribe_NoDeadlock(t *testing.T) {
 	sess.ContainerID = "container-warm"
 	require.NoError(t, store.UpdateSession(ctx, sess))
 
-	// Wire OnSubscribe to call MarkActive — exactly as main.go does.
+	// Wire OnSubscribe to call MarkActive - exactly as main.go does.
 	hub.OnSubscribe = func(sessionID string) {
 		reattachSess, reattachErr := mgr.Reattach(ctx, sessionID)
 		if reattachErr != nil {
@@ -2780,7 +2780,7 @@ func TestMarkActive_OnSubscribe_NoDeadlock(t *testing.T) {
 
 	select {
 	case <-done:
-		// Subscribe returned — no deadlock.
+		// Subscribe returned - no deadlock.
 	case <-time.After(2 * time.Second):
 		t.Fatal("deadlock: hub.Subscribe did not return within 2 seconds")
 	}
@@ -2992,7 +2992,7 @@ func TestOpenSession_WarmIdle_RaceWith_MarkWarmIdle(t *testing.T) {
 			"iteration %d: DB status must be active or warm-idle, got %q", i, got.Status)
 
 		// Post-condition 2: if OpenSession returned active, ContainerID
-		// must be non-empty — an active session without a container is
+		// must be non-empty - an active session without a container is
 		// the inconsistency the statusLock guards against.
 		if openRet.Status == chat.StatusActive {
 			assert.NotEmpty(t, openRet.ContainerID,
@@ -3067,7 +3067,7 @@ func openAndWaitForUsageEvent(t *testing.T, mgr *chat.Manager, hub *chat.SSEHub,
 
 // TestHandleUsageEntry_AccumulatesAcrossFrames verifies that three sequential
 // per-turn usage frames are summed correctly into the session row. Each frame
-// carries the token counts for a single assistant turn — not cumulative totals.
+// carries the token counts for a single assistant turn - not cumulative totals.
 func TestHandleUsageEntry_AccumulatesAcrossFrames(t *testing.T) {
 	hub := chat.NewSSEHub(64)
 
@@ -3171,7 +3171,7 @@ func TestHandleUsageEntry_NegativeDeltaRegression(t *testing.T) {
 		entries: []chat.LogEntry{
 			// Turn A: large turn.
 			{Type: "usage", Usage: &chat.TokenUsage{InputTokens: 200, OutputTokens: 80}, Model: "claude-sonnet-4-6"},
-			// Turn B: smaller turn — would have produced negative delta under old math.
+			// Turn B: smaller turn - would have produced negative delta under old math.
 			{Type: "usage", Usage: &chat.TokenUsage{InputTokens: 50, OutputTokens: 20}, Model: "claude-sonnet-4-6"},
 		},
 	}
@@ -3201,7 +3201,7 @@ func TestHandleUsageEntry_NegativeDeltaRegression(t *testing.T) {
 		select {
 		case e := <-events:
 			if e.Kind == chat.SSEKindSessionUpdate && e.SessionUpdate != nil && e.SessionUpdate.PromptTokens == 250 {
-				// Both turns accumulated correctly — verify DB.
+				// Both turns accumulated correctly - verify DB.
 				dbDeadline := time.Now().Add(time.Second)
 				for time.Now().Before(dbDeadline) {
 					s, err := store.GetSession(ctx, sess.ID)
@@ -3442,7 +3442,7 @@ func TestHandleUsageEntry_UnknownModel(t *testing.T) {
 		},
 	}
 
-	pricer := newStubPricer(map[string]float64{}) // empty — all models unknown
+	pricer := newStubPricer(map[string]float64{}) // empty - all models unknown
 	mgr := chat.NewManager(chat.Config{
 		Store:        store,
 		Backend:      backend,
@@ -3518,7 +3518,7 @@ func TestHandleUsageEntry_NoSSEPublishOnPersistError(t *testing.T) {
 	_, err = mgr.OpenSession(ctx, sess.ID)
 	require.NoError(t, err)
 
-	// Wait briefly — if a session_updated with EstimatedCostUSD is published,
+	// Wait briefly - if a session_updated with EstimatedCostUSD is published,
 	// that's the bug. We only accept a session_updated with status (cold→active).
 	timeout := time.After(500 * time.Millisecond)
 
@@ -3526,27 +3526,27 @@ func TestHandleUsageEntry_NoSSEPublishOnPersistError(t *testing.T) {
 		select {
 		case e := <-events:
 			if e.Kind == chat.SSEKindSessionUpdate && e.SessionUpdate != nil {
-				// An active status push is expected from OpenSession — allow it.
+				// An active status push is expected from OpenSession - allow it.
 				if e.SessionUpdate.Status != nil {
 					continue
 				}
 
 				// Any other session_updated (with context_tokens from the
 				// UpdateContextTokens call or cost fields) means the usage
-				// event ran — that's the context_tokens one. But if
+				// event ran - that's the context_tokens one. But if
 				// EstimatedCostUSD is non-zero that's the bug.
 				if e.SessionUpdate.EstimatedCostUSD != 0 {
 					t.Fatalf("session_updated with EstimatedCostUSD published despite IncrementSessionCost error: %+v", e.SessionUpdate)
 				}
 			}
 		case <-timeout:
-			return // no spurious cost event published — test passes
+			return // no spurious cost event published - test passes
 		}
 	}
 }
 
 // TestHandleUsageEntry_PreservesContextTokens verifies that both
-// UpdateContextTokens AND IncrementSessionCost are called per frame —
+// UpdateContextTokens AND IncrementSessionCost are called per frame -
 // the existing context-tokens flow must not be dropped.
 func TestHandleUsageEntry_PreservesContextTokens(t *testing.T) {
 	hub := chat.NewSSEHub(64)
@@ -3789,7 +3789,7 @@ func TestGetChatCostSummary_SeriesDefensiveCopy(t *testing.T) {
 	_, _, _, _, _, err = realStore.IncrementSessionCost(ctx, sessID, 100, 50, 0, 0, 2.00, "claude-sonnet-4-6")
 	require.NoError(t, err)
 
-	// First call — populates cache and returns a copy.
+	// First call - populates cache and returns a copy.
 	_, _, series1, err := mgr.GetChatCostSummary(ctx)
 	require.NoError(t, err)
 	require.Len(t, series1, 30, "series1 must have 30 elements")
@@ -3798,7 +3798,7 @@ func TestGetChatCostSummary_SeriesDefensiveCopy(t *testing.T) {
 	origVal := series1[29]
 	series1[29] = 999.99
 
-	// Second call — still within TTL window, must use the cache.
+	// Second call - still within TTL window, must use the cache.
 	// The cached entry must be unaffected by the mutation above.
 	_, _, series2, err := mgr.GetChatCostSummary(ctx)
 	require.NoError(t, err)

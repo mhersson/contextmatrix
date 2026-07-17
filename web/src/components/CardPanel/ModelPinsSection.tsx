@@ -27,7 +27,7 @@ const ROWS: { field: ModelPinField; label: string }[] = [
 ];
 
 /**
- * Per-card model pins for the agent backend — three rows (Orchestrator /
+ * Per-card model pins for the agent backend - three rows (Orchestrator /
  * Coder / Reviewer) in the automation rail's `.bf-spread` row style. Each row
  * is a strict `ModelCombobox` bound to a pin value: typing filters CM's
  * served catalog, and only a listed slug (or empty) can be committed. When
@@ -52,7 +52,7 @@ export function ModelPinsSection({
 }: ModelPinsSectionProps) {
   // CardPanel and CreateCardPanel can be mounted simultaneously
   // (ProjectShell renders both independently), so each row's input id must be
-  // instance-unique — a hardcoded id would be duplicated and one panel's
+  // instance-unique - a hardcoded id would be duplicated and one panel's
   // label association would break.
   const listId = useId();
   const values: Record<ModelPinField, string> = {

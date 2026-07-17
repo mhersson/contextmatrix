@@ -30,7 +30,7 @@ type eventHandlers struct {
 
 	// onSubscribed, if non-nil, is invoked exactly once per stream immediately
 	// after the event-bus subscription is registered. Intended purely for
-	// tests — production code never sets it. The hook must not block.
+	// tests - production code never sets it. The hook must not block.
 	onSubscribed func()
 }
 
@@ -75,7 +75,7 @@ func (h *eventHandlers) streamEvents(w http.ResponseWriter, r *http.Request) {
 	defer h.subscribers.Add(-1)
 
 	// Disable write deadline for this connection. The server's WriteTimeout is an
-	// absolute deadline from when request headers are read — it is not reset by
+	// absolute deadline from when request headers are read - it is not reset by
 	// intermediate writes. SSE connections are long-lived and must survive past it.
 	// http.ResponseController.SetWriteDeadline(time.Time{}) clears the deadline for
 	// this connection only, leaving the timeout intact for all other endpoints.

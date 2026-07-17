@@ -51,11 +51,11 @@ type shutdownComponents struct {
 }
 
 // runShutdownSequence executes the five-phase ordered shutdown:
-//  1. http_drain      — cancel SSE contexts, drain in-flight HTTP requests.
-//  2. sessionlog_close — close backend SSE log sessions with terminal events.
-//  3. ctx_cancel      — cancel the long-lived application context.
-//  4. commit_queue_close — flush buffered commits to disk.
-//  5. syncers_drain   — wait for git syncers to finish any late push.
+//  1. http_drain      - cancel SSE contexts, drain in-flight HTTP requests.
+//  2. sessionlog_close - close backend SSE log sessions with terminal events.
+//  3. ctx_cancel      - cancel the long-lived application context.
+//  4. commit_queue_close - flush buffered commits to disk.
+//  5. syncers_drain   - wait for git syncers to finish any late push.
 //
 // Returns the main HTTP server's shutdown error, if any (caller should
 // os.Exit(1) on non-nil). All other phase errors are logged and swallowed
@@ -89,7 +89,7 @@ func runShutdownSequence(ctx context.Context, c shutdownComponents) error {
 	wg.Wait()
 
 	// Phase 2: drain active backend SSE log sessions. HTTP is no longer accepting
-	// new connections, so closing these pumps is safe — every subscriber
+	// new connections, so closing these pumps is safe - every subscriber
 	// receives a terminal SSE event instead of a mid-stream EOF.
 	slog.Info("shutdown: phase=sessionlog_close")
 
@@ -103,8 +103,8 @@ func runShutdownSequence(ctx context.Context, c shutdownComponents) error {
 	c.AppCancel()
 
 	// Phase 4: drain the commit queue so any writes that landed on the
-	// worker channel — but whose go-git commit had not yet started when
-	// ctx was cancelled — still make it to disk before we exit. Running
+	// worker channel - but whose go-git commit had not yet started when
+	// ctx was cancelled - still make it to disk before we exit. Running
 	// this before the syncers' Wait ensures the on-disk commits exist to
 	// be pushed by a final push iteration.
 	slog.Info("shutdown: phase=commit_queue_close")

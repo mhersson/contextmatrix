@@ -71,7 +71,7 @@ func buildVersion() string {
 // wire-shape *protocol.LLMEndpoint carried on trigger/chat-start payloads.
 // Nil when unconfigured (Type == "") so downstream consumers can treat
 // "no endpoint" and "empty struct" identically. APIKey rides along on the
-// returned value — never log it; log Type/BaseURL only if logging at all.
+// returned value - never log it; log Type/BaseURL only if logging at all.
 func llmEndpointFromConfig(e config.LLMEndpointConfig) *protocol.LLMEndpoint {
 	if e.Type == "" {
 		return nil
@@ -270,7 +270,7 @@ func main() {
 	//
 	// Declared and resolved before the GitHub issue syncer below so that
 	// providerForProject (which closes over authSvc) never races the
-	// syncer's background goroutine: authSvc is fully set — nil or not —
+	// syncer's background goroutine: authSvc is fully set - nil or not -
 	// before ghSyncer.Start(ctx) ever runs.
 	var authSvc *auth.Service
 
@@ -283,7 +283,7 @@ func main() {
 		}
 
 		if keyCreated {
-			slog.Warn("auth: master key AUTO-GENERATED — move this file into real secret management",
+			slog.Warn("auth: master key AUTO-GENERATED - move this file into real secret management",
 				"path", cfg.Auth.MasterKeyFile)
 		}
 
@@ -335,7 +335,7 @@ func main() {
 			}
 
 			slog.Info("=======================================================================")
-			slog.Info("auth: no users exist yet — create the first admin account by opening:")
+			slog.Info("auth: no users exist yet - create the first admin account by opening:")
 			slog.Info("auth: bootstrap link", "path", "/auth/token/"+bootstrapToken)
 			slog.Info("auth: (prefix with this server's URL; the link is valid for 48h)")
 			slog.Info("=======================================================================")
@@ -366,7 +366,7 @@ func main() {
 		slog.Info("multi-user auth enabled", "session_idle_ttl", idleTTL)
 	}
 
-	// ghAPIBase is the instance-wide GitHub API base URL — the fallback used
+	// ghAPIBase is the instance-wide GitHub API base URL - the fallback used
 	// by providerForProject whenever a project has no credential binding, or
 	// the instance runs in auth.mode "none".
 	ghAPIBase := cfg.GitHub.ResolvedAPIBaseURL()
@@ -388,7 +388,7 @@ func main() {
 		ghClient := ghimport.NewClientWithBaseURL(tokenProvider, ghAPIBase)
 		ghSyncer = ghimport.NewSyncer(svc, store, ghClient, cfg.Boards.Dir, syncInterval, cfg.GitHub.AllowedHosts())
 
-		// Credential bindings only exist when auth is enabled — .board.yaml
+		// Credential bindings only exist when auth is enabled - .board.yaml
 		// bindings are validated against authSvc's credential pool, which is
 		// nil in auth.mode "none". Leave clientFor unset (nil seam) there so
 		// sync cycles keep using the constructor-injected static client.
@@ -419,7 +419,7 @@ func main() {
 	slog.Info("image store opened", "path", cfg.Images.DBPath)
 
 	// Op store: shared operational SQLite DB. Holds the chat schema (sessions,
-	// messages, cost archive) and the model blacklist in one ops.db — the chat
+	// messages, cost archive) and the model blacklist in one ops.db - the chat
 	// manager, MCP report_incapable_model, and the runCard blacklist reader all
 	// use this single store.
 	opStore, err := opsqlite.Open(cfg.OpStore.DBPath)
@@ -477,7 +477,7 @@ func main() {
 		// OpenRouter catalog without AA: no selection candidates, but the
 		// served set drives the model pickers, write-time validation, and
 		// chat cost pricing on AA-less deployments. On a chat-only deployment
-		// there is no agent entry — no allowlist or favorites apply.
+		// there is no agent entry - no allowlist or favorites apply.
 		var (
 			allowlist []string
 			favorites map[string]board.TierFavorites
@@ -545,7 +545,7 @@ func main() {
 	// and session-log manager.
 	backendSys := wireBackendSubsystems(ctx, cfg, svc, bus)
 
-	// Interface fields must stay untyped-nil when the backend is disabled —
+	// Interface fields must stay untyped-nil when the backend is disabled -
 	// a nil *backend.Client wrapped in the interface would defeat every
 	// `!= nil` enablement check in the router.
 	var taskBackend api.TaskBackend
@@ -555,7 +555,7 @@ func main() {
 	}
 
 	// Attribute backend-generated audit-trail entries to the agent backend
-	// when it resolves. Left unset otherwise — the affected service paths are
+	// when it resolves. Left unset otherwise - the affected service paths are
 	// unreachable then, and the neutral "backend" default applies.
 	if hasAgent {
 		svc.SetTaskBackendName(config.BackendNameAgent)
@@ -579,7 +579,7 @@ func main() {
 	}
 
 	// Create router with all API routes. MCP is registered on the inner mux
-	// so it shares the same middleware chain as every other route — no
+	// so it shares the same middleware chain as every other route - no
 	// separate wrapping needed here.
 	var apiSyncer api.Syncer
 	if syncer != nil {
@@ -588,7 +588,7 @@ func main() {
 
 	// Build RouterConfig with fields that are always present. Catalog is set
 	// conditionally below to avoid boxing a nil *modelcatalog.Builder into the
-	// catalogProvider interface — a typed nil defeats the h.catalog != nil guard
+	// catalogProvider interface - a typed nil defeats the h.catalog != nil guard
 	// in runCard and causes a panic on the mutex lock (nil receiver dereference).
 	// Blacklist, Outcomes, and OutcomesAdmin (all opStore) are always
 	// non-nil so they are set unconditionally.
@@ -650,8 +650,8 @@ func main() {
 		}
 
 		if catalogBuilder != nil {
-			// Serve the picker from the Builder's cached catalog — the same
-			// /models fetch already shared by Rate and Candidates — instead of a
+			// Serve the picker from the Builder's cached catalog - the same
+			// /models fetch already shared by Rate and Candidates - instead of a
 			// second independent fetch with its own TTL.
 			routerCfg.ChatEndpointModels = func(ctx context.Context) ([]api.EndpointModelView, error) {
 				return toViews(catalogBuilder.EndpointModels(ctx)), nil
@@ -715,7 +715,7 @@ func main() {
 		}
 
 		if adminBind != "127.0.0.1" && adminBind != "localhost" && adminBind != "::1" {
-			slog.Warn("admin server bound to non-loopback address — pprof/metrics exposed; restrict via firewall",
+			slog.Warn("admin server bound to non-loopback address - pprof/metrics exposed; restrict via firewall",
 				"addr", adminBind, "port", cfg.AdminPort)
 		}
 
@@ -836,7 +836,7 @@ func startupPullTaskSkills(hadGit bool, remoteURL string, mgr *gitops.Manager) {
 
 // waitSyncer wraps a blocking Wait() call with a context deadline. It runs
 // Wait() in a goroutine and returns nil as soon as it returns, or ctx.Err()
-// if the deadline fires first. The goroutine is leaked in the timeout case —
+// if the deadline fires first. The goroutine is leaked in the timeout case -
 // acceptable at shutdown because the process exits shortly after.
 func waitSyncer(ctx context.Context, wait func()) error {
 	done := make(chan struct{})

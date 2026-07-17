@@ -137,7 +137,7 @@ func TestRunCard_MobAbsentWhenOff(t *testing.T) {
 func TestRunCard_MobParticipantsClampedToCurrentMax(t *testing.T) {
 	// The stored card value can exceed the max if mob.max_participants was
 	// lowered after the card was written (svc.PatchCard in the fixture
-	// bypasses REST validation, standing in for a write under the old max) —
+	// bypasses REST validation, standing in for a write under the old max) -
 	// the trigger clamp is authoritative.
 	cfg := mobRunConfig()
 	cfg.MaxParticipants = 3

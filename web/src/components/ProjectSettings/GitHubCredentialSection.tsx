@@ -16,19 +16,19 @@ const INSTANCE_DEFAULT_LABEL = 'Instance default (github.* config)';
 function credentialLabel(c: CredentialInfo): string {
   const host = c.host || 'github.com';
   const suffix = c.disabled ? ' (disabled)' : '';
-  return `${c.name} — ${CREDENTIAL_KIND_LABEL[c.kind]}, ${host}${suffix}`;
+  return `${c.name} - ${CREDENTIAL_KIND_LABEL[c.kind]}, ${host}${suffix}`;
 }
 
 /**
  * Project-settings row for the per-project GitHub credential binding
  * (`ProjectConfig.github_credential`). Admins get a `<select>` populated
  * from the instance credential pool (`adminListCredentials`, admin-only
- * server-side — the fetch is skipped entirely in readOnly mode since a
+ * server-side - the fetch is skipped entirely in readOnly mode since a
  * non-admin call would 403 anyway). Non-admins get a plain-text row
  * derived from the project config alone.
  *
  * A bound name that no longer exists in the pool is a fail-closed
- * condition server-side (operations on the project will fail) — the
+ * condition server-side (operations on the project will fail) - the
  * warning surfaces that inline rather than silently substituting the
  * instance default, and the stale option is kept in the `<select>` so
  * saving without touching this field is still possible.
@@ -101,7 +101,7 @@ export function GitHubCredentialSection({ value, onChange, readOnly }: GitHubCre
       )}
       {isMissing && (
         <div className="text-xs mt-1" role="alert" style={{ color: 'var(--red)' }}>
-          credential no longer exists — operations on this project will fail
+          credential no longer exists - operations on this project will fail
         </div>
       )}
     </div>

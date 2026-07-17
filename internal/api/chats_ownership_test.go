@@ -40,7 +40,7 @@ const unknownChatID = "UNKNOWN0000000000000000000"
 
 // TestChatOwnership_ForeignIndistinguishableFromMissing is the core matrix:
 // for every per-ID endpoint, a foreign owner's request must produce a 404
-// with a body identical to the unknown-ID 404 — no existence oracle.
+// with a body identical to the unknown-ID 404 - no existence oracle.
 func TestChatOwnership_ForeignIndistinguishableFromMissing(t *testing.T) {
 	endpoints := []struct {
 		name   string
@@ -112,7 +112,7 @@ func TestChatOwnership_OwnerFullLifecycle(t *testing.T) {
 }
 
 // TestChatOwnership_NoneModeRemainsFlat: without a session identity the
-// surface stays unscoped — a spoofed X-Agent-ID (jsonReq sets human:web-x)
+// surface stays unscoped - a spoofed X-Agent-ID (jsonReq sets human:web-x)
 // must NOT scope access.
 func TestChatOwnership_NoneModeRemainsFlat(t *testing.T) {
 	mux, mgr := newChatFixture(t, defaultFixtureOpts())
@@ -130,7 +130,7 @@ func TestChatOwnership_NoneModeRemainsFlat(t *testing.T) {
 
 // TestDeleteChat_MissingID_ModeContract: DELETE on a missing ID 404s in
 // every mode. DeleteSession loads the session before deleting, so its own
-// not-found path fires whether or not there is an identity to scope on —
+// not-found path fires whether or not there is an identity to scope on -
 // there has never been a 204 no-op for an unknown ID in either mode. This
 // guards against that ever silently changing, which would reopen the
 // existence leak the ownership check closes for foreign IDs.

@@ -42,7 +42,7 @@ func commitMessage(agentID, cardID, action string) string {
 // enqueueCardCommit enqueues a card-change commit without waiting for it to
 // complete, returning a channel that yields the commit result plus a bool
 // telling the caller whether notifyCommit should fire on success (true only
-// when a real commit was actually scheduled — not for no-ops or deferred).
+// when a real commit was actually scheduled - not for no-ops or deferred).
 // Caller must hold writeMu while invoking this (so the enqueue itself is
 // serialized); the caller may then release writeMu before awaiting the
 // returned channel, which is the whole point of the async path.
@@ -70,7 +70,7 @@ func (s *CardService) enqueueCardCommit(ctx context.Context, project, cardID, ag
 		}), true
 	}
 
-	// No queue configured — run the commit synchronously inline and
+	// No queue configured - run the commit synchronously inline and
 	// return a pre-resolved channel. This preserves the original
 	// ordering semantics (commit happens before the caller continues)
 	// for tests/callers that never wire a queue.
@@ -163,7 +163,7 @@ func (s *CardService) flushDeferredCommitForProject(ctx context.Context, project
 	if err := s.git.CommitFilesShell(ctx, unique, msg); err != nil {
 		return err
 	}
-	// Delete paths only after a successful commit — prevents data loss if
+	// Delete paths only after a successful commit - prevents data loss if
 	// the commit fails.
 	delete(s.deferredPaths, cardID)
 	// Refresh go-git's in-memory repo state so subsequent read operations

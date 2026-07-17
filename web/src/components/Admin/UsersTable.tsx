@@ -12,7 +12,7 @@ interface UsersTableProps {
 
 /**
  * Loading/error/empty-state wrapper and `<table>` markup for the Users
- * page. Purely presentational — AdminUsersPage owns all data fetching,
+ * page. Purely presentational - AdminUsersPage owns all data fetching,
  * action logic, and the decision of what a row toggle should do; this
  * component only renders the current state and threads row callbacks
  * through to `UserTableRow`.

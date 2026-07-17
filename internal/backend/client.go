@@ -43,7 +43,7 @@ type (
 // ContainerInfo is a decoded entry from GET /containers. The backend sources
 // these from Docker directly (filtered to the worker containers it manages),
 // so a populated slice is the authoritative answer to "what containers are
-// actually running right now" — independent of the backend's in-memory tracker
+// actually running right now" - independent of the backend's in-memory tracker
 // or of CM's worker_status field. The Docker-authoritative reconcile sweep
 // uses this list as its decision input.
 //
@@ -134,7 +134,7 @@ func (c *Client) Health(ctx context.Context) (HealthInfo, error) {
 
 // ListContainers queries the backend's /containers endpoint for every worker
 // container it currently manages. The returned slice is CM's ground truth
-// for "what containers are actually running right now" — independent of any
+// for "what containers are actually running right now" - independent of any
 // CM-side bookkeeping. An error here is not recoverable by retry at the call
 // site: the caller should log and continue rather than risk firing spurious
 // kills against a backend that briefly can't answer.
@@ -194,7 +194,7 @@ type ImageInfo struct {
 // ListImages queries the backend's /images endpoint for the worker images
 // available on its node. The backend applies its own name filtering; CM does
 // not second-guess the list. Works against any backend speaking the shared
-// HMAC GET scheme — the images route uses one Client per configured backend.
+// HMAC GET scheme - the images route uses one Client per configured backend.
 func (c *Client) ListImages(ctx context.Context) ([]ImageInfo, error) {
 	body, err := c.sendGet(ctx, c.baseURL+"/images")
 	if err != nil {
@@ -225,7 +225,7 @@ func (c *Client) ListImages(ctx context.Context) ([]ImageInfo, error) {
 
 // requestURI extracts the request-target form (path + "?" + raw query) of an
 // absolute URL for HMAC signing. The receiver binds the signature to
-// r.URL.RequestURI(), so sender and receiver must agree — any URI-rewriting
+// r.URL.RequestURI(), so sender and receiver must agree - any URI-rewriting
 // proxy between them would break auth. An empty path is normalized to "/"
 // to match how net/http reports the default root path.
 func requestURI(rawURL string) (string, error) {
@@ -383,7 +383,7 @@ func (c *Client) doRequest(ctx context.Context, url string, body []byte, signatu
 	}
 
 	// Only reached on <400, where the backend contract says
-	// protocol.SuccessResponse — so ok:false here is the off-contract /
+	// protocol.SuccessResponse - so ok:false here is the off-contract /
 	// logical-rejection case. Decode as ErrorResponse, a field superset of
 	// what we branch on; on-contract non-2xx rejections are decoded in the
 	// >=400 branch above.
@@ -393,7 +393,7 @@ func (c *Client) doRequest(ctx context.Context, url string, body []byte, signatu
 	}
 
 	if !parsed.OK {
-		// Backend explicitly rejected — do not retry.
+		// Backend explicitly rejected - do not retry.
 		return &webhookError{
 			statusCode: resp.StatusCode,
 			body:       rejectionDetail(respBody),
@@ -432,7 +432,7 @@ func rejectionDetail(respBody []byte) string {
 type webhookError struct {
 	statusCode int
 	body       string
-	clientErr  bool // true for logical rejections (ok:false) — never retry
+	clientErr  bool // true for logical rejections (ok:false) - never retry
 }
 
 func (e *webhookError) Error() string {

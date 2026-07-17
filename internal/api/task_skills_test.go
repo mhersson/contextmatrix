@@ -83,19 +83,19 @@ func TestTaskSkillsLister_SkipsBadEntries(t *testing.T) {
 	dir := t.TempDir()
 	writeSkillFile(t, dir, "valid-skill", "Use when valid.")
 
-	// Subdirectory with no SKILL.md — should be skipped.
+	// Subdirectory with no SKILL.md - should be skipped.
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "no-skill-md"), 0o755))
 
-	// Subdirectory with malformed frontmatter — should be skipped.
+	// Subdirectory with malformed frontmatter - should be skipped.
 	badDir := filepath.Join(dir, "bad-frontmatter")
 	require.NoError(t, os.MkdirAll(badDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(badDir, "SKILL.md"), []byte("not a frontmatter doc\n"), 0o644))
 
-	// Subdirectory with invalid name — should be skipped (path safety).
+	// Subdirectory with invalid name - should be skipped (path safety).
 	invalidNameDir := filepath.Join(dir, "Bad Name With Spaces")
 	require.NoError(t, os.MkdirAll(invalidNameDir, 0o755))
 
-	// Regular file at the top — should be skipped.
+	// Regular file at the top - should be skipped.
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "README.md"), []byte("readme"), 0o644))
 
 	l := newTaskSkillsLister(dir)
@@ -122,7 +122,7 @@ func TestTaskSkillsLister_CachesByMtime(t *testing.T) {
 	now := skills[0].Name // touch to force refresh below
 	_ = now
 
-	// Bump dir mtime explicitly — writeSkillFile may already do so via
+	// Bump dir mtime explicitly - writeSkillFile may already do so via
 	// MkdirAll, but be defensive.
 	require.NoError(t, os.Chtimes(dir, mustNow(), mustNow()))
 
@@ -595,7 +595,7 @@ func TestGetTaskSkillsSource_HMAC_Valid(t *testing.T) {
 
 	var body taskSkillsSourceResponse
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
-	// dir and fallback are both empty in this test fixture — both fields are empty strings.
+	// dir and fallback are both empty in this test fixture - both fields are empty strings.
 	assert.Empty(t, body.GitRemoteURL)
 	assert.Empty(t, body.Ref)
 }
@@ -625,7 +625,7 @@ func TestGetTaskSkillsSource_HMAC_Unsigned(t *testing.T) {
 const testChatBackendAPIKey = "chat-backend-test-key-0123456789abcdef"
 
 // setupChatTaskSkillsSourceEndpoint mounts the chat backend's task-skills-source
-// route, authenticated by the dedicated chat backend key. No Backend is wired —
+// route, authenticated by the dedicated chat backend key. No Backend is wired -
 // the chat callback is independent of the active task backend.
 func setupChatTaskSkillsSourceEndpoint(t *testing.T) (*httptest.Server, func()) {
 	t.Helper()
@@ -666,7 +666,7 @@ func TestGetChatTaskSkillsSource_HMAC_Valid(t *testing.T) {
 
 	var body taskSkillsSourceResponse
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
-	// dir and fallback are both empty in this fixture — both fields are empty.
+	// dir and fallback are both empty in this fixture - both fields are empty.
 	assert.Empty(t, body.GitRemoteURL)
 	assert.Empty(t, body.Ref)
 }
@@ -734,7 +734,7 @@ func TestChatTaskSkillsSource_NotRegisteredWithoutBackend(t *testing.T) {
 // --- task-skills-source instance token (best-effort, no binding) ---
 //
 // task-skills is instance-scoped, not project-scoped, so it mints from
-// RouterConfig.GitHubTokenProvider directly — never providerForProject.
+// RouterConfig.GitHubTokenProvider directly - never providerForProject.
 // Unlike git-credentials (fail-closed on a broken project binding), a mint
 // failure here is best-effort: there is no binding to be wrong about, so the
 // response still succeeds with the token fields simply omitted.
@@ -780,7 +780,7 @@ func TestGetTaskSkillsSource_InstanceProvider_IncludesToken(t *testing.T) {
 }
 
 // TestGetTaskSkillsSource_MintFailure_OmitsTokenBestEffort asserts the
-// best-effort asymmetry: a mint failure never fails the request — the
+// best-effort asymmetry: a mint failure never fails the request - the
 // response is still 200, just without the token fields.
 func TestGetTaskSkillsSource_MintFailure_OmitsTokenBestEffort(t *testing.T) {
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)

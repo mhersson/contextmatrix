@@ -246,7 +246,7 @@ describe('buildCardPatch', () => {
   });
 });
 
-describe('isCardDirty / buildCardPatch — mob fields', () => {
+describe('isCardDirty / buildCardPatch - mob fields', () => {
   it('dirty when mob_participants changed', () => {
     const original = makeCard({});
     const edited = { ...original, mob_participants: 3 };

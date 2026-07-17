@@ -135,7 +135,7 @@ func TestClient_Kill_Success(t *testing.T) {
 // TestClient_EndSessionAndKill_DistinctSignatures is the regression guard for
 // the replay-cache collision bug: /end-session and /kill carry identical JSON
 // bodies, so when they fire back-to-back in the same Unix second their HMAC
-// signatures MUST differ — otherwise the backend's replay cache (keyed on
+// signatures MUST differ - otherwise the backend's replay cache (keyed on
 // signature) rejects the second call with 409 duplicate and the container
 // leaks. Binding method + path into the signature is what guarantees the
 // divergence.

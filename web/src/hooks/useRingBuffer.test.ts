@@ -153,7 +153,7 @@ describe('useRingBuffer', () => {
       result.current.append([]);
     });
 
-    // Same reference — no re-render triggered.
+    // Same reference - no re-render triggered.
     expect(result.current.logs).toBe(before);
   });
 });

@@ -13,7 +13,7 @@ function formatLastLogin(ts?: string): string {
 }
 
 /**
- * One row of the Users table. Purely presentational — AdminUsersPage
+ * One row of the Users table. Purely presentational - AdminUsersPage
  * decides whether a toggle needs confirmation and owns the API calls;
  * this component just renders the row and reports clicks.
  */

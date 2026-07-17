@@ -23,7 +23,7 @@ import (
 // fakeBackendServer creates a fake backend SSE server that streams events from
 // the provided channel until it is closed, then holds the connection open until
 // the client disconnects.  readyCh is closed once the HTTP headers are sent.
-// Frames are true protocol.LogEntry wire shape (ts/type/content/card_id) —
+// Frames are true protocol.LogEntry wire shape (ts/type/content/card_id) -
 // the backend never emits a seq field.
 func fakeBackendServer(t *testing.T, eventCh <-chan protocol.LogEntry, readyCh chan struct{}) *httptest.Server {
 	t.Helper()
@@ -55,15 +55,15 @@ func fakeBackendServer(t *testing.T, eventCh <-chan protocol.LogEntry, readyCh c
 
 			flusher.Flush()
 		}
-		// Channel closed — hold the connection until the client disconnects.
+		// Channel closed - hold the connection until the client disconnects.
 		<-r.Context().Done()
 	}))
 }
 
 // fakeBackendServerCounting behaves like fakeBackendServer but also tracks how
 // many upstream connections have been established (via the returned
-// *atomic.Int32), so a test can assert that a reconnect actually happened —
-// i.e. the manager called Start again — rather than a stale pump silently
+// *atomic.Int32), so a test can assert that a reconnect actually happened -
+// i.e. the manager called Start again - rather than a stale pump silently
 // continuing to serve a subscriber parked in pendingSubs. All connections
 // share eventCh; the tests using this helper serialize Stop/Start so only one
 // connection is ever actively selecting on it at a time. Like fakeBackendServer,
@@ -97,7 +97,7 @@ func fakeBackendServerCounting(t *testing.T, eventCh <-chan protocol.LogEntry, r
 			select {
 			case evt, ok := <-eventCh:
 				if !ok {
-					// No more events will ever be pushed — hold the connection
+					// No more events will ever be pushed - hold the connection
 					// open until the client (the manager's pump) disconnects.
 					<-r.Context().Done()
 
@@ -201,7 +201,7 @@ func parseJSONMap(t *testing.T, raw string) map[string]any {
 //  1. Start a session via manager, emit a question event for card X.
 //  2. Client A connects, receives the question, disconnects.
 //  3. Emit more events for card X while no client is attached.
-//  4. Client B connects — asserts it receives ALL buffered events (snapshot replay).
+//  4. Client B connects - asserts it receives ALL buffered events (snapshot replay).
 //  5. Stop the session. Client B receives a terminal event and the channel closes.
 //  6. After Stop, Snapshot is empty.
 func TestStreamCardSession_SnapshotAndLive(t *testing.T) {
@@ -264,7 +264,7 @@ func TestStreamCardSession_SnapshotAndLive(t *testing.T) {
 		return len(mgr.Snapshot(cardID)) == 3
 	}, 3*time.Second, 10*time.Millisecond)
 
-	// Client B connects — should replay the full 3-event snapshot.
+	// Client B connects - should replay the full 3-event snapshot.
 	chB, cancelB := connectSSEClient(t, clientURL)
 	defer cancelB()
 
@@ -318,9 +318,9 @@ func TestStreamCardSession_CrossCardFilter(t *testing.T) {
 	require.NoError(t, mgr.Start(context.Background(), cardX, project))
 	<-readyCh
 
-	// Emit event for card Y — must NOT appear in card X's buffer.
+	// Emit event for card Y - must NOT appear in card X's buffer.
 	upstreamCh <- protocol.LogEntry{Type: "text", Content: "for Y only", CardID: cardY}
-	// Emit event for card X — must appear.
+	// Emit event for card X - must appear.
 	upstreamCh <- protocol.LogEntry{Type: "text", Content: "for X", CardID: cardX}
 
 	// Wait until card X's buffer holds exactly 1 event (not 2).
@@ -353,7 +353,7 @@ func TestStreamCardSession_NoManager(t *testing.T) {
 // TestStreamCardSession_RevivesSweptSession is the regression test for the
 // bug where streamCardSession never called Start, so a browser reconnect
 // after the idle sweeper force-closed a session (Manager.Stop) would park in
-// pendingSubs forever — the worker_status transition that originally
+// pendingSubs forever - the worker_status transition that originally
 // triggered Start fires only once per run, so nothing else would ever revive
 // it.
 //
@@ -363,13 +363,13 @@ func TestStreamCardSession_NoManager(t *testing.T) {
 //  2. Call mgr.Stop directly, simulating the idle sweeper force-closing the
 //     session mid-run.
 //  3. Connect a card-scoped SSE client through streamWorkerLogs (the full
-//     HTTP handler, not the manager directly) — this must call the idempotent
+//     HTTP handler, not the manager directly) - this must call the idempotent
 //     Start on every connect, which opens a SECOND upstream connection.
 //  4. A fresh event delivered after the revival must reach the reconnected
 //     client.
 //
 // Without the fix, step 3 never opens a second connection and the
-// require.Eventually below times out (bounded — not an unbounded block).
+// require.Eventually below times out (bounded - not an unbounded block).
 func TestStreamCardSession_RevivesSweptSession(t *testing.T) {
 	const (
 		cardID  = "REVIVE-001"
@@ -415,7 +415,7 @@ func TestStreamCardSession_RevivesSweptSession(t *testing.T) {
 
 	// A card-scoped browser reconnect must revive the session: streamCardSession
 	// calls Start (idempotent) on every connect, so this must open a SECOND
-	// upstream connection. Bounded wait — this is the assertion that times out
+	// upstream connection. Bounded wait - this is the assertion that times out
 	// without the fix.
 	chB, cancelB := connectSSEClient(t, clientURL)
 	defer cancelB()
@@ -450,7 +450,7 @@ func TestStreamCardSession_RevivesSweptSession(t *testing.T) {
 //  3. Emit 2-3 events spanning both cards; wait until buffered.
 //  4. Client A connects to /api/worker/logs?project=P (no card_id), drains the snapshot, disconnects.
 //  5. Emit 2-3 more events while no client is attached.
-//  6. Client B connects — asserts it receives ALL buffered events (both pre- and post-disconnect)
+//  6. Client B connects - asserts it receives ALL buffered events (both pre- and post-disconnect)
 //     BEFORE any live event, in Seq order.
 //  7. mgr.StopProject("P"); assert client B gets a terminal event or channel close.
 //  8. Assert mgr.SnapshotProject("P") is empty after Stop.
@@ -525,7 +525,7 @@ func TestStreamProjectSession_SnapshotAndLive(t *testing.T) {
 		return len(mgr.SnapshotProject(project)) == 5
 	}, 3*time.Second, 10*time.Millisecond)
 
-	// Client B connects — should replay the full 5-event snapshot.
+	// Client B connects - should replay the full 5-event snapshot.
 	chB, cancelB := connectSSEClient(t, clientURL)
 	defer cancelB()
 

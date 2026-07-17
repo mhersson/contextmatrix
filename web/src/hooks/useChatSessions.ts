@@ -61,7 +61,7 @@ export function useChatSessions(): UseChatSessions {
     if (typeof window === 'undefined') return;
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     const handler = () => {
-      if (debounceTimer !== null) return; // already pending — coalesce
+      if (debounceTimer !== null) return; // already pending - coalesce
       debounceTimer = setTimeout(() => {
         debounceTimer = null;
         setTick((n) => n + 1);

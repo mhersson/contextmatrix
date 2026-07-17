@@ -31,7 +31,7 @@ var ErrOversizedSSELine = errors.New("chat: /logs: oversized SSE line exceeded b
 
 // ErrBackendUnreachable is wrapped around chat.Backend HTTP failures caused
 // by a transport-level failure to reach the backend at all (connection
-// refused, DNS failure, timeout) — as opposed to an HTTP response with a
+// refused, DNS failure, timeout) - as opposed to an HTTP response with a
 // non-2xx status, which is an application-level rejection, not "the worker
 // is dead". Manager.SendUserMessage matches on this via errors.Is to count
 // consecutive worker-unreachable failures and auto-recover the session to
@@ -41,7 +41,7 @@ var ErrOversizedSSELine = errors.New("chat: /logs: oversized SSE line exceeded b
 // timing out (e.g. the inbound HTTP request in SendUserMessage disconnects
 // mid-send). That's a caller-side event, not a signal that the backend is
 // unreachable, so it must not count toward the auto-cold-flip. An
-// http.Client-level timeout is NOT excluded — it still gets the sentinel,
+// http.Client-level timeout is NOT excluded - it still gets the sentinel,
 // since the caller ctx is un-erred and the timeout genuinely indicates the
 // backend is unresponsive.
 var ErrBackendUnreachable = errors.New("chat: backend unreachable")
@@ -213,7 +213,7 @@ func (c *backendClient) StreamLogs(ctx context.Context, sessionID string, onEntr
 
 	if err := scanner.Err(); err != nil {
 		// If a single SSE line exceeds the 1 MiB buffer cap the scanner state
-		// is unrecoverable — return ErrOversizedSSELine so startConsumer's
+		// is unrecoverable - return ErrOversizedSSELine so startConsumer's
 		// retry loop reconnects rather than treating it as a clean close.
 		if errors.Is(err, bufio.ErrTooLong) {
 			slog.Warn("chat: /logs: oversized SSE line; reconnecting", "session_id", sessionID)
@@ -252,10 +252,10 @@ func (c *backendClient) post(ctx context.Context, path string, body []byte) ([]b
 	resp, err := c.httpc.Do(req)
 	if err != nil {
 		// A canceled/deadline-exceeded caller ctx is a caller-side event, not
-		// a signal about backend health — exclude it from the sentinel so it
+		// a signal about backend health - exclude it from the sentinel so it
 		// can't count toward the auto-cold-flip in Manager.SendUserMessage.
 		// An http.Client-level timeout (c.httpc.Timeout firing) leaves the
-		// caller ctx un-erred, so it still gets the sentinel — that IS a
+		// caller ctx un-erred, so it still gets the sentinel - that IS a
 		// backend-unresponsive signal.
 		if ctx.Err() != nil {
 			return nil, fmt.Errorf("chat: %s: %w", path, err)

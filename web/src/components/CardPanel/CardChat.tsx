@@ -66,14 +66,14 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
   };
 
   // Derive readOnlyMessage for non-HITL states. When hitlActive is true this
-  // is undefined and the compose row is shown. Every autonomous run — started
-  // autonomous (plain or mob session) or promoted mid-session — streams the same
+  // is undefined and the compose row is shown. Every autonomous run - started
+  // autonomous (plain or mob session) or promoted mid-session - streams the same
   // read-only transcript, so one caption covers them all while running.
   const readOnlyMessage = hitlActive
     ? undefined
     : card.worker_status === 'running'
-      ? 'Autonomous run — read-only'
-      : 'Session ended — read-only';
+      ? 'Autonomous run - read-only'
+      : 'Session ended - read-only';
 
   // Footer renders only when HITL is active: the "Switch to Autonomous"
   // button. Once promoted, card.autonomous flips to true so hitlActive

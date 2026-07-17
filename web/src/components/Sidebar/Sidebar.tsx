@@ -22,7 +22,7 @@ export function Sidebar({ onNewProject, onNewChat, mobileOpen = false, onMobileC
   const { version } = useTheme();
   const auth = useOptionalAuth();
   const isAdmin = Boolean(auth?.user?.is_admin);
-  // UX honesty, not a security boundary — the API 403s a non-admin project
+  // UX honesty, not a security boundary - the API 403s a non-admin project
   // create anyway (multi mode is admin-gated). None mode (auth?.mode !==
   // 'multi', including no AuthProvider at all) always shows the button.
   const canCreateProject = !(auth?.mode === 'multi' && !isAdmin);
@@ -60,7 +60,7 @@ export function Sidebar({ onNewProject, onNewChat, mobileOpen = false, onMobileC
               letterSpacing: '-0.02em',
               lineHeight: 1.15,
               // Tune Fraunces' optical-size axis to roughly the rendered
-              // size — opsz: 96 is for huge display use and ships
+              // size - opsz: 96 is for huge display use and ships
               // delicate strokes that wash out at sidebar size; matching
               // opsz here gives the italic M's left leg solid weight.
               fontVariationSettings: '"opsz" 28',
@@ -184,7 +184,7 @@ export function Sidebar({ onNewProject, onNewChat, mobileOpen = false, onMobileC
   if (mobileOpen) {
     return (
       <>
-        {/* Dark backdrop — clicking it closes the drawer */}
+        {/* Dark backdrop - clicking it closes the drawer */}
         <div
           className="fixed inset-0 z-50"
           style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}

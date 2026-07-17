@@ -19,7 +19,7 @@ type backendHealthResponse struct {
 
 // getBackendHealth handles GET /api/backend/health by proxying to the backend's
 // /health endpoint and returning the parsed shape. The UI reads max_concurrent
-// from here to render the NowRail capacity meter — it's the backend-global cap,
+// from here to render the NowRail capacity meter - it's the backend-global cap,
 // not a per-project value. Returns 503 when no task backend is configured and 502
 // when the backend is unreachable; callers should fail soft (hide capacity).
 //
@@ -56,7 +56,7 @@ func (h *backendHandlers) getBackendHealth(w http.ResponseWriter, r *http.Reques
 // every concurrent caller to issue a fresh probe.
 //
 // On a cold or expired cache, concurrent callers are coalesced via
-// singleflight — exactly one upstream probe runs per TTL window. The
+// singleflight - exactly one upstream probe runs per TTL window. The
 // probe runs against a detached context (`context.WithoutCancel`) so a
 // single caller's cancellation (browser tab closed mid-probe) cannot
 // write a transient `context.Canceled` into the cache and poison every

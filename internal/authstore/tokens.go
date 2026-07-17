@@ -20,7 +20,7 @@ const (
 )
 
 // OneTimeToken is a single-use, expiring link token. UserID is nil for
-// bootstrap tokens — the account does not exist until redemption.
+// bootstrap tokens - the account does not exist until redemption.
 type OneTimeToken struct {
 	TokenHash string
 	Purpose   TokenPurpose
@@ -49,7 +49,7 @@ func (s *Store) CreateOneTimeToken(ctx context.Context, tokenHash string, purpos
 	return nil
 }
 
-// OneTimeTokenByHash fetches a token row without consuming it — the inspect
+// OneTimeTokenByHash fetches a token row without consuming it - the inspect
 // endpoint uses this to render the right redemption form.
 func (s *Store) OneTimeTokenByHash(ctx context.Context, tokenHash string) (*OneTimeToken, error) {
 	var (
@@ -119,7 +119,7 @@ func (s *Store) ConsumeOneTimeToken(ctx context.Context, tokenHash string, now t
 	return s.OneTimeTokenByHash(ctx, tokenHash)
 }
 
-// InvalidateTokensForUser deletes a user's unused tokens of one purpose —
+// InvalidateTokensForUser deletes a user's unused tokens of one purpose -
 // regenerating an invite or reset link kills the previous one.
 func (s *Store) InvalidateTokensForUser(ctx context.Context, userID int64, purpose TokenPurpose) (int64, error) {
 	res, err := s.db.ExecContext(ctx,
@@ -134,7 +134,7 @@ func (s *Store) InvalidateTokensForUser(ctx context.Context, userID int64, purpo
 }
 
 // DeleteExpiredOneTimeTokens sweeps unused tokens whose expiry has passed.
-// Redeemed tokens are kept — used_at is the audit trail of who got in how.
+// Redeemed tokens are kept - used_at is the audit trail of who got in how.
 func (s *Store) DeleteExpiredOneTimeTokens(ctx context.Context, now time.Time) (int64, error) {
 	res, err := s.db.ExecContext(ctx,
 		`DELETE FROM one_time_tokens WHERE used_at IS NULL AND expires_at <= ?`, toUnix(now),

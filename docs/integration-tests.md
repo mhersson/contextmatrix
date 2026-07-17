@@ -29,8 +29,8 @@ sibling backends and their worker images are built **lazily**, guarded by
 `sync.Once`, the first time a scenario needs them:
 
 - `ensureAgentAssets` / `ensureChatAssets` compile the sibling's single binary
-  twice — once as a host `serve` binary, once statically (`CGO_ENABLED=0
-  GOOS=linux`) for the container — then `docker build` a **minimal**
+  twice - once as a host `serve` binary, once statically (`CGO_ENABLED=0
+  GOOS=linux`) for the container - then `docker build` a **minimal**
   `cm-agent-worker:test` / `cm-chat-worker:test` image (`debian:bookworm-slim` +
   `git` + `ca-certificates` + `bash` + the binary, mirroring the production
   worker `ENTRYPOINT`). The production `docker/Dockerfile.worker` bakes in a full
@@ -44,12 +44,12 @@ sibling backends and their worker images are built **lazily**, guarded by
 ## Prerequisites
 
 - A Docker daemon reachable from the current user (for the two backend
-  scenarios). **The daemon must support bridge networking** — the agent and chat
+  scenarios). **The daemon must support bridge networking** - the agent and chat
   executors launch every worker on the bridge with an `--add-host
   host.docker.internal:host-gateway` mapping and expose no host-network knob. A
   daemon that cannot set up bridge networking makes worker containers
   unlaunchable; the two container scenarios then `t.Skip` with that reason. The
-  fix is host/daemon-level — a common Linux cause is a missing `veth` module
+  fix is host/daemon-level - a common Linux cause is a missing `veth` module
   (`sudo modprobe veth`, persisted via `/etc/modules-load.d/veth.conf`), which
   may instead require a reboot when a kernel upgrade has removed the running
   kernel's module tree.
@@ -64,19 +64,19 @@ CM runs in `auth.mode: multi`, so essentially the whole API is session-gated.
 Each scenario bootstraps an admin session once (`bootAdminSession` in
 `auth_test.go`): it scrapes the one-time bootstrap link from CM's startup logs,
 redeems it to create the first admin, and returns a cookie-jar client. Scenario
-clients drive everything through that session — an `X-Agent-ID` header alone does
+clients drive everything through that session - an `X-Agent-ID` header alone does
 not authenticate browser routes in multi mode.
 
 ## The scripting model
 
 Worker containers reach three host services via `host.docker.internal`:
 
-- **Scripted LLM** (`stubllm_test.go`) — an OpenAI-compatible endpoint on
+- **Scripted LLM** (`stubllm_test.go`) - an OpenAI-compatible endpoint on
   `0.0.0.0:<port>` serving `POST /chat/completions` as SSE. It matches on request
   **content** (the orchestrator's phase persona preambles, e.g. `"You are the
   planning agent"`) and returns the SSE body that phase expects. The matcher
   table and the SSE wire builders are ported verbatim from the agent repo's
-  `internal/worker/e2e_orchestrator_test.go` `scriptedBackend` — they are
+  `internal/worker/e2e_orchestrator_test.go` `scriptedBackend` - they are
   `_test.go`-internal there and cannot be imported. Every reply carries a scripted
   `usage` cost so the `report_usage` / cost plumbing is exercised. There are two
   scripts: the agent happy path (plan → two coder subtasks → review approve →
@@ -87,30 +87,30 @@ Worker containers reach three host services via `host.docker.internal`:
   > lockstep or the scenario hangs on the `UNEXPECTED PROMPT` fallback. All
   > matchers live in that one file.
 
-- **Git server** (`gitserver_test.go`) — smart-HTTP via `git http-backend` (CGI)
+- **Git server** (`gitserver_test.go`) - smart-HTTP via `git http-backend` (CGI)
   on `0.0.0.0:<port>`, serving one seeded bare repo (`README` + a trivial
   `go.mod`/`main.go`) with anonymous clone and push. The board's legacy singular
   `repo:` field points at `http://host.docker.internal:<port>/work.git`. The
   agent scenario asserts the pushed branch with `git ls-remote` from the host.
 
-- **ContextMatrix MCP** — the worker claims the card, heartbeats, and reports
+- **ContextMatrix MCP** - the worker claims the card, heartbeats, and reports
   over MCP at `container_contextmatrix_url + /mcp`, Bearer-authed with the
   configured `mcp_api_key`.
 
 CM itself cannot resolve `host.docker.internal` (the host has no such alias), so
-its own catalog / chat-picker fetch of `llm_endpoint` fails — that is
+its own catalog / chat-picker fetch of `llm_endpoint` fails - that is
 best-effort and fail-open by design. Only the containers reach the endpoint.
 
 ## Runlog artifacts
 
 Each scenario writes a per-run directory under `${TMPDIR}/cm-int-runs/<id>-<ts>/`:
 
-- `combined.log` — chronological merge of backend/transcript/harness lines
-- `cm.log`, `agent.log`, `chat.log` — subprocess stderr (only the started ones)
-- `stubllm.log` — every scripted-LLM request
-- `worker.raw.jsonl` — the worker container's stdout (`docker logs -f`)
-- `transcript.jsonl` — the `/api/worker/logs` SSE stream (agent scenario)
-- `cards.json` + `run.md` — a card-state snapshot and a rendered summary
+- `combined.log` - chronological merge of backend/transcript/harness lines
+- `cm.log`, `agent.log`, `chat.log` - subprocess stderr (only the started ones)
+- `stubllm.log` - every scripted-LLM request
+- `worker.raw.jsonl` - the worker container's stdout (`docker logs -f`)
+- `transcript.jsonl` - the `/api/worker/logs` SSE stream (agent scenario)
+- `cards.json` + `run.md` - a card-state snapshot and a rendered summary
 
 The path is printed at the end of each scenario (`scenario diagnostics: …`).
 

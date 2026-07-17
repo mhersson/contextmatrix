@@ -17,7 +17,7 @@ import (
 
 // Card list pagination bounds. Enforced in listCards; clients that exceed the
 // max receive 400. Default is on the generous side because the web UI's board
-// view currently fetches everything at once — raising it shifts this endpoint
+// view currently fetches everything at once - raising it shifts this endpoint
 // to cursor-based paging only when clients opt in.
 const (
 	defaultCardPageLimit = 500
@@ -141,7 +141,7 @@ type patchCardRequest struct {
 // validateCardSkills validates that each skill name in `skills` exists in
 // the configured task-skills directory, and (when the project has a
 // non-nil default_skills) is a subset of that. Returns nil for nil or
-// empty skills slices — those are always valid (mount full set / mount
+// empty skills slices - those are always valid (mount full set / mount
 // nothing respectively).
 func (h *cardHandlers) validateCardSkills(r *http.Request, projectName string, skills *[]string) error {
 	if skills == nil || len(*skills) == 0 {
@@ -168,7 +168,7 @@ func (h *cardHandlers) validateCardSkills(r *http.Request, projectName string, s
 }
 
 // isNonHumanAgent returns true if the request has an agent ID that is not a human user.
-// A bare "human:" header is treated as non-human — see board.IsHumanAgentID.
+// A bare "human:" header is treated as non-human - see board.IsHumanAgentID.
 func isNonHumanAgent(r *http.Request) bool {
 	agentID := extractAgentID(r)
 
@@ -196,7 +196,7 @@ func validateAgentOwnership(r *http.Request, card *board.Card) string {
 }
 
 // validBestOfN reports whether v is an accepted best_of_n value: 0 (off) or
-// in the inclusive range 2..maxCandidates. 1 is always rejected — racing a
+// in the inclusive range 2..maxCandidates. 1 is always rejected - racing a
 // single candidate is meaningless.
 func validBestOfN(v, maxCandidates int) bool {
 	return v == 0 || (v >= 2 && v <= maxCandidates)
@@ -204,7 +204,7 @@ func validBestOfN(v, maxCandidates int) bool {
 
 // mobPhaseAllowed is the closed set of phases a card may request
 // discussions in. "execute" is accepted at write time even while the
-// server-side mob.execute_checkpoints_enabled flag is off — the trigger
+// server-side mob.execute_checkpoints_enabled flag is off - the trigger
 // path drops it with a warning then, so flipping the flag later needs no
 // card rewrite.
 var mobPhaseAllowed = map[string]bool{"plan": true, "review": true, "execute": true}
@@ -359,7 +359,7 @@ func (h *cardHandlers) listCards(w http.ResponseWriter, r *http.Request) {
 
 // parseCardPageLimit reads the ?limit= query parameter, enforces bounds, and
 // writes a 400 error to w if the value is invalid. Returns (limit, true) on
-// success or (0, false) if the caller should abort — in which case the
+// success or (0, false) if the caller should abort - in which case the
 // response has already been written.
 func parseCardPageLimit(w http.ResponseWriter, raw string) (int, bool) {
 	if raw == "" {
@@ -408,7 +408,7 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Autonomous and model-pin fields can only be set by human users (UI),
-	// never by agents — mirrors the update and patch guards. Pins set at
+	// never by agents - mirrors the update and patch guards. Pins set at
 	// create time flow onto the card and reach the agent via get_task_context.
 	if isNonHumanAgent(r) && (req.Autonomous || req.FeatureBranch || req.CreatePR || req.Vetted ||
 		req.ModelOrchestrator != "" || req.ModelCoder != "" || req.ModelReviewer != "" ||

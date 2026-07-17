@@ -104,7 +104,7 @@ type cmConfigOptions struct {
 // the fail-closed git-token mint (the git server ignores the token).
 //
 // Note: CM itself cannot resolve host.docker.internal (host has no such alias),
-// so its own catalog/chat-picker fetch of llm_endpoint fails — best-effort and
+// so its own catalog/chat-picker fetch of llm_endpoint fails - best-effort and
 // fail-open by design. Workers reach the endpoint fine from inside containers.
 func (sc *scenarioConfig) writeCMConfig(t *testing.T, opts cmConfigOptions) string {
 	t.Helper()
@@ -131,7 +131,7 @@ func (sc *scenarioConfig) writeCMConfig(t *testing.T, opts cmConfigOptions) stri
 		}
 	}
 
-	// llm_endpoint is only meaningful when a worker backend runs — CM forwards
+	// llm_endpoint is only meaningful when a worker backend runs - CM forwards
 	// it to workers. Omit it for backend-free tests so there is no bogus
 	// endpoint to fetch.
 	llmEndpoint := ""
@@ -144,7 +144,7 @@ func (sc *scenarioConfig) writeCMConfig(t *testing.T, opts cmConfigOptions) stri
 	}
 
 	// Without an explicit workflow_skills_dir CM defaults to a workflow-skills
-	// dir next to the generated config — which doesn't exist, and the worker's
+	// dir next to the generated config - which doesn't exist, and the worker's
 	// start_review MCP call fails on the missing review-task.md. Point it at
 	// the repo's canonical skills so the scenarios exercise what ships.
 	workflowSkillsDir := filepath.Join(harnessRoot, "..", "..", "workflow-skills")

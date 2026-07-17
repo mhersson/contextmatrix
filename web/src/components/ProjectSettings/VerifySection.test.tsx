@@ -24,11 +24,11 @@ describe('VerifySection env input', () => {
     const envInput = screen.getByLabelText(/passthrough env names/i) as HTMLInputElement;
 
     // Simulate typing "JAVA_HOME, CGO_ENABLED" one intermediate string at a
-    // time — each fireEvent.change is what a keystroke produces.
+    // time - each fireEvent.change is what a keystroke produces.
     const keystrokes = ['J', 'JAVA_HOME', 'JAVA_HOME,', 'JAVA_HOME, ', 'JAVA_HOME, C', 'JAVA_HOME, CGO_ENABLED'];
     for (const s of keystrokes) {
       fireEvent.change(envInput, { target: { value: s } });
-      // The DOM must retain exactly what was typed — no mid-word revert.
+      // The DOM must retain exactly what was typed - no mid-word revert.
       expect(envInput.value).toBe(s);
     }
 

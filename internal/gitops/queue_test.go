@@ -57,7 +57,7 @@ func (f *fakeCommitter) ReloadRepo(_ context.Context) error {
 func (f *fakeCommitter) record(kind CommitKind, path string, paths []string, message string) error {
 	if f.delay > 0 {
 		// Simulated commit latency for AwaitIdle-while-busy tests. This is a
-		// configurable wall-clock delay baked into the fake committer — the
+		// configurable wall-clock delay baked into the fake committer - the
 		// point is to model a long-running commit, so a real sleep is correct.
 		time.Sleep(f.delay)
 	}
@@ -182,7 +182,7 @@ func TestCommitQueue_PauseAndResume(t *testing.T) {
 
 // yieldToWorker waits until the CommitQueue's worker goroutine is likely to
 // have picked up the just-enqueued job. This is a genuine scheduler-handoff
-// wait — the worker runs on its own goroutine and there is no public API to
+// wait - the worker runs on its own goroutine and there is no public API to
 // observe the "inflight" counter directly. Faked clocks do not affect the OS
 // scheduler, so a small wall-clock sleep is the right primitive here.
 func yieldToWorker() {
@@ -510,7 +510,7 @@ func TestCommitQueue_RealManagerConcurrency(t *testing.T) {
 // implementation must uphold is:
 //
 //  1. No "send on closed channel" panic when an Enqueue races with Close.
-//  2. Every Enqueue receives exactly one outcome on its Done channel —
+//  2. Every Enqueue receives exactly one outcome on its Done channel -
 //     either a successful commit (worker drained the job before exit),
 //     ErrQueueClosed (queue rejected the job before send), or a context
 //     error if applicable. No "lost" jobs (Done never signalled).
@@ -624,7 +624,7 @@ func TestCommitQueue_EnqueueCloseRace(t *testing.T) {
 						t.Errorf("enqueuer %d: unexpected error %v", i, err)
 					}
 				case <-time.After(2 * time.Second):
-					t.Fatalf("enqueuer %d: Done channel never signalled — job lost", i)
+					t.Fatalf("enqueuer %d: Done channel never signalled - job lost", i)
 				}
 			}
 		})

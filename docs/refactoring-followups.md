@@ -1,7 +1,7 @@
 # Refactoring Follow-ups
 
 Open structural follow-ups from the full-codebase production-readiness review.
-None are correctness or security defects — the build, tests, and lint are clean.
+None are correctness or security defects - the build, tests, and lint are clean.
 Each needs its own brainstorm and plan before it is picked up.
 
 ## Backend
@@ -23,12 +23,12 @@ Each needs its own brainstorm and plan before it is picked up.
   to disable one button. Replace it with the sum of `dashboard.state_counts` (or a
   dedicated count endpoint).
 - **`useDashboardPolling` visibility gate.** Gate the poll on
-  `document.visibilityState !== 'hidden'` — as `useBackendHealth` already does — so
+  `document.visibilityState !== 'hidden'` - as `useBackendHealth` already does - so
   a backgrounded tab stops polling.
 - **`PaletteSelector` ARIA menu pattern.** The selector sets `role="menu"` /
   `role="menuitem"` but lacks `aria-haspopup`, `aria-expanded`, and
   ArrowDown/Up/Home/End/Enter keyboard navigation. `PaneHeader.tsx` implements the
-  full pattern — mirror it.
+  full pattern - mirror it.
 
 ## Cross-cutting
 
@@ -41,9 +41,9 @@ Each needs its own brainstorm and plan before it is picked up.
 ## Known non-refactors
 
 - **`internal/chat/manager.doClearContext` stays separate from
-  `appendMessageWithKind`.** `doClearContext` uses `store.ClearTranscriptAtomic`
-  — a transactional update+insert that flags pre-clear messages with
-  `rehydration_phase=true` — while `appendMessageWithKind` uses
+  `appendMessageWithKind`.** `doClearContext` uses `store.ClearTranscriptAtomic` -
+  a transactional update+insert that flags pre-clear messages with
+  `rehydration_phase=true` - while `appendMessageWithKind` uses
   `store.AppendMessage` (single insert). Routing one through the other breaks
   `TestClearContext_HappyPath`'s pre-clear marking invariant. If the shared
   seq-assign / rollback ever becomes worth deduping, factor a `nextSeq` helper

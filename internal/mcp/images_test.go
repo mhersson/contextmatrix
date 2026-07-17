@@ -102,7 +102,7 @@ func TestExtractCMImageIDs(t *testing.T) {
 func TestExtractCMImageIDs_TenCap(t *testing.T) {
 	var b strings.Builder
 
-	// 12 unique IDs — function should cap at 10.
+	// 12 unique IDs - function should cap at 10.
 	for i := range 12 {
 		fmt.Fprintf(&b, "![](/api/images/%016x)\n", i)
 	}
@@ -318,7 +318,7 @@ func TestGetCard_UnknownImageIDsSkipped(t *testing.T) {
 // TestAttachImagesPinsSDKShape guards the manual json.Marshal path in
 // attachImagesToResult against drift from the SDK's auto-marshal path. The
 // TextContent JSON for the same card must be JSON-equivalent (semantics,
-// not bytes — the SDK auto-path re-marshals via map[string]any with
+// not bytes - the SDK auto-path re-marshals via map[string]any with
 // alphabetical keys) regardless of whether images are attached. Any
 // divergence in field names or values means the structured-output contract
 // silently differs for image-bearing cards.
@@ -359,7 +359,7 @@ func TestAttachImagesPinsSDKShape(t *testing.T) {
 // TestLoadImageContent_ByteCapTruncates exercises the cumulative byte cap by
 // passing a byteCap argument just large enough for the first image and not
 // the second. The encoded PNG sizes vary slightly with the image content, so
-// the cap is computed from real stored bytes — the test is robust against
+// the cap is computed from real stored bytes - the test is robust against
 // future encoder tweaks.
 func TestLoadImageContent_ByteCapTruncates(t *testing.T) {
 	env := setupMCPImages(t)

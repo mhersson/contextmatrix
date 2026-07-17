@@ -124,7 +124,7 @@ func TestBuilderUsesEndpointLegWhenConfigured(t *testing.T) {
 }
 
 // TestBuilderCandidatesNilReceiver proves that calling Candidates on a nil
-// *Builder returns nil without panicking — the nil-receiver guard protects
+// *Builder returns nil without panicking - the nil-receiver guard protects
 // against the typed-nil-interface footgun in main.go.
 func TestBuilderCandidatesNilReceiver(t *testing.T) {
 	var b *Builder
@@ -169,7 +169,7 @@ func TestBuilderRatePricesAnyServedModel(t *testing.T) {
 }
 
 // TestBuilderRatePricesEndpointWithoutAAKey verifies that Rate prices
-// endpoint-served models even when no AA key is configured — the chat-only +
+// endpoint-served models even when no AA key is configured - the chat-only +
 // openai-endpoint topology (no agent backend, no AA key).
 func TestBuilderRatePricesEndpointWithoutAAKey(t *testing.T) {
 	endpointSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -179,7 +179,7 @@ func TestBuilderRatePricesEndpointWithoutAAKey(t *testing.T) {
 	}))
 	defer endpointSrv.Close()
 
-	// No agent backend, no AA key — the chat-only + openai-endpoint topology.
+	// No agent backend, no AA key - the chat-only + openai-endpoint topology.
 	b := NewBuilder("", 0.65, nil, time.Hour,
 		WithEndpoint(endpointSrv.URL, "secret", nil, nil))
 

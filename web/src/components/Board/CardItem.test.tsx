@@ -3,7 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { CardItem } from './CardItem';
 import type { Card } from '../../types';
 
-// @dnd-kit requires a DndContext — provide a minimal mock
+// @dnd-kit requires a DndContext - provide a minimal mock
 vi.mock('@dnd-kit/core', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dnd-kit/core')>();
   return {
@@ -37,7 +37,7 @@ const subtaskCard: Card = {
   parent: 'TEST-001',
 };
 
-describe('CardItem — parent ID badge', () => {
+describe('CardItem - parent ID badge', () => {
   describe('expanded view (isCollapsed=false)', () => {
     it('renders parent badge when card.parent is defined', () => {
       render(<CardItem card={subtaskCard} />);

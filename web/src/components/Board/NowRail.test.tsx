@@ -87,7 +87,7 @@ describe('NowRail', () => {
   it('does not divide the Now · agents head-row by the worker container cap', () => {
     // Fix B-1: the agents head-row must show just the active-agent count
     // (here: 2), never "2 / 8". The worker cap (max_concurrent) is a
-    // container number — the canonical place for it is the Capacity meter.
+    // container number - the canonical place for it is the Capacity meter.
     render(<NowRail agents={agents} activityEntries={[]} maxAgents={8} runningContainers={3} />);
     // Locate the head-row inside the "Now · agents" section.
     const agentsLabel = screen.getByText('Now · agents');

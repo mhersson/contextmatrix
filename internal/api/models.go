@@ -5,7 +5,7 @@ import (
 	"net/http"
 )
 
-// modelCatalogHandlers serves GET /api/models — the pin-picker model source.
+// modelCatalogHandlers serves GET /api/models - the pin-picker model source.
 // Pins are an agent-backend concern, so this list must be reachable in every
 // chat-mode combination (including config-mode or disabled chat), which is why
 // it is separate from GET /api/chats/models.

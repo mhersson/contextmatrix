@@ -12,7 +12,7 @@ import (
 )
 
 // MinPasswordLength is enforced wherever a password is set (redemption and
-// self-service change) — never on login, so raising it cannot lock users out.
+// self-service change) - never on login, so raising it cannot lock users out.
 const MinPasswordLength = 10
 
 // renewAfter is how stale a session's last_seen may get before a validation
@@ -20,7 +20,7 @@ const MinPasswordLength = 10
 const renewAfter = 5 * time.Minute
 
 // Uniform auth errors. ErrInvalidCredentials deliberately covers unknown
-// user, disabled user, unset password, and wrong password — no oracle.
+// user, disabled user, unset password, and wrong password - no oracle.
 var (
 	ErrInvalidCredentials = errors.New("auth: invalid credentials")
 	ErrSessionInvalid     = errors.New("auth: session invalid")
@@ -44,7 +44,7 @@ type SessionResult struct {
 }
 
 // Service orchestrates the authstore for login, sessions, and one-time-token
-// flows. It is HTTP-free — the api package maps it onto endpoints.
+// flows. It is HTTP-free - the api package maps it onto endpoints.
 type Service struct {
 	store   *authstore.Store
 	idleTTL time.Duration
@@ -80,7 +80,7 @@ func (s *Service) IdleTTL() time.Duration { return s.idleTTL }
 // stored). Failures are uniform ErrInvalidCredentials; repeated failures per
 // account+IP earn a RateLimitedError.
 func (s *Service) Login(ctx context.Context, username, password, clientIP string) (*authstore.User, string, error) {
-	// Bound the username before it becomes a limiter key — the rule caps
+	// Bound the username before it becomes a limiter key - the rule caps
 	// usernames at 32 chars, and unbounded attacker-chosen keys would grow
 	// the limiter map. Burn comparable time so the early reject is not a
 	// username-length oracle either.
@@ -139,7 +139,7 @@ func (s *Service) Login(ctx context.Context, username, password, clientIP string
 	return user, raw, nil
 }
 
-// Logout deletes the session behind a raw token. Idempotent — logging out an
+// Logout deletes the session behind a raw token. Idempotent - logging out an
 // already-dead session succeeds.
 func (s *Service) Logout(ctx context.Context, rawToken string) error {
 	return s.store.DeleteSession(ctx, HashToken(rawToken))

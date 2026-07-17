@@ -79,7 +79,7 @@ func waitForLine(rec *flushRecorder, needle string, timeout time.Duration) bool 
 			return true
 		}
 
-		// Short real-wallclock poll — SSE writes happen on the handler
+		// Short real-wallclock poll - SSE writes happen on the handler
 		// goroutine; the fake-clock abstraction cannot drive that. 1 ms is
 		// well below any realistic event delivery budget.
 		time.Sleep(time.Millisecond)

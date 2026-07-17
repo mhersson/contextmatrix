@@ -7,7 +7,7 @@ import { CreateUserModal, type CreateUserInput } from './CreateUserModal';
 import { InviteLinkDialog } from './InviteLinkDialog';
 import { UsersTable } from './UsersTable';
 
-// Destructive direction of each row toggle — the other direction (promote,
+// Destructive direction of each row toggle - the other direction (promote,
 // enable) runs immediately without confirmation.
 type ConfirmKind = 'demote' | 'disable';
 interface PendingConfirm {
@@ -44,7 +44,7 @@ export function AdminUsersPage() {
   }, []);
 
   // Mount-only fetch, delegated to refetch (also used after every mutation
-  // below) rather than duplicated inline — mirrors useBoard.ts's fetchData
+  // below) rather than duplicated inline - mirrors useBoard.ts's fetchData
   // effect. setState-in-effect is intentional: this effect's whole purpose
   // is to trigger the initial load.
   useEffect(() => {

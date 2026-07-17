@@ -66,7 +66,7 @@ type StartChatOpts struct {
 	SessionID string
 	Project   string
 	RepoURL   string
-	// WorkerImage is the project's remote_execution.chat_worker_image — the
+	// WorkerImage is the project's remote_execution.chat_worker_image - the
 	// per-project toolchain image the chat worker container should run. Empty
 	// means "use the chat backend's configured base_image".
 	WorkerImage string
@@ -76,7 +76,7 @@ type StartChatOpts struct {
 	// forwarded to the chat backend verbatim. Nil means "the backend falls
 	// back to its own local llm_endpoint config" (pre-multi-user behavior).
 	// Treat as a secret carrier: never log this value or the opts struct
-	// as a whole — LLMEndpoint.APIKey rides along.
+	// as a whole - LLMEndpoint.APIKey rides along.
 	LLMEndpoint *protocol.LLMEndpoint
 	// GitCredentialsToken is the per-session bearer the worker presents to
 	// CM's GET /api/worker/git-credentials endpoint to fetch per-repo git
@@ -138,17 +138,17 @@ type Config struct {
 
 	// LLMEndpoint is the CM-provisioned inference endpoint configuration
 	// attached to every chat-start payload. Nil when llm_endpoint is
-	// unconfigured — the chat backend then falls back to its own local
+	// unconfigured - the chat backend then falls back to its own local
 	// config (pre-multi-user behavior). Production wires this from
 	// config.LLMEndpoint in cmd/contextmatrix/main.go's wireChat.
 	LLMEndpoint *protocol.LLMEndpoint
 
 	// WorkerCredentialsToken mints the per-session bearer attached to every
 	// chat-start payload as StartChatOpts.GitCredentialsToken. nil means "do
-	// not attach a token" — the field stays empty and the worker falls back
+	// not attach a token" - the field stays empty and the worker falls back
 	// to its own local git config (deprecated, pre-worker-fetched-credentials
 	// behavior). Production wires this from a closure over the resolved
-	// chat-backend api_key in cmd/contextmatrix/wire_chat.go — the same key
+	// chat-backend api_key in cmd/contextmatrix/wire_chat.go - the same key
 	// GET /api/worker/git-credentials verifies against, so mint and verify
 	// never disagree.
 	WorkerCredentialsToken func(sessionID string) string
@@ -171,7 +171,7 @@ type Manager struct {
 	pricer             Pricer
 	// llmEndpoint is the CM-provisioned inference endpoint configuration
 	// forwarded to every chat-start payload. Treat as a secret carrier:
-	// never log this value — llmEndpoint.APIKey rides along.
+	// never log this value - llmEndpoint.APIKey rides along.
 	llmEndpoint *protocol.LLMEndpoint
 	// workerCredentialsToken mints the per-session bearer attached to every
 	// chat-start payload as StartChatOpts.GitCredentialsToken. nil means "no
@@ -328,7 +328,7 @@ func (m *Manager) withStatusLock(sessionID string, fn func() error) error {
 // (e.g. OnSubscribe, which fires inside SSEHub.Subscribe while sh.mu is
 // held) do not deadlock when MarkActive calls back into the hub. Nil-hub
 // guard is included so callers never need to check m.hub themselves.
-// NOTE: handleUsageEntry does NOT use this helper — usage events are
+// NOTE: handleUsageEntry does NOT use this helper - usage events are
 // synchronous, non-status publishes that need no goroutine dispatch.
 func (m *Manager) publishSessionUpdate(sessionID string, u SessionUpdate) {
 	if m.hub == nil {
@@ -376,12 +376,12 @@ func roleFromLogType(typ string) Role {
 }
 
 // handleUsageEntry processes a Claude stream-json usage block reported by the
-// backend. Each frame carries per-turn (per-assistant-message) token counts —
+// backend. Each frame carries per-turn (per-assistant-message) token counts -
 // NOT cumulative session totals. The values are passed directly to
 // IncrementSessionCost, which atomically accumulates them into the session row.
 // The session row's context_tokens are also updated and a session_updated SSE
 // event is published so the UI header indicator refreshes in real time.
-// Errors are non-fatal — usage is a UI niceness, not a correctness property.
+// Errors are non-fatal - usage is a UI niceness, not a correctness property.
 //
 // Invoked only from the per-session worker-log consumer goroutine.
 // IncrementSessionCost is atomic so any future change weakening that invariant
@@ -400,14 +400,14 @@ func (m *Manager) handleUsageEntry(ctx context.Context, sessionID string, e LogE
 
 	if err := m.store.UpdateContextTokens(ctx, sessionID, tokens, updatedAt); err != nil {
 		// Session may have been deleted between the backend emitting the
-		// event and CM consuming it — log at debug rather than warn.
+		// event and CM consuming it - log at debug rather than warn.
 		m.logger.Debug("chat: handleUsageEntry: update context_tokens failed",
 			"session_id", sessionID, "error", err)
 
 		return
 	}
 
-	// Each frame carries per-turn token counts — pass them directly.
+	// Each frame carries per-turn token counts - pass them directly.
 	// No snapshot subtraction: the backend emits one usage block per assistant
 	// message (Anthropic Messages-API semantics), not cumulative session totals.
 	prompt := e.Usage.InputTokens
@@ -441,7 +441,7 @@ func (m *Manager) handleUsageEntry(ctx context.Context, sessionID string, e LogE
 		m.logger.Debug("chat: handleUsageEntry: increment session cost failed",
 			"session_id", sessionID, "error", err)
 
-		return // Do NOT publish SessionUpdate — mirrors UpdateContextTokens early-return.
+		return // Do NOT publish SessionUpdate - mirrors UpdateContextTokens early-return.
 	}
 
 	if m.hub != nil {
@@ -582,7 +582,7 @@ func (m *Manager) startConsumer(sessionID string) {
 
 // stopConsumer cancels the worker-log consumer for sessionID and blocks until
 // the goroutine has exited. Synchronous teardown is required so a fast Reopen
-// after EndSession is guaranteed to start a fresh consumer — an asynchronous
+// after EndSession is guaranteed to start a fresh consumer - an asynchronous
 // cleanup defer would leave the map entry visible to startConsumer's
 // idempotency check, dropping the new session's log bridge.
 func (m *Manager) stopConsumer(sessionID string) {
@@ -605,7 +605,7 @@ func (m *Manager) stopConsumer(sessionID string) {
 // Close cancels every active worker-log consumer goroutine and waits for them
 // to exit. The supplied ctx acts as a deadline: if consumers have not all
 // stopped by ctx.Done(), Close returns an error wrapping ctx.Err(). Idempotent
-// — subsequent calls are no-ops and return nil.
+// - subsequent calls are no-ops and return nil.
 func (m *Manager) Close(ctx context.Context) error {
 	m.closeOnce.Do(func() {
 		m.mu.Lock()
@@ -663,7 +663,7 @@ func (m *Manager) CreateSession(ctx context.Context, in CreateInput) (Session, e
 
 // buildResume loads the prior transcript and returns a ResumeContext for the
 // backend, or nil when there's nothing worth resuming (fresh session, all
-// messages filtered, or a DB error — the last case is logged and degrades to
+// messages filtered, or a DB error - the last case is logged and degrades to
 // a fresh agent rather than refusing to open).
 func (m *Manager) buildResume(ctx context.Context, sessionID string) *ResumeContext {
 	const maxMessagesForBuild = 600 // matches transcript.MaxTurns + headroom
@@ -689,7 +689,7 @@ func (m *Manager) buildResume(ctx context.Context, sessionID string) *ResumeCont
 	return transcript.Build(tmsgs, transcript.BuildOpts{BudgetTokens: m.resumeBudgetTokens})
 }
 
-// resumeTurnCount is a small helper for structured logging — returns the
+// resumeTurnCount is a small helper for structured logging - returns the
 // number of turns in a Resume, or 0 when nil.
 func resumeTurnCount(r *ResumeContext) int {
 	if r == nil {
@@ -735,7 +735,7 @@ func (m *Manager) isRehydrationActive(ctx context.Context, sessionID string) boo
 // Per-session serialisation is provided by the per-session statusLock so
 // the persisted value and the cached value cannot diverge under concurrent
 // flips on the same session. The global m.mu is held only across the
-// trivial cache write — never across the SQL UPDATE — so a slow fsync on
+// trivial cache write - never across the SQL UPDATE - so a slow fsync on
 // one session does not stall every unrelated session's AppendMessage
 // hot path (which reads seqMap under m.mu).
 //
@@ -813,7 +813,7 @@ func (m *Manager) CompleteRehydration(ctx context.Context, sessionID, summary st
 //
 // Failure semantics: a failure in the backend /clear call wraps ErrBackendSend
 // so the API layer maps to 502. On backend failure we abort before marking the
-// transcript or appending the divider — the transcript stays consistent with
+// transcript or appending the divider - the transcript stays consistent with
 // the runtime.
 func (m *Manager) ClearContext(ctx context.Context, sessionID string) error {
 	sess, err := m.store.GetSession(ctx, sessionID)
@@ -854,7 +854,7 @@ func (m *Manager) doClearContext(ctx context.Context, sessionID string) error {
 	sl.Lock()
 
 	// Seed the in-memory counter without holding m.mu across the MaxSeq
-	// SQL round-trip — m.mu is the same mutex that gates seqMap reads on
+	// SQL round-trip - m.mu is the same mutex that gates seqMap reads on
 	// the AppendMessage hot path for every session, so holding it across
 	// I/O would stall unrelated appends. The per-session appendLock above
 	// keeps the seq-assign → store-write window atomic for this session.
@@ -872,7 +872,7 @@ func (m *Manager) doClearContext(ctx context.Context, sessionID string) error {
 
 		m.mu.Lock()
 		// Re-check under the lock: no caller for THIS session can have
-		// raced — the per-session appendLock is held.
+		// raced - the per-session appendLock is held.
 		if _, ok := m.seqMap[sessionID]; !ok {
 			m.seqMap[sessionID] = maxSeq
 		}
@@ -984,7 +984,7 @@ func (m *Manager) OpenSession(ctx context.Context, id string) (Session, error) {
 
 		if reattached.Status != StatusActive {
 			// Status drifted; return the current row without publishing or
-			// starting a consumer — the caller will observe the real state.
+			// starting a consumer - the caller will observe the real state.
 			return reattached, nil
 		}
 
@@ -1155,7 +1155,7 @@ func (m *Manager) openCold(ctx context.Context, id string) (Session, error) {
 		// is rolled back and the session is reset to cold. However, any
 		// messages appended during this narrow window (between the pre-arm
 		// and the rollback) will keep their rehydration_phase=TRUE stamp
-		// permanently — they will be excluded from future resume payloads
+		// permanently - they will be excluded from future resume payloads
 		// by transcript.Build. In practice this window spans a single store
 		// write and no user-driven AppendMessage can race here: the
 		// worker-log consumer goroutine is only spawned after a successful
@@ -1228,7 +1228,7 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, er
 	}
 
 	// Build the rehydration payload from the persisted transcript.
-	// Errors here are non-fatal — fall back to "no resume" so we
+	// Errors here are non-fatal - fall back to "no resume" so we
 	// never block the user from opening the chat.
 	resume := m.buildResume(ctx, sess.ID)
 
@@ -1239,7 +1239,7 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, er
 
 	// Mint the worker git-credentials bearer for this cold open. nil
 	// workerCredentialsToken (no chat-backend api_key configured) leaves the
-	// token empty — the worker then falls back to its own local git config.
+	// token empty - the worker then falls back to its own local git config.
 	var gitCredentialsToken string
 	if m.workerCredentialsToken != nil {
 		gitCredentialsToken = m.workerCredentialsToken(sess.ID)
@@ -1327,8 +1327,8 @@ func (m *Manager) appendMessageWithKind(ctx context.Context, sessionID string, r
 	// `titled` cache skips the SELECT+UPDATE round-trip once we've confirmed a
 	// title exists for the session.
 	//
-	// Use store.UpdateSessionTitle — a targeted UPDATE that touches only
-	// the title column — rather than GetSession + UpdateSession. A racing
+	// Use store.UpdateSessionTitle - a targeted UPDATE that touches only
+	// the title column - rather than GetSession + UpdateSession. A racing
 	// OpenSession/MarkActive between the read and a wholesale UPDATE would
 	// otherwise see its just-flipped ContainerID/Status/Workspace
 	// overwritten by the stale pre-flip snapshot loaded here.
@@ -1342,7 +1342,7 @@ func (m *Manager) appendMessageWithKind(ctx context.Context, sessionID string, r
 			if err == nil {
 				if sess.Title == "" {
 					title := content
-					// Truncate at rune boundary, not byte boundary — slicing
+					// Truncate at rune boundary, not byte boundary - slicing
 					// bytes mid-UTF-8-rune produces invalid sequences that
 					// JSON-marshal as U+FFFD.
 					if utf8.RuneCountInString(title) > 50 {
@@ -1373,7 +1373,7 @@ func (m *Manager) appendMessageWithKind(ctx context.Context, sessionID string, r
 	defer sl.Unlock()
 
 	// seqMap is shared across sessions so the seq-assign window must take
-	// m.mu briefly. The store write below runs outside m.mu — only the
+	// m.mu briefly. The store write below runs outside m.mu - only the
 	// per-session lock is held across the I/O.
 	m.mu.Lock()
 
@@ -1430,7 +1430,7 @@ func (m *Manager) appendMessageWithKind(ctx context.Context, sessionID string, r
 // Status is intentionally left untouched; lifecycle promotion is
 // MarkActive's job, called separately from OnSubscribe.
 //
-// Idempotent and safe for concurrent callers — startConsumer guards
+// Idempotent and safe for concurrent callers - startConsumer guards
 // against duplicate consumer goroutines internally.
 //
 // Returns the loaded Session so callers (e.g. OnSubscribe) can inspect
@@ -1456,7 +1456,7 @@ func (m *Manager) Reattach(ctx context.Context, sessionID string) (Session, erro
 }
 
 // MarkWarmIdle transitions an active session to warm-idle. No-op if the
-// session is not active. Tolerant of ErrSessionNotFound — a grace timer
+// session is not active. Tolerant of ErrSessionNotFound - a grace timer
 // fired against a session that was already deleted (DeleteSession,
 // reconcile sweep) is a benign race, not an error.
 func (m *Manager) MarkWarmIdle(ctx context.Context, sessionID string) error {
@@ -1504,7 +1504,7 @@ func (m *Manager) MarkWarmIdle(ctx context.Context, sessionID string) error {
 }
 
 // MarkActive promotes a warm-idle session back to active. No-op if the session
-// is not warm-idle. Tolerant of ErrSessionNotFound — the same benign-race
+// is not warm-idle. Tolerant of ErrSessionNotFound - the same benign-race
 // reasoning as MarkWarmIdle.
 func (m *Manager) MarkActive(ctx context.Context, sessionID string) error {
 	// Hold the per-session status lock so this serialises with MarkWarmIdle.
@@ -1563,8 +1563,8 @@ func (m *Manager) GetSession(ctx context.Context, id string) (Session, error) {
 // SessionLiveness reports whether sessionID currently owns a live worker
 // container: status active, warm-idle, or ending (ending still owns a
 // container mid-teardown). A cold session reports live=false with a nil
-// error. An unknown session id returns ErrSessionNotFound so callers — the
-// worker git-credentials endpoint — can distinguish "doesn't exist" (404)
+// error. An unknown session id returns ErrSessionNotFound so callers - the
+// worker git-credentials endpoint - can distinguish "doesn't exist" (404)
 // from "exists but cold" (409).
 func (m *Manager) SessionLiveness(ctx context.Context, sessionID string) (live bool, err error) {
 	sess, err := m.store.GetSession(ctx, sessionID)
@@ -1591,7 +1591,7 @@ func (m *Manager) SessionLiveness(ctx context.Context, sessionID string) (live b
 // read between Backend.EndChat succeeding and the persist could otherwise
 // observe status=active/warm-idle and reattach to a now-dead container.
 // Holding statusLock across Backend.EndChat blocks racing status reads for
-// the duration of an HTTP round-trip — acceptable cost given the
+// the duration of an HTTP round-trip - acceptable cost given the
 // transition is a one-shot terminal state.
 func (m *Manager) EndSession(ctx context.Context, id string) error {
 	sess, err := m.store.GetSession(ctx, id)
@@ -1607,7 +1607,7 @@ func (m *Manager) EndSession(ctx context.Context, id string) error {
 	m.logger.Info("chat: ending session", "session_id", sess.ID,
 		"from_status", string(sess.Status))
 
-	// Stop the consumer outside the statusLock — stopConsumer waits for the
+	// Stop the consumer outside the statusLock - stopConsumer waits for the
 	// consumer goroutine to exit, and the goroutine's AppendMessage path
 	// touches m.mu / appendLock but never statusLock, so this is safe.
 	m.stopConsumer(sess.ID)
@@ -1643,10 +1643,10 @@ func (m *Manager) EndSession(ctx context.Context, id string) error {
 	// Reset any leftover rehydration flag so a subsequent reopen starts
 	// from a clean state. setRehydrationActive is idempotent and tolerant
 	// of an already-false value. setRehydrationActive itself acquires the
-	// per-session statusLock — we MUST call it AFTER withStatusLock above
+	// per-session statusLock - we MUST call it AFTER withStatusLock above
 	// has released, otherwise sync.Mutex (non-reentrant) would deadlock.
 	// Only include RehydrationActive in the SSE event if the persist
-	// succeeded — if it failed the on-disk row still has
+	// succeeded - if it failed the on-disk row still has
 	// rehydration_active=true, and reporting false would contradict it.
 	rehyErr := m.setRehydrationActive(ctx, sess.ID, false)
 	if rehyErr != nil {
@@ -1729,7 +1729,7 @@ func (m *Manager) DeleteSession(ctx context.Context, id string) error {
 // SendUserMessage forwards a user message to the backend first; only on a
 // successful backend call is the message persisted and fanned out via the
 // SSE hub. If the backend is unreachable the caller gets an error and the
-// UI can retry — the alternative (snappy echo, then backend failure) used
+// UI can retry - the alternative (snappy echo, then backend failure) used
 // to leave the user staring at their own message with no reply path.
 // Cold-state sessions are opened first. Returns the generated message_id
 // used for backend-side echo dedup.
@@ -1769,7 +1769,7 @@ const maxConsecutiveSendFailures = 3
 // recordSendFailure increments the consecutive-failure counter for
 // sessionID when sendErr indicates the backend is unreachable. Reaching
 // maxConsecutiveSendFailures flips the session to cold via EndSession,
-// which preserves the transcript — the next SendUserMessage goes through
+// which preserves the transcript - the next SendUserMessage goes through
 // ensureRunningForSend's StatusCold branch and triggers a cold-open resume.
 func (m *Manager) recordSendFailure(ctx context.Context, sessionID string, sendErr error) {
 	if !errors.Is(sendErr, ErrBackendUnreachable) {
@@ -1838,7 +1838,7 @@ func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string
 
 	m.clearSendFailures(sessionID)
 
-	// Backend accepted the message — now safe to persist + publish.
+	// Backend accepted the message - now safe to persist + publish.
 	msg, err := m.AppendMessage(ctx, sessionID, RoleUser, content)
 	if err != nil {
 		return "", err
@@ -1901,7 +1901,7 @@ func (m *Manager) GetChatCostSummary(ctx context.Context) (last30d, prior30d flo
 
 	if !cached.computedAt.IsZero() && now.Sub(cached.computedAt) < chatCostCacheTTL {
 		// Return a defensive copy so the caller cannot mutate the cached backing
-		// array. The cache entry itself is never exposed — copy-on-read.
+		// array. The cache entry itself is never exposed - copy-on-read.
 		return cached.last30d, cached.prior30d, append([]float64(nil), cached.series30d...), nil
 	}
 
@@ -1923,6 +1923,6 @@ func (m *Manager) GetChatCostSummary(ctx context.Context) (last30d, prior30d flo
 
 	// Return a defensive copy here too: the value returned to this first caller
 	// must not share backing array with the freshly-cached entry. Copy-on-read
-	// is the chosen invariant — the cache entry is always private to the cache.
+	// is the chosen invariant - the cache entry is always private to the cache.
 	return last30d, prior30d, append([]float64(nil), series30d...), nil
 }

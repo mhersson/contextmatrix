@@ -141,7 +141,7 @@ func (m *Manager) ensureActiveSessions() {
 // Start is idempotent: if a session is already running for cardID, it returns
 // nil immediately.
 //
-// The provided ctx is not used to drive the pump lifecycle — the upstream pump
+// The provided ctx is not used to drive the pump lifecycle - the upstream pump
 // goroutine runs under its own internal context so it can outlive any caller
 // request scope (HTTP handlers in particular). The pump is terminated only by
 // Stop, upstream permanent failure, or Close. The parameter is preserved for
@@ -240,7 +240,7 @@ func closeSubscriber(subs []*subscriber, terminal Event) {
 //  2. Snapshots all active sessions and calls Stop on each, which emits a
 //     terminal event to every subscriber, cancels the pump context, and
 //     closes subscriber channels.
-//  3. Drains any orphan pendingSubs — subscribers that called Subscribe but
+//  3. Drains any orphan pendingSubs - subscribers that called Subscribe but
 //     whose session was never Started. Without this, those channels would stay
 //     open until TCP severs, and the HTTP handlers holding them would block
 //     through shutdown.
@@ -269,7 +269,7 @@ func (m *Manager) Close(ctx context.Context) error {
 		cardIDs = append(cardIDs, id)
 	}
 
-	// Snapshot orphan pending subscribers — those registered via Subscribe
+	// Snapshot orphan pending subscribers - those registered via Subscribe
 	// before a session was Started. Stop does not reach them because it only
 	// iterates activeSessions. We flatten into a single slice and clear the
 	// map so no late Subscribe path can re-use an already-drained entry.
@@ -282,7 +282,7 @@ func (m *Manager) Close(ctx context.Context) error {
 	}
 	m.mu.Unlock()
 
-	// Drain each session — emits a terminal event to subscribers, cancels the
+	// Drain each session - emits a terminal event to subscribers, cancels the
 	// pump's session context, and waits for the pump goroutine to close
 	// sess.done. Running sequentially avoids thundering-herd scanner allocations
 	// and keeps terminal-event ordering deterministic.
@@ -292,7 +292,7 @@ func (m *Manager) Close(ctx context.Context) error {
 
 	// Drain orphan pending subs. They have no pump goroutine to cancel and no
 	// snapshot to flush, so closeSubscriber's snapDone wait returns almost
-	// immediately — the subscribe-path closes snapDone once snapshot delivery
+	// immediately - the subscribe-path closes snapDone once snapshot delivery
 	// completes, which for an empty pending-bucket subscriber happens as soon
 	// as the snapshot goroutine exits. Lock is already released so the wait
 	// cannot deadlock against a consumer re-entering the manager.
@@ -404,7 +404,7 @@ func (m *Manager) Stop(cardID string) {
 // Cancellation: calling the returned unsub function closes sub.done, which
 // causes the snapshot goroutine to exit promptly. Stop and terminal upstream
 // errors also close sub.done, then wait on sub.snapDone before sending the
-// terminal event and closing the channel — this eliminates any
+// terminal event and closing the channel - this eliminates any
 // close-of-in-flight-send panic race.
 //
 // If no session is running for cardID, the snapshot channel is still returned
@@ -433,7 +433,7 @@ func (m *Manager) Subscribe(cardID string) (<-chan Event, func()) {
 		if m.activeSessions[cardID] == nil {
 			// Mark primed so no pump staging races can occur.
 			sub.primed = true
-			// Close snapDone inline — no snapshot goroutine will ever be launched.
+			// Close snapDone inline - no snapshot goroutine will ever be launched.
 			close(sub.snapDone)
 			// Close done via doneOnce (idempotent).
 			sub.doneOnce.Do(func() { close(sub.done) })
@@ -453,7 +453,7 @@ func (m *Manager) Subscribe(cardID string) (<-chan Event, func()) {
 			close(ch)
 			m.mu.Unlock()
 
-			return ch, func() {} // noop unsub — channel already closed
+			return ch, func() {} // noop unsub - channel already closed
 		}
 	}
 
@@ -469,7 +469,7 @@ func (m *Manager) Subscribe(cardID string) (<-chan Event, func()) {
 	if sess != nil {
 		sess.subs = append(sess.subs, sub)
 	} else {
-		// No session running yet — park in pending so Start can pick it up.
+		// No session running yet - park in pending so Start can pick it up.
 		m.pendingSubs[cardID] = append(m.pendingSubs[cardID], sub)
 	}
 	m.mu.Unlock()
@@ -477,7 +477,7 @@ func (m *Manager) Subscribe(cardID string) (<-chan Event, func()) {
 	// Sort the snapshot by Seq. Wire events never carry a Seq (the decoder
 	// leaves it 0), so for pump-fed buffers this is a stable identity pass
 	// that preserves insertion order. The sort only reorders events for
-	// direct-Append callers that set an explicit nonzero Seq — tests today;
+	// direct-Append callers that set an explicit nonzero Seq - tests today;
 	// no production path assigns one.
 	slices.SortStableFunc(snap, func(a, b Event) int {
 		if a.Seq < b.Seq {
@@ -510,7 +510,7 @@ func (m *Manager) Subscribe(cardID string) (<-chan Event, func()) {
 			select {
 			case ch <- evt:
 			case <-sub.done:
-				// Cancelled by unsub or Stop — exit before setting primed.
+				// Cancelled by unsub or Stop - exit before setting primed.
 				// The pump will stop staging events once the subscriber is
 				// removed from sess.subs (done by unsub/Stop before closing done).
 				return
@@ -533,7 +533,7 @@ func (m *Manager) Subscribe(cardID string) (<-chan Event, func()) {
 			// cancellation support, then re-acquire.
 			select {
 			case ch <- evt:
-				// Sent without blocking — continue under the lock.
+				// Sent without blocking - continue under the lock.
 			default:
 				m.mu.Unlock()
 
@@ -608,7 +608,7 @@ func projectKey(project string) string {
 // StartProject is idempotent: if a project session is already running it
 // returns nil immediately.
 //
-// The provided ctx is not used to drive the pump lifecycle — the upstream pump
+// The provided ctx is not used to drive the pump lifecycle - the upstream pump
 // goroutine runs under its own internal context so it can outlive the caller's
 // request scope (e.g. an HTTP handler whose client disconnected). The pump is
 // terminated only by StopProject, upstream permanent failure, or Close.
@@ -689,7 +689,7 @@ func (m *Manager) StopProject(project string) {
 //
 // Ordering guarantee: every snapshot event (events already buffered at the
 // moment SubscribeProject is called) is delivered before any live event, with
-// no duplicates.  This is the same guarantee as Subscribe — the primed-flag
+// no duplicates.  This is the same guarantee as Subscribe - the primed-flag
 // protocol is shared.
 //
 // Cancellation: calling the returned unsub function causes the snapshot
@@ -734,7 +734,7 @@ func (m *Manager) runUpstream(ctx context.Context, key, project string, sess *ac
 
 		delivered, err := m.readUpstreamStream(ctx, key, project, sess, cfg)
 		if ctx.Err() != nil {
-			// Cancelled externally (Stop/Close called) — clean exit without retrying.
+			// Cancelled externally (Stop/Close called) - clean exit without retrying.
 			return
 		}
 
@@ -750,7 +750,7 @@ func (m *Manager) runUpstream(ctx context.Context, key, project string, sess *ac
 				"attempts", attempt,
 			)
 			// Remove from active sessions, collect pending subs, and mark as failed.
-			// Do NOT call closeSubscriber while holding m.mu — it waits on snapDone.
+			// Do NOT call closeSubscriber while holding m.mu - it waits on snapDone.
 			m.mu.Lock()
 			delete(m.activeSessions, key)
 
@@ -908,7 +908,7 @@ func (m *Manager) readUpstreamStream(ctx context.Context, key, project string, s
 				select {
 				case s.ch <- evt:
 				default:
-					// Slow subscriber — record drop and notify.
+					// Slow subscriber - record drop and notify.
 					if m.notifyDrop(s) {
 						shouldWarn = true
 					}
@@ -1003,7 +1003,7 @@ func (m *Manager) sweepIdleSessions(ctx context.Context) {
 var sseHTTPClient = &http.Client{Timeout: 0}
 
 // parseSSEPayload parses a JSON data value from an SSE frame into an Event.
-// Frames are protocol.LogEntry — the shape the backend actually
+// Frames are protocol.LogEntry - the shape the backend actually
 // marshals. It also returns the card_id from the payload (may be empty if
 // the backend did not include it), which callers use to filter cross-card
 // events.
@@ -1056,7 +1056,7 @@ func backoffDuration(attempt int) time.Duration {
 // It must be called with m.mu held. It:
 //  1. Increments the Manager-wide droppedEvents counter.
 //  2. Attempts a non-blocking send of a drop-marker event to s.ch. The
-//     marker's payload is encodeDropCount(1) — each fan-out drop signals
+//     marker's payload is encodeDropCount(1) - each fan-out drop signals
 //     exactly one dropped event, mirroring the 8-byte little-endian count
 //     format used by in-band markers from buffer eviction. This keeps
 //     DroppedMarkerCount(e) consistent between the two marker sources, so
@@ -1070,7 +1070,7 @@ func (m *Manager) notifyDrop(s *subscriber) (shouldWarn bool) {
 	select {
 	case s.ch <- Event{Type: EventTypeDropped, Seq: 0, Timestamp: time.Now(), Payload: encodeDropCount(1)}:
 	default:
-		// Channel still full — silently discard the marker itself. The
+		// Channel still full - silently discard the marker itself. The
 		// Manager-wide droppedEvents counter still records the drop.
 	}
 

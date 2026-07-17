@@ -52,7 +52,7 @@ const defaultProps = {
   firstUnfinishedDep: null,
 };
 
-describe('CardPanelHeader — external_url scheme validation', () => {
+describe('CardPanelHeader - external_url scheme validation', () => {
   it('renders an <a> link for a safe https GitHub URL', () => {
     const card: Card = {
       ...baseCard,
@@ -83,7 +83,7 @@ describe('CardPanelHeader — external_url scheme validation', () => {
   });
 });
 
-describe('CardPanelHeader — primary action by state', () => {
+describe('CardPanelHeader - primary action by state', () => {
   it('renders Run HITL primary when state=todo and canRun', () => {
     render(<CardPanelHeader {...defaultProps} canRun card={{ ...baseCard, autonomous: false }} editedCard={{ ...baseCard, autonomous: false }} />);
     expect(screen.getByRole('button', { name: /Run HITL/ })).toBeInTheDocument();
@@ -129,7 +129,7 @@ describe('CardPanelHeader — primary action by state', () => {
   });
 });
 
-describe('CardPanelHeader — workflow-safety lock', () => {
+describe('CardPanelHeader - workflow-safety lock', () => {
   it('replaces the Save and primary cluster with a locked badge when worker is running', () => {
     const card = { ...baseCard, state: 'in_progress', worker_status: 'running' as const, assigned_agent: 'agent-1' };
     render(<CardPanelHeader {...defaultProps} card={card} editedCard={card} />);
@@ -159,7 +159,7 @@ describe('CardPanelHeader — workflow-safety lock', () => {
   });
 });
 
-describe('CardPanelHeader — Save button', () => {
+describe('CardPanelHeader - Save button', () => {
   it('is disabled when the panel is clean', () => {
     render(<CardPanelHeader {...defaultProps} isDirty={false} />);
     expect(screen.getByRole('button', { name: /Save/ })).toBeDisabled();
@@ -178,7 +178,7 @@ describe('CardPanelHeader — Save button', () => {
   });
 });
 
-describe('CardPanelHeader — Open dependency helper', () => {
+describe('CardPanelHeader - Open dependency helper', () => {
   it('renders the Open dependency button on blocked cards with unfinished deps', () => {
     const card = { ...baseCard, state: 'blocked' };
     render(

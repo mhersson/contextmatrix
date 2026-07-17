@@ -15,7 +15,7 @@ const baseCard: Card = {
   body: '',
 };
 
-describe('CardChipRow — mob badge', () => {
+describe('CardChipRow - mob badge', () => {
   it('shows "mob N" when mob_participants >= 2', () => {
     render(<CardChipRow card={{ ...baseCard, mob_participants: 3 }} />);
     expect(screen.getByText('mob 3')).toBeInTheDocument();
@@ -30,7 +30,7 @@ describe('CardChipRow — mob badge', () => {
   });
 });
 
-describe('CardChipRow — Best of N vs mob execute', () => {
+describe('CardChipRow - Best of N vs mob execute', () => {
   it('suppresses the Best of N chip when mob execute is active', () => {
     render(
       <CardChipRow

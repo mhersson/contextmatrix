@@ -1,5 +1,5 @@
-// Package authstore persists multi-user state — accounts, sessions, one-time
-// tokens, and the GitHub credential pool — in a dedicated SQLite database
+// Package authstore persists multi-user state - accounts, sessions, one-time
+// tokens, and the GitHub credential pool - in a dedicated SQLite database
 // (auth.db) with a versioned migration ledger. Identity data must survive
 // upgrades, so unlike ops.db this store is never delete-and-recreate.
 //

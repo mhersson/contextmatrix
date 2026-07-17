@@ -27,7 +27,7 @@ beforeEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('MetadataSkills — initial radio state', () => {
+describe('MetadataSkills - initial radio state', () => {
   it('editedCard.skills=null → "Use project default" radio is checked', () => {
     vi.spyOn(api, 'getTaskSkills').mockResolvedValue(mockSkills);
     render(
@@ -68,7 +68,7 @@ describe('MetadataSkills — initial radio state', () => {
   });
 });
 
-describe('MetadataSkills — "Use project default" label varies with config.default_skills', () => {
+describe('MetadataSkills - "Use project default" label varies with config.default_skills', () => {
   it('config.default_skills=null → label shows "(mount full set)"', () => {
     vi.spyOn(api, 'getTaskSkills').mockResolvedValue(mockSkills);
     render(
@@ -118,7 +118,7 @@ describe('MetadataSkills — "Use project default" label varies with config.defa
   });
 });
 
-describe('MetadataSkills — bug-anchor: clicking "Specific skills" while in inherit/none mode', () => {
+describe('MetadataSkills - bug-anchor: clicking "Specific skills" while in inherit/none mode', () => {
   it('clicking "Specific skills" from null keeps radio checked and does NOT call onSkillsChange', async () => {
     vi.spyOn(api, 'getTaskSkills').mockResolvedValue(mockSkills);
     const onSkillsChange = vi.fn();
@@ -192,7 +192,7 @@ describe('MetadataSkills — bug-anchor: clicking "Specific skills" while in inh
   });
 });
 
-describe('MetadataSkills — checkbox list subset constraint', () => {
+describe('MetadataSkills - checkbox list subset constraint', () => {
   it('when config.default_skills is non-empty, checkbox list is constrained to that subset', async () => {
     vi.spyOn(api, 'getTaskSkills').mockResolvedValue(mockSkills);
     render(
@@ -228,7 +228,7 @@ describe('MetadataSkills — checkbox list subset constraint', () => {
   });
 });
 
-describe('MetadataSkills — disabled prop locks every input', () => {
+describe('MetadataSkills - disabled prop locks every input', () => {
   it('all radios are disabled and a locked banner is shown when disabled is true', () => {
     vi.spyOn(api, 'getTaskSkills').mockResolvedValue(mockSkills);
     render(
@@ -262,7 +262,7 @@ describe('MetadataSkills — disabled prop locks every input', () => {
   });
 });
 
-describe('MetadataSkills — "Specific skills" disabled when config.default_skills=[]', () => {
+describe('MetadataSkills - "Specific skills" disabled when config.default_skills=[]', () => {
   it('"Specific skills" radio is disabled when config.default_skills is empty', () => {
     vi.spyOn(api, 'getTaskSkills').mockResolvedValue(mockSkills);
     render(
@@ -277,7 +277,7 @@ describe('MetadataSkills — "Specific skills" disabled when config.default_skil
   });
 });
 
-describe('MetadataSkills — mode-switch behaviour', () => {
+describe('MetadataSkills - mode-switch behaviour', () => {
   it('clicking "Use project default" calls onSkillsChange(null)', () => {
     vi.spyOn(api, 'getTaskSkills').mockResolvedValue(mockSkills);
     const onSkillsChange = vi.fn();
@@ -309,7 +309,7 @@ describe('MetadataSkills — mode-switch behaviour', () => {
   });
 });
 
-describe('MetadataSkills — toggling a checkbox', () => {
+describe('MetadataSkills - toggling a checkbox', () => {
   it('toggling a checkbox in Specific mode calls onSkillsChange with sorted array', async () => {
     vi.spyOn(api, 'getTaskSkills').mockResolvedValue(mockSkills);
     const onSkillsChange = vi.fn();
@@ -349,7 +349,7 @@ describe('MetadataSkills — toggling a checkbox', () => {
   });
 });
 
-describe('MetadataSkills — loading and error states', () => {
+describe('MetadataSkills - loading and error states', () => {
   it('shows loading state while getTaskSkills is pending (in specific mode)', async () => {
     let resolve: (v: typeof mockSkills) => void;
     const promise = new Promise<typeof mockSkills>(r => { resolve = r; });
@@ -388,7 +388,7 @@ describe('MetadataSkills — loading and error states', () => {
   });
 });
 
-describe('MetadataSkills — external value change re-derives localMode', () => {
+describe('MetadataSkills - external value change re-derives localMode', () => {
   it('rerender with value=["go-development"] while in specific mode keeps localMode=specific', async () => {
     vi.spyOn(api, 'getTaskSkills').mockResolvedValue(mockSkills);
     const onSkillsChange = vi.fn();
@@ -402,11 +402,11 @@ describe('MetadataSkills — external value change re-derives localMode', () => 
       />,
     );
 
-    // Click "Specific skills" — localMode becomes 'specific'
+    // Click "Specific skills" - localMode becomes 'specific'
     fireEvent.click(screen.getByRole('radio', { name: /Specific skills/i }));
     expect(screen.getByRole('radio', { name: /Specific skills/i })).toBeChecked();
 
-    // Rerender with value=['go-development'] — modeFor(['go-development']) = 'specific'
+    // Rerender with value=['go-development'] - modeFor(['go-development']) = 'specific'
     // prevValue changes so localMode re-derives to 'specific' (same, no visual change)
     rerender(
       <MetadataSkills
@@ -431,11 +431,11 @@ describe('MetadataSkills — external value change re-derives localMode', () => 
       />,
     );
 
-    // Click "Specific skills" — localMode becomes 'specific'
+    // Click "Specific skills" - localMode becomes 'specific'
     fireEvent.click(screen.getByRole('radio', { name: /Specific skills/i }));
     expect(screen.getByRole('radio', { name: /Specific skills/i })).toBeChecked();
 
-    // Rerender with value=[] — modeFor([]) = 'none', prevValue changes, so localMode flips to 'none'
+    // Rerender with value=[] - modeFor([]) = 'none', prevValue changes, so localMode flips to 'none'
     rerender(
       <MetadataSkills
         value={[]}

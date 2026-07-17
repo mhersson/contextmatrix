@@ -177,7 +177,7 @@ export function ProjectsTable({ projects, summaries }: ProjectsTableProps) {
                       {row.data ? (
                         <DistributionBar counts={row.data.state_counts} total={row.total} />
                       ) : (
-                        <span style={{ color: 'var(--grey0)' }}>—</span>
+                        <span style={{ color: 'var(--grey0)' }}> - </span>
                       )}
                     </td>
                     <td

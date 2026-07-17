@@ -4,7 +4,7 @@
 #   ~/.config/contextmatrix/config.yaml           (XDG default)
 # Any other location works via the -config flag.
 #
-# Environment variable overrides are available for most fields — see the
+# Environment variable overrides are available for most fields - see the
 # CONTEXTMATRIX_* variables documented below.
 
 # TCP port the HTTP server listens on.
@@ -26,7 +26,7 @@ log_level: "info"
 
 # Port for the admin/debug HTTP server. When non-zero, the admin listener
 # serves /debug/pprof/* (Go runtime profiling) and /metrics (Prometheus). The
-# main listener on `port` does NOT expose these — /metrics is admin-only by
+# main listener on `port` does NOT expose these - /metrics is admin-only by
 # design so unauthenticated scrapers and path-scanners cannot reach it.
 # Default: 0 (disabled)
 # Env: CONTEXTMATRIX_ADMIN_PORT
@@ -72,9 +72,9 @@ cors_origin: "http://localhost:5173"
 
 # UI color palette theme (server-side default).
 # Allowed values: "everforest" | "radix" | "catppuccin"
-#   everforest      — warm, muted, medium-contrast (default)
-#   radix           — cool slate-grey base with Radix accent scales (step 11)
-#   catppuccin      — pastel palette (Mocha in dark mode, Latte in light mode)
+#   everforest      - warm, muted, medium-contrast (default)
+#   radix           - cool slate-grey base with Radix accent scales (step 11)
+#   catppuccin      - pastel palette (Mocha in dark mode, Latte in light mode)
 # This value is used as the default for all users. Individual users can
 # override it via the palette selector in the app header; their choice is
 # stored in browser localStorage and takes precedence on subsequent loads.
@@ -88,14 +88,14 @@ theme: "everforest"
 # picker when llm_endpoint.type is "openai".
 #
 # type selects the catalog dialect:
-#   "openrouter" (default) — fetches the public OpenRouter catalog; no auth
+#   "openrouter" (default) - fetches the public OpenRouter catalog; no auth
 #                            required for catalog reads. api_key is unused for
 #                            this type: the public OpenRouter catalog needs no
 #                            credentials, and the agent's model key is
 #                            configured on the agent backend, not here.
-#   "openai"               — fetches /v1/models from a private OpenAI-compatible
+#   "openai"               - fetches /v1/models from a private OpenAI-compatible
 #                            endpoint. api_key is sent as Bearer auth on every
-#                            catalog fetch and is a new secret surface — treat
+#                            catalog fetch and is a new secret surface - treat
 #                            it like a database password, not a public key.
 #
 # base_url is required for "openai" and should point to the base URL of the
@@ -105,10 +105,10 @@ theme: "everforest"
 #
 # This config is also forwarded verbatim to the active task/chat backend as
 # the `llm_endpoint` wire field on every trigger / chat-start call (see
-# docs/api-reference.md's Worker & Backend Endpoints section) — one admin-managed key,
+# docs/api-reference.md's Worker & Backend Endpoints section) - one admin-managed key,
 # rotated in one place. It rides along whenever type is set, regardless of
 # api_key: a keyless "openrouter" config (api_key left empty, as above) still
-# sends the backend a populated object — {type, base_url, api_key: ""} — not
+# sends the backend a populated object - {type, base_url, api_key: ""} - not
 # a missing field. llm_endpoint is omitted from the payload only when this
 # whole block is left unset (type == "").
 #
@@ -125,7 +125,7 @@ theme: "everforest"
 # Keys are model identifiers; prompt/completion values are USD per token.
 #
 # For models served via llm_endpoint.type == "openai", rates are auto-filled
-# from the endpoint catalog — you do NOT need to list them here. Hand-listed
+# from the endpoint catalog - you do NOT need to list them here. Hand-listed
 # entries act as per-model overrides (useful for cache-aware rates or when the
 # endpoint does not publish pricing). Example:
 #
@@ -147,11 +147,11 @@ token_costs:
 mcp_api_key: ""
 
 # Boards repository configuration.
-# All settings below relate to the boards git repository — the separate repo
+# All settings below relate to the boards git repository - the separate repo
 # that stores your kanban cards and project configs.
 boards:
   # Path to the directory that holds your boards (a separate git repository).
-  # This field is required — the server will not start without it.
+  # This field is required - the server will not start without it.
   # Tilde expansion is supported (e.g. ~/contextmatrix-boards).
   # Env: CONTEXTMATRIX_BOARDS_DIR
   dir: ~/contextmatrix-boards
@@ -188,7 +188,7 @@ boards:
   # Env: CONTEXTMATRIX_BOARDS_GIT_PULL_INTERVAL
   git_pull_interval: "60s"
 
-  # Clone-on-empty + remote URL — useful in container deployments where
+  # Clone-on-empty + remote URL - useful in container deployments where
   # persistent storage starts empty. Requires git_remote_url to be set.
   # HTTPS only; SSH is not supported.
   # Default: false
@@ -205,7 +205,7 @@ boards:
 # Task-skills repository configuration. An operator-provided repo of specialist
 # filesystem skills (one SKILL.md per directory) that the active task backend
 # mounts into worker containers, engaged by sub-agents via the Skill tool. CM
-# ships no skills — point this at your own repo. NOT the same as
+# ships no skills - point this at your own repo. NOT the same as
 # workflow_skills_dir above, which is the lifecycle scaffolding handed to agents
 # via MCP prompts.
 task_skills:
@@ -231,9 +231,9 @@ task_skills:
 # contextmatrix-protocol webhooks. The backends map has a closed set of entry
 # names; each name implies a distinct role:
 #
-#   agent  — contextmatrix-agent: executes cards (no chat). Pair with chat for
+#   agent  - contextmatrix-agent: executes cards (no chat). Pair with chat for
 #            the chat surface.
-#   chat   — contextmatrix-chat: serves global chat only.
+#   chat   - contextmatrix-chat: serves global chat only.
 #
 # The retired runner backend is no longer accepted: a leftover backends.runner
 # entry (or CONTEXTMATRIX_BACKEND_RUNNER_* env var) fails startup. The
@@ -247,13 +247,13 @@ task_skills:
 # ENABLED FLAG: each entry has an optional `enabled` field (default: true).
 # Omitting `enabled` means the entry is active. Set `enabled: false` to keep
 # the config block as an inert placeholder. Switch backends by toggling
-# enabled flags — do not delete blocks.
+# enabled flags - do not delete blocks.
 #
 # PER-ENTRY FIELDS:
-#   reconcile_interval — agent entry only (default 60s); the chat entry has no
-#     reconcile_interval field — unknown keys fail startup.
-#   default_model — agent and chat entries. Required on the chat entry when it
-#     is enabled (contextmatrix-chat has no server-side default — CM supplies
+#   reconcile_interval - agent entry only (default 60s); the chat entry has no
+#     reconcile_interval field - unknown keys fail startup.
+#   default_model - agent and chat entries. Required on the chat entry when it
+#     is enabled (contextmatrix-chat has no server-side default - CM supplies
 #     the model as CM_MODEL).
 #
 # RESTART REQUIRED: backends are read once at startup. Any change requires
@@ -279,7 +279,7 @@ backends: {}
 #    api_key: ""
 #    enabled: false  # flip to true to enable the agent (restart CM to apply)
 #
-#    # Default orchestrator model for the agent backend — any OpenRouter slug.
+#    # Default orchestrator model for the agent backend - any OpenRouter slug.
 #    # Per-card pins override it. The complexity selector picks coder/reviewer
 #    # models per task; this default drives planning, review synthesis and docs.
 #    # OPTIONAL: when unset, triggers carry an empty model and the agent service
@@ -301,7 +301,7 @@ backends: {}
 #    # Trusted AA creator slugs; empty = built-in default allowlist.
 #    # NOTE: model_allowlist is INERT when llm_endpoint.type is "openai". The
 #    # openai leg derives its candidate set from aa_model_map + model_priors
-#    # below — only slugs that appear in one of those two maps are considered for
+#    # below - only slugs that appear in one of those two maps are considered for
 #    # selection. The allowlist is only consulted on the OpenRouter leg.
 #    # Env: CONTEXTMATRIX_BACKEND_AGENT_MODEL_ALLOWLIST (comma-separated)
 #    model_allowlist: []
@@ -338,7 +338,7 @@ backends: {}
 #    enabled: false
 #
 #    # Default OpenRouter model slug for new chats and the cold-open fallback.
-#    # REQUIRED when this entry is enabled — contextmatrix-chat has no
+#    # REQUIRED when this entry is enabled - contextmatrix-chat has no
 #    # server-side default and CM supplies the model as CM_MODEL. The New
 #    # Chat dialog offers the live OpenRouter catalog (autocomplete +
 #    # favorites) as the model source.
@@ -347,7 +347,7 @@ backends: {}
 
 # Chat (global chat panel)
 # Chat sessions and transcripts are stored in the shared operational store
-# (op_store.db_path / ops.db) — there is no separate chat database.
+# (op_store.db_path / ops.db) - there is no separate chat database.
 chat:
   # How long a chat container survives after browser disconnects.
   # CONTEXTMATRIX_CHAT_IDLE_TTL overrides this.
@@ -406,7 +406,7 @@ images:
 #   execute_checkpoints_enabled: true # allow "execute" in mob_phases; false = dropped at trigger with a warning (CONTEXTMATRIX_MOB_EXECUTE_CHECKPOINTS_ENABLED)
 #   checkpoint_min_tier: simple   # minimum subtask tier that gets an execute checkpoint: simple|moderate|complex|critical (CONTEXTMATRIX_MOB_CHECKPOINT_MIN_TIER)
 #   checkpoint_rounds: 3          # critique rounds per checkpoint discussion, clamped 1..max_rounds (CONTEXTMATRIX_MOB_CHECKPOINT_ROUNDS)
-#   # Guest registry — config file only (tokens are secrets; the env-override
+#   # Guest registry - config file only (tokens are secrets; the env-override
 #   # mechanism is scalar-only). Cards reference entries by name in mob_guests.
 #   # guests:
 #   #   - name: laptop
@@ -415,17 +415,17 @@ images:
 
 # Multi-user authentication.
 auth:
-  # "multi" (default) — login required. Users, sessions, and the GitHub
+  # "multi" (default) - login required. Users, sessions, and the GitHub
   #   credential pool live in auth.db. On first start with zero users, CM
   #   logs a one-time bootstrap URL; whoever opens it creates the first
   #   admin account.
-  # "none" — single-tenant, zero-login: no user accounts, no sessions, no
+  # "none" - single-tenant, zero-login: no user accounts, no sessions, no
   #   credential pool. For laptop installs and easy testing.
   # Env: CONTEXTMATRIX_AUTH_MODE
   mode: multi
 
   # Hex-encoded 32-byte master key file encrypting credential secrets at
-  # rest. Auto-generated (0600) with a prominent log line when missing —
+  # rest. Auto-generated (0600) with a prominent log line when missing -
   # production deployments should mount a secret and point this at it.
   # Generate one manually with: openssl rand -hex 32 > master.key
   # Rotate with `contextmatrix auth rotate-master-key`; if every admin is
@@ -434,7 +434,7 @@ auth:
   # Env: CONTEXTMATRIX_AUTH_MASTER_KEY_FILE
   master_key_file: ""
 
-  # Sliding session lifetime — renewed on activity, so this is "log in
+  # Sliding session lifetime - renewed on activity, so this is "log in
   # again after this long idle", not an absolute cap.
   # Default: 720h (30 days)
   # Env: CONTEXTMATRIX_AUTH_SESSION_IDLE_TTL

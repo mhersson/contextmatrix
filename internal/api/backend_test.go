@@ -211,7 +211,7 @@ func TestRunCard_NonAutonomousCardNowSucceeds(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Create a non-autonomous card — it must succeed (no autonomous-only gate).
+	// Create a non-autonomous card - it must succeed (no autonomous-only gate).
 	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
 		Title: "Normal task", Type: "task", Priority: "medium",
 	})
@@ -507,7 +507,7 @@ func TestRunCard_ContextCancelledDuringWebhook(t *testing.T) {
 	close(triggerUnblock)
 
 	// The client-side Do() call will have returned a context-cancelled error;
-	// that's fine — we care about the card state, not the HTTP response.
+	// that's fine - we care about the card state, not the HTTP response.
 	<-errCh
 
 	// Allow a short window for the server goroutine to complete the revert.
@@ -526,7 +526,7 @@ func TestRunCard_ContextCancelledDuringWebhook(t *testing.T) {
 
 // TestRunCard_IgnoresStoredEnabledFalse pins the skew-safety contract: a
 // legacy per-project `enabled: false` left in .board.yaml must not block
-// runs — the only run gate is whether a task backend is configured.
+// runs - the only run gate is whether a task backend is configured.
 func TestRunCard_IgnoresStoredEnabledFalse(t *testing.T) {
 	boardConfigLegacyDisabled := `name: test-project
 prefix: TEST
@@ -840,13 +840,13 @@ func TestRunCard_ProviderForProject_GenerateTokenFails(t *testing.T) {
 // injected ProviderForProject unconditionally returns an error, so it proves
 // the handler reacts correctly to a resolution failure but never gives
 // resolution an actual working instance provider it could have (wrongly)
-// substituted. This test wires a resolver — mirroring
-// cmd/contextmatrix/main.go's providerForProject — around a real
+// substituted. This test wires a resolver - mirroring
+// cmd/contextmatrix/main.go's providerForProject - around a real
 // *auth.Service holding a genuinely resolvable credential, plus a genuinely
 // working instance-level fallback provider, then proves both halves of the
 // contract in the same setup: the broken binding still 409s and never
 // reaches the task backend, AND the very same resolver hands back the
-// instance provider for an unbound project — so the 409 is not an artifact
+// instance provider for an unbound project - so the 409 is not an artifact
 // of "nothing here ever works".
 //
 // The resolution logic itself is no longer only a hand-typed replica here:
@@ -855,7 +855,7 @@ func TestRunCard_ProviderForProject_GenerateTokenFails(t *testing.T) {
 // cmd/contextmatrix/provider_test.go. This test stays to pin the
 // handler-side half of the contract that a resolver-only test cannot reach:
 // a resolution error 409s, never calls the task backend, and reverts
-// worker_status to failed — i.e. runCard applies no fallback of its own on
+// worker_status to failed - i.e. runCard applies no fallback of its own on
 // top of whatever the resolver returns.
 func TestRunCard_ProviderForProject_BrokenBindingNeverFallsBackToInstance(t *testing.T) {
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
@@ -869,7 +869,7 @@ func TestRunCard_ProviderForProject_BrokenBindingNeverFallsBackToInstance(t *tes
 	require.NoError(t, err)
 
 	// Real credential-pool Service, seeded with one genuinely resolvable
-	// credential — rules out "TokenProviderFor always errors regardless of
+	// credential - rules out "TokenProviderFor always errors regardless of
 	// input" as a false explanation for the 409 asserted below.
 	authStore, err := authstore.Open(filepath.Join(t.TempDir(), "auth.db"))
 	require.NoError(t, err)
@@ -899,7 +899,7 @@ func TestRunCard_ProviderForProject_BrokenBindingNeverFallsBackToInstance(t *tes
 
 	// Mirrors cmd/contextmatrix/main.go's providerForProject: the project's
 	// binding wins when set (fail-closed on a broken one), else the instance
-	// provider. test-project is bound to a name never registered above — a
+	// provider. test-project is bound to a name never registered above - a
 	// typo'd binding, or a credential deleted after the .board.yaml binding
 	// was made.
 	resolver := func(ctx context.Context, project string) (githubauth.TokenGenerator, string, error) {
@@ -921,7 +921,7 @@ func TestRunCard_ProviderForProject_BrokenBindingNeverFallsBackToInstance(t *tes
 	}
 
 	// Contrast first: the same resolver DOES hand back the instance provider
-	// for a project with no binding — proving the fallback path is genuinely
+	// for a project with no binding - proving the fallback path is genuinely
 	// reachable in this exact setup, not merely unwired.
 	unboundProvider, unboundAPIBase, err := resolver(ctx, "unbound-project")
 	require.NoError(t, err)
@@ -958,7 +958,7 @@ func TestRunCard_ProviderForProject_BrokenBindingNeverFallsBackToInstance(t *tes
 
 	assert.Equal(t, http.StatusConflict, resp.StatusCode)
 	assert.False(t, backendCalled.Load(),
-		"backend must never be called — a broken binding must not fall back to the working instance credential")
+		"backend must never be called - a broken binding must not fall back to the working instance credential")
 
 	updated, err := svc.GetCard(ctx, "test-project", card.ID)
 	require.NoError(t, err)
@@ -969,7 +969,7 @@ func TestRunCard_ProviderForProject_BrokenBindingNeverFallsBackToInstance(t *tes
 // TestRunCard_ProviderForProject_NoneMode_ReturnsInstanceProvider hardens the
 // "none mode" branch of the fail-closed contract: mirrors
 // cmd/contextmatrix/main.go's providerForProject closure with authSvc == nil
-// (auth.mode "none" — no credential pool exists at all) and proves the
+// (auth.mode "none" - no credential pool exists at all) and proves the
 // resolver returns the instance provider without ever dereferencing the nil
 // credential service. A missing or reordered nil-guard here would
 // nil-pointer-panic on every run trigger in a none-mode deployment.
@@ -994,7 +994,7 @@ func TestRunCard_ProviderForProject_NoneMode_ReturnsInstanceProvider(t *testing.
 	})
 	require.NoError(t, err)
 
-	var authSvc *auth.Service // nil: auth.mode "none" — no credential pool at all
+	var authSvc *auth.Service // nil: auth.mode "none" - no credential pool at all
 
 	instanceProvider := &fakeTokenProvider{token: "instance-token"}
 
@@ -1014,7 +1014,7 @@ func TestRunCard_ProviderForProject_NoneMode_ReturnsInstanceProvider(t *testing.
 			return instanceProvider, instanceAPIBase, nil
 		}
 
-		// Unreachable while the guard above holds — a nil authSvc here would
+		// Unreachable while the guard above holds - a nil authSvc here would
 		// nil-pointer-panic inside TokenProviderFor.
 		provider, apiBase, _, err := authSvc.TokenProviderFor(ctx, credName)
 		if err != nil {
@@ -1040,7 +1040,7 @@ func TestRunCard_ProviderForProject_NoneMode_ReturnsInstanceProvider(t *testing.
 	assert.Equal(t, instanceAPIBase, directAPIBase)
 
 	// End to end: the trigger-mint path (runCard) actually uses this
-	// resolver's result — the token that reaches the wire is the instance
+	// resolver's result - the token that reaches the wire is the instance
 	// provider's token.
 	var receivedPayload backend.TriggerPayload
 
@@ -1077,7 +1077,7 @@ func TestRunCard_ProviderForProject_NoneMode_ReturnsInstanceProvider(t *testing.
 // TestRunCard_NoProviderForProject_BackwardsCompat asserts that when
 // ProviderForProject is not wired (pre-token-authority configs, and most
 // existing tests), runCard neither attaches a git token nor rejects the
-// trigger — the payload goes out exactly as it did before token authority.
+// trigger - the payload goes out exactly as it did before token authority.
 func TestRunCard_NoProviderForProject_BackwardsCompat(t *testing.T) {
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
@@ -1577,7 +1577,7 @@ func TestWorkerStatusUpdate_ValidSignature(t *testing.T) {
 	assert.Equal(t, "running", respCard.WorkerStatus)
 }
 
-// Backend callbacks mount at the fixed config.AgentCallbackPath — prove the
+// Backend callbacks mount at the fixed config.AgentCallbackPath - prove the
 // agent backend's callbacks land at /api/agent.
 func TestAgentBackendCallbackMount(t *testing.T) {
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
@@ -2216,7 +2216,7 @@ func TestPromoteCard_NotRunning(t *testing.T) {
 		Title: "Not running task", Type: "task", Priority: "medium",
 	})
 	require.NoError(t, err)
-	// card has no worker_status (empty) — not running.
+	// card has no worker_status (empty) - not running.
 
 	req, _ := http.NewRequest("POST",
 		server.URL+"/api/projects/test-project/cards/"+card.ID+"/promote", nil)
@@ -2276,7 +2276,7 @@ func TestPromoteCard_AlreadyAutonomous(t *testing.T) {
 	defer closeBody(t, resp.Body)
 
 	// Guard: already-autonomous card short-circuits before calling the backend webhook.
-	// Still 202 (accepted) — the idempotent path returns the current card.
+	// Still 202 (accepted) - the idempotent path returns the current card.
 	assert.Equal(t, http.StatusAccepted, resp.StatusCode)
 
 	var respCard board.Card
@@ -2678,11 +2678,11 @@ func TestRunCard_Interactive(t *testing.T) {
 
 		assert.Equal(t, http.StatusAccepted, resp.StatusCode)
 		assert.True(t, receivedPayload.Interactive, "Interactive should be true in payload")
-		// Patch is skipped when feature_branch is already true — flags preserved as-is.
+		// Patch is skipped when feature_branch is already true - flags preserved as-is.
 		updated, err := svc.GetCard(ctx, "test-project", card.ID)
 		require.NoError(t, err)
 		assert.True(t, updated.FeatureBranch, "feature_branch should remain true")
-		assert.False(t, updated.CreatePR, "create_pr stays false — patch was skipped since feature_branch was already set")
+		assert.False(t, updated.CreatePR, "create_pr stays false - patch was skipped since feature_branch was already set")
 		// Exactly one trigger webhook should have fired.
 		assert.Equal(t, 1, triggerCount, "backend should be triggered exactly once")
 	})
@@ -2717,7 +2717,7 @@ func TestPromoteCard_RecursionGuard(t *testing.T) {
 	var promoteCallCount atomic.Int32
 
 	// Fake backend: when it receives POST /promote, it calls back into CM's /promote
-	// endpoint synchronously — this reproduces a backend that verifies by re-POSTing.
+	// endpoint synchronously - this reproduces a backend that verifies by re-POSTing.
 	fakeBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/promote" {
 			count := promoteCallCount.Add(1)
@@ -2775,7 +2775,7 @@ func TestPromoteCard_RecursionGuard(t *testing.T) {
 
 	assert.Equal(t, http.StatusAccepted, resp.StatusCode, "top-level promote must return 202")
 
-	// The fake backend must have been called exactly once — the callback from the backend
+	// The fake backend must have been called exactly once - the callback from the backend
 	// must NOT have triggered a second outbound webhook from CM.
 	assert.Equal(t, int32(1), promoteCallCount.Load(),
 		"fake backend must receive exactly one POST /promote; guard must block the recursive call")
@@ -2932,10 +2932,10 @@ func TestGetCardAutonomous_HMAC_ExpiredTimestamp(t *testing.T) {
 	server, cardID, cleanup := setupAutonomousEndpoint(t, true)
 	defer cleanup()
 
-	// Signed 10 minutes ago — outside DefaultMaxClockSkew (5 min).
+	// Signed 10 minutes ago - outside DefaultMaxClockSkew (5 min).
 	staleTs := strconv.FormatInt(time.Now().Add(-10*time.Minute).Unix(), 10)
 	// Compute the signature over the stale timestamp so the signature
-	// itself is valid — only the clock-skew check should fail.
+	// itself is valid - only the clock-skew check should fail.
 	path := "/api/v1/cards/test-project/" + cardID + "/autonomous"
 	staleSig := signHMACAt(t, testBackendAPIKey, http.MethodGet, path, nil, staleTs)
 
@@ -2952,7 +2952,7 @@ func TestGetCardAutonomous_HMAC_ExpiredTimestamp(t *testing.T) {
 }
 
 func TestGetCardAutonomous_BearerRejected(t *testing.T) {
-	// Bearer is not accepted even with the correct shared secret — the
+	// Bearer is not accepted even with the correct shared secret - the
 	// backend must HMAC-sign this endpoint.
 	server, cardID, cleanup := setupAutonomousEndpoint(t, true)
 	defer cleanup()
@@ -3010,7 +3010,7 @@ func TestGetCardAutonomous_BackendDisabled(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Backend intentionally nil — route must not be registered.
+	// Backend intentionally nil - route must not be registered.
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)
@@ -3336,7 +3336,7 @@ func TestRunCardTypedNilCatalogDoesNotPanic(t *testing.T) {
 
 	// Box a typed nil exactly as main.go did: var catalogBuilder *modelcatalog.Builder
 	// is left nil when no AA key is configured, then passed to RouterConfig.Catalog.
-	// This creates a non-nil interface wrapping a nil pointer — the h.catalog != nil
+	// This creates a non-nil interface wrapping a nil pointer - the h.catalog != nil
 	// guard passes, and Builder.Candidates panics on b.mu.Lock() without the fix.
 	var nilBuilder *modelcatalog.Builder
 
@@ -3395,8 +3395,8 @@ func TestRunCardBestOfNPayload(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			// Set card.BestOfN directly at the service layer — bypassing the
-			// REST PATCH endpoint's 2..max_candidates validation — so this test
+			// Set card.BestOfN directly at the service layer - bypassing the
+			// REST PATCH endpoint's 2..max_candidates validation - so this test
 			// can exercise runCard's own clamp against a stored value that is
 			// (deliberately, for the clamp case) already above the configured max.
 			if tc.cardBoN != 0 {
@@ -3634,7 +3634,7 @@ func TestMergeFavorites(t *testing.T) {
 //
 // Long runs outlive ~1h GitHub App installation tokens; the backend calls this
 // mid-run to re-mint a fresh project-scoped git token. HMAC-signed like every
-// backend callback, and gated on the card actually running — no free token
+// backend callback, and gated on the card actually running - no free token
 // faucet. Unlike task-skills-source (best-effort, instance-scoped), this is
 // fail-closed on a broken project binding: never falls back to the instance
 // credential.
@@ -3742,7 +3742,7 @@ func TestGetGitCredentials_PATZeroExpiry_ExpiresAtOmitted(t *testing.T) {
 }
 
 func TestGetGitCredentials_PATSentinelExpiry_ExpiresAtOmitted(t *testing.T) {
-	// githubauth's PATProvider reports year 9999, not zero — the far-future
+	// githubauth's PATProvider reports year 9999, not zero - the far-future
 	// sentinel must be omitted from the wire the same way (absent = "do not
 	// schedule a refresh", the PAT semantic).
 	sentinel := time.Date(9999, time.January, 1, 0, 0, 0, 0, time.UTC)
@@ -3867,7 +3867,7 @@ func TestGetGitCredentials_Unsigned_Forbidden(t *testing.T) {
 // TestGetGitCredentials_BrokenBinding_Conflict is the fail-closed guarantee:
 // a broken/unresolvable project credential binding rejects with 409 and never
 // falls back to an instance credential. No GitHubTokenProvider is configured
-// on this router at all — a silent fallback would show up as 200, not 409.
+// on this router at all - a silent fallback would show up as 200, not 409.
 func TestGetGitCredentials_BrokenBinding_Conflict(t *testing.T) {
 	server, cardID, cleanup := setupGitCredentialsEndpoint(t, "running",
 		func(_ context.Context, _ string) (githubauth.TokenGenerator, string, error) {
@@ -3955,7 +3955,7 @@ func TestGetGitCredentials_BackendDisabled_NotFound(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Backend intentionally nil — route must not be registered.
+	// Backend intentionally nil - route must not be registered.
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
 
 	server := httptest.NewServer(router)

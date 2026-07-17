@@ -48,7 +48,7 @@ export function useWorkerLogs({
   const isMountedRef = useRef(true);
   /** Last seen seq number; null means no message received yet. */
   const lastSeqRef = useRef<number | null>(null);
-  /** Set to true when a terminal frame is received — suppresses reconnects. */
+  /** Set to true when a terminal frame is received - suppresses reconnects. */
   const terminalRef = useRef(false);
   /** Count of log entries delivered during the current connect cycle. A
    *  terminal frame received while this is 0 is treated as a transient
@@ -133,7 +133,7 @@ export function useWorkerLogs({
             return;
           }
 
-          // Server session ended cleanly — stop reconnecting.
+          // Server session ended cleanly - stop reconnecting.
           terminalRef.current = true;
           if (reconnectTimeoutRef.current !== null) {
             clearTimeout(reconnectTimeoutRef.current);
@@ -152,21 +152,21 @@ export function useWorkerLogs({
           return;
         }
 
-        // Drop usage entries — they are token-accounting metadata consumed by
+        // Drop usage entries - they are token-accounting metadata consumed by
         // the context-tokens indicator via the session_updated SSE path and
         // carry no display value for the worker console.
         // 'usage' is intentionally excluded from LogEntryType (it is filter-only,
         // never rendered). We must still advance lastSeqRef here because seq is a
-        // unified monotonic counter across all entry types — skipping it would
+        // unified monotonic counter across all entry types - skipping it would
         // cause a phantom gap marker on the next renderable frame.
         if (data.type === 'usage') {
           if (typeof data.seq === 'number') { lastSeqRef.current = data.seq as number; }
           return;
         }
 
-        // Normal log entry — check for seq gap before appending.
+        // Normal log entry - check for seq gap before appending.
         // The cast forwards every wire field, including the optional mob
-        // session speaker attribution `agent` — no per-field copying here.
+        // session speaker attribution `agent` - no per-field copying here.
         const entry = data as unknown as LogEntry;
         const seq = typeof data.seq === 'number' ? (data.seq as number) : null;
 
@@ -207,7 +207,7 @@ export function useWorkerLogs({
 
       reconnectTimeoutRef.current = window.setTimeout(() => {
         if (!isMountedRef.current) return;
-        // Guard again — terminal may have arrived while timer was pending.
+        // Guard again - terminal may have arrived while timer was pending.
         if (terminalRef.current) return;
         reconnectDelayRef.current = Math.min(
           reconnectDelayRef.current * 2,
@@ -223,7 +223,7 @@ export function useWorkerLogs({
     connectRef.current = connect;
   }, [connect]);
 
-  // Track mount lifecycle separately — isMountedRef must only change on
+  // Track mount lifecycle separately - isMountedRef must only change on
   // true mount/unmount, not on every dependency change.
   useEffect(() => {
     isMountedRef.current = true;

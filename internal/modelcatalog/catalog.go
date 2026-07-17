@@ -36,7 +36,7 @@ type Builder struct {
 
 	// favorites are operator-configured slugs (flattened across tiers/roles).
 	// They pass the Served() vendor screen even when their vendor is not
-	// allowlisted — the operator explicitly trusts them.
+	// allowlisted - the operator explicitly trusts them.
 	favorites []string
 
 	mu       sync.Mutex
@@ -130,7 +130,7 @@ func (b *Builder) refreshIfStaleLocked(ctx context.Context) {
 // stale. On refresh failure it logs and returns the last-good snapshot (nil
 // only if no successful build has ever happened).
 //
-// A nil receiver yields nil (no candidates) without panicking — this handles
+// A nil receiver yields nil (no candidates) without panicking - this handles
 // the typed-nil-interface case where a nil *Builder is boxed into a
 // catalogProvider interface value before the caller's nil check runs.
 func (b *Builder) Candidates(ctx context.Context) []protocol.CandidateModel {
@@ -250,7 +250,7 @@ func (b *Builder) Validate(ctx context.Context, slug string) bool {
 func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error) {
 	// Endpoint leg (openai type): pricing comes from the endpoint's own /models
 	// and is independent of Artificial Analysis, so fetch it whenever configured
-	// — even without an AA key. This lets a chat-only deployment (no agent
+	// - even without an AA key. This lets a chat-only deployment (no agent
 	// backend, no AA key) still price endpoint-served models via Rate().
 	if b.endpointBaseURL != "" {
 		ep, err := fetchEndpointCatalog(ctx, b.endpointBaseURL, b.endpointAPIKey)
@@ -294,7 +294,7 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 		return cands, nil
 	}
 
-	// OpenRouter leg: the OR catalog is public and unauthenticated — fetch it
+	// OpenRouter leg: the OR catalog is public and unauthenticated - fetch it
 	// even without an AA key so Rate/Served/Validate work on AA-less
 	// deployments. Candidates still require AA to normalize prior indices.
 	or, err := fetchORCatalog(ctx, b.orEndpoint)
@@ -427,7 +427,7 @@ type PriorOverride struct {
 // single highest combined-score row: AA populates variant rows inconsistently
 // (the base slug is frequently unscored while a sibling variant carries the
 // score), so a per-axis maximum is the safer family aggregation here. The two
-// legs can therefore rank a shared model differently — accepted, documented.
+// legs can therefore rank a shared model differently - accepted, documented.
 //
 // A served, tool-capable model that is neither overridden nor mapped is skipped
 // (the caller counts these for the "served but unselectable" WARN). Output is

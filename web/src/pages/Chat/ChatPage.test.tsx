@@ -3,7 +3,7 @@
  *
  * ChatPage has deep provider requirements (routing, SSE, chat sessions, layout)
  * that are expensive to stub. Instead, we extract the toast-relevant behaviour
- * into a minimal self-contained helper component — ClearErrorToastBanner —
+ * into a minimal self-contained helper component - ClearErrorToastBanner -
  * and test that component directly. The banner is functionally identical to
  * the toast block rendered inside ChatPage.
  */

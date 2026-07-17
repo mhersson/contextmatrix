@@ -44,7 +44,7 @@ type ReconcileClient interface {
 
 // CardLookup is the per-card read path used by the sweep. A missing card is a
 // positive signal (the card was deleted and the container should die with it),
-// not an error to swallow — so GetCard returns (nil, nil) for "not found" or
+// not an error to swallow - so GetCard returns (nil, nil) for "not found" or
 // a real error that aborts just this container's decision, not the whole
 // sweep.
 type CardLookup interface {
@@ -55,10 +55,10 @@ type CardLookup interface {
 // the backend for every worker container and decides, per container, whether
 // it should still be running. A card container is killed if:
 //
-//  1. CM has no card matching (project, card_id) — deleted or renamed out
+//  1. CM has no card matching (project, card_id) - deleted or renamed out
 //     from under the container.
-//  2. The card's state is terminal (done / not_planned) — the work is over.
-//  3. The container is older than ContainerMaxAge — runaway cap.
+//  2. The card's state is terminal (done / not_planned) - the work is over.
+//  3. The container is older than ContainerMaxAge - runaway cap.
 //
 // Notably: the sweep does NOT consult the card's worker_status field. That
 // field is a CM-side bookkeeping convenience that has repeatedly drifted
@@ -90,7 +90,7 @@ func StartReconciliationSweep(ctx context.Context, svc CardLookup, client Reconc
 
 	// Capture ContainerMaxAge once in the caller's goroutine. If a test
 	// mutates the package var after the sweep goroutine has started, that
-	// write races the sweep's per-tick read — using a captured local
+	// write races the sweep's per-tick read - using a captured local
 	// eliminates the race and also gives every running sweep a stable
 	// cap for its lifetime.
 	maxAge := ContainerMaxAge
@@ -119,7 +119,7 @@ func StartReconciliationSweep(ctx context.Context, svc CardLookup, client Reconc
 // runReconcileSweep asks the backend for its current container list once,
 // then runs the card-kill loop against it. Safe to call ad-hoc from tests.
 //
-// Every tick logs scanned/killed — including 0/0 — so "is the sweep actually
+// Every tick logs scanned/killed - including 0/0 - so "is the sweep actually
 // running?" is answerable from a single grep.
 func runReconcileSweep(ctx context.Context, svc CardLookup, client ReconcileClient, maxAge time.Duration, logger *slog.Logger) {
 	containers, err := client.ListContainers(ctx)
@@ -159,7 +159,7 @@ func runReconcileSweep(ctx context.Context, svc CardLookup, client ReconcileClie
 // decideKill runs the three-rule authoritative check against a single
 // container. Returns a short reason string for the log line plus whether the
 // container should be killed. A failed GetCard (for any reason other than
-// "card not found") is logged and the container is left alone for this tick —
+// "card not found") is logged and the container is left alone for this tick -
 // a transient store error must not trigger a kill.
 //
 // maxAge is the ContainerMaxAge value captured at StartReconciliationSweep

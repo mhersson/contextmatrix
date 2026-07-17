@@ -2,7 +2,7 @@
 
 ## Agent Configuration
 
-- **Model:** claude-sonnet-4-6 — Structured interview flow, no deep reasoning
+- **Model:** claude-sonnet-4-6 - Structured interview flow, no deep reasoning
   needed.
 
 ---
@@ -14,7 +14,7 @@ environment and create a well-configured project.
 ## Step 1: Detect environment
 
 1. Run `git remote get-url origin` to detect the git repository URL. If it
-   fails, the current directory may not be a git repo — ask the human for the
+   fails, the current directory may not be a git repo - ask the human for the
    repo URL or leave it blank.
 2. Derive a default project name from the repo or directory name. For example,
    `github.com/org/my-app.git` becomes `my-app`. Use the current directory
@@ -61,7 +61,7 @@ These are sensible defaults for most projects. The human may want to:
 - Clear the repo URL if they don't want it tracked
 
 The names `todo`, `in_progress`, `review`, `done`, `stalled`, and `not_planned`
-are part of the contract — server lifecycle, MCP tools, and built-in workflow
+are part of the contract - server lifecycle, MCP tools, and built-in workflow
 skills branch on these exact strings. `stalled` and `not_planned` are
 validator-enforced; the other four are not but will silently break workflows if
 renamed. Tell the human they can add states freely but should not rename the

@@ -132,7 +132,7 @@ func TestUpdateProject_ChatWorkerImage_OmittedPreservesAndEmptyClears(t *testing
 
 	// A fresh decode target per response: chat_worker_image and worker_image
 	// both carry "omitempty" on the wire, so an empty value is an absent key,
-	// not an explicit reset — decoding into a var already populated from an
+	// not an explicit reset - decoding into a var already populated from an
 	// earlier response would silently keep its stale value for the omitted key.
 	var afterPreserve board.ProjectConfig
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&afterPreserve))

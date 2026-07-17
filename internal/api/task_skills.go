@@ -21,13 +21,13 @@ import (
 )
 
 // taskSkillsSourceResponse is the pointer the agent backend fetches to clone the
-// task-skills repo itself — CM stays the single source of truth.
+// task-skills repo itself - CM stays the single source of truth.
 //
 // Token/TokenExpiresAt are an instance-scoped git credential minted
 // best-effort alongside the pointer, so the backend's clone doesn't need its
 // own separately configured credential. This is deliberately NOT fail-closed
 // the way GET .../git-credentials is: task-skills is instance-scoped, not
-// project-scoped, so there is no binding that can be "broken" — a mint
+// project-scoped, so there is no binding that can be "broken" - a mint
 // failure just omits these fields and the caller falls back to its own
 // configured credential during the compat window.
 type taskSkillsSourceResponse struct {
@@ -310,7 +310,7 @@ func (h *taskSkillHandlers) listTaskSkills(w http.ResponseWriter, r *http.Reques
 // `skills` that are not present in `available`. A nil or empty `skills`
 // slice is always valid (mounting nothing is allowed). When `available`
 // is nil (the lister returned no skills, e.g. unconfigured), validation
-// is skipped — the backend-side check is the final guard.
+// is skipped - the backend-side check is the final guard.
 func validateSkillsAgainstAvailable(skills []string, available map[string]struct{}) error {
 	if len(skills) == 0 || available == nil {
 		return nil
@@ -336,7 +336,7 @@ func validateSkillsAgainstAvailable(skills []string, available map[string]struct
 // per-card subset constraint: when a project has default_skills set
 // (non-nil), each card's skills must be a subset of that.
 //
-// If projectDefault is nil (no project-level constraint), this passes —
+// If projectDefault is nil (no project-level constraint), this passes -
 // the per-card list can include any skill from the global available set.
 // If projectDefault is empty (mount nothing), and `skills` is non-empty,
 // the violation is reported.

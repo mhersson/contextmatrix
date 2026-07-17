@@ -29,7 +29,7 @@ const (
 //  4. create a credential (validated against a local fake GitHub) and bind it
 //     to a project.
 //
-// It needs no Docker worker and no sibling repo — TestMain builds only CM.
+// It needs no Docker worker and no sibling repo - TestMain builds only CM.
 func TestMultiUserAdminSurface(t *testing.T) {
 	mc := bootMultiAuth(t)
 
@@ -147,7 +147,7 @@ func TestMultiUserAdminSurface(t *testing.T) {
 	}
 
 	// Bob is authenticated (200 on a gated read) but forbidden (403) on the
-	// admin surface — the role gate, distinct from the session gate.
+	// admin surface - the role gate, distinct from the session gate.
 	if status, body := bob.do(t, http.MethodGet, "/api/projects", nil, nil); status != http.StatusOK {
 		t.Fatalf("bob GET /api/projects: want 200 got %d body=%s", status, body)
 	}
@@ -268,7 +268,7 @@ func bootMultiAuth(t *testing.T) *multiCtx {
 	start := time.Now()
 
 	// Registered before startCM so its SIGTERM cleanup (registered inside
-	// startCM) runs first in LIFO order — finalize then reads a stable cmSink.
+	// startCM) runs first in LIFO order - finalize then reads a stable cmSink.
 	t.Cleanup(func() {
 		status := "PASS"
 		if t.Failed() {

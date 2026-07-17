@@ -39,7 +39,7 @@ afterEach(() => {
   Object.defineProperty(window, 'visualViewport', { configurable: true, value: undefined });
 });
 
-describe('useEditorHeight — desktop', () => {
+describe('useEditorHeight - desktop', () => {
   it('returns DEFAULT_EDITOR_HEIGHT on wide viewports', () => {
     setInnerWidth(1440);
     setInnerHeight(900);
@@ -62,7 +62,7 @@ describe('useEditorHeight — desktop', () => {
   });
 });
 
-describe('useEditorHeight — mobile, keyboard closed', () => {
+describe('useEditorHeight - mobile, keyboard closed', () => {
   it('uses visualViewport.height minus the above-editor offset when keyboard is closed', () => {
     // Large viewport: vvh equals innerHeight (no keyboard), keyboard-open check passes false.
     setInnerWidth(500);
@@ -94,7 +94,7 @@ describe('useEditorHeight — mobile, keyboard closed', () => {
   });
 });
 
-describe('useEditorHeight — mobile, keyboard open', () => {
+describe('useEditorHeight - mobile, keyboard open', () => {
   it('applies 50% innerHeight floor when vvh - KEYBOARD_OPEN_RESERVE dips below it (floor wins)', () => {
     // iPhone SE: innerHeight=667, keyboard shrinks vvh to 377.
     // keyboard open: 667 - 377 = 290 > 100 → yes.
@@ -129,7 +129,7 @@ describe('useEditorHeight — mobile, keyboard open', () => {
   });
 });
 
-describe('useEditorHeight — mobile keyboard transitions', () => {
+describe('useEditorHeight - mobile keyboard transitions', () => {
   it('reacts to visualViewport resize: keyboard open then keyboard close', () => {
     setInnerWidth(500);
     setInnerHeight(900);
@@ -170,7 +170,7 @@ describe('useEditorHeight — mobile keyboard transitions', () => {
   });
 });
 
-describe('useEditorHeight — listener cleanup', () => {
+describe('useEditorHeight - listener cleanup', () => {
   it('removes its resize listeners on unmount', () => {
     setInnerWidth(1440);
     setInnerHeight(900);

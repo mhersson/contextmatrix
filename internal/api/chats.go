@@ -103,7 +103,7 @@ type chatHandlers struct {
 
 func newChatHandlers(mgr *chat.Manager, hub *chat.SSEHub, chatBackendCfg *config.ChatBackendConfig) *chatHandlers {
 	// The chat backend is the active chat server exactly when it is enabled
-	// and keyed — mirrors the route guard in router.go. IsEnabled is nil-safe
+	// and keyed - mirrors the route guard in router.go. IsEnabled is nil-safe
 	// (an absent entry is nil → disabled), and the short-circuit keeps the
 	// APIKey read from dereferencing nil.
 	openRouter := chatBackendCfg.IsEnabled() && chatBackendCfg.APIKey != ""
@@ -200,7 +200,7 @@ func (h *chatHandlers) listChats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Multi mode: the list is always scoped to the caller — a client-
+	// Multi mode: the list is always scoped to the caller - a client-
 	// supplied created_by cannot widen or redirect it (silently
 	// overridden; the UI never sends one). None mode keeps the param's
 	// client-filter behavior.
@@ -214,7 +214,7 @@ func (h *chatHandlers) listChats(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
-	// Always return a slice — never nil — so JSON serializes as [] not null.
+	// Always return a slice - never nil - so JSON serializes as [] not null.
 	if sessions == nil {
 		sessions = []chat.Session{}
 	}
@@ -242,7 +242,7 @@ func (h *chatHandlers) createChat(w http.ResponseWriter, r *http.Request) {
 			model = h.orDefault
 		}
 		// Validate against the same cached list that feeds the picker; a
-		// fetch error or an empty catalog (cold start, endpoint outage —
+		// fetch error or an empty catalog (cold start, endpoint outage -
 		// the builder-backed fetcher reports both as an empty list with a
 		// nil error) fails open so an upstream outage never blocks chat.
 		if model != "" {
@@ -264,7 +264,7 @@ func (h *chatHandlers) createChat(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	default:
-		// No chat backend configured: accept the model untouched — sends
+		// No chat backend configured: accept the model untouched - sends
 		// fail at open time via the disabled-backend stub, so there is no
 		// catalog to validate against.
 	}
@@ -311,7 +311,7 @@ func containsModelID(models []chatModelEntry, id string) bool {
 //   - "endpoint": llm_endpoint.type is "openai"; Models comes from the
 //     endpoint's /v1/models response and Default is
 //     backends.chat.default_model. Also returned (with an empty list) when
-//     no chat backend is configured — the picker renders nothing and new
+//     no chat backend is configured - the picker renders nothing and new
 //     chats fall back to the server default.
 func (h *chatHandlers) listModels(w http.ResponseWriter, r *http.Request) {
 	type response struct {
@@ -373,13 +373,13 @@ func (h *chatHandlers) getChat(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *chatHandlers) deleteChat(w http.ResponseWriter, r *http.Request) {
-	// Ownership is enforced only for authenticated callers (multi mode) — and
+	// Ownership is enforced only for authenticated callers (multi mode) - and
 	// there both missing and foreign IDs must 404 identically (a 204/404
 	// split would leak existence). In none mode there is no identity to
 	// scope on, so the check is skipped entirely; DeleteSession's own
 	// not-found path (it loads the session before deleting) already 404s a
 	// missing ID regardless of mode, so skipping the check here changes
-	// nothing about that outcome — it only means none mode never scopes by
+	// nothing about that outcome - it only means none mode never scopes by
 	// owner.
 	if _, ok := sessionIdentity(r.Context()); ok {
 		if _, ok := h.ownedSession(w, r); !ok {
@@ -440,9 +440,9 @@ func (h *chatHandlers) endChat(w http.ResponseWriter, r *http.Request) {
 // divider is published on the live SSE wire AND persisted with
 // kind="divider" so a page reload still renders it as a horizontal rule.
 //
-// Request body is intentionally ignored — the operation has no per-user
+// Request body is intentionally ignored - the operation has no per-user
 // parameters and matches the empty-body convention used by endChat.
-// agentIDForChat is intentionally not invoked here — ClearContext has no
+// agentIDForChat is intentionally not invoked here - ClearContext has no
 // per-user effect on the no-auth trust model (see CLAUDE.md §Trust model).
 //
 // Errors are routed:
@@ -606,7 +606,7 @@ func (h *chatHandlers) patchChat(w http.ResponseWriter, r *http.Request) {
 func (h *chatHandlers) streamChat(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	// Validate existence AND ownership before subscribing — the hub
+	// Validate existence AND ownership before subscribing - the hub
 	// lazy-creates a per-session ring buffer + subscriber set on first
 	// Subscribe, so an unguarded handler would let any GET against an
 	// unknown or foreign id permanently grow perSess.
@@ -710,7 +710,7 @@ func writeChatSSEEvent(w http.ResponseWriter, e chat.SSEEvent) {
 		// working. rehydration_phase is included so the UI can group
 		// agent rehydration messages distinctly from normal turns. kind
 		// (omitempty) carries structural markers like "divider" for the
-		// Clear Context sentinel — empty for regular messages.
+		// Clear Context sentinel - empty for regular messages.
 		b, _ := json.Marshal(struct {
 			Seq              int64     `json:"seq"`
 			Role             chat.Role `json:"role"`

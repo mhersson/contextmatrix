@@ -71,7 +71,7 @@ func TestCSRFGuard_AcceptsPOSTWithHeader(t *testing.T) {
 }
 
 // TestCSRFGuard_AllowsGETWithoutHeader confirms read-only methods stay
-// reachable without the header — the SOP already prevents a malicious tab
+// reachable without the header - the SOP already prevents a malicious tab
 // from reading cross-origin GET responses.
 func TestCSRFGuard_AllowsGETWithoutHeader(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)

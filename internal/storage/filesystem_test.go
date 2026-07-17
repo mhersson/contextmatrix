@@ -1083,7 +1083,7 @@ func TestFilesystemStore_CardCache_GetCardServedFromCache(t *testing.T) {
 	filePath := filepath.Join(dir, "test-project", "tasks", "TEST-001.md")
 	require.NoError(t, os.Remove(filePath))
 
-	// GetCard should still return the cached value — no disk read.
+	// GetCard should still return the cached value - no disk read.
 	got, err := store.GetCard(ctx, "test-project", "TEST-001")
 	require.NoError(t, err)
 	assert.Equal(t, "TEST-001", got.ID)
@@ -1279,7 +1279,7 @@ Created by an external writer (e.g. git rebase pulling in a commit).
 	require.NoError(t, err)
 
 	// After reload, the card is fully hydrated in the cache. Prove this by
-	// deleting the on-disk file and reading again — the cache must answer.
+	// deleting the on-disk file and reading again - the cache must answer.
 	require.NoError(t, store.ReloadIndex(ctx))
 	require.NoError(t, os.Remove(filepath.Join(tasksDir, "TEST-EXT.md")))
 
@@ -1303,7 +1303,7 @@ func TestFilesystemStore_GetCard_DiskFallbackIsWritable(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Write a card file directly — present on disk, absent from the index.
+	// Write a card file directly - present on disk, absent from the index.
 	fp, err := store.cardPath("test-project", "TEST-042")
 	require.NoError(t, err)
 	data, err := board.SerializeCard(testCard("TEST-042", "todo"))
@@ -1336,7 +1336,7 @@ func TestCopyCardIsolatesUsageBreakdown(t *testing.T) {
 
 	cp := copyCard(orig)
 
-	// Mutate the copy — the original must remain unchanged.
+	// Mutate the copy - the original must remain unchanged.
 	cp.UsageBreakdown[0].CostUSD = 999.0
 	(*cp.Skills)[0] = "mutated"
 
@@ -1359,7 +1359,7 @@ func TestCopyCardIsolatesVerify(t *testing.T) {
 	cp := copyCard(orig)
 
 	require.NotNil(t, cp.Verify)
-	// Mutate the copy — the original must remain unchanged.
+	// Mutate the copy - the original must remain unchanged.
 	cp.Verify.Command = "rm -rf /"
 	cp.Verify.Env[0] = "mutated"
 

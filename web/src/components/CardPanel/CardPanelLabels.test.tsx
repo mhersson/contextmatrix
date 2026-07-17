@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { LabelsSection } from './CardPanelLabels';
 
-describe('LabelsSection — add flow', () => {
+describe('LabelsSection - add flow', () => {
   it('adds a trimmed label on Enter', () => {
     const onLabelsChange = vi.fn();
     render(
@@ -78,7 +78,7 @@ describe('LabelsSection — add flow', () => {
   });
 });
 
-describe('LabelsSection — remove flow', () => {
+describe('LabelsSection - remove flow', () => {
   it('removes a label via its × button', () => {
     const onLabelsChange = vi.fn();
     render(
@@ -93,7 +93,7 @@ describe('LabelsSection — remove flow', () => {
   });
 });
 
-describe('LabelsSection — disabled mode', () => {
+describe('LabelsSection - disabled mode', () => {
   it('hides the add button and × removers when disabled', () => {
     render(
       <LabelsSection

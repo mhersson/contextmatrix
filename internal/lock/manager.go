@@ -37,7 +37,7 @@ type StalledCard struct {
 }
 
 // Manager handles agent claim/release/heartbeat operations.
-// It validates ownership but does not persist changes—the caller must
+// It validates ownership but does not persist changes - the caller must
 // save the returned card via the Store.
 type Manager struct {
 	store   storage.Store
@@ -168,7 +168,7 @@ func (m *Manager) FindStalled(ctx context.Context) ([]StalledCard, error) {
 			}
 
 			if card.LastHeartbeat == nil {
-				// Claimed but no heartbeat—treat as stalled
+				// Claimed but no heartbeat - treat as stalled
 				stalled = append(stalled, StalledCard{
 					Project: proj.Name,
 					Card:    card,
@@ -195,7 +195,7 @@ func (m *Manager) Timeout() time.Duration {
 
 // Clock returns the clock the manager uses for Now() / cutoff comparisons.
 // Exposed so callers (notably the service layer) can share the same clock
-// source — important in tests where a fake clock is injected.
+// source - important in tests where a fake clock is injected.
 func (m *Manager) Clock() clock.Clock {
 	return m.clk
 }

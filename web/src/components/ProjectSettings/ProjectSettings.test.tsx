@@ -27,7 +27,7 @@ vi.mock('../../api/client', async (importOriginal) => {
       updateProject: mocks.updateProject,
       adminListCredentials: mocks.adminListCredentials,
       // DefaultSkillsSelector (always mounted as a ProjectSettings child)
-      // calls this on mount — not otherwise relevant to this test file.
+      // calls this on mount - not otherwise relevant to this test file.
       getTaskSkills: mocks.getTaskSkills,
       getBackendImages: mocks.getBackendImages,
     },
@@ -35,7 +35,7 @@ vi.mock('../../api/client', async (importOriginal) => {
 });
 
 // Mocked directly (rather than mounting a real AuthProvider) so mode/isAdmin
-// are asserted without an extra getAppConfig/getAuthSession round-trip —
+// are asserted without an extra getAppConfig/getAuthSession round-trip -
 // mirrors web/src/hooks/useIdentity.test.tsx's vi.mock('./useAuth', ...) style.
 vi.mock('../../hooks/useAuth', () => ({
   useOptionalAuth: mocks.useOptionalAuth,
@@ -99,7 +99,7 @@ async function renderSettings() {
   await screen.findByLabelText(/repository url/i);
 }
 
-describe('ProjectSettings — handleSave payload construction for github_credential', () => {
+describe('ProjectSettings - handleSave payload construction for github_credential', () => {
   it('untouched stale binding: saving an unrelated field omits github_credential from the PUT body', async () => {
     mocks.getProject.mockResolvedValue(baseConfig({ github_credential: 'ghost' }));
     mocks.adminListCredentials.mockResolvedValue([credential({ name: 'acme-pat' })]);
@@ -109,7 +109,7 @@ describe('ProjectSettings — handleSave payload construction for github_credent
 
     await renderSettings();
 
-    // "ghost" is not in the pool — GitHubCredentialSection shows the stale warning.
+    // "ghost" is not in the pool - GitHubCredentialSection shows the stale warning.
     await screen.findByText(/credential no longer exists/i);
 
     // Edit an unrelated field (repo URL) without touching the credential select.
@@ -148,7 +148,7 @@ describe('ProjectSettings — handleSave payload construction for github_credent
   });
 });
 
-describe('ProjectSettings — handleSave payload construction for remote_execution', () => {
+describe('ProjectSettings - handleSave payload construction for remote_execution', () => {
   it('untouched: saving an unrelated field omits remote_execution from the PUT body', async () => {
     mocks.getProject.mockResolvedValue(baseConfig());
     mocks.updateProject.mockResolvedValue(baseConfig({ repo: 'git@github.com:org/new.git' }));
@@ -223,7 +223,7 @@ describe('ProjectSettings — handleSave payload construction for remote_executi
 
     await waitFor(() => expect(mocks.updateProject).toHaveBeenCalled());
     const [, body] = mocks.updateProject.mock.calls[0];
-    // The payload is always the two image fields — nothing else exists to send.
+    // The payload is always the two image fields - nothing else exists to send.
     expect(body.remote_execution).toEqual({
       worker_image: '',
       chat_worker_image: 'contextmatrix-chat-worker:go-node',
@@ -293,7 +293,7 @@ describe('ProjectSettings — handleSave payload construction for remote_executi
   });
 });
 
-describe('ProjectSettings — handleSave payload construction for verify', () => {
+describe('ProjectSettings - handleSave payload construction for verify', () => {
   it('untouched: saving an unrelated field omits verify from the PUT body', async () => {
     mocks.getProject.mockResolvedValue(baseConfig({ verify: { command: 'make test' } }));
     mocks.updateProject.mockResolvedValue(baseConfig({ repo: 'git@github.com:org/new.git' }));

@@ -18,7 +18,7 @@ const prefixMap = new Map<string, string>([
 // Minimum shape needed for the dropdown. Cast through `unknown` so we can omit
 // fields the component does not read (states/types/transitions/etc.). If the
 // ProjectConfig type in web/src/types/index.ts requires additional fields,
-// extend the literal to satisfy the compiler — do NOT widen `as` casts to skip
+// extend the literal to satisfy the compiler - do NOT widen `as` casts to skip
 // real type errors.
 const projects = ([
   { name: 'zeta',  display_name: 'Zeta Project',  prefix: 'ZETA'  },

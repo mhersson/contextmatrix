@@ -45,7 +45,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Mirrors UserMenu/Sidebar's useOptionalAuth pattern — mode defaults to
+  // Mirrors UserMenu/Sidebar's useOptionalAuth pattern - mode defaults to
   // 'none' and isAdmin to false when rendered without an AuthProvider (e.g.
   // in isolated tests), matching none-mode behavior.
   const auth = useOptionalAuth();
@@ -68,7 +68,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
   const [github, setGitHub] = useState<GitHubImportConfig>(emptyGitHub);
   const [remoteExecution, setRemoteExecution] = useState<RemoteExecutionConfig>(emptyRemoteExecution);
   // Tracks whether the operator interacted with the Remote Execution section
-  // this session — the payload signal for remote_execution: untouched saves
+  // this session - the payload signal for remote_execution: untouched saves
   // omit the key so the server preserves the stored config.
   const [remoteExecutionTouched, setRemoteExecutionTouched] = useState(false);
   const [verify, setVerify] = useState<VerifyConfig>(emptyVerify);
@@ -187,7 +187,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
         transitions,
         github: github.import_issues ? github : { import_issues: false },
         default_skills: defaultSkills,
-        // Multi-mode only — omitting the key entirely in none mode keeps
+        // Multi-mode only - omitting the key entirely in none mode keeps
         // the request body byte-identical to pre-binding behavior (none
         // mode also rejects a non-empty binding server-side, fail-closed).
         //
@@ -196,7 +196,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
         // has pointer semantics server-side: omitted = preserve, "" = clear,
         // name = set (re-validated against the pool, 422 if unknown). Always
         // sending it would force server-side re-validation on every save,
-        // including saves that don't touch the binding at all — which fails
+        // including saves that don't touch the binding at all - which fails
         // with 422 whenever the current binding has gone stale (its pool
         // entry was deleted), exactly the scenario GitHubCredentialSection's
         // warning exists for. Comparing against the loaded config preserves
@@ -221,7 +221,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
         // so clearing every field here clears the project's verify config; an
         // untouched save omits the key and preserves it. env is included only
         // when it has names: a project has nothing to inherit, so an empty env
-        // is "no env" — omitting the key keeps `env: []` out of .board.yaml
+        // is "no env" - omitting the key keeps `env: []` out of .board.yaml
         // (the server preserves a non-nil empty env for the card-override path,
         // which this project-level form never sends).
         ...(verifyToString(verify) !== verifyToString(config?.verify)
@@ -367,7 +367,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
       {/*
         readOnly (non-admin, multi mode) freezes every control below via
         native fieldset[disabled] propagation to descendant form elements
-        (input/select/button/textarea) — every editable control here is a
+        (input/select/button/textarea) - every editable control here is a
         native form element, so this covers them without per-section changes.
         `contents` removes the fieldset's own box so it doesn't affect layout.
       */}
@@ -387,7 +387,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
         </div>
 
         {/*
-          GitHub credential binding — multi-user mode only. Bindings are a
+          GitHub credential binding - multi-user mode only. Bindings are a
           multi-mode feature (the API rejects a non-empty binding in none
           mode), so the section is not rendered at all in none mode; that
           keeps none-mode settings byte-identical to pre-binding behavior.
@@ -476,7 +476,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
           <h3 className="section-eyebrow mb-2" style={{ color: 'var(--red)' }}>Danger Zone</h3>
           {cardCount > 0 ? (
             <p className="text-xs mb-2" style={{ color: 'var(--grey1)' }}>
-              Cannot delete this project — it has {cardCount} card{cardCount !== 1 ? 's' : ''}. Delete all cards first.
+              Cannot delete this project - it has {cardCount} card{cardCount !== 1 ? 's' : ''}. Delete all cards first.
             </p>
           ) : null}
           {confirmDelete ? (

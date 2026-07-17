@@ -87,7 +87,7 @@ func ensureAgentAssets(t *testing.T) *siblingAssets {
 	})
 
 	if agentAbsent {
-		t.Skipf("sibling repo %s not present at %s — skipping", agentRepoRel, siblingRepo(agentRepoRel))
+		t.Skipf("sibling repo %s not present at %s - skipping", agentRepoRel, siblingRepo(agentRepoRel))
 	}
 
 	if agentErr != nil {
@@ -114,7 +114,7 @@ func ensureChatAssets(t *testing.T) *siblingAssets {
 	})
 
 	if chatAbsent {
-		t.Skipf("sibling repo %s not present at %s — skipping", chatRepoRel, siblingRepo(chatRepoRel))
+		t.Skipf("sibling repo %s not present at %s - skipping", chatRepoRel, siblingRepo(chatRepoRel))
 	}
 
 	if chatErr != nil {
@@ -185,8 +185,8 @@ func buildSiblingAssets(repo, binaryName, imageTag, dockerfile string) (*sibling
 	}
 
 	// --network=host runs the RUN step (apt-get) in the host network namespace,
-	// avoiding the bridge veth setup — which some kernels/daemons lack (see
-	// requireContainerNetworking) — while still giving the build internet.
+	// avoiding the bridge veth setup - which some kernels/daemons lack (see
+	// requireContainerNetworking) - while still giving the build internet.
 	build := exec.CommandContext(ctx, "docker", "build", "--network=host", "-t", imageTag, buildCtx)
 	build.Stdout, build.Stderr = os.Stderr, os.Stderr
 
@@ -203,7 +203,7 @@ func buildSiblingAssets(repo, binaryName, imageTag, dockerfile string) (*sibling
 // mapping (internal/executor/hosts.go) and expose no host-network knob, so a
 // daemon that cannot set up bridge networking simply cannot run the worker.
 // This is outside the harness's control, so it is a skip with an actionable
-// reason — not a failure. The fix is host/daemon-level (a common cause is a
+// reason - not a failure. The fix is host/daemon-level (a common cause is a
 // missing veth kernel module, which may need a reboot after a kernel upgrade
 // removed the running kernel's module tree).
 func requireContainerNetworking(t *testing.T) {

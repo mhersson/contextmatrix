@@ -27,7 +27,7 @@ function safeSet(key: string, value: string): void {
   try {
     localStorage.setItem(key, value);
   } catch {
-    // Ignore — palette/theme preferences are best-effort.
+    // Ignore - palette/theme preferences are best-effort.
   }
 }
 
@@ -89,14 +89,14 @@ interface ThemeContextValue {
   /**
    * Best-of-N bounds from `/api/app/config` (`best_of_n_max`/
    * `best_of_n_default`). Undefined on the slim pre-login payload or on
-   * servers older than the best-of-n rollout — consumers apply their own
+   * servers older than the best-of-n rollout - consumers apply their own
    * fallback (`?? 5` / `?? 3`).
    */
   bestOfNMax: number | undefined;
   bestOfNDefault: number | undefined;
   /**
    * Mob bounds + guest registry names from `/api/app/config`. Undefined on
-   * the slim pre-login payload or on servers older than the mob rollout —
+   * the slim pre-login payload or on servers older than the mob rollout -
    * consumers apply their own fallback (`?? 5` / `?? 3` / `?? []`).
    */
   mobMaxParticipants: number | undefined;
@@ -193,7 +193,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         setMobExecuteCheckpoints(config.mob_execute_checkpoints);
       }
     }).catch(() => {
-      // swallow errors — leave default everforest palette
+      // swallow errors - leave default everforest palette
     });
     // Refetch after login: the pre-login multi-mode payload is slim
     // (theme/version/auth_mode only); task_backend and favorites arrive

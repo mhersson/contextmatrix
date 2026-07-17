@@ -8,11 +8,11 @@ export interface ChatModelsResult {
   models: ChatModel[];
   // source mirrors GET /api/chats/models: 'openrouter' (dedicated chat backend
   // → CM's vendor-screened catalog; id/label are the OpenRouter slug and
-  // max_tokens is the context window — consumers no longer fetch the OpenRouter
+  // max_tokens is the context window - consumers no longer fetch the OpenRouter
   // API directly from the browser), or 'endpoint' (server-provided list from
   // the configured OpenAI-compatible endpoint, rendered as a <select>). A
   // fetch failure or a missing source degrades to an empty 'endpoint' list,
-  // which renders nothing — new chats fall back to the server default.
+  // which renders nothing - new chats fall back to the server default.
   source: ChatModelSource;
 }
 

@@ -22,7 +22,7 @@ function safeSet(key: string, value: string): void {
   try {
     localStorage.setItem(key, value);
   } catch {
-    // ignore — caller already has the in-memory state
+    // ignore - caller already has the in-memory state
   }
 }
 
@@ -43,7 +43,7 @@ export function useCollapsedCards(project: string, validCardIds: string[]): UseC
     collapsed: loadFromStorage(project),
   }));
 
-  // Derived state during render: project prop changed — reload from localStorage.
+  // Derived state during render: project prop changed - reload from localStorage.
   // Calling setState here schedules a synchronous re-render before paint
   // (React batches this correctly) and we return the new value immediately so
   // the current render is also correct.

@@ -11,7 +11,7 @@ function errorMessage(err: unknown, fallback: string): string {
 /** Admin-only Chats page: metadata + lifecycle management for every chat
  * session on the instance. Owns all data fetching and mutations; the table
  * it renders is purely presentational. Deliberately no navigation into
- * transcripts — the backend has no admin transcript route either. */
+ * transcripts - the backend has no admin transcript route either. */
 export function AdminChatsPage() {
   const [chats, setChats] = useState<ChatSession[]>([]);
   const [loading, setLoading] = useState(true);
@@ -32,7 +32,7 @@ export function AdminChatsPage() {
   }, []);
 
   // Mount-only fetch, delegated to refetch (also used after every mutation
-  // below) — mirrors AdminCredentialsPage.
+  // below) - mirrors AdminCredentialsPage.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void refetch();

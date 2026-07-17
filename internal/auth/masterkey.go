@@ -12,7 +12,7 @@ import (
 	"strings"
 )
 
-// MasterKeyLen is the byte length of a master key — the format
+// MasterKeyLen is the byte length of a master key - the format
 // LoadMasterKey reads and LoadOrCreateMasterKey writes (hex-encoded).
 const MasterKeyLen = 32
 
@@ -41,7 +41,7 @@ func LoadMasterKey(path string) ([]byte, error) {
 // LoadOrCreateMasterKey reads a hex-encoded 32-byte master key from path.
 // When the file does not exist it generates a fresh key, creates parent
 // directories, and writes it hex-encoded with 0600 permissions. created
-// reports whether a new key was written — callers should log prominently so
+// reports whether a new key was written - callers should log prominently so
 // operators know to move the file into proper secret management.
 func LoadOrCreateMasterKey(path string) (key []byte, created bool, err error) {
 	key, err = LoadMasterKey(path)

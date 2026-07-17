@@ -11,7 +11,7 @@ interface InviteLinkDialogProps {
 
 /**
  * Shows a one-time invite/reset link for copying. Reused by both the
- * create-user flow and the per-row "New link" (regenerate) action — both
+ * create-user flow and the per-row "New link" (regenerate) action - both
  * just hand this component a fresh token + purpose.
  */
 export function InviteLinkDialog({ open, token, purpose, onClose }: InviteLinkDialogProps) {
@@ -22,7 +22,7 @@ export function InviteLinkDialog({ open, token, purpose, onClose }: InviteLinkDi
   useFocusTrap(dialogRef, open);
 
   // Fresh "Copied!" state every time the dialog reopens (render-time
-  // pattern — see useBoard.ts / web/CLAUDE.md § rail sync).
+  // pattern - see useBoard.ts / web/CLAUDE.md § rail sync).
   const [wasOpen, setWasOpen] = useState(open);
   if (open !== wasOpen) {
     setWasOpen(open);
@@ -49,7 +49,7 @@ export function InviteLinkDialog({ open, token, purpose, onClose }: InviteLinkDi
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // Clipboard API unavailable/denied — the link text is still selectable.
+      // Clipboard API unavailable/denied - the link text is still selectable.
     }
   };
 
@@ -71,7 +71,7 @@ export function InviteLinkDialog({ open, token, purpose, onClose }: InviteLinkDi
         </h2>
 
         <p className="text-sm" style={{ color: 'var(--grey1)' }}>
-          Share this one-time link with the user — it expires in 48 hours and can only be used once.
+          Share this one-time link with the user - it expires in 48 hours and can only be used once.
         </p>
 
         <div

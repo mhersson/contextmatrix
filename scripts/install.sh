@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — Install ContextMatrix config and skill files into the user config directory.
+# install.sh - Install ContextMatrix config and skill files into the user config directory.
 #
 # Usage:
 #   scripts/install.sh                            # Fresh install: create config dir, copy config.yaml and workflow-skills/

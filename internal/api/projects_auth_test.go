@@ -20,7 +20,7 @@ import (
 
 // projectsAuthTestServer builds a multi-mode router with both a card Service
 // (the "test-project" fixture from testSetup) and an AuthService wired the
-// same way main.go wires RouterConfig.CredentialExists — so these tests
+// same way main.go wires RouterConfig.CredentialExists - so these tests
 // exercise the real multi-mode validation path, not a stand-in. Seeds one
 // credential-pool entry ("acme-pat") and returns a session cookie for the
 // admin user that created it.
@@ -167,7 +167,7 @@ func TestUpdateProject_GitHubCredential_ValidName_MultiMode(t *testing.T) {
 // construction (multi-mode router, "test-project" fixture from testSetup) but
 // also seeds a non-admin user ("bob") so the admin-gating matrix tests have
 // both an admin and a non-admin session to probe with. projectsAuthTestServer
-// itself is left untouched — it doesn't expose the underlying authstore.Store,
+// itself is left untouched - it doesn't expose the underlying authstore.Store,
 // so a second user can't be layered on afterward.
 func projectsAuthTestServerWithNonAdmin(t *testing.T) (server *httptest.Server, adminCookie, nonAdminCookie *http.Cookie) {
 	t.Helper()

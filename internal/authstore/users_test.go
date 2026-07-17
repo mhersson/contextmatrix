@@ -155,7 +155,7 @@ func TestCountActiveAdmins(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, n)
 
-	// A disabled admin no longer counts — this backs the last-admin guard.
+	// A disabled admin no longer counts - this backs the last-admin guard.
 	require.NoError(t, store.SetDisabled(ctx, admin.ID, true, testNow))
 
 	n, err = store.CountActiveAdmins(ctx)

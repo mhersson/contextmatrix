@@ -152,7 +152,7 @@ func (r *runLog) finalize(scenarioID, status string, duration time.Duration, tra
 func buildMarkdownReport(scenarioID, status string, duration time.Duration, combined, transcriptJSONL, workerRawJSONL, cardsJSON []byte) []byte {
 	var b bytes.Buffer
 
-	fmt.Fprintf(&b, "# %s — %s — %s\n\n", scenarioID, status, duration.Round(time.Millisecond))
+	fmt.Fprintf(&b, "# %s - %s - %s\n\n", scenarioID, status, duration.Round(time.Millisecond))
 
 	fmt.Fprintln(&b, "## Timeline")
 	fmt.Fprintln(&b)
@@ -226,10 +226,10 @@ func buildMarkdownReport(scenarioID, status string, duration time.Duration, comb
 
 	fmt.Fprintln(&b, "## Subprocess stderr")
 	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "- `cm.log` — ContextMatrix stderr verbatim")
-	fmt.Fprintln(&b, "- `agent.log` — agent backend stderr verbatim (agent scenario)")
-	fmt.Fprintln(&b, "- `chat.log` — chat backend stderr verbatim (chat scenario)")
-	fmt.Fprintln(&b, "- `stubllm.log` — scripted LLM request log")
+	fmt.Fprintln(&b, "- `cm.log` - ContextMatrix stderr verbatim")
+	fmt.Fprintln(&b, "- `agent.log` - agent backend stderr verbatim (agent scenario)")
+	fmt.Fprintln(&b, "- `chat.log` - chat backend stderr verbatim (chat scenario)")
+	fmt.Fprintln(&b, "- `stubllm.log` - scripted LLM request log")
 
 	return b.Bytes()
 }
@@ -243,7 +243,7 @@ func parseRunlogCards(cardsJSON []byte) ([]runlogCard, error) {
 		return nil, nil
 	}
 
-	// Envelope first — that's what cards.json contains in production.
+	// Envelope first - that's what cards.json contains in production.
 	var env struct {
 		Items []runlogCard `json:"items"`
 	}
@@ -262,7 +262,7 @@ func parseRunlogCards(cardsJSON []byte) ([]runlogCard, error) {
 
 // renderCardsSection writes one section per card with state, agent,
 // token usage, and parent reference. Renders nothing meaningful when
-// cardsJSON is empty (snapshot wasn't captured) — callers always
+// cardsJSON is empty (snapshot wasn't captured) - callers always
 // include a pointer to cards.json elsewhere in the report.
 func renderCardsSection(b *bytes.Buffer, cardsJSON []byte) {
 	if len(cardsJSON) == 0 {
@@ -300,7 +300,7 @@ func renderCardsSection(b *bytes.Buffer, cardsJSON []byte) {
 	})
 
 	for _, c := range cards {
-		fmt.Fprintf(b, "### %s — %s\n\n", c.ID, c.Title)
+		fmt.Fprintf(b, "### %s - %s\n\n", c.ID, c.Title)
 		fmt.Fprintf(b, "- state: `%s`\n", c.State)
 		fmt.Fprintf(b, "- agent: `%s`\n", c.AssignedAgent)
 
@@ -383,7 +383,7 @@ func renderActivityLogSection(b *bytes.Buffer, cardsJSON []byte) {
 
 // summarizeWorkerStream walks one-event-per-line stream-json and returns
 // counts of {top-level event type} and {MCP tool name when present in
-// tool_use frames}. Bad lines are skipped silently — the raw file is
+// tool_use frames}. Bad lines are skipped silently - the raw file is
 // still on disk for forensic reading.
 func summarizeWorkerStream(raw []byte) (map[string]int, map[string]int) {
 	types := map[string]int{}

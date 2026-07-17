@@ -132,13 +132,13 @@ export function Column({ state, cards, config, collapsed, onToggleCollapse, onCa
               aria-label={allCollapsed ? 'Expand all cards' : 'Collapse all cards'}
             >
               {allCollapsed ? (
-                /* Double chevron down — expand all */
+                /* Double chevron down - expand all */
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 4l-7 7-7-7" />
                 </svg>
               ) : (
-                /* Double chevron up — collapse all */
+                /* Double chevron up - collapse all */
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 20l7-7 7 7" />

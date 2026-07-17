@@ -45,7 +45,7 @@ type modelOutcomeStatsEntry struct {
 	ExpectedWins float64 `json:"expected_wins"`
 	TotalCostUSD float64 `json:"total_cost_usd"`
 	// Active reports whether Samples has reached the configured
-	// outcome_floor — below it, win-rate is too noisy to act on.
+	// outcome_floor - below it, win-rate is too noisy to act on.
 	Active bool `json:"active"`
 }
 

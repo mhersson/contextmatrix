@@ -46,7 +46,7 @@ beforeEach(() => {
   vi.resetAllMocks();
 });
 
-describe('AdminCredentialsPage — list', () => {
+describe('AdminCredentialsPage - list', () => {
   it('renders credential metadata and never renders a secret value', async () => {
     mocks.adminListCredentials.mockResolvedValue([
       credential({
@@ -113,7 +113,7 @@ describe('AdminCredentialsPage — list', () => {
   });
 });
 
-describe('AdminCredentialsPage — create flow', () => {
+describe('AdminCredentialsPage - create flow', () => {
   it('posts a PAT credential through adminCreateCredential', async () => {
     mocks.adminListCredentials.mockResolvedValueOnce([]).mockResolvedValueOnce([
       credential({ name: 'new-pat', kind: 'pat' }),

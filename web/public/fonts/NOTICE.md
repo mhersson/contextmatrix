@@ -2,7 +2,7 @@
 
 ContextMatrix's web UI self-hosts three open-source font families. The
 `.woff2` binaries are served from the Go binary via `//go:embed all:dist`,
-so every deployment ships the fonts directly — no external CDN or CSS
+so every deployment ships the fonts directly - no external CDN or CSS
 imports at runtime.
 
 All three fonts are licensed under the **SIL Open Font License 1.1**. The

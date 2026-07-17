@@ -194,7 +194,7 @@ func (q *CommitQueue) SetOnCommit(fn func()) {
 
 // Enqueue submits a commit job. Returns a channel that receives the
 // result (nil on success) when the worker finishes. The returned channel
-// is the same as job.Done — assigned if nil. Safe to call concurrently.
+// is the same as job.Done - assigned if nil. Safe to call concurrently.
 //
 // If the queue is closed, Enqueue returns ErrQueueClosed via the channel
 // synchronously (a pre-closed done channel with the error already sent).
@@ -413,7 +413,7 @@ func (q *CommitQueue) execute(job CommitJob) error {
 		if rerr := q.mgr.ReloadRepo(job.Ctx); rerr != nil {
 			// If the caller's context cancelled mid-flight (shutdown,
 			// caller hang-up), the commit itself succeeded and HEAD is
-			// already on disk — only the in-memory go-git state is
+			// already on disk - only the in-memory go-git state is
 			// stale. Retry the reload with a fresh background context
 			// so the next read sees the new HEAD; otherwise the next
 			// shell-git pull/push would observe the same stale state.
@@ -463,7 +463,7 @@ func (q *CommitQueue) waitUnpaused(ctx context.Context) {
 // markBusy increments the in-flight counter. On the 0→1 transition it
 // installs a fresh open idle channel so AwaitIdle callers park on the new
 // channel; the previously-closed channel is left for any callers that
-// already captured it (they will observe idle, which is correct — the
+// already captured it (they will observe idle, which is correct - the
 // queue was idle at that instant).
 func (q *CommitQueue) markBusy() {
 	q.mu.Lock()
@@ -519,10 +519,10 @@ func (q *CommitQueue) Resume() {
 }
 
 // AwaitIdle blocks until no worker is executing a commit (inflight == 0)
-// or ctx is cancelled. Buffered jobs still in channels do not count —
+// or ctx is cancelled. Buffered jobs still in channels do not count -
 // only actively running commits.
 //
-// Typical use: Pause, AwaitIdle(ctx) — by the time this returns, no
+// Typical use: Pause, AwaitIdle(ctx) - by the time this returns, no
 // commit subprocess is racing against an external shell git operation.
 //
 // Implementation note: this waits on the queue's idleCh channel rather

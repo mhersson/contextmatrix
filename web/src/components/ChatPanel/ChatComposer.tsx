@@ -51,7 +51,7 @@ export function ChatComposer({ onSend, sendDisabled, footer, focusKey }: ChatCom
       setError(err instanceof Error ? err.message : 'Failed to send message');
     } finally {
       // Browsers drop focus() calls against a disabled input. setSending(false)
-      // only queues the flip — flushSync commits it before the imperative focus
+      // only queues the flip - flushSync commits it before the imperative focus
       // so the user can keep typing without re-clicking the textarea.
       flushSync(() => setSending(false));
       textareaRef.current?.focus();

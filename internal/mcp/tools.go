@@ -124,7 +124,7 @@ type getSkillInput struct {
 	CardID          string `json:"card_id,omitempty" jsonschema:"card ID (required for create-plan, execute-task, review-task, document-task, brainstorming, systematic-debugging)"`
 	Description     string `json:"description,omitempty" jsonschema:"free-text description (used by create-task)"`
 	Name            string `json:"name,omitempty" jsonschema:"project name (used by init-project)"`
-	CallerModel     string `json:"caller_model,omitempty" jsonschema:"your model family (opus, sonnet, haiku) — enables inline execution when matching the skill model"`
+	CallerModel     string `json:"caller_model,omitempty" jsonschema:"your model family (opus, sonnet, haiku) - enables inline execution when matching the skill model"`
 	IncludePreamble *bool  `json:"include_preamble,omitempty" jsonschema:"include workflow rules preamble (default true, pass false to skip on subsequent calls when you already have it)"`
 }
 

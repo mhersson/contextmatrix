@@ -544,7 +544,7 @@ func (s *FilesystemStore) ListCards(ctx context.Context, project string, filter 
 }
 
 // GetCard returns a deep copy of the requested card from the cache.
-// On cache miss — a rare window during the boot scan or a concurrent reload —
+// On cache miss - a rare window during the boot scan or a concurrent reload -
 // the canonical on-disk file is read as a fallback so callers never see a
 // transient ErrCardNotFound for a card that exists on disk.
 func (s *FilesystemStore) GetCard(ctx context.Context, project, id string) (*board.Card, error) {
@@ -675,7 +675,7 @@ func (s *FilesystemStore) UpdateCard(ctx context.Context, project string, card *
 
 	filePath, ok := idx.paths[card.ID]
 	if !ok {
-		// Should not happen — cards and paths are kept in sync — but fall
+		// Should not happen - cards and paths are kept in sync - but fall
 		// back to the canonical path so we don't lose the update.
 		fp, err := s.cardPath(project, card.ID)
 		if err != nil {

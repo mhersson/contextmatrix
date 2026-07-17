@@ -90,7 +90,7 @@ func (h *agentHandlers) releaseCard(w http.ResponseWriter, r *http.Request) {
 
 // extractAgentID returns the caller identity. In multi-user mode the session
 // middleware stamps "human:<username>" into the request context and that
-// ALWAYS wins — a browser cannot claim a different identity via header. The
+// ALWAYS wins - a browser cannot claim a different identity via header. The
 // X-Agent-ID header remains the sole source on machine channels and in
 // single-user mode (where no session middleware runs).
 func extractAgentID(r *http.Request) string {

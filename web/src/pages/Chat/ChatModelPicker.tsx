@@ -5,7 +5,7 @@ import { formatTokens } from '../../utils/chatModels';
 import type { ChatModel } from '../../types';
 
 interface ChatModelPickerProps {
-  /** Which picker to render — driven by GET /api/chats/models `source`. */
+  /** Which picker to render - driven by GET /api/chats/models `source`. */
   source: 'openrouter' | 'endpoint';
   /** Current model value (endpoint: server model id; openrouter: OpenRouter slug). */
   model: string;
@@ -27,7 +27,7 @@ interface ChatModelPickerProps {
  *    renders, even though the `models` list is empty.
  *  - 'endpoint': server-provided model list from the configured OpenAI-
  *    compatible endpoint; rendered as a <select>. Renders nothing when the
- *    list is empty — new chats then use the server default.
+ *    list is empty - new chats then use the server default.
  */
 export function ChatModelPicker({
   source,
@@ -51,7 +51,7 @@ export function ChatModelPicker({
   );
 
   if (!openRouter) {
-    // Endpoint model list — hide entirely when none configured.
+    // Endpoint model list - hide entirely when none configured.
     if (models.length === 0) return null;
     return (
       <>
@@ -65,7 +65,7 @@ export function ChatModelPicker({
           {models.map((m) => (
             <option key={m.id} value={m.id}>
               {m.label} ({formatTokens(m.max_tokens)} context)
-              {m.id === defaultModel ? ' — default' : ''}
+              {m.id === defaultModel ? ' - default' : ''}
             </option>
           ))}
         </select>

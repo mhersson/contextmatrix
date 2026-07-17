@@ -21,7 +21,7 @@ import type { LogEntry } from '../../types';
  * where offsets recomputes.
  */
 
-// Shared mock row height — tests that need 40px override this before rendering.
+// Shared mock row height - tests that need 40px override this before rendering.
 let mockRowHeight = 24;
 
 class MockResizeObserver {
@@ -147,7 +147,7 @@ describe('VirtualLogList', () => {
   // offsets use the 24px estimate even after heights are measured, so adjacent
   // rows overlap (top delta = 24 < measured height 40).
   it('R1: rows do not overlap after measured heights are applied', async () => {
-    // Use 40px row height — strictly greater than ESTIMATE_ROW_HEIGHT=24 so the
+    // Use 40px row height - strictly greater than ESTIMATE_ROW_HEIGHT=24 so the
     // estimate-based and measured-based paths produce different offsets.
     mockRowHeight = 40;
 
@@ -174,7 +174,7 @@ describe('VirtualLogList', () => {
       expect(secondTop).toBeGreaterThanOrEqual(40);
     });
 
-    // Verify the full set of rendered rows — each adjacent pair must not overlap.
+    // Verify the full set of rendered rows - each adjacent pair must not overlap.
     const rows = screen.queryAllByTestId('log-line');
     for (let i = 1; i < rows.length; i++) {
       const prev = rows[i - 1] as HTMLElement;

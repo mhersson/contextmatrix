@@ -41,7 +41,7 @@ func TestBodyLimitOverride_AppliesToImageUpload(t *testing.T) {
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
-	// bodyLimit must not reject — the handler will reject with 400 instead
+	// bodyLimit must not reject - the handler will reject with 400 instead
 	// because the 6 MB of "x" is not a valid multipart payload.
 	assert.NotEqual(t, http.StatusRequestEntityTooLarge, resp.StatusCode,
 		"6 MB POST to /api/images must not 413 via bodyLimit override")
@@ -51,7 +51,7 @@ func TestBodyLimitOverride_AppliesToImageUpload(t *testing.T) {
 // envelope cap is scoped to the image upload route only. A 6 MB POST to a
 // card route must hit the 5 MB global cap and 413 before reaching the
 // handler. ImageStore is wired in so the POST /api/images override is
-// actually registered — without it, the override map would be empty and
+// actually registered - without it, the override map would be empty and
 // this test would not exercise the scoping invariant it claims to.
 func TestBodyLimitOverride_DoesNotApplyToCards(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
@@ -81,7 +81,7 @@ func TestBodyLimitOverride_DoesNotApplyToCards(t *testing.T) {
 	defer closeBody(t, resp.Body)
 
 	assert.Equal(t, http.StatusRequestEntityTooLarge, resp.StatusCode,
-		"6 MB POST to a card route must 413 — only /api/images opts into the larger cap")
+		"6 MB POST to a card route must 413 - only /api/images opts into the larger cap")
 }
 
 // TestValidateOverrideLimit_PanicsOnTooSmall locks down the invariant that

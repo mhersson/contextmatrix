@@ -141,7 +141,7 @@ func TestAsyncCommit_HeartbeatFanoutAcrossCards(t *testing.T) {
 	// Confirm every heartbeat produced a commit.
 	waitForCommits(t, svc, baseline+numCards, 10*time.Second)
 
-	// Logging as info — not a strict assertion since CI wall clocks vary,
+	// Logging as info - not a strict assertion since CI wall clocks vary,
 	// but a sequential worst case would be ~numCards * per-commit latency
 	// (typically 10–40ms each on this repo). We only assert it does not
 	// exceed a generous upper bound.
@@ -184,7 +184,7 @@ func TestAsyncCommit_ShutdownDrainsPendingHeartbeat(t *testing.T) {
 }
 
 // TestAsyncCommit_LockWritesPausesQueue verifies that LockWrites pauses
-// the queue and drains in-flight commits — matching the rebase-gate
+// the queue and drains in-flight commits - matching the rebase-gate
 // requirement from the gitsync layer.
 func TestAsyncCommit_LockWritesPausesQueue(t *testing.T) {
 	svc, q, boardsDir := newAsyncTestService(t)

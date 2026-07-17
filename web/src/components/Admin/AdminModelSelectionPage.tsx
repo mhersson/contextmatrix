@@ -10,7 +10,7 @@ const EMPTY_STATS: ModelOutcomeStats = { outcome_floor: 0, total_samples: 0, mod
 /** Admin-only Model selection data page: per-model Best-of-N outcome stats
  * (samples, wins, win rate, cost, active-vs-floor status) plus a destructive
  * reset that wipes every recorded outcome. Open in none mode (see
- * AdminGuard), admin-gated in multi mode — same trust posture as project
+ * AdminGuard), admin-gated in multi mode - same trust posture as project
  * management. Owns all data fetching and the reset mutation; the table it
  * renders is purely presentational. */
 export function AdminModelSelectionPage() {
@@ -35,7 +35,7 @@ export function AdminModelSelectionPage() {
   }, []);
 
   // Mount-only fetch, delegated to refetch (also used after the reset
-  // mutation below) — mirrors AdminUsersPage / AdminCredentialsPage.
+  // mutation below) - mirrors AdminUsersPage / AdminCredentialsPage.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void refetch();

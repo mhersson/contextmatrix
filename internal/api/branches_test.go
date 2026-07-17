@@ -251,7 +251,7 @@ func TestBranchHandler_UsesProviderToken(t *testing.T) {
 // TestBranchHandler_ProviderForProject_UsesBoundProvider asserts that when
 // providerForProject is set, the branch handler resolves the token provider
 // and API base URL per request (by project) instead of using the fixed
-// fallback provider/baseURL — and that the resolved (bound) provider's token
+// fallback provider/baseURL - and that the resolved (bound) provider's token
 // is what actually gets used.
 func TestBranchHandler_ProviderForProject_UsesBoundProvider(t *testing.T) {
 	svc, _, cleanup := testSetupWithGitHubRepo(t, "https://github.com/owner/repo")

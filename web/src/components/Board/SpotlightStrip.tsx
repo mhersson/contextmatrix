@@ -11,7 +11,7 @@ interface SpotlightStripProps {
  *   - state == "stalled"
  *   - state == "blocked"
  *
- * Always rendered — when there is nothing to surface, the strip shows an
+ * Always rendered - when there is nothing to surface, the strip shows an
  * "all clear" placeholder so the slot in the layout remains visible.
  */
 export function SpotlightStrip({ cards, onCardClick }: SpotlightStripProps) {

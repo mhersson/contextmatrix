@@ -165,7 +165,7 @@ func (s *CardService) ReleaseCard(ctx context.Context, project, id, agentID stri
 // commit leaves the cache/disk with a newer LastHeartbeat timestamp than
 // git; the next heartbeat (typically within the heartbeat interval) will
 // emit another commit and restore consistency. Rolling back would be net
-// harmful — the cache's advanced timestamp still prevents the stall
+// harmful - the cache's advanced timestamp still prevents the stall
 // scanner from prematurely marking the card, and a rollback would
 // re-expose a stale timestamp that the next scan could act on.
 func (s *CardService) HeartbeatCard(ctx context.Context, project, id, agentID string) error {
@@ -203,7 +203,7 @@ func (s *CardService) HeartbeatCard(ctx context.Context, project, id, agentID st
 // checks for stalled cards and transitions them to the "stalled" state.
 // The goroutine stops when the context is cancelled.
 //
-// The ticker is driven by the service's clock.Clock — tests that inject a
+// The ticker is driven by the service's clock.Clock - tests that inject a
 // fake clock can call Advance to deterministically trigger iterations.
 // The ticker is created synchronously before the goroutine starts so that
 // tests can Advance immediately after this call returns without racing
@@ -243,7 +243,7 @@ func (s *CardService) StartTimeoutChecker(ctx context.Context, interval time.Dur
 // Design note: FindStalled runs without writeMu, then markCardStalled acquires
 // it per card. A heartbeat or release between the two could change the card, so
 // markCardStalled re-reads and re-validates before acting. This is an accepted
-// trade-off — holding writeMu across the entire loop would block all mutations
+// trade-off - holding writeMu across the entire loop would block all mutations
 // during stalled-card processing, which is worse for throughput.
 func (s *CardService) processStalled(ctx context.Context) error {
 	start := time.Now()
@@ -268,7 +268,7 @@ func (s *CardService) processStalled(ctx context.Context) error {
 
 	// FindStalled only covers CLAIMED cards. A parent card is never itself
 	// claimed (only its subtasks are), so a dead run leaves it in_progress +
-	// unclaimed forever — invisible to the loop above. Reap those on the same
+	// unclaimed forever - invisible to the loop above. Reap those on the same
 	// tick; log and continue so a janitor error never masks the stall sweep.
 	if err := s.processAbandonedParents(ctx); err != nil {
 		ctxlog.Logger(ctx).Error("process abandoned parents", "error", err)
@@ -282,7 +282,7 @@ func (s *CardService) processStalled(ctx context.Context) error {
 // never itself claimed (only its subtasks are), so a dead run strands the
 // parent in_progress with no heartbeat to ever time out. A parent is abandoned
 // only when it is in_progress AND unclaimed AND untouched within the stall
-// timeout AND has no active subtask — the last two guards prevent reaping a
+// timeout AND has no active subtask - the last two guards prevent reaping a
 // parent that is merely between subtask claims.
 func (s *CardService) processAbandonedParents(ctx context.Context) error {
 	cutoff := s.clk.Now().Add(-s.lock.Timeout())
@@ -355,8 +355,8 @@ func (s *CardService) hasActiveSubtask(ctx context.Context, project, parentID st
 }
 
 // reapAbandonedParent stalls a single abandoned parent. It re-reads the card and
-// re-validates every abandonment guard under writeMu — a claim, transition, or
-// subtask update may have landed since the unlocked scan — before delegating the
+// re-validates every abandonment guard under writeMu - a claim, transition, or
+// subtask update may have landed since the unlocked scan - before delegating the
 // mutation to stallCardLocked. writeMu is released on every return path.
 func (s *CardService) reapAbandonedParent(ctx context.Context, project, cardID string, cutoff time.Time) error {
 	s.writeMu.Lock()
@@ -364,7 +364,7 @@ func (s *CardService) reapAbandonedParent(ctx context.Context, project, cardID s
 	card, err := s.store.GetCard(ctx, project, cardID)
 	if err != nil {
 		s.writeMu.Unlock()
-		// Deleted between scan and reap — skip silently.
+		// Deleted between scan and reap - skip silently.
 		return nil
 	}
 
@@ -401,7 +401,7 @@ func (s *CardService) markCardStalled(ctx context.Context, sc lock.StalledCard) 
 	card, err := s.store.GetCard(ctx, sc.Project, sc.Card.ID)
 	if err != nil {
 		s.writeMu.Unlock()
-		// Card was deleted between FindStalled and now — skip silently.
+		// Card was deleted between FindStalled and now - skip silently.
 		return nil
 	}
 
@@ -432,7 +432,7 @@ func (s *CardService) stallCardLocked(ctx context.Context, project string, card 
 	// terminal state. Per the design tension noted in
 	// enforceTerminalStateInvariants, a card may legitimately retain a live
 	// claim through StateDone so the subsequent ReleaseCard call can flush
-	// deferred commits — that done-with-claim window must not be flagged
+	// deferred commits - that done-with-claim window must not be flagged
 	// stalled. StateNotPlanned already clears the claim on transition so
 	// this guard is symmetric and free of behavioural impact for it.
 	// StateStalled itself is included for idempotency.
@@ -461,7 +461,7 @@ func (s *CardService) stallCardLocked(ctx context.Context, project string, card 
 
 	// A stalled worker is presumed dead. Leaving worker_status at queued/running
 	// makes runCard 409 (ErrCodeWorkerConflict) on every future trigger until a
-	// manual Stop — normalize to the terminal status the failed-callback path
+	// manual Stop - normalize to the terminal status the failed-callback path
 	// would have set. Terminal/blank statuses are left untouched.
 	if card.WorkerStatus == "queued" || card.WorkerStatus == "running" {
 		card.WorkerStatus = "failed"
@@ -501,7 +501,7 @@ func (s *CardService) stallCardLocked(ctx context.Context, project string, card 
 
 	// Await the stall commit FIRST. Flushing the deferred queue before the
 	// stall commit lands would mean a rollback (commit failure) restores the
-	// card snapshot while the deferred-flush commit is already in git —
+	// card snapshot while the deferred-flush commit is already in git -
 	// permanent state divergence. Defer the flush until the stall commit
 	// succeeds; on commit failure, the deferred paths remain queued and will
 	// be picked up by the next mutation/release.
@@ -513,7 +513,7 @@ func (s *CardService) stallCardLocked(ctx context.Context, project string, card 
 		return rollbackErr
 	}
 
-	// Stall commit landed — now safe to flush deferred commits. Re-acquire
+	// Stall commit landed - now safe to flush deferred commits. Re-acquire
 	// writeMu because flushDeferredCommit mutates deferredPaths and routes
 	// through the commit queue.
 	s.writeMu.Lock()

@@ -3,7 +3,7 @@ import type { WorkerStatus } from '../types';
 
 /**
  * Shared palette tokens + chip helpers for card type / priority / state
- * chips. These values are the single source of truth — every component that
+ * chips. These values are the single source of truth - every component that
  * renders a chip (board CardItem, card-panel header, create-card panel)
  * imports from here. Never duplicate these maps locally; a prior drift
  * between two copies had subtask colors diverging between the board and
@@ -41,7 +41,7 @@ export const stateColors: Record<string, string> = {
 
 /**
  * Tints a chip with a translucent background derived from its accent color.
- * Intentionally does NOT accept user input — every caller passes a constant
+ * Intentionally does NOT accept user input - every caller passes a constant
  * from one of the maps above, or `var(--grey1)` as a fallback. Don't route
  * untrusted values through this helper; it interpolates directly into a
  * `color-mix(...)` CSS expression.

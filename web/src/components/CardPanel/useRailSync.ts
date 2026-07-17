@@ -19,12 +19,12 @@ export interface RailSync {
 /**
  * Manages rail layout state (railExpanded, activeTab) with the documented
  * sync state machine that reacts to card-identity changes and interactive-chat
- * transitions (a HITL session running — autonomous runs stream a read-only
+ * transitions (a HITL session running - autonomous runs stream a read-only
  * chat tab but never grab focus, so they do not participate here).
  *
  * State machine summary:
  *
- *  - Card identity change (cardId changes): full reset — editedCard,
+ *  - Card identity change (cardId changes): full reset - editedCard,
  *    railExpanded → safeReadRail() ?? isChatInteractive, activeTab → defaultTab.
  *  - Same card, new SSE object reference: editedCard refreshes; railExpanded
  *    and activeTab are preserved.
@@ -79,7 +79,7 @@ export function useRailSync(
     [],
   );
 
-  // In-render state machine — must not be moved to useEffect.
+  // In-render state machine - must not be moved to useEffect.
   if (sync.cardId !== card.id) {
     // Card identity changed: full reset. Re-read from localStorage rather than
     // using the in-memory railExpanded value: another tab may have written a
@@ -124,7 +124,7 @@ export function useRailSync(
 
   const onTabChange = (tab: RailTabKey) => {
     setActiveTab(tab);
-    // Disarm the live-off debounce on any user-initiated tab change — their
+    // Disarm the live-off debounce on any user-initiated tab change - their
     // choice of tab wins over the pending switch-back.
     setSync((prev) => ({ ...prev, liveOffCount: 0, armed: false }));
   };

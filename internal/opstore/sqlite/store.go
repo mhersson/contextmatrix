@@ -18,7 +18,7 @@ type Store struct{ db *sql.DB }
 // VFS rather than the implicit filename VFS; we concatenate path directly
 // (rather than via url.URL) because url.URL.String() places a relative path
 // in the authority component, which modernc/sqlite rejects as an invalid URI
-// authority. synchronous=NORMAL is the recommended pairing for WAL — durable
+// authority. synchronous=NORMAL is the recommended pairing for WAL - durable
 // across process crashes, acceptable for operational metadata and cached chat
 // data. Mirrors internal/images/sqlite.go:sqliteDSN; keep the two in sync.
 func sqliteDSN(path string) string {

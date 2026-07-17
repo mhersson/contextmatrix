@@ -45,7 +45,7 @@ Three palettes ship with the UI: `everforest` (default), `radix`, and
 `catppuccin`. The server-side default is set by the `theme:` field in
 `config.yaml`. Users can override the palette per-browser via the
 PaletteSelector in `AppHeader` (persisted to `localStorage` under the key
-`palette`) — see `web/src/components/AppHeader/PaletteSelector.tsx`.
+`palette`) - see `web/src/components/AppHeader/PaletteSelector.tsx`.
 
 ## Conventions
 

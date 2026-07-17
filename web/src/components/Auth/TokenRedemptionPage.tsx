@@ -18,7 +18,7 @@ const MIN_PASSWORD_LENGTH = 10; // mirrors the server rule; server re-validates
  *
  * The token is derived from the pathname, NOT useParams(): AuthGate renders
  * this page by path interception above the route tree, so no <Route> ever
- * matches and useParams() would be empty (the bug that shipped originally —
+ * matches and useParams() would be empty (the bug that shipped originally -
  * every redemption 404ed on an empty token).
  */
 export function TokenRedemptionPage() {
@@ -97,7 +97,7 @@ export function TokenRedemptionPage() {
         : `Welcome, ${info?.username}`;
   const sub =
     info?.purpose === 'bootstrap'
-      ? 'First run — this account gets the admin role.'
+      ? 'First run - this account gets the admin role.'
       : info?.purpose === 'reset'
         ? `For ${info?.username}.`
         : 'Set a password to finish creating your account.';

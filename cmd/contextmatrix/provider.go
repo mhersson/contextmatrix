@@ -11,7 +11,7 @@ import (
 
 // projectGetter is the narrow slice of *service.CardService that
 // newProviderForProject needs. Defined here, in the consuming package, per
-// project convention (interfaces belong where they're used) — it exists so
+// project convention (interfaces belong where they're used) - it exists so
 // the resolution logic below can be built and tested without depending on
 // the concrete service type.
 type projectGetter interface {
@@ -22,7 +22,7 @@ type projectGetter interface {
 // RouterConfig.ProviderForProject and reused by the GitHub-issue-sync path:
 // the project's credential binding when set (fail-closed on a broken one),
 // else the instance-wide provider. instanceProvider/instanceAPIBase are the
-// instance-wide fallback; authSvc may be nil (auth.mode "none" — the OR
+// instance-wide fallback; authSvc may be nil (auth.mode "none" - the OR
 // guard below short-circuits before ever dereferencing it).
 // provider_test.go covers every branch directly.
 func newProviderForProject(
@@ -38,7 +38,7 @@ func newProviderForProject(
 		}
 
 		if pcfg.GitHubCredential == "" || authSvc == nil {
-			return instanceProvider, instanceAPIBase, nil // instance credential — pre-binding behavior
+			return instanceProvider, instanceAPIBase, nil // instance credential - pre-binding behavior
 		}
 
 		provider, apiBase, _, err := authSvc.TokenProviderFor(ctx, pcfg.GitHubCredential)

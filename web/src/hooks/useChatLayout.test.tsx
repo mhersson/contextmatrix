@@ -3,7 +3,7 @@ import { renderHook, act } from '@testing-library/react';
 import { useChatLayout, type ChatLayoutState, type LRUEvictionEvent } from './useChatLayout';
 import type { AvailableChat } from '../components/ChatLayout/types';
 
-// localStorage isn't auto-provided in this test environment — mirror the
+// localStorage isn't auto-provided in this test environment - mirror the
 // pattern used in useAgentId.test.ts so the hook's persistence code runs.
 const localStorageMock = (() => {
   let store: Record<string, string> = {};
@@ -33,7 +33,7 @@ function renderLayout(overrides: { onLRUEvict?: (e: LRUEvictionEvent) => void } 
   return renderHook(() => useChatLayout({ availableChats: CHATS, ...overrides }));
 }
 
-describe('useChatLayout — placement', () => {
+describe('useChatLayout - placement', () => {
   it('starts empty', () => {
     const { result } = renderLayout();
     expect(result.current.paneCount).toBe(0);
@@ -84,7 +84,7 @@ describe('useChatLayout — placement', () => {
   });
 });
 
-describe('useChatLayout — LRU eviction', () => {
+describe('useChatLayout - LRU eviction', () => {
   it('evicts the least-recently-focused pane when opening a 5th chat', () => {
     const evictions: LRUEvictionEvent[] = [];
     const { result } = renderLayout({ onLRUEvict: (e) => evictions.push(e) });
@@ -127,7 +127,7 @@ describe('useChatLayout — LRU eviction', () => {
   });
 });
 
-describe('useChatLayout — swapPaneChat (drop semantics)', () => {
+describe('useChatLayout - swapPaneChat (drop semantics)', () => {
   it('swaps two panes when dropping a chat already open in another pane', () => {
     const { result } = renderLayout();
     act(() => { result.current.openInNewPane('A'); }); // TL
@@ -171,7 +171,7 @@ describe('useChatLayout — swapPaneChat (drop semantics)', () => {
   });
 });
 
-describe('useChatLayout — split / cancel empty', () => {
+describe('useChatLayout - split / cancel empty', () => {
   it('splitFromPane creates an empty pane next to the source', () => {
     const { result } = renderLayout();
     act(() => { result.current.openInNewPane('A'); });
@@ -199,7 +199,7 @@ describe('useChatLayout — split / cancel empty', () => {
   });
 });
 
-describe('useChatLayout — close + normalize', () => {
+describe('useChatLayout - close + normalize', () => {
   it('closing TL promotes BL to TL', () => {
     const { result } = renderLayout();
     act(() => { result.current.openInNewPane('A'); });
@@ -246,7 +246,7 @@ describe('useChatLayout — close + normalize', () => {
   });
 });
 
-describe('useChatLayout — persistence', () => {
+describe('useChatLayout - persistence', () => {
   it('writes state to localStorage (after debounce)', async () => {
     vi.useFakeTimers();
     try {
@@ -318,7 +318,7 @@ describe('useChatLayout — persistence', () => {
     expect(window.localStorage.getItem('last_chat_id')).toBe('B');
   });
 
-  it('debounces chat_layout persistence — no synchronous write per state change', () => {
+  it('debounces chat_layout persistence - no synchronous write per state change', () => {
     vi.useFakeTimers();
     try {
       const { result } = renderLayout();
@@ -335,7 +335,7 @@ describe('useChatLayout — persistence', () => {
       const before = localStorageMock.setItem.mock.calls.filter(
         ([k]) => k === 'chat_layout',
       );
-      expect(before.length).toBe(0); // debounced — nothing flushed yet
+      expect(before.length).toBe(0); // debounced - nothing flushed yet
 
       act(() => {
         vi.advanceTimersByTime(300);
@@ -351,7 +351,7 @@ describe('useChatLayout — persistence', () => {
   });
 });
 
-describe('useChatLayout — movePane', () => {
+describe('useChatLayout - movePane', () => {
   it('movePane swaps two non-empty slots', () => {
     const { result } = renderLayout();
     act(() => { result.current.openInNewPane('A'); }); // TL
@@ -422,7 +422,7 @@ describe('useChatLayout — movePane', () => {
   });
 });
 
-describe('useChatLayout — reconciliation against availableChats', () => {
+describe('useChatLayout - reconciliation against availableChats', () => {
   it('drops panes whose chat is removed from availableChats', () => {
     const { result, rerender } = renderHook(
       ({ chats }) => useChatLayout({ availableChats: chats }),
@@ -440,7 +440,7 @@ describe('useChatLayout — reconciliation against availableChats', () => {
   it('keeps persisted panes when availableChats is initially empty (async session load)', () => {
     // Mirrors the real ChatPage remount sequence: useChatSessions fetches in a
     // useEffect, so the first render sees availableChats=[]. The persisted
-    // layout must survive that window — reconciliation should only remove
+    // layout must survive that window - reconciliation should only remove
     // panes once sessions confirm they're gone, not before they've loaded.
     window.localStorage.setItem('chat_layout', JSON.stringify({
       panes: { TL: { chatId: 'A' }, BL: null, TR: { chatId: 'B' }, BR: null },

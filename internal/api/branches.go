@@ -26,7 +26,7 @@ type branchHandlers struct {
 	newBranchClient  func(provider githubauth.TokenGenerator, baseURL string) BranchFetcher
 	// providerForProject resolves the token provider per request, by
 	// project (credential binding support). nil preserves the fixed
-	// provider/githubAPIBaseURL fallback above — the pre-binding behavior
+	// provider/githubAPIBaseURL fallback above - the pre-binding behavior
 	// used by tests that don't wire it.
 	providerForProject func(ctx context.Context, project string) (githubauth.TokenGenerator, string, error)
 }

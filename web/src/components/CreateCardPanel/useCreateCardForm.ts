@@ -22,7 +22,7 @@ export interface CreateCardForm {
   featureBranch: boolean;
   createPR: boolean;
   baseBranch: string;
-  // Best-of-N and mob session — surfaced at create time when the agent backend is
+  // Best-of-N and mob session - surfaced at create time when the agent backend is
   // active (see AutomationCheckboxes). 0/[] = off / unset.
   bestOfN: number;
   mobParticipants: number;
@@ -56,8 +56,8 @@ export interface CreateCardForm {
   handleSetParent: (newParent: string) => void;
   handleTypeChange: (newType: string) => void;
 
-  // Submit handlers — return Promise<void> and catch internally; parent
-  // (component) should not swallow errors — it shows toast; form stays open.
+  // Submit handlers - return Promise<void> and catch internally; parent
+  // (component) should not swallow errors - it shows toast; form stays open.
   handleJustCreate: () => Promise<void>;
   handleCreateAndRun: () => Promise<void>;
 }
@@ -65,7 +65,7 @@ export interface CreateCardForm {
 export interface UseCreateCardForm {
   form: CreateCardForm;
   // Ref for the title <input>, returned separately so the `form` object
-  // contains only plain values/setters — keeps the `react-hooks/refs`
+  // contains only plain values/setters - keeps the `react-hooks/refs`
   // lint rule from flagging every `form.X` access on the caller side.
   titleInputRef: React.RefObject<HTMLInputElement | null>;
 }
@@ -101,7 +101,7 @@ export function useCreateCardForm(
 
   // Tracks the type the user had selected before a parent was set, so we
   // can restore it on clear. Updated by handleSetParent synchronously
-  // alongside the parent change — avoids the cascading-render lint and the
+  // alongside the parent change - avoids the cascading-render lint and the
   // race where `type` could briefly read 'subtask' before the parent state
   // change settled.
   const prevTypeRef = useRef<string>(type);
@@ -156,7 +156,7 @@ export function useCreateCardForm(
       model_orchestrator: modelOrchestrator || undefined,
       model_coder: modelCoder || undefined,
       model_reviewer: modelReviewer || undefined,
-      // Best-of-N and mob session — only forwarded when the user picked a value
+      // Best-of-N and mob session - only forwarded when the user picked a value
       // (0 / [] mean "off / unset" and are omitted to keep the input clean).
       best_of_n: bestOfN || undefined,
       mob_participants: mobParticipants || undefined,

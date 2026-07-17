@@ -16,7 +16,7 @@ import (
 // The content-keyed matcher table and the SSE wire builders below are ported
 // verbatim (with light renaming) from contextmatrix-agent's
 // internal/worker/e2e_orchestrator_test.go `scriptedBackend`. They cannot be
-// imported — they are _test.go-internal to that package — so the port is
+// imported - they are _test.go-internal to that package - so the port is
 // intentional duplication.
 //
 // MATCHER-SYNC WARNING: the matchers key on the agent orchestrator's phase
@@ -27,7 +27,7 @@ import (
 // stubLLM is a scripted OpenAI-compatible endpoint. It binds 0.0.0.0 so worker
 // containers reach it via host.docker.internal:<port>; the port is
 // kernel-assigned. It serves POST /chat/completions from a reply function and
-// 404s everything else (including /models — the worker's catalog fetch then
+// 404s everything else (including /models - the worker's catalog fetch then
 // degrades to priors and the pinned default model, mirroring the agent's own
 // e2e).
 type stubLLM struct {
@@ -303,7 +303,7 @@ func jsonNumber(f float64) string {
 }
 
 // jsonString quotes s as a JSON string literal (ported from the agent's
-// e2e_test.go — the content/args escaping the wire format requires).
+// e2e_test.go - the content/args escaping the wire format requires).
 func jsonString(s string) string {
 	var b strings.Builder
 

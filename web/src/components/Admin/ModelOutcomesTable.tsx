@@ -8,7 +8,7 @@ interface ModelOutcomesTableProps {
 }
 
 function fmtCost(v: number): string {
-  return v > 0 ? `$${v.toFixed(2)}` : '—';
+  return v > 0 ? `$${v.toFixed(2)}` : ' - ';
 }
 
 function fmtPercent(v: number): string {
@@ -17,7 +17,7 @@ function fmtPercent(v: number): string {
 
 /**
  * Loading/error/empty-state wrapper and `<table>` markup for the Model
- * selection data page. Purely presentational — AdminModelSelectionPage owns
+ * selection data page. Purely presentational - AdminModelSelectionPage owns
  * all data fetching and the reset action; this component only renders the
  * current stats.
  */

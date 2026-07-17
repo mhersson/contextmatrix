@@ -57,7 +57,7 @@ func sanitizeErrorDetails(err error) string {
 		return "invalid JSON body"
 	}
 
-	// Transport / ssh / exec classes always wrap a remote URL or host —
+	// Transport / ssh / exec classes always wrap a remote URL or host -
 	// reply with a stable class label and nothing else.
 	if transportPrefixRe.MatchString(raw) {
 		return "git remote unreachable"
@@ -97,7 +97,7 @@ var gitDirPathRe = regexp.MustCompile(`/[A-Za-z0-9_.\-/]+/\.git(?:/|$| )`)
 
 // absPathRe matches any substring that looks like an absolute POSIX path with
 // at least one directory component and a file/dir name after (e.g.
-// "/home/alice/boards/project", "/tmp/fooBar"). Intentionally conservative —
+// "/home/alice/boards/project", "/tmp/fooBar"). Intentionally conservative -
 // catches leaks like "open /data/boards/project/tasks/CARD-001.md: ..."
 // without false-positiving on short ids.
 var absPathRe = regexp.MustCompile(`/[A-Za-z0-9_.\-/]+/[A-Za-z0-9_.\-]+`)

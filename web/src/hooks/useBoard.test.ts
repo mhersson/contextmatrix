@@ -10,7 +10,7 @@ import type { Card, ProjectConfig } from '../types';
 // useSSEBus (exercised here via the real SSEProvider, see `wrapper` below)
 // imports SESSION_EXPIRED_EVENT from this module, so the mock factory must
 // preserve real exports via importOriginal rather than replacing the module
-// wholesale — otherwise the named import resolves to nothing and importing
+// wholesale - otherwise the named import resolves to nothing and importing
 // useSSEBus throws.
 vi.mock('../api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api/client')>();
@@ -27,7 +27,7 @@ vi.mock('../api/client', async (importOriginal) => {
 // ---- EventSource mock (mirrors useSSEBus.test.tsx) ---------------------------
 //
 // useBoard resyncs via the real SSEProvider (not a mocked useSSEBus), so a
-// real EventSource must exist for the provider to construct against — same
+// real EventSource must exist for the provider to construct against - same
 // file-local mock class + globalThis wiring as useSSEBus.test.tsx.
 
 interface MockES {
@@ -106,7 +106,7 @@ const projectConfig: ProjectConfig = {
 
 const cards: Card[] = [];
 
-describe('useBoard — SSE reconnect resync', () => {
+describe('useBoard - SSE reconnect resync', () => {
   beforeEach(() => {
     instances = [];
     // shouldAdvanceTime lets testing-library's waitFor polling proceed on
@@ -129,7 +129,7 @@ describe('useBoard — SSE reconnect resync', () => {
 
     await waitFor(() => expect(vi.mocked(api.getCards)).toHaveBeenCalledTimes(1));
 
-    // Initial connect must not trigger a resync fetch — reconnectEpoch stays
+    // Initial connect must not trigger a resync fetch - reconnectEpoch stays
     // 0 through the first open (hasConnectedOnceRef guard in useSSEBus).
     act(() => {
       latestInstance()._triggerOpen();

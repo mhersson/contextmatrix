@@ -38,7 +38,7 @@ beforeEach(() => {
   vi.resetAllMocks();
 });
 
-describe('GitHubCredentialSection — admin (select) mode', () => {
+describe('GitHubCredentialSection - admin (select) mode', () => {
   it('renders "Instance default" plus one option per pool entry, disabled entries suffixed', async () => {
     mocks.adminListCredentials.mockResolvedValue([
       credential({ name: 'acme-pat', kind: 'pat', host: '' }),
@@ -51,11 +51,11 @@ describe('GitHubCredentialSection — admin (select) mode', () => {
 
     expect(await screen.findByRole('option', { name: /instance default/i })).toBeInTheDocument();
     expect(
-      await screen.findByRole('option', { name: /acme-pat — PAT, github\.com/ }),
+      await screen.findByRole('option', { name: /acme-pat - PAT, github\.com/ }),
     ).toBeInTheDocument();
     expect(
       await screen.findByRole('option', {
-        name: /acme-app — GitHub App, github\.example\.com \(disabled\)/,
+        name: /acme-app - GitHub App, github\.example\.com \(disabled\)/,
       }),
     ).toBeInTheDocument();
   });
@@ -67,7 +67,7 @@ describe('GitHubCredentialSection — admin (select) mode', () => {
 
     await waitFor(() => expect(mocks.adminListCredentials).toHaveBeenCalled());
 
-    const warning = await screen.findByText(/credential no longer exists — operations on this project will fail/i);
+    const warning = await screen.findByText(/credential no longer exists - operations on this project will fail/i);
     expect(warning).toBeInTheDocument();
     expect(warning).toHaveStyle({ color: 'var(--red)' });
 
@@ -112,7 +112,7 @@ describe('GitHubCredentialSection — admin (select) mode', () => {
 
     render(<GitHubCredentialSection value="" onChange={onChange} readOnly={false} />);
 
-    await screen.findByRole('option', { name: /acme-pat — PAT, github\.com/ });
+    await screen.findByRole('option', { name: /acme-pat - PAT, github\.com/ });
 
     const select = screen.getByRole('combobox') as HTMLSelectElement;
     select.value = 'acme-pat';
@@ -122,7 +122,7 @@ describe('GitHubCredentialSection — admin (select) mode', () => {
   });
 });
 
-describe('GitHubCredentialSection — readOnly mode', () => {
+describe('GitHubCredentialSection - readOnly mode', () => {
   it('renders the bound name as plain text, not a select, and does not fetch the pool', () => {
     render(<GitHubCredentialSection value="acme-pat" onChange={vi.fn()} readOnly />);
 

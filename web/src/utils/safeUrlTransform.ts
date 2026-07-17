@@ -1,5 +1,5 @@
 /**
- * safeUrlTransform — allowlist-based URL filter for MarkdownPreview.
+ * safeUrlTransform - allowlist-based URL filter for MarkdownPreview.
  *
  * @uiw/react-markdown-preview@5.x sets defaultUrlTransform = url => url,
  * overriding react-markdown's built-in scheme allowlist. This restores a safe
@@ -23,7 +23,7 @@ export function safeUrlTransform(url: string): string {
       return url;
     }
   } catch {
-    // Not an absolute URL — treat as relative and allow it through.
+    // Not an absolute URL - treat as relative and allow it through.
     return url;
   }
 

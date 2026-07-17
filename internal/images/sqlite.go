@@ -105,7 +105,7 @@ type SQLiteStore struct {
 // (rather than via url.URL) because url.URL.String() places a relative path
 // in the authority component (e.g. `file://images.db`), which modernc/sqlite
 // rejects as an invalid URI authority. synchronous=NORMAL is the recommended
-// pairing for WAL — durable across process crashes, only weakens behaviour
+// pairing for WAL - durable across process crashes, only weakens behaviour
 // under power loss, acceptable for cached image blobs.
 func sqliteDSN(path string) string {
 	return "file:" + path + "?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(5000)"
@@ -140,7 +140,7 @@ func Open(path string) (*SQLiteStore, error) {
 func (s *SQLiteStore) Close() error { return s.db.Close() }
 
 // Put processes raw bytes, derives a content-hash ID, and persists the result.
-// Identical content is deduplicated by ID — a second call with the same bytes
+// Identical content is deduplicated by ID - a second call with the same bytes
 // returns the existing ID without inserting a new row.
 func (s *SQLiteStore) Put(ctx context.Context, raw []byte) (string, string, error) {
 	processed, contentType, err := Process(raw)

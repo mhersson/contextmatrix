@@ -76,7 +76,7 @@ func TestEncryptSecret_BadKeyLength(t *testing.T) {
 
 func TestEncryptSecret_RejectsNon256BitKeys(t *testing.T) {
 	// aes.NewCipher accepts 16/24-byte keys (AES-128/192). The helpers must
-	// not silently downgrade — only 32 bytes (AES-256) is valid.
+	// not silently downgrade - only 32 bytes (AES-256) is valid.
 	for _, n := range []int{16, 24} {
 		key := make([]byte, n)
 

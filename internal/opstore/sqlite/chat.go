@@ -125,7 +125,7 @@ func (s *Store) ListSessions(ctx context.Context, f chat.SessionFilter) ([]chat.
 
 // CountSessionsByStatus returns the number of sessions whose status is one of
 // the supplied values. A single SELECT COUNT(*) query avoids fetching full rows
-// just to call len() on the result — used by openCold to enforce MaxConcurrent.
+// just to call len() on the result - used by openCold to enforce MaxConcurrent.
 func (s *Store) CountSessionsByStatus(ctx context.Context, statuses ...chat.Status) (int, error) {
 	if len(statuses) == 0 {
 		return 0, nil
@@ -407,7 +407,7 @@ func (s *Store) ListMessagesTail(ctx context.Context, sessionID string, limit in
 //  2. INSERT the divider message row
 //
 // A rollback is deferred so any partial failure leaves the transcript
-// unchanged — the caller can retry the full ClearContext without worrying
+// unchanged - the caller can retry the full ClearContext without worrying
 // about half-marked rows.
 func (s *Store) ClearTranscriptAtomic(ctx context.Context, sessionID string, divider chat.Message) (int64, chat.Message, error) {
 	tx, err := s.db.BeginTx(ctx, nil)

@@ -14,7 +14,7 @@ const baseProps = {
   branches: ['main', 'develop'],
 };
 
-describe('AutomationCheckboxes — model steering', () => {
+describe('AutomationCheckboxes - model steering', () => {
   it('renders the per-role model pins when taskBackend is agent', () => {
     render(<AutomationCheckboxes {...baseProps} taskBackend="agent" />);
     expect(screen.getByLabelText('Orchestrator model pin')).toBeInTheDocument();
@@ -26,7 +26,7 @@ describe('AutomationCheckboxes — model steering', () => {
   });
 });
 
-describe('AutomationCheckboxes — forced-on-run badges', () => {
+describe('AutomationCheckboxes - forced-on-run badges', () => {
   it('renders ⚡ forced on run badge on Feature branch when forcedFeatureBranch=true', () => {
     render(<AutomationCheckboxes {...baseProps} forcedFeatureBranch />);
     // Two badges share the text; look for the one near Feature branch.
@@ -53,7 +53,7 @@ describe('AutomationCheckboxes — forced-on-run badges', () => {
   });
 });
 
-describe('AutomationCheckboxes — base branch selector', () => {
+describe('AutomationCheckboxes - base branch selector', () => {
   it('renders branch options', () => {
     render(
       <AutomationCheckboxes
@@ -66,7 +66,7 @@ describe('AutomationCheckboxes — base branch selector', () => {
   });
 });
 
-describe('AutomationCheckboxes — inline status hints', () => {
+describe('AutomationCheckboxes - inline status hints', () => {
   it('renders "not created yet" when branchName is absent', () => {
     render(<AutomationCheckboxes {...baseProps} />);
     expect(screen.getByText(/not created yet/)).toBeInTheDocument();
@@ -106,13 +106,13 @@ describe('AutomationCheckboxes — inline status hints', () => {
     // would otherwise swallow the link's click.
     const stack = container.querySelector('.bf-auto-stack');
     expect(stack?.className).not.toMatch(/pointer-events-none/);
-    // Checkboxes still disabled — the wrapper's opacity cue is enough.
+    // Checkboxes still disabled - the wrapper's opacity cue is enough.
     expect(screen.getByLabelText('Autonomous mode')).toBeDisabled();
     expect(screen.getByLabelText('Create PR')).toBeDisabled();
   });
 });
 
-describe('AutomationCheckboxes — Best of N selector', () => {
+describe('AutomationCheckboxes - Best of N selector', () => {
   it('renders the "Best of N" select when taskBackend is agent', () => {
     render(<AutomationCheckboxes {...baseProps} taskBackend="agent" />);
     expect(screen.getByLabelText('Best of N')).toBeInTheDocument();
@@ -173,7 +173,7 @@ describe('AutomationCheckboxes — Best of N selector', () => {
     expect(onBestOfNChange).toHaveBeenCalledWith(0);
   });
 
-  it('is a plain pass-through — picking 5 from Off with a default of 3 calls back with 5, not 3', () => {
+  it('is a plain pass-through - picking 5 from Off with a default of 3 calls back with 5, not 3', () => {
     // Pins the contract: bestOfNDefault is a tooltip recommendation only.
     // Selecting a value never gets snapped/overridden to the default.
     const onBestOfNChange = vi.fn();
@@ -192,7 +192,7 @@ describe('AutomationCheckboxes — Best of N selector', () => {
   });
 });
 
-describe('AutomationCheckboxes — Mob block', () => {
+describe('AutomationCheckboxes - Mob block', () => {
   it('renders the "Mob seats" select when taskBackend is agent', () => {
     render(<AutomationCheckboxes {...baseProps} taskBackend="agent" />);
     expect(screen.getByLabelText('Mob seats')).toBeInTheDocument();
@@ -323,7 +323,7 @@ describe('AutomationCheckboxes — Mob block', () => {
   });
 });
 
-describe('AutomationCheckboxes — mob execute vs Best-of-N', () => {
+describe('AutomationCheckboxes - mob execute vs Best-of-N', () => {
   const noop = () => {};
   const base = {
     autonomous: false,
@@ -351,7 +351,7 @@ describe('AutomationCheckboxes — mob execute vs Best-of-N', () => {
     expect(screen.getByLabelText('Best of N')).toBeDisabled();
     expect(
       screen.getByText(
-        'Mob coding takes priority — Best of N is ignored while the mob execute phase is selected.',
+        'Mob coding takes priority - Best of N is ignored while the mob execute phase is selected.',
       ),
     ).toBeInTheDocument();
   });

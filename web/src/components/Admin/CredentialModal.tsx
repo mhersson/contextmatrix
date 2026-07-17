@@ -14,7 +14,7 @@ interface CredentialModalProps {
 
 /**
  * Create / rotate dialog for a GitHub credential. Unlike CreateUserModal,
- * this component owns its own submit call and busy/error state — the fixed
+ * this component owns its own submit call and busy/error state - the fixed
  * prop contract (`{open, mode, existing?, onClose, onSaved}`) has no
  * `busy`/`error` props, so AdminCredentialsPage only reacts to `onSaved`
  * (refetch) and `onClose` (dismiss) rather than driving the request itself.
@@ -38,7 +38,7 @@ export function CredentialModal({ open, mode, existing, onClose, onSaved }: Cred
 
   useFocusTrap(dialogRef, open);
 
-  // Fresh fields every time the dialog opens (render-time pattern — see
+  // Fresh fields every time the dialog opens (render-time pattern - see
   // useBoard.ts / web/CLAUDE.md § rail sync for why this isn't a useEffect).
   // The secret/private-key field always starts blank, even in rotate mode.
   const [wasOpen, setWasOpen] = useState(open);
@@ -120,7 +120,7 @@ export function CredentialModal({ open, mode, existing, onClose, onSaved }: Cred
         onClick={(e) => e.stopPropagation()}
       >
         <h2 id={titleId} className="text-base font-semibold" style={{ color: 'var(--fg)' }}>
-          {mode === 'create' ? 'Add credential' : `Rotate secret — ${existing?.name}`}
+          {mode === 'create' ? 'Add credential' : `Rotate secret - ${existing?.name}`}
         </h2>
 
         <form onSubmit={(e) => void submit(e)} className="flex flex-col gap-3">

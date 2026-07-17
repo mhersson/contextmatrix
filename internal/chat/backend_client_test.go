@@ -185,7 +185,7 @@ func TestBackendClient_SendChatMessage_WrapsErrBackendUnreachableOnDialFailure(t
 }
 
 func TestBackendClient_SendChatMessage_DoesNotWrapErrBackendUnreachableOnCallerCancel(t *testing.T) {
-	// A real, reachable server — proves the failure is caller-side, not a
+	// A real, reachable server - proves the failure is caller-side, not a
 	// dial/DNS/timeout problem with the backend.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusAccepted)

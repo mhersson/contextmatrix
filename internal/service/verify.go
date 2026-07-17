@@ -16,7 +16,7 @@ import (
 var ErrInvalidVerify = errors.New("invalid verify config")
 
 const (
-	// maxVerifyCommandLen caps the verify command length. Hygiene only — a
+	// maxVerifyCommandLen caps the verify command length. Hygiene only - a
 	// verify command is a single shell line, not a script.
 	maxVerifyCommandLen = 1024
 	// maxVerifyTimeoutSeconds bounds the verify subprocess timeout (2 hours).

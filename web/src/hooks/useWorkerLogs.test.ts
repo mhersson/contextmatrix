@@ -73,7 +73,7 @@ function latestES(): FakeEventSource {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('useWorkerLogs — dropped frame handling', () => {
+describe('useWorkerLogs - dropped frame handling', () => {
   it('(a) dropped frame inserts a gap marker entry and does not add a blank LogEntry', () => {
     const { result } = renderHook(() =>
       useWorkerLogs({ project: 'proj', enabled: true }),
@@ -90,7 +90,7 @@ describe('useWorkerLogs — dropped frame handling', () => {
     const logs = result.current.logs;
     expect(logs).toHaveLength(1);
 
-    // Must be a gap marker — type 'gap'
+    // Must be a gap marker - type 'gap'
     expect(logs[0].type).toBe('gap');
     // Content must mention how many were dropped
     expect(logs[0].content).toMatch(/3/);
@@ -114,7 +114,7 @@ describe('useWorkerLogs — dropped frame handling', () => {
   });
 });
 
-describe('useWorkerLogs — terminal frame handling', () => {
+describe('useWorkerLogs - terminal frame handling', () => {
   it('(b) terminal frame after log delivery sets connected=false and no reconnect is scheduled', () => {
     const { result } = renderHook(() =>
       useWorkerLogs({ project: 'proj', enabled: true }),
@@ -143,7 +143,7 @@ describe('useWorkerLogs — terminal frame handling', () => {
 
     expect(result.current.connected).toBe(false);
 
-    // Advance time well past the max reconnect delay — no new EventSource should appear
+    // Advance time well past the max reconnect delay - no new EventSource should appear
     act(() => { vi.advanceTimersByTime(60_000); });
 
     expect(FakeEventSource.instances.length).toBe(instancesBefore);
@@ -196,7 +196,7 @@ describe('useWorkerLogs — terminal frame handling', () => {
   });
 });
 
-describe('useWorkerLogs — seq gap detection', () => {
+describe('useWorkerLogs - seq gap detection', () => {
   it('(c) out-of-order seq inserts a client-side gap marker between entries', () => {
     const { result } = renderHook(() =>
       useWorkerLogs({ project: 'proj', enabled: true }),
@@ -299,7 +299,7 @@ describe('useWorkerLogs — seq gap detection', () => {
   });
 });
 
-describe('useWorkerLogs — terminal-before-snapshot race guard', () => {
+describe('useWorkerLogs - terminal-before-snapshot race guard', () => {
   it('terminal frame before any log events schedules a reconnect (not permanent halt)', () => {
     renderHook(() => useWorkerLogs({ project: 'proj', enabled: true }));
 
@@ -307,7 +307,7 @@ describe('useWorkerLogs — terminal-before-snapshot race guard', () => {
 
     const countBefore = FakeEventSource.instances.length;
 
-    // Send terminal with no preceding log events — ring buffer is empty
+    // Send terminal with no preceding log events - ring buffer is empty
     act(() => {
       latestES().simulateMessage({ type: 'terminal' });
     });
@@ -337,7 +337,7 @@ describe('useWorkerLogs — terminal-before-snapshot race guard', () => {
 
     const countAfterTerminal = FakeEventSource.instances.length;
 
-    // Advance time — reconnect should happen since terminalRef was NOT set
+    // Advance time - reconnect should happen since terminalRef was NOT set
     act(() => { vi.advanceTimersByTime(1100); });
     expect(FakeEventSource.instances.length).toBeGreaterThan(countAfterTerminal);
   });
@@ -356,12 +356,12 @@ describe('useWorkerLogs — terminal-before-snapshot race guard', () => {
 
     const countBefore = FakeEventSource.instances.length;
 
-    // Now send terminal — logs have been delivered so this should halt reconnects
+    // Now send terminal - logs have been delivered so this should halt reconnects
     act(() => {
       latestES().simulateMessage({ type: 'terminal' });
     });
 
-    // Advance time well past max reconnect delay — no new EventSource should appear
+    // Advance time well past max reconnect delay - no new EventSource should appear
     act(() => { vi.advanceTimersByTime(60_000); });
     expect(FakeEventSource.instances.length).toBe(countBefore);
   });
@@ -386,7 +386,7 @@ describe('useWorkerLogs — terminal-before-snapshot race guard', () => {
 
     const ts = new Date().toISOString();
 
-    // Second connection delivers a log entry — normal behavior
+    // Second connection delivers a log entry - normal behavior
     act(() => {
       latestES().simulateMessage({ type: 'text', content: 'hello from second connect', card_id: 'C-1', ts, seq: 1 });
     });
@@ -396,7 +396,7 @@ describe('useWorkerLogs — terminal-before-snapshot race guard', () => {
 
     const countBeforeTerminal = FakeEventSource.instances.length;
 
-    // Now a terminal arrives after logs — should halt reconnects
+    // Now a terminal arrives after logs - should halt reconnects
     act(() => {
       latestES().simulateMessage({ type: 'terminal' });
     });
@@ -406,8 +406,8 @@ describe('useWorkerLogs — terminal-before-snapshot race guard', () => {
   });
 });
 
-describe('useWorkerLogs — usage entry filtering', () => {
-  it('silently drops usage entries — they do not appear in logs', () => {
+describe('useWorkerLogs - usage entry filtering', () => {
+  it('silently drops usage entries - they do not appear in logs', () => {
     const { result } = renderHook(() =>
       useWorkerLogs({ project: 'proj', enabled: true }),
     );
@@ -461,11 +461,11 @@ describe('useWorkerLogs — usage entry filtering', () => {
     expect(result.current.logs[0].content).toBe('hello after usage');
   });
 
-  it('usage frame advances seq cursor — interleaved text→usage→text does not trigger gap marker', () => {
+  it('usage frame advances seq cursor - interleaved text→usage→text does not trigger gap marker', () => {
     // Regression: usage entries must advance lastSeqRef before returning,
     // otherwise the next renderable frame sees an apparent seq gap and inserts
     // a spurious gap marker (seq was e.g. 1, usage consumed seq=2, next text
-    // arrives at seq=3 — without the fix the hook sees 3 > 1+1 and fires).
+    // arrives at seq=3 - without the fix the hook sees 3 > 1+1 and fires).
     const { result } = renderHook(() =>
       useWorkerLogs({ project: 'proj', enabled: true }),
     );
@@ -478,11 +478,11 @@ describe('useWorkerLogs — usage entry filtering', () => {
     act(() => {
       latestES().simulateMessage({ type: 'text', content: 'before', card_id: 'C-1', ts, seq: 1 });
     });
-    // usage at seq=2 — dropped but must advance lastSeqRef to 2
+    // usage at seq=2 - dropped but must advance lastSeqRef to 2
     act(() => {
       latestES().simulateMessage({ type: 'usage', card_id: 'C-1', ts, seq: 2, content: '' });
     });
-    // text at seq=3 — must NOT trigger a gap marker (3 === 2+1)
+    // text at seq=3 - must NOT trigger a gap marker (3 === 2+1)
     act(() => {
       latestES().simulateMessage({ type: 'text', content: 'after', card_id: 'C-1', ts, seq: 3 });
     });
@@ -498,7 +498,7 @@ describe('useWorkerLogs — usage entry filtering', () => {
   });
 });
 
-describe('useWorkerLogs — reconnect on error (non-terminal)', () => {
+describe('useWorkerLogs - reconnect on error (non-terminal)', () => {
   it('onerror triggers reconnect after delay when not terminal', () => {
     renderHook(() => useWorkerLogs({ project: 'proj', enabled: true }));
 
@@ -517,7 +517,7 @@ describe('useWorkerLogs — reconnect on error (non-terminal)', () => {
   });
 });
 
-describe('useWorkerLogs — close→reopen does not duplicate entries', () => {
+describe('useWorkerLogs - close→reopen does not duplicate entries', () => {
   it('buffer is cleared on reopen so server snapshot replay does not produce duplicates', () => {
     const { result, rerender } = renderHook(
       ({ enabled }: { enabled: boolean }) =>
@@ -555,12 +555,12 @@ describe('useWorkerLogs — close→reopen does not duplicate entries', () => {
       }
     });
 
-    // Step 7: regression assertion — must be N, not 2N
+    // Step 7: regression assertion - must be N, not 2N
     expect(result.current.logs).toHaveLength(N);
   });
 });
 
-describe('useWorkerLogs — stream identity changes', () => {
+describe('useWorkerLogs - stream identity changes', () => {
   it('clears buffer when cardId changes so entries from previous card do not bleed', () => {
     const { result, rerender } = renderHook(
       ({ cardId }: { cardId: string }) =>
@@ -581,7 +581,7 @@ describe('useWorkerLogs — stream identity changes', () => {
     expect(result.current.logs).toHaveLength(2);
     expect(result.current.logs[0].content).toBe('a-1');
 
-    // Switch to a different card — buffer must be cleared before new stream fills.
+    // Switch to a different card - buffer must be cleared before new stream fills.
     act(() => { rerender({ cardId: 'CARD-B' }); });
     expect(result.current.logs).toHaveLength(0);
 
@@ -629,7 +629,7 @@ describe('useWorkerLogs — stream identity changes', () => {
       latestES().simulateMessage({ type: 'text', content: 'a', card_id: 'CARD-A', ts, seq: 100 });
     });
 
-    // Switch to card B whose first message has seq=1 — must NOT trigger a gap.
+    // Switch to card B whose first message has seq=1 - must NOT trigger a gap.
     act(() => { rerender({ cardId: 'CARD-B' }); });
     act(() => { latestES().simulateOpen(); });
     act(() => {
@@ -642,14 +642,14 @@ describe('useWorkerLogs — stream identity changes', () => {
   });
 });
 
-describe('useWorkerLogs — reconnect/snapshot replay preserves model and agent', () => {
+describe('useWorkerLogs - reconnect/snapshot replay preserves model and agent', () => {
   /**
    * Reconnect scenario: a worker connection is closed and reopened; the
    * server sends a snapshot replay of the session log. All entries in the
    * snapshot must carry the `agent` and `model` fields through to the
    * LogEntry, exactly as a fresh connection would.
    *
-   * This test uses synthetic fixtures only — it proves passthrough
+   * This test uses synthetic fixtures only - it proves passthrough
    * correctness of the frontend wire path (EventSource → useWorkerLogs →
    * LogEntry). Real end-to-end proof against live contextmatrix-agent
    * mob-session traffic is out of scope for this repository. The agent
@@ -738,7 +738,7 @@ describe('useWorkerLogs — reconnect/snapshot replay preserves model and agent'
   });
 });
 
-describe('useWorkerLogs — agent attribution passthrough', () => {
+describe('useWorkerLogs - agent attribution passthrough', () => {
   it('agent field survives into the LogEntry when present', () => {
     const { result } = renderHook(() =>
       useWorkerLogs({ project: 'proj', enabled: true }),

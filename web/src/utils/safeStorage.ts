@@ -23,6 +23,6 @@ export function safeWriteBool(key: string, value: boolean): void {
   try {
     localStorage.setItem(key, String(value));
   } catch {
-    // ignore — private mode, quota exceeded, etc.
+    // ignore - private mode, quota exceeded, etc.
   }
 }

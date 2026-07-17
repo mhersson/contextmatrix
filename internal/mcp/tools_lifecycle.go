@@ -42,7 +42,7 @@ type completeTaskOutput struct {
 // callers can inspect them programmatically instead of parsing free-form
 // text from CallToolResult.Content. The embedded *board.Card inlines the
 // usual card fields at the JSON root so existing callers that decoded the
-// claim_card response as board.Card keep working — the new fields just
+// claim_card response as board.Card keep working - the new fields just
 // appear alongside.
 //
 // When AutoTransitionFailed is true, the embedded card reflects the
@@ -57,7 +57,7 @@ type claimCardOutput struct {
 func registerClaimCard(server *mcp.Server, svc *service.CardService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "claim_card",
-		Description: "Claim a card for an agent and auto-transition to 'in_progress' if possible. Only one agent can claim a card at a time. Returns 'already claimed' error if another agent holds it. Claiming sets last_heartbeat — you must call heartbeat periodically to avoid being marked stalled. If the auto-transition to in_progress fails (e.g. config forbids it), the claim still succeeds and auto_transition_failed=true plus auto_transition_error are set on the response.",
+		Description: "Claim a card for an agent and auto-transition to 'in_progress' if possible. Only one agent can claim a card at a time. Returns 'already claimed' error if another agent holds it. Claiming sets last_heartbeat - you must call heartbeat periodically to avoid being marked stalled. If the auto-transition to in_progress fails (e.g. config forbids it), the claim still succeeds and auto_transition_failed=true plus auto_transition_error are set on the response.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input agentCardInput) (*mcp.CallToolResult, claimCardOutput, error) {
 		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
 		if err != nil {
@@ -71,7 +71,7 @@ func registerClaimCard(server *mcp.Server, svc *service.CardService) {
 
 		out := claimCardOutput{Card: card}
 
-		// Auto-transition to in_progress only from todo — claiming a card
+		// Auto-transition to in_progress only from todo - claiming a card
 		// in review/done/blocked should not change its state.
 		if card.State == board.StateTodo {
 			transitioned, terr := svc.TransitionTo(ctx, project, input.CardID, board.StateInProgress)
@@ -80,7 +80,7 @@ func registerClaimCard(server *mcp.Server, svc *service.CardService) {
 
 				out.AutoTransitionFailed = true
 				out.AutoTransitionError = terr.Error()
-				// Continue — claim succeeded, transition did not. The embedded
+				// Continue - claim succeeded, transition did not. The embedded
 				// card stays at the post-claim state so callers can see the
 				// claim landed even though the state did not move.
 			} else {
@@ -211,7 +211,7 @@ func registerCompleteTask(server *mcp.Server, svc *service.CardService) {
 			return nil, completeTaskOutput{}, fmt.Errorf("transition to %s failed (log entry already written): %w", targetState, err)
 		}
 
-		// Release the claim — if this fails, the transition already committed,
+		// Release the claim - if this fails, the transition already committed,
 		// so log the error and include a warning rather than failing the whole operation.
 		var releaseWarning string
 
@@ -238,7 +238,7 @@ func registerCompleteTask(server *mcp.Server, svc *service.CardService) {
 			parts = append(parts, fmt.Sprintf("Card %s transitioned to review.", input.CardID))
 		} else if parentID != "" {
 			// Check if all sibling subtasks are now done. The parent stays in
-			// in_progress — the orchestrator spawns a documentation sub-agent
+			// in_progress - the orchestrator spawns a documentation sub-agent
 			// first, then manually transitions the parent to review.
 			siblings, serr := svc.ListCards(ctx, project, storage.CardFilter{Parent: parentID})
 			if serr == nil {

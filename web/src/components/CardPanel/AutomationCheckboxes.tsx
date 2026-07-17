@@ -18,7 +18,7 @@ interface AutomationCheckboxesProps {
    * steering row at all.
    */
   taskBackend?: string;
-  /** Model pin values — only rendered when `taskBackend === 'agent'`. */
+  /** Model pin values - only rendered when `taskBackend === 'agent'`. */
   modelOrchestrator?: string;
   modelCoder?: string;
   modelReviewer?: string;
@@ -68,7 +68,7 @@ interface AutomationCheckboxesProps {
    */
   mobExecuteCheckpoints?: boolean;
   /**
-   * Mob change handlers. Optional like `onBestOfNChange` — the block only
+   * Mob change handlers. Optional like `onBestOfNChange` - the block only
    * renders on the agent backend path; create mode wires them through
    * CreateCardPanel.
    */
@@ -91,7 +91,7 @@ interface AutomationCheckboxesProps {
   /**
    * `'edit'` (default) shows the live branch name / PR url next to the
    * relevant checkboxes. `'create'` (used by CreateCardPanel) shows
-   * placeholder hints — there's nothing to run yet.
+   * placeholder hints - there's nothing to run yet.
    */
   mode?: 'edit' | 'create';
   /**
@@ -104,18 +104,18 @@ interface AutomationCheckboxesProps {
 }
 
 /**
- * Automation rail — mirrors the design mock's `.spread` rows
+ * Automation rail - mirrors the design mock's `.spread` rows
  * (`/tmp/card-panel-explorer.html:2003-2048`). Each row puts the control
  * label on the left and a hint/value on the right:
  *
- *   [☐ Autonomous mode]            HITL — human replies in chat
+ *   [☐ Autonomous mode]            HITL - human replies in chat
  *   [☐ Feature branch]            ctxmax-456/foo
  *   [☐ Create pull request]       PR #482 ↗
  *   Base branch                   [main ▾]
  *   1 review attempt · max 5
  *   🔒 Automation locked during remote run        (when disabled)
  *
- * Run-status info lives inline with each row — no separate "Run status"
+ * Run-status info lives inline with each row - no separate "Run status"
  * card. The autonomous hint is uncolored (just `.bf-hint` defaults).
  */
 export function AutomationCheckboxes({
@@ -176,7 +176,7 @@ export function AutomationCheckboxes({
         </span>
       </div>
 
-      {/* Best of N — agent backend only. Renders in both edit and create
+      {/* Best of N - agent backend only. Renders in both edit and create
           modes when the agent backend is active. */}
       {agentBackend && (
         <>
@@ -190,7 +190,7 @@ export function AutomationCheckboxes({
               className="bf-input"
               style={{ width: 'auto', minWidth: '160px' }}
               title={exclusionActive
-                ? 'Disabled — mob coding takes priority'
+                ? 'Disabled - mob coding takes priority'
                 : `Off, or 2–${bestOfNMaxResolved} candidate models judged per run (default ${bestOfNDefaultResolved})`}
             >
               <option value={0}>Off</option>
@@ -201,13 +201,13 @@ export function AutomationCheckboxes({
           </div>
           {exclusionActive && (bestOfN ?? 0) >= 2 && (
             <div className="text-xs -mt-1" style={{ color: 'var(--yellow)' }}>
-              Mob coding takes priority — Best of N is ignored while the mob execute phase is selected.
+              Mob coding takes priority - Best of N is ignored while the mob execute phase is selected.
             </div>
           )}
         </>
       )}
 
-      {/* Mob discussions — agent backend only. Renders in both edit and
+      {/* Mob discussions - agent backend only. Renders in both edit and
           create modes (mirrors the Best-of-N rule). */}
       {agentBackend && (
         <>
@@ -316,7 +316,7 @@ export function AutomationCheckboxes({
         </>
       )}
 
-      {/* Orchestrator steering wheel — the agent backend uses per-role model
+      {/* Orchestrator steering wheel - the agent backend uses per-role model
           pins. No steering row on the unset backend. */}
       {agentBackend && (
         <ModelPinsSection
@@ -432,7 +432,7 @@ export function AutomationCheckboxes({
         </div>
       )}
 
-      {/* Locked banner — shown whenever the inputs are disabled outside
+      {/* Locked banner - shown whenever the inputs are disabled outside
           create mode. The banner text is supplied by the caller so the
           message can describe the actual reason (worker attached vs.
           state-not-todo). */}

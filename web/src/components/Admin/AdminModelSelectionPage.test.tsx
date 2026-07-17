@@ -46,7 +46,7 @@ beforeEach(() => {
   vi.resetAllMocks();
 });
 
-describe('AdminModelSelectionPage — list', () => {
+describe('AdminModelSelectionPage - list', () => {
   it('renders a row per model with samples, wins, win rate, cost, and active/inert label', async () => {
     mocks.adminModelOutcomes.mockResolvedValue(
       stats({
@@ -97,7 +97,7 @@ describe('AdminModelSelectionPage — list', () => {
   });
 });
 
-describe('AdminModelSelectionPage — reset flow', () => {
+describe('AdminModelSelectionPage - reset flow', () => {
   it('opens a confirm dialog stating the total row count, then resets and refetches on confirm', async () => {
     mocks.adminModelOutcomes
       .mockResolvedValueOnce(stats({ total_samples: 84, models: [entry()] }))
@@ -155,7 +155,7 @@ describe('AdminModelSelectionPage — reset flow', () => {
     await waitFor(() => expect(mocks.adminResetModelOutcomes).toHaveBeenCalledTimes(1));
     expect(await screen.findByText(/failed to reset model outcomes/i)).toBeInTheDocument();
 
-    // Component survives the error — the row is still rendered, not crashed.
+    // Component survives the error - the row is still rendered, not crashed.
     expect(screen.getByText('deepseek/deepseek-v4-flash')).toBeInTheDocument();
   });
 });

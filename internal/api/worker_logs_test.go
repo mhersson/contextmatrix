@@ -244,7 +244,7 @@ func TestStreamCardSession_WireFramesCarryNoSeq(t *testing.T) {
 	require.NoError(t, mgr.Start(context.Background(), cardID, project))
 	<-readyCh
 
-	// Emit a true wire frame — no seq field exists on the wire.
+	// Emit a true wire frame - no seq field exists on the wire.
 	upstreamCh <- protocol.LogEntry{Type: "text", Content: "hello", CardID: cardID}
 
 	// Wait until buffered.
@@ -291,7 +291,7 @@ func TestStreamCardSession_WireFramesCarryNoSeq(t *testing.T) {
 
 // TestStreamProjectSession_WireFramesCarryNoSeq asserts that the JSON payload
 // emitted by the project-scoped handler includes a "seq" field and that it is
-// 0 for wire-sourced live events — same reality as the card-scoped path: the
+// 0 for wire-sourced live events - same reality as the card-scoped path: the
 // backend's frames carry no seq.
 func TestStreamProjectSession_WireFramesCarryNoSeq(t *testing.T) {
 	const (
@@ -413,7 +413,7 @@ func TestStreamCardSession_AgentFieldOnlyWhenSet(t *testing.T) {
 	assert.False(t, present, "frames without attribution must omit the agent key entirely")
 }
 
-// TestStreamProjectSession_AgentFieldOnlyWhenSet is the project-scoped twin —
+// TestStreamProjectSession_AgentFieldOnlyWhenSet is the project-scoped twin -
 // the two writeEvent closures are separate code paths and must both carry
 // the field.
 func TestStreamProjectSession_AgentFieldOnlyWhenSet(t *testing.T) {

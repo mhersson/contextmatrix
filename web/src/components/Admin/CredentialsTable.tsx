@@ -12,7 +12,7 @@ interface CredentialsTableProps {
 
 /**
  * Loading/error/empty-state wrapper and `<table>` markup for the
- * Credentials page. Purely presentational — AdminCredentialsPage owns all
+ * Credentials page. Purely presentational - AdminCredentialsPage owns all
  * data fetching, action logic, and the decision of what a row action should
  * do; this component only renders the current state and threads row
  * callbacks through to `CredentialTableRow`.

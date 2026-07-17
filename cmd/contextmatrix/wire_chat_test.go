@@ -22,7 +22,7 @@ func TestChatWorkerImageFor_CleanCut(t *testing.T) {
 		},
 		{
 			// The clean-cut pin: worker_image (task image) must never leak
-			// into chat sessions — the image families are not interchangeable.
+			// into chat sessions - the image families are not interchangeable.
 			name: "task image set but chat image empty",
 			re:   &board.RemoteExecutionConfig{WorkerImage: "contextmatrix-agent-worker:go-node"},
 			want: "",

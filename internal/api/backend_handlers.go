@@ -56,7 +56,7 @@ type outcomeStatsReader interface {
 }
 
 // backendHandlers contains handlers for remote execution endpoints. This
-// handler set exists only for the agent backend — the callback endpoints it
+// handler set exists only for the agent backend - the callback endpoints it
 // serves mount at config.AgentCallbackPath.
 type backendHandlers struct {
 	svc               *service.CardService
@@ -103,24 +103,24 @@ type backendHandlers struct {
 	// providerForProject resolves the project-scoped git-token provider used
 	// to mint the trigger payload's GitToken: the project's credential
 	// binding when set (fail-closed on a broken one), else the instance
-	// provider. nil preserves pre-token-authority behavior — no GitToken is
+	// provider. nil preserves pre-token-authority behavior - no GitToken is
 	// attached and the trigger is never rejected on its account.
 	providerForProject func(ctx context.Context, project string) (githubauth.TokenGenerator, string, error)
 
 	// llmEndpoint is the CM-provisioned inference endpoint attached to every
-	// trigger payload. nil when llm_endpoint is unconfigured — backends then
+	// trigger payload. nil when llm_endpoint is unconfigured - backends then
 	// fall back to their own local config.
 	llmEndpoint *protocol.LLMEndpoint
 
 	// instanceTokenProvider mints the instance-scoped git credential attached
 	// to task-skills-source responses. Unlike providerForProject (per-project,
-	// fail-closed on a broken binding), this is the flat instance provider —
+	// fail-closed on a broken binding), this is the flat instance provider -
 	// task-skills is never project-scoped, so there is no binding to fail
 	// closed on. nil disables the token fields (pre-token-authority behavior).
 	instanceTokenProvider githubauth.TokenGenerator
 
 	// healthCache memoises /api/backend/health responses so concurrent browser
-	// tabs don't each fire a fresh probe at the backend — and so a backend
+	// tabs don't each fire a fresh probe at the backend - and so a backend
 	// outage doesn't cause every refresh to block for the full per-request
 	// timeout.
 	healthCache healthProbeCache

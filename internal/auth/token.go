@@ -13,7 +13,7 @@ import (
 )
 
 // NewToken generates a 256-bit random token. raw is the value that travels
-// in cookies and one-time URLs; hash is its hex SHA-256 — the only form that
+// in cookies and one-time URLs; hash is its hex SHA-256 - the only form that
 // is ever persisted, so a leaked database yields no usable tokens.
 func NewToken() (raw, hash string, err error) {
 	buf := make([]byte, 32)

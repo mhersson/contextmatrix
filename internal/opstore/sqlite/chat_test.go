@@ -267,7 +267,7 @@ func TestIncrementSessionCost_HappyPath(t *testing.T) {
 	assert.Equal(t, int64(10), cc)
 	assert.InDelta(t, 0.01, cost, 1e-9)
 
-	// Second frame: another 100 prompt, 50 completion — totals double.
+	// Second frame: another 100 prompt, 50 completion - totals double.
 	p2, c2, cr2, cc2, cost2, err := store.IncrementSessionCost(ctx, sessionID, 100, 50, 0, 0, 0.01, "claude-sonnet-4-6")
 	require.NoError(t, err)
 	assert.Equal(t, int64(200), p2)
@@ -344,7 +344,7 @@ func TestIncrementSessionCost_EmptyModelPreservesExisting(t *testing.T) {
 		Model:      "claude-sonnet-4-6",
 	}))
 
-	// Call with empty model — existing column value must be preserved.
+	// Call with empty model - existing column value must be preserved.
 	_, _, _, _, _, err = store.IncrementSessionCost(ctx, sessionID, 10, 5, 0, 0, 0.001, "")
 	require.NoError(t, err)
 
@@ -352,7 +352,7 @@ func TestIncrementSessionCost_EmptyModelPreservesExisting(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "claude-sonnet-4-6", sess.Model, "empty model must not overwrite existing value")
 
-	// Call with a real model — column must be updated.
+	// Call with a real model - column must be updated.
 	_, _, _, _, _, err = store.IncrementSessionCost(ctx, sessionID, 10, 5, 0, 0, 0.001, "claude-opus-4-7")
 	require.NoError(t, err)
 
@@ -472,7 +472,7 @@ func TestAggregateCost_PriorPeriod(t *testing.T) {
 	until := todayStart.Add(24 * time.Hour)
 	since := todayStart.AddDate(0, 0, -29)
 
-	// Session 35 days ago — in the prior window (since-30..since).
+	// Session 35 days ago - in the prior window (since-30..since).
 	newTestSessionAtTime(t, store, todayStart.Add(-35*24*time.Hour).Add(6*time.Hour), 5.00)
 
 	last30d, prior30d, series30d, err := store.AggregateCost(ctx, since, until)
@@ -613,7 +613,7 @@ func TestDeleteSession_IdempotentDoubleDelete(t *testing.T) {
 
 	// Second delete: the source SELECT finds no chat_sessions row (hard-deleted
 	// above), so the INSERT is a silent no-op; the existing archive row is
-	// untouched. ON CONFLICT does NOT fire in this path — see
+	// untouched. ON CONFLICT does NOT fire in this path - see
 	// TestDeleteSession_ReinsertedIDPreservesArchive for that case.
 	require.NoError(t, store.DeleteSession(ctx, sessionID))
 
@@ -665,7 +665,7 @@ func TestDeleteSession_ReinsertedIDPreservesArchive(t *testing.T) {
 	_, _, _, _, _, err = store.IncrementSessionCost(ctx, id, 200, 100, 0, 0, 99.99, "claude-sonnet-4-6")
 	require.NoError(t, err)
 
-	// Step 3: DeleteSession — INSERT … SELECT finds the source row AND the id
+	// Step 3: DeleteSession - INSERT … SELECT finds the source row AND the id
 	// already exists in chat_cost_archive, so ON CONFLICT(id) DO NOTHING fires.
 	require.NoError(t, store.DeleteSession(ctx, id))
 

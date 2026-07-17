@@ -239,7 +239,7 @@ func TestCreateCard(t *testing.T) {
 
 	t.Run("non-existent parent returns 404 PARENT_NOT_FOUND", func(t *testing.T) {
 		// Regression guard: a missing parent must surface as 404
-		// PARENT_NOT_FOUND, not 422 VALIDATION_ERROR — parent is a
+		// PARENT_NOT_FOUND, not 422 VALIDATION_ERROR - parent is a
 		// resource, so clients need 404.
 		body := createCardRequest{
 			Title:    "Subtask with bogus parent",
@@ -1509,7 +1509,7 @@ func TestSSEEventStreamIntegration(t *testing.T) {
 		}
 	}()
 
-	// Wait for the SSE prelude ":connected" to arrive — proves the handler
+	// Wait for the SSE prelude ":connected" to arrive - proves the handler
 	// has subscribed and flushed headers. Deterministic replacement for the
 	// previous 100 ms sleep.
 	select {
@@ -1708,7 +1708,7 @@ func TestConcurrentClaimSameCard(t *testing.T) {
 
 	wg.Wait()
 
-	// Count successes — exactly one agent should win
+	// Count successes - exactly one agent should win
 	successCount := 0
 
 	for _, status := range statuses {
@@ -2194,7 +2194,7 @@ func TestHumanOnlyFields_PutClear(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, card.Autonomous)
 
-	// Agent tries to PUT with autonomous=false (clearing it) — must be rejected
+	// Agent tries to PUT with autonomous=false (clearing it) - must be rejected
 	putBody := fmt.Sprintf(`{"title":"%s","type":"task","state":"todo","priority":"medium","autonomous":false}`, card.Title)
 	req, _ := http.NewRequest("PUT", server.URL+"/api/projects/test-project/cards/"+card.ID,
 		strings.NewReader(putBody))
@@ -2234,7 +2234,7 @@ func TestHumanOnlyFields_PutPassthrough(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Agent sends PUT with same autonomous+vetted values — should pass through
+	// Agent sends PUT with same autonomous+vetted values - should pass through
 	putBody := `{"title":"Updated title","type":"task","state":"todo","priority":"medium","autonomous":true,"feature_branch":true,"vetted":true}`
 	req, _ := http.NewRequest("PUT", server.URL+"/api/projects/test-project/cards/"+card.ID,
 		strings.NewReader(putBody))
@@ -2265,7 +2265,7 @@ func TestHumanOnlyFields_PutSet(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, card.Autonomous)
 
-	// Agent tries to SET autonomous to true via PUT — must be rejected
+	// Agent tries to SET autonomous to true via PUT - must be rejected
 	putBody := fmt.Sprintf(`{"title":"%s","type":"task","state":"todo","priority":"medium","autonomous":true}`, card.Title)
 	req, _ := http.NewRequest("PUT", server.URL+"/api/projects/test-project/cards/"+card.ID,
 		strings.NewReader(putBody))
@@ -2318,7 +2318,7 @@ func testSetupWithRemoteExecution(t *testing.T, boardConfigYAML string) (*servic
 
 // TestProjectGETReturnsStoredRemoteExecution pins that GET /api/projects and
 // GET /api/projects/{project} return remote_execution exactly as stored in
-// .board.yaml — no fabricated fields. Runnability is instance-global (a
+// .board.yaml - no fabricated fields. Runnability is instance-global (a
 // configured task backend), surfaced to clients via GET /api/app/config
 // task_backend, never via project config. Decodes into a raw map so the
 // assertion is about the wire shape, not the Go struct.
@@ -2498,7 +2498,7 @@ func TestHumanOnlyFields_Vetted_PutCard(t *testing.T) {
 	assert.False(t, card.Vetted)
 
 	t.Run("agent PUT changing vetted returns 403 HUMAN_ONLY_FIELD", func(t *testing.T) {
-		// Card has vetted=false; agent PUTs with vetted=true — must be rejected
+		// Card has vetted=false; agent PUTs with vetted=true - must be rejected
 		putBody := fmt.Sprintf(`{"title":"%s","type":"task","state":"todo","priority":"medium","vetted":true}`, card.Title)
 		req, _ := http.NewRequest("PUT", server.URL+"/api/projects/test-project/cards/"+card.ID,
 			strings.NewReader(putBody))
@@ -2585,7 +2585,7 @@ func TestHumanOnlyFields_ModelPins_PutCard(t *testing.T) {
 	server := httptest.NewServer(router)
 	defer server.Close()
 
-	// Created without pins — all three model pin fields default to "".
+	// Created without pins - all three model pin fields default to "".
 	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
 		Title: "Model pin PUT test", Type: "task", Priority: "medium",
 	})
@@ -2593,7 +2593,7 @@ func TestHumanOnlyFields_ModelPins_PutCard(t *testing.T) {
 	assert.Empty(t, card.ModelOrchestrator)
 
 	t.Run("agent PUT changing model_orchestrator returns 403 HUMAN_ONLY_FIELD", func(t *testing.T) {
-		// Card has model_orchestrator=""; agent PUTs a slug — must be rejected.
+		// Card has model_orchestrator=""; agent PUTs a slug - must be rejected.
 		// vetted:true echoes the card's auto-vetted state (no source) so the
 		// pin is the only field the guard sees changing.
 		putBody := fmt.Sprintf(
@@ -2634,7 +2634,7 @@ func TestHumanOnlyFields_ModelPins_PutCard(t *testing.T) {
 		closeBody(t, patchResp.Body)
 		require.Equal(t, http.StatusOK, patchResp.StatusCode)
 
-		// Agent PUT echoing the same pin value — should pass through.
+		// Agent PUT echoing the same pin value - should pass through.
 		// vetted:true echoes the card's auto-vetted state (no source).
 		putBody := `{"title":"Updated title","type":"task","state":"todo","priority":"medium","vetted":true,"model_orchestrator":"anthropic/claude-opus-4"}`
 		req, _ := http.NewRequest("PUT", server.URL+"/api/projects/test-project/cards/"+card.ID,
@@ -2711,7 +2711,7 @@ func TestPatchCardBestOfN(t *testing.T) {
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 		assert.Equal(t, ErrCodeBadRequest, apiErr.Code)
 
-		// Verify the card was NOT modified — still 3 from the prior subtest.
+		// Verify the card was NOT modified - still 3 from the prior subtest.
 		reloaded, err := svc.GetCard(context.Background(), "test-project", card.ID)
 		require.NoError(t, err)
 		assert.Equal(t, 3, reloaded.BestOfN)
@@ -2727,7 +2727,7 @@ func TestPatchCardBestOfN(t *testing.T) {
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 		assert.Equal(t, ErrCodeBadRequest, apiErr.Code)
 
-		// Verify the card was NOT modified — still 3 from the first subtest.
+		// Verify the card was NOT modified - still 3 from the first subtest.
 		reloaded, err := svc.GetCard(context.Background(), "test-project", card.ID)
 		require.NoError(t, err)
 		assert.Equal(t, 3, reloaded.BestOfN)
@@ -2755,14 +2755,14 @@ func TestPatchCardBestOfN(t *testing.T) {
 		assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
 		assert.Contains(t, apiErr.Details, "best_of_n")
 
-		// Verify the card was NOT modified — still cleared from the prior subtest.
+		// Verify the card was NOT modified - still cleared from the prior subtest.
 		reloaded, err := svc.GetCard(context.Background(), "test-project", card.ID)
 		require.NoError(t, err)
 		assert.Zero(t, reloaded.BestOfN)
 	})
 
 	t.Run("PATCH best_of_n=9 as non-human agent returns 403 not 400", func(t *testing.T) {
-		// 9 is out of range (max_candidates=5) AND the caller is non-human —
+		// 9 is out of range (max_candidates=5) AND the caller is non-human -
 		// authorization must be checked before value validation, so this is
 		// 403 HUMAN_ONLY_FIELD, not 400 invalid best_of_n.
 		resp := patchAs(t, `{"best_of_n": 9}`, "agent:x")
@@ -2775,7 +2775,7 @@ func TestPatchCardBestOfN(t *testing.T) {
 		assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
 		assert.Contains(t, apiErr.Details, "best_of_n")
 
-		// Verify the card was NOT modified — still cleared from the prior subtest.
+		// Verify the card was NOT modified - still cleared from the prior subtest.
 		reloaded, err := svc.GetCard(context.Background(), "test-project", card.ID)
 		require.NoError(t, err)
 		assert.Zero(t, reloaded.BestOfN)
@@ -2843,7 +2843,7 @@ func TestUpdateCardBestOfN(t *testing.T) {
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 		assert.Equal(t, ErrCodeBadRequest, apiErr.Code)
 
-		// Verify the card was NOT modified — still 3 from the prior subtest.
+		// Verify the card was NOT modified - still 3 from the prior subtest.
 		reloaded, err := svc.GetCard(context.Background(), "test-project", card.ID)
 		require.NoError(t, err)
 		assert.Equal(t, 3, reloaded.BestOfN)
@@ -2882,7 +2882,7 @@ func TestUpdateCardBestOfN(t *testing.T) {
 	})
 
 	t.Run("agent PUT echoing existing best_of_n passes through", func(t *testing.T) {
-		// Card is at best_of_n=0; agent PUT echoes 0 — no change, so the
+		// Card is at best_of_n=0; agent PUT echoes 0 - no change, so the
 		// compare-to-existing gate must allow it through.
 		resp := putAs(t, putBody(0), "agent-1")
 		defer closeBody(t, resp.Body)
@@ -2896,7 +2896,7 @@ func TestUpdateCardBestOfN(t *testing.T) {
 
 	t.Run("agent PUT with best_of_n=9 over max returns 403 not 400", func(t *testing.T) {
 		// Card is at best_of_n=0; 9 is both out of range (max_candidates=5)
-		// and differs from the existing value, and the caller is non-human —
+		// and differs from the existing value, and the caller is non-human -
 		// authorization must be checked before value validation, so this is
 		// 403 HUMAN_ONLY_FIELD, not 400 invalid best_of_n.
 		resp := putAs(t, putBody(9), "agent-1")
@@ -2977,7 +2977,7 @@ func TestClaimCard_VettedGuard(t *testing.T) {
 	server := httptest.NewServer(router)
 	defer server.Close()
 
-	// Create an imported card (with source) — not vetted by default.
+	// Create an imported card (with source) - not vetted by default.
 	unvetted, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
 		Title:    "Imported task",
 		Type:     "task",
@@ -3184,13 +3184,13 @@ func TestListCards_VettedFilter(t *testing.T) {
 	server := httptest.NewServer(router)
 	defer server.Close()
 
-	// Create a card without source — auto-vetted.
+	// Create a card without source - auto-vetted.
 	_, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
 		Title: "Auto-vetted task", Type: "task", Priority: "medium",
 	})
 	require.NoError(t, err)
 
-	// Create an imported card — not vetted.
+	// Create an imported card - not vetted.
 	_, err = svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
 		Title:    "Imported task",
 		Type:     "task",

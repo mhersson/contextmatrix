@@ -110,7 +110,7 @@ func TestVerifyWorkerCredentialsToken_TamperedMacRejected(t *testing.T) {
 func TestVerifyWorkerCredentialsToken_TamperedSessionIDRejected(t *testing.T) {
 	tok := WorkerCredentialsToken("chat-key", "session-abc")
 	// Swap the embedded session id for a different one but keep the
-	// original mac — the mac no longer matches the (different) session id.
+	// original mac - the mac no longer matches the (different) session id.
 	forged := WorkerCredentialsToken("chat-key", "session-xyz")
 
 	sessionID, macPart, _ := cutFirstDot(t, forged)
@@ -320,7 +320,7 @@ func TestGetWorkerGitCredentials_NilListProjects_UsesInstanceProvider(t *testing
 	h := &workerCredentialsHandlers{
 		chatAPIKey: "chat-key",
 		liveness:   &stubSessionLiveness{live: true},
-		// listProjects intentionally nil — mirrors a router built with no
+		// listProjects intentionally nil - mirrors a router built with no
 		// card service configured.
 		instanceProvider: &fakeTokenProvider{token: "instance-token"},
 	}
@@ -481,7 +481,7 @@ func TestGetWorkerGitCredentials_WrongKeyBearer_Unauthorized(t *testing.T) {
 // TestGetWorkerGitCredentials_MissingHostOrPath_BadRequest pins the "exactly
 // one empty" half of the contract: host and path are required as a pair, so
 // only one of them present is still a malformed request. The "both empty"
-// shape is a different contract (the repo-less gh shortcut) — see
+// shape is a different contract (the repo-less gh shortcut) - see
 // TestGetWorkerGitCredentials_EmptyHostAndPath_UsesInstanceProvider below.
 func TestGetWorkerGitCredentials_MissingHostOrPath_BadRequest(t *testing.T) {
 	h := &workerCredentialsHandlers{
@@ -515,13 +515,13 @@ func TestGetWorkerGitCredentials_MissingHostOrPath_BadRequest(t *testing.T) {
 // empty when cwd has no origin remote (gh repo create, gh api /user).
 // Before this contract existed, repo-less gh was covered by the
 // instance-wide shared token, so the endpoint must serve the instance
-// credential for the empty pair to preserve that capability — the same
+// credential for the empty pair to preserve that capability - the same
 // credential any unmatched repo already resolves to.
 
 // TestGetWorkerGitCredentials_EmptyHostAndPath_UsesInstanceProvider pins the
 // repo-less gh contract: an empty (host, path) pair skips project matching
-// ENTIRELY — listProjects must not even be called, since a repo-less
-// caller's credential must not depend on project listing succeeding — and
+// ENTIRELY - listProjects must not even be called, since a repo-less
+// caller's credential must not depend on project listing succeeding - and
 // resolves straight to the instance provider.
 func TestGetWorkerGitCredentials_EmptyHostAndPath_UsesInstanceProvider(t *testing.T) {
 	var listProjectsCalls atomic.Int32
@@ -708,7 +708,7 @@ func TestGetWorkerGitCredentials_RepoMatching_CaseInsensitiveAndGitSuffix(t *tes
 }
 
 // TestGetWorkerGitCredentials_NoPrefixGuessing_UsesInstanceProvider pins:
-// only an EXACT owner/repo match selects a project — a request path that is
+// only an EXACT owner/repo match selects a project - a request path that is
 // merely a superset/prefix of a project's repo path must not match.
 func TestGetWorkerGitCredentials_NoPrefixGuessing_UsesInstanceProvider(t *testing.T) {
 	h := &workerCredentialsHandlers{
@@ -774,7 +774,7 @@ func TestGetWorkerGitCredentials_SkipsProjectsWithEmptyOrUnparseableRepo(t *test
 // "host" query param was only trimmed, while the project side was compared
 // via url.Hostname() (which already strips a port but not a trailing dot or
 // case). A caller could therefore respell the host and *unmatch* a project,
-// routing the request to the instance provider — bypassing the fail-closed
+// routing the request to the instance provider - bypassing the fail-closed
 // broken-binding guarantee below and downgrading least-privilege for healthy
 // bindings.
 
@@ -782,7 +782,7 @@ func TestGetWorkerGitCredentials_SkipsProjectsWithEmptyOrUnparseableRepo(t *test
 // is a sibling of TestGetWorkerGitCredentials_MatchedProjectBrokenBinding_ConflictNeverInstance:
 // same broken-binding project, but the request respells the host with a
 // ":443" port suffix or a trailing FQDN dot. Both spellings must still match
-// the project and fail closed (409, zero instance-provider calls) — not fall
+// the project and fail closed (409, zero instance-provider calls) - not fall
 // through to the instance credential.
 func TestGetWorkerGitCredentials_MatchedProjectBrokenBinding_HostRespelling_ConflictNeverInstance(t *testing.T) {
 	tests := []struct {

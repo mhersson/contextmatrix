@@ -18,8 +18,8 @@ import (
 )
 
 // cliServiceIdleTTL is the session idle TTL passed to auth.NewService for the
-// CLI. Neither subcommand touches sessions — token issuance and pool rotation
-// ignore it — so the value is nominal.
+// CLI. Neither subcommand touches sessions - token issuance and pool rotation
+// ignore it - so the value is nominal.
 const cliServiceIdleTTL = time.Hour
 
 const authUsage = `usage: contextmatrix auth <subcommand> [flags]
@@ -36,7 +36,7 @@ func runAuthCLI(args []string) int {
 
 // authCLI dispatches an auth subcommand. Operator output (reset links,
 // rotation summaries) goes to stdout; every error goes to stderr. Secrets are
-// never sent through slog — the operator's terminal is the only channel.
+// never sent through slog - the operator's terminal is the only channel.
 func authCLI(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, authUsage)
@@ -116,7 +116,7 @@ func runResetAdmin(args []string, stdout, stderr io.Writer) int {
 	// operator meant.
 	if fs.NArg() > 1 {
 		fmt.Fprintf(stderr,
-			"auth reset-admin: unexpected argument %q after username %q — flags must come before the username "+
+			"auth reset-admin: unexpected argument %q after username %q - flags must come before the username "+
 				"(usage: contextmatrix auth reset-admin [--config PATH] <username>)\n",
 			fs.Arg(1), username)
 
@@ -155,7 +155,7 @@ func runResetAdmin(args []string, stdout, stderr io.Writer) int {
 
 	if !user.IsAdmin {
 		fmt.Fprintf(stderr,
-			"auth reset-admin: user %q is not an admin; this tool only unlocks existing admins — promote a user via the admin UI or API instead\n",
+			"auth reset-admin: user %q is not an admin; this tool only unlocks existing admins - promote a user via the admin UI or API instead\n",
 			username)
 
 		return 1
@@ -163,7 +163,7 @@ func runResetAdmin(args []string, stdout, stderr io.Writer) int {
 
 	if user.Disabled {
 		fmt.Fprintf(stderr,
-			"auth reset-admin: user %q is disabled; a reset link can never be redeemed by a disabled account — re-enable them via the admin UI or API first\n",
+			"auth reset-admin: user %q is disabled; a reset link can never be redeemed by a disabled account - re-enable them via the admin UI or API first\n",
 			username)
 
 		return 1
@@ -194,15 +194,15 @@ func runResetAdmin(args []string, stdout, stderr io.Writer) int {
 // scenario: if an earlier run committed the re-encrypted pool but crashed
 // before installing the new key file, <path> still holds the OLD key while
 // <path>.new holds the only key that decrypts the pool's current state. An
-// operator's natural response — run the command again — would otherwise have
+// operator's natural response - run the command again - would otherwise have
 // staging unconditionally overwrite that <path>.new with yet another fresh
 // key, destroying the pool's only remaining decryptable copy, before
 // RotateMasterKey's own decrypt-with-old guard (which runs INSIDE the
 // transaction, well after staging) ever gets a chance to notice <path> is
 // stale. The probe catches this before any file is touched.
 //
-// Once the probe passes, the new key is staged durably at <path>.new —
-// written and fsynced (file + directory) — BEFORE the re-encrypt transaction
+// Once the probe passes, the new key is staged durably at <path>.new -
+// written and fsynced (file + directory) - BEFORE the re-encrypt transaction
 // commits. That ordering closes the crash window between "pool committed
 // under the new key" and "new key file installed": at every point from here
 // on, at least one on-disk file (<path> while the pool is still under the
@@ -222,11 +222,11 @@ func runRotateMasterKey(args []string, stdout, stderr io.Writer) int {
 	// flag.FlagSet stops parsing at the first non-flag argument, so a
 	// forgotten --config (e.g. `rotate-master-key ./prod.yaml`) leaves the
 	// path sitting here as an ignored positional argument instead of being
-	// applied — silently falling back to XDG config discovery. Reject
+	// applied - silently falling back to XDG config discovery. Reject
 	// rather than rotate the wrong instance's key.
 	if fs.NArg() > 0 {
 		fmt.Fprintf(stderr,
-			"auth rotate-master-key: unexpected argument %q — rotate-master-key takes no positional arguments "+
+			"auth rotate-master-key: unexpected argument %q - rotate-master-key takes no positional arguments "+
 				"(did you mean --config %s?)\n",
 			fs.Arg(0), fs.Arg(0))
 
@@ -249,13 +249,13 @@ func runRotateMasterKey(args []string, stdout, stderr io.Writer) int {
 
 	// Load-only: a rotation must never conjure a key. A missing file here
 	// means the config points somewhere the server has never run (or the
-	// wrong instance entirely) — writing a fresh key would mask that and
+	// wrong instance entirely) - writing a fresh key would mask that and
 	// leave a stray key file behind, so refuse instead.
 	oldMaster, err := auth.LoadMasterKey(cfg.Auth.MasterKeyFile)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			fmt.Fprintf(stderr,
-				"auth rotate-master-key: no master key file at %s — nothing to rotate. The server creates "+
+				"auth rotate-master-key: no master key file at %s - nothing to rotate. The server creates "+
 					"the key on first start in multi mode; check that this config points at the right instance.\n",
 				cfg.Auth.MasterKeyFile)
 
@@ -277,7 +277,7 @@ func runRotateMasterKey(args []string, stdout, stderr io.Writer) int {
 				"auth rotate-master-key: refusing to proceed: the master key at %s does not decrypt the "+
 					"credential pool.\n", cfg.Auth.MasterKeyFile)
 			fmt.Fprintf(stderr,
-				"auth rotate-master-key: %s exists — this looks like a previous rotation that committed but "+
+				"auth rotate-master-key: %s exists - this looks like a previous rotation that committed but "+
 					"was never installed, and %s likely holds the live master key. Move it into place and "+
 					"retry: mv %s %s\n",
 				staged, staged, staged, cfg.Auth.MasterKeyFile)
@@ -299,7 +299,7 @@ func runRotateMasterKey(args []string, stdout, stderr io.Writer) int {
 	}
 
 	if err := stageMasterKeyFile(cfg.Auth.MasterKeyFile, newMaster); err != nil {
-		// Nothing has been mutated yet — the pool is untouched and still
+		// Nothing has been mutated yet - the pool is untouched and still
 		// under the old key. Bail out before starting the transaction.
 		fmt.Fprintf(stderr, "auth rotate-master-key: stage new key: %v\n", err)
 
@@ -310,10 +310,10 @@ func runRotateMasterKey(args []string, stdout, stderr io.Writer) int {
 
 	n, err := svc.RotateMasterKey(ctx, oldMaster, newMaster)
 	if err != nil {
-		// The transaction rolled back — every write it made is undone, so
+		// The transaction rolled back - every write it made is undone, so
 		// the pool is exactly as it was on disk before this run started.
 		// <path> was never touched by this run, and the probe above already
-		// confirmed — before any mutation happened — that the key it holds
+		// confirmed - before any mutation happened - that the key it holds
 		// decrypts the pool, so that guarantee still stands. The staged key
 		// at <path>.new is orphaned but harmless: the next attempt's own
 		// probe will pass against the still-good <path>, and staging will
@@ -327,7 +327,7 @@ func runRotateMasterKey(args []string, stdout, stderr io.Writer) int {
 		staged := cfg.Auth.MasterKeyFile + ".new"
 
 		if _, statErr := os.Stat(staged); statErr == nil {
-			// <path>.new still exists — the rename never happened (or
+			// <path>.new still exists - the rename never happened (or
 			// failed), so the pool is already committed under newMaster but
 			// no installed file reflects that yet. This can no longer be
 			// avoided, but it is not catastrophic: the new key survives on
@@ -339,13 +339,13 @@ func runRotateMasterKey(args []string, stdout, stderr io.Writer) int {
 				"auth rotate-master-key: the new master key is staged at %s; move it to %s to complete the rotation\n",
 				staged, cfg.Auth.MasterKeyFile)
 		} else {
-			// The rename already succeeded — <path> holds the new key.
+			// The rename already succeeded - <path> holds the new key.
 			// Only the trailing directory fsync failed, so the rename's
 			// durability against an immediate crash is unconfirmed; unlike
 			// the branch above, the rotation is NOT stranded.
 			fmt.Fprintf(stderr,
 				"auth rotate-master-key: pool re-encrypted and %s already holds the new key, but fsyncing its "+
-					"directory failed: %v — run `sync` and verify the file manually\n",
+					"directory failed: %v - run `sync` and verify the file manually\n",
 				cfg.Auth.MasterKeyFile, err)
 		}
 
@@ -355,7 +355,7 @@ func runRotateMasterKey(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "Rotated master key: %d credential(s) re-encrypted.\n", n)
 	fmt.Fprintf(stdout, "New key installed at %s.\n", cfg.Auth.MasterKeyFile)
 	fmt.Fprintf(stdout,
-		"Previous key saved to %s.bak (reference only — the pool is already re-encrypted under the new key, "+
+		"Previous key saved to %s.bak (reference only - the pool is already re-encrypted under the new key, "+
 			"so restoring it will NOT roll the rotation back; safe to delete).\n",
 		cfg.Auth.MasterKeyFile)
 	fmt.Fprintln(stdout, "Restart the server so it loads the new key.")
@@ -365,21 +365,21 @@ func runRotateMasterKey(args []string, stdout, stderr io.Writer) int {
 
 // probeCurrentKeyDecryptsPool reports whether the master key currently on
 // disk at <path> (already loaded into currentMaster by the caller) still
-// decrypts the credential pool, without mutating anything — no file is
+// decrypts the credential pool, without mutating anything - no file is
 // touched, no transaction is opened. It derives the credentials subkey via
 // HKDF and runs the same AES-GCM decrypt helper Service.RotateMasterKey uses
 // internally, against exactly one stored entry: the pool is uniformly
 // encrypted under one key or it is fundamentally broken, so one entry is
 // enough to catch a wrong key on disk without redoing the whole pool's
 // decrypt work that RotateMasterKey will do anyway moments later. An empty
-// pool passes trivially — nothing is encrypted under any key, so nothing is
+// pool passes trivially - nothing is encrypted under any key, so nothing is
 // at risk.
 //
-// This MUST run — and pass — before runRotateMasterKey writes anything,
+// This MUST run - and pass - before runRotateMasterKey writes anything,
 // including staging <path>.new. Without it, retrying after a rotation that
 // committed the re-encrypted pool but crashed before installing the new key
-// file would stage a fresh key straight over <path>.new — the pool's only
-// remaining decryptable copy — before RotateMasterKey's own decrypt-with-old
+// file would stage a fresh key straight over <path>.new - the pool's only
+// remaining decryptable copy - before RotateMasterKey's own decrypt-with-old
 // guard (which runs INSIDE the transaction, well after staging) ever gets a
 // chance to notice the key on disk is stale. By then the recovery artifact
 // is already gone and the pool is unrecoverable.
@@ -408,12 +408,12 @@ func probeCurrentKeyDecryptsPool(ctx context.Context, store *authstore.Store, cu
 // stageMasterKeyFile durably writes newMaster to <path>.new in the exact
 // format auth.LoadOrCreateMasterKey reads (hex + newline, 0600), fsyncing
 // both the file and its containing directory so the staged key survives a
-// crash. This MUST run — and succeed — before the re-encryption transaction
+// crash. This MUST run - and succeed - before the re-encryption transaction
 // commits: once the pool is committed under newMaster, a durable on-disk
 // copy of that key has to already exist, or a crash before the final install
 // (installMasterKeyFile) would strand the pool re-encrypted under a key that
 // lives only in process memory. A stale <path>.new left behind by a
-// previously crashed or aborted rotation is overwritten unconditionally —
+// previously crashed or aborted rotation is overwritten unconditionally -
 // callers only reach this after probeCurrentKeyDecryptsPool has confirmed the
 // key already at <path> decrypts the pool, so whatever stale copy sits at
 // <path>.new is provably not the pool's only remaining key at that point,
@@ -449,13 +449,13 @@ func stageMasterKeyFile(path string, newMaster []byte) error {
 // contents preserved verbatim), then installs the already-staged <path>.new
 // over path via rename. Call only after the re-encryption transaction has
 // committed: from that point on the pool decrypts solely under the key
-// already staged — and fsynced — at <path>.new by stageMasterKeyFile, so a
+// already staged - and fsynced - at <path>.new by stageMasterKeyFile, so a
 // failure anywhere in this function still leaves that file in place as the
 // pool's only durable key until the rename below succeeds. os.Rename is
 // atomic, so <path>.new is consumed only on success; a crash mid-rename
 // leaves either the pre- or post-rename state, never a partial one. The
 // containing directory is fsynced after the rename too, so the directory
-// entry change the rename made — not just the bytes it now points at — is
+// entry change the rename made - not just the bytes it now points at - is
 // itself durable against a crash immediately afterward.
 func installMasterKeyFile(path string) error {
 	existing, err := os.ReadFile(path)
@@ -476,7 +476,7 @@ func installMasterKeyFile(path string) error {
 
 // fsyncDir opens dir and fsyncs it. A file-level fsync durably persists a
 // file's bytes but not necessarily the directory-entry change (create,
-// rename) that made the file visible under its current name — fsyncing the
+// rename) that made the file visible under its current name - fsyncing the
 // containing directory closes that gap.
 func fsyncDir(dir string) error {
 	d, err := os.Open(dir)

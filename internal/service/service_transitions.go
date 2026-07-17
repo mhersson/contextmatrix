@@ -14,7 +14,7 @@ import (
 // enters a terminal-ish state. Called before persisting a state change.
 //
 //   - not_planned: release agent claim so the lock manager won't treat the card
-//     as stalled. not_planned is a manual terminal state — no agent will be
+//     as stalled. not_planned is a manual terminal state - no agent will be
 //     active on it.
 //
 // Note: worker_status is intentionally NOT cleared here. The end-session
@@ -42,7 +42,7 @@ import (
 // ReleaseCard own the claim-clear so done cards never carry a live agent
 // would be cleaner but requires rewriting the four tests above.
 //
-// Safe to call regardless of stateChanged — it only acts when the card's
+// Safe to call regardless of stateChanged - it only acts when the card's
 // current state is one of the targets. But callers should pass stateChanged
 // so we only mutate when there is actually a transition.
 func enforceTerminalStateInvariants(card *board.Card, stateChanged bool) {
@@ -59,12 +59,12 @@ func enforceTerminalStateInvariants(card *board.Card, stateChanged bool) {
 // applyStateChangeSideEffects runs post-commit side effects that fire when a
 // card's State has changed. Currently this flushes any accumulated deferred
 // commits when the card reaches a state where no subsequent Release or
-// markCardStalled call will trigger a flush on its own — namely not_planned
+// markCardStalled call will trigger a flush on its own - namely not_planned
 // and review.
 //
 // Errors are logged (not returned) so a flush failure never blocks the caller's
 // primary mutation, which has already been persisted and committed. Safe to
-// call when stateChanged is false — no-op in that case.
+// call when stateChanged is false - no-op in that case.
 //
 // Caller must hold writeMu.
 func (s *CardService) applyStateChangeSideEffects(ctx context.Context, card *board.Card, stateChanged bool) {
@@ -84,7 +84,7 @@ func (s *CardService) applyStateChangeSideEffects(ctx context.Context, card *boa
 
 // maybeTransitionParent checks if a child's state change should trigger a
 // parent state transition. Called after any child state change while writeMu
-// is held. It does NOT acquire writeMu — callers must hold it.
+// is held. It does NOT acquire writeMu - callers must hold it.
 //
 // Rules:
 //   - child moved to in_progress AND parent is in todo → transition parent to in_progress
@@ -172,7 +172,7 @@ func (s *CardService) transitionParentDirect(
 
 		// Record the transition on the activity log so the dashboard sparkline
 		// reconstruction sees parent auto-transitions too (mirrors
-		// applyCardMutation). "system" — auto-transitions carry no agent.
+		// applyCardMutation). "system" - auto-transitions carry no agent.
 		appendStateChangeLog(parent, oldState, state, "system", parent.Updated)
 
 		// State-change invariants: release claim on not_planned, clear

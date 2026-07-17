@@ -66,8 +66,8 @@ func TestMetricsEndpoint(t *testing.T) {
 		"expected matched pattern label, got:\n%s", bodyStr)
 }
 
-// TestObserve_ExcludesMCPSSE verifies that GET /mcp — the MCP Streamable HTTP
-// SSE endpoint — is skipped by the metrics middleware. A long-lived MCP
+// TestObserve_ExcludesMCPSSE verifies that GET /mcp - the MCP Streamable HTTP
+// SSE endpoint - is skipped by the metrics middleware. A long-lived MCP
 // session would otherwise dominate the REST latency histogram (multi-hour
 // durations poison p95/p99) and bloat the request counter.
 func TestObserve_ExcludesMCPSSE(t *testing.T) {
@@ -151,7 +151,7 @@ func TestObserve_UnmatchedCollapsesLabel(t *testing.T) {
 	require.NoError(t, err)
 
 	bodyStr := string(body)
-	// Exactly one series per (method, status) for the unmatched bucket —
+	// Exactly one series per (method, status) for the unmatched bucket -
 	// the full path must NEVER appear as a label value.
 	assert.Contains(t, bodyStr, `path="unmatched"`,
 		"expected unmatched path label, got:\n%s", bodyStr)

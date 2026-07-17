@@ -15,7 +15,7 @@ function safeSet(key: string, value: string): void {
   try {
     localStorage.setItem(key, value);
   } catch {
-    // ignore — caller already has the in-memory state
+    // ignore - caller already has the in-memory state
   }
 }
 
@@ -36,7 +36,7 @@ export function useCollapsedColumns(project: string, validStates: string[]): [Se
     collapsed: loadFromStorage(project),
   }));
 
-  // Derived state during render: project prop changed — reload from localStorage.
+  // Derived state during render: project prop changed - reload from localStorage.
   let collapsed = state.collapsed;
   if (state.project !== project) {
     const next = loadFromStorage(project);

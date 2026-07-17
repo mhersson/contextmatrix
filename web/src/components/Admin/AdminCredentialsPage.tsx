@@ -42,7 +42,7 @@ export function AdminCredentialsPage() {
   }, []);
 
   // Mount-only fetch, delegated to refetch (also used after every mutation
-  // below) rather than duplicated inline — mirrors AdminUsersPage.
+  // below) rather than duplicated inline - mirrors AdminUsersPage.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void refetch();

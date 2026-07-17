@@ -28,7 +28,7 @@ export function LoginPage() {
     } catch (err) {
       const apiErr = err as APIError;
       if (apiErr.code === 'RATE_LIMITED') {
-        setError('Too many attempts — wait a moment and try again.');
+        setError('Too many attempts - wait a moment and try again.');
       } else {
         // Uniform message, mirroring the server's no-oracle stance.
         setError('Invalid username or password.');

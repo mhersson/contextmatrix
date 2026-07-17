@@ -21,7 +21,7 @@ func TestUpdateProject_MCP_PreservesDefaultSkillsAndRepo(t *testing.T) {
 	env := setupMCP(t)
 	ctx := context.Background()
 
-	// Seed the project with a repo and operator-configured default_skills —
+	// Seed the project with a repo and operator-configured default_skills -
 	// neither is expressible through the update_project tool input.
 	skills := []string{"go-development"}
 	_, err := env.svc.UpdateProject(ctx, "test-project", service.UpdateProjectInput{
@@ -56,7 +56,7 @@ func TestUpdateProject_MCP_PreservesDefaultSkillsAndRepo(t *testing.T) {
 // TestUpdateProject_MCP_PreservesVerify pins that an MCP-driven update_project
 // leaves an operator's project verify config intact. The tool input carries no
 // verify channel, and UpdateProjectInput.Verify defaults to nil (preserve), so
-// this is structural — but verify is a human-only field and must never be
+// this is structural - but verify is a human-only field and must never be
 // touched through the agent surface.
 func TestUpdateProject_MCP_PreservesVerify(t *testing.T) {
 	env := setupMCP(t)

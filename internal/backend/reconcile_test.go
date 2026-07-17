@@ -18,7 +18,7 @@ import (
 // TestReconciliationSweep_TerminalCardKillsContainer covers the case where the
 // backend reports a live container whose CM card is already `done`. The sweep
 // must kill it, regardless of the card's worker_status field, which the sweep
-// does not consult — consulting it is the source of silent-skip bugs.
+// does not consult - consulting it is the source of silent-skip bugs.
 func TestReconciliationSweep_TerminalCardKillsContainer(t *testing.T) {
 	ctx := t.Context()
 
@@ -26,7 +26,7 @@ func TestReconciliationSweep_TerminalCardKillsContainer(t *testing.T) {
 		"proj/C-001": {
 			ID:    "C-001",
 			State: "done",
-			// worker_status is deliberately set to "completed" — a value
+			// worker_status is deliberately set to "completed" - a value
 			// the sweep does not read. Gating on it would silently skip
 			// this container.
 			WorkerStatus:  "completed",
@@ -84,7 +84,7 @@ func TestReconciliationSweep_SkipsNonTerminalCard(t *testing.T) {
 }
 
 // TestReconciliationSweep_MissingCardKillsContainer catches the "card was
-// deleted but container still runs" case — e.g. a project-wide delete that
+// deleted but container still runs" case - e.g. a project-wide delete that
 // bypassed the normal cleanup path. Without this rule, such a container
 // would leak to the backend's 2h timeout.
 func TestReconciliationSweep_MissingCardKillsContainer(t *testing.T) {
@@ -114,7 +114,7 @@ func TestReconciliationSweep_MissingCardKillsContainer(t *testing.T) {
 
 // TestReconciliationSweep_AgeCapKillsRunawayContainer is the last-resort
 // safety net: a container whose card lookup keeps succeeding but whose card
-// never transitions to terminal (pathological case — stuck state machine,
+// never transitions to terminal (pathological case - stuck state machine,
 // UI bug, whatever) still gets killed once it exceeds ContainerMaxAge.
 func TestReconciliationSweep_AgeCapKillsRunawayContainer(t *testing.T) {
 	ctx := t.Context()
@@ -168,7 +168,7 @@ func TestReconciliationSweep_ZeroIntervalDisabled(t *testing.T) {
 
 // TestReconciliationSweep_RunsImmediatelyOnStart validates that the sweep
 // does not wait a full interval before its first scan. The restart-recovery
-// scenario is the main reason the sweep exists — containers orphaned
+// scenario is the main reason the sweep exists - containers orphaned
 // between CM shutdown and startup must be cleaned up at startup, not a
 // minute later.
 func TestReconciliationSweep_RunsImmediatelyOnStart(t *testing.T) {
@@ -183,7 +183,7 @@ func TestReconciliationSweep_RunsImmediatelyOnStart(t *testing.T) {
 		},
 	}
 
-	// Interval well above the assertion deadline — if the first sweep waits
+	// Interval well above the assertion deadline - if the first sweep waits
 	// for the ticker, waitForKillCalls will time out.
 	backend.StartReconciliationSweep(ctx, cg, fc, 10*time.Second, discardLogger())
 
@@ -192,7 +192,7 @@ func TestReconciliationSweep_RunsImmediatelyOnStart(t *testing.T) {
 
 // TestReconciliationSweep_BackendListFailureSkipsTick is the transient-error
 // contract: if the backend is briefly unreachable, the sweep must NOT treat
-// an empty list as "kill nothing this tick and move on" — the actual
+// an empty list as "kill nothing this tick and move on" - the actual
 // failure is a skip, not a false-negative kill.
 func TestReconciliationSweep_BackendListFailureSkipsTick(t *testing.T) {
 	ctx := t.Context()
@@ -203,7 +203,7 @@ func TestReconciliationSweep_BackendListFailureSkipsTick(t *testing.T) {
 	backend.StartReconciliationSweep(ctx, cg, fc, 30*time.Millisecond, discardLogger())
 
 	time.Sleep(150 * time.Millisecond)
-	// Not kill and not panic — the ListContainers error just skips the tick.
+	// Not kill and not panic - the ListContainers error just skips the tick.
 	assert.Empty(t, fc.KillCalls(), "no kills on backend list failure")
 }
 
@@ -249,7 +249,7 @@ func (e *erroringCardGetter) GetCard(_ context.Context, _, _ string) (*board.Car
 
 // TestReconciliationSweep_StorageNotFoundErrorIsKill regression-guards the
 // sentinel bug where isCardNotFound compared a local errors.New object
-// against the store's own storage.ErrCardNotFound — two different instances,
+// against the store's own storage.ErrCardNotFound - two different instances,
 // so errors.Is would return false and the "missing card" rule would never
 // fire for real missing cards from the service layer.
 func TestReconciliationSweep_StorageNotFoundErrorIsKill(t *testing.T) {
@@ -290,7 +290,7 @@ func TestReconciliationSweep_WrappedStorageNotFoundErrorIsKill(t *testing.T) {
 // TestReconciliationSweep_SkipsChatContainers guards the boundary between the
 // card-mode sweep and the chat-mode sweep: after Wave 2.2, /containers also
 // reports chat containers (LabelSessionID, no LabelCardID). The card sweep
-// must skip those rows — calling decideKill on a chat container with an empty
+// must skip those rows - calling decideKill on a chat container with an empty
 // CardID would route a malformed /end-session against the backend.
 func TestReconciliationSweep_SkipsChatContainers(t *testing.T) {
 	ctx := t.Context()

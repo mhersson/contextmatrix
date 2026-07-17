@@ -102,7 +102,7 @@ func TestDropMarkerCoalescing(t *testing.T) {
 		m.Append(cardID, makeEvent(uint64(i+1), "log", fmt.Sprintf("msg-%d", i+1)))
 	}
 
-	// Overflow twice — both drops should coalesce into a single marker.
+	// Overflow twice - both drops should coalesce into a single marker.
 	m.Append(cardID, makeEvent(5, "log", "msg-5"))
 	m.Append(cardID, makeEvent(6, "log", "msg-6"))
 

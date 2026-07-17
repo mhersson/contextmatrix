@@ -59,12 +59,12 @@ beforeEach(() => {
   mockPromoteCardToAutonomous.mockResolvedValue({ ...runningCard, autonomous: true });
 });
 
-describe('CardChat — visibility gate', () => {
+describe('CardChat - visibility gate', () => {
   it('renders a read-only footer when worker_status is not "running"', () => {
     render(<CardChat card={stoppedCard} cardLogs={noLogs} />);
     expect(screen.queryByPlaceholderText(/Type a message/)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Send/ })).not.toBeInTheDocument();
-    expect(screen.getByText(/Session ended — read-only/)).toBeInTheDocument();
+    expect(screen.getByText(/Session ended - read-only/)).toBeInTheDocument();
   });
 
   it('renders an "Autonomous run" read-only footer with no compose for any running autonomous card', () => {
@@ -72,7 +72,7 @@ describe('CardChat — visibility gate', () => {
     expect(screen.queryByPlaceholderText(/Type a message/)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Send/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Switch to Autonomous/ })).not.toBeInTheDocument();
-    expect(screen.getByText(/Autonomous run — read-only/)).toBeInTheDocument();
+    expect(screen.getByText(/Autonomous run - read-only/)).toBeInTheDocument();
   });
 
   it('renders an "Autonomous run" read-only footer with no compose for a running autonomous mob session card', () => {
@@ -80,7 +80,7 @@ describe('CardChat — visibility gate', () => {
     expect(screen.queryByPlaceholderText(/Type a message/)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Send/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Switch to Autonomous/ })).not.toBeInTheDocument();
-    expect(screen.getByText(/Autonomous run — read-only/)).toBeInTheDocument();
+    expect(screen.getByText(/Autonomous run - read-only/)).toBeInTheDocument();
   });
 
   it('shows "Session ended" (not "Autonomous run") for an ENDED autonomous mob session run', () => {
@@ -89,8 +89,8 @@ describe('CardChat — visibility gate', () => {
     ];
     render(<CardChat card={endedMobAutonomousCard} cardLogs={logs} />);
     expect(screen.queryByPlaceholderText(/Type a message/)).not.toBeInTheDocument();
-    expect(screen.getByText(/Session ended — read-only/)).toBeInTheDocument();
-    expect(screen.queryByText(/Autonomous run — read-only/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Session ended - read-only/)).toBeInTheDocument();
+    expect(screen.queryByText(/Autonomous run - read-only/)).not.toBeInTheDocument();
   });
 
   it('shows the compose textbox for a plain HITL running card (autonomous false)', () => {
@@ -103,11 +103,11 @@ describe('CardChat — visibility gate', () => {
     expect(screen.getByPlaceholderText(/Type a message/)).toBeInTheDocument();
     rerender(<CardChat card={autonomousCard} cardLogs={noLogs} />);
     expect(screen.queryByPlaceholderText(/Type a message/)).not.toBeInTheDocument();
-    expect(screen.getByText(/Autonomous run — read-only/)).toBeInTheDocument();
+    expect(screen.getByText(/Autonomous run - read-only/)).toBeInTheDocument();
   });
 });
 
-describe('CardChat — Enter-to-send', () => {
+describe('CardChat - Enter-to-send', () => {
   it('Enter sends message and clears textarea', async () => {
     render(<CardChat card={runningCard} cardLogs={noLogs} />);
     const textarea = screen.getByPlaceholderText(/Type a message/) as HTMLTextAreaElement;
@@ -138,7 +138,7 @@ describe('CardChat — Enter-to-send', () => {
   });
 });
 
-describe('CardChat — over-limit guard', () => {
+describe('CardChat - over-limit guard', () => {
   it('Send button is disabled when content exceeds 8000 chars', () => {
     render(<CardChat card={runningCard} cardLogs={noLogs} />);
     const textarea = screen.getByPlaceholderText(/Type a message/);
@@ -161,7 +161,7 @@ describe('CardChat — over-limit guard', () => {
   });
 });
 
-describe('CardChat — Switch to Autonomous button', () => {
+describe('CardChat - Switch to Autonomous button', () => {
   it('is visible when card.autonomous === false and worker_status === "running"', () => {
     render(<CardChat card={runningCard} cardLogs={noLogs} />);
     expect(screen.getByRole('button', { name: /Switch to Autonomous/ })).toBeInTheDocument();
@@ -218,7 +218,7 @@ describe('CardChat — Switch to Autonomous button', () => {
   });
 });
 
-describe('CardChat — cardLogs prop', () => {
+describe('CardChat - cardLogs prop', () => {
   it('renders log entries passed via cardLogs prop', () => {
     const logs: LogEntry[] = [
       { ts: '2026-01-01T00:00:01Z', card_id: 'TEST-001', type: 'text', content: 'hello from worker' },
@@ -233,7 +233,7 @@ describe('CardChat — cardLogs prop', () => {
   });
 });
 
-describe('CardChat — message type filter bar', () => {
+describe('CardChat - message type filter bar', () => {
   it('Tool calls checkbox is unchecked by default', () => {
     render(<CardChat card={runningCard} cardLogs={noLogs} />);
     expect(screen.getByRole('checkbox', { name: /Tool calls/i })).not.toBeChecked();
@@ -346,7 +346,7 @@ describe('CardChat — message type filter bar', () => {
   });
 });
 
-describe('CardChat — error state lifecycle', () => {
+describe('CardChat - error state lifecycle', () => {
   it('shows the error banner after a failed send', async () => {
     mockSendCardMessage.mockRejectedValueOnce({ error: 'network down' });
     render(<CardChat card={runningCard} cardLogs={noLogs} />);
@@ -372,7 +372,7 @@ describe('CardChat — error state lifecycle', () => {
     });
     expect(screen.getByText('network down')).toBeInTheDocument();
 
-    // Second send succeeds — error banner should disappear.
+    // Second send succeeds - error banner should disappear.
     mockSendCardMessage.mockResolvedValueOnce({ ok: true, message_id: 'msg-2' });
     fireEvent.change(textarea, { target: { value: 'second' } });
     await act(async () => {

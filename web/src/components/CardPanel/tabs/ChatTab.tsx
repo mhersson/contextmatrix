@@ -7,7 +7,7 @@ interface ChatTabProps {
 }
 
 /**
- * Chat rail tab — rendered while chat is live (any running worker session:
+ * Chat rail tab - rendered while chat is live (any running worker session:
  * interactive for HITL, read-only for autonomous) and remains available
  * afterward as long as a transcript exists. The wrapping flex container is
  * kept here (not inside CardChat) so the layout concern lives in the tab

@@ -26,7 +26,7 @@ const defaultWorkerLogKeepalive = 30 * time.Second
 //   - only project present → project-scoped path: subscribe to the project
 //     session manager, replay snapshot, tail live events, handle disconnect.
 func (h *backendHandlers) streamWorkerLogs(w http.ResponseWriter, r *http.Request) {
-	// Assert Flusher — required for SSE.
+	// Assert Flusher - required for SSE.
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, ErrCodeInternalError, "streaming not supported", "")
@@ -37,7 +37,7 @@ func (h *backendHandlers) streamWorkerLogs(w http.ResponseWriter, r *http.Reques
 	cardID := r.URL.Query().Get("card_id")
 	project := strings.TrimSpace(r.URL.Query().Get("project"))
 
-	// Validate project. Empty project is rejected — without this, the
+	// Validate project. Empty project is rejected - without this, the
 	// project-scoped path would lazy-create an upstream-pump goroutine and a
 	// persistent SSE HTTP connection keyed by an empty string. For non-empty
 	// values, verify the project exists so a typo/garbage name can't spin up
@@ -67,7 +67,7 @@ func (h *backendHandlers) streamWorkerLogs(w http.ResponseWriter, r *http.Reques
 	metrics.SSEActiveConnections.Inc()
 	defer metrics.SSEActiveConnections.Dec()
 
-	// Clear write deadline — SSE connections are long-lived and must survive
+	// Clear write deadline - SSE connections are long-lived and must survive
 	// past the server's WriteTimeout (see events.go for the full explanation).
 	rc := http.NewResponseController(w)
 	if err := rc.SetWriteDeadline(time.Time{}); err != nil {
@@ -98,7 +98,7 @@ func (h *backendHandlers) workerLogKeepalive() time.Duration {
 // session terminates or the client disconnects.
 func (h *backendHandlers) streamCardSession(w http.ResponseWriter, r *http.Request, flusher http.Flusher, cardID, project string) {
 	if h.sessionManager == nil {
-		// Session manager not configured — return 204 so the frontend can retry.
+		// Session manager not configured - return 204 so the frontend can retry.
 		w.WriteHeader(http.StatusNoContent)
 
 		return
@@ -111,7 +111,7 @@ func (h *backendHandlers) streamCardSession(w http.ResponseWriter, r *http.Reque
 	w.Header().Set("X-Accel-Buffering", "no")
 	flusher.Flush()
 
-	// Start is idempotent — safe to call on every connection, exactly like
+	// Start is idempotent - safe to call on every connection, exactly like
 	// streamProjectSession calls StartProject below. This revives a session
 	// the idle sweeper force-closed mid-run: the worker_status transition
 	// that originally triggered Start fires only once per run, so without
@@ -227,7 +227,7 @@ func (h *backendHandlers) streamCardSession(w http.ResponseWriter, r *http.Reque
 // event channel until the session terminates or the client disconnects.
 func (h *backendHandlers) streamProjectSession(w http.ResponseWriter, r *http.Request, flusher http.Flusher, project string) {
 	if h.sessionManager == nil {
-		// Session manager not configured — return 204 so the frontend can retry.
+		// Session manager not configured - return 204 so the frontend can retry.
 		w.WriteHeader(http.StatusNoContent)
 
 		return
@@ -240,7 +240,7 @@ func (h *backendHandlers) streamProjectSession(w http.ResponseWriter, r *http.Re
 	w.Header().Set("X-Accel-Buffering", "no")
 	flusher.Flush()
 
-	// StartProject is idempotent — safe to call on every connection.
+	// StartProject is idempotent - safe to call on every connection.
 	if err := h.sessionManager.StartProject(r.Context(), project); err != nil {
 		ctxlog.Logger(r.Context()).Error("worker-log SSE: failed to start project session", "project", project, "error", err)
 

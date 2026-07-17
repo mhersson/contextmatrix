@@ -378,7 +378,7 @@ func TestPatchCard_BaseBranch(t *testing.T) {
 		assert.True(t, patched2.FeatureBranch)
 		assert.Equal(t, "develop", patched2.BaseBranch)
 
-		// Disable feature_branch — base_branch and create_pr must be cleared.
+		// Disable feature_branch - base_branch and create_pr must be cleared.
 		featureOff := false
 		patched2, err = svc2.PatchCard(ctx, "test-project", card2.ID, PatchCardInput{
 			FeatureBranch: &featureOff,
@@ -753,7 +753,7 @@ func TestTimeoutCheckerIntegration(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0o755))
 	require.NoError(t, board.SaveProjectConfig(projectDir, testProject()))
 
-	// Fake clock drives both the heartbeat cutoff and the ticker — advancing
+	// Fake clock drives both the heartbeat cutoff and the ticker - advancing
 	// it is equivalent to waiting real wall-clock time, but deterministic.
 	fake := clock.Fake(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
 
@@ -954,7 +954,7 @@ func TestGetCard_DependenciesMetField(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Fetch card — DependenciesMet should be false
+	// Fetch card - DependenciesMet should be false
 	fetched, err := svc.GetCard(ctx, "test-project", card.ID)
 	require.NoError(t, err)
 	require.NotNil(t, fetched.DependenciesMet)
@@ -970,7 +970,7 @@ func TestGetCard_DependenciesMetField(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Fetch again — DependenciesMet should be true
+	// Fetch again - DependenciesMet should be true
 	fetched, err = svc.GetCard(ctx, "test-project", card.ID)
 	require.NoError(t, err)
 	require.NotNil(t, fetched.DependenciesMet)
@@ -1007,7 +1007,7 @@ func TestListCards_DependenciesMetField(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// List cards — check DependenciesMet on each
+	// List cards - check DependenciesMet on each
 	cards, err := svc.ListCards(ctx, "test-project", storage.CardFilter{})
 	require.NoError(t, err)
 
@@ -1223,7 +1223,7 @@ func TestParentAutoTransition_AllSubtasksDoneParentStaysInProgress(t *testing.T)
 	_, err = svc.PatchCard(ctx, "test-project", subtasks[1].ID, PatchCardInput{State: &done})
 	require.NoError(t, err)
 
-	// Parent stays in in_progress — the orchestrator spawns a documentation
+	// Parent stays in in_progress - the orchestrator spawns a documentation
 	// sub-agent first, then manually transitions the parent to review.
 	updatedParent, err := svc.GetCard(ctx, "test-project", parent.ID)
 	require.NoError(t, err)
@@ -1244,7 +1244,7 @@ func TestParentAutoTransition_NoParentNoOp(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Transition to in_progress — should succeed without error (no parent to touch)
+	// Transition to in_progress - should succeed without error (no parent to touch)
 	inProgress := "in_progress"
 	patched, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{State: &inProgress})
 	require.NoError(t, err)
@@ -1451,7 +1451,7 @@ func TestReportUsageStoresModel(t *testing.T) {
 	require.NotNil(t, updated.TokenUsage)
 	assert.Equal(t, "claude-sonnet-4-6", updated.TokenUsage.Model)
 
-	// Report again with a different model — model should be updated to latest
+	// Report again with a different model - model should be updated to latest
 	updated, err = svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
 		AgentID:          "agent-1",
 		Model:            "claude-opus-4-6",
@@ -1491,7 +1491,7 @@ func TestReportUsageWarnsUnknownModel(t *testing.T) {
 	slog.SetDefault(slog.New(handler))
 	defer slog.SetDefault(original)
 
-	// Report with an unknown model — should warn but not error
+	// Report with an unknown model - should warn but not error
 	updated, err := svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
 		AgentID:          "agent-1",
 		Model:            "unknown-model-xyz",
@@ -1574,7 +1574,7 @@ func TestReportUsageCacheTierMultipliers(t *testing.T) {
 			wantCacheCreation: 4000,
 		},
 		{
-			name: "all four fields combined — acceptance example",
+			name: "all four fields combined - acceptance example",
 			// input=1000, cache_read=80000, cache_creation=4000, output=2000 → $0.135
 			input: ReportUsageInput{
 				AgentID:             "agent-1",
@@ -1728,7 +1728,7 @@ func TestRecalculateCostsWithCacheTiers(t *testing.T) {
 }
 
 // TestRecalculateCostsSkipsZeroCacheFields verifies that RecalculateCosts
-// skips a card whose new cache fields are zero (same as old behaviour — only
+// skips a card whose new cache fields are zero (same as old behaviour - only
 // the prompt/completion tokens matter for the eligibility check).
 func TestRecalculateCostsSkipsZeroCacheFields(t *testing.T) {
 	svc, _, cleanup := setupTestWithCosts(t)
@@ -1751,7 +1751,7 @@ func TestRecalculateCostsSkipsZeroCacheFields(t *testing.T) {
 	require.NoError(t, err)
 
 	// The card has $0 cost (no model). RecalculateCosts with a known model
-	// should still update it — but cost should use the basic formula
+	// should still update it - but cost should use the basic formula
 	// (no cache multiplier since cache fields are zero).
 	result, err := svc.RecalculateCosts(ctx, "test-project", "claude-opus-4-7")
 	require.NoError(t, err)
@@ -1877,7 +1877,7 @@ func TestGetDashboard(t *testing.T) {
 	assert.Len(t, dashboard.CardCosts, 2)
 
 	// Agent costs: both cards report usage under "agent-1" (breakdown-based attribution).
-	// card1 has no assigned agent but its breakdown bucket records agent-1 — the
+	// card1 has no assigned agent but its breakdown bucket records agent-1 - the
 	// aggregation reads breakdown rows so both cards land in one bucket.
 	assert.Len(t, dashboard.AgentCosts, 1)
 	assert.Equal(t, "agent-1", dashboard.AgentCosts[0].AgentID)
@@ -2129,8 +2129,8 @@ func TestUpdateProject(t *testing.T) {
 
 // TestUpdateProject_GitHubCredentialRoundTrip exercises the *string pointer
 // semantics for GitHubCredential (nil = preserve, "" = clear, value = set)
-// and confirms the value actually persists to .board.yaml on disk — not just
-// the in-memory store cache — by reloading it with board.LoadProjectConfig.
+// and confirms the value actually persists to .board.yaml on disk - not just
+// the in-memory store cache - by reloading it with board.LoadProjectConfig.
 func TestUpdateProject_GitHubCredentialRoundTrip(t *testing.T) {
 	svc, tmpDir, cleanup := setupTest(t)
 	defer cleanup()
@@ -2287,9 +2287,9 @@ func TestUpdateProject_RemoteExecutionNormalizesToNil(t *testing.T) {
 }
 
 // TestUpdateProject_FailedValidationLeavesStateUntouched pins the atomicity
-// contract of a rejected UpdateProject: a validation failure — whether caught
+// contract of a rejected UpdateProject: a validation failure - whether caught
 // at the deepest point (SaveProjectConfig, e.g. states missing "stalled") or
-// earlier (worker-image hygiene) — leaves both the on-disk .board.yaml and
+// earlier (worker-image hygiene) - leaves both the on-disk .board.yaml and
 // the store's cached config untouched. The contract holds by construction:
 // FilesystemStore.GetProject returns a copy, SaveProjectConfig validates
 // before writing, and caches update only after a successful save+commit.
@@ -2305,7 +2305,7 @@ func TestUpdateProject_FailedValidationLeavesStateUntouched(t *testing.T) {
 	}{
 		{
 			// Travels past all local-copy mutation down to SaveProject →
-			// validateProjectConfig — the deepest validation point. Works
+			// validateProjectConfig - the deepest validation point. Works
 			// because the fixture project has zero cards, so the earlier
 			// in-use-state check never fires.
 			name: "states missing stalled fail in SaveProjectConfig",
@@ -2565,7 +2565,7 @@ func TestUpdateProject_TodoToDone(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, cfg.Transitions["todo"], "done")
 
-	// done has no transitions entry — it is a valid terminal state
+	// done has no transitions entry - it is a valid terminal state
 	_, hasDoneTransitions := cfg.Transitions["done"]
 	assert.False(t, hasDoneTransitions, "done should be a terminal state with no transitions entry")
 }
@@ -2713,7 +2713,7 @@ func TestGitAutoCommitDisabled(t *testing.T) {
 	svc := NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, false, false)
 	ctx := context.Background()
 
-	// Create a card — should write file but not commit
+	// Create a card - should write file but not commit
 	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
 		Title:    "No-commit card",
 		Type:     "task",
@@ -2766,7 +2766,7 @@ func TestDeferredCommitAccumulates(t *testing.T) {
 	svc, gitMgr := setupDeferredTest(t)
 	ctx := context.Background()
 
-	// Create card — must commit immediately even in deferred mode.
+	// Create card - must commit immediately even in deferred mode.
 	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
 		Title: "Deferred Card", Type: "task", Priority: "medium",
 	})
@@ -2780,7 +2780,7 @@ func TestDeferredCommitAccumulates(t *testing.T) {
 	// Remember the creation commit message before further mutations.
 	creationMsg := msg
 
-	// Update card twice — these should be deferred, no new commits.
+	// Update card twice - these should be deferred, no new commits.
 	_, err = svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
 		Title: "Updated Once", Type: "task", State: "todo", Priority: "medium",
 	})
@@ -2791,7 +2791,7 @@ func TestDeferredCommitAccumulates(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// No new commits after updates — last commit is still the creation commit.
+	// No new commits after updates - last commit is still the creation commit.
 	msg, err = gitMgr.GetLastCommitMessage()
 	require.NoError(t, err)
 	assert.Equal(t, creationMsg, msg, "no new commit expected after updates in deferred mode")
@@ -2804,7 +2804,7 @@ func TestDeferredCommitAccumulates(t *testing.T) {
 }
 
 // TestDeferredCommitFlushOnDone verifies that transitioning to "done" does NOT
-// flush deferred commits — the flush happens at ReleaseCard instead.
+// flush deferred commits - the flush happens at ReleaseCard instead.
 func TestDeferredCommitFlushOnDone(t *testing.T) {
 	svc, gitMgr := setupDeferredTest(t)
 	ctx := context.Background()
@@ -2835,7 +2835,7 @@ func TestDeferredCommitFlushOnDone(t *testing.T) {
 	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{State: &done})
 	require.NoError(t, err)
 
-	// PatchCard(done) should NOT flush — last commit is still creation.
+	// PatchCard(done) should NOT flush - last commit is still creation.
 	msg, err := gitMgr.GetLastCommitMessage()
 	require.NoError(t, err)
 	assert.Equal(t, creationMsg, msg, "PatchCard(done) should not flush in deferred mode")
@@ -2846,7 +2846,7 @@ func TestDeferredCommitFlushOnDone(t *testing.T) {
 	svc.writeMu.Unlock()
 	assert.Positive(t, pathCount, "deferredPaths should still have entries before release")
 
-	// Release the card — this is where the flush should happen.
+	// Release the card - this is where the flush should happen.
 	_, err = svc.ReleaseCard(ctx, "test-project", card.ID, "agent-1")
 	require.NoError(t, err)
 
@@ -2934,7 +2934,7 @@ func TestDeferredCommitNoOpFlush(t *testing.T) {
 	// We do this by directly calling flushDeferredCommit on a card ID that has no deferred paths.
 	_ = ctx
 
-	// Flush on card with no deferred paths — should not produce a commit.
+	// Flush on card with no deferred paths - should not produce a commit.
 	svc.writeMu.Lock()
 	err := svc.flushDeferredCommit(ctx, "NONEXISTENT-001", "test-agent")
 	svc.writeMu.Unlock()
@@ -3018,7 +3018,7 @@ func TestRecalculateCosts(t *testing.T) {
 
 	ctx := context.Background()
 
-	// card1: has token usage but $0 cost, no model stored — should be recalculated with defaultModel
+	// card1: has token usage but $0 cost, no model stored - should be recalculated with defaultModel
 	card1, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
 		Title: "Zero cost card 1", Type: "task", Priority: "medium",
 	})
@@ -3027,7 +3027,7 @@ func TestRecalculateCosts(t *testing.T) {
 		AgentID:          "agent-1",
 		PromptTokens:     10000,
 		CompletionTokens: 2000,
-		// No Model — cost stays $0
+		// No Model - cost stays $0
 	})
 	require.NoError(t, err)
 
@@ -3037,13 +3037,13 @@ func TestRecalculateCosts(t *testing.T) {
 	// cost formula yields $0. Actually: report with model+tokens and then clear cost via
 	// another report with zero tokens. Simpler: just use ReportUsage without a model for
 	// token counts and manually verify that card has the stored model by seeding via a
-	// store update — but that bypasses the service. Instead, just test the case where
+	// store update - but that bypasses the service. Instead, just test the case where
 	// card.TokenUsage.Model is already set (non-empty) on a $0 card: report with model name
 	// but also confirm RecalculateCosts uses it.
 	// We'll report usage with a Model so TokenUsage.Model is set, but then create a fresh
 	// card whose TokenUsage we manually set via a separate ReportUsage call. To get a card
 	// whose model is stored but cost is $0, we call ReportUsage with a model that IS in
-	// the cost map — but that would produce a non-zero cost. So instead, report without
+	// the cost map - but that would produce a non-zero cost. So instead, report without
 	// a model (cost=$0, model="") and rely on defaultModel for recalculation.
 	// card2 tests the path where card.TokenUsage.Model is already set:
 	card2, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
@@ -3066,7 +3066,7 @@ func TestRecalculateCosts(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// card3: already has a non-zero cost — must NOT be touched
+	// card3: already has a non-zero cost - must NOT be touched
 	card3, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
 		Title: "Already costed card", Type: "task", Priority: "medium",
 	})
@@ -3090,7 +3090,7 @@ func TestRecalculateCosts(t *testing.T) {
 	require.NotNil(t, result)
 
 	// card1: 10000*0.000003 + 2000*0.000015 = 0.03 + 0.03 = 0.06
-	// card2: opus model stored — 1000*0.000005 + 500*0.000025 = 0.005 + 0.0125 = 0.0175
+	// card2: opus model stored - 1000*0.000005 + 500*0.000025 = 0.005 + 0.0125 = 0.0175
 	// Total: 0.06 + 0.0175 = 0.0775
 	assert.Equal(t, 2, result.CardsUpdated)
 	assert.InDelta(t, 0.0775, result.TotalCostRecalculated, 0.0001)
@@ -3154,7 +3154,7 @@ func TestRecalculateCostsSkipsUnknownModel(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Use an unknown default model — card should be skipped
+	// Use an unknown default model - card should be skipped
 	result, err := svc.RecalculateCosts(ctx, "test-project", "unknown-model-xyz")
 	require.NoError(t, err)
 	assert.Equal(t, 0, result.CardsUpdated)
@@ -3167,7 +3167,7 @@ func TestRecalculateCostsSkipsUnknownModel(t *testing.T) {
 
 // TestRecalculateCostsCacheOnlyCard verifies that RecalculateCosts re-prices a card
 // whose PromptTokens and CompletionTokens are both zero but whose cache counters are
-// non-zero — a case the old two-field guard incorrectly skipped.
+// non-zero - a case the old two-field guard incorrectly skipped.
 func TestRecalculateCostsCacheOnlyCard(t *testing.T) {
 	svc, _, cleanup := setupTestWithCosts(t)
 	defer cleanup()
@@ -3242,7 +3242,7 @@ func TestReportUsageUnknownModelEndToEnd(t *testing.T) {
 	assert.Equal(t, "claude-opus-4-7", updated.TokenUsage.Model)
 
 	// Phase 2: rebuild the service with the model now in the cost map and
-	// call RecalculateCosts — cost should be backfilled from stored tokens.
+	// call RecalculateCosts - cost should be backfilled from stored tokens.
 	boardsDir := filepath.Join(tmpDir, "boards")
 	store2, err := storage.NewFilesystemStore(boardsDir)
 	require.NoError(t, err)
@@ -3626,11 +3626,11 @@ func TestDeferredCommitFlushOnRelease(t *testing.T) {
 	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{State: &inProgress})
 	require.NoError(t, err)
 
-	// Post-creation mutations (claim, in_progress) should be deferred — no new commits.
+	// Post-creation mutations (claim, in_progress) should be deferred - no new commits.
 	msg, _ := gitMgr.GetLastCommitMessage()
 	assert.Equal(t, creationMsg, msg, "no new commits should exist while card is being worked on (post-creation mutations deferred)")
 
-	// Release the card — should flush all deferred changes
+	// Release the card - should flush all deferred changes
 	_, err = svc.ReleaseCard(ctx, "test-project", card.ID, "agent-1")
 	require.NoError(t, err)
 
@@ -3742,7 +3742,7 @@ func TestCreateCard_CommitsImmediatelyWithDeferredMode(t *testing.T) {
 	svc, gitMgr := setupDeferredTestWithReview(t)
 	ctx := context.Background()
 
-	// Create a card — must commit immediately even though deferredCommit=true
+	// Create a card - must commit immediately even though deferredCommit=true
 	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
 		Title: "Immediate commit test", Type: "task", Priority: "medium",
 	})
@@ -3929,7 +3929,7 @@ func TestUpdateCard_SubtaskTypeEnforcement(t *testing.T) {
 	t.Run("reject setting type to subtask on card without parent", func(t *testing.T) {
 		_, err := svc.UpdateCard(ctx, "test-project", standalone.ID, UpdateCardInput{
 			Title:    standalone.Title,
-			Type:     "subtask", // invalid — no parent
+			Type:     "subtask", // invalid - no parent
 			State:    standalone.State,
 			Priority: standalone.Priority,
 			Parent:   "",
@@ -3962,10 +3962,10 @@ func TestUpdateCard_SubtaskTypeEnforcement(t *testing.T) {
 		require.Equal(t, "task", fresh.Type)
 		require.Empty(t, fresh.Parent)
 
-		// UpdateCard sets parent — type must be auto-forced to "subtask"
+		// UpdateCard sets parent - type must be auto-forced to "subtask"
 		updated, err := svc.UpdateCard(ctx, "test-project", fresh.ID, UpdateCardInput{
 			Title:    fresh.Title,
-			Type:     "task", // caller passes "task" — should be overridden
+			Type:     "task", // caller passes "task" - should be overridden
 			State:    fresh.State,
 			Priority: fresh.Priority,
 			Parent:   parent.ID,
@@ -3986,10 +3986,10 @@ func TestUpdateCard_SubtaskTypeEnforcement(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "subtask", orphaned.Type)
 
-		// UpdateCard clears parent and still passes type="subtask" — should be auto-reset
+		// UpdateCard clears parent and still passes type="subtask" - should be auto-reset
 		updated, err := svc.UpdateCard(ctx, "test-project", orphaned.ID, UpdateCardInput{
 			Title:    orphaned.Title,
-			Type:     "subtask", // caller still passes subtask — should be reset to first project type
+			Type:     "subtask", // caller still passes subtask - should be reset to first project type
 			State:    orphaned.State,
 			Priority: orphaned.Priority,
 			Parent:   "", // clearing parent
@@ -4060,7 +4060,7 @@ func TestPatchCard_DoesNotChangeType(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "subtask", subtask.Type)
 
-	// Patch title only — type must remain subtask
+	// Patch title only - type must remain subtask
 	newTitle := "Patched Subtask"
 	patched, err := svc.PatchCard(ctx, "test-project", subtask.ID, PatchCardInput{
 		Title: &newTitle,
@@ -4078,7 +4078,7 @@ func TestImmediateCommitPatchCard_WhenDeferredOn(t *testing.T) {
 	svc, gitMgr := setupDeferredTest(t)
 	ctx := context.Background()
 
-	// Create card — commits immediately even in deferred mode.
+	// Create card - commits immediately even in deferred mode.
 	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
 		Title: "Human Editable Card", Type: "task", Priority: "medium",
 	})
@@ -4089,7 +4089,7 @@ func TestImmediateCommitPatchCard_WhenDeferredOn(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, creationMsg, card.ID, "creation commit must reference the card ID")
 
-	// Patch with ImmediateCommit=true — should produce a new commit immediately.
+	// Patch with ImmediateCommit=true - should produce a new commit immediately.
 	newTitle := "Human Updated Title"
 	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
 		Title:           &newTitle,
@@ -4111,7 +4111,7 @@ func TestDeferredCommitPatchCard_WhenImmediateCommitFalse(t *testing.T) {
 	svc, gitMgr := setupDeferredTest(t)
 	ctx := context.Background()
 
-	// Create card — commits immediately even in deferred mode.
+	// Create card - commits immediately even in deferred mode.
 	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
 		Title: "Agent Card", Type: "task", Priority: "medium",
 	})
@@ -4122,7 +4122,7 @@ func TestDeferredCommitPatchCard_WhenImmediateCommitFalse(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, creationMsg, card.ID)
 
-	// Patch with ImmediateCommit=false (default) — should defer.
+	// Patch with ImmediateCommit=false (default) - should defer.
 	newTitle := "Agent Updated Title"
 	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
 		Title:           &newTitle,
@@ -4130,7 +4130,7 @@ func TestDeferredCommitPatchCard_WhenImmediateCommitFalse(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// No new commit should have been produced — last commit is still creation.
+	// No new commit should have been produced - last commit is still creation.
 	msg, err := gitMgr.GetLastCommitMessage()
 	require.NoError(t, err)
 	assert.Equal(t, creationMsg, msg, "PatchCard with ImmediateCommit=false should not commit in deferred mode")
@@ -4148,7 +4148,7 @@ func TestImmediateCommitUpdateCard_WhenDeferredOn(t *testing.T) {
 	svc, gitMgr := setupDeferredTest(t)
 	ctx := context.Background()
 
-	// Create card — commits immediately even in deferred mode.
+	// Create card - commits immediately even in deferred mode.
 	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
 		Title: "Human Full Update Card", Type: "task", Priority: "medium",
 	})
@@ -4159,7 +4159,7 @@ func TestImmediateCommitUpdateCard_WhenDeferredOn(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, creationMsg, card.ID, "creation commit must reference the card ID")
 
-	// UpdateCard with ImmediateCommit=true — should produce a new commit immediately.
+	// UpdateCard with ImmediateCommit=true - should produce a new commit immediately.
 	_, err = svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
 		Title:           "Human Updated Full Title",
 		Type:            "task",
@@ -4184,7 +4184,7 @@ func TestDeferredCommitFlushOnNotPlanned(t *testing.T) {
 	svc, gitMgr := setupDeferredTest(t)
 	ctx := context.Background()
 
-	// Create card — immediate commit even in deferred mode.
+	// Create card - immediate commit even in deferred mode.
 	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
 		Title: "Will Be Not-Planned", Type: "task", Priority: "medium",
 	})
@@ -4260,7 +4260,7 @@ func TestNotPlannedReleasesAgent(t *testing.T) {
 
 // TestNotPlannedDoesNotAppearInStalledDetection verifies that a card in the
 // "not_planned" state is not picked up by processStalled even if it has an
-// old heartbeat — agent clearing on transition prevents this.
+// old heartbeat - agent clearing on transition prevents this.
 func TestNotPlannedDoesNotAppearInStalledDetection(t *testing.T) {
 	tmpDir := t.TempDir()
 	boardsDir := filepath.Join(tmpDir, "boards")
@@ -4302,7 +4302,7 @@ func TestNotPlannedDoesNotAppearInStalledDetection(t *testing.T) {
 	// Advance well past the stall timeout.
 	fake.Advance(20 * time.Millisecond)
 
-	// Run processStalled — the not_planned card should NOT be returned.
+	// Run processStalled - the not_planned card should NOT be returned.
 	err = svc.processStalled(ctx)
 	require.NoError(t, err)
 
@@ -4416,7 +4416,7 @@ func TestPatchCard_AutonomousFields(t *testing.T) {
 		assert.NotEmpty(t, patched.BranchName)
 		assert.Contains(t, patched.BranchName, "plain-task")
 
-		// Branch name is immutable — toggling off and on keeps the same name
+		// Branch name is immutable - toggling off and on keeps the same name
 		savedName := patched.BranchName
 		off := false
 		patched, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
@@ -4453,7 +4453,7 @@ func TestPatchCard_DisableFeatureBranch_ClearsCreatePR(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, card.CreatePR)
 
-	// Disable feature_branch via patch — create_pr should be auto-cleared.
+	// Disable feature_branch via patch - create_pr should be auto-cleared.
 	off := false
 	patched, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
 		FeatureBranch: &off,
@@ -4543,7 +4543,7 @@ func TestPatchCard_CreatePRWithoutFeatureBranch_Rejected(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, card.CreatePR)
 
-	// Patch: disable feature_branch but try to keep create_pr — must be rejected.
+	// Patch: disable feature_branch but try to keep create_pr - must be rejected.
 	off := false
 	on := true
 	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
@@ -4698,7 +4698,7 @@ func TestRecordPush_Atomic(t *testing.T) {
 	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-1")
 	require.NoError(t, err)
 
-	// Record a push with PR URL — both PR URL and log entry should be set atomically
+	// Record a push with PR URL - both PR URL and log entry should be set atomically
 	pushed, err := svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "feat/login", "https://github.com/org/repo/pull/42")
 	require.NoError(t, err)
 	assert.Equal(t, "https://github.com/org/repo/pull/42", pushed.PRUrl)
@@ -4828,7 +4828,7 @@ func TestUpdateWorkerStatus_FailedAfterTerminalNormalizesToCompleted(t *testing.
 	// of its normal terminal-status behaviour, so an empty worker_status
 	// here is the signal that the translation happened.
 	assert.Empty(t, updated.WorkerStatus,
-		"worker_status must be cleared — the post-terminal failure was normalized to completed")
+		"worker_status must be cleared - the post-terminal failure was normalized to completed")
 	assert.Equal(t, board.StateDone, updated.State, "card state must stay done")
 	assert.Empty(t, updated.AssignedAgent, "claim stays released")
 
@@ -4870,7 +4870,7 @@ func TestUpdateWorkerStatus_FailedAfterNotPlannedNormalizesToCompleted(t *testin
 	require.NoError(t, err)
 
 	// TransitionTo(not_planned) goes through enforceTerminalStateInvariants,
-	// which clears the agent claim itself — no explicit ReleaseCard needed
+	// which clears the agent claim itself - no explicit ReleaseCard needed
 	// (and an explicit call would error with "card is not claimed").
 	_, err = svc.TransitionTo(ctx, "test-project", card.ID, board.StateNotPlanned)
 	require.NoError(t, err)
@@ -4906,7 +4906,7 @@ func TestUpdateWorkerStatus_FailedMidRunStaysFailed(t *testing.T) {
 	_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "running", "container started")
 	require.NoError(t, err)
 
-	// Card is still in_progress — a failure here is a genuine run failure,
+	// Card is still in_progress - a failure here is a genuine run failure,
 	// not a post-terminal cleanup.
 	_, err = svc.TransitionTo(ctx, "test-project", card.ID, board.StateInProgress)
 	require.NoError(t, err)
@@ -4915,7 +4915,7 @@ func TestUpdateWorkerStatus_FailedMidRunStaysFailed(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "failed", updated.WorkerStatus,
-		"mid-run failure must remain failed — normalization only fires after terminal state")
+		"mid-run failure must remain failed - normalization only fires after terminal state")
 }
 
 // TestDeferredCommitFlushOnUpdateWorkerStatus verifies that when a card has
@@ -4929,7 +4929,7 @@ func TestDeferredCommitFlushOnUpdateWorkerStatus(t *testing.T) {
 	svc, gitMgr := setupDeferredTest(t)
 	ctx := context.Background()
 
-	// Create and claim a card — simulates an autonomous worker session.
+	// Create and claim a card - simulates an autonomous worker session.
 	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
 		Title: "Worker deferred flush test", Type: "task", Priority: "medium",
 	})
@@ -4945,7 +4945,7 @@ func TestDeferredCommitFlushOnUpdateWorkerStatus(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Record commit message before release — should still be the creation commit.
+	// Record commit message before release - should still be the creation commit.
 	creationMsg, err := gitMgr.GetLastCommitMessage()
 	require.NoError(t, err)
 	assert.Contains(t, creationMsg, card.ID, "pre-release commit must be the creation commit")
@@ -4965,7 +4965,7 @@ func TestDeferredCommitFlushOnUpdateWorkerStatus(t *testing.T) {
 	_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "completed", "container exited normally")
 	require.NoError(t, err)
 
-	// The worker_status update must be committed — not left as an uncommitted deferred path.
+	// The worker_status update must be committed - not left as an uncommitted deferred path.
 	afterStatusMsg, err := gitMgr.GetLastCommitMessage()
 	require.NoError(t, err)
 	assert.NotEqual(t, releaseMsg, afterStatusMsg,
@@ -5021,7 +5021,7 @@ func TestDeferredCommitPathsPreservedOnFailure(t *testing.T) {
 	svc.writeMu.Unlock()
 	require.Error(t, err, "flush should fail when staging a non-existent file")
 
-	// The paths should still be in the map — not deleted.
+	// The paths should still be in the map - not deleted.
 	svc.writeMu.Lock()
 	paths, hasPaths := svc.deferredPaths[card.ID]
 	svc.writeMu.Unlock()
@@ -5036,7 +5036,7 @@ func TestDeferredCommitFullWorkflowCommitCount(t *testing.T) {
 	svc, gitMgr := setupDeferredTestWithReview(t)
 	ctx := context.Background()
 
-	// Create card — commits immediately even in deferred mode.
+	// Create card - commits immediately even in deferred mode.
 	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
 		Title: "Workflow commit count", Type: "task", Priority: "medium",
 	})
@@ -5171,7 +5171,7 @@ func TestDeferredCommitUpdateWorkerStatusNonTerminal(t *testing.T) {
 	countAfterCreate, err := gitMgr.CommitCount()
 	require.NoError(t, err)
 
-	// Non-terminal status: queued — should NOT flush.
+	// Non-terminal status: queued - should NOT flush.
 	_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "queued", "task queued for worker")
 	require.NoError(t, err)
 
@@ -5179,7 +5179,7 @@ func TestDeferredCommitUpdateWorkerStatusNonTerminal(t *testing.T) {
 	assert.Equal(t, countAfterCreate, count,
 		"non-terminal worker status 'queued' should not flush deferred commits")
 
-	// Non-terminal status: running — should NOT flush.
+	// Non-terminal status: running - should NOT flush.
 	_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "running", "container started")
 	require.NoError(t, err)
 
@@ -5193,7 +5193,7 @@ func TestDeferredCommitUpdateWorkerStatusNonTerminal(t *testing.T) {
 	svc.writeMu.Unlock()
 	assert.Positive(t, pathCount, "deferred paths should accumulate for non-terminal statuses")
 
-	// Terminal status: failed — SHOULD flush.
+	// Terminal status: failed - SHOULD flush.
 	_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "failed", "container exited with code 1")
 	require.NoError(t, err)
 
@@ -5300,7 +5300,7 @@ func TestCreateCard_DuplicateSubtaskGuard(t *testing.T) {
 		_, err = svc.PatchCard(ctx, "test-project", existing.ID, PatchCardInput{State: &done})
 		require.NoError(t, err)
 
-		// Same title, same parent — but existing is done (terminal) so a new card must be created.
+		// Same title, same parent - but existing is done (terminal) so a new card must be created.
 		got, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
 			Title:    "Done Subtask",
 			Type:     "task",
@@ -5308,7 +5308,7 @@ func TestCreateCard_DuplicateSubtaskGuard(t *testing.T) {
 			Parent:   parent.ID,
 		})
 		require.NoError(t, err)
-		assert.NotEqual(t, existing.ID, got.ID, "terminal done state must not trigger dedup — new card expected")
+		assert.NotEqual(t, existing.ID, got.ID, "terminal done state must not trigger dedup - new card expected")
 	})
 
 	t.Run("not_planned state creates new card (terminal state)", func(t *testing.T) {
@@ -5322,7 +5322,7 @@ func TestCreateCard_DuplicateSubtaskGuard(t *testing.T) {
 			Parent:   parent.ID,
 		})
 		require.NoError(t, err)
-		assert.NotEqual(t, existing.ID, got.ID, "terminal not_planned state must not trigger dedup — new card expected")
+		assert.NotEqual(t, existing.ID, got.ID, "terminal not_planned state must not trigger dedup - new card expected")
 	})
 
 	t.Run("no dedup for top-level cards (no parent)", func(t *testing.T) {
@@ -5389,7 +5389,7 @@ func TestCreateCard_DuplicateSubtaskGuard(t *testing.T) {
 func TestCreateCard_VettedAutoDefault(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("no source — auto-vetted", func(t *testing.T) {
+	t.Run("no source - auto-vetted", func(t *testing.T) {
 		svc, _, cleanup := setupTest(t)
 		defer cleanup()
 
@@ -5402,7 +5402,7 @@ func TestCreateCard_VettedAutoDefault(t *testing.T) {
 		assert.True(t, card.Vetted, "cards without a source must be auto-vetted")
 	})
 
-	t.Run("with source — not vetted by default", func(t *testing.T) {
+	t.Run("with source - not vetted by default", func(t *testing.T) {
 		svc, _, cleanup := setupTest(t)
 		defer cleanup()
 
@@ -5591,7 +5591,7 @@ func TestUpdateCard_VettedField(t *testing.T) {
 		// A PUT that passes Vetted=false (zero value or explicit) on such a
 		// card cannot un-vet it. This protects against callers that build
 		// UpdateCardInput from the request body without copying the existing
-		// Vetted state — for example, a depends_on follow-up inside the
+		// Vetted state - for example, a depends_on follow-up inside the
 		// MCP create_card path that does not copy the auto-vetted flag.
 		svc, _, cleanup := setupTest(t)
 		defer cleanup()
@@ -5752,7 +5752,7 @@ func TestSourceImmutability_UpdateCard(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, card.Source)
 
-	// Full update (PUT semantics) — Source is not in UpdateCardInput, so it must
+	// Full update (PUT semantics) - Source is not in UpdateCardInput, so it must
 	// be preserved from the original card.
 	updated, err := svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
 		Title:    "Renamed Issue",
@@ -5793,7 +5793,7 @@ func TestSourceImmutability_PatchCard(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, card.Source)
 
-	// Patch title — Source must remain unchanged.
+	// Patch title - Source must remain unchanged.
 	newTitle := "Renamed GitHub Issue"
 	patched, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
 		Title: &newTitle,
@@ -5927,7 +5927,7 @@ func TestPromoteToAutonomous(t *testing.T) {
 		result, err := svc.PromoteToAutonomous(ctx, "test-project", card.ID, "human:bob")
 		require.NoError(t, err)
 		assert.True(t, result.Autonomous)
-		// No log entry added — idempotent.
+		// No log entry added - idempotent.
 		assert.Empty(t, result.ActivityLog, "idempotent promote must not add a log entry")
 	})
 
@@ -6028,7 +6028,7 @@ func TestPromoteToAutonomous(t *testing.T) {
 		require.Error(t, err)
 		require.ErrorIs(t, err, ErrPromoteRequiresHuman)
 
-		// Card must be unmodified — no autonomous flag, no log entry.
+		// Card must be unmodified - no autonomous flag, no log entry.
 		reloaded, err := svc.GetCard(ctx, "test-project", card.ID)
 		require.NoError(t, err)
 		assert.False(t, reloaded.Autonomous, "autonomous must not be set after rejected promote")
@@ -6133,7 +6133,7 @@ func TestStartTimeoutCheckerPanicRecovery(t *testing.T) {
 	// Advance fires one tick because the fake ticker coalesces within one
 	// Advance call.  We wait for the prior tick to be consumed before
 	// advancing again so every advance delivers exactly one firing.
-	fake.Advance(10 * time.Millisecond) // tick 1 — panics
+	fake.Advance(10 * time.Millisecond) // tick 1 - panics
 	// Small real-wallclock sleep to let the recovered-panic goroutine
 	// return before we schedule the next tick.
 	require.Eventually(t, func() bool {
@@ -6268,7 +6268,7 @@ func TestPatchCard_AgentOwnership(t *testing.T) {
 		_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-A")
 		require.NoError(t, err)
 
-		// Patch with mismatched agent-B — must be rejected before any mutation.
+		// Patch with mismatched agent-B - must be rejected before any mutation.
 		_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
 			AgentID: "agent-B",
 			Body:    newBody("should not be applied"),
@@ -6296,7 +6296,7 @@ func TestPatchCard_AgentOwnership(t *testing.T) {
 		_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-A")
 		require.NoError(t, err)
 
-		// Caller omits AgentID — ownership check is skipped.
+		// Caller omits AgentID - ownership check is skipped.
 		patched, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
 			Body: newBody("updated by backend"),
 		})
@@ -6398,7 +6398,7 @@ func TestPatchCard_ReferenceValidation(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		// Seed a cycle: A depends on B, B depends on A — written directly to bypass
+		// Seed a cycle: A depends on B, B depends on A - written directly to bypass
 		// UpdateCard's own cycle check so we can test PatchCard independently.
 		cardA.DependsOn = []string{cardB.ID}
 		require.NoError(t, svc.store.UpdateCard(ctx, "test-project", cardA))
@@ -6485,7 +6485,7 @@ func TestHealthCheck_StoreError(t *testing.T) {
 
 // failingStore is a storage.Store implementation whose ListProjects always errors.
 type failingStore struct {
-	storage.Store // embed nil interface — only ListProjects is called by HealthCheck
+	storage.Store // embed nil interface - only ListProjects is called by HealthCheck
 }
 
 func (f *failingStore) ListProjects(ctx context.Context) ([]board.ProjectConfig, error) {

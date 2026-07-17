@@ -19,7 +19,7 @@ import (
 )
 
 // stubOutcomeAdminStore is a minimal outcomeAdminStore double. Distinct from
-// backend_test.go's stubOutcomeStats (read-only: ModelOutcomeStats only) —
+// backend_test.go's stubOutcomeStats (read-only: ModelOutcomeStats only) -
 // the admin endpoints also need ResetModelOutcomes.
 type stubOutcomeAdminStore struct {
 	stats     []sqlite.OutcomeStats
@@ -81,7 +81,7 @@ func newOutcomeAdminServer(t *testing.T, store outcomeAdminStore, floor int, mul
 
 // deleteWithCSRF builds a DELETE request carrying the X-Requested-With
 // header the CSRF guard requires on every non-safe method, in every auth
-// mode — without it, csrfGuard 403s before the request ever reaches the
+// mode - without it, csrfGuard 403s before the request ever reaches the
 // admin handler.
 func deleteWithCSRF(t *testing.T, url string, cookie *http.Cookie) *http.Request {
 	t.Helper()
@@ -104,7 +104,7 @@ func TestAdminModelOutcomes_NoneMode(t *testing.T) {
 	}
 	server := newOutcomeAdminServer(t, store, 20, false)
 
-	// GET with no session at all — none mode is open, like project management.
+	// GET with no session at all - none mode is open, like project management.
 	resp, err := http.Get(server.URL + "/api/admin/model-outcomes")
 	require.NoError(t, err)
 
@@ -116,7 +116,7 @@ func TestAdminModelOutcomes_NoneMode(t *testing.T) {
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&stats))
 	assert.Equal(t, 5, stats.TotalSamples)
 
-	// DELETE — needs the CSRF header (unconditional in every mode), still no session.
+	// DELETE - needs the CSRF header (unconditional in every mode), still no session.
 	resp2, err := http.DefaultClient.Do(deleteWithCSRF(t, server.URL+"/api/admin/model-outcomes", nil))
 	require.NoError(t, err)
 
@@ -203,7 +203,7 @@ func TestAdminModelOutcomes_MultiMode_Admin200(t *testing.T) {
 }
 
 // TestAdminModelOutcomes_StatsShape exercises the handler directly (no auth
-// scaffolding needed — shape/arithmetic only) with the brief's exact case:
+// scaffolding needed - shape/arithmetic only) with the brief's exact case:
 // floor 20, one model with 21 samples/9 wins (win_rate ~0.4286, active),
 // another with 3 samples (inactive), total_samples 24.
 func TestAdminModelOutcomes_StatsShape(t *testing.T) {
@@ -268,7 +268,7 @@ func TestAdminModelOutcomes_StatsShape(t *testing.T) {
 	})
 }
 
-// TestAdminModelOutcomes_StoreErrors covers the 500 path on both handlers —
+// TestAdminModelOutcomes_StoreErrors covers the 500 path on both handlers -
 // not enumerated in the brief's 4 named cases, but new production code with
 // zero coverage on its only error branch is worth the few extra lines.
 func TestAdminModelOutcomes_StoreErrors(t *testing.T) {

@@ -9,7 +9,7 @@ import { ChangePasswordModal } from '../Auth/ChangePasswordModal';
  * logged out, so call sites need no conditional.
  *
  * Uses useOptionalAuth (not useAuth) so Sidebar still renders in tests that
- * mount it without an AuthProvider — see deviation note in task-6-report.md.
+ * mount it without an AuthProvider - see deviation note in task-6-report.md.
  * AuthProvider is unconditionally mounted at the App root, so in production
  * this behaves identically to useAuth.
  */

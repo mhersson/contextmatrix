@@ -4,7 +4,7 @@ This document is one worked example of a persistent, multi-machine deployment:
 **ContextMatrix in Kubernetes** and a **worker VM** running the two execution
 backends (`contextmatrix-agent serve` for card execution and
 `contextmatrix-chat serve` for the chat panel) alongside Docker. It is
-opinionated on purpose — a single coherent setup, not an exhaustive matrix of
+opinionated on purpose - a single coherent setup, not an exhaustive matrix of
 every supported permutation.
 
 ContextMatrix also runs as a single binary on your laptop with `./contextmatrix`
@@ -64,9 +64,9 @@ long-lived credential: agent workers receive a **per-run** token that CM mints
 and the agent backend refreshes host-side into the container; chat workers
 fetch a **per-repo** token on demand with a per-session bearer. CM also
 provisions the LLM inference endpoint (base URL + key) into each trigger and
-chat-start payload — the backends carry no model credentials of their own.
+chat-start payload - the backends carry no model credentials of their own.
 
-## Part 1 — ContextMatrix on Kubernetes
+## Part 1 - ContextMatrix on Kubernetes
 
 ### Building the image
 
@@ -74,14 +74,14 @@ The repo ships a multi-stage `Dockerfile`:
 
 - **Stage 1 (Node):** builds the React frontend.
 - **Stage 2 (Go):** compiles the binary with the frontend embedded via
-  `embed.FS` (`web/embed.go`) — the result is a single binary.
+  `embed.FS` (`web/embed.go`) - the result is a single binary.
 - **Stage 3 (Alpine):** runtime with `git` and `ca-certificates`. Runs as
   `nobody` with `HOME=/home/nobody`. All git remotes are HTTPS-only (the config
   validator rejects any non-`https://` `boards.git_remote_url` or
   `task_skills.git_remote_url`).
 
 Workflow skills are baked into the image at `/etc/contextmatrix/skills/`
-(`CONTEXTMATRIX_WORKFLOW_SKILLS_DIR`). Task-skills are **not** baked in — see the
+(`CONTEXTMATRIX_WORKFLOW_SKILLS_DIR`). Task-skills are **not** baked in - see the
 task-skills note below.
 
 ```bash
@@ -96,13 +96,13 @@ CM writes to the boards git repo on every mutation and keeps `ops.db` and
 `auth.db` on local disk. Use a **single-replica** Deployment with the `Recreate`
 strategy and a single ReadWriteOnce PVC that holds all three:
 
-- **Boards repo** — if the mounted directory is empty on startup, CM clones it
-  from `boards.git_remote_url` — but only when `boards.git_clone_on_empty: true`
+- **Boards repo** - if the mounted directory is empty on startup, CM clones it
+  from `boards.git_remote_url` - but only when `boards.git_clone_on_empty: true`
   (`CONTEXTMATRIX_BOARDS_GIT_CLONE_ON_EMPTY`, default `false`; without it CM
   runs `git init` on the empty directory instead). No manual init needed.
-- **`ops.db`** — chat sessions/transcripts, model outcomes, the self-learning
+- **`ops.db`** - chat sessions/transcripts, model outcomes, the self-learning
   blacklist, and the cost archive (`CONTEXTMATRIX_OP_STORE_DB_PATH`).
-- **`auth.db`** — users, sessions, one-time tokens, and the encrypted instance
+- **`auth.db`** - users, sessions, one-time tokens, and the encrypted instance
   credential pool (`CONTEXTMATRIX_AUTH_DB_PATH`).
 
 The main listener serves two unauthenticated probe endpoints (both excluded from
@@ -155,7 +155,7 @@ spec:
               value: /data/auth.db
             - name: CONTEXTMATRIX_AUTH_MASTER_KEY_FILE
               value: /secrets/auth/master.key
-            # GitHub App auth — CM is the only holder of this key.
+            # GitHub App auth - CM is the only holder of this key.
             - name: CONTEXTMATRIX_GITHUB_AUTH_MODE
               value: app
             - name: CONTEXTMATRIX_GITHUB_APP_ID
@@ -229,12 +229,12 @@ Notes:
 
   The master key encrypts the credential pool. If
   `CONTEXTMATRIX_AUTH_MASTER_KEY_FILE` is unset, CM auto-generates a key under
-  `~/.local/state/contextmatrix/` — in this manifest that is the `/home/nobody`
+  `~/.local/state/contextmatrix/` - in this manifest that is the `/home/nobody`
   `emptyDir`, which a pod restart wipes, leaving the pool undecryptable. Always
   mount a real key.
 
 On first start the pod log prints a one-time `/auth/token/<token>` bootstrap
-link — open it to create the admin account.
+link - open it to create the admin account.
 
 ### Task-skills
 
@@ -249,22 +249,22 @@ pointer server-side and mount the resolved subset into worker containers.
 ### Ingress, TLS, and path blocking
 
 CM authenticates users natively in the default `auth.mode: multi` (invite-only
-accounts, argon2id passwords, session cookies). The Ingress must provide **TLS**
-— session cookies and one-time links must never cross the network in the clear,
+accounts, argon2id passwords, session cookies). The Ingress must provide **TLS** -
+session cookies and one-time links must never cross the network in the clear,
 and CM does not terminate TLS itself.
 
 Block these paths at the Ingress so they are reachable only inside the cluster
 (and from the worker VM):
 
-- `/mcp*` — MCP endpoint (worker + human-agent access, Bearer-authed)
-- `/healthz`, `/readyz` — probes
+- `/mcp*` - MCP endpoint (worker + human-agent access, Bearer-authed)
+- `/healthz`, `/readyz` - probes
 
 CM runs a CSRF guard on every state-changing request: it requires
 `X-Requested-With: contextmatrix` (the web UI injects it). The Ingress must
 **preserve** that header.
 
 > In `auth.mode: none` there are no accounts at all, so an **authenticating**
-> proxy (SSO, Cloudflare Access, basic auth) is mandatory for any exposure — the
+> proxy (SSO, Cloudflare Access, basic auth) is mandatory for any exposure - the
 > proxy is the only thing standing between the internet and a fully trusting API.
 
 ### Admin listener (Prometheus + pprof)
@@ -276,7 +276,7 @@ auth on it. Scrape it from a Prometheus sidecar or a localhost-only path; never
 route it through the Ingress. A non-loopback bind logs a loud warning because
 pprof can dump heap and goroutine state.
 
-## Part 2 — Worker VM (agent + chat backends)
+## Part 2 - Worker VM (agent + chat backends)
 
 One VM runs both backends and Docker. Each backend receives HMAC-signed webhooks
 from CM, spawns worker containers, and streams their logs back.
@@ -295,7 +295,7 @@ from CM, spawns worker containers, and streams their logs back.
 
 Both binaries read `~/.config/contextmatrix-{agent,chat}/serve.yaml` (XDG
 default) and take `CMX_*` env overrides. Credentials are **not** configured
-here — CM provisions the git token, the LLM endpoint, and the task-skills clone
+here - CM provisions the git token, the LLM endpoint, and the task-skills clone
 token per run/session. Copy each repo's `serve.yaml.example` and set the
 connectivity fields:
 
@@ -303,8 +303,8 @@ connectivity fields:
 # ~/.config/contextmatrix-agent/serve.yaml
 contextmatrix_url: https://contextmatrix.example.com     # CM, as the VM sees it
 container_contextmatrix_url: http://172.17.0.1:8080      # CM, as containers see it
-api_key: "<agent-hmac — matches CONTEXTMATRIX_BACKEND_AGENT_API_KEY>"
-mcp_api_key: "<mcp-api-key — matches CONTEXTMATRIX_MCP_API_KEY>"
+api_key: "<agent-hmac - matches CONTEXTMATRIX_BACKEND_AGENT_API_KEY>"
+mcp_api_key: "<mcp-api-key - matches CONTEXTMATRIX_MCP_API_KEY>"
 port: 9092
 base_image: ghcr.io/mhersson/contextmatrix-agent@sha256:<digest>
 secrets_dir: /var/run/cm-agent/secrets
@@ -314,7 +314,7 @@ secrets_dir: /var/run/cm-agent/secrets
 # ~/.config/contextmatrix-chat/serve.yaml
 contextmatrix_url: https://contextmatrix.example.com
 container_contextmatrix_url: http://172.17.0.1:8080
-api_key: "<chat-hmac — matches CONTEXTMATRIX_BACKEND_CHAT_API_KEY>"
+api_key: "<chat-hmac - matches CONTEXTMATRIX_BACKEND_CHAT_API_KEY>"
 port: 9093
 base_image: ghcr.io/mhersson/contextmatrix-chat@sha256:<digest>
 secrets_dir: /var/run/cm-chat/secrets
@@ -324,7 +324,7 @@ chat_run_dir: /var/run/cm-chat/sessions
 `container_contextmatrix_url` is the CM address **reachable from inside a
 container** (workers derive `CM_MCP_URL` from it). With Docker bridge
 networking this is the bridge gateway (typically `172.17.0.1`), not CM's public
-hostname — containers cannot resolve the latter.
+hostname - containers cannot resolve the latter.
 
 ### systemd units
 
@@ -344,7 +344,7 @@ with a baseline sandbox (`NoNewPrivileges`, `ProtectSystem=strict`,
 `ProtectHome=read-only`, seccomp `@system-service`, `MemoryMax`, restart-backoff
 with jitter) and `ReadWritePaths` narrowed to the secrets dir (and, for chat,
 `chat_run_dir`). The default `secrets_dir` under `/var/run` is root-owned and
-not auto-created for a user service — pre-create it and `chown` it to the
+not auto-created for a user service - pre-create it and `chown` it to the
 operator, or point `secrets_dir`/`chat_run_dir` at a path under `%h`.
 
 Each backend also exposes an optional loopback-only admin listener
@@ -379,16 +379,16 @@ demand. Neither token is long-lived.
 
 CM uses Server-Sent Events for several long-lived streams. Configure the Ingress
 / reverse proxy to not buffer these and to use long idle timeouts (≥ a few
-minutes — CM emits keepalive comments, but a 60s idle timeout still cuts the
+minutes - CM emits keepalive comments, but a 60s idle timeout still cuts the
 connection):
 
-- `GET /api/events` — board events
-- `GET /api/worker/logs` — worker/session log stream (the card transcript and
+- `GET /api/events` - board events
+- `GET /api/worker/logs` - worker/session log stream (the card transcript and
   chat panel)
-- `GET /api/chats/{id}/stream` — chat session events
+- `GET /api/chats/{id}/stream` - chat session events
 
 A single dashboard tab opens several SSE connections; do not cap HTTP/2 streams
-per client below ~32. WebSockets are not used — everything streaming is SSE over
+per client below ~32. WebSockets are not used - everything streaming is SSE over
 HTTP/1.1 or HTTP/2.
 
 ## Secrets to provision
