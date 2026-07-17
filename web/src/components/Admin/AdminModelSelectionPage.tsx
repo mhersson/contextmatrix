@@ -1,11 +1,14 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 import { api } from '../../api/client';
+import { useAdminResource } from '../../hooks/useAdminResource';
 import { errorMessage } from '../../lib/errors';
 import type { ModelOutcomeStats } from '../../types';
 import { ConfirmModal } from '../ConfirmModal/ConfirmModal';
 import { ModelOutcomesTable } from './ModelOutcomesTable';
 
 const EMPTY_STATS: ModelOutcomeStats = { outcome_floor: 0, total_samples: 0, models: [] };
+
+const fetchOutcomes = () => api.adminModelOutcomes();
 
 /** Admin-only Model selection data page: per-model Best-of-N outcome stats
  * (samples, wins, win rate, cost, active-vs-floor status) plus a destructive
@@ -14,33 +17,19 @@ const EMPTY_STATS: ModelOutcomeStats = { outcome_floor: 0, total_samples: 0, mod
  * management. Owns all data fetching and the reset mutation; the table it
  * renders is purely presentational. */
 export function AdminModelSelectionPage() {
-  const [stats, setStats] = useState<ModelOutcomeStats>(EMPTY_STATS);
-  const [loading, setLoading] = useState(true);
-  const [listError, setListError] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const {
+    items: stats,
+    loading,
+    listError,
+    actionError,
+    setActionError,
+    refetch,
+  } = useAdminResource(fetchOutcomes, EMPTY_STATS, 'Failed to load model outcomes.');
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
 
-  const refetch = useCallback(async () => {
-    try {
-      const result = await api.adminModelOutcomes();
-      setStats(result);
-      setListError(null);
-    } catch (err) {
-      setListError(errorMessage(err, 'Failed to load model outcomes.'));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  // Mount-only fetch, delegated to refetch (also used after the reset
-  // mutation below) - mirrors AdminUsersPage / AdminCredentialsPage.
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void refetch();
-  }, [refetch]);
-
+  // Bespoke rather than act() - the reset owns a busy flag for the button.
   const confirmReset = async () => {
     setConfirmOpen(false);
     setActionError(null);

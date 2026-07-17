@@ -1,4 +1,5 @@
 import type { CredentialInfo } from '../../types';
+import { AdminTable, type AdminTableHeader } from './AdminTable';
 import { CredentialTableRow } from './CredentialTableRow';
 
 interface CredentialsTableProps {
@@ -10,13 +11,18 @@ interface CredentialsTableProps {
   onDelete: (credential: CredentialInfo) => void;
 }
 
-/**
- * Loading/error/empty-state wrapper and `<table>` markup for the
- * Credentials page. Purely presentational - AdminCredentialsPage owns all
- * data fetching, action logic, and the decision of what a row action should
- * do; this component only renders the current state and threads row
- * callbacks through to `CredentialTableRow`.
- */
+const HEADERS: AdminTableHeader[] = [
+  { label: 'Name' },
+  { label: 'Kind' },
+  { label: 'Host' },
+  { label: 'App ID' },
+  { label: 'Installation ID' },
+  { label: 'Created by' },
+  { label: 'Last used' },
+  { label: 'Status' },
+  { label: 'Actions', align: 'right' },
+];
+
 export function CredentialsTable({
   credentials,
   loading,
@@ -26,52 +32,22 @@ export function CredentialsTable({
   onDelete,
 }: CredentialsTableProps) {
   return (
-    <div
-      className="rounded-lg border overflow-hidden"
-      style={{ backgroundColor: 'var(--bg1)', borderColor: 'var(--bg3)' }}
+    <AdminTable
+      loading={loading}
+      error={error}
+      empty={credentials.length === 0}
+      emptyMessage="No credentials yet."
+      headers={HEADERS}
     >
-      {loading ? (
-        <div className="p-6 text-sm" style={{ color: 'var(--grey1)' }}>
-          Loading…
-        </div>
-      ) : error ? (
-        <div className="p-6 text-sm" role="alert" style={{ color: 'var(--red)' }}>
-          {error}
-        </div>
-      ) : credentials.length === 0 ? (
-        <div className="p-6 text-sm" style={{ color: 'var(--grey0)' }}>
-          No credentials yet.
-        </div>
-      ) : (
-        <div style={{ overflowX: 'auto' }}>
-          <table className="w-full text-sm" style={{ color: 'var(--fg)' }}>
-            <thead>
-              <tr style={{ color: 'var(--grey2)' }}>
-                <th className="text-left px-4 py-2 font-medium">Name</th>
-                <th className="text-left px-4 py-2 font-medium">Kind</th>
-                <th className="text-left px-4 py-2 font-medium">Host</th>
-                <th className="text-left px-4 py-2 font-medium">App ID</th>
-                <th className="text-left px-4 py-2 font-medium">Installation ID</th>
-                <th className="text-left px-4 py-2 font-medium">Created by</th>
-                <th className="text-left px-4 py-2 font-medium">Last used</th>
-                <th className="text-left px-4 py-2 font-medium">Status</th>
-                <th className="text-right px-4 py-2 font-medium">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {credentials.map((c) => (
-                <CredentialTableRow
-                  key={c.name}
-                  credential={c}
-                  onRotate={() => onRotate(c)}
-                  onToggleDisabled={() => onToggleDisabled(c)}
-                  onDelete={() => onDelete(c)}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
+      {credentials.map((c) => (
+        <CredentialTableRow
+          key={c.name}
+          credential={c}
+          onRotate={() => onRotate(c)}
+          onToggleDisabled={() => onToggleDisabled(c)}
+          onDelete={() => onDelete(c)}
+        />
+      ))}
+    </AdminTable>
   );
 }
