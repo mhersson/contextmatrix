@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/mhersson/contextmatrix/internal/sqliteutil"
 )
 
 func TestEnsureSchema_CreatesChatAndBlacklistTables(t *testing.T) {
@@ -93,7 +95,7 @@ func TestEnsureSchema_FailsFastOnNewerDB(t *testing.T) {
 	require.NoError(t, s.Close())
 
 	// Simulate a DB written by a newer binary.
-	db, err := sql.Open("sqlite", sqliteDSN(path))
+	db, err := sql.Open("sqlite", sqliteutil.DSN(path, sqliteutil.WithForeignKeys()))
 	require.NoError(t, err)
 	_, err = db.Exec("PRAGMA user_version = 999")
 	require.NoError(t, err)

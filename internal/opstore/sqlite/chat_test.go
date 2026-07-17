@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -114,44 +113,6 @@ func TestDeleteSession_CascadesMessages(t *testing.T) {
 	msgs, err := s.ListMessages(ctx, sess.ID, 0, 100)
 	require.NoError(t, err)
 	assert.Empty(t, msgs)
-}
-
-// TestSqliteDSN_PathFormats guards against a regression where url.URL.String()
-// places a relative path in the authority component (e.g. `file://chats.db`),
-// causing modernc.org/sqlite to error at first query with
-// "invalid uri authority". Both absolute and relative paths must produce a
-// DSN with no authority component, and must carry the synchronous=NORMAL
-// pragma alongside journal_mode=WAL. Mirrors the images package guard.
-func TestSqliteDSN_PathFormats(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name string
-		path string
-		want string
-	}{
-		{"absolute path", "/tmp/chats.db", "file:/tmp/chats.db?"},
-		{"relative path", "chats.db", "file:chats.db?"},
-		{"nested relative path", "data/chats.db", "file:data/chats.db?"},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			dsn := sqliteDSN(tc.path)
-
-			// Reject the broken `file://...` (authority) form.
-			assert.False(t, strings.HasPrefix(dsn, "file://"),
-				"DSN must not place path in authority component: %q", dsn)
-			assert.True(t, strings.HasPrefix(dsn, tc.want),
-				"DSN must start with %q, got %q", tc.want, dsn)
-			assert.Contains(t, dsn, "_pragma=foreign_keys(1)")
-			assert.Contains(t, dsn, "_pragma=journal_mode(WAL)")
-			assert.Contains(t, dsn, "_pragma=synchronous(NORMAL)")
-			assert.Contains(t, dsn, "_pragma=busy_timeout(5000)")
-		})
-	}
 }
 
 // TestStore_OpenRelativePath verifies the store opens cleanly when given a
