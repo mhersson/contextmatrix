@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useChatSessions } from '../../hooks/useChatSessions';
 import { useMobileSidebar } from '../../context/MobileSidebarContext';
 import { isTouchDevice } from '../../utils/isTouchDevice';
+import { safeGetString, safeSetString } from '../../utils/safeStorage';
 import type { ChatSession, ChatStatus } from '../../types';
 
 const STORAGE_KEY = 'sidebar.chat_section_collapsed';
@@ -28,22 +29,15 @@ export function ChatSection({ onNewChat }: { onNewChat: () => void }) {
   const mobileSidebar = useMobileSidebar();
   const draggable = !isTouchDevice();
 
-  const [collapsed, setCollapsed] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem(STORAGE_KEY) === '1';
-    } catch {
-      return false;
-    }
-  });
+  const [collapsed, setCollapsed] = useState<boolean>(
+    () => safeGetString(STORAGE_KEY) === '1',
+  );
 
   const toggle = () => {
     setCollapsed((c) => {
       const next = !c;
-      try {
-        localStorage.setItem(STORAGE_KEY, next ? '1' : '0');
-      } catch {
-        /* ignore */
-      }
+      safeSetString(STORAGE_KEY, next ? '1' : '0');
+
       return next;
     });
   };

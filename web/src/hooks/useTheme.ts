@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { createElement } from 'react';
 import { api } from '../api/client';
 import { useOptionalAuth } from './useAuth';
+import { safeGetString, safeSetString } from '../utils/safeStorage';
 
 type Theme = 'dark' | 'light';
 type Palette = 'everforest' | 'radix' | 'catppuccin';
@@ -12,27 +13,8 @@ const VALID_PALETTES: readonly Palette[] = ['everforest', 'radix', 'catppuccin']
 const STORAGE_KEY = 'theme';
 const PALETTE_STORAGE_KEY = 'palette';
 
-// Safari Private Browsing and some embedded contexts throw on any localStorage
-// access. ThemeProvider is the outermost provider in App.tsx, so a throw here
-// crashes the entire app. Wrap all reads and writes defensively.
-function safeGet(key: string): string | null {
-  try {
-    return localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-
-function safeSet(key: string, value: string): void {
-  try {
-    localStorage.setItem(key, value);
-  } catch {
-    // Ignore - palette/theme preferences are best-effort.
-  }
-}
-
 function getInitialTheme(): Theme {
-  const stored = safeGet(STORAGE_KEY);
+  const stored = safeGetString(STORAGE_KEY);
   if (stored === 'dark' || stored === 'light') {
     return stored;
   }
@@ -40,7 +22,7 @@ function getInitialTheme(): Theme {
 }
 
 function getStoredPalette(): Palette | null {
-  const stored = safeGet(PALETTE_STORAGE_KEY);
+  const stored = safeGetString(PALETTE_STORAGE_KEY);
   if (stored !== null && VALID_PALETTES.includes(stored as Palette)) {
     return stored as Palette;
   }
@@ -148,7 +130,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const user = useOptionalAuth()?.user ?? null;
 
   useEffect(() => {
-    safeSet(STORAGE_KEY, theme);
+    safeSetString(STORAGE_KEY, theme);
     applyTheme(theme);
   }, [theme]);
 
@@ -207,7 +189,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const setPalette = useCallback((p: Palette) => {
     setPaletteState(p);
     applyPalette(p);
-    safeSet(PALETTE_STORAGE_KEY, p);
+    safeSetString(PALETTE_STORAGE_KEY, p);
   }, []);
 
   const value = useMemo<ThemeContextValue>(

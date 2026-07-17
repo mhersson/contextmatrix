@@ -8,6 +8,7 @@ import { useChatLayout, type ChatLayoutState, type LRUEvictionEvent } from '../.
 import { useChatSessions, notifyChatSessionsChanged } from '../../hooks/useChatSessions';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { api, isAPIError } from '../../api/client';
+import { safeRemove } from '../../utils/safeStorage';
 import { ConfirmModal } from '../../components/ConfirmModal/ConfirmModal';
 import {
   CHAT_DRAG_START_EVENT,
@@ -219,7 +220,7 @@ export function ChatPage() {
     try {
       await api.deleteChat(chatId);
       layout.closePane(slot);
-      try { window.localStorage.removeItem('last_chat_id'); } catch { /* ignore */ }
+      safeRemove('last_chat_id');
     } catch (e) {
       const code = isAPIError(e) ? (e.code ?? 'UNKNOWN') : 'UNKNOWN';
       if (clearErrorTimerRef.current) clearTimeout(clearErrorTimerRef.current);
