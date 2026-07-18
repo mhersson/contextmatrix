@@ -681,3 +681,31 @@ func runModeOf(card *board.Card) (string, bool) {
 		return "", false
 	}
 }
+
+// enrichSubtaskCost sets SubtaskCostUSD to the summed EstimatedCostUSD of the
+// card's direct subtasks. Assigns rather than accumulates so a value carried
+// in from the store cache is overwritten. Best-effort: a list failure leaves
+// the field as-is rather than failing the read - the rollup is a decoration
+// on an otherwise intact card.
+func (s *CardService) enrichSubtaskCost(ctx context.Context, card *board.Card) {
+	if card.Type == board.SubtaskType {
+		return
+	}
+
+	subs, err := s.store.ListCards(ctx, card.Project, storage.CardFilter{Parent: card.ID})
+	if err != nil {
+		ctxlog.Logger(ctx).Warn("enrich subtask cost", "card_id", card.ID, "error", err)
+
+		return
+	}
+
+	var sum float64
+
+	for _, sub := range subs {
+		if sub.TokenUsage != nil {
+			sum += sub.TokenUsage.EstimatedCostUSD
+		}
+	}
+
+	card.SubtaskCostUSD = sum
+}

@@ -376,6 +376,7 @@ func (s *CardService) GetCard(ctx context.Context, project, id string) (*board.C
 	}
 
 	s.enrichDependenciesMet(ctx, card)
+	s.enrichSubtaskCost(ctx, card)
 
 	return card, nil
 }

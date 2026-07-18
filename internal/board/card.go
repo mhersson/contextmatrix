@@ -65,9 +65,12 @@ type Card struct {
 	// (plan|execute|judge|document|review|integrate|done). Orthogonal to State: State is the
 	// board lifecycle, Phase is agent progress inside it. Empty for cards not
 	// driven by the agent backend.
-	Phase          string          `yaml:"phase,omitempty"            json:"phase,omitempty"`
-	TokenUsage     *TokenUsage     `yaml:"token_usage,omitempty"      json:"token_usage,omitempty"`
-	UsageBreakdown []UsageBucket   `yaml:"usage_breakdown,omitempty"  json:"usage_breakdown,omitempty"`
+	Phase          string        `yaml:"phase,omitempty"            json:"phase,omitempty"`
+	TokenUsage     *TokenUsage   `yaml:"token_usage,omitempty"      json:"token_usage,omitempty"`
+	UsageBreakdown []UsageBucket `yaml:"usage_breakdown,omitempty"  json:"usage_breakdown,omitempty"`
+	// SubtaskCostUSD is the summed estimated cost of this card's direct
+	// subtasks. Computed on read (GetCard enrichment), never persisted.
+	SubtaskCostUSD float64         `yaml:"-" json:"subtask_cost_usd,omitempty"`
 	Created        time.Time       `yaml:"created"                    json:"created"`
 	Updated        time.Time       `yaml:"updated"                    json:"updated"`
 	ActivityLog    []ActivityEntry `yaml:"activity_log,omitempty"     json:"activity_log,omitempty"`
