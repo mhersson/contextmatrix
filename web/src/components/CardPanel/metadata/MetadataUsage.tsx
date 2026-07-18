@@ -44,26 +44,28 @@ export function MetadataUsage({ card }: MetadataUsageProps) {
           )}
         </div>
       )}
-      <ul className="flex flex-col gap-1">
-        {buckets.map((b, i) => (
-          <li key={`${b.agent}:${b.model}:${i}`} className="text-xs text-[var(--fg)]">
-            <div className="font-mono break-all">{b.model || '(unknown)'}</div>
-            <div className="text-[var(--grey1)]">
-              {b.agent} · {b.prompt_tokens + b.completion_tokens} tok ·{' '}
-              <span
-                title={
-                  b.cost_source === 'actual'
-                    ? 'actual provider cost'
-                    : 'estimated from rate table'
-                }
-              >
-                {formatCost(b.cost_usd)}
-                {b.cost_source === 'estimated' ? ' (est)' : ''}
-              </span>
-            </div>
-          </li>
-        ))}
-      </ul>
+      {buckets.length > 0 && (
+        <ul className="flex flex-col gap-1">
+          {buckets.map((b, i) => (
+            <li key={`${b.agent}:${b.model}:${i}`} className="text-xs text-[var(--fg)]">
+              <div className="font-mono break-all">{b.model || '(unknown)'}</div>
+              <div className="text-[var(--grey1)]">
+                {b.agent} · {b.prompt_tokens + b.completion_tokens} tok ·{' '}
+                <span
+                  title={
+                    b.cost_source === 'actual'
+                      ? 'actual provider cost'
+                      : 'estimated from rate table'
+                  }
+                >
+                  {formatCost(b.cost_usd)}
+                  {b.cost_source === 'estimated' ? ' (est)' : ''}
+                </span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }

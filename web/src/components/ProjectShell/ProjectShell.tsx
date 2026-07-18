@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef, lazy, Suspense } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
 import { useTimeoutRef } from '../../hooks/useTimeoutRef';
 import { useParams, useNavigate, Routes, Route } from 'react-router-dom';
 import { useBoard } from '../../hooks/useBoard';
@@ -84,11 +84,25 @@ export function ProjectShell() {
     }
   }, [showToast]);
 
-  const { config, cards, loading, error, connected, updateCardLocally, removeCardLocally, suppressSSE, unsuppressSSE } = useBoard(project || '', undefined, handleSyncEvent, handleCardCreated);
+  const { config, cards, loading, error, connected, refreshCard, updateCardLocally, removeCardLocally, suppressSSE, unsuppressSSE } = useBoard(project || '', undefined, handleSyncEvent, handleCardCreated);
 
   // Deep-link handling for ?card=ID - see useDeepLinkCard for full rationale.
   // Click-driven panel opens deliberately do NOT write to the URL.
   useDeepLinkCard({ cards, loading, selectedCard, setSelectedCard, project });
+
+  // Hydrate the selected card via single-card GET when the panel opens.
+  // The list endpoint (useBoard's `cards`) deliberately omits fields that are
+  // computed only on single-card GET, e.g. `subtask_cost_usd` - a finished
+  // parent card emits no further SSE events, so without this the panel would
+  // show a stale/under-populated total on a fresh page load or deep link.
+  // Keyed on the card id (not the card object) so merging the fetched card
+  // back into `cards` - which does not change `selectedCard`'s id - cannot
+  // retrigger this effect.
+  const selectedCardId = selectedCard?.id;
+  useEffect(() => {
+    if (!project || !selectedCardId) return;
+    void refreshCard(selectedCardId);
+  }, [project, selectedCardId, refreshCard]);
 
   const {
     handleCardMove, handleCardSave, handleClaim, handleRelease, handleCreateCard,
