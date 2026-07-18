@@ -89,6 +89,13 @@ type ReportUsageInput struct {
 	// records cost_source "actual"; EstimatedCostUSD is incremented by this
 	// value rather than the rate-table result.
 	ActualCostUSD *float64
+	// Phase, Step, and DurationMS are Prometheus-only attribution hints from
+	// the agent; they are never persisted on the card. Phase falls back to the
+	// card's current phase when empty. DurationMS is the wall time of the
+	// harness step; values <= 0 are ignored.
+	Phase      string
+	Step       string
+	DurationMS int64
 }
 
 // ProjectUsage contains aggregated token usage across all cards in a project.
@@ -278,6 +285,8 @@ func (s *CardService) ReportUsage(ctx context.Context, project, id string, input
 			ctxlog.Logger(ctx).Error("flush deferred commit on post-release usage report", "card_id", id, "error", flushErr)
 		}
 	}
+
+	s.emitUsageMetrics(ctx, project, card, input, deltaCost, costSource)
 
 	s.bus.Publish(events.Event{
 		Type:      events.CardUsageReported,
@@ -595,4 +604,80 @@ func upsertUsageBucket(card *board.Card, in ReportUsageInput, cost float64, sour
 		CostUSD:             cost,
 		CostSource:          source,
 	})
+}
+
+// emitUsageMetrics records the Prometheus side of a usage report. Called
+// after the commit landed so failed reports emit nothing. Model-less reports
+// (heartbeat health pattern) are skipped entirely - there is no spend or
+// model call to attribute.
+func (s *CardService) emitUsageMetrics(ctx context.Context, project string, card *board.Card, input ReportUsageInput, deltaCost float64, costSource string) {
+	if input.Model == "" {
+		return
+	}
+
+	phase := input.Phase
+	if phase == "" {
+		phase = card.Phase
+	}
+
+	phase = metrics.NormalizePhase(phase)
+	mode := s.runModeLabel(ctx, project, card)
+
+	metrics.LLMCostUSDTotal.WithLabelValues(project, input.Model, phase, mode, costSource).Add(deltaCost)
+	metrics.LLMCallsTotal.WithLabelValues(project, input.Model, phase, mode).Inc()
+
+	kinds := []struct {
+		kind   string
+		tokens int64
+	}{
+		{"prompt", input.PromptTokens},
+		{"completion", input.CompletionTokens},
+		{"cache_read", input.CacheReadTokens},
+		{"cache_creation", input.CacheCreationTokens},
+	}
+	for _, k := range kinds {
+		if k.tokens > 0 {
+			metrics.LLMTokensTotal.WithLabelValues(project, input.Model, phase, k.kind).Add(float64(k.tokens))
+		}
+	}
+
+	if input.DurationMS > 0 {
+		metrics.LLMStepDuration.WithLabelValues(input.Model, phase, metrics.NormalizeStep(input.Step)).
+			Observe(float64(input.DurationMS) / 1000.0)
+	}
+}
+
+// runModeLabel derives the bounded run_mode label from the card's frontmatter,
+// falling back to the parent card for subtasks: execute-phase usage lands on
+// subtask cards, which never carry the run-mode fields themselves.
+func (s *CardService) runModeLabel(ctx context.Context, project string, card *board.Card) string {
+	if mode, ok := runModeOf(card); ok {
+		return mode
+	}
+
+	if card.Parent == "" {
+		return "normal"
+	}
+
+	parent, err := s.store.GetCard(ctx, project, card.Parent)
+	if err != nil {
+		return "normal"
+	}
+
+	if mode, ok := runModeOf(parent); ok {
+		return mode
+	}
+
+	return "normal"
+}
+
+func runModeOf(card *board.Card) (string, bool) {
+	switch {
+	case card.BestOfN >= 2:
+		return "best_of_n", true
+	case card.MobParticipants >= 2:
+		return "mob", true
+	default:
+		return "", false
+	}
 }

@@ -142,6 +142,9 @@ type reportUsageInput struct {
 	CacheReadTokens     int64    `json:"cache_read_tokens,omitempty" jsonschema:"number of cache-read tokens (billed at 0.10× base input rate)"`
 	CacheCreationTokens int64    `json:"cache_creation_tokens,omitempty" jsonschema:"number of cache-creation tokens (billed at 1.25× base input rate)"`
 	ActualCostUSD       *float64 `json:"actual_cost_usd,omitempty" jsonschema:"authoritative provider-reported cost in USD for this delta; omit to use the server rate table"`
+	Phase               string   `json:"phase,omitempty" jsonschema:"FSM phase this usage belongs to (plan|execute|judge|document|review|integrate|done); omit to use the card's current phase"`
+	Step                string   `json:"step,omitempty" jsonschema:"model-call kind within the phase (main|gate|brainstorm|verify_propose|mob_seat|mob_moderator|checkpoint|judge); omit for the primary phase call"`
+	DurationMS          int64    `json:"duration_ms,omitempty" jsonschema:"wall time of the model step in milliseconds; used for latency metrics only"`
 }
 
 type recalculateCostsInput struct {
@@ -548,6 +551,11 @@ func registerReportUsage(server *mcp.Server, svc *service.CardService) {
 				input.CardID, *input.ActualCostUSD)
 		}
 
+		if input.DurationMS < 0 {
+			return nil, nil, fmt.Errorf("report usage for %s: duration must be non-negative (duration_ms=%d)",
+				input.CardID, input.DurationMS)
+		}
+
 		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
 		if err != nil {
 			return nil, nil, err
@@ -561,6 +569,9 @@ func registerReportUsage(server *mcp.Server, svc *service.CardService) {
 			CacheReadTokens:     input.CacheReadTokens,
 			CacheCreationTokens: input.CacheCreationTokens,
 			ActualCostUSD:       input.ActualCostUSD,
+			Phase:               input.Phase,
+			Step:                input.Step,
+			DurationMS:          input.DurationMS,
 		})
 		if err != nil {
 			return nil, nil, fmt.Errorf("report usage for %s: %w", input.CardID, err)
