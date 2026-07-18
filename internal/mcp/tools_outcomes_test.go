@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/gitops"
 	"github.com/mhersson/contextmatrix/internal/lock"
+	"github.com/mhersson/contextmatrix/internal/metrics"
 	"github.com/mhersson/contextmatrix/internal/opstore/sqlite"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/internal/storage"
@@ -246,4 +248,35 @@ func TestReportModelOutcomeTool(t *testing.T) {
 		require.True(t, ok)
 		assert.Contains(t, textContent.Text, "invalid result")
 	})
+}
+
+func TestReportModelOutcomeIncrementsMetrics(t *testing.T) {
+	w := &fakeOutcomeWriter{}
+	env := setupOutcomeMCP(t, w)
+
+	createTestCard(t, env, "Best-of-N metrics run", "task", "medium")
+	callTool(t, env, "claim_card", map[string]any{
+		"project":  "test-project",
+		"card_id":  "TEST-001",
+		"agent_id": "cmx-agent-cm-1",
+	})
+
+	winBase := testutil.ToFloat64(metrics.ModelOutcomesTotal.WithLabelValues("vendor/metrics-a", "win"))
+	lossBase := testutil.ToFloat64(metrics.ModelOutcomesTotal.WithLabelValues("vendor/metrics-b", "loss"))
+
+	result := callTool(t, env, "report_model_outcome", map[string]any{
+		"project":  "test-project",
+		"card_id":  "TEST-001",
+		"agent_id": "cmx-agent-cm-1",
+		"outcomes": []map[string]any{
+			{"model": "vendor/metrics-a", "result": "win", "verify_pass": true, "cost_usd": 1.0, "n_candidates": 2},
+			{"model": "vendor/metrics-b", "result": "loss", "verify_pass": false, "cost_usd": 0.5, "n_candidates": 2},
+		},
+	})
+	require.False(t, result.IsError)
+
+	assert.InDelta(t, winBase+1,
+		testutil.ToFloat64(metrics.ModelOutcomesTotal.WithLabelValues("vendor/metrics-a", "win")), 1e-9)
+	assert.InDelta(t, lossBase+1,
+		testutil.ToFloat64(metrics.ModelOutcomesTotal.WithLabelValues("vendor/metrics-b", "loss")), 1e-9)
 }

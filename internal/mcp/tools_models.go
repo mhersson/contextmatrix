@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/mhersson/contextmatrix/internal/metrics"
 )
 
 // BlacklistWriter is the op-store surface this tool needs.
@@ -28,6 +30,8 @@ func reportIncapableModelHandler(w BlacklistWriter) func(context.Context, *mcp.C
 		if err := w.RecordIncapableModel(ctx, in.ModelSlug, in.Reason, in.SampleCardID, in.AgentID); err != nil {
 			return nil, nil, fmt.Errorf("report_incapable_model: %w", err)
 		}
+
+		metrics.ModelBlacklistsTotal.WithLabelValues(in.ModelSlug).Inc()
 
 		return nil, map[string]any{"status": "recorded", "slug": in.ModelSlug}, nil
 	}
