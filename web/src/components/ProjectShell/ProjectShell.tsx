@@ -84,7 +84,7 @@ export function ProjectShell() {
     }
   }, [showToast]);
 
-  const { config, cards, loading, error, connected, refreshCard, updateCardLocally, removeCardLocally, suppressSSE, unsuppressSSE } = useBoard(project || '', undefined, handleSyncEvent, handleCardCreated);
+  const { config, cards, loading, error, connected, refreshCard, listEpoch, updateCardLocally, removeCardLocally, suppressSSE, unsuppressSSE } = useBoard(project || '', undefined, handleSyncEvent, handleCardCreated);
 
   // Deep-link handling for ?card=ID - see useDeepLinkCard for full rationale.
   // Click-driven panel opens deliberately do NOT write to the URL.
@@ -97,12 +97,15 @@ export function ProjectShell() {
   // show a stale/under-populated total on a fresh page load or deep link.
   // Keyed on the card id (not the card object) so merging the fetched card
   // back into `cards` - which does not change `selectedCard`'s id - cannot
-  // retrigger this effect.
+  // retrigger this effect. Also keyed on listEpoch: a wholesale list replace
+  // (sync pull, SSE-reconnect resync) rebuilds `cards` from the list endpoint
+  // and wipes hydrated fields, so the epoch bump re-fires the fetch. No loop:
+  // refreshCard merges without bumping the epoch - only fetchData bumps it.
   const selectedCardId = selectedCard?.id;
   useEffect(() => {
     if (!project || !selectedCardId) return;
     void refreshCard(selectedCardId);
-  }, [project, selectedCardId, refreshCard]);
+  }, [project, selectedCardId, refreshCard, listEpoch]);
 
   const {
     handleCardMove, handleCardSave, handleClaim, handleRelease, handleCreateCard,
