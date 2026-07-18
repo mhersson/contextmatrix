@@ -80,6 +80,12 @@ func (s *CardService) ClaimCard(ctx context.Context, project, id, agentID string
 		return nil, rollbackErr
 	}
 
+	// Fresh claims on parent/standalone cards start the run timer;
+	// same-card re-claims by a resuming agent keep the original start.
+	if snapshot.AssignedAgent == "" && snapshot.Parent == "" {
+		s.recordRunStart(project, id)
+	}
+
 	s.bus.Publish(events.Event{
 		Type:      events.CardClaimed,
 		Project:   project,
@@ -141,6 +147,8 @@ func (s *CardService) ReleaseCard(ctx context.Context, project, id, agentID stri
 
 		return nil, rollbackErr
 	}
+
+	s.observeRunEnd(project, card, releaseOutcome(card.State))
 
 	s.bus.Publish(events.Event{
 		Type:      events.CardReleased,
@@ -535,6 +543,7 @@ func (s *CardService) stallCardLocked(ctx context.Context, project string, card 
 	})
 
 	metrics.StallCardsMarked.Inc()
+	s.observeRunEnd(project, card, "stalled")
 
 	ctxlog.Logger(ctx).Info("card marked stalled",
 		"project", project,
