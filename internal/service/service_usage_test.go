@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -1144,4 +1145,34 @@ func TestGetCard_SubtaskCostRollup_NoSubtasks(t *testing.T) {
 	card, err := svc.GetCard(ctx, project, cardID)
 	require.NoError(t, err)
 	assert.Zero(t, card.SubtaskCostUSD)
+}
+
+// failingListStore satisfies storage.Store for the enrichment failure path:
+// GetCard succeeds, every ListCards call fails, and the nil embedded Store
+// panics on anything else - so the test also pins that the GetCard read path
+// touches no other store methods for a dependency-free card.
+type failingListStore struct {
+	storage.Store
+	card *board.Card
+}
+
+func (s failingListStore) GetCard(context.Context, string, string) (*board.Card, error) {
+	return s.card, nil
+}
+
+func (failingListStore) ListCards(context.Context, string, storage.CardFilter) ([]*board.Card, error) {
+	return nil, errors.New("boom")
+}
+
+func TestGetCard_SubtaskCostListFailureDoesNotFailRead(t *testing.T) {
+	card := &board.Card{
+		ID: "CMX-001", Title: "t", Project: "p", Type: "task",
+		State: "todo", Priority: "medium",
+	}
+	svc := &CardService{store: failingListStore{card: card}}
+
+	got, err := svc.GetCard(context.Background(), "p", "CMX-001")
+
+	require.NoError(t, err)
+	assert.Zero(t, got.SubtaskCostUSD)
 }
