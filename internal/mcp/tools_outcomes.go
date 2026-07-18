@@ -6,6 +6,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/mhersson/contextmatrix/internal/metrics"
 	"github.com/mhersson/contextmatrix/internal/opstore/sqlite"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
@@ -63,6 +64,12 @@ func reportModelOutcomeHandler(svc *service.CardService, w OutcomeWriter) func(c
 
 		if err := w.RecordModelOutcomes(ctx, rows); err != nil {
 			return nil, nil, fmt.Errorf("report_model_outcome: %w", err)
+		}
+
+		// The result enum is store-validated, so a successful write
+		// guarantees bounded label values.
+		for _, row := range rows {
+			metrics.ModelOutcomesTotal.WithLabelValues(row.Model, row.Result).Inc()
 		}
 
 		return nil, map[string]any{"status": "recorded", "rows": len(rows)}, nil

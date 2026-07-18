@@ -7,7 +7,11 @@ import (
 	"time"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/metrics"
 	"github.com/mhersson/contextmatrix/internal/storage"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -887,4 +891,182 @@ func TestRecalculateCostsResolvesRatesOutsideWriteMu(t *testing.T) {
 	assert.False(t, underLock.Load(), "catalog rate lookups must be pre-resolved outside writeMu")
 	assert.Equal(t, 1, res.CardsUpdated)
 	assert.InDelta(t, 3.0, res.TotalCostRecalculated, 1e-9)
+}
+
+// histogramSampleCount returns the observation count for one label combination
+// of a HistogramVec. testutil.ToFloat64 does not support histograms.
+func histogramSampleCount(t *testing.T, vec *prometheus.HistogramVec, lvs ...string) uint64 {
+	t.Helper()
+
+	h, err := vec.GetMetricWithLabelValues(lvs...)
+	require.NoError(t, err)
+
+	m := &dto.Metric{}
+	require.NoError(t, h.(prometheus.Metric).Write(m))
+
+	return m.GetHistogram().GetSampleCount()
+}
+
+func TestReportUsageEmitsLLMMetrics(t *testing.T) {
+	svc, _, cleanup := setupTestWithCosts(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "LLM metrics test", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	const model = "claude-sonnet-4-6"
+
+	costBase := testutil.ToFloat64(metrics.LLMCostUSDTotal.WithLabelValues("test-project", model, "execute", "normal", "estimated"))
+	promptBase := testutil.ToFloat64(metrics.LLMTokensTotal.WithLabelValues("test-project", model, "execute", "prompt"))
+	completionBase := testutil.ToFloat64(metrics.LLMTokensTotal.WithLabelValues("test-project", model, "execute", "completion"))
+	cacheReadBase := testutil.ToFloat64(metrics.LLMTokensTotal.WithLabelValues("test-project", model, "execute", "cache_read"))
+	callsBase := testutil.ToFloat64(metrics.LLMCallsTotal.WithLabelValues("test-project", model, "execute", "normal"))
+	stepBase := histogramSampleCount(t, metrics.LLMStepDuration, model, "execute", "main")
+
+	got, err := svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID:          "agent-metrics",
+		Model:            model,
+		PromptTokens:     100,
+		CompletionTokens: 50,
+		Phase:            "execute",
+		Step:             "main",
+		DurationMS:       5000,
+	})
+	require.NoError(t, err)
+
+	deltaCost := got.TokenUsage.EstimatedCostUSD
+
+	assert.InDelta(t, costBase+deltaCost,
+		testutil.ToFloat64(metrics.LLMCostUSDTotal.WithLabelValues("test-project", model, "execute", "normal", "estimated")), 1e-9)
+	assert.InDelta(t, promptBase+100,
+		testutil.ToFloat64(metrics.LLMTokensTotal.WithLabelValues("test-project", model, "execute", "prompt")), 1e-9)
+	assert.InDelta(t, completionBase+50,
+		testutil.ToFloat64(metrics.LLMTokensTotal.WithLabelValues("test-project", model, "execute", "completion")), 1e-9)
+	assert.InDelta(t, cacheReadBase,
+		testutil.ToFloat64(metrics.LLMTokensTotal.WithLabelValues("test-project", model, "execute", "cache_read")), 1e-9,
+		"zero-valued token kinds must not be added")
+	assert.InDelta(t, callsBase+1,
+		testutil.ToFloat64(metrics.LLMCallsTotal.WithLabelValues("test-project", model, "execute", "normal")), 1e-9)
+	assert.Equal(t, stepBase+1, histogramSampleCount(t, metrics.LLMStepDuration, model, "execute", "main"))
+}
+
+// TestReportUsageLLMMetricsPhaseFallbackActualSource verifies that an old
+// agent omitting the phase field still gets correct attribution from the
+// card's current phase, and that a provider-authoritative cost lands under
+// source="actual".
+func TestReportUsageLLMMetricsPhaseFallbackActualSource(t *testing.T) {
+	svc, _, cleanup := setupTestWithCosts(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Phase fallback test", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	phase := "review"
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{Phase: &phase})
+	require.NoError(t, err)
+
+	const model = "claude-sonnet-4-6"
+
+	costBase := testutil.ToFloat64(metrics.LLMCostUSDTotal.WithLabelValues("test-project", model, "review", "normal", "actual"))
+
+	actual := 0.37
+	_, err = svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID:          "agent-metrics",
+		Model:            model,
+		PromptTokens:     10,
+		CompletionTokens: 5,
+		ActualCostUSD:    &actual,
+	})
+	require.NoError(t, err)
+
+	assert.InDelta(t, costBase+actual,
+		testutil.ToFloat64(metrics.LLMCostUSDTotal.WithLabelValues("test-project", model, "review", "normal", "actual")), 1e-9)
+}
+
+// TestReportUsageLLMMetricsRunModeFromParent verifies the subtask fallback:
+// execute-phase usage is reported on subtask cards, which carry no run-mode
+// fields - the parent's frontmatter must supply the run_mode label.
+func TestReportUsageLLMMetricsRunModeFromParent(t *testing.T) {
+	svc, _, cleanup := setupTestWithCosts(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	parent, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Mob parent", Type: "task", Priority: "medium", MobParticipants: 3,
+	})
+	require.NoError(t, err)
+
+	sub, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Mob subtask", Type: "task", Priority: "medium", Parent: parent.ID,
+	})
+	require.NoError(t, err)
+
+	const model = "claude-sonnet-4-6"
+
+	mobBase := testutil.ToFloat64(metrics.LLMCallsTotal.WithLabelValues("test-project", model, "execute", "mob"))
+
+	_, err = svc.ReportUsage(ctx, "test-project", sub.ID, ReportUsageInput{
+		AgentID:          "agent-metrics",
+		Model:            model,
+		PromptTokens:     10,
+		CompletionTokens: 5,
+		Phase:            "execute",
+	})
+	require.NoError(t, err)
+
+	assert.InDelta(t, mobBase+1,
+		testutil.ToFloat64(metrics.LLMCallsTotal.WithLabelValues("test-project", model, "execute", "mob")), 1e-9)
+
+	// A best_of_n card reports on itself.
+	bon, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Best-of-N card", Type: "task", Priority: "medium", BestOfN: 3,
+	})
+	require.NoError(t, err)
+
+	bonBase := testutil.ToFloat64(metrics.LLMCallsTotal.WithLabelValues("test-project", model, "judge", "best_of_n"))
+
+	_, err = svc.ReportUsage(ctx, "test-project", bon.ID, ReportUsageInput{
+		AgentID:          "agent-metrics",
+		Model:            model,
+		PromptTokens:     10,
+		CompletionTokens: 5,
+		Phase:            "judge",
+	})
+	require.NoError(t, err)
+
+	assert.InDelta(t, bonBase+1,
+		testutil.ToFloat64(metrics.LLMCallsTotal.WithLabelValues("test-project", model, "judge", "best_of_n")), 1e-9)
+}
+
+// TestReportUsageNoModelSkipsLLMMetrics verifies that model-less health
+// reports (heartbeat pattern) create no LLM metric series.
+func TestReportUsageNoModelSkipsLLMMetrics(t *testing.T) {
+	svc, _, cleanup := setupTestWithCosts(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "No model test", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	seriesBase := testutil.CollectAndCount(metrics.LLMCallsTotal)
+
+	_, err = svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID: "agent-metrics",
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, seriesBase, testutil.CollectAndCount(metrics.LLMCallsTotal),
+		"model-less usage reports must not create LLM metric series")
 }

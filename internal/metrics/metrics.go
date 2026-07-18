@@ -161,7 +161,124 @@ var (
 		Name: "contextmatrix_chat_cost_summary_errors_total",
 		Help: "GetChatCostSummary failures during GetDashboard (chat-cost fields fall back to zero).",
 	})
+
+	// Runtime execution telemetry. All label values pass through server-side
+	// normalization (NormalizePhase / NormalizeStep, run-mode and outcome enums
+	// computed in the service layer), so clients cannot mint unbounded series.
+	// The model label is verbatim, matching ReportUsageUnknownModelTotal.
+
+	LLMCostUSDTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "contextmatrix_llm_cost_usd_total",
+		Help: "LLM spend in USD reported via report_usage, by project, model, phase, run mode, and cost source.",
+	}, []string{"project", "model", "phase", "run_mode", "source"})
+
+	LLMTokensTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "contextmatrix_llm_tokens_total",
+		Help: "LLM tokens reported via report_usage, by project, model, phase, and token kind.",
+	}, []string{"project", "model", "phase", "kind"})
+
+	LLMCallsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "contextmatrix_llm_calls_total",
+		Help: "report_usage calls carrying a model, by project, model, phase, and run mode.",
+	}, []string{"project", "model", "phase", "run_mode"})
+
+	// LLMStepDuration buckets span a single harness step: a multi-turn agentic
+	// model call that runs seconds to tens of minutes.
+	LLMStepDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "contextmatrix_llm_step_duration_seconds",
+		Help:    "Wall time of one harness model step as reported by the agent, by model, phase, and step kind.",
+		Buckets: []float64{5, 15, 30, 60, 120, 300, 600, 1200, 1800, 3600},
+	}, []string{"model", "phase", "step"})
+
+	// PhaseDuration is observed server-side from consecutive card phase
+	// updates. Phases run from sub-minute (gate-ish) to many hours (execute).
+	PhaseDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "contextmatrix_phase_duration_seconds",
+		Help:    "Time a card spent in an FSM phase, measured between phase updates, by project and phase.",
+		Buckets: []float64{30, 60, 120, 300, 600, 1200, 1800, 3600, 7200, 14400, 28800},
+	}, []string{"project", "phase"})
+
+	// CardRunDuration measures claim to terminal (release/stall/failed
+	// callback) for parent and standalone cards; subtask claims are excluded.
+	CardRunDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "contextmatrix_card_run_duration_seconds",
+		Help:    "Card run duration from claim to terminal event, by project, outcome, and run mode.",
+		Buckets: []float64{60, 300, 600, 1800, 3600, 7200, 14400, 28800, 57600, 86400},
+	}, []string{"project", "outcome", "run_mode"})
+
+	CardRunsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "contextmatrix_card_runs_total",
+		Help: "Card runs reaching a terminal event, by project, outcome, and run mode.",
+	}, []string{"project", "outcome", "run_mode"})
+
+	RunAgents = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "contextmatrix_run_agents",
+		Help:    "Agents participating in a card run (mob participants + guests, best-of-N candidates, or 1), by run mode.",
+		Buckets: []float64{1, 2, 3, 4, 5, 6, 8, 10},
+	}, []string{"run_mode"})
+
+	ModelOutcomesTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "contextmatrix_model_outcomes_total",
+		Help: "Best-of-N per-candidate judge outcomes recorded via report_model_outcome, by model and result.",
+	}, []string{"model", "result"})
+
+	ModelBlacklistsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "contextmatrix_model_blacklists_total",
+		Help: "Models reported incapable via report_incapable_model, by model.",
+	}, []string{"model"})
+
+	ChatCostUSDTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "contextmatrix_chat_cost_usd_total",
+		Help: "Chat session spend in USD priced from worker usage frames, by project and model.",
+	}, []string{"project", "model"})
+
+	ChatTokensTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "contextmatrix_chat_tokens_total",
+		Help: "Chat session tokens from worker usage frames, by project, model, and token kind.",
+	}, []string{"project", "model", "kind"})
 )
+
+// validPhases mirrors the board package's phase enum. Duplicated here rather
+// than imported so the metrics package stays dependency-free and usable from
+// any layer without import cycles.
+var validPhases = map[string]struct{}{
+	"plan": {}, "execute": {}, "judge": {}, "document": {},
+	"review": {}, "integrate": {}, "done": {},
+}
+
+var validSteps = map[string]struct{}{
+	"main": {}, "gate": {}, "brainstorm": {}, "verify_propose": {},
+	"mob_seat": {}, "mob_moderator": {}, "checkpoint": {}, "judge": {},
+}
+
+// NormalizePhase maps a client-supplied phase to the bounded label enum:
+// empty becomes "none", unknown values become "other".
+func NormalizePhase(phase string) string {
+	if phase == "" {
+		return "none"
+	}
+
+	if _, ok := validPhases[phase]; ok {
+		return phase
+	}
+
+	return "other"
+}
+
+// NormalizeStep maps a client-supplied step to the bounded label enum:
+// empty becomes "main" (the primary phase model call), unknown values
+// become "other".
+func NormalizeStep(step string) string {
+	if step == "" {
+		return "main"
+	}
+
+	if _, ok := validSteps[step]; ok {
+		return step
+	}
+
+	return "other"
+}
 
 // Register registers all metrics with the given registerer. Re-registering an
 // already-registered collector is not an error; tests and potential hot-reload
@@ -188,6 +305,18 @@ func Register(reg prometheus.Registerer) {
 		GitHubPagesTruncatedTotal,
 		ChatUsageUnknownModelTotal,
 		ChatCostSummaryErrorsTotal,
+		LLMCostUSDTotal,
+		LLMTokensTotal,
+		LLMCallsTotal,
+		LLMStepDuration,
+		PhaseDuration,
+		CardRunDuration,
+		CardRunsTotal,
+		RunAgents,
+		ModelOutcomesTotal,
+		ModelBlacklistsTotal,
+		ChatCostUSDTotal,
+		ChatTokensTotal,
 	}
 
 	for _, c := range collectors {

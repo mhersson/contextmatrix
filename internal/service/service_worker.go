@@ -261,6 +261,7 @@ func (s *CardService) UpdateWorkerStatus(ctx context.Context, project, cardID, s
 	}
 
 	prevWorkerStatus := card.WorkerStatus
+	hadAgent := card.AssignedAgent != ""
 	card.WorkerStatus = status
 	card.Updated = s.clk.Now()
 
@@ -305,6 +306,14 @@ func (s *CardService) UpdateWorkerStatus(ctx context.Context, project, cardID, s
 		s.writeMu.Unlock()
 
 		return nil, rollbackErr
+	}
+
+	// A failed/killed callback with the claim still in place is the only
+	// terminal path that bypasses ReleaseCard: a hard worker crash never
+	// releases. Post-terminal cleanup callbacks were normalized to
+	// "completed" above and the release already popped the run.
+	if (status == "failed" || status == "killed") && hadAgent {
+		s.observeRunEnd(project, card, "failed")
 	}
 
 	s.runSessionManagerLifecycleHooks(ctx, cardID, project, prevWorkerStatus, status)

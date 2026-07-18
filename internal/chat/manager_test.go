@@ -22,7 +22,9 @@ import (
 	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/chat"
 	"github.com/mhersson/contextmatrix/internal/clock"
+	"github.com/mhersson/contextmatrix/internal/metrics"
 	"github.com/mhersson/contextmatrix/internal/opstore/sqlite"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 // stubBackend is a fake chat.Backend used by manager tests. Counters are atomic
@@ -3806,4 +3808,53 @@ func TestGetChatCostSummary_SeriesDefensiveCopy(t *testing.T) {
 
 	assert.InDelta(t, origVal, series2[29], 1e-9,
 		"mutating series1 must not corrupt the cached entry: series2[29] should still equal the original value")
+}
+
+// TestHandleUsageEntry_EmitsChatMetrics verifies that a priced usage frame
+// advances the project/model-labeled chat cost and token counters.
+func TestHandleUsageEntry_EmitsChatMetrics(t *testing.T) {
+	hub := chat.NewSSEHub(64)
+
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	const model = "chat-metrics-model"
+
+	pricer := newStubPricer(map[string]float64{model: 0.02})
+
+	backend := &usageStreamingBackend{
+		entries: []chat.LogEntry{
+			{Type: "usage", Usage: &chat.TokenUsage{InputTokens: 100, OutputTokens: 50, CacheReadTokens: 200, CacheCreateTokens: 10}, Model: model},
+		},
+	}
+
+	mgr := chat.NewManager(chat.Config{
+		Store:        store,
+		Backend:      backend,
+		Clock:        clock.Real(),
+		IdleTTL:      time.Hour,
+		Hub:          hub,
+		DefaultModel: model,
+		Pricer:       pricer,
+	})
+
+	costBase := testutil.ToFloat64(metrics.ChatCostUSDTotal.WithLabelValues("metrics-project", model))
+	promptBase := testutil.ToFloat64(metrics.ChatTokensTotal.WithLabelValues("metrics-project", model, "prompt"))
+	cacheReadBase := testutil.ToFloat64(metrics.ChatTokensTotal.WithLabelValues("metrics-project", model, "cache_read"))
+
+	ctx := context.Background()
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", Project: "metrics-project", CreatedBy: "x"})
+	require.NoError(t, err)
+
+	openAndWaitForUsageEvent(t, mgr, hub, sess.ID)
+
+	// The SSE publish happens after IncrementSessionCost and the metric
+	// increments run between the two, so the event guarantees visibility.
+	assert.InDelta(t, costBase+0.02,
+		testutil.ToFloat64(metrics.ChatCostUSDTotal.WithLabelValues("metrics-project", model)), 1e-9)
+	assert.InDelta(t, promptBase+100,
+		testutil.ToFloat64(metrics.ChatTokensTotal.WithLabelValues("metrics-project", model, "prompt")), 1e-9)
+	assert.InDelta(t, cacheReadBase+200,
+		testutil.ToFloat64(metrics.ChatTokensTotal.WithLabelValues("metrics-project", model, "cache_read")), 1e-9)
 }

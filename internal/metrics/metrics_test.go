@@ -101,6 +101,18 @@ func TestRegister_AllMetricsPresent(t *testing.T) {
 		{"contextmatrix_http_requests_total", metrics.HTTPRequestsTotal},
 		{"contextmatrix_http_request_duration_seconds", metrics.HTTPRequestDuration},
 		{"contextmatrix_backend_webhook_total", metrics.BackendWebhookTotal},
+		{"contextmatrix_llm_cost_usd_total", metrics.LLMCostUSDTotal},
+		{"contextmatrix_llm_tokens_total", metrics.LLMTokensTotal},
+		{"contextmatrix_llm_calls_total", metrics.LLMCallsTotal},
+		{"contextmatrix_llm_step_duration_seconds", metrics.LLMStepDuration},
+		{"contextmatrix_phase_duration_seconds", metrics.PhaseDuration},
+		{"contextmatrix_card_run_duration_seconds", metrics.CardRunDuration},
+		{"contextmatrix_card_runs_total", metrics.CardRunsTotal},
+		{"contextmatrix_run_agents", metrics.RunAgents},
+		{"contextmatrix_model_outcomes_total", metrics.ModelOutcomesTotal},
+		{"contextmatrix_model_blacklists_total", metrics.ModelBlacklistsTotal},
+		{"contextmatrix_chat_cost_usd_total", metrics.ChatCostUSDTotal},
+		{"contextmatrix_chat_tokens_total", metrics.ChatTokensTotal},
 	}
 
 	for _, tc := range vecCases {
@@ -121,4 +133,58 @@ func TestRegister_Idempotent(t *testing.T) {
 
 	require.NotPanics(t, func() { metrics.Register(reg) })
 	require.NotPanics(t, func() { metrics.Register(reg) })
+}
+
+func TestNormalizePhase(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{"", "none"},
+		{"plan", "plan"},
+		{"execute", "execute"},
+		{"judge", "judge"},
+		{"document", "document"},
+		{"review", "review"},
+		{"integrate", "integrate"},
+		{"done", "done"},
+		{"bogus", "other"},
+		{"PLAN", "other"},
+	}
+
+	for _, tt := range tests {
+		t.Run("in="+tt.in, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, metrics.NormalizePhase(tt.in))
+		})
+	}
+}
+
+func TestNormalizeStep(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{"", "main"},
+		{"main", "main"},
+		{"gate", "gate"},
+		{"brainstorm", "brainstorm"},
+		{"verify_propose", "verify_propose"},
+		{"mob_seat", "mob_seat"},
+		{"mob_moderator", "mob_moderator"},
+		{"checkpoint", "checkpoint"},
+		{"judge", "judge"},
+		{"bogus", "other"},
+	}
+
+	for _, tt := range tests {
+		t.Run("in="+tt.in, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, metrics.NormalizeStep(tt.in))
+		})
+	}
 }

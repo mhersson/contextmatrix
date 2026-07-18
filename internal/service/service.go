@@ -85,6 +85,15 @@ type CardService struct {
 	// Protected by writeMu (always held during card mutations).
 	deferredPaths map[string][]string
 
+	// telemetryMu guards phaseStarts and runStarts, the in-memory timers
+	// behind the phase-duration and card-run Prometheus metrics. Separate
+	// from writeMu: observations run after commits land, outside the write
+	// lock. Both maps are keyed project/cardID and best-effort (lost on
+	// restart - see service_telemetry.go).
+	telemetryMu sync.Mutex
+	phaseStarts map[string]phaseStart
+	runStarts   map[string]time.Time
+
 	// onCommit is called after each successful git commit.
 	// Used by the sync layer to trigger push-after-commit.
 	onCommit func()
@@ -205,6 +214,8 @@ func NewCardService(
 		gitAutoCommit:     gitAutoCommit,
 		gitDeferredCommit: gitDeferredCommit,
 		deferredPaths:     make(map[string][]string),
+		phaseStarts:       make(map[string]phaseStart),
+		runStarts:         make(map[string]time.Time),
 		validator:         board.NewValidator(),
 		clk:               clk,
 		configs:           make(map[string]*board.ProjectConfig),

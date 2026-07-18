@@ -386,7 +386,7 @@ func roleFromLogType(typ string) Role {
 // Invoked only from the per-session worker-log consumer goroutine.
 // IncrementSessionCost is atomic so any future change weakening that invariant
 // cannot lose updates.
-func (m *Manager) handleUsageEntry(ctx context.Context, sessionID string, e LogEntry) {
+func (m *Manager) handleUsageEntry(ctx context.Context, sessionID, project string, e LogEntry) {
 	if e.Usage == nil {
 		return
 	}
@@ -444,6 +444,25 @@ func (m *Manager) handleUsageEntry(ctx context.Context, sessionID string, e LogE
 		return // Do NOT publish SessionUpdate - mirrors UpdateContextTokens early-return.
 	}
 
+	// Cost may be $0 (unknown model) - added anyway, matching the persisted
+	// value; tokens skip zero kinds so no empty series appear.
+	metrics.ChatCostUSDTotal.WithLabelValues(project, model).Add(cost)
+
+	kinds := []struct {
+		kind   string
+		tokens int64
+	}{
+		{"prompt", prompt},
+		{"completion", completion},
+		{"cache_read", cacheRead},
+		{"cache_creation", cacheCreate},
+	}
+	for _, k := range kinds {
+		if k.tokens > 0 {
+			metrics.ChatTokensTotal.WithLabelValues(project, model, k.kind).Add(float64(k.tokens))
+		}
+	}
+
 	if m.hub != nil {
 		m.hub.PublishSessionUpdate(sessionID, SessionUpdate{
 			ContextTokens:          tokens,
@@ -491,9 +510,16 @@ func (m *Manager) startConsumer(sessionID string) {
 			m.mu.Unlock()
 		}()
 
+		// Resolve the session's project once for metric labels; usage frames
+		// carry only the session ID. Project-less global sessions map to "none".
+		project := "none"
+		if sess, err := m.store.GetSession(ctx, sessionID); err == nil && sess.Project != "" {
+			project = sess.Project
+		}
+
 		onEntry := func(e LogEntry) {
 			if e.Type == "usage" {
-				m.handleUsageEntry(ctx, sessionID, e)
+				m.handleUsageEntry(ctx, sessionID, project, e)
 
 				return
 			}

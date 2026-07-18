@@ -1367,6 +1367,7 @@ func (s *CardService) applyCardMutation(
 	}
 
 	oldState := card.State
+	oldPhase := card.Phase
 
 	if err := apply(card, cfg); err != nil {
 		s.writeMu.Unlock()
@@ -1399,6 +1400,10 @@ func (s *CardService) applyCardMutation(
 	card, err = s.commitAndRollbackOrReturn(ctx, project, id, card, snapshot, opts, stateChanged)
 	if err != nil {
 		return nil, err
+	}
+
+	if card.Phase != oldPhase {
+		s.trackPhaseChange(project, id, oldPhase, card.Phase)
 	}
 
 	s.publishStateOrUpdate(project, id, card, opts.commitAgentID, oldState, stateChanged)
