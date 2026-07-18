@@ -164,3 +164,142 @@ describe('useBoard - SSE reconnect resync', () => {
     await waitFor(() => expect(vi.mocked(api.getCards)).toHaveBeenCalledTimes(2));
   });
 });
+
+describe('useBoard - refreshCard (panel-open hydration)', () => {
+  beforeEach(() => {
+    instances = [];
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  it('replaces the selected card in state with the single-card GET result', async () => {
+    // Mirrors what ProjectShell does on panel open: the list endpoint omits
+    // subtask_cost_usd (a single-card-GET-only field), so opening the panel
+    // must fetch and merge the enriched card by id.
+    const listCard: Card = {
+      id: 'ALPHA-1',
+      title: 'Parent card',
+      project: 'alpha',
+      type: 'task',
+      state: 'done',
+      priority: 'medium',
+      created: '2026-01-01T00:00:00Z',
+      updated: '2026-01-01T00:00:00Z',
+      body: '',
+    };
+    const enrichedCard: Card = { ...listCard, subtask_cost_usd: 12.34 };
+
+    vi.mocked(api.getProject).mockResolvedValue(projectConfig);
+    vi.mocked(api.getCards).mockResolvedValue([listCard]);
+    vi.mocked(api.getCard).mockResolvedValue(enrichedCard);
+
+    const { result } = renderHook(() => useBoard('alpha'), { wrapper });
+
+    await waitFor(() => expect(result.current.cards).toHaveLength(1));
+    expect(result.current.cards[0].subtask_cost_usd).toBeUndefined();
+
+    await act(async () => {
+      await result.current.refreshCard('ALPHA-1');
+    });
+
+    expect(api.getCard).toHaveBeenCalledWith('alpha', 'ALPHA-1');
+    expect(result.current.cards).toHaveLength(1);
+    expect(result.current.cards[0].subtask_cost_usd).toBe(12.34);
+  });
+
+  it('logs and leaves state unchanged when the single-card GET fails', async () => {
+    const listCard: Card = {
+      id: 'ALPHA-1',
+      title: 'Parent card',
+      project: 'alpha',
+      type: 'task',
+      state: 'done',
+      priority: 'medium',
+      created: '2026-01-01T00:00:00Z',
+      updated: '2026-01-01T00:00:00Z',
+      body: '',
+    };
+
+    vi.mocked(api.getProject).mockResolvedValue(projectConfig);
+    vi.mocked(api.getCards).mockResolvedValue([listCard]);
+    vi.mocked(api.getCard).mockRejectedValue(new Error('boom'));
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const { result } = renderHook(() => useBoard('alpha'), { wrapper });
+
+    await waitFor(() => expect(result.current.cards).toHaveLength(1));
+
+    await act(async () => {
+      await result.current.refreshCard('ALPHA-1');
+    });
+
+    expect(result.current.cards).toEqual([listCard]);
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      'Failed to refresh card:',
+      'ALPHA-1',
+      expect.any(Error)
+    );
+    consoleErrorSpy.mockRestore();
+  });
+
+  it('skips hydration while a patch is in flight for the card', async () => {
+    const listCard: Card = {
+      id: 'ALPHA-1',
+      title: 'Parent card',
+      project: 'alpha',
+      type: 'task',
+      state: 'done',
+      priority: 'medium',
+      created: '2026-01-01T00:00:00Z',
+      updated: '2026-01-01T00:00:00Z',
+      body: '',
+    };
+
+    vi.mocked(api.getProject).mockResolvedValue(projectConfig);
+    vi.mocked(api.getCards).mockResolvedValue([listCard]);
+    vi.mocked(api.getCard).mockResolvedValue({ ...listCard, subtask_cost_usd: 1 });
+
+    const { result } = renderHook(() => useBoard('alpha'), { wrapper });
+
+    await waitFor(() => expect(result.current.cards).toHaveLength(1));
+
+    // While a patchCard is in flight (suppressSSE), hydration must not fetch:
+    // merging the pre-patch server snapshot would revert the optimistic update.
+    act(() => {
+      result.current.suppressSSE('ALPHA-1');
+    });
+    await act(async () => {
+      await result.current.refreshCard('ALPHA-1');
+    });
+    expect(api.getCard).not.toHaveBeenCalled();
+
+    act(() => {
+      result.current.unsuppressSSE('ALPHA-1');
+    });
+    await act(async () => {
+      await result.current.refreshCard('ALPHA-1');
+    });
+    expect(api.getCard).toHaveBeenCalledWith('alpha', 'ALPHA-1');
+  });
+
+  it('bumps listEpoch on every wholesale list replace', async () => {
+    vi.mocked(api.getProject).mockResolvedValue(projectConfig);
+    vi.mocked(api.getCards).mockResolvedValue([]);
+    vi.mocked(api.getCard).mockRejectedValue(new Error('not used in this test'));
+
+    const { result } = renderHook(() => useBoard('alpha'), { wrapper });
+
+    // Initial load is the first wholesale replace.
+    await waitFor(() => expect(result.current.listEpoch).toBe(1));
+
+    // refresh() reruns fetchData - e.g. what a sync.completed pull triggers.
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(result.current.listEpoch).toBe(2);
+  });
+});

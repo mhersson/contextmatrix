@@ -53,6 +53,8 @@ export interface Card {
   activity_log?: ActivityEntry[];
   token_usage?: TokenUsage;
   usage_breakdown?: UsageBucket[];
+  /** Summed estimated cost of direct subtasks. Computed on read; absent when zero. */
+  subtask_cost_usd?: number;
   body: string;
   // skills uses three-state semantics (matching the backend):
   //   undefined / null - use project default (or full set if project default is null)

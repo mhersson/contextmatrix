@@ -301,6 +301,7 @@ type Card struct {
     Phase               string          `yaml:"phase,omitempty"                 json:"phase,omitempty"`
     TokenUsage          *TokenUsage     `yaml:"token_usage,omitempty"           json:"token_usage,omitempty"`
     UsageBreakdown      []UsageBucket   `yaml:"usage_breakdown,omitempty"       json:"usage_breakdown,omitempty"`
+    SubtaskCostUSD      float64         `yaml:"-"                               json:"subtask_cost_usd,omitempty"`
     Created             time.Time       `yaml:"created"                         json:"created"`
     Updated             time.Time       `yaml:"updated"                         json:"updated"`
     ActivityLog         []ActivityEntry `yaml:"activity_log,omitempty"          json:"activity_log,omitempty"`
@@ -464,7 +465,12 @@ generation.
 **Server-managed fields** (set by service layer, not by clients directly): `id`,
 `created`, `updated`, `assigned_agent`, `last_heartbeat`, `activity_log`,
 `worker_status`, `review_attempts`, `branch_name`, `token_usage`,
-`usage_breakdown`, `dependencies_met`.
+`usage_breakdown`, `dependencies_met`, `subtask_cost_usd`.
+
+`dependencies_met` and `subtask_cost_usd` are computed on read and never
+persisted to card frontmatter. `subtask_cost_usd` is the summed
+`estimated_cost_usd` of the card's direct subtasks (single-card GET only;
+list responses do not carry it); omitted when zero.
 
 **Agent-managed field** - `phase`: the agent-orchestrator's progress within a run
 (`plan` | `execute` | `judge` | `document` | `review` | `integrate` | `done`), orthogonal

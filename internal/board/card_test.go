@@ -953,3 +953,15 @@ body
 		assert.Equal(t, "go-development", card.ActivityLog[0].Skill)
 	})
 }
+
+func TestSerializeCardOmitsSubtaskCost(t *testing.T) {
+	card := &Card{
+		ID: "CMX-001", Title: "t", Project: "p", Type: "task",
+		State: "todo", Priority: "medium",
+		SubtaskCostUSD: 1.23,
+	}
+
+	data, err := SerializeCard(card)
+	require.NoError(t, err)
+	assert.NotContains(t, string(data), "subtask_cost_usd")
+}

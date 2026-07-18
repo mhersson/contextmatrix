@@ -15,6 +15,14 @@ interface UseBoardResult {
   error: string | null;
   connected: boolean;
   refresh: () => Promise<void>;
+  /**
+   * Increments on every successful wholesale list replace (initial load,
+   * sync-pull reload, SSE-reconnect resync). Consumers holding a hydrated
+   * card key re-hydration effects on this: the replace rebuilds `cards` from
+   * the list endpoint, which omits single-card-GET-only fields.
+   */
+  listEpoch: number;
+  refreshCard: (cardId: string) => Promise<void>;
   updateCardLocally: (cardId: string, updates: Partial<Card>) => void;
   removeCardLocally: (cardId: string) => void;
   suppressSSE: (cardId: string) => void;
@@ -38,6 +46,7 @@ export function useBoard(
 ): UseBoardResult {
   const [config, setConfig] = useState<ProjectConfig | null>(null);
   const [cards, setCards] = useState<Card[]>([]);
+  const [listEpoch, setListEpoch] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const inFlightRef = useRef<Set<string>>(new Set());
@@ -79,6 +88,7 @@ export function useBoard(
       if (reqId !== reqIdRef.current) return;
       setConfig(projectConfig);
       setCards(projectCards);
+      setListEpoch((e) => e + 1);
     } catch (err) {
       if (reqId !== reqIdRef.current) return;
       setError(isAPIError(err) ? err.error : 'Failed to load board');
@@ -114,6 +124,45 @@ export function useBoard(
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchData();
   }, [project, stableFilter, fetchData]);
+
+  // Replace-by-id merge shared by the SSE refetch below and refreshCard: if
+  // the card is already in state its entry is replaced in place, otherwise it
+  // is appended.
+  const mergeCard = useCallback((card: Card) => {
+    setCards((prev) => {
+      const index = prev.findIndex((c) => c.id === card.id);
+      if (index >= 0) {
+        const updated = [...prev];
+        updated[index] = card;
+        return updated;
+      }
+      return [...prev, card];
+    });
+  }, []);
+
+  // Fetches the single-card GET for `cardId` and merges the result into
+  // state. Single-card GET carries fields the list endpoint omits (e.g.
+  // `subtask_cost_usd`) - callers use this to hydrate a card the list
+  // response under-populated, without waiting for an SSE event that may
+  // never arrive (a finished card emits no further events).
+  const refreshCard = useCallback(
+    async (cardId: string) => {
+      if (!project) return;
+      // Match the SSE refetch's optimistic-update suppression (see
+      // handleEvent): while a patchCard is in flight for this card, a
+      // hydration fetch could merge the pre-patch server snapshot and
+      // revert the optimistic update. Skipping is safe - the next open or
+      // epoch bump re-fetches.
+      if (inFlightRef.current.has(cardId)) return;
+      try {
+        const card = await api.getCard(project, cardId);
+        mergeCard(card);
+      } catch (err) {
+        console.error('Failed to refresh card:', cardId, err);
+      }
+    },
+    [project, mergeCard]
+  );
 
   const onSyncEventRef = useRef(onSyncEvent);
   useEffect(() => {
@@ -175,23 +224,13 @@ export function useBoard(
         case 'worker.started':
         case 'worker.failed':
         case 'worker.killed':
-          api.getCard(project, event.card_id).then((card) => {
-            setCards((prev) => {
-              const index = prev.findIndex((c) => c.id === card.id);
-              if (index >= 0) {
-                const updated = [...prev];
-                updated[index] = card;
-                return updated;
-              }
-              return [...prev, card];
-            });
-          }).catch((err) => {
+          api.getCard(project, event.card_id).then(mergeCard).catch((err) => {
             console.error('Failed to refresh card after SSE event:', event.card_id, err);
           });
           break;
       }
     },
-    [project, fetchData]
+    [project, fetchData, mergeCard]
   );
 
   const { subscribe, connected, error: sseError, reconnectEpoch } = useSSEBus();
@@ -253,6 +292,8 @@ export function useBoard(
     error: error || sseError,
     connected,
     refresh: fetchData,
+    listEpoch,
+    refreshCard,
     updateCardLocally,
     removeCardLocally,
     suppressSSE,

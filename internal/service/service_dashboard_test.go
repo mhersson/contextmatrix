@@ -971,6 +971,85 @@ func TestStateAtTimeFromChanges_IdenticalTimestampPicksLastInsertedDeterministic
 	assert.Equal(t, "review", got)
 }
 
+func TestGetDashboard_CardCosts_FoldsSubtasksIntoParent(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
+	svc, project, cleanup := setupDashboardServiceAt(t, now)
+	t.Cleanup(cleanup)
+
+	parentID := createCardWithUsage(ctx, t, svc, project, "parent", "model-a", 1000, 200, 0.50)
+	createSubtaskWithUsage(ctx, t, svc, project, parentID, "s1", "model-b", 100, 20, 0.30)
+	createSubtaskWithUsage(ctx, t, svc, project, parentID, "s2", "model-b", 50, 10, 0.20)
+
+	data, err := svc.GetDashboard(ctx, project)
+	require.NoError(t, err)
+
+	require.Len(t, data.CardCosts, 1, "subtask rows must fold into the parent row")
+	row := data.CardCosts[0]
+	assert.Equal(t, parentID, row.CardID)
+	assert.Equal(t, int64(1150), row.PromptTokens)
+	assert.Equal(t, int64(230), row.CompletionTokens)
+	assert.InDelta(t, 1.00, row.EstimatedCostUSD, 1e-9)
+
+	// The fold reshapes rows only - the grand total still counts each card once.
+	assert.InDelta(t, 1.00, data.TotalCostUSD, 1e-9)
+}
+
+func TestGetDashboard_CardCosts_ParentRowCreatedOnDemand(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
+	svc, project, cleanup := setupDashboardServiceAt(t, now)
+	t.Cleanup(cleanup)
+
+	// Parent has no usage of its own; all spend sits on the subtask.
+	parent, err := svc.CreateCard(ctx, project, CreateCardInput{
+		Title: "usage-free parent", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+	createSubtaskWithUsage(ctx, t, svc, project, parent.ID, "s1", "model-b", 100, 20, 0.30)
+
+	data, err := svc.GetDashboard(ctx, project)
+	require.NoError(t, err)
+
+	require.Len(t, data.CardCosts, 1)
+	row := data.CardCosts[0]
+	assert.Equal(t, parent.ID, row.CardID)
+	assert.Equal(t, "usage-free parent", row.CardTitle)
+	assert.InDelta(t, 0.30, row.EstimatedCostUSD, 1e-9)
+}
+
+func TestGetDashboard_CardCosts_OrphanSubtaskKeepsRow(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
+	svc, project, cleanup := setupDashboardServiceAt(t, now)
+	t.Cleanup(cleanup)
+
+	// A subtask whose parent is not among the project's cards keeps its own
+	// row so no spend disappears. Create the subtask, then overwrite its parent
+	// field via the store to simulate a missing parent.
+	orphan, err := svc.CreateCard(ctx, project, CreateCardInput{
+		Title: "orphan", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	refreshed, err := svc.GetCard(ctx, project, orphan.ID)
+	require.NoError(t, err)
+
+	// Overwrite with non-existent parent and add usage.
+	refreshed.Parent = "GONE-999"
+	refreshed.TokenUsage = &board.TokenUsage{
+		Model: "model-b", PromptTokens: 10, CompletionTokens: 5, EstimatedCostUSD: 0.05,
+	}
+	require.NoError(t, svc.store.UpdateCard(ctx, project, refreshed))
+
+	data, err := svc.GetDashboard(ctx, project)
+	require.NoError(t, err)
+
+	require.Len(t, data.CardCosts, 1)
+	assert.Equal(t, orphan.ID, data.CardCosts[0].CardID)
+	assert.InDelta(t, 0.05, data.CardCosts[0].EstimatedCostUSD, 1e-9)
+}
+
 // TestGetChatCostSummary_DeletePreservesCost guards the invariant that after
 // Manager.DeleteSession, the deleted session's estimated cost still appears in
 // GetChatCostSummary because DeleteSession archives the cost columns into

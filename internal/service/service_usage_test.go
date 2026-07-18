@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -1069,4 +1070,109 @@ func TestReportUsageNoModelSkipsLLMMetrics(t *testing.T) {
 
 	assert.Equal(t, seriesBase, testutil.CollectAndCount(metrics.LLMCallsTotal),
 		"model-less usage reports must not create LLM metric series")
+}
+
+// createSubtaskWithUsage creates a subtask under parent with the given legacy
+// TokenUsage. Titles must be unique per parent: CreateCard dedupes subtasks by
+// title, so idHint keeps siblings distinct.
+func createSubtaskWithUsage(
+	ctx context.Context, t *testing.T, svc *CardService, project, parent, idHint, model string,
+	promptTokens, completionTokens int64, costUSD float64,
+) string {
+	t.Helper()
+
+	card, err := svc.CreateCard(ctx, project, CreateCardInput{
+		Title:    "subtask " + idHint,
+		Type:     "task",
+		Priority: "medium",
+		Parent:   parent,
+	})
+	require.NoError(t, err)
+
+	refreshed, err := svc.GetCard(ctx, project, card.ID)
+	require.NoError(t, err)
+
+	refreshed.TokenUsage = &board.TokenUsage{
+		Model:            model,
+		PromptTokens:     promptTokens,
+		CompletionTokens: completionTokens,
+		EstimatedCostUSD: costUSD,
+	}
+	require.NoError(t, svc.store.UpdateCard(ctx, project, refreshed))
+
+	return card.ID
+}
+
+func TestGetCard_SubtaskCostRollup(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
+	svc, project, cleanup := setupDashboardServiceAt(t, now)
+	t.Cleanup(cleanup)
+
+	parentID := createCardWithUsage(ctx, t, svc, project, "parent", "model-a", 100, 50, 4.42)
+	createSubtaskWithUsage(ctx, t, svc, project, parentID, "s1", "model-b", 10, 5, 0.30)
+	subID := createSubtaskWithUsage(ctx, t, svc, project, parentID, "s2", "model-b", 20, 8, 0.27)
+
+	// A subtask with no usage contributes nothing.
+	noUsage, err := svc.CreateCard(ctx, project, CreateCardInput{
+		Title: "subtask s3", Type: "task", Priority: "medium", Parent: parentID,
+	})
+	require.NoError(t, err)
+
+	parent, err := svc.GetCard(ctx, project, parentID)
+	require.NoError(t, err)
+	assert.InDelta(t, 0.57, parent.SubtaskCostUSD, 1e-9)
+	// Own usage is untouched by the rollup.
+	assert.InDelta(t, 4.42, parent.TokenUsage.EstimatedCostUSD, 1e-9)
+
+	// Subtasks themselves are never enriched.
+	sub, err := svc.GetCard(ctx, project, subID)
+	require.NoError(t, err)
+	assert.Zero(t, sub.SubtaskCostUSD)
+
+	_, err = svc.GetCard(ctx, project, noUsage.ID)
+	require.NoError(t, err)
+}
+
+func TestGetCard_SubtaskCostRollup_NoSubtasks(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
+	svc, project, cleanup := setupDashboardServiceAt(t, now)
+	t.Cleanup(cleanup)
+
+	cardID := createCardWithUsage(ctx, t, svc, project, "solo", "model-a", 100, 50, 1.00)
+
+	card, err := svc.GetCard(ctx, project, cardID)
+	require.NoError(t, err)
+	assert.Zero(t, card.SubtaskCostUSD)
+}
+
+// failingListStore satisfies storage.Store for the enrichment failure path:
+// GetCard succeeds, every ListCards call fails, and the nil embedded Store
+// panics on anything else - so the test also pins that the GetCard read path
+// touches no other store methods for a dependency-free card.
+type failingListStore struct {
+	storage.Store
+	card *board.Card
+}
+
+func (s failingListStore) GetCard(context.Context, string, string) (*board.Card, error) {
+	return s.card, nil
+}
+
+func (failingListStore) ListCards(context.Context, string, storage.CardFilter) ([]*board.Card, error) {
+	return nil, errors.New("boom")
+}
+
+func TestGetCard_SubtaskCostListFailureDoesNotFailRead(t *testing.T) {
+	card := &board.Card{
+		ID: "CMX-001", Title: "t", Project: "p", Type: "task",
+		State: "todo", Priority: "medium",
+	}
+	svc := &CardService{store: failingListStore{card: card}}
+
+	got, err := svc.GetCard(context.Background(), "p", "CMX-001")
+
+	require.NoError(t, err)
+	assert.Zero(t, got.SubtaskCostUSD)
 }

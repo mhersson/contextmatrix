@@ -24,6 +24,8 @@ vi.mock('../../hooks/useBoard', () => ({
     error: null,
     connected: true,
     refresh: vi.fn(),
+    listEpoch: 1,
+    refreshCard: vi.fn(),
     updateCardLocally: vi.fn(),
     removeCardLocally: vi.fn(),
     suppressSSE: vi.fn(),
@@ -361,6 +363,8 @@ describe('ProjectShell - ?card= deep-link', () => {
     error: null,
     connected: true,
     refresh: vi.fn(),
+    listEpoch: 1,
+    refreshCard: vi.fn(),
     updateCardLocally: vi.fn(),
     removeCardLocally: vi.fn(),
     suppressSSE: vi.fn(),
@@ -535,6 +539,65 @@ describe('ProjectShell - ?card= deep-link', () => {
       expect(screen.getByTestId('loc-search').textContent).toBe('');
     });
   });
+
+  it('hydrates the deep-linked card via refreshCard on panel open', async () => {
+    const { useBoard } = await import('../../hooks/useBoard');
+    const refreshCard = vi.fn();
+    vi.mocked(useBoard).mockReturnValue({
+      ...useBoardReturn,
+      refreshCard,
+    } as unknown as ReturnType<typeof useBoard>);
+
+    render(
+      <MemoryRouter initialEntries={['/projects/test?card=TEST-1']}>
+        <Routes>
+          <Route path="/projects/:project/*" element={<ProjectShell />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await screen.findByTestId('card-panel-TEST-1');
+    await waitFor(() => expect(refreshCard).toHaveBeenCalledWith('TEST-1'));
+  });
+
+  it('re-hydrates the open card when listEpoch bumps (wholesale list replace)', async () => {
+    const { useBoard } = await import('../../hooks/useBoard');
+    const refreshCard = vi.fn();
+    vi.mocked(useBoard).mockReturnValue({
+      ...useBoardReturn,
+      refreshCard,
+      listEpoch: 1,
+    } as unknown as ReturnType<typeof useBoard>);
+
+    const view = render(
+      <MemoryRouter initialEntries={['/projects/test?card=TEST-1']}>
+        <Routes>
+          <Route path="/projects/:project/*" element={<ProjectShell />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await screen.findByTestId('card-panel-TEST-1');
+    await waitFor(() => expect(refreshCard).toHaveBeenCalledTimes(1));
+
+    // A sync pull or reconnect resync completed: cards were rebuilt from the
+    // list endpoint (hydrated fields wiped) and listEpoch bumped.
+    vi.mocked(useBoard).mockReturnValue({
+      ...useBoardReturn,
+      refreshCard,
+      listEpoch: 2,
+    } as unknown as ReturnType<typeof useBoard>);
+    view.rerender(
+      <MemoryRouter initialEntries={['/projects/test?card=TEST-1']}>
+        <Routes>
+          <Route path="/projects/:project/*" element={<ProjectShell />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(refreshCard).toHaveBeenCalledTimes(2));
+    expect(refreshCard).toHaveBeenLastCalledWith('TEST-1');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -562,6 +625,8 @@ describe('ProjectShell - card-scoped worker-log liveness', () => {
       error: null,
       connected: true,
       refresh: vi.fn(),
+      listEpoch: 1,
+      refreshCard: vi.fn(),
       updateCardLocally: vi.fn(),
       removeCardLocally: vi.fn(),
       suppressSSE: vi.fn(),

@@ -793,6 +793,12 @@ livenessProbe:
   periodSeconds: 30
 ```
 
+### GET /api/projects/{project}/cards/{id}
+
+Returns a single card. `subtask_cost_usd` is present on this response for a
+card with costed direct subtasks - computed on read, omitted when zero. It is
+absent from list responses (`GET /api/projects/{project}/cards`).
+
 ### Card list query parameters
 
 | Parameter     | Values           | Description                                                                                    |
@@ -1239,6 +1245,11 @@ Returns dashboard metrics for a project.
 ```
 
 `assigned_agent` is omitted when no agent currently owns the card.
+
+`card_costs` folds each subtask's tokens and cost into its parent's row, so
+rows are per-run and the column still sums to `total_cost_usd`. A parent row
+appears even when only its subtasks have spend. Subtasks whose parent card no
+longer exists keep their own row.
 
 `model_costs` aggregates token usage and cost per model across the project.
 Cards whose token-usage records have an empty `model` string are bucketed
