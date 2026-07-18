@@ -26,8 +26,6 @@ func histogramSampleSum(t *testing.T, vec *prometheus.HistogramVec, lvs ...strin
 	return m.GetHistogram().GetSampleSum()
 }
 
-func strPtr(s string) *string { return &s }
-
 func TestPhaseDurationMetric(t *testing.T) {
 	svc, fake, cleanup := newStalledTestService(t)
 	defer cleanup()
@@ -44,7 +42,7 @@ func TestPhaseDurationMetric(t *testing.T) {
 	execCountBase := histogramSampleCount(t, metrics.PhaseDuration, "test-project", "execute")
 	doneCountBase := histogramSampleCount(t, metrics.PhaseDuration, "test-project", "done")
 
-	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{Phase: strPtr("plan")})
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{Phase: new("plan")})
 	require.NoError(t, err)
 
 	// Entering a phase starts the timer but observes nothing yet.
@@ -52,7 +50,7 @@ func TestPhaseDurationMetric(t *testing.T) {
 
 	fake.Advance(10 * time.Minute)
 
-	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{Phase: strPtr("execute")})
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{Phase: new("execute")})
 	require.NoError(t, err)
 
 	assert.Equal(t, planCountBase+1, histogramSampleCount(t, metrics.PhaseDuration, "test-project", "plan"))
@@ -61,14 +59,14 @@ func TestPhaseDurationMetric(t *testing.T) {
 	// Patching an unrelated field must not observe the running phase.
 	fake.Advance(time.Minute)
 
-	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{Priority: strPtr("high")})
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{Priority: new("high")})
 	require.NoError(t, err)
 
 	assert.Equal(t, execCountBase, histogramSampleCount(t, metrics.PhaseDuration, "test-project", "execute"))
 
 	fake.Advance(4 * time.Minute)
 
-	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{Phase: strPtr("done")})
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{Phase: new("done")})
 	require.NoError(t, err)
 
 	assert.Equal(t, execCountBase+1, histogramSampleCount(t, metrics.PhaseDuration, "test-project", "execute"))
@@ -76,7 +74,7 @@ func TestPhaseDurationMetric(t *testing.T) {
 	// done ends timing: moving off it later observes no "done" duration.
 	fake.Advance(time.Minute)
 
-	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{Phase: strPtr("plan")})
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{Phase: new("plan")})
 	require.NoError(t, err)
 
 	assert.Equal(t, doneCountBase, histogramSampleCount(t, metrics.PhaseDuration, "test-project", "done"))
