@@ -793,6 +793,12 @@ livenessProbe:
   periodSeconds: 30
 ```
 
+### GET /api/projects/{project}/cards/{id}
+
+Returns a single card. `subtask_cost_usd` is present on this response for a
+card with costed direct subtasks - computed on read, omitted when zero. It is
+absent from list responses (`GET /api/projects/{project}/cards`).
+
 ### Card list query parameters
 
 | Parameter     | Values           | Description                                                                                    |
