@@ -16,18 +16,34 @@ function formatCost(usd: number): string {
 /**
  * Info-rail section listing per-(agent, model) token/cost attribution from
  * `card.usage_breakdown`. The model column is the durable surface that shows
- * which model the complexity selector actually used. Renders nothing for
- * legacy cards or cards not run by the agent backend (no breakdown present).
+ * which model the complexity selector actually used. Renders nothing when there
+ * is neither a breakdown nor subtask spend.
  */
 export function MetadataUsage({ card }: MetadataUsageProps) {
   const buckets = card.usage_breakdown ?? [];
-  if (buckets.length === 0) {
+  const ownCost = card.token_usage?.estimated_cost_usd ?? 0;
+  const subtaskCost = card.subtask_cost_usd ?? 0;
+  const total = ownCost + subtaskCost;
+  if (buckets.length === 0 && subtaskCost === 0) {
     return null;
   }
 
   return (
     <section className="bf-aside-section">
       <h4>Models used</h4>
+      {total > 0 && (
+        <div className="mb-1">
+          <div className="text-xs text-[var(--fg)]">
+            Total {formatCost(total)}
+            {subtaskCost > 0 ? ' incl. subtasks' : ''}
+          </div>
+          {subtaskCost > 0 && ownCost > 0 && (
+            <div className="text-xs text-[var(--grey1)]">
+              this card {formatCost(ownCost)} + subtasks {formatCost(subtaskCost)}
+            </div>
+          )}
+        </div>
+      )}
       <ul className="flex flex-col gap-1">
         {buckets.map((b, i) => (
           <li key={`${b.agent}:${b.model}:${i}`} className="text-xs text-[var(--fg)]">
