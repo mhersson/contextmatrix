@@ -364,7 +364,29 @@ func bucketSparkline(cards []*board.Card, now time.Time, tz *time.Location) Metr
 func aggregateCostsByAgentModel(cards []*board.Card) (agentCosts []AgentCost, modelCosts []ModelCost, cardCosts []CardCost, totalCostUSD float64) {
 	agentCostMap := make(map[string]*AgentCost)
 	modelCostMap := make(map[string]*ModelCost)
-	cardCosts = make([]CardCost, 0)
+
+	// Per-card rows fold subtask spend into the parent's row so the Top cards
+	// table shows per-run cost and its column still sums to the project total.
+	// Rows materialize in first-touch card order.
+	byID := make(map[string]*board.Card, len(cards))
+	for _, card := range cards {
+		byID[card.ID] = card
+	}
+
+	cardCostMap := make(map[string]*CardCost)
+
+	var cardCostOrder []string
+
+	rowFor := func(c *board.Card) *CardCost {
+		row, ok := cardCostMap[c.ID]
+		if !ok {
+			row = &CardCost{CardID: c.ID, CardTitle: c.Title, AssignedAgent: c.AssignedAgent}
+			cardCostMap[c.ID] = row
+			cardCostOrder = append(cardCostOrder, c.ID)
+		}
+
+		return row
+	}
 
 	for _, card := range cards {
 		if card.TokenUsage == nil {
@@ -373,14 +395,19 @@ func aggregateCostsByAgentModel(cards []*board.Card) (agentCosts []AgentCost, mo
 
 		totalCostUSD += card.TokenUsage.EstimatedCostUSD
 
-		cardCosts = append(cardCosts, CardCost{
-			CardID:           card.ID,
-			CardTitle:        card.Title,
-			AssignedAgent:    card.AssignedAgent,
-			PromptTokens:     card.TokenUsage.PromptTokens,
-			CompletionTokens: card.TokenUsage.CompletionTokens,
-			EstimatedCostUSD: card.TokenUsage.EstimatedCostUSD,
-		})
+		// Orphan subtasks (parent not in this project) keep their own row so
+		// no spend disappears from the table.
+		rowCard := card
+		if card.Parent != "" {
+			if parent, ok := byID[card.Parent]; ok {
+				rowCard = parent
+			}
+		}
+
+		row := rowFor(rowCard)
+		row.PromptTokens += card.TokenUsage.PromptTokens
+		row.CompletionTokens += card.TokenUsage.CompletionTokens
+		row.EstimatedCostUSD += card.TokenUsage.EstimatedCostUSD
 
 		if len(card.UsageBreakdown) > 0 {
 			// Breakdown path: sum each (agent, model) bucket directly.
@@ -475,6 +502,11 @@ func aggregateCostsByAgentModel(cards []*board.Card) (agentCosts []AgentCost, mo
 			mc.EstimatedCostUSD += card.TokenUsage.EstimatedCostUSD
 			mc.CardCount++
 		}
+	}
+
+	cardCosts = make([]CardCost, 0, len(cardCostOrder))
+	for _, id := range cardCostOrder {
+		cardCosts = append(cardCosts, *cardCostMap[id])
 	}
 
 	agentCosts = make([]AgentCost, 0, len(agentCostMap))
