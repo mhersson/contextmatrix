@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import { CreateCardPanel } from './CreateCardPanel';
+import { api } from '../../api/client';
 import type { Card, ProjectConfig } from '../../types';
 
 vi.mock('../../hooks/useTheme', () => ({
@@ -377,5 +378,16 @@ describe('CreateCardPanel - MDEditor preview skipHtml XSS prevention', () => {
     fireEvent.change(editor, { target: { value: xssBody } });
     const preview = await screen.findByTestId('md-preview');
     expect(preview.textContent).toContain('hello');
+  });
+});
+
+describe('CreateCardPanel - base branch dropdown', () => {
+  it('lists remote branches without ticking Autonomous mode', async () => {
+    vi.mocked(api.fetchBranches).mockResolvedValue(['develop', 'release/1.0']);
+    render(<CreateCardPanel {...makeProps()} />);
+
+    const select = screen.getByLabelText('Base branch');
+    expect(await within(select).findByRole('option', { name: 'develop' })).toBeInTheDocument();
+    expect(within(select).getByRole('option', { name: 'release/1.0' })).toBeInTheDocument();
   });
 });
