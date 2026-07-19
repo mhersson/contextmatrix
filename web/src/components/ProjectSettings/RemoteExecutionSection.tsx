@@ -45,7 +45,7 @@ export function RemoteExecutionSection({
         {taskBackendConfigured && (
           <WorkerImageSelect
             backend="agent"
-            label="Task worker image"
+            label="Agent worker image"
             value={value.worker_image ?? ''}
             onChange={(img) => update({ worker_image: img || undefined })}
             readOnly={readOnly}

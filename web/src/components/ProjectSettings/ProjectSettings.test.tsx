@@ -181,7 +181,7 @@ describe('ProjectSettings - handleSave payload construction for remote_execution
 
     await renderSettings();
 
-    const imageSelect = await screen.findByLabelText(/task worker image/i);
+    const imageSelect = await screen.findByLabelText(/agent worker image/i);
     fireEvent.change(imageSelect, { target: { value: 'ghcr.io/org/worker:latest' } });
 
     const saveButton = screen.getByRole('button', { name: /save/i });
@@ -234,7 +234,7 @@ describe('ProjectSettings - handleSave payload construction for remote_execution
     mocks.getProject.mockResolvedValue(baseConfig());
 
     await renderSettings();
-    expect(screen.getByLabelText(/task worker image/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/agent worker image/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/chat worker image/i)).toBeInTheDocument();
     expect(
       screen.queryByRole('checkbox', { name: /enable remote execution/i }),
@@ -246,7 +246,7 @@ describe('ProjectSettings - handleSave payload construction for remote_execution
     mocks.getProject.mockResolvedValue(baseConfig());
 
     await renderSettings();
-    expect(screen.queryByLabelText(/task worker image/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/agent worker image/i)).not.toBeInTheDocument();
   });
 
   it('chat picker is hidden when chat_enabled is false', async () => {

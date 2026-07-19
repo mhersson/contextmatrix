@@ -43,7 +43,7 @@ export function LoginPage() {
         Sign in
       </h1>
       <p className="mt-1 mb-6 text-[13px]" style={{ color: 'var(--grey1)' }}>
-        Use your board account.
+        Login for humans.
       </p>
 
       <form onSubmit={submit}>
