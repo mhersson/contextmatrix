@@ -512,10 +512,7 @@ func (s *CardService) buildNewCardFromInput(
 
 	enforceVettingInvariant(card)
 
-	// Auto-generate branch name when feature_branch is enabled.
-	if card.FeatureBranch {
-		card.BranchName = generateBranchName(card.ID, card.Title)
-	}
+	card.BranchName = generateBranchName(card.ID, card.Title)
 
 	if err := validateFieldLimits(card.Title, card.Body, card.Labels); err != nil {
 		return nil, err
@@ -790,8 +787,9 @@ func (s *CardService) buildUpdateApply(ctx context.Context, input UpdateCardInpu
 			card.Phase = *input.Phase
 		}
 
-		// BranchName is immutable after first generation - only set when empty.
-		if card.FeatureBranch && card.BranchName == "" {
+		// BranchName is immutable after first generation - only backfilled on
+		// legacy cards created before names were generated at create.
+		if card.BranchName == "" {
 			card.BranchName = generateBranchName(card.ID, card.Title)
 		}
 		// Auto-clear create_pr when feature_branch is disabled.
@@ -964,15 +962,17 @@ func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput)
 
 		if input.FeatureBranch != nil {
 			card.FeatureBranch = *input.FeatureBranch
-			// BranchName is immutable after first generation - only set when empty.
-			if card.FeatureBranch && card.BranchName == "" {
-				card.BranchName = generateBranchName(card.ID, card.Title)
-			}
 			// Auto-clear create_pr and base_branch when feature_branch is disabled.
 			if !card.FeatureBranch {
 				card.CreatePR = false
 				card.BaseBranch = ""
 			}
+		}
+
+		// BranchName is immutable after first generation - only backfilled on
+		// legacy cards created before names were generated at create.
+		if card.BranchName == "" {
+			card.BranchName = generateBranchName(card.ID, card.Title)
 		}
 
 		if input.CreatePR != nil && card.FeatureBranch {

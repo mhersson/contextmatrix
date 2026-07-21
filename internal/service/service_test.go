@@ -4359,7 +4359,7 @@ func TestCreateCard_AutonomousFields(t *testing.T) {
 		assert.Contains(t, card.BranchName, "auto-task")
 	})
 
-	t.Run("no branch name when feature_branch is false", func(t *testing.T) {
+	t.Run("branch name always generated at create", func(t *testing.T) {
 		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
 			Title:      "Manual task",
 			Type:       "task",
@@ -4368,8 +4368,9 @@ func TestCreateCard_AutonomousFields(t *testing.T) {
 		})
 		require.NoError(t, err)
 		assert.True(t, card.Autonomous)
-		assert.False(t, card.FeatureBranch)
-		assert.Empty(t, card.BranchName)
+		assert.NotEmpty(t, card.BranchName)
+		assert.Contains(t, card.BranchName, strings.ToLower(card.ID))
+		assert.Contains(t, card.BranchName, "manual-task")
 	})
 
 	t.Run("create_pr without feature_branch rejected", func(t *testing.T) {
@@ -4405,34 +4406,59 @@ func TestPatchCard_AutonomousFields(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, patched.Autonomous)
 	})
+}
 
-	t.Run("enable feature_branch generates branch name", func(t *testing.T) {
-		fb := true
-		patched, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
-			FeatureBranch: &fb,
-		})
-		require.NoError(t, err)
-		assert.True(t, patched.FeatureBranch)
-		assert.NotEmpty(t, patched.BranchName)
-		assert.Contains(t, patched.BranchName, "plain-task")
+func TestPatchCard_BackfillsBranchName_LegacyCard(t *testing.T) {
+	svc, tmpDir, cleanup := setupTest(t)
+	defer cleanup()
 
-		// Branch name is immutable - toggling off and on keeps the same name
-		savedName := patched.BranchName
-		off := false
-		patched, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
-			FeatureBranch: &off,
-		})
-		require.NoError(t, err)
-		assert.False(t, patched.FeatureBranch)
-		assert.Equal(t, savedName, patched.BranchName) // still there
+	ctx := context.Background()
 
-		on := true
-		patched, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
-			FeatureBranch: &on,
-		})
-		require.NoError(t, err)
-		assert.Equal(t, savedName, patched.BranchName) // unchanged
+	// Legacy cards created before branch names were generated at create hold
+	// an empty branch_name; seed one via the store directly.
+	store, err := storage.NewFilesystemStore(filepath.Join(tmpDir, "boards"))
+	require.NoError(t, err)
+
+	now := time.Now().UTC()
+	legacy := &board.Card{
+		ID: "TEST-900", Title: "Legacy task", Type: "task",
+		State: "todo", Priority: "medium", Created: now, Updated: now,
+	}
+	require.NoError(t, store.CreateCard(ctx, "test-project", legacy))
+
+	prio := "high"
+	patched, err := svc.PatchCard(ctx, "test-project", "TEST-900", PatchCardInput{Priority: &prio})
+	require.NoError(t, err)
+	assert.Equal(t, "test-900/legacy-task", patched.BranchName)
+
+	// Immutable once generated - a later title change must not regenerate.
+	title := "Renamed task"
+	patched, err = svc.PatchCard(ctx, "test-project", "TEST-900", PatchCardInput{Title: &title})
+	require.NoError(t, err)
+	assert.Equal(t, "test-900/legacy-task", patched.BranchName)
+}
+
+func TestUpdateCard_BackfillsBranchName_LegacyCard(t *testing.T) {
+	svc, tmpDir, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	store, err := storage.NewFilesystemStore(filepath.Join(tmpDir, "boards"))
+	require.NoError(t, err)
+
+	now := time.Now().UTC()
+	legacy := &board.Card{
+		ID: "TEST-901", Title: "Legacy task", Type: "task",
+		State: "todo", Priority: "medium", Created: now, Updated: now,
+	}
+	require.NoError(t, store.CreateCard(ctx, "test-project", legacy))
+
+	updated, err := svc.UpdateCard(ctx, "test-project", "TEST-901", UpdateCardInput{
+		Title: "Legacy task", Type: "task", State: "todo", Priority: "medium",
 	})
+	require.NoError(t, err)
+	assert.Equal(t, "test-901/legacy-task", updated.BranchName)
 }
 
 func TestPatchCard_DisableFeatureBranch_ClearsCreatePR(t *testing.T) {

@@ -195,6 +195,7 @@ func TestCreateAndGetCard(t *testing.T) {
 	assert.Equal(t, "high", created.Priority)
 	assert.Equal(t, []string{"backend", "api"}, created.Labels)
 	assert.Contains(t, created.Body, "## Description\nBuild feature X.")
+	assert.NotEmpty(t, created.BranchName)
 	assert.False(t, created.Created.IsZero())
 
 	// Get the same card back
