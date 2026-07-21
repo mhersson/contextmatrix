@@ -35,9 +35,11 @@ export function useCardEdits(
   /**
    * Run handler: saves pending edits first, then fires the worker webhook.
    * A save failure aborts the run so the worker never starts from state the
-   * user believes is saved but is not.
+   * user believes is saved but is not. The isSaving guard stops a
+   * double-click from firing a duplicate save + run.
    */
   const handleRun = useCallback(async () => {
+    if (isSaving) return;
     if (isDirty) {
       setIsSaving(true);
       try {
@@ -53,7 +55,7 @@ export function useCardEdits(
     } catch {
       // Parent surfaces the error toast; nothing optimistic to revert.
     }
-  }, [isDirty, editedCard, card, onSave, onRunCard]);
+  }, [isDirty, isSaving, editedCard, card, onSave, onRunCard]);
 
   const handleTransitionPrimary = useCallback(async (targetState: string) => {
     const prevState = editedCard.state;

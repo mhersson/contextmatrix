@@ -154,6 +154,25 @@ describe('CreateCardPanel - onCreate contract', () => {
     expect(opts).toEqual({ run: true, interactive: true });
   });
 
+  it('Create & Run sends an explicit create_pr:false when the box is unchecked', async () => {
+    // Pins that Create & Run passes the checkbox through instead of forcing
+    // the flag on for run triggers.
+    const onCreate = vi.fn().mockResolvedValue(undefined);
+    render(<CreateCardPanel {...makeProps({ onCreate })} />);
+
+    fireEvent.change(screen.getByPlaceholderText(/Card title/), { target: { value: 'Run no PR' } });
+    fireEvent.click(screen.getByLabelText('Create PR'));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Create & Run/ }));
+    });
+
+    expect(onCreate).toHaveBeenCalledOnce();
+    const [input, opts] = onCreate.mock.calls[0];
+    expect(input.create_pr).toBe(false);
+    expect(opts).toEqual({ run: true, interactive: true });
+  });
+
   it('sends an explicit create_pr:false when the box is unchecked', async () => {
     // Regression guard: the server defaults an ABSENT create_pr to true at
     // create, so an unchecked box must reach it as an explicit false.

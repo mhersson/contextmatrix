@@ -207,6 +207,25 @@ describe('CardPanel - Info tab hosts the state picker', () => {
   });
 });
 
+describe('CardPanel - autonomous toggle leaves base branch alone', () => {
+  it('keeps the selected base branch when autonomous is unchecked', async () => {
+    const { api } = await import('../../api/client');
+    vi.mocked(api.fetchBranches).mockResolvedValueOnce(['develop']);
+
+    render(<CardPanel {...makeProps({
+      card: { ...baseCard, autonomous: true, base_branch: 'develop' },
+    })} />);
+
+    const select = await screen.findByRole('combobox', { name: 'Base branch' });
+    await waitFor(() => expect(select).toHaveValue('develop'));
+
+    fireEvent.click(screen.getByLabelText('Autonomous mode'));
+
+    expect(screen.getByLabelText('Autonomous mode')).not.toBeChecked();
+    expect(select).toHaveValue('develop');
+  });
+});
+
 describe('CardPanel - Run handler (save-before-run)', () => {
   beforeEach(() => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
