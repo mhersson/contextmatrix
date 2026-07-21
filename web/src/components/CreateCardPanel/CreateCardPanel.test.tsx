@@ -137,7 +137,7 @@ describe('CreateCardPanel - onCreate contract', () => {
     expect(opts).toEqual({ run: false });
   });
 
-  it('Create & Run forces feature_branch + create_pr to true and passes run:true', async () => {
+  it('Create & Run sends the checkbox values and passes run:true', async () => {
     const onCreate = vi.fn().mockResolvedValue(undefined);
     render(<CreateCardPanel {...makeProps({ onCreate })} />);
 
@@ -149,8 +149,27 @@ describe('CreateCardPanel - onCreate contract', () => {
 
     expect(onCreate).toHaveBeenCalledOnce();
     const [input, opts] = onCreate.mock.calls[0];
-    expect(input).toMatchObject({ title: 'Run me', feature_branch: true, create_pr: true });
+    expect(input).toMatchObject({ title: 'Run me', create_pr: true });
+    expect(input).not.toHaveProperty('feature_branch');
     expect(opts).toEqual({ run: true, interactive: true });
+  });
+
+  it('sends an explicit create_pr:false when the box is unchecked', async () => {
+    // Regression guard: the server defaults an ABSENT create_pr to true at
+    // create, so an unchecked box must reach it as an explicit false.
+    const onCreate = vi.fn().mockResolvedValue(undefined);
+    render(<CreateCardPanel {...makeProps({ onCreate })} />);
+
+    fireEvent.change(screen.getByPlaceholderText(/Card title/), { target: { value: 'No PR' } });
+    fireEvent.click(screen.getByLabelText('Create PR'));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Just create' }));
+    });
+
+    expect(onCreate).toHaveBeenCalledOnce();
+    const [input] = onCreate.mock.calls[0];
+    expect(input.create_pr).toBe(false);
   });
 
   it('Create & Run with autonomous=true passes interactive:false', async () => {

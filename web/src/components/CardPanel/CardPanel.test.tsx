@@ -70,7 +70,6 @@ const baseCard: Card = {
   updated: '2026-01-01T00:00:00Z',
   body: '',
   autonomous: false,
-  feature_branch: false,
   create_pr: false,
 };
 
@@ -229,24 +228,28 @@ describe('CardPanel - Run handler (save-before-run)', () => {
     expect(calls).toEqual(['save', 'run']);
   });
 
-  it('Run click force-enables feature_branch + create_pr when they were off (server mirrors this)', async () => {
+  it('Run does not patch automation flags - only the user edits are saved', async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     const onRunCard = vi.fn().mockResolvedValue(undefined);
 
-    render(<CardPanel {...makeProps({ onSave, onRunCard, card: { ...baseCard, feature_branch: false, create_pr: false } })} />);
+    render(<CardPanel {...makeProps({ onSave, onRunCard })} />);
+    const titleInput = screen.getByDisplayValue('Test card');
+    fireEvent.change(titleInput, { target: { value: 'Dirty title' } });
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /Run HITL/ }));
     });
 
-    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ feature_branch: true, create_pr: true }));
+    expect(onSave).toHaveBeenCalledOnce();
+    const patch = onSave.mock.calls[0][0];
+    expect(patch).toEqual(expect.objectContaining({ title: 'Dirty title' }));
+    expect(patch).not.toHaveProperty('create_pr');
   });
 
-  it('does NOT call onSave when the card is already clean AND feature_branch/create_pr were already on', async () => {
+  it('does NOT call onSave when the card is clean', async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     const onRunCard = vi.fn().mockResolvedValue(undefined);
-    const card = { ...baseCard, feature_branch: true, create_pr: true };
-    render(<CardPanel {...makeProps({ onSave, onRunCard, card })} />);
+    render(<CardPanel {...makeProps({ onSave, onRunCard })} />);
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /Run HITL/ }));
@@ -256,10 +259,12 @@ describe('CardPanel - Run handler (save-before-run)', () => {
     expect(onRunCard).toHaveBeenCalledOnce();
   });
 
-  it('reverts optimistic feature_branch/create_pr when onSave rejects (no worker fire)', async () => {
+  it('aborts the run when saving pending edits fails', async () => {
     const onSave = vi.fn().mockRejectedValue({ error: 'save failed' });
     const onRunCard = vi.fn().mockResolvedValue(undefined);
     render(<CardPanel {...makeProps({ onSave, onRunCard })} />);
+    const titleInput = screen.getByDisplayValue('Test card');
+    fireEvent.change(titleInput, { target: { value: 'Dirty title' } });
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /Run HITL/ }));
@@ -268,16 +273,12 @@ describe('CardPanel - Run handler (save-before-run)', () => {
     expect(onSave).toHaveBeenCalledOnce();
     expect(onRunCard).not.toHaveBeenCalled();
 
-    // Clicking Run again must re-send the same optimistic patch - the revert
-    // put feature_branch/create_pr back to their pre-Run values, so the card
-    // is still dirty relative to the server and a fresh save is attempted.
+    // The card is still dirty relative to the server, so a second Run
+    // attempts a fresh save.
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /Run HITL/ }));
     });
     expect(onSave).toHaveBeenCalledTimes(2);
-    expect(onSave).toHaveBeenLastCalledWith(
-      expect.objectContaining({ feature_branch: true, create_pr: true }),
-    );
   });
 });
 

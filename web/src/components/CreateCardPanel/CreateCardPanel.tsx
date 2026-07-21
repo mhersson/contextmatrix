@@ -43,9 +43,9 @@ interface CreateCardPanelProps {
  *     and restores the previous type when the parent is cleared.
  *   - XSS prevention: the description editor renders previews with
  *     `previewOptions={{ skipHtml: true }}` (handled by CardPanelEditor).
- *   - Server force-enable: clicking Create & Run sets feature_branch +
- *     create_pr to true on the input so client and server agree on the
- *     saved state (matches the server's Run handler).
+ *   - create_pr is always sent as an explicit boolean: the server defaults
+ *     an absent value to true at create, so an unchecked box must reach it
+ *     as false, never as an omission.
  */
 export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCardPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
@@ -128,7 +128,6 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
           <AutomationCheckboxes
             mode="create"
             autonomous={form.autonomous}
-            featureBranch={form.featureBranch}
             createPR={form.createPR}
             taskBackend={taskBackend}
             modelOrchestrator={form.modelOrchestrator}
@@ -137,10 +136,6 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
             onModelPinChange={(field, value) => pinSetters[field](value)}
             models={models}
             onAutonomousChange={form.setAutonomous}
-            onFeatureBranchChange={(v) => {
-              form.setFeatureBranch(v);
-              if (!v) form.setCreatePR(false);
-            }}
             onCreatePRChange={form.setCreatePR}
             bestOfN={form.bestOfN}
             bestOfNMax={bestOfNMax}

@@ -4,10 +4,8 @@ import { AutomationCheckboxes } from './AutomationCheckboxes';
 
 const baseProps = {
   autonomous: false,
-  featureBranch: false,
   createPR: false,
   onAutonomousChange: vi.fn(),
-  onFeatureBranchChange: vi.fn(),
   onCreatePRChange: vi.fn(),
   onModelPinChange: vi.fn(),
   onBaseBranchChange: vi.fn(),
@@ -39,14 +37,15 @@ describe('AutomationCheckboxes - model steering', () => {
     expect(screen.queryByLabelText('Orchestrator model pin')).not.toBeInTheDocument();
   });
 
-  it('orders the rows autonomous, model selection, Best of N, mob seats, feature branch', () => {
+  it('orders the rows autonomous, model selection, Best of N, mob seats, branch, create PR', () => {
     render(<AutomationCheckboxes {...baseProps} taskBackend="agent" />);
     const rows = [
       screen.getByLabelText('Autonomous mode'),
       screen.getByLabelText('Automatic model selection'),
       screen.getByLabelText('Best of N'),
       screen.getByLabelText('Mob seats'),
-      screen.getByLabelText('Feature branch'),
+      screen.getByText('Branch'),
+      screen.getByLabelText('Create PR'),
     ];
     for (let i = 0; i < rows.length - 1; i++) {
       expect(
@@ -54,33 +53,6 @@ describe('AutomationCheckboxes - model steering', () => {
         `row ${i} should precede row ${i + 1}`,
       ).toBeTruthy();
     }
-  });
-});
-
-describe('AutomationCheckboxes - forced-on-run badges', () => {
-  it('renders ⚡ forced on run badge on Feature branch when forcedFeatureBranch=true', () => {
-    render(<AutomationCheckboxes {...baseProps} forcedFeatureBranch />);
-    // Two badges share the text; look for the one near Feature branch.
-    const forcedMessages = screen.getAllByText(/forced on run/);
-    expect(forcedMessages.length).toBeGreaterThanOrEqual(1);
-  });
-
-  it('does not render forced badges when both are false', () => {
-    render(<AutomationCheckboxes {...baseProps} />);
-    expect(screen.queryByText(/forced on run/)).not.toBeInTheDocument();
-  });
-
-  it('calls onClearForcedFeatureBranch when user toggles Feature branch', () => {
-    const onClear = vi.fn();
-    render(
-      <AutomationCheckboxes
-        {...baseProps}
-        forcedFeatureBranch
-        onClearForcedFeatureBranch={onClear}
-      />,
-    );
-    fireEvent.click(screen.getByLabelText('Feature branch'));
-    expect(onClear).toHaveBeenCalledOnce();
   });
 });
 
@@ -140,6 +112,14 @@ describe('AutomationCheckboxes - inline status hints', () => {
     // Checkboxes still disabled - the wrapper's opacity cue is enough.
     expect(screen.getByLabelText('Autonomous mode')).toBeDisabled();
     expect(screen.getByLabelText('Create PR')).toBeDisabled();
+  });
+
+  it('enables the Create PR checkbox whenever the section is enabled', () => {
+    render(<AutomationCheckboxes {...baseProps} />);
+    const box = screen.getByLabelText('Create PR');
+    expect(box).toBeEnabled();
+    fireEvent.click(box);
+    expect(baseProps.onCreatePRChange).toHaveBeenCalledWith(true);
   });
 });
 
@@ -358,10 +338,8 @@ describe('AutomationCheckboxes - mob execute vs Best-of-N', () => {
   const noop = () => {};
   const base = {
     autonomous: false,
-    featureBranch: false,
     createPR: false,
     onAutonomousChange: noop,
-    onFeatureBranchChange: noop,
     onCreatePRChange: noop,
     onModelPinChange: noop,
     onBaseBranchChange: noop,

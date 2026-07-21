@@ -19,7 +19,6 @@ export interface CreateCardForm {
   modelOrchestrator: string;
   modelCoder: string;
   modelReviewer: string;
-  featureBranch: boolean;
   createPR: boolean;
   baseBranch: string;
   // Best-of-N and mob session - surfaced at create time when the agent backend is
@@ -40,7 +39,6 @@ export interface CreateCardForm {
   setModelOrchestrator: (v: string) => void;
   setModelCoder: (v: string) => void;
   setModelReviewer: (v: string) => void;
-  setFeatureBranch: (v: boolean) => void;
   setCreatePR: (v: boolean) => void;
   setBaseBranch: (v: string) => void;
   setBestOfN: (v: number) => void;
@@ -85,7 +83,6 @@ export function useCreateCardForm(
   const [modelOrchestrator, setModelOrchestrator] = useState('');
   const [modelCoder, setModelCoder] = useState('');
   const [modelReviewer, setModelReviewer] = useState('');
-  const [featureBranch, setFeatureBranch] = useState(true);
   const [createPR, setCreatePR] = useState(true);
   const [baseBranch, setBaseBranch] = useState('');
   // 0 = off / unset; the AutomationCheckboxes selector (create mode, agent
@@ -143,7 +140,7 @@ export function useCreateCardForm(
   );
 
   const buildInput = useCallback(
-    (forRun: boolean): CreateCardInput => ({
+    (): CreateCardInput => ({
       title: title.trim(),
       type,
       priority,
@@ -162,15 +159,14 @@ export function useCreateCardForm(
       mob_participants: mobParticipants || undefined,
       mob_phases: mobPhases.length ? mobPhases : undefined,
       mob_guests: mobGuests.length ? mobGuests : undefined,
-      // Server force-enables both on Run; mirror that here so the persisted
-      // record matches what the user sees in the form.
-      feature_branch: forRun ? true : featureBranch || undefined,
-      create_pr: forRun ? true : createPR || undefined,
+      // Always an explicit boolean: the server defaults an absent create_pr
+      // to true at create, so omitting an unchecked box would flip it on.
+      create_pr: createPR,
       base_branch: baseBranch || undefined,
       // null = inherit project default; only forward an explicit override.
       skills: skills === null ? undefined : skills,
     }),
-    [title, type, priority, labels, parent, body, autonomous, modelOrchestrator, modelCoder, modelReviewer, bestOfN, mobParticipants, mobPhases, mobGuests, featureBranch, createPR, baseBranch, skills],
+    [title, type, priority, labels, parent, body, autonomous, modelOrchestrator, modelCoder, modelReviewer, bestOfN, mobParticipants, mobPhases, mobGuests, createPR, baseBranch, skills],
   );
 
   const ensureTitle = useCallback((): boolean => {
@@ -184,7 +180,7 @@ export function useCreateCardForm(
     if (!ensureTitle()) return;
     setIsSubmitting(true);
     try {
-      await onCreate(buildInput(false), { run: false });
+      await onCreate(buildInput(), { run: false });
     } catch {
       // Parent shows error toast; keep form open.
     } finally {
@@ -197,7 +193,7 @@ export function useCreateCardForm(
     if (!ensureTitle()) return;
     setIsSubmitting(true);
     try {
-      await onCreate(buildInput(true), { run: true, interactive: !autonomous });
+      await onCreate(buildInput(), { run: true, interactive: !autonomous });
     } catch {
       // Parent shows error toast; keep form open.
     } finally {
@@ -218,7 +214,6 @@ export function useCreateCardForm(
       modelOrchestrator,
       modelCoder,
       modelReviewer,
-      featureBranch,
       createPR,
       baseBranch,
       bestOfN,
@@ -235,7 +230,6 @@ export function useCreateCardForm(
       setModelOrchestrator,
       setModelCoder,
       setModelReviewer,
-      setFeatureBranch,
       setCreatePR,
       setBaseBranch,
       setBestOfN,

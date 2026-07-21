@@ -29,10 +29,6 @@ interface BuildCardPanelTabsOptions {
   automationLocked: boolean;
   automationLockedReason: string;
   excludeStateFromPicker: string | null;
-  forcedFeatureBranch: boolean;
-  forcedCreatePR: boolean;
-  clearForcedFeatureBranch: () => void;
-  clearForcedCreatePR: () => void;
 }
 
 /**
@@ -84,10 +80,6 @@ export function buildCardPanelTabs(opts: BuildCardPanelTabsOptions): {
         branchesError={opts.branchesError}
         editingLocked={opts.automationLocked}
         automationLockedReason={opts.automationLockedReason}
-        forcedFeatureBranch={opts.forcedFeatureBranch}
-        forcedCreatePR={opts.forcedCreatePR}
-        clearForcedFeatureBranch={opts.clearForcedFeatureBranch}
-        clearForcedCreatePR={opts.clearForcedCreatePR}
       />
     ),
   });
