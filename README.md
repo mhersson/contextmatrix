@@ -516,9 +516,9 @@ remote_execution:
   worker_image: "ghcr.io/org/custom-worker:latest"
 ```
 
-Triggering a run automatically enables `feature_branch` and `create_pr` on the
-card (both autonomous and HITL), so the container always works on a dedicated
-branch and opens a pull request. Cards track execution state via
+Every card carries a server-generated branch name, so the container always
+works on a dedicated branch; it opens a pull request when the card's
+`create_pr` is enabled (the default). Cards track execution state via
 `worker_status`: `queued` → `running` → `completed`/`failed`/`killed`, surfaced
 as status badges in the UI. See
 [`docs/remote-execution.md`](docs/remote-execution.md) for the full

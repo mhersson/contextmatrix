@@ -171,7 +171,6 @@ vetted: true
 custom:
   some_key: some_value
 autonomous: true
-feature_branch: true
 create_pr: true
 branch_name: alpha-001/implement-user-auth
 base_branch: develop
@@ -291,7 +290,6 @@ type Card struct {
     MobGuests           []string        `yaml:"mob_guests,omitempty"            json:"mob_guests,omitempty"`
     Verify              *VerifyConfig   `yaml:"verify,omitempty"                json:"verify,omitempty"`
     Vetted              bool            `yaml:"vetted,omitempty"                json:"vetted"`
-    FeatureBranch       bool            `yaml:"feature_branch,omitempty"        json:"feature_branch,omitempty"`
     CreatePR            bool            `yaml:"create_pr,omitempty"             json:"create_pr,omitempty"`
     BranchName          string          `yaml:"branch_name,omitempty"           json:"branch_name,omitempty"`
     BaseBranch          string          `yaml:"base_branch,omitempty"           json:"base_branch,omitempty"`
@@ -311,8 +309,9 @@ type Card struct {
 // Note: Autonomous and Vetted intentionally use `json:"autonomous"` /
 // `json:"vetted"` (no `omitempty`) so the boolean is always emitted in API
 // responses - clients can distinguish "explicitly false" from "field not
-// returned". Other booleans (FeatureBranch, CreatePR) keep `omitempty`
-// because they are opt-in and absence carries no meaning.
+// returned". CreatePR keeps `omitempty`: it defaults to true at create, so
+// an absent key in old card files simply reads as false and the create-time
+// default only applies to new cards.
 
 type ActivityEntry struct {
     Agent     string    `yaml:"agent"           json:"agent"`
@@ -481,18 +480,17 @@ normal runs. Enum-validated; the empty string clears it and means "not agent-dri
 via the `update_card` MCP tool and REST (PUT/PATCH).
 
 **Human-only fields** (may only be set by agents whose `X-Agent-ID` starts with
-`human:`): `vetted`, `autonomous`, `feature_branch`,
-`create_pr`, the three model pins (`model_orchestrator`, `model_coder`,
-`model_reviewer`), `base_branch`, `best_of_n`, the mob fields
-(`mob_participants`, `mob_phases`, `mob_guests`), and `verify`. `verify` is exposed
+`human:`): `vetted`, `autonomous`, `create_pr`, the three model pins
+(`model_orchestrator`, `model_coder`, `model_reviewer`), `base_branch`,
+`best_of_n`, the mob fields (`mob_participants`, `mob_phases`, `mob_guests`),
+and `verify`. `verify` is exposed
 on POST (`createCardRequest`) and PATCH (`patchCardRequest`) only - there is no
 `verify` field on the full-update body - and an agent that sets it is rejected so
-it can never define its own verify gate. POST `/api/projects/{project}/cards`
-(`createCardRequest`) and PUT `/api/projects/{project}/cards/{id}`
-(`updateCardRequest`) gate the first five fields plus the model pins;
-`base_branch` is **only exposed via PATCH** (`patchCardRequest`) - there is no
-`base_branch` field on the create or full-update request bodies, so the
-human-only check for it applies only on PATCH. The model pins are gated on
+it can never define its own verify gate. `create_pr` is nullable on POST:
+absent (or `null`) defaults to **true** in the service layer, so MCP
+`create_card` and importers inherit PRs-by-default; an explicit boolean from
+an agent is rejected. `base_branch` is exposed on POST and PATCH; PUT has no
+`base_branch` field and preserves the existing value. The model pins are gated on
 create, full-update, and PATCH. `best_of_n` is exposed on POST (`createCardRequest`), PUT, and PATCH - and,
 independent of the human-only gate, is range-validated to `0` (off) or
 `2..best_of_n.max_candidates`; a value outside that range is rejected with 400
@@ -731,19 +729,14 @@ back-edge. On a hit, the service returns a `ValidationError` wrapping
 The check runs under `writeMu` to prevent two concurrent edits from racing into
 a cycle.
 
-## `feature_branch` and `create_pr` interaction
+## `create_pr` semantics
 
-`Validator.ValidateAutonomousFields` (in `internal/board/validation.go`)
-enforces a single combined invariant for the autonomous-execution boolean
-fields:
-
-> `create_pr: true` requires `feature_branch: true`.
-
-A card with `create_pr: true` and `feature_branch: false` is rejected at write
-time with 422 `VALIDATION_ERROR` (`ErrInvalidAutonomousConfig`,
-`field: "create_pr"`). The reverse - `feature_branch: true` with
-`create_pr: false` - is allowed; the worker will create and push the branch
-without opening a pull request.
+Every card gets a feature branch: `branch_name` is generated at create
+(`<lowercase-id>/<title-slug>`) and is immutable after first generation.
+`create_pr` decides only whether the run opens a pull request after the
+branch is pushed. It defaults to true when absent on create; an explicit
+`create_pr: false` pushes the branch without opening a PR. Run and promote
+triggers never modify the stored value.
 
 ## `chat_sessions` SQLite schema
 

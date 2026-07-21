@@ -257,7 +257,7 @@ clients. The raw error is always logged server-side with the request's
 | Code               | HTTP | When                                                                                                                                               |
 | ------------------ | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `CARD_NOT_VETTED`  | 403  | A non-human agent calls `POST /claim` on a card with `source != null && vetted == false`.                                                          |
-| `HUMAN_ONLY_FIELD` | 403  | An agent without `human:` prefix attempts to set `autonomous`, `feature_branch`, `create_pr`, `vetted`, `base_branch`, a model pin (`model_orchestrator`, `model_coder`, `model_reviewer`), `best_of_n`, a mob field (`mob_participants`, `mob_phases`, `mob_guests`), or `verify`. |
+| `HUMAN_ONLY_FIELD` | 403  | An agent without `human:` prefix attempts to set `autonomous`, `create_pr`, `vetted`, `base_branch`, a model pin (`model_orchestrator`, `model_coder`, `model_reviewer`), `best_of_n`, a mob field (`mob_participants`, `mob_phases`, `mob_guests`), or `verify`. |
 
 ## Authentication (multi mode)
 
@@ -1404,8 +1404,9 @@ gates (plan approval, subtask execution decision, review), waiting on human
 input delivered through the chat input. CM forces `interactive` off for
 autonomous cards server-side.
 
-Regardless of `interactive`, `feature_branch` and `create_pr` are automatically
-enabled on the card for all run triggers (both autonomous and HITL).
+The run never modifies the card's automation flags: every card carries a
+generated `branch_name`, and the stored `create_pr` value (default true at
+create) decides whether the worker opens a pull request.
 
 Returns **202 Accepted** with the updated card (`worker_status: "queued"`). The
 response is returned as soon as the backend webhook is accepted - the backend
@@ -1448,8 +1449,6 @@ The endpoint performs two steps in order:
    canned stdin message telling the worker to re-read the card at its next gate
    and continue on the autonomous branch.
 
-`feature_branch` and `create_pr` are also set to `true` if not already enabled.
-
 **Error responses:**
 
 - 403 `HUMAN_ONLY_FIELD` if the caller is not a human agent
@@ -1457,9 +1456,8 @@ The endpoint performs two steps in order:
 - 409 `INVALID_TRANSITION` if the card is in a terminal state (`done` or
   `not_planned`) - the flag flip itself is rejected before any webhook is sent
 - 502 `BACKEND_UNAVAILABLE` if the backend webhook fails - CM rolls back the
-  `autonomous`, `feature_branch`, and `create_pr` changes it made so the card's
-  declared mode matches the worker's actual mode, and records a
-  `promote-webhook-failed` activity entry
+  `autonomous` flip so the card's declared mode matches the worker's actual
+  mode, and records a `promote-webhook-failed` activity entry
 
 Returns **202 Accepted** with the updated card. The idempotent short-circuit
 (card already autonomous) also returns 202 with the current card state and no
