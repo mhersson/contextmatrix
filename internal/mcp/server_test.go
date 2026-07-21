@@ -196,6 +196,7 @@ func TestCreateAndGetCard(t *testing.T) {
 	assert.Equal(t, []string{"backend", "api"}, created.Labels)
 	assert.Contains(t, created.Body, "## Description\nBuild feature X.")
 	assert.NotEmpty(t, created.BranchName)
+	assert.True(t, created.CreatePR, "create_pr defaults true for MCP-created cards")
 	assert.False(t, created.Created.IsZero())
 
 	// Get the same card back

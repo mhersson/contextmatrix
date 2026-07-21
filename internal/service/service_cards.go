@@ -493,7 +493,7 @@ func (s *CardService) buildNewCardFromInput(
 		DependsOn:         dependsOn,
 		Source:            input.Source,
 		Autonomous:        input.Autonomous,
-		CreatePR:          input.CreatePR == nil || *input.CreatePR,
+		CreatePR:          resolveCreatePR(input.CreatePR, parentID),
 		BaseBranch:        input.BaseBranch,
 		Vetted:            input.Vetted,
 		Skills:            input.Skills,
@@ -512,7 +512,11 @@ func (s *CardService) buildNewCardFromInput(
 
 	enforceVettingInvariant(card)
 
-	card.BranchName = generateBranchName(card.ID, card.Title)
+	// Subtasks work on their parent's branch, so they never get their own
+	// branch name - a per-subtask name would advertise a branch nobody creates.
+	if parentID == "" {
+		card.BranchName = generateBranchName(card.ID, card.Title)
+	}
 
 	if err := validateFieldLimits(card.Title, card.Body, card.Labels); err != nil {
 		return nil, err
@@ -787,8 +791,9 @@ func (s *CardService) buildUpdateApply(ctx context.Context, input UpdateCardInpu
 		}
 
 		// BranchName is immutable after first generation - only backfilled on
-		// legacy cards created before names were generated at create.
-		if card.BranchName == "" {
+		// legacy non-subtask cards created before names were generated at
+		// create. Subtasks work on their parent's branch and never get one.
+		if card.BranchName == "" && card.Parent == "" {
 			card.BranchName = generateBranchName(card.ID, card.Title)
 		}
 
@@ -956,8 +961,9 @@ func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput)
 		}
 
 		// BranchName is immutable after first generation - only backfilled on
-		// legacy cards created before names were generated at create.
-		if card.BranchName == "" {
+		// legacy non-subtask cards created before names were generated at
+		// create. Subtasks work on their parent's branch and never get one.
+		if card.BranchName == "" && card.Parent == "" {
 			card.BranchName = generateBranchName(card.ID, card.Title)
 		}
 
@@ -1633,6 +1639,18 @@ func (s *CardService) validateModelPins(ctx context.Context, pins ...pinChange) 
 	}
 
 	return nil
+}
+
+// resolveCreatePR resolves the create-time create_pr value. nil defaults to
+// true for standalone and parent cards so callers that never set it (MCP
+// create_card, the GitHub syncer) get PRs; subtasks default to false - the PR
+// decision belongs to the parent card whose branch carries the work.
+func resolveCreatePR(explicit *bool, parentID string) bool {
+	if explicit != nil {
+		return *explicit
+	}
+
+	return parentID == ""
 }
 
 // generateBranchName creates a git branch name from a card ID and title.

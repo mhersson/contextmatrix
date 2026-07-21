@@ -4392,6 +4392,26 @@ func TestCreateCard_CreatePRDefaultAndBaseBranch(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "develop", card.BaseBranch)
 	})
+
+	t.Run("subtasks get no branch name and default create_pr false", func(t *testing.T) {
+		parent, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title: "Parent task", Type: "task", Priority: "medium",
+		})
+		require.NoError(t, err)
+
+		sub, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title: "Child work", Type: "task", Priority: "medium", Parent: parent.ID,
+		})
+		require.NoError(t, err)
+		assert.Empty(t, sub.BranchName, "subtasks work on the parent's branch")
+		assert.False(t, sub.CreatePR, "the PR decision belongs to the parent")
+
+		// The legacy backfill must not give subtasks a branch either.
+		prio := "high"
+		patched, err := svc.PatchCard(ctx, "test-project", sub.ID, PatchCardInput{Priority: &prio})
+		require.NoError(t, err)
+		assert.Empty(t, patched.BranchName)
+	})
 }
 
 func TestPatchCard_BackfillsBranchName_LegacyCard(t *testing.T) {

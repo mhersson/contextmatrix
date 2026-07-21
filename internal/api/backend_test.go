@@ -2295,6 +2295,52 @@ func TestPromoteCard_AlreadyAutonomous(t *testing.T) {
 	}
 }
 
+func TestPromoteCard_RespectsCreatePRFalse(t *testing.T) {
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
+	defer cleanup()
+
+	// Interactive running card with create_pr explicitly off - promote must
+	// flip only autonomous and leave the choice alone.
+	ctx := context.Background()
+	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+		Title: "Interactive no PR", Type: "task", Priority: "medium",
+		CreatePR: new(false),
+	})
+	require.NoError(t, err)
+	card, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "running", "interactive session started")
+	require.NoError(t, err)
+
+	mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
+	}))
+	defer mockBackend.Close()
+
+	backendClient := backend.NewClient(mockBackend.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	router := NewRouter(RouterConfig{
+		Service: svc, Bus: bus, Backend: backendClient,
+		AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+	})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	req, _ := http.NewRequest("POST",
+		server.URL+"/api/projects/test-project/cards/"+card.ID+"/promote", nil)
+	req.Header.Set("X-Agent-ID", "human:alice")
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusAccepted, resp.StatusCode)
+
+	updated, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.True(t, updated.Autonomous)
+	assert.False(t, updated.CreatePR, "promote must not force create_pr on")
+}
+
 func TestPromoteCard_HappyPath(t *testing.T) {
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()
