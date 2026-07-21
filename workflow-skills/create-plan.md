@@ -311,10 +311,9 @@ execute inline even if `get_skill` returns `inline: true`.** Sub-agents share
 the orchestrator's working tree on the feature branch.
 
 0. Create or switch to the feature branch. Call `get_card(card_id=<parent_id>)`
-   and read `feature_branch` and `branch_name`. If `feature_branch` is true and
-   `branch_name` is non-empty: `git checkout -b <branch_name>` (or
-   `git checkout <branch_name>` if it already exists). Run unconditionally -
-   both HITL and autonomous paths.
+   and read `branch_name`. If `branch_name` is non-empty:
+   `git checkout -b <branch_name>` (or `git checkout <branch_name>` if it
+   already exists). Run unconditionally - both HITL and autonomous paths.
 1. Claim the parent card:
    `claim_card(card_id=<parent_id>, agent_id=<your_agent_id>)`. Hold this claim
    through the entire execution phase.
@@ -511,8 +510,9 @@ straight to Phase 10:
 1. Commit any remaining changes in a conventional commit with a bullet-point
    body. No card IDs in commit messages.
 2. Push the feature branch: `git push -u origin <branch_name>`.
-3. Create a PR using `gh pr create`. If the card has a `base_branch` field, pass
-   `--base <base_branch>` so the PR targets the correct branch.
+3. If `create_pr` is enabled, create a PR using `gh pr create`. If the card has
+   a `base_branch` field, pass `--base <base_branch>` so the PR targets the
+   correct branch.
 4. Call `report_push(card_id=<parent_id>, branch=<branch_name>, pr_url=<url>)`.
 5. Proceed directly to Phase 10.
 
@@ -526,13 +526,13 @@ Do NOT offer to commit earlier in the workflow.
 
 Heartbeat before prompting. Heartbeat on resume. See the Heartbeat section.
 
-If the user approves the commit and the parent card has a feature branch, ask:
+If the user approves the commit and the parent card has a `branch_name`, ask:
 
 > Want me to push and create a PR?
 
-- **User approves push:** push to the feature branch, create a PR using
-  `gh pr create`. If the card has a `base_branch` field, pass
-  `--base <base_branch>`. Call
+- **User approves push:** push to the feature branch; if `create_pr` is
+  enabled, create a PR using `gh pr create`. If the card has a `base_branch`
+  field, pass `--base <base_branch>`. Call
   `report_push(card_id=<parent_id>, branch=<branch_name>, pr_url=<url>)`.
 - **User declines push:** skip push and PR - no `report_push` call.
 
