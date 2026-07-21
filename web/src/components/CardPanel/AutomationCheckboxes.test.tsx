@@ -38,6 +38,23 @@ describe('AutomationCheckboxes - model steering', () => {
     expect(screen.queryByLabelText('Automatic model selection')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Orchestrator model pin')).not.toBeInTheDocument();
   });
+
+  it('orders the rows autonomous, model selection, Best of N, mob seats, feature branch', () => {
+    render(<AutomationCheckboxes {...baseProps} taskBackend="agent" />);
+    const rows = [
+      screen.getByLabelText('Autonomous mode'),
+      screen.getByLabelText('Automatic model selection'),
+      screen.getByLabelText('Best of N'),
+      screen.getByLabelText('Mob seats'),
+      screen.getByLabelText('Feature branch'),
+    ];
+    for (let i = 0; i < rows.length - 1; i++) {
+      expect(
+        rows[i].compareDocumentPosition(rows[i + 1]) & Node.DOCUMENT_POSITION_FOLLOWING,
+        `row ${i} should precede row ${i + 1}`,
+      ).toBeTruthy();
+    }
+  });
 });
 
 describe('AutomationCheckboxes - forced-on-run badges', () => {
