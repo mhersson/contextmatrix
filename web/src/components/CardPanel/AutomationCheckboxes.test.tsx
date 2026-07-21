@@ -15,13 +15,27 @@ const baseProps = {
 };
 
 describe('AutomationCheckboxes - model steering', () => {
-  it('renders the per-role model pins when taskBackend is agent', () => {
+  it('renders the automatic-selection toggle with pins hidden when taskBackend is agent', () => {
     render(<AutomationCheckboxes {...baseProps} taskBackend="agent" />);
+    expect(screen.getByLabelText('Automatic model selection')).toBeChecked();
+    expect(screen.queryByLabelText('Orchestrator model pin')).not.toBeInTheDocument();
+  });
+
+  it('reveals the per-role model pins when the toggle is unchecked', () => {
+    render(<AutomationCheckboxes {...baseProps} taskBackend="agent" />);
+    fireEvent.click(screen.getByLabelText('Automatic model selection'));
     expect(screen.getByLabelText('Orchestrator model pin')).toBeInTheDocument();
+  });
+
+  it('shows the pins with the toggle off when a pin is already set', () => {
+    render(<AutomationCheckboxes {...baseProps} taskBackend="agent" modelCoder="openrouter/auto" />);
+    expect(screen.getByLabelText('Automatic model selection')).not.toBeChecked();
+    expect(screen.getByLabelText('Coder model pin')).toHaveValue('openrouter/auto');
   });
 
   it('renders no model steering when taskBackend is empty', () => {
     render(<AutomationCheckboxes {...baseProps} />);
+    expect(screen.queryByLabelText('Automatic model selection')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Orchestrator model pin')).not.toBeInTheDocument();
   });
 });

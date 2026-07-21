@@ -1,5 +1,6 @@
-import { useId } from 'react';
+import { useId, useState } from 'react';
 import { ModelCombobox } from '../ModelCombobox';
+import { FavoriteChips } from './FavoriteChips';
 
 export type ModelPinField = 'model_orchestrator' | 'model_coder' | 'model_reviewer';
 
@@ -27,16 +28,22 @@ const ROWS: { field: ModelPinField; label: string }[] = [
 ];
 
 /**
- * Per-card model pins for the agent backend - three rows (Orchestrator /
- * Coder / Reviewer) in the automation rail's `.bf-spread` row style. Each row
- * is a strict `ModelCombobox` bound to a pin value: typing filters CM's
- * served catalog, and only a listed slug (or empty) can be committed. When
- * `models` is `[]` (catalog unavailable) each row degrades to a plain
+ * Per-card model pins for the agent backend - an "Automatic model selection"
+ * toggle followed by three rows (Orchestrator / Coder / Reviewer) in the
+ * automation rail's `.bf-spread` row style. The toggle is checked by default
+ * and hides the pin rows entirely; unchecking it reveals them. Any pin
+ * already set forces the toggle off so existing pins are never hidden, and
+ * re-checking it clears every set pin - hiding a pin that would still be
+ * saved would make the label lie.
+ *
+ * Each row is a strict `ModelCombobox` bound to a pin value: typing filters
+ * CM's served catalog, and only a listed slug (or empty) can be committed.
+ * When `models` is `[]` (catalog unavailable) each row degrades to a plain
  * free-text input. An empty pin means the agent's complexity selector
  * decides the model, surfaced by the right-aligned hint.
  *
  * When `favorites` is supplied, a chip row above the inputs lets operators
- * click a preferred slug into the first empty pin.
+ * click a preferred slug into the first empty pin. It hides with the pins.
  *
  * The locked-state banner is owned by the parent (AutomationCheckboxes); this
  * component only honors `disabled`.
@@ -61,64 +68,59 @@ export function ModelPinsSection({
     model_reviewer: reviewer,
   };
 
+  // `revealed` only matters while all pins are empty - a set pin derives the
+  // toggle off, so an external pin change (SSE refresh, discard) can never
+  // strand hidden values. Per-card reset comes free from the panel's
+  // key-based remount in ProjectShell.
+  const [revealed, setRevealed] = useState(false);
+  const hasPins = Boolean(orchestrator || coder || reviewer);
+  // Latch while pins exist: without it, emptying the last pin through its
+  // input would unmount the row mid-edit and re-check the toggle. Only an
+  // explicit re-check (handleAutomaticToggle) drops the latch.
+  if (hasPins && !revealed) setRevealed(true);
+  const automatic = !hasPins && !revealed;
+
+  function handleAutomaticToggle(checked: boolean) {
+    if (checked) {
+      for (const { field } of ROWS) {
+        if (values[field]) onChange(field, '');
+      }
+    }
+    setRevealed(!checked);
+  }
+
   /** Click handler: fill the first empty pin, falling back to orchestrator. */
   function handleFavoriteClick(slug: string) {
     const firstEmpty = ROWS.find(({ field }) => !values[field]);
     onChange(firstEmpty?.field ?? 'model_orchestrator', slug);
   }
 
-  const showFavorites = favorites && favorites.length > 0;
 
   return (
     <>
-      {showFavorites && (
-        <div
-          className="bf-spread"
-          style={{ flexWrap: 'wrap', alignItems: 'flex-start', gap: '4px 6px' }}
-        >
-          <span
-            className="bf-switch-label"
-            style={{ flexShrink: 0, alignSelf: 'center' }}
-          >
-            Favorites
-          </span>
-          <div
-            style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              gap: '4px',
-              minWidth: 0,
-              alignItems: 'center',
-            }}
-          >
-            {favorites.map((slug) => (
-              <button
-                key={slug}
-                type="button"
-                disabled={disabled}
-                onClick={() => handleFavoriteClick(slug)}
-                title={`Set favorite: ${slug}`}
-                style={{
-                  background: 'color-mix(in oklab, var(--bg-blue) 70%, transparent)',
-                  color: 'var(--aqua)',
-                  border: '1px solid color-mix(in oklab, var(--aqua) 30%, transparent)',
-                  borderRadius: '4px',
-                  padding: '1px 7px',
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: '10.5px',
-                  cursor: disabled ? 'default' : 'pointer',
-                  whiteSpace: 'nowrap',
-                  lineHeight: '1.6',
-                  opacity: disabled ? 0.5 : 1,
-                }}
-              >
-                {slug}
-              </button>
-            ))}
-          </div>
-        </div>
+      <div className="bf-spread">
+        <label className="bf-switch">
+          <input
+            type="checkbox"
+            aria-label="Automatic model selection"
+            checked={automatic}
+            disabled={disabled}
+            onChange={(e) => handleAutomaticToggle(e.target.checked)}
+          />
+          <span>Automatic model selection</span>
+        </label>
+        <span className="bf-hint">
+          {automatic ? 'selector decides' : 'pin models per role'}
+        </span>
+      </div>
+      {!automatic && favorites && favorites.length > 0 && (
+        <FavoriteChips
+          favorites={favorites}
+          disabled={disabled}
+          onPick={handleFavoriteClick}
+        />
       )}
-      {ROWS.map(({ field, label }) => {
+      {!automatic && ROWS.map(({ field, label }) => {
         const value = values[field];
         const inputId = `${listId}-${field}`;
         return (
