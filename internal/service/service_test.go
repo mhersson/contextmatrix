@@ -354,40 +354,6 @@ func TestPatchCard_BaseBranch(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "develop", patched.BaseBranch)
-
-	// Cascade: disabling feature_branch should clear base_branch and create_pr.
-	t.Run("cleared by feature_branch cascade", func(t *testing.T) {
-		svc2, _, cleanup2 := setupTest(t)
-		defer cleanup2()
-
-		card2, err := svc2.CreateCard(ctx, "test-project", CreateCardInput{
-			Title:    "Cascade Test",
-			Type:     "task",
-			Priority: "medium",
-		})
-		require.NoError(t, err)
-
-		// Enable feature_branch and set base_branch.
-		featureOn := true
-		base := "develop"
-		patched2, err := svc2.PatchCard(ctx, "test-project", card2.ID, PatchCardInput{
-			FeatureBranch: &featureOn,
-			BaseBranch:    &base,
-		})
-		require.NoError(t, err)
-		assert.True(t, patched2.FeatureBranch)
-		assert.Equal(t, "develop", patched2.BaseBranch)
-
-		// Disable feature_branch - base_branch and create_pr must be cleared.
-		featureOff := false
-		patched2, err = svc2.PatchCard(ctx, "test-project", card2.ID, PatchCardInput{
-			FeatureBranch: &featureOff,
-		})
-		require.NoError(t, err)
-		assert.False(t, patched2.FeatureBranch)
-		assert.Empty(t, patched2.BaseBranch)
-		assert.False(t, patched2.CreatePR)
-	})
 }
 
 func TestPatchCardStateTransition(t *testing.T) {
@@ -4343,16 +4309,14 @@ func TestCreateCard_AutonomousFields(t *testing.T) {
 
 	t.Run("creates card with autonomous fields", func(t *testing.T) {
 		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-			Title:         "Auto task",
-			Type:          "task",
-			Priority:      "high",
-			Autonomous:    true,
-			FeatureBranch: true,
-			CreatePR:      new(true),
+			Title:      "Auto task",
+			Type:       "task",
+			Priority:   "high",
+			Autonomous: true,
+			CreatePR:   new(true),
 		})
 		require.NoError(t, err)
 		assert.True(t, card.Autonomous)
-		assert.True(t, card.FeatureBranch)
 		assert.True(t, card.CreatePR)
 		assert.NotEmpty(t, card.BranchName)
 		assert.Contains(t, card.BranchName, strings.ToLower(card.ID))
@@ -4483,34 +4447,6 @@ func TestUpdateCard_BackfillsBranchName_LegacyCard(t *testing.T) {
 	assert.Equal(t, "test-901/legacy-task", updated.BranchName)
 }
 
-func TestPatchCard_DisableFeatureBranch_ClearsCreatePR(t *testing.T) {
-	svc, _, cleanup := setupTest(t)
-	defer cleanup()
-
-	ctx := context.Background()
-
-	// Create a card with all autonomous fields enabled.
-	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-		Title:         "Auto task",
-		Type:          "task",
-		Priority:      "medium",
-		Autonomous:    true,
-		FeatureBranch: true,
-		CreatePR:      new(true),
-	})
-	require.NoError(t, err)
-	assert.True(t, card.CreatePR)
-
-	// Disable feature_branch via patch - create_pr should be auto-cleared.
-	off := false
-	patched, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
-		FeatureBranch: &off,
-	})
-	require.NoError(t, err)
-	assert.False(t, patched.FeatureBranch)
-	assert.False(t, patched.CreatePR, "create_pr should be auto-cleared when feature_branch is disabled")
-}
-
 func TestRecordPush_BranchProtection(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
 	defer cleanup()
@@ -4574,37 +4510,35 @@ func TestIncrementReviewAttempts(t *testing.T) {
 	assert.Equal(t, 2, updated.ReviewAttempts)
 }
 
-func TestPatchCard_CreatePRWithoutFeatureBranch_Rejected(t *testing.T) {
+func TestPatchCard_CreatePRToggle(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
 	defer cleanup()
 
 	ctx := context.Background()
 
-	// Create a card with feature_branch + create_pr enabled.
 	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-		Title:         "Auto task",
-		Type:          "task",
-		Priority:      "medium",
-		FeatureBranch: true,
-		CreatePR:      new(true),
+		Title: "Toggle task", Type: "task", Priority: "medium",
 	})
 	require.NoError(t, err)
-	assert.True(t, card.CreatePR)
+	assert.True(t, card.CreatePR, "create_pr defaults true at create")
 
-	// Patch: disable feature_branch but try to keep create_pr - must be rejected.
-	off := false
-	on := true
-	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
-		FeatureBranch: &off,
-		CreatePR:      &on,
+	patched, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+		CreatePR: new(false),
 	})
-	require.NoError(t, err, "create_pr should be silently ignored when feature_branch is disabled")
-
-	// Verify persisted state is consistent.
-	reloaded, err := svc.GetCard(ctx, "test-project", card.ID)
 	require.NoError(t, err)
-	assert.False(t, reloaded.FeatureBranch)
-	assert.False(t, reloaded.CreatePR, "create_pr must not be true when feature_branch is false")
+	assert.False(t, patched.CreatePR)
+
+	// Nil leaves the value unchanged.
+	prio := "high"
+	patched, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{Priority: &prio})
+	require.NoError(t, err)
+	assert.False(t, patched.CreatePR)
+
+	patched, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+		CreatePR: new(true),
+	})
+	require.NoError(t, err)
+	assert.True(t, patched.CreatePR)
 }
 
 func TestRecordPush_InvalidPRUrl(t *testing.T) {
@@ -5891,33 +5825,31 @@ func TestActivityLogCapping_Integration(t *testing.T) {
 }
 
 // TestBranchNameImmutability_UpdateCard verifies that a card's branch_name is
-// not regenerated when feature_branch=true is set again via UpdateCard, proving
-// the branch name is immutable after first generation.
+// not regenerated by a full update with a new title, proving the branch name
+// is immutable after first generation.
 func TestBranchNameImmutability_UpdateCard(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
 	defer cleanup()
 
 	ctx := context.Background()
 
-	// Create a card with feature_branch=true → branch name generated.
+	// Branch name is generated at create.
 	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-		Title:         "Original Title",
-		Type:          "task",
-		Priority:      "medium",
-		FeatureBranch: true,
+		Title:    "Original Title",
+		Type:     "task",
+		Priority: "medium",
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, card.BranchName)
 	originalBranch := card.BranchName
 
-	// Full update with a different title but feature_branch still true.
-	// Branch name must NOT be regenerated from the new title.
+	// Full update with a different title - the branch name must NOT be
+	// regenerated from the new title.
 	updated, err := svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
-		Title:         "Completely Different Title",
-		Type:          "task",
-		State:         "todo",
-		Priority:      "medium",
-		FeatureBranch: true,
+		Title:    "Completely Different Title",
+		Type:     "task",
+		State:    "todo",
+		Priority: "medium",
 	})
 	require.NoError(t, err)
 	assert.Equal(t, originalBranch, updated.BranchName, "branch name must not change after first generation")

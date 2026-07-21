@@ -2141,7 +2141,7 @@ func TestHumanOnlyFields_CreateCard(t *testing.T) {
 	server := httptest.NewServer(router)
 	defer server.Close()
 
-	body := `{"title":"Test","type":"task","priority":"medium","autonomous":true,"feature_branch":true}`
+	body := `{"title":"Test","type":"task","priority":"medium","autonomous":true}`
 
 	t.Run("agent rejected on create", func(t *testing.T) {
 		req, _ := http.NewRequest("POST", server.URL+"/api/projects/test-project/cards",
@@ -2172,7 +2172,6 @@ func TestHumanOnlyFields_CreateCard(t *testing.T) {
 		var respCard board.Card
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&respCard))
 		assert.True(t, respCard.Autonomous)
-		assert.True(t, respCard.FeatureBranch)
 		assert.NotEmpty(t, respCard.BranchName)
 	})
 }
@@ -2263,7 +2262,7 @@ func TestHumanOnlyFields_PutClear(t *testing.T) {
 	// Create a card with autonomous mode enabled (via service, simulating human)
 	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
 		Title: "Auto card", Type: "task", Priority: "medium",
-		Autonomous: true, FeatureBranch: true,
+		Autonomous: true,
 	})
 	require.NoError(t, err)
 	assert.True(t, card.Autonomous)
@@ -2304,14 +2303,14 @@ func TestHumanOnlyFields_PutPassthrough(t *testing.T) {
 	// Create a card with autonomous mode enabled
 	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
 		Title: "Auto card", Type: "task", Priority: "medium",
-		Autonomous: true, FeatureBranch: true,
+		Autonomous: true,
 	})
 	require.NoError(t, err)
 
 	// Agent sends PUT with same autonomous+vetted values - should pass through.
 	// create_pr must echo the card's value (defaulted true at create) or the
 	// human-only guard rejects the request.
-	putBody := `{"title":"Updated title","type":"task","state":"todo","priority":"medium","autonomous":true,"feature_branch":true,"create_pr":true,"vetted":true}`
+	putBody := `{"title":"Updated title","type":"task","state":"todo","priority":"medium","autonomous":true,"create_pr":true,"vetted":true}`
 	req, _ := http.NewRequest("PUT", server.URL+"/api/projects/test-project/cards/"+card.ID,
 		strings.NewReader(putBody))
 	req.Header.Set("Content-Type", "application/json")

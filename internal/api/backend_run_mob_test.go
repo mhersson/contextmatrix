@@ -48,7 +48,7 @@ func runMobTrigger(t *testing.T, mobCfg config.MobConfig, patch *service.PatchCa
 
 	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
 		Title: "Mob task", Type: "task", Priority: "medium",
-		Autonomous: true, FeatureBranch: true,
+		Autonomous: true,
 	})
 	require.NoError(t, err)
 

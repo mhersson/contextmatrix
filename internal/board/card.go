@@ -54,7 +54,6 @@ type Card struct {
 	// only, like the model pins - never writable via the MCP agent surface.
 	Verify         *VerifyConfig `yaml:"verify,omitempty"             json:"verify,omitempty"`
 	Vetted         bool          `yaml:"vetted,omitempty"             json:"vetted"`
-	FeatureBranch  bool          `yaml:"feature_branch,omitempty"     json:"feature_branch,omitempty"`
 	CreatePR       bool          `yaml:"create_pr,omitempty"          json:"create_pr,omitempty"`
 	BranchName     string        `yaml:"branch_name,omitempty"        json:"branch_name,omitempty"`
 	BaseBranch     string        `yaml:"base_branch,omitempty"        json:"base_branch,omitempty"`

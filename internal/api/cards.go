@@ -57,7 +57,6 @@ type createCardRequest struct {
 	Body              string              `json:"body"`
 	Source            *board.Source       `json:"source"`
 	Autonomous        bool                `json:"autonomous"`
-	FeatureBranch     bool                `json:"feature_branch"`
 	CreatePR          *bool               `json:"create_pr"`
 	BaseBranch        string              `json:"base_branch"`
 	Vetted            bool                `json:"vetted"`
@@ -87,7 +86,6 @@ type updateCardRequest struct {
 	Custom            map[string]any `json:"custom"`
 	Body              string         `json:"body"`
 	Autonomous        bool           `json:"autonomous"`
-	FeatureBranch     bool           `json:"feature_branch"`
 	CreatePR          bool           `json:"create_pr"`
 	Vetted            bool           `json:"vetted"`
 	Skills            *[]string      `json:"skills,omitempty"`
@@ -117,7 +115,6 @@ type patchCardRequest struct {
 	Labels            []string  `json:"labels,omitempty"`
 	Body              *string   `json:"body,omitempty"`
 	Autonomous        *bool     `json:"autonomous,omitempty"`
-	FeatureBranch     *bool     `json:"feature_branch,omitempty"`
 	CreatePR          *bool     `json:"create_pr,omitempty"`
 	Vetted            *bool     `json:"vetted,omitempty"`
 	BaseBranch        *string   `json:"base_branch,omitempty"`
@@ -408,12 +405,12 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 	// Autonomous and model-pin fields can only be set by human users (UI),
 	// never by agents - mirrors the update and patch guards. Pins set at
 	// create time flow onto the card and reach the agent via get_task_context.
-	if isNonHumanAgent(r) && (req.Autonomous || req.FeatureBranch || req.CreatePR != nil || req.BaseBranch != "" || req.Vetted ||
+	if isNonHumanAgent(r) && (req.Autonomous || req.CreatePR != nil || req.BaseBranch != "" || req.Vetted ||
 		req.ModelOrchestrator != "" || req.ModelCoder != "" || req.ModelReviewer != "" ||
 		req.BestOfN != 0 || req.MobParticipants != 0 || len(req.MobPhases) > 0 || len(req.MobGuests) > 0 ||
 		req.Verify != nil) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
-			"forbidden", "autonomous, feature_branch, create_pr, base_branch, vetted, model pins, best_of_n, mob fields, and verify can only be set via the UI")
+			"forbidden", "autonomous, create_pr, base_branch, vetted, model pins, best_of_n, mob fields, and verify can only be set via the UI")
 
 		return
 	}
@@ -446,7 +443,6 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 		Body:              req.Body,
 		Source:            req.Source,
 		Autonomous:        req.Autonomous,
-		FeatureBranch:     req.FeatureBranch,
 		CreatePR:          req.CreatePR,
 		BaseBranch:        req.BaseBranch,
 		Vetted:            req.Vetted,
@@ -525,7 +521,6 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 	// Autonomous and model-pin fields can only be changed by human users (UI), never by agents.
 	// For PUT semantics, compare against existing values to catch both setting AND clearing.
 	if isNonHumanAgent(r) && (req.Autonomous != existingCard.Autonomous ||
-		req.FeatureBranch != existingCard.FeatureBranch ||
 		req.CreatePR != existingCard.CreatePR ||
 		req.Vetted != existingCard.Vetted ||
 		req.ModelOrchestrator != existingCard.ModelOrchestrator ||
@@ -536,7 +531,7 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 		!slices.Equal(req.MobPhases, existingCard.MobPhases) ||
 		!slices.Equal(req.MobGuests, existingCard.MobGuests)) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
-			"forbidden", "autonomous, feature_branch, create_pr, vetted, model pins, best_of_n, and mob fields can only be changed via the UI")
+			"forbidden", "autonomous, create_pr, vetted, model pins, best_of_n, and mob fields can only be changed via the UI")
 
 		return
 	}
@@ -574,7 +569,6 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 		Body:              req.Body,
 		ImmediateCommit:   existingCard.AssignedAgent == "",
 		Autonomous:        req.Autonomous,
-		FeatureBranch:     req.FeatureBranch,
 		CreatePR:          req.CreatePR,
 		Vetted:            req.Vetted,
 		Skills:            req.Skills,
@@ -616,7 +610,6 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 
 	// Autonomous and model-pin fields can only be set by human users (UI), never by agents.
 	if isNonHumanAgent(r) && (req.Autonomous != nil ||
-		req.FeatureBranch != nil ||
 		req.CreatePR != nil ||
 		req.Vetted != nil ||
 		req.BaseBranch != nil ||
@@ -629,7 +622,7 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 		req.MobGuests != nil ||
 		req.Verify != nil) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
-			"forbidden", "autonomous, feature_branch, create_pr, vetted, base_branch, model pins, best_of_n, mob fields, and verify can only be set via the UI")
+			"forbidden", "autonomous, create_pr, vetted, base_branch, model pins, best_of_n, mob fields, and verify can only be set via the UI")
 
 		return
 	}
@@ -694,7 +687,6 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 		Body:              req.Body,
 		ImmediateCommit:   existingCard.AssignedAgent == "",
 		Autonomous:        req.Autonomous,
-		FeatureBranch:     req.FeatureBranch,
 		CreatePR:          req.CreatePR,
 		Vetted:            req.Vetted,
 		BaseBranch:        req.BaseBranch,

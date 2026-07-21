@@ -23,16 +23,15 @@ import (
 // CreateCardInput contains the fields for creating a new card.
 // Server-managed fields (id, created, updated, activity_log) are not included.
 type CreateCardInput struct {
-	Title         string
-	Type          string
-	Priority      string
-	Labels        []string
-	Parent        string
-	DependsOn     []string
-	Body          string
-	Source        *board.Source // Optional, immutable after creation
-	Autonomous    bool
-	FeatureBranch bool
+	Title      string
+	Type       string
+	Priority   string
+	Labels     []string
+	Parent     string
+	DependsOn  []string
+	Body       string
+	Source     *board.Source // Optional, immutable after creation
+	Autonomous bool
 	// CreatePR: nil means default true - callers that never set it (MCP
 	// create_card, the GitHub syncer) get PRs; explicit false is respected.
 	CreatePR   *bool
@@ -73,7 +72,6 @@ type UpdateCardInput struct {
 	Body            string
 	ImmediateCommit bool // If true, commit immediately even when gitDeferredCommit is on.
 	Autonomous      bool
-	FeatureBranch   bool
 	CreatePR        bool
 	Vetted          bool
 	Skills          *[]string
@@ -104,7 +102,6 @@ type PatchCardInput struct {
 	Body            *string
 	ImmediateCommit bool // If true, commit immediately even when gitDeferredCommit is on.
 	Autonomous      *bool
-	FeatureBranch   *bool
 	CreatePR        *bool
 	Vetted          *bool
 	Skills          *[]string // nil = don't change; non-nil = set (empty allowed)
@@ -496,7 +493,6 @@ func (s *CardService) buildNewCardFromInput(
 		DependsOn:         dependsOn,
 		Source:            input.Source,
 		Autonomous:        input.Autonomous,
-		FeatureBranch:     input.FeatureBranch,
 		CreatePR:          input.CreatePR == nil || *input.CreatePR,
 		BaseBranch:        input.BaseBranch,
 		Vetted:            input.Vetted,
@@ -766,7 +762,6 @@ func (s *CardService) buildUpdateApply(ctx context.Context, input UpdateCardInpu
 		card.Custom = input.Custom
 		card.Body = input.Body
 		card.Autonomous = input.Autonomous
-		card.FeatureBranch = input.FeatureBranch
 		card.Vetted = input.Vetted
 		card.Skills = input.Skills // PUT replaces wholesale; nil clears
 		card.ModelOrchestrator = input.ModelOrchestrator
@@ -796,12 +791,8 @@ func (s *CardService) buildUpdateApply(ctx context.Context, input UpdateCardInpu
 		if card.BranchName == "" {
 			card.BranchName = generateBranchName(card.ID, card.Title)
 		}
-		// Auto-clear create_pr when feature_branch is disabled.
-		if !card.FeatureBranch {
-			card.CreatePR = false
-		} else {
-			card.CreatePR = input.CreatePR
-		}
+
+		card.CreatePR = input.CreatePR
 
 		return nil
 	}
@@ -964,22 +955,13 @@ func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput)
 			card.Autonomous = *input.Autonomous
 		}
 
-		if input.FeatureBranch != nil {
-			card.FeatureBranch = *input.FeatureBranch
-			// Auto-clear create_pr and base_branch when feature_branch is disabled.
-			if !card.FeatureBranch {
-				card.CreatePR = false
-				card.BaseBranch = ""
-			}
-		}
-
 		// BranchName is immutable after first generation - only backfilled on
 		// legacy cards created before names were generated at create.
 		if card.BranchName == "" {
 			card.BranchName = generateBranchName(card.ID, card.Title)
 		}
 
-		if input.CreatePR != nil && card.FeatureBranch {
+		if input.CreatePR != nil {
 			card.CreatePR = *input.CreatePR
 		}
 

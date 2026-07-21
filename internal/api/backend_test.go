@@ -96,7 +96,7 @@ func TestRunCard_HumanOnly(t *testing.T) {
 	// Create an autonomous card in todo state.
 	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
 		Title: "Auto task", Type: "task", Priority: "medium",
-		Autonomous: true, FeatureBranch: true,
+		Autonomous: true,
 	})
 	require.NoError(t, err)
 
@@ -156,7 +156,7 @@ func TestRunCard_HumanOnly(t *testing.T) {
 		// Re-create a fresh card since the first may now have worker_status set.
 		freshCard, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
 			Title: "Auto task 2", Type: "task", Priority: "medium",
-			Autonomous: true, FeatureBranch: true,
+			Autonomous: true,
 		})
 		require.NoError(t, err)
 
@@ -180,7 +180,7 @@ func TestRunCard_BackendDisabled(t *testing.T) {
 
 	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
 		Title: "Auto task", Type: "task", Priority: "medium",
-		Autonomous: true, FeatureBranch: true,
+		Autonomous: true,
 	})
 	require.NoError(t, err)
 
@@ -263,7 +263,7 @@ func TestRunCard_CardNotInTodo(t *testing.T) {
 
 	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
 		Title: "Auto task", Type: "task", Priority: "medium",
-		Autonomous: true, FeatureBranch: true,
+		Autonomous: true,
 	})
 	require.NoError(t, err)
 
@@ -311,7 +311,7 @@ func TestRunCard_AlreadyQueued(t *testing.T) {
 
 	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
 		Title: "Auto task", Type: "task", Priority: "medium",
-		Autonomous: true, FeatureBranch: true,
+		Autonomous: true,
 	})
 	require.NoError(t, err)
 
@@ -390,7 +390,7 @@ func TestRunCard_WebhookFailure(t *testing.T) {
 
 	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
 		Title: "Auto task", Type: "task", Priority: "medium",
-		Autonomous: true, FeatureBranch: true,
+		Autonomous: true,
 	})
 	require.NoError(t, err)
 
@@ -442,7 +442,7 @@ func TestRunCard_ContextCancelledDuringWebhook(t *testing.T) {
 
 	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
 		Title: "Cancel-during-webhook task", Type: "task", Priority: "medium",
-		Autonomous: true, FeatureBranch: true,
+		Autonomous: true,
 	})
 	require.NoError(t, err)
 
@@ -554,7 +554,7 @@ remote_execution:
 
 	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
 		Title: "Auto task", Type: "task", Priority: "medium",
-		Autonomous: true, FeatureBranch: true,
+		Autonomous: true,
 	})
 	require.NoError(t, err)
 
@@ -1191,7 +1191,7 @@ func TestStopCard_HumanOnly(t *testing.T) {
 
 	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
 		Title: "Auto task", Type: "task", Priority: "medium",
-		Autonomous: true, FeatureBranch: true,
+		Autonomous: true,
 	})
 	require.NoError(t, err)
 
@@ -1861,7 +1861,7 @@ func newRunningCardSetup(t *testing.T) (*service.CardService, *events.Bus, func(
 	ctx := context.Background()
 	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
 		Title: "Running task", Type: "task", Priority: "medium",
-		Autonomous: true, FeatureBranch: true,
+		Autonomous: true,
 	})
 	require.NoError(t, err)
 	// Set worker_status to running.
@@ -2243,7 +2243,7 @@ func TestPromoteCard_AlreadyAutonomous(t *testing.T) {
 	// Card already autonomous and running.
 	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
 		Title: "Already autonomous", Type: "task", Priority: "medium",
-		Autonomous: true, FeatureBranch: true, CreatePR: new(true),
+		Autonomous: true, CreatePR: new(true),
 	})
 	require.NoError(t, err)
 	card, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "running", "running")
@@ -2336,7 +2336,6 @@ func TestPromoteCard_HappyPath(t *testing.T) {
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&respCard))
 	assert.True(t, respCard.Autonomous, "card should be autonomous after promote")
 	assert.True(t, respCard.CreatePR, "create_pr retains its creation value")
-	assert.False(t, respCard.FeatureBranch, "promote no longer touches feature_branch")
 	assert.Equal(t, 1, promoteCalled, "promote webhook should be called once")
 
 	// Verify the flag and log entry are persisted.
@@ -2534,7 +2533,6 @@ func TestRunCard_Interactive(t *testing.T) {
 		// The run performs no card patch - create_pr keeps its create default.
 		updated, err := svc.GetCard(ctx, "test-project", card.ID)
 		require.NoError(t, err)
-		assert.False(t, updated.FeatureBranch, "run must not patch feature_branch")
 		assert.True(t, updated.CreatePR, "create_pr keeps its creation value")
 	})
 
@@ -2579,7 +2577,6 @@ func TestRunCard_Interactive(t *testing.T) {
 		// The run performs no card patch - flags keep their creation values.
 		updated, err := svc.GetCard(ctx, "test-project", card.ID)
 		require.NoError(t, err)
-		assert.False(t, updated.FeatureBranch, "run must not patch feature_branch")
 		assert.True(t, updated.CreatePR, "create_pr keeps its creation value")
 	})
 
@@ -2629,7 +2626,6 @@ func TestRunCard_Interactive(t *testing.T) {
 		// The run performs no card patch - flags keep their creation values.
 		updated, err := svc.GetCard(ctx, "test-project", card.ID)
 		require.NoError(t, err)
-		assert.False(t, updated.FeatureBranch, "run must not patch feature_branch")
 		assert.True(t, updated.CreatePR, "create_pr keeps its creation value")
 	})
 
@@ -2659,11 +2655,10 @@ func TestRunCard_Interactive(t *testing.T) {
 		server := httptest.NewServer(router)
 		defer server.Close()
 
-		// Create a card that already has feature_branch=true and create_pr
-		// explicitly off.
+		// Create a card with create_pr explicitly off.
 		card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
-			Title: "Already feature branched", Type: "task", Priority: "medium",
-			FeatureBranch: true, CreatePR: new(false),
+			Title: "No PR wanted", Type: "task", Priority: "medium",
+			CreatePR: new(false),
 		})
 		require.NoError(t, err)
 
@@ -2683,7 +2678,6 @@ func TestRunCard_Interactive(t *testing.T) {
 		// survives the trigger.
 		updated, err := svc.GetCard(ctx, "test-project", card.ID)
 		require.NoError(t, err)
-		assert.True(t, updated.FeatureBranch, "feature_branch should remain true")
 		assert.False(t, updated.CreatePR, "explicit create_pr=false must survive the run")
 		// Exactly one trigger webhook should have fired.
 		assert.Equal(t, 1, triggerCount, "backend should be triggered exactly once")

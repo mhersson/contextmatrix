@@ -445,7 +445,6 @@ func TestRoundTrip_MinimalCard(t *testing.T) {
 	assert.Nil(t, parsed.LastHeartbeat)
 	assert.Nil(t, parsed.Source)
 	assert.False(t, parsed.Autonomous)
-	assert.False(t, parsed.FeatureBranch)
 	assert.False(t, parsed.CreatePR)
 	assert.Empty(t, parsed.BranchName)
 	assert.Empty(t, parsed.PRUrl)
@@ -515,7 +514,6 @@ func TestRoundTrip_AutonomousFields(t *testing.T) {
 		Created:        created,
 		Updated:        created,
 		Autonomous:     true,
-		FeatureBranch:  true,
 		CreatePR:       true,
 		BranchName:     "test-001/autonomous-card",
 		PRUrl:          "https://github.com/org/repo/pull/1",
@@ -527,7 +525,6 @@ func TestRoundTrip_AutonomousFields(t *testing.T) {
 
 	str := string(data)
 	assert.Contains(t, str, "autonomous: true")
-	assert.Contains(t, str, "feature_branch: true")
 	assert.Contains(t, str, "create_pr: true")
 	assert.Contains(t, str, "branch_name: test-001/autonomous-card")
 	assert.Contains(t, str, "pr_url: https://github.com/org/repo/pull/1")
@@ -537,11 +534,35 @@ func TestRoundTrip_AutonomousFields(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, original.Autonomous, parsed.Autonomous)
-	assert.Equal(t, original.FeatureBranch, parsed.FeatureBranch)
 	assert.Equal(t, original.CreatePR, parsed.CreatePR)
 	assert.Equal(t, original.BranchName, parsed.BranchName)
 	assert.Equal(t, original.PRUrl, parsed.PRUrl)
 	assert.Equal(t, original.ReviewAttempts, parsed.ReviewAttempts)
+}
+
+func TestParseCard_IgnoresStaleFeatureBranchKey(t *testing.T) {
+	input := `---
+id: TEST-001
+title: Legacy card
+project: test-project
+type: task
+state: todo
+priority: medium
+created: 2026-03-30T10:00:00Z
+updated: 2026-03-30T10:00:00Z
+feature_branch: true
+create_pr: true
+---
+Body text.
+`
+
+	parsed, err := ParseCard([]byte(input))
+	require.NoError(t, err)
+	assert.True(t, parsed.CreatePR)
+
+	data, err := SerializeCard(parsed)
+	require.NoError(t, err)
+	assert.NotContains(t, string(data), "feature_branch")
 }
 
 func TestRoundTrip_CustomFields(t *testing.T) {

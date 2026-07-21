@@ -622,10 +622,6 @@ func formatCardContext(c *board.Card, project, verifyCommand string) string {
 		fmt.Fprintf(&b, "- **Autonomous:** true\n")
 	}
 
-	if c.FeatureBranch {
-		fmt.Fprintf(&b, "- **Feature Branch:** enabled\n")
-	}
-
 	if c.BranchName != "" {
 		fmt.Fprintf(&b, "- **Branch:** %s\n", c.BranchName)
 	}
@@ -677,10 +673,6 @@ func formatCardBrief(c *board.Card) string {
 
 	if c.Autonomous {
 		fmt.Fprintf(&b, "- Autonomous: true\n")
-	}
-
-	if c.FeatureBranch {
-		fmt.Fprintf(&b, "- Feature Branch: enabled\n")
 	}
 
 	if c.BranchName != "" {
