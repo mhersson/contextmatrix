@@ -4348,7 +4348,7 @@ func TestCreateCard_AutonomousFields(t *testing.T) {
 			Priority:      "high",
 			Autonomous:    true,
 			FeatureBranch: true,
-			CreatePR:      true,
+			CreatePR:      new(true),
 		})
 		require.NoError(t, err)
 		assert.True(t, card.Autonomous)
@@ -4394,6 +4394,39 @@ func TestPatchCard_AutonomousFields(t *testing.T) {
 		})
 		require.NoError(t, err)
 		assert.True(t, patched.Autonomous)
+	})
+}
+
+func TestCreateCard_CreatePRDefaultAndBaseBranch(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	t.Run("create_pr defaults true when unset", func(t *testing.T) {
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title: "Defaults", Type: "task", Priority: "medium",
+		})
+		require.NoError(t, err)
+		assert.True(t, card.CreatePR)
+	})
+
+	t.Run("explicit false is respected", func(t *testing.T) {
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title: "No PR", Type: "task", Priority: "medium",
+			CreatePR: new(false),
+		})
+		require.NoError(t, err)
+		assert.False(t, card.CreatePR)
+	})
+
+	t.Run("base_branch persisted at create", func(t *testing.T) {
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title: "Based", Type: "task", Priority: "medium",
+			BaseBranch: "develop",
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "develop", card.BaseBranch)
 	})
 }
 
@@ -4463,7 +4496,7 @@ func TestPatchCard_DisableFeatureBranch_ClearsCreatePR(t *testing.T) {
 		Priority:      "medium",
 		Autonomous:    true,
 		FeatureBranch: true,
-		CreatePR:      true,
+		CreatePR:      new(true),
 	})
 	require.NoError(t, err)
 	assert.True(t, card.CreatePR)
@@ -4553,7 +4586,7 @@ func TestPatchCard_CreatePRWithoutFeatureBranch_Rejected(t *testing.T) {
 		Type:          "task",
 		Priority:      "medium",
 		FeatureBranch: true,
-		CreatePR:      true,
+		CreatePR:      new(true),
 	})
 	require.NoError(t, err)
 	assert.True(t, card.CreatePR)

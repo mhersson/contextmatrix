@@ -33,9 +33,12 @@ type CreateCardInput struct {
 	Source        *board.Source // Optional, immutable after creation
 	Autonomous    bool
 	FeatureBranch bool
-	CreatePR      bool
-	Vetted        bool
-	Skills        *[]string
+	// CreatePR: nil means default true - callers that never set it (MCP
+	// create_card, the GitHub syncer) get PRs; explicit false is respected.
+	CreatePR   *bool
+	BaseBranch string
+	Vetted     bool
+	Skills     *[]string
 	// Model pins: human-set per-card OpenRouter slugs overriding the complexity
 	// selector. Excluded from the MCP agent surface; human-only via REST.
 	ModelOrchestrator string
@@ -494,7 +497,8 @@ func (s *CardService) buildNewCardFromInput(
 		Source:            input.Source,
 		Autonomous:        input.Autonomous,
 		FeatureBranch:     input.FeatureBranch,
-		CreatePR:          input.CreatePR,
+		CreatePR:          input.CreatePR == nil || *input.CreatePR,
+		BaseBranch:        input.BaseBranch,
 		Vetted:            input.Vetted,
 		Skills:            input.Skills,
 		ModelOrchestrator: input.ModelOrchestrator,

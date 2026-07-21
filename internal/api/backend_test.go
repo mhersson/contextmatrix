@@ -2241,7 +2241,7 @@ func TestPromoteCard_AlreadyAutonomous(t *testing.T) {
 	// Card already autonomous and running.
 	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
 		Title: "Already autonomous", Type: "task", Priority: "medium",
-		Autonomous: true, FeatureBranch: true, CreatePR: true,
+		Autonomous: true, FeatureBranch: true, CreatePR: new(true),
 	})
 	require.NoError(t, err)
 	card, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "running", "running")
@@ -2659,10 +2659,11 @@ func TestRunCard_Interactive(t *testing.T) {
 		server := httptest.NewServer(router)
 		defer server.Close()
 
-		// Create a card that already has feature_branch=true.
+		// Create a card that already has feature_branch=true and create_pr
+		// explicitly off.
 		card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
 			Title: "Already feature branched", Type: "task", Priority: "medium",
-			FeatureBranch: true,
+			FeatureBranch: true, CreatePR: new(false),
 		})
 		require.NoError(t, err)
 

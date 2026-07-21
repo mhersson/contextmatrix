@@ -58,7 +58,8 @@ type createCardRequest struct {
 	Source            *board.Source       `json:"source"`
 	Autonomous        bool                `json:"autonomous"`
 	FeatureBranch     bool                `json:"feature_branch"`
-	CreatePR          bool                `json:"create_pr"`
+	CreatePR          *bool               `json:"create_pr"`
+	BaseBranch        string              `json:"base_branch"`
 	Vetted            bool                `json:"vetted"`
 	Skills            *[]string           `json:"skills,omitempty"`
 	ModelOrchestrator string              `json:"model_orchestrator,omitempty"`
@@ -407,12 +408,12 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 	// Autonomous and model-pin fields can only be set by human users (UI),
 	// never by agents - mirrors the update and patch guards. Pins set at
 	// create time flow onto the card and reach the agent via get_task_context.
-	if isNonHumanAgent(r) && (req.Autonomous || req.FeatureBranch || req.CreatePR || req.Vetted ||
+	if isNonHumanAgent(r) && (req.Autonomous || req.FeatureBranch || req.CreatePR != nil || req.BaseBranch != "" || req.Vetted ||
 		req.ModelOrchestrator != "" || req.ModelCoder != "" || req.ModelReviewer != "" ||
 		req.BestOfN != 0 || req.MobParticipants != 0 || len(req.MobPhases) > 0 || len(req.MobGuests) > 0 ||
 		req.Verify != nil) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
-			"forbidden", "autonomous, feature_branch, create_pr, vetted, model pins, best_of_n, mob fields, and verify can only be set via the UI")
+			"forbidden", "autonomous, feature_branch, create_pr, base_branch, vetted, model pins, best_of_n, mob fields, and verify can only be set via the UI")
 
 		return
 	}
@@ -447,6 +448,7 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 		Autonomous:        req.Autonomous,
 		FeatureBranch:     req.FeatureBranch,
 		CreatePR:          req.CreatePR,
+		BaseBranch:        req.BaseBranch,
 		Vetted:            req.Vetted,
 		Skills:            req.Skills,
 		ModelOrchestrator: req.ModelOrchestrator,
