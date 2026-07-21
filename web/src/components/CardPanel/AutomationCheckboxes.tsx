@@ -176,6 +176,21 @@ export function AutomationCheckboxes({
         </span>
       </div>
 
+      {/* Orchestrator steering wheel - the agent backend uses per-role model
+          pins behind the automatic-selection toggle. No steering row on the
+          unset backend. */}
+      {agentBackend && (
+        <ModelPinsSection
+          orchestrator={modelOrchestrator}
+          coder={modelCoder}
+          reviewer={modelReviewer}
+          onChange={onModelPinChange}
+          disabled={disabled}
+          models={models}
+          favorites={favorites}
+        />
+      )}
+
       {/* Best of N - agent backend only. Renders in both edit and create
           modes when the agent backend is active. */}
       {agentBackend && (
@@ -314,20 +329,6 @@ export function AutomationCheckboxes({
             </div>
           )}
         </>
-      )}
-
-      {/* Orchestrator steering wheel - the agent backend uses per-role model
-          pins. No steering row on the unset backend. */}
-      {agentBackend && (
-        <ModelPinsSection
-          orchestrator={modelOrchestrator}
-          coder={modelCoder}
-          reviewer={modelReviewer}
-          onChange={onModelPinChange}
-          disabled={disabled}
-          models={models}
-          favorites={favorites}
-        />
       )}
 
       {/* Feature branch */}
