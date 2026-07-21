@@ -4372,17 +4372,6 @@ func TestCreateCard_AutonomousFields(t *testing.T) {
 		assert.Contains(t, card.BranchName, strings.ToLower(card.ID))
 		assert.Contains(t, card.BranchName, "manual-task")
 	})
-
-	t.Run("create_pr without feature_branch rejected", func(t *testing.T) {
-		_, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-			Title:    "Bad config",
-			Type:     "task",
-			Priority: "medium",
-			CreatePR: true,
-		})
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "create_pr requires feature_branch")
-	})
 }
 
 func TestPatchCard_AutonomousFields(t *testing.T) {

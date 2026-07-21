@@ -37,9 +37,6 @@ var (
 	// ErrNoPath indicates no sequence of valid transitions connects two states.
 	ErrNoPath = errors.New("no transition path exists")
 
-	// ErrInvalidAutonomousConfig indicates an invalid combination of autonomous fields.
-	ErrInvalidAutonomousConfig = errors.New("invalid autonomous configuration")
-
 	// ErrInvalidWorkerStatus indicates an invalid worker_status value.
 	ErrInvalidWorkerStatus = errors.New("invalid worker status")
 
@@ -231,10 +228,6 @@ func (v *Validator) ValidateCard(cfg *ProjectConfig, card *Card) error {
 		return err
 	}
 
-	if err := v.ValidateAutonomousFields(card); err != nil {
-		return err
-	}
-
 	if err := v.ValidateSource(card); err != nil {
 		return err
 	}
@@ -274,21 +267,6 @@ func (v *Validator) ValidateWorkerCallbackStatus(status string) error {
 			Value:   status,
 			Allowed: validWorkerCallbackStatuses,
 			Message: fmt.Sprintf("invalid worker callback status %q; valid values: %v", status, validWorkerCallbackStatuses),
-		}
-	}
-
-	return nil
-}
-
-// ValidateAutonomousFields checks that autonomous-related field combinations are valid.
-// create_pr requires feature_branch to be enabled.
-func (v *Validator) ValidateAutonomousFields(card *Card) error {
-	if card.CreatePR && !card.FeatureBranch {
-		return &ValidationError{
-			Err:     ErrInvalidAutonomousConfig,
-			Field:   "create_pr",
-			Value:   "true",
-			Message: "create_pr requires feature_branch to be enabled",
 		}
 	}
 
