@@ -132,13 +132,6 @@ func (h *backendHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 		ctxlog.Logger(r.Context()).Debug("promote short-circuit: card already autonomous, skipping backend webhook",
 			"card_id", id, "project", project)
 
-		card, err = h.enableFeatureBranchAndPR(r.Context(), project, id, card)
-		if err != nil {
-			handleServiceError(w, r, err)
-
-			return
-		}
-
 		writeJSON(w, http.StatusAccepted, card)
 
 		return
@@ -151,22 +144,8 @@ func (h *backendHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 		agentID = "human:api"
 	}
 
-	// Capture the pre-promote feature-branch state so the rollback path below
-	// only reverts fields this handler actually changed. If FeatureBranch was
-	// already true on entry, enableFeatureBranchAndPR is a no-op and the
-	// revert must leave it alone (or it would clobber pre-existing config).
-	hadFeatureBranch := card.FeatureBranch
-
 	// Flip the autonomous flag (idempotent; errors on terminal state).
 	updatedCard, err := h.svc.PromoteToAutonomous(r.Context(), project, id, agentID)
-	if err != nil {
-		handleServiceError(w, r, err)
-
-		return
-	}
-
-	// Also ensure feature_branch and create_pr are enabled for autonomous runs.
-	updatedCard, err = h.enableFeatureBranchAndPR(r.Context(), project, id, updatedCard)
 	if err != nil {
 		handleServiceError(w, r, err)
 
@@ -179,8 +158,8 @@ func (h *backendHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 	}); err != nil {
 		ctxlog.Logger(r.Context()).Error("backend promote webhook failed", "card_id", id, "project", project, "error", err)
 
-		// Revert the autonomous/feature_branch/create_pr changes so the card's
-		// declared mode matches the agent's actual mode inside the container.
+		// Revert the autonomous change so the card's declared mode matches
+		// the agent's actual mode inside the container.
 		// Without this rollback, the card is marked autonomous but the agent
 		// is still in HITL mode, which produces a silent contract violation
 		// (the backend's /promote handler fail-closes when it can't deliver the
@@ -188,7 +167,7 @@ func (h *backendHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 		//
 		// Detached context: callers that timed out / disconnected must not
 		// strand the rollback - mirror the runCard revert pattern.
-		h.revertPromote(r.Context(), project, id, agentID, hadFeatureBranch)
+		h.revertPromote(r.Context(), project, id, agentID)
 
 		writeError(w, http.StatusBadGateway, ErrCodeBackendUnavailable, "failed to promote backend task", "")
 
@@ -198,26 +177,18 @@ func (h *backendHandlers) promoteCard(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, updatedCard)
 }
 
-// revertPromote rolls back the field changes promoteCard made when the backend
-// /promote webhook subsequently fails. Mirrors the runCard revert pattern: a
-// detached context (context.WithoutCancel) is used so a caller disconnect
-// cannot strand the rollback mid-flight. Failure to revert is logged but does
-// not change the response to the original caller, who already got 502.
-func (h *backendHandlers) revertPromote(ctx context.Context, project, id, agentID string, hadFeatureBranch bool) {
+// revertPromote rolls back the autonomous flip promoteCard made when the
+// backend /promote webhook subsequently fails. Mirrors the runCard revert
+// pattern: a detached context (context.WithoutCancel) is used so a caller
+// disconnect cannot strand the rollback mid-flight. Failure to revert is
+// logged but does not change the response to the original caller, who
+// already got 502.
+func (h *backendHandlers) revertPromote(ctx context.Context, project, id, agentID string) {
 	revertCtx := context.WithoutCancel(ctx)
 	logger := ctxlog.Logger(ctx)
 
-	falseVal := false
-
 	patch := service.PatchCardInput{
-		Autonomous: &falseVal,
-	}
-
-	// Only revert feature_branch/create_pr if this handler set them; pre-existing
-	// values must not be clobbered.
-	if !hadFeatureBranch {
-		patch.FeatureBranch = &falseVal
-		patch.CreatePR = &falseVal
+		Autonomous: new(false),
 	}
 
 	if _, err := h.svc.PatchCard(revertCtx, project, id, patch); err != nil {

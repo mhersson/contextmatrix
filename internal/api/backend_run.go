@@ -13,28 +13,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/opstore/sqlite"
-	"github.com/mhersson/contextmatrix/internal/service"
 )
-
-// enableFeatureBranchAndPR is a workflow invariant: every "Run now" trigger
-// and every promote-to-autonomous flow gets feature_branch=true + create_pr=true.
-// Returns the refreshed card on success.
-//
-// Skip condition matches the original inline blocks: feature_branch=true is
-// treated as the existing "branch+PR pipeline already configured" signal, so
-// CreatePR is intentionally left untouched in that case. Existing tests rely
-// on this behaviour (HITL "Run now" on a card with feature_branch=true must
-// not implicitly flip create_pr).
-func (h *backendHandlers) enableFeatureBranchAndPR(ctx context.Context, project, id string, card *board.Card) (*board.Card, error) {
-	if card.FeatureBranch {
-		return card, nil
-	}
-
-	return h.svc.PatchCard(ctx, project, id, service.PatchCardInput{
-		FeatureBranch: new(true),
-		CreatePR:      new(true),
-	})
-}
 
 // runCard handles POST /api/projects/{project}/cards/{id}/run - "Run Now".
 func (h *backendHandlers) runCard(w http.ResponseWriter, r *http.Request) {
@@ -78,18 +57,6 @@ func (h *backendHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 	if card.WorkerStatus == "queued" || card.WorkerStatus == "running" {
 		writeError(w, http.StatusConflict, ErrCodeWorkerConflict,
 			"card is already being executed by a worker", fmt.Sprintf("worker_status: %s", card.WorkerStatus))
-
-		return
-	}
-
-	// Auto-enable feature_branch and create_pr for all "Run now" triggers -
-	// both autonomous and HITL (interactive) runs get a feature branch and PR.
-	// The patched card is intentionally discarded here: UpdateWorkerStatus
-	// a few lines below refreshes `card` from disk, so any flags set above
-	// are observable on the returned card. Keep this in mind when adding
-	// fields whose stale value would matter before that refresh.
-	if _, patchErr := h.enableFeatureBranchAndPR(r.Context(), project, id, card); patchErr != nil {
-		handleServiceError(w, r, patchErr)
 
 		return
 	}

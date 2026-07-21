@@ -211,9 +211,11 @@ func TestRunCard_NonAutonomousCardNowSucceeds(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Create a non-autonomous card - it must succeed (no autonomous-only gate).
+	// Create a non-autonomous card with create_pr explicitly off - it must
+	// succeed (no autonomous-only gate) and the run must respect the choice.
 	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
 		Title: "Normal task", Type: "task", Priority: "medium",
+		CreatePR: new(false),
 	})
 	require.NoError(t, err)
 
@@ -245,11 +247,11 @@ func TestRunCard_NonAutonomousCardNowSucceeds(t *testing.T) {
 	defer closeBody(t, resp.Body)
 
 	assert.Equal(t, http.StatusAccepted, resp.StatusCode)
-	// Any "Run now" trigger (including non-autonomous) should auto-enable feature_branch/create_pr.
+	// "Run now" never patches card flags - an explicit create_pr=false is
+	// respected on every trigger path.
 	updated, err := svc.GetCard(ctx, "test-project", card.ID)
 	require.NoError(t, err)
-	assert.True(t, updated.FeatureBranch, "run now should auto-enable feature_branch")
-	assert.True(t, updated.CreatePR, "run now should auto-enable create_pr")
+	assert.False(t, updated.CreatePR, "run must respect the card's create_pr choice")
 	assert.False(t, receivedPayload.Interactive, "Interactive should be false")
 }
 
@@ -2333,16 +2335,15 @@ func TestPromoteCard_HappyPath(t *testing.T) {
 	var respCard board.Card
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&respCard))
 	assert.True(t, respCard.Autonomous, "card should be autonomous after promote")
-	assert.True(t, respCard.FeatureBranch, "card should have feature_branch after promote")
-	assert.True(t, respCard.CreatePR, "card should have create_pr after promote")
+	assert.True(t, respCard.CreatePR, "create_pr retains its creation value")
+	assert.False(t, respCard.FeatureBranch, "promote no longer touches feature_branch")
 	assert.Equal(t, 1, promoteCalled, "promote webhook should be called once")
 
-	// Verify flags and log entry are persisted.
+	// Verify the flag and log entry are persisted.
 	ctx := context.Background()
 	updated, err := svc.GetCard(ctx, "test-project", card.ID)
 	require.NoError(t, err)
 	assert.True(t, updated.Autonomous)
-	assert.True(t, updated.FeatureBranch)
 	assert.True(t, updated.CreatePR)
 
 	// Verify the activity log contains the promote entry with the right agent.
@@ -2361,13 +2362,13 @@ func TestPromoteCard_HappyPath(t *testing.T) {
 }
 
 func TestPromoteCard_WebhookFailure_RevertsFlag(t *testing.T) {
-	// Updated design: when the backend /promote webhook fails after the API has
-	// already flipped autonomous/feature_branch/create_pr, the handler reverts
-	// those changes so the card's declared mode matches the agent's actual mode
-	// inside the container. The backend-side /promote handler already fails closed
-	// (no stdin write) when the webhook fails, leaving the agent in HITL mode;
-	// reverting the card flags avoids a silent contract violation where the
-	// card claims autonomous but the in-container agent never received that.
+	// When the backend /promote webhook fails after the API has already flipped
+	// autonomous, the handler reverts that change so the card's declared mode
+	// matches the agent's actual mode inside the container. The backend-side
+	// /promote handler already fails closed (no stdin write) when the webhook
+	// fails, leaving the agent in HITL mode; reverting the card flag avoids a
+	// silent contract violation where the card claims autonomous but the
+	// in-container agent never received that.
 	//
 	// The revert is recorded with a "promote-webhook-failed" activity-log entry
 	// so operators reconciling a half-promoted card can see why without
@@ -2417,15 +2418,14 @@ func TestPromoteCard_WebhookFailure_RevertsFlag(t *testing.T) {
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodeBackendUnavailable, apiErr.Code)
 
-	// Autonomous flag is reverted along with the feature_branch/create_pr
-	// flags this handler enabled. Operators see a "promote-webhook-failed"
-	// activity entry that explains the revert.
+	// Only the autonomous flag is reverted - promote no longer touches
+	// create_pr, so the value from creation must not be clobbered. Operators
+	// see a "promote-webhook-failed" activity entry that explains the revert.
 	ctx := context.Background()
 	updated, err := svc.GetCard(ctx, "test-project", card.ID)
 	require.NoError(t, err)
 	assert.False(t, updated.Autonomous, "autonomous flag must be reverted after webhook failure")
-	assert.False(t, updated.FeatureBranch, "feature_branch must be reverted after webhook failure (handler enabled it)")
-	assert.False(t, updated.CreatePR, "create_pr must be reverted after webhook failure (handler enabled it)")
+	assert.True(t, updated.CreatePR, "create_pr must not be clobbered by the rollback")
 
 	var foundRevert bool
 
@@ -2531,14 +2531,14 @@ func TestRunCard_Interactive(t *testing.T) {
 
 		assert.Equal(t, http.StatusAccepted, resp.StatusCode)
 		assert.True(t, receivedPayload.Interactive, "Interactive should be true in payload")
-		// HITL run should auto-enable feature_branch/create_pr just like autonomous runs.
+		// The run performs no card patch - create_pr keeps its create default.
 		updated, err := svc.GetCard(ctx, "test-project", card.ID)
 		require.NoError(t, err)
-		assert.True(t, updated.FeatureBranch, "HITL run should auto-enable feature_branch")
-		assert.True(t, updated.CreatePR, "HITL run should auto-enable create_pr")
+		assert.False(t, updated.FeatureBranch, "run must not patch feature_branch")
+		assert.True(t, updated.CreatePR, "create_pr keeps its creation value")
 	})
 
-	t.Run("autonomous with empty body auto-enables feature_branch and create_pr", func(t *testing.T) {
+	t.Run("autonomous with empty body performs no card patch", func(t *testing.T) {
 		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 		defer cleanup()
 
@@ -2576,14 +2576,14 @@ func TestRunCard_Interactive(t *testing.T) {
 
 		assert.Equal(t, http.StatusAccepted, resp.StatusCode)
 		assert.False(t, receivedPayload.Interactive, "Interactive should be false")
-		// Autonomous card with empty body should auto-enable feature_branch/create_pr.
+		// The run performs no card patch - flags keep their creation values.
 		updated, err := svc.GetCard(ctx, "test-project", card.ID)
 		require.NoError(t, err)
-		assert.True(t, updated.FeatureBranch, "autonomous card should auto-enable feature_branch")
-		assert.True(t, updated.CreatePR, "autonomous card should auto-enable create_pr")
+		assert.False(t, updated.FeatureBranch, "run must not patch feature_branch")
+		assert.True(t, updated.CreatePR, "create_pr keeps its creation value")
 	})
 
-	t.Run("autonomous with interactive body auto-enables feature_branch/create_pr", func(t *testing.T) {
+	t.Run("autonomous with interactive body performs no card patch", func(t *testing.T) {
 		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 		defer cleanup()
 
@@ -2626,14 +2626,14 @@ func TestRunCard_Interactive(t *testing.T) {
 		// backend autonomous path, never HITL, regardless of the request body.
 		assert.False(t, receivedPayload.Interactive,
 			"autonomous card must trigger non-interactive regardless of request body")
-		// Autonomous+interactive should auto-enable feature_branch/create_pr like all Run now triggers.
+		// The run performs no card patch - flags keep their creation values.
 		updated, err := svc.GetCard(ctx, "test-project", card.ID)
 		require.NoError(t, err)
-		assert.True(t, updated.FeatureBranch, "autonomous+interactive should auto-enable feature_branch")
-		assert.True(t, updated.CreatePR, "autonomous+interactive should auto-enable create_pr")
+		assert.False(t, updated.FeatureBranch, "run must not patch feature_branch")
+		assert.True(t, updated.CreatePR, "create_pr keeps its creation value")
 	})
 
-	t.Run("HITL run on card with feature_branch already true does not redundantly patch", func(t *testing.T) {
+	t.Run("HITL run leaves explicit create_pr false untouched", func(t *testing.T) {
 		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 		defer cleanup()
 
@@ -2679,11 +2679,12 @@ func TestRunCard_Interactive(t *testing.T) {
 
 		assert.Equal(t, http.StatusAccepted, resp.StatusCode)
 		assert.True(t, receivedPayload.Interactive, "Interactive should be true in payload")
-		// Patch is skipped when feature_branch is already true - flags preserved as-is.
+		// The run never patches card flags - the explicit create_pr=false choice
+		// survives the trigger.
 		updated, err := svc.GetCard(ctx, "test-project", card.ID)
 		require.NoError(t, err)
 		assert.True(t, updated.FeatureBranch, "feature_branch should remain true")
-		assert.False(t, updated.CreatePR, "create_pr stays false - patch was skipped since feature_branch was already set")
+		assert.False(t, updated.CreatePR, "explicit create_pr=false must survive the run")
 		// Exactly one trigger webhook should have fired.
 		assert.Equal(t, 1, triggerCount, "backend should be triggered exactly once")
 	})
