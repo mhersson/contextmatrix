@@ -42,13 +42,9 @@ interface CardPanelProps {
  *     SSE-driven card refreshes; resets only on card identity change.
  *   - `activeTab` persists similarly; resets on card identity change or when
  *     the default tab changes (e.g. entering/leaving HITL).
- *   - `forcedFeatureBranch` / `forcedCreatePR` capture the pre-Run values of
- *     those two flags so the Automation tab can render the `⚡ forced on
- *     run` badge only when the current Run click actually flipped them.
  *
  * The Run handler (and the header's primary action) always awaits `onSave`
- * before firing the worker webhook, matching the server's force-enable
- * behavior when running a card.
+ * before firing the worker webhook.
  */
 export function CardPanel(props: CardPanelProps) {
   const { card, config, cardLogs = [], onClose, onSave, onDelete, onClaim, onRelease,
@@ -62,10 +58,6 @@ export function CardPanel(props: CardPanelProps) {
     setEditedCard,
     isDirty,
     isSaving,
-    forcedFeatureBranch,
-    forcedCreatePR,
-    clearForcedFeatureBranch,
-    clearForcedCreatePR,
     handleSave,
     handleRun,
     handleTransitionPrimary,
@@ -206,10 +198,6 @@ export function CardPanel(props: CardPanelProps) {
     automationLocked,
     automationLockedReason,
     excludeStateFromPicker,
-    forcedFeatureBranch,
-    forcedCreatePR,
-    clearForcedFeatureBranch,
-    clearForcedCreatePR,
   });
 
   // If the active tab disappears (e.g. live session ended, chat tab removed),

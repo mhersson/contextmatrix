@@ -207,6 +207,8 @@ func TestSyncProject_ImportsNewIssues(t *testing.T) {
 	assert.Equal(t, "github", first.Source.System)
 	assert.Equal(t, "testorg/testrepo#1", first.Source.ExternalID)
 	assert.Equal(t, []string{"bug", "help wanted"}, first.Labels)
+	assert.True(t, first.CreatePR, "imported cards inherit the create_pr default")
+	assert.NotEmpty(t, first.BranchName, "imported cards get a generated branch name")
 
 	second := byExtID["testorg/testrepo#2"]
 	require.NotNil(t, second, "card for testorg/testrepo#2 not found")

@@ -30,6 +30,23 @@ describe('CardChipRow - mob badge', () => {
   });
 });
 
+describe('CardChipRow - branch badge gating', () => {
+  it('hides the branch chip on a fresh todo card without run activity', () => {
+    render(<CardChipRow card={{ ...baseCard, branch_name: 'test-001/chip-row-card' }} />);
+    expect(screen.queryByText('chip-row-card')).not.toBeInTheDocument();
+  });
+
+  it('shows the branch chip once a worker has touched the card', () => {
+    render(<CardChipRow card={{ ...baseCard, branch_name: 'test-001/chip-row-card', worker_status: 'running' }} />);
+    expect(screen.getByText('chip-row-card')).toBeInTheDocument();
+  });
+
+  it('shows the branch chip when the card has left todo', () => {
+    render(<CardChipRow card={{ ...baseCard, branch_name: 'test-001/chip-row-card', state: 'in_progress' }} />);
+    expect(screen.getByText('chip-row-card')).toBeInTheDocument();
+  });
+});
+
 describe('CardChipRow - Best of N vs mob execute', () => {
   it('suppresses the Best of N chip when mob execute is active', () => {
     render(

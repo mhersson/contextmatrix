@@ -64,9 +64,8 @@ with a chat-specific webhook surface (`/chat/start`, `/chat/end`, `/message`).
   content}` (card HITL) or `{session_id, message_id, content}` (chat) to the
   backend's `/message` endpoint, then returns the id to the browser.
 - **Promote to autonomous** - the web UI POSTs to CM; CM flips the card's
-  `autonomous` flag server-side (git commit + SSE event), ensures
-  `feature_branch` and `create_pr`, then forwards `/promote` to the task
-  backend. The backend verifies the flag via `GET
+  `autonomous` flag server-side (git commit + SSE event), then forwards
+  `/promote` to the task backend. The backend verifies the flag via `GET
   /api/v1/cards/{project}/{id}/autonomous` (fail closed) before it acts.
 
 **CM-side interface seams:** `api.TaskBackend` (in `internal/api/backend.go`)
@@ -240,9 +239,9 @@ endpoint configured; the backend then uses its own local configuration.
 `base_branch` is omitted when unset. When present, the backend clones against
 it and opens PRs against that branch instead of the repository default.
 
-`feature_branch` and `create_pr` are auto-enabled on the card for **all** run
-triggers, autonomous and HITL, so a feature branch and PR are always created
-regardless of the launch mode.
+Every card carries a generated `branch_name`, so the worker always creates a
+feature branch; the card's stored `create_pr` (default true at create)
+decides whether a pull request is opened, regardless of the launch mode.
 
 #### Task skills
 
@@ -614,17 +613,17 @@ uses the identical `GET /api/chat/task-skills-source`.
 
 These are the CM-side handlers the web UI calls. They wrap the outbound task
 webhooks, enforce card-state and per-project checks, and update CM bookkeeping
-(`worker_status`, `feature_branch`, `create_pr`, `autonomous`). All five gate on
+(`worker_status`, `autonomous`). All five gate on
 `isNonHumanAgent` - an agent hitting them with a non-`human:*` `X-Agent-ID`
 gets `403 HUMAN_ONLY_FIELD`; an absent header counts as human (UI = human, per
 the CLAUDE.md trust model).
 
 | Endpoint                                          | Behavior                                                                                                                                                                    |
 | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /api/projects/{project}/cards/{id}/run`     | Body `{"interactive": bool}` (empty body OK). Requires state `todo` and `worker_status ∉ {queued, running}`. Auto-patches `feature_branch=true, create_pr=true`, sets `worker_status: queued`, sends `/trigger`. Returns `202`. |
+| `POST /api/projects/{project}/cards/{id}/run`     | Body `{"interactive": bool}` (empty body OK). Requires state `todo` and `worker_status ∉ {queued, running}`. Sets `worker_status: queued`, sends `/trigger`. Returns `202`. |
 | `POST /api/projects/{project}/cards/{id}/stop`    | Requires `worker_status ∈ {queued, running}`. Sends `/kill`, then sets `worker_status: killed`. Returns `202`.                                                             |
 | `POST /api/projects/{project}/cards/{id}/message` | Body `{"content": "..."}` (≤ 8 KiB). Requires `worker_status == running`. CM generates the `message_id`, forwards to `/message`, returns `202 {"ok": true, "message_id": "..."}`. |
-| `POST /api/projects/{project}/cards/{id}/promote` | Idempotent. When `autonomous` is already true, short-circuits with `202` (no outbound webhook, preventing verify recursion). Otherwise flips `autonomous`, ensures `feature_branch/create_pr`, sends `/promote`, and rolls all three back if the webhook fails. Returns `202`. |
+| `POST /api/projects/{project}/cards/{id}/promote` | Idempotent. When `autonomous` is already true, short-circuits with `202` (no outbound webhook, preventing verify recursion). Otherwise flips `autonomous`, sends `/promote`, and rolls the flip back if the webhook fails. Returns `202`. |
 | `POST /api/projects/{project}/stop-all`           | Sends `/stop-all`, then flips `worker_status` to `killed` for every project card in `{queued, running}`. Returns `200 {"affected_cards": [...]}` - or `207` with `failed_to_update` when the webhook succeeded but a CM-side status write drifted. |
 
 **CM operator error codes** (status / `code`):
@@ -810,9 +809,9 @@ and per-repo credentials fetched on demand from `GET
   administered once in CM's `llm_endpoint` and forwarded to the backend per run,
   so the model key is rotated in one place.
 - **Human-only controls.** Only humans (no `X-Agent-ID`, or a `human:*` prefix)
-  can trigger, stop, message, or promote a run, or set the `autonomous`,
-  `feature_branch`, and `create_pr` flags. A worker inside a container cannot
-  escalate itself to autonomous mode - promotion is verified server-side.
+  can trigger, stop, message, or promote a run, or set the `autonomous` and
+  `create_pr` flags. A worker inside a container cannot escalate itself to
+  autonomous mode - promotion is verified server-side.
 
 ### Global kill switch
 
@@ -847,8 +846,8 @@ Web UI (promote btn) → CM POST /api/projects/{project}/cards/{id}/promote
 
 The promote `system` log entry is published before the stdin write so the
 browser shows the mode switch in order even if the write stalls. If CM's
-outbound `/promote` fails, CM rolls back `autonomous`, `feature_branch`, and
-`create_pr` so the card's declared mode matches the worker's actual mode.
+outbound `/promote` fails, CM rolls back `autonomous` so the card's declared
+mode matches the worker's actual mode.
 
 ## Log Streaming Architecture
 

@@ -7,10 +7,8 @@ const MOB_PHASES = ['plan', 'review', 'execute'] as const;
 
 interface AutomationCheckboxesProps {
   autonomous: boolean;
-  featureBranch: boolean;
   createPR: boolean;
   onAutonomousChange: (value: boolean) => void;
-  onFeatureBranchChange: (value: boolean) => void;
   onCreatePRChange: (value: boolean) => void;
   /**
    * Active task backend ("agent" | ""). When `'agent'`, the three model-pin
@@ -84,10 +82,6 @@ interface AutomationCheckboxesProps {
   branchesLoading?: boolean;
   branchesError?: boolean;
   disabled?: boolean;
-  forcedFeatureBranch?: boolean;
-  forcedCreatePR?: boolean;
-  onClearForcedFeatureBranch?: () => void;
-  onClearForcedCreatePR?: () => void;
   /**
    * `'edit'` (default) shows the live branch name / PR url next to the
    * relevant checkboxes. `'create'` (used by CreateCardPanel) shows
@@ -109,18 +103,20 @@ interface AutomationCheckboxesProps {
  * label on the left and a hint/value on the right:
  *
  *   [☐ Autonomous mode]            HITL - human replies in chat
- *   [☐ Feature branch]            ctxmax-456/foo
+ *   Branch                         ctxmax-456/foo
  *   [☐ Create pull request]       PR #482 ↗
  *   Base branch                   [main ▾]
  *   1 review attempt · max 5
  *   🔒 Automation locked during remote run        (when disabled)
  *
  * Run-status info lives inline with each row - no separate "Run status"
- * card. The autonomous hint is uncolored (just `.bf-hint` defaults).
+ * card. The Branch row is read-only: every card gets a server-generated
+ * branch name at create. The autonomous hint is uncolored (just `.bf-hint`
+ * defaults).
  */
 export function AutomationCheckboxes({
-  autonomous, featureBranch, createPR,
-  onAutonomousChange, onFeatureBranchChange, onCreatePRChange,
+  autonomous, createPR,
+  onAutonomousChange, onCreatePRChange,
   taskBackend,
   modelOrchestrator = '', modelCoder = '', modelReviewer = '',
   onModelPinChange, models = [], favorites,
@@ -131,8 +127,6 @@ export function AutomationCheckboxes({
   branchName, prUrl, reviewAttempts,
   baseBranch, onBaseBranchChange, branches, branchesLoading, branchesError,
   disabled = false,
-  forcedFeatureBranch = false, forcedCreatePR = false,
-  onClearForcedFeatureBranch, onClearForcedCreatePR,
   mode = 'edit',
   lockedReason,
 }: AutomationCheckboxesProps) {
@@ -331,24 +325,9 @@ export function AutomationCheckboxes({
         </>
       )}
 
-      {/* Feature branch */}
+      {/* Branch (read-only - every card gets a generated branch name) */}
       <div className="bf-spread">
-        <div className="bf-switch-stack">
-          <label className="bf-switch">
-            <input
-              type="checkbox"
-              aria-label="Feature branch"
-              checked={featureBranch}
-              disabled={disabled}
-              onChange={(e) => {
-                onClearForcedFeatureBranch?.();
-                onFeatureBranchChange(e.target.checked);
-              }}
-            />
-            <span>Feature branch</span>
-          </label>
-          {forcedFeatureBranch && <ForcedBadge />}
-        </div>
+        <span className="bf-switch-label">Branch</span>
         <span className="bf-hint">
           {creating ? (
             <span className="italic" style={{ color: 'var(--grey0)' }}>auto-named from id</span>
@@ -362,25 +341,16 @@ export function AutomationCheckboxes({
 
       {/* Create pull request */}
       <div className="bf-spread">
-        <div className="bf-switch-stack">
-          <label
-            className={`bf-switch ${featureBranch ? '' : 'opacity-50'}`}
-            title={featureBranch ? undefined : 'Requires Feature Branch'}
-          >
-            <input
-              type="checkbox"
-              aria-label="Create PR"
-              checked={createPR}
-              disabled={!featureBranch || disabled}
-              onChange={(e) => {
-                onClearForcedCreatePR?.();
-                onCreatePRChange(e.target.checked);
-              }}
-            />
-            <span>Create pull request</span>
-          </label>
-          {forcedCreatePR && <ForcedBadge />}
-        </div>
+        <label className="bf-switch">
+          <input
+            type="checkbox"
+            aria-label="Create PR"
+            checked={createPR}
+            disabled={disabled}
+            onChange={(e) => onCreatePRChange(e.target.checked)}
+          />
+          <span>Create pull request</span>
+        </label>
         <span className="bf-hint">
           {creating ? (
             <span className="italic" style={{ color: 'var(--grey0)' }}>opens after approved review</span>
@@ -443,27 +413,6 @@ export function AutomationCheckboxes({
         </div>
       )}
     </div>
-  );
-}
-
-function ForcedBadge() {
-  return (
-    <span
-      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full font-mono"
-      style={{
-        background: 'color-mix(in oklab, var(--bg-yellow) 70%, transparent)',
-        color: 'var(--yellow)',
-        border: '1px solid color-mix(in oklab, var(--yellow) 30%, transparent)',
-        fontSize: '9.5px',
-        letterSpacing: '0.04em',
-        marginLeft: '24px',
-        alignSelf: 'flex-start',
-        whiteSpace: 'nowrap',
-      }}
-      title="The server force-enabled this flag for the current Run"
-    >
-      <span aria-hidden="true">⚡</span>forced on run
-    </span>
   );
 }
 

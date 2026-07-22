@@ -2141,7 +2141,7 @@ func TestHumanOnlyFields_CreateCard(t *testing.T) {
 	server := httptest.NewServer(router)
 	defer server.Close()
 
-	body := `{"title":"Test","type":"task","priority":"medium","autonomous":true,"feature_branch":true}`
+	body := `{"title":"Test","type":"task","priority":"medium","autonomous":true}`
 
 	t.Run("agent rejected on create", func(t *testing.T) {
 		req, _ := http.NewRequest("POST", server.URL+"/api/projects/test-project/cards",
@@ -2172,8 +2172,81 @@ func TestHumanOnlyFields_CreateCard(t *testing.T) {
 		var respCard board.Card
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&respCard))
 		assert.True(t, respCard.Autonomous)
-		assert.True(t, respCard.FeatureBranch)
 		assert.NotEmpty(t, respCard.BranchName)
+	})
+}
+
+func TestCreateCard_CreatePRDefaultAndBaseBranch(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	post := func(t *testing.T, body, agent string) *http.Response {
+		t.Helper()
+
+		req, _ := http.NewRequest("POST", server.URL+"/api/projects/test-project/cards",
+			strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		if agent != "" {
+			req.Header.Set("X-Agent-ID", agent)
+		}
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+
+		return resp
+	}
+
+	decode := func(t *testing.T, resp *http.Response) board.Card {
+		t.Helper()
+
+		var card board.Card
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&card))
+
+		return card
+	}
+
+	t.Run("create_pr defaults true when omitted", func(t *testing.T) {
+		resp := post(t, `{"title":"Defaults","type":"task","priority":"medium"}`, "")
+		defer closeBody(t, resp.Body)
+
+		require.Equal(t, http.StatusCreated, resp.StatusCode)
+		assert.True(t, decode(t, resp).CreatePR)
+	})
+
+	t.Run("explicit create_pr false respected", func(t *testing.T) {
+		resp := post(t, `{"title":"No PR","type":"task","priority":"medium","create_pr":false}`, "")
+		defer closeBody(t, resp.Body)
+
+		require.Equal(t, http.StatusCreated, resp.StatusCode)
+		assert.False(t, decode(t, resp).CreatePR)
+	})
+
+	t.Run("base_branch accepted on create", func(t *testing.T) {
+		resp := post(t, `{"title":"Based","type":"task","priority":"medium","base_branch":"develop"}`, "")
+		defer closeBody(t, resp.Body)
+
+		require.Equal(t, http.StatusCreated, resp.StatusCode)
+		assert.Equal(t, "develop", decode(t, resp).BaseBranch)
+	})
+
+	t.Run("agent explicit create_pr rejected", func(t *testing.T) {
+		resp := post(t, `{"title":"Agent PR","type":"task","priority":"medium","create_pr":false}`, "claude-7a3f")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	})
+
+	t.Run("agent base_branch rejected", func(t *testing.T) {
+		resp := post(t, `{"title":"Agent base","type":"task","priority":"medium","base_branch":"develop"}`, "claude-7a3f")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
 	})
 }
 
@@ -2189,7 +2262,7 @@ func TestHumanOnlyFields_PutClear(t *testing.T) {
 	// Create a card with autonomous mode enabled (via service, simulating human)
 	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
 		Title: "Auto card", Type: "task", Priority: "medium",
-		Autonomous: true, FeatureBranch: true,
+		Autonomous: true,
 	})
 	require.NoError(t, err)
 	assert.True(t, card.Autonomous)
@@ -2230,12 +2303,14 @@ func TestHumanOnlyFields_PutPassthrough(t *testing.T) {
 	// Create a card with autonomous mode enabled
 	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
 		Title: "Auto card", Type: "task", Priority: "medium",
-		Autonomous: true, FeatureBranch: true,
+		Autonomous: true,
 	})
 	require.NoError(t, err)
 
-	// Agent sends PUT with same autonomous+vetted values - should pass through
-	putBody := `{"title":"Updated title","type":"task","state":"todo","priority":"medium","autonomous":true,"feature_branch":true,"vetted":true}`
+	// Agent sends PUT with same autonomous+vetted values - should pass through.
+	// create_pr must echo the card's value (defaulted true at create) or the
+	// human-only guard rejects the request.
+	putBody := `{"title":"Updated title","type":"task","state":"todo","priority":"medium","autonomous":true,"create_pr":true,"vetted":true}`
 	req, _ := http.NewRequest("PUT", server.URL+"/api/projects/test-project/cards/"+card.ID,
 		strings.NewReader(putBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -2635,8 +2710,9 @@ func TestHumanOnlyFields_ModelPins_PutCard(t *testing.T) {
 		require.Equal(t, http.StatusOK, patchResp.StatusCode)
 
 		// Agent PUT echoing the same pin value - should pass through.
-		// vetted:true echoes the card's auto-vetted state (no source).
-		putBody := `{"title":"Updated title","type":"task","state":"todo","priority":"medium","vetted":true,"model_orchestrator":"anthropic/claude-opus-4"}`
+		// vetted:true echoes the card's auto-vetted state (no source);
+		// create_pr:true echoes the value defaulted at create.
+		putBody := `{"title":"Updated title","type":"task","state":"todo","priority":"medium","vetted":true,"create_pr":true,"model_orchestrator":"anthropic/claude-opus-4"}`
 		req, _ := http.NewRequest("PUT", server.URL+"/api/projects/test-project/cards/"+card.ID,
 			strings.NewReader(putBody))
 		req.Header.Set("Content-Type", "application/json")

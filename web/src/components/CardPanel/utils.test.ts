@@ -20,7 +20,6 @@ function makeCard(overrides: Partial<Card> = {}): Card {
     updated: '2026-01-01T00:00:00Z',
     body: '',
     autonomous: false,
-    feature_branch: false,
     create_pr: false,
     ...overrides,
   };
@@ -161,7 +160,6 @@ describe('isCardDirty', () => {
     ['labels', { labels: ['bug'] }],
     ['autonomous', { autonomous: true }],
     ['best_of_n', { best_of_n: 3 }],
-    ['feature_branch', { feature_branch: true }],
     ['create_pr', { create_pr: true }],
     ['vetted', { vetted: true }],
     ['base_branch', { base_branch: 'main' }],

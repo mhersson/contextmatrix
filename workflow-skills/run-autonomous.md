@@ -62,8 +62,8 @@ Hold this claim through the entire lifecycle.
 
 ## Step 1: Create feature branch
 
-If `feature_branch` is true and `branch_name` is non-empty, create and switch
-to the feature branch now - before planning or spawning any sub-agents:
+If `branch_name` is non-empty, create and switch to the feature branch now -
+before planning or spawning any sub-agents:
 
 `git checkout -b <branch_name>` (or `git checkout <branch_name>` if it already
 exists).
@@ -282,11 +282,10 @@ Based on the card's current state and body content:
 
 ## Git Workflow
 
-- `feature_branch` enabled: orchestrator checks out the feature branch in
-  Step 1. Execute-task sub-agents leave changes in the working tree; the
-  doc sub-agent commits doc files; orchestrator commits remaining changes
-  at Phase 6 step 18, pushes, and opens the PR.
-- `feature_branch` not enabled: never push.
+Orchestrator checks out the feature branch in Step 1. Execute-task
+sub-agents leave changes in the working tree; the doc sub-agent commits doc
+files; orchestrator commits remaining changes at Phase 6 step 18, pushes,
+and opens the PR when `create_pr` is enabled.
 
 ## Rules
 

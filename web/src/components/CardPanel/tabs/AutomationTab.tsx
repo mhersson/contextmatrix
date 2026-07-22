@@ -14,10 +14,6 @@ interface AutomationTabProps {
   branchesError: boolean;
   editingLocked: boolean;
   automationLockedReason: string;
-  forcedFeatureBranch: boolean;
-  forcedCreatePR: boolean;
-  clearForcedFeatureBranch: () => void;
-  clearForcedCreatePR: () => void;
 }
 
 /**
@@ -35,10 +31,6 @@ export function AutomationTab({
   branchesError,
   editingLocked,
   automationLockedReason,
-  forcedFeatureBranch,
-  forcedCreatePR,
-  clearForcedFeatureBranch,
-  clearForcedCreatePR,
 }: AutomationTabProps) {
   const {
     taskBackend, favorites: favsByTier, bestOfNMax, bestOfNDefault,
@@ -61,7 +53,6 @@ export function AutomationTab({
       <div className="bf-auto-top">
         <AutomationCheckboxes
           autonomous={editedCard.autonomous ?? false}
-          featureBranch={editedCard.feature_branch ?? false}
           createPR={editedCard.create_pr ?? false}
           taskBackend={taskBackend}
           modelOrchestrator={editedCard.model_orchestrator ?? ''}
@@ -95,14 +86,7 @@ export function AutomationTab({
             setEditedCard((prev) => ({ ...prev, mob_guests: v }))
           }
           onAutonomousChange={(v) =>
-            setEditedCard((prev) => ({ ...prev, autonomous: v, ...(v ? {} : { base_branch: undefined }) }))
-          }
-          onFeatureBranchChange={(v) =>
-            setEditedCard((prev) => ({
-              ...prev,
-              feature_branch: v,
-              create_pr: v ? prev.create_pr : false,
-            }))
+            setEditedCard((prev) => ({ ...prev, autonomous: v }))
           }
           onCreatePRChange={(v) => setEditedCard((prev) => ({ ...prev, create_pr: v }))}
           branchName={card.branch_name}
@@ -117,10 +101,6 @@ export function AutomationTab({
           branchesError={branchesError}
           disabled={editingLocked}
           lockedReason={automationLockedReason}
-          forcedFeatureBranch={forcedFeatureBranch}
-          forcedCreatePR={forcedCreatePR}
-          onClearForcedFeatureBranch={clearForcedFeatureBranch}
-          onClearForcedCreatePR={clearForcedCreatePR}
         />
       </div>
       <CardPanelActivity activityLog={card.activity_log} />

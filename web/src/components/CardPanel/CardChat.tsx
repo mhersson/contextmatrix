@@ -113,7 +113,7 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
       <ConfirmModal
         open={confirmOpen}
         title="Promote to autonomous?"
-        message="The agent will finish the workflow without further input, create a feature branch, and open a PR."
+        message="The agent will finish the workflow on the card's branch without further input, and open a PR if the card's Create PR setting is enabled."
         confirmLabel="Promote"
         cancelLabel="Cancel"
         onConfirm={() => void handlePromoteConfirm()}

@@ -41,7 +41,6 @@ export interface Card {
   /** Guest names from the server's mob.guests registry. */
   mob_guests?: string[];
   phase?: string;
-  feature_branch?: boolean;
   create_pr?: boolean;
   branch_name?: string;
   base_branch?: string;
@@ -207,7 +206,6 @@ export interface CreateCardInput {
   mob_participants?: number;
   mob_phases?: string[];
   mob_guests?: string[];
-  feature_branch?: boolean;
   create_pr?: boolean;
   base_branch?: string;
   skills?: string[] | null;
@@ -228,7 +226,6 @@ export interface PatchCardInput {
   mob_participants?: number;
   mob_phases?: string[];
   mob_guests?: string[];
-  feature_branch?: boolean;
   create_pr?: boolean;
   base_branch?: string;
   vetted?: boolean;

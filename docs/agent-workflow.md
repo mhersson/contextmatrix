@@ -511,7 +511,7 @@ phase labels. run-autonomous starts from the correct phase based on card state:
 
 ```
 Step 0:  Claim the card        → claim_card called before any exploration begins
-Step 1:  Create feature branch → if feature_branch is true and branch_name is set, git checkout -b <branch_name> (or checkout existing); skipped otherwise. Runs before planning or sub-agent spawning.
+Step 1:  Create feature branch → if branch_name is set, git checkout -b <branch_name> (or checkout existing); skipped otherwise. Runs before planning or sub-agent spawning.
 Phase 1: Plan Drafting         → inline, calls create-plan skill via get_skill (model-matched inline)
 Phase 2: Subtask Creation      → inline, orchestrator calls create_card directly
 Phase 3: Execution             → spawns execute-task sub-agents in parallel; cherry-picks worktree branches onto feature branch when worktree isolation used

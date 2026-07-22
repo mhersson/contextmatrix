@@ -161,8 +161,10 @@ export function CardChipRow({ card, compact = false, onParentClick }: CardChipRo
         </span>
       )}
 
-      {/* Branch badge */}
-      {card.branch_name && (
+      {/* Branch badge - branch_name exists on every card since names are
+          generated at create, so gate on run activity to keep the chip
+          meaning "work exists on this branch". */}
+      {card.branch_name && (card.worker_status || card.state !== 'todo') && (
         <span
           className="chip-pill truncate max-w-[120px]"
           style={chipTint('var(--green)')}
