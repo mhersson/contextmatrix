@@ -34,13 +34,16 @@ The backend topology is the **agent + chat** pair: the agent runs cards and chat
 serves the `/chat` surface. Each is an independent `backends` entry with its own
 URL and HMAC key.
 
-Three shared Go modules underpin the services:
+Four shared Go modules underpin the services:
 **[contextmatrix-protocol](https://github.com/mhersson/contextmatrix-protocol)**
 (the webhook protocol),
 **[contextmatrix-githubauth](https://github.com/mhersson/contextmatrix-githubauth)**
-(GitHub App/PAT authentication), and
+(GitHub App/PAT authentication),
 **[contextmatrix-harness](https://github.com/mhersson/contextmatrix-harness)**
-(the agentic tool-use loop shared by the agent and chat backends).
+(the agentic tool-use loop shared by the agent and chat backends), and
+**[contextmatrix-backendkit](https://github.com/mhersson/contextmatrix-backendkit)**
+(the serve plumbing - webhook auth, worker lifecycle, metrics, log streaming -
+shared by the agent and chat backends).
 
 ## Features
 
