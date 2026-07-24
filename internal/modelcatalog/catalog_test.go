@@ -33,6 +33,10 @@ func TestBuildAppliesFloorAllowlistAndMapping(t *testing.T) {
 	if c.Slug != "z-ai/glm-5.2" || c.CoderPrior != 1.0 || c.ReviewerPrior != 1.0 || c.ContextWindow != 1048576 {
 		t.Errorf("bad candidate: %+v", c)
 	}
+
+	if c.Creator != "zai" {
+		t.Errorf("candidate must carry the AA creator, got %q", c.Creator)
+	}
 }
 
 func TestBuildCollapsesEffortVariants(t *testing.T) {
@@ -54,6 +58,10 @@ func TestBuildCollapsesEffortVariants(t *testing.T) {
 
 	if got[0].CoderPrior != 1.0 || got[0].ReviewerPrior != 1.0 {
 		t.Errorf("collapse must keep the highest-prior variant, got %+v", got[0])
+	}
+
+	if got[0].Creator != "zai" {
+		t.Errorf("creator must survive the collapse, got %q", got[0].Creator)
 	}
 }
 
@@ -83,17 +91,21 @@ func TestBuildFromStemMapAggregatesFamilyFiltersToolsAndHonorsOverride(t *testin
 		bySlug[c.Slug] = c
 	}
 
-	// model-a: per-axis max picks coder 80/80=1.0 from the -thinking row.
+	// model-a: per-axis max picks coder 80/80=1.0 from the -thinking row;
+	// creator is captured even from the nil-scored base row.
 	require.Contains(t, bySlug, "model-a")
 	assert.InDelta(t, 1.0, bySlug["model-a"].CoderPrior, 1e-9)
 	assert.InDelta(t, 1.0, bySlug["model-a"].ReviewerPrior, 1e-9)
 	assert.Equal(t, 200000, bySlug["model-a"].ContextWindow)
 	assert.InDelta(t, 3e-6, bySlug["model-a"].PromptPricePerTok, 1e-12)
+	assert.Equal(t, "vendor", bySlug["model-a"].Creator)
 
 	// model-c: override used verbatim, AA join skipped, kept (tool-capable, clears floor).
+	// The skipped join leaves the creator unknown.
 	require.Contains(t, bySlug, "model-c")
 	assert.InDelta(t, 0.9, bySlug["model-c"].CoderPrior, 1e-9)
 	assert.InDelta(t, 0.88, bySlug["model-c"].ReviewerPrior, 1e-9)
+	assert.Empty(t, bySlug["model-c"].Creator)
 
 	// model-b dropped: endpoint marks it tool-incapable.
 	assert.NotContains(t, bySlug, "model-b")

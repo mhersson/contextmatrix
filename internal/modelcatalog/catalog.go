@@ -360,6 +360,7 @@ func build(aa []aaModel, or map[string]orEntry, floor float64, allow []string) [
 			ContextWindow:         e.ContextWindow,
 			CoderPrior:            coder,
 			ReviewerPrior:         rev,
+			Creator:               m.Creator,
 		}
 		// Effort-variant collapse: keep the strongest per OR slug.
 		if prev, exists := byOR[orSlug]; !exists ||
@@ -444,8 +445,11 @@ func buildFromStemMap(aa []aaModel, endpoint map[string]orEntry, stemMap map[str
 
 		var coder, rev float64
 
+		var creator string
+
 		if p, ok := priors[slug]; ok {
-			// Operator override: used verbatim, AA join skipped for this slug.
+			// Operator override: used verbatim, AA join skipped for this slug
+			// (which leaves the creator unknown).
 			coder, rev = p.Coder, p.Reviewer
 		} else {
 			stem, mapped := stemMap[slug]
@@ -457,6 +461,12 @@ func buildFromStemMap(aa []aaModel, endpoint map[string]orEntry, stemMap map[str
 			for _, m := range aa {
 				if m.Slug != stem && !strings.HasPrefix(m.Slug, stem+"-") {
 					continue
+				}
+
+				if creator == "" {
+					// Family rows share one creator; captured even from
+					// unscored rows (the base row often has nil indices).
+					creator = m.Creator
 				}
 
 				if c := norm(m.CodingIndex, maxCoding); c > coder {
@@ -480,6 +490,7 @@ func buildFromStemMap(aa []aaModel, endpoint map[string]orEntry, stemMap map[str
 			ContextWindow:         e.ContextWindow,
 			CoderPrior:            coder,
 			ReviewerPrior:         rev,
+			Creator:               creator,
 		})
 	}
 
