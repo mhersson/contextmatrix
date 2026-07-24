@@ -115,6 +115,20 @@ describe('ChatPanel', () => {
     expect(screen.queryByPlaceholderText(/Type a message/)).not.toBeInTheDocument();
   });
 
+  it('renders the working indicator as the last thread entry regardless of filters', () => {
+    render(
+      <ChatPanel
+        logs={[]}
+        onSend={vi.fn()}
+        sendDisabled={false}
+        working={{ verb: 'Noodling', since: Date.now() }}
+      />,
+    );
+    expect(screen.getByTestId('working-indicator')).toBeTruthy();
+    // The empty-state placeholder must yield to the indicator.
+    expect(screen.queryByText('No messages yet.')).toBeNull();
+  });
+
   it('renders a divider for kind="divider" entries', () => {
     const dividerLogs: LogEntry[] = [
       { ts: '2026-05-13T10:00:00Z', card_id: '', type: 'system', kind: 'divider', content: 'Context cleared' },

@@ -3,6 +3,7 @@ import { api, isAPIError } from '../../api/client';
 import type { ChatSession } from '../../types';
 import { ChatPanel } from '../../components/ChatPanel';
 import { useChatStream } from '../../hooks/useChatStream';
+import { useWorkingState } from '../../hooks/useWorkingState';
 import { CHAT_SESSIONS_CHANGED_EVENT, notifyChatSessionsChanged } from '../../hooks/useChatSessions';
 import { clearChatLiveData, setChatLiveData } from '../../hooks/useChatLiveData';
 
@@ -66,6 +67,8 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true }: Ch
         : {}),
     } as ChatSession;
   }, [session, sessionUpdate]);
+
+  const { working, armOptimistic } = useWorkingState(sessionID, merged);
 
   // Reset local state synchronously when the sessionID prop changes - see
   // web/CLAUDE.md § CardPanel for why this lives in render, not useEffect.
@@ -211,6 +214,7 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true }: Ch
     try {
       await api.sendChatMessage(sessionID, content);
       setUserHasSent(true);
+      armOptimistic();
     } catch (e) {
       const msg = isAPIError(e) ? e.error : 'Failed to send message';
       throw new Error(msg, { cause: e });
@@ -262,6 +266,7 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true }: Ch
           sendDisabled={sendDisabled}
           readOnlyMessage={readOnlyMessage}
           focusKey={isFocused ? sessionID : undefined}
+          working={working}
         />
       </div>
     </div>
