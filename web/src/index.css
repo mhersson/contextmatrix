@@ -2440,6 +2440,72 @@ input, select, textarea {
   right: -2px; bottom: -2px;
 }
 
+/* ── Subtask phase strip & peek rows (board CardItem) ────────────────── */
+.phase-strip {
+  display: flex; gap: 2px; width: 100%;
+  padding: 0; margin: 0 0 8px; border: none; background: none;
+  cursor: pointer;
+}
+.phase-strip--static { cursor: inherit; margin: 0; }
+.phase-seg { height: 4px; flex: 1; min-width: 4px; border-radius: 2px; }
+.phase-seg-todo        { background: var(--bg3); }
+.phase-seg-in_progress { background: var(--blue); }
+.phase-seg-review      { background: var(--yellow); }
+.phase-seg-done        { background: var(--green); }
+.phase-seg-blocked     { background: var(--red); }
+.phase-seg-stalled     { background: var(--orange); }
+.phase-seg-hitl        { background: var(--aqua); }
+.phase-seg-not_planned { background: var(--purple); }
+
+.peek-row {
+  display: flex; align-items: center; gap: 6px;
+  width: 100%; min-width: 0; margin-top: 4px; padding: 4px 6px;
+  border: none; border-radius: 6px; text-align: left; cursor: pointer;
+  font-size: 11px;
+  background: color-mix(in srgb, var(--aqua) 10%, var(--bg1));
+  transition: background .12s;
+}
+.peek-row:hover { background: color-mix(in srgb, var(--aqua) 16%, var(--bg1)); }
+.peek-row--dep-blocked { background: color-mix(in srgb, var(--red) 10%, var(--bg1)); }
+.peek-row--dep-blocked:hover { background: color-mix(in srgb, var(--red) 16%, var(--bg1)); }
+/* Agent-active rows keep the board's aqua-gradient signal; the tint fills from 40%. */
+.peek-row--agent {
+  background: linear-gradient(90deg,
+    color-mix(in oklab, var(--bg-aqua) 60%, transparent) 0%,
+    color-mix(in srgb, var(--aqua) 10%, var(--bg1)) 40%);
+}
+.peek-row--agent:hover {
+  background: linear-gradient(90deg,
+    color-mix(in oklab, var(--bg-aqua) 60%, transparent) 0%,
+    color-mix(in srgb, var(--aqua) 16%, var(--bg1)) 40%);
+}
+.peek-row--agent.peek-row--dep-blocked {
+  background: linear-gradient(90deg,
+    color-mix(in oklab, var(--bg-aqua) 60%, transparent) 0%,
+    color-mix(in srgb, var(--red) 10%, var(--bg1)) 40%);
+}
+.peek-row--agent.peek-row--dep-blocked:hover {
+  background: linear-gradient(90deg,
+    color-mix(in oklab, var(--bg-aqua) 60%, transparent) 0%,
+    color-mix(in srgb, var(--red) 16%, var(--bg1)) 40%);
+}
+.peek-row__id {
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.04em;
+  color: var(--grey1); flex-shrink: 0;
+}
+.peek-row__title {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; color: var(--fg);
+}
+
+/* Orphan subtask cards (parent card missing from the board list) keep the
+   subtask tint on the card surface. Stalled/agent-active gradients are inline
+   styles on the card root, so they win over these classes by design. */
+.card-orphan-tint { background: color-mix(in srgb, var(--aqua) 10%, var(--bg1)); }
+.card-orphan-tint:hover { background: color-mix(in srgb, var(--aqua) 16%, var(--bg1)); }
+.card-orphan-tint--dep-blocked { background: color-mix(in srgb, var(--red) 10%, var(--bg1)); }
+.card-orphan-tint--dep-blocked:hover { background: color-mix(in srgb, var(--red) 16%, var(--bg1)); }
+
 /* ── Now-rail ────────────────────────────────────────────────────────── */
 .now-rail {
   width: 280px;

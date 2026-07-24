@@ -164,9 +164,38 @@ export function Board({
   const searchTerm = deferredSearchQuery.trim().toLowerCase();
   const hasSearch = searchTerm.length > 0;
 
+  const cardIdSet = useMemo(() => new Set(cards.map((c) => c.id)), [cards]);
+
+  // Attached subtasks (parent present on the board) collapse into the parent's
+  // phase strip instead of rendering as column cards. Derived from child
+  // parent back-references so it stays live through SSE card replacements.
+  const subtasksByParent = useMemo(() => {
+    const map = new Map<string, Card[]>();
+    for (const card of cards) {
+      if (card.parent && cardIdSet.has(card.parent)) {
+        const list = map.get(card.parent);
+        if (list) {
+          list.push(card);
+        } else {
+          map.set(card.parent, [card]);
+        }
+      }
+    }
+    // Zero-padded PREFIX-NNN ids sort lexicographically in creation order.
+    for (const list of map.values()) list.sort((a, b) => a.id.localeCompare(b.id));
+    return map;
+  }, [cards, cardIdSet]);
+
+  // Column-renderable cards: parents, standalones, and orphan subtasks whose
+  // parent left the board list (graceful degradation).
+  const boardCards = useMemo(
+    () => cards.filter((c) => !(c.parent && cardIdSet.has(c.parent))),
+    [cards, cardIdSet],
+  );
+
   const filteredCards = useMemo(() => {
-    if (!hasFilter && !hasSearch) return cards;
-    return cards.filter((card) => {
+    if (!hasFilter && !hasSearch) return boardCards;
+    const matches = (card: Card) => {
       if (filter.type && card.type !== filter.type) return false;
       if (filter.priority && card.priority !== filter.priority) return false;
       if (filter.label && !(card.labels ?? []).includes(filter.label)) return false;
@@ -184,8 +213,13 @@ export function Board({
         if (!haystack.includes(searchTerm)) return false;
       }
       return true;
-    });
-  }, [cards, filter, hasFilter, hasSearch, searchTerm]);
+    };
+    // Family match: a parent stays visible when any of its subtasks matches,
+    // so searching a subtask id or filtering by its agent surfaces the family.
+    return boardCards.filter(
+      (card) => matches(card) || (subtasksByParent.get(card.id) ?? []).some(matches),
+    );
+  }, [boardCards, subtasksByParent, filter, hasFilter, hasSearch, searchTerm]);
 
   const cardsByState = useMemo(() => {
     // Build timestamp map once so comparators don't parse dates per comparison.
@@ -377,6 +411,7 @@ export function Board({
                   onCollapseAll={collapseMany}
                   onExpandAll={expandMany}
                   onParentClick={onParentClick}
+                  subtasksByParent={subtasksByParent}
                 />
               ))}
             </div>
@@ -402,7 +437,9 @@ export function Board({
 
         <DragOverlay>
           {activeCard ? (
-            <div className="w-[260px]"><CardItem card={activeCard} /></div>
+            <div className="w-[260px]">
+              <CardItem card={activeCard} subtasks={subtasksByParent.get(activeCard.id)} />
+            </div>
           ) : null}
         </DragOverlay>
       </DndContext>

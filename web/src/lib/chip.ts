@@ -63,6 +63,21 @@ export function shortCardId(id: string): string {
   return dash >= 0 ? id.slice(dash + 1) : id;
 }
 
+const stripSegStates = new Set([
+  'todo', 'in_progress', 'review', 'done',
+  'blocked', 'stalled', 'hitl', 'not_planned',
+]);
+
+/**
+ * Segment class for the parent-card subtask phase strip. Mirrors the
+ * `.chip-state-*` FOREGROUND accents (in_progress=blue, review=yellow),
+ * which intentionally differ from `stateColors` above (column stripes) -
+ * do not unify them. Unknown states fall back to the todo segment.
+ */
+export function stripSegClass(state: string): string {
+  return stripSegStates.has(state) ? `phase-seg-${state}` : 'phase-seg-todo';
+}
+
 export const workerStatusStyles: Record<WorkerStatus, { bg: string; text: string; label: string }> = {
   queued: { bg: 'var(--bg-yellow)', text: 'var(--yellow)', label: 'Queued for worker' },
   running: { bg: 'var(--bg-blue)', text: 'var(--aqua)', label: 'Worker running' },

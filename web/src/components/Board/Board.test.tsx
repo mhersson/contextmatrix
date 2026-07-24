@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 import { isTouchDevice } from '../../utils/isTouchDevice';
 import { Board } from './Board';
 import type { Card, ProjectConfig } from '../../types';
@@ -459,5 +459,91 @@ describe('Board - MetricsRibbon inFlight fallback', () => {
     // MetricsRibbon; scope to the BoardBand subheader to assert the +20% origin.
     const band = container.querySelector('.board-band__sub');
     expect(band?.textContent).toMatch(/\+20%/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Board - subtasks collapse into the parent's phase strip
+// ---------------------------------------------------------------------------
+
+describe('Board - subtask phase strip & column membership', () => {
+  const originalMatchMedia = window.matchMedia;
+
+  afterEach(() => {
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: originalMatchMedia,
+    });
+  });
+
+  const makeCard = (id: string, state: string, overrides: Partial<Card> = {}): Card => ({
+    id,
+    title: `Card ${id}`,
+    project: 'test-project',
+    type: overrides.parent ? 'subtask' : 'task',
+    state,
+    priority: 'medium',
+    created: '2026-01-01T00:00:00Z',
+    updated: '2026-01-01T00:00:00Z',
+    body: '',
+    ...overrides,
+  });
+
+  const boardProps = {
+    config: baseConfig,
+    loading: false,
+    error: null,
+    activeAgents: [],
+    cardsCompletedToday: 0,
+    activityEntries: [],
+    currentAgent: null,
+  };
+
+  it('subtasks whose parent is on the board render as a strip, not as cards', () => {
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    const cards = [
+      makeCard('TEST-001', 'todo'),
+      makeCard('TEST-002', 'todo', { parent: 'TEST-001', title: 'Attached subtask' }),
+    ];
+    render(<Board {...boardProps} cards={cards} />);
+    expect(screen.queryByLabelText('Card TEST-002: Attached subtask')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Card TEST-001: Card TEST-001')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '1 subtask' })).toBeInTheDocument();
+  });
+
+  it('column count badges count parents only', () => {
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    const cards = [
+      makeCard('TEST-001', 'todo'),
+      makeCard('TEST-002', 'todo', { parent: 'TEST-001' }),
+      makeCard('TEST-003', 'todo', { parent: 'TEST-001' }),
+    ];
+    render(<Board {...boardProps} cards={cards} />);
+    const heading = screen.getByRole('heading', { name: /Backlog column/ });
+    const headerRow = heading.parentElement!.parentElement!;
+    expect(within(headerRow).getByText('1')).toBeInTheDocument();
+  });
+
+  it('an orphan subtask still renders as a tinted card', () => {
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    const cards = [makeCard('TEST-004', 'todo', { parent: 'TEST-999', title: 'Orphan subtask' })];
+    render(<Board {...boardProps} cards={cards} />);
+    const orphan = screen.getByLabelText('Card TEST-004: Orphan subtask');
+    expect(orphan.className).toContain('card-orphan-tint');
+  });
+
+  it('a parent surfaces when only one of its subtasks matches the search', async () => {
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    const cards = [
+      makeCard('TEST-001', 'todo', { title: 'Parent card' }),
+      makeCard('TEST-002', 'todo', { parent: 'TEST-001', title: 'zebra-unique-token' }),
+      makeCard('TEST-005', 'todo', { title: 'Unrelated card' }),
+    ];
+    render(<Board {...boardProps} cards={cards} />);
+    fireEvent.change(screen.getByLabelText('Search cards'), { target: { value: 'zebra-unique' } });
+    await waitFor(() => {
+      expect(screen.queryByLabelText('Card TEST-005: Unrelated card')).not.toBeInTheDocument();
+    });
+    expect(screen.getByLabelText('Card TEST-001: Parent card')).toBeInTheDocument();
   });
 });
