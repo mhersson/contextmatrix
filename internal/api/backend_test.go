@@ -3272,7 +3272,7 @@ favorites:
 
 	cat := &stubCatalog{
 		candidates: []protocol.CandidateModel{
-			{Slug: candidateSlug, CoderPrior: 0.9, ReviewerPrior: 0.8},
+			{Slug: candidateSlug, CoderPrior: 0.9, ReviewerPrior: 0.8, Creator: "zai"},
 		},
 	}
 	bl := &stubBlacklist{slugs: []string{blacklistedSlug}}
@@ -3321,9 +3321,11 @@ favorites:
 	// Selection must be present for agent backend.
 	require.NotNil(t, capturedPayload.Selection, "Selection must be non-nil for agent backend")
 
-	// Candidates must contain the stub candidate.
+	// Candidates must contain the stub candidate, creator included (the field
+	// must survive the runCard clone and the HTTP JSON round trip).
 	require.Len(t, capturedPayload.Selection.Candidates, 1)
 	assert.Equal(t, candidateSlug, capturedPayload.Selection.Candidates[0].Slug)
+	assert.Equal(t, "zai", capturedPayload.Selection.Candidates[0].Creator)
 
 	// Blacklist must contain the stub slug.
 	assert.Contains(t, capturedPayload.Selection.Blacklist, blacklistedSlug)
