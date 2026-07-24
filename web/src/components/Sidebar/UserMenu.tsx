@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { useOptionalAuth } from '../../hooks/useAuth';
 import { useMenuDismiss } from '../../hooks/useMenuDismiss';
 import { ChangePasswordModal } from '../Auth/ChangePasswordModal';

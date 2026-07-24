@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router';
 import type { CardCost, ProjectConfig } from '../../types';
 import { filterCardCosts } from '../../utils/costTableUtils';
 import { projectForCardId } from './utils';

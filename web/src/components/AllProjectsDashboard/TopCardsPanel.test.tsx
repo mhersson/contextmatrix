@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { MemoryRouter, useSearchParams } from 'react-router-dom';
+import { MemoryRouter, useSearchParams } from 'react-router';
 import { TopCardsPanel } from './TopCardsPanel';
 import type { CardCost, ProjectConfig } from '../../types';
 

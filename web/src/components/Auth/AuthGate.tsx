@@ -1,5 +1,5 @@
 import { type ReactNode } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router';
 import { useAuth } from '../../hooks/useAuth';
 import { LoginPage } from './LoginPage';
 import { TokenRedemptionPage } from './TokenRedemptionPage';
