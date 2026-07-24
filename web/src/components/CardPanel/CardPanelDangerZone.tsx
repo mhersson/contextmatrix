@@ -8,6 +8,9 @@ interface DangerZoneTabProps {
   deleteTooltip: string;
   isDeleting: boolean;
   onDelete: () => Promise<void>;
+  canForceRelease: boolean;
+  isForceReleasing: boolean;
+  onForceRelease: () => Promise<void>;
 }
 
 /**
@@ -20,11 +23,21 @@ interface DangerZoneTabProps {
  * Currently lists:
  *   1. Delete card - enabled only when state ∈ {todo, not_planned} AND no
  *      worker attached.
- *   2. Force-release agent claim - always disabled; the backend does not
- *      expose the operation.
+ *   2. Force-release agent claim - enabled whenever an agent holds the card;
+ *      clears the claim without notifying the agent (crashed-worker recovery).
  */
-export function DangerZoneTab({ card, canDelete, deleteTooltip, isDeleting, onDelete }: DangerZoneTabProps) {
+export function DangerZoneTab({
+  card,
+  canDelete,
+  deleteTooltip,
+  isDeleting,
+  onDelete,
+  canForceRelease,
+  isForceReleasing,
+  onForceRelease,
+}: DangerZoneTabProps) {
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [confirmForceReleaseOpen, setConfirmForceReleaseOpen] = useState(false);
   const handleClick = () => {
     if (!canDelete) return;
     setConfirmDeleteOpen(true);
@@ -32,6 +45,14 @@ export function DangerZoneTab({ card, canDelete, deleteTooltip, isDeleting, onDe
   const handleDeleteConfirm = () => {
     setConfirmDeleteOpen(false);
     void onDelete();
+  };
+  const handleForceReleaseClick = () => {
+    if (!canForceRelease) return;
+    setConfirmForceReleaseOpen(true);
+  };
+  const handleForceReleaseConfirm = () => {
+    setConfirmForceReleaseOpen(false);
+    void onForceRelease();
   };
 
   // Reason text mirrors the mock's logic - explain why the action is
@@ -77,21 +98,23 @@ export function DangerZoneTab({ card, canDelete, deleteTooltip, isDeleting, onDe
         </div>
       </div>
 
-      <div className="bf-danger-card" style={{ opacity: 0.6 }}>
+      <div className="bf-danger-card">
         <div className="bf-danger-row">
           <div>
             <div className="bf-danger-title">Force-release agent claim</div>
             <div className="bf-danger-desc">
-              Clear the assigned agent without notifying them. Use only if the worker is wedged and won&apos;t respond to Stop.
+              Clear the assigned agent&apos;s claim without notifying it. The card&apos;s state and any running container are left untouched. Use when the worker has crashed or is wedged and won&apos;t respond to Stop.
             </div>
-            <div className="bf-danger-reason">Only available when the worker is unresponsive.</div>
+            {!canForceRelease && <div className="bf-danger-reason">🔒 No agent claim to release.</div>}
           </div>
           <button
             type="button"
-            disabled
+            onClick={handleForceReleaseClick}
+            disabled={!canForceRelease || isForceReleasing}
+            aria-label="Force-release agent claim"
             className="bf-btn-danger bf-btn-sm"
           >
-            Force release
+            {isForceReleasing ? 'Releasing…' : 'Force release'}
           </button>
         </div>
       </div>
@@ -105,6 +128,15 @@ export function DangerZoneTab({ card, canDelete, deleteTooltip, isDeleting, onDe
       variant="danger"
       onConfirm={handleDeleteConfirm}
       onCancel={() => setConfirmDeleteOpen(false)}
+    />
+    <ConfirmModal
+      open={confirmForceReleaseOpen}
+      title={`Force-release claim on ${card.id}?`}
+      message={`This clears the claim held by ${card.assigned_agent ?? 'the assigned agent'}. The agent is not notified - if it is still alive its next write will fail. Card state is unchanged and no container is stopped.`}
+      confirmLabel="Force release"
+      variant="danger"
+      onConfirm={handleForceReleaseConfirm}
+      onCancel={() => setConfirmForceReleaseOpen(false)}
     />
     </>
   );

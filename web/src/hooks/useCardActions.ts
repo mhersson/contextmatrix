@@ -127,6 +127,20 @@ export function useCardActions({
     }
   }, [selectedCard, selectedProject, updateCardLocally, showToast]);
 
+  const handleForceRelease = useCallback(async () => {
+    if (!selectedCard) return;
+    try {
+      const updated = await api.forceReleaseCard(selectedProject, selectedCard.id);
+      updateCardLocally(selectedCard.id, {
+        assigned_agent: updated.assigned_agent,
+        worker_status: updated.worker_status,
+      });
+      showToast('Claim force-released', 'success');
+    } catch (err) {
+      showToast(isAPIError(err) ? err.error : 'Failed to force-release claim', 'error');
+    }
+  }, [selectedCard, selectedProject, updateCardLocally, showToast]);
+
   const handleStopAll = useCallback(async () => {
     try {
       const result = await api.stopAllCards(selectedProject);
@@ -152,6 +166,6 @@ export function useCardActions({
 
   return {
     handleCardMove, handleCardSave, handleClaim, handleRelease, handleCreateCard,
-    handleRunCard, handleStopCard, handleStopAll, handleCardDelete,
+    handleRunCard, handleStopCard, handleForceRelease, handleStopAll, handleCardDelete,
   };
 }

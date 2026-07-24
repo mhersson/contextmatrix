@@ -102,6 +102,7 @@ function makeProps(overrides?: Partial<Parameters<typeof CardPanel>[0]>) {
     onRunCard: vi.fn().mockResolvedValue(undefined),
     onStopCard: vi.fn().mockResolvedValue(undefined),
     onDelete: vi.fn().mockResolvedValue(undefined),
+    onForceRelease: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
 }

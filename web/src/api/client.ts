@@ -251,6 +251,15 @@ class APIClient {
     });
   }
 
+  // Human-only recovery: clears another agent's claim (crashed/wedged worker).
+  // No body - identity comes from the session cookie or the X-Agent-ID header.
+  async forceReleaseCard(project: string, id: string): Promise<Card> {
+    return this.request<Card>(
+      `/projects/${encodeURIComponent(project)}/cards/${encodeURIComponent(id)}/force-release`,
+      { method: 'POST' }
+    );
+  }
+
   async getDashboard(project: string): Promise<DashboardData> {
     return this.request<DashboardData>(`/projects/${encodeURIComponent(project)}/dashboard`);
   }

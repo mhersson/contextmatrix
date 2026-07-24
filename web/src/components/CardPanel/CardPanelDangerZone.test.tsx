@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
+import type { ComponentProps } from 'react';
 import type { Card } from '../../types';
 import { DangerZoneTab } from './CardPanelDangerZone';
 
@@ -18,18 +19,25 @@ function makeCard(overrides: Partial<Card> = {}): Card {
   };
 }
 
+function renderTab(overrides: Partial<ComponentProps<typeof DangerZoneTab>> = {}) {
+  const props: ComponentProps<typeof DangerZoneTab> = {
+    card: makeCard(),
+    canDelete: false,
+    deleteTooltip: '',
+    isDeleting: false,
+    onDelete: vi.fn().mockResolvedValue(undefined),
+    canForceRelease: false,
+    isForceReleasing: false,
+    onForceRelease: vi.fn().mockResolvedValue(undefined),
+    ...overrides,
+  };
+  render(<DangerZoneTab {...props} />);
+  return props;
+}
+
 describe('DangerZoneTab - enabled delete flow', () => {
   it('opens the ConfirmModal on first click (does not call onDelete yet)', () => {
-    const onDelete = vi.fn().mockResolvedValue(undefined);
-    render(
-      <DangerZoneTab
-        card={makeCard()}
-        canDelete
-        deleteTooltip="Delete TEST-007"
-        isDeleting={false}
-        onDelete={onDelete}
-      />,
-    );
+    const { onDelete } = renderTab({ canDelete: true, deleteTooltip: 'Delete TEST-007' });
     fireEvent.click(screen.getByRole('button', { name: 'Delete card' }));
     expect(onDelete).not.toHaveBeenCalled();
     expect(screen.getByRole('dialog')).toBeInTheDocument();
@@ -37,16 +45,7 @@ describe('DangerZoneTab - enabled delete flow', () => {
   });
 
   it('invokes onDelete when the modal Delete button is clicked', async () => {
-    const onDelete = vi.fn().mockResolvedValue(undefined);
-    render(
-      <DangerZoneTab
-        card={makeCard()}
-        canDelete
-        deleteTooltip="Delete TEST-007"
-        isDeleting={false}
-        onDelete={onDelete}
-      />,
-    );
+    const { onDelete } = renderTab({ canDelete: true, deleteTooltip: 'Delete TEST-007' });
     fireEvent.click(screen.getByRole('button', { name: 'Delete card' }));
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
@@ -55,16 +54,7 @@ describe('DangerZoneTab - enabled delete flow', () => {
   });
 
   it('cancels cleanly without invoking onDelete', () => {
-    const onDelete = vi.fn().mockResolvedValue(undefined);
-    render(
-      <DangerZoneTab
-        card={makeCard()}
-        canDelete
-        deleteTooltip="Delete TEST-007"
-        isDeleting={false}
-        onDelete={onDelete}
-      />,
-    );
+    const { onDelete } = renderTab({ canDelete: true, deleteTooltip: 'Delete TEST-007' });
     fireEvent.click(screen.getByRole('button', { name: 'Delete card' }));
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(onDelete).not.toHaveBeenCalled();
@@ -74,46 +64,30 @@ describe('DangerZoneTab - enabled delete flow', () => {
 
 describe('DangerZoneTab - disabled states', () => {
   it('disables the Delete button and shows reason when an agent holds the claim', () => {
-    render(
-      <DangerZoneTab
-        card={makeCard({ assigned_agent: 'human:someone', state: 'todo' })}
-        canDelete={false}
-        deleteTooltip="Claimed - cannot delete"
-        isDeleting={false}
-        onDelete={vi.fn()}
-      />,
-    );
+    renderTab({
+      card: makeCard({ assigned_agent: 'human:someone', state: 'todo' }),
+      deleteTooltip: 'Claimed - cannot delete',
+    });
     const button = screen.getByRole('button', { name: 'Delete card' });
     expect(button).toBeDisabled();
     expect(screen.getByText(/An agent has an active claim/)).toBeInTheDocument();
   });
 
   it('disables the Delete button and explains when state is not todo/not_planned', () => {
-    render(
-      <DangerZoneTab
-        card={makeCard({ state: 'in_progress' })}
-        canDelete={false}
-        deleteTooltip="State blocks delete"
-        isDeleting={false}
-        onDelete={vi.fn()}
-      />,
-    );
+    renderTab({
+      card: makeCard({ state: 'in_progress' }),
+      deleteTooltip: 'State blocks delete',
+    });
     const button = screen.getByRole('button', { name: 'Delete card' });
     expect(button).toBeDisabled();
     expect(screen.getByText(/current state is in progress/)).toBeInTheDocument();
   });
 
   it('ignores clicks when disabled (no modal opens)', () => {
-    const onDelete = vi.fn();
-    render(
-      <DangerZoneTab
-        card={makeCard({ state: 'review' })}
-        canDelete={false}
-        deleteTooltip="State blocks delete"
-        isDeleting={false}
-        onDelete={onDelete}
-      />,
-    );
+    const { onDelete } = renderTab({
+      card: makeCard({ state: 'review' }),
+      deleteTooltip: 'State blocks delete',
+    });
     const button = screen.getByRole('button', { name: 'Delete card' });
     fireEvent.click(button);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
@@ -121,33 +95,70 @@ describe('DangerZoneTab - disabled states', () => {
   });
 
   it('renders "Deleting…" while a delete is in flight', () => {
-    render(
-      <DangerZoneTab
-        card={makeCard()}
-        canDelete
-        deleteTooltip="Delete TEST-007"
-        isDeleting
-        onDelete={vi.fn()}
-      />,
-    );
+    renderTab({ canDelete: true, deleteTooltip: 'Delete TEST-007', isDeleting: true });
     expect(screen.getByRole('button', { name: 'Delete card' })).toHaveTextContent('Deleting…');
     expect(screen.getByRole('button', { name: 'Delete card' })).toBeDisabled();
   });
 });
 
-describe('DangerZoneTab - force release placeholder', () => {
-  it('renders the force-release card as disabled with reason copy', () => {
-    render(
-      <DangerZoneTab
-        card={makeCard()}
-        canDelete
-        deleteTooltip="Delete TEST-007"
-        isDeleting={false}
-        onDelete={vi.fn()}
-      />,
-    );
-    const forceRelease = screen.getByRole('button', { name: /Force release/ });
-    expect(forceRelease).toBeDisabled();
-    expect(screen.getByText(/Only available when the worker is unresponsive/)).toBeInTheDocument();
+describe('DangerZoneTab - force release', () => {
+  it('disables the button and shows the reason when no claim exists', () => {
+    renderTab();
+    expect(screen.getByRole('button', { name: 'Force-release agent claim' })).toBeDisabled();
+    expect(screen.getByText(/No agent claim to release/)).toBeInTheDocument();
+  });
+
+  it('ignores clicks when disabled (no modal opens)', () => {
+    const { onForceRelease } = renderTab();
+    fireEvent.click(screen.getByRole('button', { name: 'Force-release agent claim' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(onForceRelease).not.toHaveBeenCalled();
+  });
+
+  it('opens the ConfirmModal naming the holding agent on first click', () => {
+    const { onForceRelease } = renderTab({
+      card: makeCard({ assigned_agent: 'agent-42', state: 'in_progress' }),
+      canForceRelease: true,
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Force-release agent claim' }));
+    expect(onForceRelease).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByText('Force-release claim on TEST-007?')).toBeInTheDocument();
+    expect(screen.getByText(/agent-42/)).toBeInTheDocument();
+  });
+
+  it('invokes onForceRelease when confirmed', async () => {
+    const { onForceRelease } = renderTab({
+      card: makeCard({ assigned_agent: 'agent-42', state: 'in_progress' }),
+      canForceRelease: true,
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Force-release agent claim' }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Force release' }));
+    });
+    expect(onForceRelease).toHaveBeenCalledOnce();
+  });
+
+  it('cancels cleanly without invoking onForceRelease', () => {
+    const { onForceRelease } = renderTab({
+      card: makeCard({ assigned_agent: 'agent-42', state: 'in_progress' }),
+      canForceRelease: true,
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Force-release agent claim' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(onForceRelease).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('hides the no-claim reason and renders "Releasing…" while in flight', () => {
+    renderTab({
+      card: makeCard({ assigned_agent: 'agent-42', state: 'in_progress' }),
+      canForceRelease: true,
+      isForceReleasing: true,
+    });
+    const button = screen.getByRole('button', { name: 'Force-release agent claim' });
+    expect(button).toHaveTextContent('Releasing…');
+    expect(button).toBeDisabled();
+    expect(screen.queryByText(/No agent claim to release/)).not.toBeInTheDocument();
   });
 });

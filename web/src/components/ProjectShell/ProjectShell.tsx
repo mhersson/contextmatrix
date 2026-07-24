@@ -109,7 +109,7 @@ export function ProjectShell() {
 
   const {
     handleCardMove, handleCardSave, handleClaim, handleRelease, handleCreateCard,
-    handleRunCard, handleStopCard, handleStopAll, handleCardDelete,
+    handleRunCard, handleStopCard, handleForceRelease, handleStopAll, handleCardDelete,
   } = useCardActions({
       selectedProject: project || '',
       selectedCard,
@@ -332,6 +332,7 @@ export function ProjectShell() {
             onClaim={handleClaim} onRelease={handleRelease}
             onSubtaskClick={handleSubtaskClick} currentAgentId={identity}
             onRunCard={handleRunCard} onStopCard={handleStopCard}
+            onForceRelease={handleForceRelease}
           />
         </ErrorBoundary>
       )}
