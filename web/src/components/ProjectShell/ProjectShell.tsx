@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
 import { useTimeoutRef } from '../../hooks/useTimeoutRef';
-import { useParams, useNavigate, Routes, Route } from 'react-router-dom';
+import { useParams, useNavigate, Routes, Route } from 'react-router';
 import { useBoard } from '../../hooks/useBoard';
 import { useSync } from '../../hooks/useSync';
 import { useIdentity } from '../../hooks/useIdentity';

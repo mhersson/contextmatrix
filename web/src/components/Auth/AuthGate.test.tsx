@@ -1,5 +1,5 @@
 import { render, screen, waitFor, act } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SESSION_EXPIRED_EVENT } from '../../api/client';
 import { AuthProvider } from '../../hooks/useAuth';

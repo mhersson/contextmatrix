@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, waitFor, act } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
 import { AllProjectsDashboard } from './AllProjectsDashboard';
 import { ToastContext, useToastState } from '../../hooks/useToast';
 import { SSEProvider } from '../../hooks/useSSEBus';

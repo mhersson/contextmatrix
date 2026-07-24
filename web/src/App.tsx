@@ -1,5 +1,5 @@
 import { useState, useCallback, lazy, Suspense } from 'react';
-import { Routes, Route, useNavigate } from 'react-router-dom';
+import { Routes, Route, useNavigate } from 'react-router';
 import { SSEProvider } from './hooks/useSSEBus';
 import { ProjectsProvider } from './hooks/useProjects';
 import { ProjectSummariesProvider } from './hooks/ProjectSummariesProvider';

@@ -3,7 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { UserMenu } from './UserMenu';
 
 const navMock = vi.hoisted(() => vi.fn());
-vi.mock('react-router-dom', () => ({
+vi.mock('react-router', () => ({
   useNavigate: () => navMock,
 }));
 

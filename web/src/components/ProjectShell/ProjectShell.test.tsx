@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, act, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes, useNavigate, useSearchParams } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useNavigate, useSearchParams } from 'react-router';
 import { ProjectShell } from './ProjectShell';
 import type { Card, CreateCardInput, ProjectConfig } from '../../types';
 

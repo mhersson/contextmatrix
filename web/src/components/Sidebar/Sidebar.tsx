@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink } from 'react-router';
 import { useProjects } from '../../hooks/useProjects';
 import { useProjectSummariesContext } from '../../hooks/ProjectSummariesProvider';
 import { useTheme } from '../../hooks/useTheme';

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
 import { ChatSection } from './ChatSection';
 import { MobileSidebarProvider } from '../../context/MobileSidebarContext';
 import { api } from '../../api/client';

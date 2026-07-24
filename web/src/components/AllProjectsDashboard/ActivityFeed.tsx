@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import type { BoardEvent } from '../../types';
 import { useSSEBus } from '../../hooks/useSSEBus';
 import { formatRelativeTime } from '../CardPanel/utils';

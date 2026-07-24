@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink } from 'react-router';
 import { ThemeToggle } from './ThemeToggle';
 import { PaletteSelector } from './PaletteSelector';
 import { ConfirmModal } from '../ConfirmModal/ConfirmModal';
