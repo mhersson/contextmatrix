@@ -62,17 +62,18 @@ describe('useWorkingState', () => {
   });
 
   it('does not let a stale false cancel a fresh optimistic arm', () => {
-    // Turn 1 ended: merged view carries assistant_working=false.
+    // Production hazard: sending on a warm-idle session arms optimistically
+    // while the merged view still holds the previous turn's explicit false;
+    // the server's warm-idle -> active status flip then re-fires the effect
+    // with that stale false still in place.
     const { result, rerender } = renderHook(({ s }) => useWorkingState('S1', s), {
-      initialProps: { s: session({ assistant_working: false }) },
+      initialProps: { s: session({ assistant_working: false, status: 'warm-idle' }) },
     });
 
-    // Turn 2: send resolves, optimistic arm while the merged view still
-    // holds the stale false from turn 1.
     act(() => result.current.armOptimistic());
     expect(result.current.working).not.toBeNull();
 
-    // An unrelated re-render (e.g. a status flip to active) must not clear.
+    // Status change re-runs the effect; the stale false must not clear.
     rerender({ s: session({ assistant_working: false, status: 'active' }) });
     expect(result.current.working).not.toBeNull();
   });
