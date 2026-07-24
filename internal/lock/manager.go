@@ -113,6 +113,29 @@ func (m *Manager) Release(ctx context.Context, project, cardID, agentID string) 
 	return card, nil
 }
 
+// ForceRelease clears a card's claim regardless of which agent holds it.
+// Human-operator path for crashed or wedged workers. Returns the modified
+// card and the agent that previously held the claim so the caller can
+// audit-log it. If the card is not claimed, ErrNotClaimed is returned.
+// The caller must persist the card.
+func (m *Manager) ForceRelease(ctx context.Context, project, cardID string) (*board.Card, string, error) {
+	card, err := m.store.GetCard(ctx, project, cardID)
+	if err != nil {
+		return nil, "", fmt.Errorf("get card: %w", err)
+	}
+
+	if card.AssignedAgent == "" {
+		return nil, "", ErrNotClaimed
+	}
+
+	prevAgent := card.AssignedAgent
+	card.AssignedAgent = ""
+	card.LastHeartbeat = nil
+	card.Updated = m.clk.Now()
+
+	return card, prevAgent, nil
+}
+
 // Heartbeat updates the last_heartbeat timestamp for a claimed card.
 // If the card is not claimed, ErrNotClaimed is returned. If the card is
 // claimed by a different agent, ErrAgentMismatch is returned. On success,

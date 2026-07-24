@@ -18,6 +18,9 @@ import (
 // ErrCardNotVetted is returned when an agent tries to claim a card that has not been vetted for agent use.
 var ErrCardNotVetted = fmt.Errorf("card has not been vetted for agent use")
 
+// ErrForceReleaseRequiresHuman is returned when a non-human agent attempts to force-release a claim.
+var ErrForceReleaseRequiresHuman = fmt.Errorf("force-release requires human agent (agent_id must start with %q)", board.HumanAgentIDPrefix)
+
 // ClaimCard assigns a card to an agent.
 // Flow: lock claim → store update → git commit → publish event.
 func (s *CardService) ClaimCard(ctx context.Context, project, id, agentID string) (*board.Card, error) {
@@ -156,6 +159,96 @@ func (s *CardService) ReleaseCard(ctx context.Context, project, id, agentID stri
 		CardID:    id,
 		Agent:     agentID,
 		Timestamp: s.clk.Now(),
+	})
+
+	return card, nil
+}
+
+// ForceReleaseCard clears another agent's claim on a card on behalf of a
+// human operator rescuing a crashed or wedged worker. The card state is left
+// untouched and no container is stopped.
+func (s *CardService) ForceReleaseCard(ctx context.Context, project, id, humanID string) (*board.Card, error) {
+	id = strings.ToUpper(id)
+
+	if !board.IsHumanAgentID(humanID) {
+		return nil, fmt.Errorf("force-release card %s: %w", id, ErrForceReleaseRequiresHuman)
+	}
+
+	s.writeMu.Lock()
+
+	// Snapshot for rollback on commit failure.
+	snapshot, err := s.store.GetCard(ctx, project, id)
+	if err != nil {
+		s.writeMu.Unlock()
+
+		return nil, fmt.Errorf("get card snapshot: %w", err)
+	}
+
+	card, prevAgent, err := s.lock.ForceRelease(ctx, project, id)
+	if err != nil {
+		s.writeMu.Unlock()
+
+		return nil, fmt.Errorf("force-release card: %w", err)
+	}
+
+	// The worker is presumed dead - same normalization as the stall path.
+	// Leaving queued/running would 409 every future run trigger, and with
+	// the claim gone the stall sweep would never correct it.
+	if card.WorkerStatus == "queued" || card.WorkerStatus == "running" {
+		card.WorkerStatus = "failed"
+	}
+
+	// Appended before the store write so the audit entry and the claim-clear
+	// land in a single commit.
+	card.ActivityLog = append(card.ActivityLog, board.ActivityEntry{
+		Agent:     humanID,
+		Timestamp: card.Updated,
+		Action:    "force_released",
+		Message:   fmt.Sprintf("Force-released claim held by %s", prevAgent),
+	})
+	card.ActivityLog = trimActivityLog(card.ActivityLog)
+
+	if err := s.store.UpdateCard(ctx, project, card); err != nil {
+		s.writeMu.Unlock()
+
+		return nil, fmt.Errorf("update card: %w", err)
+	}
+
+	commitDone, notify := s.enqueueCardCommit(ctx, project, id, humanID, "force-released")
+
+	s.writeMu.Unlock()
+
+	// Await the force-release commit before flushing the dead agent's
+	// deferred commits - same ordering as stallCardLocked: flushing first
+	// means a rollback on commit failure diverges from git permanently.
+	if err := s.awaitCommit(commitDone, notify); err != nil {
+		s.writeMu.Lock()
+		rollbackErr := s.rollbackCardOnCommitFailure(ctx, project, snapshot, err)
+		s.writeMu.Unlock()
+
+		return nil, rollbackErr
+	}
+
+	s.writeMu.Lock()
+	flushErr := s.flushDeferredCommit(ctx, id, prevAgent)
+	s.writeMu.Unlock()
+
+	if flushErr != nil {
+		ctxlog.Logger(ctx).Error("flush deferred commit on force-release", "card_id", id, "error", flushErr)
+	}
+
+	s.observeRunEnd(project, card, "force_released")
+
+	s.bus.Publish(events.Event{
+		Type:      events.CardReleased,
+		Project:   project,
+		CardID:    id,
+		Agent:     humanID,
+		Timestamp: s.clk.Now(),
+		Data: map[string]any{
+			"previous_agent": prevAgent,
+			"forced":         true,
+		},
 	})
 
 	return card, nil

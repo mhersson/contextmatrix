@@ -20,6 +20,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	githubauth "github.com/mhersson/contextmatrix-githubauth"
+	"github.com/mhersson/contextmatrix/internal/auth"
+	"github.com/mhersson/contextmatrix/internal/authstore"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/events"
@@ -1089,6 +1091,175 @@ func TestReleaseCard(t *testing.T) {
 		defer closeBody(t, resp.Body)
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
+	})
+}
+
+func TestForceReleaseCard(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	_, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
+		Title:    "Test Card",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.ClaimCard(context.Background(), "test-project", "TEST-001", "claude-1")
+	require.NoError(t, err)
+
+	forceRelease := func(t *testing.T, cardID, agentID string) *http.Response {
+		t.Helper()
+
+		req, err := http.NewRequest(http.MethodPost,
+			server.URL+"/api/projects/test-project/cards/"+cardID+"/force-release", http.NoBody)
+		require.NoError(t, err)
+
+		if agentID != "" {
+			req.Header.Set("X-Agent-ID", agentID)
+		}
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+
+		return resp
+	}
+
+	t.Run("non-human caller - 403", func(t *testing.T) {
+		resp := forceRelease(t, "TEST-001", "claude-2")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
+
+		card, err := svc.GetCard(context.Background(), "test-project", "TEST-001")
+		require.NoError(t, err)
+		assert.Equal(t, "claude-1", card.AssignedAgent, "claim must survive a rejected force-release")
+	})
+
+	t.Run("human caller - 200", func(t *testing.T) {
+		resp := forceRelease(t, "TEST-001", "human:tester")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var card board.Card
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&card))
+		assert.Empty(t, card.AssignedAgent)
+		assert.Nil(t, card.LastHeartbeat)
+	})
+
+	t.Run("unclaimed card - 409", func(t *testing.T) {
+		resp := forceRelease(t, "TEST-001", "human:tester")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusConflict, resp.StatusCode)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeNotClaimed, apiErr.Code)
+	})
+
+	t.Run("missing header falls back to human:api - 200", func(t *testing.T) {
+		_, err := svc.ClaimCard(context.Background(), "test-project", "TEST-001", "claude-1")
+		require.NoError(t, err)
+
+		resp := forceRelease(t, "TEST-001", "")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		card, err := svc.GetCard(context.Background(), "test-project", "TEST-001")
+		require.NoError(t, err)
+		require.NotEmpty(t, card.ActivityLog)
+		assert.Equal(t, "human:api", card.ActivityLog[len(card.ActivityLog)-1].Agent)
+	})
+
+	t.Run("nonexistent card - 404", func(t *testing.T) {
+		resp := forceRelease(t, "TEST-999", "human:tester")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+	})
+}
+
+func TestForceReleaseCard_MultiMode(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	store, err := authstore.Open(filepath.Join(t.TempDir(), "auth.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	authSvc := auth.NewService(store, time.Hour)
+
+	alice, err := store.CreateUser(t.Context(), "alice", "Alice", true, time.Now())
+	require.NoError(t, err)
+
+	hash, err := auth.HashPassword("alice password1")
+	require.NoError(t, err)
+	require.NoError(t, store.SetPasswordHash(t.Context(), alice.ID, hash, time.Now()))
+
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus, AuthService: authSvc, AuthMode: "multi"})
+
+	server := httptest.NewServer(router)
+	t.Cleanup(server.Close)
+
+	cookie := login(t, server, "alice", "alice password1")
+
+	_, err = svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
+		Title:    "Test Card",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.ClaimCard(context.Background(), "test-project", "TEST-001", "claude-1")
+	require.NoError(t, err)
+
+	t.Run("session identity wins over spoofed header", func(t *testing.T) {
+		req, err := http.NewRequest(http.MethodPost,
+			server.URL+"/api/projects/test-project/cards/TEST-001/force-release", http.NoBody)
+		require.NoError(t, err)
+		req.AddCookie(cookie)
+		req.Header.Set("X-Agent-ID", "claude-x")
+		req.Header.Set("X-Requested-With", "contextmatrix")
+
+		resp, err := http.DefaultClient.Do(req)
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+
+		card, err := svc.GetCard(context.Background(), "test-project", "TEST-001")
+		require.NoError(t, err)
+		assert.Empty(t, card.AssignedAgent)
+		require.NotEmpty(t, card.ActivityLog)
+		assert.Equal(t, "human:alice", card.ActivityLog[len(card.ActivityLog)-1].Agent)
+	})
+
+	t.Run("no session - 401", func(t *testing.T) {
+		req, err := http.NewRequest(http.MethodPost,
+			server.URL+"/api/projects/test-project/cards/TEST-001/force-release", http.NoBody)
+		require.NoError(t, err)
+		req.Header.Set("X-Agent-ID", "claude-x")
+		req.Header.Set("X-Requested-With", "contextmatrix")
+
+		resp, err := http.DefaultClient.Do(req)
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 	})
 }
 

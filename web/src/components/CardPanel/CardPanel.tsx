@@ -27,6 +27,7 @@ interface CardPanelProps {
   currentAgentId: string | null;
   onRunCard: (interactive: boolean) => Promise<void>;
   onStopCard: () => Promise<void>;
+  onForceRelease: () => Promise<void>;
 }
 
 /**
@@ -48,10 +49,11 @@ interface CardPanelProps {
  */
 export function CardPanel(props: CardPanelProps) {
   const { card, config, cardLogs = [], onClose, onSave, onDelete, onClaim, onRelease,
-    onSubtaskClick, currentAgentId, onRunCard, onStopCard } = props;
+    onSubtaskClick, currentAgentId, onRunCard, onStopCard, onForceRelease } = props;
 
   const panelRef = useRef<HTMLDivElement>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isForceReleasing, setIsForceReleasing] = useState(false);
 
   const {
     editedCard,
@@ -115,6 +117,18 @@ export function CardPanel(props: CardPanelProps) {
       setIsDeleting(false);
     }
   }, [canDelete, card.id, onDelete]);
+
+  const canForceRelease = !!card.assigned_agent;
+
+  const handleForceRelease = useCallback(async () => {
+    if (!canForceRelease) return;
+    setIsForceReleasing(true);
+    try {
+      await onForceRelease();
+    } finally {
+      setIsForceReleasing(false);
+    }
+  }, [canForceRelease, onForceRelease]);
 
   const handleClose = useCallback(() => {
     if (isDirty) {
@@ -192,6 +206,9 @@ export function CardPanel(props: CardPanelProps) {
     canDelete,
     deleteTooltip,
     isDeleting,
+    onForceRelease: handleForceRelease,
+    canForceRelease,
+    isForceReleasing,
     branches,
     branchesLoading,
     branchesError,

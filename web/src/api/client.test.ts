@@ -115,6 +115,28 @@ describe('api.sendCardMessage', () => {
   });
 });
 
+describe('api.forceReleaseCard', () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('posts to force-release endpoint with no body and returns the updated card', async () => {
+    const updatedCard = { ...baseCard, assigned_agent: undefined };
+    fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(makeResponse(updatedCard));
+
+    const result = await api.forceReleaseCard('test-project', 'TEST-001');
+
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('/api/projects/test-project/cards/TEST-001/force-release');
+    expect(init.method).toBe('POST');
+    expect(init.body).toBeUndefined();
+    expect(result).toEqual(updatedCard);
+  });
+});
+
 describe('api.promoteCardToAutonomous', () => {
   let fetchSpy: ReturnType<typeof vi.spyOn>;
 

@@ -7,6 +7,9 @@ interface DangerTabProps {
   deleteTooltip: string;
   isDeleting: boolean;
   onDelete: () => Promise<void>;
+  canForceRelease: boolean;
+  isForceReleasing: boolean;
+  onForceRelease: () => Promise<void>;
 }
 
 /**

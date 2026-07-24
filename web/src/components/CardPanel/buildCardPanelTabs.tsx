@@ -23,6 +23,9 @@ interface BuildCardPanelTabsOptions {
   canDelete: boolean;
   deleteTooltip: string;
   isDeleting: boolean;
+  onForceRelease: () => Promise<void>;
+  canForceRelease: boolean;
+  isForceReleasing: boolean;
   branches: string[];
   branchesLoading: boolean;
   branchesError: boolean;
@@ -114,6 +117,9 @@ export function buildCardPanelTabs(opts: BuildCardPanelTabsOptions): {
         deleteTooltip={opts.deleteTooltip}
         isDeleting={opts.isDeleting}
         onDelete={opts.onDelete}
+        canForceRelease={opts.canForceRelease}
+        isForceReleasing={opts.isForceReleasing}
+        onForceRelease={opts.onForceRelease}
       />
     ),
   });

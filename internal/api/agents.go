@@ -81,6 +81,41 @@ func (h *agentHandlers) releaseCard(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, card)
 }
 
+// forceReleaseCard handles POST /api/projects/{project}/cards/{id}/force-release.
+// Human-only: clears another agent's claim when the worker has crashed or is
+// wedged and cannot release it itself.
+func (h *agentHandlers) forceReleaseCard(w http.ResponseWriter, r *http.Request) {
+	projectName := r.PathValue("project")
+	cardID := r.PathValue("id")
+
+	if projectName == "" || cardID == "" {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "project and card ID required", "")
+
+		return
+	}
+
+	if isNonHumanAgent(r) {
+		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
+			"only humans can force-release a claim", "agent_id must start with \"human:\"")
+
+		return
+	}
+
+	agentID := extractAgentID(r)
+	if agentID == "" {
+		agentID = "human:api"
+	}
+
+	card, err := h.svc.ForceReleaseCard(r.Context(), projectName, cardID, agentID)
+	if err != nil {
+		handleServiceError(w, r, err)
+
+		return
+	}
+
+	writeJSON(w, http.StatusOK, card)
+}
+
 // extractAgentID returns the caller identity. In multi-user mode the session
 // middleware stamps "human:<username>" into the request context and that
 // ALWAYS wins - a browser cannot claim a different identity via header. The

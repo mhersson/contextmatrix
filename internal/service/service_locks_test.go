@@ -299,3 +299,142 @@ func TestMarkCardStalled_PersistGatedByValidator(t *testing.T) {
 	assert.Equal(t, "claimed-agent", got.AssignedAgent, "claim must remain when stall is blocked")
 	assert.NotNil(t, got.LastHeartbeat, "heartbeat must remain when stall is blocked")
 }
+
+func TestForceReleaseCard(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Crashed Worker", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-1")
+	require.NoError(t, err)
+
+	// Simulate a hard-crashed worker: status stuck at running.
+	seeded, err := svc.store.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+
+	seeded.WorkerStatus = "running"
+	require.NoError(t, svc.store.UpdateCard(ctx, "test-project", seeded))
+
+	ch, unsub := svc.bus.Subscribe()
+	defer unsub()
+
+	released, err := svc.ForceReleaseCard(ctx, "test-project", card.ID, "human:alice")
+	require.NoError(t, err)
+
+	assert.Empty(t, released.AssignedAgent)
+	assert.Nil(t, released.LastHeartbeat)
+	assert.Equal(t, seeded.State, released.State, "card state must be untouched")
+	assert.Equal(t, "failed", released.WorkerStatus, "stuck running status must normalize to failed")
+
+	require.NotEmpty(t, released.ActivityLog)
+	last := released.ActivityLog[len(released.ActivityLog)-1]
+	assert.Equal(t, "force_released", last.Action)
+	assert.Equal(t, "human:alice", last.Agent)
+	assert.Contains(t, last.Message, "agent-1")
+
+	select {
+	case event := <-ch:
+		assert.Equal(t, events.CardReleased, event.Type)
+		assert.Equal(t, "human:alice", event.Agent)
+		assert.Equal(t, "agent-1", event.Data["previous_agent"])
+		assert.Equal(t, true, event.Data["forced"])
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("expected CardReleased event")
+	}
+}
+
+func TestForceReleaseCard_TerminalWorkerStatusUntouched(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Already Failed", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-1")
+	require.NoError(t, err)
+
+	seeded, err := svc.store.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+
+	seeded.WorkerStatus = "failed"
+	require.NoError(t, svc.store.UpdateCard(ctx, "test-project", seeded))
+
+	released, err := svc.ForceReleaseCard(ctx, "test-project", card.ID, "human:alice")
+	require.NoError(t, err)
+
+	assert.Equal(t, "failed", released.WorkerStatus)
+}
+
+func TestForceReleaseCard_NotClaimed(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Unclaimed", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.ForceReleaseCard(ctx, "test-project", card.ID, "human:alice")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, lock.ErrNotClaimed)
+}
+
+func TestForceReleaseCard_NonHumanCaller(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Guarded", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-1")
+	require.NoError(t, err)
+
+	_, err = svc.ForceReleaseCard(ctx, "test-project", card.ID, "claude-1")
+	require.ErrorIs(t, err, ErrForceReleaseRequiresHuman)
+
+	got, err := svc.store.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "agent-1", got.AssignedAgent, "claim must survive a rejected force-release")
+}
+
+func TestForceReleaseCard_TerminalStateStrayClaim(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Done With Stray Claim", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Seed the anomaly directly: terminal state with a lingering claim.
+	seeded, err := svc.store.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+
+	seeded.State = board.StateDone
+	seeded.AssignedAgent = "agent-1"
+	require.NoError(t, svc.store.UpdateCard(ctx, "test-project", seeded))
+
+	released, err := svc.ForceReleaseCard(ctx, "test-project", card.ID, "human:alice")
+	require.NoError(t, err)
+
+	assert.Empty(t, released.AssignedAgent)
+	assert.Equal(t, board.StateDone, released.State, "terminal state must be untouched")
+}
