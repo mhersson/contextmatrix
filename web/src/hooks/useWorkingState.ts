@@ -1,12 +1,36 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChatSession } from '../types';
-import { WORKING_VERBS } from '../components/ChatPanel/WorkingIndicator';
 
 export interface WorkingState {
   verb: string;
   /** Epoch millis the in-flight turn started (server time once known). */
   since: number;
 }
+
+/**
+ * Whimsical gerunds shown while the assistant works. One is picked at random
+ * per turn and stays fixed for that turn. Lives here rather than in the
+ * component because the hook is the only consumer - WorkingIndicator receives
+ * the chosen verb as a prop.
+ */
+export const WORKING_VERBS = [
+  "Beboppin'",
+  'Noodling',
+  'Percolating',
+  'Ruminating',
+  'Tinkering',
+  'Mulling',
+  'Brewing',
+  'Wrangling',
+  'Simmering',
+  'Pondering',
+  'Cogitating',
+  'Conjuring',
+  'Marinating',
+  'Whirring',
+  'Doodling',
+  'Scheming',
+] as const;
 
 function pickVerb(): string {
   return WORKING_VERBS[Math.floor(Math.random() * WORKING_VERBS.length)];

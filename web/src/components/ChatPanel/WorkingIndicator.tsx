@@ -1,29 +1,5 @@
 import { useEffect, useState } from 'react';
 
-/**
- * Whimsical gerunds shown while the assistant works. One is picked at random
- * per turn (by useWorkingState) and stays fixed for that turn.
- */
-// eslint-disable-next-line react-refresh/only-export-components
-export const WORKING_VERBS = [
-  "Beboppin'",
-  'Noodling',
-  'Percolating',
-  'Ruminating',
-  'Tinkering',
-  'Mulling',
-  'Brewing',
-  'Wrangling',
-  'Simmering',
-  'Pondering',
-  'Cogitating',
-  'Conjuring',
-  'Marinating',
-  'Whirring',
-  'Doodling',
-  'Scheming',
-] as const;
-
 // eslint-disable-next-line react-refresh/only-export-components
 export function formatElapsed(seconds: number): string {
   if (seconds < 60) return `${seconds}s`;
