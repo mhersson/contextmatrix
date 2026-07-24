@@ -21,9 +21,8 @@ const (
 	// SSEKindMessage is a transcript message append; Seq/Role/Content carry it.
 	SSEKindMessage SSEEventKind = "message"
 	// SSEKindSessionUpdate is a session metadata change. SessionUpdate carries
-	// the payload. Fields: context_tokens, context_tokens_updated_at, model,
-	// rehydration_active, status. Zero-valued fields are omitted (omitempty);
-	// the client merges received fields into its local session view.
+	// the payload; zero-valued fields are omitted (omitempty) and the client
+	// merges received fields into its local session view.
 	SSEKindSessionUpdate SSEEventKind = "session_updated"
 )
 
@@ -48,9 +47,6 @@ type SSEEvent struct {
 
 // SessionUpdate is the payload of an SSEKindSessionUpdate event. Zero-valued
 // fields mean "unchanged" - the client merges these into its session view.
-// Fields: ContextTokens, ContextTokensUpdatedAt, Model, RehydrationActive,
-// Status, EstimatedCostUSD, PromptTokens, CompletionTokens, CacheReadTokens,
-// CacheCreationTokens.
 type SessionUpdate struct {
 	ContextTokens          int64     `json:"context_tokens,omitempty"`
 	ContextTokensUpdatedAt time.Time `json:"context_tokens_updated_at"`
