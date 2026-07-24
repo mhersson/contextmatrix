@@ -1773,6 +1773,8 @@ func (m *Manager) EndSession(ctx context.Context, id string) error {
 			"session_id", sess.ID, "error", rehyErr)
 	}
 
+	m.setWorking(sess.ID, false)
+
 	cold := StatusCold
 	update := SessionUpdate{Status: &cold}
 
@@ -1967,6 +1969,11 @@ func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string
 	}
 
 	m.clearSendFailures(sessionID)
+
+	// The backend accepted the message: a turn is now in flight. CM is the
+	// source of truth for the start signal - the worker's own run-state
+	// frame follows but must not be waited on.
+	m.setWorking(sessionID, true)
 
 	// Backend accepted the message - now safe to persist + publish.
 	msg, err := m.AppendMessage(ctx, sessionID, RoleUser, content)

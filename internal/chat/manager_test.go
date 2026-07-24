@@ -3944,3 +3944,115 @@ func TestHandleUsageEntry_EmitsChatMetrics(t *testing.T) {
 	assert.InDelta(t, cacheReadBase+200,
 		testutil.ToFloat64(metrics.ChatTokensTotal.WithLabelValues("metrics-project", model, "cache_read")), 1e-9)
 }
+
+// TestManager_SendUserMessage_ArmsAssistantWorking pins the server-side start
+// signal: a successful send flips assistant_working before the HTTP response
+// returns, so every subscriber (including the sender) learns a turn is in
+// flight without waiting for the first worker frame.
+func TestManager_SendUserMessage_ArmsAssistantWorking(t *testing.T) {
+	mgr, _, _ := newManagerWithStubs(t)
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "arm", CreatedBy: "human:test"})
+	require.NoError(t, err)
+
+	_, err = mgr.SendUserMessage(ctx, sess.ID, "hello")
+	require.NoError(t, err)
+
+	got, err := mgr.GetSession(ctx, sess.ID)
+	require.NoError(t, err)
+	assert.True(t, got.AssistantWorking, "successful send must arm assistant_working")
+	require.NotNil(t, got.AssistantWorkingSince)
+	assert.False(t, got.AssistantWorkingSince.IsZero())
+}
+
+// TestManager_SendUserMessage_FailureDoesNotArm proves a rejected send leaves
+// the indicator off - no turn is in flight if the backend never accepted the
+// message.
+func TestManager_SendUserMessage_FailureDoesNotArm(t *testing.T) {
+	mgr, backend, _ := newManagerWithStubs(t)
+	backend.sendErr = errors.New("backend down")
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "fail", CreatedBy: "human:test"})
+	require.NoError(t, err)
+
+	_, err = mgr.SendUserMessage(ctx, sess.ID, "hello")
+	require.Error(t, err)
+
+	got, err := mgr.GetSession(ctx, sess.ID)
+	require.NoError(t, err)
+	assert.False(t, got.AssistantWorking, "failed send must not arm assistant_working")
+}
+
+// TestManager_EndSession_ClearsAssistantWorking pins the teardown path: ending
+// a session with a turn in flight drops the working flag.
+func TestManager_EndSession_ClearsAssistantWorking(t *testing.T) {
+	mgr, _, _ := newManagerWithStubs(t)
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "end", CreatedBy: "human:test"})
+	require.NoError(t, err)
+
+	_, err = mgr.SendUserMessage(ctx, sess.ID, "hello")
+	require.NoError(t, err)
+
+	require.NoError(t, mgr.EndSession(ctx, sess.ID))
+
+	got, err := mgr.GetSession(ctx, sess.ID)
+	require.NoError(t, err)
+	assert.False(t, got.AssistantWorking, "EndSession must clear assistant_working")
+}
+
+// TestManager_StatusWorking_IgnoredDuringRehydration pins the replay guard:
+// run-state frames emitted while the session is rehydrating must not arm the
+// indicator - the first real turn starts with the user's next message.
+func TestManager_StatusWorking_IgnoredDuringRehydration(t *testing.T) {
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	delivered := make(chan struct{})
+	backend := &stubBackend{
+		streamLogsFn: func(ctx context.Context, _ string, onEntry func(chat.LogEntry)) error {
+			onEntry(chat.LogEntry{Type: "status", Content: "working"})
+			close(delivered)
+
+			<-ctx.Done()
+
+			return ctx.Err()
+		},
+	}
+
+	mgr := chat.NewManager(chat.Config{
+		Store:   store,
+		Backend: backend,
+		Clock:   clock.Real(),
+		IdleTTL: time.Hour,
+	})
+
+	t.Cleanup(func() { _ = mgr.Close(context.Background()) })
+
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "rehy", CreatedBy: "human:test"})
+	require.NoError(t, err)
+
+	require.NoError(t, store.SetRehydrationActive(ctx, sess.ID, true, time.Now().UTC()))
+
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+
+	select {
+	case <-delivered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("StreamLogs onEntry never invoked")
+	}
+
+	// Give the (incorrect) arm time to land before asserting it did not.
+	time.Sleep(50 * time.Millisecond)
+
+	got, err := mgr.GetSession(ctx, sess.ID)
+	require.NoError(t, err)
+	assert.False(t, got.AssistantWorking, "rehydration-phase status frames must not arm")
+}
