@@ -1205,6 +1205,92 @@ foundMessage:
 	assert.Equal(t, int64(1), backend.streamCalls.Load())
 }
 
+// TestManager_StatusFrames_DriveAssistantWorking verifies the run-state frame
+// contract: "status" frames from the backend's /logs stream flip the in-memory
+// assistant-working flag, publish session_updated transitions, and never
+// become transcript rows.
+func TestManager_StatusFrames_DriveAssistantWorking(t *testing.T) {
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	delivered := make(chan struct{})
+	backend := &stubBackend{
+		streamLogsFn: func(ctx context.Context, _ string, onEntry func(chat.LogEntry)) error {
+			onEntry(chat.LogEntry{Type: "status", Content: "working"})
+			onEntry(chat.LogEntry{Type: "status", Content: "idle"})
+			close(delivered)
+
+			<-ctx.Done()
+
+			return ctx.Err()
+		},
+	}
+
+	hub := chat.NewSSEHub(128)
+	mgr := chat.NewManager(chat.Config{
+		Store:   store,
+		Backend: backend,
+		Clock:   clock.Real(),
+		IdleTTL: time.Hour,
+		Hub:     hub,
+	})
+
+	t.Cleanup(func() { _ = mgr.Close(context.Background()) })
+
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "status", CreatedBy: "human:test"})
+	require.NoError(t, err)
+
+	ch, _, _ := hub.Subscribe(sess.ID, 0)
+
+	t.Cleanup(func() { hub.Unsubscribe(sess.ID, ch) })
+
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+
+	select {
+	case <-delivered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("StreamLogs onEntry never invoked")
+	}
+
+	// Collect the working transitions, skipping unrelated session updates
+	// (e.g. the cold→active status publish from OpenSession).
+	var transitions []bool
+
+	deadline := time.After(2 * time.Second)
+
+	for len(transitions) < 2 {
+		select {
+		case e := <-ch:
+			if e.Kind != chat.SSEKindSessionUpdate || e.SessionUpdate == nil ||
+				e.SessionUpdate.AssistantWorking == nil {
+				continue
+			}
+
+			if *e.SessionUpdate.AssistantWorking {
+				assert.NotNil(t, e.SessionUpdate.AssistantWorkingSince,
+					"working=true must carry the start timestamp")
+			} else {
+				assert.Nil(t, e.SessionUpdate.AssistantWorkingSince)
+			}
+
+			transitions = append(transitions, *e.SessionUpdate.AssistantWorking)
+		case <-deadline:
+			t.Fatalf("timed out waiting for working transitions, got %v", transitions)
+		}
+	}
+
+	assert.Equal(t, []bool{true, false}, transitions)
+
+	// Status frames must never become transcript rows.
+	msgs, err := mgr.ListMessages(ctx, sess.ID, 0, 100)
+	require.NoError(t, err)
+	assert.Empty(t, msgs, "status frames must not be persisted")
+}
+
 // TestManager_EndThenReopen_SpawnsFreshConsumer is the regression for the
 // startConsumer ↔ stopConsumer cleanup race. With the unfixed code,
 // stopConsumer cancels the consumer context and returns immediately; the

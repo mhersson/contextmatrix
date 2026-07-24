@@ -67,6 +67,15 @@ type SessionUpdate struct {
 	CompletionTokens    int64   `json:"completion_tokens,omitempty"`
 	CacheReadTokens     int64   `json:"cache_read_tokens,omitempty"`
 	CacheCreationTokens int64   `json:"cache_creation_tokens,omitempty"`
+
+	// AssistantWorking flips the chat working indicator: true when a turn
+	// starts (user send accepted, or a run-state frame from the worker),
+	// false when the run goes idle. Pointer so omitempty distinguishes
+	// "no change" from a deliberate transition.
+	AssistantWorking *bool `json:"assistant_working,omitempty"`
+	// AssistantWorkingSince accompanies AssistantWorking=true with the UTC
+	// start of the in-flight turn. Nil on working=false.
+	AssistantWorkingSince *time.Time `json:"assistant_working_since,omitempty"`
 }
 
 type subscriber struct {

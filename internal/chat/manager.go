@@ -190,7 +190,12 @@ type Manager struct {
 	// store and populate. setRehydrationActive updates both store and
 	// cache atomically (under mu).
 	rehydrationActive map[string]bool
-	wg                sync.WaitGroup
+	// working maps sessionID → the UTC time the in-flight turn started.
+	// Absence means not working. Ephemeral indicator state: in-memory only,
+	// lost on restart by design (a restarted CM has no turn in flight it
+	// knows about).
+	working map[string]time.Time
+	wg      sync.WaitGroup
 
 	// openGroup deduplicates concurrent cold-open work per sessionID. Two
 	// callers racing to open the same id share one Backend.StartChat
@@ -269,6 +274,7 @@ func NewManager(cfg Config) *Manager {
 		consumers:              make(map[string]*consumerHandle),
 		sendFailures:           make(map[string]int),
 		rehydrationActive:      make(map[string]bool),
+		working:                make(map[string]time.Time),
 		appendLocks:            map[string]*sync.Mutex{},
 		statusLocks:            map[string]*sync.Mutex{},
 	}
@@ -336,6 +342,77 @@ func (m *Manager) publishSessionUpdate(sessionID string, u SessionUpdate) {
 	}
 
 	go m.hub.PublishSessionUpdate(sessionID, u)
+}
+
+// setWorking flips the in-memory assistant-working flag for sessionID and
+// publishes the transition as a session_updated event. Idempotent: asserting
+// the current state again neither republishes nor resets the since timestamp
+// (model_request re-asserts "working" at every turn start by design). The
+// publish is synchronous like handleUsageEntry's - no sessionHub lock is held
+// on any caller path.
+func (m *Manager) setWorking(sessionID string, working bool) {
+	m.mu.Lock()
+
+	since, was := m.working[sessionID]
+	if working == was {
+		m.mu.Unlock()
+
+		return
+	}
+
+	if working {
+		since = m.clk.Now().UTC()
+		m.working[sessionID] = since
+	} else {
+		delete(m.working, sessionID)
+	}
+
+	m.mu.Unlock()
+
+	if m.hub == nil {
+		return
+	}
+
+	u := SessionUpdate{AssistantWorking: &working}
+	if working {
+		u.AssistantWorkingSince = &since
+	}
+
+	m.hub.PublishSessionUpdate(sessionID, u)
+}
+
+// handleStatusEntry processes a run-state frame from the backend's log bridge
+// (Content "working" or "idle"). Status frames are ephemeral indicator state:
+// never persisted, never a transcript row. Rehydration replay must not arm
+// the indicator - the first real turn starts with the user's next message.
+func (m *Manager) handleStatusEntry(ctx context.Context, sessionID string, e LogEntry) {
+	switch e.Content {
+	case "working":
+		if m.isRehydrationActive(ctx, sessionID) {
+			return
+		}
+
+		m.setWorking(sessionID, true)
+	case "idle":
+		m.setWorking(sessionID, false)
+	default:
+		m.logger.Debug("chat: unknown status frame content",
+			"session_id", sessionID, "content", e.Content)
+	}
+}
+
+// decorateWorking stamps the in-memory assistant-working state onto a session
+// loaded from the store, so GET/list responses carry it without persistence.
+func (m *Manager) decorateWorking(sess *Session) {
+	m.mu.Lock()
+	since, ok := m.working[sess.ID]
+	m.mu.Unlock()
+
+	if ok {
+		sess.AssistantWorking = true
+		t := since
+		sess.AssistantWorkingSince = &t
+	}
 }
 
 // consumerHandle is the per-session lifecycle handle for a worker-log consumer
@@ -501,6 +578,8 @@ func (m *Manager) startConsumer(sessionID string) {
 		// entry.
 		defer close(handle.done)
 		defer func() {
+			m.setWorking(sessionID, false)
+
 			m.mu.Lock()
 			// Defensive identity check: stopConsumer may have already removed
 			// the entry. Only delete if we still own it.
@@ -518,6 +597,12 @@ func (m *Manager) startConsumer(sessionID string) {
 		}
 
 		onEntry := func(e LogEntry) {
+			if e.Type == "status" {
+				m.handleStatusEntry(ctx, sessionID, e)
+
+				return
+			}
+
 			if e.Type == "usage" {
 				m.handleUsageEntry(ctx, sessionID, project, e)
 
@@ -1581,9 +1666,17 @@ func (m *Manager) MarkActive(ctx context.Context, sessionID string) error {
 	return nil
 }
 
-// GetSession returns the persisted session by ID.
+// GetSession returns the persisted session by ID, decorated with the
+// in-memory assistant-working state.
 func (m *Manager) GetSession(ctx context.Context, id string) (Session, error) {
-	return m.store.GetSession(ctx, id)
+	sess, err := m.store.GetSession(ctx, id)
+	if err != nil {
+		return Session{}, err
+	}
+
+	m.decorateWorking(&sess)
+
+	return sess, nil
 }
 
 // SessionLiveness reports whether sessionID currently owns a live worker
@@ -1695,9 +1788,19 @@ func (m *Manager) EndSession(ctx context.Context, id string) error {
 	return nil
 }
 
-// ListSessions returns sessions matching the filter, newest-active first.
+// ListSessions returns sessions matching the filter, newest-active first,
+// decorated with the in-memory assistant-working state.
 func (m *Manager) ListSessions(ctx context.Context, f SessionFilter) ([]Session, error) {
-	return m.store.ListSessions(ctx, f)
+	sessions, err := m.store.ListSessions(ctx, f)
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range sessions {
+		m.decorateWorking(&sessions[i])
+	}
+
+	return sessions, nil
 }
 
 // DeleteSession ends the container if running, then deletes the row.
@@ -1735,6 +1838,7 @@ func (m *Manager) DeleteSession(ctx context.Context, id string) error {
 	delete(m.titled, id)
 	delete(m.rehydrationActive, id)
 	delete(m.sendFailures, id)
+	delete(m.working, id)
 	m.mu.Unlock()
 
 	// Drop the per-session append lock entry. Held under appendLocksMu

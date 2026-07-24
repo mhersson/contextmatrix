@@ -74,6 +74,15 @@ type Session struct {
 	// accumulated from all usage frames. Precision floor is ~$0.0001; migrate
 	// to integer cents if sub-cent billing accuracy is ever required.
 	EstimatedCostUSD float64 `json:"estimated_cost_usd,omitempty"`
+
+	// AssistantWorking reports whether a turn is currently in flight for
+	// this session. In-memory only - populated by Manager.GetSession and
+	// ListSessions from the working map, never persisted by the store.
+	AssistantWorking bool `json:"assistant_working,omitempty"`
+	// AssistantWorkingSince is the UTC start of the in-flight turn. Nil when
+	// AssistantWorking is false. Late-joining browsers use it to show a
+	// truthful elapsed time.
+	AssistantWorkingSince *time.Time `json:"assistant_working_since,omitempty"`
 }
 
 // Message is a single persisted transcript entry. Kind discriminates
@@ -95,10 +104,11 @@ type Message struct {
 // LogEntry is a parsed event from the backend's /logs SSE stream. The Type
 // values mirror the backend's logbroadcast.LogEntry.Type vocabulary: "text",
 // "thinking", "tool_call", "stderr", "system", "user", "usage",
-// "tool_result". The chat package translates Type → Role when bridging into
-// the transcript. "usage" entries are metadata (Claude stream-json usage
-// block) and carry token counts in Usage; they do NOT become transcript
-// entries.
+// "tool_result", "status". The chat package translates Type → Role when
+// bridging into the transcript. "usage" entries are metadata (Claude
+// stream-json usage block) and carry token counts in Usage; they do NOT
+// become transcript entries. "status" frames carry run-state
+// ("working"/"idle") and never become transcript entries.
 type LogEntry struct {
 	Timestamp time.Time
 	Type      string
