@@ -201,6 +201,50 @@ func TestRelease_CardNotFound(t *testing.T) {
 	assert.ErrorIs(t, err, storage.ErrCardNotFound)
 }
 
+func TestForceRelease_Success(t *testing.T) {
+	store, _ := setupTestStore(t)
+	mgr := NewManager(store, 30*time.Minute)
+	ctx := context.Background()
+
+	// Create a claimed card
+	createTestCard(t, store, "test-project", "TEST-001", "agent-1")
+
+	// Force-release without knowing the owning agent
+	card, prevAgent, err := mgr.ForceRelease(ctx, "test-project", "TEST-001")
+	require.NoError(t, err)
+
+	assert.Equal(t, "agent-1", prevAgent)
+	assert.Empty(t, card.AssignedAgent)
+	assert.Nil(t, card.LastHeartbeat)
+}
+
+func TestForceRelease_NotClaimed(t *testing.T) {
+	store, _ := setupTestStore(t)
+	mgr := NewManager(store, 30*time.Minute)
+	ctx := context.Background()
+
+	// Create an unclaimed card
+	createTestCard(t, store, "test-project", "TEST-001", "")
+
+	card, prevAgent, err := mgr.ForceRelease(ctx, "test-project", "TEST-001")
+
+	assert.Nil(t, card)
+	assert.Empty(t, prevAgent)
+	assert.ErrorIs(t, err, ErrNotClaimed)
+}
+
+func TestForceRelease_CardNotFound(t *testing.T) {
+	store, _ := setupTestStore(t)
+	mgr := NewManager(store, 30*time.Minute)
+	ctx := context.Background()
+
+	card, prevAgent, err := mgr.ForceRelease(ctx, "test-project", "NONEXISTENT")
+
+	assert.Nil(t, card)
+	assert.Empty(t, prevAgent)
+	assert.ErrorIs(t, err, storage.ErrCardNotFound)
+}
+
 func TestHeartbeat_Success(t *testing.T) {
 	store, _ := setupTestStore(t)
 	fake := clock.Fake(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))

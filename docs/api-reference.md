@@ -16,6 +16,7 @@ DELETE /api/projects/{project}/cards/{id}
 
 POST   /api/projects/{project}/cards/{id}/claim      # agent identity from X-Agent-ID header
 POST   /api/projects/{project}/cards/{id}/release     # agent identity from X-Agent-ID header
+POST   /api/projects/{project}/cards/{id}/force-release  # human-only; clears another agent's claim (crashed-worker recovery)
 # heartbeat, log, context, usage, and report-push have no REST endpoint - the
 # MCP tools (`heartbeat`, `add_log`, `get_task_context`, `report_usage`,
 # `report_push`) are the only interface; agents never call REST directly.
@@ -111,8 +112,8 @@ NetworkPolicy / service-mesh rule.
 required on the agent endpoints (`/claim`, `/release`) and on any mutation of
 a claimed card - there the header value must match `assigned_agent` (403 on
 mismatch). It also gates human-only fields and human-only endpoints (`/run`,
-`/stop`, `/message`, `/promote`, `/stop-all`): those require an `X-Agent-ID`
-value beginning with `human:`. Read endpoints, project CRUD, sync, branches,
+`/stop`, `/message`, `/promote`, `/force-release`, `/stop-all`): those require
+an `X-Agent-ID` value beginning with `human:`. Read endpoints, project CRUD, sync, branches,
 app config, task-skills, healthz, and readyz do not require the header.
 Request bodies on agent endpoints do not carry an `agent_id` field; it is
 silently ignored if present.
@@ -173,7 +174,7 @@ otherwise the server generates a UUID. The same id is emitted as the
 **Response codes:**
 
 - 200: success (GET, PUT, PATCH; also `POST /claim`, `/release`,
-  `/stop-all`, `/api/agent/status`,
+  `/force-release`, `/stop-all`, `/api/agent/status`,
   `POST /api/chats/{id}/open`, `POST /api/chats/{id}/end`,
   `GET /api/v1/cards/.../autonomous`, `DELETE /api/admin/model-outcomes` -
   the latter returns the deleted row count rather than an empty 204 body)

@@ -354,6 +354,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	// Agent routes
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/claim", ah.claimCard)
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/release", ah.releaseCard)
+	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/force-release", ah.forceReleaseCard)
 
 	// Project usage, dashboard, and activity feed
 	mux.HandleFunc("GET /api/projects/{project}/usage", ph.getProjectUsage)
@@ -1061,6 +1062,9 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, service.ErrPromoteRequiresHuman):
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
 			"promote requires a human agent", "agent_id must start with \"human:\"")
+	case errors.Is(err, service.ErrForceReleaseRequiresHuman):
+		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
+			"force-release requires a human agent", "agent_id must start with \"human:\"")
 
 	// --- Bad-request sentinels (400) ---
 	case errors.Is(err, storage.ErrInvalidPath):
