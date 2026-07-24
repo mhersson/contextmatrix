@@ -164,6 +164,12 @@ export function useChatStream(sessionID: string): UseChatStream {
             ...(typeof raw.completion_tokens === 'number' && { completion_tokens: raw.completion_tokens }),
             ...(typeof raw.cache_read_tokens === 'number' && { cache_read_tokens: raw.cache_read_tokens }),
             ...(typeof raw.cache_creation_tokens === 'number' && { cache_creation_tokens: raw.cache_creation_tokens }),
+            ...(typeof raw.assistant_working === 'boolean' && {
+              assistant_working: raw.assistant_working,
+            }),
+            ...(typeof raw.assistant_working_since === 'string' && {
+              assistant_working_since: raw.assistant_working_since,
+            }),
           };
           // Compare status once per real event using a ref - avoids the
           // double-dispatch that would occur if the comparison lived inside

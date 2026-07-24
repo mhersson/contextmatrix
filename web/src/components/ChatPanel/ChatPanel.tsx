@@ -5,6 +5,8 @@ import { safeUrlTransform } from '../../utils/safeUrlTransform';
 import { formatHHMM, formatTitle, TimestampLabel } from '../../utils/chatTimestamp';
 import { idColor } from '../../utils/colorHash';
 import { ChatComposer } from './ChatComposer';
+import { WorkingIndicator } from './WorkingIndicator';
+import type { WorkingState } from '../../hooks/useWorkingState';
 
 // Lazy-load the markdown previewer so the chat panel doesn't pay the
 // bundle cost until first use. The chat markdown styling is fully driven by
@@ -37,13 +39,19 @@ export interface ChatPanelProps {
    * compose box without an extra click. Leave undefined to opt out.
    */
   focusKey?: string | number;
+  /**
+   * Working-indicator state for the in-flight turn, or null/undefined when
+   * idle. Rendered as the last thread entry, independent of the
+   * text/tool-call/thinking filter prefs. Card-bound chat passes nothing.
+   */
+  working?: WorkingState | null;
 }
 
 type Decorated =
   | { entry: LogEntry; showStamp: false }
   | { entry: LogEntry; showStamp: true; hhmm: string; title: string };
 
-export function ChatPanel({ logs, onSend, sendDisabled, footer, readOnlyMessage, focusKey }: ChatPanelProps) {
+export function ChatPanel({ logs, onSend, sendDisabled, footer, readOnlyMessage, focusKey, working }: ChatPanelProps) {
   const { prefs, setPref } = useChatFilterPrefs();
   const { showText, showToolCalls, showThinking } = prefs;
   const logContainerRef = useRef<HTMLDivElement>(null);
@@ -63,7 +71,7 @@ export function ChatPanel({ logs, onSend, sendDisabled, footer, readOnlyMessage,
     if (!el) return;
     if (userScrolledUpRef.current) return;
     el.scrollTop = el.scrollHeight;
-  }, [logs]);
+  }, [logs, working]);
 
   const filteredLogs = useMemo(
     () =>
@@ -136,18 +144,21 @@ export function ChatPanel({ logs, onSend, sendDisabled, footer, readOnlyMessage,
         aria-live="polite"
         aria-label="Chat log"
       >
-        {decoratedLogs.length === 0 ? (
+        {decoratedLogs.length === 0 && !working ? (
           <div className="text-xs text-[var(--grey1)] italic font-mono">No messages yet.</div>
         ) : (
-          decoratedLogs.map((d) => {
-            return (
-              <ChatEntry
-                key={d.entry.seq ?? d.entry.ts}
-                entry={d.entry}
-                stamp={d.showStamp ? { hhmm: d.hhmm, title: d.title } : null}
-              />
-            );
-          })
+          <>
+            {decoratedLogs.map((d) => {
+              return (
+                <ChatEntry
+                  key={d.entry.seq ?? d.entry.ts}
+                  entry={d.entry}
+                  stamp={d.showStamp ? { hhmm: d.hhmm, title: d.title } : null}
+                />
+              );
+            })}
+            {working && <WorkingIndicator verb={working.verb} since={working.since} />}
+          </>
         )}
       </div>
 

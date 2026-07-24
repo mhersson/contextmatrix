@@ -21,9 +21,8 @@ const (
 	// SSEKindMessage is a transcript message append; Seq/Role/Content carry it.
 	SSEKindMessage SSEEventKind = "message"
 	// SSEKindSessionUpdate is a session metadata change. SessionUpdate carries
-	// the payload. Fields: context_tokens, context_tokens_updated_at, model,
-	// rehydration_active, status. Zero-valued fields are omitted (omitempty);
-	// the client merges received fields into its local session view.
+	// the payload; zero-valued fields are omitted (omitempty) and the client
+	// merges received fields into its local session view.
 	SSEKindSessionUpdate SSEEventKind = "session_updated"
 )
 
@@ -48,9 +47,6 @@ type SSEEvent struct {
 
 // SessionUpdate is the payload of an SSEKindSessionUpdate event. Zero-valued
 // fields mean "unchanged" - the client merges these into its session view.
-// Fields: ContextTokens, ContextTokensUpdatedAt, Model, RehydrationActive,
-// Status, EstimatedCostUSD, PromptTokens, CompletionTokens, CacheReadTokens,
-// CacheCreationTokens.
 type SessionUpdate struct {
 	ContextTokens          int64     `json:"context_tokens,omitempty"`
 	ContextTokensUpdatedAt time.Time `json:"context_tokens_updated_at"`
@@ -67,6 +63,15 @@ type SessionUpdate struct {
 	CompletionTokens    int64   `json:"completion_tokens,omitempty"`
 	CacheReadTokens     int64   `json:"cache_read_tokens,omitempty"`
 	CacheCreationTokens int64   `json:"cache_creation_tokens,omitempty"`
+
+	// AssistantWorking flips the chat working indicator: true when a turn
+	// starts (user send accepted, or a run-state frame from the worker),
+	// false when the run goes idle. Pointer so omitempty distinguishes
+	// "no change" from a deliberate transition.
+	AssistantWorking *bool `json:"assistant_working,omitempty"`
+	// AssistantWorkingSince accompanies AssistantWorking=true with the UTC
+	// start of the in-flight turn. Nil on working=false.
+	AssistantWorkingSince *time.Time `json:"assistant_working_since,omitempty"`
 }
 
 type subscriber struct {

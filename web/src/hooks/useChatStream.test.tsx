@@ -26,15 +26,19 @@ class MockES {
   onopen?: () => void;
   onmessage?: (e: { data: string }) => void;
   onerror?: () => void;
+  listeners: Record<string, EventListener[]> = {};
   constructor(url: string) {
     this.url = url;
     instances.push(this);
     queueMicrotask(() => this.onopen?.());
   }
-  addEventListener(_type: string, _listener: EventListener) {
-    // Tests don't currently exercise the session_updated channel; this
-    // stub makes the addEventListener call non-throwing so the production
-    // code can register listeners unconditionally.
+  addEventListener(type: string, listener: EventListener) {
+    (this.listeners[type] ??= []).push(listener);
+  }
+  emit(type: string, data: unknown) {
+    for (const l of this.listeners[type] ?? []) {
+      l({ data: JSON.stringify(data) } as unknown as Event);
+    }
   }
   close() {}
 }
@@ -140,5 +144,24 @@ describe('useChatStream', () => {
       instances[0].onmessage?.({ data: JSON.stringify({ seq: 1, role: 'user', content: 'hi' }) });
     });
     await waitFor(() => expect(result.current.logs).toHaveLength(1));
+  });
+
+  it('parses assistant_working fields from session_updated events', async () => {
+    const { result } = renderHook(() => useChatStream('S1'));
+    await waitFor(() => expect(result.current.connected).toBe(true));
+
+    act(() => {
+      (instances[0] as unknown as MockES).emit('session_updated', {
+        assistant_working: true,
+        assistant_working_since: '2026-07-24T10:00:00Z',
+      });
+    });
+    await waitFor(() => expect(result.current.sessionUpdate?.assistant_working).toBe(true));
+    expect(result.current.sessionUpdate?.assistant_working_since).toBe('2026-07-24T10:00:00Z');
+
+    act(() => {
+      (instances[0] as unknown as MockES).emit('session_updated', { assistant_working: false });
+    });
+    await waitFor(() => expect(result.current.sessionUpdate?.assistant_working).toBe(false));
   });
 });

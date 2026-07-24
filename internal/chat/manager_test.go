@@ -1205,6 +1205,92 @@ foundMessage:
 	assert.Equal(t, int64(1), backend.streamCalls.Load())
 }
 
+// TestManager_StatusFrames_DriveAssistantWorking verifies the run-state frame
+// contract: "status" frames from the backend's /logs stream flip the in-memory
+// assistant-working flag, publish session_updated transitions, and never
+// become transcript rows.
+func TestManager_StatusFrames_DriveAssistantWorking(t *testing.T) {
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	delivered := make(chan struct{})
+	backend := &stubBackend{
+		streamLogsFn: func(ctx context.Context, _ string, onEntry func(chat.LogEntry)) error {
+			onEntry(chat.LogEntry{Type: "status", Content: "working"})
+			onEntry(chat.LogEntry{Type: "status", Content: "idle"})
+			close(delivered)
+
+			<-ctx.Done()
+
+			return ctx.Err()
+		},
+	}
+
+	hub := chat.NewSSEHub(128)
+	mgr := chat.NewManager(chat.Config{
+		Store:   store,
+		Backend: backend,
+		Clock:   clock.Real(),
+		IdleTTL: time.Hour,
+		Hub:     hub,
+	})
+
+	t.Cleanup(func() { _ = mgr.Close(context.Background()) })
+
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "status", CreatedBy: "human:test"})
+	require.NoError(t, err)
+
+	ch, _, _ := hub.Subscribe(sess.ID, 0)
+
+	t.Cleanup(func() { hub.Unsubscribe(sess.ID, ch) })
+
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+
+	select {
+	case <-delivered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("StreamLogs onEntry never invoked")
+	}
+
+	// Collect the working transitions, skipping unrelated session updates
+	// (e.g. the cold→active status publish from OpenSession).
+	var transitions []bool
+
+	deadline := time.After(2 * time.Second)
+
+	for len(transitions) < 2 {
+		select {
+		case e := <-ch:
+			if e.Kind != chat.SSEKindSessionUpdate || e.SessionUpdate == nil ||
+				e.SessionUpdate.AssistantWorking == nil {
+				continue
+			}
+
+			if *e.SessionUpdate.AssistantWorking {
+				assert.NotNil(t, e.SessionUpdate.AssistantWorkingSince,
+					"working=true must carry the start timestamp")
+			} else {
+				assert.Nil(t, e.SessionUpdate.AssistantWorkingSince)
+			}
+
+			transitions = append(transitions, *e.SessionUpdate.AssistantWorking)
+		case <-deadline:
+			t.Fatalf("timed out waiting for working transitions, got %v", transitions)
+		}
+	}
+
+	assert.Equal(t, []bool{true, false}, transitions)
+
+	// Status frames must never become transcript rows.
+	msgs, err := mgr.ListMessages(ctx, sess.ID, 0, 100)
+	require.NoError(t, err)
+	assert.Empty(t, msgs, "status frames must not be persisted")
+}
+
 // TestManager_EndThenReopen_SpawnsFreshConsumer is the regression for the
 // startConsumer ↔ stopConsumer cleanup race. With the unfixed code,
 // stopConsumer cancels the consumer context and returns immediately; the
@@ -3857,4 +3943,116 @@ func TestHandleUsageEntry_EmitsChatMetrics(t *testing.T) {
 		testutil.ToFloat64(metrics.ChatTokensTotal.WithLabelValues("metrics-project", model, "prompt")), 1e-9)
 	assert.InDelta(t, cacheReadBase+200,
 		testutil.ToFloat64(metrics.ChatTokensTotal.WithLabelValues("metrics-project", model, "cache_read")), 1e-9)
+}
+
+// TestManager_SendUserMessage_ArmsAssistantWorking pins the server-side start
+// signal: a successful send flips assistant_working before the HTTP response
+// returns, so every subscriber (including the sender) learns a turn is in
+// flight without waiting for the first worker frame.
+func TestManager_SendUserMessage_ArmsAssistantWorking(t *testing.T) {
+	mgr, _, _ := newManagerWithStubs(t)
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "arm", CreatedBy: "human:test"})
+	require.NoError(t, err)
+
+	_, err = mgr.SendUserMessage(ctx, sess.ID, "hello")
+	require.NoError(t, err)
+
+	got, err := mgr.GetSession(ctx, sess.ID)
+	require.NoError(t, err)
+	assert.True(t, got.AssistantWorking, "successful send must arm assistant_working")
+	require.NotNil(t, got.AssistantWorkingSince)
+	assert.False(t, got.AssistantWorkingSince.IsZero())
+}
+
+// TestManager_SendUserMessage_FailureDoesNotArm proves a rejected send leaves
+// the indicator off - no turn is in flight if the backend never accepted the
+// message.
+func TestManager_SendUserMessage_FailureDoesNotArm(t *testing.T) {
+	mgr, backend, _ := newManagerWithStubs(t)
+	backend.sendErr = errors.New("backend down")
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "fail", CreatedBy: "human:test"})
+	require.NoError(t, err)
+
+	_, err = mgr.SendUserMessage(ctx, sess.ID, "hello")
+	require.Error(t, err)
+
+	got, err := mgr.GetSession(ctx, sess.ID)
+	require.NoError(t, err)
+	assert.False(t, got.AssistantWorking, "failed send must not arm assistant_working")
+}
+
+// TestManager_EndSession_ClearsAssistantWorking pins the teardown path: ending
+// a session with a turn in flight drops the working flag.
+func TestManager_EndSession_ClearsAssistantWorking(t *testing.T) {
+	mgr, _, _ := newManagerWithStubs(t)
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "end", CreatedBy: "human:test"})
+	require.NoError(t, err)
+
+	_, err = mgr.SendUserMessage(ctx, sess.ID, "hello")
+	require.NoError(t, err)
+
+	require.NoError(t, mgr.EndSession(ctx, sess.ID))
+
+	got, err := mgr.GetSession(ctx, sess.ID)
+	require.NoError(t, err)
+	assert.False(t, got.AssistantWorking, "EndSession must clear assistant_working")
+}
+
+// TestManager_StatusWorking_IgnoredDuringRehydration pins the replay guard:
+// run-state frames emitted while the session is rehydrating must not arm the
+// indicator - the first real turn starts with the user's next message.
+func TestManager_StatusWorking_IgnoredDuringRehydration(t *testing.T) {
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	delivered := make(chan struct{})
+	backend := &stubBackend{
+		streamLogsFn: func(ctx context.Context, _ string, onEntry func(chat.LogEntry)) error {
+			onEntry(chat.LogEntry{Type: "status", Content: "working"})
+			close(delivered)
+
+			<-ctx.Done()
+
+			return ctx.Err()
+		},
+	}
+
+	mgr := chat.NewManager(chat.Config{
+		Store:   store,
+		Backend: backend,
+		Clock:   clock.Real(),
+		IdleTTL: time.Hour,
+	})
+
+	t.Cleanup(func() { _ = mgr.Close(context.Background()) })
+
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "rehy", CreatedBy: "human:test"})
+	require.NoError(t, err)
+
+	require.NoError(t, store.SetRehydrationActive(ctx, sess.ID, true, time.Now().UTC()))
+
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+
+	select {
+	case <-delivered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("StreamLogs onEntry never invoked")
+	}
+
+	// Give the (incorrect) arm time to land before asserting it did not.
+	time.Sleep(50 * time.Millisecond)
+
+	got, err := mgr.GetSession(ctx, sess.ID)
+	require.NoError(t, err)
+	assert.False(t, got.AssistantWorking, "rehydration-phase status frames must not arm")
 }
