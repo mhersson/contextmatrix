@@ -58,6 +58,12 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true }: Ch
       ...(sessionUpdate.cache_creation_tokens !== undefined
         ? { cache_creation_tokens: sessionUpdate.cache_creation_tokens }
         : {}),
+      ...(sessionUpdate.assistant_working !== undefined
+        ? { assistant_working: sessionUpdate.assistant_working }
+        : {}),
+      ...(sessionUpdate.assistant_working_since !== undefined
+        ? { assistant_working_since: sessionUpdate.assistant_working_since }
+        : {}),
     } as ChatSession;
   }, [session, sessionUpdate]);
 

@@ -579,6 +579,10 @@ export interface ChatSession {
   cache_creation_tokens?: number;
   /** Running total in USD. Precision floor ~$0.0001. */
   estimated_cost_usd?: number;
+  /** True while a turn is in flight for this session. In-memory server state. */
+  assistant_working?: boolean;
+  /** RFC3339 UTC start of the in-flight turn. Absent when not working. */
+  assistant_working_since?: string;
 }
 
 export interface ChatMessage {
@@ -636,4 +640,8 @@ export interface ChatSessionUpdate {
   completion_tokens?: number;
   cache_read_tokens?: number;
   cache_creation_tokens?: number;
+  /** True while a turn is in flight for this session. In-memory server state. */
+  assistant_working?: boolean;
+  /** RFC3339 UTC start of the in-flight turn. Absent when not working. */
+  assistant_working_since?: string;
 }
