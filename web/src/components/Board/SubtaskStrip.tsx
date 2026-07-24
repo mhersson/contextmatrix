@@ -1,15 +1,7 @@
 import type { Card } from '../../types';
-import { priorityColors, shortCardId, stripSegClass } from '../../lib/chip';
+import { hasUnmetDeps, priorityColors, shortCardId, stripSegClass } from '../../lib/chip';
 import { chipClassForState } from '../CardPanel/utils';
 import { avatarGradient } from '../../utils/colorHash';
-
-/**
- * Dependency-blocked, matching the red "blocked" deps chip in CardChipRow.
- * dependencies_met uses omitempty on the wire, so absent means false.
- */
-export function hasUnmetDeps(card: Card): boolean {
-  return (card.depends_on?.length ?? 0) > 0 && !card.dependencies_met;
-}
 
 interface SubtaskStripProps {
   subtasks: Card[];

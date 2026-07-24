@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import type { WorkerStatus } from '../types';
+import type { Card, WorkerStatus } from '../types';
 
 /**
  * Shared palette tokens + chip helpers for card type / priority / state
@@ -61,6 +61,14 @@ export function chipTint(color: string): CSSProperties {
 export function shortCardId(id: string): string {
   const dash = id.lastIndexOf('-');
   return dash >= 0 ? id.slice(dash + 1) : id;
+}
+
+/**
+ * Dependency-blocked, matching the red "blocked" deps chip in CardChipRow.
+ * dependencies_met uses omitempty on the wire, so absent means false.
+ */
+export function hasUnmetDeps(card: Card): boolean {
+  return (card.depends_on?.length ?? 0) > 0 && !card.dependencies_met;
 }
 
 const stripSegStates = new Set([

@@ -5,7 +5,8 @@ import type { Card } from '../../types';
 import { chipTint, typeColors } from '../../lib/chip';
 import { gitHubIcon } from '../icons';
 import { CardChipRow } from './CardChipRow';
-import { SubtaskStrip, SubtaskPeekList, hasUnmetDeps } from './SubtaskStrip';
+import { SubtaskStrip, SubtaskPeekList } from './SubtaskStrip';
+import { hasUnmetDeps } from '../../lib/chip';
 
 interface CardItemProps {
   card: Card;
@@ -34,12 +35,13 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
 
   const cardRef = useRef<HTMLDivElement>(null);
   // Temporary peek: deliberately ephemeral component state, never persisted.
-  const [peekOpen, setPeekOpen] = useState(false);
+  // An explicit toggle wins; otherwise a flash targeting one of the subtasks
+  // holds the peek open, since the flashed row renders nowhere else.
+  const [peekChoice, setPeekChoice] = useState<boolean | null>(null);
   const hasSubtasks = (subtasks?.length ?? 0) > 0;
-  // Subtasks no longer render as cards, so a flash targeting one lands on
-  // its parent: flash the parent and open the peek to reveal the row.
   const subtaskFlash = !!flashCardId && (subtasks ?? []).some((s) => s.id === flashCardId);
   const isFlashing = card.id === flashCardId || subtaskFlash;
+  const peekOpen = peekChoice ?? subtaskFlash;
 
   const setRefs = useCallback((node: HTMLDivElement | null) => {
     setNodeRef(node);
@@ -51,10 +53,6 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
       cardRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
   }, [isFlashing]);
-
-  useEffect(() => {
-    if (subtaskFlash) setPeekOpen(true);
-  }, [subtaskFlash]);
 
   const style = {
     transform: CSS.Translate.toString(transform),
@@ -84,7 +82,7 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
     <SubtaskStrip
       subtasks={subtasks!}
       expanded={peekOpen}
-      onToggle={() => setPeekOpen((open) => !open)}
+      onToggle={() => setPeekChoice(!peekOpen)}
     />
   ) : null;
 

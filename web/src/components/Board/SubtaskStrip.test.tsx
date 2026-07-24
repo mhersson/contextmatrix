@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { SubtaskStrip, SubtaskPeekList, hasUnmetDeps } from './SubtaskStrip';
-import { stripSegClass } from '../../lib/chip';
+import { SubtaskStrip, SubtaskPeekList } from './SubtaskStrip';
+import { hasUnmetDeps, stripSegClass } from '../../lib/chip';
 import type { Card } from '../../types';
 
 function makeSub(id: string, overrides: Partial<Card> = {}): Card {
