@@ -37,6 +37,17 @@ const subtaskCard: Card = {
   parent: 'TEST-001',
 };
 
+function makeSub(id: string, overrides: Partial<Card> = {}): Card {
+  return {
+    ...baseCard,
+    id,
+    title: `Subtask ${id}`,
+    type: 'subtask',
+    parent: baseCard.id,
+    ...overrides,
+  };
+}
+
 describe('CardItem - parent ID badge', () => {
   describe('expanded view (isCollapsed=false)', () => {
     it('renders parent badge when card.parent is defined', () => {
@@ -102,5 +113,92 @@ describe('CardItem - parent ID badge', () => {
       expect(onParentClick).toHaveBeenCalledOnce();
       expect(onParentClick).toHaveBeenCalledWith('TEST-001');
     });
+  });
+});
+
+describe('CardItem - subtask phase strip & peek', () => {
+  const subs = [makeSub('TEST-101', { state: 'in_progress' }), makeSub('TEST-102', { state: 'done' })];
+
+  it('renders the strip when subtasks are passed and not otherwise', () => {
+    const { rerender } = render(<CardItem card={baseCard} subtasks={subs} />);
+    expect(screen.getByRole('button', { name: '2 subtasks' })).toBeInTheDocument();
+    rerender(<CardItem card={baseCard} />);
+    expect(screen.queryByRole('button', { name: /subtask/ })).not.toBeInTheDocument();
+  });
+
+  it('strip click toggles the peek list without opening the card', () => {
+    const onClick = vi.fn();
+    render(<CardItem card={baseCard} subtasks={subs} onClick={onClick} />);
+    const strip = screen.getByRole('button', { name: '2 subtasks' });
+    fireEvent.click(strip);
+    expect(strip).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTitle('Subtask TEST-101')).toBeInTheDocument();
+    fireEvent.click(strip);
+    expect(strip).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByTitle('Subtask TEST-101')).not.toBeInTheDocument();
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it('peek row click opens the subtask via onParentClick, not the card', () => {
+    const onClick = vi.fn();
+    const onParentClick = vi.fn();
+    render(<CardItem card={baseCard} subtasks={subs} onClick={onClick} onParentClick={onParentClick} />);
+    fireEvent.click(screen.getByRole('button', { name: '2 subtasks' }));
+    fireEvent.click(screen.getByTitle('Subtask TEST-101'));
+    expect(onParentClick).toHaveBeenCalledOnce();
+    expect(onParentClick).toHaveBeenCalledWith('TEST-101');
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it('Enter on a peek row does not bubble up and open the card', () => {
+    const onClick = vi.fn();
+    render(<CardItem card={baseCard} subtasks={subs} onClick={onClick} onParentClick={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: '2 subtasks' }));
+    fireEvent.keyDown(screen.getByTitle('Subtask TEST-101'), { key: 'Enter' });
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it('collapsed parent keeps an interactive mini strip', () => {
+    render(<CardItem card={baseCard} subtasks={subs} isCollapsed onToggleCollapse={vi.fn()} />);
+    const strip = screen.getByRole('button', { name: '2 subtasks' });
+    fireEvent.click(strip);
+    expect(screen.getByTitle('Subtask TEST-101')).toBeInTheDocument();
+  });
+
+  it('flashCardId naming a subtask flashes the parent card and auto-opens the peek', () => {
+    window.HTMLElement.prototype.scrollIntoView = vi.fn();
+    render(<CardItem card={baseCard} subtasks={subs} flashCardId="TEST-101" />);
+    const root = screen.getByLabelText(`Card ${baseCard.id}: ${baseCard.title}`);
+    expect(root.className).toContain('animate-card-flash');
+    expect(screen.getByTitle('Subtask TEST-101')).toBeInTheDocument();
+  });
+});
+
+describe('CardItem - orphan subtask tint', () => {
+  it('an orphan subtask card gets the aqua tint class', () => {
+    render(<CardItem card={subtaskCard} />);
+    const root = screen.getByLabelText(`Card ${subtaskCard.id}: ${subtaskCard.title}`);
+    expect(root.className).toContain('card-orphan-tint');
+    expect(root.className).not.toContain('card-orphan-tint--dep-blocked');
+  });
+
+  it('a dependency-blocked orphan gets the red tint variant', () => {
+    const card = { ...subtaskCard, depends_on: ['TEST-009'], dependencies_met: false };
+    render(<CardItem card={card} />);
+    const root = screen.getByLabelText(`Card ${card.id}: ${card.title}`);
+    expect(root.className).toContain('card-orphan-tint--dep-blocked');
+  });
+
+  it('cards without a parent get no tint class', () => {
+    render(<CardItem card={baseCard} />);
+    const root = screen.getByLabelText(`Card ${baseCard.id}: ${baseCard.title}`);
+    expect(root.className).not.toContain('card-orphan-tint');
+  });
+
+  it('an agent-held orphan keeps the active pulse-border signal', () => {
+    const card = { ...subtaskCard, assigned_agent: 'claude-sonnet-worker' };
+    render(<CardItem card={card} />);
+    const root = screen.getByLabelText(`Card ${card.id}: ${card.title}`);
+    expect(root.className).toContain('animate-pulse-border');
   });
 });

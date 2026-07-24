@@ -18,10 +18,11 @@ interface ColumnProps {
   onCollapseAll?: (cardIds: string[]) => void;
   onExpandAll?: (cardIds: string[]) => void;
   onParentClick?: (cardId: string) => void;
+  subtasksByParent?: Map<string, Card[]>;
 }
 
 
-export function Column({ state, cards, config, collapsed, onToggleCollapse, onCardClick, activeCardState, flashCardId, collapsedCards, onToggleCardCollapse, onCollapseAll, onExpandAll, onParentClick }: ColumnProps) {
+export function Column({ state, cards, config, collapsed, onToggleCollapse, onCardClick, activeCardState, flashCardId, collapsedCards, onToggleCardCollapse, onCollapseAll, onExpandAll, onParentClick, subtasksByParent }: ColumnProps) {
   const { setNodeRef, isOver } = useDroppable({
     id: state,
   });
@@ -168,6 +169,7 @@ export function Column({ state, cards, config, collapsed, onToggleCollapse, onCa
               isCollapsed={collapsedCards?.has(card.id)}
               onToggleCollapse={onToggleCardCollapse}
               onParentClick={onParentClick}
+              subtasks={subtasksByParent?.get(card.id)}
             />
           ))
         )}

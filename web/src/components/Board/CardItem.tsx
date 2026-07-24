@@ -1,10 +1,12 @@
-import { memo, useEffect, useRef, useCallback } from 'react';
+import { memo, useEffect, useRef, useCallback, useState } from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import type { Card } from '../../types';
 import { chipTint, typeColors } from '../../lib/chip';
 import { gitHubIcon } from '../icons';
 import { CardChipRow } from './CardChipRow';
+import { SubtaskStrip, SubtaskPeekList } from './SubtaskStrip';
+import { hasUnmetDeps } from '../../lib/chip';
 
 interface CardItemProps {
   card: Card;
@@ -12,7 +14,9 @@ interface CardItemProps {
   flashCardId?: string | null;
   isCollapsed?: boolean;
   onToggleCollapse?: (cardId: string) => void;
+  /** Opens a card by id in the panel; also used by subtask peek rows. */
   onParentClick?: (cardId: string) => void;
+  subtasks?: Card[];
 }
 
 const cardIdStyle: React.CSSProperties = {
@@ -23,14 +27,21 @@ const cardIdStyle: React.CSSProperties = {
   color: 'var(--grey1)',
 };
 
-function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollapse, onParentClick }: CardItemProps) {
+function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollapse, onParentClick, subtasks }: CardItemProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: card.id,
     data: { card },
   });
 
   const cardRef = useRef<HTMLDivElement>(null);
-  const isFlashing = card.id === flashCardId;
+  // Temporary peek: deliberately ephemeral component state, never persisted.
+  // An explicit toggle wins; otherwise a flash targeting one of the subtasks
+  // holds the peek open, since the flashed row renders nowhere else.
+  const [peekChoice, setPeekChoice] = useState<boolean | null>(null);
+  const hasSubtasks = (subtasks?.length ?? 0) > 0;
+  const subtaskFlash = !!flashCardId && (subtasks ?? []).some((s) => s.id === flashCardId);
+  const isFlashing = card.id === flashCardId || subtaskFlash;
+  const peekOpen = peekChoice ?? subtaskFlash;
 
   const setRefs = useCallback((node: HTMLDivElement | null) => {
     setNodeRef(node);
@@ -60,6 +71,25 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
         ? 'border-l-[3px] border-l-[var(--aqua)] animate-pulse-border'
         : 'border-l-[3px] border-l-transparent';
 
+  // Attached subtasks never reach CardItem, so a board card with a parent is
+  // by construction an orphan (its parent left the board list). Keep the
+  // subtask tint; the inline stalled/active gradients below still win.
+  const orphanTintClass = card.parent
+    ? (hasUnmetDeps(card) ? 'card-orphan-tint card-orphan-tint--dep-blocked' : 'card-orphan-tint')
+    : '';
+
+  const strip = hasSubtasks ? (
+    <SubtaskStrip
+      subtasks={subtasks!}
+      expanded={peekOpen}
+      onToggle={() => setPeekChoice(!peekOpen)}
+    />
+  ) : null;
+
+  const peekList = hasSubtasks && peekOpen ? (
+    <SubtaskPeekList subtasks={subtasks!} onOpen={(id) => onParentClick?.(id)} />
+  ) : null;
+
   const stalledBg: React.CSSProperties | undefined = isStalled ? {
     background: 'linear-gradient(90deg, color-mix(in oklab, var(--bg-red) 75%, transparent) 0%, var(--bg1) 50%)',
   } : undefined;
@@ -85,7 +115,9 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
 
   // Enter opens the card (matches onClick). Space is reserved for dnd-kit's
   // KeyboardSensor to pick up / drop during drag, so we must not swallow it.
+  // Ignore events bubbling from nested buttons (chevron, badges, strip, rows).
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.target !== e.currentTarget) return;
     if (e.key === 'Enter') {
       e.preventDefault();
       onClick?.();
@@ -107,17 +139,20 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
           transition-all duration-150 hover:bg-[var(--bg2)] hover:-translate-y-px hover:shadow-[0_6px_18px_-8px_rgba(0,0,0,0.35)]
           focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--aqua)]
           ${borderClass}
+          ${orphanTintClass}
           ${isDragging ? 'shadow-lg z-50' : ''}
           ${isFlashing ? 'animate-card-flash' : ''}
         `}
       >
-        {/* Collapsed header: ID, type badge, parent badge, and toggle button */}
+        {/* Collapsed header: ID, type badge, parent badge, mini strip, and toggle button */}
         <div className="flex items-center gap-2">
           <span className="flex-shrink-0" style={cardIdStyle}>{card.id}</span>
           <CardChipRow card={card} compact onParentClick={onParentClick} />
           <span className="text-xs text-[var(--fg)] truncate min-w-0 flex-1">{card.title}</span>
+          {strip && <span className="w-16 flex-shrink-0">{strip}</span>}
           {collapseButton}
         </div>
+        {peekList}
       </div>
     );
   }
@@ -136,6 +171,7 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
         transition-all duration-150 hover:bg-[var(--bg2)] hover:-translate-y-px hover:shadow-[0_6px_18px_-8px_rgba(0,0,0,0.35)]
         focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--aqua)]
         ${borderClass}
+        ${orphanTintClass}
         ${isDragging ? 'shadow-lg z-50' : ''}
         ${isFlashing ? 'animate-card-flash' : ''}
       `}
@@ -171,8 +207,13 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
         {card.title}
       </h3>
 
+      {/* Subtask phase strip: one segment per subtask, click to peek */}
+      {strip}
+
       {/* Footer: Priority, Parent, Agent, Labels */}
       <CardChipRow card={card} onParentClick={onParentClick} />
+
+      {peekList}
     </div>
   );
 }

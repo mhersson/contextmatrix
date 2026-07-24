@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import type { WorkerStatus } from '../types';
+import type { Card, WorkerStatus } from '../types';
 
 /**
  * Shared palette tokens + chip helpers for card type / priority / state
@@ -61,6 +61,29 @@ export function chipTint(color: string): CSSProperties {
 export function shortCardId(id: string): string {
   const dash = id.lastIndexOf('-');
   return dash >= 0 ? id.slice(dash + 1) : id;
+}
+
+/**
+ * Dependency-blocked, matching the red "blocked" deps chip in CardChipRow.
+ * dependencies_met uses omitempty on the wire, so absent means false.
+ */
+export function hasUnmetDeps(card: Card): boolean {
+  return (card.depends_on?.length ?? 0) > 0 && !card.dependencies_met;
+}
+
+const stripSegStates = new Set([
+  'todo', 'in_progress', 'review', 'done',
+  'blocked', 'stalled', 'hitl', 'not_planned',
+]);
+
+/**
+ * Segment class for the parent-card subtask phase strip. Mirrors the
+ * `.chip-state-*` FOREGROUND accents (in_progress=blue, review=yellow),
+ * which intentionally differ from `stateColors` above (column stripes) -
+ * do not unify them. Unknown states fall back to the todo segment.
+ */
+export function stripSegClass(state: string): string {
+  return stripSegStates.has(state) ? `phase-seg-${state}` : 'phase-seg-todo';
 }
 
 export const workerStatusStyles: Record<WorkerStatus, { bg: string; text: string; label: string }> = {
