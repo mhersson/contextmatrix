@@ -398,6 +398,7 @@ export type LogEntryType =
   | 'text'
   | 'thinking'
   | 'tool_call'
+  | 'tool_result'
   | 'stderr'
   | 'system'
   | 'user'

@@ -159,6 +159,13 @@ export function useWorkerLogs({
         // never rendered). We must still advance lastSeqRef here because seq is a
         // unified monotonic counter across all entry types - skipping it would
         // cause a phantom gap marker on the next renderable frame.
+        // Normalize seq before any use: 0 means "unassigned" on the wire
+        // (dropped markers, legacy servers) - treating it as a real seq would
+        // collapse every row key to s-0 and confuse gap detection.
+        if (typeof data.seq === 'number' && data.seq <= 0) {
+          delete data.seq;
+        }
+
         if (data.type === 'usage') {
           if (typeof data.seq === 'number') { lastSeqRef.current = data.seq as number; }
           return;
@@ -229,6 +236,24 @@ export function useWorkerLogs({
     isMountedRef.current = true;
     return () => { isMountedRef.current = false; };
   }, []);
+
+  // Stream identity (project + card) changed: drop everything from the
+  // previous stream. connect() also clears, but connect() only runs while
+  // `enabled` - without this effect, switching from a running card to a
+  // non-running one leaves the previous card's transcript in the ring
+  // buffer and leaks it into the next card's panel (the chat tab appears
+  // via cardLogs.length > 0). Session-scoped refs reset too so a later
+  // connect() on the new identity cannot observe stale seq/terminal state.
+  // Deliberately NOT keyed on `enabled`: a session that ends on the SAME
+  // card must keep its transcript visible. Declared before the connect
+  // effect so an identity change with enabled=true runs disconnect() →
+  // this clear → connect() in that order. Runs once on mount as a no-op.
+  useEffect(() => {
+    clear();
+    lastSeqRef.current = null;
+    terminalRef.current = false;
+    logsReceivedRef.current = 0;
+  }, [project, cardId, clear]);
 
   useEffect(() => {
     if (enabled) {

@@ -814,3 +814,94 @@ describe('CardPanel - automation lock on subtasks', () => {
     ).toBeInTheDocument();
   });
 });
+
+describe('CardPanel - close hardening', () => {
+  it('closes on mousedown + mouseup both landing on the backdrop', () => {
+    const onClose = vi.fn();
+    render(<CardPanel {...makeProps({ onClose })} />);
+    const backdrop = screen.getByTestId('card-panel-backdrop');
+
+    fireEvent.mouseDown(backdrop);
+    fireEvent.mouseUp(backdrop);
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not close on drag-out (mousedown inside dialog, mouseup on backdrop)', () => {
+    const onClose = vi.fn();
+    render(<CardPanel {...makeProps({ onClose })} />);
+    const backdrop = screen.getByTestId('card-panel-backdrop');
+
+    fireEvent.mouseDown(screen.getByRole('dialog'));
+    fireEvent.mouseUp(backdrop);
+
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('does not close on an orphan mouseup with no backdrop mousedown', () => {
+    const onClose = vi.fn();
+    render(<CardPanel {...makeProps({ onClose })} />);
+
+    fireEvent.mouseUp(screen.getByTestId('card-panel-backdrop'));
+
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('an aborted backdrop press does not arm a later drawer-to-backdrop release', () => {
+    const onClose = vi.fn();
+    render(<CardPanel {...makeProps({ onClose })} />);
+    const backdrop = screen.getByTestId('card-panel-backdrop');
+    const dialog = screen.getByRole('dialog');
+
+    // Press on backdrop, release over the drawer - abort, no close.
+    fireEvent.mouseDown(backdrop);
+    fireEvent.mouseUp(dialog);
+    expect(onClose).not.toHaveBeenCalled();
+
+    // Text-selection drag: press in the drawer, release over the backdrop.
+    // The stale flag from the aborted press must not close the panel.
+    fireEvent.mouseDown(dialog);
+    fireEvent.mouseUp(backdrop);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('right/middle click on the backdrop does not close the panel', () => {
+    const onClose = vi.fn();
+    render(<CardPanel {...makeProps({ onClose })} />);
+    const backdrop = screen.getByTestId('card-panel-backdrop');
+
+    fireEvent.mouseDown(backdrop, { button: 2 });
+    fireEvent.mouseUp(backdrop, { button: 2 });
+    fireEvent.mouseDown(backdrop, { button: 1 });
+    fireEvent.mouseUp(backdrop, { button: 1 });
+
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('puts initial focus on the dialog surface, not the Close button', () => {
+    render(<CardPanel {...makeProps()} />);
+
+    expect(document.activeElement).toBe(screen.getByRole('dialog'));
+    expect(screen.getByLabelText('Close panel')).not.toHaveFocus();
+  });
+
+  it('keeps Escape-to-close working', () => {
+    const onClose = vi.fn();
+    render(<CardPanel {...makeProps({ onClose })} />);
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('Shift+Tab from the focused dialog surface stays inside the dialog', () => {
+    render(<CardPanel {...makeProps()} />);
+    const dialog = screen.getByRole('dialog');
+    expect(document.activeElement).toBe(dialog);
+
+    fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true });
+
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement).not.toBe(document.body);
+  });
+});

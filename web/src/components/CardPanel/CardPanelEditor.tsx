@@ -1,12 +1,36 @@
-import { Suspense, lazy, useCallback, useEffect, useId, useRef } from 'react';
+import { Suspense, lazy, memo, useCallback, useEffect, useId, useRef } from 'react';
 import { useTheme } from '../../hooks/useTheme';
 import { useEditorHeight } from '../../hooks/useEditorHeight';
 import { useCursorFollowScroll } from '../../hooks/useCursorFollowScroll';
 import { useImageUpload } from '../../hooks/useImageUpload';
 import { safeUrlTransform } from '../../utils/safeUrlTransform';
+import { ErrorBoundary } from '../ErrorBoundary';
 
 const MDEditor = lazy(() => import('@uiw/react-md-editor'));
 const MarkdownPreview = lazy(() => import('@uiw/react-markdown-preview'));
+
+/** Read-only description body, memoized on the body string: the left column
+ *  stays mounted while a transcript streams, and without the memo every ring
+ *  flush would re-run react-markdown's full pipeline over the card body. A
+ *  failed chunk import degrades to the same plain fallback instead of
+ *  throwing to the panel-wide boundary. */
+const CardBodyPreview = memo(function CardBodyPreview({ body }: { body: string }) {
+  const previewFallback = (
+    <div
+      className="bf-markdown-fallback whitespace-pre-wrap font-mono text-sm"
+      style={{ color: 'var(--fg)' }}
+    >
+      {body}
+    </div>
+  );
+  return (
+    <ErrorBoundary fallback={previewFallback}>
+      <Suspense fallback={previewFallback}>
+        <MarkdownPreview source={body} skipHtml className="bf-markdown" urlTransform={safeUrlTransform} />
+      </Suspense>
+    </ErrorBoundary>
+  );
+});
 
 interface CardPanelEditorProps {
   body: string;
@@ -134,57 +158,52 @@ export function CardPanelEditor({ body, onChange, editable, editing, onToggleEdi
         aria-hidden="true"
       />
       <div role="group" aria-labelledby={labelId}>
-        {inEditMode ? (
-          <div onDragOver={upload.handleDragOver} onDrop={upload.handleDrop}>
-            <Suspense
-              fallback={
-                <textarea
-                  value={body}
-                  onChange={(e) => onChange(e.target.value)}
-                  onPaste={upload.handlePaste}
-                  style={{ height: editorHeight }}
-                  className="w-full p-2 rounded bg-[var(--bg2)] border border-[var(--bg3)] text-sm text-[var(--fg)] font-mono resize-none focus:outline-none focus:border-[var(--aqua)]"
-                  aria-label="Description (loading rich editor...)"
-                />
-              }
-            >
-              <MDEditor
-                value={body}
-                onChange={(val) => onChange(val || '')}
-                preview="edit"
-                hideToolbar={false}
-                height={editorHeight}
-                visibleDragbar
-                previewOptions={{ skipHtml: true }}
-                textareaProps={{ onPaste: upload.handlePaste }}
-                className="bf-mdeditor"
-              />
-            </Suspense>
-            {(upload.uploading || upload.uploadError) && (
-              <div
-                role="status"
-                aria-live="polite"
-                className="mt-2 text-xs"
-                style={{ color: upload.uploadError ? 'var(--red)' : 'var(--grey2)' }}
-              >
-                {upload.uploadError ? `Upload failed: ${upload.uploadError}` : 'Uploading image…'}
-              </div>
-            )}
-          </div>
-        ) : (
-          <Suspense
-            fallback={
-              <div
-                className="bf-markdown-fallback whitespace-pre-wrap font-mono text-sm"
-                style={{ color: 'var(--fg)' }}
-              >
-                {body}
-              </div>
-            }
-          >
-            <MarkdownPreview source={body} skipHtml className="bf-markdown" urlTransform={safeUrlTransform} />
-          </Suspense>
-        )}
+        {(() => {
+          // Shared between the Suspense and ErrorBoundary fallbacks: a failed
+          // md-editor chunk import degrades to the same plain surface instead
+          // of throwing to the panel-wide boundary and replacing the drawer.
+          const editFallback = (
+            <textarea
+              value={body}
+              onChange={(e) => onChange(e.target.value)}
+              onPaste={upload.handlePaste}
+              style={{ height: editorHeight }}
+              className="w-full p-2 rounded bg-[var(--bg2)] border border-[var(--bg3)] text-sm text-[var(--fg)] font-mono resize-none focus:outline-none focus:border-[var(--aqua)]"
+              aria-label="Description (loading rich editor...)"
+            />
+          );
+          return inEditMode ? (
+            <div onDragOver={upload.handleDragOver} onDrop={upload.handleDrop}>
+              <ErrorBoundary fallback={editFallback}>
+                <Suspense fallback={editFallback}>
+                  <MDEditor
+                    value={body}
+                    onChange={(val) => onChange(val || '')}
+                    preview="edit"
+                    hideToolbar={false}
+                    height={editorHeight}
+                    visibleDragbar
+                    previewOptions={{ skipHtml: true }}
+                    textareaProps={{ onPaste: upload.handlePaste }}
+                    className="bf-mdeditor"
+                  />
+                </Suspense>
+              </ErrorBoundary>
+              {(upload.uploading || upload.uploadError) && (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className="mt-2 text-xs"
+                  style={{ color: upload.uploadError ? 'var(--red)' : 'var(--grey2)' }}
+                >
+                  {upload.uploadError ? `Upload failed: ${upload.uploadError}` : 'Uploading image…'}
+                </div>
+              )}
+            </div>
+          ) : (
+            <CardBodyPreview body={body} />
+          );
+        })()}
       </div>
     </section>
   );

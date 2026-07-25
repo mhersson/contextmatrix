@@ -225,3 +225,32 @@ func TestMultipleCards(t *testing.T) {
 	assert.Equal(t, "card-a-2", string(snapA[1].Payload))
 	assert.Equal(t, "card-b-1", string(snapB[0].Payload))
 }
+
+// TestAssignSeq verifies wire events (Seq 0) get a per-session monotonic seq
+// while explicit nonzero seqs pass through untouched.
+func TestAssignSeq(t *testing.T) {
+	b := newSessionBuffer(DefaultMaxEvents, DefaultMaxBytes)
+
+	first := b.assignSeq(Event{Type: "text"})
+	second := b.assignSeq(Event{Type: "tool_call"})
+
+	assert.Equal(t, uint64(1), first.Seq)
+	assert.Equal(t, uint64(2), second.Seq)
+
+	explicit := b.assignSeq(Event{Type: "text", Seq: 42})
+	assert.Equal(t, uint64(42), explicit.Seq)
+
+	// The counter is independent of explicit seqs.
+	third := b.assignSeq(Event{Type: "text"})
+	assert.Equal(t, uint64(3), third.Seq)
+}
+
+// TestAssignSeqPerSession verifies counters are per-buffer, not shared.
+func TestAssignSeqPerSession(t *testing.T) {
+	a := newSessionBuffer(DefaultMaxEvents, DefaultMaxBytes)
+	b := newSessionBuffer(DefaultMaxEvents, DefaultMaxBytes)
+
+	assert.Equal(t, uint64(1), a.assignSeq(Event{Type: "text"}).Seq)
+	assert.Equal(t, uint64(1), b.assignSeq(Event{Type: "text"}).Seq)
+	assert.Equal(t, uint64(2), a.assignSeq(Event{Type: "text"}).Seq)
+}

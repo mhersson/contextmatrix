@@ -137,9 +137,10 @@ vi.mock('../Board', () => ({
 }));
 
 vi.mock('../CardPanel', () => ({
-  CardPanel: ({ card, onClose }: { card: Card; onClose: () => void }) => (
+  CardPanel: ({ card, cardLogs, onClose }: { card: Card; cardLogs?: readonly unknown[]; onClose: () => void }) => (
     <div data-testid={`card-panel-${card.id}`}>
       <span data-testid="card-panel-title">{card.title}</span>
+      <span data-testid="card-panel-log-count">{cardLogs?.length ?? 0}</span>
       <button onClick={onClose}>Close</button>
     </div>
   ),
@@ -730,5 +731,68 @@ describe('ProjectShell - card-scoped worker-log liveness', () => {
     await screen.findByTestId('card-panel-TEST-1');
     const lastCall = vi.mocked(useWorkerLogs).mock.calls.at(-1)?.[0];
     expect(lastCall).toMatchObject({ cardId: 'TEST-1', enabled: false });
+  });
+
+  // The card_id gate between useWorkerLogs and CardPanel - a buffer still
+  // holding another card's transcript must never reach the panel props.
+  describe('stale-transcript gate', () => {
+    afterEach(async () => {
+      const { useWorkerLogs } = await import('../../hooks/useWorkerLogs');
+      vi.mocked(useWorkerLogs).mockImplementation(() => ({
+        logs: [],
+        connected: false,
+        error: null,
+        clear: vi.fn(),
+      }));
+    });
+
+    function makeLog(cardId: string, content: string) {
+      return { ts: '2026-07-25T10:00:00Z', card_id: cardId, type: 'text' as const, content };
+    }
+
+    async function renderWithLogs(logs: ReturnType<typeof makeLog>[]) {
+      const { useBoard } = await import('../../hooks/useBoard');
+      const { useWorkerLogs } = await import('../../hooks/useWorkerLogs');
+      const idleCard: Card = {
+        id: 'TEST-1',
+        title: 'Idle card',
+        project: 'test',
+        type: 'task',
+        state: 'in_progress',
+        priority: 'medium',
+        created: '2026-01-01T00:00:00Z',
+        updated: '2026-01-01T00:00:00Z',
+        body: '',
+        autonomous: true,
+      };
+      vi.mocked(useBoard).mockReturnValue(
+        boardReturnFor(idleCard) as unknown as ReturnType<typeof useBoard>,
+      );
+      vi.mocked(useWorkerLogs).mockImplementation(() => ({
+        logs,
+        connected: false,
+        error: null,
+        clear: vi.fn(),
+      }));
+
+      render(
+        <MemoryRouter initialEntries={['/projects/test?card=TEST-1']}>
+          <Routes>
+            <Route path="/projects/:project/*" element={<ProjectShell />} />
+          </Routes>
+        </MemoryRouter>,
+      );
+      await screen.findByTestId('card-panel-TEST-1');
+    }
+
+    it('drops a buffer that belongs to a different card', async () => {
+      await renderWithLogs([makeLog('TEST-999', 'stale a'), makeLog('TEST-999', 'stale b')]);
+      expect(screen.getByTestId('card-panel-log-count')).toHaveTextContent('0');
+    });
+
+    it('passes through a buffer that belongs to the selected card', async () => {
+      await renderWithLogs([makeLog('TEST-1', 'own a'), makeLog('TEST-1', 'own b')]);
+      expect(screen.getByTestId('card-panel-log-count')).toHaveTextContent('2');
+    });
   });
 });

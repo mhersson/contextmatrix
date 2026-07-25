@@ -95,6 +95,17 @@ describe('ChatPanel', () => {
     expect(screen.getByText('Read: foo.go')).toBeInTheDocument();
   });
 
+  it('gates tool_result under the Tool calls filter (hidden by default, shown when checked)', () => {
+    const withResult: LogEntry[] = [
+      ...logs,
+      { ts: '2026-05-13T10:00:03Z', card_id: '', type: 'tool_result', content: 'foo.go contents...' },
+    ];
+    render(<ChatPanel logs={withResult} onSend={() => {}} sendDisabled={false} />);
+    expect(screen.queryByText('foo.go contents...')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('Tool calls'));
+    expect(screen.getByText('foo.go contents...')).toBeInTheDocument();
+  });
+
   it('sends on Enter, newline on Shift+Enter', () => {
     const onSend = vi.fn();
     render(<ChatPanel logs={[]} onSend={onSend} sendDisabled={false} />);
@@ -282,9 +293,11 @@ describe('ChatPanel', () => {
     beforeEach(() => {
       FakeEventSource.instances = [];
       vi.stubGlobal('EventSource', FakeEventSource);
+      vi.useFakeTimers();
     });
 
     afterEach(() => {
+      vi.useRealTimers();
       vi.unstubAllGlobals();
     });
 
@@ -312,6 +325,8 @@ describe('ChatPanel', () => {
           agent: 'moderator', model: 'z-ai/glm-5.2',
         });
       });
+      // Advance past the ring-buffer coalescing window so the entry publishes.
+      act(() => { vi.advanceTimersByTime(50); });
 
       // Render ChatPanel with the logs from useWorkerLogs
       render(<ChatPanel logs={result.current.logs} onSend={() => {}} sendDisabled={false} />);

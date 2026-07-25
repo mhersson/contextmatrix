@@ -3,9 +3,20 @@ import type { LogEntry } from '../types';
 
 export interface UseRingBufferResult {
   logs: readonly LogEntry[];
+  /**
+   * Entries are applied to the buffer immediately; subscribers are notified
+   * at most once per 50 ms window so that per-frame SSE appends coalesce
+   * into a handful of React commits instead of one commit per frame.
+   * `clear` notifies synchronously.
+   */
   append: (entries: LogEntry[]) => void;
   clear: () => void;
 }
+
+/** Coalescing window for deferred subscriber notification. A fixed timeout
+ *  (not rAF - throttled in background tabs; not a microtask - drains between
+ *  the per-frame onmessage macrotasks and would coalesce nothing). */
+const FLUSH_MS = 50;
 
 interface RingBufferStore {
   subscribe: (listener: () => void) => () => void;
@@ -22,10 +33,28 @@ function createRingBufferStore(maxEntries: number): RingBufferStore {
   let version = 0;
   let cachedVersion = -1;
   let cachedSnapshot: readonly LogEntry[] = [];
+  let flushTimer: number | null = null;
+  let dirty = false;
   const listeners = new Set<() => void>();
 
   function notify() {
     for (const l of listeners) l();
+  }
+
+  function cancelFlush() {
+    if (flushTimer !== null) {
+      clearTimeout(flushTimer);
+      flushTimer = null;
+    }
+    dirty = false;
+  }
+
+  function flush() {
+    flushTimer = null;
+    if (!dirty) return;
+    dirty = false;
+    version++;
+    notify();
   }
 
   function buildSnapshot(): readonly LogEntry[] {
@@ -66,11 +95,14 @@ function createRingBufferStore(maxEntries: number): RingBufferStore {
         }
       }
 
-      version++;
-      notify();
+      dirty = true;
+      if (flushTimer === null) {
+        flushTimer = window.setTimeout(flush, FLUSH_MS);
+      }
     },
 
     clear() {
+      cancelFlush();
       if (size === 0) return;
       buf = new Array<LogEntry | undefined>(capacity);
       head = 0;

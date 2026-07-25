@@ -5,6 +5,7 @@ export const TYPE_COLORS: Record<LogEntryType, string> = {
   thinking: 'var(--grey2)',
   text: 'var(--fg)',
   tool_call: 'var(--aqua)',
+  tool_result: 'var(--aqua)',
   stderr: 'var(--yellow)',
   system: 'var(--green)',
   user: 'var(--blue)',

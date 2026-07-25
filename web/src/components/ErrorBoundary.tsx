@@ -3,6 +3,10 @@ import type { ErrorInfo, ReactNode } from 'react';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
+  /** Rendered instead of the default error card when a child throws. Lets
+   *  local boundaries degrade gracefully (e.g. chat markdown falling back to
+   *  plain text) without replacing a whole surface. */
+  fallback?: ReactNode;
 }
 
 interface ErrorBoundaryState {
@@ -30,6 +34,9 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   render(): ReactNode {
     if (this.state.hasError) {
+      if (this.props.fallback !== undefined) {
+        return this.props.fallback;
+      }
       return (
         <div
           className="flex items-center justify-center min-h-[200px] p-8"

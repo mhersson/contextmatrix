@@ -14,6 +14,13 @@ const FOCUSABLE_SELECTOR =
  * Use `initialFocusRef` when the first focusable is not the element that
  * should receive focus (e.g., a form field deeper in the dialog, or an input
  * with autoFocus semantics that the trap would otherwise override).
+ *
+ * Passing the container's own ref as `initialFocusRef` (the container needs
+ * `tabIndex={-1}`) focuses the dialog surface itself - the WAI-ARIA-sanctioned
+ * choice when the first focusable is a dismiss/destructive control, so stray
+ * Enter/Space presses land on a non-interactive element. `Node.contains` is
+ * inclusive, and the `[tabindex="-1"]` exclusion in FOCUSABLE_SELECTOR keeps
+ * the container out of the Tab wrap list.
  */
 export function useFocusTrap(
   ref: RefObject<HTMLElement | null>,
@@ -39,7 +46,10 @@ export function useFocusTrap(
       const currentFirst = currentFocusables[0];
       const currentLast = currentFocusables[currentFocusables.length - 1];
 
-      if (e.shiftKey && document.activeElement === currentFirst) {
+      // Shift+Tab wraps from the first focusable AND from the container
+      // itself (focused via the initialFocusRef-as-container pattern) -
+      // otherwise focus would escape backwards out of the dialog.
+      if (e.shiftKey && (document.activeElement === currentFirst || document.activeElement === dialog)) {
         e.preventDefault();
         currentLast?.focus();
       } else if (!e.shiftKey && document.activeElement === currentLast) {

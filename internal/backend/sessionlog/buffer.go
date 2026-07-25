@@ -77,6 +77,10 @@ type sessionBuffer struct {
 	totalBytes int
 	maxEvents  int
 	maxBytes   int
+	// nextSeq backs assignSeq's per-session monotonic counter. Starts at 0 so
+	// the first assigned seq is 1; dropped markers and terminal frames keep
+	// Seq 0 (they carry no stream identity).
+	nextSeq uint64
 }
 
 func newSessionBuffer(maxEvents, maxBytes int) *sessionBuffer {
@@ -85,6 +89,21 @@ func newSessionBuffer(maxEvents, maxBytes int) *sessionBuffer {
 		maxEvents: maxEvents,
 		maxBytes:  maxBytes,
 	}
+}
+
+// assignSeq gives evt a per-session monotonic sequence number when it does
+// not already carry one. Wire events never carry a Seq (it is not a wire
+// field on the upstream stream), but the browser keys transcript rows and
+// detects gaps by seq - without assignment every frame reaches it as seq 0.
+// Callers must assign BEFORE both buffering and subscriber fan-out so the
+// snapshot replay and the live stream agree on identity.
+func (b *sessionBuffer) assignSeq(evt Event) Event {
+	if evt.Seq == 0 {
+		b.nextSeq++
+		evt.Seq = b.nextSeq
+	}
+
+	return evt
 }
 
 // append adds evt to the buffer, enforcing dual caps.

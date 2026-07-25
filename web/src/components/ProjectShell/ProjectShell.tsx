@@ -25,6 +25,7 @@ import { WorkerConsole } from '../WorkerConsole';
 import { api, isAPIError } from '../../api/client';
 import type { BoardEvent, Card, CreateCardInput } from '../../types';
 import { useDeepLinkCard } from './useDeepLinkCard';
+import { gateCardLogs } from './gateCardLogs';
 
 // Lazy-load secondary routes - only downloaded when the user navigates to them.
 const ProjectSettings = lazy(() =>
@@ -207,6 +208,13 @@ export function ProjectShell() {
     cardId: currentSelectedCard?.id,
     enabled: isCardChatLive,
   });
+  // Defense-in-depth against the previous card's transcript reaching a
+  // freshly opened panel: the hook's identity-change clear runs post-paint,
+  // so the first commit after a direct A→B switch still carries A's snapshot.
+  const gatedCardLogs = useMemo(
+    () => gateCardLogs(selectedCardLogs, currentSelectedCard?.id),
+    [selectedCardLogs, currentSelectedCard?.id],
+  );
 
   useKeyboardShortcuts(
     useMemo(
@@ -326,7 +334,7 @@ export function ProjectShell() {
         <ErrorBoundary key={currentSelectedCard.id}>
           <CardPanel
             card={currentSelectedCard} config={config}
-            cardLogs={selectedCardLogs}
+            cardLogs={gatedCardLogs}
             onClose={() => setSelectedCard(null)} onSave={handleCardSave}
             onDelete={handleCardDelete}
             onClaim={handleClaim} onRelease={handleRelease}

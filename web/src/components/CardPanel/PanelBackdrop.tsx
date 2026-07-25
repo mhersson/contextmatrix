@@ -1,0 +1,48 @@
+import { useEffect, useRef } from 'react';
+
+interface PanelBackdropProps {
+  onClose: () => void;
+}
+
+/**
+ * Dimming backdrop for the card drawer. Closing requires BOTH mousedown and
+ * mouseup of the PRIMARY button to land on the backdrop - the standard modal
+ * pattern. Prevents two accidental-dismiss classes: drag-out (press inside
+ * the drawer, e.g. during text selection, release over the backdrop) and
+ * misplaced replayed clicks when a long main-thread task shifts the drawer
+ * layout between press and release. Touch still works via the browser's
+ * synthesized mouse events.
+ */
+export function PanelBackdrop({ onClose }: PanelBackdropProps) {
+  const pressedRef = useRef(false);
+
+  // The drawer is a SIBLING of the backdrop, so a press that starts on the
+  // backdrop and is released elsewhere never reaches the backdrop's own
+  // onMouseUp - without this window-level reset the armed flag would survive
+  // and a later drawer-to-backdrop release would close the panel. The window
+  // listener fires after React's root-attached handler for backdrop-targeted
+  // events, so it cannot race the close decision.
+  useEffect(() => {
+    const reset = () => {
+      pressedRef.current = false;
+    };
+    window.addEventListener('mouseup', reset);
+    return () => window.removeEventListener('mouseup', reset);
+  }, []);
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/50 z-40"
+      aria-hidden="true"
+      data-testid="card-panel-backdrop"
+      onMouseDown={(e) => {
+        pressedRef.current = e.button === 0 && e.target === e.currentTarget;
+      }}
+      onMouseUp={(e) => {
+        const shouldClose = pressedRef.current && e.button === 0 && e.target === e.currentTarget;
+        pressedRef.current = false;
+        if (shouldClose) onClose();
+      }}
+    />
+  );
+}

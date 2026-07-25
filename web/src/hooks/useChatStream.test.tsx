@@ -146,6 +146,27 @@ describe('useChatStream', () => {
     await waitFor(() => expect(result.current.logs).toHaveLength(1));
   });
 
+  it('coalesces a synchronous SSE burst into at most two commits', async () => {
+    let renders = 0;
+    const { result } = renderHook(() => {
+      renders++;
+      return useChatStream('S1');
+    });
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    const rendersBefore = renders;
+
+    act(() => {
+      for (let seq = 1; seq <= 5; seq++) {
+        instances[0].onmessage?.({ data: JSON.stringify({ seq, role: 'user', content: `m${seq}` }) });
+      }
+    });
+
+    await waitFor(() => expect(result.current.logs).toHaveLength(5));
+    // The ring buffer's 50 ms coalescing window publishes the burst as one
+    // notification (a second commit may come from unrelated state).
+    expect(renders - rendersBefore).toBeLessThanOrEqual(2);
+  });
+
   it('parses assistant_working fields from session_updated events', async () => {
     const { result } = renderHook(() => useChatStream('S1'));
     await waitFor(() => expect(result.current.connected).toBe(true));

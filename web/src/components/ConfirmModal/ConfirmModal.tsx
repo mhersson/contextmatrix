@@ -30,14 +30,21 @@ export function ConfirmModal({
   // Focus trap with Confirm button as initial focus target
   useFocusTrap(dialogRef, open, confirmButtonRef);
 
-  // Escape key closes modal
+  // Escape key closes modal. Registered in the capture phase and consuming
+  // the event so document-level dismiss handlers lower in the dispatch order
+  // (e.g. the card panel's Escape-to-close, which respects defaultPrevented)
+  // cannot also fire on the same keypress - one Escape cancels only the
+  // confirm dialog, not the surface beneath it.
   useEffect(() => {
     if (!open) return;
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') onCancel();
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onCancel();
+      }
     }
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keydown', handleKeyDown, { capture: true });
+    return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
   }, [open, onCancel]);
 
   if (!open) return null;
