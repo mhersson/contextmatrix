@@ -2,10 +2,14 @@ import { HeaderCaret } from '../../lib/header-tokens';
 import { chipTint } from '../../lib/chip';
 
 // Shared inline styles for the select element inside a chip-pill picker.
+// letter-spacing must stay 'normal': browsers size a <select> from its option
+// text WITHOUT letter-spacing, so any tracking (including the 0.02em inherited
+// from .chip-pill) renders wider than the measured box and clips the last
+// glyph of the widest option (e.g. "Unassigned").
 const chipSelectBaseStyle = {
   fontFamily: 'var(--font-mono)',
   fontSize: '11px',
-  letterSpacing: '0.02em',
+  letterSpacing: 'normal',
 } as const;
 
 export interface ChipPickerProps {
