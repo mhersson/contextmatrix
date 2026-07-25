@@ -316,6 +316,7 @@ func TestSerializeCard_OmitsEmptyFields(t *testing.T) {
 	assert.NotContains(t, str, "subtasks")
 	assert.NotContains(t, str, "source")
 	assert.NotContains(t, str, "custom")
+	assert.NotContains(t, str, "assignee")
 	assert.NotContains(t, str, "autonomous")
 	assert.NotContains(t, str, "feature_branch")
 	assert.NotContains(t, str, "create_pr")
@@ -353,6 +354,7 @@ func TestRoundTrip_FullCard(t *testing.T) {
 		Custom: map[string]any{
 			"branch_name": "feat/user-auth",
 		},
+		Assignee: "alice",
 		TokenUsage: &TokenUsage{
 			PromptTokens:     12400,
 			CompletionTokens: 3200,
@@ -401,6 +403,8 @@ func TestRoundTrip_FullCard(t *testing.T) {
 	assert.Equal(t, original.Source.ExternalURL, parsed.Source.ExternalURL)
 
 	assert.Equal(t, original.Custom["branch_name"], parsed.Custom["branch_name"])
+
+	assert.Equal(t, original.Assignee, parsed.Assignee)
 
 	require.NotNil(t, parsed.TokenUsage)
 	assert.Equal(t, original.TokenUsage.PromptTokens, parsed.TokenUsage.PromptTokens)
