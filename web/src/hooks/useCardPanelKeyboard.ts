@@ -29,6 +29,9 @@ export function useCardPanelKeyboard(
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
+      // Respect inner widgets that already consumed the key (e.g. an editor
+      // handling Escape or ⌘S itself).
+      if (e.defaultPrevented) return;
       if (e.key === 'Escape') {
         onCloseRef.current();
         return;

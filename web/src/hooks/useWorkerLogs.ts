@@ -230,6 +230,24 @@ export function useWorkerLogs({
     return () => { isMountedRef.current = false; };
   }, []);
 
+  // Stream identity (project + card) changed: drop everything from the
+  // previous stream. connect() also clears, but connect() only runs while
+  // `enabled` - without this effect, switching from a running card to a
+  // non-running one leaves the previous card's transcript in the ring
+  // buffer and leaks it into the next card's panel (the chat tab appears
+  // via cardLogs.length > 0). Session-scoped refs reset too so a later
+  // connect() on the new identity cannot observe stale seq/terminal state.
+  // Deliberately NOT keyed on `enabled`: a session that ends on the SAME
+  // card must keep its transcript visible. Declared before the connect
+  // effect so an identity change with enabled=true runs disconnect() →
+  // this clear → connect() in that order. Runs once on mount as a no-op.
+  useEffect(() => {
+    clear();
+    lastSeqRef.current = null;
+    terminalRef.current = false;
+    logsReceivedRef.current = 0;
+  }, [project, cardId, clear]);
+
   useEffect(() => {
     if (enabled) {
       connect();

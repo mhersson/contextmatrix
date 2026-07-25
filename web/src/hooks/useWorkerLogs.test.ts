@@ -683,6 +683,89 @@ describe('useWorkerLogs - stream identity changes', () => {
   });
 });
 
+describe('useWorkerLogs - stale buffer across enabled=false card switches', () => {
+  interface Props {
+    enabled: boolean;
+    cardId?: string;
+  }
+
+  function renderIdentityHook(initial: Props) {
+    return renderHook(
+      ({ enabled, cardId }: Props) => useWorkerLogs({ project: 'proj', enabled, cardId }),
+      { initialProps: initial },
+    );
+  }
+
+  function pushEntries(cardId: string, count: number) {
+    const ts = new Date().toISOString();
+    act(() => {
+      for (let i = 0; i < count; i++) {
+        latestES().simulateMessage({ type: 'text', content: `${cardId}-${i}`, card_id: cardId, ts, seq: i + 1 });
+      }
+    });
+    flushRing();
+  }
+
+  it('regression: opening a non-running card after a running one shows no stale transcript', () => {
+    const { result, rerender } = renderIdentityHook({ enabled: true, cardId: 'CARD-A' });
+
+    act(() => { latestES().simulateOpen(); });
+    pushEntries('CARD-A', 3);
+    expect(result.current.logs).toHaveLength(3);
+
+    const instancesBefore = FakeEventSource.instances.length;
+
+    // Close the panel, then open non-running card B - connect() never runs.
+    act(() => { rerender({ enabled: false, cardId: undefined }); });
+    act(() => { rerender({ enabled: false, cardId: 'CARD-B' }); });
+
+    expect(result.current.logs).toHaveLength(0);
+    expect(FakeEventSource.instances.length).toBe(instancesBefore);
+  });
+
+  it('direct running→non-running card switch clears the buffer', () => {
+    const { result, rerender } = renderIdentityHook({ enabled: true, cardId: 'CARD-A' });
+
+    act(() => { latestES().simulateOpen(); });
+    pushEntries('CARD-A', 2);
+    expect(result.current.logs).toHaveLength(2);
+
+    const instancesBefore = FakeEventSource.instances.length;
+    act(() => { rerender({ enabled: false, cardId: 'CARD-B' }); });
+
+    expect(result.current.logs).toHaveLength(0);
+    expect(FakeEventSource.instances.length).toBe(instancesBefore);
+  });
+
+  it('keeps the transcript when the session ends on the SAME card', () => {
+    const { result, rerender } = renderIdentityHook({ enabled: true, cardId: 'CARD-A' });
+
+    act(() => { latestES().simulateOpen(); });
+    pushEntries('CARD-A', 3);
+
+    // Session ended - enabled flips false with the card unchanged. The
+    // replayed history must stay visible (chat tab keeps showing it).
+    act(() => { rerender({ enabled: false, cardId: 'CARD-A' }); });
+
+    expect(result.current.logs).toHaveLength(3);
+  });
+
+  it('recovers cleanly when the new card starts running', () => {
+    const { result, rerender } = renderIdentityHook({ enabled: true, cardId: 'CARD-A' });
+
+    act(() => { latestES().simulateOpen(); });
+    pushEntries('CARD-A', 3);
+
+    act(() => { rerender({ enabled: false, cardId: 'CARD-B' }); });
+    act(() => { rerender({ enabled: true, cardId: 'CARD-B' }); });
+    act(() => { latestES().simulateOpen(); });
+    pushEntries('CARD-B', 1);
+
+    expect(result.current.logs).toHaveLength(1);
+    expect(result.current.logs[0].content).toBe('CARD-B-0');
+  });
+});
+
 describe('useWorkerLogs - reconnect/snapshot replay preserves model and agent', () => {
   /**
    * Reconnect scenario: a worker connection is closed and reopened; the

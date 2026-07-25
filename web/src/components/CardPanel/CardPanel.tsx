@@ -7,6 +7,7 @@ import { buildCardPanelTabs } from './buildCardPanelTabs';
 import { isWorkerAttached, primaryAction } from './utils';
 import { useCardEdits } from './useCardEdits';
 import { useRailSync } from './useRailSync';
+import { PanelBackdrop } from './PanelBackdrop';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useBranches } from '../../hooks/useBranches';
 import { useCardPanelKeyboard } from '../../hooks/useCardPanelKeyboard';
@@ -65,7 +66,11 @@ export function CardPanel(props: CardPanelProps) {
     handleTransitionPrimary,
   } = useCardEdits(card, onSave, onRunCard);
 
-  useFocusTrap(panelRef, true);
+  // Initial focus goes to the dialog surface itself (panelRef doubles as
+  // initialFocusRef; the div carries tabIndex={-1}) - the first focusable is
+  // the Close button, and focusing that would let a stray Enter/Space
+  // dismiss the panel.
+  useFocusTrap(panelRef, true, panelRef);
 
   const { taskBackend } = useTheme();
 
@@ -232,7 +237,7 @@ export function CardPanel(props: CardPanelProps) {
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/50 z-40" onClick={handleClose} />
+      <PanelBackdrop onClose={handleClose} />
 
       <div
         ref={panelRef}
@@ -240,6 +245,7 @@ export function CardPanel(props: CardPanelProps) {
         role="dialog"
         aria-modal="true"
         aria-label="Card details"
+        tabIndex={-1}
       >
         <CardPanelHeader
           card={card}

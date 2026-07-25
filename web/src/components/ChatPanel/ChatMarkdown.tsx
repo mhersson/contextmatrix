@@ -1,5 +1,6 @@
 import { Suspense, lazy, memo } from 'react';
 import { safeUrlTransform } from '../../utils/safeUrlTransform';
+import { ErrorBoundary } from '../ErrorBoundary';
 
 // Lazy-load the markdown previewer so the chat panel doesn't pay the
 // bundle cost until first use. The chat markdown styling is fully driven by
@@ -10,11 +11,19 @@ import { safeUrlTransform } from '../../utils/safeUrlTransform';
 const MarkdownPreview = lazy(() => import('@uiw/react-markdown-preview'));
 
 function ChatMarkdownImpl({ source }: { source: string }) {
+  const plainText = <div className="whitespace-pre-wrap break-words text-sm">{source}</div>;
+  // The ErrorBoundary keeps a rejected markdown-chunk import (or a
+  // pathological message) contained to this one bubble as plain text instead
+  // of throwing to the panel-wide boundary and replacing the whole drawer.
+  // No retry control: React.lazy caches a rejected import, so a retry could
+  // only re-throw - a page reload recovers.
   return (
     <div className="bf-chat-markdown">
-      <Suspense fallback={<div className="whitespace-pre-wrap break-words text-sm">{source}</div>}>
-        <MarkdownPreview source={source} skipHtml urlTransform={safeUrlTransform} />
-      </Suspense>
+      <ErrorBoundary fallback={plainText}>
+        <Suspense fallback={plainText}>
+          <MarkdownPreview source={source} skipHtml urlTransform={safeUrlTransform} />
+        </Suspense>
+      </ErrorBoundary>
     </div>
   );
 }
