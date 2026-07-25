@@ -54,6 +54,8 @@ describe('MetadataAssignee', () => {
     const select = screen.getByRole('combobox', { name: 'Assignee' }) as HTMLSelectElement;
     expect(select.value).toBe('ghost');
     expect(screen.getByRole('option', { name: 'ghost (unknown)' })).toBeInTheDocument();
+    // The chip tooltip carries the stale marker too.
+    expect(screen.getByTitle('ghost (unknown)')).toBeInTheDocument();
   });
 
   it('fires onChange with the selected username', () => {

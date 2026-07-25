@@ -55,6 +55,21 @@ vi.mock('../../api/client', () => ({
     err != null && typeof err === 'object' && 'error' in err,
 }));
 
+const authState = vi.hoisted(() => ({ current: null as unknown }));
+vi.mock('../../hooks/useAuth', () => ({
+  useOptionalAuth: () => authState.current,
+}));
+
+const usersState = vi.hoisted(() => ({ current: [] as unknown[] }));
+vi.mock('../../hooks/useUsers', () => ({
+  useUsers: () => usersState.current,
+}));
+
+beforeEach(() => {
+  authState.current = null;
+  usersState.current = [];
+});
+
 const config: ProjectConfig = {
   name: 'test',
   prefix: 'TEST',
@@ -88,13 +103,39 @@ describe('CreateCardPanel - bifold shell', () => {
     render(<CreateCardPanel {...makeProps()} />);
     fireEvent.click(screen.getByRole('tab', { name: 'Info' }));
 
-    // Assignee is absent here: no auth mock, so MetadataAssignee self-hides.
+    // Assignee is absent here: auth mock defaults to none, so MetadataAssignee self-hides.
     const headings = screen.getAllByRole('heading', { level: 4 }).map((h) => h.textContent);
     const order = ['Agent', 'Initial state', 'Parent (optional)', 'Skills'].map((label) =>
       headings.indexOf(label),
     );
     expect(Math.min(...order)).toBeGreaterThanOrEqual(0);
     expect(order).toEqual([...order].sort((a, b) => a - b));
+  });
+
+  it('renders Assignee first in multi mode and wires the selection into onCreate', async () => {
+    authState.current = { mode: 'multi' };
+    usersState.current = [{ username: 'alice', display_name: 'Alice Smith' }];
+    const onCreate = vi.fn().mockResolvedValue(undefined);
+    render(<CreateCardPanel {...makeProps({ onCreate })} />);
+
+    fireEvent.change(screen.getByPlaceholderText(/Card title/), { target: { value: 'Task' } });
+    fireEvent.click(screen.getByRole('tab', { name: 'Info' }));
+
+    const headings = screen.getAllByRole('heading', { level: 4 }).map((h) => h.textContent);
+    const order = ['Assignee', 'Agent', 'Initial state', 'Parent (optional)', 'Skills'].map(
+      (label) => headings.indexOf(label),
+    );
+    expect(Math.min(...order)).toBeGreaterThanOrEqual(0);
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Assignee' }), {
+      target: { value: 'alice' },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Just create' }));
+    });
+    expect(onCreate).toHaveBeenCalledOnce();
+    expect(onCreate.mock.calls[0][0]).toMatchObject({ assignee: 'alice' });
   });
 });
 

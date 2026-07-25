@@ -127,13 +127,42 @@ describe('CardPanelMetadata - assignee section', () => {
 });
 
 describe('CardPanelMetadata - section order', () => {
-  it('renders the full section order Assignee, Agent, Status, Depends on, Skills', () => {
+  it('renders every section in the documented order', () => {
     authState.current = { mode: 'multi' };
     usersState.current = [{ username: 'alice', display_name: 'Alice' }];
-    render(<CardPanelMetadata {...defaultProps} assignee="alice" />);
+    const fullCard: Card = {
+      ...baseCard,
+      source: { system: 'github', external_id: '42', external_url: 'https://example.com' },
+      usage_breakdown: [
+        {
+          agent: 'cmx-agent-test-001',
+          model: 'openai/model-1',
+          prompt_tokens: 100,
+          completion_tokens: 50,
+          cost_usd: 0.01,
+          cost_source: 'actual',
+        },
+      ],
+    };
+    render(
+      <CardPanelMetadata
+        {...defaultProps}
+        card={fullCard}
+        editedCard={fullCard}
+        assignee="alice"
+      />,
+    );
 
     const headings = screen.getAllByRole('heading', { level: 4 }).map((h) => h.textContent);
-    expect(headings).toEqual(['Assignee', 'Agent', 'Status', 'Depends on', 'Skills']);
+    expect(headings).toEqual([
+      'Assignee',
+      'Agent',
+      'Status',
+      'Depends on',
+      'Source',
+      'Skills',
+      'Models used',
+    ]);
   });
 });
 

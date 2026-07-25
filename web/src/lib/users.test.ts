@@ -19,6 +19,10 @@ describe('userInitials', () => {
     expect(userInitials('   ', 'bob')).toBe('B');
     expect(userInitials(undefined, 'bob')).toBe('B');
   });
+
+  it('keeps surrogate-pair characters intact instead of splitting them', () => {
+    expect(userInitials('😀 Smith', 'bob')).toBe('😀S');
+  });
 });
 
 describe('userLabel', () => {
