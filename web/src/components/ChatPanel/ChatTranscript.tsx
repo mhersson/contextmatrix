@@ -15,6 +15,14 @@ const REVEAL_SCROLL_THRESHOLD = 200;
 interface ChatTranscriptProps {
   filteredLogs: readonly LogEntry[];
   working?: WorkingState | null;
+  /** True when older persisted history can be fetched beyond what is in
+   *  memory (global chat sessions). Card chat passes nothing. */
+  hasMoreHistory?: boolean;
+  /** True while a history page fetch is in flight. */
+  loadingOlder?: boolean;
+  /** Fetches one older history page; its rows arrive asynchronously as a
+   *  prepend to filteredLogs. */
+  onLoadOlder?: () => Promise<void> | void;
 }
 
 interface PendingAnchor {
@@ -36,7 +44,13 @@ function findRowByKey(container: HTMLElement, key: string): Element | null {
  * prepended above it. While the user reads history the reveal window holds
  * its top so live appends cannot slide rows out from under them.
  */
-export function ChatTranscript({ filteredLogs, working }: ChatTranscriptProps) {
+export function ChatTranscript({
+  filteredLogs,
+  working,
+  hasMoreHistory = false,
+  loadingOlder = false,
+  onLoadOlder,
+}: ChatTranscriptProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const userScrolledUpRef = useRef(false);
@@ -62,18 +76,33 @@ export function ChatTranscript({ filteredLogs, working }: ChatTranscriptProps) {
     void import('@uiw/react-markdown-preview');
   }, []);
 
-  const triggerReveal = useCallback(() => {
+  // Unified older-messages trigger: reveal in-memory rows first, then fall
+  // back to fetching a persisted history page. Both paths arm the same
+  // element anchor so the viewport holds position when rows land above it.
+  const triggerOlder = useCallback(() => {
     const el = containerRef.current;
     if (!el || pendingAnchorRef.current) return;
-    const firstRow = el.querySelector('[data-logkey]');
-    if (firstRow) {
-      pendingAnchorRef.current = {
-        key: firstRow.getAttribute('data-logkey') ?? '',
-        prevTop: firstRow.getBoundingClientRect().top,
-      };
+
+    const arm = () => {
+      const firstRow = el.querySelector('[data-logkey]');
+      if (firstRow) {
+        pendingAnchorRef.current = {
+          key: firstRow.getAttribute('data-logkey') ?? '',
+          prevTop: firstRow.getBoundingClientRect().top,
+        };
+      }
+    };
+
+    if (hiddenCount > 0) {
+      arm();
+      revealMore();
+      return;
     }
-    revealMore();
-  }, [revealMore]);
+    if (hasMoreHistory && !loadingOlder && onLoadOlder) {
+      arm();
+      void onLoadOlder();
+    }
+  }, [hiddenCount, hasMoreHistory, loadingOlder, onLoadOlder, revealMore]);
 
   const handleScroll = useCallback(() => {
     const el = containerRef.current;
@@ -82,35 +111,45 @@ export function ChatTranscript({ filteredLogs, working }: ChatTranscriptProps) {
     const isScrolledUp = distanceFromBottom > NEAR_BOTTOM_THRESHOLD;
     userScrolledUpRef.current = isScrolledUp;
     setScrolledUp(isScrolledUp);
-    // Auto-reveal only on a genuine user scroll into history (isScrolledUp
+    // Auto-load only on a genuine user scroll into history (isScrolledUp
     // filters out the scroll events fired by the programmatic bottom-pin
     // when the tail barely overflows the viewport).
     if (
       isScrolledUp &&
       el.scrollTop < REVEAL_SCROLL_THRESHOLD &&
-      hiddenCount > 0 &&
-      !pendingAnchorRef.current
+      !pendingAnchorRef.current &&
+      (hiddenCount > 0 || (hasMoreHistory && !loadingOlder))
     ) {
-      triggerReveal();
+      triggerOlder();
     }
-  }, [hiddenCount, triggerReveal]);
+  }, [hiddenCount, hasMoreHistory, loadingOlder, triggerOlder]);
 
   // Runs pre-paint after every visible change: either restore the anchor row
-  // to its previous viewport offset (reveal just prepended content above it),
-  // or pin to the bottom when the user hasn't scrolled away.
+  // to its previous viewport offset (older content just landed above it), or
+  // pin to the bottom when the user hasn't scrolled away. An armed anchor
+  // whose row is still FIRST means the awaited prepend has not landed yet
+  // (async history fetch; live appends may commit meanwhile) - hold the arm.
   useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
     const pending = pendingAnchorRef.current;
     if (pending) {
+      const firstKey = el.querySelector('[data-logkey]')?.getAttribute('data-logkey') ?? null;
+      if (firstKey === pending.key) {
+        // Nothing landed above the anchor yet; keep waiting. Skip the
+        // bottom-pin only if the user is actually reading history.
+        if (userScrolledUpRef.current) return;
+        el.scrollTop = el.scrollHeight;
+        return;
+      }
       pendingAnchorRef.current = null;
       const row = findRowByKey(el, pending.key);
       if (row) {
         el.scrollTop += row.getBoundingClientRect().top - pending.prevTop;
       }
-      // Revealing means the user is reading history - never yank to bottom
-      // here, even when the anchor row got evicted between trigger and
-      // commit (a rare ring-drop race; position is then left to native
+      // Older content landed - the user is reading history. Never yank to
+      // bottom here, even when the anchor row got evicted between trigger
+      // and commit (a rare ring-drop race; position is then left to native
       // scroll anchoring rather than teleporting to the tail).
       userScrolledUpRef.current = true;
       setScrolledUp(true);
@@ -119,6 +158,17 @@ export function ChatTranscript({ filteredLogs, working }: ChatTranscriptProps) {
     if (userScrolledUpRef.current) return;
     el.scrollTop = el.scrollHeight;
   }, [visible, working]);
+
+  // Disarm a leftover anchor when an async history fetch finishes without
+  // prepending anything (failure or ring-full): on success the layout effect
+  // above has already consumed it before this passive effect runs.
+  const prevLoadingOlderRef = useRef(false);
+  useEffect(() => {
+    if (prevLoadingOlderRef.current && !loadingOlder) {
+      pendingAnchorRef.current = null;
+    }
+    prevLoadingOlderRef.current = loadingOlder;
+  }, [loadingOlder]);
 
   // Heights change without a `visible` identity change when the lazy markdown
   // chunk resolves, images load, or a payload is expanded - re-pin to the
@@ -145,19 +195,24 @@ export function ChatTranscript({ filteredLogs, working }: ChatTranscriptProps) {
     >
       {/* The show-older affordance lives OUTSIDE the live region so its
           hidden-count label churn is never announced by screen readers. */}
-      {hiddenCount > 0 && (
+      {(hiddenCount > 0 || hasMoreHistory) && (
         <button
           type="button"
           data-testid="chat-show-older"
-          onClick={triggerReveal}
-          className="block w-full text-center text-xs font-mono py-1.5 mb-3 rounded border cursor-pointer"
+          onClick={triggerOlder}
+          disabled={loadingOlder}
+          className="block w-full text-center text-xs font-mono py-1.5 mb-3 rounded border cursor-pointer disabled:cursor-wait disabled:opacity-60"
           style={{
             color: 'var(--grey1)',
             borderColor: 'var(--bg3)',
             backgroundColor: 'var(--bg1)',
           }}
         >
-          Show older messages ({hiddenCount} hidden)
+          {loadingOlder
+            ? 'Loading earlier messages…'
+            : hiddenCount > 0
+              ? `Show older messages (${hiddenCount} hidden)`
+              : 'Load earlier messages'}
         </button>
       )}
       <div

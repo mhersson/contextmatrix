@@ -222,6 +222,96 @@ describe('ChatTranscript scrolling', () => {
     expect(renderedRows(container)).toHaveLength(50);
   });
 
+  it('offers Load earlier when persisted history remains and no rows are hidden', () => {
+    const onLoadOlder = vi.fn();
+    render(
+      <ChatTranscript
+        filteredLogs={makeEntries(10)}
+        hasMoreHistory
+        onLoadOlder={onLoadOlder}
+      />,
+    );
+
+    const button = screen.getByTestId('chat-show-older');
+    expect(button).toHaveTextContent('Load earlier messages');
+
+    fireEvent.click(button);
+    expect(onLoadOlder).toHaveBeenCalledTimes(1);
+  });
+
+  it('prefers revealing in-memory rows before fetching persisted history', () => {
+    const onLoadOlder = vi.fn();
+    const { container } = render(
+      <ChatTranscript
+        filteredLogs={makeEntries(120)}
+        hasMoreHistory
+        onLoadOlder={onLoadOlder}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('chat-show-older'));
+
+    expect(onLoadOlder).not.toHaveBeenCalled();
+    expect(renderedRows(container)).toHaveLength(120);
+    // All in-memory rows revealed - the button now offers the fetch path.
+    expect(screen.getByTestId('chat-show-older')).toHaveTextContent('Load earlier messages');
+  });
+
+  it('disables the affordance while a history page is loading', () => {
+    const onLoadOlder = vi.fn();
+    render(
+      <ChatTranscript
+        filteredLogs={makeEntries(10)}
+        hasMoreHistory
+        loadingOlder
+        onLoadOlder={onLoadOlder}
+      />,
+    );
+
+    const button = screen.getByTestId('chat-show-older');
+    expect(button).toBeDisabled();
+    expect(button).toHaveTextContent('Loading earlier messages…');
+
+    fireEvent.click(button);
+    expect(onLoadOlder).not.toHaveBeenCalled();
+  });
+
+  it('restores the anchor position when a fetched history page prepends', () => {
+    const onLoadOlder = vi.fn();
+    const entries = makeEntries(10);
+    const { container, rerender } = render(
+      <ChatTranscript filteredLogs={entries} hasMoreHistory onLoadOlder={onLoadOlder} />,
+    );
+    const el = scroller(container);
+    expect(el.scrollTop).toBe(1000);
+
+    const rectSpy = vi.spyOn(Element.prototype, 'getBoundingClientRect');
+    rectSpy.mockReturnValueOnce({ top: 100 } as DOMRect); // arm: first row top
+    rectSpy.mockReturnValue({ top: 500 } as DOMRect); // post-prepend position
+
+    fireEvent.click(screen.getByTestId('chat-show-older'));
+    expect(onLoadOlder).toHaveBeenCalledTimes(1);
+
+    // The page lands asynchronously as a prepend (older seqs before the
+    // existing rows). The anchor must absorb the height delta.
+    const older = Array.from({ length: 5 }, (_, i) => ({
+      ts: '2026-07-25T09:59:00Z',
+      card_id: 'TEST-001',
+      type: 'user' as const,
+      content: `older ${i}`,
+      seq: -5 + i, // sorts before seq 1..10 in list order
+    }));
+    rerender(
+      <ChatTranscript
+        filteredLogs={[...older, ...entries]}
+        hasMoreHistory
+        onLoadOlder={onLoadOlder}
+      />,
+    );
+
+    expect(el.scrollTop).toBe(1000 + 400);
+  });
+
   it('renders unique row keys for seq-less (worker-shaped) entries', () => {
     // Worker-log frames may arrive without a usable seq; keys must fall back
     // to ts+content instead of collapsing onto one duplicate key.
