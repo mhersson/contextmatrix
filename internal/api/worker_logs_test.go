@@ -222,11 +222,11 @@ func TestStreamProjectSession_Keepalive(t *testing.T) {
 
 // --- Seq payload-shape tests ---
 
-// TestStreamCardSession_WireFramesCarryNoSeq asserts that the JSON payload
-// emitted by the card-scoped handler includes a "seq" field and that it is 0
-// for wire-sourced live events: the backend's frames carry no seq, and
-// nothing assigns a nonzero Seq today.
-func TestStreamCardSession_WireFramesCarryNoSeq(t *testing.T) {
+// TestStreamCardSession_AssignsSeqToWireFrames asserts that the JSON payload
+// emitted by the card-scoped handler includes a "seq" field carrying the
+// per-session monotonic seq the pump assigns at ingestion (the wire itself
+// has no seq field; the browser keys rows and detects gaps by it).
+func TestStreamCardSession_AssignsSeqToWireFrames(t *testing.T) {
 	const (
 		cardID  = "SEQ-001"
 		project = "seqtest"
@@ -281,19 +281,18 @@ func TestStreamCardSession_WireFramesCarryNoSeq(t *testing.T) {
 	seqVal, ok := m["seq"]
 	require.True(t, ok, "payload must contain 'seq' field")
 
-	// The wire carries no seq; Event.Seq stays 0 for live events.
+	// First wire frame of the session gets seq 1 from the ingestion pump.
 	// JSON numbers unmarshal as float64 by default.
-	assert.EqualValues(t, 0, seqVal, "wire-sourced events must have seq 0")
+	assert.EqualValues(t, 1, seqVal, "first wire-sourced event must get seq 1")
 
 	// The content must pass through intact.
 	assert.Equal(t, "hello", m["content"])
 }
 
-// TestStreamProjectSession_WireFramesCarryNoSeq asserts that the JSON payload
-// emitted by the project-scoped handler includes a "seq" field and that it is
-// 0 for wire-sourced live events - same reality as the card-scoped path: the
-// backend's frames carry no seq.
-func TestStreamProjectSession_WireFramesCarryNoSeq(t *testing.T) {
+// TestStreamProjectSession_AssignsSeqToWireFrames asserts that the JSON
+// payload emitted by the project-scoped handler carries the assigned
+// per-session seq - same contract as the card-scoped path.
+func TestStreamProjectSession_AssignsSeqToWireFrames(t *testing.T) {
 	const (
 		cardID  = "SEQ-PROJ-001"
 		project = "seqprojtest"
@@ -345,8 +344,8 @@ func TestStreamProjectSession_WireFramesCarryNoSeq(t *testing.T) {
 	seqVal, ok := m["seq"]
 	require.True(t, ok, "payload must contain 'seq' field")
 
-	// The wire carries no seq; Event.Seq stays 0 for live events.
-	assert.EqualValues(t, 0, seqVal, "wire-sourced events must have seq 0")
+	// First wire frame of the project session gets seq 1 from the pump.
+	assert.EqualValues(t, 1, seqVal, "first wire-sourced event must get seq 1")
 
 	// The content and card_id must pass through intact.
 	assert.Equal(t, "world", m["content"])

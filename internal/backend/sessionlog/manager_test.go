@@ -260,9 +260,10 @@ func TestStartSubscribeLiveAndSnapshot(t *testing.T) {
 	require.Len(t, got, len(events), "expected all events via live channel")
 
 	for i, evt := range got {
-		// Seq is not a wire field; events decoded from protocol.LogEntry frames
-		// always arrive with Seq==0. Payload content is the correctness signal.
-		assert.Equal(t, uint64(0), evt.Seq, "wire events have Seq==0 (not a wire field)")
+		// Seq is not a wire field; the pump assigns a per-session monotonic
+		// seq at ingestion so live delivery and snapshot replay agree on
+		// event identity (the browser keys rows and detects gaps by it).
+		assert.Equal(t, uint64(i+1), evt.Seq, "pump assigns monotonic seqs to wire events")
 		assert.Equal(t, string(events[i].Payload), string(evt.Payload))
 	}
 

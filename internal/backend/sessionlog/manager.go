@@ -895,7 +895,9 @@ func (m *Manager) readUpstreamStream(ctx context.Context, key, project string, s
 		// snapshot AND also staged in sub.pending.
 		m.mu.Lock()
 		sess.lastEventTime = m.clk.Now()
-		m.getOrCreate(key).append(evt)
+		b := m.getOrCreate(key)
+		evt = b.assignSeq(evt)
+		b.append(evt)
 
 		shouldWarn := false
 

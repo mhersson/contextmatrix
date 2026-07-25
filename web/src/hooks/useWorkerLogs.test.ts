@@ -683,6 +683,29 @@ describe('useWorkerLogs - stream identity changes', () => {
   });
 });
 
+describe('useWorkerLogs - seq 0 means unassigned', () => {
+  it('strips seq 0 from entries and never emits gap markers for seq-0 streams', () => {
+    const { result } = renderHook(() =>
+      useWorkerLogs({ project: 'proj', enabled: true }),
+    );
+
+    act(() => { latestES().simulateOpen(); });
+
+    const ts1 = '2026-07-25T10:00:00.000000001Z';
+    const ts2 = '2026-07-25T10:00:00.000000002Z';
+    act(() => {
+      latestES().simulateMessage({ type: 'text', content: 'a', card_id: 'C-1', ts: ts1, seq: 0 });
+      latestES().simulateMessage({ type: 'text', content: 'b', card_id: 'C-1', ts: ts2, seq: 0 });
+    });
+    flushRing();
+
+    expect(result.current.logs).toHaveLength(2);
+    expect(result.current.logs[0].seq).toBeUndefined();
+    expect(result.current.logs[1].seq).toBeUndefined();
+    expect(result.current.logs.every((e) => e.type === 'text')).toBe(true);
+  });
+});
+
 describe('useWorkerLogs - stale buffer across enabled=false card switches', () => {
   interface Props {
     enabled: boolean;

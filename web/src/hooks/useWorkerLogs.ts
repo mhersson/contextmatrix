@@ -159,6 +159,13 @@ export function useWorkerLogs({
         // never rendered). We must still advance lastSeqRef here because seq is a
         // unified monotonic counter across all entry types - skipping it would
         // cause a phantom gap marker on the next renderable frame.
+        // Normalize seq before any use: 0 means "unassigned" on the wire
+        // (dropped markers, legacy servers) - treating it as a real seq would
+        // collapse every row key to s-0 and confuse gap detection.
+        if (typeof data.seq === 'number' && data.seq <= 0) {
+          delete data.seq;
+        }
+
         if (data.type === 'usage') {
           if (typeof data.seq === 'number') { lastSeqRef.current = data.seq as number; }
           return;
