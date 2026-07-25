@@ -1,4 +1,4 @@
-import type { Card, PatchCardInput, ProjectConfig } from '../../types';
+import type { Card, PatchCardInput, ProjectConfig, UsageBucket } from '../../types';
 
 /**
  * Maps a card state to the matching `.chip-state-*` CSS class name.
@@ -127,6 +127,30 @@ export function buildCardPatch(edited: Card, original: Card): PatchCardInput {
     updates.assignee = edited.assignee ?? '';
   }
   return updates;
+}
+
+export interface AgentUsageGroup {
+  agent: string;
+  buckets: UsageBucket[];
+}
+
+/**
+ * Groups usage buckets by agent so the Models-used table can print each agent
+ * once. First-seen agent order; original bucket order kept within a group.
+ */
+export function groupBucketsByAgent(buckets: UsageBucket[]): AgentUsageGroup[] {
+  const groups: AgentUsageGroup[] = [];
+  const byAgent = new Map<string, AgentUsageGroup>();
+  for (const b of buckets) {
+    let g = byAgent.get(b.agent);
+    if (!g) {
+      g = { agent: b.agent, buckets: [] };
+      byAgent.set(b.agent, g);
+      groups.push(g);
+    }
+    g.buckets.push(b);
+  }
+  return groups;
 }
 
 export function isSafeHttpUrl(url: string): boolean {

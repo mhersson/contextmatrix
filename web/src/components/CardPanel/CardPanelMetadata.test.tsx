@@ -108,21 +108,32 @@ describe('CardPanelMetadata - assignee section', () => {
     expect(screen.queryByText('Assignee')).not.toBeInTheDocument();
   });
 
-  it('renders between Status and Agent when auth is in multi mode', () => {
+  it('renders first, before Agent and Status, in multi mode', () => {
     authState.current = { mode: 'multi' };
     usersState.current = [{ username: 'alice', display_name: 'Alice' }];
     render(<CardPanelMetadata {...defaultProps} assignee="alice" />);
 
     const headings = screen.getAllByRole('heading', { level: 4 }).map((h) => h.textContent);
-    const statusIdx = headings.indexOf('Status');
     const assigneeIdx = headings.indexOf('Assignee');
     const agentIdx = headings.indexOf('Agent');
-    expect(statusIdx).toBeGreaterThanOrEqual(0);
-    expect(assigneeIdx).toBeGreaterThan(statusIdx);
+    const statusIdx = headings.indexOf('Status');
+    expect(assigneeIdx).toBeGreaterThanOrEqual(0);
     expect(agentIdx).toBeGreaterThan(assigneeIdx);
+    expect(statusIdx).toBeGreaterThan(agentIdx);
 
     const select = screen.getByRole('combobox', { name: 'Assignee' }) as HTMLSelectElement;
     expect(select.value).toBe('alice');
+  });
+});
+
+describe('CardPanelMetadata - section order', () => {
+  it('renders the full section order Assignee, Agent, Status, Depends on, Skills', () => {
+    authState.current = { mode: 'multi' };
+    usersState.current = [{ username: 'alice', display_name: 'Alice' }];
+    render(<CardPanelMetadata {...defaultProps} assignee="alice" />);
+
+    const headings = screen.getAllByRole('heading', { level: 4 }).map((h) => h.textContent);
+    expect(headings).toEqual(['Assignee', 'Agent', 'Status', 'Depends on', 'Skills']);
   });
 });
 

@@ -68,6 +68,13 @@ describe('MetadataAssignee', () => {
     expect(onChange).toHaveBeenCalledWith('alice');
   });
 
+  it('shows the selected label as the chip tooltip', () => {
+    authState.current = { mode: 'multi' };
+    usersState.current = [{ username: 'alice', display_name: 'Alice Smith' }];
+    render(<MetadataAssignee assignee="alice" onChange={vi.fn()} />);
+    expect(screen.getByTitle('Alice Smith')).toBeInTheDocument();
+  });
+
   it('respects disabled', () => {
     authState.current = { mode: 'multi' };
     usersState.current = [{ username: 'alice', display_name: 'Alice Smith' }];

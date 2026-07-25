@@ -30,11 +30,13 @@ interface CardPanelMetadataProps {
  * (`/tmp/card-panel-explorer.html:2188-2224`). Stacked sections in peer
  * files under `./metadata/`:
  *
- *   1. MetadataStatus   - state picker + hint + worker-status badge
- *   2. MetadataAssignee - human-responsibility picker (multi mode only)
- *   3. MetadataAgent    - claim/release (with ConfirmModal)
+ *   1. MetadataAssignee - human-responsibility picker (multi mode only)
+ *   2. MetadataAgent    - claim/release (with ConfirmModal)
+ *   3. MetadataStatus   - state picker + hint + worker-status badge
  *   4. MetadataRelated  - Parent / Subtasks / Depends-on (shares hydration)
  *   5. MetadataSource   - external-link pill + vetted checkbox
+ *   6. MetadataSkills   - three-state skills selector
+ *   7. MetadataUsage    - per-(agent, model) token/cost table
  *
  * This wrapper just composes them and renders the Created/Updated footer.
  */
@@ -57,15 +59,6 @@ export function CardPanelMetadata({
 }: CardPanelMetadataProps) {
   return (
     <div className="flex-1 min-h-0 overflow-y-auto">
-      <MetadataStatus
-        card={card}
-        editedCard={editedCard}
-        config={config}
-        workerAttached={workerAttached}
-        onStateChange={onStateChange}
-        excludeStateFromPicker={excludeStateFromPicker}
-      />
-
       <MetadataAssignee
         assignee={assignee}
         onChange={onAssigneeChange}
@@ -80,16 +73,13 @@ export function CardPanelMetadata({
         onRelease={onRelease}
       />
 
-      <MetadataSkills
-        value={editedCard.skills}
+      <MetadataStatus
+        card={card}
+        editedCard={editedCard}
         config={config}
-        onSkillsChange={onSkillsChange}
-        disabled={workerAttached || card.state !== 'todo'}
-        lockedReason={
-          workerAttached
-            ? 'Skills locked during remote run'
-            : `Skills can only be edited in todo · current state: ${card.state.replace(/_/g, ' ')}`
-        }
+        workerAttached={workerAttached}
+        onStateChange={onStateChange}
+        excludeStateFromPicker={excludeStateFromPicker}
       />
 
       <MetadataRelated
@@ -102,6 +92,18 @@ export function CardPanelMetadata({
         card={card}
         editedVetted={editedVetted}
         onVettedChange={onVettedChange}
+      />
+
+      <MetadataSkills
+        value={editedCard.skills}
+        config={config}
+        onSkillsChange={onSkillsChange}
+        disabled={workerAttached || card.state !== 'todo'}
+        lockedReason={
+          workerAttached
+            ? 'Skills locked during remote run'
+            : `Skills can only be edited in todo · current state: ${card.state.replace(/_/g, ' ')}`
+        }
       />
 
       <MetadataUsage card={card} />

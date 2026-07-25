@@ -1,6 +1,7 @@
 import { useId } from 'react';
 import { useOptionalAuth } from '../../../hooks/useAuth';
 import { useUsers } from '../../../hooks/useUsers';
+import { userLabel } from '../../../lib/users';
 import { ChipPicker } from '../ChipPicker';
 
 interface MetadataAssigneeProps {
@@ -31,7 +32,7 @@ export function MetadataAssignee({ assignee, onChange, disabled = false }: Metad
 
   const optionLabels: Record<string, string> = { '': 'Unassigned' };
   for (const u of users) {
-    optionLabels[u.username] = u.display_name || u.username;
+    optionLabels[u.username] = userLabel(u);
   }
   if (staleCurrent) {
     optionLabels[staleCurrent] = `${staleCurrent} (unknown)`;
@@ -47,7 +48,7 @@ export function MetadataAssignee({ assignee, onChange, disabled = false }: Metad
         optionLabels={optionLabels}
         tint="var(--blue)"
         ariaLabel="Assignee"
-        title={value || 'Unassigned'}
+        title={value ? (optionLabels[value] ?? value) : 'Unassigned'}
         disabled={disabled}
         onChange={onChange}
       />

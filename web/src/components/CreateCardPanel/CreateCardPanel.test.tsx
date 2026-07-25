@@ -49,6 +49,7 @@ vi.mock('../../api/client', () => ({
   api: {
     fetchBranches: vi.fn().mockResolvedValue([]),
     getCard: vi.fn().mockResolvedValue({ state: 'todo' }),
+    getTaskSkills: vi.fn().mockResolvedValue([]),
   },
   isAPIError: (err: unknown): err is { error: string; code?: string } =>
     err != null && typeof err === 'object' && 'error' in err,
@@ -81,6 +82,19 @@ describe('CreateCardPanel - bifold shell', () => {
   it('omits the Danger Zone tab in create mode', () => {
     render(<CreateCardPanel {...makeProps()} />);
     expect(screen.queryByRole('tab', { name: /Danger/ })).not.toBeInTheDocument();
+  });
+
+  it('orders the Info tab sections to mirror the card details rail', () => {
+    render(<CreateCardPanel {...makeProps()} />);
+    fireEvent.click(screen.getByRole('tab', { name: 'Info' }));
+
+    // Assignee is absent here: no auth mock, so MetadataAssignee self-hides.
+    const headings = screen.getAllByRole('heading', { level: 4 }).map((h) => h.textContent);
+    const order = ['Agent', 'Initial state', 'Parent (optional)', 'Skills'].map((label) =>
+      headings.indexOf(label),
+    );
+    expect(Math.min(...order)).toBeGreaterThanOrEqual(0);
+    expect(order).toEqual([...order].sort((a, b) => a - b));
   });
 });
 

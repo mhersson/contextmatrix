@@ -1,7 +1,7 @@
 import { useId } from 'react';
 import { ModelCombobox } from '../../components/ModelCombobox';
 import { useTheme } from '../../hooks/useTheme';
-import { formatTokens } from '../../utils/chatModels';
+import { formatTokens } from '../../lib/format';
 import type { ChatModel } from '../../types';
 
 interface ChatModelPickerProps {
