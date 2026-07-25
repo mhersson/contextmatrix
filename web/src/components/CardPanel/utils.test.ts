@@ -192,6 +192,30 @@ describe('isCardDirty', () => {
     const b = makeCard({ labels: ['bug', 'p1'] });
     expect(isCardDirty(a, b)).toBe(false);
   });
+
+  it('returns true when assignee is set', () => {
+    const original = makeCard();
+    const edited = { ...original, assignee: 'alice' };
+    expect(isCardDirty(edited, original)).toBe(true);
+  });
+
+  it('returns true when assignee is cleared', () => {
+    const original = makeCard({ assignee: 'alice' });
+    const edited = { ...original, assignee: undefined };
+    expect(isCardDirty(edited, original)).toBe(true);
+  });
+
+  it('treats undefined and empty string as equal for assignee', () => {
+    const a = makeCard({ assignee: undefined });
+    const b = makeCard({ assignee: '' });
+    expect(isCardDirty(a, b)).toBe(false);
+  });
+
+  it('returns false when assignee is unchanged', () => {
+    const a = makeCard({ assignee: 'alice' });
+    const b = makeCard({ assignee: 'alice' });
+    expect(isCardDirty(a, b)).toBe(false);
+  });
 });
 
 describe('buildCardPatch', () => {
@@ -241,6 +265,24 @@ describe('buildCardPatch', () => {
     const original = makeCard({ best_of_n: 3 });
     const edited = { ...original, best_of_n: undefined };
     expect(buildCardPatch(edited, original)).toEqual({ best_of_n: 0 });
+  });
+
+  it('sends assignee when it changed', () => {
+    const original = makeCard();
+    const edited = { ...original, assignee: 'alice' };
+    expect(buildCardPatch(edited, original)).toEqual({ assignee: 'alice' });
+  });
+
+  it('sends empty string to clear assignee', () => {
+    const original = makeCard({ assignee: 'alice' });
+    const edited = { ...original, assignee: undefined };
+    expect(buildCardPatch(edited, original)).toEqual({ assignee: '' });
+  });
+
+  it('omits assignee when unchanged', () => {
+    const original = makeCard({ assignee: 'alice' });
+    const edited = { ...original, assignee: 'alice' };
+    expect(buildCardPatch(edited, original)).toEqual({});
   });
 });
 

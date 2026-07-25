@@ -200,6 +200,7 @@ export function Board({
       if (filter.priority && card.priority !== filter.priority) return false;
       if (filter.label && !(card.labels ?? []).includes(filter.label)) return false;
       if (filter.agent && card.assigned_agent !== filter.agent) return false;
+      if (filter.assignee && card.assignee !== filter.assignee) return false;
       if (filter.autonomous && !card.autonomous) return false;
       if (filter.worker_status && card.worker_status !== filter.worker_status) return false;
       if (hasSearch) {
@@ -207,6 +208,7 @@ export function Board({
           card.id,
           card.title,
           card.assigned_agent ?? '',
+          card.assignee ?? '',
           card.branch_name ?? '',
           ...(card.labels ?? []),
         ].join(' ').toLowerCase();

@@ -48,6 +48,8 @@ export function InfoTab({
       onVettedChange={(v) => setEditedCard((prev) => ({ ...prev, vetted: v }))}
       onSkillsChange={(skills) => setEditedCard((prev) => ({ ...prev, skills }))}
       excludeStateFromPicker={excludeStateFromPicker}
+      assignee={editedCard.assignee}
+      onAssigneeChange={(v) => setEditedCard((prev) => ({ ...prev, assignee: v || undefined }))}
     />
   );
 }

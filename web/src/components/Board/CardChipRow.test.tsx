@@ -1,7 +1,16 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { CardChipRow } from './CardChipRow';
 import type { Card } from '../../types';
+
+const authState = vi.hoisted(() => ({ current: null as unknown }));
+vi.mock('../../hooks/useAuth', () => ({
+  useOptionalAuth: () => authState.current,
+}));
+
+beforeEach(() => {
+  authState.current = null;
+});
 
 const baseCard: Card = {
   id: 'TEST-001',
@@ -44,6 +53,42 @@ describe('CardChipRow - branch badge gating', () => {
   it('shows the branch chip when the card has left todo', () => {
     render(<CardChipRow card={{ ...baseCard, branch_name: 'test-001/chip-row-card', state: 'in_progress' }} />);
     expect(screen.getByText('chip-row-card')).toBeInTheDocument();
+  });
+});
+
+describe('CardChipRow - assignee chip', () => {
+  it('shows the assignee chip with username and tooltip in expanded mode (multi mode)', () => {
+    authState.current = { mode: 'multi' };
+    render(<CardChipRow card={{ ...baseCard, assignee: 'alice' }} />);
+    const chip = screen.getByTitle('Assignee: alice');
+    expect(chip).toBeInTheDocument();
+    expect(chip).toHaveTextContent('alice');
+  });
+
+  it('hides the assignee chip in compact mode even when assignee is set (multi mode)', () => {
+    authState.current = { mode: 'multi' };
+    render(<CardChipRow card={{ ...baseCard, assignee: 'alice' }} compact />);
+    expect(screen.queryByTitle('Assignee: alice')).not.toBeInTheDocument();
+    expect(screen.queryByText('alice')).not.toBeInTheDocument();
+  });
+
+  it('hides the assignee chip when unset (multi mode)', () => {
+    authState.current = { mode: 'multi' };
+    render(<CardChipRow card={baseCard} />);
+    expect(screen.queryByTitle(/^Assignee:/)).not.toBeInTheDocument();
+  });
+
+  it('hides the assignee chip in none mode even when assignee is set', () => {
+    authState.current = { mode: 'none' };
+    render(<CardChipRow card={{ ...baseCard, assignee: 'alice' }} />);
+    expect(screen.queryByTitle('Assignee: alice')).not.toBeInTheDocument();
+    expect(screen.queryByText('alice')).not.toBeInTheDocument();
+  });
+
+  it('hides the assignee chip without an AuthProvider (useOptionalAuth returns null)', () => {
+    render(<CardChipRow card={{ ...baseCard, assignee: 'alice' }} />);
+    expect(screen.queryByTitle('Assignee: alice')).not.toBeInTheDocument();
+    expect(screen.queryByText('alice')).not.toBeInTheDocument();
   });
 });
 

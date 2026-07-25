@@ -29,7 +29,11 @@ type Card struct {
 	Skills          *[]string      `yaml:"skills,omitempty"         json:"skills,omitempty"`
 	Source          *Source        `yaml:"source,omitempty"         json:"source,omitempty"`
 	Custom          map[string]any `yaml:"custom,omitempty"          json:"custom,omitempty"`
-	Autonomous      bool           `yaml:"autonomous,omitempty"           json:"autonomous"`
+	// Assignee is an informational responsibility label: bare username of the
+	// responsible human, fully independent of AssignedAgent (execution claim).
+	// Human-only via the API.
+	Assignee   string `yaml:"assignee,omitempty"       json:"assignee,omitempty"`
+	Autonomous bool   `yaml:"autonomous,omitempty"           json:"autonomous"`
 	// Model pins (agent backend): explicit per-card OpenRouter slugs overriding
 	// the complexity selector. Human-set only - never writable via the MCP
 	// agent surface. Empty = selector/default applies.

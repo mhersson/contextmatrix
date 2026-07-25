@@ -2,6 +2,7 @@ import type { Card } from '../../types';
 import { gitHubIcon } from '../icons';
 import { chipTint, priorityColors, workerStatusStyles, shortCardId, typeColors } from '../../lib/chip';
 import { avatarGradient } from '../../utils/colorHash';
+import { useOptionalAuth } from '../../hooks/useAuth';
 
 export interface CardChipRowProps {
   card: Card;
@@ -17,6 +18,9 @@ export interface CardChipRowProps {
  *                 best-of-n, worker status, branch, labels.
  */
 export function CardChipRow({ card, compact = false, onParentClick }: CardChipRowProps) {
+  // Called unconditionally before the compact early return (rules of hooks).
+  const auth = useOptionalAuth();
+
   if (compact) {
     return (
       <>
@@ -98,6 +102,25 @@ export function CardChipRow({ card, compact = false, onParentClick }: CardChipRo
             </span>
           );
         })()
+      )}
+
+      {/* Assignee chip - hidden outside multi mode (no logins, no ownership
+          semantics to display) even if a hand-edited board file sets one. */}
+      {auth?.mode === 'multi' && card.assignee && (
+        <span
+          className="chip-pill truncate max-w-[140px] inline-flex items-center gap-1.5 pr-2"
+          style={chipTint('var(--blue)')}
+          title={`Assignee: ${card.assignee}`}
+        >
+          <span
+            className="w-3.5 h-3.5 rounded-full flex items-center justify-center text-[8px] font-semibold flex-shrink-0"
+            style={{ backgroundColor: 'var(--bg-blue)', color: 'var(--blue)' }}
+            aria-hidden="true"
+          >
+            {card.assignee.charAt(0).toUpperCase()}
+          </span>
+          <span className="truncate">{card.assignee}</span>
+        </span>
       )}
 
       {/* Dependency status */}

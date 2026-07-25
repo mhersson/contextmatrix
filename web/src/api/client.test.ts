@@ -220,6 +220,30 @@ describe('auth endpoints', () => {
   });
 });
 
+describe('user endpoints', () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('listUsers GETs /api/users and returns the roster', async () => {
+    const roster = [
+      { username: 'alice', display_name: 'Alice' },
+      { username: 'bob', display_name: 'Bob' },
+    ];
+    fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(makeResponse(roster));
+
+    const result = await api.listUsers();
+
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('/api/users');
+    expect(init.method).toBeUndefined();
+    expect(result).toEqual(roster);
+  });
+});
+
 describe('admin endpoints', () => {
   let fetchSpy: ReturnType<typeof vi.spyOn>;
 

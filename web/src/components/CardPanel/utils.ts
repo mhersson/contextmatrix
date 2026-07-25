@@ -59,7 +59,8 @@ export function isCardDirty(edited: Card, original: Card): boolean {
     (edited.create_pr ?? false) !== (original.create_pr ?? false) ||
     (edited.vetted ?? false) !== (original.vetted ?? false) ||
     (edited.base_branch ?? '') !== (original.base_branch ?? '') ||
-    !skillsEqual(edited.skills, original.skills)
+    !skillsEqual(edited.skills, original.skills) ||
+    (edited.assignee ?? '') !== (original.assignee ?? '')
   );
 }
 
@@ -118,6 +119,12 @@ export function buildCardPatch(edited: Card, original: Card): PatchCardInput {
     } else {
       updates.skills = next;
     }
+  }
+  if ((edited.assignee ?? '') !== (original.assignee ?? '')) {
+    // '' clears the assignee - pure JSON cannot distinguish "send empty
+    // string" from "omit the field", so this is always sent explicitly
+    // when the diff fires, never left to fall out as undefined.
+    updates.assignee = edited.assignee ?? '';
   }
   return updates;
 }

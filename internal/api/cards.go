@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mhersson/contextmatrix/internal/authstore"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/service"
@@ -45,6 +47,8 @@ type cardHandlers struct {
 	// mob_participants (0 or 2..MaxParticipants) and supplies the guest
 	// registry names for mob_guests validation.
 	mob config.MobConfig
+	// users is nil in none mode; roster + assignee validation.
+	users UserLister
 }
 
 // createCardRequest is the JSON body for creating a card.
@@ -55,6 +59,7 @@ type createCardRequest struct {
 	Labels            []string            `json:"labels"`
 	Parent            string              `json:"parent"`
 	Body              string              `json:"body"`
+	Assignee          string              `json:"assignee"`
 	Source            *board.Source       `json:"source"`
 	Autonomous        bool                `json:"autonomous"`
 	CreatePR          *bool               `json:"create_pr"`
@@ -85,6 +90,7 @@ type updateCardRequest struct {
 	Context           []string       `json:"context"`
 	Custom            map[string]any `json:"custom"`
 	Body              string         `json:"body"`
+	Assignee          string         `json:"assignee"`
 	Autonomous        bool           `json:"autonomous"`
 	CreatePR          bool           `json:"create_pr"`
 	Vetted            bool           `json:"vetted"`
@@ -114,6 +120,7 @@ type patchCardRequest struct {
 	Priority          *string   `json:"priority,omitempty"`
 	Labels            []string  `json:"labels,omitempty"`
 	Body              *string   `json:"body,omitempty"`
+	Assignee          *string   `json:"assignee,omitempty"`
 	Autonomous        *bool     `json:"autonomous,omitempty"`
 	CreatePR          *bool     `json:"create_pr,omitempty"`
 	Vetted            *bool     `json:"vetted,omitempty"`
@@ -162,6 +169,70 @@ func (h *cardHandlers) validateCardSkills(r *http.Request, projectName string, s
 	}
 
 	return validateSkillsAgainstProjectDefault(*skills, project.DefaultSkills)
+}
+
+// normalizeAssignee canonicalises an assignee label. Usernames are lowercase
+// by construction (authstore's username rule), so trimming and lowercasing
+// makes picker input, roster entries, and hand-edited board values compare
+// equal.
+func normalizeAssignee(s string) string {
+	return strings.ToLower(strings.TrimSpace(s))
+}
+
+// assigneeChangeProblem validates a requested assignee against the user
+// roster. It returns a non-empty message when the caller should be rejected
+// with 422, or an error when the roster lookup itself failed.
+//
+// An unchanged value is always accepted (normalized compare on both sides):
+// that keeps every other field editable on a card assigned to a since-deleted
+// user, and lets a none-mode board that was hand-edited round-trip through
+// the API unchanged.
+func (h *cardHandlers) assigneeChangeProblem(ctx context.Context, next, prev string) (string, error) {
+	if normalizeAssignee(next) == normalizeAssignee(prev) {
+		return "", nil
+	}
+
+	if h.users == nil {
+		return "assignee requires multi-user mode", nil
+	}
+
+	if next == "" {
+		return "", nil
+	}
+
+	user, err := h.users.UserByUsername(ctx, next)
+	if err != nil {
+		if errors.Is(err, authstore.ErrNotFound) {
+			return "unknown user: " + next, nil
+		}
+
+		return "", fmt.Errorf("look up assignee: %w", err)
+	}
+
+	if user.Disabled {
+		return "user is disabled: " + next, nil
+	}
+
+	return "", nil
+}
+
+// checkAssigneeChange runs assigneeChangeProblem and writes the failure
+// response itself. Returns false when the handler must abort.
+func (h *cardHandlers) checkAssigneeChange(w http.ResponseWriter, r *http.Request, next, prev string) bool {
+	problem, err := h.assigneeChangeProblem(r.Context(), next, prev)
+	if err != nil {
+		handleServiceError(w, r, err)
+
+		return false
+	}
+
+	if problem != "" {
+		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, problem, "")
+
+		return false
+	}
+
+	return true
 }
 
 // isNonHumanAgent returns true if the request has an agent ID that is not a human user.
@@ -396,6 +467,8 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	req.Assignee = normalizeAssignee(req.Assignee)
+
 	if req.Title == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "title is required", "")
 
@@ -408,9 +481,10 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 	if isNonHumanAgent(r) && (req.Autonomous || req.CreatePR != nil || req.BaseBranch != "" || req.Vetted ||
 		req.ModelOrchestrator != "" || req.ModelCoder != "" || req.ModelReviewer != "" ||
 		req.BestOfN != 0 || req.MobParticipants != 0 || len(req.MobPhases) > 0 || len(req.MobGuests) > 0 ||
-		req.Verify != nil) {
+		req.Verify != nil || req.Assignee != "") {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
-			"forbidden", "autonomous, create_pr, base_branch, vetted, model pins, best_of_n, mob fields, and verify can only be set via the UI")
+			"forbidden",
+			"autonomous, create_pr, base_branch, vetted, model pins, best_of_n, mob fields, verify, and assignee can only be set via the UI")
 
 		return
 	}
@@ -434,6 +508,10 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !h.checkAssigneeChange(w, r, req.Assignee, "") {
+		return
+	}
+
 	input := service.CreateCardInput{
 		Title:             req.Title,
 		Type:              req.Type,
@@ -441,6 +519,7 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 		Labels:            req.Labels,
 		Parent:            req.Parent,
 		Body:              req.Body,
+		Assignee:          req.Assignee,
 		Source:            req.Source,
 		Autonomous:        req.Autonomous,
 		CreatePR:          req.CreatePR,
@@ -504,6 +583,8 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	req.Assignee = normalizeAssignee(req.Assignee)
+
 	// Check agent ownership for claimed cards
 	existingCard, err := h.svc.GetCard(r.Context(), projectName, cardID)
 	if err != nil {
@@ -529,9 +610,11 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 		req.BestOfN != existingCard.BestOfN ||
 		req.MobParticipants != existingCard.MobParticipants ||
 		!slices.Equal(req.MobPhases, existingCard.MobPhases) ||
-		!slices.Equal(req.MobGuests, existingCard.MobGuests)) {
+		!slices.Equal(req.MobGuests, existingCard.MobGuests) ||
+		req.Assignee != normalizeAssignee(existingCard.Assignee)) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
-			"forbidden", "autonomous, create_pr, vetted, model pins, best_of_n, and mob fields can only be changed via the UI")
+			"forbidden",
+			"autonomous, create_pr, vetted, model pins, best_of_n, mob fields, and assignee can only be changed via the UI")
 
 		return
 	}
@@ -555,6 +638,10 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !h.checkAssigneeChange(w, r, req.Assignee, existingCard.Assignee) {
+		return
+	}
+
 	input := service.UpdateCardInput{
 		Title:             req.Title,
 		Type:              req.Type,
@@ -567,6 +654,7 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 		Context:           req.Context,
 		Custom:            req.Custom,
 		Body:              req.Body,
+		Assignee:          req.Assignee,
 		ImmediateCommit:   existingCard.AssignedAgent == "",
 		Autonomous:        req.Autonomous,
 		CreatePR:          req.CreatePR,
@@ -608,6 +696,10 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.Assignee != nil {
+		*req.Assignee = normalizeAssignee(*req.Assignee)
+	}
+
 	// Autonomous and model-pin fields can only be set by human users (UI), never by agents.
 	if isNonHumanAgent(r) && (req.Autonomous != nil ||
 		req.CreatePR != nil ||
@@ -620,9 +712,11 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 		req.MobParticipants != nil ||
 		req.MobPhases != nil ||
 		req.MobGuests != nil ||
-		req.Verify != nil) {
+		req.Verify != nil ||
+		req.Assignee != nil) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
-			"forbidden", "autonomous, create_pr, vetted, base_branch, model pins, best_of_n, mob fields, and verify can only be set via the UI")
+			"forbidden",
+			"autonomous, create_pr, vetted, base_branch, model pins, best_of_n, mob fields, verify, and assignee can only be set via the UI")
 
 		return
 	}
@@ -678,6 +772,10 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.Assignee != nil && !h.checkAssigneeChange(w, r, *req.Assignee, existingCard.Assignee) {
+		return
+	}
+
 	input := service.PatchCardInput{
 		Title:             req.Title,
 		Type:              req.Type,
@@ -685,6 +783,7 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 		Priority:          req.Priority,
 		Labels:            req.Labels,
 		Body:              req.Body,
+		Assignee:          req.Assignee,
 		ImmediateCommit:   existingCard.AssignedAgent == "",
 		Autonomous:        req.Autonomous,
 		CreatePR:          req.CreatePR,
@@ -701,6 +800,12 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 		MobPhases:         req.MobPhases,
 		MobGuests:         req.MobGuests,
 		Verify:            req.Verify,
+		// AgentID attributes the mutation: the commit message, the
+		// state-change and assignee activity entries, and the published event
+		// all name the caller instead of falling back to "system". The
+		// service-layer ownership check it activates is redundant with
+		// validateAgentOwnership above - same identity, same rule.
+		AgentID: extractAgentID(r),
 	}
 
 	card, err := h.svc.PatchCard(r.Context(), projectName, cardID, input)

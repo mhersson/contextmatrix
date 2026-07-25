@@ -170,6 +170,7 @@ source:
 vetted: true
 custom:
   some_key: some_value
+assignee: alice
 autonomous: true
 create_pr: true
 branch_name: alpha-001/implement-user-auth
@@ -280,6 +281,7 @@ type Card struct {
     Skills              *[]string       `yaml:"skills,omitempty"                json:"skills,omitempty"`
     Source              *Source         `yaml:"source,omitempty"                json:"source,omitempty"`
     Custom              map[string]any  `yaml:"custom,omitempty"                json:"custom,omitempty"`
+    Assignee            string          `yaml:"assignee,omitempty"              json:"assignee,omitempty"`
     Autonomous          bool            `yaml:"autonomous,omitempty"            json:"autonomous"`
     ModelOrchestrator   string          `yaml:"model_orchestrator,omitempty"    json:"model_orchestrator,omitempty"`
     ModelCoder          string          `yaml:"model_coder,omitempty"           json:"model_coder,omitempty"`
@@ -480,10 +482,12 @@ normal runs. Enum-validated; the empty string clears it and means "not agent-dri
 via the `update_card` MCP tool and REST (PUT/PATCH).
 
 **Human-only fields** (may only be set by agents whose `X-Agent-ID` starts with
-`human:`): `vetted`, `autonomous`, `create_pr`, the three model pins
-(`model_orchestrator`, `model_coder`, `model_reviewer`), `base_branch`,
+`human:`): `vetted`, `assignee`, `autonomous`, `create_pr`, the three model
+pins (`model_orchestrator`, `model_coder`, `model_reviewer`), `base_branch`,
 `best_of_n`, the mob fields (`mob_participants`, `mob_phases`, `mob_guests`),
-and `verify`. `verify` is exposed
+and `verify`. `assignee` is exposed on POST, PUT, and PATCH and, independent
+of the human-only gate, is validated against the user roster - see
+`### assignee` below for the mode-forked rules. `verify` is exposed
 on POST (`createCardRequest`) and PATCH (`patchCardRequest`) only - there is no
 `verify` field on the full-update body - and an agent that sets it is rejected so
 it can never define its own verify gate. `create_pr` is nullable on POST:
@@ -552,6 +556,49 @@ from storage. Limits: `command` ≤ 1024 bytes, single line, no NUL;
 `LLM_`, `GITHUB_`; suffixes `_TOKEN`, `_KEY`, `_SECRET`, `_PASSWORD`). The
 resolved config reaches the agent backend in the `/trigger` payload; see
 `docs/remote-execution.md` and `docs/agent-workflow.md`.
+
+### `assignee` (optional, string)
+
+A bare username (e.g. `alice`, not `human:alice`) naming the human responsible
+for the card. Purely informational - it is a responsibility label, never a
+permission boundary. It is fully independent of `assigned_agent`, the
+execution claim: claiming, releasing, heartbeat timeout, and terminal-state
+transitions never read or write `assignee`, and setting it neither requires
+nor implies a claim.
+
+Excluded from the MCP `create_card` and `update_card` tools (agents cannot set
+or change it); still visible read-only to agents on `get_card`. Via REST, only
+an agent whose `X-Agent-ID` starts with `human:` may change it - a non-human
+caller gets 403 `HUMAN_ONLY_FIELD`.
+
+**Validation forks on `auth.mode`:**
+
+- **`multi` mode:** a changed value must normalize to a known, non-disabled
+  username (case-insensitive) or the empty string - an unknown or disabled
+  username returns 422 `VALIDATION_ERROR`. Clearing to `""` always succeeds.
+  An **unchanged** value (normalized-compared against the card's stored
+  value) always passes, even if that username has since become unknown or
+  disabled - so a user later removed from the roster, or a value set by
+  hand-editing the card file, round-trips on unrelated edits instead of
+  blocking them.
+- **`none` mode:** there is no user roster to validate against, so any
+  *change* to `assignee` is rejected with 422 `VALIDATION_ERROR` ("assignee
+  requires multi-user mode"). An unchanged value still round-trips.
+
+A stored value is normalized (`TrimSpace` + lowercase) at the API boundary.
+Length is capped at 64 characters (`maxAssigneeLen`) - see § Server-side
+field-length limits below.
+
+Changing `assignee` (including clearing it) appends an `assigned` activity-log
+entry - `"Assigned to <user>"` or `"Unassigned (was <user>)"` - attributed to
+the acting identity (empty agent ID normalizes to `"system"`).
+
+`PATCH` on a card currently claimed by a different agent is rejected 403
+`AGENT_MISMATCH` like any other patch, regardless of which fields are being
+changed - `assignee` gets no special exemption from the claim-ownership check.
+On `PUT` (full replace), omitting `assignee` clears it, the same
+value-field semantics as the rest of the full-update body; the web UI only
+ever calls `PATCH`, so this only matters for direct API callers.
 
 ## Reserved labels
 
@@ -690,6 +737,7 @@ constants in `internal/service/service.go`:
 | individual label          | 100 chars  | `maxLabelLen`                     |
 | `labels` slice length     | 50 entries | `maxLabels`                       |
 | `agent_id` / `X-Agent-ID` | 256 chars  | `maxAgentIDLen`                   |
+| `assignee`                | 64 chars   | `maxAssigneeLen`                  |
 | `activity_log[].message`  | 2000 chars | `maxLogMessage`                   |
 | `activity_log[].action`   | 200 chars  | `maxLogAction`                    |
 

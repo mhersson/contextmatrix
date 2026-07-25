@@ -31,6 +31,7 @@ type CreateCardInput struct {
 	DependsOn  []string
 	Body       string
 	Source     *board.Source // Optional, immutable after creation
+	Assignee   string        // Informational responsibility label; independent of claim ownership
 	Autonomous bool
 	// CreatePR: nil means default true - callers that never set it (MCP
 	// create_card, the GitHub syncer) get PRs; explicit false is respected.
@@ -70,7 +71,8 @@ type UpdateCardInput struct {
 	Context         []string
 	Custom          map[string]any
 	Body            string
-	ImmediateCommit bool // If true, commit immediately even when gitDeferredCommit is on.
+	Assignee        string // Informational responsibility label; PUT full-replace, like other value fields
+	ImmediateCommit bool   // If true, commit immediately even when gitDeferredCommit is on.
 	Autonomous      bool
 	CreatePR        bool
 	Vetted          bool
@@ -104,7 +106,10 @@ type PatchCardInput struct {
 	Autonomous      *bool
 	CreatePR        *bool
 	Vetted          *bool
-	Skills          *[]string // nil = don't change; non-nil = set (empty allowed)
+	// Assignee is the informational responsibility label. nil = don't change,
+	// pointer-to-empty-string = clear.
+	Assignee *string
+	Skills   *[]string // nil = don't change; non-nil = set (empty allowed)
 	// SkillsClear, when true, explicitly resets Skills to nil. Needed
 	// because pure JSON cannot distinguish "skills field omitted" from
 	// "skills: null" (Go decodes both as nil pointer); without this the
@@ -167,6 +172,33 @@ func appendStateChangeLog(card *board.Card, oldState, newState, agent string, ts
 		Timestamp: ts,
 		Action:    stateChangedAction,
 		Message:   fmt.Sprintf("%s -> %s", oldState, newState),
+	})
+
+	card.ActivityLog = trimActivityLog(card.ActivityLog)
+}
+
+// assignedAction is the activity-log Action value emitted whenever a card's
+// Assignee changes via UpdateCard or PatchCard.
+const assignedAction = "assigned"
+
+// appendAssigneeChangeLog records an assignee change on card.ActivityLog. The
+// caller must have already confirmed oldAssignee != card.Assignee. An empty
+// agent string is normalised to "system", matching appendStateChangeLog.
+func appendAssigneeChangeLog(card *board.Card, oldAssignee, agent string, ts time.Time) {
+	if agent == "" {
+		agent = "system"
+	}
+
+	message := fmt.Sprintf("Assigned to %s", card.Assignee)
+	if card.Assignee == "" {
+		message = fmt.Sprintf("Unassigned (was %s)", oldAssignee)
+	}
+
+	card.ActivityLog = append(card.ActivityLog, board.ActivityEntry{
+		Agent:     agent,
+		Timestamp: ts,
+		Action:    assignedAction,
+		Message:   message,
 	})
 
 	card.ActivityLog = trimActivityLog(card.ActivityLog)
@@ -492,6 +524,7 @@ func (s *CardService) buildNewCardFromInput(
 		Parent:            parentID,
 		DependsOn:         dependsOn,
 		Source:            input.Source,
+		Assignee:          input.Assignee,
 		Autonomous:        input.Autonomous,
 		CreatePR:          resolveCreatePR(input.CreatePR, parentID),
 		BaseBranch:        input.BaseBranch,
@@ -518,7 +551,7 @@ func (s *CardService) buildNewCardFromInput(
 		card.BranchName = generateBranchName(card.ID, card.Title)
 	}
 
-	if err := validateFieldLimits(card.Title, card.Body, card.Labels); err != nil {
+	if err := validateFieldLimits(card.Title, card.Body, card.Assignee, card.Labels); err != nil {
 		return nil, err
 	}
 
@@ -678,7 +711,7 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 
 	// Caller-level validation (length limits). Kept here so a rejected call
 	// never touches writeMu.
-	if err := validateFieldLimits(input.Title, input.Body, input.Labels); err != nil {
+	if err := validateFieldLimits(input.Title, input.Body, input.Assignee, input.Labels); err != nil {
 		return nil, err
 	}
 
@@ -765,6 +798,7 @@ func (s *CardService) buildUpdateApply(ctx context.Context, input UpdateCardInpu
 		card.Context = input.Context
 		card.Custom = input.Custom
 		card.Body = input.Body
+		card.Assignee = input.Assignee
 		card.Autonomous = input.Autonomous
 		card.Vetted = input.Vetted
 		card.Skills = input.Skills // PUT replaces wholesale; nil clears
@@ -830,6 +864,10 @@ func validatePatchFieldLimits(input PatchCardInput) error {
 
 	if input.Body != nil && len(*input.Body) > maxBodyLen {
 		return fmt.Errorf("body length %d exceeds limit of %d: %w", len(*input.Body), maxBodyLen, ErrFieldTooLong)
+	}
+
+	if input.Assignee != nil && len(*input.Assignee) > maxAssigneeLen {
+		return fmt.Errorf("assignee length %d exceeds limit of %d: %w", len(*input.Assignee), maxAssigneeLen, ErrFieldTooLong)
 	}
 
 	if input.Labels != nil {
@@ -976,6 +1014,10 @@ func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput)
 		}
 
 		enforceVettingInvariant(card)
+
+		if input.Assignee != nil {
+			card.Assignee = *input.Assignee
+		}
 
 		switch {
 		case input.SkillsClear:
@@ -1379,6 +1421,23 @@ func (s *CardService) applyCardMutation(
 		appendStateChangeLog(card, oldState, card.State, opts.commitAgentID, card.Updated)
 	}
 
+	// Assignee is informational and fully independent of AssignedAgent, so it
+	// gets its own activity trail. Comparing against the pre-mutation
+	// snapshot here (rather than inside each apply closure) covers both
+	// UpdateCard and PatchCard uniformly and reuses the already-stamped
+	// card.Updated.
+	//
+	// The API layer normalizes and compares assignees case-insensitively, so
+	// a request that only echoes a stored non-canonical value back in
+	// canonical form (a hand-edited board file had "Alice", the request
+	// carries "alice") is not a real assignment change - it is
+	// canonicalization on write. EqualFold here avoids logging a phantom
+	// "Assigned to alice" entry for that case while still writing the
+	// canonical value to the card.
+	if !strings.EqualFold(strings.TrimSpace(card.Assignee), strings.TrimSpace(snapshot.Assignee)) {
+		appendAssigneeChangeLog(card, snapshot.Assignee, opts.commitAgentID, card.Updated)
+	}
+
 	// Release agent claim on not_planned and clear worker_status on terminal
 	// states. Must happen before validate+persist so the written card reflects
 	// the invariants.
@@ -1591,13 +1650,17 @@ func normalizeIDs(ids []string) []string {
 }
 
 // validateFieldLimits checks that user-supplied string fields do not exceed length limits.
-func validateFieldLimits(title, body string, labels []string) error {
+func validateFieldLimits(title, body, assignee string, labels []string) error {
 	if len(title) > maxTitleLen {
 		return fmt.Errorf("title length %d exceeds limit of %d: %w", len(title), maxTitleLen, ErrFieldTooLong)
 	}
 
 	if len(body) > maxBodyLen {
 		return fmt.Errorf("body length %d exceeds limit of %d: %w", len(body), maxBodyLen, ErrFieldTooLong)
+	}
+
+	if len(assignee) > maxAssigneeLen {
+		return fmt.Errorf("assignee length %d exceeds limit of %d: %w", len(assignee), maxAssigneeLen, ErrFieldTooLong)
 	}
 
 	if len(labels) > maxLabels {
