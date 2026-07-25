@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { logRowKey } from './WorkerConsoleLog';
+import { logRowKey } from '../../utils/logRowKey';
 import type { LogEntry } from '../../types';
 
 describe('logRowKey', () => {

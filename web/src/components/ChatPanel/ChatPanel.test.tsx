@@ -95,6 +95,17 @@ describe('ChatPanel', () => {
     expect(screen.getByText('Read: foo.go')).toBeInTheDocument();
   });
 
+  it('gates tool_result under the Tool calls filter (hidden by default, shown when checked)', () => {
+    const withResult: LogEntry[] = [
+      ...logs,
+      { ts: '2026-05-13T10:00:03Z', card_id: '', type: 'tool_result', content: 'foo.go contents...' },
+    ];
+    render(<ChatPanel logs={withResult} onSend={() => {}} sendDisabled={false} />);
+    expect(screen.queryByText('foo.go contents...')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('Tool calls'));
+    expect(screen.getByText('foo.go contents...')).toBeInTheDocument();
+  });
+
   it('sends on Enter, newline on Shift+Enter', () => {
     const onSend = vi.fn();
     render(<ChatPanel logs={[]} onSend={onSend} sendDisabled={false} />);
