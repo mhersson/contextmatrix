@@ -4,7 +4,9 @@ import { safeUrlTransform } from '../../utils/safeUrlTransform';
 // Lazy-load the markdown previewer so the chat panel doesn't pay the
 // bundle cost until first use. The chat markdown styling is fully driven by
 // CSS custom properties, so dark/light switches automatically without
-// data-color-mode.
+// data-color-mode. The per-message Suspense fallback shows the raw source,
+// so the transcript reads as plain text during the (preloaded, one-off)
+// chunk fetch instead of blanking behind a single transcript-level boundary.
 const MarkdownPreview = lazy(() => import('@uiw/react-markdown-preview'));
 
 function ChatMarkdownImpl({ source }: { source: string }) {

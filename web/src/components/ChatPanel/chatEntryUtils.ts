@@ -1,5 +1,10 @@
 import type { LogEntry } from '../../types';
 
+/** Messages visible when the transcript first renders (post-filter). */
+export const INITIAL_TAIL = 50;
+/** Older messages revealed per "Show older" step. */
+export const REVEAL_CHUNK = 100;
+
 /** A plain-text payload longer than this collapses to a preview. */
 export const COLLAPSE_CHAR_THRESHOLD = 600;
 /** ... or one with more than this many newlines near the top. */
