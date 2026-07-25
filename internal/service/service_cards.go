@@ -1426,7 +1426,15 @@ func (s *CardService) applyCardMutation(
 	// snapshot here (rather than inside each apply closure) covers both
 	// UpdateCard and PatchCard uniformly and reuses the already-stamped
 	// card.Updated.
-	if card.Assignee != snapshot.Assignee {
+	//
+	// The API layer normalizes and compares assignees case-insensitively, so
+	// a request that only echoes a stored non-canonical value back in
+	// canonical form (a hand-edited board file had "Alice", the request
+	// carries "alice") is not a real assignment change - it is
+	// canonicalization on write. EqualFold here avoids logging a phantom
+	// "Assigned to alice" entry for that case while still writing the
+	// canonical value to the card.
+	if !strings.EqualFold(strings.TrimSpace(card.Assignee), strings.TrimSpace(snapshot.Assignee)) {
 		appendAssigneeChangeLog(card, snapshot.Assignee, opts.commitAgentID, card.Updated)
 	}
 

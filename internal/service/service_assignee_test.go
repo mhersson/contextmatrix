@@ -242,6 +242,40 @@ func TestPatchCard_Assignee_IdenticalValueNoEntry(t *testing.T) {
 	assert.Empty(t, patched.ActivityLog)
 }
 
+// TestPatchCard_Assignee_CanonicalizationEchoNoEntry pins that a request
+// which only echoes a stored non-canonical assignee back in canonical form
+// is not treated as an assignment change: the API layer's normalized
+// (case-insensitive) compare lets a request like this through, so the
+// service must not log a phantom "assigned" entry - it should still
+// canonicalize the stored value, just without an activity trail. This can
+// happen on a hand-edited board file (raw "Alice" on disk) once the picker
+// or roster echoes it back lowercased.
+func TestPatchCard_Assignee_CanonicalizationEchoNoEntry(t *testing.T) {
+	svc, _, cleanup := newAssigneeTestService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// CreateCard does not normalize Assignee (only the API layer does), so
+	// this seeds a non-canonical stored value the way a hand-edited board
+	// file would.
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Test", Type: "task", Priority: "medium", Assignee: "Alice",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "Alice", card.Assignee)
+	require.Empty(t, card.ActivityLog)
+
+	canonical := "alice"
+	patched, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+		Assignee: &canonical,
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, "alice", patched.Assignee)
+	assert.Empty(t, patched.ActivityLog)
+}
+
 func TestPatchCard_Assignee_NilLeavesUnchanged(t *testing.T) {
 	svc, _, cleanup := newAssigneeTestService(t)
 	defer cleanup()
