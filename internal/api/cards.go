@@ -45,6 +45,8 @@ type cardHandlers struct {
 	// mob_participants (0 or 2..MaxParticipants) and supplies the guest
 	// registry names for mob_guests validation.
 	mob config.MobConfig
+	// users is nil in none mode; roster + assignee validation.
+	users UserLister
 }
 
 // createCardRequest is the JSON body for creating a card.

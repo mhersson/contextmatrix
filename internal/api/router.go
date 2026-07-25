@@ -405,6 +405,13 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		mux.HandleFunc("PATCH /api/admin/users/{username}", adh.patchUser)
 		mux.HandleFunc("POST /api/admin/users/{username}/invite", adh.regenerateLink)
 
+		// User roster - session-gated any role (not admin-gated); feeds the
+		// web UI's assignee picker. ch.users doubles as the none-mode signal
+		// for assignee validation added in a later task.
+		ch.users = cfg.AuthService
+		uh := &userHandlers{users: cfg.AuthService}
+		mux.HandleFunc("GET /api/users", uh.listUsers)
+
 		mux.HandleFunc("GET /api/admin/credentials", adh.listCredentials)
 		mux.HandleFunc("POST /api/admin/credentials", adh.createCredential)
 		mux.HandleFunc("PUT /api/admin/credentials/{name}", adh.putCredential)
