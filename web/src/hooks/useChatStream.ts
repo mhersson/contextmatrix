@@ -100,8 +100,13 @@ const OLDER_PAGE_LIMIT = 200;
  * hasMore derives from the seq-contiguity invariant (seqs run 1..N with no
  * holes): history remains below the window exactly while oldest seq > 1.
  */
-export function useChatStream(sessionID: string): UseChatStream {
-  const { logs, append, prepend, clear } = useRingBuffer(CHAT_LOG_RING_CAPACITY);
+export function useChatStream(
+  sessionID: string,
+  // Test seam: the ring-full partial-insert path in loadOlder is unreachable
+  // with the production capacity. Callers never pass this.
+  ringCapacity: number = CHAT_LOG_RING_CAPACITY,
+): UseChatStream {
+  const { logs, append, prepend, clear } = useRingBuffer(ringCapacity);
   const [connected, setConnected] = useState(false);
   const [sessionUpdate, setSessionUpdate] = useState<ChatSessionUpdate | null>(null);
   const [hasMore, setHasMore] = useState(false);
@@ -113,10 +118,10 @@ export function useChatStream(sessionID: string): UseChatStream {
   const oldestSeqRef = useRef<number | null>(null);
   /** Synchronous re-entrancy guard - state updates are async. */
   const loadingOlderRef = useRef(false);
-  /** Stream epoch, bumped by the main effect on every (re)subscription. An
-   *  in-flight loadOlder captures it and discards its result on mismatch.
-   *  An epoch (not the session ID) is required: an A→B→A pane swap restores
-   *  the same ID, and a page fetched for the FIRST A lifetime landing in the
+  /** Stream epoch: an in-flight loadOlder captures it at call start and
+   *  discards its result (and skips its guard cleanup) on mismatch. An epoch
+   *  (not the session ID) is required: an A→B→A pane swap restores the same
+   *  ID, and a page fetched for the FIRST A lifetime landing in the
    *  re-bootstrapped second one would corrupt oldestSeqRef and duplicate
    *  rows. */
   const streamEpochRef = useRef(0);
@@ -129,6 +134,20 @@ export function useChatStream(sessionID: string): UseChatStream {
     setHasMore(false);
     setLoadingOlder(false);
     clear();
+    // The epoch bump and the paging-ref invalidation MUST be atomic with the
+    // clear() above: bumping in the post-commit effect leaves a window
+    // (commit → passive-effect flush) where a stale loadOlder response still
+    // sees the old epoch and prepends the previous session's page into the
+    // freshly cleared buffer. Writing these refs during render is safe here:
+    // the writes are idempotent-by-monotonicity (a re-executed or discarded
+    // render at worst bumps the epoch again, which only ever DISCARDS stale
+    // pages - the fail-safe direction) and nothing reads them during render.
+    // eslint-disable-next-line react-hooks/refs
+    streamEpochRef.current += 1;
+    // eslint-disable-next-line react-hooks/refs
+    oldestSeqRef.current = null;
+    // eslint-disable-next-line react-hooks/refs
+    loadingOlderRef.current = false;
   }
 
   useEffect(() => {
@@ -136,16 +155,12 @@ export function useChatStream(sessionID: string): UseChatStream {
       return;
     }
 
-    // Reset the per-session trackers for the new session. Done here (not in
-    // the in-render state-marker block above) so the writes happen outside
-    // render - the react-hooks/refs lint rule forbids ref writes during
-    // render. The previous effect's cleanup has already closed the old
-    // EventSource by this point, so no handler from the old session can
-    // race the reset.
+    // Reset the status tracker for the new session. Done here (not in the
+    // in-render state-marker block above) because it has no atomicity
+    // requirement with clear() - and the previous effect's cleanup has
+    // already closed the old EventSource, so no old-session handler can
+    // race it.
     prevStatusRef.current = undefined;
-    oldestSeqRef.current = null;
-    loadingOlderRef.current = false;
-    streamEpochRef.current += 1;
 
     let stopped = false;
     let retry = 1000;

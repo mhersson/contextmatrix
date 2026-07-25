@@ -292,8 +292,11 @@ describe('ChatTranscript scrolling', () => {
     fireEvent.click(screen.getByTestId('chat-show-older'));
     expect(onLoadOlder).toHaveBeenCalledTimes(1);
 
-    // The page lands asynchronously as a prepend (older seqs before the
-    // existing rows). The anchor must absorb the height delta.
+    // The fetch goes in flight, then its page lands as a prepend (older
+    // seqs before the existing rows). The anchor must absorb the delta.
+    rerender(
+      <ChatTranscript filteredLogs={entries} hasMoreHistory loadingOlder onLoadOlder={onLoadOlder} />,
+    );
     const older = Array.from({ length: 5 }, (_, i) => ({
       ts: '2026-07-25T09:59:00Z',
       card_id: 'TEST-001',
@@ -310,6 +313,60 @@ describe('ChatTranscript scrolling', () => {
     );
 
     expect(el.scrollTop).toBe(1000 + 400);
+  });
+
+  it('fetched pages become visible even when clicked from the bottom', () => {
+    // Enough rows that the tail window is active: the fetched page must
+    // widen the window, not land behind the Show older fold.
+    const entries = makeEntries(50);
+    const onLoadOlder = vi.fn();
+    const { container, rerender } = render(
+      <ChatTranscript filteredLogs={entries} hasMoreHistory onLoadOlder={onLoadOlder} />,
+    );
+    expect(renderedRows(container)).toHaveLength(50);
+
+    fireEvent.click(screen.getByTestId('chat-show-older'));
+    rerender(
+      <ChatTranscript filteredLogs={entries} hasMoreHistory loadingOlder onLoadOlder={onLoadOlder} />,
+    );
+
+    const older: LogEntry[] = Array.from({ length: 20 }, (_, i) => ({
+      ts: '2026-07-25T09:59:00Z',
+      card_id: 'TEST-001',
+      type: 'user' as const,
+      content: `older ${i}`,
+      seq: -20 + i,
+    }));
+    rerender(
+      <ChatTranscript
+        filteredLogs={[...older, ...entries]}
+        onLoadOlder={onLoadOlder}
+      />,
+    );
+
+    expect(renderedRows(container)).toHaveLength(70);
+    expect(screen.queryByTestId('chat-show-older')).not.toBeInTheDocument();
+  });
+
+  it('does not mount the backlog on filter-toggle regrowth (no fetch in flight)', () => {
+    const entries = makeEntries(300);
+    const { container, rerender } = render(<ChatTranscript filteredLogs={entries} />);
+    expect(screen.getByTestId('chat-show-older')).toHaveTextContent('250 hidden');
+
+    // A filter toggled back on re-includes old rows: length grows and the
+    // first element changes - the same signature as a prepend, but with no
+    // fetch in flight the window must stay capped.
+    const unhidden: LogEntry[] = Array.from({ length: 100 }, (_, i) => ({
+      ts: '2026-07-25T09:00:00Z',
+      card_id: 'TEST-001',
+      type: 'user' as const,
+      content: `unhidden ${i}`,
+      seq: -100 + i,
+    }));
+    rerender(<ChatTranscript filteredLogs={[...unhidden, ...entries]} />);
+
+    expect(renderedRows(container)).toHaveLength(50);
+    expect(screen.getByTestId('chat-show-older')).toHaveTextContent('350 hidden');
   });
 
   it('renders unique row keys for seq-less (worker-shaped) entries', () => {

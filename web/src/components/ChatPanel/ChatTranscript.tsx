@@ -61,12 +61,19 @@ export function ChatTranscript({
   /** Set while a reveal is in flight: remembers which row to re-anchor to
    *  after commit, and doubles as the reentry guard for auto-reveal. */
   const pendingAnchorRef = useRef<PendingAnchor | null>(null);
+  // True from triggering a history fetch until the commit AFTER its result
+  // lands (loadingOlder flips false in the same commit as the prepend, so a
+  // render-time prev-value cannot carry the signal). This is the reveal
+  // window's license to treat top-growth as a prepend - without it a filter
+  // toggle re-including old rows would mount the whole backlog.
+  const [awaitingHistory, setAwaitingHistory] = useState(false);
 
   const { visible, hiddenCount, revealMore } = useRevealWindow(
     filteredLogs,
     INITIAL_TAIL,
     REVEAL_CHUNK,
     scrolledUp,
+    awaitingHistory,
   );
   const decoratedLogs = useMemo(() => decorateLogs(visible), [visible]);
 
@@ -100,9 +107,34 @@ export function ChatTranscript({
     }
     if (hasMoreHistory && !loadingOlder && onLoadOlder) {
       arm();
+      setAwaitingHistory(true);
       void onLoadOlder();
     }
   }, [hiddenCount, hasMoreHistory, loadingOlder, onLoadOlder, revealMore]);
+
+  // Retire the top-growth license one commit after the fetch settles. The
+  // prepend (if any) lands in the commit where loadingOlder flips false, so
+  // by the time this passive effect observes the true→false transition the
+  // widening has been applied. Requiring an OBSERVED in-flight phase (not
+  // just "loadingOlder is false") keeps the license alive across the gap
+  // between the triggering click and the parent re-render that delivers
+  // loadingOlder=true. A license with nothing left to await (hasMoreHistory
+  // gone) retires immediately.
+  const sawLoadingOlderRef = useRef(false);
+  useEffect(() => {
+    if (!awaitingHistory) {
+      sawLoadingOlderRef.current = false;
+      return;
+    }
+    if (loadingOlder) {
+      sawLoadingOlderRef.current = true;
+      return;
+    }
+    if (sawLoadingOlderRef.current || !hasMoreHistory) {
+      sawLoadingOlderRef.current = false;
+      setAwaitingHistory(false);
+    }
+  }, [loadingOlder, awaitingHistory, hasMoreHistory]);
 
   const handleScroll = useCallback(() => {
     const el = containerRef.current;
@@ -145,10 +177,22 @@ export function ChatTranscript({
       const row = findRowByKey(el, pending.key);
       if (row === null) {
         // The anchored row vanished (window slide or ring eviction) - this
-        // first-row change is NOT the awaited prepend. Disarm without
-        // touching scroll state or reading-history mode; native scroll
-        // anchoring covers whatever moved.
-        pendingAnchorRef.current = null;
+        // first-row change is NOT the awaited prepend. While the history
+        // fetch is still in flight, re-arm on the current first row so the
+        // eventual prepend still gets scroll compensation (native scroll
+        // anchoring is suppressed at scrollTop 0, exactly where a reader of
+        // old history sits). With no fetch pending, just disarm.
+        if (loadingOlder) {
+          const firstRow = el.querySelector('[data-logkey]');
+          pendingAnchorRef.current = firstRow
+            ? {
+                key: firstRow.getAttribute('data-logkey') ?? '',
+                prevTop: firstRow.getBoundingClientRect().top,
+              }
+            : null;
+        } else {
+          pendingAnchorRef.current = null;
+        }
         return;
       }
       // Older content landed above the anchor - restore its offset. The
@@ -161,7 +205,7 @@ export function ChatTranscript({
     }
     if (userScrolledUpRef.current) return;
     el.scrollTop = el.scrollHeight;
-  }, [visible, working]);
+  }, [visible, working, loadingOlder]);
 
   // Disarm a leftover anchor when an async history fetch finishes without
   // prepending anything (failure or ring-full): on success the layout effect

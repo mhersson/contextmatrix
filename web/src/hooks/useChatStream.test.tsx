@@ -261,6 +261,30 @@ describe('useChatStream', () => {
     expect(result.current.logs).toHaveLength(20);
   });
 
+  it('flips hasMore off when the ring cannot hold a full history page', async () => {
+    listChatMessagesTailMock.mockResolvedValue({
+      messages: Array.from({ length: 10 }, (_, i) => makeMessage(21 + i)),
+    });
+    // Test-seam capacity 15: bootstrap fills 10, leaving room for only 5.
+    const { result } = renderHook(() => useChatStream('S1', 15));
+    await waitFor(() => expect(result.current.hasMore).toBe(true));
+
+    listChatMessagesBeforeMock.mockResolvedValueOnce({
+      messages: Array.from({ length: 10 }, (_, i) => makeMessage(11 + i)),
+    });
+    await act(async () => {
+      await result.current.loadOlder();
+    });
+
+    // Only the NEWEST 5 batch rows (16..20) fit - transcript stays
+    // contiguous - and hasMore flips off so the UI stops offering deeper
+    // history (it stays server-side).
+    expect(result.current.logs.map((l) => l.seq)).toEqual(
+      Array.from({ length: 15 }, (_, i) => 16 + i),
+    );
+    expect(result.current.hasMore).toBe(false);
+  });
+
   it('serializes concurrent loadOlder calls to one in-flight fetch', async () => {
     listChatMessagesTailMock.mockResolvedValue({
       messages: [makeMessage(21), makeMessage(22)],
