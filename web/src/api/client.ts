@@ -21,6 +21,7 @@ import type {
   BackendHealth,
   BackendImagesResponse,
   SessionUser,
+  UserSummary,
   TokenInfo,
   RedeemTokenInput,
   AdminUser,
@@ -319,6 +320,12 @@ class APIClient {
       method: 'POST',
       body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
     });
+  }
+
+  // Users - roster for assignee pickers (session-gated, multi mode only;
+  // 404s in none mode).
+  async listUsers(): Promise<UserSummary[]> {
+    return this.request<UserSummary[]>('/users');
   }
 
   // Admin

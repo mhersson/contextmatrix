@@ -19,6 +19,7 @@ export interface Card {
   state: string;
   priority: string;
   assigned_agent?: string;
+  assignee?: string;
   last_heartbeat?: string;
   parent?: string;
   subtasks?: string[];
@@ -144,6 +145,7 @@ export interface CardFilter {
   vetted?: boolean;
   autonomous?: boolean;
   worker_status?: string;
+  assignee?: string;
 }
 
 export interface APIError {
@@ -209,6 +211,7 @@ export interface CreateCardInput {
   create_pr?: boolean;
   base_branch?: string;
   skills?: string[] | null;
+  assignee?: string;
 }
 
 export interface PatchCardInput {
@@ -234,6 +237,7 @@ export interface PatchCardInput {
   // "set back to nil so the project default applies".
   skills?: string[] | null;
   skills_clear?: boolean;
+  assignee?: string;
 }
 
 export interface ActiveAgent {
@@ -482,6 +486,12 @@ export interface SessionUser {
   username: string;
   display_name: string;
   is_admin: boolean;
+}
+
+/** One roster entry from GET /api/users, for assignee pickers. */
+export interface UserSummary {
+  username: string;
+  display_name: string;
 }
 
 export interface TokenInfo {
