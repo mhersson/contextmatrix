@@ -10,14 +10,12 @@ import { AutomationCheckboxes } from '../CardPanel/AutomationCheckboxes';
 import type { ModelPinField } from '../CardPanel/ModelPinsSection';
 import { CardPanelEditor } from '../CardPanel/CardPanelEditor';
 import { LabelsSection } from '../CardPanel/CardPanelLabels';
-import { MetadataSkills } from '../CardPanel/metadata/MetadataSkills';
-import { MetadataAssignee } from '../CardPanel/metadata/MetadataAssignee';
-import { chipTint, typeColors, priorityColors, stateColors } from '../../lib/chip';
+import { chipTint, typeColors, priorityColors } from '../../lib/chip';
 import { headerTitleStyle } from '../../lib/header-tokens';
 import { BifoldHeader } from '../CardPanel/BifoldHeader';
 import { ChipPicker } from '../CardPanel/ChipPicker';
 import { ConfirmModal } from '../ConfirmModal/ConfirmModal';
-import { ParentSearch } from './ParentSearch';
+import { CreateCardInfoTab } from './CreateCardInfoTab';
 import { useCreateCardForm } from './useCreateCardForm';
 
 interface CreateCardPanelProps {
@@ -165,44 +163,16 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
       key: 'info' as RailTabKey,
       label: 'Info',
       content: (
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          <section className="bf-aside-section">
-            <h4>Agent</h4>
-            <div className="bf-spread">
-              <span className="font-mono" style={{ color: 'var(--grey1)', fontSize: '11.5px' }}>no agent yet</span>
-              <span className="font-mono" style={{ color: 'var(--grey1)', fontSize: '11.5px' }}>assigned on create</span>
-            </div>
-          </section>
-
-          <section className="bf-aside-section">
-            <h4>Parent (optional)</h4>
-            <ParentSearch parent={form.parent} setParent={form.handleSetParent} cards={cards} />
-            <div className="font-mono mt-2" style={{ color: 'var(--grey1)', fontSize: '11px', lineHeight: 1.45 }}>
-              Leave empty for a top-level card. Setting a parent locks the type to <code style={{ color: 'var(--purple)' }}>subtask</code>.
-            </div>
-          </section>
-
-          <MetadataSkills
-            value={form.skills}
-            config={config}
-            onSkillsChange={form.setSkills}
-          />
-
-          <MetadataAssignee
-            assignee={form.assignee || undefined}
-            onChange={form.setAssignee}
-          />
-
-          <section className="bf-aside-section">
-            <h4>Initial state</h4>
-            <div className="text-xs flex items-center gap-2" style={{ color: 'var(--grey1)' }}>
-              <span>Cards are created in</span>
-              <span className="chip-pill" style={chipTint(stateColors[config.states[0]] || 'var(--grey1)')}>
-                {config.states[0]}
-              </span>
-            </div>
-          </section>
-        </div>
+        <CreateCardInfoTab
+          config={config}
+          cards={cards}
+          assignee={form.assignee}
+          onAssigneeChange={form.setAssignee}
+          parent={form.parent}
+          onSetParent={form.handleSetParent}
+          skills={form.skills}
+          onSkillsChange={form.setSkills}
+        />
       ),
     },
   ];

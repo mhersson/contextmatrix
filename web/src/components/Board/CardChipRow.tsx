@@ -3,6 +3,8 @@ import { gitHubIcon } from '../icons';
 import { chipTint, priorityColors, workerStatusStyles, shortCardId, typeColors } from '../../lib/chip';
 import { avatarGradient } from '../../utils/colorHash';
 import { useOptionalAuth } from '../../hooks/useAuth';
+import { useUsers } from '../../hooks/useUsers';
+import { userInitials, userLabel } from '../../lib/users';
 
 export interface CardChipRowProps {
   card: Card;
@@ -20,6 +22,7 @@ export interface CardChipRowProps {
 export function CardChipRow({ card, compact = false, onParentClick }: CardChipRowProps) {
   // Called unconditionally before the compact early return (rules of hooks).
   const auth = useOptionalAuth();
+  const users = useUsers(auth?.mode === 'multi' && !!card.assignee);
 
   if (compact) {
     return (
@@ -104,24 +107,23 @@ export function CardChipRow({ card, compact = false, onParentClick }: CardChipRo
         })()
       )}
 
-      {/* Assignee chip - hidden outside multi mode (no logins, no ownership
+      {/* Assignee circle - hidden outside multi mode (no logins, no ownership
           semantics to display) even if a hand-edited board file sets one. */}
-      {auth?.mode === 'multi' && card.assignee && (
-        <span
-          className="chip-pill truncate max-w-[140px] inline-flex items-center gap-1.5 pr-2"
-          style={chipTint('var(--blue)')}
-          title={`Assignee: ${card.assignee}`}
-        >
+      {auth?.mode === 'multi' && card.assignee && (() => {
+        const rosterUser = users.find((u) => u.username === card.assignee);
+        const label = rosterUser ? userLabel(rosterUser) : card.assignee;
+        return (
           <span
-            className="w-3.5 h-3.5 rounded-full flex items-center justify-center text-[8px] font-semibold flex-shrink-0"
+            className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-semibold flex-shrink-0"
             style={{ backgroundColor: 'var(--bg-blue)', color: 'var(--blue)' }}
-            aria-hidden="true"
+            title={`Assignee: ${label}`}
+            role="img"
+            aria-label={`Assignee: ${label}`}
           >
-            {card.assignee.charAt(0).toUpperCase()}
+            {userInitials(rosterUser?.display_name, card.assignee)}
           </span>
-          <span className="truncate">{card.assignee}</span>
-        </span>
-      )}
+        );
+      })()}
 
       {/* Dependency status */}
       {card.depends_on && card.depends_on.length > 0 && (

@@ -8,8 +8,14 @@ vi.mock('../../hooks/useAuth', () => ({
   useOptionalAuth: () => authState.current,
 }));
 
+const usersState = vi.hoisted(() => ({ current: [] as unknown[] }));
+vi.mock('../../hooks/useUsers', () => ({
+  useUsers: () => usersState.current,
+}));
+
 beforeEach(() => {
   authState.current = null;
+  usersState.current = [];
 });
 
 const baseCard: Card = {
@@ -57,12 +63,39 @@ describe('CardChipRow - branch badge gating', () => {
 });
 
 describe('CardChipRow - assignee chip', () => {
-  it('shows the assignee chip with username and tooltip in expanded mode (multi mode)', () => {
+  it('shows an initials circle with tooltip in expanded mode (multi mode)', () => {
     authState.current = { mode: 'multi' };
     render(<CardChipRow card={{ ...baseCard, assignee: 'alice' }} />);
+    // Empty roster: label and initial fall back to the username.
     const chip = screen.getByTitle('Assignee: alice');
     expect(chip).toBeInTheDocument();
-    expect(chip).toHaveTextContent('alice');
+    expect(chip).toHaveTextContent(/^A$/);
+  });
+
+  it('uses display-name initials and label when the user is in the roster', () => {
+    authState.current = { mode: 'multi' };
+    usersState.current = [{ username: 'mohersson', display_name: 'Morten Hersson' }];
+    render(<CardChipRow card={{ ...baseCard, assignee: 'mohersson' }} />);
+    const chip = screen.getByTitle('Assignee: Morten Hersson');
+    expect(chip).toHaveTextContent(/^MH$/);
+    expect(chip).toHaveAttribute('aria-label', 'Assignee: Morten Hersson');
+  });
+
+  it('falls back to the username initial for a single-word display name', () => {
+    authState.current = { mode: 'multi' };
+    usersState.current = [{ username: 'alice', display_name: 'Alice' }];
+    render(<CardChipRow card={{ ...baseCard, assignee: 'alice' }} />);
+    // Label still prefers the display name; the initial comes from the username.
+    const chip = screen.getByTitle('Assignee: Alice');
+    expect(chip).toHaveTextContent(/^A$/);
+  });
+
+  it('falls back to the username when the roster has no entry for the assignee', () => {
+    authState.current = { mode: 'multi' };
+    usersState.current = [{ username: 'alice', display_name: 'Alice Smith' }];
+    render(<CardChipRow card={{ ...baseCard, assignee: 'mohersson' }} />);
+    const chip = screen.getByTitle('Assignee: mohersson');
+    expect(chip).toHaveTextContent(/^M$/);
   });
 
   it('hides the assignee chip in compact mode even when assignee is set (multi mode)', () => {

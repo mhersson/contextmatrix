@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import type { Card, ProjectConfig } from '../../types';
+import type { Card, ProjectConfig, UsageBucket } from '../../types';
 import {
   buildCardPatch,
+  groupBucketsByAgent,
   isCardDirty,
   isWorkerAttached,
   isSafeHttpUrl,
@@ -313,5 +314,32 @@ describe('isCardDirty / buildCardPatch - mob fields', () => {
     const original = makeCard({ mob_participants: 3 });
     const edited = { ...original, mob_participants: undefined };
     expect(buildCardPatch(edited, original)).toEqual({ mob_participants: 0 });
+  });
+});
+
+describe('groupBucketsByAgent', () => {
+  function makeBucket(agent: string, model: string): UsageBucket {
+    return {
+      agent,
+      model,
+      prompt_tokens: 100,
+      completion_tokens: 50,
+      cost_usd: 0.01,
+      cost_source: 'actual',
+    };
+  }
+
+  it('returns an empty list for no buckets', () => {
+    expect(groupBucketsByAgent([])).toEqual([]);
+  });
+
+  it('groups non-adjacent buckets by agent in first-seen order', () => {
+    const a1m1 = makeBucket('agent-1', 'model-1');
+    const a2m1 = makeBucket('agent-2', 'model-1');
+    const a1m2 = makeBucket('agent-1', 'model-2');
+    expect(groupBucketsByAgent([a1m1, a2m1, a1m2])).toEqual([
+      { agent: 'agent-1', buckets: [a1m1, a1m2] },
+      { agent: 'agent-2', buckets: [a2m1] },
+    ]);
   });
 });

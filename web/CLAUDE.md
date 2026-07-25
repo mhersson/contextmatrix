@@ -63,7 +63,9 @@ block). A stored value wins over the server default; invalid values fall back.
 - Parent-ID badge (subtasks only): `--bg-blue` bg + `--aqua` text - same as the
   active-agent indicator.
 - Assignee chip (board card, expanded footer only, hidden in compact view):
-  `--bg-blue` bg + `--blue` text and initials dot.
+  initials-only `w-5` (1.25rem) circle - `--bg-blue` bg + `--blue` text;
+  display-name initials (fallback: username initial), tooltip/aria-label
+  `Assignee: <label>`.
 
 Radix and Catppuccin map their scales onto these variables (Radix:
 Slate/Tomato/Amber/Grass/Teal/Blue/Plum, accents at step 11; Catppuccin: Mocha
