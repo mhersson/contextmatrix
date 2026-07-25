@@ -52,12 +52,13 @@ type createCardInput struct {
 	AgentID string `json:"agent_id,omitempty" jsonschema:"caller identity (accepted for client parity; not used for attribution)"`
 }
 
-// NOTE: vetted, autonomous, create_pr, base_branch, best_of_n,
+// NOTE: vetted, autonomous, create_pr, base_branch, best_of_n, assignee,
 // the mob session fields (mob_participants, mob_phases, mob_guests), and model pin
 // fields (model_orchestrator, model_coder, model_reviewer) are intentionally
 // excluded - they are human-only fields. Model pins are excluded for the same
 // reason: they express human intent about which model to use and must not be
-// overridden by the agent that is itself subject to the pin.
+// overridden by the agent that is itself subject to the pin. Assignee names a
+// responsible human, which only a human can decide.
 type updateCardInput struct {
 	Project  string    `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
 	CardID   string    `json:"card_id" jsonschema:"required,card ID"`
