@@ -192,6 +192,120 @@ func TestStore_ListMessagesTail_ReturnsNewestNInChronologicalOrder(t *testing.T)
 	}
 }
 
+func TestStore_ListMessagesBefore_ReturnsNewestNBelowBoundInASC(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "chats.db")
+	store, err := Open(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	ctx := context.Background()
+	sessionID := newTestSession(t, store)
+
+	for i := 1; i <= 50; i++ {
+		_, err := store.AppendMessage(ctx, chat.Message{
+			SessionID: sessionID,
+			Seq:       int64(i),
+			Role:      chat.RoleUser,
+			Content:   fmt.Sprintf(`{"text":"m%d"}`, i),
+			CreatedAt: time.Now().UTC().Truncate(time.Second),
+		})
+		require.NoError(t, err)
+	}
+
+	// Newest 10 strictly below 41 are 31..40, ASC.
+	msgs, err := store.ListMessagesBefore(ctx, sessionID, 41, 10)
+	require.NoError(t, err)
+	require.Len(t, msgs, 10)
+
+	for i, m := range msgs {
+		require.Equal(t, int64(31+i), m.Seq, "row %d", i)
+	}
+}
+
+func TestStore_ListMessagesBefore_Boundaries(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "chats.db")
+	store, err := Open(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	ctx := context.Background()
+	sessionID := newTestSession(t, store)
+
+	for i := 1; i <= 50; i++ {
+		_, err := store.AppendMessage(ctx, chat.Message{
+			SessionID: sessionID,
+			Seq:       int64(i),
+			Role:      chat.RoleUser,
+			Content:   fmt.Sprintf(`{"text":"m%d"}`, i),
+			CreatedAt: time.Now().UTC().Truncate(time.Second),
+		})
+		require.NoError(t, err)
+	}
+
+	tests := []struct {
+		name      string
+		beforeSeq int64
+		limit     int
+		wantSeqs  []int64
+	}{
+		{name: "below first seq is empty", beforeSeq: 1, limit: 10, wantSeqs: nil},
+		{name: "bound 2 returns only seq 1", beforeSeq: 2, limit: 10, wantSeqs: []int64{1}},
+		{name: "bound above max behaves as tail", beforeSeq: 1000, limit: 3, wantSeqs: []int64{48, 49, 50}},
+		{name: "zero limit is nil", beforeSeq: 41, limit: 0, wantSeqs: nil},
+		{name: "negative limit is nil", beforeSeq: 41, limit: -1, wantSeqs: nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msgs, err := store.ListMessagesBefore(ctx, sessionID, tt.beforeSeq, tt.limit)
+			require.NoError(t, err)
+			require.Len(t, msgs, len(tt.wantSeqs))
+
+			for i, m := range msgs {
+				assert.Equal(t, tt.wantSeqs[i], m.Seq, "row %d", i)
+			}
+		})
+	}
+}
+
+func TestStore_ListMessagesBefore_SessionIsolation(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "chats.db")
+	store, err := Open(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	ctx := context.Background()
+	sessionA := newTestSession(t, store)
+	sessionB := newTestSession(t, store)
+
+	for i := 1; i <= 5; i++ {
+		for _, sid := range []string{sessionA, sessionB} {
+			_, err := store.AppendMessage(ctx, chat.Message{
+				SessionID: sid,
+				Seq:       int64(i),
+				Role:      chat.RoleUser,
+				Content:   fmt.Sprintf(`{"text":"%s-m%d"}`, sid, i),
+				CreatedAt: time.Now().UTC().Truncate(time.Second),
+			})
+			require.NoError(t, err)
+		}
+	}
+
+	msgs, err := store.ListMessagesBefore(ctx, sessionA, 6, 10)
+	require.NoError(t, err)
+	require.Len(t, msgs, 5)
+
+	for _, m := range msgs {
+		assert.Equal(t, sessionA, m.SessionID)
+	}
+}
+
 // newTestSession is a helper that creates a minimal session and returns its ID.
 func newTestSession(t *testing.T, store *Store) string {
 	t.Helper()

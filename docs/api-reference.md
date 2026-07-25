@@ -53,7 +53,7 @@ POST   /api/chats/{id}/open                            # start (or reattach to) 
 POST   /api/chats/{id}/end                             # stop the container; flip to cold
 POST   /api/chats/{id}/clear                           # clear worker context + mark transcript
 POST   /api/chats/{id}/messages                        # send a user message into the active container
-GET    /api/chats/{id}/messages                        ?since_seq=&limit=    # transcript bootstrap
+GET    /api/chats/{id}/messages                        ?since_seq=|tail=1|before_seq=&limit=  # transcript pages (newest-first bootstrap + backward history)
 GET    /api/chats/{id}/stream                          ?since_seq=           # SSE stream of new entries
 
 POST   /api/sync                                      # trigger git sync
@@ -2043,17 +2043,21 @@ Response (`202 Accepted`):
 
 ### GET /api/chats/{id}/messages
 
-Bootstrap endpoint that returns persisted transcript rows from SQLite, ordered
-oldest-first. Used by the browser on Chat tab mount (and on refresh) to backfill
-the in-memory ring buffer beyond what the SSE in-memory replay (128 entries) can
-cover.
+Transcript endpoint over the persisted rows in SQLite, always returning
+chronological (ascending-seq) order. Three keyset modes, mutually exclusive by
+presence (more than one → `400`):
 
-Query parameters:
+| Param        | Default | Max  | Effect                                                          |
+| ------------ | ------- | ---- | --------------------------------------------------------------- |
+| `since_seq`  | `0`     | -    | Forward: returns `seq > N`, oldest-first from the bound.        |
+| `tail=1`     | -       | -    | Newest `limit` rows - the lazy-history bootstrap page.          |
+| `before_seq` | -       | -    | Backward: newest `limit` rows with `seq < N` (strict).          |
+| `limit`      | `200`   | 1000 | Cap on rows returned in every mode. Values above clamp.         |
 
-| Param       | Default | Max  | Effect                                    |
-| ----------- | ------- | ---- | ----------------------------------------- |
-| `since_seq` | `0`     | -    | Exclusive lower bound: returns `seq > N`. |
-| `limit`     | `200`   | 1000 | Cap on rows returned. Values above clamp. |
+`tail=1` exists as an explicit flag (rather than `before_seq=2^63-1`) because
+JavaScript cannot represent that bound. Clients derive "more history exists"
+from the seq-contiguity invariant: seqs run `1..N` with no holes, so history
+remains below the loaded window exactly while the oldest loaded seq is `> 1`.
 
 Response:
 
@@ -2080,13 +2084,15 @@ Response:
 }
 ```
 
-Empty transcripts return `{"messages": []}`. Invalid `since_seq` / `limit`
-return `400 BAD_REQUEST`. Unknown session returns `404 CHAT_NOT_FOUND`.
+Empty transcripts return `{"messages": []}`. Invalid `since_seq` /
+`before_seq` / `tail` / `limit` return `400 BAD_REQUEST`. Unknown session
+returns `404 CHAT_NOT_FOUND`.
 
-The browser pairs this REST bootstrap with the SSE `/stream` endpoint: fetches
-all messages with `since_seq=0`, records the highest seq, then subscribes to
-`/stream?since_seq=<last>` so the seam is gapless. SSE events whose `seq` falls
-inside the REST window are deduped on the client.
+The browser pairs this REST endpoint with the SSE `/stream` endpoint: it
+fetches the newest page with `tail=1`, records the highest seq, subscribes to
+`/stream?since_seq=<last>` so the seam is gapless, and pages older history on
+demand with `before_seq=<oldest loaded>`. SSE events whose `seq` falls inside
+the loaded window are deduped on the client.
 
 ### GET /api/chats/{id}/stream
 

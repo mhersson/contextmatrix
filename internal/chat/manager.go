@@ -2004,6 +2004,18 @@ func (m *Manager) ListMessages(ctx context.Context, sessionID string, sinceSeq i
 	return m.store.ListMessages(ctx, sessionID, sinceSeq, limit)
 }
 
+// ListMessagesTail returns the newest limit messages (ASC). Bootstrap page
+// for the lazy-history REST endpoint (tail=1).
+func (m *Manager) ListMessagesTail(ctx context.Context, sessionID string, limit int) ([]Message, error) {
+	return m.store.ListMessagesTail(ctx, sessionID, limit)
+}
+
+// ListMessagesBefore returns the newest limit messages with seq < beforeSeq
+// (ASC). Backward page for the lazy-history REST endpoint.
+func (m *Manager) ListMessagesBefore(ctx context.Context, sessionID string, beforeSeq int64, limit int) ([]Message, error) {
+	return m.store.ListMessagesBefore(ctx, sessionID, beforeSeq, limit)
+}
+
 // chatCostCacheTTL is the minimum duration between re-computations of the
 // chat cost summary. Dashboard fan-out (one call per project) would otherwise
 // amplify a single server-wide computation N× on every poll cycle.

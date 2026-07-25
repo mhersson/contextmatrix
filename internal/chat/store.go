@@ -66,8 +66,15 @@ type Store interface {
 
 	// ListMessagesTail returns the newest limit messages for sessionID in
 	// chronological (ASC) order. Used by buildResume so rehydration payloads
-	// reflect recent context rather than oldest. limit <= 0 returns nil.
+	// reflect recent context rather than oldest, and by the REST bootstrap
+	// (tail=1) as the newest-first history page. limit <= 0 returns nil.
 	ListMessagesTail(ctx context.Context, sessionID string, limit int) ([]Message, error)
+
+	// ListMessagesBefore returns the newest limit messages with seq strictly
+	// less than beforeSeq, in chronological (ASC) order. Backward keyset
+	// pagination for lazy history loading (uses the UNIQUE(session_id, seq)
+	// index). limit <= 0 returns nil.
+	ListMessagesBefore(ctx context.Context, sessionID string, beforeSeq int64, limit int) ([]Message, error)
 
 	// MaxSeq returns the largest seq for a session, or 0 if no messages exist.
 	// Used by the Manager to seed monotonic seq assignment after restart

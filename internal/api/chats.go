@@ -519,6 +519,13 @@ const (
 	listMessagesMaxLimit     = 1000
 )
 
+// listMessages serves the transcript in one of three keyset modes, mutually
+// exclusive by presence: since_seq (forward, the original contract), tail=1
+// (newest limit rows - the lazy-history bootstrap; explicit because
+// JavaScript cannot express before_seq=2^63-1), and before_seq (backward
+// page of the newest rows below the bound). All modes return ASC order and
+// the plain {"messages":[...]} envelope; clients derive has-more from the
+// seq-contiguity invariant (oldest loaded seq > 1).
 func (h *chatHandlers) listMessages(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if _, ok := h.ownedSession(w, r); !ok {
@@ -526,18 +533,21 @@ func (h *chatHandlers) listMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	q := r.URL.Query()
+	sinceStr, beforeStr, tailStr := q.Get("since_seq"), q.Get("before_seq"), q.Get("tail")
 
-	var sinceSeq int64
+	modes := 0
 
-	if v := q.Get("since_seq"); v != "" {
-		n, err := strconv.ParseInt(v, 10, 64)
-		if err != nil || n < 0 {
-			writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid since_seq", v)
-
-			return
+	for _, v := range []string{sinceStr, beforeStr, tailStr} {
+		if v != "" {
+			modes++
 		}
+	}
 
-		sinceSeq = n
+	if modes > 1 {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest,
+			"since_seq, before_seq and tail are mutually exclusive", "")
+
+		return
 	}
 
 	limit := listMessagesDefaultLimit
@@ -557,7 +567,46 @@ func (h *chatHandlers) listMessages(w http.ResponseWriter, r *http.Request) {
 		limit = n
 	}
 
-	msgs, err := h.mgr.ListMessages(r.Context(), id, sinceSeq, limit)
+	var (
+		msgs []chat.Message
+		err  error
+	)
+
+	switch {
+	case tailStr != "":
+		if tailStr != "1" {
+			writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid tail", tailStr)
+
+			return
+		}
+
+		msgs, err = h.mgr.ListMessagesTail(r.Context(), id, limit)
+	case beforeStr != "":
+		n, perr := strconv.ParseInt(beforeStr, 10, 64)
+		if perr != nil || n < 1 {
+			writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid before_seq", beforeStr)
+
+			return
+		}
+
+		msgs, err = h.mgr.ListMessagesBefore(r.Context(), id, n, limit)
+	default:
+		var sinceSeq int64
+
+		if sinceStr != "" {
+			n, perr := strconv.ParseInt(sinceStr, 10, 64)
+			if perr != nil || n < 0 {
+				writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid since_seq", sinceStr)
+
+				return
+			}
+
+			sinceSeq = n
+		}
+
+		msgs, err = h.mgr.ListMessages(r.Context(), id, sinceSeq, limit)
+	}
+
 	if err != nil {
 		handleChatError(w, r, err)
 
