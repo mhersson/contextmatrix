@@ -57,6 +57,9 @@ const (
 	maxAgentIDLen = 256
 	maxLogMessage = 2000
 	maxLogAction  = 200
+	// maxAssigneeLen caps the informational assignee label. Usernames are
+	// <=32 chars by regex; the extra headroom covers hand-edited YAML.
+	maxAssigneeLen = 64
 )
 
 // CardService orchestrates all card operations by coordinating
