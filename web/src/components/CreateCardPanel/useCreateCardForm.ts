@@ -28,6 +28,7 @@ export interface CreateCardForm {
   mobPhases: string[];
   mobGuests: string[];
   skills: string[] | null;
+  assignee: string;
   isSubmitting: boolean;
   pendingTemplate: PendingTemplate | null;
 
@@ -46,6 +47,7 @@ export interface CreateCardForm {
   setMobPhases: (v: string[]) => void;
   setMobGuests: (v: string[]) => void;
   setSkills: (v: string[] | null) => void;
+  setAssignee: (v: string) => void;
   setBody: (v: string) => void;
   setBodyDirty: (v: boolean) => void;
   setPendingTemplate: (v: PendingTemplate | null) => void;
@@ -93,6 +95,7 @@ export function useCreateCardForm(
   const [mobGuests, setMobGuests] = useState<string[]>([]);
   // null = inherit project default, [] = mount none, [...] = specific list.
   const [skills, setSkills] = useState<string[] | null>(null);
+  const [assignee, setAssignee] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [pendingTemplate, setPendingTemplate] = useState<PendingTemplate | null>(null);
 
@@ -165,8 +168,9 @@ export function useCreateCardForm(
       base_branch: baseBranch || undefined,
       // null = inherit project default; only forward an explicit override.
       skills: skills === null ? undefined : skills,
+      assignee: assignee || undefined,
     }),
-    [title, type, priority, labels, parent, body, autonomous, modelOrchestrator, modelCoder, modelReviewer, bestOfN, mobParticipants, mobPhases, mobGuests, createPR, baseBranch, skills],
+    [title, type, priority, labels, parent, body, autonomous, modelOrchestrator, modelCoder, modelReviewer, bestOfN, mobParticipants, mobPhases, mobGuests, createPR, baseBranch, skills, assignee],
   );
 
   const ensureTitle = useCallback((): boolean => {
@@ -221,6 +225,7 @@ export function useCreateCardForm(
       mobPhases,
       mobGuests,
       skills,
+      assignee,
       isSubmitting,
       pendingTemplate,
       setTitle,
@@ -237,6 +242,7 @@ export function useCreateCardForm(
       setMobPhases,
       setMobGuests,
       setSkills,
+      setAssignee,
       setBody,
       setBodyDirty,
       setPendingTemplate,

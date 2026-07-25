@@ -11,6 +11,7 @@ import type { ModelPinField } from '../CardPanel/ModelPinsSection';
 import { CardPanelEditor } from '../CardPanel/CardPanelEditor';
 import { LabelsSection } from '../CardPanel/CardPanelLabels';
 import { MetadataSkills } from '../CardPanel/metadata/MetadataSkills';
+import { MetadataAssignee } from '../CardPanel/metadata/MetadataAssignee';
 import { chipTint, typeColors, priorityColors, stateColors } from '../../lib/chip';
 import { headerTitleStyle } from '../../lib/header-tokens';
 import { BifoldHeader } from '../CardPanel/BifoldHeader';
@@ -185,6 +186,11 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
             value={form.skills}
             config={config}
             onSkillsChange={form.setSkills}
+          />
+
+          <MetadataAssignee
+            assignee={form.assignee || undefined}
+            onChange={form.setAssignee}
           />
 
           <section className="bf-aside-section">

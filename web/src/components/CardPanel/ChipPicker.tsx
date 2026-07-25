@@ -25,6 +25,8 @@ export interface ChipPickerProps {
    * that need a solid rather than tinted background (subtask chips).
    */
   solidBg?: string;
+  /** Override the displayed text per option value; falls back to the raw value. */
+  optionLabels?: Record<string, string>;
 }
 
 /**
@@ -48,6 +50,7 @@ export function ChipPicker({
   disabled = false,
   title,
   solidBg,
+  optionLabels,
 }: ChipPickerProps) {
   const containerStyle = solidBg
     ? { backgroundColor: solidBg, color: tint, padding: '3px 4px 3px 8px', gap: '2px' }
@@ -73,7 +76,9 @@ export function ChipPicker({
         aria-label={ariaLabel}
       >
         {options.map((o) => (
-          <option key={o} value={o} className="bg-[var(--bg2)] text-[var(--fg)]">{o}</option>
+          <option key={o} value={o} className="bg-[var(--bg2)] text-[var(--fg)]">
+            {optionLabels?.[o] ?? o}
+          </option>
         ))}
       </select>
       {!disabled && <span className="pointer-events-none">{HeaderCaret}</span>}

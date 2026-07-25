@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { CardPanelMetadata } from './CardPanelMetadata';
 import type { Card, ProjectConfig } from '../../types';
@@ -9,6 +9,21 @@ vi.mock('../../api/client', () => ({
     getTaskSkills: vi.fn().mockResolvedValue([]),
   },
 }));
+
+const authState = vi.hoisted(() => ({ current: null as unknown }));
+vi.mock('../../hooks/useAuth', () => ({
+  useOptionalAuth: () => authState.current,
+}));
+
+const usersState = vi.hoisted(() => ({ current: [] as unknown[] }));
+vi.mock('../../hooks/useUsers', () => ({
+  useUsers: () => usersState.current,
+}));
+
+beforeEach(() => {
+  authState.current = null;
+  usersState.current = [];
+});
 
 const baseCard: Card = {
   id: 'TEST-001',
@@ -53,6 +68,8 @@ const defaultProps = {
   onVettedChange: vi.fn(),
   onSkillsChange: vi.fn(),
   excludeStateFromPicker: null,
+  assignee: undefined,
+  onAssigneeChange: vi.fn(),
 };
 
 describe('CardPanelMetadata - status section', () => {
@@ -81,6 +98,31 @@ describe('CardPanelMetadata - status section', () => {
   it('disables the select when a worker is attached', () => {
     render(<CardPanelMetadata {...defaultProps} workerAttached />);
     expect(screen.getByRole('combobox', { name: 'State' })).toBeDisabled();
+  });
+});
+
+describe('CardPanelMetadata - assignee section', () => {
+  it('does not render when auth is not in multi mode', () => {
+    authState.current = null;
+    render(<CardPanelMetadata {...defaultProps} />);
+    expect(screen.queryByText('Assignee')).not.toBeInTheDocument();
+  });
+
+  it('renders between Status and Agent when auth is in multi mode', () => {
+    authState.current = { mode: 'multi' };
+    usersState.current = [{ username: 'alice', display_name: 'Alice' }];
+    render(<CardPanelMetadata {...defaultProps} assignee="alice" />);
+
+    const headings = screen.getAllByRole('heading', { level: 4 }).map((h) => h.textContent);
+    const statusIdx = headings.indexOf('Status');
+    const assigneeIdx = headings.indexOf('Assignee');
+    const agentIdx = headings.indexOf('Agent');
+    expect(statusIdx).toBeGreaterThanOrEqual(0);
+    expect(assigneeIdx).toBeGreaterThan(statusIdx);
+    expect(agentIdx).toBeGreaterThan(assigneeIdx);
+
+    const select = screen.getByRole('combobox', { name: 'Assignee' }) as HTMLSelectElement;
+    expect(select.value).toBe('alice');
   });
 });
 
