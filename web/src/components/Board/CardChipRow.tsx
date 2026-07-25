@@ -2,6 +2,7 @@ import type { Card } from '../../types';
 import { gitHubIcon } from '../icons';
 import { chipTint, priorityColors, workerStatusStyles, shortCardId, typeColors } from '../../lib/chip';
 import { avatarGradient } from '../../utils/colorHash';
+import { useOptionalAuth } from '../../hooks/useAuth';
 
 export interface CardChipRowProps {
   card: Card;
@@ -17,6 +18,9 @@ export interface CardChipRowProps {
  *                 best-of-n, worker status, branch, labels.
  */
 export function CardChipRow({ card, compact = false, onParentClick }: CardChipRowProps) {
+  // Called unconditionally before the compact early return (rules of hooks).
+  const auth = useOptionalAuth();
+
   if (compact) {
     return (
       <>
@@ -100,8 +104,9 @@ export function CardChipRow({ card, compact = false, onParentClick }: CardChipRo
         })()
       )}
 
-      {/* Assignee chip */}
-      {card.assignee && (
+      {/* Assignee chip - hidden outside multi mode (no logins, no ownership
+          semantics to display) even if a hand-edited board file sets one. */}
+      {auth?.mode === 'multi' && card.assignee && (
         <span
           className="chip-pill truncate max-w-[140px] inline-flex items-center gap-1.5 pr-2"
           style={chipTint('var(--blue)')}

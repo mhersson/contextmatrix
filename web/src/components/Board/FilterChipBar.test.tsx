@@ -58,9 +58,15 @@ describe('FilterChipBar', () => {
     expect(onSearchChange).toHaveBeenCalledWith('auth');
   });
 
-  it('mentions assignee in the search placeholder', () => {
+  it('mentions assignee in the search placeholder in multi mode', () => {
+    authState.current = { mode: 'multi', user: null };
     render(<FilterChipBar {...baseProps} />);
     expect(screen.getByPlaceholderText(/assignee/i)).toBeInTheDocument();
+  });
+
+  it('omits assignee from the search placeholder outside multi mode', () => {
+    render(<FilterChipBar {...baseProps} />);
+    expect(screen.queryByPlaceholderText(/assignee/i)).not.toBeInTheDocument();
   });
 
   describe('Assigned to me chip', () => {
