@@ -69,6 +69,11 @@ function latestES(): FakeEventSource {
   return instances[instances.length - 1];
 }
 
+/** Advance past the ring-buffer coalescing window so appends publish. */
+function flushRing() {
+  act(() => { vi.advanceTimersByTime(50); });
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -86,6 +91,7 @@ describe('useWorkerLogs - dropped frame handling', () => {
     act(() => {
       latestES().simulateMessage({ type: 'dropped', count: 3 });
     });
+    flushRing();
 
     const logs = result.current.logs;
     expect(logs).toHaveLength(1);
@@ -108,6 +114,7 @@ describe('useWorkerLogs - dropped frame handling', () => {
     act(() => {
       latestES().simulateMessage({ type: 'dropped' });
     });
+    flushRing();
 
     expect(result.current.logs).toHaveLength(1);
     expect(result.current.logs[0].type).toBe('gap');
@@ -134,12 +141,14 @@ describe('useWorkerLogs - terminal frame handling', () => {
         seq: 1,
       });
     });
+    flushRing();
 
     const instancesBefore = FakeEventSource.instances.length;
 
     act(() => {
       latestES().simulateMessage({ type: 'terminal' });
     });
+    flushRing();
 
     expect(result.current.connected).toBe(false);
 
@@ -159,6 +168,7 @@ describe('useWorkerLogs - terminal frame handling', () => {
     act(() => {
       latestES().simulateMessage({ type: 'terminal' });
     });
+    flushRing();
 
     expect(result.current.logs).toHaveLength(0);
   });
@@ -180,8 +190,10 @@ describe('useWorkerLogs - terminal frame handling', () => {
         seq: 1,
       });
     });
+    flushRing();
 
     act(() => { latestES().simulateMessage({ type: 'terminal' }); });
+    flushRing();
 
     const countAfterTerminal = FakeEventSource.instances.length;
 
@@ -216,6 +228,7 @@ describe('useWorkerLogs - seq gap detection', () => {
         seq: 5,
       });
     });
+    flushRing();
 
     // Second entry at seq=8 (gap of 2)
     act(() => {
@@ -227,6 +240,7 @@ describe('useWorkerLogs - seq gap detection', () => {
         seq: 8,
       });
     });
+    flushRing();
 
     const logs = result.current.logs;
     // Expect: [entry@5, gap_marker, entry@8]
@@ -250,12 +264,15 @@ describe('useWorkerLogs - seq gap detection', () => {
     act(() => {
       latestES().simulateMessage({ type: 'text', content: 'a', card_id: 'C-1', ts, seq: 1 });
     });
+    flushRing();
     act(() => {
       latestES().simulateMessage({ type: 'text', content: 'b', card_id: 'C-1', ts, seq: 2 });
     });
+    flushRing();
     act(() => {
       latestES().simulateMessage({ type: 'text', content: 'c', card_id: 'C-1', ts, seq: 3 });
     });
+    flushRing();
 
     expect(result.current.logs).toHaveLength(3);
     expect(result.current.logs.every((e) => e.type === 'text')).toBe(true);
@@ -271,6 +288,7 @@ describe('useWorkerLogs - seq gap detection', () => {
     act(() => {
       latestES().simulateMessage({ type: 'text', content: 'first', card_id: 'C-1', ts: new Date().toISOString(), seq: 100 });
     });
+    flushRing();
 
     expect(result.current.logs).toHaveLength(1);
     expect(result.current.logs[0].type).toBe('text');
@@ -288,9 +306,11 @@ describe('useWorkerLogs - seq gap detection', () => {
     act(() => {
       latestES().simulateMessage({ type: 'text', content: 'a', card_id: 'C-1', ts, seq: 5 });
     });
+    flushRing();
     act(() => {
       latestES().simulateMessage({ type: 'text', content: 'b', card_id: 'C-1', ts, seq: 8 });
     });
+    flushRing();
 
     const gapEntry = result.current.logs[1];
     expect(gapEntry.type).toBe('gap');
@@ -311,6 +331,7 @@ describe('useWorkerLogs - terminal-before-snapshot race guard', () => {
     act(() => {
       latestES().simulateMessage({ type: 'terminal' });
     });
+    flushRing();
 
     // No immediate reconnect
     expect(FakeEventSource.instances.length).toBe(countBefore);
@@ -331,6 +352,7 @@ describe('useWorkerLogs - terminal-before-snapshot race guard', () => {
     act(() => {
       latestES().simulateMessage({ type: 'terminal' });
     });
+    flushRing();
 
     // logs must remain empty (terminal frame itself never adds a log entry)
     expect(result.current.logs).toHaveLength(0);
@@ -353,6 +375,7 @@ describe('useWorkerLogs - terminal-before-snapshot race guard', () => {
     act(() => {
       latestES().simulateMessage({ type: 'text', content: 'some log', card_id: 'C-1', ts, seq: 1 });
     });
+    flushRing();
 
     const countBefore = FakeEventSource.instances.length;
 
@@ -360,6 +383,7 @@ describe('useWorkerLogs - terminal-before-snapshot race guard', () => {
     act(() => {
       latestES().simulateMessage({ type: 'terminal' });
     });
+    flushRing();
 
     // Advance time well past max reconnect delay - no new EventSource should appear
     act(() => { vi.advanceTimersByTime(60_000); });
@@ -377,6 +401,7 @@ describe('useWorkerLogs - terminal-before-snapshot race guard', () => {
     act(() => {
       latestES().simulateMessage({ type: 'terminal' });
     });
+    flushRing();
 
     // Trigger the reconnect
     act(() => { vi.advanceTimersByTime(1100); });
@@ -390,6 +415,7 @@ describe('useWorkerLogs - terminal-before-snapshot race guard', () => {
     act(() => {
       latestES().simulateMessage({ type: 'text', content: 'hello from second connect', card_id: 'C-1', ts, seq: 1 });
     });
+    flushRing();
 
     expect(result.current.logs).toHaveLength(1);
     expect(result.current.logs[0].content).toBe('hello from second connect');
@@ -400,6 +426,7 @@ describe('useWorkerLogs - terminal-before-snapshot race guard', () => {
     act(() => {
       latestES().simulateMessage({ type: 'terminal' });
     });
+    flushRing();
 
     act(() => { vi.advanceTimersByTime(60_000); });
     expect(FakeEventSource.instances.length).toBe(countBeforeTerminal);
@@ -423,6 +450,7 @@ describe('useWorkerLogs - usage entry filtering', () => {
         content: '',
       });
     });
+    flushRing();
 
     expect(result.current.logs).toHaveLength(0);
   });
@@ -445,6 +473,7 @@ describe('useWorkerLogs - usage entry filtering', () => {
         content: '',
       });
     });
+    flushRing();
 
     act(() => {
       latestES().simulateMessage({
@@ -455,6 +484,7 @@ describe('useWorkerLogs - usage entry filtering', () => {
         content: 'hello after usage',
       });
     });
+    flushRing();
 
     expect(result.current.logs).toHaveLength(1);
     expect(result.current.logs[0].type).toBe('text');
@@ -478,14 +508,17 @@ describe('useWorkerLogs - usage entry filtering', () => {
     act(() => {
       latestES().simulateMessage({ type: 'text', content: 'before', card_id: 'C-1', ts, seq: 1 });
     });
+    flushRing();
     // usage at seq=2 - dropped but must advance lastSeqRef to 2
     act(() => {
       latestES().simulateMessage({ type: 'usage', card_id: 'C-1', ts, seq: 2, content: '' });
     });
+    flushRing();
     // text at seq=3 - must NOT trigger a gap marker (3 === 2+1)
     act(() => {
       latestES().simulateMessage({ type: 'text', content: 'after', card_id: 'C-1', ts, seq: 3 });
     });
+    flushRing();
 
     const logs = result.current.logs;
     expect(logs).toHaveLength(2);
@@ -537,6 +570,7 @@ describe('useWorkerLogs - close→reopen does not duplicate entries', () => {
         latestES().simulateMessage({ type: 'text', content: `msg-${i}`, card_id: 'CARD-1', ts, seq: i + 1 });
       }
     });
+    flushRing();
 
     // Step 3: assert N entries in buffer
     expect(result.current.logs).toHaveLength(N);
@@ -554,6 +588,7 @@ describe('useWorkerLogs - close→reopen does not duplicate entries', () => {
         latestES().simulateMessage({ type: 'text', content: `msg-${i}`, card_id: 'CARD-1', ts, seq: i + 1 });
       }
     });
+    flushRing();
 
     // Step 7: regression assertion - must be N, not 2N
     expect(result.current.logs).toHaveLength(N);
@@ -574,9 +609,11 @@ describe('useWorkerLogs - stream identity changes', () => {
     act(() => {
       latestES().simulateMessage({ type: 'text', content: 'a-1', card_id: 'CARD-A', ts, seq: 1 });
     });
+    flushRing();
     act(() => {
       latestES().simulateMessage({ type: 'text', content: 'a-2', card_id: 'CARD-A', ts, seq: 2 });
     });
+    flushRing();
 
     expect(result.current.logs).toHaveLength(2);
     expect(result.current.logs[0].content).toBe('a-1');
@@ -589,6 +626,7 @@ describe('useWorkerLogs - stream identity changes', () => {
     act(() => {
       latestES().simulateMessage({ type: 'text', content: 'b-1', card_id: 'CARD-B', ts, seq: 10 });
     });
+    flushRing();
 
     // Only the new card's entry should be visible; previous card's entries must be gone.
     expect(result.current.logs).toHaveLength(1);
@@ -608,6 +646,7 @@ describe('useWorkerLogs - stream identity changes', () => {
     act(() => {
       latestES().simulateMessage({ type: 'text', content: 'from-1', card_id: 'X-1', ts, seq: 1 });
     });
+    flushRing();
     expect(result.current.logs).toHaveLength(1);
 
     act(() => { rerender({ project: 'proj-2' }); });
@@ -628,6 +667,7 @@ describe('useWorkerLogs - stream identity changes', () => {
     act(() => {
       latestES().simulateMessage({ type: 'text', content: 'a', card_id: 'CARD-A', ts, seq: 100 });
     });
+    flushRing();
 
     // Switch to card B whose first message has seq=1 - must NOT trigger a gap.
     act(() => { rerender({ cardId: 'CARD-B' }); });
@@ -635,6 +675,7 @@ describe('useWorkerLogs - stream identity changes', () => {
     act(() => {
       latestES().simulateMessage({ type: 'text', content: 'b', card_id: 'CARD-B', ts, seq: 1 });
     });
+    flushRing();
 
     expect(result.current.logs).toHaveLength(1);
     expect(result.current.logs[0].type).toBe('text');
@@ -677,18 +718,21 @@ describe('useWorkerLogs - reconnect/snapshot replay preserves model and agent', 
         agent: 'moderator', model: 'z-ai/glm-5.2',
       });
     });
+    flushRing();
     act(() => {
       latestES().simulateMessage({
         type: 'text', content: 'drafting parser', card_id: 'CARD-1', ts, seq: 2,
         agent: 'seat-1', model: 'anthropic/sonnet-5',
       });
     });
+    flushRing();
     act(() => {
       latestES().simulateMessage({
         type: 'text', content: 'reviewing edge cases', card_id: 'CARD-1', ts, seq: 3,
         agent: 'seat-2', model: 'openai/gpt-4.1',
       });
     });
+    flushRing();
 
     // Assert all three entries have agent and model before reconnect
     expect(result.current.logs).toHaveLength(3);
@@ -713,18 +757,21 @@ describe('useWorkerLogs - reconnect/snapshot replay preserves model and agent', 
         agent: 'moderator', model: 'z-ai/glm-5.2',
       });
     });
+    flushRing();
     act(() => {
       latestES().simulateMessage({
         type: 'text', content: 'drafting parser', card_id: 'CARD-1', ts, seq: 2,
         agent: 'seat-1', model: 'anthropic/sonnet-5',
       });
     });
+    flushRing();
     act(() => {
       latestES().simulateMessage({
         type: 'text', content: 'reviewing edge cases', card_id: 'CARD-1', ts, seq: 3,
         agent: 'seat-2', model: 'openai/gpt-4.1',
       });
     });
+    flushRing();
 
     // After reconnect, both agent and model fields must be preserved on all
     // entries (no duplicates due to buffer clear).
@@ -756,6 +803,7 @@ describe('useWorkerLogs - agent attribution passthrough', () => {
         agent: 'seat-1',
       });
     });
+    flushRing();
 
     expect(result.current.logs).toHaveLength(1);
     expect(result.current.logs[0].agent).toBe('seat-1');
@@ -777,6 +825,7 @@ describe('useWorkerLogs - agent attribution passthrough', () => {
         seq: 1,
       });
     });
+    flushRing();
 
     expect(result.current.logs).toHaveLength(1);
     expect(result.current.logs[0].agent).toBeUndefined();
@@ -800,6 +849,7 @@ describe('useWorkerLogs - agent attribution passthrough', () => {
         model: 'z-ai/glm-5.2',
       });
     });
+    flushRing();
 
     expect(result.current.logs).toHaveLength(1);
     expect(result.current.logs[0].model).toBe('z-ai/glm-5.2');

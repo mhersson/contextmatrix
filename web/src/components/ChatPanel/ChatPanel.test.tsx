@@ -282,9 +282,11 @@ describe('ChatPanel', () => {
     beforeEach(() => {
       FakeEventSource.instances = [];
       vi.stubGlobal('EventSource', FakeEventSource);
+      vi.useFakeTimers();
     });
 
     afterEach(() => {
+      vi.useRealTimers();
       vi.unstubAllGlobals();
     });
 
@@ -312,6 +314,8 @@ describe('ChatPanel', () => {
           agent: 'moderator', model: 'z-ai/glm-5.2',
         });
       });
+      // Advance past the ring-buffer coalescing window so the entry publishes.
+      act(() => { vi.advanceTimersByTime(50); });
 
       // Render ChatPanel with the logs from useWorkerLogs
       render(<ChatPanel logs={result.current.logs} onSend={() => {}} sendDisabled={false} />);
