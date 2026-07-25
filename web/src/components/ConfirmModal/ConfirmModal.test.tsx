@@ -69,6 +69,25 @@ describe('ConfirmModal - keyboard', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(defaultProps.onCancel).toHaveBeenCalledOnce();
   });
+
+  it('consumes Escape so document-level dismiss handlers do not also fire', () => {
+    // Regression: with a confirm dialog open over the card panel, one Escape
+    // must cancel only the dialog - the panel's document-level handler
+    // respects defaultPrevented, so the modal must set it in capture phase.
+    render(<ConfirmModal {...defaultProps} />);
+
+    let documentSawDefaultPrevented: boolean | null = null;
+    const probe = (e: KeyboardEvent) => {
+      documentSawDefaultPrevented = e.defaultPrevented;
+    };
+    document.addEventListener('keydown', probe);
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    document.removeEventListener('keydown', probe);
+    expect(defaultProps.onCancel).toHaveBeenCalledOnce();
+    expect(documentSawDefaultPrevented).toBe(true);
+  });
 });
 
 describe('ConfirmModal - backdrop', () => {

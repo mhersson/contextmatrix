@@ -9,10 +9,11 @@ function makeItems(count: number, offset = 0): number[] {
 const TAIL = 50;
 const CHUNK = 100;
 
-function renderWindow(initial: readonly number[]) {
+function renderWindow(initial: readonly number[], holdTop = false) {
   return renderHook(
-    ({ items }: { items: readonly number[] }) => useRevealWindow(items, TAIL, CHUNK),
-    { initialProps: { items: initial } },
+    ({ items, hold }: { items: readonly number[]; hold: boolean }) =>
+      useRevealWindow(items, TAIL, CHUNK, hold),
+    { initialProps: { items: initial, hold: holdTop } },
   );
 }
 
@@ -60,12 +61,12 @@ describe('useRevealWindow', () => {
     expect(result.current.hiddenCount).toBe(50);
   });
 
-  it('caps the window size on growth - appends slide the window, not grow it', () => {
+  it('slides the window on growth while at the bottom (holdTop false)', () => {
     const { result, rerender } = renderWindow(makeItems(120));
     act(() => result.current.revealMore());
     expect(result.current.hiddenCount).toBe(0);
 
-    rerender({ items: makeItems(125) });
+    rerender({ items: makeItems(125), hold: false });
 
     // Window size stays initialTail + revealed (120); the 5 appended items
     // push the 5 oldest back above the window.
@@ -74,17 +75,37 @@ describe('useRevealWindow', () => {
     expect(result.current.hiddenCount).toBe(5);
   });
 
+  it('holds the window start on growth while reading history (holdTop true)', () => {
+    const { result, rerender } = renderWindow(makeItems(120));
+    expect(result.current.hiddenCount).toBe(70);
+
+    rerender({ items: makeItems(120), hold: true });
+    rerender({ items: makeItems(130), hold: true });
+
+    // Start pinned: hidden count unchanged, appended rows extend the bottom.
+    expect(result.current.hiddenCount).toBe(70);
+    expect(result.current.visible).toHaveLength(60);
+    expect(result.current.visible[0]).toBe(70);
+    expect(result.current.visible[59]).toBe(129);
+
+    // Back at the bottom, later appends slide again from the widened window.
+    rerender({ items: makeItems(130), hold: false });
+    rerender({ items: makeItems(140), hold: false });
+    expect(result.current.hiddenCount).toBe(80);
+    expect(result.current.visible).toHaveLength(60);
+  });
+
   it('resets the revealed extent when the list shrinks (clear/filter-off)', () => {
     const { result, rerender } = renderWindow(makeItems(300));
     act(() => result.current.revealMore());
     expect(result.current.visible).toHaveLength(150);
 
-    rerender({ items: makeItems(30, 1000) });
+    rerender({ items: makeItems(30, 1000), hold: false });
     expect(result.current.visible).toHaveLength(30);
     expect(result.current.hiddenCount).toBe(0);
 
     // A subsequent big list starts from a fresh tail, not the old extent.
-    rerender({ items: makeItems(200, 2000) });
+    rerender({ items: makeItems(200, 2000), hold: false });
     expect(result.current.visible).toHaveLength(50);
     expect(result.current.hiddenCount).toBe(150);
   });

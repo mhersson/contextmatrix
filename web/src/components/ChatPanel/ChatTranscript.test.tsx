@@ -64,7 +64,7 @@ function renderedRows(container: HTMLElement): Element[] {
 }
 
 function scroller(container: HTMLElement): HTMLElement {
-  const el = container.querySelector('[role="log"]');
+  const el = container.querySelector('[data-testid="chat-scroller"]');
   if (!(el instanceof HTMLElement)) throw new Error('scroller not found');
   return el;
 }
@@ -178,5 +178,62 @@ describe('ChatTranscript scrolling', () => {
     roInstances.forEach((ro) => ro.trigger());
 
     expect(el.scrollTop).toBe(1000);
+  });
+
+  it('re-pin observer works when the transcript mounted empty', () => {
+    // Regression: the observed wrapper hosts the empty state too, so an
+    // empty first commit must still end up with a working observer.
+    const { container, rerender } = render(<ChatTranscript filteredLogs={[]} />);
+    expect(screen.getByText('No messages yet.')).toBeInTheDocument();
+
+    rerender(<ChatTranscript filteredLogs={makeEntries(5)} />);
+    const el = scroller(container);
+    el.scrollTop = 0;
+
+    roInstances.forEach((ro) => ro.trigger());
+
+    expect(el.scrollTop).toBe(1000);
+  });
+
+  it('holds the window top on live appends while the user reads history', () => {
+    const entries = makeEntries(120);
+    const { container, rerender } = render(<ChatTranscript filteredLogs={entries} />);
+    const el = scroller(container);
+    expect(screen.getByTestId('chat-show-older')).toHaveTextContent('70 hidden');
+
+    // Scroll up into history (well below the auto-reveal band).
+    el.scrollTop = 300;
+    fireEvent.scroll(el);
+
+    rerender(<ChatTranscript filteredLogs={[...entries, ...makeEntries(10)]} />);
+
+    // Window start held: hidden count unchanged, appended rows visible.
+    expect(screen.getByTestId('chat-show-older')).toHaveTextContent('70 hidden');
+    expect(renderedRows(container)).toHaveLength(60);
+  });
+
+  it('slides the window on appends while pinned at the bottom', () => {
+    const entries = makeEntries(120);
+    const { container, rerender } = render(<ChatTranscript filteredLogs={entries} />);
+
+    rerender(<ChatTranscript filteredLogs={[...entries, ...makeEntries(10)]} />);
+
+    expect(screen.getByTestId('chat-show-older')).toHaveTextContent('80 hidden');
+    expect(renderedRows(container)).toHaveLength(50);
+  });
+
+  it('renders unique row keys for seq-less (worker-shaped) entries', () => {
+    // Worker-log frames may arrive without a usable seq; keys must fall back
+    // to ts+content instead of collapsing onto one duplicate key.
+    const entries: LogEntry[] = Array.from({ length: 10 }, (_, i) => ({
+      ts: `2026-07-25T10:00:${String(i).padStart(2, '0')}Z`,
+      card_id: 'TEST-001',
+      type: 'user' as const,
+      content: `entry ${i}`,
+    }));
+    const { container } = render(<ChatTranscript filteredLogs={entries} />);
+
+    const keys = renderedRows(container).map((r) => r.getAttribute('data-logkey'));
+    expect(new Set(keys).size).toBe(10);
   });
 });

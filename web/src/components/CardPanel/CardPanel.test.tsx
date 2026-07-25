@@ -847,6 +847,37 @@ describe('CardPanel - close hardening', () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
+  it('an aborted backdrop press does not arm a later drawer-to-backdrop release', () => {
+    const onClose = vi.fn();
+    render(<CardPanel {...makeProps({ onClose })} />);
+    const backdrop = screen.getByTestId('card-panel-backdrop');
+    const dialog = screen.getByRole('dialog');
+
+    // Press on backdrop, release over the drawer - abort, no close.
+    fireEvent.mouseDown(backdrop);
+    fireEvent.mouseUp(dialog);
+    expect(onClose).not.toHaveBeenCalled();
+
+    // Text-selection drag: press in the drawer, release over the backdrop.
+    // The stale flag from the aborted press must not close the panel.
+    fireEvent.mouseDown(dialog);
+    fireEvent.mouseUp(backdrop);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('right/middle click on the backdrop does not close the panel', () => {
+    const onClose = vi.fn();
+    render(<CardPanel {...makeProps({ onClose })} />);
+    const backdrop = screen.getByTestId('card-panel-backdrop');
+
+    fireEvent.mouseDown(backdrop, { button: 2 });
+    fireEvent.mouseUp(backdrop, { button: 2 });
+    fireEvent.mouseDown(backdrop, { button: 1 });
+    fireEvent.mouseUp(backdrop, { button: 1 });
+
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it('puts initial focus on the dialog surface, not the Close button', () => {
     render(<CardPanel {...makeProps()} />);
 

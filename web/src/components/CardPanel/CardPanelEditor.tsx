@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useEffect, useId, useRef } from 'react';
+import { Suspense, lazy, memo, useCallback, useEffect, useId, useRef } from 'react';
 import { useTheme } from '../../hooks/useTheme';
 import { useEditorHeight } from '../../hooks/useEditorHeight';
 import { useCursorFollowScroll } from '../../hooks/useCursorFollowScroll';
@@ -8,6 +8,29 @@ import { ErrorBoundary } from '../ErrorBoundary';
 
 const MDEditor = lazy(() => import('@uiw/react-md-editor'));
 const MarkdownPreview = lazy(() => import('@uiw/react-markdown-preview'));
+
+/** Read-only description body, memoized on the body string: the left column
+ *  stays mounted while a transcript streams, and without the memo every ring
+ *  flush would re-run react-markdown's full pipeline over the card body. A
+ *  failed chunk import degrades to the same plain fallback instead of
+ *  throwing to the panel-wide boundary. */
+const CardBodyPreview = memo(function CardBodyPreview({ body }: { body: string }) {
+  const previewFallback = (
+    <div
+      className="bf-markdown-fallback whitespace-pre-wrap font-mono text-sm"
+      style={{ color: 'var(--fg)' }}
+    >
+      {body}
+    </div>
+  );
+  return (
+    <ErrorBoundary fallback={previewFallback}>
+      <Suspense fallback={previewFallback}>
+        <MarkdownPreview source={body} skipHtml className="bf-markdown" urlTransform={safeUrlTransform} />
+      </Suspense>
+    </ErrorBoundary>
+  );
+});
 
 interface CardPanelEditorProps {
   body: string;
@@ -149,14 +172,6 @@ export function CardPanelEditor({ body, onChange, editable, editing, onToggleEdi
               aria-label="Description (loading rich editor...)"
             />
           );
-          const previewFallback = (
-            <div
-              className="bf-markdown-fallback whitespace-pre-wrap font-mono text-sm"
-              style={{ color: 'var(--fg)' }}
-            >
-              {body}
-            </div>
-          );
           return inEditMode ? (
             <div onDragOver={upload.handleDragOver} onDrop={upload.handleDrop}>
               <ErrorBoundary fallback={editFallback}>
@@ -186,11 +201,7 @@ export function CardPanelEditor({ body, onChange, editable, editing, onToggleEdi
               )}
             </div>
           ) : (
-            <ErrorBoundary fallback={previewFallback}>
-              <Suspense fallback={previewFallback}>
-                <MarkdownPreview source={body} skipHtml className="bf-markdown" urlTransform={safeUrlTransform} />
-              </Suspense>
-            </ErrorBoundary>
+            <CardBodyPreview body={body} />
           );
         })()}
       </div>
