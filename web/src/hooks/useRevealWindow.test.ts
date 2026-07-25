@@ -104,9 +104,26 @@ describe('useRevealWindow', () => {
     expect(result.current.visible).toHaveLength(30);
     expect(result.current.hiddenCount).toBe(0);
 
-    // A subsequent big list starts from a fresh tail, not the old extent.
+    // A cleared-then-refilled stream (length passes through 0, as clear()
+    // always produces) starts from a fresh tail, not the old extent.
+    rerender({ items: [], hold: false });
     rerender({ items: makeItems(200, 2000), hold: false });
     expect(result.current.visible).toHaveLength(50);
     expect(result.current.hiddenCount).toBe(150);
+  });
+
+  it('reveals top-growth (history-page prepend) even while at the bottom', () => {
+    const items = makeItems(40, 100);
+    const { result, rerender } = renderWindow(items);
+    expect(result.current.hiddenCount).toBe(0);
+
+    // A fetched history page prepends 20 older items; holdTop is false
+    // (user at the bottom clicked Load earlier). The page must be visible,
+    // not hidden behind the fold.
+    rerender({ items: [...makeItems(20, 0), ...items], hold: false });
+
+    expect(result.current.visible).toHaveLength(60);
+    expect(result.current.visible[0]).toBe(0);
+    expect(result.current.hiddenCount).toBe(0);
   });
 });

@@ -36,17 +36,25 @@ export function useRevealWindow<T>(
   // pattern as the sessionID reset in ChatThread (see web/CLAUDE.md on
   // render-time resets).
   const [prevLen, setPrevLen] = useState(items.length);
+  const [prevFirst, setPrevFirst] = useState<T | undefined>(items[0]);
   if (items.length !== prevLen) {
     setPrevLen(items.length);
+    setPrevFirst(items[0]);
     if (items.length < prevLen) {
       if (extraRevealed !== 0) {
         setExtraRevealed(0);
       }
-    } else if (holdTop) {
-      // Growth while reading history: widen the revealed extent by the
-      // growth so the window start (and every revealed row) stays put.
-      const grown = extraRevealed + (items.length - prevLen);
-      setExtraRevealed(Math.min(grown, Math.max(0, items.length - initialTail)));
+    } else {
+      // Growth at the TOP (first item identity changed) is a history-page
+      // prepend: widen the extent so the fetched rows are visible instead
+      // of landing behind the fold. Growth at the bottom widens only while
+      // reading history (holdTop), so the window start stays put; at the
+      // live tail it slides, keeping the DOM bounded.
+      const grewOnTop = prevLen > 0 && items[0] !== prevFirst;
+      if (holdTop || grewOnTop) {
+        const grown = extraRevealed + (items.length - prevLen);
+        setExtraRevealed(Math.min(grown, Math.max(0, items.length - initialTail)));
+      }
     }
   }
 

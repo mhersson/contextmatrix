@@ -213,6 +213,54 @@ describe('useChatStream', () => {
     expect(listChatMessagesBeforeMock.mock.calls.length).toBe(calls);
   });
 
+  it('discards a stale loadOlder page after an A→B→A session swap', async () => {
+    listChatMessagesTailMock.mockResolvedValue({
+      messages: Array.from({ length: 10 }, (_, i) => makeMessage(21 + i)),
+    });
+    const { result, rerender } = renderHook(
+      ({ id }: { id: string }) => useChatStream(id),
+      { initialProps: { id: 'S1' } },
+    );
+    await waitFor(() => expect(result.current.hasMore).toBe(true));
+
+    // Start a page fetch for the FIRST S1 lifetime and keep it pending.
+    let resolveStale: (v: { messages: ChatMessage[] }) => void = () => {};
+    listChatMessagesBeforeMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveStale = resolve;
+      }),
+    );
+    let stale: Promise<void> = Promise.resolve();
+    act(() => {
+      stale = result.current.loadOlder();
+    });
+
+    // Swap away and back - same session ID, new stream lifetime.
+    rerender({ id: 'S2' });
+    rerender({ id: 'S1' });
+    await waitFor(() => expect(result.current.logs).toHaveLength(10));
+
+    // The stale page resolves now; it must be discarded entirely.
+    await act(async () => {
+      resolveStale({ messages: Array.from({ length: 10 }, (_, i) => makeMessage(11 + i)) });
+      await stale;
+    });
+
+    expect(result.current.logs.map((l) => l.seq)).toEqual(
+      Array.from({ length: 10 }, (_, i) => 21 + i),
+    );
+    // And it must not have unlocked or corrupted paging: the next loadOlder
+    // still pages from seq 21.
+    listChatMessagesBeforeMock.mockResolvedValueOnce({
+      messages: Array.from({ length: 10 }, (_, i) => makeMessage(11 + i)),
+    });
+    await act(async () => {
+      await result.current.loadOlder();
+    });
+    expect(listChatMessagesBeforeMock).toHaveBeenLastCalledWith('S1', 21, 200);
+    expect(result.current.logs).toHaveLength(20);
+  });
+
   it('serializes concurrent loadOlder calls to one in-flight fetch', async () => {
     listChatMessagesTailMock.mockResolvedValue({
       messages: [makeMessage(21), makeMessage(22)],

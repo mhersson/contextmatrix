@@ -142,15 +142,19 @@ export function ChatTranscript({
         el.scrollTop = el.scrollHeight;
         return;
       }
-      pendingAnchorRef.current = null;
       const row = findRowByKey(el, pending.key);
-      if (row) {
-        el.scrollTop += row.getBoundingClientRect().top - pending.prevTop;
+      if (row === null) {
+        // The anchored row vanished (window slide or ring eviction) - this
+        // first-row change is NOT the awaited prepend. Disarm without
+        // touching scroll state or reading-history mode; native scroll
+        // anchoring covers whatever moved.
+        pendingAnchorRef.current = null;
+        return;
       }
-      // Older content landed - the user is reading history. Never yank to
-      // bottom here, even when the anchor row got evicted between trigger
-      // and commit (a rare ring-drop race; position is then left to native
-      // scroll anchoring rather than teleporting to the tail).
+      // Older content landed above the anchor - restore its offset. The
+      // user is now reading history: never yank to bottom.
+      pendingAnchorRef.current = null;
+      el.scrollTop += row.getBoundingClientRect().top - pending.prevTop;
       userScrolledUpRef.current = true;
       setScrolledUp(true);
       return;

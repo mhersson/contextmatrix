@@ -379,7 +379,7 @@ func (s *Store) ListMessagesTail(ctx context.Context, sessionID string, limit in
 		ORDER BY seq ASC
 	`, sessionID, limit)
 	if err != nil {
-		return nil, fmt.Errorf("list tail: %w", err)
+		return nil, fmt.Errorf("chat: list tail: %w", err)
 	}
 
 	defer rows.Close()
@@ -404,7 +404,7 @@ func (s *Store) ListMessagesBefore(ctx context.Context, sessionID string, before
 		ORDER BY seq ASC
 	`, sessionID, beforeSeq, limit)
 	if err != nil {
-		return nil, fmt.Errorf("list before: %w", err)
+		return nil, fmt.Errorf("chat: list before: %w", err)
 	}
 
 	defer rows.Close()

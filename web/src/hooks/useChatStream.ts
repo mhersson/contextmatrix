@@ -113,9 +113,13 @@ export function useChatStream(sessionID: string): UseChatStream {
   const oldestSeqRef = useRef<number | null>(null);
   /** Synchronous re-entrancy guard - state updates are async. */
   const loadingOlderRef = useRef(false);
-  /** Which session an in-flight loadOlder belongs to; results for a session
-   *  the user has switched away from are discarded. */
-  const activeSessionRef = useRef(sessionID);
+  /** Stream epoch, bumped by the main effect on every (re)subscription. An
+   *  in-flight loadOlder captures it and discards its result on mismatch.
+   *  An epoch (not the session ID) is required: an A→B→A pane swap restores
+   *  the same ID, and a page fetched for the FIRST A lifetime landing in the
+   *  re-bootstrapped second one would corrupt oldestSeqRef and duplicate
+   *  rows. */
+  const streamEpochRef = useRef(0);
 
   const [prevSessionID, setPrevSessionID] = useState(sessionID);
   if (sessionID !== prevSessionID) {
@@ -141,7 +145,7 @@ export function useChatStream(sessionID: string): UseChatStream {
     prevStatusRef.current = undefined;
     oldestSeqRef.current = null;
     loadingOlderRef.current = false;
-    activeSessionRef.current = sessionID;
+    streamEpochRef.current += 1;
 
     let stopped = false;
     let retry = 1000;
@@ -266,11 +270,12 @@ export function useChatStream(sessionID: string): UseChatStream {
     if (before === null || before <= 1) return; // nothing loaded yet / at seq 1
     if (loadingOlderRef.current) return; // serialize: one page in flight
 
+    const epoch = streamEpochRef.current;
     loadingOlderRef.current = true;
     setLoadingOlder(true);
     try {
       const result = await api.listChatMessagesBefore(sessionID, before, OLDER_PAGE_LIMIT);
-      if (activeSessionRef.current !== sessionID) return; // switched mid-flight
+      if (streamEpochRef.current !== epoch) return; // stream re-bootstrapped mid-flight
       const msgs = result.messages;
       if (msgs.length === 0) {
         // Defensive: contiguity means this only happens if rows vanished.
@@ -291,8 +296,13 @@ export function useChatStream(sessionID: string): UseChatStream {
     } catch {
       // Transient fetch failure - keep hasMore so the user can retry.
     } finally {
-      loadingOlderRef.current = false;
-      setLoadingOlder(false);
+      // A stale call must not touch the guards: the effect already reset
+      // them for the new epoch, and a fresh fetch may be in flight - an
+      // unconditional clear here would unlock a concurrent duplicate page.
+      if (streamEpochRef.current === epoch) {
+        loadingOlderRef.current = false;
+        setLoadingOlder(false);
+      }
     }
   }, [sessionID, prepend]);
 
