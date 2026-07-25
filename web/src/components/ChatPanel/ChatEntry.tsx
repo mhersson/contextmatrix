@@ -2,6 +2,7 @@ import { memo } from 'react';
 import type { LogEntry } from '../../types';
 import { TimestampLabel } from '../../utils/chatTimestamp';
 import { ChatMarkdown } from './ChatMarkdown';
+import { CollapsiblePayload } from './CollapsiblePayload';
 import { SpeakerChip } from './SpeakerChip';
 import { accentFor, textFor } from './chatEntryUtils';
 
@@ -86,13 +87,26 @@ function ChatEntryImpl({ entry, stampHHMM, stampTitle }: ChatEntryProps) {
     );
   }
 
+  // Gap markers are short one-liners; everything else in the fallthrough
+  // (tool_call, tool_result, thinking, stderr) can be a 32 KiB payload and
+  // collapses to a preview so it never enters layout at full size.
+  if (entry.type === 'gap') {
+    return (
+      <div
+        className="pl-3 border-l-2 text-sm font-mono leading-relaxed whitespace-pre-wrap break-words"
+        style={{ borderLeftColor: accentFor(entry.type), color: textFor(entry.type) }}
+      >
+        {entry.content}
+      </div>
+    );
+  }
+
   return (
-    <div
-      className="pl-3 border-l-2 text-sm text-[var(--fg)] font-mono leading-relaxed whitespace-pre-wrap break-words"
-      style={{ borderLeftColor: accentFor(entry.type), color: textFor(entry.type) }}
-    >
-      {entry.content}
-    </div>
+    <CollapsiblePayload
+      content={entry.content}
+      accent={accentFor(entry.type)}
+      textColor={textFor(entry.type)}
+    />
   );
 }
 
