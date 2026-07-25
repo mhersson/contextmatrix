@@ -1,6 +1,15 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { FilterChipBar } from './FilterChipBar';
+
+const authState = vi.hoisted(() => ({ current: null as unknown }));
+vi.mock('../../hooks/useAuth', () => ({
+  useOptionalAuth: () => authState.current,
+}));
+
+beforeEach(() => {
+  authState.current = null;
+});
 
 describe('FilterChipBar', () => {
   const baseProps = {
@@ -49,4 +58,51 @@ describe('FilterChipBar', () => {
     expect(onSearchChange).toHaveBeenCalledWith('auth');
   });
 
+  it('mentions assignee in the search placeholder', () => {
+    render(<FilterChipBar {...baseProps} />);
+    expect(screen.getByPlaceholderText(/assignee/i)).toBeInTheDocument();
+  });
+
+  describe('Assigned to me chip', () => {
+    it('is absent without an AuthProvider (useOptionalAuth returns null)', () => {
+      render(<FilterChipBar {...baseProps} />);
+      expect(screen.queryByRole('button', { name: /assigned to me/i })).not.toBeInTheDocument();
+    });
+
+    it('is absent in none mode', () => {
+      authState.current = { mode: 'none', user: { username: 'alice' } };
+      render(<FilterChipBar {...baseProps} />);
+      expect(screen.queryByRole('button', { name: /assigned to me/i })).not.toBeInTheDocument();
+    });
+
+    it('is absent in multi mode with no session user', () => {
+      authState.current = { mode: 'multi', user: null };
+      render(<FilterChipBar {...baseProps} />);
+      expect(screen.queryByRole('button', { name: /assigned to me/i })).not.toBeInTheDocument();
+    });
+
+    it('renders and toggles filter.assignee in multi mode with a session user', () => {
+      authState.current = { mode: 'multi', user: { username: 'alice' } };
+      const onFilterChange = vi.fn();
+      render(<FilterChipBar {...baseProps} onFilterChange={onFilterChange} />);
+
+      const chip = screen.getByRole('button', { name: /assigned to me/i });
+      fireEvent.click(chip);
+      expect(onFilterChange).toHaveBeenCalledWith({ assignee: 'alice' });
+    });
+
+    it('shows Assigned to me as active when filter.assignee matches the session user', () => {
+      authState.current = { mode: 'multi', user: { username: 'alice' } };
+      render(<FilterChipBar {...baseProps} filter={{ assignee: 'alice' }} />);
+      expect(screen.getByRole('button', { name: /assigned to me/i })).toHaveAttribute('data-active', 'true');
+    });
+
+    it('clears filter.assignee when toggled off', () => {
+      authState.current = { mode: 'multi', user: { username: 'alice' } };
+      const onFilterChange = vi.fn();
+      render(<FilterChipBar {...baseProps} filter={{ assignee: 'alice' }} onFilterChange={onFilterChange} />);
+      fireEvent.click(screen.getByRole('button', { name: /assigned to me/i }));
+      expect(onFilterChange).toHaveBeenCalledWith({});
+    });
+  });
 });

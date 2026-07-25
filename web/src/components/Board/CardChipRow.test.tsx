@@ -47,6 +47,26 @@ describe('CardChipRow - branch badge gating', () => {
   });
 });
 
+describe('CardChipRow - assignee chip', () => {
+  it('shows the assignee chip with username and tooltip in expanded mode', () => {
+    render(<CardChipRow card={{ ...baseCard, assignee: 'alice' }} />);
+    const chip = screen.getByTitle('Assignee: alice');
+    expect(chip).toBeInTheDocument();
+    expect(chip).toHaveTextContent('alice');
+  });
+
+  it('hides the assignee chip in compact mode even when assignee is set', () => {
+    render(<CardChipRow card={{ ...baseCard, assignee: 'alice' }} compact />);
+    expect(screen.queryByTitle('Assignee: alice')).not.toBeInTheDocument();
+    expect(screen.queryByText('alice')).not.toBeInTheDocument();
+  });
+
+  it('hides the assignee chip when unset', () => {
+    render(<CardChipRow card={baseCard} />);
+    expect(screen.queryByTitle(/^Assignee:/)).not.toBeInTheDocument();
+  });
+});
+
 describe('CardChipRow - Best of N vs mob execute', () => {
   it('suppresses the Best of N chip when mob execute is active', () => {
     render(

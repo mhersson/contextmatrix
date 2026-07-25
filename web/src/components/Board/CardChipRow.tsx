@@ -100,6 +100,24 @@ export function CardChipRow({ card, compact = false, onParentClick }: CardChipRo
         })()
       )}
 
+      {/* Assignee chip */}
+      {card.assignee && (
+        <span
+          className="chip-pill truncate max-w-[140px] inline-flex items-center gap-1.5 pr-2"
+          style={chipTint('var(--blue)')}
+          title={`Assignee: ${card.assignee}`}
+        >
+          <span
+            className="w-3.5 h-3.5 rounded-full flex items-center justify-center text-[8px] font-semibold flex-shrink-0"
+            style={{ backgroundColor: 'var(--bg-blue)', color: 'var(--blue)' }}
+            aria-hidden="true"
+          >
+            {card.assignee.charAt(0).toUpperCase()}
+          </span>
+          <span className="truncate">{card.assignee}</span>
+        </span>
+      )}
+
       {/* Dependency status */}
       {card.depends_on && card.depends_on.length > 0 && (
         <span

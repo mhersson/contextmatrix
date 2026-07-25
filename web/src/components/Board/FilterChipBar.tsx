@@ -1,3 +1,4 @@
+import { useOptionalAuth } from '../../hooks/useAuth';
 import type { CardFilter } from '../../types';
 
 interface FilterChipBarProps {
@@ -22,6 +23,9 @@ export function FilterChipBar({
   searchQuery = '',
   onSearchChange,
 }: FilterChipBarProps) {
+  const auth = useOptionalAuth();
+  const assignedToMeUsername = auth?.mode === 'multi' ? auth.user?.username : undefined;
+
   function toggle(key: StringFilterKey, value: string) {
     const next = { ...filter };
     if (filter[key] === value) {
@@ -41,7 +45,7 @@ export function FilterChipBar({
         <input
           type="search"
           aria-label="Search cards"
-          placeholder="Search cards (ID, title, label)…"
+          placeholder="Search cards (ID, title, label, assignee)…"
           value={searchQuery}
           onChange={(e) => onSearchChange?.(e.target.value)}
         />
@@ -57,6 +61,18 @@ export function FilterChipBar({
           >
             <span className="fchip__swatch" style={{ background: 'var(--aqua)' }} />
             Mine
+          </button>
+        )}
+        {assignedToMeUsername && (
+          <button
+            type="button"
+            className="fchip"
+            data-active={isActive('assignee', assignedToMeUsername)}
+            aria-pressed={isActive('assignee', assignedToMeUsername)}
+            onClick={() => toggle('assignee', assignedToMeUsername)}
+          >
+            <span className="fchip__swatch" style={{ background: 'var(--blue)' }} />
+            Assigned to me
           </button>
         )}
         <button
