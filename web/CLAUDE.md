@@ -62,6 +62,8 @@ block). A stored value wins over the server default; invalid values fall back.
 - Primary action = `--green`; secondary = `--aqua`; destructive = `--red`.
 - Parent-ID badge (subtasks only): `--bg-blue` bg + `--aqua` text - same as the
   active-agent indicator.
+- Assignee chip (board card, expanded footer only, hidden in compact view):
+  `--bg-blue` bg + `--blue` text and initials dot.
 
 Radix and Catppuccin map their scales onto these variables (Radix:
 Slate/Tomato/Amber/Grass/Teal/Blue/Plum, accents at step 11; Catppuccin: Mocha

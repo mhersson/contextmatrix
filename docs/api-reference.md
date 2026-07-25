@@ -72,6 +72,7 @@ GET    /api/auth/session                                # who am I (multi mode o
 GET    /api/auth/token/{token}                          # inspect a bootstrap/invite/reset token (multi mode only)
 POST   /api/auth/token/{token}                          # redeem token: set password + auto-login (multi mode only)
 POST   /api/auth/password                                # change own password (multi mode only)
+GET    /api/users                                        # user roster for pickers (any session, multi mode only)
 
 GET    /api/admin/users                                 # list accounts (admin-only, multi mode only)
 POST   /api/admin/users                                 # create account + invite link (admin-only, multi mode only)
@@ -124,6 +125,15 @@ cookie; the header is consulted only when there is no session (MCP, HMAC
 backend callbacks, or `auth.mode: none`). This upgrades the claim/release
 ownership check above from a courtesy into real enforcement - see §
 Authentication (multi mode) below.
+
+`PATCH /api/projects/{project}/cards/{id}` derives its commit-author identity
+from this same resolved identity (session in multi mode, else `X-Agent-ID`),
+so a UI-driven patch commits as `[agent:human:alice] CARD-001: ...` rather
+than the generic `[contextmatrix]` marker - see domain rule 5 in
+`docs/data-model.md` for the commit-message format. The same identity backs
+the activity-log entry and SSE event for any state change or `assignee` edit
+the patch makes, so both carry the real acting user rather than a generic
+marker.
 
 **Identity is a tag, not auth (`auth.mode: none`).** In `none` mode
 ContextMatrix is single-tenant with no auth layer below `X-Agent-ID`; spoofing
@@ -258,7 +268,7 @@ clients. The raw error is always logged server-side with the request's
 | Code               | HTTP | When                                                                                                                                               |
 | ------------------ | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `CARD_NOT_VETTED`  | 403  | A non-human agent calls `POST /claim` on a card with `source != null && vetted == false`.                                                          |
-| `HUMAN_ONLY_FIELD` | 403  | An agent without `human:` prefix attempts to set `autonomous`, `create_pr`, `vetted`, `base_branch`, a model pin (`model_orchestrator`, `model_coder`, `model_reviewer`), `best_of_n`, a mob field (`mob_participants`, `mob_phases`, `mob_guests`), or `verify`. |
+| `HUMAN_ONLY_FIELD` | 403  | An agent without `human:` prefix attempts to set `autonomous`, `create_pr`, `vetted`, `assignee`, `base_branch`, a model pin (`model_orchestrator`, `model_coder`, `model_reviewer`), `best_of_n`, a mob field (`mob_participants`, `mob_phases`, `mob_guests`), or `verify`. |
 
 ## Authentication (multi mode)
 
@@ -451,6 +461,26 @@ session for the account - the session making this call survives. Returns
 | ------ | ------------------ | ------------------------------------------------ |
 | 401    | `UNAUTHORIZED`     | No session, or `current_password` is wrong        |
 | 422    | `VALIDATION_ERROR` | `new_password` under 10 characters                |
+
+### GET /api/users
+
+The user roster backing the card `assignee` pickers (Info-tab ChipPicker,
+`CreateCardPanel`). Any valid session may call it - **not** admin-gated, unlike
+every route in the section below. Only registered in `auth.mode: multi`; in
+`auth.mode: none` there is no user roster to serve, so the route is not
+registered at all (a plain **404**, not an empty list).
+
+```json
+[
+  { "username": "alice", "display_name": "Alice Nakamura" },
+  { "username": "bob", "display_name": "Bob Okafor" }
+]
+```
+
+Sorted by `username`. Disabled accounts are excluded - the picker never offers
+a username that can no longer be assigned. Unlike `GET /api/admin/users`, this
+response carries no `is_admin`, `disabled`, `has_password`, or `last_login_at`
+- it exists to populate a picker, not to manage accounts.
 
 **Admin endpoints.** Every route below additionally requires an admin session
 (**403 `FORBIDDEN`** otherwise - see § Admin gate above).

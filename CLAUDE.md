@@ -193,6 +193,11 @@ Full detail and examples: `docs/data-model.md`.
     with 409. The `promote_to_autonomous` MCP tool is the same operation, also
     human-only (`agent_id` must start with `human:`). The agent backend's
     `/promote` webhook calls this endpoint first, fail-closed.
+14. **`assignee`** - human-only informational responsibility label (a bare
+    username), fully independent of `assigned_agent` (the execution claim).
+    Never a permission boundary. Validated against the user roster in multi
+    mode; hidden entirely in none mode (there is no user roster to validate
+    against).
 
 ## Running & verifying
 

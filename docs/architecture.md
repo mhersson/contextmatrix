@@ -253,6 +253,14 @@ authenticated, session-bound human - a proof.
 - The browser-generated agent ID (none mode) is intentional. Do not propose
   adding a username prompt, OAuth, or per-user permissions to none mode -
   that's what multi mode is for.
+- `assignee` (the card's responsibility label) is informational, not access
+  control - it never gates claim, release, stall, or terminal-state
+  transitions. Do not flag its lack of enforcement, and do not propose
+  turning it into a permission boundary. MCP cannot write it at all (excluded
+  from `create_card`/`update_card`); the REST `HUMAN_ONLY_FIELD` gate on it is
+  the same fork as every other identity check in this document - a workflow
+  contract in `none` mode, real enforcement in `multi` mode once a session
+  identity backs it.
 - `githubauth` is the one place where real authentication matters in every
   mode. Token-handling code there should be reviewed strictly.
 
