@@ -531,6 +531,31 @@ class APIClient {
     );
   }
 
+  /** Newest `limit` messages in chronological order - the lazy-history
+   *  bootstrap page. */
+  async listChatMessagesTail(id: string, limit: number): Promise<{ messages: ChatMessage[] }> {
+    const qs = new URLSearchParams({ tail: '1', limit: String(limit) });
+    return this.request<{ messages: ChatMessage[] }>(
+      `/chats/${encodeURIComponent(id)}/messages?${qs.toString()}`,
+    );
+  }
+
+  /** Newest `limit` messages with seq strictly below `beforeSeq`, in
+   *  chronological order - one backward history page. */
+  async listChatMessagesBefore(
+    id: string,
+    beforeSeq: number,
+    limit: number,
+  ): Promise<{ messages: ChatMessage[] }> {
+    const qs = new URLSearchParams({
+      before_seq: String(beforeSeq),
+      limit: String(limit),
+    });
+    return this.request<{ messages: ChatMessage[] }>(
+      `/chats/${encodeURIComponent(id)}/messages?${qs.toString()}`,
+    );
+  }
+
   // Images - POST /api/images with multipart/form-data. The request() helper
   // hard-codes Content-Type: application/json, so this method talks to fetch
   // directly and threads the same X-Agent-ID / X-Requested-With headers used

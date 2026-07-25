@@ -452,6 +452,135 @@ func TestListMessages_UnknownSessionReturns404(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
+// seedMessages creates a session with n sequential assistant messages and
+// returns its ID.
+func seedMessages(t *testing.T, mgr *chat.Manager, n int) string {
+	t.Helper()
+
+	ctx := context.Background()
+	sess, err := mgr.CreateSession(ctx,
+		chat.CreateInput{Title: "t", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	for i := range n {
+		_, err := mgr.AppendMessage(ctx, sess.ID, chat.RoleAssistantText,
+			`{"text":"m`+strconv.Itoa(i)+`"}`)
+		require.NoError(t, err)
+	}
+
+	return sess.ID
+}
+
+func listMessagesSeqs(t *testing.T, mux http.Handler, path string) []int64 {
+	t.Helper()
+
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, "body: %s", w.Body.String())
+
+	var body struct {
+		Messages []chat.Message `json:"messages"`
+	}
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
+	require.NotNil(t, body.Messages, "messages must be [] not null")
+
+	seqs := make([]int64, len(body.Messages))
+	for i, m := range body.Messages {
+		seqs[i] = m.Seq
+	}
+
+	return seqs
+}
+
+func TestListMessages_TailReturnsNewestN(t *testing.T) {
+	mux, mgr := newChatFixture(t, defaultFixtureOpts())
+	id := seedMessages(t, mgr, 30)
+
+	seqs := listMessagesSeqs(t, mux, "/api/chats/"+id+"/messages?tail=1&limit=10")
+	assert.Equal(t, []int64{21, 22, 23, 24, 25, 26, 27, 28, 29, 30}, seqs)
+}
+
+func TestListMessages_BeforeSeqPagesBackward(t *testing.T) {
+	mux, mgr := newChatFixture(t, defaultFixtureOpts())
+	id := seedMessages(t, mgr, 30)
+
+	page2 := listMessagesSeqs(t, mux, "/api/chats/"+id+"/messages?before_seq=21&limit=10")
+	assert.Equal(t, []int64{11, 12, 13, 14, 15, 16, 17, 18, 19, 20}, page2)
+
+	page3 := listMessagesSeqs(t, mux, "/api/chats/"+id+"/messages?before_seq=11&limit=10")
+	assert.Equal(t, []int64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, page3)
+
+	empty := listMessagesSeqs(t, mux, "/api/chats/"+id+"/messages?before_seq=1&limit=10")
+	assert.Empty(t, empty)
+}
+
+func TestListMessages_BeforeSeqInvalid(t *testing.T) {
+	mux, mgr := newChatFixture(t, defaultFixtureOpts())
+	id := seedMessages(t, mgr, 1)
+
+	for _, v := range []string{"0", "-1", "abc", "9223372036854775808"} {
+		req := httptest.NewRequest(http.MethodGet,
+			"/api/chats/"+id+"/messages?before_seq="+v, nil)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code, "before_seq=%s", v)
+	}
+}
+
+func TestListMessages_TailInvalid(t *testing.T) {
+	mux, mgr := newChatFixture(t, defaultFixtureOpts())
+	id := seedMessages(t, mgr, 1)
+
+	for _, v := range []string{"0", "true", "2", "yes"} {
+		req := httptest.NewRequest(http.MethodGet,
+			"/api/chats/"+id+"/messages?tail="+v, nil)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code, "tail=%s", v)
+	}
+}
+
+func TestListMessages_ModesMutuallyExclusive(t *testing.T) {
+	mux, mgr := newChatFixture(t, defaultFixtureOpts())
+	id := seedMessages(t, mgr, 1)
+
+	queries := []string{
+		"since_seq=1&before_seq=5",
+		"tail=1&since_seq=0",
+		"tail=1&before_seq=5",
+		"since_seq=1&before_seq=5&tail=1",
+	}
+	for _, q := range queries {
+		req := httptest.NewRequest(http.MethodGet,
+			"/api/chats/"+id+"/messages?"+q, nil)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code, "query: %s", q)
+	}
+}
+
+func TestListMessages_TailClampsLimitToMax(t *testing.T) {
+	mux, mgr := newChatFixture(t, defaultFixtureOpts())
+	id := seedMessages(t, mgr, 1001)
+
+	seqs := listMessagesSeqs(t, mux, "/api/chats/"+id+"/messages?tail=1&limit=99999")
+	require.Len(t, seqs, 1000, "limit must be clamped to maxLimit")
+	assert.Equal(t, int64(2), seqs[0], "tail keeps the NEWEST rows when clamped")
+	assert.Equal(t, int64(1001), seqs[999])
+}
+
+func TestListMessages_TailAndBeforeSeqUnknownSession404(t *testing.T) {
+	mux, _ := newChatFixture(t, defaultFixtureOpts())
+
+	for _, q := range []string{"tail=1", "before_seq=5"} {
+		req := httptest.NewRequest(http.MethodGet, "/api/chats/no-such/messages?"+q, nil)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusNotFound, w.Code, "query: %s", q)
+	}
+}
+
 func TestSendMessage_TooLong(t *testing.T) {
 	mux, mgr := newChatFixture(t, defaultFixtureOpts())
 	sess, err := mgr.CreateSession(context.Background(),

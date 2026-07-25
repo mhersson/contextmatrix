@@ -23,7 +23,7 @@ interface ChatThreadProps {
 export function ChatThread({ sessionID, embedded = false, isFocused = true }: ChatThreadProps) {
   const [session, setSession] = useState<ChatSession | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const { logs, sessionUpdate } = useChatStream(sessionID);
+  const { logs, sessionUpdate, hasMore, loadingOlder, loadOlder } = useChatStream(sessionID);
 
   // Merge live session updates (context_tokens, model, rehydration_active)
   // from the SSE wire on top of the snapshot returned by GET /api/chats/{id}.
@@ -267,6 +267,9 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true }: Ch
           readOnlyMessage={readOnlyMessage}
           focusKey={isFocused ? sessionID : undefined}
           working={working}
+          hasMoreHistory={hasMore}
+          loadingOlder={loadingOlder}
+          onLoadOlder={loadOlder}
         />
       </div>
     </div>

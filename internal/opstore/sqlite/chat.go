@@ -322,17 +322,9 @@ func (s *Store) MaxSeq(ctx context.Context, sessionID string) (int64, error) {
 	return maxSeq.Int64, nil
 }
 
-func (s *Store) ListMessages(ctx context.Context, sessionID string, sinceSeq int64, limit int) ([]chat.Message, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, session_id, seq, role, content, created_at, rehydration_phase, kind
-        FROM chat_messages
-        WHERE session_id = ? AND seq > ?
-        ORDER BY seq ASC LIMIT ?`, sessionID, sinceSeq, limit)
-	if err != nil {
-		return nil, fmt.Errorf("chat: list messages: %w", err)
-	}
-
-	defer rows.Close()
-
+// scanChatMessages drains rows into chat.Message values. Column order must be
+// id, session_id, seq, role, content, created_at, rehydration_phase, kind.
+func scanChatMessages(rows *sql.Rows) ([]chat.Message, error) {
 	var out []chat.Message
 
 	for rows.Next() {
@@ -356,6 +348,20 @@ func (s *Store) ListMessages(ctx context.Context, sessionID string, sinceSeq int
 	return out, rows.Err()
 }
 
+func (s *Store) ListMessages(ctx context.Context, sessionID string, sinceSeq int64, limit int) ([]chat.Message, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, session_id, seq, role, content, created_at, rehydration_phase, kind
+        FROM chat_messages
+        WHERE session_id = ? AND seq > ?
+        ORDER BY seq ASC LIMIT ?`, sessionID, sinceSeq, limit)
+	if err != nil {
+		return nil, fmt.Errorf("chat: list messages: %w", err)
+	}
+
+	defer rows.Close()
+
+	return scanChatMessages(rows)
+}
+
 func (s *Store) ListMessagesTail(ctx context.Context, sessionID string, limit int) ([]chat.Message, error) {
 	if limit <= 0 {
 		return nil, nil
@@ -373,32 +379,37 @@ func (s *Store) ListMessagesTail(ctx context.Context, sessionID string, limit in
 		ORDER BY seq ASC
 	`, sessionID, limit)
 	if err != nil {
-		return nil, fmt.Errorf("list tail: %w", err)
+		return nil, fmt.Errorf("chat: list tail: %w", err)
 	}
 
 	defer rows.Close()
 
-	var out []chat.Message
+	return scanChatMessages(rows)
+}
 
-	for rows.Next() {
-		var (
-			m         chat.Message
-			createdAt int64
-			role      string
-			phase     int
-		)
-
-		if err := rows.Scan(&m.ID, &m.SessionID, &m.Seq, &role, &m.Content, &createdAt, &phase, &m.Kind); err != nil {
-			return nil, err
-		}
-
-		m.Role = chat.Role(role)
-		m.CreatedAt = time.Unix(createdAt, 0).UTC()
-		m.RehydrationPhase = phase != 0
-		out = append(out, m)
+func (s *Store) ListMessagesBefore(ctx context.Context, sessionID string, beforeSeq int64, limit int) ([]chat.Message, error) {
+	if limit <= 0 {
+		return nil, nil
 	}
 
-	return out, rows.Err()
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, session_id, seq, role, content, created_at, rehydration_phase, kind
+		FROM (
+			SELECT id, session_id, seq, role, content, created_at, rehydration_phase, kind
+			FROM chat_messages
+			WHERE session_id = ? AND seq < ?
+			ORDER BY seq DESC
+			LIMIT ?
+		)
+		ORDER BY seq ASC
+	`, sessionID, beforeSeq, limit)
+	if err != nil {
+		return nil, fmt.Errorf("chat: list before: %w", err)
+	}
+
+	defer rows.Close()
+
+	return scanChatMessages(rows)
 }
 
 // ClearTranscriptAtomic runs the two-step Clear Context transcript mutation

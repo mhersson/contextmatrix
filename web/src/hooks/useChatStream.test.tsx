@@ -4,10 +4,14 @@ import type { ChatMessage } from '../types';
 import { useChatStream } from './useChatStream';
 
 const listChatMessagesMock = vi.fn<(id: string, since: number, limit: number) => Promise<{ messages: ChatMessage[] }>>();
+const listChatMessagesTailMock = vi.fn<(id: string, limit: number) => Promise<{ messages: ChatMessage[] }>>();
+const listChatMessagesBeforeMock = vi.fn<(id: string, beforeSeq: number, limit: number) => Promise<{ messages: ChatMessage[] }>>();
 
 vi.mock('../api/client', () => ({
   api: {
     listChatMessages: (...args: Parameters<typeof listChatMessagesMock>) => listChatMessagesMock(...args),
+    listChatMessagesTail: (...args: Parameters<typeof listChatMessagesTailMock>) => listChatMessagesTailMock(...args),
+    listChatMessagesBefore: (...args: Parameters<typeof listChatMessagesBeforeMock>) => listChatMessagesBeforeMock(...args),
   },
 }));
 
@@ -43,12 +47,27 @@ class MockES {
   close() {}
 }
 
+function makeMessage(seq: number, role = 'user', content = `m${seq}`): ChatMessage {
+  return {
+    id: seq,
+    session_id: 'S1',
+    seq,
+    role,
+    content,
+    created_at: `2026-05-14T00:00:${String(seq % 60).padStart(2, '0')}Z`,
+  } as ChatMessage;
+}
+
 describe('useChatStream', () => {
   beforeEach(() => {
     (globalThis as unknown as { EventSource: typeof MockES }).EventSource = MockES;
     instances.length = 0;
     listChatMessagesMock.mockReset();
     listChatMessagesMock.mockResolvedValue({ messages: [] });
+    listChatMessagesTailMock.mockReset();
+    listChatMessagesTailMock.mockResolvedValue({ messages: [] });
+    listChatMessagesBeforeMock.mockReset();
+    listChatMessagesBeforeMock.mockResolvedValue({ messages: [] });
   });
   afterEach(() => {
     vi.restoreAllMocks();
@@ -93,32 +112,39 @@ describe('useChatStream', () => {
     expect(result.current.logs).toHaveLength(0);
   });
 
-  it('bootstraps persisted transcript before subscribing SSE', async () => {
-    listChatMessagesMock.mockResolvedValue({
-      messages: [
-        { id: 1, session_id: 'S1', seq: 1, role: 'user', content: 'past1', created_at: '2026-05-14T00:00:00Z' },
-        { id: 2, session_id: 'S1', seq: 2, role: 'assistant_text', content: 'past2', created_at: '2026-05-14T00:00:01Z' },
-      ],
+  it('bootstraps the NEWEST page before subscribing SSE and reports hasMore', async () => {
+    // A long session: the newest page starts at seq 21, so history remains.
+    listChatMessagesTailMock.mockResolvedValue({
+      messages: Array.from({ length: 10 }, (_, i) => makeMessage(21 + i)),
+    });
+
+    const { result } = renderHook(() => useChatStream('S1'));
+    await waitFor(() => expect(result.current.logs).toHaveLength(10));
+
+    expect(listChatMessagesTailMock).toHaveBeenCalledWith('S1', 200);
+    expect(result.current.logs[0].seq).toBe(21);
+    expect(result.current.logs[9].seq).toBe(30);
+    expect(result.current.hasMore).toBe(true);
+
+    // SSE subscribes with since_seq=30 so it only delivers strictly newer events.
+    await waitFor(() => expect(instances).toHaveLength(1));
+    expect(instances[0].url).toContain('since_seq=30');
+  });
+
+  it('reports hasMore=false when the bootstrap page starts at seq 1', async () => {
+    listChatMessagesTailMock.mockResolvedValue({
+      messages: [makeMessage(1), makeMessage(2)],
     });
 
     const { result } = renderHook(() => useChatStream('S1'));
     await waitFor(() => expect(result.current.logs).toHaveLength(2));
 
-    expect(listChatMessagesMock).toHaveBeenCalledWith('S1', 0, 1000);
-    expect(result.current.logs[0].content).toBe('past1');
-    expect(result.current.logs[1].content).toBe('past2');
-
-    // SSE subscribes with since_seq=2 so it only delivers strictly newer events.
-    await waitFor(() => expect(instances).toHaveLength(1));
-    expect(instances[0].url).toContain('since_seq=2');
+    expect(result.current.hasMore).toBe(false);
   });
 
   it('dedups SSE events whose seq is <= last bootstrap seq', async () => {
-    listChatMessagesMock.mockResolvedValue({
-      messages: [
-        { id: 1, session_id: 'S1', seq: 1, role: 'user', content: 'past1', created_at: '2026-05-14T00:00:00Z' },
-        { id: 2, session_id: 'S1', seq: 2, role: 'assistant_text', content: 'past2', created_at: '2026-05-14T00:00:01Z' },
-      ],
+    listChatMessagesTailMock.mockResolvedValue({
+      messages: [makeMessage(1, 'user', 'past1'), makeMessage(2, 'assistant_text', 'past2')],
     });
 
     const { result } = renderHook(() => useChatStream('S1'));
@@ -135,7 +161,7 @@ describe('useChatStream', () => {
   });
 
   it('continues with SSE only when bootstrap fetch fails', async () => {
-    listChatMessagesMock.mockRejectedValue(new Error('boom'));
+    listChatMessagesTailMock.mockRejectedValue(new Error('boom'));
 
     const { result } = renderHook(() => useChatStream('S1'));
     await waitFor(() => expect(result.current.connected).toBe(true));
@@ -144,6 +170,184 @@ describe('useChatStream', () => {
       instances[0].onmessage?.({ data: JSON.stringify({ seq: 1, role: 'user', content: 'hi' }) });
     });
     await waitFor(() => expect(result.current.logs).toHaveLength(1));
+    expect(result.current.hasMore).toBe(false);
+  });
+
+  it('loadOlder pages backward, prepends in order, and exhausts at seq 1', async () => {
+    listChatMessagesTailMock.mockResolvedValue({
+      messages: Array.from({ length: 10 }, (_, i) => makeMessage(21 + i)),
+    });
+    const { result } = renderHook(() => useChatStream('S1'));
+    await waitFor(() => expect(result.current.hasMore).toBe(true));
+
+    listChatMessagesBeforeMock.mockResolvedValueOnce({
+      messages: Array.from({ length: 10 }, (_, i) => makeMessage(11 + i)),
+    });
+    await act(async () => {
+      await result.current.loadOlder();
+    });
+
+    expect(listChatMessagesBeforeMock).toHaveBeenCalledWith('S1', 21, 200);
+    expect(result.current.logs.map((l) => l.seq)).toEqual(
+      Array.from({ length: 20 }, (_, i) => 11 + i),
+    );
+    expect(result.current.hasMore).toBe(true);
+
+    listChatMessagesBeforeMock.mockResolvedValueOnce({
+      messages: Array.from({ length: 10 }, (_, i) => makeMessage(1 + i)),
+    });
+    await act(async () => {
+      await result.current.loadOlder();
+    });
+
+    expect(listChatMessagesBeforeMock).toHaveBeenLastCalledWith('S1', 11, 200);
+    expect(result.current.logs).toHaveLength(30);
+    expect(result.current.logs[0].seq).toBe(1);
+    expect(result.current.hasMore).toBe(false);
+
+    // Exhausted: further calls never hit the API.
+    const calls = listChatMessagesBeforeMock.mock.calls.length;
+    await act(async () => {
+      await result.current.loadOlder();
+    });
+    expect(listChatMessagesBeforeMock.mock.calls.length).toBe(calls);
+  });
+
+  it('discards a stale loadOlder page after an A→B→A session swap', async () => {
+    listChatMessagesTailMock.mockResolvedValue({
+      messages: Array.from({ length: 10 }, (_, i) => makeMessage(21 + i)),
+    });
+    const { result, rerender } = renderHook(
+      ({ id }: { id: string }) => useChatStream(id),
+      { initialProps: { id: 'S1' } },
+    );
+    await waitFor(() => expect(result.current.hasMore).toBe(true));
+
+    // Start a page fetch for the FIRST S1 lifetime and keep it pending.
+    let resolveStale: (v: { messages: ChatMessage[] }) => void = () => {};
+    listChatMessagesBeforeMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveStale = resolve;
+      }),
+    );
+    let stale: Promise<void> = Promise.resolve();
+    act(() => {
+      stale = result.current.loadOlder();
+    });
+
+    // Swap away and back - same session ID, new stream lifetime.
+    rerender({ id: 'S2' });
+    rerender({ id: 'S1' });
+    await waitFor(() => expect(result.current.logs).toHaveLength(10));
+
+    // The stale page resolves now; it must be discarded entirely.
+    await act(async () => {
+      resolveStale({ messages: Array.from({ length: 10 }, (_, i) => makeMessage(11 + i)) });
+      await stale;
+    });
+
+    expect(result.current.logs.map((l) => l.seq)).toEqual(
+      Array.from({ length: 10 }, (_, i) => 21 + i),
+    );
+    // And it must not have unlocked or corrupted paging: the next loadOlder
+    // still pages from seq 21.
+    listChatMessagesBeforeMock.mockResolvedValueOnce({
+      messages: Array.from({ length: 10 }, (_, i) => makeMessage(11 + i)),
+    });
+    await act(async () => {
+      await result.current.loadOlder();
+    });
+    expect(listChatMessagesBeforeMock).toHaveBeenLastCalledWith('S1', 21, 200);
+    expect(result.current.logs).toHaveLength(20);
+  });
+
+  it('flips hasMore off when the ring cannot hold a full history page', async () => {
+    listChatMessagesTailMock.mockResolvedValue({
+      messages: Array.from({ length: 10 }, (_, i) => makeMessage(21 + i)),
+    });
+    // Test-seam capacity 15: bootstrap fills 10, leaving room for only 5.
+    const { result } = renderHook(() => useChatStream('S1', 15));
+    await waitFor(() => expect(result.current.hasMore).toBe(true));
+
+    listChatMessagesBeforeMock.mockResolvedValueOnce({
+      messages: Array.from({ length: 10 }, (_, i) => makeMessage(11 + i)),
+    });
+    await act(async () => {
+      await result.current.loadOlder();
+    });
+
+    // Only the NEWEST 5 batch rows (16..20) fit - transcript stays
+    // contiguous - and hasMore flips off so the UI stops offering deeper
+    // history (it stays server-side).
+    expect(result.current.logs.map((l) => l.seq)).toEqual(
+      Array.from({ length: 15 }, (_, i) => 16 + i),
+    );
+    expect(result.current.hasMore).toBe(false);
+  });
+
+  it('serializes concurrent loadOlder calls to one in-flight fetch', async () => {
+    listChatMessagesTailMock.mockResolvedValue({
+      messages: [makeMessage(21), makeMessage(22)],
+    });
+    const { result } = renderHook(() => useChatStream('S1'));
+    await waitFor(() => expect(result.current.hasMore).toBe(true));
+
+    let resolveFetch: (v: { messages: ChatMessage[] }) => void = () => {};
+    listChatMessagesBeforeMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveFetch = resolve;
+      }),
+    );
+
+    let first: Promise<void> = Promise.resolve();
+    let second: Promise<void> = Promise.resolve();
+    act(() => {
+      first = result.current.loadOlder();
+      second = result.current.loadOlder();
+    });
+    await waitFor(() => expect(result.current.loadingOlder).toBe(true));
+
+    await act(async () => {
+      resolveFetch({ messages: [makeMessage(20)] });
+      await Promise.all([first, second]);
+    });
+
+    expect(listChatMessagesBeforeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves divider and rehydration fields across a history page boundary', async () => {
+    listChatMessagesTailMock.mockResolvedValue({
+      messages: [makeMessage(10, 'assistant_text', 'after-clear')],
+    });
+    const { result } = renderHook(() => useChatStream('S1'));
+    await waitFor(() => expect(result.current.logs).toHaveLength(1));
+
+    listChatMessagesBeforeMock.mockResolvedValueOnce({
+      messages: [
+        { ...makeMessage(8, 'user', 'old'), rehydration_phase: true },
+        { ...makeMessage(9, 'system', 'Context cleared'), kind: 'divider' },
+      ] as ChatMessage[],
+    });
+    await act(async () => {
+      await result.current.loadOlder();
+    });
+
+    expect(result.current.logs.map((l) => l.seq)).toEqual([8, 9, 10]);
+    expect(result.current.logs[0].rehydration_phase).toBe(true);
+    expect(result.current.logs[1].kind).toBe('divider');
+  });
+
+  it('maps tool_result and tool_result_summary roles to the tool_result type', async () => {
+    listChatMessagesTailMock.mockResolvedValue({
+      messages: [
+        makeMessage(1, 'tool_result', 'raw output'),
+        makeMessage(2, 'tool_result_summary', 'summarized output'),
+      ],
+    });
+    const { result } = renderHook(() => useChatStream('S1'));
+    await waitFor(() => expect(result.current.logs).toHaveLength(2));
+
+    expect(result.current.logs.every((l) => l.type === 'tool_result')).toBe(true);
   });
 
   it('coalesces a synchronous SSE burst into at most two commits', async () => {

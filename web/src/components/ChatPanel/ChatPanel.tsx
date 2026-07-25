@@ -35,9 +35,28 @@ export interface ChatPanelProps {
    * text/tool-call/thinking filter prefs. Card-bound chat passes nothing.
    */
   working?: WorkingState | null;
+  /**
+   * Lazy-history seam (global chat only; card chat passes nothing): whether
+   * older persisted messages exist beyond the in-memory window, whether a
+   * page fetch is in flight, and the fetch trigger.
+   */
+  hasMoreHistory?: boolean;
+  loadingOlder?: boolean;
+  onLoadOlder?: () => Promise<void> | void;
 }
 
-export function ChatPanel({ logs, onSend, sendDisabled, footer, readOnlyMessage, focusKey, working }: ChatPanelProps) {
+export function ChatPanel({
+  logs,
+  onSend,
+  sendDisabled,
+  footer,
+  readOnlyMessage,
+  focusKey,
+  working,
+  hasMoreHistory,
+  loadingOlder,
+  onLoadOlder,
+}: ChatPanelProps) {
   const { prefs, setPref } = useChatFilterPrefs();
   const { showText, showToolCalls, showThinking } = prefs;
 
@@ -78,7 +97,13 @@ export function ChatPanel({ logs, onSend, sendDisabled, footer, readOnlyMessage,
         </label>
       </div>
 
-      <ChatTranscript filteredLogs={filteredLogs} working={working} />
+      <ChatTranscript
+        filteredLogs={filteredLogs}
+        working={working}
+        hasMoreHistory={hasMoreHistory}
+        loadingOlder={loadingOlder}
+        onLoadOlder={onLoadOlder}
+      />
 
       {readOnlyMessage ? (
         <div

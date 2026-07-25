@@ -222,6 +222,153 @@ describe('ChatTranscript scrolling', () => {
     expect(renderedRows(container)).toHaveLength(50);
   });
 
+  it('offers Load earlier when persisted history remains and no rows are hidden', () => {
+    const onLoadOlder = vi.fn();
+    render(
+      <ChatTranscript
+        filteredLogs={makeEntries(10)}
+        hasMoreHistory
+        onLoadOlder={onLoadOlder}
+      />,
+    );
+
+    const button = screen.getByTestId('chat-show-older');
+    expect(button).toHaveTextContent('Load earlier messages');
+
+    fireEvent.click(button);
+    expect(onLoadOlder).toHaveBeenCalledTimes(1);
+  });
+
+  it('prefers revealing in-memory rows before fetching persisted history', () => {
+    const onLoadOlder = vi.fn();
+    const { container } = render(
+      <ChatTranscript
+        filteredLogs={makeEntries(120)}
+        hasMoreHistory
+        onLoadOlder={onLoadOlder}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('chat-show-older'));
+
+    expect(onLoadOlder).not.toHaveBeenCalled();
+    expect(renderedRows(container)).toHaveLength(120);
+    // All in-memory rows revealed - the button now offers the fetch path.
+    expect(screen.getByTestId('chat-show-older')).toHaveTextContent('Load earlier messages');
+  });
+
+  it('disables the affordance while a history page is loading', () => {
+    const onLoadOlder = vi.fn();
+    render(
+      <ChatTranscript
+        filteredLogs={makeEntries(10)}
+        hasMoreHistory
+        loadingOlder
+        onLoadOlder={onLoadOlder}
+      />,
+    );
+
+    const button = screen.getByTestId('chat-show-older');
+    expect(button).toBeDisabled();
+    expect(button).toHaveTextContent('Loading earlier messages…');
+
+    fireEvent.click(button);
+    expect(onLoadOlder).not.toHaveBeenCalled();
+  });
+
+  it('restores the anchor position when a fetched history page prepends', () => {
+    const onLoadOlder = vi.fn();
+    const entries = makeEntries(10);
+    const { container, rerender } = render(
+      <ChatTranscript filteredLogs={entries} hasMoreHistory onLoadOlder={onLoadOlder} />,
+    );
+    const el = scroller(container);
+    expect(el.scrollTop).toBe(1000);
+
+    const rectSpy = vi.spyOn(Element.prototype, 'getBoundingClientRect');
+    rectSpy.mockReturnValueOnce({ top: 100 } as DOMRect); // arm: first row top
+    rectSpy.mockReturnValue({ top: 500 } as DOMRect); // post-prepend position
+
+    fireEvent.click(screen.getByTestId('chat-show-older'));
+    expect(onLoadOlder).toHaveBeenCalledTimes(1);
+
+    // The fetch goes in flight, then its page lands as a prepend (older
+    // seqs before the existing rows). The anchor must absorb the delta.
+    rerender(
+      <ChatTranscript filteredLogs={entries} hasMoreHistory loadingOlder onLoadOlder={onLoadOlder} />,
+    );
+    const older = Array.from({ length: 5 }, (_, i) => ({
+      ts: '2026-07-25T09:59:00Z',
+      card_id: 'TEST-001',
+      type: 'user' as const,
+      content: `older ${i}`,
+      seq: -5 + i, // sorts before seq 1..10 in list order
+    }));
+    rerender(
+      <ChatTranscript
+        filteredLogs={[...older, ...entries]}
+        hasMoreHistory
+        onLoadOlder={onLoadOlder}
+      />,
+    );
+
+    expect(el.scrollTop).toBe(1000 + 400);
+  });
+
+  it('fetched pages become visible even when clicked from the bottom', () => {
+    // Enough rows that the tail window is active: the fetched page must
+    // widen the window, not land behind the Show older fold.
+    const entries = makeEntries(50);
+    const onLoadOlder = vi.fn();
+    const { container, rerender } = render(
+      <ChatTranscript filteredLogs={entries} hasMoreHistory onLoadOlder={onLoadOlder} />,
+    );
+    expect(renderedRows(container)).toHaveLength(50);
+
+    fireEvent.click(screen.getByTestId('chat-show-older'));
+    rerender(
+      <ChatTranscript filteredLogs={entries} hasMoreHistory loadingOlder onLoadOlder={onLoadOlder} />,
+    );
+
+    const older: LogEntry[] = Array.from({ length: 20 }, (_, i) => ({
+      ts: '2026-07-25T09:59:00Z',
+      card_id: 'TEST-001',
+      type: 'user' as const,
+      content: `older ${i}`,
+      seq: -20 + i,
+    }));
+    rerender(
+      <ChatTranscript
+        filteredLogs={[...older, ...entries]}
+        onLoadOlder={onLoadOlder}
+      />,
+    );
+
+    expect(renderedRows(container)).toHaveLength(70);
+    expect(screen.queryByTestId('chat-show-older')).not.toBeInTheDocument();
+  });
+
+  it('does not mount the backlog on filter-toggle regrowth (no fetch in flight)', () => {
+    const entries = makeEntries(300);
+    const { container, rerender } = render(<ChatTranscript filteredLogs={entries} />);
+    expect(screen.getByTestId('chat-show-older')).toHaveTextContent('250 hidden');
+
+    // A filter toggled back on re-includes old rows: length grows and the
+    // first element changes - the same signature as a prepend, but with no
+    // fetch in flight the window must stay capped.
+    const unhidden: LogEntry[] = Array.from({ length: 100 }, (_, i) => ({
+      ts: '2026-07-25T09:00:00Z',
+      card_id: 'TEST-001',
+      type: 'user' as const,
+      content: `unhidden ${i}`,
+      seq: -100 + i,
+    }));
+    rerender(<ChatTranscript filteredLogs={[...unhidden, ...entries]} />);
+
+    expect(renderedRows(container)).toHaveLength(50);
+    expect(screen.getByTestId('chat-show-older')).toHaveTextContent('350 hidden');
+  });
+
   it('renders unique row keys for seq-less (worker-shaped) entries', () => {
     // Worker-log frames may arrive without a usable seq; keys must fall back
     // to ts+content instead of collapsing onto one duplicate key.

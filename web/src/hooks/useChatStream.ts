@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import type { ChatMessage, ChatSessionUpdate, ChatStatus, LogEntry } from '../types';
 import { useRingBuffer } from './useRingBuffer';
@@ -73,32 +73,81 @@ export interface UseChatStream {
    * `null` until the first session_updated event arrives.
    */
   sessionUpdate: ChatSessionUpdate | null;
+  /** True when older persisted history exists below the loaded window. */
+  hasMore: boolean;
+  /** True while a loadOlder() page fetch is in flight. */
+  loadingOlder: boolean;
+  /** Fetches the next OLDER_PAGE_LIMIT messages before the oldest loaded seq
+   *  and prepends them. No-op while loading, when hasMore is false, or
+   *  before the bootstrap resolves. */
+  loadOlder: () => Promise<void>;
 }
 
 const CHAT_LOG_RING_CAPACITY = 2000;
-const BOOTSTRAP_LIMIT = 1000;
+/** Newest-first bootstrap page. Small enough to load instantly, big enough
+ *  that the rendering layer's tail window has local scroll-back data. */
+const BOOTSTRAP_TAIL_LIMIT = 200;
+/** Rows fetched per loadOlder() page. */
+const OLDER_PAGE_LIMIT = 200;
 
 /**
  * Bootstraps the chat transcript from SQLite then subscribes to the SSE
- * stream. The REST bootstrap fills the in-browser ring buffer with persisted
- * history (so a refresh restores the transcript); the SSE subscription picks
- * up new events from the bootstrap's last seq onward. Replay overlap is
- * deduped by seq, so the seam is gapless without doubling messages.
+ * stream. The REST bootstrap loads the NEWEST page of persisted history (so
+ * a refresh restores the recent transcript instantly even for huge
+ * sessions); the SSE subscription picks up new events from the bootstrap's
+ * last seq onward, and loadOlder() pages backward on demand. Replay overlap
+ * is deduped by seq, so every seam is gapless without doubling messages.
+ * hasMore derives from the seq-contiguity invariant (seqs run 1..N with no
+ * holes): history remains below the window exactly while oldest seq > 1.
  */
-export function useChatStream(sessionID: string): UseChatStream {
-  const { logs, append, clear } = useRingBuffer(CHAT_LOG_RING_CAPACITY);
+export function useChatStream(
+  sessionID: string,
+  // Test seam: the ring-full partial-insert path in loadOlder is unreachable
+  // with the production capacity. Callers never pass this.
+  ringCapacity: number = CHAT_LOG_RING_CAPACITY,
+): UseChatStream {
+  const { logs, append, prepend, clear } = useRingBuffer(ringCapacity);
   const [connected, setConnected] = useState(false);
   const [sessionUpdate, setSessionUpdate] = useState<ChatSessionUpdate | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   // prevStatusRef tracks the last-seen status value so the comparison runs
   // once per real SSE event (not twice under StrictMode setter double-invoke).
   const prevStatusRef = useRef<ChatStatus | undefined>(undefined);
+  /** Oldest loaded seq; null until a non-empty bootstrap page lands. */
+  const oldestSeqRef = useRef<number | null>(null);
+  /** Synchronous re-entrancy guard - state updates are async. */
+  const loadingOlderRef = useRef(false);
+  /** Stream epoch: an in-flight loadOlder captures it at call start and
+   *  discards its result (and skips its guard cleanup) on mismatch. An epoch
+   *  (not the session ID) is required: an A→B→A pane swap restores the same
+   *  ID, and a page fetched for the FIRST A lifetime landing in the
+   *  re-bootstrapped second one would corrupt oldestSeqRef and duplicate
+   *  rows. */
+  const streamEpochRef = useRef(0);
 
   const [prevSessionID, setPrevSessionID] = useState(sessionID);
   if (sessionID !== prevSessionID) {
     setPrevSessionID(sessionID);
     setConnected(false);
     setSessionUpdate(null);
+    setHasMore(false);
+    setLoadingOlder(false);
     clear();
+    // The epoch bump and the paging-ref invalidation MUST be atomic with the
+    // clear() above: bumping in the post-commit effect leaves a window
+    // (commit → passive-effect flush) where a stale loadOlder response still
+    // sees the old epoch and prepends the previous session's page into the
+    // freshly cleared buffer. Writing these refs during render is safe here:
+    // the writes are idempotent-by-monotonicity (a re-executed or discarded
+    // render at worst bumps the epoch again, which only ever DISCARDS stale
+    // pages - the fail-safe direction) and nothing reads them during render.
+    // eslint-disable-next-line react-hooks/refs
+    streamEpochRef.current += 1;
+    // eslint-disable-next-line react-hooks/refs
+    oldestSeqRef.current = null;
+    // eslint-disable-next-line react-hooks/refs
+    loadingOlderRef.current = false;
   }
 
   useEffect(() => {
@@ -107,11 +156,10 @@ export function useChatStream(sessionID: string): UseChatStream {
     }
 
     // Reset the status tracker for the new session. Done here (not in the
-    // in-render state-marker block above) so the write happens outside
-    // render - the react-hooks/refs lint rule forbids ref writes during
-    // render. The previous effect's cleanup has already closed the old
-    // EventSource by this point, so no handler from the old session can
-    // race the reset.
+    // in-render state-marker block above) because it has no atomicity
+    // requirement with clear() - and the previous effect's cleanup has
+    // already closed the old EventSource, so no old-session handler can
+    // race it.
     prevStatusRef.current = undefined;
 
     let stopped = false;
@@ -204,15 +252,18 @@ export function useChatStream(sessionID: string): UseChatStream {
 
     (async () => {
       try {
-        const result = await api.listChatMessages(sessionID, 0, BOOTSTRAP_LIMIT);
+        const result = await api.listChatMessagesTail(sessionID, BOOTSTRAP_TAIL_LIMIT);
         if (stopped) return;
         if (result.messages.length > 0) {
           const entries = result.messages.map(messageToLog);
           append(entries);
           lastSeq = result.messages[result.messages.length - 1].seq;
+          oldestSeqRef.current = result.messages[0].seq;
+          setHasMore(result.messages[0].seq > 1);
         }
       } catch {
-        // Bootstrap failed - fall back to SSE-only.
+        // Bootstrap failed - fall back to SSE-only (the hub ring replays the
+        // newest events from since_seq=0). hasMore stays false.
       }
       // Guard against the effect being torn down while the bootstrap await
       // was in flight (e.g. React StrictMode double-invoke, or the user
@@ -229,5 +280,46 @@ export function useChatStream(sessionID: string): UseChatStream {
     };
   }, [sessionID, append]);
 
-  return { logs, connected, sessionUpdate };
+  const loadOlder = useCallback(async () => {
+    const before = oldestSeqRef.current;
+    if (before === null || before <= 1) return; // nothing loaded yet / at seq 1
+    if (loadingOlderRef.current) return; // serialize: one page in flight
+
+    const epoch = streamEpochRef.current;
+    loadingOlderRef.current = true;
+    setLoadingOlder(true);
+    try {
+      const result = await api.listChatMessagesBefore(sessionID, before, OLDER_PAGE_LIMIT);
+      if (streamEpochRef.current !== epoch) return; // stream re-bootstrapped mid-flight
+      const msgs = result.messages;
+      if (msgs.length === 0) {
+        // Defensive: contiguity means this only happens if rows vanished.
+        setHasMore(false);
+        return;
+      }
+      const inserted = prepend(msgs.map(messageToLog));
+      if (inserted === 0) {
+        // Ring full - history beyond the in-memory cap stays server-side.
+        setHasMore(false);
+        return;
+      }
+      // prepend keeps the NEWEST `inserted` entries of the batch, so the
+      // first surviving row is msgs[msgs.length - inserted].
+      const newOldest = msgs[msgs.length - inserted].seq;
+      oldestSeqRef.current = newOldest;
+      setHasMore(inserted === msgs.length && newOldest > 1);
+    } catch {
+      // Transient fetch failure - keep hasMore so the user can retry.
+    } finally {
+      // A stale call must not touch the guards: the effect already reset
+      // them for the new epoch, and a fresh fetch may be in flight - an
+      // unconditional clear here would unlock a concurrent duplicate page.
+      if (streamEpochRef.current === epoch) {
+        loadingOlderRef.current = false;
+        setLoadingOlder(false);
+      }
+    }
+  }, [sessionID, prepend]);
+
+  return { logs, connected, sessionUpdate, hasMore, loadingOlder, loadOlder };
 }

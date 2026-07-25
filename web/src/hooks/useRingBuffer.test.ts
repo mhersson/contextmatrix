@@ -183,6 +183,115 @@ describe('useRingBuffer', () => {
     expect(result.current.logs).toBe(before);
   });
 
+  describe('prepend', () => {
+    it('inserts before existing entries and notifies synchronously', () => {
+      const { result } = renderHook(() => useRingBuffer(10));
+
+      act(() => {
+        result.current.append([makeEntry('c'), makeEntry('d')]);
+      });
+      flushRing();
+
+      let inserted = 0;
+      act(() => {
+        inserted = result.current.prepend([makeEntry('a'), makeEntry('b')]);
+      });
+
+      expect(inserted).toBe(2);
+      expect(result.current.logs.map((e) => e.content)).toEqual(['a', 'b', 'c', 'd']);
+    });
+
+    it('never evicts existing entries - keeps only the newest fitting batch rows', () => {
+      const { result } = renderHook(() => useRingBuffer(5));
+
+      act(() => {
+        result.current.append([makeEntry('x'), makeEntry('y'), makeEntry('z')]);
+      });
+      flushRing();
+
+      let inserted = 0;
+      act(() => {
+        // 4 rows into 2 free slots: only the NEWEST two ('c','d') fit,
+        // keeping the transcript contiguous with what is loaded.
+        inserted = result.current.prepend([
+          makeEntry('a'),
+          makeEntry('b'),
+          makeEntry('c'),
+          makeEntry('d'),
+        ]);
+      });
+
+      expect(inserted).toBe(2);
+      expect(result.current.logs.map((e) => e.content)).toEqual(['c', 'd', 'x', 'y', 'z']);
+    });
+
+    it('returns 0 and does not notify when the buffer is full', () => {
+      let renders = 0;
+      const { result } = renderHook(() => {
+        renders++;
+        return useRingBuffer(2);
+      });
+
+      act(() => {
+        result.current.append([makeEntry('x'), makeEntry('y')]);
+      });
+      flushRing();
+      const rendersBefore = renders;
+
+      let inserted = -1;
+      act(() => {
+        inserted = result.current.prepend([makeEntry('a')]);
+      });
+
+      expect(inserted).toBe(0);
+      expect(renders).toBe(rendersBefore);
+      expect(result.current.logs.map((e) => e.content)).toEqual(['x', 'y']);
+    });
+
+    it('includes appends still waiting in the flush window', () => {
+      const { result } = renderHook(() => useRingBuffer(10));
+
+      act(() => {
+        result.current.append([makeEntry('pending')]);
+        // No flush - the append is still in the coalescing window.
+        result.current.prepend([makeEntry('old')]);
+      });
+
+      expect(result.current.logs.map((e) => e.content)).toEqual(['old', 'pending']);
+
+      // The cancelled flush timer must not fire an extra notification.
+      let renders = 0;
+      const probe = renderHook(() => {
+        renders++;
+        return useRingBuffer(10);
+      });
+      void probe;
+      flushRing();
+      expect(result.current.logs).toHaveLength(2);
+      expect(renders).toBe(1);
+    });
+
+    it('append after prepend still evicts oldest at capacity', () => {
+      const { result } = renderHook(() => useRingBuffer(3));
+
+      act(() => {
+        result.current.append([makeEntry('b'), makeEntry('c')]);
+      });
+      flushRing();
+
+      act(() => {
+        result.current.prepend([makeEntry('a')]);
+      });
+
+      act(() => {
+        result.current.append([makeEntry('d')]);
+      });
+      flushRing();
+
+      expect(result.current.logs.map((e) => e.content)).toEqual(['b', 'c', 'd']);
+    });
+  });
+
   describe('notification coalescing', () => {
     it('coalesces multiple appends in one window into a single notification', () => {
       let renders = 0;
