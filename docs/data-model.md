@@ -485,9 +485,9 @@ via the `update_card` MCP tool and REST (PUT/PATCH).
 `human:`): `vetted`, `assignee`, `autonomous`, `create_pr`, the three model
 pins (`model_orchestrator`, `model_coder`, `model_reviewer`), `base_branch`,
 `best_of_n`, the mob fields (`mob_participants`, `mob_phases`, `mob_guests`),
-and `verify`. `assignee` is exposed on POST, PUT, and PATCH and, unlike the
-other fields in this list, carries value validation beyond the human-only gate
-- see `### assignee` below. `verify` is exposed
+and `verify`. `assignee` is exposed on POST, PUT, and PATCH and, independent
+of the human-only gate, is validated against the user roster - see
+`### assignee` below for the mode-forked rules. `verify` is exposed
 on POST (`createCardRequest`) and PATCH (`patchCardRequest`) only - there is no
 `verify` field on the full-update body - and an agent that sets it is rejected so
 it can never define its own verify gate. `create_pr` is nullable on POST:
