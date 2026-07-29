@@ -5,6 +5,13 @@ updates:
     schedule:
       interval: "weekly"
     groups:
+      # @size-limit/file pins an exact peer on size-limit, so a split PR pair
+      # is unmergeable either way round. Listed first: groups are matched in
+      # order, and this one has to win over minor-and-patch.
+      size-limit:
+        patterns:
+          - "size-limit"
+          - "@size-limit/*"
       minor-and-patch:
         update-types:
           - "minor"
