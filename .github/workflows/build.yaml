@@ -60,7 +60,10 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: "20"
+          # Matches the node:26-alpine stage in Dockerfile, so CI tests the
+          # runtime the shipped frontend is actually built on. Node 20 is EOL
+          # and below the engine floor of size-limit and jest-dom.
+          node-version: "26"
 
       - name: npm ci
         run: npm ci
