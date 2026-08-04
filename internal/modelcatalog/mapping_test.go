@@ -14,9 +14,7 @@ func TestCreatorSlug(t *testing.T) {
 		"DeepSeek":  "deepseek",
 		"MiniMax":   "minimax",
 		"Z AI":      "z-ai",
-		// Deliberately NOT mapped to x-ai: preserves the pre-migration
-		// exclusion of xAI models from the trust gate.
-		"SpaceXAI": "spacexai",
+		"SpaceXAI":  "x-ai",
 		// Unknown creators get a stable mechanical identity.
 		"Frontier Labs Ltd.": "frontier-labs-ltd",
 		"  Weird  Name!! ":   "weird-name",
@@ -35,15 +33,11 @@ func TestTrustedCreatorParity(t *testing.T) {
 	// default allowlist through the name-to-prefix resolution.
 	for _, name := range []string{
 		"OpenAI", "Anthropic", "Google", "DeepSeek",
-		"Alibaba", "Z AI", "Kimi", "MiniMax",
+		"Alibaba", "Z AI", "Kimi", "MiniMax", "SpaceXAI",
 	} {
 		if !isTrusted(creatorSlug(name), nil) {
 			t.Errorf("%q resolves to %q, which is not trusted", name, creatorSlug(name))
 		}
-	}
-
-	if isTrusted(creatorSlug("SpaceXAI"), nil) {
-		t.Error("SpaceXAI must stay outside the trust gate (see trustedCreators)")
 	}
 }
 

@@ -12,8 +12,9 @@ import (
 // vocabulary: allowlists, CandidateModel.Creator, and the OR slug join all
 // speak it. Names absent here fall back to slugifyCreator.
 var aaCreatorNameToOR = map[string]string{
-	"Alibaba": "qwen",
-	"Kimi":    "moonshotai",
+	"Alibaba":  "qwen",
+	"Kimi":     "moonshotai",
+	"SpaceXAI": "x-ai",
 }
 
 // creatorNonAlnum matches the character runs slugifyCreator collapses.
@@ -65,9 +66,7 @@ func mapAASlug(aaSlug, aaCreator string) (string, bool) {
 }
 
 // trustedCreators is the allowlist of creator vendor prefixes eligible for
-// auto-selection. Overridable via config (see Builder.Allowlist). x-ai is
-// listed but currently unreachable: AA names the creator "SpaceXAI", which
-// slugifies past it - the pre-migration exclusion, preserved deliberately.
+// auto-selection. Overridable via config (see Builder.Allowlist).
 var trustedCreators = []string{
 	"openai", "anthropic", "google", "deepseek", "qwen",
 	"z-ai", "moonshotai", "minimax", "x-ai",
