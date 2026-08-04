@@ -30,5 +30,5 @@ COPY workflow-skills/ /etc/contextmatrix/skills/
 ENV CONTEXTMATRIX_WORKFLOW_SKILLS_DIR=/etc/contextmatrix/skills
 ENV HOME=/home/nobody
 RUN mkdir -p /home/nobody && chown nobody:nobody /home/nobody
-USER nobody
+USER 65534:65534
 ENTRYPOINT ["contextmatrix"]
