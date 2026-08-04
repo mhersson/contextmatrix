@@ -294,11 +294,14 @@ backends: {}
 #    # Env: CONTEXTMATRIX_BACKEND_AGENT_RECONCILE_INTERVAL
 #    reconcile_interval: "60s"
 #
-#    # Artificial Analysis API key for live model catalog lookups.
+#    # Artificial Analysis API key for live model catalog lookups. The free
+#    # tier (100 requests/day) is sufficient: a catalog refresh uses one
+#    # request per page of ~200 models, at most 4 refreshes per day.
 #    # Env: CONTEXTMATRIX_BACKEND_AGENT_AA_API_KEY
 #    aa_api_key: ""
 #
-#    # Trusted AA creator slugs; empty = built-in default allowlist.
+#    # Trusted creator vendor prefixes (as seen in model slugs, e.g. qwen,
+#    # z-ai, moonshotai); empty = built-in default allowlist.
 #    # NOTE: model_allowlist is INERT when llm_endpoint.type is "openai". The
 #    # openai leg derives its candidate set from aa_model_map + model_priors
 #    # below - only slugs that appear in one of those two maps are considered for

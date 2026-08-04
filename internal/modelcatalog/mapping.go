@@ -6,18 +6,34 @@ import (
 	"strings"
 )
 
-// aaCreatorToOR maps an AA model_creator.slug to the OpenRouter namespace
-// prefix. Creators absent here are used verbatim.
-var aaCreatorToOR = map[string]string{
-	"zai":       "z-ai",
-	"alibaba":   "qwen",
-	"kimi":      "moonshotai",
-	"openai":    "openai",
-	"anthropic": "anthropic",
-	"google":    "google",
-	"deepseek":  "deepseek",
-	"minimax":   "minimax",
-	"x-ai":      "x-ai",
+// aaCreatorNameToOR maps an AA model_creator.name to the OpenRouter vendor
+// prefix, for creators whose slugified name diverges from it. The AA free v2
+// API dropped model_creator.slug, so the vendor prefix is the single creator
+// vocabulary: allowlists, CandidateModel.Creator, and the OR slug join all
+// speak it. Names absent here fall back to slugifyCreator.
+var aaCreatorNameToOR = map[string]string{
+	"Alibaba":  "qwen",
+	"Kimi":     "moonshotai",
+	"SpaceXAI": "x-ai",
+}
+
+// creatorNonAlnum matches the character runs slugifyCreator collapses.
+var creatorNonAlnum = regexp.MustCompile("[^a-z0-9]+")
+
+func slugifyCreator(name string) string {
+	return strings.Trim(creatorNonAlnum.ReplaceAllString(strings.ToLower(name), "-"), "-")
+}
+
+// creatorSlug resolves an AA creator name to the OR vendor prefix. Unknown
+// names get a stable mechanical identity so vendor diversity and operator
+// allowlists still work for creators AA adds later.
+func creatorSlug(name string) string {
+	name = strings.TrimSpace(name)
+	if prefix, ok := aaCreatorNameToOR[name]; ok {
+		return prefix
+	}
+
+	return slugifyCreator(name)
 }
 
 // aaSlugOverrides handles version-ambiguous AA slugs the heuristic cannot
@@ -29,15 +45,15 @@ var aaSlugOverrides = map[string]string{
 // versionDash matches a digit-dash-digit run so "5-2" -> "5.2", "k2-7" -> "k2.7".
 var versionDash = regexp.MustCompile(`(\d)-(\d)`)
 
-// mapAASlug converts an AA (slug, creator) to a full OpenRouter slug. Returns
-// ok=false when the creator is unknown (caller logs + skips).
+// mapAASlug converts an AA (slug, creator) to a full OpenRouter slug. The
+// creator is already the OR vendor prefix (see creatorSlug); ok=false only
+// when it is empty (caller logs + skips).
 func mapAASlug(aaSlug, aaCreator string) (string, bool) {
 	if full, ok := aaSlugOverrides[aaSlug]; ok {
 		return full, true
 	}
 
-	prefix, ok := aaCreatorToOR[aaCreator]
-	if !ok {
+	if aaCreator == "" {
 		return "", false
 	}
 
@@ -46,14 +62,14 @@ func mapAASlug(aaSlug, aaCreator string) (string, bool) {
 		name = versionDash.ReplaceAllString(name, "$1.$2")
 	}
 
-	return prefix + "/" + name, true
+	return aaCreator + "/" + name, true
 }
 
-// trustedCreators is the allowlist of AA creator slugs eligible for
+// trustedCreators is the allowlist of creator vendor prefixes eligible for
 // auto-selection. Overridable via config (see Builder.Allowlist).
 var trustedCreators = []string{
-	"openai", "anthropic", "google", "deepseek", "alibaba",
-	"zai", "kimi", "minimax", "x-ai",
+	"openai", "anthropic", "google", "deepseek", "qwen",
+	"z-ai", "moonshotai", "minimax", "x-ai",
 }
 
 func isTrusted(creator string, allow []string) bool {
@@ -64,23 +80,17 @@ func isTrusted(creator string, allow []string) bool {
 	return strings.TrimSpace(creator) != "" && slices.Contains(allow, creator)
 }
 
-// allowedORPrefixes maps the effective creator allowlist (config override or
-// built-in trustedCreators) to OpenRouter namespace prefixes.
+// allowedORPrefixes returns the effective creator allowlist (config override
+// or built-in trustedCreators) as a set. Allowlist entries are OR vendor
+// prefixes already.
 func allowedORPrefixes(allow []string) map[string]bool {
 	if len(allow) == 0 {
 		allow = trustedCreators
 	}
 
 	out := make(map[string]bool, len(allow))
-
 	for _, c := range allow {
-		if p, ok := aaCreatorToOR[c]; ok {
-			out[p] = true
-
-			continue
-		}
-
-		out[c] = true // creators absent from the map are used verbatim
+		out[c] = true
 	}
 
 	return out

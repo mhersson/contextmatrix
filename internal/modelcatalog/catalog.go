@@ -15,8 +15,8 @@ import (
 // before allowing another one once the cache is stale. Between attempts,
 // callers are served the last-good snapshot (or nothing if no refresh has ever
 // succeeded). Without this, every Rate/Candidates call during a catalog
-// provider outage would re-attempt the fetch and eat the full HTTP timeout
-// (up to two 30s requests) per call.
+// provider outage would re-attempt the fetch and eat the full timeout budget
+// (a 30s catalog request plus the aaFetchBudget-bounded AA fetch) per call.
 const refreshFailureCooldown = 60 * time.Second
 
 // Builder fetches AA + OR on a TTL and produces the candidate set. Safe for
