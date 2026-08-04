@@ -15,7 +15,7 @@ import (
 
 func TestBuildAppliesFloorAllowlistAndMapping(t *testing.T) {
 	aa := []aaModel{
-		{Slug: "glm-5-2", Creator: "zai", CodingIndex: new(76.5), IntelIndex: new(59.9)},   // max => norm 1.0
+		{Slug: "glm-5-2", Creator: "z-ai", CodingIndex: new(76.5), IntelIndex: new(59.9)},  // max => norm 1.0
 		{Slug: "weak-1", Creator: "openai", CodingIndex: new(30.0), IntelIndex: new(20.0)}, // norm .39 < floor .65
 		{Slug: "untrusted-x", Creator: "longcat", CodingIndex: new(float64(70)), IntelIndex: new(float64(50))},
 	}
@@ -34,8 +34,8 @@ func TestBuildAppliesFloorAllowlistAndMapping(t *testing.T) {
 		t.Errorf("bad candidate: %+v", c)
 	}
 
-	if c.Creator != "zai" {
-		t.Errorf("candidate must carry the AA creator, got %q", c.Creator)
+	if c.Creator != "z-ai" {
+		t.Errorf("candidate must carry the creator prefix, got %q", c.Creator)
 	}
 }
 
@@ -44,8 +44,8 @@ func TestBuildCollapsesEffortVariants(t *testing.T) {
 	// higher-prior variant must win the collapse. Weaker is listed first
 	// so the replacement branch in build() is exercised.
 	aa := []aaModel{
-		{Slug: "glm-5.2", Creator: "zai", CodingIndex: new(50.0), IntelIndex: new(40.0)}, // weaker
-		{Slug: "glm-5-2", Creator: "zai", CodingIndex: new(76.5), IntelIndex: new(59.9)}, // stronger (index max)
+		{Slug: "glm-5.2", Creator: "z-ai", CodingIndex: new(50.0), IntelIndex: new(40.0)}, // weaker
+		{Slug: "glm-5-2", Creator: "z-ai", CodingIndex: new(76.5), IntelIndex: new(59.9)}, // stronger (index max)
 	}
 	or := map[string]orEntry{
 		"z-ai/glm-5.2": {PromptPrice: 1.2e-6, CompletionPrice: 4.1e-6, ContextWindow: 1048576, Tools: true},
@@ -60,7 +60,7 @@ func TestBuildCollapsesEffortVariants(t *testing.T) {
 		t.Errorf("collapse must keep the highest-prior variant, got %+v", got[0])
 	}
 
-	if got[0].Creator != "zai" {
+	if got[0].Creator != "z-ai" {
 		t.Errorf("creator must survive the collapse, got %q", got[0].Creator)
 	}
 }
@@ -121,7 +121,7 @@ func TestBuilderUsesEndpointLegWhenConfigured(t *testing.T) {
 	defer endpointSrv.Close()
 
 	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"data":[{"slug":"vendor-x-1","model_creator":{"slug":"vendor"},
+		_, _ = w.Write([]byte(`{"data":[{"slug":"vendor-x-1","model_creator":{"name":"vendor"},
 			"evaluations":{"artificial_analysis_coding_index":80,"artificial_analysis_intelligence_index":80}}]}`))
 	}))
 	defer aaSrv.Close()
@@ -161,7 +161,7 @@ func TestBuilderRatePricesAnyServedModel(t *testing.T) {
 	defer endpointSrv.Close()
 
 	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"data":[{"slug":"vendor-x-1","model_creator":{"slug":"vendor"},
+		_, _ = w.Write([]byte(`{"data":[{"slug":"vendor-x-1","model_creator":{"name":"vendor"},
 			"evaluations":{"artificial_analysis_coding_index":80,"artificial_analysis_intelligence_index":80}}]}`))
 	}))
 	defer aaSrv.Close()

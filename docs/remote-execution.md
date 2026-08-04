@@ -965,7 +965,7 @@ backends:
     reconcile_interval: "60s"       # backstop sweep tick; "0s" disables it
     # Catalog + selection inputs (agent only):
     aa_api_key: ""                  # Artificial Analysis key for rating models
-    model_allowlist: []             # restricts the catalog (openrouter type)
+    model_allowlist: []             # trusted vendor prefixes, e.g. qwen, z-ai (openrouter type)
     # favorites, aa_model_map, model_priors - see config.yaml.example
   chat:
     url: "http://localhost:9091"
