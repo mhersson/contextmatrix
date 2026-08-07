@@ -70,22 +70,6 @@ func redactCardForAgent(card *board.Card, agentID string) *board.Card {
 	return &redacted
 }
 
-// redactCardsForAgent applies redactCardForAgent to every card in the slice,
-// returning a new slice. The input slice and its elements are not mutated.
-// Returns nil on nil input.
-func redactCardsForAgent(cards []*board.Card, agentID string) []*board.Card {
-	if cards == nil {
-		return nil
-	}
-
-	out := make([]*board.Card, len(cards))
-	for i, c := range cards {
-		out[i] = redactCardForAgent(c, agentID)
-	}
-
-	return out
-}
-
 // redactCardForPrompt returns a copy of the card with every untrusted-source
 // field replaced with a fixed placeholder when the card is unvetted. Used by
 // MCP prompts, which do not receive an agent_id argument and always run

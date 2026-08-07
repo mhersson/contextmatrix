@@ -2233,13 +2233,18 @@ body from every tool multiplies context cost for zero information gain.
 
 | Shape | Tools |
 | ----- | ----- |
-| Full card (`body` + `activity_log`) | `get_card`; `get_task_context` (primary card and parent - siblings are full too) |
-| Card summary (no `body`, no `activity_log`) | `create_card`, `update_card`, `transition_card`, `claim_card`, `release_card`, `add_log`, `complete_task`, `report_usage`, `report_push`, `promote_to_autonomous`, `increment_review_attempts`, `list_cards`, `get_ready_tasks` |
+| Full card (`body` + `activity_log`) | `get_card`; `get_task_context` (primary card and parent only) |
+| Card summary (no `body`, no `activity_log`) | `create_card`, `update_card`, `transition_card`, `claim_card`, `release_card`, `add_log`, `complete_task`, `report_usage`, `report_push`, `promote_to_autonomous`, `increment_review_attempts`, `list_cards`, `get_ready_tasks`, `get_task_context` siblings |
 | Minimal ack (`card_id`, `state`, `last_heartbeat`) | `heartbeat` |
 
 All scalar and bounded fields (`state`, `assigned_agent`, `review_attempts`,
 `token_usage`, `usage_breakdown`, model pins, mob fields, etc.) are present in
 summaries. Agents that need the body or the activity log call `get_card`.
+Siblings are summaries because they exist for overlap awareness
+(title/state/labels/depends_on) and their bodies grow as sibling agents write
+plans and findings - they were the N-1 full-body multiplier on the largest
+payload. Subtask detail flows through per-card `get_card` fetches and the
+server-rendered skill content, not the siblings array.
 
 A structural consequence: unvetted external card bodies cannot leak through
 any mutation or list result - the summary shape has no body field to redact.

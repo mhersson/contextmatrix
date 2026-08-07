@@ -114,36 +114,6 @@ func TestRedactCardForAgent(t *testing.T) {
 	})
 }
 
-// TestRedactCardsForAgent verifies slice-level redaction.
-func TestRedactCardsForAgent(t *testing.T) {
-	t.Run("nil input returns nil", func(t *testing.T) {
-		assert.Nil(t, redactCardsForAgent(nil, "agent:claude"))
-	})
-
-	t.Run("mixed slice redacts only unvetted entries for non-human", func(t *testing.T) {
-		cards := []*board.Card{
-			{ID: "A-1", Body: "vetted content", Vetted: true},
-			{ID: "A-2", Body: "unvetted content", Vetted: false},
-		}
-
-		got := redactCardsForAgent(cards, "agent:claude")
-		require.Len(t, got, 2)
-		assert.Equal(t, "vetted content", got[0].Body)
-		assert.Equal(t, unvettedBodyPlaceholder, got[1].Body)
-		// Originals untouched.
-		assert.Equal(t, "unvetted content", cards[1].Body)
-	})
-
-	t.Run("human caller sees full bodies", func(t *testing.T) {
-		cards := []*board.Card{
-			{ID: "A-1", Body: "secret", Vetted: false},
-		}
-
-		got := redactCardsForAgent(cards, "human:alice")
-		assert.Equal(t, "secret", got[0].Body)
-	})
-}
-
 // --- Handler-level integration tests ---
 //
 // These tests use the shared MCP setupMCP helper to verify that get_card,

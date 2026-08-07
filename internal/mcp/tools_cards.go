@@ -87,7 +87,7 @@ type getTaskContextInput struct {
 type getTaskContextOutput struct {
 	Card     *board.Card          `json:"card"`
 	Parent   *board.Card          `json:"parent,omitempty"`
-	Siblings []*board.Card        `json:"siblings,omitempty"`
+	Siblings []*CardSummary       `json:"siblings,omitempty"`
 	Config   *board.ProjectConfig `json:"config"`
 }
 
@@ -318,7 +318,7 @@ func registerTransitionCard(server *mcp.Server, svc *service.CardService) {
 func registerGetTaskContext(server *mcp.Server, svc *service.CardService, imageStore images.Store) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "get_task_context",
-		Description: "Get a card with its parent card, sibling cards (same parent), and project config in a single call. Sub-agents should call this first before touching anything - it eliminates multiple round-trips. By default, attaches inline image bytes for any cm-server-hosted markdown images in the primary card body (capped at 10); pass include_images=false to skip. Sibling card bodies stay text-only. Cumulative attached image bytes are capped at ~20 MiB; later references in body order are omitted when over budget.",
+		Description: "Get a card with its parent card, sibling cards (same parent), and project config in a single call. Sub-agents should call this first before touching anything - it eliminates multiple round-trips. The primary card and parent are full; siblings are card summaries without body or activity_log (use get_card for a sibling's content). By default, attaches inline image bytes for any cm-server-hosted markdown images in the primary card body (capped at 10); pass include_images=false to skip. Cumulative attached image bytes are capped at ~20 MiB; later references in body order are omitted when over budget.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input getTaskContextInput) (*mcp.CallToolResult, getTaskContextOutput, error) {
 		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
 		if err != nil {
@@ -352,7 +352,10 @@ func registerGetTaskContext(server *mcp.Server, svc *service.CardService, imageS
 			}
 		}
 
-		// Load siblings (cards with same parent)
+		// Load siblings (cards with same parent). Summaries only: siblings
+		// serve overlap awareness, and their bodies grow as sibling agents
+		// write plans and findings - the N-1 full bodies were the dominant
+		// payload here. Subtask detail is fetched per card via get_card.
 		if card.Parent != "" {
 			siblings, err := svc.ListCards(ctx, project, storage.CardFilter{Parent: card.Parent})
 			if err == nil {
@@ -364,7 +367,7 @@ func registerGetTaskContext(server *mcp.Server, svc *service.CardService, imageS
 					}
 				}
 
-				out.Siblings = redactCardsForAgent(filtered, input.AgentID)
+				out.Siblings = summarizeCards(filtered)
 			}
 		}
 

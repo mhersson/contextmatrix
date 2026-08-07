@@ -417,6 +417,70 @@ func TestSlimToolResultsOmitBodyAndActivityLog(t *testing.T) {
 	}
 }
 
+// TestGetTaskContextSiblingsAreSummaries pins the get_task_context shape:
+// primary card and parent stay full, siblings carry no body or activity_log.
+// Siblings serve overlap awareness (title/state/labels/depends_on); subtask
+// detail is fetched per card via get_card.
+func TestGetTaskContextSiblingsAreSummaries(t *testing.T) {
+	env := setupMCP(t)
+
+	parent := newLoggedCard(t, env, "Parent card")
+
+	mkSub := func(title string) *board.Card {
+		t.Helper()
+
+		card, err := env.svc.CreateCard(t.Context(), "test-project", service.CreateCardInput{
+			Title:    title,
+			Type:     "task",
+			Priority: "medium",
+			Body:     "## Subtask spec\nSibling body that must not ride along.",
+			Parent:   parent.ID,
+		})
+		require.NoError(t, err)
+
+		_, err = env.svc.AddLogEntry(t.Context(), "test-project", card.ID, board.ActivityEntry{
+			Agent:   "agent-1",
+			Action:  "note",
+			Message: "sibling entry",
+		})
+		require.NoError(t, err)
+
+		return card
+	}
+
+	sub1 := mkSub("Subtask one")
+	mkSub("Subtask two")
+	mkSub("Subtask three")
+
+	result := callTool(t, env, "get_task_context", map[string]any{
+		"project": "test-project",
+		"card_id": sub1.ID,
+	})
+	require.False(t, result.IsError)
+
+	var root map[string]any
+	unmarshalResult(t, result, &root)
+
+	card, ok := root["card"].(map[string]any)
+	require.True(t, ok)
+	assert.Contains(t, card, "body", "primary card stays full")
+
+	parentMap, ok := root["parent"].(map[string]any)
+	require.True(t, ok)
+	assert.Contains(t, parentMap, "body", "parent stays full")
+
+	siblings, ok := root["siblings"].([]any)
+	require.True(t, ok)
+	require.Len(t, siblings, 2)
+
+	for _, s := range siblings {
+		m, ok := s.(map[string]any)
+		require.True(t, ok)
+		assertSlimCardMap(t, m)
+		assert.Contains(t, m, "title")
+	}
+}
+
 // TestHeartbeatReturnsSlimAck pins the heartbeat response to a minimal ack:
 // skills check state on resume (stalled detection), nothing needs the card.
 func TestHeartbeatReturnsSlimAck(t *testing.T) {
