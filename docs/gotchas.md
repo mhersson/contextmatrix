@@ -31,6 +31,16 @@
   `ImmediateCommit: true` when `card.AssignedAgent == ""`, triggering an
   immediate commit. MCP tool callers (agents) never set this flag, so their
   commits continue to defer normally.
+- **MCP card results are summaries by design:** mutation and list tools return
+  `CardSummary` (no `body`, no `activity_log`); `heartbeat` returns a 3-field
+  ack. Do not "fix" a tool by returning the full `board.Card` - the echo
+  multiplies agent context cost (bodies grow during a run and every result is
+  re-read on each subsequent model call), and the summary shape is also what
+  guarantees unvetted external bodies cannot leak through mutation results.
+  Field parity with `board.Card` is enforced by
+  `TestCardSummaryMirrorsBoardCard`; the wire contract the agent backend
+  parses is pinned by `TestSlimToolResultsOmitBodyAndActivityLog`. Full-card
+  fetches stay on `get_card` / `get_task_context` only.
 - **MCP middleware chain and body limit:** `/mcp` is registered on the same
   inner `http.ServeMux` as the REST API, so it automatically inherits the shared
   middleware chain (recovery, security headers, CORS when enabled, request ID,

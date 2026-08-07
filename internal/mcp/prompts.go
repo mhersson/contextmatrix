@@ -46,6 +46,10 @@ Violating these rules leaves cards orphaned with no tracking. Follow them exactl
   tasks, etc.), ALWAYS use the provided MCP tools. NEVER use curl, wget, REST
   API calls, or any direct HTTP approach. The MCP tools are the only supported
   interface for agent operations.
+- **Mutation and list tools return card summaries.** Every card-bearing tool
+  except get_card and get_task_context returns card metadata only - never the
+  body or activity log. Call get_card when you need the full body or activity
+  log; heartbeat returns a minimal ack.
 - **Ask the user in plain text.** When you need a decision or clarification,
   ask as a normal message with any options listed inline. Do not use the
   AskUserQuestion tool - it is not supported in this workflow.
