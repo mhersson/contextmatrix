@@ -720,7 +720,8 @@ The agent backend has no fixed Opus/Sonnet split. CM sets the **orchestrator**
 model per trigger (`backends.agent.default_model`, overridden by a card's model
 pin); the harness's complexity selector picks the per-task **coder** and
 **reviewer** models within the card's budget. The phase structure is the same as
-local orchestration - only the concrete model per row differs.
+local orchestration - only the concrete model per row differs. The selection
+algorithm behind these tables is documented in `docs/model-selection.md`.
 
 | Phase            | Model                         | Method                                        | Why                                                                            |
 | ---------------- | ----------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------ |

@@ -499,6 +499,14 @@ and commit completion. The service layer closes that gap on failure:
   GIFs / non-image MIME types. Wired into `api.NewRouter` for `POST /api/images`
   + `GET /api/images/{id}` and into `mcp.NewServer` for the inline image
   attachments on `get_card` / `get_task_context`.
+- **Model Catalog** (`modelcatalog.Builder`): fetches and rates model
+  candidates for the agent backend's selector - Artificial Analysis quality
+  indices joined against the served catalog (OpenRouter or an
+  OpenAI-compatible endpoint) - and caches the result with a 6h TTL and
+  last-good fallback. Feeds the trigger payload's `selection` block, token
+  pricing, the UI model pickers, and card-pin validation (fail-open). No
+  knowledge of cards or picks - the selection algorithm runs agent-side. See
+  `docs/model-selection.md`.
 - **auth.Service** (`internal/auth`): multi-mode authentication. Argon2id
   password hashing + session issuance/validation (`password.go`, `token.go`),
   one-time bootstrap/invite/reset tokens (`tokens.go`; 48h TTL), and the GitHub

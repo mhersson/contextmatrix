@@ -210,10 +210,12 @@ its log redactor. See [Mob sessions](#mob-sessions).
 
 `selection` (`protocol.SelectionContext`) carries the auto-selection inputs:
 the rated model `candidates` from CM's cached catalog, the operator `favorites`
-merged global-over-project, the self-learning `blacklist` of models CM has
-marked incapable, an `outcome_floor`, and per-model outcome stats. The agent
-picks the orchestrator, coder, and reviewer models from these inputs. It is
-omitted when CM has no model catalog configured.
+merged with project entries replacing global ones per tier, the self-learning
+`blacklist` of models CM has marked incapable, an `outcome_floor`, and
+per-model outcome stats. The agent picks the orchestrator, coder, and reviewer
+models from these inputs. It is omitted when CM has no model catalog
+configured. See `docs/model-selection.md` for how the candidates are built and
+how the agent picks from them.
 
 `verify` is the resolved verify gate. CM merges the card's `verify` over the
 project's field by field and omits it when nothing resolves; the agent then
@@ -1057,6 +1059,8 @@ are backend-internal - see each backend's repository.
 
 ## See Also
 
+- `docs/model-selection.md` - the candidate catalog, tier bars, and the
+  favorites / blacklist / outcomes inputs behind the `selection` payload.
 - `docs/api-reference.md` § Worker & Backend Endpoints, § Chat Endpoints - the
   REST surface the web UI calls.
 - `docs/architecture.md` - component responsibilities and the full trust model.

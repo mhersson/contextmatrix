@@ -72,8 +72,8 @@ shared by the agent and chat backends).
 - **Best-of-N execution** - set `best_of_n` on a card and the agent backend
   races N candidate implementations in parallel git worktrees, each with its
   own budget and an auto-selected coder model (distinct models where the
-  eligible pool allows); a judge phase picks the winner, which is the only
-  branch pushed.
+  eligible pool allows; see [model selection](docs/model-selection.md)); a
+  judge phase picks the winner, which is the only branch pushed.
 - **Mob sessions (A2A)** - set `mob_participants` and the plan and review
   phases become moderated multi-agent discussions over the A2A protocol -
   internal seats plus optional registered guest agents - with the live
