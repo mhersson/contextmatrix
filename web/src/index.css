@@ -2447,7 +2447,7 @@ input, select, textarea {
   cursor: pointer;
 }
 .phase-strip--static { cursor: inherit; margin: 0; }
-.phase-seg { height: 4px; flex: 1; min-width: 4px; border-radius: 2px; }
+.phase-seg { height: 8px; flex: 1; min-width: 4px; border-radius: 4px; }
 .phase-seg-todo        { background: var(--bg3); }
 .phase-seg-in_progress { background: var(--blue); }
 .phase-seg-review      { background: var(--yellow); }
