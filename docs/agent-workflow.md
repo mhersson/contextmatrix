@@ -119,7 +119,8 @@ rules:
   themselves. If the review ran in a spawned sub-agent it would silently degrade
   to a single-perspective walkthrough because the parallel spawn would not
   happen. The synthesizer runs on the orchestrator's own model (often Sonnet);
-  the three specialists each run on `claude-opus-4-8`. Do not reintroduce the
+  the three specialists run on the model the review skill selects (`sonnet` by
+  default, upgraded to `opus` for large change-sets). Do not reintroduce the
   model-match gate on `start_review` - it would reproduce the regression.
   (`get_skill('review-task')` still uses the model-match logic for any
   out-of-band callers; the workflow always goes through `start_review`.)
@@ -406,7 +407,8 @@ The flow:
   entirely, writes findings with `recommendation: revise`, and prints
   `REVIEW_FINDINGS`. No specialists are spawned.
 - **Pass 2 - Three parallel specialists:** if Pass 1 succeeds, the orchestrator
-  spawns three `Agent` calls in a single message (`model: claude-opus-4-8`,
+  spawns three `Agent` calls in a single message (`model` per the skill's
+  size-based pick - `sonnet` default, `opus` for large change-sets -
   `subagent_type: general-purpose`): Correctness (bugs, edges, errors, races,
   test quality), Design & Maintainability (architecture, naming, complexity,
   docs), and Security & Performance (input validation, secrets, CVEs,
@@ -414,7 +416,7 @@ The flow:
   `agent_id` because `report_usage` and `add_log` enforce
   `agent_id == AssignedAgent` - specialists act on the synthesizer's behalf for
   board writes. Before returning, each specialist calls `report_usage` against
-  the parent card with its own token consumption (model `claude-opus-4-8`); this
+  the parent card with its own token consumption and model identifier; this
   is what makes the specialists' cost visible on the card. Specialists do not
   claim, transition, or write findings to the card body - they return a
   structured Markdown report with severity-tiered findings.
