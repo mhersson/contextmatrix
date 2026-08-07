@@ -2,7 +2,7 @@
 
 ## Agent Configuration
 
-- **Model:** claude-opus-4-8
+- **Model:** opus
 
 ---
 

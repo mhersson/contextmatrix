@@ -2313,6 +2313,16 @@ func TestParseSkillModel(t *testing.T) {
 			want:    "haiku",
 		},
 		{
+			name:    "short-form sonnet",
+			content: "## Agent Configuration\n\n- **Model:** sonnet - Workhorse.\n\n---\n\nInstructions.",
+			want:    "sonnet",
+		},
+		{
+			name:    "short-form opus",
+			content: "## Agent Configuration\n\n- **Model:** opus\n\n---\n\nInstructions.",
+			want:    "opus",
+		},
+		{
 			name:    "no config section",
 			content: "# Skill\n\nJust instructions.",
 			want:    "",

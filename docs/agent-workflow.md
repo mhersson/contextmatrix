@@ -28,22 +28,23 @@ Human ↔ CC (main agent, Opus)
            ├── Agent → sub-agent (execute-task, Sonnet)
            ├── Agent → sub-agent (execute-task, Sonnet)
            └── inline: review-task (synthesizer = Opus, your session)
-                  ├── Agent → specialist (correctness, Opus 4-8)
-                  ├── Agent → specialist (design,      Opus 4-8)
-                  └── Agent → specialist (security,    Opus 4-8)
+                  ├── Agent → specialist (correctness, size pick)
+                  ├── Agent → specialist (design,      size pick)
+                  └── Agent → specialist (security,    size pick)
 
 Worker container → harness orchestrator (agent backend)
            ├── Agent → sub-agent (execute-task)
            ├── Agent → sub-agent (execute-task)
            └── inline: review-task (synthesizer = orchestrator model, your session)
-                  ├── Agent → specialist (correctness, Opus 4-8)
-                  ├── Agent → specialist (design,      Opus 4-8)
-                  └── Agent → specialist (security,    Opus 4-8)
+                  ├── Agent → specialist (correctness, size pick)
+                  ├── Agent → specialist (design,      size pick)
+                  └── Agent → specialist (security,    size pick)
 ```
 
 The review skill runs inline in the orchestrator's session (so the `Agent` tool
-is available to spawn the three parallel specialists); specialists run on
-`claude-opus-4-8` regardless of the orchestrator's own model.
+is available to spawn the three parallel specialists); specialists run on the
+review skill's size-based pick (`sonnet` default, `opus` for large change-sets)
+regardless of the orchestrator's own model.
 
 All agents access ContextMatrix via MCP tools over HTTP (`POST /mcp`).
 

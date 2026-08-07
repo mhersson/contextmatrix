@@ -2,7 +2,7 @@
 
 ## Agent Configuration
 
-- **Model:** claude-sonnet-4-6 - Planning runs inline on the orchestrator.
+- **Model:** sonnet - Planning runs inline on the orchestrator.
 
 ---
 

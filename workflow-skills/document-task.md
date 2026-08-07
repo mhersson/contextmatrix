@@ -2,8 +2,7 @@
 
 ## Agent Configuration
 
-- **Model:** claude-sonnet-4-6 - Writing docs is straightforward; no need for
-  Opus.
+- **Model:** sonnet - Writing docs is straightforward; no need for Opus.
 
 ---
 

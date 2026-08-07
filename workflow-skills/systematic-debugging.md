@@ -2,7 +2,7 @@
 
 ## Agent Configuration
 
-- **Model:** claude-sonnet-4-6
+- **Model:** sonnet
 
 ---
 

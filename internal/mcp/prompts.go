@@ -66,8 +66,10 @@ type skillResult struct {
 	Model   string
 }
 
-// modelPattern matches "**Model:** claude-<family>-<version>" in skill files.
-var modelPattern = regexp.MustCompile(`\*\*Model:\*\*\s+claude-(\w+)-`)
+// modelPattern matches the value after "**Model:**" in skill files - either a
+// short family name ("sonnet") or a full model ID ("claude-sonnet-4-6", still
+// found in operator-forked skill files).
+var modelPattern = regexp.MustCompile(`\*\*Model:\*\*\s+(\S+)`)
 
 // agentConfigPattern matches the full "## Agent Configuration" section
 // (from the heading through the "---" separator) so it can be stripped
@@ -82,7 +84,7 @@ func parseSkillModel(content string) string {
 		return ""
 	}
 
-	return m[1]
+	return normalizeModelFamily(m[1])
 }
 
 // stripAgentConfig removes the "## Agent Configuration" section from a skill

@@ -2,7 +2,7 @@
 
 ## Agent Configuration
 
-- **Model:** claude-sonnet-4-6 - Workhorse tasks with long context and tool use.
+- **Model:** sonnet - Workhorse tasks with long context and tool use.
 
 ---
 
