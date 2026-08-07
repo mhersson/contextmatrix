@@ -194,7 +194,7 @@ func TestCreateAndGetCard(t *testing.T) {
 	assert.Equal(t, "todo", created.State)
 	assert.Equal(t, "high", created.Priority)
 	assert.Equal(t, []string{"backend", "api"}, created.Labels)
-	assert.Contains(t, created.Body, "## Description\nBuild feature X.")
+	assert.Empty(t, created.Body, "create_card returns a summary without the body")
 	assert.NotEmpty(t, created.BranchName)
 	assert.True(t, created.CreatePR, "create_pr defaults true for MCP-created cards")
 	assert.False(t, created.Created.IsZero())
@@ -260,9 +260,19 @@ func TestUpdateCard(t *testing.T) {
 	unmarshalResult(t, result, &updated)
 
 	assert.Equal(t, "Updated title", updated.Title)
-	assert.Equal(t, "## Updated\nNew body content.", updated.Body)
 	// Priority should remain unchanged
 	assert.Equal(t, "low", updated.Priority)
+
+	// The result is a summary; verify the body change via get_card.
+	getResult := callTool(t, env, "get_card", map[string]any{
+		"project": "test-project",
+		"card_id": "TEST-001",
+	})
+	require.False(t, getResult.IsError)
+
+	var fetched board.Card
+	unmarshalResult(t, getResult, &fetched)
+	assert.Equal(t, "## Updated\nNew body content.", fetched.Body)
 }
 
 func TestUpdateCard_Phase(t *testing.T) {
@@ -451,8 +461,20 @@ func TestAddLog(t *testing.T) {
 	})
 	require.False(t, result.IsError)
 
+	var slim map[string]any
+	unmarshalResult(t, result, &slim)
+	assert.NotContains(t, slim, "activity_log", "add_log returns a card summary, not the log it wrote")
+
+	// The written entry is verified via get_card - mutation results no longer
+	// echo the activity log.
+	getResult := callTool(t, env, "get_card", map[string]any{
+		"project": "test-project",
+		"card_id": "TEST-001",
+	})
+	require.False(t, getResult.IsError)
+
 	var card board.Card
-	unmarshalResult(t, result, &card)
+	unmarshalResult(t, getResult, &card)
 
 	// The log includes the claim_card entry plus the new status_update entry.
 	require.GreaterOrEqual(t, len(card.ActivityLog), 1)
@@ -569,14 +591,23 @@ func TestCompleteTask_MainTask(t *testing.T) {
 	assert.Contains(t, output.NextStep, "TEST-001", "next_step should include the card ID")
 
 	// Verify the "completed" log entry was added (subsequent state_changed
-	// entries for the in_progress → review transition follow it).
-	require.NotEmpty(t, output.Card.ActivityLog)
+	// entries for the in_progress → review transition follow it). The
+	// complete_task result is a summary, so re-read via get_card.
+	getResult := callTool(t, env, "get_card", map[string]any{
+		"project": "test-project",
+		"card_id": "TEST-001",
+	})
+	require.False(t, getResult.IsError)
+
+	var card board.Card
+	unmarshalResult(t, getResult, &card)
+	require.NotEmpty(t, card.ActivityLog)
 
 	var completed *board.ActivityEntry
 
-	for i := range output.Card.ActivityLog {
-		if output.Card.ActivityLog[i].Action == "completed" {
-			completed = &output.Card.ActivityLog[i]
+	for i := range card.ActivityLog {
+		if card.ActivityLog[i].Action == "completed" {
+			completed = &card.ActivityLog[i]
 
 			break
 		}
@@ -2861,7 +2892,17 @@ func TestPromoteToAutonomous_MCP(t *testing.T) {
 		var updated board.Card
 		unmarshalResult(t, result, &updated)
 		assert.True(t, updated.Autonomous)
-		assert.Empty(t, updated.ActivityLog, "no extra log entry for idempotent promote")
+
+		// The result is a summary; verify no log entry was written via get_card.
+		getResult := callTool(t, env, "get_card", map[string]any{
+			"project": "test-project",
+			"card_id": card.ID,
+		})
+		require.False(t, getResult.IsError)
+
+		var fetched board.Card
+		unmarshalResult(t, getResult, &fetched)
+		assert.Empty(t, fetched.ActivityLog, "no extra log entry for idempotent promote")
 	})
 
 	t.Run("resolves project from card ID when project omitted", func(t *testing.T) {

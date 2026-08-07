@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -297,61 +298,55 @@ func TestGetTaskContext_UnvettedBodyRedaction(t *testing.T) {
 	})
 }
 
-// TestListCards_UnvettedBodyRedaction verifies per-item redaction on list_cards.
+// TestListCards_UnvettedBodyRedaction verifies list_cards structurally cannot
+// leak unvetted bodies: the summary shape has no body field at all, for any
+// caller. This is stronger than the previous redact-in-place behaviour.
 func TestListCards_UnvettedBodyRedaction(t *testing.T) {
 	const injected = "EMBEDDED PAYLOAD IN BODY"
 
-	t.Run("non-human caller → unvetted bodies redacted in place", func(t *testing.T) {
-		env := setupMCP(t)
-		writeUnvettedCard(t, env, "TEST-300", injected)
+	for _, agentID := range []string{"agent:claude", "human:alice"} {
+		t.Run("no body key for caller "+agentID, func(t *testing.T) {
+			env := setupMCP(t)
+			writeUnvettedCard(t, env, "TEST-300", injected)
 
-		result := callTool(t, env, "list_cards", map[string]any{
-			"project":  "test-project",
-			"agent_id": "agent:claude",
-		})
-		require.False(t, result.IsError)
+			result := callTool(t, env, "list_cards", map[string]any{
+				"project":  "test-project",
+				"agent_id": agentID,
+			})
+			require.False(t, result.IsError)
 
-		var out listCardsOutput
-		unmarshalResult(t, result, &out)
+			var root map[string]any
+			unmarshalResult(t, result, &root)
 
-		var found bool
+			cards, ok := root["cards"].([]any)
+			require.True(t, ok)
 
-		for _, c := range out.Cards {
-			if c.ID == "TEST-300" {
-				found = true
+			var found bool
 
-				assert.Equal(t, unvettedBodyPlaceholder, c.Body,
-					"unvetted external body must be redacted for non-human caller")
+			for _, c := range cards {
+				m, ok := c.(map[string]any)
+				require.True(t, ok)
+
+				if m["id"] == "TEST-300" {
+					found = true
+				}
+
+				assert.NotContains(t, m, "body", "list_cards entries carry no body key")
+				assert.NotContains(t, m, "activity_log")
 			}
-		}
 
-		assert.True(t, found, "expected to find the unvetted card in the list")
-	})
-
-	t.Run("human caller → unvetted bodies returned verbatim", func(t *testing.T) {
-		env := setupMCP(t)
-		writeUnvettedCard(t, env, "TEST-301", injected)
-
-		result := callTool(t, env, "list_cards", map[string]any{
-			"project":  "test-project",
-			"agent_id": "human:alice",
+			assert.True(t, found, "expected to find the unvetted card in the list")
+			assert.NotContains(t, mustMarshal(t, root), injected,
+				"injected payload must not appear anywhere in the response")
 		})
-		require.False(t, result.IsError)
+	}
+}
 
-		var out listCardsOutput
-		unmarshalResult(t, result, &out)
+func mustMarshal(t *testing.T, v any) string {
+	t.Helper()
 
-		var found bool
+	b, err := json.Marshal(v)
+	require.NoError(t, err)
 
-		for _, c := range out.Cards {
-			if c.ID == "TEST-301" {
-				found = true
-
-				assert.Contains(t, c.Body, injected)
-				assert.NotEqual(t, unvettedBodyPlaceholder, c.Body)
-			}
-		}
-
-		assert.True(t, found)
-	})
+	return string(b)
 }

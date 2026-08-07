@@ -125,7 +125,7 @@ func TestAsyncCommit_HeartbeatFanoutAcrossCards(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 
-			if err := svc.HeartbeatCard(ctx, "test-project", cardIDs[i], fmt.Sprintf("agent-%d", i)); err != nil {
+			if _, err := svc.HeartbeatCard(ctx, "test-project", cardIDs[i], fmt.Sprintf("agent-%d", i)); err != nil {
 				errCount.Add(1)
 				t.Errorf("heartbeat %d: %v", i, err)
 			}
@@ -170,7 +170,8 @@ func TestAsyncCommit_ShutdownDrainsPendingHeartbeat(t *testing.T) {
 	baseline, err := svc.git.CommitCount()
 	require.NoError(t, err)
 
-	require.NoError(t, svc.HeartbeatCard(ctx, "test-project", card.ID, "agent-1"))
+	_, err = svc.HeartbeatCard(ctx, "test-project", card.ID, "agent-1")
+	require.NoError(t, err)
 
 	closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

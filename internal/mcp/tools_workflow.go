@@ -182,7 +182,7 @@ func registerIncrementReviewAttempts(server *mcp.Server, svc *service.CardServic
 	}
 
 	type output struct {
-		Card *board.Card `json:"card"`
+		Card *CardSummary `json:"card"`
 	}
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -201,6 +201,6 @@ func registerIncrementReviewAttempts(server *mcp.Server, svc *service.CardServic
 			return nil, output{}, fmt.Errorf("increment review attempts: %w", err)
 		}
 
-		return nil, output{Card: card}, nil
+		return nil, output{Card: summarizeCard(card)}, nil
 	})
 }

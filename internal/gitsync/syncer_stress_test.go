@@ -106,7 +106,7 @@ func TestStressPushCommitNoIndexLockRace(t *testing.T) {
 			agentID := agentIDs[cardIdx]
 
 			for range heartbeatsEach {
-				err := syncer.svc.HeartbeatCard(stressCtx, "test-project", cardID, agentID)
+				_, err := syncer.svc.HeartbeatCard(stressCtx, "test-project", cardID, agentID)
 				if err != nil {
 					// Context cancellation at the very end of the window is fine.
 					if stressCtx.Err() != nil {

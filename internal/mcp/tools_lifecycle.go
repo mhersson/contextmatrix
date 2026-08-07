@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -34,22 +35,22 @@ type completeTaskInput struct {
 	Summary string `json:"summary" jsonschema:"required,one-line summary of what was done"`
 }
 type completeTaskOutput struct {
-	Card     *board.Card `json:"card"`
-	NextStep string      `json:"next_step,omitempty"`
+	Card     *CardSummary `json:"card"`
+	NextStep string       `json:"next_step,omitempty"`
 }
 
 // claimCardOutput surfaces auto-transition failures via typed fields so MCP
 // callers can inspect them programmatically instead of parsing free-form
-// text from CallToolResult.Content. The embedded *board.Card inlines the
-// usual card fields at the JSON root so existing callers that decoded the
-// claim_card response as board.Card keep working - the new fields just
-// appear alongside.
+// text from CallToolResult.Content. The embedded *CardSummary inlines the
+// card's scalar fields at the JSON root so callers that decode the
+// claim_card response as a card keep working - body and activity_log are
+// omitted like on every mutation result.
 //
 // When AutoTransitionFailed is true, the embedded card reflects the
 // post-claim, pre-transition state (todo, agent set) because the
 // transition that would have moved it to in_progress did not succeed.
 type claimCardOutput struct {
-	*board.Card
+	*CardSummary
 	AutoTransitionFailed bool   `json:"auto_transition_failed,omitempty"`
 	AutoTransitionError  string `json:"auto_transition_error,omitempty"`
 }
@@ -69,7 +70,7 @@ func registerClaimCard(server *mcp.Server, svc *service.CardService) {
 			return nil, claimCardOutput{}, fmt.Errorf("claim card %s: %w", input.CardID, err)
 		}
 
-		out := claimCardOutput{Card: card}
+		out := claimCardOutput{CardSummary: summarizeCard(card)}
 
 		// Auto-transition to in_progress only from todo - claiming a card
 		// in review/done/blocked should not change its state.
@@ -84,7 +85,7 @@ func registerClaimCard(server *mcp.Server, svc *service.CardService) {
 				// card stays at the post-claim state so callers can see the
 				// claim landed even though the state did not move.
 			} else {
-				out.Card = transitioned
+				out.CardSummary = summarizeCard(transitioned)
 			}
 		}
 
@@ -96,7 +97,7 @@ func registerReleaseCard(server *mcp.Server, svc *service.CardService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "release_card",
 		Description: "Release an agent's claim on a card. The agent_id must match the current owner. After release, any agent can claim the card.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, input agentCardInput) (*mcp.CallToolResult, *board.Card, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input agentCardInput) (*mcp.CallToolResult, *CardSummary, error) {
 		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
 		if err != nil {
 			return nil, nil, err
@@ -107,38 +108,46 @@ func registerReleaseCard(server *mcp.Server, svc *service.CardService) {
 			return nil, nil, fmt.Errorf("release card %s: %w", input.CardID, err)
 		}
 
-		return nil, card, nil
+		return nil, summarizeCard(card), nil
 	})
+}
+
+// heartbeatOutput is a minimal liveness ack. State stays so resuming agents
+// can detect a stalled card; everything else is available via get_card.
+type heartbeatOutput struct {
+	CardID        string     `json:"card_id"`
+	State         string     `json:"state"`
+	LastHeartbeat *time.Time `json:"last_heartbeat,omitempty"`
 }
 
 func registerHeartbeat(server *mcp.Server, svc *service.CardService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "heartbeat",
-		Description: "Update the heartbeat timestamp for a claimed card. MUST be called periodically (at least every 30 minutes) while working on a task, or the card will be marked stalled and your claim released.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, input agentCardInput) (*mcp.CallToolResult, any, error) {
+		Description: "Update the heartbeat timestamp for a claimed card. MUST be called periodically (at least every 30 minutes) while working on a task, or the card will be marked stalled and your claim released. Returns a minimal ack; use get_card for card content.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input agentCardInput) (*mcp.CallToolResult, heartbeatOutput, error) {
 		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
 		if err != nil {
-			return nil, nil, err
+			return nil, heartbeatOutput{}, err
 		}
 
-		if err := svc.HeartbeatCard(ctx, project, input.CardID, input.AgentID); err != nil {
-			return nil, nil, fmt.Errorf("heartbeat card %s: %w", input.CardID, err)
-		}
-
-		card, err := svc.GetCard(ctx, project, input.CardID)
+		card, err := svc.HeartbeatCard(ctx, project, input.CardID, input.AgentID)
 		if err != nil {
-			return nil, nil, fmt.Errorf("get card after heartbeat: %w", err)
+			return nil, heartbeatOutput{}, fmt.Errorf("heartbeat card %s: %w", input.CardID, err)
 		}
 
-		return nil, card, nil
+		return nil, heartbeatOutput{
+			CardID:        card.ID,
+			State:         card.State,
+			LastHeartbeat: card.LastHeartbeat,
+		}, nil
 	})
 }
 
 func registerAddLog(server *mcp.Server, svc *service.CardService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "add_log",
-		Description: "Append an activity log entry to a card. The log is capped at 50 entries (oldest dropped). Use action types like 'status_update', 'note', 'blocker', 'decision'. Requires an active claim by the caller: unclaimed cards are rejected so attacker-supplied agent_ids cannot land in the activity log.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, input addLogInput) (*mcp.CallToolResult, *board.Card, error) {
+		Description: "Append an activity log entry to a card. The log is capped at 50 entries (oldest dropped). Use action types like 'status_update', 'note', 'blocker', 'decision'. Requires an active claim by the caller: unclaimed cards are rejected so attacker-supplied agent_ids cannot land in the activity log. Returns a card summary; the result does not echo the log.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input addLogInput) (*mcp.CallToolResult, *CardSummary, error) {
 		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
 		if err != nil {
 			return nil, nil, err
@@ -165,7 +174,7 @@ func registerAddLog(server *mcp.Server, svc *service.CardService) {
 			return nil, nil, fmt.Errorf("add log to %s: %w", input.CardID, err)
 		}
 
-		return nil, card, nil
+		return nil, summarizeCard(card), nil
 	})
 }
 
@@ -226,7 +235,7 @@ func registerCompleteTask(server *mcp.Server, svc *service.CardService) {
 			}
 		}
 
-		out := completeTaskOutput{Card: card}
+		out := completeTaskOutput{Card: summarizeCard(card)}
 
 		// Build informational next_step, preserving release warning if present.
 		var parts []string
