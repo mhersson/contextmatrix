@@ -40,7 +40,10 @@
   Field parity with `board.Card` is enforced by
   `TestCardSummaryMirrorsBoardCard`; the wire contract the agent backend
   parses is pinned by `TestSlimToolResultsOmitBodyAndActivityLog`. Full-card
-  fetches stay on `get_card` / `get_task_context` only.
+  fetches stay on `get_card` / `get_task_context` only, and within
+  `get_task_context` the siblings array is summaries too
+  (`TestGetTaskContextSiblingsAreSummaries`) - only the primary card and
+  parent carry bodies.
 - **MCP middleware chain and body limit:** `/mcp` is registered on the same
   inner `http.ServeMux` as the REST API, so it automatically inherits the shared
   middleware chain (recovery, security headers, CORS when enabled, request ID,

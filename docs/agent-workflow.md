@@ -673,7 +673,9 @@ field, but never `body` or `activity_log`. `heartbeat` returns a minimal
 `{card_id, state, last_heartbeat}` ack. Only `get_card` and `get_task_context`
 return full cards - they are the designated fetch tools, and skills that need
 the body or the activity log (resume, review diff-base, documentation) call
-them explicitly. The full table is in
+them explicitly. Within `get_task_context`, the primary card and parent are
+full while siblings are summaries - sibling detail is fetched per card via
+`get_card`. The full table is in
 [`docs/api-reference.md`](api-reference.md) under "Card payload shapes".
 
 The rationale is context economics: tool results land in the calling agent's
