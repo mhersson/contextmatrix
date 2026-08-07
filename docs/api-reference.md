@@ -705,7 +705,8 @@ Best-of-N outcome tracking does not depend on the auth system. In
 
 Returns aggregated per-model head-to-head stats recorded by the Best-of-N
 judge phase (agent backend only; see `docs/remote-execution.md`), as reported
-by the MCP `report_model_outcome` tool:
+by the MCP `report_model_outcome` tool. `docs/model-selection.md` documents
+how these stats bias future model selection:
 
 ```json
 {

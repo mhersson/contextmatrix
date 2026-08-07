@@ -457,7 +457,9 @@ documents the same shape for the instance-wide default. `mergeFavorites`
 (`internal/api/backend_run.go`) combines the backend's global
 `backends.agent.favorites` with a project's `Favorites` at trigger time, with
 project entries taking priority per tier. `json:"-"` - there is no REST
-create/update path for this field; set it by hand-editing `.board.yaml`.
+create/update path for this field; set it by hand-editing `.board.yaml`. How
+favorites factor into the actual pick is documented in
+`docs/model-selection.md`.
 
 **Immutable fields** (set on creation, never changed): `id`, `project`,
 `created`, `source`. Additionally, `branch_name` is immutable after first
