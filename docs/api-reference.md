@@ -2223,6 +2223,29 @@ an `Authorization: Bearer <key>` header; with no key the endpoint is
 unauthenticated. The path is exempt from the CSRF guard. See [`docs/agent-workflow.md`](agent-workflow.md) for the tool and prompt
 catalogue.
 
+### Card payload shapes: full vs summary
+
+Only two tools return full cards; every other card-bearing tool returns a
+**card summary** - the same JSON shape minus `body` and `activity_log`, the
+two unbounded fields. Card bodies grow during a run, and mutation results are
+re-read by the calling agent on every subsequent model call, so echoing the
+body from every tool multiplies context cost for zero information gain.
+
+| Shape | Tools |
+| ----- | ----- |
+| Full card (`body` + `activity_log`) | `get_card`; `get_task_context` (primary card and parent - siblings are full too) |
+| Card summary (no `body`, no `activity_log`) | `create_card`, `update_card`, `transition_card`, `claim_card`, `release_card`, `add_log`, `complete_task`, `report_usage`, `report_push`, `promote_to_autonomous`, `increment_review_attempts`, `list_cards`, `get_ready_tasks` |
+| Minimal ack (`card_id`, `state`, `last_heartbeat`) | `heartbeat` |
+
+All scalar and bounded fields (`state`, `assigned_agent`, `review_attempts`,
+`token_usage`, `usage_breakdown`, model pins, mob fields, etc.) are present in
+summaries. Agents that need the body or the activity log call `get_card`.
+
+A structural consequence: unvetted external card bodies cannot leak through
+any mutation or list result - the summary shape has no body field to redact.
+Body redaction for non-human callers applies only to `get_card` and
+`get_task_context`.
+
 ### `get_card` / `get_task_context` - inline image attachments
 
 Both tools scan the primary card body for markdown image refs of the form
@@ -2240,7 +2263,8 @@ can *see* screenshots, not just URL strings.
 - Unknown IDs (e.g. dangling references after migration) are silently skipped.
 - Pass `include_images: false` to opt out and get a text-only result.
 - `get_task_context` only scans the primary card body - sibling cards stay
-  text-only. `list_cards` is unaffected (it does not return full bodies).
+  text-only. `list_cards` is unaffected (it returns card summaries with no
+  bodies at all).
 
 ### `chat_rehydration_complete`
 

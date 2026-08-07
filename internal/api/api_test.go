@@ -1564,7 +1564,8 @@ func TestFullCardLifecycle(t *testing.T) {
 	// Step 5: Heartbeat. heartbeatCard is now a service-layer-only operation
 	// (the REST mirror was removed); MCP's heartbeat tool exercises the same
 	// svc call.
-	require.NoError(t, svc.HeartbeatCard(context.Background(), "test-project", cardID, agentID))
+	_, err = svc.HeartbeatCard(context.Background(), "test-project", cardID, agentID)
+	require.NoError(t, err)
 
 	// Step 6: Transition in_progress → done
 	doneState := "done"

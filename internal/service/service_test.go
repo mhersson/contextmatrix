@@ -626,7 +626,7 @@ func TestHeartbeatCard(t *testing.T) {
 	// setupTest wires a real clock, so we fall back to a monotonic-safe
 	// check (After-or-Equal) rather than a strict After to tolerate
 	// same-tick clock reads on fast machines.
-	err = svc.HeartbeatCard(ctx, "test-project", card.ID, "agent-1")
+	_, err = svc.HeartbeatCard(ctx, "test-project", card.ID, "agent-1")
 	require.NoError(t, err)
 
 	updated, err := svc.GetCard(ctx, "test-project", card.ID)
@@ -3447,7 +3447,7 @@ func TestCaseInsensitiveCardID(t *testing.T) {
 	})
 
 	t.Run("HeartbeatCard", func(t *testing.T) {
-		err := svc.HeartbeatCard(ctx, "test-project", lowercaseID, "agent-1")
+		_, err := svc.HeartbeatCard(ctx, "test-project", lowercaseID, "agent-1")
 		require.NoError(t, err)
 	})
 
@@ -5064,7 +5064,7 @@ func TestDeferredCommitFullWorkflowCommitCount(t *testing.T) {
 	assert.Equal(t, countAfterCreate, count, "transition to in_progress should not produce a commit")
 
 	// --- Heartbeat ---
-	err = svc.HeartbeatCard(ctx, "test-project", card.ID, "agent-1")
+	_, err = svc.HeartbeatCard(ctx, "test-project", card.ID, "agent-1")
 	require.NoError(t, err)
 
 	count, _ = gitMgr.CommitCount()

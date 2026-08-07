@@ -21,10 +21,10 @@ type listCardsInput struct {
 	Label   string `json:"label,omitempty" jsonschema:"filter by label"`
 	Agent   string `json:"agent,omitempty" jsonschema:"filter by assigned agent"`
 	Parent  string `json:"parent,omitempty" jsonschema:"filter by parent card ID"`
-	AgentID string `json:"agent_id,omitempty" jsonschema:"caller identity - unvetted external card bodies are redacted for non-human callers"`
+	AgentID string `json:"agent_id,omitempty" jsonschema:"caller identity (accepted for client parity; results are card summaries with no body)"`
 }
 type listCardsOutput struct {
-	Cards []*board.Card `json:"cards"`
+	Cards []*CardSummary `json:"cards"`
 }
 
 type getCardInput struct {
@@ -130,7 +130,7 @@ type getReadyTasksInput struct {
 	ParentID string `json:"parent_id,omitempty" jsonschema:"optional parent card ID to scope search"`
 }
 type getReadyTasksOutput struct {
-	Cards []*board.Card `json:"cards"`
+	Cards []*CardSummary `json:"cards"`
 }
 
 type reportUsageInput struct {
@@ -167,7 +167,7 @@ type reportPushInput struct {
 }
 
 type reportPushOutput struct {
-	Card *board.Card `json:"card"`
+	Card *CardSummary `json:"card"`
 }
 
 type promoteToAutonomousInput struct {
@@ -179,7 +179,7 @@ type promoteToAutonomousInput struct {
 func registerListCards(server *mcp.Server, svc *service.CardService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_cards",
-		Description: "List cards in a project, optionally filtered by state, type, label, agent, or parent.",
+		Description: "List cards in a project, optionally filtered by state, type, label, agent, or parent. Returns card summaries without body or activity_log; use get_card for full content.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input listCardsInput) (*mcp.CallToolResult, listCardsOutput, error) {
 		filter := storage.CardFilter{
 			State:         input.State,
@@ -198,11 +198,10 @@ func registerListCards(server *mcp.Server, svc *service.CardService) {
 			cards = []*board.Card{}
 		}
 
-		// Redact unvetted card bodies for non-human callers so prompt-injection
-		// payloads from imported external cards cannot reach agent context.
-		cards = redactCardsForAgent(cards, input.AgentID)
-
-		return nil, listCardsOutput{Cards: cards}, nil
+		// No body redaction needed: summaries structurally cannot carry a
+		// body, so unvetted external card bodies never reach agent context
+		// through this tool (see TestCardSummaryMirrorsBoardCard).
+		return nil, listCardsOutput{Cards: summarizeCards(cards)}, nil
 	})
 }
 
@@ -237,8 +236,8 @@ func registerGetCard(server *mcp.Server, svc *service.CardService, imageStore im
 func registerCreateCard(server *mcp.Server, svc *service.CardService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "create_card",
-		Description: "Create a new card in a project. Returns the created card with its generated ID. The card starts in the project's first state (usually 'todo'). IMPORTANT: After creation, the card must be claimed with claim_card before any work begins. Never start working on a card without claiming it first.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, input createCardInput) (*mcp.CallToolResult, *board.Card, error) {
+		Description: "Create a new card in a project. Returns a card summary with the generated ID (the body is stored but not echoed back). The card starts in the project's first state (usually 'todo'). IMPORTANT: After creation, the card must be claimed with claim_card before any work begins. Never start working on a card without claiming it first.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input createCardInput) (*mcp.CallToolResult, *CardSummary, error) {
 		// depends_on is part of CreateCardInput so create + dependency wiring
 		// happen as a single atomic operation (one git commit, no race window
 		// between create and follow-up update).
@@ -258,7 +257,7 @@ func registerCreateCard(server *mcp.Server, svc *service.CardService) {
 			return nil, nil, fmt.Errorf("create card: %w", err)
 		}
 
-		return nil, card, nil
+		return nil, summarizeCard(card), nil
 	})
 }
 
@@ -266,7 +265,7 @@ func registerUpdateCard(server *mcp.Server, svc *service.CardService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "update_card",
 		Description: "Update a card's mutable fields. Only provided fields are changed; omitted fields keep their current values. Does NOT change state - use transition_card for state changes.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, input updateCardInput) (*mcp.CallToolResult, *board.Card, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input updateCardInput) (*mcp.CallToolResult, *CardSummary, error) {
 		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
 		if err != nil {
 			return nil, nil, err
@@ -287,7 +286,7 @@ func registerUpdateCard(server *mcp.Server, svc *service.CardService) {
 			return nil, nil, fmt.Errorf("update card %s: %w", input.CardID, err)
 		}
 
-		return nil, card, nil
+		return nil, summarizeCard(card), nil
 	})
 }
 
@@ -295,7 +294,7 @@ func registerTransitionCard(server *mcp.Server, svc *service.CardService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "transition_card",
 		Description: "Change a card's state. Validates that the transition is allowed by the project's state machine. Returns 'invalid state transition' error with valid targets if not allowed.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, input transitionCardInput) (*mcp.CallToolResult, *board.Card, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input transitionCardInput) (*mcp.CallToolResult, *CardSummary, error) {
 		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
 		if err != nil {
 			return nil, nil, err
@@ -312,7 +311,7 @@ func registerTransitionCard(server *mcp.Server, svc *service.CardService) {
 			return nil, nil, fmt.Errorf("transition card %s to %s: %w", input.CardID, input.NewState, err)
 		}
 
-		return nil, card, nil
+		return nil, summarizeCard(card), nil
 	})
 }
 
@@ -489,7 +488,7 @@ func registerCheckAgentHealth(server *mcp.Server, svc *service.CardService) {
 func registerGetReadyTasks(server *mcp.Server, svc *service.CardService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "get_ready_tasks",
-		Description: "Get unclaimed 'todo' cards that are ready to start - all depends_on cards are in 'done' state. Optionally scoped to a parent card's subtasks. Use this to find which tasks can be started in parallel.",
+		Description: "Get unclaimed 'todo' cards that are ready to start - all depends_on cards are in 'done' state. Optionally scoped to a parent card's subtasks. Use this to find which tasks can be started in parallel. Returns card summaries without body or activity_log; use get_card for full content.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input getReadyTasksInput) (*mcp.CallToolResult, getReadyTasksOutput, error) {
 		filter := storage.CardFilter{State: board.StateTodo}
 		if input.ParentID != "" {
@@ -521,7 +520,7 @@ func registerGetReadyTasks(server *mcp.Server, svc *service.CardService) {
 			ready = append(ready, card)
 		}
 
-		return nil, getReadyTasksOutput{Cards: ready}, nil
+		return nil, getReadyTasksOutput{Cards: summarizeCards(ready)}, nil
 	})
 }
 
@@ -533,7 +532,7 @@ func registerReportUsage(server *mcp.Server, svc *service.CardService) {
 			"Accepts optional cache_read_tokens (billed at 0.10× base input rate) and " +
 			"cache_creation_tokens (billed at 1.25× base input rate) for prompt-cache cost accounting. " +
 			"Call this on heartbeat and when completing a task.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, input reportUsageInput) (*mcp.CallToolResult, *board.Card, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input reportUsageInput) (*mcp.CallToolResult, *CardSummary, error) {
 		// Reject negative token counts at the handler boundary. The service
 		// layer uses += on the running totals, so a negative value would
 		// silently decrement counters and produce nonsensical totals.
@@ -578,7 +577,7 @@ func registerReportUsage(server *mcp.Server, svc *service.CardService) {
 			return nil, nil, fmt.Errorf("report usage for %s: %w", input.CardID, err)
 		}
 
-		return nil, card, nil
+		return nil, summarizeCard(card), nil
 	})
 }
 
@@ -619,7 +618,7 @@ func registerReportPush(server *mcp.Server, svc *service.CardService) {
 			return nil, reportPushOutput{}, fmt.Errorf("report push: %w", err)
 		}
 
-		return nil, reportPushOutput{Card: card}, nil
+		return nil, reportPushOutput{Card: summarizeCard(card)}, nil
 	})
 }
 
@@ -633,7 +632,7 @@ func registerPromoteToAutonomous(server *mcp.Server, svc *service.CardService) {
 			"Idempotent: calling on an already-autonomous card is a no-op. " +
 			"Returns an error if the card is in a terminal state (done/not_planned). " +
 			"Appends an activity log entry and fires an SSE event so the UI updates live.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, input promoteToAutonomousInput) (*mcp.CallToolResult, *board.Card, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input promoteToAutonomousInput) (*mcp.CallToolResult, *CardSummary, error) {
 		// Defence in depth: the service layer rejects non-human callers, but
 		// gate at the handler boundary too so the rejection style matches the
 		// other human-only tools and the error never depends on project
@@ -652,6 +651,6 @@ func registerPromoteToAutonomous(server *mcp.Server, svc *service.CardService) {
 			return nil, nil, fmt.Errorf("promote card %s to autonomous: %w", input.CardID, err)
 		}
 
-		return nil, card, nil
+		return nil, summarizeCard(card), nil
 	})
 }

@@ -666,6 +666,21 @@ all user interactions. `create-plan` avoids the problem entirely by running
 inline on the orchestrator - no sub-agent is spawned. No sub-agent in the
 current workflow idles for user input.
 
+## Tool response shapes
+
+Mutation and list tools return **card summaries**: every scalar and bounded
+field, but never `body` or `activity_log`. `heartbeat` returns a minimal
+`{card_id, state, last_heartbeat}` ack. Only `get_card` and `get_task_context`
+return full cards - they are the designated fetch tools, and skills that need
+the body or the activity log (resume, review diff-base, documentation) call
+them explicitly. The full table is in
+[`docs/api-reference.md`](api-reference.md) under "Card payload shapes".
+
+The rationale is context economics: tool results land in the calling agent's
+context and are re-read on every subsequent model call, and card bodies grow
+during a run. Echoing the body from a heartbeat or a log append multiplies
+that cost for zero information gain.
+
 ## Token cost configuration
 
 Each skill step - and the orchestrator itself - calls `report_usage` with the

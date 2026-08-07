@@ -109,9 +109,12 @@ func TestUpdateCard_AgentOwnership(t *testing.T) {
 
 		require.False(t, resultIsError(result, err), "update_card by owning agent should succeed")
 
-		var updated board.Card
-		unmarshalResult(t, result, &updated)
-		assert.Contains(t, updated.Body, "correct agent updated this")
+		getResult := callTool(t, env, "get_card", map[string]any{"card_id": "TEST-001"})
+		require.False(t, getResult.IsError)
+
+		var card board.Card
+		unmarshalResult(t, getResult, &card)
+		assert.Contains(t, card.Body, "correct agent updated this")
 	})
 
 	t.Run("omitted agent_id on claimed card succeeds (backward compat)", func(t *testing.T) {
@@ -134,9 +137,12 @@ func TestUpdateCard_AgentOwnership(t *testing.T) {
 
 		require.False(t, resultIsError(result, err), "update_card without agent_id should succeed")
 
-		var updated board.Card
-		unmarshalResult(t, result, &updated)
-		assert.Contains(t, updated.Body, "backend update without agent_id")
+		getResult := callTool(t, env, "get_card", map[string]any{"card_id": "TEST-001"})
+		require.False(t, getResult.IsError)
+
+		var card board.Card
+		unmarshalResult(t, getResult, &card)
+		assert.Contains(t, card.Body, "backend update without agent_id")
 	})
 }
 

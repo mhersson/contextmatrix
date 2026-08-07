@@ -231,6 +231,9 @@ orchestrator and activity log show what was changed.
 new section with the round number: `## Review Findings (Round 2)`,
 `## Review Findings (Round 3)`, etc. The first round uses the bare heading.
 
+Re-read the current body via `get_card` immediately before composing the
+appended body - `update_card` responses do not include the body.
+
 Append to the parent card body via `update_card`:
 
 ```markdown

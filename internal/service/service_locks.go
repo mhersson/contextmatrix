@@ -269,7 +269,7 @@ func (s *CardService) ForceReleaseCard(ctx context.Context, project, id, humanID
 // harmful - the cache's advanced timestamp still prevents the stall
 // scanner from prematurely marking the card, and a rollback would
 // re-expose a stale timestamp that the next scan could act on.
-func (s *CardService) HeartbeatCard(ctx context.Context, project, id, agentID string) error {
+func (s *CardService) HeartbeatCard(ctx context.Context, project, id, agentID string) (*board.Card, error) {
 	id = strings.ToUpper(id)
 
 	s.writeMu.Lock()
@@ -279,13 +279,13 @@ func (s *CardService) HeartbeatCard(ctx context.Context, project, id, agentID st
 	if err != nil {
 		s.writeMu.Unlock()
 
-		return fmt.Errorf("heartbeat card: %w", err)
+		return nil, fmt.Errorf("heartbeat card: %w", err)
 	}
 
 	if err := s.store.UpdateCard(ctx, project, card); err != nil {
 		s.writeMu.Unlock()
 
-		return fmt.Errorf("update card: %w", err)
+		return nil, fmt.Errorf("update card: %w", err)
 	}
 
 	// Git commit (or defer, silent, no event)
@@ -294,10 +294,10 @@ func (s *CardService) HeartbeatCard(ctx context.Context, project, id, agentID st
 	s.writeMu.Unlock()
 
 	if err := s.awaitCommit(commitDone, notify); err != nil {
-		return fmt.Errorf("git commit: %w", err)
+		return nil, fmt.Errorf("git commit: %w", err)
 	}
 
-	return nil
+	return card, nil
 }
 
 // StartTimeoutChecker starts a background goroutine that periodically

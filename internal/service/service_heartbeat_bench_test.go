@@ -42,7 +42,7 @@ func BenchmarkHeartbeat_Sequential(b *testing.B) {
 	b.ResetTimer()
 
 	for b.Loop() {
-		if err := svc.HeartbeatCard(ctx, "test-project", card.ID, "agent-1"); err != nil {
+		if _, err := svc.HeartbeatCard(ctx, "test-project", card.ID, "agent-1"); err != nil {
 			b.Fatalf("heartbeat: %v", err)
 		}
 	}
@@ -90,7 +90,7 @@ func BenchmarkHeartbeat_ConcurrentDistinctCards(b *testing.B) {
 			go func(i int) {
 				defer wg.Done()
 
-				if err := svc.HeartbeatCard(ctx, "test-project", cardIDs[i], fmt.Sprintf("agent-%d", i)); err != nil {
+				if _, err := svc.HeartbeatCard(ctx, "test-project", cardIDs[i], fmt.Sprintf("agent-%d", i)); err != nil {
 					b.Errorf("heartbeat %d: %v", i, err)
 				}
 			}(i)
@@ -166,7 +166,7 @@ func BenchmarkHeartbeat_ConcurrentAcrossProjects(b *testing.B) {
 			go func(c claim) {
 				defer wg.Done()
 
-				if err := svc.HeartbeatCard(ctx, c.project, c.cardID, c.agent); err != nil {
+				if _, err := svc.HeartbeatCard(ctx, c.project, c.cardID, c.agent); err != nil {
 					b.Errorf("heartbeat %s: %v", c.cardID, err)
 				}
 			}(claims[i])

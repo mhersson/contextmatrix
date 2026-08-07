@@ -51,8 +51,10 @@ func redactUnvettedBody(card *board.Card, agentID string) string {
 
 // redactCardForAgent returns a shallow copy of card with Body replaced per
 // redactUnvettedBody. The original card is left unmodified. Returns nil if
-// card is nil. Use this when emitting a card through an MCP read tool - the
-// caller's agent_id is propagated so humans get full visibility.
+// card is nil. Only the body-carrying read tools (get_card, get_task_context)
+// need this - every other card-bearing tool returns a CardSummary, which
+// structurally cannot carry a body. The caller's agent_id is propagated so
+// humans get full visibility.
 func redactCardForAgent(card *board.Card, agentID string) *board.Card {
 	if card == nil {
 		return nil
