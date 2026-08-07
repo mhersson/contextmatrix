@@ -2,8 +2,7 @@
 
 ## Agent Configuration
 
-- **Model:** claude-sonnet-4-6 - Structured interview flow, no deep reasoning
-  needed.
+- **Model:** sonnet - Structured interview flow, no deep reasoning needed.
 
 ---
 

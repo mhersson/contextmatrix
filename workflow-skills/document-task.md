@@ -2,8 +2,7 @@
 
 ## Agent Configuration
 
-- **Model:** claude-sonnet-4-6 - Writing docs is straightforward; no need for
-  Opus.
+- **Model:** sonnet - Writing docs is straightforward; no need for Opus.
 
 ---
 
@@ -108,7 +107,8 @@ Map stream-json `usage` frame fields to `report_usage` parameters:
 Call `report_usage` with:
 - `card_id`: the parent card ID you are documenting
 - `agent_id`: your agent ID
-- `model`: `"claude-sonnet-4-6"` (must match the model in Agent Configuration above)
+- `model`: your own model identifier, read fresh from your system context
+  ("You are powered by the model named X"), never copied from elsewhere
 - `prompt_tokens` / `completion_tokens`: your estimated token consumption for this documentation session
 - `cache_read_tokens` / `cache_creation_tokens`: from the stream-json `usage` frame if available
 

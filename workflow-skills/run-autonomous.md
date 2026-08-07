@@ -186,7 +186,7 @@ Based on the card's current state and body content:
     (your) session has.
 16. Execute the returned `content` inline. Do NOT release your claim.
     The skill runs Pass 1 (test/lint gate); if Pass 1 passes, spawns three
-    opus specialist agents in parallel (Correctness, Design &
+    specialist agents in parallel (Correctness, Design &
     Maintainability, Security & Performance); synthesizes their reports;
     writes findings to the parent card body; and prints
     `REVIEW_FINDINGS`.

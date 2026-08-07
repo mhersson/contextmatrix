@@ -2,7 +2,7 @@
 
 ## Agent Configuration
 
-- **Model:** claude-sonnet-4-6
+- **Model:** sonnet
 
 ---
 
@@ -36,7 +36,8 @@ add_log(card_id=<parent_id>, agent_id=<your_agent_id>,
   investigation step (a non-trivial grep, reading a multi-file path,
   forming a hypothesis).
 - After each `heartbeat`, call `report_usage` with `card_id`, `agent_id`,
-  `model: "claude-sonnet-4-6"`, `prompt_tokens`, `completion_tokens`, and
+  `model` (your own model identifier, read fresh from your system context -
+  never copied), `prompt_tokens`, `completion_tokens`, and
   `cache_read_tokens` / `cache_creation_tokens` if available.
 - If a single phase takes longer than 5 minutes of work, heartbeat
   proactively mid-phase.

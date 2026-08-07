@@ -2,7 +2,7 @@
 
 ## Agent Configuration
 
-- **Model:** claude-sonnet-4-6 - Planning runs inline on the orchestrator.
+- **Model:** sonnet - Planning runs inline on the orchestrator.
 
 ---
 
@@ -219,9 +219,8 @@ Call `report_usage` with:
 
 - `card_id`: the parent card ID you are planning
 - `agent_id`: your agent ID
-- `model`: your own model identifier from your system context (e.g., the "You
-  are powered by the model named X" line - do NOT hardcode a specific model
-  name)
+- `model`: your own model identifier, read fresh from your system context
+  ("You are powered by the model named X"), never copied from elsewhere
 - `prompt_tokens` / `completion_tokens`: your estimated token consumption
 - `cache_read_tokens` / `cache_creation_tokens`: from the stream-json `usage` frame if available
 
@@ -336,9 +335,8 @@ the orchestrator's working tree on the feature branch.
    your own token consumption since the last report:**
    - `card_id`: the parent card ID
    - `agent_id`: your agent ID
-   - `model`: your own model identifier from your system context (e.g., the "You
-     are powered by the model named X" line - do NOT hardcode a specific model
-     name)
+   - `model`: your own model identifier, read fresh from your system context
+     ("You are powered by the model named X"), never copied from elsewhere
    - `prompt_tokens` / `completion_tokens`: your estimated token consumption
      since the last report
    - `cache_read_tokens` / `cache_creation_tokens`: from the stream-json `usage` frame if available
@@ -424,7 +422,7 @@ The response always has `inline: true` - `review-task` is forced to inline execu
 Execute the returned `content` directly in this session. Keep your claim
 throughout - do NOT release before, during, or after the inline run.
 Inside the inline run, the skill: runs Pass 1 (test/lint gate); if Pass 1
-passes, spawns three opus specialist agents in parallel for Correctness,
+passes, spawns three specialist agents in parallel for Correctness,
 Design & Maintainability, and Security & Performance; synthesizes their
 reports; writes the `## Review Findings` section to the parent card; and
 prints `REVIEW_FINDINGS`.
@@ -551,9 +549,8 @@ consumption:
 
 - `card_id`: the parent card ID
 - `agent_id`: your agent ID
-- `model`: your own model identifier from your system context (e.g., the "You
-  are powered by the model named X" line - do NOT hardcode a specific model
-  name)
+- `model`: your own model identifier, read fresh from your system context
+  ("You are powered by the model named X"), never copied from elsewhere
 - `prompt_tokens` / `completion_tokens`: your estimated token consumption since
   the last report
 - `cache_read_tokens` / `cache_creation_tokens`: from the stream-json `usage` frame if available

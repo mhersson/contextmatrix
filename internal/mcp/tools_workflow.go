@@ -72,7 +72,7 @@ type startReviewInput struct {
 	Project         string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
 	CardID          string `json:"card_id" jsonschema:"required,parent card ID to enter review (e.g. ALPHA-001)"`
 	AgentID         string `json:"agent_id" jsonschema:"required,agent performing the transition - must own the card claim"`
-	CallerModel     string `json:"caller_model,omitempty" jsonschema:"your model family (opus, sonnet, haiku) - enables inline execution when matching the skill model"`
+	CallerModel     string `json:"caller_model,omitempty" jsonschema:"your model's short name or family (e.g. sonnet, opus on Claude harnesses) - enables inline execution when matching the skill model"`
 	IncludePreamble *bool  `json:"include_preamble,omitempty" jsonschema:"include workflow rules preamble (default true, pass false to skip on subsequent calls when you already have it)"`
 }
 
@@ -134,7 +134,7 @@ func registerGetSkill(server *mcp.Server, svc *service.CardService, workflowSkil
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "get_skill",
 		Description: "Get a skill prompt with injected card/project context. Returns the full skill instructions, " +
-			"plus a 'model' field indicating which model to use when spawning a sub-agent (e.g. 'sonnet', 'opus'). " +
+			"plus a 'model' field indicating which model to use when spawning a sub-agent (a short model name, e.g. 'sonnet' or 'opus' on Claude harnesses). " +
 			"When the response has 'inline: true', you MAY execute the content directly instead of spawning a sub-agent - " +
 			"the content already includes lifecycle enforcement instructions. " +
 			"When 'inline' is false or absent, you MUST spawn a sub-agent via the Agent tool with the returned model.",
