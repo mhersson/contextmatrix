@@ -103,13 +103,13 @@ same items twice - just fix and proceed.
 
 ## Step 4: Write plan and decisions to the card body
 
-Call `update_card` with the orchestrator agent_id. Add or replace the
-`## Plan` and `## Decisions` sections; preserve all other card content
-(title, description, prior sections). Plan format:
+Write the plan with
+`update_card(upsert_section_heading='Plan', upsert_section_content=<plan>)`,
+using the orchestrator agent_id. Never re-emit the body - the upsert leaves
+every other section, including title and description, untouched. Plan
+content (passed as `upsert_section_content`, without the heading):
 
 ```
-## Plan
-
 1. SUBTASK: Implement JWT token generation and validation
    Priority: high | Labels: [backend, security]
    Depends on: (none)
@@ -124,12 +124,13 @@ Call `update_card` with the orchestrator agent_id. Add or replace the
 Note: Do not include `Type` in subtask plans. The backend automatically sets the
 type to `subtask` for any card created with a `parent` field.
 
-Decisions format - the drafting context that would otherwise die with your
-context. Keep it tight; omit empty subsections:
+Then write decisions with a second call,
+`update_card(upsert_section_heading='Decisions', upsert_section_content=<decisions>)`
+- the drafting context that would otherwise die with your context. Keep it
+tight; omit empty subsections. Decisions content (passed as
+`upsert_section_content`, without the heading):
 
 ```
-## Decisions
-
 ### Approach
 
 <decided approach and why, 2-6 sentences>

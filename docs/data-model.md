@@ -483,6 +483,21 @@ candidates there before continuing to `document`; it is a no-op phase for
 normal runs. Enum-validated; the empty string clears it and means "not agent-driven". Settable
 via the `update_card` MCP tool and REST (PUT/PATCH).
 
+**Section upsert** - the MCP `update_card` tool additionally accepts
+`upsert_section_heading` + `upsert_section_content` (both or neither; the
+handler rejects one without the other before touching the service). They
+replace-or-append one `## <heading>` block in the card body without the
+caller resending the rest: if a section whose heading exactly matches
+`upsert_section_heading` (flush-left `## `, case-sensitive) already exists,
+its body is replaced in place; otherwise the section is appended. The call is
+idempotent - resubmitting the same heading and content is a no-op. Mutually
+exclusive with `body` in the same call (`ErrInvalidSectionPatch`); the
+heading must be a single non-empty line with no leading `#`. The resulting
+body is checked against the same 512 KB `maxBodyLen` cap as a direct `body`
+write (`ErrFieldTooLong`). REST has no equivalent - section upsert is MCP-only,
+mirrored by `service.PatchCardInput.UpsertSection`
+(`internal/service/service_cards.go`).
+
 **Human-only fields** (may only be set by agents whose `X-Agent-ID` starts with
 `human:`): `vetted`, `assignee`, `autonomous`, `create_pr`, the three model
 pins (`model_orchestrator`, `model_coder`, `model_reviewer`), `base_branch`,
@@ -735,7 +750,7 @@ constants in `internal/service/service.go`:
 | Field / dimension         | Limit      | Notes                             |
 | ------------------------- | ---------- | --------------------------------- |
 | `title`                   | 500 chars  | `maxTitleLen`                     |
-| `body`                    | 512 KB     | `maxBodyLen` (`512 * 1024` bytes) |
+| `body`                    | 512 KB     | `maxBodyLen` (`512 * 1024` bytes); applies to the body resulting from a section upsert too |
 | individual label          | 100 chars  | `maxLabelLen`                     |
 | `labels` slice length     | 50 entries | `maxLabels`                       |
 | `agent_id` / `X-Agent-ID` | 256 chars  | `maxAgentIDLen`                   |

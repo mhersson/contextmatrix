@@ -2253,6 +2253,18 @@ bodies: `get_card`, `get_task_context`, and the skill-injection path below
 (redaction runs before section filtering, so the unvetted placeholder is what
 passes through the filter's fallback).
 
+#### `update_card` section upsert
+
+`update_card` accepts an optional `upsert_section_heading` +
+`upsert_section_content` pair (both or neither - one without the other is a
+tool error) so a caller can replace or append a single `## <heading>` section
+without resending the whole body. Mutually exclusive with `body` in the same
+call. Replace-or-append is keyed on an exact, flush-left heading match and is
+idempotent: calling it again with the same heading and content is a no-op.
+The resulting body is still capped at 512 KB. This is MCP-only - there is no
+REST equivalent. Full semantics (heading-matching rule, error conditions):
+`docs/data-model.md`, "Section upsert" paragraph under Go type definitions.
+
 #### Skill-injection body filtering
 
 `get_skill`, `start_review`, and `start_workflow` inject card context into
