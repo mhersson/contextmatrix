@@ -313,9 +313,10 @@ the orchestrator's working tree on the feature branch.
    - **Do NOT pass `isolation: "worktree"`.** Spawn all ready tasks in
      parallel (multiple `Agent` tool calls in one message). Do NOT execute
      inline even if `inline` is true.
-4. **Monitor sub-agents with health checking.** After spawning agents, enter a
-   monitoring loop. Call `heartbeat` and `report_usage` after each check. To
-   record your own token consumption since the last report:
+4. **Monitor sub-agents with health checking.** With two or more ready tasks,
+   enter a monitoring loop after spawning them. Call `heartbeat` and
+   `report_usage` after each check. To record your own token consumption
+   since the last report:
    - `card_id`: the parent card ID
    - `agent_id`: your agent ID
    - `model`: your own model identifier, read fresh from your system context
