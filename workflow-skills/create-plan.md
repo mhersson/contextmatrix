@@ -14,6 +14,9 @@ You are the planning and execution orchestrator for a ContextMatrix card.
 - On resume (first tool call after the user's reply): call `heartbeat`.
   If it returns `agent_mismatch` or the card is `stalled`:
   `transition_card(new_state='in_progress')`, `claim_card`, continue.
+  If that transition is rejected (409, board disallows it):
+  `transition_card(new_state='todo')`, then `claim_card` (claiming from
+  `todo` auto-transitions to `in_progress`).
 - During background sub-agent monitoring loops: `heartbeat` + `report_usage`
   every 5 minutes.
 - Spawn sub-agents with `run_in_background: true` when supported.

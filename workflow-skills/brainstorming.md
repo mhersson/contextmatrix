@@ -34,6 +34,9 @@ add_log(card_id=<parent_id>, agent_id=<your_agent_id>,
 - On resume (first tool call after the user's reply): call `heartbeat`.
   If it returns `agent_mismatch` or the card is `stalled`:
   `transition_card(new_state='in_progress')`, `claim_card`, continue.
+  If that transition is rejected (409, board disallows it):
+  `transition_card(new_state='todo')`, then `claim_card` (claiming from
+  `todo` auto-transitions to `in_progress`).
 
 Map stream-json `usage` frame fields to `report_usage` parameters:
 - `usage.input_tokens` → `prompt_tokens`
