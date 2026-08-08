@@ -43,7 +43,13 @@
   fetches stay on `get_card` / `get_task_context` only, and within
   `get_task_context` the siblings array is summaries too
   (`TestGetTaskContextSiblingsAreSummaries`) - only the primary card and
-  parent carry bodies.
+  parent carry bodies. Skill prompts are filtered the same way: review-task,
+  document-task, and the execute-task parent inject only intro + allowlisted
+  sections (`filterBodySections`), pinned by
+  `TestStartReview_BodyFilteredToPlanAndFindings` and friends. Do not "fix"
+  a skill surface by passing a nil section list - the early-run builders
+  (create-plan, run-autonomous, systematic-debugging) are the only deliberate
+  full-body injections (`TestGetSkill_CreatePlan_FullBodyPinned`).
 - **MCP middleware chain and body limit:** `/mcp` is registered on the same
   inner `http.ServeMux` as the REST API, so it automatically inherits the shared
   middleware chain (recovery, security headers, CORS when enabled, request ID,

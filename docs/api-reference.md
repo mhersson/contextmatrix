@@ -2248,8 +2248,32 @@ server-rendered skill content, not the siblings array.
 
 A structural consequence: unvetted external card bodies cannot leak through
 any mutation or list result - the summary shape has no body field to redact.
-Body redaction for non-human callers applies only to `get_card` and
-`get_task_context`.
+Body redaction for non-human callers applies to the surfaces that carry
+bodies: `get_card`, `get_task_context`, and the skill-injection path below
+(redaction runs before section filtering, so the unvetted placeholder is what
+passes through the filter's fallback).
+
+#### Skill-injection body filtering
+
+`get_skill`, `start_review`, and `start_workflow` inject card context into
+the skill content they return. The late-run surfaces filter the injected
+body to the sections the skill consumes; the pre-heading intro (the original
+description) is always kept, and a bracketed note names any omitted sections
+with a pointer to `get_card`:
+
+| Skill surface | Injected body |
+| ------------- | ------------- |
+| `review-task` (`start_review`, `get_skill`) | intro + `## Plan` + `## Review Findings` (all rounds) |
+| `document-task` (`get_skill`) | intro + `## Plan` |
+| `execute-task` parent card | intro + `## Plan` |
+| `create-plan`, `brainstorming`, `systematic-debugging`, `run-autonomous`, `execute-task` own card | full body |
+
+The early-run surfaces keep the full body deliberately: the body is small at
+that point, run-autonomous's simple fast path implements directly from it,
+and systematic-debugging rewrites it wholesale. When none of a filter's
+sections exist in a body (early-run cards, custom templates, the unvetted
+placeholder), the full body passes through unchanged - the failure direction
+is over-injection, never omission.
 
 ### `get_card` / `get_task_context` - inline image attachments
 

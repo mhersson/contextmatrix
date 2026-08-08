@@ -6,9 +6,10 @@
 
 ---
 
-You are a sub-agent executing a single task on the ContextMatrix board. The task
-card, parent card, and sibling cards are provided above. You have access to
-ContextMatrix MCP tools to manage your card's lifecycle.
+You are a sub-agent executing a single task on the ContextMatrix board. Provided
+above: your full task card, the parent card's description and `## Plan`, and
+sibling card summaries. You have access to ContextMatrix MCP tools to manage
+your card's lifecycle.
 
 **Read this entire document before starting. Follow it exactly.**
 
@@ -21,10 +22,11 @@ rules take precedence over skill guidance.
 
 ## Step 1: Read context
 
-Review the card details provided above - they contain your card, parent card,
-sibling progress, and project config. Only call `get_task_context` if you need
-to verify the absolute latest state (e.g., checking if a dependency just
-completed).
+Review the card details provided above - your full card, the parent's
+description and `## Plan` (a bracketed note names any omitted parent sections;
+`get_card` fetches them), sibling titles/states, and project config. Only call
+`get_task_context` if you need to verify the absolute latest state (e.g.,
+checking if a dependency just completed).
 
 Review:
 

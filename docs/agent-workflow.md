@@ -694,6 +694,19 @@ context and are re-read on every subsequent model call, and card bodies grow
 during a run. Echoing the body from a heartbeat or a log append multiplies
 that cost for zero information gain.
 
+The same economics apply to skill delivery. `get_skill`, `start_review`, and
+`start_workflow` inject card context into the skill content; on the late-run
+surfaces the injected body is filtered to the sections the skill consumes -
+review-task gets the intro plus `## Plan` and `## Review Findings` (all
+rounds), document-task and the execute-task parent get the intro plus
+`## Plan` - while early-run skills (create-plan, brainstorming,
+systematic-debugging, run-autonomous) and the execute-task subtask's own card
+keep the full body. A bracketed note names any omitted sections and points at
+`get_card`; when none of the filter's sections exist in a body, the full body
+passes through unchanged. The table is in
+[`docs/api-reference.md`](api-reference.md) under "Skill-injection body
+filtering".
+
 ## Token cost configuration
 
 Each skill step - and the orchestrator itself - calls `report_usage` with the
