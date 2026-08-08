@@ -532,6 +532,33 @@ describe('Board - subtask phase strip & column membership', () => {
     expect(orphan.className).toContain('card-orphan-tint');
   });
 
+  it('a stalled parent surfaces in the spotlight with a clickable phase strip', () => {
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    const onCardClick = vi.fn();
+    const cards = [
+      makeCard('TEST-001', 'stalled', { title: 'Stalled parent' }),
+      makeCard('TEST-002', 'todo', { parent: 'TEST-001', title: 'Live subtask' }),
+    ];
+    render(<Board {...boardProps} cards={cards} onCardClick={onCardClick} />);
+    const strip = screen.getByRole('button', { name: '1 subtask' });
+    fireEvent.click(strip);
+    fireEvent.click(screen.getByTitle('Live subtask'));
+    expect(onCardClick).toHaveBeenCalledTimes(1);
+    expect(onCardClick).toHaveBeenCalledWith(expect.objectContaining({ id: 'TEST-002' }));
+  });
+
+  it('a flash for a subtask of a stalled parent auto-opens the spotlight peek', () => {
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    window.HTMLElement.prototype.scrollIntoView = vi.fn();
+    const cards = [
+      makeCard('TEST-001', 'stalled', { title: 'Stalled parent' }),
+      makeCard('TEST-002', 'todo', { parent: 'TEST-001', title: 'Fresh subtask' }),
+    ];
+    render(<Board {...boardProps} cards={cards} flashCardId="TEST-002" />);
+    expect(screen.getByRole('button', { name: '1 subtask' })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTitle('Fresh subtask')).toBeInTheDocument();
+  });
+
   it('a parent surfaces when only one of its subtasks matches the search', async () => {
     mockMatchMediaTrueFor('(min-width: 99999px)');
     const cards = [

@@ -373,6 +373,8 @@ export function Board({
 
       <SpotlightStrip
         cards={cards}
+        subtasksByParent={subtasksByParent}
+        flashCardId={flashCardId}
         onCardClick={(cardId) => {
           const c = cards.find((x) => x.id === cardId);
           if (c) onCardClick?.(c);
