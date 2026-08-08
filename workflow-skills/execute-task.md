@@ -63,10 +63,9 @@ failed claim.
 ## Step 3: Plan your approach
 
 Analyze the task and write your approach in the card body under `## Plan`. Call
-`update_card` to save it. Be specific - list the files you'll touch, the changes
-you'll make, and how you'll verify the result.
-
-Call `heartbeat` after saving your plan.
+`update_card` to save it - this also refreshes your claim, so no separate
+`heartbeat` call is needed. Be specific - list the files you'll touch, the
+changes you'll make, and how you'll verify the result.
 
 ## Step 4: Execute
 
@@ -74,17 +73,20 @@ Work through your plan step by step. As you make progress:
 
 1. Update `## Progress` in the card body with completed and remaining steps.
    Call `update_card`.
-2. Call `heartbeat` after every significant unit of work.
-3. Use `add_log` to record important decisions or milestones.
+2. Use `add_log` to record important decisions or milestones.
+3. Call `report_usage` after each significant unit of work (see below) -
+   this both records cost and refreshes your claim, so steady progress needs
+   no separate `heartbeat` call.
 
-**Heartbeat discipline is mandatory.** The timeout is 30 minutes - call
-`heartbeat` after each step, each test run, and each significant code change.
-Call `heartbeat` immediately before any idle wait and again on resume;
-recover per the workflow rules if the card went stalled.
+**Heartbeat discipline.** `update_card`, `add_log`, and `report_usage` all
+refresh the claim as a side effect of the mutation - an agent making steady
+progress never needs to call `heartbeat` explicitly. Call `heartbeat`
+explicitly only immediately before an idle wait (no board calls pending) and
+again on resume; recover per the workflow rules if the card went stalled.
 
-**Token usage reporting.** After each `heartbeat`, also call `report_usage` with
-your token consumption since the last report. This tracks cost per card. Always
-include:
+**Token usage reporting.** Call `report_usage` after each significant unit of
+work with your token consumption since the last report. This tracks cost per
+card and refreshes your claim. Always include:
 
 - `card_id`: your card ID
 - `agent_id`: your agent ID

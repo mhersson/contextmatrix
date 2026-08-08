@@ -79,7 +79,7 @@ Based on the card's current state and body content:
 | `todo` or `in_progress`, no `## Plan` in body | Phase 1: Plan Drafting |
 | `todo` or `in_progress`, has `## Plan` but no subtasks | Phase 2: Subtask Creation (inline) |
 | `todo` or `in_progress`, has subtasks, not all done | Phase 3: Execution |
-| `in_progress`, all subtasks done, no `## Review Findings` | Phase 4: Documentation |
+| `in_progress`, all subtasks done, no `## Review Findings` section (any round) | Phase 4: Documentation |
 | `review` | Phase 5: Review |
 | `done` | Nothing to do - inform the user |
 
@@ -231,8 +231,8 @@ Based on the card's current state and body content:
         the sub-agent. The protocol is identical whether the fix is
         ten lines or one.
       - If **>= 3**: **Budget exhausted.** Do not start another revision.
-        1. Parse Critical and Important findings from the card body's
-           `## Review Findings` section.
+        1. Parse Critical and Important findings from the card body's latest
+           `## Review Findings (Round <N>)` section.
         2. For each finding, call `create_card`:
            - `project`: this card's project.
            - `title`: `Follow-up: <one-line finding summary>`.

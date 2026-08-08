@@ -123,7 +123,7 @@ type heartbeatOutput struct {
 func registerHeartbeat(server *mcp.Server, svc *service.CardService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "heartbeat",
-		Description: "Update the heartbeat timestamp for a claimed card. Any card mutation you make (update_card, add_log, transition_card, report_usage) also refreshes it - call heartbeat only when idle longer than the stall timeout allows. Returns a minimal ack; use get_card for card content.",
+		Description: "Update the heartbeat timestamp for a claimed card. Any card mutation you make (update_card, add_log, transition_card, report_usage, start_review, complete_task) also refreshes it - call heartbeat only when idle longer than the stall timeout allows. Returns a minimal ack; use get_card for card content.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input agentCardInput) (*mcp.CallToolResult, heartbeatOutput, error) {
 		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
 		if err != nil {

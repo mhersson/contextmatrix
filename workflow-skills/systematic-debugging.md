@@ -39,16 +39,17 @@ add_log(card_id=<parent_id>, agent_id=<orchestrator agent_id>,
 
 ## Heartbeat
 
-- Call `heartbeat` after each phase and after every significant
-  investigation step (a non-trivial grep, reading a multi-file path,
-  forming a hypothesis).
-- After each `heartbeat`, call `report_usage` with `card_id`, the
-  orchestrator agent_id, `on_behalf_of="debug-investigator"`, `model` (your
-  own model identifier, read fresh from your system context - never copied
-  or derived from an agent name), `prompt_tokens`, `completion_tokens`, and
-  `cache_read_tokens` / `cache_creation_tokens` if available.
-- If a single phase takes longer than 5 minutes of work, heartbeat
-  proactively mid-phase.
+- After each phase and after every significant investigation step (a
+  non-trivial grep, reading a multi-file path, forming a hypothesis), call
+  `report_usage` with `card_id`, the orchestrator agent_id,
+  `on_behalf_of="debug-investigator"`, `model` (your own model identifier,
+  read fresh from your system context - never copied or derived from an
+  agent name), `prompt_tokens`, `completion_tokens`, and
+  `cache_read_tokens` / `cache_creation_tokens` if available. This refreshes
+  the orchestrator's claim as well as recording cost, so no separate
+  `heartbeat` call is needed during steady work.
+- Call `heartbeat` explicitly only if a single phase runs long with no
+  board calls pending (e.g. an extended read with nothing to log yet).
 
 Map stream-json `usage` frame fields to `report_usage` parameters:
 - `usage.input_tokens` → `prompt_tokens`

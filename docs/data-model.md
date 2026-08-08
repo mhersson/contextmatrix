@@ -61,7 +61,11 @@
    the mutation's attributed agent matching `assigned_agent`: a claimed card
    edited by anyone else, or a mutation with no agent attribution (e.g. the
    REST `PUT` card endpoint, which is system-attributed), never bumps it - only
-   the owning agent's own activity counts as liveness.
+   the owning agent's own activity counts as liveness. The REST `PATCH`
+   endpoint routes through the same `PatchCard` path as MCP's `update_card`
+   and passes the `X-Agent-ID` header through as the attributed agent, so it
+   bumps `last_heartbeat` when that header names the card's current owner;
+   `PUT` never does, since it carries no agent attribution at all.
 
 8. **External source tracking.** Cards imported from external systems (Jira,
    GitHub Issues, etc.) use the `source` field to record origin. The

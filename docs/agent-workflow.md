@@ -678,7 +678,7 @@ Parent cards accumulate sections per phase instead:
 ## Diagnosis        <- systematic-debugging sub-agent
 ## Plan             <- plan-draft sub-agent
 ## Decisions        <- plan-draft sub-agent
-## Review Findings  <- review rounds; later rounds append as ## Review Findings (Round N)
+## Review Findings (Round N)  <- review rounds; every round writes a numbered heading
 ```
 
 `## Decisions` preserves the drafting context that would otherwise die with
@@ -702,10 +702,13 @@ nor an explicit heartbeat has landed within the window.
 **Idle waits are the most common cause of stalled cards** - a wait produces no
 mutation, so it earns no free heartbeat. Waits on sub-agents belong in
 `await_subtasks` (below), which refreshes the claim on the parent for the
-caller. Any agent that holds an active claim and waits some other way must call
-`heartbeat` every 5 minutes during that wait. This rule is enforced in the workflow preamble
-injected into every skill prompt, and is explicitly called out in each skill
-that has sub-agent-facing idle waits (`execute-task.md`). User-facing waits
+caller. An agent that holds an active claim and polls some other way is
+already covered as long as each pass calls `report_usage` (or another
+mutation) at least every 10 minutes - comfortably inside the 30-minute
+timeout. Explicit `heartbeat` is for waits with no board calls at all. This
+rule is enforced in the workflow preamble injected into every skill prompt,
+and is explicitly called out in each skill that has sub-agent-facing idle
+waits (`execute-task.md`). User-facing waits
 follow an edge-triggered pattern instead, because an orchestrator blocked on
 human input gets no turns to heartbeat on: the skills call `heartbeat`
 immediately before prompting (resetting the timeout clock, so waits shorter
@@ -765,8 +768,8 @@ field, but never `body`, `activity_log`, or `usage_breakdown`. `heartbeat`
 returns a minimal `{card_id, state, last_heartbeat}` ack. Only `get_card` and
 `get_task_context` return full cards - they are the designated fetch tools,
 and skills that need the body, the activity log, or the per-model usage
-breakdown (resume, review diff-base, documentation, cost audit) call them
-explicitly. Within `get_task_context`, the primary card and parent are full
+breakdown (resume, review diff-base, documentation, an agent auditing
+per-model spend) call them explicitly. Within `get_task_context`, the primary card and parent are full
 while siblings are summaries - sibling detail is fetched per card via
 `get_card`. The full table is in
 [`docs/api-reference.md`](api-reference.md) under "Card payload shapes".
@@ -857,7 +860,11 @@ marks buckets whose cost came from the provider rather than the rate table.
 `report_usage` using another identity's `agent_id` to satisfy that check (the
 plan-draft and systematic-debugging sub-agents, and review's specialists - see
 below) must pass its own `on_behalf_of` so its usage is attributed to itself
-rather than merged into the claim holder's bucket.
+rather than merged into the claim holder's bucket. These role-label identities
+also surface on the dashboard: each distinct `on_behalf_of` value (e.g.
+`specialist-security`, `debug-investigator`) appears as its own row in the
+per-project dashboard's cost-by-agent rollup, merged across every card that
+identity reported against.
 
 ### Reporting measured usage (collector protocol)
 
@@ -893,6 +900,15 @@ carries the same cumulative `usage` object. Summing `usage` across all records
 without deduplicating overcounts by roughly 2x (more with more content
 blocks per turn). Deduplicate by `message.id` before summing - one `usage`
 value per unique message ID, not per transcript line.
+
+Cross-reporter double-counting: a card's cumulative `token_usage` total sums
+every `report_usage` call regardless of which bucket it lands in - buckets
+stay correctly labeled by `counts_source`, but the headline total does not
+know that a collector and the agent it is watching may be reporting the same
+traffic twice. Running a collector alongside the agent's own mandated
+self-reporting of that same traffic inflates the cumulative total; an
+operator who wants an accurate total must suppress the agent's self-reporting
+for the traffic the collector already covers, or accept the inflation.
 
 Trust model: the bearer key used to call `report_usage` is the authentication;
 `source: "collector"` is honesty labeling, not a privilege escalation - a
