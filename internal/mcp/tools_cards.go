@@ -594,7 +594,9 @@ func registerReportUsage(server *mcp.Server, svc *service.CardService) {
 			"and recalculates estimated cost based on the model's configured rates. " +
 			"Accepts optional cache_read_tokens (billed at 0.10× base input rate) and " +
 			"cache_creation_tokens (billed at 1.25× base input rate) for prompt-cache cost accounting. " +
-			"Call this on heartbeat and when completing a task.",
+			"Accepts on_behalf_of to attribute usage to a different agent identity (e.g. a subagent) " +
+			"while agent_id still satisfies the claim check, and source to mark whether the counts are " +
+			"self-estimated or collector-measured. Call this on heartbeat and when completing a task.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input reportUsageInput) (*mcp.CallToolResult, *CardSummary, error) {
 		// Reject negative token counts at the handler boundary. The service
 		// layer uses += on the running totals, so a negative value would

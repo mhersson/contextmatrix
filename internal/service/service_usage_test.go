@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/lock"
 	"github.com/mhersson/contextmatrix/internal/metrics"
 	"github.com/mhersson/contextmatrix/internal/storage"
 	"github.com/prometheus/client_golang/prometheus"
@@ -424,6 +425,46 @@ func TestReportUsageOnBehalfOf(t *testing.T) {
 	assert.Contains(t, byAgent, "orchestrator-1")
 }
 
+// TestReportUsageOnBehalfOfDoesNotBypassOwnership verifies that OnBehalfOf is
+// attribution only, never authorization: a caller whose AgentID does not hold
+// the claim is still rejected with lock.ErrAgentMismatch even when it sets
+// OnBehalfOf to the claiming agent's own identity, and no bucket is created
+// by the rejected call. Without this, on_behalf_of would let any agent write
+// usage onto a card it does not own by simply claiming to act "on behalf of"
+// whoever does.
+func TestReportUsageOnBehalfOfDoesNotBypassOwnership(t *testing.T) {
+	svc, _, cleanup := setupTestWithCosts(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "On-behalf-of ownership test",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "rightful-owner")
+	require.NoError(t, err)
+
+	// AgentID does not match AssignedAgent; OnBehalfOf targets the claim
+	// holder's own identity. The claim check must still fail on AgentID.
+	got, err := svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID:          "impostor",
+		OnBehalfOf:       "rightful-owner",
+		Model:            "claude-sonnet-4-6",
+		PromptTokens:     100,
+		CompletionTokens: 50,
+	})
+	require.ErrorIs(t, err, lock.ErrAgentMismatch)
+	assert.Nil(t, got)
+
+	final, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Empty(t, final.UsageBreakdown, "rejected report must not create a bucket")
+}
+
 // TestReportUsageCountsSourceSticky verifies that Source "collector" marks the
 // bucket's CountsSource and that a later source-less report to the same
 // bucket does not clear it - mirroring the sticky "actual" cost_source flag,
@@ -464,6 +505,49 @@ func TestReportUsageCountsSourceSticky(t *testing.T) {
 	require.Len(t, got.UsageBreakdown, 1)
 	assert.Equal(t, "collector", got.UsageBreakdown[0].CountsSource,
 		"bucket must stay collector-sourced once any collector report has landed")
+	assert.Equal(t, int64(110), got.UsageBreakdown[0].PromptTokens)
+}
+
+// TestReportUsageCountsSourceUpgradesToCollector mirrors
+// TestReportUsageBreakdownStickyActual's shape for the upgrade direction: a
+// bucket that starts self-reported (empty CountsSource) flips to "collector"
+// the moment any report on it carries Source "collector", same as an
+// "estimated" cost bucket flips to "actual" on its first actual-cost report.
+func TestReportUsageCountsSourceUpgradesToCollector(t *testing.T) {
+	svc, _, cleanup := setupTestWithCosts(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Counts source upgrade test",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	// Self-reported first: bucket starts with an empty CountsSource.
+	got, err := svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID:          "cmx-agent-w",
+		Model:            "claude-sonnet-4-6",
+		PromptTokens:     100,
+		CompletionTokens: 50,
+	})
+	require.NoError(t, err)
+	require.Len(t, got.UsageBreakdown, 1)
+	assert.Empty(t, got.UsageBreakdown[0].CountsSource)
+
+	// Collector-sourced report on the same (agent, model): flips to "collector".
+	got, err = svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID:          "cmx-agent-w",
+		Model:            "claude-sonnet-4-6",
+		PromptTokens:     10,
+		CompletionTokens: 5,
+		Source:           "collector",
+	})
+	require.NoError(t, err)
+	require.Len(t, got.UsageBreakdown, 1)
+	assert.Equal(t, "collector", got.UsageBreakdown[0].CountsSource)
 	assert.Equal(t, int64(110), got.UsageBreakdown[0].PromptTokens)
 }
 
