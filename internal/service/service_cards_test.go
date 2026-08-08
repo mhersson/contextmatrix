@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -702,5 +703,95 @@ func TestModelPinValidation(t *testing.T) {
 			ModelCoder: "anything/goes",
 		})
 		require.NoError(t, err)
+	})
+}
+
+// TestPatchCardUpsertSection verifies the UpsertSection field on
+// PatchCardInput: replace-or-append semantics via board.UpsertSection,
+// mutual exclusivity with Body, heading validation, and the combined-length
+// cap enforced once the current body is in hand.
+func TestPatchCardUpsertSection(t *testing.T) {
+	ctx := context.Background()
+
+	const initialBody = "intro\n\n## Plan\n\nold\n"
+
+	// newUpsertTestCard creates a card with the given body and claims it as
+	// "agent-1", matching the PatchCard AgentID ownership checks exercised below.
+	newUpsertTestCard := func(t *testing.T, body string) (*CardService, *board.Card) {
+		t.Helper()
+
+		svc, _, cleanup := setupTest(t)
+		t.Cleanup(cleanup)
+
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title: "upsert section test", Type: "task", Priority: "medium",
+			Body: body,
+		})
+		require.NoError(t, err)
+
+		_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-1")
+		require.NoError(t, err)
+
+		return svc, card
+	}
+
+	t.Run("upsert new section appends", func(t *testing.T) {
+		svc, card := newUpsertTestCard(t, initialBody)
+
+		got, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+			AgentID:       "agent-1",
+			UpsertSection: &SectionPatch{Heading: "Review Findings (Round 1)", Content: "- f1"},
+		})
+		require.NoError(t, err)
+		assert.True(t, strings.HasSuffix(got.Body, "## Review Findings (Round 1)\n\n- f1\n"),
+			"body should end with the new section, got %q", got.Body)
+		assert.Contains(t, got.Body, "## Plan\n\nold", "existing human text must be untouched")
+	})
+
+	t.Run("upsert existing heading replaces in place", func(t *testing.T) {
+		svc, card := newUpsertTestCard(t, initialBody)
+
+		got, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+			AgentID:       "agent-1",
+			UpsertSection: &SectionPatch{Heading: "Plan", Content: "new"},
+		})
+		require.NoError(t, err)
+		assert.Contains(t, got.Body, "## Plan\n\nnew\n")
+		assert.NotContains(t, got.Body, "old")
+	})
+
+	t.Run("body and upsert_section are mutually exclusive", func(t *testing.T) {
+		svc, card := newUpsertTestCard(t, initialBody)
+
+		newBody := "replacement"
+		_, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+			AgentID:       "agent-1",
+			Body:          &newBody,
+			UpsertSection: &SectionPatch{Heading: "Plan", Content: "new"},
+		})
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "mutually exclusive")
+	})
+
+	t.Run("heading containing a newline is rejected", func(t *testing.T) {
+		svc, card := newUpsertTestCard(t, initialBody)
+
+		_, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+			AgentID:       "agent-1",
+			UpsertSection: &SectionPatch{Heading: "Plan\nInjected", Content: "new"},
+		})
+		require.Error(t, err)
+	})
+
+	t.Run("combined length over the body cap is rejected", func(t *testing.T) {
+		big := strings.Repeat("a", maxBodyLen-100)
+		svc, card := newUpsertTestCard(t, big)
+
+		_, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+			AgentID:       "agent-1",
+			UpsertSection: &SectionPatch{Heading: "Overflow", Content: strings.Repeat("b", 1000)},
+		})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrFieldTooLong)
 	})
 }
