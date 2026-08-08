@@ -37,8 +37,10 @@ Violating these rules leaves cards orphaned with no tracking. Follow them exactl
   or approve your changes instead of completing the card lifecycle. Do NOT abandon
   a card after coding. If you claimed it, you must either complete it or report it
   as blocked.
-- **Heartbeat during idle waits.** While monitoring sub-agents, call heartbeat
-  and report_usage after each check - and check no more often than every 10
+- **Heartbeat during idle waits.** While monitoring sub-agents, prefer
+  await_subtasks - it blocks until subtasks finish or stall and refreshes
+  your claim while you wait. If you poll some other way, call heartbeat and
+  report_usage after each check, and check no more often than every 10
   minutes; every check re-reads your entire context. Before prompting the
   user for input, call heartbeat - you get no turns while blocked, so this is
   your last reset before the wait. On resume, call heartbeat again; if the

@@ -26,8 +26,10 @@ You are the planning and execution orchestrator for a ContextMatrix card.
   turns while blocked, so this is your last reset before the clock runs. On
   return, call `heartbeat` and `report_usage`; if the card went stalled during
   the block, recover as described above.
-- Every check in a monitoring loop re-reads your entire context - poll as
-  rarely as the work allows, and never more often than every 10 minutes.
+- While monitoring sub-agents, prefer `await_subtasks` - it blocks until
+  subtasks finish or stall and refreshes your claim while you wait, instead of
+  polling. For any other monitoring loop, poll as rarely as the work allows,
+  and never more often than every 10 minutes.
 
 ---
 
@@ -313,10 +315,9 @@ the orchestrator's working tree on the feature branch.
    - **Do NOT pass `isolation: "worktree"`.** Spawn all ready tasks in
      parallel (multiple `Agent` tool calls in one message). Do NOT execute
      inline even if `inline` is true.
-4. **Monitor sub-agents with health checking.** With two or more ready tasks,
-   enter a monitoring loop after spawning them. Call `heartbeat` and
-   `report_usage` after each check. To record your own token consumption
-   since the last report:
+4. **Monitor sub-agents.** With two or more ready tasks, enter a monitoring
+   loop after spawning them. To record your own token consumption since the
+   last report:
    - `card_id`: the parent card ID
    - `agent_id`: your agent ID
    - `model`: your own model identifier, read fresh from your system context
@@ -325,25 +326,18 @@ the orchestrator's working tree on the feature branch.
      since the last report
    - `cache_read_tokens` / `cache_creation_tokens`: from the stream-json `usage` frame if available
 
-   a. Wait 10 minutes between checks - every check re-reads your entire
-   context. b. Call
-   `check_agent_health(parent_id=<parent_id>)` to get the health status of all
-   subtask agents. c. For each subtask, act on its status:
-   - **`active`** - healthy, no action needed.
-   - **`completed`** - call `get_card(card_id=<id>)` to verify the card is in
-     `done` state. If still in `todo` or `in_progress`, claim it and call
-     `complete_task` - or respawn if work is incomplete. Then call
-     `get_ready_tasks` to find newly unblocked tasks and spawn agents for them.
-   - **`warning`** - heartbeat is stale (>15 min). Note it but do not act yet -
-     the agent may be in a long operation.
-   - **`stalled`** - agent is dead (heartbeat exceeded 30 min timeout, or card
-     already transitioned to `stalled` by the server). Respawn it (see below).
-   - **`unassigned`** - card has no agent. If it is in `todo` state, it should
-     be picked up by `get_ready_tasks`. If it is in `in_progress` or `stalled`
-     with no agent, respawn it. d. Call
-     `get_subtask_summary(parent_id=<parent_id>)` to check overall progress.
-     When all subtasks are `done`, exit the loop and proceed to Phase 6. e.
-     Repeat from (a) until all subtasks are done.
+   a. Call `await_subtasks(parent_id=<parent_id>, timeout_seconds=480)` -
+      only after step 3 has spawned the sub-agents; calling it on a parent
+      with no subtask cards yet returns an instant vacuous `completed: true`
+      (there is nothing to wait on). It blocks server-side until all subtasks
+      finish, any subtask stalls, or the timeout passes, and it refreshes your
+      claim's heartbeat while you wait. Never sleep between calls.
+   b. If `completed` is true: call `heartbeat` and `report_usage`, exit the
+      loop, proceed to Phase 6.
+   c. If `stalled` lists cards: recover each per the respawn rules below
+      (`check_agent_health` gives per-card detail), call `report_usage`,
+      repeat from (a).
+   d. Otherwise (`timed_out`): call `report_usage`, repeat from (a).
 
    ### Respawning a dead agent
 

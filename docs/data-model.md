@@ -55,8 +55,9 @@
    mutates cards. The state change, persistence, commit, and event publication
    are all owned by the service layer. `last_heartbeat` is refreshed not only
    by the `heartbeat` MCP tool but by any owner-attributed card mutation -
-   `update_card` (MCP), `add_log`, `transition_card`, `report_usage` - as part
-   of that mutation's existing persist and commit, no extra write. The guard is
+   `update_card` (MCP), `add_log`, `transition_card`, `report_usage`,
+   `start_review`, `complete_task` - as part of that mutation's existing
+   persist and commit, no extra write. The guard is
    the mutation's attributed agent matching `assigned_agent`: a claimed card
    edited by anyone else, or a mutation with no agent attribution (e.g. the
    REST `PUT` card endpoint, which is system-attributed), never bumps it - only

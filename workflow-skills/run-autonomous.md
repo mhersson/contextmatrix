@@ -120,11 +120,9 @@ Based on the card's current state and body content:
       Do NOT execute inline even if `inline` is true.
     - **Do NOT pass `isolation: "worktree"`.** Sub-agents run inline in your working tree on the feature branch.
     - Spawn all ready subtasks in **parallel**.
-10. **Monitor sub-agents.** Enter a monitoring loop. Call `heartbeat` and
-    `report_usage` after each check. Report your token consumption since the
-    last report (`prompt_tokens`, `completion_tokens`, and
-    `cache_read_tokens` / `cache_creation_tokens` if available) - this is
-    mandatory, not optional.
+10. **Monitor sub-agents.** Report your token consumption since the last
+    report (`prompt_tokens`, `completion_tokens`, and `cache_read_tokens` /
+    `cache_creation_tokens` if available) - this is mandatory, not optional.
 
     Map stream-json `usage` frame fields to `report_usage` parameters:
     - `usage.input_tokens` → `prompt_tokens`
@@ -132,23 +130,18 @@ Based on the card's current state and body content:
     - `usage.cache_read_input_tokens` → `cache_read_tokens`
     - `usage.cache_creation_input_tokens` → `cache_creation_tokens`
 
-    a. Wait 10 minutes between checks - every check re-reads your entire
-       context.
-    b. Call `check_agent_health(parent_id=<card_id>)`.
-    c. Act on each subtask's status:
-       - **`active`** - no action.
-       - **`completed`** - call `get_card(card_id=<id>)` to verify the card
-         is in `done` state. If still in `todo` or `in_progress`, claim it
-         and call `complete_task` - or respawn if work is incomplete. Then
-         call `get_ready_tasks` and spawn agents for newly unblocked tasks
-         (same as step 9).
-       - **`warning`** - note it, do not act yet.
-       - **`stalled`** - respawn (see below).
-       - **`unassigned`** - if `todo`, `get_ready_tasks` picks it up. If
-         `in_progress` or `stalled` with no agent, respawn it.
-    d. Call `get_subtask_summary(parent_id=<card_id>)`. When all subtasks are
-       `done`, exit the loop.
-    e. Repeat from (a).
+    a. Call `await_subtasks(parent_id=<card_id>, timeout_seconds=480)` - only
+       after step 9 has spawned the sub-agents; calling it on a parent with no
+       subtask cards yet returns an instant vacuous `completed: true` (there
+       is nothing to wait on). It blocks server-side until all subtasks
+       finish, any subtask stalls, or the timeout passes, and it refreshes
+       your claim's heartbeat while you wait. Never sleep between calls.
+    b. If `completed` is true: call `heartbeat` and `report_usage`, exit the
+       loop.
+    c. If `stalled` lists cards: recover each per the respawn rules below
+       (`check_agent_health` gives per-card detail), call `report_usage`,
+       repeat from (a).
+    d. Otherwise (`timed_out`): call `report_usage`, repeat from (a).
 
     ### Respawning a stalled agent
 
