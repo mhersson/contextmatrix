@@ -83,19 +83,25 @@ Based on the card's current state and body content:
 | `review` | Phase 5: Review |
 | `done` | Nothing to do - inform the user |
 
-## Phase 1: Plan Drafting (always inline)
+## Phase 1: Plan Drafting (orchestrator inline, drafting sub-agent)
 
 1. Call `get_skill(skill_name='create-plan', card_id='<card_id>',
    caller_model='<your_model>')`.
 2. Append `\n\nYou are executing **Phase 1: Plan Drafting** only.` to the
    returned content.
-3. Execute inline. Produce `PLAN_DRAFTED` output.
+3. Execute the returned Phase 1 instructions inline. They fetch the
+   plan-draft skill and spawn the drafting sub-agent; block on it, calling
+   `heartbeat` + `report_usage` on the parent every 5 minutes while it
+   runs. The sub-agent writes `## Plan` and `## Decisions` and prints
+   `PLAN_DRAFTED`.
 4. Skip user approval - proceed directly to Phase 2.
 
 ## Phase 2: Subtask Creation (always inline)
 
-5. Call `list_cards(project=<project>, parent=<card_id>)` to fetch existing
-   subtasks. For each planned subtask, if a non-terminal subtask (any state
+5. Call `get_card(card_id='<card_id>')` and read the `## Plan` section from
+   the body - the plan was written by the drafting sub-agent and is not in
+   your context. Then call `list_cards(project=<project>, parent=<card_id>)`
+   to fetch existing subtasks. For each planned subtask, if a non-terminal subtask (any state
    except `done`/`not_planned`) with the same title already exists
    (case-insensitive, trimmed), skip it and reuse the existing card's ID.
 6. For each subtask that does NOT already exist, call `create_card` with:
