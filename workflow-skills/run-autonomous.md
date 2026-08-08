@@ -130,12 +130,14 @@ Based on the card's current state and body content:
     - `usage.cache_read_input_tokens` → `cache_read_tokens`
     - `usage.cache_creation_input_tokens` → `cache_creation_tokens`
 
-    a. Call `await_subtasks(parent_id=<card_id>, timeout_seconds=480)` - only
-       after step 9 has spawned the sub-agents; calling it on a parent with no
-       subtask cards yet returns an instant vacuous `completed: true` (there
-       is nothing to wait on). It blocks server-side until all subtasks
-       finish, any subtask stalls, or the timeout passes, and it refreshes
-       your claim's heartbeat while you wait. Never sleep between calls.
+    a. Call `await_subtasks(parent_id=<card_id>, agent_id=<your_agent_id>,
+       timeout_seconds=480)` - only after step 9 has spawned the sub-agents;
+       calling it on a parent with no subtask cards yet returns an instant
+       vacuous `completed: true` (there is nothing to wait on). It blocks
+       server-side until all subtasks finish, any subtask stalls, or the
+       timeout passes. Passing `agent_id` is required to refresh your claim's
+       heartbeat while you wait - without it the wait does nothing for your
+       claim. Never sleep between calls.
     b. If `completed` is true: call `heartbeat` and `report_usage`, exit the
        loop.
     c. If `stalled` lists cards: recover each per the respawn rules below
@@ -297,6 +299,7 @@ and opens the PR when `create_pr` is enabled.
 
 - Always use MCP tools for all ContextMatrix interactions.
 - Call `heartbeat` immediately before any idle wait and again on resume (see
-  Phase 1 and Phase 3 for cadence).
+  Phase 1; Phase 3 waits on sub-agents via `await_subtasks` instead of manual
+  heartbeat cadence).
 - Spawn sub-agents with `Agent` tool, not `SendMessage`.
 - Do not skip phases. Start from the correct phase based on card state.

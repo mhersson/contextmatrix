@@ -389,10 +389,12 @@ documentation first, then manually transitions the parent to `review`.
 Execute-task sub-agents ignore any `next_step` field returned by `complete_task` -
 they print `TASK_COMPLETE` and stop.
 
-The monitoring loop calls `await_subtasks` on the parent, which blocks until
-every subtask is terminal, one goes `stalled`, or the timeout passes, and
-refreshes the orchestrator's claim on the parent while it waits. Each return -
-completed, a stall to recover, or a timeout - is followed by `report_usage` to
+The monitoring loop calls `await_subtasks` on the parent, passing its own
+`agent_id` so the wait refreshes the orchestrator's claim on the parent while
+it blocks - omitting `agent_id` makes the refresh a no-op. It blocks until
+every subtask is terminal, one goes `stalled`, or the timeout passes. Each
+return - completed, a stall to recover, or a timeout - is followed by
+`report_usage` to
 record the orchestrator's own token consumption against the parent card;
 `heartbeat` is only needed on the completed return, since `await_subtasks`
 already refreshed the claim on the others. The `model` field must be the
@@ -560,10 +562,10 @@ which phase to resume from.
   in `internal/service/service.go`) so a manual override can still proceed past
   3 if needed without bypassing the skill gate.
 - **Await-based stall detection** - the orchestrator calls `await_subtasks` on
-  the parent card, which blocks until every subtask is terminal, one goes
-  `stalled`, or the timeout passes, refreshing the orchestrator's claim while
-  it waits; a `stalled` return uses `check_agent_health` for per-card detail
-  to respawn.
+  the parent card, passing its own `agent_id` so the wait refreshes its claim
+  while it blocks. The call blocks until every subtask is terminal, one goes
+  `stalled`, or the timeout passes; a `stalled` return uses
+  `check_agent_health` for per-card detail to respawn.
 - **Human vetting gate** - cards imported from external sources (GitHub Issues,
   Jira, etc.) require explicit human approval before agents can work on them.
   `get_ready_tasks` automatically filters out unvetted external cards; a

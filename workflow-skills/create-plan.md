@@ -301,12 +301,9 @@ the orchestrator's working tree on the feature branch.
    prompt). **Never pass `include_preamble: false`** - sub-agents need the
    lifecycle preamble.
 
-   **Spawn mode.** If `get_ready_tasks` returned exactly one task: call
-   `heartbeat`, spawn it blocking (no `run_in_background`), and skip the
-   monitoring loop entirely - on return, call `heartbeat` and `report_usage`
-   and act on the result; if the parent went stalled during the block,
-   recover per the Heartbeat section. With two or more ready tasks: spawn all
-   in parallel with `run_in_background: true` and enter the monitoring loop.
+   **Spawn mode (mechanics).** Call `heartbeat` first. One ready task: spawn
+   it blocking (no `run_in_background`). Two or more: spawn all in parallel
+   with `run_in_background: true`.
 
    Always spawn a sub-agent using the **`Agent`** tool with:
    - `model`: the `model` from `get_skill` - **CRITICAL**, do not omit
@@ -315,8 +312,19 @@ the orchestrator's working tree on the feature branch.
    - **Do NOT pass `isolation: "worktree"`.** Spawn all ready tasks in
      parallel (multiple `Agent` tool calls in one message). Do NOT execute
      inline even if `inline` is true.
-4. **Monitor sub-agents.** With two or more ready tasks, enter a monitoring
-   loop after spawning them. To record your own token consumption since the
+
+   **After a single-task blocking spawn returns:** call `heartbeat` and
+   `report_usage`, act on the result (recover per the Heartbeat section if
+   the parent stalled during the block). Then call `get_ready_tasks` again:
+   tasks ready - repeat Spawn mode; none ready but `get_subtask_summary`
+   still shows non-terminal subtasks (others are already in progress or
+   stalled from an earlier spawn cycle) - go to step 4 and enter the
+   monitoring loop at (a); all subtasks terminal - proceed to Phase 6. This
+   last case is the only one that skips the monitoring loop entirely - it
+   only applies to the single-task path, and only once nothing else remains.
+
+   **After a parallel multi-task spawn**, go to step 4.
+4. **Monitor sub-agents.** To record your own token consumption since the
    last report:
    - `card_id`: the parent card ID
    - `agent_id`: your agent ID
@@ -326,22 +334,28 @@ the orchestrator's working tree on the feature branch.
      since the last report
    - `cache_read_tokens` / `cache_creation_tokens`: from the stream-json `usage` frame if available
 
-   a. Call `await_subtasks(parent_id=<parent_id>, timeout_seconds=480)` -
-      only after step 3 has spawned the sub-agents; calling it on a parent
-      with no subtask cards yet returns an instant vacuous `completed: true`
-      (there is nothing to wait on). It blocks server-side until all subtasks
-      finish, any subtask stalls, or the timeout passes, and it refreshes your
-      claim's heartbeat while you wait. Never sleep between calls.
+   a. Call `await_subtasks(parent_id=<parent_id>, agent_id=<your_agent_id>,
+      timeout_seconds=480)` - only after step 3 has spawned the sub-agents;
+      calling it on a parent with no subtask cards yet returns an instant
+      vacuous `completed: true` (there is nothing to wait on). It blocks
+      server-side until all subtasks finish, any subtask stalls, or the
+      timeout passes. Passing `agent_id` is required to refresh your claim's
+      heartbeat while you wait - without it the wait does nothing for your
+      claim. Never sleep between calls.
    b. If `completed` is true: call `heartbeat` and `report_usage`, exit the
       loop, proceed to Phase 6.
    c. If `stalled` lists cards: recover each per the respawn rules below
       (`check_agent_health` gives per-card detail), then run the same
       `get_ready_tasks` sweep as (d). Call `report_usage`, repeat from (a).
    d. Otherwise (`timed_out`): call `get_ready_tasks` and spawn any newly
-      ready tasks per the Spawn mode rules in step 3 - this is what picks up
-      subtasks a sibling's completion just unblocked (`depends_on` chains); a
-      chain step's latency is bounded by the await window, same order as the
-      old 10-minute poll. Call `report_usage`, repeat from (a).
+      ready tasks using the Spawn mode mechanics in step 3 (blocking for one,
+      `run_in_background` for two-plus, `heartbeat` first) - this is what
+      picks up subtasks a sibling's completion just unblocked (`depends_on`
+      chains); a chain step's latency is bounded by the await window, same
+      order as the old 10-minute poll. You are already inside the monitoring
+      loop here, so no matter how many you spawn, always call `report_usage`
+      and repeat from (a) - "skip the monitoring loop" never applies once
+      you're past step 3's single-task path.
 
    ### Respawning a dead agent
 
