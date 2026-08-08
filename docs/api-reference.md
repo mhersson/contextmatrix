@@ -2263,14 +2263,15 @@ with a pointer to `get_card`:
 
 | Skill surface | Injected body |
 | ------------- | ------------- |
-| `review-task` (`start_review`, `get_skill`) | intro + `## Plan` + `## Review Findings` (all rounds) |
-| `document-task` (`get_skill`) | intro + `## Plan` |
+| `review-task` (`start_review`, `get_skill`) | intro + `## Plan` + `## Review Findings` (all rounds) + `## Decisions` |
+| `document-task` (`get_skill`) | intro + `## Plan` + `## Decisions` |
 | `execute-task` parent card | intro + `## Plan` |
-| `create-plan`, `brainstorming`, `systematic-debugging`, `run-autonomous`, `execute-task` own card | full body |
+| `create-plan`, `plan-draft`, `brainstorming`, `systematic-debugging`, `run-autonomous`, `execute-task` own card | full body |
 
 The early-run surfaces keep the full body deliberately: the body is small at
 that point, run-autonomous's simple fast path implements directly from it,
-and systematic-debugging rewrites it wholesale. When none of a filter's
+plan-draft treats it as the spec to decompose, and systematic-debugging
+rewrites it wholesale. When none of a filter's
 sections exist in a body (early-run cards, custom templates, the unvetted
 placeholder), the full body passes through unchanged - the failure direction
 is over-injection, never omission.

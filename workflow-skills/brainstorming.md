@@ -96,7 +96,8 @@ You MUST complete each of these in order:
 6. **Description self-review** - quick inline check for placeholders,
    contradictions, ambiguity, scope (see below); fix and re-update.
 7. **User confirms updated body** - last gate before returning.
-8. **Return** - control passes back to create-plan Phase 1 Step 2 (Draft).
+8. **Return** - control passes back to create-plan Phase 1; your `## Design`
+   reaches the plan-draft sub-agent through the card body.
 
 ## The Process
 

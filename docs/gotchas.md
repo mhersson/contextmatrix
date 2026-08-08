@@ -45,11 +45,12 @@
   (`TestGetTaskContextSiblingsAreSummaries`) - only the primary card and
   parent carry bodies. Skill prompts are filtered the same way: review-task,
   document-task, and the execute-task parent inject only intro + allowlisted
-  sections (`filterBodySections`), pinned by
+  sections (`filterBodySections`) - the review-task and document-task keep
+  lists include `## Decisions` alongside `## Plan` - pinned by
   `TestStartReview_BodyFilteredToPlanAndFindings` and friends. Do not "fix"
   a skill surface by passing a nil section list - the early-run builders
-  (create-plan, run-autonomous, systematic-debugging) are the only deliberate
-  full-body injections (`TestGetSkill_CreatePlan_FullBodyPinned`).
+  (create-plan, plan-draft, run-autonomous, systematic-debugging) are the only
+  deliberate full-body injections (`TestGetSkill_CreatePlan_FullBodyPinned`).
 - **MCP middleware chain and body limit:** `/mcp` is registered on the same
   inner `http.ServeMux` as the REST API, so it automatically inherits the shared
   middleware chain (recovery, security headers, CORS when enabled, request ID,

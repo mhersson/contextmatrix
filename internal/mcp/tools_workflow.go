@@ -31,7 +31,10 @@ func registerStartWorkflow(server *mcp.Server, svc *service.CardService, workflo
 			"'start workflow', 'start', 'plan', 'work on', 'begin', or 'run' a card. " +
 			"Inspects the card's autonomous flag and returns the full workflow skill content: " +
 			"run-autonomous (for autonomous cards) or create-plan (for human-in-the-loop cards). " +
-			"Always returns inline: true - execute the content directly.",
+			"Always returns inline: true - execute the content directly. " +
+			"Best practice: run this in a fresh session seeded with just the card ID - " +
+			"board survey and card selection belong in a separate session, because " +
+			"carried-over survey output becomes permanent context re-billed on every later call.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input startWorkflowInput) (*mcp.CallToolResult, startWorkflowOutput, error) {
 		card, _, err := findCard(ctx, svc, input.CardID)
 		if err != nil {

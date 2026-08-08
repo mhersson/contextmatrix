@@ -13,7 +13,7 @@ import (
 // multiSectionBody is a late-run parent body: description plus the sections
 // the workflow accumulates. The filter must keep the intro and the
 // per-skill allowlist, and name the omitted sections.
-const multiSectionBody = "Original request.\n\n## Diagnosis\n\nThe root cause analysis.\n\n## Plan\n\n1. SUBTASK: Fix the bug\n\n## Review Findings\n\n- finding one\n"
+const multiSectionBody = "Original request.\n\n## Diagnosis\n\nThe root cause analysis.\n\n## Plan\n\n1. SUBTASK: Fix the bug\n\n## Review Findings\n\n- finding one\n\n## Decisions\n\n- chose X over Y\n"
 
 func createBodyCard(t *testing.T, env *testEnv, title, body string, extra map[string]any) *board.Card {
 	t.Helper()
@@ -59,6 +59,7 @@ func TestStartReview_BodyFilteredToPlanAndFindings(t *testing.T) {
 	assert.Contains(t, out.Content, "Original request.", "intro must be kept")
 	assert.Contains(t, out.Content, "1. SUBTASK: Fix the bug", "plan must be kept")
 	assert.Contains(t, out.Content, "- finding one", "prior findings must be kept")
+	assert.Contains(t, out.Content, "- chose X over Y", "decisions inform the review's spec judgment")
 	assert.NotContains(t, out.Content, "The root cause analysis.", "diagnosis must be omitted")
 	assert.Contains(t, out.Content, "Body sections omitted from this context: Diagnosis.", "note must name the omission")
 }
@@ -78,6 +79,7 @@ func TestGetSkill_DocumentTask_BodyFilteredToPlan(t *testing.T) {
 	unmarshalResult(t, result, &out)
 	assert.Contains(t, out.Content, "Original request.")
 	assert.Contains(t, out.Content, "1. SUBTASK: Fix the bug")
+	assert.Contains(t, out.Content, "- chose X over Y", "decisions feed the why behind docs")
 	assert.NotContains(t, out.Content, "The root cause analysis.")
 	assert.NotContains(t, out.Content, "- finding one", "findings never feed docs")
 	assert.Contains(t, out.Content, "Body sections omitted from this context: Diagnosis; Review Findings.")
@@ -106,7 +108,8 @@ func TestGetSkill_ExecuteTask_ParentFilteredOwnBodyFull(t *testing.T) {
 	assert.Contains(t, out.Content, "1. SUBTASK: Fix the bug")
 	assert.NotContains(t, out.Content, "The root cause analysis.")
 	assert.NotContains(t, out.Content, "- finding one")
-	assert.Contains(t, out.Content, "Body sections omitted from this context: Diagnosis; Review Findings.")
+	assert.NotContains(t, out.Content, "- chose X over Y", "executors get the plan, not the deliberation")
+	assert.Contains(t, out.Content, "Body sections omitted from this context: Diagnosis; Review Findings; Decisions.")
 }
 
 func TestGetSkill_CreatePlan_FullBodyPinned(t *testing.T) {
@@ -124,6 +127,26 @@ func TestGetSkill_CreatePlan_FullBodyPinned(t *testing.T) {
 	unmarshalResult(t, result, &out)
 	assert.Contains(t, out.Content, "The root cause analysis.", "create-plan keeps the full body")
 	assert.Contains(t, out.Content, "- finding one")
+	assert.Contains(t, out.Content, "- chose X over Y")
+	assert.NotContains(t, out.Content, "Body sections omitted")
+}
+
+func TestGetSkill_PlanDraft_FullBodyPinned(t *testing.T) {
+	env := setupMCP(t)
+
+	card := createBodyCard(t, env, "Draft full body", multiSectionBody, nil)
+
+	result := callTool(t, env, "get_skill", map[string]any{
+		"skill_name": "plan-draft",
+		"card_id":    card.ID,
+	})
+	require.False(t, result.IsError)
+
+	var out getSkillOutput
+	unmarshalResult(t, result, &out)
+	assert.Contains(t, out.Content, "The root cause analysis.", "plan-draft keeps the full body - the history is the drafting input")
+	assert.Contains(t, out.Content, "- finding one")
+	assert.Contains(t, out.Content, "- chose X over Y")
 	assert.NotContains(t, out.Content, "Body sections omitted")
 }
 

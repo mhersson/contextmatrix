@@ -7,19 +7,22 @@ import (
 
 // Section allowlists for the skill surfaces whose injected card body is
 // filtered. Only late-run, high-fan-out surfaces filter: early-run skills
-// (create-plan, brainstorming, systematic-debugging, run-autonomous) and the
-// execute-task subtask's own card keep the full body - at those points the
-// body is small or is itself the spec the skill consumes.
+// (create-plan, plan-draft, brainstorming, systematic-debugging,
+// run-autonomous) and the execute-task subtask's own card keep the full
+// body - at those points the body is small or is itself the spec the skill
+// consumes.
 var (
 	// reviewTaskBodySections: spec compliance needs the description (the
 	// pre-heading intro, always kept) plus the plan; round numbering needs
-	// every prior findings section. Diagnosis/Design are fetched via
+	// every prior findings section; the planner's recorded decisions inform
+	// the design and scope judgment. Diagnosis/Design are fetched via
 	// get_card on demand.
-	reviewTaskBodySections = []string{"## Plan", "## Review Findings"}
-	// documentTaskBodySections: documentation derives from the plan and the
-	// subtask work; review findings never feed docs (fix subtasks carry the
+	reviewTaskBodySections = []string{"## Plan", "## Review Findings", "## Decisions"}
+	// documentTaskBodySections: documentation derives from the plan, the
+	// subtask work, and the planner's recorded decisions (the why behind
+	// the docs); review findings never feed docs (fix subtasks carry the
 	// finding text verbatim in their own bodies).
-	documentTaskBodySections = []string{"## Plan"}
+	documentTaskBodySections = []string{"## Plan", "## Decisions"}
 	// executeParentBodySections: execute-task names exactly one parent
 	// section - "Parent card's plan (under ## Plan)".
 	executeParentBodySections = []string{"## Plan"}

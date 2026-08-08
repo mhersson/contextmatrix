@@ -179,7 +179,7 @@ type promoteToAutonomousInput struct {
 func registerListCards(server *mcp.Server, svc *service.CardService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_cards",
-		Description: "List cards in a project, optionally filtered by state, type, label, agent, or parent. Returns card summaries without body or activity_log; use get_card for full content.",
+		Description: "List cards in a project, optionally filtered by state, type, label, agent, or parent. Returns card summaries without body or activity_log; use get_card for full content. Survey tool: browse and select in a separate session from card execution - start execution fresh with just a card ID.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input listCardsInput) (*mcp.CallToolResult, listCardsOutput, error) {
 		filter := storage.CardFilter{
 			State:         input.State,
@@ -491,7 +491,7 @@ func registerCheckAgentHealth(server *mcp.Server, svc *service.CardService) {
 func registerGetReadyTasks(server *mcp.Server, svc *service.CardService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "get_ready_tasks",
-		Description: "Get unclaimed 'todo' cards that are ready to start - all depends_on cards are in 'done' state. Optionally scoped to a parent card's subtasks. Use this to find which tasks can be started in parallel. Returns card summaries without body or activity_log; use get_card for full content.",
+		Description: "Get unclaimed 'todo' cards that are ready to start - all depends_on cards are in 'done' state. Optionally scoped to a parent card's subtasks. Use this to find which tasks can be started in parallel. Returns card summaries without body or activity_log; use get_card for full content. Survey tool: pick a card here, then start execution in a fresh session with just the card ID - survey output carried into an execution session is re-billed on every subsequent call.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input getReadyTasksInput) (*mcp.CallToolResult, getReadyTasksOutput, error) {
 		filter := storage.CardFilter{State: board.StateTodo}
 		if input.ParentID != "" {

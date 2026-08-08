@@ -314,6 +314,9 @@ var skillBuilders = map[string]skillBuilder{
 	"systematic-debugging": {build: func(ctx context.Context, svc *service.CardService, dir string, args skillArgs) (string, error) {
 		return buildCardSkill(ctx, svc, dir, "systematic-debugging.md", args.CardID, false)
 	}},
+	"plan-draft": {build: func(ctx context.Context, svc *service.CardService, dir string, args skillArgs) (string, error) {
+		return buildCardSkill(ctx, svc, dir, "plan-draft.md", args.CardID, false)
+	}},
 }
 
 // validSkillNames is the sorted list of recognised skill names, derived from

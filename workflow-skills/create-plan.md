@@ -2,7 +2,8 @@
 
 ## Agent Configuration
 
-- **Model:** sonnet - Planning runs inline on the orchestrator.
+- **Model:** sonnet - Orchestration runs inline; plan drafting is spawned to
+  the plan-draft sub-agent.
 
 ---
 
@@ -77,12 +78,13 @@ get_skill(skill_name='systematic-debugging', card_id=<parent_id>,
 ```
 
 The response will include `inline: false` - systematic-debugging is NOT
-on the inline-eligible whitelist. Spawn a sub-agent via the **`Agent`**
-tool with:
+on the inline-eligible whitelist. Append the Board-write identity block
+(Phase 1 Step 2) to the `content`, then spawn a sub-agent via the
+**`Agent`** tool with:
 
 - `model`: the `model` from `get_skill` - **CRITICAL**, do not omit
 - `description`: `"diagnose <card_id>"`
-- `prompt`: the `content` from `get_skill`
+- `prompt`: the `content` plus the appended identity block
 - `isolation`: `"worktree"` - required for context isolation
 
 Block on completion (do **NOT** use `run_in_background` - Phase 1 needs
@@ -127,119 +129,63 @@ Cards that straddle bug + feature: prefer Branch B; the diagnosis sub-agent flag
 If the card is not already claimed by you, call `claim_card(card_id, agent_id)`.
 Hold this claim through Phase 5.
 
-## Step 1: Understand the task
+## Step 1: Fetch the drafting skill
 
-1. **Review card details.** Read the card details provided above. If
-   the card body already contains a `## Plan` section, use it as a
-   starting point - do not discard previous planning work. Only call
-   `get_task_context` if you need to verify the absolute latest state.
-
-## Step 2: Draft the plan
-
-Break the work into subtasks following these rules:
-
-- Each subtask should be completable by a single agent in roughly **one focused
-  session** (~2 hours of work or less)
-- Each subtask should touch at most **4-5 files** - if it touches more, split it
-  further
-- Subtasks should be **independently verifiable** - each one should produce a
-  testable result
-- Set `depends_on` correctly - a subtask that needs another subtask's output
-  must declare the dependency
-- Order subtasks so that independent ones can run **in parallel**.
-  Parallel-eligible siblings (same dependency level) MUST touch disjoint
-  files. If two subtasks need the same file, merge them or sequence them
-  via `depends_on`.
-- Write clear, specific titles - an agent reading only the title should
-  understand the scope
-- Include acceptance criteria or key details in each subtask's body
-- Each subtask must include its own tests - do not create separate "write tests"
-  subtasks. Tests are part of the work, not an afterthought.
-- Do not over-engineer the plan. Solve the problem at hand - no speculative
-  abstractions, no unnecessary indirection, no premature generalization.
-- Do not include documentation subtasks - external documentation is handled by a
-  dedicated documentation agent after execution completes.
-- **No placeholders.** Each subtask body must specify concrete actions,
-  files touched, and acceptance criteria. Avoid "TBD",
-  "details to be decided", or vague hand-waves like "implement
-  appropriately". If you can't specify it now, the design isn't ready -
-  surface that to the user (HITL) or transition the card back to
-  drafting (autonomous).
-- **List files touched.** Each subtask body should include a "Files:"
-  line listing the file paths the subtask is expected to create or
-  modify. This grounds the plan and makes the reviewer's `git diff`
-  check meaningful.
-
-## Step 2.5: Plan self-review
-
-Before writing the plan to the card body, look at it with fresh eyes and
-check each item:
-
-**Placeholder scan.** Any "TBD", "TODO", incomplete sections, or vague requirements? Fix inline; if the design is unclear, re-engage brainstorming (HITL) or transition back to drafting or `not_planned` (autonomous).
-
-**Spec coverage.** Does every requirement in the parent card body map to at least one subtask? List gaps explicitly.
-
-**Internal consistency.** Do any subtasks contradict each other or assume incompatible data models?
-
-**Files touched.** (a) File paths consistent across *dependent* subtasks? (b) File paths **disjoint across *parallel* siblings**? If any two parallel siblings claim the same file, merge them or add a `depends_on` link.
-
-**Scope check.** Has the plan grown beyond the parent card's requirements? Trim excess to sibling cards.
-
-Fix any issues inline by revising the draft. No need to re-review the
-same items twice - just fix and proceed.
-
-## Step 3: Write the plan to the card body
-
-Call `update_card` to write the plan into the parent card body under a `## Plan`
-section. Use this format:
+Call:
 
 ```
-## Plan
-
-1. SUBTASK: Implement JWT token generation and validation
-   Priority: high | Labels: [backend, security]
-   Depends on: (none)
-   Body: Create the token signer with Sign() and Verify() functions. Use RS256. Add unit tests.
-
-2. SUBTASK: Add auth middleware to HTTP router
-   Priority: high | Labels: [backend]
-   Depends on: subtask 1
-   Body: Create middleware that extracts Bearer token, calls Verify(), sets user context. Return 401 on failure.
+get_skill(skill_name='plan-draft', card_id=<parent_id>,
+          caller_model='<your_model>')
 ```
 
-Note: Do not include `Type` in subtask plans. The backend automatically sets the
-type to `subtask` for any card created with a `parent` field.
+The response will include `inline: false` - plan-draft is NOT on the
+inline-eligible whitelist. Never execute it inline; drafting exploration
+must not accumulate in your context.
 
-## Step 4: Report usage
+## Step 2: Spawn the drafting sub-agent
 
-Map stream-json `usage` frame fields to `report_usage` parameters:
-- `usage.input_tokens` → `prompt_tokens`
-- `usage.output_tokens` → `completion_tokens`
-- `usage.cache_read_input_tokens` → `cache_read_tokens`
-- `usage.cache_creation_input_tokens` → `cache_creation_tokens`
+Append this block to the `content` from `get_skill`, filling in your own
+agent ID:
 
-Call `report_usage` with:
+```
+## Board-write identity
 
-- `card_id`: the parent card ID you are planning
-- `agent_id`: your agent ID
-- `model`: your own model identifier, read fresh from your system context
-  ("You are powered by the model named X"), never copied from elsewhere
-- `prompt_tokens` / `completion_tokens`: your estimated token consumption
-- `cache_read_tokens` / `cache_creation_tokens`: from the stream-json `usage` frame if available
+You were spawned by an orchestrator that holds the claim on this card.
+For ALL board writes (update_card, add_log, report_usage, heartbeat),
+pass agent_id=<orchestrator_agent_id> - the server enforces
+agent_id == AssignedAgent. Do NOT call claim_card, release_card, or
+transition_card.
+```
 
-## Step 5: Emit structured output
+Spawn a sub-agent via the **`Agent`** tool with:
 
-Print this **exact format** (the orchestrator parses this):
+- `model`: the `model` from `get_skill` - **CRITICAL**, do not omit
+- `description`: `"draft plan for <card_id>"`
+- `prompt`: the `content` plus the appended block
+- The planner is read-only on the repo - do NOT pass `isolation: "worktree"`.
+
+Block on completion (do **NOT** use `run_in_background` - Phase 2 needs the
+plan on the card). Heartbeat the parent card every 5 minutes while the
+sub-agent runs; call `report_usage` after each heartbeat.
+
+## Step 3: Confirm the handoff
+
+The sub-agent's final output has this shape:
 
 ```
 PLAN_DRAFTED
-card_id: <the card ID you planned>
+card_id: <the card ID>
 status: drafted
-plan_summary: <2-3 sentence summary of the plan - number of subtasks, key themes, any notable dependencies>
+plan_summary: <2-3 sentence summary of the plan>
 subtask_count: <number of subtasks in the plan>
 ```
 
-Proceed immediately to Phase 2 - do NOT stop here.
+When it prints `PLAN_DRAFTED`, call `get_card(card_id=<parent_id>)` to
+confirm the `## Plan` section is present, then proceed to Phase 2. If it
+prints `PLAN_BLOCKED`: in HITL mode surface the reason to the user, ask how
+to proceed, and treat the answer as revision feedback - re-spawn per the
+Phase 2 adjustments contract; in autonomous mode transition the card to
+`blocked` with the reason and stop.
 
 ---
 
@@ -261,14 +207,30 @@ top-level `autonomous` field is the ONLY source of truth for mode.
 
 Heartbeat before prompting. Heartbeat on resume. See the Heartbeat section.
 
-- **User requests adjustments:** return to Phase 1 Step 2 with the feedback
-  incorporated; redraft the plan. Do NOT call `get_skill` again - continue
-  in-place. Repeat until the user approves.
+- **User requests adjustments:** re-spawn the plan-draft sub-agent with the
+  Phase 1 Step 2 spawn parameters (same model, no isolation). Do NOT call
+  `get_skill` again - reuse the plan-draft `content` fetched in Phase 1
+  Step 1. Append the Board-write identity block (Phase 1 Step 2) plus:
+
+  ```
+  ## Revision feedback
+
+  The user reviewed the current ## Plan and requested changes. Revise the
+  ## Plan and ## Decisions sections to incorporate this feedback:
+
+  <the user's feedback verbatim>
+  ```
+
+  Block on completion, heartbeat every 5 minutes, confirm via `get_card` on
+  `PLAN_DRAFTED`, then present again. Repeat until the user approves.
 - **User approves:** proceed to Phase 3.
 
 ---
 
 # Phase 3: Subtask Creation
+
+Call `get_card(card_id=<parent_id>)` and read the current `## Plan` section -
+the plan lives on the card, not in your context.
 
 For each subtask described in the `## Plan` section:
 
@@ -578,9 +540,22 @@ Triggered from Phase 8 when the review recommends revision. Do NOT call
    the parent back from `review` to `in_progress`.
 2. Do **not** touch existing subtasks - they remain in `done` state with their
    work preserved.
-3. Return to **Phase 1 Step 2** with the review feedback incorporated as
-   additional requirements. Create new fix subtasks scoped only to the
-   identified issues.
+3. Re-spawn the plan-draft sub-agent with the Phase 1 Step 2 spawn
+   parameters (same model, no isolation). Do NOT call `get_skill` again -
+   reuse the plan-draft `content` fetched in Phase 1 Step 1. Append the
+   Board-write identity block plus:
+
+   ```
+   ## Revision feedback
+
+   Review rejected the completed work. Revise the ## Plan to contain only
+   new fix subtasks scoped to the findings below. Do not re-plan work that
+   is already done. Treat the findings as additional requirements.
+
+   <the ## Review Findings section, or the user's rejection feedback>
+   ```
+
+   Block on completion; on `PLAN_DRAFTED` confirm `## Plan` via `get_card`.
 4. Resume from **Phase 2** (plan approval gate - check autonomous again).
 5. This loop repeats until approved.
 

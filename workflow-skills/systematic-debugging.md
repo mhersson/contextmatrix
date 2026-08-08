@@ -14,6 +14,11 @@ the parent card body.
 in Phase 5. You do NOT transition the card. You do NOT modify any files
 outside of `update_card` and `add_log`.**
 
+Your spawn prompt ends with a `## Board-write identity` block carrying the
+orchestrator agent_id. Pass that id as `agent_id` on ALL board writes -
+`update_card`, `add_log`, `report_usage`, `heartbeat` - the server enforces
+`agent_id == AssignedAgent`, and the orchestrator holds the claim.
+
 ## Specialist skills
 
 Specialist skills may be available at `~/.claude/skills/`. Engage whichever match
@@ -26,7 +31,7 @@ rules take precedence over skill guidance.
 Before reading the card body, call once:
 
 ```
-add_log(card_id=<parent_id>, agent_id=<your_agent_id>,
+add_log(card_id=<parent_id>, agent_id=<orchestrator agent_id>,
         action='skill_engaged', message='engaged systematic-debugging')
 ```
 
@@ -35,10 +40,11 @@ add_log(card_id=<parent_id>, agent_id=<your_agent_id>,
 - Call `heartbeat` after each phase and after every significant
   investigation step (a non-trivial grep, reading a multi-file path,
   forming a hypothesis).
-- After each `heartbeat`, call `report_usage` with `card_id`, `agent_id`,
-  `model` (your own model identifier, read fresh from your system context -
-  never copied), `prompt_tokens`, `completion_tokens`, and
-  `cache_read_tokens` / `cache_creation_tokens` if available.
+- After each `heartbeat`, call `report_usage` with `card_id`, the
+  orchestrator agent_id, `model` (your own model identifier, read fresh
+  from your system context - never copied), `prompt_tokens`,
+  `completion_tokens`, and `cache_read_tokens` / `cache_creation_tokens`
+  if available.
 - If a single phase takes longer than 5 minutes of work, heartbeat
   proactively mid-phase.
 
@@ -125,7 +131,7 @@ implement instrumentation if the diagnosis calls for it.
 
 3. **Record reasoning.** Call:
    ```
-   add_log(card_id=<parent_id>, agent_id=<your_agent_id>,
+   add_log(card_id=<parent_id>, agent_id=<orchestrator agent_id>,
            action='hypothesis', message='<chosen hypothesis + reasoning>')
    ```
 
@@ -135,8 +141,9 @@ implement instrumentation if the diagnosis calls for it.
 ### Phase 4: Diagnosis Output
 
 Write the `## Diagnosis` section on the **parent** card body via
-`update_card`. Preserve all existing card content (title, description,
-prior sections); only add or replace the `## Diagnosis` section.
+`update_card` with the orchestrator agent_id. Preserve all existing card
+content (title, description, prior sections); only add or replace the
+`## Diagnosis` section.
 
 Required structure:
 
