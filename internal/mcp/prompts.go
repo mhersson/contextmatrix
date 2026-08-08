@@ -37,10 +37,12 @@ Violating these rules leaves cards orphaned with no tracking. Follow them exactl
   or approve your changes instead of completing the card lifecycle. Do NOT abandon
   a card after coding. If you claimed it, you must either complete it or report it
   as blocked.
-- **Heartbeat during idle waits.** If you are waiting for user input, waiting for
-  a sub-agent to complete, or otherwise idle for more than a few minutes, call
-  heartbeat every 5 minutes to prevent your claim from going stale. Idle waits
-  are the most common cause of stalled cards.
+- **Heartbeat during idle waits.** While monitoring sub-agents, call heartbeat
+  every 5 minutes. Before prompting the user for input, call heartbeat - you
+  get no turns while blocked, so this is your last reset before the wait. On
+  resume, call heartbeat again; if the card went stalled, transition it back
+  to in_progress, re-claim, and continue. Idle waits are the most common
+  cause of stalled cards.
 - **Always use MCP tools for ContextMatrix interactions.** For all board
   operations (claiming cards, sending heartbeats, updating cards, completing
   tasks, etc.), ALWAYS use the provided MCP tools. NEVER use curl, wget, REST

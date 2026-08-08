@@ -658,9 +658,17 @@ mark a card `stalled` if heartbeat lapses. This is explicitly called out in
 an active claim and waits for a sub-agent to complete must call `heartbeat`
 every 5 minutes during that wait. This rule is enforced in the workflow preamble
 injected into every skill prompt, and is explicitly called out in each skill
-that has sub-agent-facing idle waits (`execute-task.md`). The main agent (CC)
-never holds a card claim during user-facing waits - it handles those directly
-between turns, making stalls in the main context impossible.
+that has sub-agent-facing idle waits (`execute-task.md`). User-facing waits
+follow an edge-triggered pattern instead, because an orchestrator blocked on
+human input gets no turns to heartbeat on: the skills call `heartbeat`
+immediately before prompting (resetting the timeout clock, so waits shorter
+than the timeout never stall) and again on resume. A wait longer than the
+timeout still flips the claimed card to `stalled` - a transient, expected state
+for a local Claude Code session parked at a gate - and the resume path recovers
+it (`transition_card` to `in_progress` and `claim_card`, or via `todo` on
+boards whose `transitions` do not allow `stalled` back to `in_progress`).
+Remote worker runs never hit this: the agent backend heartbeats from a
+background goroutine for the whole run, including human waits.
 
 The fire-and-report design (used by `review-task` and `document-task`)
 eliminates the most common idle-wait failure mode: sub-agents write their output

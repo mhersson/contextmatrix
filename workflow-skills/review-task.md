@@ -188,6 +188,10 @@ Call `report_usage` **before** emitting the block. Nothing follows it.
   assessment; list each finding once under its most natural specialty.
 - Hunt cross-cutting issues no single specialist owned (e.g., new flag without
   test, docs, or migration path).
+- When a finding asserts a specific statement (comment, doc line, error
+  message, claim) is incorrect, grep the repo for other occurrences of that
+  statement or close paraphrases of it, and list every hit in the finding's
+  Where - duplicates outside the change set count here.
 - If any specialist returned nothing or malformed output (per Step 3), record
   the missing specialty as a gap under Concerns and force the recommendation to
   `revise` regardless of the other tiers.
