@@ -92,6 +92,7 @@ func setupMCP(t *testing.T) *testEnv {
 		"run-autonomous.md":       "claude-sonnet-4-6",
 		"brainstorming.md":        "claude-sonnet-4-6",
 		"systematic-debugging.md": "claude-sonnet-4-6",
+		"plan-draft.md":           "claude-sonnet-4-6",
 	}
 	for name, model := range skillModels {
 		content := fmt.Sprintf("# %s\n\n## Agent Configuration\n\n- **Model:** %s - Test model.\n\n---\n\nSkill instructions here.", name, model)
@@ -2407,7 +2408,31 @@ func TestIsInlineEligible(t *testing.T) {
 	assert.False(t, isInlineEligible("create-task"))
 	assert.False(t, isInlineEligible("init-project"))
 	assert.False(t, isInlineEligible("systematic-debugging"))
+	assert.False(t, isInlineEligible("plan-draft"))
 	assert.False(t, isInlineEligible("nonexistent"))
+}
+
+func TestGetSkill_PlanDraft(t *testing.T) {
+	env := setupMCP(t)
+	card := createTestCard(t, env, "Add rate limiting", "feature", "high")
+
+	// plan-draft is NOT inline-eligible - drafting must not accumulate in
+	// the orchestrator's context. Even when caller_model matches, Inline
+	// must be false so the orchestrator spawns it via the Agent tool.
+	result := callTool(t, env, "get_skill", map[string]any{
+		"skill_name":   "plan-draft",
+		"card_id":      card.ID,
+		"caller_model": "sonnet",
+	})
+	require.False(t, result.IsError)
+
+	var out getSkillOutput
+	unmarshalResult(t, result, &out)
+	assert.Equal(t, "plan-draft", out.SkillName)
+	assert.Equal(t, "sonnet", out.Model)
+	assert.False(t, out.Inline, "plan-draft must not be inline-eligible")
+	assert.Contains(t, out.Content, card.ID, "skill content should include the card ID context")
+	assert.Contains(t, out.Content, "Add rate limiting", "skill content should include the card title")
 }
 
 // TestGetSkill_InlineWhenModelMatches verifies that get_skill returns inline=true
@@ -3101,4 +3126,56 @@ func TestOrchestratorHaltThreshold_ThreeCycles(t *testing.T) {
 		"run-autonomous.md must halt on review_attempts >= 3")
 	assert.Regexp(t, `(?i)reason:\s*review\s+cycle\s+budget\s*\(3\)\s+exhausted`, runAuto,
 		"run-autonomous.md AUTONOMOUS_HALTED reason must reference the 3-cycle budget")
+}
+
+// TestPlanDraftSkillIsSelfContained pins the drafting sub-agent's contract:
+// the completion markers, the two card-body sections it writes, the
+// board-write identity rule, and the forbidden lifecycle tools.
+func TestPlanDraftSkillIsSelfContained(t *testing.T) {
+	skillPath := filepath.Join("..", "..", "workflow-skills", "plan-draft.md")
+	data, err := os.ReadFile(skillPath)
+	require.NoError(t, err, "workflow-skills/plan-draft.md must be readable")
+
+	content := string(data)
+
+	assert.Contains(t, content, "PLAN_DRAFTED")
+	assert.Contains(t, content, "PLAN_BLOCKED")
+	assert.Contains(t, content, "plan_summary")
+	assert.Contains(t, content, "subtask_count")
+	assert.Contains(t, content, "## Plan")
+	assert.Contains(t, content, "## Decisions")
+	assert.Contains(t, content, "update_card")
+	assert.Contains(t, content, "Never exit without printing",
+		"the sub-agent must always end with a marker")
+	assert.Contains(t, content, "orchestrator agent_id",
+		"board writes must use the orchestrator's identity")
+	assert.Regexp(t, `(?si)do NOT call.*?claim_card.*?release_card.*?transition_card`, content,
+		"lifecycle tools must be forbidden - the orchestrator owns the claim")
+	assert.Regexp(t, `(?s)## Agent Configuration.*?Model:.*?---`, content,
+		"standard Agent Configuration layout so stripAgentConfig works")
+}
+
+// TestCreatePlanSkill_SpawnsPlanDraft pins Phase 1's spawn choreography:
+// fetch plan-draft, spawn it as a sub-agent (never inline, no worktree),
+// handle both markers, and confirm the handoff on the card.
+func TestCreatePlanSkill_SpawnsPlanDraft(t *testing.T) {
+	skillPath := filepath.Join("..", "..", "workflow-skills", "create-plan.md")
+	data, err := os.ReadFile(skillPath)
+	require.NoError(t, err)
+
+	content := string(data)
+
+	assert.Regexp(t, `(?s)Phase 1: Plan Drafting.*?get_skill\(skill_name='plan-draft'`, content,
+		"Phase 1 must fetch the plan-draft skill")
+	assert.Regexp(t, `(?s)Phase 1: Plan Drafting.*?inline: false.*?Agent`, content,
+		"Phase 1 must spawn via the Agent tool, never inline")
+	assert.Regexp(t, `(?s)Phase 1: Plan Drafting.*?Board-write identity`, content,
+		"the spawn must append the orchestrator identity block")
+	assert.Contains(t, content, "PLAN_BLOCKED")
+	assert.Regexp(t, `(?s)Phase 1: Plan Drafting.*?get_card.*?## Plan`, content,
+		"the orchestrator must confirm the plan landed on the card")
+	assert.Regexp(t, `(?s)Phase 1: Plan Drafting.*?do NOT pass .isolation`, content,
+		"the planner is read-only - no worktree isolation")
+	assert.Regexp(t, `(?s)Phase 3: Subtask Creation.*?get_card`, content,
+		"subtask creation must re-read the plan from the card, not from context")
 }
