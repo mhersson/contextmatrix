@@ -436,6 +436,10 @@ type Config struct {
 	Port             int          `yaml:"port"`
 	Boards           BoardsConfig `yaml:"boards"`
 	HeartbeatTimeout string       `yaml:"heartbeat_timeout"`
+	// AwaitMax bounds how long a single await_subtasks MCP call may block
+	// server-side before returning to the caller. Awaiting clients re-call
+	// on timeout, so this bounds one HTTP request, not the total wait.
+	AwaitMax string `yaml:"await_max"`
 	// StalledCheckInterval is how often the lock manager scans for
 	// cards whose last heartbeat is older than HeartbeatTimeout and
 	// transitions them to `stalled`. Empty defaults to 1m, which is
@@ -477,6 +481,7 @@ func defaults() *Config {
 			GitPullInterval: "60s",
 		},
 		HeartbeatTimeout:     "30m",
+		AwaitMax:             "8m",
 		StalledCheckInterval: "1m",
 		CORSOrigin:           "http://localhost:5173",
 		WorkflowSkillsDir:    "",
@@ -534,6 +539,10 @@ func (c *Config) Validate() error {
 
 	if _, err := time.ParseDuration(c.HeartbeatTimeout); err != nil {
 		return fmt.Errorf("invalid heartbeat_timeout %q: %w", c.HeartbeatTimeout, err)
+	}
+
+	if _, err := time.ParseDuration(c.AwaitMax); err != nil {
+		return fmt.Errorf("invalid await_max %q: %w", c.AwaitMax, err)
 	}
 
 	if c.StalledCheckInterval == "" {
@@ -1179,6 +1188,10 @@ func applyEnvOverrides(cfg *Config) error {
 		cfg.HeartbeatTimeout = v
 	}
 
+	if v := os.Getenv("CONTEXTMATRIX_AWAIT_MAX"); v != "" {
+		cfg.AwaitMax = v
+	}
+
 	if v := os.Getenv("CONTEXTMATRIX_CORS_ORIGIN"); v != "" {
 		cfg.CORSOrigin = v
 	}
@@ -1534,6 +1547,11 @@ func checkBackendEnvKeys() error {
 // HeartbeatDuration parses HeartbeatTimeout as a time.Duration.
 func (c *Config) HeartbeatDuration() (time.Duration, error) {
 	return time.ParseDuration(c.HeartbeatTimeout)
+}
+
+// AwaitMaxDuration parses AwaitMax as a time.Duration.
+func (c *Config) AwaitMaxDuration() (time.Duration, error) {
+	return time.ParseDuration(c.AwaitMax)
 }
 
 // SessionIdleTTLDuration parses the sliding session lifetime.

@@ -75,7 +75,8 @@ func NewServer(cfg ServerConfig) *mcp.Server {
 // tweak stays outermost to apply to all authenticated requests. The chat-session
 // header is stashed into context after auth so only authenticated callers can
 // set it. Request info extraction runs just before the SDK so it can read the
-// body once.
+// body once - it also clears the write deadline for POST await_subtasks calls,
+// which block server-side well past the streaming tweak's GET-only scope.
 func NewHandler(server *mcp.Server, apiKey string) http.Handler {
 	handler := mcp.NewStreamableHTTPHandler(
 		func(_ *http.Request) *mcp.Server { return server },
@@ -139,6 +140,10 @@ func chatSessionHeaderMiddleware(next http.Handler) http.Handler {
 //
 // The body is fully restored before calling next so the SDK handler receives
 // the original bytes unchanged.
+//
+// It also clears the response write deadline for await_subtasks tool calls,
+// since that tool blocks server-side for minutes, well past the server's
+// WriteTimeout.
 func mcpRequestInfoMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Only POST carries a JSON-RPC body; GET/DELETE are SSE/session housekeeping.
@@ -195,6 +200,12 @@ func mcpRequestInfoMiddleware(next http.Handler) http.Handler {
 					call.Method = truncateLogField(msg.Method)
 					if msg.Method == "tools/call" {
 						call.Tool = truncateLogField(msg.Params.Name)
+
+						if msg.Params.Name == "await_subtasks" {
+							// Blocking waits outlive the server's 60s WriteTimeout, which is an
+							// absolute deadline not reset by writes.
+							_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
+						}
 					}
 				}
 			}

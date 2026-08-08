@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -166,4 +167,50 @@ func TestMCPRequestInfoMiddleware_truncatesLongFields(t *testing.T) {
 			"Method should be truncated to at most maxLogFieldLen + ellipsis")
 		assert.Empty(t, call.Tool, "Tool should be empty for non-tools/call methods")
 	})
+}
+
+// deadlineResponseWriter wraps httptest.ResponseRecorder and records whether
+// SetWriteDeadline was called, exercising the same code path
+// http.NewResponseController uses inside mcpRequestInfoMiddleware.
+type deadlineResponseWriter struct {
+	*httptest.ResponseRecorder
+	deadlineCleared bool
+}
+
+func (d *deadlineResponseWriter) SetWriteDeadline(time.Time) error {
+	d.deadlineCleared = true
+
+	return nil
+}
+
+// TestMCPRequestInfoMiddleware_AwaitSubtasksClearsWriteDeadline verifies that
+// a tools/call for await_subtasks clears the response write deadline (the
+// server's 60s WriteTimeout is an absolute deadline that a blocking wait
+// would otherwise exceed), while every other tool call leaves it untouched.
+func TestMCPRequestInfoMiddleware_AwaitSubtasksClearsWriteDeadline(t *testing.T) {
+	tests := []struct {
+		name      string
+		tool      string
+		wantClear bool
+	}{
+		{name: "await_subtasks clears the write deadline", tool: "await_subtasks", wantClear: true},
+		{name: "other tools keep the write deadline", tool: "claim_card", wantClear: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, _ := ctxlog.WithMCPCall(t.Context())
+			downstream := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {})
+			handler := mcpRequestInfoMiddleware(downstream)
+
+			body := `{"jsonrpc":"2.0","method":"tools/call","params":{"name":"` + tc.tool + `"}}`
+			req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body))
+			req = req.WithContext(ctx)
+
+			rw := &deadlineResponseWriter{ResponseRecorder: httptest.NewRecorder()}
+			handler.ServeHTTP(rw, req)
+
+			assert.Equal(t, tc.wantClear, rw.deadlineCleared)
+		})
+	}
 }
