@@ -186,15 +186,39 @@ func (d *deadlineResponseWriter) SetWriteDeadline(time.Time) error {
 // TestMCPRequestInfoMiddleware_AwaitSubtasksClearsWriteDeadline verifies that
 // a tools/call for await_subtasks clears the response write deadline (the
 // server's 60s WriteTimeout is an absolute deadline that a blocking wait
-// would otherwise exceed), while every other tool call leaves it untouched.
+// would otherwise exceed), while every other request leaves it untouched.
+// The gate lives inside the `msg.Method == "tools/call"` branch and depends
+// on the body parsing cleanly, so both a non-tools/call method carrying
+// params.name "await_subtasks" and a malformed body are pinned here: a
+// refactor that hoisted the name check out of that branch, or that cleared
+// the deadline before confirming the body parsed, would silently reopen the
+// gate without failing any other test.
 func TestMCPRequestInfoMiddleware_AwaitSubtasksClearsWriteDeadline(t *testing.T) {
 	tests := []struct {
 		name      string
-		tool      string
+		body      string
 		wantClear bool
 	}{
-		{name: "await_subtasks clears the write deadline", tool: "await_subtasks", wantClear: true},
-		{name: "other tools keep the write deadline", tool: "claim_card", wantClear: false},
+		{
+			name:      "await_subtasks tools/call clears the write deadline",
+			body:      `{"jsonrpc":"2.0","method":"tools/call","params":{"name":"await_subtasks"}}`,
+			wantClear: true,
+		},
+		{
+			name:      "other tools/call keeps the write deadline",
+			body:      `{"jsonrpc":"2.0","method":"tools/call","params":{"name":"claim_card"}}`,
+			wantClear: false,
+		},
+		{
+			name:      "await_subtasks name outside tools/call keeps the write deadline",
+			body:      `{"jsonrpc":"2.0","method":"notifications/await_subtasks","params":{"name":"await_subtasks"}}`,
+			wantClear: false,
+		},
+		{
+			name:      "malformed body keeps the write deadline",
+			body:      `not-json`,
+			wantClear: false,
+		},
 	}
 
 	for _, tc := range tests {
@@ -203,8 +227,7 @@ func TestMCPRequestInfoMiddleware_AwaitSubtasksClearsWriteDeadline(t *testing.T)
 			downstream := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {})
 			handler := mcpRequestInfoMiddleware(downstream)
 
-			body := `{"jsonrpc":"2.0","method":"tools/call","params":{"name":"` + tc.tool + `"}}`
-			req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body))
+			req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(tc.body))
 			req = req.WithContext(ctx)
 
 			rw := &deadlineResponseWriter{ResponseRecorder: httptest.NewRecorder()}
