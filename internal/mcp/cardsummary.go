@@ -6,9 +6,10 @@ import (
 	"github.com/mhersson/contextmatrix/internal/board"
 )
 
-// CardSummary is board.Card without Body and ActivityLog - the two unbounded
-// fields. Mutation and list tools return it instead of the full card so agent
-// contexts do not re-absorb the whole spec on every call; get_card and
+// CardSummary is board.Card without Body, ActivityLog, and UsageBreakdown -
+// the three unbounded fields. Mutation and list tools return it instead of
+// the full card so agent contexts do not re-absorb the whole spec (or an
+// ever-growing per-(agent, model) usage ledger) on every call; get_card and
 // get_task_context remain the full fetch. A dedicated type (rather than a
 // body-cleared card copy) keeps "body" out of the JSON and the advertised
 // output schema entirely - an empty-string body would be indistinguishable
@@ -51,7 +52,6 @@ type CardSummary struct {
 	WorkerStatus      string              `json:"worker_status,omitempty"`
 	Phase             string              `json:"phase,omitempty"`
 	TokenUsage        *board.TokenUsage   `json:"token_usage,omitempty"`
-	UsageBreakdown    []board.UsageBucket `json:"usage_breakdown,omitempty"`
 	SubtaskCostUSD    float64             `json:"subtask_cost_usd,omitempty"`
 	Created           time.Time           `json:"created"`
 	Updated           time.Time           `json:"updated"`
@@ -102,7 +102,6 @@ func summarizeCard(c *board.Card) *CardSummary {
 		WorkerStatus:      c.WorkerStatus,
 		Phase:             c.Phase,
 		TokenUsage:        c.TokenUsage,
-		UsageBreakdown:    c.UsageBreakdown,
 		SubtaskCostUSD:    c.SubtaskCostUSD,
 		Created:           c.Created,
 		Updated:           c.Updated,

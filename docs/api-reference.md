@@ -2226,25 +2226,29 @@ catalogue.
 ### Card payload shapes: full vs summary
 
 Only two tools return full cards; every other card-bearing tool returns a
-**card summary** - the same JSON shape minus `body` and `activity_log`, the
-two unbounded fields. Card bodies grow during a run, and mutation results are
-re-read by the calling agent on every subsequent model call, so echoing the
-body from every tool multiplies context cost for zero information gain.
+**card summary** - the same JSON shape minus `body`, `activity_log`, and
+`usage_breakdown`, the three unbounded fields. Card bodies grow during a run,
+usage breakdowns grow one bucket per distinct (agent, model) pair, and
+mutation results are re-read by the calling agent on every subsequent model
+call, so echoing either from every tool multiplies context cost for zero
+information gain.
 
 | Shape | Tools |
 | ----- | ----- |
-| Full card (`body` + `activity_log`) | `get_card`; `get_task_context` (primary card and parent only) |
-| Card summary (no `body`, no `activity_log`) | `create_card`, `update_card`, `transition_card`, `claim_card`, `release_card`, `add_log`, `complete_task`, `report_usage`, `report_push`, `promote_to_autonomous`, `increment_review_attempts`, `list_cards`, `get_ready_tasks`, `get_task_context` siblings |
+| Full card (`body` + `activity_log` + `usage_breakdown`) | `get_card`; `get_task_context` (primary card and parent only) |
+| Card summary (no `body`, no `activity_log`, no `usage_breakdown`) | `create_card`, `update_card`, `transition_card`, `claim_card`, `release_card`, `add_log`, `complete_task`, `report_usage`, `report_push`, `promote_to_autonomous`, `increment_review_attempts`, `list_cards`, `get_ready_tasks`, `get_task_context` siblings |
 | Minimal ack (`card_id`, `state`, `last_heartbeat`) | `heartbeat` |
 
 All scalar and bounded fields (`state`, `assigned_agent`, `review_attempts`,
-`token_usage`, `usage_breakdown`, model pins, mob fields, etc.) are present in
-summaries. Agents that need the body or the activity log call `get_card`.
-Siblings are summaries because they exist for overlap awareness
-(title/state/labels/depends_on) and their bodies grow as sibling agents write
-plans and findings - they were the N-1 full-body multiplier on the largest
-payload. Subtask detail flows through per-card `get_card` fetches and the
-server-rendered skill content, not the siblings array.
+`token_usage`, model pins, mob fields, etc.) are present in summaries.
+`token_usage` carries the cumulative total, so budget sync does not need the
+per-bucket breakdown. Agents that need the body, the activity log, or the
+usage breakdown call `get_card`. Siblings are summaries because they exist for
+overlap awareness (title/state/labels/depends_on) and their bodies grow as
+sibling agents write plans and findings - they were the N-1 full-body
+multiplier on the largest payload. Subtask detail flows through per-card
+`get_card` fetches and the server-rendered skill content, not the siblings
+array.
 
 A structural consequence: unvetted external card bodies cannot leak through
 any mutation or list result - the summary shape has no body field to redact.

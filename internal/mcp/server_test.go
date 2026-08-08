@@ -2032,12 +2032,24 @@ func TestReportUsageActualCost_MCP(t *testing.T) {
 	var updated board.Card
 	unmarshalResult(t, result, &updated)
 
-	require.Len(t, updated.UsageBreakdown, 1)
-	bucket := updated.UsageBreakdown[0]
+	assert.InDelta(t, 0.77, updated.TokenUsage.EstimatedCostUSD, 1e-9)
+
+	// usage_breakdown is dropped from the report_usage summary; fetch the full
+	// card via get_card to verify the persisted bucket.
+	getResult := callTool(t, env, "get_card", map[string]any{
+		"project": "test-project",
+		"card_id": card.ID,
+	})
+	require.False(t, getResult.IsError)
+
+	var fetched board.Card
+	unmarshalResult(t, getResult, &fetched)
+
+	require.Len(t, fetched.UsageBreakdown, 1)
+	bucket := fetched.UsageBreakdown[0]
 	assert.Equal(t, "openai/gpt-5.5", bucket.Model)
 	assert.Equal(t, "actual", bucket.CostSource)
 	assert.InDelta(t, 0.77, bucket.CostUSD, 1e-9)
-	assert.InDelta(t, 0.77, updated.TokenUsage.EstimatedCostUSD, 1e-9)
 }
 
 func TestCreateProject_MCP(t *testing.T) {

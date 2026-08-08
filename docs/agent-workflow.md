@@ -711,12 +711,13 @@ current workflow idles for user input.
 ## Tool response shapes
 
 Mutation and list tools return **card summaries**: every scalar and bounded
-field, but never `body` or `activity_log`. `heartbeat` returns a minimal
-`{card_id, state, last_heartbeat}` ack. Only `get_card` and `get_task_context`
-return full cards - they are the designated fetch tools, and skills that need
-the body or the activity log (resume, review diff-base, documentation) call
-them explicitly. Within `get_task_context`, the primary card and parent are
-full while siblings are summaries - sibling detail is fetched per card via
+field, but never `body`, `activity_log`, or `usage_breakdown`. `heartbeat`
+returns a minimal `{card_id, state, last_heartbeat}` ack. Only `get_card` and
+`get_task_context` return full cards - they are the designated fetch tools,
+and skills that need the body, the activity log, or the per-model usage
+breakdown (resume, review diff-base, documentation, cost audit) call them
+explicitly. Within `get_task_context`, the primary card and parent are full
+while siblings are summaries - sibling detail is fetched per card via
 `get_card`. The full table is in
 [`docs/api-reference.md`](api-reference.md) under "Card payload shapes".
 
