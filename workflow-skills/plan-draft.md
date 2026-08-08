@@ -2,7 +2,8 @@
 
 ## Agent Configuration
 
-- **Model:** sonnet - Drafting runs as a spawned sub-agent.
+- **Model:** opus - Decomposition and tier calibration are decision work;
+  isolation pays the drafting tokens once, which makes Opus affordable here.
 
 ---
 
