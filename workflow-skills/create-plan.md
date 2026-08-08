@@ -18,9 +18,16 @@ You are the planning and execution orchestrator for a ContextMatrix card.
   If that transition is rejected (409, board disallows it):
   `transition_card(new_state='todo')`, then `claim_card` (claiming from
   `todo` auto-transitions to `in_progress`).
-- During background sub-agent monitoring loops: `heartbeat` + `report_usage`
-  every 5 minutes.
-- Spawn sub-agents with `run_in_background: true` when supported.
+- Spawn mode: block on a sub-agent when its result gates the next step and the
+  phase reliably finishes inside the stall timeout (diagnose, plan-draft,
+  document). Use `run_in_background: true` only for genuine fan-out - Phase 5
+  with more than one ready task.
+- Call `heartbeat` immediately before any blocking spawn or wait - you get no
+  turns while blocked, so this is your last reset before the clock runs. On
+  return, call `heartbeat` and `report_usage`; if the card went stalled during
+  the block, recover as described above.
+- Every check in a monitoring loop re-reads your entire context - poll as
+  rarely as the work allows, and never more often than every 10 minutes.
 
 ---
 
@@ -87,9 +94,10 @@ on the inline-eligible whitelist. Append the Board-write identity block
 - `prompt`: the `content` plus the appended identity block
 - `isolation`: `"worktree"` - required for context isolation
 
-Block on completion (do **NOT** use `run_in_background` - Phase 1 needs
-the diagnosis in hand). Heartbeat the parent card every 5 minutes while
-the sub-agent runs; call `report_usage` after each heartbeat.
+Call `heartbeat`, then block on completion (do **NOT** use `run_in_background`
+- Phase 1 needs the diagnosis in hand). On return, call `heartbeat` and
+`report_usage`; if the card went stalled during the block, recover per the
+Heartbeat section.
 
 When the sub-agent prints `DIAGNOSIS_COMPLETE`, re-read the card body
 via `get_card` to confirm the `## Diagnosis` section is present, then
@@ -164,9 +172,10 @@ Spawn a sub-agent via the **`Agent`** tool with:
 - `prompt`: the `content` plus the appended block
 - The planner is read-only on the repo - do NOT pass `isolation: "worktree"`.
 
-Block on completion (do **NOT** use `run_in_background` - Phase 2 needs the
-plan on the card). Heartbeat the parent card every 5 minutes while the
-sub-agent runs; call `report_usage` after each heartbeat.
+Call `heartbeat`, then block on completion (do **NOT** use `run_in_background`
+- Phase 2 needs the plan on the card). On return, call `heartbeat` and
+`report_usage`; if the card went stalled during the block, recover per the
+Heartbeat section.
 
 ## Step 3: Confirm the handoff
 
@@ -221,8 +230,9 @@ Heartbeat before prompting. Heartbeat on resume. See the Heartbeat section.
   <the user's feedback verbatim>
   ```
 
-  Block on completion, heartbeat every 5 minutes, confirm via `get_card` on
-  `PLAN_DRAFTED`, then present again. Repeat until the user approves.
+  Call `heartbeat`, block on completion; on `PLAN_DRAFTED` call `heartbeat`
+  and `report_usage`, confirm via `get_card`, then present again. Repeat until
+  the user approves.
 - **User approves:** proceed to Phase 3.
 
 ---
@@ -287,7 +297,16 @@ the orchestrator's working tree on the feature branch.
    `get_skill(skill_name='execute-task', card_id=<id>, caller_model='<your_model>')`.
    The response contains `model` (which model to use) and `content` (the full
    prompt). **Never pass `include_preamble: false`** - sub-agents need the
-   lifecycle preamble. Always spawn a sub-agent using the **`Agent`** tool with:
+   lifecycle preamble.
+
+   **Spawn mode.** If `get_ready_tasks` returned exactly one task: call
+   `heartbeat`, spawn it blocking (no `run_in_background`), and skip the
+   monitoring loop entirely - on return, call `heartbeat` and `report_usage`
+   and act on the result; if the parent went stalled during the block,
+   recover per the Heartbeat section. With two or more ready tasks: spawn all
+   in parallel with `run_in_background: true` and enter the monitoring loop.
+
+   Always spawn a sub-agent using the **`Agent`** tool with:
    - `model`: the `model` from `get_skill` - **CRITICAL**, do not omit
    - `description`: `"execute <card_id>"`
    - `prompt`: the `content` from `get_skill`
@@ -295,9 +314,8 @@ the orchestrator's working tree on the feature branch.
      parallel (multiple `Agent` tool calls in one message). Do NOT execute
      inline even if `inline` is true.
 4. **Monitor sub-agents with health checking.** After spawning agents, enter a
-   monitoring loop. **Call `heartbeat` on the parent card every 5 minutes during
-   this loop.** **After each `heartbeat`, also call `report_usage` to record
-   your own token consumption since the last report:**
+   monitoring loop. Call `heartbeat` and `report_usage` after each check. To
+   record your own token consumption since the last report:
    - `card_id`: the parent card ID
    - `agent_id`: your agent ID
    - `model`: your own model identifier, read fresh from your system context
@@ -306,7 +324,8 @@ the orchestrator's working tree on the feature branch.
      since the last report
    - `cache_read_tokens` / `cache_creation_tokens`: from the stream-json `usage` frame if available
 
-   a. Wait 1 minute between checks. b. Call
+   a. Wait 10 minutes between checks - every check re-reads your entire
+   context. b. Call
    `check_agent_health(parent_id=<parent_id>)` to get the health status of all
    subtask agents. c. For each subtask, act on its status:
    - **`active`** - healthy, no action needed.
@@ -368,11 +387,11 @@ Call
 from the response, `description` set to `"document-task for <parent_id>"`, and
 `prompt` set to the returned `content`. Documentation is always a sub-agent for
 context isolation - ignore the `inline` field. The parent stays in `in_progress`
-during documentation.
+during documentation. Call `heartbeat`, then block on completion (do **NOT**
+use `run_in_background` - the doc gate needs `DOCS_WRITTEN` in hand).
 
-Wait for the documentation sub-agent to produce `DOCS_WRITTEN` structured
-output. Call `heartbeat` every 5 minutes while waiting. After each heartbeat,
-call `report_usage`.
+On `DOCS_WRITTEN`, call `heartbeat` and `report_usage`; if the card went
+stalled during the block, recover per the Heartbeat section.
 
 After `DOCS_WRITTEN` is received: reclaim the parent card:
 `claim_card(card_id=<parent_id>, agent_id=<your_agent_id>)`.
@@ -384,8 +403,10 @@ After `DOCS_WRITTEN` is received: reclaim the parent card:
 Call `start_review(card_id=<parent_id>, agent_id=<your_agent_id>, caller_model='<your_model>')`.
 The response always has `inline: true` - `review-task` is forced to inline execution.
 
-Execute the returned `content` directly in this session. Keep your claim
-throughout - do NOT release before, during, or after the inline run.
+Execute the returned `content` directly in this session. The three
+specialists are blocking parallel `Agent` calls inside that inline run -
+review-task Step 2 already calls `heartbeat` before spawning them. Keep your
+claim throughout - do NOT release before, during, or after the inline run.
 Inside the inline run, the skill: runs Pass 1 (test/lint gate); if Pass 1
 passes, spawns three specialist agents in parallel for Correctness,
 Design & Maintainability, and Security & Performance; synthesizes their
@@ -555,7 +576,8 @@ Triggered from Phase 8 when the review recommends revision. Do NOT call
    <the ## Review Findings section, or the user's rejection feedback>
    ```
 
-   Block on completion; on `PLAN_DRAFTED` confirm `## Plan` via `get_card`.
+   Call `heartbeat`, then block on completion; on `PLAN_DRAFTED` confirm
+   `## Plan` via `get_card`.
 4. Resume from **Phase 2** (plan approval gate - check autonomous again).
 5. This loop repeats until approved.
 
