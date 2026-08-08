@@ -859,6 +859,56 @@ plan-draft and systematic-debugging sub-agents, and review's specialists - see
 below) must pass its own `on_behalf_of` so its usage is attributed to itself
 rather than merged into the claim holder's bucket.
 
+### Reporting measured usage (collector protocol)
+
+LLM self-estimates of token usage have measured 13-15x low in the field: an
+agent asked to report its own prompt/completion counts is guessing, and the
+guess is bad. The real numbers only ever exist in the harness's own
+transcripts and usage frames - the server never sees a raw API response, so it
+cannot verify or correct what an agent reports. A harness-side collector
+reading those transcripts directly is the only correct source of measured
+counts.
+
+The protocol: the collector calls `report_usage` with `source: "collector"`
+and the real `prompt_tokens`, `completion_tokens`, `cache_read_tokens`, and
+`cache_creation_tokens` for the interval since its last report (the schema
+accepts all four); pass `actual_cost_usd` too when the gateway prices calls
+directly, and `on_behalf_of: "collector:<session-id>"` so the usage attributes
+to the collector's own identity rather than merging into the claim holder's
+bucket. Report deltas, not running totals - keep the last-reported cumulative
+counts client-side and subtract. A negative delta is a client bug (a
+transcript that shrank or reset); clamp it to zero rather than reporting a
+negative token count.
+
+Claim semantics are unchanged from any other `report_usage` call: while the
+card is claimed, `agent_id` must match the claim holder or the call is
+rejected. After the card is released, reports are accepted under any
+`agent_id` - this is the documented post-release final-report path, used when
+a collector flushes its last delta after the agent has already released the
+card.
+
+Implementers reading Claude Code transcripts specifically: the transcript
+writes one record per content block, and every record in a single turn
+carries the same cumulative `usage` object. Summing `usage` across all records
+without deduplicating overcounts by roughly 2x (more with more content
+blocks per turn). Deduplicate by `message.id` before summing - one `usage`
+value per unique message ID, not per transcript line.
+
+Trust model: the bearer key used to call `report_usage` is the authentication;
+`source: "collector"` is honesty labeling, not a privilege escalation - a
+compromised or buggy collector can still only report usage for cards its key
+can reach, same as `source: "self"`. On the server side the label sticks: once
+a bucket has received a collector-sourced report its `counts_source` stays
+`"collector"` even if later reports for that bucket omit `source`. The UI
+reflects this by rendering collector-sourced buckets as measured
+(collector-reported) and everything else as agent-reported.
+
+ContextMatrix does not ship a collector client - it is harness-side tooling,
+built and run by whoever operates the harness. A Claude Code `Stop` or
+`SubagentStop` hook that reads the session transcript, deduplicates by
+`message.id`, computes the delta since its last run, and calls `report_usage`
+is the natural shape for a Claude Code-driven harness.
+
 ## Model Allocation
 
 Local (Claude Code) orchestration uses two models: **Opus** (strongest
