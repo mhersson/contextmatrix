@@ -51,7 +51,9 @@ Violating these rules leaves cards orphaned with no tracking. Follow them exactl
 - **Mutation and list tools return card summaries.** Every card-bearing tool
   except get_card and get_task_context returns card metadata only - never the
   body or activity log. Call get_card when you need the full body or activity
-  log; heartbeat returns a minimal ack.
+  log; heartbeat returns a minimal ack. Skill prompts inject only the body
+  sections the skill needs - a bracketed note names any omitted sections;
+  call get_card for the full body.
 - **Ask the user in plain text.** When you need a decision or clarification,
   ask as a normal message with any options listed inline. Do not use the
   AskUserQuestion tool - it is not supported in this workflow.
@@ -295,10 +297,10 @@ var skillBuilders = map[string]skillBuilder{
 		return buildCardSkill(ctx, svc, dir, "execute-task.md", args.CardID, true)
 	}},
 	"review-task": {build: func(ctx context.Context, svc *service.CardService, dir string, args skillArgs) (string, error) {
-		return buildSubtaskSkill(ctx, svc, dir, "review-task.md", args.CardID)
+		return buildSubtaskSkill(ctx, svc, dir, "review-task.md", args.CardID, reviewTaskBodySections)
 	}},
 	"document-task": {build: func(ctx context.Context, svc *service.CardService, dir string, args skillArgs) (string, error) {
-		return buildSubtaskSkill(ctx, svc, dir, "document-task.md", args.CardID)
+		return buildSubtaskSkill(ctx, svc, dir, "document-task.md", args.CardID, documentTaskBodySections)
 	}},
 	"init-project": {build: func(ctx context.Context, svc *service.CardService, dir string, args skillArgs) (string, error) {
 		return buildInitProject(ctx, svc, dir, args.Name)
@@ -395,12 +397,12 @@ func buildCardSkill(ctx context.Context, svc *service.CardService, workflowSkill
 
 	var parts []string
 
-	parts = append(parts, formatCardContext(card, project, resolveVerifyCommand(ctx, svc, card, project)))
+	parts = append(parts, formatCardContext(card, project, resolveVerifyCommand(ctx, svc, card, project), nil))
 
 	if includeFamily && card.Parent != "" {
 		parent, perr := svc.GetCard(ctx, project, card.Parent)
 		if perr == nil {
-			parts = append(parts, "\n## Parent Card\n"+formatCardBriefWithBody(parent))
+			parts = append(parts, "\n## Parent Card\n"+formatCardBriefWithBody(parent, executeParentBodySections))
 		}
 
 		siblings, serr := svc.ListCards(ctx, project, storage.CardFilter{Parent: card.Parent})
@@ -424,8 +426,10 @@ func buildCardSkill(ctx context.Context, svc *service.CardService, workflowSkill
 }
 
 // buildSubtaskSkill handles skills that need a card plus all its subtasks
-// (review-task, document-task).
-func buildSubtaskSkill(ctx context.Context, svc *service.CardService, workflowSkillsDir, filename, cardID string) (string, error) {
+// (review-task, document-task). bodySections filters the injected parent body
+// to the sections the skill consumes - these are the late-run surfaces where
+// the accumulated body is largest.
+func buildSubtaskSkill(ctx context.Context, svc *service.CardService, workflowSkillsDir, filename, cardID string, bodySections []string) (string, error) {
 	if cardID == "" {
 		return "", fmt.Errorf("card_id argument is required")
 	}
@@ -442,7 +446,7 @@ func buildSubtaskSkill(ctx context.Context, svc *service.CardService, workflowSk
 
 	var parts []string
 
-	parts = append(parts, formatCardContext(card, project, resolveVerifyCommand(ctx, svc, card, project)))
+	parts = append(parts, formatCardContext(card, project, resolveVerifyCommand(ctx, svc, card, project), bodySections))
 
 	subtasks, serr := svc.ListCards(ctx, project, storage.CardFilter{Parent: card.ID})
 	if serr == nil && len(subtasks) > 0 {
@@ -476,7 +480,7 @@ func buildRunAutonomous(ctx context.Context, svc *service.CardService, workflowS
 
 	var parts []string
 
-	parts = append(parts, formatCardContext(card, project, resolveVerifyCommand(ctx, svc, card, project)))
+	parts = append(parts, formatCardContext(card, project, resolveVerifyCommand(ctx, svc, card, project), nil))
 
 	// Inject server-side complexity classification so the skill can route
 	// simple tasks to the fast path (skip planning/review/docs).
@@ -598,8 +602,11 @@ func resolveVerifyCommand(ctx context.Context, svc *service.CardService, card *b
 
 // formatCardContext formats a card with full details for prompt injection.
 // Unvetted external cards are redacted first so untrusted title/body/activity
-// entries can never influence the rendered skill prompt.
-func formatCardContext(c *board.Card, project, verifyCommand string) string {
+// entries can never influence the rendered skill prompt. A non-nil keep list
+// filters the body to the named H2 sections via filterBodySections (redaction
+// runs first; the placeholder passes through the filter's fallback), with a
+// note naming omitted sections; nil keeps the full body.
+func formatCardContext(c *board.Card, project, verifyCommand string, keep []string) string {
 	c = redactCardForPrompt(c)
 
 	var b strings.Builder
@@ -657,8 +664,14 @@ func formatCardContext(c *board.Card, project, verifyCommand string) string {
 	// imported cards. The empty agent ID is non-human by definition -
 	// redactUnvettedBody substitutes the placeholder for unvetted cards.
 	body := redactUnvettedBody(c, "")
-	if body != "" {
-		fmt.Fprintf(&b, "\n### Body\n\n%s\n", body)
+
+	filtered, omitted := filterBodySections(body, keep)
+	if filtered != "" {
+		fmt.Fprintf(&b, "\n### Body\n\n%s\n", filtered)
+
+		if note := omittedSectionsNote(c.ID, omitted); note != "" {
+			fmt.Fprintf(&b, "\n%s\n", note)
+		}
 	}
 
 	return b.String()
@@ -698,19 +711,27 @@ func formatCardBrief(c *board.Card) string {
 	return b.String()
 }
 
-// formatCardBriefWithBody formats a card as a brief summary including the full body.
-// Unvetted external cards are redacted first via redactCardForPrompt so both
-// the brief header (title, source, activity log) and the appended body are
-// replaced with safe placeholders, blocking prompt injection from externally
-// imported cards - skill prompts always flow into agent context.
-func formatCardBriefWithBody(c *board.Card) string {
+// formatCardBriefWithBody formats a card as a brief summary including body
+// content. Unvetted external cards are redacted first via redactCardForPrompt
+// so both the brief header (title, source, activity log) and the appended body
+// are replaced with safe placeholders, blocking prompt injection from
+// externally imported cards - skill prompts always flow into agent context.
+// A non-nil keep list filters the body to the named H2 sections (after
+// redaction), appending a note naming omitted sections; nil keeps it all.
+func formatCardBriefWithBody(c *board.Card, keep []string) string {
 	c = redactCardForPrompt(c)
 
 	s := formatCardBrief(c)
 
 	body := redactUnvettedBody(c, "")
-	if body != "" {
-		s += fmt.Sprintf("\n%s\n", body)
+
+	filtered, omitted := filterBodySections(body, keep)
+	if filtered != "" {
+		s += fmt.Sprintf("\n%s\n", filtered)
+
+		if note := omittedSectionsNote(c.ID, omitted); note != "" {
+			s += fmt.Sprintf("\n%s\n", note)
+		}
 	}
 
 	return s
