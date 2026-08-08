@@ -2623,10 +2623,51 @@ textarea {
     color-mix(in oklab, var(--bg1) 95%, transparent) 100%
   );
   align-items: center;
+  align-content: start;
   position: relative;
   overflow: hidden;
   cursor: pointer;
   text-align: left;
+}
+/* The open button replicates the card grid so the id/state/title rows keep
+   their layout; its ::after stretches the click target over the whole card.
+   The focus ring paints inset on the stretch - the spotlight list is a
+   scroll container, so an outset ring would be clipped. */
+.spotlight-card__open {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px 14px;
+  align-items: center;
+  grid-column: 1 / -1;
+  min-width: 0;
+  padding: 0; margin: 0; border: none; background: none;
+  font: inherit; color: inherit; text-align: left; cursor: pointer;
+}
+.spotlight-card__open::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+.spotlight-card__open:focus-visible { outline: none; }
+.spotlight-card__open:focus-visible::after {
+  outline: 2px solid var(--aqua);
+  outline-offset: -2px;
+  border-radius: 8px;
+}
+/* Positioned above the open button's stretched hit area. One grid item for
+   strip + peek so the card's row gap doesn't stack with the peek's own
+   margin. The peek is capped so a long subtask list scrolls instead of
+   squeezing the board columns below the strip. */
+.spotlight-card__subtasks {
+  grid-column: 1 / -1;
+  min-width: 0;
+  position: relative;
+}
+.spotlight-card__subtasks .phase-strip { margin: 0; }
+.spotlight-card__peek {
+  max-height: 168px;
+  overflow-y: auto;
+  scrollbar-width: thin;
 }
 .spotlight-card::before {
   content: "";
