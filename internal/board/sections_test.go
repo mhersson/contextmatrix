@@ -45,6 +45,27 @@ func TestUpsertSection(t *testing.T) {
 			content: "round one",
 			want:    "## Review Findings\n\nround zero\n\n## Review Findings (Round 1)\n\nround one\n",
 		},
+		{
+			name:    "CRLF body replace",
+			body:    "## Plan\r\n\r\nold\r\n",
+			heading: "Plan",
+			content: "new plan",
+			want:    "## Plan\n\nnew plan\n",
+		},
+		{
+			name:    "CRLF preserves untouched neighbor bytes",
+			body:    "intro\r\n\r\n## Plan\r\n\r\nold plan\r\n\r\n## Decisions\r\n\r\n- keep\r\n",
+			heading: "Plan",
+			content: "new plan",
+			want:    "intro\r\n\r\n## Plan\n\nnew plan\n\n## Decisions\r\n\r\n- keep\r\n",
+		},
+		{
+			name:    "indented fence under a list item is not a boundary",
+			body:    "## Plan\n\n- item\n  ```md\n## Fake\n  ```\ntail\n",
+			heading: "Plan",
+			content: "replaced",
+			want:    "## Plan\n\nreplaced\n",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -56,5 +77,11 @@ func TestUpsertSection(t *testing.T) {
 func TestUpsertSectionIdempotent(t *testing.T) {
 	once := UpsertSection("intro\n", "Plan", "the plan")
 	twice := UpsertSection(once, "Plan", "the plan")
+	assert.Equal(t, once, twice)
+}
+
+func TestUpsertSectionCRLFIdempotent(t *testing.T) {
+	once := UpsertSection("## Plan\r\n\r\nold\r\n", "Plan", "new plan")
+	twice := UpsertSection(once, "Plan", "new plan")
 	assert.Equal(t, once, twice)
 }
