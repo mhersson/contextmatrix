@@ -85,6 +85,7 @@ export interface UsageBucket {
   cache_creation_tokens?: number;
   cost_usd: number;
   cost_source: 'actual' | 'estimated';
+  counts_source?: 'collector' | 'self';
 }
 
 export interface GitHubImportConfig {

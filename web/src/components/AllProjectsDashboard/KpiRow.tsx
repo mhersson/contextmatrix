@@ -126,7 +126,7 @@ function CostValue({ amount }: { amount: number }) {
 const DELIVERY_UNIT_TOOLTIP = 'Counts delivery units (standalone tasks + parents). Subtasks are excluded.';
 
 const COST_TOOLTIP =
-  "Sum of estimated cost on cards updated in the last 30 days. Each card's full cost is attributed to its last-update day, so long-running parent cards may show as a spike on their most recent touch day.";
+  "Sum of estimated cost on cards updated in the last 30 days. Each card's full cost is attributed to its last-update day, so long-running parent cards may show as a spike on their most recent touch day - token counts as reported by agents.";
 
 const CHAT_COST_TOOLTIP =
   "Server-wide chat session cost over the last 30 UTC days, bucketed by session last-active day. Cached server-side for 30 seconds.";

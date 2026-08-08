@@ -153,7 +153,7 @@ describe('MetadataUsage', () => {
     });
     render(<MetadataUsage card={card} />);
     const cost = screen.getByText('$0.0123*');
-    expect(cost).toHaveAttribute('title', 'estimated from rate table');
+    expect(cost).toHaveAttribute('title', 'agent-reported · estimated from rate table');
   });
 
   it('leaves actual costs unmarked with the actual-cost tooltip', () => {
@@ -171,6 +171,44 @@ describe('MetadataUsage', () => {
     });
     render(<MetadataUsage card={card} />);
     const cost = screen.getByText('$0.0123');
-    expect(cost).toHaveAttribute('title', 'actual provider cost');
+    expect(cost).toHaveAttribute('title', 'agent-reported · actual provider cost');
+  });
+
+  it('labels collector-measured token counts as measured in the tooltip', () => {
+    const card = makeCard({
+      usage_breakdown: [
+        {
+          agent: 'cmx-agent-cmx-001',
+          model: 'openai/model-1',
+          prompt_tokens: 100,
+          completion_tokens: 50,
+          cost_usd: 0.0123,
+          cost_source: 'actual',
+          counts_source: 'collector',
+        },
+      ],
+    });
+    render(<MetadataUsage card={card} />);
+    const cost = screen.getByText('$0.0123');
+    expect(cost).toHaveAttribute('title', 'measured (collector-reported) · actual provider cost');
+  });
+
+  it('labels self-reported token counts as agent-reported in the tooltip', () => {
+    const card = makeCard({
+      usage_breakdown: [
+        {
+          agent: 'cmx-agent-cmx-001',
+          model: 'openai/model-1',
+          prompt_tokens: 100,
+          completion_tokens: 50,
+          cost_usd: 0.0123,
+          cost_source: 'actual',
+          counts_source: 'self',
+        },
+      ],
+    });
+    render(<MetadataUsage card={card} />);
+    const cost = screen.getByText('$0.0123');
+    expect(cost).toHaveAttribute('title', 'agent-reported · actual provider cost');
   });
 });

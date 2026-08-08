@@ -64,11 +64,9 @@ export function MetadataUsage({ card }: MetadataUsageProps) {
                   </span>
                   <span
                     className="text-right tabular-nums"
-                    title={
-                      b.cost_source === 'actual'
-                        ? 'actual provider cost'
-                        : 'estimated from rate table'
-                    }
+                    title={`${
+                      b.counts_source === 'collector' ? 'measured (collector-reported)' : 'agent-reported'
+                    } · ${b.cost_source === 'actual' ? 'actual provider cost' : 'estimated from rate table'}`}
                   >
                     {formatCost(b.cost_usd)}
                     {b.cost_source === 'estimated' ? '*' : ''}
