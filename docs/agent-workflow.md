@@ -22,8 +22,16 @@ exist:
    open via the chat channel. See `docs/remote-execution.md` for the backend
    architecture.
 
+Board survey and card execution are separate sessions. Browsing the board to
+decide what to work on (`list_cards`, `get_ready_tasks`) happens in its own
+session; execution starts fresh with just a card ID - `start_workflow`
+re-fetches everything the run needs. Everything a session reads becomes
+permanent context re-billed on every later model call, so survey output must
+not ride along into a run.
+
 ```text
 Human ↔ CC (main agent, Opus)
+           ├── Agent → sub-agent (plan-draft, Sonnet)
            ├── Agent → sub-agent (execute-task, Sonnet)
            ├── Agent → sub-agent (execute-task, Sonnet)
            ├── Agent → sub-agent (execute-task, Sonnet)
@@ -33,6 +41,7 @@ Human ↔ CC (main agent, Opus)
                   └── Agent → specialist (security,    size pick)
 
 Worker container → harness orchestrator (agent backend)
+           ├── Agent → sub-agent (plan-draft)
            ├── Agent → sub-agent (execute-task)
            ├── Agent → sub-agent (execute-task)
            └── inline: review-task (synthesizer = orchestrator model, your session)
@@ -131,6 +140,7 @@ workflow-skills/
   create-task.md          # /contextmatrix:create-task (slash command + skill)
   init-project.md         # /contextmatrix:init-project (slash command + skill)
   create-plan.md          # skill only (loaded via get_skill / start_workflow)
+  plan-draft.md           # skill only (spawned by create-plan plan drafting)
   execute-task.md         # skill only
   review-task.md          # skill only (loaded via start_review or get_skill)
   document-task.md        # skill only
@@ -141,7 +151,7 @@ workflow-skills/
 ```
 
 Three slash commands exist: `create-task`, `init-project`, and `start-workflow`.
-Phase-specific skills (`create-plan`, `execute-task`,
+Phase-specific skills (`create-plan`, `plan-draft`, `execute-task`,
 `review-task`, `document-task`, `run-autonomous`, `brainstorming`,
 `systematic-debugging`) are loaded by the orchestrator via `get_skill` (or
 `start_review` for the review-entry transition); they are not user-facing entry
@@ -203,9 +213,9 @@ guidance, not a one-line marker. Engagement stays scoped to the right phase:
   `## Specialist skills` section permitting engagement when descriptions match,
   requiring an `add_log(action="skill_engaged", ...)` on first engagement, and
   noting that workflow rules always take precedence over skill guidance.
-- `create-plan`: no `## Specialist skills` section (runs inline on the
-  orchestrator; engagement is governed by run-autonomous when invoked from
-  there).
+- `create-plan`, `plan-draft`: no `## Specialist skills` section (create-plan
+  orchestrates inline, plan-draft investigates and drafts only - no
+  implementation work in either).
 - `create-task`, `init-project`: no `## Specialist skills` section
   (interview/bootstrap, no implementation work).
 
@@ -332,8 +342,9 @@ back-and-forth with the user, which only works in the main agent's context.
 `get_skill('create-plan')`)
 
 When a user invokes `/contextmatrix:start-workflow` on a HITL card (or the
-`start_workflow` MCP tool routes there), the orchestrator runs planning inline
-and creates subtasks directly.
+`start_workflow` MCP tool routes there), the orchestrator drives planning -
+delegating plan drafting to the plan-draft sub-agent - and creates subtasks
+directly.
 
 The flow is:
 
@@ -342,16 +353,20 @@ The flow is:
    card to `in_progress` at the start of planning, not after subtasks are
    created. The card stays claimed through drafting, user approval, and subtask
    creation.
-1. **Plan drafting (inline)**: The orchestrator runs the create-plan skill
-   inline - no sub-agent. It drafts the plan, writes it to the parent card body
-   via `update_card`, and produces `PLAN_DRAFTED` structured output. Running
-   inline retains the plan context for subtask creation.
+1. **Plan drafting (plan-draft sub-agent)**: The orchestrator fetches the
+   plan-draft skill via `get_skill` and spawns it as a sub-agent. The sub-agent
+   investigates the repository, writes `## Plan` and `## Decisions` to the
+   parent card body via `update_card` - passing the orchestrator's `agent_id`,
+   carried in a Board-write identity block in the spawn prompt, because the
+   orchestrator holds the claim - and prints `PLAN_DRAFTED`. The orchestrator
+   confirms the sections landed via `get_card`.
 2. **User approval (orchestrator handles directly)**: The orchestrator presents
    the `## Plan` section to the user and asks for approval. No sub-agent needed.
 3. **Subtask creation (inline)**: Once the user approves, the orchestrator
-   creates all subtasks directly by calling `create_card` for each subtask in
-   the plan. No sub-agent is spawned - this is trivial work that doesn't justify
-   the overhead of a separate agent.
+   re-reads the `## Plan` section via `get_card` - the plan lives on the card,
+   not in its context - and creates all subtasks directly by calling
+   `create_card` for each subtask. No sub-agent is spawned - this is trivial
+   work that doesn't justify the overhead of a separate agent.
 
 **3. Execution** (loaded internally - orchestrator calls
 `get_skill('execute-task')`)
@@ -439,9 +454,9 @@ The flow:
     1. Calls `transition_card` to move parent from `review` back to
        `in_progress`.
     2. Leaves existing `done` subtasks untouched - their work is preserved.
-    3. Spawns a new planning sub-agent (create-plan) with the rejection feedback
-       injected into the prompt, so it creates fix subtasks scoped to the
-       issues.
+    3. Re-spawns the plan-draft sub-agent with the review findings appended as
+       revision feedback, so the revised `## Plan` contains only fix subtasks
+       scoped to the issues.
     4. Resumes the execute → document → review cycle. This loop repeats until
        the human approves.
 
@@ -497,9 +512,9 @@ canned stdin message.
 
 ```
 Phase 0:  Pre-planning Gate      → branch on card shape: maintenance-skip (Branch A), systematic-debugging sub-agent (Branch B, both modes), or brainstorming inline (Branch C, HITL only). Produces a ## Design or ## Diagnosis section before plan drafting.
-Phase 1:  Plan Drafting          → inline; drafts plan, updates card body, emits PLAN_DRAFTED
+Phase 1:  Plan Drafting          → spawns plan-draft sub-agent; it writes ## Plan + ## Decisions and emits PLAN_DRAFTED; orchestrator confirms via get_card
 Phase 2:  Plan Approval Gate     → get_card autonomous check; HITL presents plan, autonomous skips
-Phase 3:  Subtask Creation       → inline; dedupe then create_card for each subtask
+Phase 3:  Subtask Creation       → inline; re-reads ## Plan via get_card, dedupes, then create_card for each subtask
 Phase 4:  Execution Gate         → get_card autonomous check; HITL asks to start, autonomous skips
 Phase 5:  Execution              → checkout feature branch (branch_name); claim parent; get_ready_tasks; spawn execute-task sub-agents in parallel; aggregate worktree branches onto feature branch when worktree isolation used
 Phase 6:  Documentation          → release claim, spawn document-task sub-agent, reclaim after DOCS_WRITTEN
@@ -515,8 +530,8 @@ phase labels. run-autonomous starts from the correct phase based on card state:
 ```
 Step 0:  Claim the card        → claim_card called before any exploration begins
 Step 1:  Create feature branch → if branch_name is set, git checkout -b <branch_name> (or checkout existing); skipped otherwise. Runs before planning or sub-agent spawning.
-Phase 1: Plan Drafting         → inline, calls create-plan skill via get_skill (model-matched inline)
-Phase 2: Subtask Creation      → inline, orchestrator calls create_card directly
+Phase 1: Plan Drafting         → orchestrator runs create-plan Phase 1 inline; drafting itself is spawned to the plan-draft sub-agent
+Phase 2: Subtask Creation      → inline; orchestrator re-reads ## Plan via get_card, then calls create_card directly
 Phase 3: Execution             → spawns execute-task sub-agents in parallel; cherry-picks worktree branches onto feature branch when worktree isolation used
 Phase 4: Documentation         → spawns document-task sub-agent (parent in in_progress)
 Phase 5: Review                → orchestrator transitions parent to review via start_review, runs review-task inline; spawns 3 opus specialists in parallel and synthesizes findings
@@ -644,6 +659,21 @@ Decided approach and rationale.
 Gotchas, decisions made, alternatives rejected.
 ```
 
+Parent cards accumulate sections per phase instead:
+
+```markdown
+## Design           <- brainstorming (HITL creative branch)
+## Diagnosis        <- systematic-debugging sub-agent
+## Plan             <- plan-draft sub-agent
+## Decisions        <- plan-draft sub-agent
+## Review Findings  <- review rounds; later rounds append as ## Review Findings (Round N)
+```
+
+`## Decisions` preserves the drafting context that would otherwise die with
+the plan-draft sub-agent: `### Approach` (decided approach and why),
+`### Rejected alternatives`, and `### Assumptions` (constraints discovered
+during investigation). Empty subsections are omitted.
+
 This is the durable audit trail. The structured stdout is ephemeral - the card
 body is what persists in git history.
 
@@ -673,8 +703,9 @@ background goroutine for the whole run, including human waits.
 The fire-and-report design (used by `review-task` and `document-task`)
 eliminates the most common idle-wait failure mode: sub-agents write their output
 to the card body and return immediately; the always-alive orchestrator handles
-all user interactions. `create-plan` avoids the problem entirely by running
-inline on the orchestrator - no sub-agent is spawned. No sub-agent in the
+all user interactions. `plan-draft` follows the same design - it writes the
+plan to the card, returns the `PLAN_DRAFTED` marker, and never idles for user
+input; revision feedback arrives via a fresh respawn. No sub-agent in the
 current workflow idles for user input.
 
 ## Tool response shapes
@@ -697,15 +728,19 @@ that cost for zero information gain.
 The same economics apply to skill delivery. `get_skill`, `start_review`, and
 `start_workflow` inject card context into the skill content; on the late-run
 surfaces the injected body is filtered to the sections the skill consumes -
-review-task gets the intro plus `## Plan` and `## Review Findings` (all
-rounds), document-task and the execute-task parent get the intro plus
-`## Plan` - while early-run skills (create-plan, brainstorming,
+review-task gets the intro plus `## Plan`, `## Review Findings` (all rounds),
+and `## Decisions`; document-task gets the intro plus `## Plan` and
+`## Decisions`; the execute-task parent gets the intro plus `## Plan` - while
+early-run skills (create-plan, plan-draft, brainstorming,
 systematic-debugging, run-autonomous) and the execute-task subtask's own card
 keep the full body. A bracketed note names any omitted sections and points at
 `get_card`; when none of the filter's sections exist in a body, the full body
 passes through unchanged. The table is in
 [`docs/api-reference.md`](api-reference.md) under "Skill-injection body
-filtering".
+filtering". The same economics separate sessions: survey the board
+(`list_cards`, `get_ready_tasks`) in one session, then execute in a fresh
+session seeded only with the card ID - survey output otherwise becomes
+permanent context re-billed for the whole run.
 
 ## Token cost configuration
 
@@ -749,7 +784,7 @@ management rather than model compatibility.
 | Phase            | Model  | Method                                               | Why                                                                                                             |
 | ---------------- | ------ | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
 | Orchestrator     | Opus   | User's session (HITL) or run-autonomous (local auto) | Strongest reasoning for planning, review, and coordination                                                      |
-| Planning         | Opus   | Inline on orchestrator                               | Orchestrator already is Opus - no spawn needed, retains plan context for subtask creation                       |
+| Planning         | Sonnet | Sub-agent (plan-draft)                               | Drafting exploration stays out of the orchestrator's permanent context; the card is the handoff                 |
 | Subtask creation | Opus   | Inline - calls `create_card()` directly              | Trivial work; spawning a sub-agent costs more in overhead than it saves                                         |
 | Execution        | Sonnet | Sub-agent per subtask                                | Context isolation (fresh ~50K vs accumulated 150K+) and parallel execution; Sonnet is 1.67x cheaper at scale    |
 | Review           | Opus   | Inline (start_review inline=true, Opus==Opus)        | Devil's advocate reasoning benefits from Opus; inline keeps findings in orchestrator context for human approval |
@@ -767,7 +802,7 @@ algorithm behind these tables is documented in `docs/model-selection.md`.
 | Phase            | Model                         | Method                                        | Why                                                                            |
 | ---------------- | ----------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------ |
 | Orchestrator     | CM default or per-card pin     | Set at trigger time by CM                      | One orchestrator model drives planning, subtask creation, review synthesis, docs |
-| Planning         | orchestrator model             | Inline on orchestrator                         | Inline avoids spawn overhead and retains plan context                          |
+| Planning         | per `get_skill` (plan-draft)   | Sub-agent (plan-draft)                         | Drafting exploration stays out of the orchestrator's permanent context; the card is the handoff |
 | Subtask creation | orchestrator model             | Inline - calls `create_card()` directly        | Trivial work, no sub-agent needed                                              |
 | Execution        | complexity-selected (coder)    | Sub-agent per subtask                          | Context isolation + parallel execution; selector matches model to task tier    |
 | Review           | complexity-selected (reviewer) | Inline or sub-agent per `start_review`         | Stronger reviewer catches issues before costly rework loops                    |
@@ -780,9 +815,10 @@ model match** - it returns `true` when the caller's model family matches the
 skill's model family AND the skill is on the inline-eligible whitelist
 (`review-task`, `create-plan`, `brainstorming`):
 
-- **Planning, subtask creation:** Always inline - orchestrator instructions
-  override the inline field. The orchestrator retains context for downstream
-  phases.
+- **Planning:** Always sub-agent (plan-draft) - drafting exploration stays out
+  of the orchestrator's permanent context; the card body is the handoff.
+- **Subtask creation:** Always inline - the orchestrator re-reads `## Plan` via
+  `get_card` and calls `create_card` directly.
 - **Execution, documentation:** Always sub-agent - orchestrator instructions
   specify this for context isolation and parallel execution. The inline field is
   not consulted.

@@ -343,10 +343,10 @@ Code slash commands:
 | `/contextmatrix:init-project`   | `name`        | Initialize a new project board                                                              |
 | `/contextmatrix:start-workflow` | `card_id`     | Drive a card through its full lifecycle (HITL or autonomous, routed by the autonomous flag) |
 
-Phase-specific skills (`create-plan`, `execute-task`, `review-task`,
-`document-task`, `run-autonomous`, `brainstorming`, `systematic-debugging`) are
-loaded internally by the orchestrator via `get_skill` (or, for the review-entry
-transition, via `start_review`). Invoke `start-workflow` and the orchestrator
+Phase-specific skills (`create-plan`, `plan-draft`, `execute-task`,
+`review-task`, `document-task`, `run-autonomous`, `brainstorming`,
+`systematic-debugging`) are loaded internally by the orchestrator via
+`get_skill` (or, for the review-entry transition, via `start_review`). Invoke `start-workflow` and the orchestrator
 drives the phases.
 
 ## Agent Workflow
@@ -360,11 +360,16 @@ tool. The typical workflow:
    `start_workflow` MCP tool) drives the card through its full lifecycle. The
    orchestrator inspects the card's `autonomous` flag and routes to either the
    HITL flow (`create-plan`, with human approval gates) or the autonomous flow
-   (`run-autonomous`, no gates).
+   (`run-autonomous`, no gates). Run this in a fresh session seeded with just
+   the card ID; board survey (`list_cards` / `get_ready_tasks`) belongs in a
+   separate session so its output is not re-billed as context for the whole
+   run.
 
 Internally the orchestrator chains:
 
-- **Plan** - break the card into subtasks with dependencies (`create-plan`).
+- **Plan** - break the card into subtasks with dependencies (`create-plan`);
+  drafting is delegated to a `plan-draft` sub-agent that writes the plan to the
+  card.
 - **Execute** - spawn parallel sub-agents (`execute-task`); each calls
   `claim_card`, works the task with periodic `heartbeat`s, then `complete_task`.
 - **Document** - write external docs (`document-task`); parent stays
