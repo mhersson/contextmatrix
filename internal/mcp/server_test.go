@@ -92,7 +92,7 @@ func setupMCP(t *testing.T) *testEnv {
 		"run-autonomous.md":       "claude-sonnet-4-6",
 		"brainstorming.md":        "claude-sonnet-4-6",
 		"systematic-debugging.md": "claude-sonnet-4-6",
-		"plan-draft.md":           "claude-sonnet-4-6",
+		"plan-draft.md":           "claude-opus-4-6",
 	}
 	for name, model := range skillModels {
 		content := fmt.Sprintf("# %s\n\n## Agent Configuration\n\n- **Model:** %s - Test model.\n\n---\n\nSkill instructions here.", name, model)
@@ -2422,14 +2422,14 @@ func TestGetSkill_PlanDraft(t *testing.T) {
 	result := callTool(t, env, "get_skill", map[string]any{
 		"skill_name":   "plan-draft",
 		"card_id":      card.ID,
-		"caller_model": "sonnet",
+		"caller_model": "opus",
 	})
 	require.False(t, result.IsError)
 
 	var out getSkillOutput
 	unmarshalResult(t, result, &out)
 	assert.Equal(t, "plan-draft", out.SkillName)
-	assert.Equal(t, "sonnet", out.Model)
+	assert.Equal(t, "opus", out.Model)
 	assert.False(t, out.Inline, "plan-draft must not be inline-eligible")
 	assert.Contains(t, out.Content, card.ID, "skill content should include the card ID context")
 	assert.Contains(t, out.Content, "Add rate limiting", "skill content should include the card title")

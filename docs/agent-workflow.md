@@ -784,7 +784,7 @@ management rather than model compatibility.
 | Phase            | Model  | Method                                               | Why                                                                                                             |
 | ---------------- | ------ | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
 | Orchestrator     | Opus   | User's session (HITL) or run-autonomous (local auto) | Strongest reasoning for planning, review, and coordination                                                      |
-| Planning         | Sonnet | Sub-agent (plan-draft)                               | Drafting exploration stays out of the orchestrator's permanent context; the card is the handoff                 |
+| Planning         | Opus   | Sub-agent (plan-draft)                               | Decomposition and tier calibration are decision work; isolation pays the drafting tokens once, so Opus is affordable |
 | Subtask creation | Opus   | Inline - calls `create_card()` directly              | Trivial work; spawning a sub-agent costs more in overhead than it saves                                         |
 | Execution        | Sonnet | Sub-agent per subtask                                | Context isolation (fresh ~50K vs accumulated 150K+) and parallel execution; Sonnet is 1.67x cheaper at scale    |
 | Review           | Opus   | Inline (start_review inline=true, Opus==Opus)        | Devil's advocate reasoning benefits from Opus; inline keeps findings in orchestrator context for human approval |
@@ -802,7 +802,7 @@ algorithm behind these tables is documented in `docs/model-selection.md`.
 | Phase            | Model                         | Method                                        | Why                                                                            |
 | ---------------- | ----------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------ |
 | Orchestrator     | CM default or per-card pin     | Set at trigger time by CM                      | One orchestrator model drives planning, subtask creation, review synthesis, docs |
-| Planning         | per `get_skill` (plan-draft)   | Sub-agent (plan-draft)                         | Drafting exploration stays out of the orchestrator's permanent context; the card is the handoff |
+| Planning         | per `get_skill` (plan-draft, opus) | Sub-agent (plan-draft)                     | Decision work runs on the top tier; drafting exploration stays out of the orchestrator's permanent context |
 | Subtask creation | orchestrator model             | Inline - calls `create_card()` directly        | Trivial work, no sub-agent needed                                              |
 | Execution        | complexity-selected (coder)    | Sub-agent per subtask                          | Context isolation + parallel execution; selector matches model to task tier    |
 | Review           | complexity-selected (reviewer) | Inline or sub-agent per `start_review`         | Stronger reviewer catches issues before costly rework loops                    |
