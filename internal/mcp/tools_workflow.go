@@ -16,6 +16,7 @@ import (
 type startWorkflowInput struct {
 	CardID          string `json:"card_id" jsonschema:"required,card ID to start the workflow for (e.g. ALPHA-001)"`
 	IncludePreamble *bool  `json:"include_preamble,omitempty" jsonschema:"include workflow rules preamble (default true, pass false to skip on subsequent calls when you already have it)"`
+	IncludeCard     *bool  `json:"include_card,omitempty" jsonschema:"include the card body in the skill content (default true; pass false when you already hold the body from get_card)"`
 }
 type startWorkflowOutput struct {
 	SkillName string `json:"skill_name"`
@@ -47,9 +48,11 @@ func registerStartWorkflow(server *mcp.Server, svc *service.CardService, workflo
 		}
 
 		includePreamble := input.IncludePreamble == nil || *input.IncludePreamble
+		includeCardBody := input.IncludeCard == nil || *input.IncludeCard
 
 		result, err := buildSkillContent(ctx, svc, workflowSkillsDir, skill, skillArgs{
-			CardID: input.CardID,
+			CardID:          input.CardID,
+			IncludeCardBody: includeCardBody,
 		}, includePreamble)
 		if err != nil {
 			return nil, startWorkflowOutput{}, fmt.Errorf("start workflow: %w", err)
@@ -77,6 +80,7 @@ type startReviewInput struct {
 	AgentID         string `json:"agent_id" jsonschema:"required,agent performing the transition - must own the card claim"`
 	CallerModel     string `json:"caller_model,omitempty" jsonschema:"your model's short name or family (e.g. sonnet, opus on Claude harnesses) - enables inline execution when matching the skill model"`
 	IncludePreamble *bool  `json:"include_preamble,omitempty" jsonschema:"include workflow rules preamble (default true, pass false to skip on subsequent calls when you already have it)"`
+	IncludeCard     *bool  `json:"include_card,omitempty" jsonschema:"include the card body in the skill content (default true; pass false when you already hold the body from get_card)"`
 }
 
 func registerStartReview(server *mcp.Server, svc *service.CardService, workflowSkillsDir string) {
@@ -106,9 +110,11 @@ func registerStartReview(server *mcp.Server, svc *service.CardService, workflowS
 		}
 
 		includePreamble := input.IncludePreamble == nil || *input.IncludePreamble
+		includeCardBody := input.IncludeCard == nil || *input.IncludeCard
 
 		result, err := buildSkillContent(ctx, svc, workflowSkillsDir, "review-task", skillArgs{
-			CardID: input.CardID,
+			CardID:          input.CardID,
+			IncludeCardBody: includeCardBody,
 		}, includePreamble)
 		if err != nil {
 			return nil, getSkillOutput{}, fmt.Errorf("start review %s: load skill: %w", input.CardID, err)
@@ -143,11 +149,13 @@ func registerGetSkill(server *mcp.Server, svc *service.CardService, workflowSkil
 			"When 'inline' is false or absent, you MUST spawn a sub-agent via the Agent tool with the returned model.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input getSkillInput) (*mcp.CallToolResult, getSkillOutput, error) {
 		includePreamble := input.IncludePreamble == nil || *input.IncludePreamble
+		includeCardBody := input.IncludeCard == nil || *input.IncludeCard
 
 		result, err := buildSkillContent(ctx, svc, workflowSkillsDir, input.SkillName, skillArgs{
-			CardID:      input.CardID,
-			Description: input.Description,
-			Name:        input.Name,
+			CardID:          input.CardID,
+			Description:     input.Description,
+			Name:            input.Name,
+			IncludeCardBody: includeCardBody,
 		}, includePreamble)
 		if err != nil {
 			return nil, getSkillOutput{}, fmt.Errorf("get skill %s: %w", input.SkillName, err)

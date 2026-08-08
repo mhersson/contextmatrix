@@ -126,6 +126,7 @@ type getSkillInput struct {
 	Name            string `json:"name,omitempty" jsonschema:"project name (used by init-project)"`
 	CallerModel     string `json:"caller_model,omitempty" jsonschema:"your model's short name or family (e.g. sonnet, opus on Claude harnesses) - enables inline execution when matching the skill model"`
 	IncludePreamble *bool  `json:"include_preamble,omitempty" jsonschema:"include workflow rules preamble (default true, pass false to skip on subsequent calls when you already have it)"`
+	IncludeCard     *bool  `json:"include_card,omitempty" jsonschema:"include the card body in the skill content (default true; pass false when you already hold the body from get_card)"`
 }
 
 // assertGetSkillSchemaInSync enforces that the jsonschema description on

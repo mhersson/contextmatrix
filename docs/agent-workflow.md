@@ -737,7 +737,18 @@ keep the full body. A bracketed note names any omitted sections and points at
 `get_card`; when none of the filter's sections exist in a body, the full body
 passes through unchanged. The table is in
 [`docs/api-reference.md`](api-reference.md) under "Skill-injection body
-filtering". The same economics separate sessions: survey the board
+filtering".
+
+A caller that already holds the body - typically an orchestrator that just
+called `get_card` - can skip re-injecting it entirely: pass
+`include_card: false` to `get_skill`, `start_workflow`, or `start_review`.
+This replaces the `### Body` block (and, for `execute-task`, the parent's
+filtered body) with a pointer note back to `get_card`; the metadata header and
+sibling briefs are unaffected. Defaults to `true` (the section filtering above
+still applies on top of it) - `run-autonomous`'s fast path reads the body
+directly, so leave it unset unless you are certain you already have the body.
+
+The same economics separate sessions: survey the board
 (`list_cards`, `get_ready_tasks`) in one session, then execute in a fresh
 session seeded only with the card ID - survey output otherwise becomes
 permanent context re-billed for the whole run.
