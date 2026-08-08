@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/service"
 )
 
 // TestGetSkill_IncludeCard pins the get_skill include_card opt-out: false
@@ -67,6 +69,53 @@ func TestStartWorkflow_IncludeCard(t *testing.T) {
 	assert.NotContains(t, out.Content, "MARKER-BODY-CONTENT")
 	assert.Contains(t, out.Content,
 		fmt.Sprintf("[Card body omitted (include_card=false). Run get_card(card_id='%s') to read it.]", card.ID))
+}
+
+// TestStartWorkflow_Autonomous_IncludeCard pins the opt-out on the
+// run-autonomous path specifically: start_workflow routes an autonomous card
+// to buildRunAutonomous, whose fast path implements directly from the card
+// body, so this wiring is load-bearing in a way the non-autonomous
+// (create-plan) case above does not exercise.
+func TestStartWorkflow_Autonomous_IncludeCard(t *testing.T) {
+	env := setupMCP(t)
+	ctx := context.Background()
+
+	card := createBodyCard(t, env, "Autonomous body opt-out", "MARKER-BODY-CONTENT", nil)
+
+	autonomous := true
+	_, err := env.svc.PatchCard(ctx, "test-project", card.ID, service.PatchCardInput{
+		Autonomous: &autonomous,
+	})
+	require.NoError(t, err)
+
+	t.Run("omitted defaults to true - fast path sees the body", func(t *testing.T) {
+		result, err := callToolRaw(t, env, "start_workflow", map[string]any{
+			"card_id": card.ID,
+		})
+		require.False(t, resultIsError(result, err), "start_workflow should succeed: %s", errorText(result, err))
+
+		var out startWorkflowOutput
+		unmarshalResult(t, result, &out)
+		assert.Equal(t, "run-autonomous", out.SkillName)
+		assert.Contains(t, out.Content, "MARKER-BODY-CONTENT")
+		assert.NotContains(t, out.Content, "[Card body omitted (include_card=false)")
+	})
+
+	t.Run("false omits the body but keeps the metadata header", func(t *testing.T) {
+		result, err := callToolRaw(t, env, "start_workflow", map[string]any{
+			"card_id":      card.ID,
+			"include_card": false,
+		})
+		require.False(t, resultIsError(result, err), "start_workflow should succeed: %s", errorText(result, err))
+
+		var out startWorkflowOutput
+		unmarshalResult(t, result, &out)
+		assert.Equal(t, "run-autonomous", out.SkillName)
+		assert.NotContains(t, out.Content, "MARKER-BODY-CONTENT")
+		assert.Contains(t, out.Content, "## Card: "+card.ID, "metadata header must remain")
+		assert.Contains(t, out.Content,
+			fmt.Sprintf("[Card body omitted (include_card=false). Run get_card(card_id='%s') to read it.]", card.ID))
+	})
 }
 
 // TestStartReview_IncludeCard pins the same opt-out on start_review.

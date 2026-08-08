@@ -128,6 +128,7 @@ func TestBuildCardSkill_IncludeCardBody(t *testing.T) {
 		assert.NotContains(t, out, "parent plan step",
 			"parent brief must drop even allow-listed sections when the body is opted out")
 		assert.Contains(t, out, parent.ID, "parent brief header must remain")
+		assert.Contains(t, out, sub.ID, "sub-card's own metadata header must remain")
 		assert.Contains(t, out, "[Card body omitted (include_card=false)")
 	})
 
