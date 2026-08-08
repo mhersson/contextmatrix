@@ -19,8 +19,10 @@ revise cycle is cheaper than a regression in main.
 `claim_card(card_id, agent_id)` is idempotent - call it to re-affirm. Reclaim if
 the heartbeat timed out.
 
-Review the parent card body, all subtasks, and dependencies from the context
-above. Call `get_task_context` only if you need the latest state.
+The context above contains the parent card's description, its `## Plan`, and
+any prior `## Review Findings` rounds, plus subtask summaries (titles and
+states, no bodies). A bracketed note names any omitted body sections - call
+`get_card` for those, `get_task_context` for the latest full state.
 
 ## Step 2: Pass 1 - Spec compliance and test gate
 
