@@ -679,12 +679,16 @@ body is what persists in git history.
 
 ## Heartbeat discipline
 
-Sub-agents **must** call `heartbeat` proactively after every significant unit of
-work, before moving to the next step. The timeout checker (default 30min) will
-mark a card `stalled` if heartbeat lapses. This is explicitly called out in
-`execute-task.md` - it is not optional.
+Any owner-attributed card mutation - `update_card`, `add_log`,
+`transition_card`, `report_usage` - refreshes `last_heartbeat` as part of the
+same write, at no extra cost: it piggybacks on a persist and commit the
+mutation is already doing. An agent making steady progress on a card never
+needs to call `heartbeat` explicitly. The timeout checker (default 30min)
+marks a card `stalled` only when neither a mutation nor an explicit heartbeat
+has landed within the window.
 
-**Idle waits are the most common cause of stalled cards.** Any agent that holds
+**Idle waits are the most common cause of stalled cards** - a wait produces no
+mutation, so it earns no free heartbeat. Any agent that holds
 an active claim and waits for a sub-agent to complete must call `heartbeat`
 every 5 minutes during that wait. This rule is enforced in the workflow preamble
 injected into every skill prompt, and is explicitly called out in each skill

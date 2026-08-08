@@ -413,6 +413,146 @@ func TestForceReleaseCard_NonHumanCaller(t *testing.T) {
 	assert.Equal(t, "agent-1", got.AssignedAgent, "claim must survive a rejected force-release")
 }
 
+// claimCardFixture creates and claims a card, then advances the fake clock so
+// any subsequent mutation's timestamp is distinguishable from the claim-time
+// heartbeat. Returns the card and the claim-time heartbeat (T0).
+func claimCardFixture(t *testing.T, svc *CardService, fake *clock.FakeClock, agent string) (*board.Card, time.Time) {
+	t.Helper()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Heartbeat Fixture", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, agent)
+	require.NoError(t, err)
+
+	t0 := fake.Now()
+	fake.Advance(time.Hour)
+
+	return card, t0
+}
+
+// TestMutationsRefreshHeartbeat pins the mutation-as-heartbeat guarantee: any
+// owner-attributed write to a claimed card refreshes LastHeartbeat, so an
+// agent actively mutating a card is never stalled purely for lack of an
+// explicit heartbeat call. System commits (empty commit agent) and edits by
+// someone other than the card's owner must never bump it - a bump on those
+// paths would keep a dead agent's claim alive or let a bystander edit extend
+// it.
+func TestMutationsRefreshHeartbeat(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("owner PatchCard bumps", func(t *testing.T) {
+		svc, fake, cleanup := newStalledTestService(t)
+		defer cleanup()
+
+		card, t0 := claimCardFixture(t, svc, fake, "owner-agent")
+
+		title := "Patched by owner"
+		patched, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+			AgentID: "owner-agent",
+			Title:   &title,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, patched.LastHeartbeat)
+		assert.Equal(t, fake.Now(), *patched.LastHeartbeat)
+		assert.True(t, patched.LastHeartbeat.After(t0))
+	})
+
+	t.Run("mismatched commitAgentID does not bump", func(t *testing.T) {
+		svc, fake, cleanup := newStalledTestService(t)
+		defer cleanup()
+
+		card, t0 := claimCardFixture(t, svc, fake, "owner-agent")
+
+		// PatchCard/AddLogEntry/ReportUsage each reject a caller whose agent ID
+		// does not match AssignedAgent before any mutation is attempted, so a
+		// real non-owner call never reaches the heartbeat-stamping site. This
+		// exercises applyCardMutation's own guard directly (same package) as
+		// defense in depth for that invariant.
+		noop := func(c *board.Card, _ *board.ProjectConfig) error {
+			c.Title = "mutated on behalf of a different agent"
+
+			return nil
+		}
+
+		mutated, err := svc.applyCardMutation(ctx, "test-project", card.ID, noop, mutationOpts{
+			commitAgentID: "someone-else",
+			commitAction:  "updated",
+		})
+		require.NoError(t, err)
+		require.NotNil(t, mutated.LastHeartbeat)
+		assert.Equal(t, t0, *mutated.LastHeartbeat, "a commitAgentID that doesn't match AssignedAgent must not bump")
+	})
+
+	t.Run("owner AddLogEntry bumps", func(t *testing.T) {
+		svc, fake, cleanup := newStalledTestService(t)
+		defer cleanup()
+
+		card, t0 := claimCardFixture(t, svc, fake, "owner-agent")
+
+		updated, err := svc.AddLogEntry(ctx, "test-project", card.ID, board.ActivityEntry{
+			Agent:  "owner-agent",
+			Action: "status_update",
+		})
+		require.NoError(t, err)
+		require.NotNil(t, updated.LastHeartbeat)
+		assert.Equal(t, fake.Now(), *updated.LastHeartbeat)
+		assert.True(t, updated.LastHeartbeat.After(t0))
+	})
+
+	t.Run("owner ReportUsage bumps", func(t *testing.T) {
+		svc, fake, cleanup := newStalledTestService(t)
+		defer cleanup()
+
+		card, t0 := claimCardFixture(t, svc, fake, "owner-agent")
+
+		updated, err := svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+			AgentID:      "owner-agent",
+			PromptTokens: 10,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, updated.LastHeartbeat)
+		assert.Equal(t, fake.Now(), *updated.LastHeartbeat)
+		assert.True(t, updated.LastHeartbeat.After(t0))
+	})
+
+	t.Run("system mutation does not bump", func(t *testing.T) {
+		svc, fake, cleanup := newStalledTestService(t)
+		defer cleanup()
+
+		card, t0 := claimCardFixture(t, svc, fake, "owner-agent")
+
+		updated, err := svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
+			Title: "System edit", Type: card.Type, State: card.State, Priority: card.Priority,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, updated.LastHeartbeat)
+		assert.Equal(t, t0, *updated.LastHeartbeat, "a system commit (no commit agent) must not extend a claim")
+	})
+
+	t.Run("unclaimed card stays nil", func(t *testing.T) {
+		svc, _, cleanup := newStalledTestService(t)
+		defer cleanup()
+
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title: "Unclaimed", Type: "task", Priority: "medium",
+		})
+		require.NoError(t, err)
+
+		title := "Edited"
+		patched, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+			AgentID: "some-agent",
+			Title:   &title,
+		})
+		require.NoError(t, err)
+		assert.Nil(t, patched.LastHeartbeat)
+	})
+}
+
 func TestForceReleaseCard_TerminalStateStrayClaim(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
 	defer cleanup()

@@ -251,6 +251,15 @@ func (s *CardService) ReportUsage(ctx context.Context, project, id string, input
 
 	card.Updated = s.clk.Now()
 
+	// See applyCardMutation: an owner-attributed usage report is proof of
+	// liveness and refreshes the claim heartbeat on the same write. The
+	// ownership check above already passed, so card.AssignedAgent != ""
+	// here means it equals input.AgentID.
+	if card.AssignedAgent != "" {
+		now := card.Updated
+		card.LastHeartbeat = &now
+	}
+
 	if err := s.store.UpdateCard(ctx, project, card); err != nil {
 		return nil, fmt.Errorf("update card: %w", err)
 	}

@@ -1293,6 +1293,13 @@ func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry
 
 	card.Updated = s.clk.Now()
 
+	// See applyCardMutation: an owner-attributed log entry is proof of
+	// liveness and refreshes the claim heartbeat on the same write.
+	if entry.Agent != "" && card.AssignedAgent == entry.Agent {
+		now := card.Updated
+		card.LastHeartbeat = &now
+	}
+
 	if err := s.store.UpdateCard(ctx, project, card); err != nil {
 		s.writeMu.Unlock()
 
@@ -1447,6 +1454,18 @@ func (s *CardService) applyCardMutation(
 
 	stateChanged := card.State != oldState
 	card.Updated = s.clk.Now()
+
+	// A mutation attributed to the card's own owner is proof of liveness,
+	// same as an explicit heartbeat call - piggyback on the write already
+	// happening here instead of requiring a separate call. commitAgentID is
+	// empty for system commits (e.g. the PUT/UpdateCard path, which carries
+	// no agent attribution), and those must never bump: extending a claim
+	// nobody is actively renewing would mask a dead agent past the stall
+	// timeout.
+	if opts.commitAgentID != "" && card.AssignedAgent == opts.commitAgentID {
+		now := card.Updated
+		card.LastHeartbeat = &now
+	}
 
 	// Record the transition so the dashboard sparkline reconstruction has
 	// an authoritative per-card history (the only structured trail of state
