@@ -1375,6 +1375,26 @@ re-priced from the current rates (stale prices are corrected); buckets with
 fill-missing-only - cards with non-zero tokens but $0 cost get a cost; cards
 with an existing cost are not modified.
 
+Token counts themselves are always caller-reported - ContextMatrix never
+measures tokens on its own, in any auth mode. `report_usage` accepts an
+optional `source` field (`"self"`, the default, or `"collector"`) that marks
+where the counts on a bucket came from: `"collector"` means a trusted
+collector read the numbers off real usage frames rather than an agent
+estimating its own consumption. This is recorded as the bucket's
+`counts_source` and, like `cost_source`, is sticky - once a bucket has
+received a collector-sourced report it stays `"collector"` even if a later
+report to the same bucket omits `source`. `counts_source` and `cost_source`
+are independent: a bucket can have collector-measured tokens priced from the
+local rate table, or a self-estimated token count paired with a
+provider-reported actual cost.
+
+`report_usage` also accepts `on_behalf_of`, which overrides the bucket's
+`agent` key while `agent_id` still has to satisfy the claim-ownership check
+(`agent_id == assigned_agent`). This lets a caller that holds the claim - an
+orchestrator reporting a sub-agent's consumption, for example - attribute
+usage to the sub-agent's own identity instead of merging it into the caller's
+bucket.
+
 ```json
 { "default_model": "claude-sonnet-4-6" }
 ```

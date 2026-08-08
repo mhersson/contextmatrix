@@ -165,6 +165,13 @@ For ALL board writes (update_card, add_log, report_usage, heartbeat),
 pass agent_id=<orchestrator_agent_id> - the server enforces
 agent_id == AssignedAgent. Do NOT call claim_card, release_card, or
 transition_card.
+
+For `report_usage` specifically: also pass
+`on_behalf_of=<a short stable label for yourself, e.g. "plan-draft" or
+"debug-investigator">` so your usage is attributed to you instead of being
+merged into the orchestrator's bucket. Set `model` to the model that
+actually served your calls (from your system context or usage frames) -
+never derive it from the orchestrator's or your own agent name.
 ```
 
 Spawn a sub-agent via the **`Agent`** tool with:

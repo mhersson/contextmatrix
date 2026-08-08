@@ -366,6 +366,136 @@ func TestReportUsageBreakdownActualUnknownModel(t *testing.T) {
 	assert.InDelta(t, 1.23, got.TokenUsage.EstimatedCostUSD, 1e-9)
 }
 
+// TestReportUsageOnBehalfOf verifies that OnBehalfOf overrides the bucket
+// identity while authorization stays keyed on AgentID: the claiming agent
+// (e.g. an orchestrator) can attribute usage to a different identity (e.g. a
+// sub-agent reached through the skills route) without the claim check
+// rejecting the call, and an empty OnBehalfOf keeps the existing
+// AgentID-keyed behavior.
+func TestReportUsageOnBehalfOf(t *testing.T) {
+	svc, _, cleanup := setupTestWithCosts(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "On-behalf-of test",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "orchestrator-1")
+	require.NoError(t, err)
+
+	// Claiming agent reports on behalf of a sub-agent: ownership check passes
+	// on AgentID (orchestrator-1 holds the claim), bucket keyed on OnBehalfOf.
+	got, err := svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID:          "orchestrator-1",
+		OnBehalfOf:       "exec-114",
+		Model:            "claude-sonnet-4-6",
+		PromptTokens:     100,
+		CompletionTokens: 50,
+	})
+	require.NoError(t, err)
+
+	require.Len(t, got.UsageBreakdown, 1)
+	assert.Equal(t, "exec-114", got.UsageBreakdown[0].Agent,
+		"bucket must be keyed on OnBehalfOf, not the reporting AgentID")
+
+	// Same claiming agent, no OnBehalfOf: falls back to the existing
+	// AgentID-keyed bucket, distinct from the sub-agent bucket above.
+	got, err = svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID:          "orchestrator-1",
+		Model:            "claude-sonnet-4-6",
+		PromptTokens:     10,
+		CompletionTokens: 5,
+	})
+	require.NoError(t, err)
+
+	require.Len(t, got.UsageBreakdown, 2, "on-behalf-of and self buckets must stay separate")
+
+	byAgent := make(map[string]board.UsageBucket, len(got.UsageBreakdown))
+	for _, b := range got.UsageBreakdown {
+		byAgent[b.Agent] = b
+	}
+
+	assert.Contains(t, byAgent, "exec-114")
+	assert.Contains(t, byAgent, "orchestrator-1")
+}
+
+// TestReportUsageCountsSourceSticky verifies that Source "collector" marks the
+// bucket's CountsSource and that a later source-less report to the same
+// bucket does not clear it - mirroring the sticky "actual" cost_source flag,
+// so a collector-measured bucket is never silently downgraded to
+// self-reported by a subsequent estimate.
+func TestReportUsageCountsSourceSticky(t *testing.T) {
+	svc, _, cleanup := setupTestWithCosts(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Counts source sticky test",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	got, err := svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID:          "collector-agent",
+		Model:            "claude-sonnet-4-6",
+		PromptTokens:     100,
+		CompletionTokens: 50,
+		Source:           "collector",
+	})
+	require.NoError(t, err)
+	require.Len(t, got.UsageBreakdown, 1)
+	assert.Equal(t, "collector", got.UsageBreakdown[0].CountsSource)
+
+	// Source-less report to the same bucket must not clear the flag.
+	got, err = svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID:          "collector-agent",
+		Model:            "claude-sonnet-4-6",
+		PromptTokens:     10,
+		CompletionTokens: 5,
+	})
+	require.NoError(t, err)
+	require.Len(t, got.UsageBreakdown, 1)
+	assert.Equal(t, "collector", got.UsageBreakdown[0].CountsSource,
+		"bucket must stay collector-sourced once any collector report has landed")
+	assert.Equal(t, int64(110), got.UsageBreakdown[0].PromptTokens)
+}
+
+// TestReportUsageSourceDefaultsToSelfReported verifies that an empty Source
+// (the contextmatrix-agent's existing calling pattern) leaves CountsSource
+// empty rather than defaulting it to some non-empty "self" marker - byte-
+// identical to pre-existing behavior for callers that never pass Source.
+func TestReportUsageSourceDefaultsToSelfReported(t *testing.T) {
+	svc, _, cleanup := setupTestWithCosts(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Source default test",
+		Type:     "task",
+		Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	got, err := svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID:          "agent-plain",
+		Model:            "claude-sonnet-4-6",
+		PromptTokens:     100,
+		CompletionTokens: 50,
+	})
+	require.NoError(t, err)
+	require.Len(t, got.UsageBreakdown, 1)
+	assert.Empty(t, got.UsageBreakdown[0].CountsSource,
+		"empty source must not mark the bucket collector-sourced")
+}
+
 // TestReportUsageSeedsMigrationBucketForLegacyCost verifies that the first
 // bucketed report on a legacy card (cumulative cost, no buckets) seeds a
 // migration bucket carrying the pre-existing cumulative spend. This preserves

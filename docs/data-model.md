@@ -355,6 +355,7 @@ type UsageBucket struct {
     CacheCreationTokens int64   `yaml:"cache_creation_tokens,omitempty" json:"cache_creation_tokens,omitempty"`
     CostUSD             float64 `yaml:"cost_usd"                        json:"cost_usd"`
     CostSource          string  `yaml:"cost_source"                     json:"cost_source"`
+    CountsSource        string  `yaml:"counts_source,omitempty"         json:"counts_source,omitempty"`
 }
 ```
 
@@ -393,6 +394,22 @@ the local rate table. **Actual is authoritative and is never re-priced** -
 `RecalculateCosts` re-prices only `estimated` buckets from the current rate
 table and leaves `actual` buckets untouched. A bucket that has ever received an
 actual-cost report stays `actual`.
+
+Token counts are caller-reported in every mode - ContextMatrix never measures
+tokens itself. `counts_source` marks buckets whose counts came from a trusted
+collector reading real usage frames (`source: "collector"` on `report_usage`);
+empty means self-reported (an agent's own estimate, `source: "self"` or
+omitted). Like `cost_source`, it is sticky: once a bucket has received a
+collector-sourced report it stays `collector` even if a later report to the
+same bucket omits `source`.
+
+The bucket's `agent` key is `on_behalf_of` when the `report_usage` call passes
+it, else `agent_id`. This lets a caller that holds the card's claim (the value
+`agent_id` must match for the ownership check) attribute usage to a different
+identity - e.g. an orchestrator reporting a sub-agent's token consumption
+under the sub-agent's own name instead of merging it into the orchestrator's
+bucket. `on_behalf_of` never affects authorization, only which bucket the
+tokens land in.
 
 The cumulative `TokenUsage` (counters and `estimated_cost_usd`) is kept equal to
 the bucket sum for breakdown cards: each report increments both the matching

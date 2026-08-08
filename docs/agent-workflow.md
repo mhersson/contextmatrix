@@ -438,10 +438,13 @@ The flow:
   `agent_id` because `report_usage` and `add_log` enforce
   `agent_id == AssignedAgent` - specialists act on the synthesizer's behalf for
   board writes. Before returning, each specialist calls `report_usage` against
-  the parent card with its own token consumption and model identifier; this
-  is what makes the specialists' cost visible on the card. Specialists do not
-  claim, transition, or write findings to the card body - they return a
-  structured Markdown report with severity-tiered findings.
+  the parent card with its own token consumption and model identifier, and its
+  own `on_behalf_of` label (`specialist-correctness`, `specialist-design`,
+  `specialist-security`) so its usage lands in its own bucket instead of
+  merging into the synthesizer's; this is what makes the specialists' cost
+  visible on the card as three distinct rows. Specialists do not claim,
+  transition, or write findings to the card body - they return a structured
+  Markdown report with severity-tiered findings.
 - **Synthesis (synthesizer = orchestrator):** the orchestrator dedupes
   overlapping findings, applies the strictest-defensible severity, and decides
   the overall recommendation (any Critical → `revise`; Important without
@@ -831,12 +834,30 @@ token_costs:
 
 The `report_usage` call must pass `model` matching one of these keys. The model
 used depends on the orchestrator and phase - see the **Model Allocation**
-section below for the full breakdown. The `recalculate_costs` tool reprices
-from the current rate table: on cards with a usage breakdown every estimated
-bucket is re-priced (stale prices corrected) while actual provider-reported
-costs are never modified; on cards without a breakdown it only fills in
-costs for cards with non-zero tokens but zero stored cost and never overwrites
-an existing cost.
+section below for the full breakdown. `model` must be the model that actually
+served the calls, read fresh from system context or usage frames - never
+derived from the calling agent's name (an agent named
+`claude-opus-5-orchestrator` is not proof the calls were served by
+`claude-opus-5`; deriving the model that way prices the tokens against the
+wrong rate row). The `recalculate_costs` tool reprices from the current rate
+table: on cards with a usage breakdown every estimated bucket is re-priced
+(stale prices corrected) while actual provider-reported costs are never
+modified; on cards without a breakdown it only fills in costs for cards with
+non-zero tokens but zero stored cost and never overwrites an existing cost.
+
+Token counts are caller-reported in every mode - ContextMatrix never measures
+tokens itself. `report_usage`'s `source` field (`"self"` default,
+`"collector"`) records provenance as the bucket's sticky `counts_source`, the
+counts-side counterpart of `cost_source`: `counts_source` marks buckets whose
+counts came from a trusted collector reading real usage frames, `cost_source`
+marks buckets whose cost came from the provider rather than the rate table.
+
+`report_usage`'s `on_behalf_of` field overrides the bucket's `agent` key while
+`agent_id` still has to satisfy the claim check. Any skill step that calls
+`report_usage` using another identity's `agent_id` to satisfy that check (the
+plan-draft and systematic-debugging sub-agents, and review's specialists - see
+below) must pass its own `on_behalf_of` so its usage is attributed to itself
+rather than merged into the claim holder's bucket.
 
 ## Model Allocation
 

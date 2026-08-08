@@ -118,6 +118,10 @@ type UsageBucket struct {
 	CacheCreationTokens int64   `yaml:"cache_creation_tokens,omitempty" json:"cache_creation_tokens,omitempty"`
 	CostUSD             float64 `yaml:"cost_usd"                        json:"cost_usd"`
 	CostSource          string  `yaml:"cost_source"                     json:"cost_source"`
+	// CountsSource records whether the token counts came from a trusted
+	// collector reading real usage frames ("collector") or from the agent's own
+	// estimate (empty = self-reported). Sticky once "collector".
+	CountsSource string `yaml:"counts_source,omitempty" json:"counts_source,omitempty"`
 }
 
 var (

@@ -224,6 +224,41 @@ func TestGetCard_SectionsEmptyBodySkipsImageScan(t *testing.T) {
 	assert.Empty(t, got.Body)
 }
 
+// TestReportUsage_SourceValidation pins the MCP-boundary validation for the
+// report_usage source field: only "", "self", and "collector" are accepted,
+// and a bogus value is rejected before it ever reaches the service layer.
+// The valid-value subtests matter as much as the bogus one here: the MCP SDK
+// schema rejects any unrecognized JSON key outright, so "bogus" alone would
+// "pass" for the wrong reason (unknown field) even before source exists as a
+// real, validated input.
+func TestReportUsage_SourceValidation(t *testing.T) {
+	env := setupMCP(t)
+
+	for _, tc := range []struct {
+		name    string
+		source  string
+		wantErr bool
+	}{
+		{name: "self is accepted", source: "self", wantErr: false},
+		{name: "collector is accepted", source: "collector", wantErr: false},
+		{name: "bogus is rejected", source: "bogus", wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			card := createTestCard(t, env, "Source validation "+tc.name, "task", "medium")
+
+			result := callTool(t, env, "report_usage", map[string]any{
+				"project":           "test-project",
+				"card_id":           card.ID,
+				"agent_id":          "agent-1",
+				"prompt_tokens":     int64(100),
+				"completion_tokens": int64(50),
+				"source":            tc.source,
+			})
+			assert.Equal(t, tc.wantErr, result.IsError)
+		})
+	}
+}
+
 func TestGetCard_SectionsAndIncludeActivityLogCombined(t *testing.T) {
 	env := setupMCP(t)
 
