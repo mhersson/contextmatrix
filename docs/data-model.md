@@ -489,9 +489,11 @@ handler rejects one without the other before touching the service). They
 replace-or-append one `## <heading>` block in the card body without the
 caller resending the rest: if a section whose heading exactly matches
 `upsert_section_heading` (flush-left `## `, case-sensitive) already exists,
-its body is replaced in place; otherwise the section is appended. The call is
-idempotent - resubmitting the same heading and content is a no-op. Mutually
-exclusive with `body` in the same call (`ErrInvalidSectionPatch`); the
+its body is replaced in place; otherwise the section is appended.
+Resubmitting the same heading and content leaves the resulting body
+unchanged; the card's `updated` timestamp still advances and a commit is
+still recorded, since PatchCard commits unconditionally on every call.
+Mutually exclusive with `body` in the same call (`ErrInvalidSectionPatch`); the
 heading must be a single non-empty line with no leading `#`. The resulting
 body is checked against the same 512 KB `maxBodyLen` cap as a direct `body`
 write (`ErrFieldTooLong`). REST has no equivalent - section upsert is MCP-only,

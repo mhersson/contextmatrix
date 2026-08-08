@@ -369,6 +369,22 @@ func TestUpdateCard_UpsertSection(t *testing.T) {
 		require.True(t, resultIsError(result, err))
 		assert.Contains(t, errorText(result, err), "mutually exclusive")
 	})
+
+	t.Run("invalid heading is forwarded from the service", func(t *testing.T) {
+		env := setupMCP(t)
+
+		createTestCard(t, env, "Bad heading", "task", "low")
+
+		result, err := callToolRaw(t, env, "update_card", map[string]any{
+			"project":                "test-project",
+			"card_id":                "TEST-001",
+			"upsert_section_heading": "#Not a heading",
+			"upsert_section_content": "Looks good.",
+		})
+		require.True(t, resultIsError(result, err))
+		assert.Contains(t, errorText(result, err),
+			"upsert_section heading must be a non-empty single line without '#' prefix")
+	})
 }
 
 func TestUpdateCard_Phase(t *testing.T) {
