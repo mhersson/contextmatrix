@@ -725,6 +725,19 @@ context and are re-read on every subsequent model call, and card bodies grow
 during a run. Echoing the body from a heartbeat or a log append multiplies
 that cost for zero information gain.
 
+`get_card` itself carries two further opt-ins for trimming what it returns:
+`include_activity_log: false` drops the activity log (default `true` - the
+log is often the larger half of a long-lived card's payload), and
+`sections: ["Plan", ...]` returns only the named `## <heading>` body
+sections instead of the full body (heading names without `##`; the
+pseudo-entry `"intro"` includes the pre-heading text). Unlike the
+skill-injection filter below, a `sections` request that matches nothing
+returns an empty body rather than the full one - the caller asked for less
+and must get less. Image attachment runs against the filtered body, so an
+image referenced only by an omitted section is not attached. Full detail:
+[`docs/api-reference.md`](api-reference.md) under "`get_card` payload
+opt-ins".
+
 The same economics apply to skill delivery. `get_skill`, `start_review`, and
 `start_workflow` inject card context into the skill content; on the late-run
 surfaces the injected body is filtered to the sections the skill consumes -

@@ -2291,6 +2291,29 @@ sections exist in a body (early-run cards, custom templates, the unvetted
 placeholder), the full body passes through unchanged - the failure direction
 is over-injection, never omission.
 
+#### `get_card` payload opt-ins
+
+`get_card` accepts two independent caller opt-ins for trimming its response,
+on top of `include_images`:
+
+- `include_activity_log: false` drops `activity_log` from the response
+  (default `true`). The activity log is often the larger half of a
+  long-lived card's payload, and most callers only need it once.
+- `sections: ["Plan", ...]` returns only the named `## <heading>` body
+  sections instead of the full body. Heading names are passed without `##`;
+  the pseudo-entry `"intro"` includes the pre-heading text (the original
+  description), which is otherwise omitted. Matching uses the same
+  case-insensitive, round-number-tolerant rule as the skill-injection filter
+  below (`sectionMatches`), but the fallback direction is reversed: a
+  `sections` request that matches nothing returns `body: ""`, not the full
+  body. This is a caller-requested filter, not a safety fallback, so silently
+  over-injecting the full body would defeat the point of asking for less.
+  `get_card`'s image-attachment scan (below) runs against the
+  `sections`-filtered body, so an image referenced only by an omitted
+  section is not attached.
+
+These two opt-ins compose with each other and with `include_images`.
+
 ### `get_card` / `get_task_context` - inline image attachments
 
 Both tools scan the primary card body for markdown image refs of the form

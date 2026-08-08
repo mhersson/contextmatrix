@@ -110,6 +110,107 @@ func TestFilterBodySections(t *testing.T) {
 	}
 }
 
+func TestFilterBodySectionsExact(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		keep []string
+		want string
+	}{
+		{
+			name: "nil keep returns empty",
+			body: "Intro.\n\n## Plan\n\n- step\n",
+			keep: nil,
+			want: "",
+		},
+		{
+			name: "empty body returns empty",
+			body: "",
+			keep: []string{"## Plan"},
+			want: "",
+		},
+		{
+			name: "no keep entry matches any section returns empty",
+			body: "Intro.\n\n## Design\n\nd\n\n## Diagnosis\n\nr\n",
+			keep: []string{"## Plan", "## Review Findings"},
+			want: "",
+		},
+		{
+			name: "matching section returned without intro",
+			body: "Intro text.\n\n## Plan\n\n- step\n\n## Diagnosis\n\nRoot cause.\n",
+			keep: []string{"## Plan"},
+			want: "## Plan\n\n- step\n",
+		},
+		{
+			name: "matching section plus intro when requested",
+			body: "Intro text.\n\n## Plan\n\n- step\n\n## Diagnosis\n\nRoot cause.\n",
+			keep: []string{"intro", "## Plan"},
+			want: "Intro text.\n\n## Plan\n\n- step\n",
+		},
+		{
+			name: "intro alone returns only the pre-heading text",
+			body: "Intro text.\n\n## Plan\n\n- step\n",
+			keep: []string{"intro"},
+			want: "Intro text.\n",
+		},
+		{
+			name: "intro requested but no keep matches still returns intro",
+			body: "Intro text.\n\n## Plan\n\n- step\n",
+			keep: []string{"intro", "## Bogus"},
+			want: "Intro text.\n",
+		},
+		{
+			name: "intro is case-insensitive",
+			body: "Intro text.\n\n## Plan\n\n- step\n",
+			keep: []string{"Intro"},
+			want: "Intro text.\n",
+		},
+		{
+			name: "no H2 headings and intro requested returns full body",
+			body: "Just a description with no sections.\nSecond line.",
+			keep: []string{"intro"},
+			want: "Just a description with no sections.\nSecond line.",
+		},
+		{
+			name: "no H2 headings and intro not requested returns empty",
+			body: "Just a description with no sections.\nSecond line.",
+			keep: []string{"## Plan"},
+			want: "",
+		},
+		{
+			name: "multiple matched sections keep original order",
+			body: "Intro.\n\n## Diagnosis\n\nd\n\n## Plan\n\np\n\n## Notes\n\nn\n",
+			keep: []string{"## Diagnosis", "## Plan"},
+			want: "## Diagnosis\n\nd\n\n## Plan\n\np\n",
+		},
+		{
+			name: "round-numbered variants all match",
+			body: "Intro.\n\n## Review Findings\n\nr1\n\n## Review Findings (Round 2)\n\nr2\n\n## Diagnosis\n\nd\n",
+			keep: []string{"## Review Findings"},
+			want: "## Review Findings\n\nr1\n\n## Review Findings (Round 2)\n\nr2\n",
+		},
+		{
+			name: "H2 inside fenced code block is not a boundary",
+			body: "## Plan\n\nTemplate:\n\n```markdown\n## Notes\n\ninside fence\n```\n\nReal content.\n\n## Notes\n\nreal notes\n",
+			keep: []string{"## Plan"},
+			want: "## Plan\n\nTemplate:\n\n```markdown\n## Notes\n\ninside fence\n```\n\nReal content.\n",
+		},
+		{
+			name: "fenced heading is not selectable even when its title is requested",
+			body: "## Plan\n\n```markdown\n## Notes\n\ninside fence\n```\n",
+			keep: []string{"## Notes"},
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := filterBodySectionsExact(tt.body, tt.keep)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestOmittedSectionsNote(t *testing.T) {
 	t.Run("empty omitted list renders nothing", func(t *testing.T) {
 		assert.Empty(t, omittedSectionsNote("TEST-001", nil))
