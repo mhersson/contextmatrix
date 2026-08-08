@@ -908,7 +908,7 @@ func validatePatchFieldLimits(input PatchCardInput) error {
 		if strings.TrimSpace(input.UpsertSection.Heading) == "" ||
 			strings.ContainsAny(input.UpsertSection.Heading, "\r\n") ||
 			strings.HasPrefix(input.UpsertSection.Heading, "#") {
-			return fmt.Errorf("upsert_section heading must be a single line without '#' prefix: %w", ErrInvalidSectionPatch)
+			return fmt.Errorf("upsert_section heading must be a non-empty single line without '#' prefix: %w", ErrInvalidSectionPatch)
 		}
 	}
 

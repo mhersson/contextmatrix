@@ -781,6 +781,29 @@ func TestPatchCardUpsertSection(t *testing.T) {
 			UpsertSection: &SectionPatch{Heading: "Plan\nInjected", Content: "new"},
 		})
 		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrInvalidSectionPatch)
+	})
+
+	t.Run("empty or whitespace-only heading is rejected", func(t *testing.T) {
+		svc, card := newUpsertTestCard(t, initialBody)
+
+		_, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+			AgentID:       "agent-1",
+			UpsertSection: &SectionPatch{Heading: "   ", Content: "new"},
+		})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrInvalidSectionPatch)
+	})
+
+	t.Run("'#'-prefixed heading is rejected", func(t *testing.T) {
+		svc, card := newUpsertTestCard(t, initialBody)
+
+		_, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+			AgentID:       "agent-1",
+			UpsertSection: &SectionPatch{Heading: "## Plan", Content: "new"},
+		})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrInvalidSectionPatch)
 	})
 
 	t.Run("combined length over the body cap is rejected", func(t *testing.T) {
