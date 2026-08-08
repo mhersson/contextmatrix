@@ -335,9 +335,13 @@ the orchestrator's working tree on the feature branch.
    b. If `completed` is true: call `heartbeat` and `report_usage`, exit the
       loop, proceed to Phase 6.
    c. If `stalled` lists cards: recover each per the respawn rules below
-      (`check_agent_health` gives per-card detail), call `report_usage`,
-      repeat from (a).
-   d. Otherwise (`timed_out`): call `report_usage`, repeat from (a).
+      (`check_agent_health` gives per-card detail), then run the same
+      `get_ready_tasks` sweep as (d). Call `report_usage`, repeat from (a).
+   d. Otherwise (`timed_out`): call `get_ready_tasks` and spawn any newly
+      ready tasks per the Spawn mode rules in step 3 - this is what picks up
+      subtasks a sibling's completion just unblocked (`depends_on` chains); a
+      chain step's latency is bounded by the await window, same order as the
+      old 10-minute poll. Call `report_usage`, repeat from (a).
 
    ### Respawning a dead agent
 
