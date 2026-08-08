@@ -184,6 +184,17 @@ func TestFilterBodySectionsExact(t *testing.T) {
 			want: "## Diagnosis\n\nd\n\n## Plan\n\np\n",
 		},
 		{
+			// keep is deliberately reversed relative to body order (Plan is
+			// requested first but appears second in body) - output must
+			// still follow body order, not keep order. The case above can't
+			// distinguish this: its keep order happens to coincide with
+			// body order.
+			name: "output follows body order even when keep is reversed",
+			body: "Intro.\n\n## Diagnosis\n\nd\n\n## Plan\n\np\n\n## Notes\n\nn\n",
+			keep: []string{"## Plan", "## Diagnosis"},
+			want: "## Diagnosis\n\nd\n\n## Plan\n\np\n",
+		},
+		{
 			name: "round-numbered variants all match",
 			body: "Intro.\n\n## Review Findings\n\nr1\n\n## Review Findings (Round 2)\n\nr2\n\n## Diagnosis\n\nd\n",
 			keep: []string{"## Review Findings"},

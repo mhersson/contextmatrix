@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -105,6 +106,15 @@ func TestGetCard_Sections(t *testing.T) {
 		var got board.Card
 		unmarshalResult(t, result, &got)
 		assert.Empty(t, got.Body)
+
+		// board.Card.Body has no `omitempty` (deliberately, per the strict
+		// filter's contract): pin that a sections no-match serializes body as
+		// an explicit "", not a dropped key. A stray omitempty added later
+		// would make this indistinguishable from a card with no body at all.
+		require.NotEmpty(t, result.Content)
+		text, ok := result.Content[0].(*mcp.TextContent)
+		require.True(t, ok)
+		assert.Contains(t, text.Text, `"body":""`, "body must serialize as an explicit empty string, not be omitted")
 	})
 
 	t.Run("omitted defaults to the full body", func(t *testing.T) {
@@ -151,6 +161,39 @@ func TestGetCard_SectionsImageScanOnTrimmedBody(t *testing.T) {
 
 	_, isImg := result.Content[1].(*mcp.ImageContent)
 	assert.True(t, isImg)
+}
+
+// TestGetCard_SectionsWithIncludeImagesFalse combines a sections filter with
+// include_images:false: no images attach (the caller opted out explicitly),
+// and the body is still trimmed to the requested section - the two opt-ins
+// are independent knobs, not mutually exclusive.
+func TestGetCard_SectionsWithIncludeImagesFalse(t *testing.T) {
+	env := setupMCPImages(t)
+
+	cardID, ids := createImageCard(t, env)
+	require.Len(t, ids, 2)
+
+	result, err := env.session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "get_card",
+		Arguments: map[string]any{
+			"project":        "test-project",
+			"card_id":        cardID,
+			"sections":       []string{"Screenshot one"},
+			"include_images": false,
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+
+	// Text-only: no ImageContent blocks even though "Screenshot one" itself
+	// references an image, because include_images:false short-circuits
+	// attachImagesToResult before it scans the (already trimmed) body.
+	require.Len(t, result.Content, 1)
+
+	var got board.Card
+	unmarshalResult(t, result, &got)
+	assert.Equal(t, fmt.Sprintf("## Screenshot one\n\n![one](/api/images/%s)\n", ids[0]), got.Body)
+	assert.NotContains(t, got.Body, "Screenshot two")
 }
 
 // TestGetCard_SectionsEmptyBodySkipsImageScan is the degenerate case: a
