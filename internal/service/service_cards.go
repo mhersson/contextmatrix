@@ -633,7 +633,7 @@ func (s *CardService) applyDedupGuard(
 
 	for _, sub := range existing {
 		if strings.ToLower(strings.TrimSpace(sub.Title)) == titleNorm &&
-			sub.State != board.StateDone && sub.State != board.StateNotPlanned {
+			!board.IsTerminalState(sub.State) {
 			ctxlog.Logger(ctx).Info("duplicate subtask detected, returning existing card",
 				"existing_id", sub.ID,
 				"parent_id", parentID,

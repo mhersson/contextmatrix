@@ -18,14 +18,15 @@ import (
 
 	"github.com/mhersson/contextmatrix/internal/chat"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
+	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/images"
 	"github.com/mhersson/contextmatrix/internal/mcp/mcpcontext"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
 // ServerConfig collects the dependencies for NewServer. ChatManager,
-// ImageStore, Blacklist, and Outcomes are optional and default to nil; when
-// nil, the corresponding tool surfaces are not registered (or, for image
+// ImageStore, Blacklist, Outcomes, and Bus are optional and default to nil;
+// when nil, the corresponding tool surfaces are not registered (or, for image
 // attachments, get_card / get_task_context return text-only results).
 type ServerConfig struct {
 	Service           *service.CardService
@@ -34,6 +35,13 @@ type ServerConfig struct {
 	ImageStore        images.Store
 	Blacklist         BlacklistWriter
 	Outcomes          OutcomeWriter
+	// Bus drives the blocking await_subtasks wait. Without it there is no way
+	// to learn about a transition short of polling, so the tool is not
+	// registered at all rather than silently degrading to a poll.
+	Bus *events.Bus
+	// AwaitMax caps how long a single await_subtasks call may block. Zero
+	// takes the built-in default.
+	AwaitMax time.Duration
 }
 
 // NewServer creates a configured MCP server with all tools and prompts registered.
@@ -53,6 +61,8 @@ func NewServer(cfg ServerConfig) *mcp.Server {
 		ImageStore:        cfg.ImageStore,
 		Blacklist:         cfg.Blacklist,
 		Outcomes:          cfg.Outcomes,
+		Bus:               cfg.Bus,
+		AwaitMax:          cfg.AwaitMax,
 	})
 	registerPrompts(server, cfg.Service, cfg.WorkflowSkillsDir)
 

@@ -201,3 +201,20 @@ func TestFake_NewTickerPanicsOnNonPositive(t *testing.T) {
 	assert.Panics(t, func() { f.NewTicker(0) })
 	assert.Panics(t, func() { f.NewTicker(-1) })
 }
+
+func TestFake_ActiveTickersTracksLifecycle(t *testing.T) {
+	t.Parallel()
+
+	f := clock.Fake(epoch)
+	assert.Equal(t, 0, f.ActiveTickers())
+
+	first := f.NewTicker(time.Second)
+	second := f.NewTicker(time.Minute)
+	assert.Equal(t, 2, f.ActiveTickers())
+
+	first.Stop()
+	assert.Equal(t, 1, f.ActiveTickers())
+
+	second.Stop()
+	assert.Equal(t, 0, f.ActiveTickers())
+}

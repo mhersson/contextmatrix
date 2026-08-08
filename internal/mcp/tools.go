@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/images"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
@@ -22,6 +24,8 @@ type registerToolsConfig struct {
 	ImageStore        images.Store
 	Blacklist         BlacklistWriter
 	Outcomes          OutcomeWriter
+	Bus               *events.Bus
+	AwaitMax          time.Duration
 }
 
 // registerTools adds all MCP tools to the server.
@@ -54,6 +58,10 @@ func registerTools(cfg registerToolsConfig) {
 	registerReportPush(server, svc)
 	registerIncrementReviewAttempts(server, svc)
 	registerPromoteToAutonomous(server, svc)
+
+	if cfg.Bus != nil {
+		registerAwaitSubtasks(server, svc, cfg.Bus, cfg.AwaitMax)
+	}
 
 	if cfg.Blacklist != nil {
 		registerReportIncapableModel(server, cfg.Blacklist)

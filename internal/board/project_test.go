@@ -793,3 +793,28 @@ func TestProjectConfig_DefaultSkillsNilOmitted(t *testing.T) {
 	assert.NotContains(t, string(data), "default_skills",
 		"nil DefaultSkills should not appear in the YAML")
 }
+
+// TestIsTerminalState pins the shared terminal-state predicate. Stalled is the
+// one that matters: it looks final but is a live card awaiting a reclaim, and
+// callers waiting for work to finish must not treat it as done.
+func TestIsTerminalState(t *testing.T) {
+	tests := []struct {
+		state string
+		want  bool
+	}{
+		{StateDone, true},
+		{StateNotPlanned, true},
+		{StateStalled, false},
+		{StateTodo, false},
+		{StateInProgress, false},
+		{StateReview, false},
+		{"blocked", false},
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.state, func(t *testing.T) {
+			assert.Equal(t, tt.want, IsTerminalState(tt.state))
+		})
+	}
+}

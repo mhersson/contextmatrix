@@ -688,9 +688,10 @@ marks a card `stalled` only when neither a mutation nor an explicit heartbeat
 has landed within the window.
 
 **Idle waits are the most common cause of stalled cards** - a wait produces no
-mutation, so it earns no free heartbeat. Any agent that holds
-an active claim and waits for a sub-agent to complete must call `heartbeat`
-every 5 minutes during that wait. This rule is enforced in the workflow preamble
+mutation, so it earns no free heartbeat. Waits on sub-agents belong in
+`await_subtasks` (below), which refreshes the claim on the parent for the
+caller. Any agent that holds an active claim and waits some other way must call
+`heartbeat` every 5 minutes during that wait. This rule is enforced in the workflow preamble
 injected into every skill prompt, and is explicitly called out in each skill
 that has sub-agent-facing idle waits (`execute-task.md`). User-facing waits
 follow an edge-triggered pattern instead, because an orchestrator blocked on
@@ -711,6 +712,39 @@ all user interactions. `plan-draft` follows the same design - it writes the
 plan to the card, returns the `PLAN_DRAFTED` marker, and never idles for user
 input; revision feedback arrives via a fresh respawn. No sub-agent in the
 current workflow idles for user input.
+
+## Waiting for subtasks
+
+`await_subtasks(project, parent_id, agent_id?, timeout_seconds?)` blocks
+server-side until every subtask of `parent_id` is terminal (`done` or
+`not_planned`), any subtask goes `stalled`, or the window expires. One call
+replaces a sleep-and-check loop, whose real cost is not the sleep but the
+orchestrator context re-read that every wake-and-check cycle drags along.
+
+It always returns `{parent_id, completed, timed_out, counts, stalled,
+waited_seconds}`, so a timeout is a checkpoint rather than an error: on
+`timed_out: true`, call it again.
+
+- **Early stall return** - one `stalled` subtask ends the wait immediately with
+  `completed: false` and the offending IDs in `stalled`, so the orchestrator
+  respawns it instead of sitting out the rest of the window. `stalled` is not
+  terminal; `done` and `not_planned` are.
+- **Claim refresh** - pass your own `agent_id` and the wait refreshes that
+  agent's claim on the parent every 4 minutes, so the card you hold cannot
+  stall while you block on it. An unclaimed parent, or one claimed by somebody
+  else, is accepted silently: `agent_id` here identifies whose heartbeat to
+  refresh, and is not a permission check.
+- **Bounded window** - the server caps a single call at `await_max` (default
+  8m); a larger `timeout_seconds` is clamped to it. Callers cannot raise the
+  cap, only lower it.
+
+The wait is event-driven: it subscribes to the board event bus before its first
+check, so a transition landing between the check and the wait is still seen. A
+30s re-list backs that up, since the bus drops events for subscribers that fall
+behind rather than blocking publishers.
+
+`get_subtask_summary` remains the right call for a one-shot count - it is the
+same data without the block.
 
 ## Tool response shapes
 
