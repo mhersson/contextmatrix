@@ -75,7 +75,7 @@ implementation. The chat lifecycle (`/chat/start`, `/chat/end`, `/message`,
 plus the `/logs` SSE bridge) is driven by `internal/chat.backendClient`. Card
 progress and usage reporting do **not** flow through these seams - the
 in-container worker reports directly through CM's MCP tools (`complete_task`,
-`report_usage`, `add_log`, `await_subtasks`).
+`report_usage`, `add_log`).
 
 `await_subtasks` is the one MCP call that deliberately holds its POST open for
 minutes while an orchestrator waits on its subtasks. CM clears the response

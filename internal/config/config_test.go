@@ -440,6 +440,9 @@ func TestValidate_InvalidAwaitMax(t *testing.T) {
 		{name: "garbage string", timeout: "notaduration"},
 		{name: "missing unit", timeout: "30"},
 		{name: "empty string", timeout: ""},
+		// Non-positive parses fine but would make every wait return instantly.
+		{name: "zero", timeout: "0s"},
+		{name: "negative", timeout: "-1m"},
 	}
 
 	for _, tt := range tests {

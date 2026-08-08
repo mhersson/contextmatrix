@@ -541,8 +541,16 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid heartbeat_timeout %q: %w", c.HeartbeatTimeout, err)
 	}
 
-	if _, err := time.ParseDuration(c.AwaitMax); err != nil {
+	awaitMax, err := time.ParseDuration(c.AwaitMax)
+	if err != nil {
 		return fmt.Errorf("invalid await_max %q: %w", c.AwaitMax, err)
+	}
+
+	// Zero or negative would make every blocking wait return instantly, turning
+	// await_subtasks back into the poll it replaces. There is no "disabled"
+	// semantics to express here.
+	if awaitMax <= 0 {
+		return fmt.Errorf("invalid await_max %q: must be positive", c.AwaitMax)
 	}
 
 	if c.StalledCheckInterval == "" {

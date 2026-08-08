@@ -37,6 +37,7 @@ func awaitProjectConfig() *board.ProjectConfig {
 type awaitEnv struct {
 	session *mcp.ClientSession
 	svc     *service.CardService
+	store   storage.Store
 	bus     *events.Bus
 	clk     *clock.FakeClock
 	start   time.Time
@@ -83,7 +84,7 @@ func setupAwaitMCP(t *testing.T, awaitMax time.Duration) *awaitEnv {
 	session, err := client.Connect(ctx, clientTransport, nil)
 	require.NoError(t, err)
 
-	env := &awaitEnv{session: session, svc: svc, bus: bus, clk: fake, start: start}
+	env := &awaitEnv{session: session, svc: svc, store: store, bus: bus, clk: fake, start: start}
 
 	t.Cleanup(func() {
 		// A cancelled CallTool returns to the client while the handler is still
@@ -343,9 +344,11 @@ func TestAwaitSubtasks_TimesOut(t *testing.T) {
 			wantWaited:     120,
 		},
 		{
-			// Also exercises the heartbeat tick against an unclaimed parent:
-			// the 4m refresh fires twice inside this window and must be
-			// swallowed rather than failing the wait.
+			// The 4m heartbeat ticker also fires inside this window (once - a
+			// single Advance coalesces a ticker to one tick) against an
+			// unclaimed parent. That only shows the wait survives the sentinel
+			// error; TestAwaitSubtasks_NonOwnerClaimUntouched is what actually
+			// pins the swallow.
 			name:           "caller timeout capped by await_max",
 			awaitMax:       8 * time.Minute,
 			timeoutSeconds: 3600,
@@ -430,6 +433,104 @@ func TestAwaitSubtasks_RefreshesCallerClaim(t *testing.T) {
 
 	cancel()
 	<-ch
+}
+
+// TestAwaitSubtasks_NonOwnerClaimUntouched pins the other half of the heartbeat
+// contract: a caller who does not own the parent still gets a working wait, and
+// the real owner's heartbeat is left alone. The refresh is a courtesy to the
+// caller's own claim, never a way to keep somebody else's claim alive.
+func TestAwaitSubtasks_NonOwnerClaimUntouched(t *testing.T) {
+	env := setupAwaitMCP(t, 30*time.Minute)
+
+	ctx := context.Background()
+	parent, subs := newParent(t, env, 1)
+	driveTo(t, env, subs[0], "in_progress")
+
+	claimed, err := env.svc.ClaimCard(ctx, awaitTestProject, parent, "agent-a")
+	require.NoError(t, err)
+	require.NotNil(t, claimed.LastHeartbeat)
+
+	ownerHeartbeat := *claimed.LastHeartbeat
+
+	ch, _ := startAwait(t, env, map[string]any{
+		"project":         awaitTestProject,
+		"parent_id":       parent,
+		"agent_id":        "agent-b",
+		"timeout_seconds": 1800,
+	})
+	waitForBlocked(t, env)
+
+	// Fire the 4m refresh. agent-b holds no claim, so HeartbeatCard returns
+	// ErrAgentMismatch, which the wait must swallow.
+	env.clk.Advance(4 * time.Minute)
+
+	// The owner's heartbeat must stay put. Never rather than Eventually: the
+	// owner-side test shows a real refresh lands within milliseconds of the
+	// tick, so a second of quiet is a meaningful negative.
+	assert.Never(t, func() bool {
+		card, err := env.svc.GetCard(ctx, awaitTestProject, parent)
+		if err != nil || card.LastHeartbeat == nil {
+			return false
+		}
+
+		return !card.LastHeartbeat.Equal(ownerHeartbeat)
+	}, time.Second, 10*time.Millisecond, "the wait refreshed a claim its caller does not hold")
+
+	card, err := env.svc.GetCard(ctx, awaitTestProject, parent)
+	require.NoError(t, err)
+	assert.Equal(t, "agent-a", card.AssignedAgent, "the claim must not change hands")
+
+	// And the sentinel error must not have ended the wait.
+	select {
+	case got := <-ch:
+		t.Fatalf("wait ended on a swallowed heartbeat error: %+v", got)
+	default:
+	}
+}
+
+// TestAwaitSubtasks_RecheckTickerCatchesMissedEvent pins the backstop that makes
+// the bus safe to depend on. events.Bus drops rather than blocks, so a wait that
+// only ever woke on events could sleep through a completion. The subtask here
+// finishes with no event reaching the waiter at all - the state change is
+// written straight to the store - so only the 30s re-list can produce the
+// verdict.
+func TestAwaitSubtasks_RecheckTickerCatchesMissedEvent(t *testing.T) {
+	env := setupAwaitMCP(t, 8*time.Minute)
+
+	ctx := context.Background()
+	parent, subs := newParent(t, env, 1)
+	driveTo(t, env, subs[0], "in_progress")
+
+	ch, _ := startAwait(t, env, map[string]any{
+		"project":         awaitTestProject,
+		"parent_id":       parent,
+		"timeout_seconds": 300,
+	})
+	waitForBlocked(t, env)
+
+	// Bypass the service entirely: no CardStateChanged is published, so the
+	// waiter's event channel stays silent for the whole test.
+	card, err := env.store.GetCard(ctx, awaitTestProject, subs[0])
+	require.NoError(t, err)
+
+	card.State = board.StateDone
+	require.NoError(t, env.store.UpdateCard(ctx, awaitTestProject, card))
+	require.Equal(t, 1, env.bus.SubscriberCount(), "waiter should still be subscribed and unfed")
+
+	// Nothing has woken the wait yet.
+	select {
+	case got := <-ch:
+		t.Fatalf("wait returned without any event or tick: %+v", got)
+	default:
+	}
+
+	env.clk.Advance(awaitRecheckInterval)
+
+	out := receiveAwait(t, ch)
+	assert.True(t, out.Completed, "the recheck ticker must catch a completion the bus missed")
+	assert.False(t, out.TimedOut)
+	assert.Equal(t, map[string]int{"done": 1}, out.Counts)
+	assert.Equal(t, 30, out.WaitedSeconds)
 }
 
 // TestAwaitSubtasks_ContextCancelledReturnsPromptly pins teardown: when the

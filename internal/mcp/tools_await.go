@@ -81,11 +81,17 @@ func awaitSubtasks(
 	awaitMax time.Duration,
 	input awaitSubtasksInput,
 ) (awaitSubtasksOutput, error) {
+	if input.TimeoutSeconds < 0 {
+		return awaitSubtasksOutput{}, fmt.Errorf(
+			"await_subtasks: timeout_seconds must not be negative (got %d); omit it to use the server cap",
+			input.TimeoutSeconds)
+	}
+
 	parentID := strings.ToUpper(strings.TrimSpace(input.ParentID))
 
 	project, err := resolveProject(ctx, svc, input.Project, parentID)
 	if err != nil {
-		return awaitSubtasksOutput{}, err
+		return awaitSubtasksOutput{}, fmt.Errorf("await_subtasks: %w", err)
 	}
 
 	// Confirm the parent exists before waiting on it. A typo'd ID lists zero
@@ -130,8 +136,8 @@ func awaitSubtasks(
 }
 
 // awaitWindow is the effective blocking window: what the caller asked for,
-// clamped to the server's cap. An omitted or non-positive request takes the
-// full cap.
+// clamped to the server's cap. An omitted request (zero, indistinguishable from
+// absent in JSON) takes the full cap; a negative one is rejected by the caller.
 func awaitWindow(timeoutSeconds int, awaitMax time.Duration) time.Duration {
 	if timeoutSeconds <= 0 {
 		return awaitMax
@@ -204,13 +210,12 @@ func (w *subtaskWaiter) run(ctx context.Context) (awaitSubtasksOutput, error) {
 
 			return out, nil
 
-		case wakeDeadline:
-			out.TimedOut = true
-			out.WaitedSeconds = elapsedSeconds(w.start, w.clk.Now())
-
-			return out, nil
-
-		case wakeRecheck:
+		case wakeRecheck, wakeDeadline:
+			// The deadline loops once more rather than returning here, so the
+			// verdict always comes from a fresh read. If the subtasks finished
+			// in the final moments - on an event the bus dropped, say - that is
+			// the answer; otherwise the remaining <= 0 check above ends the
+			// wait with counts that are current as of the return.
 		}
 	}
 }

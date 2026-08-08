@@ -563,13 +563,15 @@ func main() {
 
 	sessionMgr := backendSys.SessionLog
 
-	// Bound for blocking await_subtasks calls. Validate already rejects an
-	// unparseable value, so this only fires if the config was hand-built.
+	// Bound for blocking await_subtasks calls. Validate already rejects a value
+	// that is unparseable or non-positive, so this only fires if the config was
+	// hand-built. Zero hands the MCP server its own default rather than
+	// duplicating the number here.
 	awaitMax, err := cfg.AwaitMaxDuration()
 	if err != nil {
-		slog.Error("invalid await_max; falling back to 8m", "error", err)
+		slog.Error("invalid await_max; falling back to the built-in default", "error", err)
 
-		awaitMax = 8 * time.Minute
+		awaitMax = 0
 	}
 
 	// Create MCP server
