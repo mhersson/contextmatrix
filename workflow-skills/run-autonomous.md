@@ -206,7 +206,9 @@ Based on the card's current state and body content:
            when findings span different files or independent concerns. Parent
            each subtask to this card; body must include the finding text
            verbatim and the acceptance criterion ("test X passes", "file Y
-           no longer contains Z", etc.).
+           no longer contains Z", etc.). For an incorrect-statement finding,
+           carry every occurrence listed in the finding's Where and phrase
+           the criterion repo-wide ("no file contains Z").
         4. **MUST go to Phase 3** to spawn `execute-task` sub-agents
            for those fix subtasks via the `Agent` tool. **DO NOT apply
            the fixes inline yourself**, even when the change is a
