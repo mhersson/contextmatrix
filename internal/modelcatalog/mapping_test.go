@@ -33,7 +33,7 @@ func TestTrustedCreatorParity(t *testing.T) {
 	// default allowlist through the name-to-prefix resolution.
 	for _, name := range []string{
 		"OpenAI", "Anthropic", "Google", "DeepSeek",
-		"Alibaba", "Z AI", "Kimi", "MiniMax", "SpaceXAI",
+		"Z AI", "Kimi", "MiniMax", "SpaceXAI",
 	} {
 		if !isTrusted(creatorSlug(name), nil) {
 			t.Errorf("%q resolves to %q, which is not trusted", name, creatorSlug(name))

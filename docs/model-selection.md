@@ -22,7 +22,7 @@ The operator-facing controls, most direct first:
 | I want to...                          | Knob                                        | Where                                        | Notes                                                                                          |
 | ------------------------------------- | ------------------------------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | Force a model for one card            | model pin on the card                       | card detail UI / `PATCH` card                | Honored when the slug is a candidate; then it beats everything, including the blacklist        |
-| Pick the most capable model for one card's tier | card `max_capability`           | card Automation UI / `PATCH` card            | Most capable in tier, ignores cost, bypasses favorites; renders only when automatic selection is on |
+| Pick the most capable model for one card's tier | card `max_capability`           | card Automation UI / `PATCH` card            | Intended: most capable in tier, ignores cost, bypasses favorites. Shipped in the payload but **not yet honored by the agent backend** |
 | Prefer models for a complexity tier   | `favorites`                                 | `config.yaml` (global), `.board.yaml` (project) | Favorites skip the cost logic but must still clear the tier bar and not be blacklisted      |
 | Restrict which vendors are eligible   | `backends.agent.model_allowlist`            | `config.yaml`                                | Vendor prefixes (`qwen`, `z-ai`); replaces the built-in list; inert on the `openai` leg        |
 | Rate models AA does not know          | `backends.agent.model_priors`               | `config.yaml`                                | `openai` leg only; verbatim 0..1 priors                                                        |
@@ -122,7 +122,7 @@ On the OpenRouter leg, only models from trusted creators become candidates.
 The built-in list of vendor prefixes:
 
 ```
-openai, anthropic, google, deepseek, qwen, z-ai, moonshotai, minimax, x-ai
+openai, anthropic, google, deepseek, z-ai, moonshotai, minimax, x-ai
 ```
 
 `backends.agent.model_allowlist` **replaces** this list when set (it does not
@@ -306,11 +306,13 @@ reference:
    it wins unconditionally - over the blacklist, over the tier bar, over the
    in-run exclude set, over cost. A pin that is *not* in the candidate list
    (below the floor, an endpoint model with no AA mapping, or shipped with no
-   catalog) is not honored: the orchestrator-model resolution logs a warning
-   to the card and falls back; coder and reviewer picks skip the pin
-   silently. Note the asymmetry: ContextMatrix validates pins against the
-   wider *served* catalog, which keeps below-floor models, so a pin can pass
-   validation in the UI and still fall through at run time.
+   catalog) is not honored: every resolution path logs a warning to the card
+   and falls back. The orchestrator-model resolution warns on each call; the
+   coder, reviewer and Best-of-N picks warn once per run per pin type, so a
+   multi-subtask card cannot fill the activity log with repeats. Note the
+   asymmetry: ContextMatrix validates pins against the wider *served* catalog,
+   which keeps below-floor models, so a pin can pass validation in the UI and
+   still fall through at run time.
 2. **Favorites.** The `(tier, role)` favorite list is scanned in configured
    order, then the `(tier, any-role)` list. The first favorite that is a
    *live candidate* wins outright, skipping the price logic and the
@@ -332,14 +334,18 @@ reference:
    trigger's `backends.agent.default_model` feeds the orchestrator-model
    resolution, not this fallback.
 
-`max_capability` (a per-card, human-set flag) narrows this sequence when the
-card is configured for automatic selection:
+`max_capability` (a per-card, human-set flag) is intended to narrow this
+sequence when the card is configured for automatic selection. **ContextMatrix
+stores the flag and ships it in the trigger payload; the agent backend does not
+consume it yet, so setting it currently changes nothing.** The behavior below
+describes the agreed contract, not shipped behavior - check the
+`contextmatrix-agent` repository for what it actually does today.
 
-- A card pin (step 1) still wins; in practice pins and the flag are mutually
-  exclusive because the "Maximum capability" checkbox renders only while
-  automatic selection is on.
-- Favorites (step 2) are bypassed entirely - the flag replays no favorite
-  scan.
+- A card pin (step 1) still wins. Note that a card can carry both: the
+  "Maximum capability" checkbox is *hidden* when automatic selection is off,
+  but hiding is not clearing, so a card that had the flag set before pins were
+  added still stores and sends it.
+- Favorites (step 2) are bypassed entirely - the flag runs no favorite scan.
 - The filter (step 3) is untouched.
 - The price band (step 4) is neutralised - it is not computed.
 - Best value (step 5) then selects the **highest-prior** candidate in the
@@ -357,12 +363,12 @@ prompt+completion USD per million tokens:
 | Candidate                  | `coder_prior` | Price  | In band? |
 | -------------------------- | ------------- | ------ | -------- |
 | deepseek/deepseek-v4-flash | 0.78          | $0.42  | yes      |
-| qwen/qwen4-coder           | 0.81          | $0.55  | yes      |
+| z-ai/glm-5.2               | 0.81          | $0.55  | yes      |
 | anthropic/claude-sonnet-5  | 0.93          | $9.00  | no       |
 | openai/gpt-5.5             | 0.97          | $11.00 | no       |
 
 Cheapest survivor is $0.42, so the band tops out at $0.63. Only the first two
-qualify; `qwen/qwen4-coder` has the higher prior and wins. The frontier models
+qualify; `z-ai/glm-5.2` has the higher prior and wins. The frontier models
 never enter the comparison - at `critical` tier (bar 0.90) they would be the
 only survivors, and the band would re-anchor on them.
 
@@ -533,7 +539,7 @@ and the equal prompt+completion price weighting.
 | ---------------------------------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
 | Every phase runs on a default model            | No `aa_api_key` (no `selection` block at all) or an empty candidate set (block present, zero candidates) | The agent cannot auto-select; orchestrator phases use the trigger `default_model`, selector picks the agent serve default |
 | Candidates gone after a restart during an AA outage | The cache is in-memory only - a restart loses the last-good catalog | While CM stays up, a failed refresh keeps serving the last-good catalog (60s retry cooldown); after a restart, candidates return on the first successful refresh |
-| A pinned model is ignored                      | The pin is not in the candidate list (below floor, unmapped endpoint model, or no catalog) | Orchestrator resolution warns on the card and falls back; coder and reviewer picks skip it silently. CM validates pins against the wider served set, so the write was accepted |
+| A pinned model is ignored                      | The pin is not in the candidate list (below floor, unmapped endpoint model, or no catalog) | All resolution paths warn on the card and fall back: orchestrator resolution on each call, coder and reviewer picks once per run per pin type. CM validates pins against the wider served set, so the write was accepted |
 | A favorite is never picked                     | Blacklisted, below the tier bar, not a candidate (outside the allowlist), or its tier entry was replaced wholesale by a project override | Favorites are preferences, not overrides; check `selection.blacklist` and the bar |
 | `model_allowlist` has no effect                | `llm_endpoint.type: openai`                                           | The allowlist only screens the OpenRouter leg; use `aa_model_map` / `model_priors` |
 | Endpoint models served but never selected      | Unmapped in `aa_model_map`, no `model_priors` entry, or below floor   | The Builder logs a warning naming the gap at refresh time                          |

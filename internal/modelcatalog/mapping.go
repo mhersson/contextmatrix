@@ -68,7 +68,7 @@ func mapAASlug(aaSlug, aaCreator string) (string, bool) {
 // trustedCreators is the allowlist of creator vendor prefixes eligible for
 // auto-selection. Overridable via config (see Builder.Allowlist).
 var trustedCreators = []string{
-	"openai", "anthropic", "google", "deepseek", "qwen",
+	"openai", "anthropic", "google", "deepseek",
 	"z-ai", "moonshotai", "minimax", "x-ai",
 }
 

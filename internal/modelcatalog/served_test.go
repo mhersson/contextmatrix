@@ -24,9 +24,9 @@ func seedServed(t *testing.T, b *Builder, catalog map[string]orEntry) {
 func TestServedVendorScreening(t *testing.T) {
 	catalog := map[string]orEntry{
 		"anthropic/claude-sonnet-4.5": {ContextWindow: 200000},
-		"qwen/qwen3-coder":            {ContextWindow: 131072}, // alibaba → qwen mapping
-		"unlisted-vendor/model-x":     {ContextWindow: 8192},   // screened out
-		"unlisted-vendor/favorite-y":  {ContextWindow: 8192},   // kept via favorites
+		"z-ai/glm-5.2":                {ContextWindow: 131072},
+		"unlisted-vendor/model-x":     {ContextWindow: 8192}, // screened out
+		"unlisted-vendor/favorite-y":  {ContextWindow: 8192}, // kept via favorites
 		"openrouter/auto":             {ContextWindow: 2000000},
 	}
 
@@ -46,8 +46,8 @@ func TestServedVendorScreening(t *testing.T) {
 	assert.Equal(t, []string{
 		"anthropic/claude-sonnet-4.5",
 		"openrouter/auto",
-		"qwen/qwen3-coder",
 		"unlisted-vendor/favorite-y",
+		"z-ai/glm-5.2",
 	}, slugs)
 }
 
