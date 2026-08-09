@@ -74,7 +74,8 @@ the existing design and ask:
 - **User picks "proceed straight to planning":** return immediately.
   Control passes to create-plan Phase 1.
 - **User wants to walk through:** do a focused review pass - any gaps,
-  ambiguities, or new requirements? Update the body via `update_card`
+  ambiguities, or new requirements? Update the `## Design` section via
+  `update_card(upsert_section_heading='Design', upsert_section_content=<design>)`
   if anything changes, get user confirmation, then return.
 
 If the body has no design section, proceed with the full process below.
@@ -91,8 +92,8 @@ You MUST complete each of these in order:
 3. **Propose 2–3 approaches** - with trade-offs and your recommendation.
 4. **Present design** - in sections scaled to their complexity, get
    user approval after each section.
-5. **Update card body** - via `update_card`, add or replace a
-   `## Design` section with the agreed design.
+5. **Update card body** - via
+   `update_card(upsert_section_heading='Design', upsert_section_content=<design>)`.
 6. **Description self-review** - quick inline check for placeholders,
    contradictions, ambiguity, scope (see below); fix and re-update.
 7. **User confirms updated body** - last gate before returning.
@@ -163,17 +164,18 @@ You MUST complete each of these in order:
 
 **Updating the card:**
 
-- Use `update_card(card_id=<parent_id>, body=<new body>)` to add or
-  replace a `## Design` section in the card body. Keep all existing
-  content (title, description, prior sections); only the design portion
-  is new or refreshed.
+- Use
+  `update_card(card_id=<parent_id>, upsert_section_heading='Design', upsert_section_content=<design>)`
+  to add or replace the `## Design` section. Never re-emit the body - the
+  upsert leaves every other section, including title and description,
+  untouched.
 
 **Description Self-Review:**
 
 After updating the card, look at the new body with fresh eyes:
 
 1. **Placeholder scan:** Any "TBD", "TODO", incomplete sections, or vague
-   requirements? Fix them via another `update_card`.
+   requirements? Fix them via another `## Design` upsert.
 2. **Internal consistency:** Do any sections contradict each other? Does
    the architecture match the feature description?
 3. **Scope check:** Is this focused enough for a single implementation
@@ -193,7 +195,7 @@ After the self-review, ask the user to confirm the updated card body:
 
 Heartbeat before prompting. Heartbeat on resume.
 
-If the user requests changes, make them via another `update_card` and
+If the user requests changes, make them via another `## Design` upsert and
 re-confirm. Only return once the user approves.
 
 **Return:**

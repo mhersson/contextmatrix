@@ -140,6 +140,16 @@ type PatchCardInput struct {
 	// before any mutations are applied. Empty AgentID skips the check (backward
 	// compatible for callers like the task backend that do not supply an agent ID).
 	AgentID string
+	// UpsertSection replaces or appends one H2 section without resending the
+	// body. Mutually exclusive with Body.
+	UpsertSection *SectionPatch
+}
+
+// SectionPatch targets one "## <Heading>" block. Heading carries no "## "
+// prefix and must be a single line.
+type SectionPatch struct {
+	Heading string
+	Content string
 }
 
 // CardContext contains a card with its project configuration and template.
@@ -245,6 +255,10 @@ var ErrFieldTooLong = fmt.Errorf("field exceeds maximum length")
 
 // ErrInvalidModelPin indicates a model pin slug is not in the served catalog.
 var ErrInvalidModelPin = fmt.Errorf("model pin not in catalog")
+
+// ErrInvalidSectionPatch indicates a PatchCard UpsertSection request is
+// malformed: combined with Body, or carrying an unusable heading.
+var ErrInvalidSectionPatch = fmt.Errorf("invalid section patch")
 
 // branchNameSlugPattern matches anything that's not lowercase alphanumeric.
 var branchNameSlugPattern = regexp.MustCompile(`[^a-z0-9]+`)
@@ -886,6 +900,18 @@ func validatePatchFieldLimits(input PatchCardInput) error {
 		return err
 	}
 
+	if input.UpsertSection != nil {
+		if input.Body != nil {
+			return fmt.Errorf("body and upsert_section are mutually exclusive: %w", ErrInvalidSectionPatch)
+		}
+
+		if strings.TrimSpace(input.UpsertSection.Heading) == "" ||
+			strings.ContainsAny(input.UpsertSection.Heading, "\r\n") ||
+			strings.HasPrefix(input.UpsertSection.Heading, "#") {
+			return fmt.Errorf("upsert_section heading must be a non-empty single line without '#' prefix: %w", ErrInvalidSectionPatch)
+		}
+	}
+
 	return nil
 }
 
@@ -992,6 +1018,15 @@ func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput)
 
 		if input.Body != nil {
 			card.Body = *input.Body
+		}
+
+		if input.UpsertSection != nil {
+			next := board.UpsertSection(card.Body, input.UpsertSection.Heading, input.UpsertSection.Content)
+			if len(next) > maxBodyLen {
+				return fmt.Errorf("body length %d exceeds limit of %d: %w", len(next), maxBodyLen, ErrFieldTooLong)
+			}
+
+			card.Body = next
 		}
 
 		if input.Autonomous != nil {

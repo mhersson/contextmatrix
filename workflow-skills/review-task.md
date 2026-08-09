@@ -232,19 +232,15 @@ orchestrator and activity log show what was changed.
 
 ## Step 5: Write findings, report, return
 
-**Always append - never replace.** If the card body already has a
-`## Review Findings` section from a prior round, do not overwrite it. Append a
-new section with the round number: `## Review Findings (Round 2)`,
-`## Review Findings (Round 3)`, etc. The first round uses the bare heading.
+Record findings with
+`update_card(upsert_section_heading='Review Findings (Round <N>)', upsert_section_content=<findings>)`.
+Never re-emit the body - the upsert leaves every other section, including
+human-authored text, untouched. Increment <N> per review round; re-running
+the same round replaces that round's section instead of duplicating it.
 
-Re-read the current body via `get_card` immediately before composing the
-appended body - `update_card` responses do not include the body.
-
-Append to the parent card body via `update_card`:
+Findings content (passed as `upsert_section_content`, without the heading):
 
 ```markdown
-## Review Findings
-
 ### Strengths
 
 - [Specific, file/subtask-anchored.]

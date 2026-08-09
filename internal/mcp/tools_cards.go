@@ -69,6 +69,11 @@ type updateCardInput struct {
 	Skills   *[]string `json:"skills,omitempty" jsonschema:"new task skills (replaces all); [] means none, omit to leave unchanged"`
 	Body     *string   `json:"body,omitempty" jsonschema:"new markdown body"`
 	Phase    *string   `json:"phase,omitempty" jsonschema:"orchestrator phase: plan|execute|judge|document|review|integrate|done; empty clears"`
+	// UpsertSectionHeading and UpsertSectionContent must be provided together
+	// (or neither): replace-or-append one H2 section without resending the
+	// whole body. Mutually exclusive with Body - enforced by the service layer.
+	UpsertSectionHeading *string `json:"upsert_section_heading,omitempty" jsonschema:"H2 heading (without ##) to replace or append; use with upsert_section_content instead of body to avoid re-sending the whole body"`
+	UpsertSectionContent *string `json:"upsert_section_content,omitempty" jsonschema:"markdown content for the section named by upsert_section_heading"`
 }
 
 type transitionCardInput struct {
@@ -263,9 +268,14 @@ func registerCreateCard(server *mcp.Server, svc *service.CardService) {
 
 func registerUpdateCard(server *mcp.Server, svc *service.CardService) {
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "update_card",
-		Description: "Update a card's mutable fields. Only provided fields are changed; omitted fields keep their current values. Does NOT change state - use transition_card for state changes.",
+		Name: "update_card",
+		Description: "Update a card's mutable fields. Only provided fields are changed; omitted fields keep their current values. Does NOT change state - use transition_card for state changes. " +
+			"Prefer upsert_section_heading/upsert_section_content for adding or updating one section - never re-send a body containing human-authored text just to append.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input updateCardInput) (*mcp.CallToolResult, *CardSummary, error) {
+		if (input.UpsertSectionHeading == nil) != (input.UpsertSectionContent == nil) {
+			return nil, nil, fmt.Errorf("upsert_section_heading and upsert_section_content must be provided together")
+		}
+
 		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
 		if err != nil {
 			return nil, nil, err
@@ -279,6 +289,13 @@ func registerUpdateCard(server *mcp.Server, svc *service.CardService) {
 			Skills:   input.Skills,
 			Body:     input.Body,
 			Phase:    input.Phase,
+		}
+
+		if input.UpsertSectionHeading != nil {
+			patchInput.UpsertSection = &service.SectionPatch{
+				Heading: *input.UpsertSectionHeading,
+				Content: *input.UpsertSectionContent,
+			}
 		}
 
 		card, err := svc.PatchCard(ctx, project, input.CardID, patchInput)

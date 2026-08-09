@@ -276,6 +276,117 @@ func TestUpdateCard(t *testing.T) {
 	assert.Equal(t, "## Updated\nNew body content.", fetched.Body)
 }
 
+func TestUpdateCard_UpsertSection(t *testing.T) {
+	t.Run("upsert-only call patches the section and returns a summary", func(t *testing.T) {
+		env := setupMCP(t)
+
+		createTestCard(t, env, "Upsert target", "task", "low")
+
+		result, err := callToolRaw(t, env, "update_card", map[string]any{
+			"project":                "test-project",
+			"card_id":                "TEST-001",
+			"upsert_section_heading": "Review Findings",
+			"upsert_section_content": "Looks good.",
+		})
+		require.False(t, resultIsError(result, err), "upsert-only call should succeed: %s", errorText(result, err))
+
+		var updated CardSummary
+		unmarshalResult(t, result, &updated)
+		assert.Equal(t, "TEST-001", updated.ID)
+
+		getResult := callTool(t, env, "get_card", map[string]any{
+			"project": "test-project",
+			"card_id": "TEST-001",
+		})
+		require.False(t, getResult.IsError)
+
+		var fetched board.Card
+		unmarshalResult(t, getResult, &fetched)
+		assert.Equal(t, "## Review Findings\n\nLooks good.\n", fetched.Body)
+
+		// A second identical call is a no-op (idempotent replace-or-append).
+		result2, err2 := callToolRaw(t, env, "update_card", map[string]any{
+			"project":                "test-project",
+			"card_id":                "TEST-001",
+			"upsert_section_heading": "Review Findings",
+			"upsert_section_content": "Looks good.",
+		})
+		require.False(t, resultIsError(result2, err2))
+
+		getResult2 := callTool(t, env, "get_card", map[string]any{
+			"project": "test-project",
+			"card_id": "TEST-001",
+		})
+		require.False(t, getResult2.IsError)
+
+		var fetched2 board.Card
+		unmarshalResult(t, getResult2, &fetched2)
+		assert.Equal(t, fetched.Body, fetched2.Body, "identical upsert call must be a no-op")
+	})
+
+	t.Run("heading without content is rejected", func(t *testing.T) {
+		env := setupMCP(t)
+
+		createTestCard(t, env, "Half upsert", "task", "low")
+
+		result, err := callToolRaw(t, env, "update_card", map[string]any{
+			"project":                "test-project",
+			"card_id":                "TEST-001",
+			"upsert_section_heading": "Review Findings",
+		})
+		require.True(t, resultIsError(result, err))
+		assert.Contains(t, errorText(result, err),
+			"upsert_section_heading and upsert_section_content must be provided together")
+	})
+
+	t.Run("content without heading is rejected", func(t *testing.T) {
+		env := setupMCP(t)
+
+		createTestCard(t, env, "Half upsert reverse", "task", "low")
+
+		result, err := callToolRaw(t, env, "update_card", map[string]any{
+			"project":                "test-project",
+			"card_id":                "TEST-001",
+			"upsert_section_content": "Looks good.",
+		})
+		require.True(t, resultIsError(result, err))
+		assert.Contains(t, errorText(result, err),
+			"upsert_section_heading and upsert_section_content must be provided together")
+	})
+
+	t.Run("body and upsert together is rejected by the service", func(t *testing.T) {
+		env := setupMCP(t)
+
+		createTestCard(t, env, "Body and upsert", "task", "low")
+
+		result, err := callToolRaw(t, env, "update_card", map[string]any{
+			"project":                "test-project",
+			"card_id":                "TEST-001",
+			"body":                   "## Something\nreplaced",
+			"upsert_section_heading": "Review Findings",
+			"upsert_section_content": "Looks good.",
+		})
+		require.True(t, resultIsError(result, err))
+		assert.Contains(t, errorText(result, err), "mutually exclusive")
+	})
+
+	t.Run("invalid heading is forwarded from the service", func(t *testing.T) {
+		env := setupMCP(t)
+
+		createTestCard(t, env, "Bad heading", "task", "low")
+
+		result, err := callToolRaw(t, env, "update_card", map[string]any{
+			"project":                "test-project",
+			"card_id":                "TEST-001",
+			"upsert_section_heading": "#Not a heading",
+			"upsert_section_content": "Looks good.",
+		})
+		require.True(t, resultIsError(result, err))
+		assert.Contains(t, errorText(result, err),
+			"upsert_section heading must be a non-empty single line without '#' prefix")
+	})
+}
+
 func TestUpdateCard_Phase(t *testing.T) {
 	env := setupMCP(t)
 
