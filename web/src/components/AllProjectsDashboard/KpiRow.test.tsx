@@ -79,6 +79,14 @@ describe('KpiRow - Cost · 30d tile', () => {
     const { container } = renderKpiRow({ costSeries30d: [] });
     expect(container.querySelector('svg.spark')).toBeNull();
   });
+
+  it('tooltip notes token counts are as reported by agents', () => {
+    const { container } = renderKpiRow();
+    const costTile = Array.from(container.querySelectorAll('.apd-kpi')).find((el) =>
+      el.textContent?.includes('Cost · 30d')
+    );
+    expect(costTile?.getAttribute('title')).toMatch(/- token counts as reported by agents\.$/);
+  });
 });
 
 describe('KpiRow - Chat cost · 30d tile', () => {

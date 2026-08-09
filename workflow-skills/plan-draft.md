@@ -18,7 +18,9 @@ card is claimed by your orchestrator - do NOT call `claim_card`,
 Your spawn prompt ends with a `## Board-write identity` block carrying the
 orchestrator agent_id. Pass that id as `agent_id` on ALL board writes -
 `update_card`, `add_log`, `report_usage`, `heartbeat` - the server enforces
-`agent_id == AssignedAgent`, and the orchestrator holds the claim.
+`agent_id == AssignedAgent`, and the orchestrator holds the claim. On
+`report_usage` also pass `on_behalf_of="plan-draft"` so your token usage is
+attributed to you, not merged into the orchestrator's bucket.
 
 ## Log engagement (first action)
 
@@ -156,8 +158,11 @@ Call `report_usage` with:
 
 - `card_id`: the parent card ID you are planning
 - `agent_id`: the orchestrator agent_id
+- `on_behalf_of`: `"plan-draft"` - attributes this usage to you, not the
+  orchestrator
 - `model`: your own model identifier, read fresh from your system context
-  ("You are powered by the model named X"), never copied from elsewhere
+  ("You are powered by the model named X"), never copied from elsewhere or
+  derived from an agent name
 - `prompt_tokens` / `completion_tokens`: your estimated token consumption
 - `cache_read_tokens` / `cache_creation_tokens`: from the stream-json `usage` frame if available
 

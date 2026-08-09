@@ -224,6 +224,82 @@ func TestGetCard_SectionsEmptyBodySkipsImageScan(t *testing.T) {
 	assert.Empty(t, got.Body)
 }
 
+// TestReportUsage_SourceValidation pins the MCP-boundary validation for the
+// report_usage source field: only "", "self", and "collector" are accepted,
+// and a bogus value is rejected before it ever reaches the service layer.
+// The valid-value subtests matter as much as the bogus one here: the MCP SDK
+// schema rejects any unrecognized JSON key outright, so "bogus" alone would
+// "pass" for the wrong reason (unknown field) even before source exists as a
+// real, validated input.
+func TestReportUsage_SourceValidation(t *testing.T) {
+	env := setupMCP(t)
+
+	for _, tc := range []struct {
+		name    string
+		source  string
+		wantErr bool
+	}{
+		{name: "self is accepted", source: "self", wantErr: false},
+		{name: "collector is accepted", source: "collector", wantErr: false},
+		{name: "bogus is rejected", source: "bogus", wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			card := createTestCard(t, env, "Source validation "+tc.name, "task", "medium")
+
+			result := callTool(t, env, "report_usage", map[string]any{
+				"project":           "test-project",
+				"card_id":           card.ID,
+				"agent_id":          "agent-1",
+				"prompt_tokens":     int64(100),
+				"completion_tokens": int64(50),
+				"source":            tc.source,
+			})
+			assert.Equal(t, tc.wantErr, result.IsError)
+		})
+	}
+}
+
+// TestReportUsage_OnBehalfOf pins on_behalf_of end-to-end through the MCP
+// boundary: the claim-holding agent reports usage on behalf of a different
+// identity, the call succeeds on agent_id's ownership, and the persisted
+// bucket is keyed on on_behalf_of rather than agent_id.
+func TestReportUsage_OnBehalfOf(t *testing.T) {
+	env := setupMCP(t)
+
+	card := createTestCard(t, env, "On-behalf-of MCP test", "task", "medium")
+
+	claimResult := callTool(t, env, "claim_card", map[string]any{
+		"project":  "test-project",
+		"card_id":  card.ID,
+		"agent_id": "orchestrator-mcp",
+	})
+	require.False(t, claimResult.IsError)
+
+	result := callTool(t, env, "report_usage", map[string]any{
+		"project":           "test-project",
+		"card_id":           card.ID,
+		"agent_id":          "orchestrator-mcp",
+		"on_behalf_of":      "exec-mcp",
+		"model":             "claude-sonnet-4-6",
+		"prompt_tokens":     int64(100),
+		"completion_tokens": int64(50),
+	})
+	require.False(t, result.IsError, "report_usage with on_behalf_of should not error when agent_id holds the claim")
+
+	getResult := callTool(t, env, "get_card", map[string]any{
+		"project": "test-project",
+		"card_id": card.ID,
+	})
+	require.False(t, getResult.IsError)
+
+	var fetched board.Card
+	unmarshalResult(t, getResult, &fetched)
+
+	require.Len(t, fetched.UsageBreakdown, 1)
+	assert.Equal(t, "exec-mcp", fetched.UsageBreakdown[0].Agent,
+		"bucket must be keyed on on_behalf_of, not agent_id")
+}
+
 func TestGetCard_SectionsAndIncludeActivityLogCombined(t *testing.T) {
 	env := setupMCP(t)
 

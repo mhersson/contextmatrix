@@ -78,7 +78,12 @@ func (s *CardService) PriceTokens(model string, prompt, cacheRead, cacheCreation
 
 // ReportUsageInput contains the fields for reporting token usage on a card.
 type ReportUsageInput struct {
-	AgentID             string
+	AgentID string
+	// OnBehalfOf overrides the bucket identity (e.g. a sub-agent invoked
+	// through the skills route) while authorization stays keyed on AgentID -
+	// the claim check never sees OnBehalfOf. Empty means the bucket is keyed
+	// on AgentID, matching pre-existing behavior.
+	OnBehalfOf          string
 	Model               string
 	PromptTokens        int64
 	CompletionTokens    int64
@@ -89,6 +94,11 @@ type ReportUsageInput struct {
 	// records cost_source "actual"; EstimatedCostUSD is incremented by this
 	// value rather than the rate-table result.
 	ActualCostUSD *float64
+	// Source is who produced the token counts: "" or "self" (agent-estimated,
+	// the default) or "collector" (measured from real usage frames). Sets
+	// UsageBucket.CountsSource, which is sticky once "collector" - mirrors the
+	// sticky "actual" cost_source flag.
+	Source string
 	// Phase, Step, and DurationMS are Prometheus-only attribution hints from
 	// the agent; they are never persisted on the card. Phase falls back to the
 	// card's current phase when empty. DurationMS is the wall time of the
@@ -582,13 +592,27 @@ func usageModel(bucketModel, cardModel, defaultModel string) string {
 }
 
 // upsertUsageBucket merges one report into the card's (agent, model) bucket.
-// A bucket that has ever received an actual-cost report stays "actual" -
-// mixed-source sums are still real spend, and the flag's job is to protect
-// the bucket from rate-table recalculation.
+// The bucket identity is in.OnBehalfOf when non-empty, else in.AgentID -
+// authorization was already checked against AgentID by the caller, so this
+// only affects attribution, never the ownership gate. A bucket that has ever
+// received an actual-cost report stays "actual", and one that has ever
+// received a collector-sourced report stays "collector" - mixed-source sums
+// are still real spend/counts, and the flags' job is to protect the bucket
+// from rate-table recalculation and from being mistaken for an estimate.
 func upsertUsageBucket(card *board.Card, in ReportUsageInput, cost float64, source string) {
+	bucketAgent := in.AgentID
+	if in.OnBehalfOf != "" {
+		bucketAgent = in.OnBehalfOf
+	}
+
+	countsSource := ""
+	if in.Source == "collector" {
+		countsSource = "collector"
+	}
+
 	for i := range card.UsageBreakdown {
 		b := &card.UsageBreakdown[i]
-		if b.Agent == in.AgentID && b.Model == in.Model {
+		if b.Agent == bucketAgent && b.Model == in.Model {
 			b.PromptTokens += in.PromptTokens
 			b.CompletionTokens += in.CompletionTokens
 			b.CacheReadTokens += in.CacheReadTokens
@@ -599,12 +623,16 @@ func upsertUsageBucket(card *board.Card, in ReportUsageInput, cost float64, sour
 				b.CostSource = "actual"
 			}
 
+			if countsSource == "collector" {
+				b.CountsSource = "collector"
+			}
+
 			return
 		}
 	}
 
 	card.UsageBreakdown = append(card.UsageBreakdown, board.UsageBucket{
-		Agent:               in.AgentID,
+		Agent:               bucketAgent,
 		Model:               in.Model,
 		PromptTokens:        in.PromptTokens,
 		CompletionTokens:    in.CompletionTokens,
@@ -612,6 +640,7 @@ func upsertUsageBucket(card *board.Card, in ReportUsageInput, cost float64, sour
 		CacheCreationTokens: in.CacheCreationTokens,
 		CostUSD:             cost,
 		CostSource:          source,
+		CountsSource:        countsSource,
 	})
 }
 

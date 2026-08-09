@@ -58,7 +58,8 @@ Violating these rules leaves cards orphaned with no tracking. Follow them exactl
   sections the skill needs - a bracketed note names any omitted sections;
   call get_card for the full body. If you already hold the body from a prior
   get_card, pass include_card=false to get_skill/start_workflow/start_review
-  to skip re-injecting it.
+  to skip re-injecting it - but leave it unset unless you are certain you
+  already hold the body, since sub-agents you spawn may need it.
 - **Ask the user in plain text.** When you need a decision or clarification,
   ask as a normal message with any options listed inline. Do not use the
   AskUserQuestion tool - it is not supported in this workflow.
@@ -147,7 +148,7 @@ func buildInlineExecutionPrompt(content, cardID, skillName string) string {
 	fmt.Fprintln(&b, "YOU are responsible for the full card lifecycle. These steps are MANDATORY:")
 	fmt.Fprintln(&b)
 	fmt.Fprintf(&b, "- **BEFORE** any work: `claim_card(card_id='%s', agent_id=<your_agent_id>)`\n", cardID)
-	fmt.Fprintln(&b, "- **DURING** work: call `heartbeat` every 5 minutes")
+	fmt.Fprintln(&b, "- **DURING** work: your card mutations refresh the heartbeat; call `heartbeat` explicitly only across idle waits")
 	fmt.Fprintf(&b, "- **AFTER** work: `release_card` or `complete_task` as instructed below, then call `report_usage`\n")
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, "Skipping lifecycle steps leaves cards orphaned. The board detects this")

@@ -79,6 +79,10 @@ missing specialty's coverage.
 
 - `card_id`, `project`, and **your `agent_id`** (specialists call `report_usage`
   / `add_log` with your id; the server enforces `agent_id == AssignedAgent`).
+  Also give each specialist its own label ("specialist-correctness",
+  "specialist-design", "specialist-security") to pass as `on_behalf_of` on its
+  `report_usage` call, so the three specialists' usage stays distinguishable
+  instead of merging into your bucket.
 - Change-set computation:
   1. **Determine the diff base.** Read the parent card's activity log.
      - If a prior entry has `action="review_completed"`, parse `head=<sha>` from
@@ -96,7 +100,7 @@ missing specialty's coverage.
   descriptions say when); log each with
   `add_log(action="skill_engaged", message="engaged <skill-name>", agent=<your agent_id>)`.
 - **Before returning**, call
-  `report_usage(card_id=<parent>, agent_id=<your agent_id>, model=<the model you are running>, prompt_tokens=..., completion_tokens=..., cache_read_tokens=..., cache_creation_tokens=...)`.
+  `report_usage(card_id=<parent>, agent_id=<your agent_id>, on_behalf_of=<your specialist label>, model=<the model you are running, read fresh from your system context - never derived from an agent name>, prompt_tokens=..., completion_tokens=..., cache_read_tokens=..., cache_creation_tokens=...)`.
   Map stream-json `usage` frame fields: `usage.input_tokens` → `prompt_tokens`,
   `usage.output_tokens` → `completion_tokens`, `usage.cache_read_input_tokens` →
   `cache_read_tokens`, `usage.cache_creation_input_tokens` →
