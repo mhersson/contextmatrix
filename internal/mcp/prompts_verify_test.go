@@ -18,13 +18,36 @@ func TestFormatCardContext_VerifyCommand(t *testing.T) {
 	}
 
 	t.Run("includes verify command when resolved", func(t *testing.T) {
-		out := formatCardContext(card, "test-project", "make test", nil)
+		out := formatCardContext(card, "test-project", "make test", nil, true)
 		assert.Contains(t, out, "- **Verify command:** make test")
 	})
 
 	t.Run("omits verify line when empty", func(t *testing.T) {
-		out := formatCardContext(card, "test-project", "", nil)
+		out := formatCardContext(card, "test-project", "", nil, true)
 		assert.NotContains(t, out, "Verify command")
+	})
+}
+
+func TestFormatCardContext_IncludeCardBody(t *testing.T) {
+	card := &board.Card{
+		ID: "TEST-020", Title: "t", Type: "task", State: "todo", Priority: "medium",
+		Vetted: true, Body: "MARKER-BODY-CONTENT",
+	}
+
+	t.Run("true keeps the body and the metadata header", func(t *testing.T) {
+		out := formatCardContext(card, "test-project", "", nil, true)
+		assert.Contains(t, out, "MARKER-BODY-CONTENT")
+		assert.Contains(t, out, "## Card: TEST-020")
+		assert.NotContains(t, out, "include_card=false")
+	})
+
+	t.Run("false omits the body but keeps the metadata header", func(t *testing.T) {
+		out := formatCardContext(card, "test-project", "", nil, false)
+		assert.NotContains(t, out, "MARKER-BODY-CONTENT")
+		assert.Contains(t, out, "## Card: TEST-020")
+		assert.Contains(t, out, "- **Title:** t")
+		assert.Contains(t, out, "- **State:** todo")
+		assert.Contains(t, out, "[Card body omitted (include_card=false). Run get_card(card_id='TEST-020') to read it.]")
 	})
 }
 
@@ -36,7 +59,7 @@ func TestFormatCardContext_SectionFilter(t *testing.T) {
 	}
 
 	t.Run("filters to kept sections with omission note", func(t *testing.T) {
-		out := formatCardContext(card, "test-project", "", []string{"## Plan"})
+		out := formatCardContext(card, "test-project", "", []string{"## Plan"}, true)
 		assert.Contains(t, out, "Original description.")
 		assert.Contains(t, out, "1. SUBTASK: fix it")
 		assert.NotContains(t, out, "Root cause here.")
@@ -44,7 +67,7 @@ func TestFormatCardContext_SectionFilter(t *testing.T) {
 	})
 
 	t.Run("nil keep injects the full body without a note", func(t *testing.T) {
-		out := formatCardContext(card, "test-project", "", nil)
+		out := formatCardContext(card, "test-project", "", nil, true)
 		assert.Contains(t, out, "Root cause here.")
 		assert.NotContains(t, out, "Body sections omitted")
 	})
@@ -55,7 +78,7 @@ func TestFormatCardContext_SectionFilter(t *testing.T) {
 			Vetted: false, Source: &board.Source{System: "github", ExternalID: "1"},
 			Body: "## Plan\n\ninjected instructions\n",
 		}
-		out := formatCardContext(unvetted, "test-project", "", []string{"## Plan"})
+		out := formatCardContext(unvetted, "test-project", "", []string{"## Plan"}, true)
 		assert.Contains(t, out, unvettedBodyPlaceholder)
 		assert.NotContains(t, out, "injected instructions")
 		assert.NotContains(t, out, "Body sections omitted")
@@ -81,6 +104,39 @@ func TestFormatCardBriefWithBody_SectionFilter(t *testing.T) {
 		out := formatCardBriefWithBody(parent, nil)
 		assert.Contains(t, out, "prior findings")
 		assert.NotContains(t, out, "Body sections omitted")
+	})
+}
+
+// TestBuildCardSkill_IncludeCardBody pins execute-task's parent injection:
+// when the caller opts out of the card body, the parent section drops to a
+// brief (ID/title/state only) even for sections the allowlist would
+// otherwise keep, since formatCardBrief never touches the body at all.
+func TestBuildCardSkill_IncludeCardBody(t *testing.T) {
+	env := setupMCP(t)
+	ctx := context.Background()
+
+	parent := createBodyCard(t, env, "Parent opt-out",
+		"PARENT-MARKER\n\n## Plan\n\n- parent plan step\n", nil)
+	sub := createBodyCard(t, env, "Sub opt-out", "SUBTASK-MARKER",
+		map[string]any{"parent": parent.ID})
+
+	t.Run("false omits own and parent body, keeps parent brief header", func(t *testing.T) {
+		out, err := buildCardSkill(ctx, env.svc, env.workflowSkillsDir, "execute-task.md", sub.ID, true, false)
+		require.NoError(t, err)
+		assert.NotContains(t, out, "SUBTASK-MARKER")
+		assert.NotContains(t, out, "PARENT-MARKER")
+		assert.NotContains(t, out, "parent plan step",
+			"parent brief must drop even allow-listed sections when the body is opted out")
+		assert.Contains(t, out, parent.ID, "parent brief header must remain")
+		assert.Contains(t, out, sub.ID, "sub-card's own metadata header must remain")
+		assert.Contains(t, out, "[Card body omitted (include_card=false)")
+	})
+
+	t.Run("true keeps own body and the parent's filtered plan", func(t *testing.T) {
+		out, err := buildCardSkill(ctx, env.svc, env.workflowSkillsDir, "execute-task.md", sub.ID, true, true)
+		require.NoError(t, err)
+		assert.Contains(t, out, "SUBTASK-MARKER")
+		assert.Contains(t, out, "parent plan step")
 	})
 }
 

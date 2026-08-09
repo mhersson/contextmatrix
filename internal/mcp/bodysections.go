@@ -28,31 +28,20 @@ var (
 	executeParentBodySections = []string{"## Plan"}
 )
 
-// filterBodySections reduces body to its pre-heading intro plus the H2
-// sections whose headings match keep. Returns the filtered body and the
-// titles (without "## ") of omitted sections, in original order.
-//
-// Fallback contract: nil keep, a body with no H2 headings, or a body in
-// which no keep entry matches anything all return (body, nil) unchanged -
-// early-run bodies, per-type templates, and the unvetted-body placeholder
-// pass through. The failure direction is always over-injection, never
-// wrongful omission.
-//
-// H2 lines inside fenced code blocks (``` or ~~~) are not boundaries - card
-// bodies embed markdown templates containing literal section headings.
-func filterBodySections(body string, keep []string) (string, []string) {
-	if len(keep) == 0 || body == "" {
-		return body, nil
-	}
+// bodySection is one H2 heading's title and the line index it starts at,
+// as found by scanBodySections.
+type bodySection struct {
+	title string
+	start int
+}
 
-	lines := strings.Split(body, "\n")
-
-	type section struct {
-		title string
-		start int
-	}
-
-	var sections []section
+// scanBodySections splits body into lines and locates its H2 ("## ")
+// section boundaries. H2 lines inside fenced code blocks (``` or ~~~) are
+// not boundaries - card bodies embed markdown templates containing literal
+// section headings. Returns the split lines and the sections found, in
+// document order; sections is nil when body has no H2 headings.
+func scanBodySections(body string) (lines []string, sections []bodySection) {
+	lines = strings.Split(body, "\n")
 
 	inFence := false
 
@@ -69,10 +58,38 @@ func filterBodySections(body string, keep []string) (string, []string) {
 		}
 
 		if strings.HasPrefix(line, "## ") {
-			sections = append(sections, section{title: strings.TrimSpace(line[3:]), start: i})
+			sections = append(sections, bodySection{title: strings.TrimSpace(line[3:]), start: i})
 		}
 	}
 
+	return lines, sections
+}
+
+// sectionEnd returns the line index (exclusive) where the section at index
+// idx ends: the start of the next section, or the end of the document.
+func sectionEnd(lines []string, sections []bodySection, idx int) int {
+	if idx+1 < len(sections) {
+		return sections[idx+1].start
+	}
+
+	return len(lines)
+}
+
+// filterBodySections reduces body to its pre-heading intro plus the H2
+// sections whose headings match keep. Returns the filtered body and the
+// titles (without "## ") of omitted sections, in original order.
+//
+// Fallback contract: nil keep, a body with no H2 headings, or a body in
+// which no keep entry matches anything all return (body, nil) unchanged -
+// early-run bodies, per-type templates, and the unvetted-body placeholder
+// pass through. The failure direction is always over-injection, never
+// wrongful omission.
+func filterBodySections(body string, keep []string) (string, []string) {
+	if len(keep) == 0 || body == "" {
+		return body, nil
+	}
+
+	lines, sections := scanBodySections(body)
 	if len(sections) == 0 {
 		return body, nil
 	}
@@ -96,19 +113,71 @@ func filterBodySections(body string, keep []string) (string, []string) {
 	kept = append(kept, lines[:sections[0].start]...)
 
 	for idx, s := range sections {
-		end := len(lines)
-		if idx+1 < len(sections) {
-			end = sections[idx+1].start
-		}
-
 		if sectionMatches(s.title, keep) {
-			kept = append(kept, lines[s.start:end]...)
+			kept = append(kept, lines[s.start:sectionEnd(lines, sections, idx)]...)
 		} else {
 			omitted = append(omitted, s.title)
 		}
 	}
 
 	return strings.Join(kept, "\n"), omitted
+}
+
+// filterBodySectionsExact is the strict variant for caller-supplied section
+// requests: unlike filterBodySections, a keep list that matches nothing
+// returns "", never the full body - the caller asked for less and must get
+// less. Only H2 titles match, via the same sectionMatches semantics as
+// filterBodySections; the pre-heading intro is included only when keep
+// contains the pseudo-entry "intro" (case-insensitive), matched separately
+// from the heading titles.
+func filterBodySectionsExact(body string, keep []string) string {
+	if len(keep) == 0 || body == "" {
+		return ""
+	}
+
+	wantIntro := false
+	headingKeep := make([]string, 0, len(keep))
+
+	for _, k := range keep {
+		if strings.EqualFold(strings.TrimSpace(k), "intro") {
+			wantIntro = true
+
+			continue
+		}
+
+		headingKeep = append(headingKeep, k)
+	}
+
+	lines, sections := scanBodySections(body)
+
+	if len(sections) == 0 {
+		if wantIntro {
+			return body
+		}
+
+		return ""
+	}
+
+	var kept []string
+
+	if wantIntro {
+		kept = append(kept, lines[:sections[0].start]...)
+	}
+
+	matched := false
+
+	for idx, s := range sections {
+		if sectionMatches(s.title, headingKeep) {
+			kept = append(kept, lines[s.start:sectionEnd(lines, sections, idx)]...)
+			matched = true
+		}
+	}
+
+	if !matched && !wantIntro {
+		return ""
+	}
+
+	return strings.Join(kept, "\n")
 }
 
 // sectionMatches reports whether a heading title matches a keep entry:

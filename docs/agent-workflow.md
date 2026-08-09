@@ -711,12 +711,13 @@ current workflow idles for user input.
 ## Tool response shapes
 
 Mutation and list tools return **card summaries**: every scalar and bounded
-field, but never `body` or `activity_log`. `heartbeat` returns a minimal
-`{card_id, state, last_heartbeat}` ack. Only `get_card` and `get_task_context`
-return full cards - they are the designated fetch tools, and skills that need
-the body or the activity log (resume, review diff-base, documentation) call
-them explicitly. Within `get_task_context`, the primary card and parent are
-full while siblings are summaries - sibling detail is fetched per card via
+field, but never `body`, `activity_log`, or `usage_breakdown`. `heartbeat`
+returns a minimal `{card_id, state, last_heartbeat}` ack. Only `get_card` and
+`get_task_context` return full cards - they are the designated fetch tools,
+and skills that need the body, the activity log, or the per-model usage
+breakdown (resume, review diff-base, documentation, cost audit) call them
+explicitly. Within `get_task_context`, the primary card and parent are full
+while siblings are summaries - sibling detail is fetched per card via
 `get_card`. The full table is in
 [`docs/api-reference.md`](api-reference.md) under "Card payload shapes".
 
@@ -724,6 +725,19 @@ The rationale is context economics: tool results land in the calling agent's
 context and are re-read on every subsequent model call, and card bodies grow
 during a run. Echoing the body from a heartbeat or a log append multiplies
 that cost for zero information gain.
+
+`get_card` itself carries two further opt-ins for trimming what it returns:
+`include_activity_log: false` drops the activity log (default `true` - the
+log is often the larger half of a long-lived card's payload), and
+`sections: ["Plan", ...]` returns only the named `## <heading>` body
+sections instead of the full body (heading names without `##`; the
+pseudo-entry `"intro"` includes the pre-heading text). Unlike the
+skill-injection filter below, a `sections` request that matches nothing
+returns an empty body rather than the full one - the caller asked for less
+and must get less. Image attachment runs against the filtered body, so an
+image referenced only by an omitted section is not attached. Full detail:
+[`docs/api-reference.md`](api-reference.md) under "`get_card` payload
+opt-ins".
 
 The same economics apply to skill delivery. `get_skill`, `start_review`, and
 `start_workflow` inject card context into the skill content; on the late-run
@@ -737,7 +751,18 @@ keep the full body. A bracketed note names any omitted sections and points at
 `get_card`; when none of the filter's sections exist in a body, the full body
 passes through unchanged. The table is in
 [`docs/api-reference.md`](api-reference.md) under "Skill-injection body
-filtering". The same economics separate sessions: survey the board
+filtering".
+
+A caller that already holds the body - typically an orchestrator that just
+called `get_card` - can skip re-injecting it entirely: pass
+`include_card: false` to `get_skill`, `start_workflow`, or `start_review`.
+This replaces the `### Body` block (and, for `execute-task`, the parent's
+filtered body) with a pointer note back to `get_card`; the metadata header and
+sibling briefs are unaffected. Defaults to `true` (the section filtering above
+still applies on top of it) - `run-autonomous`'s fast path reads the body
+directly, so leave it unset unless you are certain you already have the body.
+
+The same economics separate sessions: survey the board
 (`list_cards`, `get_ready_tasks`) in one session, then execute in a fresh
 session seeded only with the card ID - survey output otherwise becomes
 permanent context re-billed for the whole run.

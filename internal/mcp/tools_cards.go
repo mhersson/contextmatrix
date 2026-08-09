@@ -28,10 +28,12 @@ type listCardsOutput struct {
 }
 
 type getCardInput struct {
-	Project       string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
-	CardID        string `json:"card_id" jsonschema:"required,card ID (e.g. ALPHA-001)"`
-	AgentID       string `json:"agent_id,omitempty" jsonschema:"caller identity - unvetted external card bodies are redacted for non-human callers"`
-	IncludeImages *bool  `json:"include_images,omitempty" jsonschema:"attach inline image bytes for cm-server-hosted markdown image references in the body (default true; capped at 10 images per call and ~20 MiB cumulative bytes, with later references in body order omitted when over budget)"`
+	Project            string   `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
+	CardID             string   `json:"card_id" jsonschema:"required,card ID (e.g. ALPHA-001)"`
+	AgentID            string   `json:"agent_id,omitempty" jsonschema:"caller identity - unvetted external card bodies are redacted for non-human callers"`
+	IncludeImages      *bool    `json:"include_images,omitempty" jsonschema:"attach inline image bytes for cm-server-hosted markdown image references in the body (default true; capped at 10 images per call and ~20 MiB cumulative bytes, with later references in body order omitted when over budget)"`
+	IncludeActivityLog *bool    `json:"include_activity_log,omitempty" jsonschema:"include the activity log (default true; pass false to trim ~half of a long-lived card's payload)"`
+	Sections           []string `json:"sections,omitempty" jsonschema:"return only these H2 body sections (exact heading text without ##, e.g. 'Plan'; pass 'intro' to include the pre-heading text); unmatched names yield an empty body, not the full one"`
 }
 
 type createCardInput struct {
@@ -212,8 +214,10 @@ func registerListCards(server *mcp.Server, svc *service.CardService) {
 
 func registerGetCard(server *mcp.Server, svc *service.CardService, imageStore images.Store) {
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "get_card",
-		Description: "Get a single card by ID, including its full body and metadata. By default, attaches inline image bytes for any cm-server-hosted markdown images in the body (capped at 10); pass include_images=false to skip. Cumulative attached image bytes are capped at ~20 MiB; later references in body order are omitted when over budget.",
+		Name: "get_card",
+		Description: "Get a single card by ID, including its full body and metadata. By default, attaches inline image bytes for any cm-server-hosted markdown images in the body (capped at 10); pass include_images=false to skip. Cumulative attached image bytes are capped at ~20 MiB; later references in body order are omitted when over budget. " +
+			"Pass include_activity_log=false to drop the activity log, which is often the larger half of a long-lived card's payload. " +
+			"Pass sections to return only the named H2 body sections instead of the full body; a sections request that matches nothing returns body=\"\" rather than the full body. Image attachment scans the filtered body, so images referenced only by an omitted section are not attached.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input getCardInput) (*mcp.CallToolResult, *board.Card, error) {
 		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
 		if err != nil {
@@ -229,13 +233,50 @@ func registerGetCard(server *mcp.Server, svc *service.CardService, imageStore im
 		// payloads from imported external cards cannot reach agent context.
 		card = redactCardForAgent(card, input.AgentID)
 
+		// Shallow-copy before trimming (precedent: vetting.go's
+		// redactCardForAgent) so the store-backed card returned above is
+		// never mutated in place.
+		trimmed := *card
+
+		if input.IncludeActivityLog != nil && !*input.IncludeActivityLog {
+			trimmed.ActivityLog = nil
+		}
+
+		if len(input.Sections) > 0 {
+			trimmed.Body = filterBodySectionsExact(trimmed.Body, prefixSectionKeep(input.Sections))
+		}
+
+		// attachImagesToResult must scan the trimmed body: a sections filter
+		// can drop the only paragraph referencing an image, and that image
+		// must not be attached once its section is gone.
 		result := attachImagesToResult(ctx, imageStore,
-			attachContext{Tool: "get_card", CardID: card.ID},
-			card, card.Body, input.IncludeImages, 0,
+			attachContext{Tool: "get_card", CardID: trimmed.ID},
+			&trimmed, trimmed.Body, input.IncludeImages, 0,
 		)
 
-		return result, card, nil
+		return result, &trimmed, nil
 	})
+}
+
+// prefixSectionKeep prepares get_card's caller-supplied section names for
+// filterBodySectionsExact: heading names arrive without "## " and get it
+// prepended, matching filterBodySections' keep-list convention. The literal
+// pseudo-entry "intro" (case-insensitive) passes through unprefixed since it
+// names the pre-heading text, not an H2.
+func prefixSectionKeep(sections []string) []string {
+	keep := make([]string, 0, len(sections))
+
+	for _, s := range sections {
+		if strings.EqualFold(strings.TrimSpace(s), "intro") {
+			keep = append(keep, "intro")
+
+			continue
+		}
+
+		keep = append(keep, "## "+s)
+	}
+
+	return keep
 }
 
 func registerCreateCard(server *mcp.Server, svc *service.CardService) {

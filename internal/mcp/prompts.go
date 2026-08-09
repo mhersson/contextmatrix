@@ -54,7 +54,9 @@ Violating these rules leaves cards orphaned with no tracking. Follow them exactl
   body or activity log. Call get_card when you need the full body or activity
   log; heartbeat returns a minimal ack. Skill prompts inject only the body
   sections the skill needs - a bracketed note names any omitted sections;
-  call get_card for the full body.
+  call get_card for the full body. If you already hold the body from a prior
+  get_card, pass include_card=false to get_skill/start_workflow/start_review
+  to skip re-injecting it.
 - **Ask the user in plain text.** When you need a decision or clarification,
   ask as a normal message with any options listed inline. Do not use the
   AskUserQuestion tool - it is not supported in this workflow.
@@ -191,7 +193,8 @@ func registerPrompts(server *mcp.Server, svc *service.CardService, workflowSkill
 func createTaskPromptHandler(svc *service.CardService, workflowSkillsDir string) mcp.PromptHandler {
 	return func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 		result, err := buildSkillContent(ctx, svc, workflowSkillsDir, "create-task", skillArgs{
-			Description: req.Params.Arguments["description"],
+			Description:     req.Params.Arguments["description"],
+			IncludeCardBody: true,
 		}, true)
 		if err != nil {
 			return nil, err
@@ -211,7 +214,8 @@ func initProjectPromptHandler(svc *service.CardService, workflowSkillsDir string
 		name := req.Params.Arguments["name"]
 
 		result, err := buildSkillContent(ctx, svc, workflowSkillsDir, "init-project", skillArgs{
-			Name: name,
+			Name:            name,
+			IncludeCardBody: true,
 		}, true)
 		if err != nil {
 			return nil, err
@@ -249,7 +253,8 @@ func startWorkflowPromptHandler(svc *service.CardService, workflowSkillsDir stri
 		}
 
 		result, err := buildSkillContent(ctx, svc, workflowSkillsDir, skill, skillArgs{
-			CardID: cardID,
+			CardID:          cardID,
+			IncludeCardBody: true,
 		}, true)
 		if err != nil {
 			return nil, err
@@ -268,9 +273,10 @@ func startWorkflowPromptHandler(svc *service.CardService, workflowSkillsDir stri
 
 // skillArgs holds optional arguments for building a skill's content.
 type skillArgs struct {
-	CardID      string
-	Description string
-	Name        string
+	CardID          string
+	Description     string
+	Name            string
+	IncludeCardBody bool
 }
 
 // skillBuilder builds a skill's raw content (without the workflow preamble).
@@ -292,31 +298,31 @@ var skillBuilders = map[string]skillBuilder{
 		return buildCreateTask(dir, args.Description)
 	}},
 	"create-plan": {build: func(ctx context.Context, svc *service.CardService, dir string, args skillArgs) (string, error) {
-		return buildCardSkill(ctx, svc, dir, "create-plan.md", args.CardID, false)
+		return buildCardSkill(ctx, svc, dir, "create-plan.md", args.CardID, false, args.IncludeCardBody)
 	}},
 	"execute-task": {build: func(ctx context.Context, svc *service.CardService, dir string, args skillArgs) (string, error) {
-		return buildCardSkill(ctx, svc, dir, "execute-task.md", args.CardID, true)
+		return buildCardSkill(ctx, svc, dir, "execute-task.md", args.CardID, true, args.IncludeCardBody)
 	}},
 	"review-task": {build: func(ctx context.Context, svc *service.CardService, dir string, args skillArgs) (string, error) {
-		return buildSubtaskSkill(ctx, svc, dir, "review-task.md", args.CardID, reviewTaskBodySections)
+		return buildSubtaskSkill(ctx, svc, dir, "review-task.md", args.CardID, reviewTaskBodySections, args.IncludeCardBody)
 	}},
 	"document-task": {build: func(ctx context.Context, svc *service.CardService, dir string, args skillArgs) (string, error) {
-		return buildSubtaskSkill(ctx, svc, dir, "document-task.md", args.CardID, documentTaskBodySections)
+		return buildSubtaskSkill(ctx, svc, dir, "document-task.md", args.CardID, documentTaskBodySections, args.IncludeCardBody)
 	}},
 	"init-project": {build: func(ctx context.Context, svc *service.CardService, dir string, args skillArgs) (string, error) {
 		return buildInitProject(ctx, svc, dir, args.Name)
 	}},
 	"run-autonomous": {build: func(ctx context.Context, svc *service.CardService, dir string, args skillArgs) (string, error) {
-		return buildRunAutonomous(ctx, svc, dir, args.CardID)
+		return buildRunAutonomous(ctx, svc, dir, args.CardID, args.IncludeCardBody)
 	}},
 	"brainstorming": {build: func(ctx context.Context, svc *service.CardService, dir string, args skillArgs) (string, error) {
-		return buildCardSkill(ctx, svc, dir, "brainstorming.md", args.CardID, false)
+		return buildCardSkill(ctx, svc, dir, "brainstorming.md", args.CardID, false, args.IncludeCardBody)
 	}},
 	"systematic-debugging": {build: func(ctx context.Context, svc *service.CardService, dir string, args skillArgs) (string, error) {
-		return buildCardSkill(ctx, svc, dir, "systematic-debugging.md", args.CardID, false)
+		return buildCardSkill(ctx, svc, dir, "systematic-debugging.md", args.CardID, false, args.IncludeCardBody)
 	}},
 	"plan-draft": {build: func(ctx context.Context, svc *service.CardService, dir string, args skillArgs) (string, error) {
-		return buildCardSkill(ctx, svc, dir, "plan-draft.md", args.CardID, false)
+		return buildCardSkill(ctx, svc, dir, "plan-draft.md", args.CardID, false, args.IncludeCardBody)
 	}},
 }
 
@@ -383,8 +389,10 @@ func buildCreateTask(workflowSkillsDir, description string) (string, error) {
 }
 
 // buildCardSkill handles skills that need a single card's context, optionally
-// including parent and sibling cards (for execute-task).
-func buildCardSkill(ctx context.Context, svc *service.CardService, workflowSkillsDir, filename, cardID string, includeFamily bool) (string, error) {
+// including parent and sibling cards (for execute-task). includeBody controls
+// whether the card's own body and the parent's filtered body are injected, or
+// replaced with a pointer note (see formatCardContext).
+func buildCardSkill(ctx context.Context, svc *service.CardService, workflowSkillsDir, filename, cardID string, includeFamily, includeBody bool) (string, error) {
 	if cardID == "" {
 		return "", fmt.Errorf("card_id argument is required")
 	}
@@ -401,12 +409,17 @@ func buildCardSkill(ctx context.Context, svc *service.CardService, workflowSkill
 
 	var parts []string
 
-	parts = append(parts, formatCardContext(card, project, resolveVerifyCommand(ctx, svc, card, project), nil))
+	parts = append(parts, formatCardContext(card, project, resolveVerifyCommand(ctx, svc, card, project), nil, includeBody))
 
 	if includeFamily && card.Parent != "" {
 		parent, perr := svc.GetCard(ctx, project, card.Parent)
 		if perr == nil {
-			parts = append(parts, "\n## Parent Card\n"+formatCardBriefWithBody(parent, executeParentBodySections))
+			parentSection := formatCardBrief(parent)
+			if includeBody {
+				parentSection = formatCardBriefWithBody(parent, executeParentBodySections)
+			}
+
+			parts = append(parts, "\n## Parent Card\n"+parentSection)
 		}
 
 		siblings, serr := svc.ListCards(ctx, project, storage.CardFilter{Parent: card.Parent})
@@ -430,10 +443,12 @@ func buildCardSkill(ctx context.Context, svc *service.CardService, workflowSkill
 }
 
 // buildSubtaskSkill handles skills that need a card plus all its subtasks
-// (review-task, document-task). bodySections filters the injected parent body
-// to the sections the skill consumes - these are the late-run surfaces where
-// the accumulated body is largest.
-func buildSubtaskSkill(ctx context.Context, svc *service.CardService, workflowSkillsDir, filename, cardID string, bodySections []string) (string, error) {
+// (review-task, document-task). bodySections filters the injected body to the
+// sections the skill consumes - these are the late-run surfaces where the
+// accumulated body is largest. includeBody controls whether the filtered
+// body is injected at all, or replaced with a pointer note (see
+// formatCardContext).
+func buildSubtaskSkill(ctx context.Context, svc *service.CardService, workflowSkillsDir, filename, cardID string, bodySections []string, includeBody bool) (string, error) {
 	if cardID == "" {
 		return "", fmt.Errorf("card_id argument is required")
 	}
@@ -450,7 +465,7 @@ func buildSubtaskSkill(ctx context.Context, svc *service.CardService, workflowSk
 
 	var parts []string
 
-	parts = append(parts, formatCardContext(card, project, resolveVerifyCommand(ctx, svc, card, project), bodySections))
+	parts = append(parts, formatCardContext(card, project, resolveVerifyCommand(ctx, svc, card, project), bodySections, includeBody))
 
 	subtasks, serr := svc.ListCards(ctx, project, storage.CardFilter{Parent: card.ID})
 	if serr == nil && len(subtasks) > 0 {
@@ -463,7 +478,7 @@ func buildSubtaskSkill(ctx context.Context, svc *service.CardService, workflowSk
 	return strings.Join(parts, "\n") + "\n\n" + skill, nil
 }
 
-func buildRunAutonomous(ctx context.Context, svc *service.CardService, workflowSkillsDir, cardID string) (string, error) {
+func buildRunAutonomous(ctx context.Context, svc *service.CardService, workflowSkillsDir, cardID string, includeBody bool) (string, error) {
 	if cardID == "" {
 		return "", fmt.Errorf("card_id argument is required")
 	}
@@ -484,7 +499,7 @@ func buildRunAutonomous(ctx context.Context, svc *service.CardService, workflowS
 
 	var parts []string
 
-	parts = append(parts, formatCardContext(card, project, resolveVerifyCommand(ctx, svc, card, project), nil))
+	parts = append(parts, formatCardContext(card, project, resolveVerifyCommand(ctx, svc, card, project), nil, includeBody))
 
 	// Inject server-side complexity classification so the skill can route
 	// simple tasks to the fast path (skip planning/review/docs).
@@ -609,8 +624,11 @@ func resolveVerifyCommand(ctx context.Context, svc *service.CardService, card *b
 // entries can never influence the rendered skill prompt. A non-nil keep list
 // filters the body to the named H2 sections via filterBodySections (redaction
 // runs first; the placeholder passes through the filter's fallback), with a
-// note naming omitted sections; nil keeps the full body.
-func formatCardContext(c *board.Card, project, verifyCommand string, keep []string) string {
+// note naming omitted sections; nil keeps the full body. When includeBody is
+// false, the body is skipped entirely (redactUnvettedBody and
+// filterBodySections never run) and a pointer note replaces it - the metadata
+// header above is unaffected either way.
+func formatCardContext(c *board.Card, project, verifyCommand string, keep []string, includeBody bool) string {
 	c = redactCardForPrompt(c)
 
 	var b strings.Builder
@@ -661,6 +679,12 @@ func formatCardContext(c *board.Card, project, verifyCommand string, keep []stri
 	// workflow-skill-driven workers verify with the declared command.
 	if verifyCommand != "" {
 		fmt.Fprintf(&b, "- **Verify command:** %s\n", verifyCommand)
+	}
+
+	if !includeBody {
+		fmt.Fprintf(&b, "\n[Card body omitted (include_card=false). Run get_card(card_id='%s') to read it.]\n", c.ID)
+
+		return b.String()
 	}
 
 	// Skill prompts always flow into agent (non-human) context, so redact
