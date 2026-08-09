@@ -47,6 +47,9 @@ type CreateCardInput struct {
 	// BestOfN: human-set only, like the model pins. 0 (the zero value) means
 	// off; a value in 2..maxCandidates races that many candidates.
 	BestOfN int
+	// MaxCapability: human-set only, like the model pins. true = ignore cost,
+	// pick the most capable model in tier.
+	MaxCapability bool
 	// Mob session fields: human-set only, like the model pins. 0 / nil means off.
 	MobParticipants int
 	MobPhases       []string
@@ -86,6 +89,9 @@ type UpdateCardInput struct {
 	// BestOfN: human-set only, like the model pins. Value type matches PUT's
 	// full-replacement semantics - omitted/zero clears the field.
 	BestOfN int
+	// MaxCapability: human-set only, like the model pins. Value type matches PUT's
+	// full-replacement semantics - omitted/zero clears the field.
+	MaxCapability bool
 	// Mob session fields: human-set only, like the model pins. PUT full-replacement
 	// semantics - omitted/zero values clear them.
 	MobParticipants int
@@ -126,6 +132,9 @@ type PatchCardInput struct {
 	// BestOfN: human-set only, like the model pins. nil = don't change;
 	// non-nil (including pointer-to-zero) sets/clears the field.
 	BestOfN *int
+	// MaxCapability: human-set only, like the model pins. nil = don't change;
+	// non-nil sets/clears the field.
+	MaxCapability *bool
 	// Mob session fields: human-set only. MobParticipants nil = don't change.
 	// MobPhases/MobGuests follow the Labels convention: nil = don't
 	// change, empty slice = clear.
@@ -548,6 +557,7 @@ func (s *CardService) buildNewCardFromInput(
 		ModelCoder:        input.ModelCoder,
 		ModelReviewer:     input.ModelReviewer,
 		BestOfN:           input.BestOfN,
+		MaxCapability:     input.MaxCapability,
 		MobParticipants:   input.MobParticipants,
 		MobPhases:         input.MobPhases,
 		MobGuests:         input.MobGuests,
@@ -820,6 +830,7 @@ func (s *CardService) buildUpdateApply(ctx context.Context, input UpdateCardInpu
 		card.ModelCoder = input.ModelCoder
 		card.ModelReviewer = input.ModelReviewer
 		card.BestOfN = input.BestOfN                 // PUT full-replace; zero/absent clears, like Autonomous
+		card.MaxCapability = input.MaxCapability     // PUT full-replace; zero/absent clears, like BestOfN
 		card.MobParticipants = input.MobParticipants // PUT full-replace, like BestOfN
 		card.MobPhases = input.MobPhases
 		card.MobGuests = input.MobGuests
@@ -1079,6 +1090,10 @@ func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput)
 
 		if input.BestOfN != nil {
 			card.BestOfN = *input.BestOfN
+		}
+
+		if input.MaxCapability != nil {
+			card.MaxCapability = *input.MaxCapability
 		}
 
 		if input.MobParticipants != nil {

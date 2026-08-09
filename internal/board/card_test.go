@@ -859,6 +859,57 @@ updated: 2026-03-30T10:00:00Z
 	assert.Zero(t, parsedEmpty.BestOfN)
 }
 
+func TestCardMaxCapabilityYAMLRoundTrip(t *testing.T) {
+	input := `---
+id: TEST-001
+title: MaxCap test
+project: test-project
+type: task
+state: todo
+priority: medium
+max_capability: true
+created: 2026-03-30T10:00:00Z
+updated: 2026-03-30T10:00:00Z
+---
+`
+
+	card, err := ParseCard([]byte(input))
+	require.NoError(t, err)
+	assert.True(t, card.MaxCapability)
+
+	data, err := SerializeCard(card)
+	require.NoError(t, err)
+
+	str := string(data)
+	assert.Contains(t, str, "max_capability: true")
+
+	parsed, err := ParseCard(data)
+	require.NoError(t, err)
+	assert.True(t, parsed.MaxCapability)
+
+	// A card without max_capability must serialize with no max_capability key (omitempty).
+	created := time.Date(2026, 3, 30, 10, 0, 0, 0, time.UTC)
+
+	noMaxCap := &Card{
+		ID:       "TEST-002",
+		Title:    "No max cap",
+		Project:  "test-project",
+		Type:     "task",
+		State:    "todo",
+		Priority: "medium",
+		Created:  created,
+		Updated:  created,
+	}
+
+	out, err := SerializeCard(noMaxCap)
+	require.NoError(t, err)
+	assert.NotContains(t, string(out), "max_capability")
+
+	parsedEmpty, err := ParseCard(out)
+	require.NoError(t, err)
+	assert.False(t, parsedEmpty.MaxCapability)
+}
+
 func TestCardMobYAMLRoundTrip(t *testing.T) {
 	input := `---
 id: TEST-001

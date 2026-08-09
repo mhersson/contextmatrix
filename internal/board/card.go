@@ -44,6 +44,10 @@ type Card struct {
 	// implementations and judge a winner. 0/absent = normal run. Human-set
 	// only, like the model pins.
 	BestOfN int `yaml:"best_of_n,omitempty"          json:"best_of_n,omitempty"`
+	// MaxCapability, when true, tells the agent backend to ignore cost and
+	// select the most capable model in the card's tier. Human-set only, like
+	// the model pins.
+	MaxCapability bool `yaml:"max_capability,omitempty" json:"max_capability,omitempty"`
 	// Mob session discussion fields (agent backend). MobParticipants >= 2
 	// convenes N internal discussion seats in the phases listed in MobPhases
 	// (subset of plan/review/execute; empty = backend default). MobGuests

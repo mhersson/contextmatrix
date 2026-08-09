@@ -39,6 +39,7 @@ type CardSummary struct {
 	ModelCoder        string              `json:"model_coder,omitempty"`
 	ModelReviewer     string              `json:"model_reviewer,omitempty"`
 	BestOfN           int                 `json:"best_of_n,omitempty"`
+	MaxCapability     bool                `json:"max_capability,omitempty"`
 	MobParticipants   int                 `json:"mob_participants,omitempty"`
 	MobPhases         []string            `json:"mob_phases,omitempty"`
 	MobGuests         []string            `json:"mob_guests,omitempty"`
@@ -89,6 +90,7 @@ func summarizeCard(c *board.Card) *CardSummary {
 		ModelCoder:        c.ModelCoder,
 		ModelReviewer:     c.ModelReviewer,
 		BestOfN:           c.BestOfN,
+		MaxCapability:     c.MaxCapability,
 		MobParticipants:   c.MobParticipants,
 		MobPhases:         c.MobPhases,
 		MobGuests:         c.MobGuests,

@@ -818,3 +818,55 @@ func TestPatchCardUpsertSection(t *testing.T) {
 		assert.ErrorIs(t, err, ErrFieldTooLong)
 	})
 }
+
+// TestCreateUpdatePatchCard_MaxCapability verifies that MaxCapability
+// survives create (true), PUT clears (false), PATCH nil leaves unchanged,
+// and PATCH true sets.
+func TestCreateUpdatePatchCard_MaxCapability(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create with MaxCapability true.
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:         "max cap test",
+		Type:          "task",
+		Priority:      "medium",
+		MaxCapability: true,
+	})
+	require.NoError(t, err)
+	assert.True(t, card.MaxCapability)
+
+	// Reload and verify persistence.
+	reloaded, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.True(t, reloaded.MaxCapability)
+
+	// PUT with MaxCapability false clears it.
+	updated, err := svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
+		Title:         "max cap test updated",
+		Type:          "task",
+		State:         card.State,
+		Priority:      "medium",
+		MaxCapability: false,
+	})
+	require.NoError(t, err)
+	assert.False(t, updated.MaxCapability)
+
+	// PATCH nil leaves MaxCapability unchanged.
+	newTitle := "max cap test patched"
+	patched, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+		Title: &newTitle,
+	})
+	require.NoError(t, err)
+	assert.False(t, patched.MaxCapability, "nil MaxCapability must leave stored value unchanged")
+
+	// PATCH true sets it.
+	maxCap := true
+	patched, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+		MaxCapability: &maxCap,
+	})
+	require.NoError(t, err)
+	assert.True(t, patched.MaxCapability)
+}
