@@ -3163,6 +3163,190 @@ func TestUpdateCardBestOfN(t *testing.T) {
 	})
 }
 
+// TestPatchCardMaxCapability covers the PATCH cases for max_capability:
+// human sets the flag, non-human agent gets 403 when trying to set it,
+// and omitting the field leaves the stored value unchanged.
+func TestPatchCardMaxCapability(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
+		Title: "MaxCapability patch test", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	patchAs := func(t *testing.T, body, agentID string) *http.Response {
+		t.Helper()
+
+		req, _ := http.NewRequest(http.MethodPatch, server.URL+"/api/projects/test-project/cards/"+card.ID,
+			strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		if agentID != "" {
+			req.Header.Set("X-Agent-ID", agentID)
+		}
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+
+		return resp
+	}
+
+	t.Run("PATCH max_capability=true as human sets the field", func(t *testing.T) {
+		resp := patchAs(t, `{"max_capability": true}`, "")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var updated board.Card
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&updated))
+		assert.True(t, updated.MaxCapability)
+	})
+
+	t.Run("PATCH max_capability=false as human clears the field", func(t *testing.T) {
+		resp := patchAs(t, `{"max_capability": false}`, "")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var updated board.Card
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&updated))
+		assert.False(t, updated.MaxCapability)
+	})
+
+	t.Run("PATCH with max_capability absent leaves stored value unchanged", func(t *testing.T) {
+		// First set it to true via the service layer.
+		_, err := svc.PatchCard(context.Background(), "test-project", card.ID, service.PatchCardInput{
+			MaxCapability: &[]bool{true}[0],
+		})
+		require.NoError(t, err)
+
+		// PATCH with no max_capability field at all.
+		resp := patchAs(t, `{"title": "no max_capability"}`, "")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var updated board.Card
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&updated))
+		assert.True(t, updated.MaxCapability, "omitted max_capability must leave stored value unchanged")
+	})
+
+	t.Run("PATCH max_capability=true as non-human agent returns 403 HUMAN_ONLY_FIELD", func(t *testing.T) {
+		resp := patchAs(t, `{"max_capability": true}`, "agent:x")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
+		assert.Contains(t, apiErr.Details, "max_capability")
+
+		// Verify the card was NOT modified - still true from the prior subtest.
+		reloaded, err := svc.GetCard(context.Background(), "test-project", card.ID)
+		require.NoError(t, err)
+		assert.True(t, reloaded.MaxCapability, "non-human PATCH must not change max_capability")
+	})
+}
+
+// TestUpdateCardMaxCapability covers the PUT path: human sets/clears the flag,
+// non-human agent gets 403 when changing it, and echoing the existing value passes.
+func TestUpdateCardMaxCapability(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
+		Title: "MaxCapability PUT test", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+	assert.False(t, card.MaxCapability)
+
+	putBody := func(maxCap bool) string {
+		return fmt.Sprintf(
+			`{"title":"%s","type":"task","state":"todo","priority":"medium","vetted":true,"max_capability":%v}`,
+			card.Title, maxCap)
+	}
+
+	putAs := func(t *testing.T, body, agentID string) *http.Response {
+		t.Helper()
+
+		req, _ := http.NewRequest(http.MethodPut, server.URL+"/api/projects/test-project/cards/"+card.ID,
+			strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Agent-ID", agentID)
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+
+		return resp
+	}
+
+	t.Run("human PUT sets max_capability", func(t *testing.T) {
+		resp := putAs(t, putBody(true), "human:alice")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var updated board.Card
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&updated))
+		assert.True(t, updated.MaxCapability)
+	})
+
+	t.Run("human PUT with max_capability absent clears the field like autonomous:false", func(t *testing.T) {
+		body := fmt.Sprintf(
+			`{"title":"%s","type":"task","state":"todo","priority":"medium","vetted":true}`,
+			card.Title)
+
+		resp := putAs(t, body, "human:alice")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var updated board.Card
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&updated))
+		assert.False(t, updated.MaxCapability, "max_capability absent on PUT clears the field, matching autonomous:false semantics")
+	})
+
+	t.Run("agent PUT changing max_capability returns 403 HUMAN_ONLY_FIELD", func(t *testing.T) {
+		resp := putAs(t, putBody(true), "agent-1")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
+		assert.Contains(t, apiErr.Details, "max_capability")
+
+		reloaded, err := svc.GetCard(context.Background(), "test-project", card.ID)
+		require.NoError(t, err)
+		assert.False(t, reloaded.MaxCapability, "max_capability should still be cleared from the prior subtest")
+	})
+
+	t.Run("agent PUT echoing existing max_capability passes through", func(t *testing.T) {
+		// Card is at max_capability=false; agent PUT echoes false - no change.
+		resp := putAs(t, putBody(false), "agent-1")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var updated board.Card
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&updated))
+		assert.False(t, updated.MaxCapability)
+	})
+}
+
 func TestHumanOnlyFields_ModelPins_CreateCard(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()

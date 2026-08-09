@@ -95,6 +95,14 @@ interface AutomationCheckboxesProps {
    * is driven by the card's lifecycle rather than an active worker.
    */
   lockedReason?: string;
+  /**
+   * When true (and automatic model selection is enabled), selects the most
+   * capable model in the card's tier regardless of cost. Ignored when
+   * automatic selection is off because pins are explicit role assignments.
+   */
+  maxCapability?: boolean;
+  /** Called when the user toggles the maximum-capability checkbox. */
+  onMaxCapabilityChange?: (value: boolean) => void;
 }
 
 /**
@@ -129,6 +137,8 @@ export function AutomationCheckboxes({
   disabled = false,
   mode = 'edit',
   lockedReason,
+  maxCapability,
+  onMaxCapabilityChange,
 }: AutomationCheckboxesProps) {
   const creating = mode === 'create';
   const prDisplay = formatPrLink(prUrl);
@@ -182,6 +192,8 @@ export function AutomationCheckboxes({
           disabled={disabled}
           models={models}
           favorites={favorites}
+          maxCapability={maxCapability}
+          onMaxCapabilityChange={onMaxCapabilityChange}
         />
       )}
 

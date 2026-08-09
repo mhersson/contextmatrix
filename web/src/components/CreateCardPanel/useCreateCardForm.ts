@@ -24,6 +24,7 @@ export interface CreateCardForm {
   // Best-of-N and mob session - surfaced at create time when the agent backend is
   // active (see AutomationCheckboxes). 0/[] = off / unset.
   bestOfN: number;
+  maxCapability: boolean;
   mobParticipants: number;
   mobPhases: string[];
   mobGuests: string[];
@@ -43,6 +44,7 @@ export interface CreateCardForm {
   setCreatePR: (v: boolean) => void;
   setBaseBranch: (v: string) => void;
   setBestOfN: (v: number) => void;
+  setMaxCapability: (v: boolean) => void;
   setMobParticipants: (v: number) => void;
   setMobPhases: (v: string[]) => void;
   setMobGuests: (v: string[]) => void;
@@ -90,6 +92,7 @@ export function useCreateCardForm(
   // 0 = off / unset; the AutomationCheckboxes selector (create mode, agent
   // backend only) writes here, and buildInput forwards non-zero values.
   const [bestOfN, setBestOfN] = useState(0);
+  const [maxCapability, setMaxCapability] = useState(false);
   const [mobParticipants, setMobParticipants] = useState(0);
   const [mobPhases, setMobPhases] = useState<string[]>([]);
   const [mobGuests, setMobGuests] = useState<string[]>([]);
@@ -159,6 +162,7 @@ export function useCreateCardForm(
       // Best-of-N and mob session - only forwarded when the user picked a value
       // (0 / [] mean "off / unset" and are omitted to keep the input clean).
       best_of_n: bestOfN || undefined,
+      max_capability: maxCapability || undefined,
       mob_participants: mobParticipants || undefined,
       mob_phases: mobPhases.length ? mobPhases : undefined,
       mob_guests: mobGuests.length ? mobGuests : undefined,
@@ -170,7 +174,7 @@ export function useCreateCardForm(
       skills: skills === null ? undefined : skills,
       assignee: assignee || undefined,
     }),
-    [title, type, priority, labels, parent, body, autonomous, modelOrchestrator, modelCoder, modelReviewer, bestOfN, mobParticipants, mobPhases, mobGuests, createPR, baseBranch, skills, assignee],
+    [title, type, priority, labels, parent, body, autonomous, modelOrchestrator, modelCoder, modelReviewer, bestOfN, maxCapability, mobParticipants, mobPhases, mobGuests, createPR, baseBranch, skills, assignee],
   );
 
   const ensureTitle = useCallback((): boolean => {
@@ -221,6 +225,7 @@ export function useCreateCardForm(
       createPR,
       baseBranch,
       bestOfN,
+      maxCapability,
       mobParticipants,
       mobPhases,
       mobGuests,
@@ -238,6 +243,7 @@ export function useCreateCardForm(
       setCreatePR,
       setBaseBranch,
       setBestOfN,
+      setMaxCapability,
       setMobParticipants,
       setMobPhases,
       setMobGuests,

@@ -53,6 +53,7 @@ export function isCardDirty(edited: Card, original: Card): boolean {
     (edited.model_coder ?? '') !== (original.model_coder ?? '') ||
     (edited.model_reviewer ?? '') !== (original.model_reviewer ?? '') ||
     (edited.best_of_n ?? 0) !== (original.best_of_n ?? 0) ||
+    (edited.max_capability ?? false) !== (original.max_capability ?? false) ||
     (edited.mob_participants ?? 0) !== (original.mob_participants ?? 0) ||
     !arraysEqual(edited.mob_phases, original.mob_phases) ||
     !arraysEqual(edited.mob_guests, original.mob_guests) ||
@@ -89,6 +90,9 @@ export function buildCardPatch(edited: Card, original: Card): PatchCardInput {
   }
   if ((edited.best_of_n ?? 0) !== (original.best_of_n ?? 0)) {
     updates.best_of_n = edited.best_of_n ?? 0;
+  }
+  if ((edited.max_capability ?? false) !== (original.max_capability ?? false)) {
+    updates.max_capability = edited.max_capability ?? false;
   }
   if ((edited.mob_participants ?? 0) !== (original.mob_participants ?? 0)) {
     updates.mob_participants = edited.mob_participants ?? 0;

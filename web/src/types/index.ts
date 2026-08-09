@@ -37,6 +37,8 @@ export interface Card {
   best_of_n?: number;
   /** Mob discussion seats: 0/absent = off, 2..mob_max_participants = on. */
   mob_participants?: number;
+  /** When true, ignore cost and pick the most capable model in the card's tier. */
+  max_capability?: boolean;
   /** Phases that convene a discussion (subset of plan/review/execute). */
   mob_phases?: string[];
   /** Guest names from the server's mob.guests registry. */
@@ -206,6 +208,7 @@ export interface CreateCardInput {
   model_coder?: string;
   model_reviewer?: string;
   best_of_n?: number;
+  max_capability?: boolean;
   mob_participants?: number;
   mob_phases?: string[];
   mob_guests?: string[];
@@ -227,6 +230,7 @@ export interface PatchCardInput {
   model_coder?: string;
   model_reviewer?: string;
   best_of_n?: number;
+  max_capability?: boolean;
   mob_participants?: number;
   mob_phases?: string[];
   mob_guests?: string[];

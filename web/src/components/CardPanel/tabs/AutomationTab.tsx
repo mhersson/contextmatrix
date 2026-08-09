@@ -69,6 +69,10 @@ export function AutomationTab({
           onBestOfNChange={(v) =>
             setEditedCard((prev) => ({ ...prev, best_of_n: v }))
           }
+          maxCapability={editedCard.max_capability}
+          onMaxCapabilityChange={(v) =>
+            setEditedCard((prev) => ({ ...prev, max_capability: v }))
+          }
           mobParticipants={editedCard.mob_participants}
           mobMaxParticipants={mobMaxParticipants}
           mobDefaultParticipants={mobDefaultParticipants}

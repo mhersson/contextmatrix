@@ -317,6 +317,76 @@ describe('CreateCardPanel - Best-of-N and Mob at create time', () => {
   });
 });
 
+describe('CreateCardPanel - maximum capability', () => {
+  it('renders the Maximum capability checkbox when automatic model selection is on', () => {
+    render(<CreateCardPanel {...makeProps()} />);
+    expect(screen.getByLabelText('Maximum capability')).toBeInTheDocument();
+    expect(screen.getByText('most capable in tier, ignores cost')).toBeInTheDocument();
+  });
+
+  it('toggling the checkbox updates form state and sends max_capability in the create payload', async () => {
+    const onCreate = vi.fn().mockResolvedValue(undefined);
+    render(<CreateCardPanel {...makeProps({ onCreate })} />);
+
+    fireEvent.change(screen.getByPlaceholderText(/Card title/), { target: { value: 'Max cap card' } });
+
+    // Toggle max capability on
+    fireEvent.click(screen.getByLabelText('Maximum capability'));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Just create' }));
+    });
+
+    expect(onCreate).toHaveBeenCalledOnce();
+    const [input] = onCreate.mock.calls[0];
+    expect(input).toMatchObject({ title: 'Max cap card', max_capability: true });
+  });
+
+  it('omits max_capability from the create payload when left unchecked (default)', async () => {
+    const onCreate = vi.fn().mockResolvedValue(undefined);
+    render(<CreateCardPanel {...makeProps({ onCreate })} />);
+
+    fireEvent.change(screen.getByPlaceholderText(/Card title/), { target: { value: 'Default card' } });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Just create' }));
+    });
+
+    const [input] = onCreate.mock.calls[0];
+    expect(input.max_capability).toBeUndefined();
+  });
+
+  it('hides the Maximum capability checkbox when model pins are revealed', () => {
+    render(<CreateCardPanel {...makeProps()} />);
+    // Automatic is on by default; uncheck it to reveal pins
+    fireEvent.click(screen.getByLabelText('Automatic model selection'));
+    expect(screen.queryByLabelText('Maximum capability')).not.toBeInTheDocument();
+  });
+
+  it('re-checking automatic model selection clears pins but preserves max_capability', async () => {
+    // Regression guard: max_capability is NOT a pin and must survive
+    // the re-check cycle.
+    const onCreate = vi.fn().mockResolvedValue(undefined);
+    render(<CreateCardPanel {...makeProps({ onCreate })} />);
+
+    fireEvent.change(screen.getByPlaceholderText(/Card title/), { target: { value: 'Preserve card' } });
+
+    // Toggle max capability on
+    fireEvent.click(screen.getByLabelText('Maximum capability'));
+
+    // Uncheck automatic (reveal pins) then re-check automatic (clear pins)
+    fireEvent.click(screen.getByLabelText('Automatic model selection'));
+    fireEvent.click(screen.getByLabelText('Automatic model selection'));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Just create' }));
+    });
+
+    const [input] = onCreate.mock.calls[0];
+    expect(input.max_capability).toBe(true);
+  });
+});
+
 describe('CreateCardPanel - type templates', () => {
   beforeEach(() => {
     vi.restoreAllMocks();

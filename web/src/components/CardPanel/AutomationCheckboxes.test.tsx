@@ -139,6 +139,36 @@ describe('AutomationCheckboxes - Best of N selector', () => {
     expect(screen.queryByLabelText('Best of N')).not.toBeInTheDocument();
   });
 
+  it('passes maxCapability to ModelPinsSection and fires the change handler', () => {
+    const onMaxCapabilityChange = vi.fn();
+    const { rerender } = render(
+      <AutomationCheckboxes
+        {...baseProps}
+        taskBackend="agent"
+        maxCapability
+        onMaxCapabilityChange={onMaxCapabilityChange}
+      />,
+    );
+    // maxCapability is true, so the checkbox should be checked
+    const maxCapCheckbox = screen.getByLabelText('Maximum capability');
+    expect(maxCapCheckbox).toBeChecked();
+
+    // Toggle it off
+    fireEvent.click(maxCapCheckbox);
+    expect(onMaxCapabilityChange).toHaveBeenCalledWith(false);
+
+    // Verify it reflects external change
+    rerender(
+      <AutomationCheckboxes
+        {...baseProps}
+        taskBackend="agent"
+        maxCapability={false}
+        onMaxCapabilityChange={onMaxCapabilityChange}
+      />,
+    );
+    expect(maxCapCheckbox).not.toBeChecked();
+  });
+
   it('renders the "Best of N" select in create mode when taskBackend is agent', () => {
     // best_of_n now wires through CreateCardInput, so create mode offers
     // the selector (the branch/PR hints still branch on mode separately).

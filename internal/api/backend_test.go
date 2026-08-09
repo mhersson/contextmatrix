@@ -3484,6 +3484,75 @@ func TestRunCardBestOfNPayload(t *testing.T) {
 	}
 }
 
+// TestRunCardMaxCapabilityPayload covers the payload copy of the per-card
+// max_capability flag: a card with MaxCapability set to true yields
+// payload.MaxCapability == true, a card with it set to false (or unset)
+// yields false.
+func TestRunCardMaxCapabilityPayload(t *testing.T) {
+	cases := []struct {
+		name   string
+		setMax bool // whether to patch MaxCapability
+		maxC   bool
+		want   bool
+	}{
+		{"max_capability true yields true on payload", true, true, true},
+		{"max_capability false yields false on payload", true, false, false},
+		{"max_capability unset (default false) yields false on payload", false, false, false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
+			defer cleanup()
+
+			ctx := context.Background()
+
+			card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+				Title: "MaxCapability task", Type: "task", Priority: "medium",
+			})
+			require.NoError(t, err)
+
+			if tc.setMax {
+				_, err = svc.PatchCard(ctx, "test-project", card.ID, service.PatchCardInput{
+					MaxCapability: &tc.maxC,
+				})
+				require.NoError(t, err)
+			}
+
+			var capturedPayload backend.TriggerPayload
+
+			mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_ = json.NewDecoder(r.Body).Decode(&capturedPayload)
+
+				writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
+			}))
+			defer mockBackend.Close()
+
+			backendClient := backend.NewClient(mockBackend.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+			router := NewRouter(RouterConfig{
+				Service: svc, Bus: bus, Backend: backendClient,
+				AgentBackendCfg: &config.AgentBackendConfig{
+					APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
+				},
+			})
+
+			server := httptest.NewServer(router)
+			defer server.Close()
+
+			req, _ := http.NewRequest("POST",
+				server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", nil)
+
+			resp, err := http.DefaultClient.Do(req)
+
+			require.NoError(t, err)
+			defer closeBody(t, resp.Body)
+
+			require.Equal(t, http.StatusAccepted, resp.StatusCode)
+			assert.Equal(t, tc.want, capturedPayload.MaxCapability)
+		})
+	}
+}
+
 // --- Selection outcome stats ---
 
 // TestRunCardSelectionCarriesOutcomeStats covers OutcomeFloor + per-candidate
