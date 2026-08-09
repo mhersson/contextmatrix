@@ -63,9 +63,43 @@ func TestRecordModelOutcomesValidation(t *testing.T) {
 	assert.Error(t, err, "empty model rejected") //nolint:testifylint
 	err = st.RecordModelOutcomes(context.Background(), []ModelOutcome{{Model: "a", Result: "meh", NCandidates: 2}})
 	assert.Error(t, err, "unknown result rejected") //nolint:testifylint
-	err = st.RecordModelOutcomes(context.Background(), []ModelOutcome{{Model: "a", Result: "win", NCandidates: 1}})
-	assert.Error(t, err, "n_candidates < 2 rejected") //nolint:testifylint
+	err = st.RecordModelOutcomes(context.Background(), []ModelOutcome{{Model: "a", Result: "win", NCandidates: 0}})
+	assert.Error(t, err, "n_candidates < 1 rejected") //nolint:testifylint
 	assert.NoError(t, st.RecordModelOutcomes(context.Background(), nil), "empty batch is a no-op")
+}
+
+func TestRecordModelOutcomesSoloAdmitted(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "ops.db"))
+	require.NoError(t, err)
+
+	defer st.Close()
+
+	ctx := context.Background()
+
+	require.NoError(t, st.RecordModelOutcomes(ctx, []ModelOutcome{
+		{Project: "p", CardID: "CM-1", Model: "a/x", Role: "coder", Result: "win", NCandidates: 1},
+	}))
+	require.NoError(t, st.RecordModelOutcomes(ctx, []ModelOutcome{
+		{Project: "p", CardID: "CM-2", Model: "b/y", Role: "coder", Result: "failed", NCandidates: 1},
+	}))
+
+	stats, err := st.ModelOutcomeStats(ctx)
+	require.NoError(t, err)
+
+	byModel := map[string]OutcomeStats{}
+	for _, s := range stats {
+		byModel[s.Model] = s
+	}
+
+	ax := byModel["a/x"]
+	assert.Equal(t, 1, ax.Samples)
+	assert.Equal(t, 1, ax.Wins)
+	assert.InDelta(t, 1.0, ax.ExpectedWins, 1e-9, "a solo win reports expected-wins 1.0")
+
+	by := byModel["b/y"]
+	assert.Equal(t, 1, by.Samples)
+	assert.Equal(t, 0, by.Wins)
+	assert.InDelta(t, 1.0, by.ExpectedWins, 1e-9, "a solo failure still reports expected-wins 1.0, penalizing at full weight")
 }
 
 func TestSchemaUpgradeFromV1AddsOutcomes(t *testing.T) {

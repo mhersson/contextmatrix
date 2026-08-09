@@ -39,8 +39,8 @@ func (s *Store) RecordModelOutcomes(ctx context.Context, rows []ModelOutcome) er
 			return fmt.Errorf("record model outcomes: row %d: invalid result %q", i, r.Result)
 		}
 
-		if r.NCandidates < 2 {
-			return fmt.Errorf("record model outcomes: row %d: n_candidates must be >= 2, got %d", i, r.NCandidates)
+		if r.NCandidates < 1 {
+			return fmt.Errorf("record model outcomes: row %d: n_candidates must be >= 1, got %d", i, r.NCandidates)
 		}
 	}
 

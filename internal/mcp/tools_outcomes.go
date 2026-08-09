@@ -21,7 +21,7 @@ type outcomeRow struct {
 	Result      string  `json:"result"       jsonschema:"required,win | loss | failed"`
 	VerifyPass  bool    `json:"verify_pass"  jsonschema:"whether the candidate's verify command passed"`
 	CostUSD     float64 `json:"cost_usd"     jsonschema:"candidate spend in USD"`
-	NCandidates int     `json:"n_candidates" jsonschema:"required,how many candidates raced in this game (>= 2)"`
+	NCandidates int     `json:"n_candidates" jsonschema:"required,how many candidates raced in this game (>= 2 for Best-of-N races; 1 for a solo run's own outcome)"`
 	JudgeModel  string  `json:"judge_model,omitempty" jsonschema:"judge model slug; empty for an auto-win"`
 }
 

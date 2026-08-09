@@ -444,10 +444,33 @@ never duplicates.
 After a Best-of-N race, the judge phase reports one row per candidate via
 `report_model_outcome`: `win`, `loss`, or `failed` (dropped before judging),
 with verify status, cost, and field size. The tool requires an active claim on
-the card and a field size of at least 2. ContextMatrix aggregates rows into
-per-model stats - `samples`, `wins`, and `expected_wins` - and attaches them
-to matching candidates on the next trigger, where they drive the
-[outcome bias](#outcome-bias) once samples reach `outcome_floor`.
+the card; field size (`n_candidates`) must be at least 1. ContextMatrix
+aggregates rows into per-model stats - `samples`, `wins`, and `expected_wins`
+(`SUM(1.0 / n_candidates)` per row) - and attaches them to matching candidates
+on the next trigger, where they drive the [outcome bias](#outcome-bias) once
+samples reach `outcome_floor`.
+
+#### Solo outcomes
+
+A card that never races (`n_candidates: 1`) still reports its own result:
+`win` or `failed`, with no judge model. Because `expected_wins` accrues
+`1/n_candidates` per row regardless of result, a solo row always contributes
+1.0 expected wins - the full weight a race candidate only reaches by winning
+every game it's ever entered. A solo win also contributes 1 win, so the two
+cancel out: neutral, the same as a candidate with a spotless race record. A
+solo failure contributes 0 wins against that same 1.0 expected wins, so it
+subtracts the maximum a single sample can subtract - a heavier per-sample
+penalty than a raced loss, whose `expected_wins` contribution is only
+`1/n_candidates` for that race.
+
+Two consequences follow directly from folding solo runs into the same table:
+
+- A model that has never raced can cross `outcome_floor` on solo volume
+  alone, activating the bias multiplier without a single head-to-head result.
+- A model holding a high bias factor from races regresses toward neutral as
+  solo wins accumulate, because each solo win adds equally to `samples` and
+  `expected_wins` (weight 1/1, versus a race win's smaller 1/n_candidates).
+  This is dilution toward the neutral win rate, not inflation above it.
 
 ### Observability
 
