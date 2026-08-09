@@ -89,6 +89,77 @@ describe('ModelPinsSection - automatic model selection toggle', () => {
   });
 });
 
+describe('ModelPinsSection - maximum capability checkbox', () => {
+  it('renders the max capability checkbox when automatic is on', () => {
+    render(<ModelPinsSection {...baseProps} />);
+    // default: automatic is on
+    expect(screen.getByLabelText('Automatic model selection')).toBeChecked();
+    expect(screen.getByLabelText('Maximum capability')).toBeInTheDocument();
+    expect(screen.getByText('most capable in tier, ignores cost')).toBeInTheDocument();
+  });
+
+  it('hides the max capability checkbox when automatic is off', () => {
+    render(<ModelPinsSection {...baseProps} orchestrator="anthropic/claude-opus-4" />);
+    // pins present -> automatic off
+    expect(screen.getByLabelText('Automatic model selection')).not.toBeChecked();
+    expect(screen.queryByLabelText('Maximum capability')).not.toBeInTheDocument();
+  });
+
+  it('hides the max capability checkbox when toggle is unchecked via UI', () => {
+    render(<ModelPinsSection {...baseProps} />);
+    fireEvent.click(screen.getByLabelText('Automatic model selection'));
+    expect(screen.queryByLabelText('Maximum capability')).not.toBeInTheDocument();
+  });
+
+  it('toggles max capability via the checkbox', () => {
+    const onMaxCapabilityChange = vi.fn();
+    render(<ModelPinsSection {...baseProps} onMaxCapabilityChange={onMaxCapabilityChange} />);
+    fireEvent.click(screen.getByLabelText('Maximum capability'));
+    expect(onMaxCapabilityChange).toHaveBeenCalledWith(true);
+  });
+
+  it('starts unchecked by default (false) even when onMaxCapabilityChange is provided', () => {
+    const onMaxCapabilityChange = vi.fn();
+    render(<ModelPinsSection {...baseProps} onMaxCapabilityChange={onMaxCapabilityChange} />);
+    expect(screen.getByLabelText('Maximum capability')).not.toBeChecked();
+  });
+
+  it('reflects an externally-set maxCapability', () => {
+    render(<ModelPinsSection {...baseProps} maxCapability />);
+    expect(screen.getByLabelText('Maximum capability')).toBeChecked();
+  });
+
+  it('is disabled when the section is disabled', () => {
+    render(<ModelPinsSection {...baseProps} disabled />);
+    expect(screen.getByLabelText('Maximum capability')).toBeDisabled();
+  });
+
+  it('re-checking automatic does NOT call onMaxCapabilityChange with false', () => {
+    const onChange = vi.fn();
+    const onMaxCapabilityChange = vi.fn();
+    // Start with pins set -> automatic off -> max capability checkbox hidden
+    render(
+      <ModelPinsSection
+        {...baseProps}
+        onChange={onChange}
+        onMaxCapabilityChange={onMaxCapabilityChange}
+        orchestrator="anthropic/claude-opus-4"
+        coder="openrouter/auto"
+      />,
+    );
+
+    // Re-check automatic model selection
+    fireEvent.click(screen.getByLabelText('Automatic model selection'));
+
+    // Pins are cleared
+    expect(onChange).toHaveBeenCalledWith('model_orchestrator', '');
+    expect(onChange).toHaveBeenCalledWith('model_coder', '');
+
+    // max_capability is NOT cleared - no call to onMaxCapabilityChange
+    expect(onMaxCapabilityChange).not.toHaveBeenCalled();
+  });
+});
+
 describe('ModelPinsSection - toggle against a stateful parent', () => {
   it('keeps the section revealed when the user empties the last pin', () => {
     render(<StatefulPins initial={{ model_coder: 'typo/model' }} />);

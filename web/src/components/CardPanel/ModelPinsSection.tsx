@@ -19,6 +19,14 @@ interface ModelPinsSectionProps {
    * reviewer), or the orchestrator pin when all three are already set.
    */
   favorites?: string[];
+  /**
+   * When true (and automatic model selection is enabled), selects the most
+   * capable model in the card's tier regardless of cost. Ignored when
+   * automatic selection is off because pins are explicit role assignments.
+   */
+  maxCapability?: boolean;
+  /** Called when the user toggles the maximum-capability checkbox. */
+  onMaxCapabilityChange?: (value: boolean) => void;
 }
 
 const ROWS: { field: ModelPinField; label: string }[] = [
@@ -56,6 +64,8 @@ export function ModelPinsSection({
   disabled = false,
   models,
   favorites,
+  maxCapability,
+  onMaxCapabilityChange,
 }: ModelPinsSectionProps) {
   // CardPanel and CreateCardPanel can be mounted simultaneously
   // (ProjectShell renders both independently), so each row's input id must be
@@ -113,6 +123,21 @@ export function ModelPinsSection({
           {automatic ? 'selector decides' : 'pin models per role'}
         </span>
       </div>
+      {automatic && (
+        <div className="bf-spread">
+          <label className="bf-switch">
+            <input
+              type="checkbox"
+              aria-label="Maximum capability"
+              checked={maxCapability ?? false}
+              disabled={disabled}
+              onChange={(e) => onMaxCapabilityChange?.(e.target.checked)}
+            />
+            <span>Maximum capability</span>
+          </label>
+          <span className="bf-hint">most capable in tier, ignores cost</span>
+        </div>
+      )}
       {!automatic && favorites && favorites.length > 0 && (
         <FavoriteChips
           favorites={favorites}
