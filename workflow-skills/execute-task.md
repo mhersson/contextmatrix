@@ -79,7 +79,8 @@ Work through your plan step by step. As you make progress:
 
 **Heartbeat discipline is mandatory.** The timeout is 30 minutes - call
 `heartbeat` after each step, each test run, and each significant code change.
-During any idle wait, call `heartbeat` every 5 minutes.
+Call `heartbeat` immediately before any idle wait and again on resume;
+recover per the workflow rules if the card went stalled.
 
 **Token usage reporting.** After each `heartbeat`, also call `report_usage` with
 your token consumption since the last report. This tracks cost per card. Always
@@ -244,6 +245,10 @@ Do NOT retry, do NOT silently stop.
   helper. If a helper already exists, use it.
 - **Clean up all exit paths.** When adding resource acquisition, verify every
   return, break, and error path releases it. Check early returns.
+- **Shut down what you started.** Kill any long-running process you launched
+  for verification (dev server, watcher, emulator) before reporting the step
+  complete - leftovers corrupt later checks (`pgrep` matches, port conflicts).
+  If one must keep running, record its PID and port on the card with `add_log`.
 
 ## Rules
 

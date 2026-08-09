@@ -90,9 +90,9 @@ Based on the card's current state and body content:
 2. Append `\n\nYou are executing **Phase 1: Plan Drafting** only.` to the
    returned content.
 3. Execute the returned Phase 1 instructions inline. They fetch the
-   plan-draft skill and spawn the drafting sub-agent; block on it, calling
-   `heartbeat` + `report_usage` on the parent every 5 minutes while it
-   runs. The sub-agent writes `## Plan` and `## Decisions` and prints
+   plan-draft skill and call `heartbeat`, then spawn the drafting sub-agent
+   and block on it; on return call `heartbeat` and `report_usage`. The
+   sub-agent writes `## Plan` and `## Decisions` and prints
    `PLAN_DRAFTED`.
 4. Skip user approval - proceed directly to Phase 2.
 
@@ -120,11 +120,11 @@ Based on the card's current state and body content:
       Do NOT execute inline even if `inline` is true.
     - **Do NOT pass `isolation: "worktree"`.** Sub-agents run inline in your working tree on the feature branch.
     - Spawn all ready subtasks in **parallel**.
-10. **Monitor sub-agents.** Enter a monitoring loop. Call `heartbeat` on the
-    parent every 5 minutes. After each `heartbeat`, call `report_usage` with
-    your token consumption since the last report (`prompt_tokens`,
-    `completion_tokens`, and `cache_read_tokens` / `cache_creation_tokens` if
-    available) - this is mandatory, not optional.
+10. **Monitor sub-agents.** Enter a monitoring loop. Call `heartbeat` and
+    `report_usage` after each check. Report your token consumption since the
+    last report (`prompt_tokens`, `completion_tokens`, and
+    `cache_read_tokens` / `cache_creation_tokens` if available) - this is
+    mandatory, not optional.
 
     Map stream-json `usage` frame fields to `report_usage` parameters:
     - `usage.input_tokens` → `prompt_tokens`
@@ -132,7 +132,8 @@ Based on the card's current state and body content:
     - `usage.cache_read_input_tokens` → `cache_read_tokens`
     - `usage.cache_creation_input_tokens` → `cache_creation_tokens`
 
-    a. Wait 1 minute between checks.
+    a. Wait 10 minutes between checks - every check re-reads your entire
+       context.
     b. Call `check_agent_health(parent_id=<card_id>)`.
     c. Act on each subtask's status:
        - **`active`** - no action.
@@ -298,6 +299,7 @@ and opens the PR when `create_pr` is enabled.
 ## Rules
 
 - Always use MCP tools for all ContextMatrix interactions.
-- Call `heartbeat` on the parent every 5 minutes during idle waits.
+- Call `heartbeat` immediately before any idle wait and again on resume (see
+  Phase 1 and Phase 3 for cadence).
 - Spawn sub-agents with `Agent` tool, not `SendMessage`.
 - Do not skip phases. Start from the correct phase based on card state.
