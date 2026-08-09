@@ -22,7 +22,7 @@ The operator-facing controls, most direct first:
 | I want to...                          | Knob                                        | Where                                        | Notes                                                                                          |
 | ------------------------------------- | ------------------------------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | Force a model for one card            | model pin on the card                       | card detail UI / `PATCH` card                | Honored when the slug is a candidate; then it beats everything, including the blacklist        |
-| Pick the most capable model for one card's tier | card `max_capability`           | card Automation UI / `PATCH` card            | Intended: most capable in tier, ignores cost, bypasses favorites. Shipped in the payload but **not yet honored by the agent backend** |
+| Pick the most capable model for one card's tier | card `max_capability`           | card Automation UI / `PATCH` card            | Most capable in tier: ignores the price band and bypasses favorites. Tier bar, blacklist, in-run exclusion, vendor diversity and window fit still apply; equal quality still tie-breaks to the cheaper model |
 | Prefer models for a complexity tier   | `favorites`                                 | `config.yaml` (global), `.board.yaml` (project) | Favorites skip the cost logic but must still clear the tier bar and not be blacklisted      |
 | Restrict which vendors are eligible   | `backends.agent.model_allowlist`            | `config.yaml`                                | Vendor prefixes (`qwen`, `z-ai`); replaces the built-in list; inert on the `openai` leg        |
 | Rate models AA does not know          | `backends.agent.model_priors`               | `config.yaml`                                | `openai` leg only; verbatim 0..1 priors                                                        |
@@ -334,12 +334,13 @@ reference:
    trigger's `backends.agent.default_model` feeds the orchestrator-model
    resolution, not this fallback.
 
-`max_capability` (a per-card, human-set flag) is intended to narrow this
-sequence when the card is configured for automatic selection. **ContextMatrix
-stores the flag and ships it in the trigger payload; the agent backend does not
-consume it yet, so setting it currently changes nothing.** The behavior below
-describes the agreed contract, not shipped behavior - check the
-`contextmatrix-agent` repository for what it actually does today.
+`max_capability` (a per-card, human-set flag) narrows this sequence when the
+card is configured for automatic selection. ContextMatrix stores the flag and
+ships it in the trigger payload; the agent backend consumes it as
+`registry.Selection.MaxCapability`, a run-level field set once when the registry
+is built. Every automatic pick in the run inherits it: the coder, the planner's
+model floor, the review-panel seats, the judge, the verify/propose step, and mob
+and Best-of-N seats. Only a resolvable card pin escapes it.
 
 - A card pin (step 1) still wins. Note that a card can carry both: the
   "Maximum capability" checkbox is *hidden* when automatic selection is off,
@@ -347,13 +348,18 @@ describes the agreed contract, not shipped behavior - check the
   added still stores and sends it.
 - Favorites (step 2) are bypassed entirely - the flag runs no favorite scan.
 - The filter (step 3) is untouched.
-- The price band (step 4) is neutralised - it is not computed.
+- The price band (step 4) is neutralised - it is set to `+Inf`, so no candidate
+  is excluded on price.
 - Best value (step 5) then selects the **highest-prior** candidate in the
   tier outright, still tie-breaking to the cheaper model. The tier bar still
   bounds the pool, so the pick is the most capable model that clears the
   card's tier, not the most capable model available.
 - Step 6 is unchanged: an empty pool still falls back to the agent's
   serve-config default.
+- The flag does not rescue a tier whose bar empties the pool. When no candidate
+  clears the tier bar, the selector returns the agent's serve-config default
+  with no event explaining the downgrade - which may be a weaker model than the
+  one the bar just filtered out.
 
 ### Worked example
 

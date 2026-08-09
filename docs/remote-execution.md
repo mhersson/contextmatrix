@@ -205,7 +205,7 @@ does with it.
 `max_capability` is the per-card flag telling the agent backend to ignore cost
 and pick the most capable model in the card's tier. It mirrors the card's
 stored `max_capability` field and is present (`true`) only when the flag is
-set; it is inert without the agent-side support (see
+set; the agent backend honors it for every automatic pick in the run (see
 `docs/model-selection.md` § The decision order).
 
 `mob` is present only when the card's `mob_participants` is `>= 2`.

@@ -568,9 +568,10 @@ clears it (full-replacement semantics), while a PATCH that omits it leaves the
 stored value unchanged (`nil` = don't change).
 
 The flag is copied into the run-trigger payload (`TriggerPayload.MaxCapability`,
-`protocol` v0.16.0) in `internal/api/backend_run.go`. It is inert until the
-agent backend consumes it: ContextMatrix stores and ships the flag, and the
-selection behavior it asks for lives in the `contextmatrix-agent` repository.
+`protocol` v0.16.0) in `internal/api/backend_run.go`. ContextMatrix stores and
+ships the flag; the selection behavior it asks for lives in the
+`contextmatrix-agent` repository (see `docs/model-selection.md`
+§ The decision order).
 In the UI the "Maximum capability" checkbox appears in the card Automation
 rail and the create panel only while automatic model selection is on, and
 re-checking automatic selection clears pins but never this flag. How it narrows
