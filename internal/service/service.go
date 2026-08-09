@@ -329,6 +329,15 @@ func (s *CardService) Now() time.Time {
 	return s.clk.Now()
 }
 
+// Clock exposes the service's time source. Callers that schedule their own
+// timers against card timing (the blocking await_subtasks wait, which also
+// refreshes claim heartbeats) must share this clock: running them on a
+// different one reintroduces exactly the drift NewCardService avoids by
+// adopting the lock manager's clock.
+func (s *CardService) Clock() clock.Clock {
+	return s.clk
+}
+
 // TransitionTo walks the shortest path of state transitions to reach targetState.
 // Each step validates, persists, commits, and publishes an event. Validation,
 // the in-memory mutation, the store write, and the commit enqueue all happen

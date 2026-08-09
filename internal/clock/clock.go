@@ -258,3 +258,23 @@ func (f *FakeClock) PendingTimers() int {
 
 	return n
 }
+
+// ActiveTickers returns the count of tickers registered via NewTicker that have
+// not been stopped. Like PendingTimers, this lets a test synchronise with a
+// goroutine that is about to block before advancing the clock.
+func (f *FakeClock) ActiveTickers() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	n := 0
+
+	for _, t := range f.tickers {
+		t.mu.Lock()
+		if !t.stopped {
+			n++
+		}
+		t.mu.Unlock()
+	}
+
+	return n
+}

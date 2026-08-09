@@ -250,8 +250,7 @@ func (s *CardService) UpdateWorkerStatus(ctx context.Context, project, cardID, s
 	// The activity log message is rewritten alongside the status so the UI
 	// doesn't display "failed: killed by operator" on a card recorded as
 	// completed - the two would contradict each other otherwise.
-	if (status == "failed" || status == "killed") &&
-		(card.State == board.StateDone || card.State == board.StateNotPlanned) {
+	if (status == "failed" || status == "killed") && board.IsTerminalState(card.State) {
 		ctxlog.Logger(ctx).Info("normalizing post-terminal cleanup callback to completed",
 			"card_id", cardID, "project", project,
 			"card_state", card.State, "incoming_status", status, "message", message)
@@ -411,7 +410,7 @@ func (s *CardService) PromoteToAutonomous(ctx context.Context, project, cardID, 
 	}
 
 	// Guard: cannot promote a card in a terminal state.
-	if card.State == board.StateDone || card.State == board.StateNotPlanned {
+	if board.IsTerminalState(card.State) {
 		s.writeMu.Unlock()
 
 		return nil, fmt.Errorf("promote card %s: %w", cardID, ErrCardTerminal)

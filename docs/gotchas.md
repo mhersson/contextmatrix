@@ -73,13 +73,29 @@
   `internal/api/events.go` (SSE event stream), `internal/api/worker_logs.go`
   (worker SSE log stream), and as the `clearWriteDeadlineForStreaming`
   middleware in `internal/mcp/server.go` (MCP GET stream). The MCP middleware
-  scopes the clear to `GET` requests only - `POST` and `DELETE` (short RPC
-  calls) retain the normal `WriteTimeout`. **Critical:** `ResponseController`
+  scopes the clear to `GET` requests; `DELETE` and every `POST` except one keep
+  the normal `WriteTimeout`. The exception is the `await_subtasks` tool call,
+  which blocks for minutes by design - `mcpRequestInfoMiddleware` clears the
+  deadline for it after sniffing the tool name out of the JSON-RPC body, so the
+  exemption is that one tool and not POST as a class. **Critical:**
+  `ResponseController`
   finds the underlying connection by calling `Unwrap()` on the `ResponseWriter`.
   Any middleware that wraps the writer (e.g., the logging middleware's
   `responseWriter`) must implement `Unwrap() http.ResponseWriter` or
   `SetWriteDeadline` silently fails - the error is non-fatal, so the handler
   continues but the timeout stays active.
+- **Proxy idle timeouts cut `await_subtasks` before `await_max` does:** clearing
+  the server's write deadline only fixes CM's own timeout. Anything in front of
+  it - Cloudflare (~100s), an nginx `proxy_read_timeout`, an ingress, a tunnel -
+  applies its own idle-response timeout, and a blocking wait sends nothing until
+  it resolves. The symptom is a transport error rather than a `timed_out: true`
+  result, which is the useful signal: a timeout is supposed to come back as a
+  normal result. Fix by setting `await_max` below the shortest idle timeout on
+  the path (e.g. `"55s"` behind Cloudflare); callers re-call on timeout, so a
+  short cap costs an extra round trip, not correctness. The tool also emits MCP
+  progress notifications every 30s when the client supplies a progress token,
+  which keeps bytes flowing for proxies that reset on write - but a client that
+  sends no token gets no keep-alive, so never rely on it in place of the cap.
 - **Tailwind v4 preflight strips `list-style` from `ul`/`ol`:** `@import "tailwindcss"` injects `@layer base { ol, ul { list-style: none } }`, which overrides browser UA defaults. Third-party markdown libraries (e.g. `@uiw/react-markdown-preview`) set `list-style-type` only on nested levels and rely on UA defaults for the top level - so bullets and numbers silently disappear. Restore them with explicit `!important` rules scoped to the library's wrapper class (e.g. `.wmde-markdown ul { list-style: disc !important }`). Also re-assert the nested cascade (`lower-roman`, `lower-alpha`) because your `!important` on the base rule wins over the library's non-`!important` nested rules.
 - **Frontend embed:** `//go:embed all:dist` in `web/embed.go` (package `web`).
   The `all:` prefix is required so dotfiles under `dist/` are included; a plain

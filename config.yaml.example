@@ -58,6 +58,15 @@ workflow_skills_dir: ""
 # Env: CONTEXTMATRIX_HEARTBEAT_TIMEOUT
 heartbeat_timeout: "30m"
 
+# Longest a single await_subtasks call may block server-side. Awaiting clients
+# re-call on timeout, so this bounds one HTTP request, not the total wait.
+# WARNING: reverse proxies that kill idle responses (Cloudflare ~100s) will cut
+# waits short - set this below your proxy's idle timeout (e.g. "55s") if
+# await_subtasks calls return transport errors instead of results.
+# Default: 8m
+# Env: CONTEXTMATRIX_AWAIT_MAX
+await_max: "8m"
+
 # How often the lock manager scans for cards whose heartbeat has timed out.
 # Must be positive. The default is fine for production; tests sometimes lower
 # this to drive timeout assertions deterministically. No env-var override.

@@ -77,6 +77,14 @@ progress and usage reporting do **not** flow through these seams - the
 in-container worker reports directly through CM's MCP tools (`complete_task`,
 `report_usage`, `add_log`).
 
+`await_subtasks` is the one MCP call that deliberately holds its POST open for
+minutes while an orchestrator waits on its subtasks. CM clears the response
+write deadline for it (the server's `WriteTimeout` is absolute and would
+otherwise cut the response at 60s) and caps the block at `await_max`. Anything
+between a worker and CM - a reverse proxy, an ingress, a tunnel - must tolerate
+a response that idles for that long, or `await_max` must be lowered below the
+shortest such timeout.
+
 ## Webhook Protocol
 
 ### Authentication: HMAC-SHA256 Signing

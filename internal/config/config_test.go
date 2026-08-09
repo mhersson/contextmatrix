@@ -144,6 +144,7 @@ github:
 	assert.Equal(t, "60s", cfg.Boards.GitPullInterval)
 	assert.False(t, cfg.Boards.GitDeferredCommit)
 	assert.Equal(t, "30m", cfg.HeartbeatTimeout)
+	assert.Equal(t, "8m", cfg.AwaitMax)
 	assert.Equal(t, "http://localhost:5173", cfg.CORSOrigin)
 }
 
@@ -309,6 +310,15 @@ github:
 			},
 		},
 		{
+			name:     "CONTEXTMATRIX_AWAIT_MAX",
+			envKey:   "CONTEXTMATRIX_AWAIT_MAX",
+			envValue: "5m",
+			check: func(t *testing.T, cfg *Config) {
+				t.Helper()
+				assert.Equal(t, "5m", cfg.AwaitMax)
+			},
+		},
+		{
 			name:     "CONTEXTMATRIX_CORS_ORIGIN",
 			envKey:   "CONTEXTMATRIX_CORS_ORIGIN",
 			envValue: "https://myapp.example.com",
@@ -391,6 +401,7 @@ func TestValidate_MissingBoardsDir(t *testing.T) {
 	cfg := &Config{
 		Boards:           BoardsConfig{Dir: ""},
 		HeartbeatTimeout: "30m",
+		AwaitMax:         "8m",
 	}
 	err := cfg.Validate()
 	require.Error(t, err)
@@ -421,10 +432,39 @@ func TestValidate_InvalidHeartbeatTimeout(t *testing.T) {
 	}
 }
 
+func TestValidate_InvalidAwaitMax(t *testing.T) {
+	tests := []struct {
+		name    string
+		timeout string
+	}{
+		{name: "garbage string", timeout: "notaduration"},
+		{name: "missing unit", timeout: "30"},
+		{name: "empty string", timeout: ""},
+		// Non-positive parses fine but would make every wait return instantly.
+		{name: "zero", timeout: "0s"},
+		{name: "negative", timeout: "-1m"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				Boards:           BoardsConfig{Dir: "/some/path"},
+				HeartbeatTimeout: "30m",
+				AwaitMax:         tt.timeout,
+				GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
+			}
+			err := cfg.Validate()
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "invalid await_max")
+		})
+	}
+}
+
 func TestValidate_RejectsNegativeChatIdleTTL(t *testing.T) {
 	cfg := &Config{
 		Boards:           BoardsConfig{Dir: "/some/path"},
 		HeartbeatTimeout: "30m",
+		AwaitMax:         "8m",
 		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
 		Chat:             ChatConfig{IdleTTL: -time.Minute, MaxConcurrent: 5},
 	}
@@ -439,6 +479,7 @@ func TestValidate_AcceptsZeroChatIdleTTL(t *testing.T) {
 	cfg := &Config{
 		Boards:           BoardsConfig{Dir: "/some/path"},
 		HeartbeatTimeout: "30m",
+		AwaitMax:         "8m",
 		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
 		Chat:             ChatConfig{IdleTTL: 0, MaxConcurrent: 5},
 	}
@@ -450,6 +491,7 @@ func TestValidate_RejectsNegativeChatMaxConcurrent(t *testing.T) {
 	cfg := &Config{
 		Boards:           BoardsConfig{Dir: "/some/path"},
 		HeartbeatTimeout: "30m",
+		AwaitMax:         "8m",
 		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
 		Chat:             ChatConfig{IdleTTL: time.Hour, MaxConcurrent: -1},
 	}
@@ -464,6 +506,7 @@ func TestValidate_AcceptsZeroChatMaxConcurrent(t *testing.T) {
 	cfg := &Config{
 		Boards:           BoardsConfig{Dir: "/some/path"},
 		HeartbeatTimeout: "30m",
+		AwaitMax:         "8m",
 		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
 		Chat:             ChatConfig{IdleTTL: time.Hour, MaxConcurrent: 0},
 	}
@@ -474,6 +517,7 @@ func TestValidate_ValidConfig(t *testing.T) {
 	cfg := &Config{
 		Boards:           BoardsConfig{Dir: "/some/path"},
 		HeartbeatTimeout: "30m",
+		AwaitMax:         "8m",
 		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
 	}
 	err := cfg.Validate()
@@ -622,6 +666,50 @@ func TestHeartbeatDuration(t *testing.T) {
 	}
 }
 
+func TestAwaitMaxDuration(t *testing.T) {
+	tests := []struct {
+		name      string
+		awaitMax  string
+		expected  time.Duration
+		expectErr bool
+	}{
+		{
+			name:     "8 minutes",
+			awaitMax: "8m",
+			expected: 8 * time.Minute,
+		},
+		{
+			name:     "55 seconds",
+			awaitMax: "55s",
+			expected: 55 * time.Second,
+		},
+		{
+			name:      "invalid string",
+			awaitMax:  "notaduration",
+			expectErr: true,
+		},
+		{
+			name:      "empty string",
+			awaitMax:  "",
+			expectErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{AwaitMax: tt.awaitMax}
+
+			d, err := cfg.AwaitMaxDuration()
+			if tt.expectErr {
+				assert.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expected, d)
+			}
+		})
+	}
+}
+
 func TestLoad_InvalidYAML(t *testing.T) {
 	dir := t.TempDir()
 	path := writeConfigFile(t, dir, `
@@ -695,6 +783,7 @@ func TestValidate_EmptyPullInterval_CoercedToDefault(t *testing.T) {
 			GitPullInterval: "",
 		},
 		HeartbeatTimeout: "30m",
+		AwaitMax:         "8m",
 		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
 	}
 
@@ -739,6 +828,7 @@ func TestDefaults(t *testing.T) {
 	assert.False(t, cfg.Boards.GitCloneOnEmpty)
 	assert.Empty(t, cfg.Boards.GitRemoteURL)
 	assert.Equal(t, "30m", cfg.HeartbeatTimeout)
+	assert.Equal(t, "8m", cfg.AwaitMax)
 	assert.Equal(t, "http://localhost:5173", cfg.CORSOrigin)
 	assert.Empty(t, cfg.WorkflowSkillsDir)
 	assert.Empty(t, cfg.MCPAPIKey)
@@ -928,6 +1018,7 @@ func TestValidate_CloneOnEmptyWithoutRemoteURL(t *testing.T) {
 			GitRemoteURL:    "",
 		},
 		HeartbeatTimeout: "30m",
+		AwaitMax:         "8m",
 		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
 	}
 	err := cfg.Validate()
@@ -943,6 +1034,7 @@ func TestValidate_CloneOnEmptyWithRemoteURL(t *testing.T) {
 			GitRemoteURL:    "https://github.com/user/boards.git",
 		},
 		HeartbeatTimeout: "30m",
+		AwaitMax:         "8m",
 		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
 	}
 	err := cfg.Validate()
@@ -957,6 +1049,7 @@ func TestValidate_RemoteURLWithoutCloneOnEmpty(t *testing.T) {
 			GitRemoteURL:    "https://github.com/user/boards.git",
 		},
 		HeartbeatTimeout: "30m",
+		AwaitMax:         "8m",
 		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
 	}
 	err := cfg.Validate()
@@ -1258,6 +1351,7 @@ func TestValidate_Theme_InvalidValue(t *testing.T) {
 	cfg := &Config{
 		Boards:           BoardsConfig{Dir: "/some/path"},
 		HeartbeatTimeout: "30m",
+		AwaitMax:         "8m",
 		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
 		Theme:            "monokai",
 	}
@@ -1272,6 +1366,7 @@ func TestValidate_Theme_ValidValues(t *testing.T) {
 			cfg := &Config{
 				Boards:           BoardsConfig{Dir: "/some/path"},
 				HeartbeatTimeout: "30m",
+				AwaitMax:         "8m",
 				GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
 				Theme:            theme,
 			}
@@ -1285,6 +1380,7 @@ func TestValidate_LogFormat_InvalidValue(t *testing.T) {
 	cfg := &Config{
 		Boards:           BoardsConfig{Dir: "/some/path"},
 		HeartbeatTimeout: "30m",
+		AwaitMax:         "8m",
 		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
 		LogFormat:        "yaml",
 	}
@@ -1297,6 +1393,7 @@ func TestValidate_LogLevel_InvalidValue(t *testing.T) {
 	cfg := &Config{
 		Boards:           BoardsConfig{Dir: "/some/path"},
 		HeartbeatTimeout: "30m",
+		AwaitMax:         "8m",
 		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
 		LogLevel:         "warm", // typo for "warn"
 	}
@@ -1311,6 +1408,7 @@ func TestValidate_AdminPort_OutOfRange(t *testing.T) {
 			cfg := &Config{
 				Boards:           BoardsConfig{Dir: "/some/path"},
 				HeartbeatTimeout: "30m",
+				AwaitMax:         "8m",
 				GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
 				AdminPort:        p,
 			}
@@ -1325,6 +1423,7 @@ func TestValidate_AdminPort_CollisionWithPort(t *testing.T) {
 	cfg := &Config{
 		Boards:           BoardsConfig{Dir: "/some/path"},
 		HeartbeatTimeout: "30m",
+		AwaitMax:         "8m",
 		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
 		Port:             8080,
 		AdminPort:        8080,
@@ -1338,6 +1437,7 @@ func TestValidate_AdminBindAddr_DefaultsToLoopback(t *testing.T) {
 	cfg := &Config{
 		Boards:           BoardsConfig{Dir: "/some/path"},
 		HeartbeatTimeout: "30m",
+		AwaitMax:         "8m",
 		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
 		AdminPort:        9091,
 	}
@@ -1810,6 +1910,7 @@ func validBaseConfig(t *testing.T) *Config {
 	return &Config{
 		Boards:           BoardsConfig{Dir: "/tmp/boards"},
 		HeartbeatTimeout: "30m",
+		AwaitMax:         "8m",
 		GitHub: GitHubConfig{
 			AuthMode: "pat",
 			PAT:      GitHubPATConfig{Token: "x"},

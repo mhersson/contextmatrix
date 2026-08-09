@@ -95,6 +95,18 @@ const (
 	StateNotPlanned = "not_planned"
 )
 
+// IsTerminalState reports whether a card in this state has finished its
+// lifecycle and will not move again on its own: done or not_planned. Every
+// shipped template treats done as an end state, and board validation makes
+// not_planned reachable only as one.
+//
+// Stalled is deliberately excluded. A stalled card is a live card whose agent
+// stopped reporting; it is expected to be reclaimed or respawned, so callers
+// waiting for work to finish must keep treating it as unfinished.
+func IsTerminalState(state string) bool {
+	return state == StateDone || state == StateNotPlanned
+}
+
 const (
 	boardConfigFile   = ".board.yaml"
 	templatesDir      = "templates"

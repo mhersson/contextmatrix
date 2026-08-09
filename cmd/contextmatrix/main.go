@@ -563,6 +563,17 @@ func main() {
 
 	sessionMgr := backendSys.SessionLog
 
+	// Bound for blocking await_subtasks calls. Validate already rejects a value
+	// that is unparseable or non-positive, so this only fires if the config was
+	// hand-built. Zero hands the MCP server its own default rather than
+	// duplicating the number here.
+	awaitMax, err := cfg.AwaitMaxDuration()
+	if err != nil {
+		slog.Error("invalid await_max; falling back to the built-in default", "error", err)
+
+		awaitMax = 0
+	}
+
 	// Create MCP server
 	mcpSrv := mcpserver.NewServer(mcpserver.ServerConfig{
 		Service:           svc,
@@ -571,6 +582,8 @@ func main() {
 		ImageStore:        imageStore,
 		Blacklist:         opStore,
 		Outcomes:          opStore,
+		Bus:               bus,
+		AwaitMax:          awaitMax,
 	})
 
 	mcpHandler := mcpserver.NewHandler(mcpSrv, cfg.MCPAPIKey)

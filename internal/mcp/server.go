@@ -18,14 +18,15 @@ import (
 
 	"github.com/mhersson/contextmatrix/internal/chat"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
+	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/images"
 	"github.com/mhersson/contextmatrix/internal/mcp/mcpcontext"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
 // ServerConfig collects the dependencies for NewServer. ChatManager,
-// ImageStore, Blacklist, and Outcomes are optional and default to nil; when
-// nil, the corresponding tool surfaces are not registered (or, for image
+// ImageStore, Blacklist, Outcomes, and Bus are optional and default to nil;
+// when nil, the corresponding tool surfaces are not registered (or, for image
 // attachments, get_card / get_task_context return text-only results).
 type ServerConfig struct {
 	Service           *service.CardService
@@ -34,6 +35,13 @@ type ServerConfig struct {
 	ImageStore        images.Store
 	Blacklist         BlacklistWriter
 	Outcomes          OutcomeWriter
+	// Bus drives the blocking await_subtasks wait. Without it there is no way
+	// to learn about a transition short of polling, so the tool is not
+	// registered at all rather than silently degrading to a poll.
+	Bus *events.Bus
+	// AwaitMax caps how long a single await_subtasks call may block. Zero
+	// takes the built-in default.
+	AwaitMax time.Duration
 }
 
 // NewServer creates a configured MCP server with all tools and prompts registered.
@@ -53,6 +61,8 @@ func NewServer(cfg ServerConfig) *mcp.Server {
 		ImageStore:        cfg.ImageStore,
 		Blacklist:         cfg.Blacklist,
 		Outcomes:          cfg.Outcomes,
+		Bus:               cfg.Bus,
+		AwaitMax:          cfg.AwaitMax,
 	})
 	registerPrompts(server, cfg.Service, cfg.WorkflowSkillsDir)
 
@@ -75,7 +85,8 @@ func NewServer(cfg ServerConfig) *mcp.Server {
 // tweak stays outermost to apply to all authenticated requests. The chat-session
 // header is stashed into context after auth so only authenticated callers can
 // set it. Request info extraction runs just before the SDK so it can read the
-// body once.
+// body once - it also clears the write deadline for POST await_subtasks calls,
+// which block server-side well past the streaming tweak's GET-only scope.
 func NewHandler(server *mcp.Server, apiKey string) http.Handler {
 	handler := mcp.NewStreamableHTTPHandler(
 		func(_ *http.Request) *mcp.Server { return server },
@@ -139,6 +150,10 @@ func chatSessionHeaderMiddleware(next http.Handler) http.Handler {
 //
 // The body is fully restored before calling next so the SDK handler receives
 // the original bytes unchanged.
+//
+// It also clears the response write deadline for await_subtasks tool calls,
+// since that tool blocks server-side for minutes, well past the server's
+// WriteTimeout.
 func mcpRequestInfoMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Only POST carries a JSON-RPC body; GET/DELETE are SSE/session housekeeping.
@@ -195,6 +210,12 @@ func mcpRequestInfoMiddleware(next http.Handler) http.Handler {
 					call.Method = truncateLogField(msg.Method)
 					if msg.Method == "tools/call" {
 						call.Tool = truncateLogField(msg.Params.Name)
+
+						if msg.Params.Name == "await_subtasks" {
+							// Blocking waits outlive the server's 60s WriteTimeout, which is an
+							// absolute deadline not reset by writes.
+							_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
+						}
 					}
 				}
 			}

@@ -303,6 +303,7 @@ block if `mcp_api_key` is empty.
 | Tool                        | Description                                                                          |
 | --------------------------- | ------------------------------------------------------------------------------------ |
 | `add_log`                   | Append an activity log entry                                                         |
+| `await_subtasks`            | Block until a parent's subtasks finish or one stalls (replaces polling)              |
 | `chat_rehydration_complete` | Signal that a resumed chat session has finished rehydrating                          |
 | `check_agent_health`        | Check health of subtask agents for a parent card                                     |
 | `claim_card`                | Claim exclusive ownership of a card                                                  |

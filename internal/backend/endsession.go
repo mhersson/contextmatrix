@@ -21,18 +21,15 @@ type CardGetter interface {
 	GetCard(ctx context.Context, project, id string) (*board.Card, error)
 }
 
-// terminalStates is the hardcoded set of card states that signal the
-// interactive session should end. Matches the built-in terminal semantics
-// (board.StateDone is terminal in every shipped template;
-// board.StateNotPlanned is always terminal per board validation).
+// endsSession reports whether a card's state means the interactive session
+// should end. It is the shared terminal-state predicate: done or not_planned.
 //
-// board.StateStalled is intentionally NOT terminal here: a stalled card
-// means the agent's heartbeat timed out, which typically implies the
-// container is already dead or about to be killed by the backend's container
-// timeout - firing /end-session would be a best-effort no-op.
-var terminalStates = map[string]struct{}{
-	board.StateDone:       {},
-	board.StateNotPlanned: {},
+// board.StateStalled is not terminal there, and that is the right answer here
+// too: a stalled card means the agent's heartbeat timed out, which typically
+// implies the container is already dead or about to be killed by the backend's
+// container timeout - firing /end-session would be a best-effort no-op.
+func endsSession(state string) bool {
+	return board.IsTerminalState(state)
 }
 
 // StartEndSessionSubscriber wires an event-bus subscriber that calls
@@ -203,9 +200,5 @@ func shouldEndSession(card *board.Card) bool {
 		return false
 	}
 
-	if _, ok := terminalStates[card.State]; !ok {
-		return false
-	}
-
-	return true
+	return endsSession(card.State)
 }

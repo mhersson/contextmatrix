@@ -26,8 +26,10 @@ You are the planning and execution orchestrator for a ContextMatrix card.
   turns while blocked, so this is your last reset before the clock runs. On
   return, call `heartbeat` and `report_usage`; if the card went stalled during
   the block, recover as described above.
-- Every check in a monitoring loop re-reads your entire context - poll as
-  rarely as the work allows, and never more often than every 10 minutes.
+- While monitoring sub-agents, prefer `await_subtasks` - it blocks until
+  subtasks finish or stall and refreshes your claim while you wait, instead of
+  polling. For any other monitoring loop, poll as rarely as the work allows,
+  and never more often than every 10 minutes.
 
 ---
 
@@ -299,12 +301,9 @@ the orchestrator's working tree on the feature branch.
    prompt). **Never pass `include_preamble: false`** - sub-agents need the
    lifecycle preamble.
 
-   **Spawn mode.** If `get_ready_tasks` returned exactly one task: call
-   `heartbeat`, spawn it blocking (no `run_in_background`), and skip the
-   monitoring loop entirely - on return, call `heartbeat` and `report_usage`
-   and act on the result; if the parent went stalled during the block,
-   recover per the Heartbeat section. With two or more ready tasks: spawn all
-   in parallel with `run_in_background: true` and enter the monitoring loop.
+   **Spawn mode (mechanics).** Call `heartbeat` first. One ready task: spawn
+   it blocking (no `run_in_background`). Two or more: spawn all in parallel
+   with `run_in_background: true`.
 
    Always spawn a sub-agent using the **`Agent`** tool with:
    - `model`: the `model` from `get_skill` - **CRITICAL**, do not omit
@@ -313,10 +312,20 @@ the orchestrator's working tree on the feature branch.
    - **Do NOT pass `isolation: "worktree"`.** Spawn all ready tasks in
      parallel (multiple `Agent` tool calls in one message). Do NOT execute
      inline even if `inline` is true.
-4. **Monitor sub-agents with health checking.** With two or more ready tasks,
-   enter a monitoring loop after spawning them. Call `heartbeat` and
-   `report_usage` after each check. To record your own token consumption
-   since the last report:
+
+   **After a single-task blocking spawn returns:** call `heartbeat` and
+   `report_usage`, act on the result (recover per the Heartbeat section if
+   the parent stalled during the block). Then call `get_ready_tasks` again:
+   tasks ready - repeat Spawn mode; none ready but `get_subtask_summary`
+   still shows non-terminal subtasks (others are already in progress or
+   stalled from an earlier spawn cycle) - go to step 4 and enter the
+   monitoring loop at (a); all subtasks terminal - proceed to Phase 6. This
+   last case is the only one that skips the monitoring loop entirely - it
+   only applies to the single-task path, and only once nothing else remains.
+
+   **After a parallel multi-task spawn**, go to step 4.
+4. **Monitor sub-agents.** To record your own token consumption since the
+   last report:
    - `card_id`: the parent card ID
    - `agent_id`: your agent ID
    - `model`: your own model identifier, read fresh from your system context
@@ -325,25 +334,28 @@ the orchestrator's working tree on the feature branch.
      since the last report
    - `cache_read_tokens` / `cache_creation_tokens`: from the stream-json `usage` frame if available
 
-   a. Wait 10 minutes between checks - every check re-reads your entire
-   context. b. Call
-   `check_agent_health(parent_id=<parent_id>)` to get the health status of all
-   subtask agents. c. For each subtask, act on its status:
-   - **`active`** - healthy, no action needed.
-   - **`completed`** - call `get_card(card_id=<id>)` to verify the card is in
-     `done` state. If still in `todo` or `in_progress`, claim it and call
-     `complete_task` - or respawn if work is incomplete. Then call
-     `get_ready_tasks` to find newly unblocked tasks and spawn agents for them.
-   - **`warning`** - heartbeat is stale (>15 min). Note it but do not act yet -
-     the agent may be in a long operation.
-   - **`stalled`** - agent is dead (heartbeat exceeded 30 min timeout, or card
-     already transitioned to `stalled` by the server). Respawn it (see below).
-   - **`unassigned`** - card has no agent. If it is in `todo` state, it should
-     be picked up by `get_ready_tasks`. If it is in `in_progress` or `stalled`
-     with no agent, respawn it. d. Call
-     `get_subtask_summary(parent_id=<parent_id>)` to check overall progress.
-     When all subtasks are `done`, exit the loop and proceed to Phase 6. e.
-     Repeat from (a) until all subtasks are done.
+   a. Call `await_subtasks(parent_id=<parent_id>, agent_id=<your_agent_id>,
+      timeout_seconds=480)` - only after step 3 has spawned the sub-agents;
+      calling it on a parent with no subtask cards yet returns an instant
+      vacuous `completed: true` (there is nothing to wait on). It blocks
+      server-side until all subtasks finish, any subtask stalls, or the
+      timeout passes. Passing `agent_id` is required to refresh your claim's
+      heartbeat while you wait - without it the wait does nothing for your
+      claim. Never sleep between calls.
+   b. If `completed` is true: call `heartbeat` and `report_usage`, exit the
+      loop, proceed to Phase 6.
+   c. If `stalled` lists cards: recover each per the respawn rules below
+      (`check_agent_health` gives per-card detail), then run the same
+      `get_ready_tasks` sweep as (d). Call `report_usage`, repeat from (a).
+   d. Otherwise (`timed_out`): call `get_ready_tasks` and spawn any newly
+      ready tasks using the Spawn mode mechanics in step 3 (blocking for one,
+      `run_in_background` for two-plus, `heartbeat` first) - this is what
+      picks up subtasks a sibling's completion just unblocked (`depends_on`
+      chains); a chain step's latency is bounded by the await window, same
+      order as the old 10-minute poll. You are already inside the monitoring
+      loop here, so no matter how many you spawn, always call `report_usage`
+      and repeat from (a) - "skip the monitoring loop" never applies once
+      you're past step 3's single-task path.
 
    ### Respawning a dead agent
 

@@ -197,7 +197,7 @@ func decideKill(ctx context.Context, svc CardLookup, c ContainerInfo, maxAge tim
 		return "no_such_card", true
 	}
 
-	if _, ok := terminalStates[card.State]; ok {
+	if endsSession(card.State) {
 		return "terminal_state", true
 	}
 
