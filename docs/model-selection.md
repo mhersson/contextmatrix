@@ -234,7 +234,7 @@ Each `CandidateModel` carries:
 | `context_window`                                  | tokens                                                         |
 | `coder_prior`, `reviewer_prior`                   | normalized quality, `[0, 1]`                                   |
 | `creator`                                         | vendor prefix, drives the agent's vendor-diversity preference  |
-| `outcomes`                                        | `{samples, wins, expected_wins}` when the model has recorded Best-of-N history |
+| `outcomes`                                        | `{samples, wins, expected_wins}` when the model has recorded outcome history (Best-of-N or solo) |
 
 Assembly rules:
 
@@ -444,10 +444,34 @@ never duplicates.
 After a Best-of-N race, the judge phase reports one row per candidate via
 `report_model_outcome`: `win`, `loss`, or `failed` (dropped before judging),
 with verify status, cost, and field size. The tool requires an active claim on
-the card and a field size of at least 2. ContextMatrix aggregates rows into
-per-model stats - `samples`, `wins`, and `expected_wins` - and attaches them
-to matching candidates on the next trigger, where they drive the
-[outcome bias](#outcome-bias) once samples reach `outcome_floor`.
+the card; field size (`n_candidates`) must be at least 1. ContextMatrix
+aggregates rows into per-model stats - `samples`, `wins`, and `expected_wins`
+(`SUM(1.0 / n_candidates)` per row) - and attaches them to matching candidates
+on the next trigger, where they drive the [outcome bias](#outcome-bias) once
+samples reach `outcome_floor`.
+
+#### Solo outcomes
+
+A card that never races (`n_candidates: 1`) still reports its own result:
+`win` or `failed`, with no judge model. Because `expected_wins` accrues
+`1/n_candidates` per row regardless of result, a solo row always stakes 1.0
+expected wins - the most a single row can stake, where a race row stakes only
+`1/n`. A solo win also banks 1 actual win, so actual and expected cancel
+exactly: the row is neutral, pulling the bias factor toward parity rather
+than above it. (A spotless race record, by contrast, is maximally positive -
+each race win banks a full win against only the `1/n` staked.) A solo
+failure banks 0 wins against that same 1.0 expected wins, so it subtracts
+the maximum a single sample can subtract - a heavier per-sample penalty than
+a raced loss, which forfeits only the `1/n_candidates` staked on that race.
+
+Two consequences follow directly from folding solo runs into the same table:
+
+- A model that has never raced can cross `outcome_floor` on solo volume
+  alone, activating the bias multiplier without a single head-to-head result.
+- A model holding a high bias factor from races regresses toward neutral as
+  solo wins accumulate, because each solo win adds equally to `samples` and
+  `expected_wins` (weight 1/1, versus a race win's smaller 1/n_candidates).
+  This is dilution toward the neutral win rate, not inflation above it.
 
 ### Observability
 

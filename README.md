@@ -324,7 +324,7 @@ block if `mcp_api_key` is empty.
 | `recalculate_costs`         | Recalculate token costs for cards with missing cost data                             |
 | `release_card`              | Release a claim                                                                      |
 | `report_incapable_model`    | Record that a model could not drive the tool loop so it is never auto-selected again |
-| `report_model_outcome`      | Record per-candidate Best-of-N outcomes (win/loss/failed) after the judge phase      |
+| `report_model_outcome`      | Record model outcomes (win/loss/failed): Best-of-N candidate rows or a solo run's own |
 | `report_push`               | Report a git push for a card                                                         |
 | `report_usage`              | Report token usage and estimated cost                                                |
 | `start_review`              | Atomically transition a card to review and return the review-task skill              |
