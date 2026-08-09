@@ -58,6 +58,15 @@ Break the work into subtasks following these rules:
   further
 - Subtasks should be **independently verifiable** - each one should produce a
   testable result
+- **Exception to the file-count and independent-verifiability rules above:**
+  when a change is ONE coordinated, cross-cutting edit that genuinely cannot be
+  split into independently-verifiable pieces - e.g. deleting a shared type or
+  changing a shared signature breaks all of its consumers in the same commit -
+  emit it as a single subtask even if it exceeds the ~5-file guidance. A larger
+  subtask that keeps the tree passing its checks and its tests green is correct;
+  several smaller ones that each leave the tree broken are not. Do NOT invent
+  artificial staging (dead fields, temporary shims, "zero out now / delete
+  later") solely to satisfy the file cap.
 - Set `depends_on` correctly - a subtask that needs another subtask's output
   must declare the dependency
 - Order subtasks so that independent ones can run **in parallel**.
