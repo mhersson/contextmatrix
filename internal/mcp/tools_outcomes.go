@@ -26,7 +26,7 @@ type outcomeRow struct {
 }
 
 type reportModelOutcomeInput struct {
-	CardID   string       `json:"card_id"  jsonschema:"required,parent card of the Best-of-N run"`
+	CardID   string       `json:"card_id"  jsonschema:"required,claimed card the outcomes belong to: the parent card for a Best-of-N rollup; the subtask card itself for a solo run's own outcome"`
 	Project  string       `json:"project,omitempty" jsonschema:"project name; resolved from card_id when omitted"`
 	AgentID  string       `json:"agent_id" jsonschema:"required,agent ID reporting the outcomes"`
 	Outcomes []outcomeRow `json:"outcomes" jsonschema:"required,one row per candidate appearance"`
@@ -79,8 +79,9 @@ func reportModelOutcomeHandler(svc *service.CardService, w OutcomeWriter) func(c
 func registerReportModelOutcome(server *mcp.Server, svc *service.CardService, w OutcomeWriter) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "report_model_outcome",
-		Description: "Record per-candidate Best-of-N outcomes (win/loss/failed) after the judge " +
-			"phase so future coder-model selection can learn from head-to-head results. " +
-			"Requires the caller to hold the parent card's claim.",
+		Description: "Record model outcomes (win/loss/failed) so future coder-model selection " +
+			"can learn from results: one row per candidate after a Best-of-N judge phase, or a " +
+			"single n_candidates=1 row for a solo run's own outcome. Requires the caller to " +
+			"hold the card's claim.",
 	}, reportModelOutcomeHandler(svc, w))
 }
