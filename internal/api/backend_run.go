@@ -116,6 +116,10 @@ func (h *backendHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 		payload.BestOfN = min(card.BestOfN, h.bestOfN.MaxCandidates)
 	}
 
+	// MaxCapability: copy the card-level flag so the agent backend can
+	// honour it (ignores cost, picks most capable in the tier).
+	payload.MaxCapability = card.MaxCapability
+
 	h.attachMob(r.Context(), &payload, card, project, id)
 
 	// Verify: CM resolves card-over-project and sends it so the agent's
