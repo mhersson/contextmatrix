@@ -22,6 +22,7 @@ The operator-facing controls, most direct first:
 | I want to...                          | Knob                                        | Where                                        | Notes                                                                                          |
 | ------------------------------------- | ------------------------------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | Force a model for one card            | model pin on the card                       | card detail UI / `PATCH` card                | Honored when the slug is a candidate; then it beats everything, including the blacklist        |
+| Pick the most capable model for one card's tier | card `max_capability`           | card Automation UI / `PATCH` card            | Most capable in tier, ignores cost, bypasses favorites; renders only when automatic selection is on |
 | Prefer models for a complexity tier   | `favorites`                                 | `config.yaml` (global), `.board.yaml` (project) | Favorites skip the cost logic but must still clear the tier bar and not be blacklisted      |
 | Restrict which vendors are eligible   | `backends.agent.model_allowlist`            | `config.yaml`                                | Vendor prefixes (`qwen`, `z-ai`); replaces the built-in list; inert on the `openai` leg        |
 | Rate models AA does not know          | `backends.agent.model_priors`               | `config.yaml`                                | `openai` leg only; verbatim 0..1 priors                                                        |
@@ -330,6 +331,23 @@ reference:
    serve-config default model, ultimately `deepseek/deepseek-v4-flash`. The
    trigger's `backends.agent.default_model` feeds the orchestrator-model
    resolution, not this fallback.
+
+`max_capability` (a per-card, human-set flag) narrows this sequence when the
+card is configured for automatic selection:
+
+- A card pin (step 1) still wins; in practice pins and the flag are mutually
+  exclusive because the "Maximum capability" checkbox renders only while
+  automatic selection is on.
+- Favorites (step 2) are bypassed entirely - the flag replays no favorite
+  scan.
+- The filter (step 3) is untouched.
+- The price band (step 4) is neutralised - it is not computed.
+- Best value (step 5) then selects the **highest-prior** candidate in the
+  tier outright, still tie-breaking to the cheaper model. The tier bar still
+  bounds the pool, so the pick is the most capable model that clears the
+  card's tier, not the most capable model available.
+- Step 6 is unchanged: an empty pool still falls back to the agent's
+  serve-config default.
 
 ### Worked example
 

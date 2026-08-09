@@ -299,6 +299,7 @@ type Card struct {
     ModelCoder          string          `yaml:"model_coder,omitempty"           json:"model_coder,omitempty"`
     ModelReviewer       string          `yaml:"model_reviewer,omitempty"        json:"model_reviewer,omitempty"`
     BestOfN             int             `yaml:"best_of_n,omitempty"             json:"best_of_n,omitempty"`
+    MaxCapability       bool            `yaml:"max_capability,omitempty"        json:"max_capability,omitempty"`
     MobParticipants     int             `yaml:"mob_participants,omitempty"      json:"mob_participants,omitempty"`
     MobPhases           []string        `yaml:"mob_phases,omitempty"            json:"mob_phases,omitempty"`
     MobGuests           []string        `yaml:"mob_guests,omitempty"            json:"mob_guests,omitempty"`
@@ -532,8 +533,8 @@ mirrored by `service.PatchCardInput.UpsertSection`
 **Human-only fields** (may only be set by agents whose `X-Agent-ID` starts with
 `human:`): `vetted`, `assignee`, `autonomous`, `create_pr`, the three model
 pins (`model_orchestrator`, `model_coder`, `model_reviewer`), `base_branch`,
-`best_of_n`, the mob fields (`mob_participants`, `mob_phases`, `mob_guests`),
-and `verify`. `assignee` is exposed on POST, PUT, and PATCH and, independent
+`best_of_n`, `max_capability`, the mob fields (`mob_participants`,
+`mob_phases`, `mob_guests`), and `verify`. `assignee` is exposed on POST, PUT, and PATCH and, independent
 of the human-only gate, is validated against the user roster - see
 `### assignee` below for the mode-forked rules. `verify` is exposed
 on POST (`createCardRequest`) and PATCH (`patchCardRequest`) only - there is no
@@ -554,6 +555,24 @@ trigger, with a warning) when the card's mob session covers the `execute`
 phase and the server allows checkpoints. Agents that attempt to set any of
 these fields receive 403 `HUMAN_ONLY_FIELD`. The MCP `update_card` tool does
 not expose them.
+
+### `max_capability` (optional, bool)
+
+A per-card flag telling the agent backend to ignore cost when auto-selecting
+models: the most capable candidate in the card's tier wins, and favorites are
+bypassed. `false`/absent (the default) selects normally. Human-set only, like
+the model pins - exposed on POST (`createCardRequest`), PUT, and PATCH, and
+excluded from the MCP `update_card`/`create_card` tools. A non-human caller
+that sets or changes it receives 403 `HUMAN_ONLY_FIELD`; a PUT that omits it
+clears it (full-replacement semantics), while a PATCH that omits it leaves the
+stored value unchanged (`nil` = don't change).
+
+The flag is copied into the run-trigger payload (`TriggerPayload.MaxCapability`,
+`protocol` v0.16.0) in `internal/api/backend_run.go`; the agent backend honours
+it. In the UI the "Maximum capability" checkbox appears in the card Automation
+rail and the create panel only while automatic model selection is on, and
+re-checking automatic selection clears pins but never this flag. How it narrows
+selection is documented in `docs/model-selection.md` § The decision order.
 
 ### Mob fields (optional)
 

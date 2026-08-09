@@ -163,6 +163,7 @@ the payload in `internal/api/backend_run.go`:
   "interactive": false,
   "model": "deepseek/deepseek-v4-flash",
   "best_of_n": 3,
+  "max_capability": true,
   "mob": {
     "participants": 3,
     "phases": ["plan", "review"],
@@ -200,6 +201,12 @@ it down to the configured `best_of_n.max_candidates` before sending, since a
 card can carry a value that exceeds the current max if the operator lowered it
 after the card was set. See [Best-of-N run](#best-of-n-run) for what the agent
 does with it.
+
+`max_capability` is the per-card flag telling the agent backend to ignore cost
+and pick the most capable model in the card's tier. It mirrors the card's
+stored `max_capability` field and is present (`true`) only when the flag is
+set; it is inert without the agent-side support (see
+`docs/model-selection.md` § The decision order).
 
 `mob` is present only when the card's `mob_participants` is `>= 2`.
 `participants` is the card value clamped to the current
