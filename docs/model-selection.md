@@ -234,7 +234,7 @@ Each `CandidateModel` carries:
 | `context_window`                                  | tokens                                                         |
 | `coder_prior`, `reviewer_prior`                   | normalized quality, `[0, 1]`                                   |
 | `creator`                                         | vendor prefix, drives the agent's vendor-diversity preference  |
-| `outcomes`                                        | `{samples, wins, expected_wins}` when the model has recorded Best-of-N history |
+| `outcomes`                                        | `{samples, wins, expected_wins}` when the model has recorded outcome history (Best-of-N or solo) |
 
 Assembly rules:
 
@@ -454,14 +454,15 @@ samples reach `outcome_floor`.
 
 A card that never races (`n_candidates: 1`) still reports its own result:
 `win` or `failed`, with no judge model. Because `expected_wins` accrues
-`1/n_candidates` per row regardless of result, a solo row always contributes
-1.0 expected wins - the full weight a race candidate only reaches by winning
-every game it's ever entered. A solo win also contributes 1 win, so the two
-cancel out: neutral, the same as a candidate with a spotless race record. A
-solo failure contributes 0 wins against that same 1.0 expected wins, so it
-subtracts the maximum a single sample can subtract - a heavier per-sample
-penalty than a raced loss, whose `expected_wins` contribution is only
-`1/n_candidates` for that race.
+`1/n_candidates` per row regardless of result, a solo row always stakes 1.0
+expected wins - the most a single row can stake, where a race row stakes only
+`1/n`. A solo win also banks 1 actual win, so actual and expected cancel
+exactly: the row is neutral, pulling the bias factor toward parity rather
+than above it. (A spotless race record, by contrast, is maximally positive -
+each race win banks a full win against only the `1/n` staked.) A solo
+failure banks 0 wins against that same 1.0 expected wins, so it subtracts
+the maximum a single sample can subtract - a heavier per-sample penalty than
+a raced loss, which forfeits only the `1/n_candidates` staked on that race.
 
 Two consequences follow directly from folding solo runs into the same table:
 
