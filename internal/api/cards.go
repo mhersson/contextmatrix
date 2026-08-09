@@ -70,6 +70,7 @@ type createCardRequest struct {
 	ModelCoder        string              `json:"model_coder,omitempty"`
 	ModelReviewer     string              `json:"model_reviewer,omitempty"`
 	BestOfN           int                 `json:"best_of_n"`
+	MaxCapability     bool                `json:"max_capability"`
 	MobParticipants   int                 `json:"mob_participants"`
 	MobPhases         []string            `json:"mob_phases"`
 	MobGuests         []string            `json:"mob_guests"`
@@ -100,6 +101,7 @@ type updateCardRequest struct {
 	ModelCoder        string         `json:"model_coder,omitempty"`
 	ModelReviewer     string         `json:"model_reviewer,omitempty"`
 	BestOfN           int            `json:"best_of_n"`
+	MaxCapability     bool           `json:"max_capability"`
 	MobParticipants   int            `json:"mob_participants"`
 	MobPhases         []string       `json:"mob_phases"`
 	MobGuests         []string       `json:"mob_guests"`
@@ -132,6 +134,7 @@ type patchCardRequest struct {
 	ModelCoder        *string   `json:"model_coder,omitempty"`
 	ModelReviewer     *string   `json:"model_reviewer,omitempty"`
 	BestOfN           *int      `json:"best_of_n,omitempty"`
+	MaxCapability     *bool     `json:"max_capability,omitempty"`
 	// Mob session fields: MobParticipants nil = don't change; the two slices
 	// follow the Labels convention (nil = don't change, [] = clear).
 	MobParticipants *int     `json:"mob_participants,omitempty"`
@@ -480,11 +483,11 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 	// create time flow onto the card and reach the agent via get_task_context.
 	if isNonHumanAgent(r) && (req.Autonomous || req.CreatePR != nil || req.BaseBranch != "" || req.Vetted ||
 		req.ModelOrchestrator != "" || req.ModelCoder != "" || req.ModelReviewer != "" ||
-		req.BestOfN != 0 || req.MobParticipants != 0 || len(req.MobPhases) > 0 || len(req.MobGuests) > 0 ||
+		req.BestOfN != 0 || req.MaxCapability || req.MobParticipants != 0 || len(req.MobPhases) > 0 || len(req.MobGuests) > 0 ||
 		req.Verify != nil || req.Assignee != "") {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
 			"forbidden",
-			"autonomous, create_pr, base_branch, vetted, model pins, best_of_n, mob fields, verify, and assignee can only be set via the UI")
+			"autonomous, create_pr, base_branch, vetted, model pins, best_of_n, max_capability, mob fields, verify, and assignee can only be set via the UI")
 
 		return
 	}
@@ -530,6 +533,7 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 		ModelCoder:        req.ModelCoder,
 		ModelReviewer:     req.ModelReviewer,
 		BestOfN:           req.BestOfN,
+		MaxCapability:     req.MaxCapability,
 		MobParticipants:   req.MobParticipants,
 		MobPhases:         req.MobPhases,
 		MobGuests:         req.MobGuests,
@@ -608,13 +612,14 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 		req.ModelCoder != existingCard.ModelCoder ||
 		req.ModelReviewer != existingCard.ModelReviewer ||
 		req.BestOfN != existingCard.BestOfN ||
+		req.MaxCapability != existingCard.MaxCapability ||
 		req.MobParticipants != existingCard.MobParticipants ||
 		!slices.Equal(req.MobPhases, existingCard.MobPhases) ||
 		!slices.Equal(req.MobGuests, existingCard.MobGuests) ||
 		req.Assignee != normalizeAssignee(existingCard.Assignee)) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
 			"forbidden",
-			"autonomous, create_pr, vetted, model pins, best_of_n, mob fields, and assignee can only be changed via the UI")
+			"autonomous, create_pr, vetted, model pins, best_of_n, max_capability, mob fields, and assignee can only be changed via the UI")
 
 		return
 	}
@@ -665,6 +670,7 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 		ModelCoder:        req.ModelCoder,
 		ModelReviewer:     req.ModelReviewer,
 		BestOfN:           req.BestOfN,
+		MaxCapability:     req.MaxCapability,
 		MobParticipants:   req.MobParticipants,
 		MobPhases:         req.MobPhases,
 		MobGuests:         req.MobGuests,
@@ -709,6 +715,7 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 		req.ModelCoder != nil ||
 		req.ModelReviewer != nil ||
 		req.BestOfN != nil ||
+		req.MaxCapability != nil ||
 		req.MobParticipants != nil ||
 		req.MobPhases != nil ||
 		req.MobGuests != nil ||
@@ -716,7 +723,7 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 		req.Assignee != nil) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
 			"forbidden",
-			"autonomous, create_pr, vetted, base_branch, model pins, best_of_n, mob fields, verify, and assignee can only be set via the UI")
+			"autonomous, create_pr, vetted, base_branch, model pins, best_of_n, max_capability, mob fields, verify, and assignee can only be set via the UI")
 
 		return
 	}
@@ -796,6 +803,7 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 		ModelCoder:        req.ModelCoder,
 		ModelReviewer:     req.ModelReviewer,
 		BestOfN:           req.BestOfN,
+		MaxCapability:     req.MaxCapability,
 		MobParticipants:   req.MobParticipants,
 		MobPhases:         req.MobPhases,
 		MobGuests:         req.MobGuests,

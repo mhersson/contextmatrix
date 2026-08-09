@@ -184,4 +184,41 @@ func TestCreateCardBestOfNAndMob(t *testing.T) {
 		assert.Zero(t, card.BestOfN)
 		assert.Zero(t, card.MobParticipants)
 	})
+
+	t.Run("create with max_capability=true persists the value", func(t *testing.T) {
+		body, _ := json.Marshal(createCardRequest{
+			Title:         "MaxCap create",
+			Type:          "task",
+			Priority:      "medium",
+			MaxCapability: true,
+		})
+
+		resp := postAs(t, string(body), "")
+		defer closeBody(t, resp.Body)
+
+		require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+		var card board.Card
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&card))
+		assert.True(t, card.MaxCapability)
+	})
+
+	t.Run("create with max_capability=true as non-human agent returns 403 HUMAN_ONLY_FIELD", func(t *testing.T) {
+		body, _ := json.Marshal(createCardRequest{
+			Title:         "Agent max_cap",
+			Type:          "task",
+			Priority:      "medium",
+			MaxCapability: true,
+		})
+
+		resp := postAs(t, string(body), "agent:x")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
+		assert.Contains(t, apiErr.Details, "max_capability")
+	})
 }
