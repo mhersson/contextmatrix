@@ -140,6 +140,8 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
             bestOfNMax={bestOfNMax}
             bestOfNDefault={bestOfNDefault}
             onBestOfNChange={form.setBestOfN}
+            maxCapability={form.maxCapability}
+            onMaxCapabilityChange={form.setMaxCapability}
             mobParticipants={form.mobParticipants}
             mobMaxParticipants={mobMaxParticipants}
             mobDefaultParticipants={mobDefaultParticipants}
