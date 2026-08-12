@@ -302,7 +302,16 @@ func TestEndSessionSubscriber_NotPlannedReleasedRunning_Fires(t *testing.T) {
 	waitForKillCalls(t, fc, 1)
 }
 
-func TestEndSessionSubscriber_DoubleEvent_TwoCalls(t *testing.T) {
+// TestEndSessionSubscriber_DoubleEvent_OneCall: a single terminal card
+// publishes both CardStateChanged and CardReleased, and each is handled in its
+// own goroutine. Both used to run a full cleanup round, and because the two
+// rounds signed identically - same key, method, URI, body and second-resolution
+// timestamp - the backend's replay cache rejected the second and logged an
+// authentication failure indistinguishable from a wrong shared secret.
+//
+// The duplicate was always redundant: /kill is idempotent and the first round
+// has already done the work. Exactly one round may go out.
+func TestEndSessionSubscriber_DoubleEvent_OneCall(t *testing.T) {
 	ctx := t.Context()
 
 	bus := events.NewBus()
@@ -320,6 +329,35 @@ func TestEndSessionSubscriber_DoubleEvent_TwoCalls(t *testing.T) {
 
 	bus.Publish(events.Event{Type: events.CardStateChanged, Project: "proj", CardID: "C-001"})
 	bus.Publish(events.Event{Type: events.CardReleased, Project: "proj", CardID: "C-001"})
+
+	waitForCalls(t, fc, 1)
+	waitForKillCalls(t, fc, 1)
+
+	// Genuine wall-clock wait, matching assertNoCall: the second event is
+	// dispatched asynchronously, so a bare "at least one" assertion would pass
+	// even when the duplicate still goes out.
+	time.Sleep(100 * time.Millisecond)
+
+	assert.Len(t, fc.Calls(), 1, "the duplicate cleanup round must be suppressed; calls=%v", fc.Calls())
+	assert.Len(t, fc.KillCalls(), 1, "the duplicate kill must be suppressed; kills=%v", fc.KillCalls())
+}
+
+// TestEndSessionSubscriber_SeparateCards_BothFire: the guard is keyed per card,
+// so two cards completing together must both be cleaned up.
+func TestEndSessionSubscriber_SeparateCards_BothFire(t *testing.T) {
+	ctx := t.Context()
+
+	bus := events.NewBus()
+	cg := &fakeCardGetter{cards: map[string]*board.Card{
+		"proj/C-001": {ID: "C-001", State: "done", WorkerStatus: "running"},
+		"proj/C-002": {ID: "C-002", State: "done", WorkerStatus: "running"},
+	}}
+	fc := &fakeClient{}
+
+	backend.StartEndSessionSubscriber(ctx, bus, cg, fc, discardLogger())
+
+	bus.Publish(events.Event{Type: events.CardReleased, Project: "proj", CardID: "C-001"})
+	bus.Publish(events.Event{Type: events.CardReleased, Project: "proj", CardID: "C-002"})
 
 	waitForCalls(t, fc, 2)
 	waitForKillCalls(t, fc, 2)
