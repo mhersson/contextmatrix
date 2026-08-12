@@ -54,6 +54,13 @@ func StartEndSessionSubscriber(ctx context.Context, bus *events.Bus, svc CardGet
 
 	ch, unsubscribe := bus.Subscribe()
 
+	// One terminal card publishes both CardStateChanged and CardReleased, and
+	// each is handled in its own goroutine, so a single completion used to
+	// produce two identical cleanup rounds inside the same second. The guard
+	// collapses them; see cleanupGuard for why the duplicate was rejected by
+	// the backend rather than merely wasted.
+	guard := newCleanupGuard(cleanupGuardTTL)
+
 	go func() {
 		defer unsubscribe()
 
@@ -71,7 +78,7 @@ func StartEndSessionSubscriber(ctx context.Context, bus *events.Bus, svc CardGet
 					continue
 				}
 
-				go handleEndSessionEvent(ctx, svc, client, logger, e.Project, e.CardID)
+				go handleEndSessionEvent(ctx, svc, client, logger, guard, e.Project, e.CardID)
 			}
 		}
 	}()
@@ -85,7 +92,7 @@ const (
 	sourceSweep      = "sweep"
 )
 
-func handleEndSessionEvent(ctx context.Context, svc CardGetter, client EndSessionClient, logger *slog.Logger, project, cardID string) {
+func handleEndSessionEvent(ctx context.Context, svc CardGetter, client EndSessionClient, logger *slog.Logger, guard *cleanupGuard, project, cardID string) {
 	card, err := svc.GetCard(ctx, project, cardID)
 	if err != nil {
 		logger.Warn("end-session: could not load card",
@@ -96,6 +103,17 @@ func handleEndSessionEvent(ctx context.Context, svc CardGetter, client EndSessio
 	}
 
 	if !shouldEndSession(card) {
+		return
+	}
+
+	// Claim AFTER the terminal-state check, never before: an event that arrives
+	// while the card is still claimed is not a cleanup round and must not
+	// consume the slot the release-driven event needs a moment later.
+	if !guard.claim(project, cardID) {
+		logger.Debug("end-session: duplicate cleanup round suppressed",
+			"source", sourceSubscriber,
+			"project", project, "card_id", cardID)
+
 		return
 	}
 
