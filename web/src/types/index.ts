@@ -310,6 +310,8 @@ export interface DashboardData {
   /** True when any card contributing to total_cost_usd carries a rate-table-estimated cost. */
   total_cost_has_estimates?: boolean;
   total_cost_usd_last_30d?: number;
+  /** True when any card contributing to total_cost_usd_last_30d carries a rate-table-estimated cost. */
+  total_cost_has_estimates_last_30d?: boolean;
   total_cost_usd_prior_30d?: number;
   cost_series_30d?: number[];
   cards_completed_today: number;

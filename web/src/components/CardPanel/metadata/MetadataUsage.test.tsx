@@ -68,7 +68,6 @@ describe('MetadataUsage', () => {
     const card = makeCard({
       token_usage: { prompt_tokens: 100, completion_tokens: 50, estimated_cost_usd: 4.42 },
       subtask_cost_usd: 0.57,
-      subtask_cost_has_estimates: false,
       usage_breakdown: [
         {
           agent: 'cmx-agent-cmx-001',
@@ -87,7 +86,7 @@ describe('MetadataUsage', () => {
   });
 
   it('renders the total alone when spend is entirely in subtasks', () => {
-    const card = makeCard({ subtask_cost_usd: 0.57, subtask_cost_has_estimates: false });
+    const card = makeCard({ subtask_cost_usd: 0.57 });
     render(<MetadataUsage card={card} />);
     expect(screen.getByText('Total incl. subtasks')).toBeInTheDocument();
     expect(screen.getByText('$0.57')).toBeInTheDocument();
@@ -248,6 +247,30 @@ describe('MetadataUsage', () => {
     });
     render(<MetadataUsage card={card} />);
     const total = screen.getByText('$0.50');
+    expect(total).not.toHaveAttribute('title');
+  });
+
+  it('leaves the run total unmarked when subtask_cost_has_estimates is absent and everything is actual', () => {
+    // The server never serializes a false bool (json omitempty), so an
+    // all-actual subtask rollup arrives over the wire with the field
+    // entirely absent, not explicit false. The default must not treat
+    // absence as "assume estimated".
+    const card = makeCard({
+      token_usage: { prompt_tokens: 100, completion_tokens: 50, estimated_cost_usd: 4.42 },
+      subtask_cost_usd: 0.57,
+      usage_breakdown: [
+        {
+          agent: 'cmx-agent-cmx-001',
+          model: 'z-ai/some-model',
+          prompt_tokens: 100,
+          completion_tokens: 50,
+          cost_usd: 4.42,
+          cost_source: 'actual',
+        },
+      ],
+    });
+    render(<MetadataUsage card={card} />);
+    const total = screen.getByText('$4.99');
     expect(total).not.toHaveAttribute('title');
   });
 });

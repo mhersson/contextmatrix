@@ -26,7 +26,7 @@ export function MetadataUsage({ card }: MetadataUsageProps) {
   const hasEstimates =
     buckets.some((b) => b.cost_source === 'estimated') ||
     (buckets.length === 0 && ownCost > 0) ||
-    (subtaskCost > 0 && (card.subtask_cost_has_estimates ?? true));
+    (subtaskCost > 0 && (card.subtask_cost_has_estimates ?? false));
 
   return (
     <section className="bf-aside-section">

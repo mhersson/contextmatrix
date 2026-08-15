@@ -678,6 +678,73 @@ func TestGetDashboard_CostSeries30d_SeriesBoundary(t *testing.T) {
 	assert.InDelta(t, 0.0, data.TotalCostUSDPrior30d, 1e-9, "should not be in prior30d")
 }
 
+// TestGetDashboard_CostHasEstimates_RecentEstimatedCard_BothTrue verifies that
+// a single estimated card updated within the last 30 days marks both the
+// all-time flag and the new 30d-scoped flag.
+func TestGetDashboard_CostHasEstimates_RecentEstimatedCard_BothTrue(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC)
+
+	svc, project, cleanup := setupDashboardServiceAt(t, now)
+	t.Cleanup(cleanup)
+
+	// Legacy TokenUsage with no breakdown is rate-table-estimated by
+	// costHasEstimates's fallback rule; Updated defaults to card creation
+	// time (now), which is inside the last-30d window.
+	createCardWithUsage(ctx, t, svc, project, "recent-est", "model-a", 100, 50, 1.00)
+
+	data, err := svc.GetDashboard(ctx, project)
+	require.NoError(t, err)
+
+	assert.True(t, data.TotalCostHasEstimates, "all-time flag must be true")
+	assert.True(t, data.TotalCostHasEstimatesLast30d, "30d flag must be true for a recent estimated card")
+}
+
+// TestGetDashboard_CostHasEstimatesLast30d_FalseWhenEstimateOutsideWindow
+// verifies the 30d-scoped flag is independent of the all-time flag: an
+// estimated card outside the last-30d window must not mark a 30d total whose
+// only in-window spend is actual.
+func TestGetDashboard_CostHasEstimatesLast30d_FalseWhenEstimateOutsideWindow(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC)
+
+	svc, project, cleanup := setupDashboardServiceAt(t, now)
+	t.Cleanup(cleanup)
+
+	// Estimated card, updated 35 days ago - outside the last-30d window,
+	// still inside the prior-30d window.
+	oldID := createCardWithUsage(ctx, t, svc, project, "old-est", "model-a", 100, 50, 2.00)
+
+	oldCard, err := svc.GetCard(ctx, project, oldID)
+	require.NoError(t, err)
+
+	oldCard.Updated = now.Add(-35 * 24 * time.Hour)
+	require.NoError(t, svc.store.UpdateCard(ctx, project, oldCard))
+
+	// Recent all-actual card - keeps 30d cost non-zero without contributing
+	// an estimate.
+	recent, err := svc.CreateCard(ctx, project, CreateCardInput{
+		Title: "recent actual", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	recentCard, err := svc.GetCard(ctx, project, recent.ID)
+	require.NoError(t, err)
+
+	recentCard.TokenUsage = &board.TokenUsage{Model: "model-b", PromptTokens: 10, CompletionTokens: 5, EstimatedCostUSD: 0.50}
+	recentCard.UsageBreakdown = []board.UsageBucket{
+		{Agent: "cmx-agent-recent", Model: "model-b", PromptTokens: 10, CompletionTokens: 5, CostUSD: 0.50, CostSource: "actual"},
+	}
+	require.NoError(t, svc.store.UpdateCard(ctx, project, recentCard))
+
+	data, err := svc.GetDashboard(ctx, project)
+	require.NoError(t, err)
+
+	assert.True(t, data.TotalCostHasEstimates, "all-time flag must still be true because of the old estimated card")
+	assert.False(t, data.TotalCostHasEstimatesLast30d, "30d flag must be false: the only in-window card is actual")
+	assert.Greater(t, data.TotalCostUSDLast30d, 0.0, "30d cost must be non-zero from the recent actual card")
+}
+
 func TestExtractStateChanges_IgnoresNonStateChanged(t *testing.T) {
 	card := &board.Card{
 		State: board.StateTodo,
