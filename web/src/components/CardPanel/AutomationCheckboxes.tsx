@@ -417,7 +417,7 @@ export function AutomationCheckboxes({
               />
               <span>Request Copilot review</span>
             </label>
-            <span className="bf-hint">addresses findings, then re-checks CI</span>
+            <span className="bf-hint">requests a review and addresses findings</span>
           </div>
         </>
       )}
