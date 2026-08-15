@@ -14,7 +14,7 @@ This guide covers end-to-end setup for both supported methods.
 | Method                         | When to use                                                                                                          |
 | ------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
 | **GitHub App** _(recommended)_ | Production deployments. Tokens are short-lived (1h), revocable per installation, and can be scoped finer than a PAT. |
-| **Fine-grained PAT**           | GitHub Enterprise tenants where App creation is restricted; small-scale or single-developer deployments.             |
+| **Fine-grained PAT**           | GitHub Enterprise tenants where App creation is restricted; small-scale or single-developer deployments. The `await_ci` gate works via an automatic Actions-API fallback - grant Actions: read and Commit statuses: read. |
 
 The credential lives on CM regardless of method. See
 [github-auth-recommended-topologies.md](github-auth-recommended-topologies.md)
@@ -30,11 +30,37 @@ for how this maps onto all-in-one, CM-plus-worker-VM, and Kubernetes layouts.
 | Branch listing (project repos)               | CM                                             | Contents: read              | Contents: read                |
 | Project repo clone + push (worker container) | worker (via a per-run token CM mints)          | Contents: read & write      | Contents: read and write      |
 | Pull request creation (project repos)        | worker via `gh`/model inside the container     | Pull requests: read & write | Pull requests: read and write |
+| CI checks poll (`await_ci` gate)             | worker via `gh pr checks`                      | Checks: read                | Not available - gate falls back to Actions: read + Commit statuses: read |
+| CI failure logs (`await_ci` gate)            | worker via `gh run view --log-failed`          | Actions: read               | Actions: read                 |
+| Status-API CI results (non-Actions CI)       | worker via `gh pr checks`                      | Commit statuses: read       | Commit statuses: read         |
+| Copilot reviewer request (`await_copilot_review` gate) | worker via `gh pr edit --add-reviewer` | Members: read (organization) | Members: read (organization) |
 
 CM does not call GitHub's PR-creation endpoint itself - the worker container runs
 `gh pr create` (or equivalent) using the token CM minted for that run. CM's own
 direct GitHub traffic is boards sync, task-skills pull, issue import, and branch
 listing.
+
+The four PR-gate rows apply only to cards that set `await_ci` or
+`await_copilot_review`. Two of them need attention:
+
+- **Checks is App-only - the gate falls back under PAT auth.** `gh pr
+  checks` reads check-run results through the GraphQL `statusCheckRollup`
+  field, and GitHub grants the Checks permission to GitHub Apps only - the
+  fine-grained PAT UI does not offer it (public repos are exempt: check-run
+  reads there need no permission). When the poll hits "Resource not
+  accessible by personal access token", the worker switches for the rest of
+  the run to the Actions runs API plus the legacy commit-status API, which
+  the PAT permissions above cover. GitHub Actions CI and status-API CI are
+  fully visible in fallback mode; only third-party integrations that report
+  exclusively through the Checks API are not.
+- **Members is an organization permission**, needed only on org-owned repos:
+  `gh pr edit --add-reviewer` fetches the organization's teams before adding
+  any reviewer. Without it the Copilot gate is skipped and the gh error is
+  recorded on the card. Community reports indicate requesting a Copilot
+  review works with user-scoped fine-grained PATs (Pull requests: read and
+  write) but not with App installation tokens in some setups; if the
+  Copilot gate logs a request failure under App auth, that asymmetry is the
+  likely cause.
 
 App-installation tokens automatically include `Metadata: read` - that's not a
 separate setting. Fine-grained PAT users have to remember to include it
@@ -56,10 +82,24 @@ explicitly.
    - **Contents**: read & write
    - **Issues**: read (only if you'll use issue importing)
    - **Pull requests**: read & write (worker containers create PRs)
-4. Under **Where can this GitHub App be installed?**, choose **Only on this
+   - **Checks**: read (only if cards set `await_ci` - `gh pr checks` reads
+     check-run results)
+   - **Actions**: read (only if cards set `await_ci` - `gh run view
+     --log-failed` fetches failing-run logs)
+   - **Commit statuses**: read (only if cards set `await_ci` and a CI system
+     reports through the legacy status API)
+4. Under **Permissions → Organization permissions**, set **Members**: read if
+   org-owned repos use the `await_copilot_review` gate (`gh pr edit
+   --add-reviewer` fetches organization teams).
+5. Under **Where can this GitHub App be installed?**, choose **Only on this
    account** (recommended) or **Any account** if you want to install it on
    multiple orgs.
-5. Click **Create GitHub App**.
+6. Click **Create GitHub App**.
+
+Adding permissions to an App that is already installed sends a
+permission-update request to each installation; the new permissions take
+effect only after you approve it under **Settings → Installations →
+Configure**.
 
 ### 2. Generate the private key
 
@@ -143,8 +183,23 @@ granted the **Contents: read & write** permission).
    - **Issues**: Read (for issue importing)
    - **Metadata**: Read (auto-included; double-check it's there)
    - **Pull requests**: Read and write (worker containers create PRs)
-4. Click **Generate token**, copy it (it's shown only once), and store it in
+   - **Actions**: Read (only if cards set `await_ci` - CI polling fallback and
+     failing-run logs)
+   - **Commit statuses**: Read (only if cards set `await_ci` and a CI system
+     reports through the legacy status API)
+4. Under **Organization permissions** (shown when the token's resource owner
+   is an organization), grant **Members**: Read if org-owned repos use the
+   `await_copilot_review` gate.
+5. Click **Generate token**, copy it (it's shown only once), and store it in
    your secrets manager.
+
+**The `await_ci` gate under a fine-grained PAT** polls through an automatic
+fallback: the Checks API is App-only, so on the first "Resource not
+accessible by personal access token" refusal the worker reads the Actions
+runs API and the legacy commit-status API instead. Grant **Actions: read**
+and **Commit statuses: read** (both listed above) and the gate behaves
+identically for GitHub Actions and status-API CI. Third-party CI that
+reports only through the Checks API is invisible to a PAT on private repos.
 
 ### 2. Configure ContextMatrix
 
@@ -193,6 +248,17 @@ has access on both. See `internal/config/config.go` (`AllowedHosts`).
 
 - **PAT created as classic instead of fine-grained.** Classic PATs work but give
   too-broad access and can't be repo-scoped.
+- **`await_ci` under PAT auth without Actions: read.** The fallback poll
+  reads the Actions runs API; a PAT missing **Actions: read** (or **Commit
+  statuses: read** for status-API CI) leaves every poll failing until the
+  gate's wait cap expires and the card parks. Workers older than the
+  fallback also park this way regardless of permissions - update the worker
+  image.
+- **App permissions added but never approved on the installation.** Granting
+  Checks/Actions/Commit statuses to an existing App has no effect until the
+  permission-update request is approved under **Settings → Installations →
+  Configure**; until then the gates fail exactly as if the permission were
+  missing.
 - **App not installed on every relevant repo.** Issue import on a repo the App
   isn't installed on returns 404; clone/push on the boards repo without
   installation returns 403; a worker's per-run token for a project repo fails
