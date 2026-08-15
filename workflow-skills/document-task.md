@@ -113,8 +113,11 @@ Call `report_usage` with:
 - `agent_id`: your agent ID
 - `model`: your own model identifier, read fresh from your system context
   ("You are powered by the model named X"), never copied from elsewhere
-- `prompt_tokens` / `completion_tokens`: your estimated token consumption for this documentation session
+- `prompt_tokens` / `completion_tokens`: measured values from the stream-json
+  `usage` frames when available; otherwise your best estimate
 - `cache_read_tokens` / `cache_creation_tokens`: from the stream-json `usage` frame if available
+- `source`: `"collector"` when every count above came from `usage` frames; omit
+  it when any count is estimated
 
 ## Step 6: Structured output
 
