@@ -377,15 +377,23 @@ recalculated cost.
 ```
 estimated_cost_usd +=
     prompt_tokens         * rate.Prompt
-  + cache_read_tokens     * rate.Prompt * 0.10
-  + cache_creation_tokens * rate.Prompt * 1.25
+  + cache_read_tokens      * (rate.CacheRead  || rate.Prompt * 0.10)
+  + cache_creation_tokens  * (rate.CacheWrite || rate.Prompt * 1.25)
   + completion_tokens     * rate.Completion
 ```
 
-`cache_creation_tokens` uses a single 1.25× multiplier, collapsing the 5-minute
-and 1-hour cache-write tiers. Claude Code uses the 5-minute tier by default.
-Agents should pass the `cache_creation_input_tokens` field from Claude's
-stream-json `usage` frame directly - no tier distinction is required.
+`rate.CacheRead` and `rate.CacheWrite` are per-token USD rates that a model's
+rate can set explicitly; zero (unset) falls back to the Prompt-derived
+multiplier. The catalog supplies cache rates when the gateway publishes
+`input_cache_read`/`input_cache_write` pricing (OpenRouter does; plain
+OpenAI-protocol gateways typically do not, in which case the multiplier
+fallback applies).
+
+`cache_creation_tokens` falls back to a single 1.25× multiplier when no
+explicit rate is set, collapsing the 5-minute and 1-hour cache-write tiers.
+Claude Code uses the 5-minute tier by default. Agents should pass the
+`cache_creation_input_tokens` field from Claude's stream-json `usage` frame
+directly - no tier distinction is required.
 
 ### Usage breakdown
 

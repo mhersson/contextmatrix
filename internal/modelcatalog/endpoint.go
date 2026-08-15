@@ -98,8 +98,10 @@ func fetchEndpointCatalog(ctx context.Context, endpoint, apiKey string) (map[str
 			ID            string `json:"id"`
 			ContextLength int    `json:"context_length"`
 			Pricing       struct {
-				Prompt     string `json:"prompt"`
-				Completion string `json:"completion"`
+				Prompt          string `json:"prompt"`
+				Completion      string `json:"completion"`
+				InputCacheRead  string `json:"input_cache_read"`
+				InputCacheWrite string `json:"input_cache_write"`
 			} `json:"pricing"`
 			Capabilities struct {
 				Features []string `json:"features"`
@@ -114,10 +116,19 @@ func fetchEndpointCatalog(ctx context.Context, endpoint, apiKey string) (map[str
 	for _, d := range raw.Data {
 		pp, _ := strconv.ParseFloat(d.Pricing.Prompt, 64)
 		cp, _ := strconv.ParseFloat(d.Pricing.Completion, 64)
+		crp, _ := strconv.ParseFloat(d.Pricing.InputCacheRead, 64)
+		cwp, _ := strconv.ParseFloat(d.Pricing.InputCacheWrite, 64)
 
 		tools := slices.Contains(d.Capabilities.Features, "tools")
 
-		out[d.ID] = orEntry{PromptPrice: pp, CompletionPrice: cp, ContextWindow: d.ContextLength, Tools: tools}
+		out[d.ID] = orEntry{
+			PromptPrice:     pp,
+			CompletionPrice: cp,
+			CacheReadPrice:  crp,
+			CacheWritePrice: cwp,
+			ContextWindow:   d.ContextLength,
+			Tools:           tools,
+		}
 	}
 
 	return out, nil

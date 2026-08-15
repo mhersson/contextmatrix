@@ -171,12 +171,12 @@ func TestBuilderRatePricesAnyServedModel(t *testing.T) {
 	b.aaEndpoint = aaSrv.URL
 
 	// picker-only is NOT a selection candidate (unmapped), but it is served and priced.
-	p, c, ok := b.Rate(context.Background(), "picker-only")
+	price, ok := b.Rate(context.Background(), "picker-only")
 	require.True(t, ok)
-	assert.InDelta(t, 0.000001, p, 1e-12)
-	assert.InDelta(t, 0.000005, c, 1e-12)
+	assert.InDelta(t, 0.000001, price.Prompt, 1e-12)
+	assert.InDelta(t, 0.000005, price.Completion, 1e-12)
 
-	_, _, ok = b.Rate(context.Background(), "not-served")
+	_, ok = b.Rate(context.Background(), "not-served")
 	assert.False(t, ok)
 }
 
@@ -186,7 +186,7 @@ func TestBuilderRatePricesAnyServedModel(t *testing.T) {
 func TestBuilderRatePricesEndpointWithoutAAKey(t *testing.T) {
 	endpointSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"data":[{"id":"model-a","context_length":200000,
-			"pricing":{"prompt":"0.000003","completion":"0.000015"},
+			"pricing":{"prompt":"0.000003","completion":"0.000015","input_cache_read":"0.0000005","input_cache_write":"0.00000625"},
 			"capabilities":{"features":["tools"]}}]}`))
 	}))
 	defer endpointSrv.Close()
@@ -195,10 +195,12 @@ func TestBuilderRatePricesEndpointWithoutAAKey(t *testing.T) {
 	b := NewBuilder("", 0.65, nil, time.Hour,
 		WithEndpoint(endpointSrv.URL, "secret", nil, nil))
 
-	p, c, ok := b.Rate(context.Background(), "model-a")
+	price, ok := b.Rate(context.Background(), "model-a")
 	require.True(t, ok, "endpoint pricing must resolve without an AA key")
-	assert.InDelta(t, 0.000003, p, 1e-12)
-	assert.InDelta(t, 0.000015, c, 1e-12)
+	assert.InDelta(t, 0.000003, price.Prompt, 1e-12)
+	assert.InDelta(t, 0.000015, price.Completion, 1e-12)
+	assert.InDelta(t, 0.0000005, price.CacheRead, 1e-12)
+	assert.InDelta(t, 0.00000625, price.CacheWrite, 1e-12)
 }
 
 func TestRefreshWithoutAAKeyPopulatesORCatalog(t *testing.T) {
@@ -216,10 +218,10 @@ func TestRefreshWithoutAAKeyPopulatesORCatalog(t *testing.T) {
 	// No AA key: zero selection candidates, but the raw catalog is cached.
 	assert.Empty(t, b.Candidates(context.Background()))
 
-	prompt, completion, ok := b.Rate(context.Background(), "anthropic/claude-sonnet-4.5")
+	price, ok := b.Rate(context.Background(), "anthropic/claude-sonnet-4.5")
 	require.True(t, ok)
-	assert.InDelta(t, 0.000003, prompt, 1e-12)
-	assert.InDelta(t, 0.000015, completion, 1e-12)
+	assert.InDelta(t, 0.000003, price.Prompt, 1e-12)
+	assert.InDelta(t, 0.000015, price.Completion, 1e-12)
 }
 
 // TestBuilderRateNilReceiver verifies that Rate on a nil *Builder returns false
@@ -227,7 +229,7 @@ func TestRefreshWithoutAAKeyPopulatesORCatalog(t *testing.T) {
 func TestBuilderRateNilReceiver(t *testing.T) {
 	var b *Builder
 
-	_, _, ok := b.Rate(context.Background(), "any-model")
+	_, ok := b.Rate(context.Background(), "any-model")
 	assert.False(t, ok)
 }
 
@@ -272,11 +274,11 @@ func TestBuilderRefreshFailureBackoff(t *testing.T) {
 
 	ctx := context.Background()
 
-	_, _, ok := b.Rate(ctx, "model-a")
+	_, ok := b.Rate(ctx, "model-a")
 	assert.False(t, ok)
 	require.EqualValues(t, 1, hits.Load(), "first call must attempt a refresh")
 
-	_, _, ok = b.Rate(ctx, "model-a")
+	_, ok = b.Rate(ctx, "model-a")
 	assert.False(t, ok)
 	assert.EqualValues(t, 1, hits.Load(), "call within cooldown must not refetch")
 
@@ -285,7 +287,7 @@ func TestBuilderRefreshFailureBackoff(t *testing.T) {
 	b.lastRefreshAttempt = time.Now().Add(-2 * refreshFailureCooldown)
 	b.mu.Unlock()
 
-	_, _, _ = b.Rate(ctx, "model-a")
+	_, _ = b.Rate(ctx, "model-a")
 
 	assert.EqualValues(t, 2, hits.Load(), "call after cooldown must retry")
 }
@@ -318,7 +320,7 @@ func TestBuilderRefreshFailureServesLastGood(t *testing.T) {
 
 	ctx := context.Background()
 
-	_, _, ok := b.Rate(ctx, "model-a")
+	_, ok := b.Rate(ctx, "model-a")
 	require.True(t, ok)
 
 	// Expire the TTL and make the endpoint fail: Rate must serve last-good.
@@ -328,12 +330,12 @@ func TestBuilderRefreshFailureServesLastGood(t *testing.T) {
 	b.lastRefreshAttempt = time.Time{}
 	b.mu.Unlock()
 
-	p, _, ok := b.Rate(ctx, "model-a")
+	price, ok := b.Rate(ctx, "model-a")
 	require.True(t, ok, "failed refresh must serve last-good")
-	assert.InDelta(t, 0.000003, p, 1e-12)
+	assert.InDelta(t, 0.000003, price.Prompt, 1e-12)
 	require.EqualValues(t, 2, hits.Load())
 
-	_, _, ok = b.Rate(ctx, "model-a")
+	_, ok = b.Rate(ctx, "model-a")
 	require.True(t, ok)
 	assert.EqualValues(t, 2, hits.Load(), "failed refresh must back off, not retry per call")
 }

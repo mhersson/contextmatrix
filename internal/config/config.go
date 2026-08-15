@@ -20,6 +20,8 @@ import (
 type ModelRate struct {
 	Prompt     float64 `yaml:"prompt"`
 	Completion float64 `yaml:"completion"`
+	CacheRead  float64 `yaml:"cache_read"`
+	CacheWrite float64 `yaml:"cache_write"`
 }
 
 // LLMEndpointConfig is CM's connection to the inference endpoint it reads model

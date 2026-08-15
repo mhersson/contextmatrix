@@ -82,6 +82,35 @@ func TestPriceTokensHelper(t *testing.T) {
 	}
 }
 
+// TestPriceTokensCacheRates verifies that explicit CacheRead/CacheWrite rates
+// take precedence over the Prompt-derived multipliers, and that zero cache
+// rates fall back to the multipliers.
+func TestPriceTokensCacheRates(t *testing.T) {
+	tests := []struct {
+		name string
+		rate ModelRate
+		want float64
+	}{
+		{
+			name: "explicit cache rates win",
+			rate: ModelRate{Prompt: 10, Completion: 20, CacheRead: 1, CacheWrite: 2},
+			// 1*10 + 1*1 + 1*2 + 1*20
+			want: 33,
+		},
+		{
+			name: "zero cache rates fall back to multipliers",
+			rate: ModelRate{Prompt: 10, Completion: 20},
+			// 1*10 + 1*10*0.10 + 1*10*1.25 + 1*20
+			want: 43.5,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.InDelta(t, tt.want, PriceTokens(tt.rate, 1, 1, 1, 1), 1e-9)
+		})
+	}
+}
+
 // TestCardServicePriceTokens verifies that the CardService.PriceTokens method
 // returns (cost, true) for a known model and (0, false) for an unknown one.
 func TestCardServicePriceTokens(t *testing.T) {
