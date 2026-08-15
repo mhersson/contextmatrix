@@ -816,6 +816,35 @@ and per-repo credentials fetched on demand from `GET
 /api/worker/git-credentials` - see the `/chat/start` payload above and
 `docs/api-reference.md` § Worker & Backend Endpoints for the full contract.
 
+## Usage reporting
+
+Workers report token usage to the board with the `report_usage` MCP tool. The
+contract for any worker implementation, including custom worker images:
+
+- Read the `usage` block off every model response - both the non-streamed body
+  and the final SSE frame - and accumulate per card. Never estimate counts the
+  gateway already measured.
+- Report disjoint buckets: `prompt_tokens` must exclude cache traffic. On the
+  OpenAI wire shape, `prompt_tokens_details.cached_tokens` is a subset of
+  `prompt_tokens` - subtract it out and report it as `cache_read_tokens`. On
+  Anthropic-shim shapes (`cache_read_input_tokens`,
+  `cache_creation_input_tokens`) the buckets are already disjoint.
+- Pass `source: "collector"` when every count came from usage frames; omit it
+  when any count is estimated. The board stores the flag per bucket and the UI
+  labels the difference.
+- Pass `actual_cost_usd` whenever the gateway reports a per-call cost (for
+  example OpenRouter with `usage: {include: true}`). Without it, the server
+  prices the counts from its rate table - accurate counts make that estimate
+  trustworthy; see `token_costs` in the configuration reference for cache-aware
+  per-model rates.
+- Pass `model` as the gateway's vendor-prefixed slug (for example
+  `anthropic/claude-opus-5`). A slug the rate table and catalog cannot resolve
+  prices at $0 with only a server-side warning.
+- Importing usage from Claude Code transcripts post-hoc: transcripts write one
+  record per content block and `output_tokens` grows across a message's
+  records - deduplicate by `message.id` keeping the LAST record, then report
+  the sums with `source: "collector"`.
+
 ## Security Model
 
 - **Per-backend HMAC keys.** Each backend has its own shared secret
