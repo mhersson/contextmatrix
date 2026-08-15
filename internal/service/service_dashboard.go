@@ -37,7 +37,11 @@ type AgentCost struct {
 	EstimatedCostUSD float64 `json:"estimated_cost_usd"`
 	CardCount        int     `json:"card_count"`
 	// HasEstimates is true when any card folded into this row carries a
-	// rate-table-estimated cost. See costHasEstimates.
+	// rate-table-estimated cost. On the breakdown path this is bucket-level -
+	// only rows whose own (agent, model) bucket is estimated are flagged, so
+	// a card mixing actual and estimated buckets does not mark this row's
+	// actual-cost buckets; on the legacy fallback path (no breakdown) it is
+	// card-level via costHasEstimates.
 	HasEstimates bool `json:"has_estimates,omitempty"`
 }
 
@@ -50,7 +54,11 @@ type ModelCost struct {
 	EstimatedCostUSD float64 `json:"estimated_cost_usd"`
 	CardCount        int     `json:"card_count"`
 	// HasEstimates is true when any card folded into this row carries a
-	// rate-table-estimated cost. See costHasEstimates.
+	// rate-table-estimated cost. On the breakdown path this is bucket-level -
+	// only rows whose own (agent, model) bucket is estimated are flagged, so
+	// a card mixing actual and estimated buckets does not mark this row's
+	// actual-cost buckets; on the legacy fallback path (no breakdown) it is
+	// card-level via costHasEstimates.
 	HasEstimates bool `json:"has_estimates,omitempty"`
 }
 
@@ -101,8 +109,14 @@ type DashboardData struct {
 	TotalCostUSD       float64        `json:"total_cost_usd"`
 	// TotalCostHasEstimates is true when any card contributing to
 	// TotalCostUSD carries a rate-table-estimated cost. See costHasEstimates.
-	TotalCostHasEstimates        bool         `json:"total_cost_has_estimates,omitempty"`
-	TotalCostUSDLast30d          float64      `json:"total_cost_usd_last_30d"`
+	TotalCostHasEstimates bool    `json:"total_cost_has_estimates,omitempty"`
+	TotalCostUSDLast30d   float64 `json:"total_cost_usd_last_30d"`
+	// TotalCostHasEstimatesLast30d is true when any card contributing to
+	// TotalCostUSDLast30d (the same last-30d window bucketCostSeries walks)
+	// carries a rate-table-estimated cost. Scoped separately from
+	// TotalCostHasEstimates so a legacy estimated card outside the 30d
+	// window does not permanently mark a fully-measured 30d figure.
+	TotalCostHasEstimatesLast30d bool         `json:"total_cost_has_estimates_last_30d,omitempty"`
 	TotalCostUSDPrior30d         float64      `json:"total_cost_usd_prior_30d"`
 	CostSeries30d                []float64    `json:"cost_series_30d"`
 	CardsCompletedToday          int          `json:"cards_completed_today"`
@@ -165,7 +179,7 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 	completions := bucketCompletions(cards, now, tz)
 	sparkline := bucketSparkline(cards, now, tz)
 	activeAgents := buildAgentList(cards, now)
-	costLast30d, costPrior30d, costSeries30d := bucketCostSeries(cards, now, tz)
+	costLast30d, costPrior30d, costSeries30d, totalCostHasEstimatesLast30d := bucketCostSeries(cards, now, tz)
 
 	// Server-wide chat cost summary. Errors here are non-fatal: the rest of
 	// the dashboard still renders with zero values for the chat-cost fields.
@@ -194,6 +208,7 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 		ActiveAgents:                 activeAgents,
 		TotalCostUSD:                 totalCostUSD,
 		TotalCostHasEstimates:        totalCostHasEstimates,
+		TotalCostHasEstimatesLast30d: totalCostHasEstimatesLast30d,
 		TotalCostUSDLast30d:          costLast30d,
 		TotalCostUSDPrior30d:         costPrior30d,
 		CostSeries30d:                costSeries30d,
@@ -596,10 +611,13 @@ func aggregateCostsByAgentModel(cards []*board.Card) (agentCosts []AgentCost, mo
 //   - prior30d: sum for cards whose Updated falls in the prior 30-day window
 //     (dayStarts[0]-30*24h <= Updated < dayStarts[0]).
 //   - series30d: 30-element daily bucket slice (index 0 = oldest day, 29 = today).
+//   - hasEstimatesLast30d: true when any card in the last30d window (the same
+//     card set that contributes to last30d) carries a rate-table-estimated
+//     cost per costHasEstimates.
 //
 // Cards with nil TokenUsage are skipped entirely. Cards older than 60 days from
-// dayStarts[0] are excluded from all three accumulators.
-func bucketCostSeries(cards []*board.Card, now time.Time, tz *time.Location) (last30d, prior30d float64, series30d []float64) {
+// dayStarts[0] are excluded from all four accumulators.
+func bucketCostSeries(cards []*board.Card, now time.Time, tz *time.Location) (last30d, prior30d float64, series30d []float64, hasEstimatesLast30d bool) {
 	const numDays = 30
 
 	series30d = make([]float64, numDays)
@@ -640,6 +658,10 @@ func bucketCostSeries(cards []*board.Card, now time.Time, tz *time.Location) (la
 			// Within the last 30 days.
 			last30d += cost
 
+			if costHasEstimates(card) {
+				hasEstimatesLast30d = true
+			}
+
 			// Find the matching day bucket via linear scan.
 			for i := range numDays {
 				if !updated.Before(dayStarts[i]) && updated.Before(dayEnds[i]) {
@@ -654,7 +676,7 @@ func bucketCostSeries(cards []*board.Card, now time.Time, tz *time.Location) (la
 		}
 	}
 
-	return last30d, prior30d, series30d
+	return last30d, prior30d, series30d, hasEstimatesLast30d
 }
 
 // ActivityFeedEntry is one row in the cross-card activity feed. Mirrors a

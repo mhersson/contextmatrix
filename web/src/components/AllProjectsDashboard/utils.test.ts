@@ -267,6 +267,27 @@ describe('aggregateDashboards 30-day cost fields', () => {
   });
 });
 
+describe('aggregateDashboards total_cost_has_estimates_last_30d', () => {
+  it('is true when any project reports it true (OR-merge)', () => {
+    const a = summary({ total_cost_has_estimates_last_30d: false });
+    const b = summary({ total_cost_has_estimates_last_30d: true });
+
+    const result = aggregateDashboards(new Map([['a', a], ['b', b]]));
+
+    expect(result.total_cost_has_estimates_last_30d).toBe(true);
+  });
+
+  it('is false when no project reports it true, including when the field is absent', () => {
+    const a = summary({ total_cost_has_estimates_last_30d: false });
+    const b = summary();
+    delete (b as Partial<DashboardData>).total_cost_has_estimates_last_30d;
+
+    const result = aggregateDashboards(new Map([['a', a], ['b', b]]));
+
+    expect(result.total_cost_has_estimates_last_30d).toBe(false);
+  });
+});
+
 describe('aggregateDashboards chat cost picker', () => {
   it('picker_picks_first_numeric_even_when_zero - preserves zero last30d with non-zero prior30d', () => {
     // First response has chat_cost_usd_last_30d: 0 and chat_cost_usd_prior_30d: 50.
