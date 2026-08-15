@@ -536,7 +536,8 @@ mirrored by `service.PatchCardInput.UpsertSection`
 (`internal/service/service_cards.go`).
 
 **Human-only fields** (may only be set by agents whose `X-Agent-ID` starts with
-`human:`): `vetted`, `assignee`, `autonomous`, `create_pr`, the three model
+`human:`): `vetted`, `assignee`, `autonomous`, `create_pr`, `await_ci`,
+`await_copilot_review`, the three model
 pins (`model_orchestrator`, `model_coder`, `model_reviewer`), `base_branch`,
 `best_of_n`, `max_capability`, the mob fields (`mob_participants`,
 `mob_phases`, `mob_guests`), and `verify`. `assignee` is exposed on POST, PUT, and PATCH and, independent
@@ -559,7 +560,9 @@ the agent backend (see `docs/remote-execution.md`). Ignored (zeroed at
 trigger, with a warning) when the card's mob session covers the `execute`
 phase and the server allows checkpoints. Agents that attempt to set any of
 these fields receive 403 `HUMAN_ONLY_FIELD`. The MCP `update_card` tool does
-not expose them.
+not expose them. `await_ci` and `await_copilot_review` are plain booleans on
+POST, PUT, and PATCH (no create-time defaulting); see `## PR gates` for
+semantics.
 
 ### `max_capability` (optional, bool)
 

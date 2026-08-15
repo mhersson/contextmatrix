@@ -2304,6 +2304,93 @@ func TestHumanOnlyFields_PatchCard(t *testing.T) {
 	})
 }
 
+func TestHumanOnlyFields_PRGates(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
+		Title: "Test", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	for _, body := range []string{`{"await_ci": true}`, `{"await_copilot_review": true}`} {
+		t.Run("agent rejected on patch "+body, func(t *testing.T) {
+			req, _ := http.NewRequest("PATCH", server.URL+"/api/projects/test-project/cards/"+card.ID,
+				strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-Agent-ID", "agent-1")
+
+			resp, err := http.DefaultClient.Do(req)
+
+			require.NoError(t, err)
+			defer closeBody(t, resp.Body)
+
+			assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
+			var apiErr APIError
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+			assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
+		})
+	}
+
+	t.Run("human patch allowed and persisted", func(t *testing.T) {
+		req, _ := http.NewRequest("PATCH", server.URL+"/api/projects/test-project/cards/"+card.ID,
+			strings.NewReader(`{"await_ci": true, "await_copilot_review": true}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Agent-ID", "human:alice")
+
+		resp, err := http.DefaultClient.Do(req)
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var got board.Card
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
+		assert.True(t, got.AwaitCI)
+		assert.True(t, got.AwaitCopilotReview)
+	})
+
+	t.Run("agent rejected on create", func(t *testing.T) {
+		req, _ := http.NewRequest("POST", server.URL+"/api/projects/test-project/cards",
+			strings.NewReader(`{"title":"T","type":"task","priority":"medium","await_ci":true}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Agent-ID", "claude-7a3f")
+
+		resp, err := http.DefaultClient.Do(req)
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	})
+
+	t.Run("human create persists both flags", func(t *testing.T) {
+		req, _ := http.NewRequest("POST", server.URL+"/api/projects/test-project/cards",
+			strings.NewReader(`{"title":"T2","type":"task","priority":"medium","await_ci":true,"await_copilot_review":true}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Agent-ID", "human:alice")
+
+		resp, err := http.DefaultClient.Do(req)
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusCreated, resp.StatusCode)
+
+		var got board.Card
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
+		assert.True(t, got.AwaitCI)
+		assert.True(t, got.AwaitCopilotReview)
+	})
+}
+
 func TestHumanOnlyFields_CreateCard(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
