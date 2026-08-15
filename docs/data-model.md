@@ -537,32 +537,31 @@ mirrored by `service.PatchCardInput.UpsertSection`
 
 **Human-only fields** (may only be set by agents whose `X-Agent-ID` starts with
 `human:`): `vetted`, `assignee`, `autonomous`, `create_pr`, `await_ci`,
-`await_copilot_review`, the three model
-pins (`model_orchestrator`, `model_coder`, `model_reviewer`), `base_branch`,
-`best_of_n`, `max_capability`, the mob fields (`mob_participants`,
-`mob_phases`, `mob_guests`), and `verify`. `assignee` is exposed on POST, PUT, and PATCH and, independent
-of the human-only gate, is validated against the user roster - see
-`### assignee` below for the mode-forked rules. `verify` is exposed
-on POST (`createCardRequest`) and PATCH (`patchCardRequest`) only - there is no
-`verify` field on the full-update body - and an agent that sets it is rejected so
-it can never define its own verify gate. `create_pr` is nullable on POST:
-absent (or `null`) defaults to **true** in the service layer, so MCP
-`create_card` and importers inherit PRs-by-default; an explicit boolean from
-an agent is rejected. `base_branch` is exposed on POST and PATCH; PUT has no
-`base_branch` field and preserves the existing value. The model pins are gated on
-create, full-update, and PATCH. `best_of_n` is exposed on POST (`createCardRequest`), PUT, and PATCH - and,
-independent of the human-only gate, is range-validated to `0` (off) or
+`await_copilot_review`, the three model pins (`model_orchestrator`,
+`model_coder`, `model_reviewer`), `base_branch`, `best_of_n`, `max_capability`,
+the mob fields (`mob_participants`, `mob_phases`, `mob_guests`), and `verify`.
+`assignee` is exposed on POST, PUT, and PATCH and, independent of the human-only
+gate, is validated against the user roster - see `### assignee` below for the
+mode-forked rules. `verify` is exposed on POST (`createCardRequest`) and PATCH
+(`patchCardRequest`) only - there is no `verify` field on the full-update body -
+and an agent that sets it is rejected so it can never define its own verify
+gate. `create_pr` is nullable on POST: absent (or `null`) defaults to **true**
+in the service layer, so MCP `create_card` and importers inherit PRs-by-default;
+an explicit boolean from an agent is rejected. `base_branch` is exposed on POST
+and PATCH; PUT has no `base_branch` field and preserves the existing value. The
+model pins are gated on create, full-update, and PATCH. `best_of_n` is exposed
+on POST (`createCardRequest`), PUT, and PATCH - and, independent of the
+human-only gate, is range-validated to `0` (off) or
 `2..best_of_n.max_candidates`; a value outside that range is rejected with 400
-`BAD_REQUEST` regardless of caller. Like the model pins, it is sticky: there
-is no per-trigger override, so the card's stored value applies to every
-subsequent run until a human changes or clears it, and it has effect only on
-the agent backend (see `docs/remote-execution.md`). Ignored (zeroed at
-trigger, with a warning) when the card's mob session covers the `execute`
-phase and the server allows checkpoints. Agents that attempt to set any of
-these fields receive 403 `HUMAN_ONLY_FIELD`. The MCP `update_card` tool does
-not expose them. `await_ci` and `await_copilot_review` are plain booleans on
-POST, PUT, and PATCH (no create-time defaulting); see `## PR gates` for
-semantics.
+`BAD_REQUEST` regardless of caller. Like the model pins, it is sticky: there is
+no per-trigger override, so the card's stored value applies to every subsequent
+run until a human changes or clears it, and it has effect only on the agent
+backend (see `docs/remote-execution.md`). Ignored (zeroed at trigger, with a
+warning) when the card's mob session covers the `execute` phase and the server
+allows checkpoints. Agents that attempt to set any of these fields receive 403
+`HUMAN_ONLY_FIELD`. The MCP `update_card` tool does not expose them. `await_ci`
+and `await_copilot_review` are plain booleans on POST, PUT, and PATCH (no
+create-time defaulting); see `## PR gates` for semantics.
 
 ### `max_capability` (optional, bool)
 

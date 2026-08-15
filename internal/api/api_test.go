@@ -2623,6 +2623,86 @@ func TestHumanOnlyFields_PutSet(t *testing.T) {
 	assert.False(t, reloaded.Autonomous, "autonomous should still be false")
 }
 
+func TestHumanOnlyFields_PutPRGatesClear(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	// Create a card with both PR-gate flags enabled (via service, simulating human)
+	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
+		Title: "Gated card", Type: "task", Priority: "medium",
+		AwaitCI: true, AwaitCopilotReview: true,
+	})
+	require.NoError(t, err)
+	assert.True(t, card.AwaitCI)
+	assert.True(t, card.AwaitCopilotReview)
+
+	// Agent tries to PUT with both flags cleared - must be rejected
+	putBody := fmt.Sprintf(`{"title":"%s","type":"task","state":"todo","priority":"medium","await_ci":false,"await_copilot_review":false}`, card.Title)
+	req, _ := http.NewRequest("PUT", server.URL+"/api/projects/test-project/cards/"+card.ID,
+		strings.NewReader(putBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Agent-ID", "agent-1")
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
+
+	// Verify the card was NOT modified
+	reloaded, err := svc.GetCard(context.Background(), "test-project", card.ID)
+	require.NoError(t, err)
+	assert.True(t, reloaded.AwaitCI, "await_ci should still be true")
+	assert.True(t, reloaded.AwaitCopilotReview, "await_copilot_review should still be true")
+}
+
+func TestHumanOnlyFields_PutPRGatesSet(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	// Create a plain card (both PR-gate flags default false)
+	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
+		Title: "Plain card", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+	assert.False(t, card.AwaitCI)
+	assert.False(t, card.AwaitCopilotReview)
+
+	// Human sets both flags via PUT - must be allowed and persisted
+	putBody := fmt.Sprintf(`{"title":"%s","type":"task","state":"todo","priority":"medium","await_ci":true,"await_copilot_review":true}`, card.Title)
+	req, _ := http.NewRequest("PUT", server.URL+"/api/projects/test-project/cards/"+card.ID,
+		strings.NewReader(putBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Agent-ID", "human:alice")
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	reloaded, err := svc.GetCard(context.Background(), "test-project", card.ID)
+	require.NoError(t, err)
+	assert.True(t, reloaded.AwaitCI)
+	assert.True(t, reloaded.AwaitCopilotReview)
+}
+
 // testSetupWithRemoteExecution creates a test environment with a project that has
 // remote_execution configured. The boardConfig parameter overrides the default board config.
 func testSetupWithRemoteExecution(t *testing.T, boardConfigYAML string) (*service.CardService, *events.Bus, func()) {
