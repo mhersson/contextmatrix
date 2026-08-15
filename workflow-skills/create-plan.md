@@ -586,8 +586,9 @@ the claim, and stop (card stays in review).
    headRefOid`), then poll `gh run list -R <owner>/<repo> --commit
    <head-sha> --limit 100 --json name,status,conclusion,url` plus
    `gh api repos/<owner>/<repo>/commits/<head-sha>/status`; completed
-   success/skipped counts green, failure/timed_out/cancelled/error red,
-   anything else pending. Re-read the head SHA after every push. If no
+   success/skipped/neutral counts green, failure/timed_out/cancelled/error red,
+   anything else pending. When reruns list the same workflow twice, the
+   newest run wins. Re-read the head SHA after every push. If no
    checks appear within 3 minutes of the last push, the repo has no CI -
    the gate passes.
 2. Green = every check passed or skipped. On green, proceed.
