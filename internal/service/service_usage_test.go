@@ -1378,6 +1378,66 @@ func (failingListStore) ListCards(context.Context, string, storage.CardFilter) (
 	return nil, errors.New("boom")
 }
 
+// createSubtaskWithBreakdown creates a subtask under parent carrying a single
+// UsageBreakdown bucket with the given CostSource, alongside matching legacy
+// TokenUsage so costHasEstimates has both shapes to look at.
+func createSubtaskWithBreakdown(
+	ctx context.Context, t *testing.T, svc *CardService, project, parent, idHint, model string,
+	costUSD float64, costSource string,
+) string {
+	t.Helper()
+
+	card, err := svc.CreateCard(ctx, project, CreateCardInput{
+		Title:    "subtask " + idHint,
+		Type:     "task",
+		Priority: "medium",
+		Parent:   parent,
+	})
+	require.NoError(t, err)
+
+	refreshed, err := svc.GetCard(ctx, project, card.ID)
+	require.NoError(t, err)
+
+	refreshed.TokenUsage = &board.TokenUsage{
+		Model:            model,
+		EstimatedCostUSD: costUSD,
+	}
+	refreshed.UsageBreakdown = []board.UsageBucket{
+		{Agent: "w1", Model: model, CostUSD: costUSD, CostSource: costSource},
+	}
+	require.NoError(t, svc.store.UpdateCard(ctx, project, refreshed))
+
+	return card.ID
+}
+
+func TestGetCard_SubtaskCostRollup_HasEstimates(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
+	svc, project, cleanup := setupDashboardServiceAt(t, now)
+	t.Cleanup(cleanup)
+
+	parentID := createCardWithUsage(ctx, t, svc, project, "parent", "model-a", 100, 50, 4.42)
+	createSubtaskWithBreakdown(ctx, t, svc, project, parentID, "s1", "model-b", 0.30, "estimated")
+
+	parent, err := svc.GetCard(ctx, project, parentID)
+	require.NoError(t, err)
+	assert.True(t, parent.SubtaskCostHasEstimates, "subtask with an estimated bucket must flag the parent")
+}
+
+func TestGetCard_SubtaskCostRollup_AllActualNoEstimates(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
+	svc, project, cleanup := setupDashboardServiceAt(t, now)
+	t.Cleanup(cleanup)
+
+	parentID := createCardWithUsage(ctx, t, svc, project, "parent", "model-a", 100, 50, 4.42)
+	createSubtaskWithBreakdown(ctx, t, svc, project, parentID, "s1", "model-b", 0.30, "actual")
+
+	parent, err := svc.GetCard(ctx, project, parentID)
+	require.NoError(t, err)
+	assert.False(t, parent.SubtaskCostHasEstimates, "all-actual subtasks must not flag the parent")
+}
+
 func TestGetCard_SubtaskCostListFailureDoesNotFailRead(t *testing.T) {
 	card := &board.Card{
 		ID: "CMX-001", Title: "t", Project: "p", Type: "task",
@@ -1389,4 +1449,48 @@ func TestGetCard_SubtaskCostListFailureDoesNotFailRead(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Zero(t, got.SubtaskCostUSD)
+}
+
+func TestAggregateCostsFlagsEstimates(t *testing.T) {
+	cards := []*board.Card{
+		{
+			ID: "A-001", Title: "actual only",
+			TokenUsage: &board.TokenUsage{EstimatedCostUSD: 5},
+			UsageBreakdown: []board.UsageBucket{
+				{Agent: "w1", Model: "m1", CostUSD: 5, CostSource: "actual"},
+			},
+		},
+		{
+			ID: "A-002", Title: "mixed",
+			TokenUsage: &board.TokenUsage{EstimatedCostUSD: 3},
+			UsageBreakdown: []board.UsageBucket{
+				{Agent: "w1", Model: "m2", CostUSD: 3, CostSource: "estimated"},
+			},
+		},
+		{
+			ID: "A-003", Title: "legacy no breakdown",
+			TokenUsage: &board.TokenUsage{EstimatedCostUSD: 1},
+		},
+	}
+
+	agentCosts, modelCosts, cardCosts, _ := aggregateCostsByAgentModel(cards)
+
+	byCard := map[string]bool{}
+	for _, c := range cardCosts {
+		byCard[c.CardID] = c.HasEstimates
+	}
+
+	assert.False(t, byCard["A-001"])
+	assert.True(t, byCard["A-002"])
+	assert.True(t, byCard["A-003"], "legacy cards without breakdown are estimates")
+
+	byModel := map[string]bool{}
+	for _, m := range modelCosts {
+		byModel[m.Model] = m.HasEstimates
+	}
+
+	assert.False(t, byModel["m1"])
+	assert.True(t, byModel["m2"])
+	require.NotEmpty(t, agentCosts)
+	assert.True(t, agentCosts[0].HasEstimates, "w1 mixes actual and estimated")
 }

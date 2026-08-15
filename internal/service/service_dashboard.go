@@ -36,6 +36,9 @@ type AgentCost struct {
 	CompletionTokens int64   `json:"completion_tokens"`
 	EstimatedCostUSD float64 `json:"estimated_cost_usd"`
 	CardCount        int     `json:"card_count"`
+	// HasEstimates is true when any card folded into this row carries a
+	// rate-table-estimated cost. See costHasEstimates.
+	HasEstimates bool `json:"has_estimates,omitempty"`
 }
 
 // ModelCost contains per-model cost aggregation. Cards whose TokenUsage has
@@ -46,6 +49,9 @@ type ModelCost struct {
 	CompletionTokens int64   `json:"completion_tokens"`
 	EstimatedCostUSD float64 `json:"estimated_cost_usd"`
 	CardCount        int     `json:"card_count"`
+	// HasEstimates is true when any card folded into this row carries a
+	// rate-table-estimated cost. See costHasEstimates.
+	HasEstimates bool `json:"has_estimates,omitempty"`
 }
 
 // CardCost contains per-card cost summary.
@@ -56,6 +62,9 @@ type CardCost struct {
 	PromptTokens     int64   `json:"prompt_tokens"`
 	CompletionTokens int64   `json:"completion_tokens"`
 	EstimatedCostUSD float64 `json:"estimated_cost_usd"`
+	// HasEstimates is true when this card - or any subtask folded into it -
+	// carries a rate-table-estimated cost. See costHasEstimates.
+	HasEstimates bool `json:"has_estimates,omitempty"`
 }
 
 // MetricSeries holds an 8-sample daily window (oldest first, today last) for
@@ -86,23 +95,26 @@ const MetricSeriesDays = 8
 
 // DashboardData contains all data needed for the project dashboard view.
 type DashboardData struct {
-	StateCounts                  map[string]int `json:"state_counts"`
-	StateCountsParents           map[string]int `json:"state_counts_parents"`
-	ActiveAgents                 []ActiveAgent  `json:"active_agents"`
-	TotalCostUSD                 float64        `json:"total_cost_usd"`
-	TotalCostUSDLast30d          float64        `json:"total_cost_usd_last_30d"`
-	TotalCostUSDPrior30d         float64        `json:"total_cost_usd_prior_30d"`
-	CostSeries30d                []float64      `json:"cost_series_30d"`
-	CardsCompletedToday          int            `json:"cards_completed_today"`
-	CardsCompletedTodayParents   int            `json:"cards_completed_today_parents"`
-	CardsCompletedLast7d         int            `json:"cards_completed_last_7d"`
-	CardsCompletedLast7dParents  int            `json:"cards_completed_last_7d_parents"`
-	CardsCompletedPrior7d        int            `json:"cards_completed_prior_7d"`
-	CardsCompletedPrior7dParents int            `json:"cards_completed_prior_7d_parents"`
-	MetricSeries                 MetricSeries   `json:"metric_series"`
-	AgentCosts                   []AgentCost    `json:"agent_costs"`
-	ModelCosts                   []ModelCost    `json:"model_costs"`
-	CardCosts                    []CardCost     `json:"card_costs"`
+	StateCounts        map[string]int `json:"state_counts"`
+	StateCountsParents map[string]int `json:"state_counts_parents"`
+	ActiveAgents       []ActiveAgent  `json:"active_agents"`
+	TotalCostUSD       float64        `json:"total_cost_usd"`
+	// TotalCostHasEstimates is true when any card contributing to
+	// TotalCostUSD carries a rate-table-estimated cost. See costHasEstimates.
+	TotalCostHasEstimates        bool         `json:"total_cost_has_estimates,omitempty"`
+	TotalCostUSDLast30d          float64      `json:"total_cost_usd_last_30d"`
+	TotalCostUSDPrior30d         float64      `json:"total_cost_usd_prior_30d"`
+	CostSeries30d                []float64    `json:"cost_series_30d"`
+	CardsCompletedToday          int          `json:"cards_completed_today"`
+	CardsCompletedTodayParents   int          `json:"cards_completed_today_parents"`
+	CardsCompletedLast7d         int          `json:"cards_completed_last_7d"`
+	CardsCompletedLast7dParents  int          `json:"cards_completed_last_7d_parents"`
+	CardsCompletedPrior7d        int          `json:"cards_completed_prior_7d"`
+	CardsCompletedPrior7dParents int          `json:"cards_completed_prior_7d_parents"`
+	MetricSeries                 MetricSeries `json:"metric_series"`
+	AgentCosts                   []AgentCost  `json:"agent_costs"`
+	ModelCosts                   []ModelCost  `json:"model_costs"`
+	CardCosts                    []CardCost   `json:"card_costs"`
 	// ChatCostUSDLast30d, ChatCostUSDPrior30d, and ChatCostSeries30d are
 	// server-wide aggregates (not per-project). They ride on the per-project
 	// dashboard payload for fan-out convenience and are cached in chat.Manager
@@ -134,6 +146,22 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 	}
 
 	agentCosts, modelCosts, cardCosts, totalCostUSD := aggregateCostsByAgentModel(cards)
+
+	// Every card that contributes to totalCostUSD folds its costHasEstimates
+	// flag into exactly one CardCost row (its own, or its parent's via
+	// subtask folding) - so OR-ing across cardCosts recovers the grand-total
+	// flag without needing a separate accumulator threaded through the
+	// aggregate function's signature.
+	var totalCostHasEstimates bool
+
+	for _, cc := range cardCosts {
+		if cc.HasEstimates {
+			totalCostHasEstimates = true
+
+			break
+		}
+	}
+
 	completions := bucketCompletions(cards, now, tz)
 	sparkline := bucketSparkline(cards, now, tz)
 	activeAgents := buildAgentList(cards, now)
@@ -165,6 +193,7 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 		StateCountsParents:           stateCountsParents,
 		ActiveAgents:                 activeAgents,
 		TotalCostUSD:                 totalCostUSD,
+		TotalCostHasEstimates:        totalCostHasEstimates,
 		TotalCostUSDLast30d:          costLast30d,
 		TotalCostUSDPrior30d:         costPrior30d,
 		CostSeries30d:                costSeries30d,
@@ -350,6 +379,20 @@ func bucketSparkline(cards []*board.Card, now time.Time, tz *time.Location) Metr
 	return ms
 }
 
+// costHasEstimates reports whether the card's cost includes any rate-table
+// estimate: an estimated breakdown bucket, or legacy non-zero cost with no
+// breakdown at all (predates cost_source and was rate-table priced).
+func costHasEstimates(c *board.Card) bool {
+	for _, b := range c.UsageBreakdown {
+		if b.CostSource == "estimated" {
+			return true
+		}
+	}
+
+	return len(c.UsageBreakdown) == 0 &&
+		c.TokenUsage != nil && c.TokenUsage.EstimatedCostUSD != 0
+}
+
 // aggregateCostsByAgentModel rolls up token usage and estimated cost per agent
 // and per model. Returns sorted slices (cost desc, name asc on ties) ready for
 // the wire, the per-card cost list, and the grand total.
@@ -395,6 +438,8 @@ func aggregateCostsByAgentModel(cards []*board.Card) (agentCosts []AgentCost, mo
 
 		totalCostUSD += card.TokenUsage.EstimatedCostUSD
 
+		est := costHasEstimates(card)
+
 		// Orphan subtasks (parent not in this project) keep their own row so
 		// no spend disappears from the table.
 		rowCard := card
@@ -408,6 +453,7 @@ func aggregateCostsByAgentModel(cards []*board.Card) (agentCosts []AgentCost, mo
 		row.PromptTokens += card.TokenUsage.PromptTokens
 		row.CompletionTokens += card.TokenUsage.CompletionTokens
 		row.EstimatedCostUSD += card.TokenUsage.EstimatedCostUSD
+		row.HasEstimates = row.HasEstimates || est
 
 		if len(card.UsageBreakdown) > 0 {
 			// Breakdown path: sum each (agent, model) bucket directly.
@@ -432,6 +478,7 @@ func aggregateCostsByAgentModel(cards []*board.Card) (agentCosts []AgentCost, mo
 				ac.PromptTokens += b.PromptTokens
 				ac.CompletionTokens += b.CompletionTokens
 				ac.EstimatedCostUSD += b.CostUSD
+				ac.HasEstimates = ac.HasEstimates || b.CostSource == "estimated"
 
 				if !cardAccounted[agent] {
 					ac.CardCount++
@@ -457,6 +504,7 @@ func aggregateCostsByAgentModel(cards []*board.Card) (agentCosts []AgentCost, mo
 				mc.PromptTokens += b.PromptTokens
 				mc.CompletionTokens += b.CompletionTokens
 				mc.EstimatedCostUSD += b.CostUSD
+				mc.HasEstimates = mc.HasEstimates || b.CostSource == "estimated"
 
 				if !modelAccounted[model] {
 					mc.CardCount++
@@ -479,6 +527,7 @@ func aggregateCostsByAgentModel(cards []*board.Card) (agentCosts []AgentCost, mo
 			ac.PromptTokens += card.TokenUsage.PromptTokens
 			ac.CompletionTokens += card.TokenUsage.CompletionTokens
 			ac.EstimatedCostUSD += card.TokenUsage.EstimatedCostUSD
+			ac.HasEstimates = ac.HasEstimates || est
 			ac.CardCount++
 
 			// Skip cards with no measurable usage from the model rollup.
@@ -500,6 +549,7 @@ func aggregateCostsByAgentModel(cards []*board.Card) (agentCosts []AgentCost, mo
 			mc.PromptTokens += card.TokenUsage.PromptTokens
 			mc.CompletionTokens += card.TokenUsage.CompletionTokens
 			mc.EstimatedCostUSD += card.TokenUsage.EstimatedCostUSD
+			mc.HasEstimates = mc.HasEstimates || est
 			mc.CardCount++
 		}
 	}
