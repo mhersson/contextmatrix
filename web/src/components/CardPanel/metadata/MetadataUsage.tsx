@@ -23,6 +23,11 @@ export function MetadataUsage({ card }: MetadataUsageProps) {
     return null;
   }
 
+  const hasEstimates =
+    buckets.some((b) => b.cost_source === 'estimated') ||
+    (buckets.length === 0 && ownCost > 0) ||
+    (subtaskCost > 0 && (card.subtask_cost_has_estimates ?? true));
+
   return (
     <section className="bf-aside-section">
       <h4>Models used</h4>
@@ -33,7 +38,13 @@ export function MetadataUsage({ card }: MetadataUsageProps) {
               Total{subtaskCost > 0 ? ' incl. subtasks' : ''}
             </span>
             <span aria-hidden="true" />
-            <span className="text-right tabular-nums">{formatCost(total)}</span>
+            <span
+              className="text-right tabular-nums"
+              title={hasEstimates ? 'includes costs estimated from the rate table' : undefined}
+            >
+              {formatCost(total)}
+              {hasEstimates ? '*' : ''}
+            </span>
             {subtaskCost > 0 && ownCost > 0 && (
               <span className="col-span-3 text-[var(--grey1)]">
                 this card {formatCost(ownCost)} · subtasks {formatCost(subtaskCost)}

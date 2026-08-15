@@ -5,6 +5,7 @@ interface KpiRowProps {
   costLast30dUsd: number;
   costPrior30dUsd: number;
   costSeries30d: number[] | undefined;
+  costHasEstimates?: boolean;
   stateCountsParents: Record<string, number>;
   doneTodayParents: number;
   chatCostLast30dUsd: number;
@@ -112,13 +113,14 @@ function KpiTile({ label, badge, value, source, accent, tooltip, delta, sparklin
   );
 }
 
-function CostValue({ amount }: { amount: number }) {
+function CostValue({ amount, estimated }: { amount: number; estimated?: boolean }) {
   const fixed = amount.toFixed(2);
   const [whole, frac] = fixed.split('.');
   return (
     <>
       ${whole}
       <span style={{ fontSize: '0.55em', color: 'var(--grey1)', fontWeight: 400 }}>.{frac}</span>
+      {estimated ? '*' : ''}
     </>
   );
 }
@@ -126,7 +128,7 @@ function CostValue({ amount }: { amount: number }) {
 const DELIVERY_UNIT_TOOLTIP = 'Counts delivery units (standalone tasks + parents). Subtasks are excluded.';
 
 const COST_TOOLTIP =
-  "Sum of estimated cost on cards updated in the last 30 days. Each card's full cost is attributed to its last-update day, so long-running parent cards may show as a spike on their most recent touch day - token counts as reported by agents.";
+  "Sum of estimated cost on cards updated in the last 30 days. Each card's full cost is attributed to its last-update day, so long-running parent cards may show as a spike on their most recent touch day - token counts as reported by agents. Values marked * include rate-table estimates.";
 
 const CHAT_COST_TOOLTIP =
   "Server-wide chat session cost over the last 30 UTC days, bucketed by session last-active day. Cached server-side for 30 seconds.";
@@ -135,6 +137,7 @@ export function KpiRow({
   costLast30dUsd,
   costPrior30dUsd,
   costSeries30d,
+  costHasEstimates,
   stateCountsParents,
   doneTodayParents,
   chatCostLast30dUsd,
@@ -196,7 +199,7 @@ export function KpiRow({
       <KpiTile
         label="Cost · 30d"
         badge="USD"
-        value={<CostValue amount={costLast30dUsd} />}
+        value={<CostValue amount={costLast30dUsd} estimated={costHasEstimates} />}
         source="sum(card.cost where updated >= now-30d)"
         accent="purple"
         tooltip={COST_TOOLTIP}

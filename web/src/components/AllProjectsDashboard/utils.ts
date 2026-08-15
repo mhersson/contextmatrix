@@ -96,6 +96,7 @@ export function aggregateDashboards(
   const stateCounts: Record<string, number> = {};
   const stateCountsParents: Record<string, number> = {};
   let totalCost = 0;
+  let totalCostHasEstimates = false;
   let costLast30d = 0;
   let costPrior30d = 0;
   let hasAnySeries = false;
@@ -119,6 +120,7 @@ export function aggregateDashboards(
       stateCountsParents[state] = (stateCountsParents[state] ?? 0) + count;
     }
     totalCost += data.total_cost_usd;
+    totalCostHasEstimates = totalCostHasEstimates || Boolean(data.total_cost_has_estimates);
     costLast30d += data.total_cost_usd_last_30d ?? 0;
     costPrior30d += data.total_cost_usd_prior_30d ?? 0;
     const series = data.cost_series_30d;
@@ -144,6 +146,7 @@ export function aggregateDashboards(
         existing.completion_tokens += ac.completion_tokens;
         existing.estimated_cost_usd += ac.estimated_cost_usd;
         existing.card_count += ac.card_count;
+        existing.has_estimates = existing.has_estimates || ac.has_estimates;
       } else {
         agentCostMap.set(ac.agent_id, { ...ac });
       }
@@ -155,6 +158,7 @@ export function aggregateDashboards(
         existing.completion_tokens += mc.completion_tokens;
         existing.estimated_cost_usd += mc.estimated_cost_usd;
         existing.card_count += mc.card_count;
+        existing.has_estimates = existing.has_estimates || mc.has_estimates;
       } else {
         modelCostMap.set(mc.model, { ...mc });
       }
@@ -173,6 +177,7 @@ export function aggregateDashboards(
     state_counts_parents: stateCountsParents,
     active_agents: allAgents,
     total_cost_usd: totalCost,
+    total_cost_has_estimates: totalCostHasEstimates,
     total_cost_usd_last_30d: costLast30d,
     total_cost_usd_prior_30d: costPrior30d,
     cost_series_30d: hasAnySeries ? costSeries30d : undefined,
