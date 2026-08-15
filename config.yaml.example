@@ -138,8 +138,12 @@ theme: "everforest"
 # entries act as per-model overrides (useful for cache-aware rates or when the
 # endpoint does not publish pricing). Example:
 #
-#   # Override: cache-aware rate for a model whose endpoint pricing omits cache.
-#   # vendor-x-1: { prompt: 0.000003, completion: 0.000015 }
+#   # Override: cache-aware rates for a model whose endpoint pricing omits
+#   # cache. cache_read / cache_write are per-token USD; when omitted (or 0)
+#   # CM derives them as prompt x 0.10 and prompt x 1.25 (Anthropic ratios).
+#   # Vendors with no cache-write surcharge should set cache_write equal to
+#   # prompt. A genuinely free cache rate cannot be expressed (0 = unset).
+#   # vendor-x-1: { prompt: 0.000003, completion: 0.000015, cache_read: 0.0000003, cache_write: 0.000003 }
 #
 # Rates per https://platform.claude.com/docs/en/about-claude/pricing, 2026-04-23.
 token_costs:

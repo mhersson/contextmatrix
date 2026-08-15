@@ -17,7 +17,7 @@ func TestFetchEndpointCatalog(t *testing.T) {
 		gotAuth = r.Header.Get("Authorization")
 		_, _ = w.Write([]byte(`{"data":[
 			{"id":"model-a","context_length":200000,
-			 "pricing":{"prompt":"0.000003","completion":"0.000015"},
+			 "pricing":{"prompt":"0.000003","completion":"0.000015","input_cache_read":"0.0000005","input_cache_write":"0.00000625"},
 			 "capabilities":{"features":["streaming","tools"]}},
 			{"id":"model-b","context_length":128000,
 			 "pricing":{"prompt":"0.0000007","completion":"0.000003"},
@@ -34,6 +34,8 @@ func TestFetchEndpointCatalog(t *testing.T) {
 	assert.Equal(t, 200000, out["model-a"].ContextWindow)
 	assert.InDelta(t, 0.000003, out["model-a"].PromptPrice, 1e-12)
 	assert.InDelta(t, 0.000015, out["model-a"].CompletionPrice, 1e-12)
+	assert.InDelta(t, 0.0000005, out["model-a"].CacheReadPrice, 1e-12)
+	assert.InDelta(t, 0.00000625, out["model-a"].CacheWritePrice, 1e-12)
 	require.Contains(t, out, "model-b")
 	assert.False(t, out["model-b"].Tools)
 }

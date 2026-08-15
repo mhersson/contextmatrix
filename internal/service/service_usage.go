@@ -14,10 +14,15 @@ import (
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
-// ModelRate defines per-token cost rates for a model.
+// ModelRate defines per-token cost rates for a model. CacheRead and CacheWrite
+// are optional per-token cache rates; zero means "derive from Prompt with the
+// Anthropic-convention multipliers below" so existing configs keep pricing
+// identically.
 type ModelRate struct {
 	Prompt     float64
 	Completion float64
+	CacheRead  float64
+	CacheWrite float64
 }
 
 const (
@@ -25,12 +30,23 @@ const (
 	cacheCreationMultiplier = 1.25
 )
 
-// PriceTokens computes the estimated cost in USD for a single usage delta using
-// the per-tier multipliers for cached tokens.
+// PriceTokens computes the estimated cost in USD for a single usage delta.
+// CacheRead/CacheWrite rates are used when the rate sets them; otherwise the
+// Prompt-derived multipliers below apply.
 func PriceTokens(rate ModelRate, prompt, cacheRead, cacheCreation, completion int64) float64 {
+	crRate := rate.CacheRead
+	if crRate == 0 {
+		crRate = rate.Prompt * cacheReadMultiplier
+	}
+
+	cwRate := rate.CacheWrite
+	if cwRate == 0 {
+		cwRate = rate.Prompt * cacheCreationMultiplier
+	}
+
 	return float64(prompt)*rate.Prompt +
-		float64(cacheRead)*rate.Prompt*cacheReadMultiplier +
-		float64(cacheCreation)*rate.Prompt*cacheCreationMultiplier +
+		float64(cacheRead)*crRate +
+		float64(cacheCreation)*cwRate +
 		float64(completion)*rate.Completion
 }
 

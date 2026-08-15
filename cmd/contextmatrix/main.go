@@ -221,7 +221,12 @@ func main() {
 	if cfg.TokenCosts != nil {
 		tokenCosts = make(map[string]service.ModelRate, len(cfg.TokenCosts))
 		for model, cost := range cfg.TokenCosts {
-			tokenCosts[model] = service.ModelRate{Prompt: cost.Prompt, Completion: cost.Completion}
+			tokenCosts[model] = service.ModelRate{
+				Prompt:     cost.Prompt,
+				Completion: cost.Completion,
+				CacheRead:  cost.CacheRead,
+				CacheWrite: cost.CacheWrite,
+			}
 		}
 	}
 
@@ -506,12 +511,17 @@ func main() {
 
 	if catalogBuilder != nil {
 		svc.SetCatalogRateLookup(func(model string) (service.ModelRate, bool) {
-			p, c, ok := catalogBuilder.Rate(ctx, model)
+			p, ok := catalogBuilder.Rate(ctx, model)
 			if !ok {
 				return service.ModelRate{}, false
 			}
 
-			return service.ModelRate{Prompt: p, Completion: c}, true
+			return service.ModelRate{
+				Prompt:     p.Prompt,
+				Completion: p.Completion,
+				CacheRead:  p.CacheRead,
+				CacheWrite: p.CacheWrite,
+			}, true
 		})
 
 		svc.SetModelValidator(catalogBuilder.Validate)

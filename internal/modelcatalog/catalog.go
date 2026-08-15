@@ -146,13 +146,21 @@ func (b *Builder) Candidates(ctx context.Context) []protocol.CandidateModel {
 	return b.cached
 }
 
-// Rate returns the per-token prices for slug from the most recent raw catalog
-// (every served model, refreshing if stale). ok is false when the slug is not
-// served. Unlike Candidates, this is not filtered to AA-rated/floor-clearing
-// models, so picker-only and below-floor models are still priced.
-func (b *Builder) Rate(ctx context.Context, slug string) (prompt, completion float64, ok bool) {
+// ModelPrice is the per-token price set for one served model. CacheRead and
+// CacheWrite are zero when the gateway publishes no cache pricing; callers
+// fall back to multiplier-derived rates.
+type ModelPrice struct {
+	Prompt, Completion, CacheRead, CacheWrite float64
+}
+
+// Rate returns the per-token price set for slug from the most recent raw
+// catalog (every served model, refreshing if stale). ok is false when the
+// slug is not served. Unlike Candidates, this is not filtered to
+// AA-rated/floor-clearing models, so picker-only and below-floor models are
+// still priced.
+func (b *Builder) Rate(ctx context.Context, slug string) (ModelPrice, bool) {
 	if b == nil {
-		return 0, 0, false
+		return ModelPrice{}, false
 	}
 
 	b.mu.Lock()
@@ -162,10 +170,15 @@ func (b *Builder) Rate(ctx context.Context, slug string) (prompt, completion flo
 
 	e, found := b.lastCatalog[slug]
 	if !found {
-		return 0, 0, false
+		return ModelPrice{}, false
 	}
 
-	return e.PromptPrice, e.CompletionPrice, true
+	return ModelPrice{
+		Prompt:     e.PromptPrice,
+		Completion: e.CompletionPrice,
+		CacheRead:  e.CacheReadPrice,
+		CacheWrite: e.CacheWritePrice,
+	}, true
 }
 
 // ServedModel is one entry of the picker/validation model set.
