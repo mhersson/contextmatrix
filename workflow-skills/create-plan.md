@@ -337,9 +337,11 @@ the orchestrator's working tree on the feature branch.
    - `agent_id`: your agent ID
    - `model`: your own model identifier, read fresh from your system context
      ("You are powered by the model named X"), never copied from elsewhere
-   - `prompt_tokens` / `completion_tokens`: your estimated token consumption
-     since the last report
+   - `prompt_tokens` / `completion_tokens`: measured values from the stream-json
+     `usage` frames when available; otherwise your best estimate
    - `cache_read_tokens` / `cache_creation_tokens`: from the stream-json `usage` frame if available
+   - `source`: `"collector"` when every count above came from `usage` frames; omit
+     it when any count is estimated
 
    a. Call `await_subtasks(parent_id=<parent_id>, agent_id=<your_agent_id>,
       timeout_seconds=480)` - only after step 3 has spawned the sub-agents;
@@ -608,9 +610,11 @@ consumption:
 - `agent_id`: your agent ID
 - `model`: your own model identifier, read fresh from your system context
   ("You are powered by the model named X"), never copied from elsewhere
-- `prompt_tokens` / `completion_tokens`: your estimated token consumption since
-  the last report
+- `prompt_tokens` / `completion_tokens`: measured values from the stream-json
+  `usage` frames when available; otherwise your best estimate
 - `cache_read_tokens` / `cache_creation_tokens`: from the stream-json `usage` frame if available
+- `source`: `"collector"` when every count above came from `usage` frames; omit
+  it when any count is estimated
 
 Transition the parent card to `done`:
 `transition_card(card_id=<parent_id>, new_state='done')`.
