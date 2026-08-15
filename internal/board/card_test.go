@@ -911,6 +911,64 @@ updated: 2026-03-30T10:00:00Z
 	assert.False(t, parsedEmpty.MaxCapability)
 }
 
+func TestCardAwaitFlagsYAMLRoundTrip(t *testing.T) {
+	input := `---
+id: TEST-001
+title: PR gates test
+project: test-project
+type: task
+state: todo
+priority: medium
+create_pr: true
+await_ci: true
+await_copilot_review: true
+created: 2026-03-30T10:00:00Z
+updated: 2026-03-30T10:00:00Z
+---
+`
+
+	card, err := ParseCard([]byte(input))
+	require.NoError(t, err)
+	assert.True(t, card.AwaitCI)
+	assert.True(t, card.AwaitCopilotReview)
+
+	data, err := SerializeCard(card)
+	require.NoError(t, err)
+
+	str := string(data)
+	assert.Contains(t, str, "await_ci: true")
+	assert.Contains(t, str, "await_copilot_review: true")
+
+	parsed, err := ParseCard(data)
+	require.NoError(t, err)
+	assert.True(t, parsed.AwaitCI)
+	assert.True(t, parsed.AwaitCopilotReview)
+
+	// A card without the flags must serialize with neither key (omitempty).
+	created := time.Date(2026, 3, 30, 10, 0, 0, 0, time.UTC)
+
+	plain := &Card{
+		ID:       "TEST-002",
+		Title:    "No gates",
+		Project:  "test-project",
+		Type:     "task",
+		State:    "todo",
+		Priority: "medium",
+		Created:  created,
+		Updated:  created,
+	}
+
+	out, err := SerializeCard(plain)
+	require.NoError(t, err)
+	assert.NotContains(t, string(out), "await_ci")
+	assert.NotContains(t, string(out), "await_copilot_review")
+
+	parsedEmpty, err := ParseCard(out)
+	require.NoError(t, err)
+	assert.False(t, parsedEmpty.AwaitCI)
+	assert.False(t, parsedEmpty.AwaitCopilotReview)
+}
+
 func TestCardMobYAMLRoundTrip(t *testing.T) {
 	input := `---
 id: TEST-001

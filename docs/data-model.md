@@ -306,6 +306,8 @@ type Card struct {
     Verify              *VerifyConfig   `yaml:"verify,omitempty"                json:"verify,omitempty"`
     Vetted              bool            `yaml:"vetted,omitempty"                json:"vetted"`
     CreatePR            bool            `yaml:"create_pr,omitempty"             json:"create_pr,omitempty"`
+    AwaitCI             bool            `yaml:"await_ci,omitempty"              json:"await_ci,omitempty"`
+    AwaitCopilotReview  bool            `yaml:"await_copilot_review,omitempty"  json:"await_copilot_review,omitempty"`
     BranchName          string          `yaml:"branch_name,omitempty"           json:"branch_name,omitempty"`
     BaseBranch          string          `yaml:"base_branch,omitempty"           json:"base_branch,omitempty"`
     PRUrl               string          `yaml:"pr_url,omitempty"                json:"pr_url,omitempty"`
@@ -510,8 +512,11 @@ list responses do not carry it); omitted when zero.
 to `state`. `judge` is exercised only during a Best-of-N run (see `best_of_n`
 below) - the agent-backend orchestrator selects a winner among the racing
 candidates there before continuing to `document`; it is a no-op phase for
-normal runs. Enum-validated; the empty string clears it and means "not agent-driven". Settable
-via the `update_card` MCP tool and REST (PUT/PATCH). `pr_gates` is the post-integrate step that waits on the PR's CI and/or Copilot review when the card's `await_ci` / `await_copilot_review` flags are set (see `## PR gates` below).
+normal runs. Enum-validated; the empty string clears it and means "not
+agent-driven". Settable via the `update_card` MCP tool and REST (PUT/PATCH).
+`pr_gates` is the post-integrate step that waits on the PR's CI and/or Copilot
+review when the card's `await_ci` / `await_copilot_review` flags are set (see
+`## PR gates` below).
 
 **Section upsert** - the MCP `update_card` tool additionally accepts
 `upsert_section_heading` + `upsert_section_content` (both or neither; the
@@ -855,6 +860,29 @@ Every card gets a feature branch: `branch_name` is generated at create
 branch is pushed. It defaults to true when absent on create; an explicit
 `create_pr: false` pushes the branch without opening a PR. Run and promote
 triggers never modify the stored value.
+
+## PR gates (`await_ci`, `await_copilot_review`)
+
+Both flags are human-only booleans, meaningful only when the run opens a PR
+(`create_pr`). They gate the agent's review -> done transition inside the
+`pr_gates` phase:
+
+- `await_ci` - after the PR is opened the card stays in `review` until the
+  PR's checks pass. The agent polls the checks, fixes failures, and pushes,
+  up to 3 rounds; a repo with no checks passes the gate after a short grace
+  window. On exhaustion or timeout the card parks in `review` with a
+  `## PR Gates` note and a human re-triggers.
+- `await_copilot_review` - the agent ensures a Copilot code review is
+  requested on the PR, waits for it, triages findings, fixes the valid ones,
+  and re-requests, up to 3 rounds. If Copilot review is unavailable (request
+  rejected, no plan) the gate logs the reason on the card and is skipped -
+  it never parks on unavailability. When both flags are set the Copilot gate
+  runs first and CI must be green over its fixes.
+
+The flags are independent stored values with no server-side coupling to
+`create_pr`; the agent ignores them when no PR exists, except that a failed
+PR creation on a gated card parks in `review` instead of completing
+(fail-closed), inverting the ungated non-fatal behavior.
 
 ## `chat_sessions` SQLite schema
 
