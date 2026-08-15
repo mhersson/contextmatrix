@@ -3302,3 +3302,27 @@ func TestCreatePlanSkill_SpawnsPlanDraft(t *testing.T) {
 	assert.Regexp(t, `(?s)Phase 3: Subtask Creation.*?get_card`, content,
 		"subtask creation must re-read the plan from the card, not from context")
 }
+
+func TestGetSkill_InjectsPRGateFlags(t *testing.T) {
+	env := setupMCP(t)
+	card := createTestCard(t, env, "Gated card", "task", "high")
+
+	awaitCI := true
+	awaitCopilot := true
+	_, err := env.svc.PatchCard(context.Background(), "test-project", card.ID, service.PatchCardInput{
+		AwaitCI:            &awaitCI,
+		AwaitCopilotReview: &awaitCopilot,
+	})
+	require.NoError(t, err)
+
+	result := callTool(t, env, "get_skill", map[string]any{
+		"skill_name": "create-plan",
+		"card_id":    card.ID,
+	})
+	require.False(t, result.IsError)
+
+	var out getSkillOutput
+	unmarshalResult(t, result, &out)
+	assert.Contains(t, out.Content, "**Wait for CI:** enabled")
+	assert.Contains(t, out.Content, "**Copilot review:** enabled")
+}

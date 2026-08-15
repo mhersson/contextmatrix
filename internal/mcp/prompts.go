@@ -670,6 +670,14 @@ func formatCardContext(c *board.Card, project, verifyCommand string, keep []stri
 		fmt.Fprintf(&b, "- **Create PR:** enabled\n")
 	}
 
+	if c.AwaitCI {
+		fmt.Fprintf(&b, "- **Wait for CI:** enabled\n")
+	}
+
+	if c.AwaitCopilotReview {
+		fmt.Fprintf(&b, "- **Copilot review:** enabled\n")
+	}
+
 	if c.PRUrl != "" {
 		fmt.Fprintf(&b, "- **PR URL:** %s\n", c.PRUrl)
 	}
