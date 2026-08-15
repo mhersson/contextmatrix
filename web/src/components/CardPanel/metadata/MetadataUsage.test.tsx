@@ -68,6 +68,7 @@ describe('MetadataUsage', () => {
     const card = makeCard({
       token_usage: { prompt_tokens: 100, completion_tokens: 50, estimated_cost_usd: 4.42 },
       subtask_cost_usd: 0.57,
+      subtask_cost_has_estimates: false,
       usage_breakdown: [
         {
           agent: 'cmx-agent-cmx-001',
@@ -86,7 +87,7 @@ describe('MetadataUsage', () => {
   });
 
   it('renders the total alone when spend is entirely in subtasks', () => {
-    const card = makeCard({ subtask_cost_usd: 0.57 });
+    const card = makeCard({ subtask_cost_usd: 0.57, subtask_cost_has_estimates: false });
     render(<MetadataUsage card={card} />);
     expect(screen.getByText('Total incl. subtasks')).toBeInTheDocument();
     expect(screen.getByText('$0.57')).toBeInTheDocument();
@@ -210,5 +211,43 @@ describe('MetadataUsage', () => {
     render(<MetadataUsage card={card} />);
     const cost = screen.getByText('$0.0123');
     expect(cost).toHaveAttribute('title', 'agent-reported · actual provider cost');
+  });
+
+  it('marks the Total line with an asterisk when any bucket is estimated', () => {
+    const card = makeCard({
+      token_usage: { prompt_tokens: 100, completion_tokens: 50, estimated_cost_usd: 0.5 },
+      usage_breakdown: [
+        {
+          agent: 'cmx-agent-cmx-001',
+          model: 'openai/model-1',
+          prompt_tokens: 100,
+          completion_tokens: 50,
+          cost_usd: 0.0123,
+          cost_source: 'estimated',
+        },
+      ],
+    });
+    render(<MetadataUsage card={card} />);
+    const total = screen.getByText('$0.50*');
+    expect(total).toHaveAttribute('title', 'includes costs estimated from the rate table');
+  });
+
+  it('leaves the Total line unmarked when all costs are actual with no subtask spend', () => {
+    const card = makeCard({
+      token_usage: { prompt_tokens: 100, completion_tokens: 50, estimated_cost_usd: 0.5 },
+      usage_breakdown: [
+        {
+          agent: 'cmx-agent-cmx-001',
+          model: 'openai/model-1',
+          prompt_tokens: 100,
+          completion_tokens: 50,
+          cost_usd: 0.0123,
+          cost_source: 'actual',
+        },
+      ],
+    });
+    render(<MetadataUsage card={card} />);
+    const total = screen.getByText('$0.50');
+    expect(total).not.toHaveAttribute('title');
   });
 });

@@ -755,10 +755,14 @@ func (s *CardService) enrichSubtaskCost(ctx context.Context, card *board.Card) {
 
 	var sum float64
 
+	card.SubtaskCostHasEstimates = false
+
 	for _, sub := range subs {
 		if sub.TokenUsage != nil {
 			sum += sub.TokenUsage.EstimatedCostUSD
 		}
+
+		card.SubtaskCostHasEstimates = card.SubtaskCostHasEstimates || costHasEstimates(sub)
 	}
 
 	card.SubtaskCostUSD = sum

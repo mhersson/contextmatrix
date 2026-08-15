@@ -70,8 +70,10 @@ export function CostByModel({ modelCosts }: { modelCosts: ModelCost[] }) {
                 fontVariantNumeric: 'tabular-nums',
                 letterSpacing: '-0.01em',
               }}
+              title={mc.has_estimates ? 'includes costs estimated from the rate table' : undefined}
             >
               ${mc.estimated_cost_usd.toFixed(2)}
+              {mc.has_estimates ? '*' : ''}
             </span>
             <span
               style={{

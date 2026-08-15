@@ -186,7 +186,7 @@ export function TopCardsPanel({ cardCosts, prefixMap, projects }: TopCardsPanelP
         ) : (
           top.map((c) => {
             const project = projectForCardId(c.card_id, prefixMap);
-            const cost = `$${c.estimated_cost_usd.toFixed(2)}`;
+            const cost = `$${c.estimated_cost_usd.toFixed(2)}${c.has_estimates ? '*' : ''}`;
             const idCell = (
               <span
                 style={{
@@ -223,6 +223,7 @@ export function TopCardsPanel({ cardCosts, prefixMap, projects }: TopCardsPanelP
                   letterSpacing: '-0.01em',
                   whiteSpace: 'nowrap',
                 }}
+                title={c.has_estimates ? 'includes costs estimated from the rate table' : undefined}
               >
                 {cost}
               </span>

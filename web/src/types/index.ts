@@ -59,6 +59,8 @@ export interface Card {
   usage_breakdown?: UsageBucket[];
   /** Summed estimated cost of direct subtasks. Computed on read; absent when zero. */
   subtask_cost_usd?: number;
+  /** True when any direct subtask's cost includes rate-table-estimated buckets. */
+  subtask_cost_has_estimates?: boolean;
   body: string;
   // skills uses three-state semantics (matching the backend):
   //   undefined / null - use project default (or full set if project default is null)
@@ -265,6 +267,8 @@ export interface AgentCost {
   completion_tokens: number;
   estimated_cost_usd: number;
   card_count: number;
+  /** True when any card folded into this row carries a rate-table-estimated cost. */
+  has_estimates?: boolean;
 }
 
 export interface ModelCost {
@@ -273,6 +277,8 @@ export interface ModelCost {
   completion_tokens: number;
   estimated_cost_usd: number;
   card_count: number;
+  /** True when any card folded into this row carries a rate-table-estimated cost. */
+  has_estimates?: boolean;
 }
 
 export interface CardCost {
@@ -282,6 +288,8 @@ export interface CardCost {
   prompt_tokens: number;
   completion_tokens: number;
   estimated_cost_usd: number;
+  /** True when this card, or any subtask folded into it, carries a rate-table-estimated cost. */
+  has_estimates?: boolean;
 }
 
 export interface MetricSeries {
@@ -299,6 +307,8 @@ export interface DashboardData {
   state_counts_parents: Record<string, number>;
   active_agents: ActiveAgent[];
   total_cost_usd: number;
+  /** True when any card contributing to total_cost_usd carries a rate-table-estimated cost. */
+  total_cost_has_estimates?: boolean;
   total_cost_usd_last_30d?: number;
   total_cost_usd_prior_30d?: number;
   cost_series_30d?: number[];

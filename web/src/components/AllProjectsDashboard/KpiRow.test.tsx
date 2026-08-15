@@ -85,7 +85,9 @@ describe('KpiRow - Cost · 30d tile', () => {
     const costTile = Array.from(container.querySelectorAll('.apd-kpi')).find((el) =>
       el.textContent?.includes('Cost · 30d')
     );
-    expect(costTile?.getAttribute('title')).toMatch(/- token counts as reported by agents\.$/);
+    expect(costTile?.getAttribute('title')).toMatch(
+      /- token counts as reported by agents\. Values marked \* include rate-table estimates\.$/,
+    );
   });
 });
 
