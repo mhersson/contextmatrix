@@ -3251,6 +3251,32 @@ func TestOrchestratorHaltThreshold_ThreeCycles(t *testing.T) {
 		"run-autonomous.md AUTONOMOUS_HALTED reason must reference the 3-cycle budget")
 }
 
+// TestOrchestratorSkills_PRGates pins the PR-gates procedure in both
+// orchestrator skills: the gates run after report_push and before the done
+// transition, honor await_ci / await_copilot_review, and cap fix rounds at 3.
+func TestOrchestratorSkills_PRGates(t *testing.T) {
+	for _, name := range []string{"create-plan.md", "run-autonomous.md"} {
+		path := filepath.Join("..", "..", "workflow-skills", name)
+		data, err := os.ReadFile(path)
+		require.NoError(t, err, name+" must be readable")
+
+		content := string(data)
+
+		assert.Contains(t, content, "PR Gates",
+			name+" must contain the PR Gates section")
+		assert.Contains(t, content, "Wait for CI",
+			name+" must reference the Wait for CI flag label")
+		assert.Contains(t, content, "Copilot review",
+			name+" must reference the Copilot review flag label")
+		assert.Regexp(t, `(?si)report_push.*PR Gates`, content,
+			name+" must run the gates after report_push")
+		assert.Regexp(t, `(?si)PR Gates.*3 rounds`, content,
+			name+" must cap gate fix rounds at 3")
+		assert.Contains(t, content, "`## PR Gates` section",
+			name+" park note must use the ## PR Gates card section")
+	}
+}
+
 // TestPlanDraftSkillIsSelfContained pins the drafting sub-agent's contract:
 // the completion markers, the two card-body sections it writes, the
 // board-write identity rule, and the forbidden lifecycle tools.
@@ -3301,4 +3327,28 @@ func TestCreatePlanSkill_SpawnsPlanDraft(t *testing.T) {
 		"the planner is read-only - no worktree isolation")
 	assert.Regexp(t, `(?s)Phase 3: Subtask Creation.*?get_card`, content,
 		"subtask creation must re-read the plan from the card, not from context")
+}
+
+func TestGetSkill_InjectsPRGateFlags(t *testing.T) {
+	env := setupMCP(t)
+	card := createTestCard(t, env, "Gated card", "task", "high")
+
+	awaitCI := true
+	awaitCopilot := true
+	_, err := env.svc.PatchCard(context.Background(), "test-project", card.ID, service.PatchCardInput{
+		AwaitCI:            &awaitCI,
+		AwaitCopilotReview: &awaitCopilot,
+	})
+	require.NoError(t, err)
+
+	result := callTool(t, env, "get_skill", map[string]any{
+		"skill_name": "create-plan",
+		"card_id":    card.ID,
+	})
+	require.False(t, result.IsError)
+
+	var out getSkillOutput
+	unmarshalResult(t, result, &out)
+	assert.Contains(t, out.Content, "**Wait for CI:** enabled")
+	assert.Contains(t, out.Content, "**Copilot review:** enabled")
 }

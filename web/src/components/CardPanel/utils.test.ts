@@ -317,6 +317,18 @@ describe('isCardDirty / buildCardPatch - mob fields', () => {
   });
 });
 
+describe('isCardDirty / buildCardPatch - PR gate fields', () => {
+  it('flags await_ci and await_copilot_review changes as dirty and patches them', () => {
+    const original = makeCard({ create_pr: true });
+    const edited = { ...original, await_ci: true, await_copilot_review: true };
+    expect(isCardDirty(edited, original)).toBe(true);
+    expect(buildCardPatch(edited, original)).toEqual({
+      await_ci: true,
+      await_copilot_review: true,
+    });
+  });
+});
+
 describe('groupBucketsByAgent', () => {
   function makeBucket(agent: string, model: string): UsageBucket {
     return {

@@ -529,7 +529,7 @@ Phase 5:  Execution              → checkout feature branch (branch_name); clai
 Phase 6:  Documentation          → release claim, spawn document-task sub-agent, reclaim after DOCS_WRITTEN
 Phase 7:  Review                 → transition to review, run review-task inline (always); orchestrator spawns 3 opus specialists in parallel and synthesizes findings
 Phase 8:  Review Decision Gate   → get_card autonomous check; autonomous branches on recommendation, HITL asks
-Phase 9:  Commit/Push/PR Gate    → get_card autonomous check; autonomous or worker-container HITL (CM_CARD_ID set) auto-commits/pushes/PR; local HITL asks
+Phase 9:  Commit/Push/PR Gate    → get_card autonomous check; autonomous or worker-container HITL (CM_CARD_ID set) auto-commits/pushes/PR; local HITL asks; PR gates (await_ci / await_copilot_review) run after report_push and hold the card in review until satisfied
 Phase 10: Finalization           → reclaim, report_usage, transition to done, release_card (mandatory)
 ```
 
@@ -544,7 +544,7 @@ Phase 2: Subtask Creation      → inline; orchestrator re-reads ## Plan via get
 Phase 3: Execution             → spawns execute-task sub-agents in parallel; cherry-picks worktree branches onto feature branch when worktree isolation used
 Phase 4: Documentation         → spawns document-task sub-agent (parent in in_progress)
 Phase 5: Review                → orchestrator transitions parent to review via start_review, runs review-task inline; spawns 3 opus specialists in parallel and synthesizes findings
-Phase 6: Finalization          → transitions parent to done, final report_usage, release_card (mandatory)
+Phase 6: Finalization          → transitions parent to done, final report_usage, release_card (mandatory); runs the PR Gates section before the done transition when await_ci / await_copilot_review are set
 ```
 
 The orchestrator claims the card and moves it to `in_progress` before

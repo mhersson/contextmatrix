@@ -35,10 +35,14 @@ type CreateCardInput struct {
 	Autonomous bool
 	// CreatePR: nil means default true - callers that never set it (MCP
 	// create_card, the GitHub syncer) get PRs; explicit false is respected.
-	CreatePR   *bool
-	BaseBranch string
-	Vetted     bool
-	Skills     *[]string
+	CreatePR *bool
+	// AwaitCI / AwaitCopilotReview: PR-gate flags, human-only via REST like
+	// CreatePR. Plain bools - default false, no create-time resolution.
+	AwaitCI            bool
+	AwaitCopilotReview bool
+	BaseBranch         string
+	Vetted             bool
+	Skills             *[]string
 	// Model pins: human-set per-card OpenRouter slugs overriding the complexity
 	// selector. Excluded from the MCP agent surface; human-only via REST.
 	ModelOrchestrator string
@@ -63,24 +67,26 @@ type CreateCardInput struct {
 // Immutable fields (id, project, created, source) are not included.
 // Value types match PUT's full-replacement semantics (omitted = zero value).
 type UpdateCardInput struct {
-	Title           string
-	Type            string
-	State           string
-	Priority        string
-	Labels          []string
-	Parent          string
-	Subtasks        []string
-	DependsOn       []string
-	Context         []string
-	Custom          map[string]any
-	Body            string
-	Assignee        string // Informational responsibility label; PUT full-replace, like other value fields
-	ImmediateCommit bool   // If true, commit immediately even when gitDeferredCommit is on.
-	Autonomous      bool
-	CreatePR        bool
-	Vetted          bool
-	Skills          *[]string
-	Phase           *string
+	Title              string
+	Type               string
+	State              string
+	Priority           string
+	Labels             []string
+	Parent             string
+	Subtasks           []string
+	DependsOn          []string
+	Context            []string
+	Custom             map[string]any
+	Body               string
+	Assignee           string // Informational responsibility label; PUT full-replace, like other value fields
+	ImmediateCommit    bool   // If true, commit immediately even when gitDeferredCommit is on.
+	Autonomous         bool
+	CreatePR           bool
+	AwaitCI            bool
+	AwaitCopilotReview bool
+	Vetted             bool
+	Skills             *[]string
+	Phase              *string
 	// Model pins: human-set per-card OpenRouter slugs overriding the complexity
 	// selector. Excluded from the MCP agent surface; human-only via REST.
 	ModelOrchestrator string
@@ -102,16 +108,18 @@ type UpdateCardInput struct {
 // PatchCardInput contains optional fields for partial card updates.
 // Nil values mean "do not change".
 type PatchCardInput struct {
-	Title           *string
-	Type            *string
-	State           *string
-	Priority        *string
-	Labels          []string // nil = don't change, empty slice = clear
-	Body            *string
-	ImmediateCommit bool // If true, commit immediately even when gitDeferredCommit is on.
-	Autonomous      *bool
-	CreatePR        *bool
-	Vetted          *bool
+	Title              *string
+	Type               *string
+	State              *string
+	Priority           *string
+	Labels             []string // nil = don't change, empty slice = clear
+	Body               *string
+	ImmediateCommit    bool // If true, commit immediately even when gitDeferredCommit is on.
+	Autonomous         *bool
+	CreatePR           *bool
+	AwaitCI            *bool
+	AwaitCopilotReview *bool
+	Vetted             *bool
 	// Assignee is the informational responsibility label. nil = don't change,
 	// pointer-to-empty-string = clear.
 	Assignee *string
@@ -537,34 +545,36 @@ func (s *CardService) buildNewCardFromInput(
 
 	now := s.clk.Now()
 	card := &board.Card{
-		ID:                cardID,
-		Title:             input.Title,
-		Project:           project,
-		Type:              cardType,
-		State:             cfg.States[0], // Default to first state
-		Priority:          input.Priority,
-		Labels:            input.Labels,
-		Parent:            parentID,
-		DependsOn:         dependsOn,
-		Source:            input.Source,
-		Assignee:          input.Assignee,
-		Autonomous:        input.Autonomous,
-		CreatePR:          resolveCreatePR(input.CreatePR, parentID),
-		BaseBranch:        input.BaseBranch,
-		Vetted:            input.Vetted,
-		Skills:            input.Skills,
-		ModelOrchestrator: input.ModelOrchestrator,
-		ModelCoder:        input.ModelCoder,
-		ModelReviewer:     input.ModelReviewer,
-		BestOfN:           input.BestOfN,
-		MaxCapability:     input.MaxCapability,
-		MobParticipants:   input.MobParticipants,
-		MobPhases:         input.MobPhases,
-		MobGuests:         input.MobGuests,
-		Verify:            normalizeVerify(input.Verify),
-		Created:           now,
-		Updated:           now,
-		Body:              input.Body,
+		ID:                 cardID,
+		Title:              input.Title,
+		Project:            project,
+		Type:               cardType,
+		State:              cfg.States[0], // Default to first state
+		Priority:           input.Priority,
+		Labels:             input.Labels,
+		Parent:             parentID,
+		DependsOn:          dependsOn,
+		Source:             input.Source,
+		Assignee:           input.Assignee,
+		Autonomous:         input.Autonomous,
+		CreatePR:           resolveCreatePR(input.CreatePR, parentID),
+		AwaitCI:            input.AwaitCI,
+		AwaitCopilotReview: input.AwaitCopilotReview,
+		BaseBranch:         input.BaseBranch,
+		Vetted:             input.Vetted,
+		Skills:             input.Skills,
+		ModelOrchestrator:  input.ModelOrchestrator,
+		ModelCoder:         input.ModelCoder,
+		ModelReviewer:      input.ModelReviewer,
+		BestOfN:            input.BestOfN,
+		MaxCapability:      input.MaxCapability,
+		MobParticipants:    input.MobParticipants,
+		MobPhases:          input.MobPhases,
+		MobGuests:          input.MobGuests,
+		Verify:             normalizeVerify(input.Verify),
+		Created:            now,
+		Updated:            now,
+		Body:               input.Body,
 	}
 
 	enforceVettingInvariant(card)
@@ -842,7 +852,7 @@ func (s *CardService) buildUpdateApply(ctx context.Context, input UpdateCardInpu
 					Err:     board.ErrInvalidPhase,
 					Field:   "phase",
 					Value:   *input.Phase,
-					Message: fmt.Sprintf("invalid phase %q: must be one of plan, execute, judge, document, review, integrate, done, or empty", *input.Phase),
+					Message: fmt.Sprintf("invalid phase %q: must be one of plan, execute, judge, document, review, integrate, pr_gates, done, or empty", *input.Phase),
 				})
 			}
 
@@ -857,6 +867,8 @@ func (s *CardService) buildUpdateApply(ctx context.Context, input UpdateCardInpu
 		}
 
 		card.CreatePR = input.CreatePR
+		card.AwaitCI = input.AwaitCI                       // PUT full-replace; zero/absent clears, like CreatePR
+		card.AwaitCopilotReview = input.AwaitCopilotReview // PUT full-replace; zero/absent clears, like CreatePR
 
 		return nil
 	}
@@ -1055,6 +1067,14 @@ func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput)
 			card.CreatePR = *input.CreatePR
 		}
 
+		if input.AwaitCI != nil {
+			card.AwaitCI = *input.AwaitCI
+		}
+
+		if input.AwaitCopilotReview != nil {
+			card.AwaitCopilotReview = *input.AwaitCopilotReview
+		}
+
 		if input.Vetted != nil {
 			card.Vetted = *input.Vetted
 		}
@@ -1120,7 +1140,7 @@ func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput)
 					Err:     board.ErrInvalidPhase,
 					Field:   "phase",
 					Value:   *input.Phase,
-					Message: fmt.Sprintf("invalid phase %q: must be one of plan, execute, judge, document, review, integrate, done, or empty", *input.Phase),
+					Message: fmt.Sprintf("invalid phase %q: must be one of plan, execute, judge, document, review, integrate, pr_gates, done, or empty", *input.Phase),
 				}
 			}
 

@@ -690,9 +690,18 @@ CM retries failed webhooks with exponential backoff (`internal/backend`):
 
 A `/trigger` starts one disposable container that runs the card end to end:
 clone the repo, claim the card over MCP, plan, execute, document, review,
-integrate, and complete via `complete_task`. The container exits when the run
-finishes, and the backend removes it. A `/kill` destroys the container
-immediately - uncommitted work is discarded.
+integrate, pr_gates, and complete via `complete_task`. The container exits
+when the run finishes, and the backend removes it. A `/kill` destroys the
+container immediately - uncommitted work is discarded.
+
+The pr_gates phase can also park instead of completing, when a card's PR-gate
+flags are set and the gates are not yet satisfied. In that case the container
+still exits cleanly and reports a completed callback, so CM's terminal-status
+handling clears the claim as usual - but the card stays in `review` at phase
+`pr_gates`, with a `## PR Gates` body section explaining what it is waiting
+on. A human re-triggers the card once the gates can pass, and the fresh
+container resumes directly at the gate rather than re-running the earlier
+phases.
 
 CM is the single authority on whether a container should be running. Two
 mechanisms enforce that, reasoning from different truths so a bug in either

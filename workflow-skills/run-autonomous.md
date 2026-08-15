@@ -43,10 +43,11 @@ If `Complexity: simple`:
    a `base_branch` field set in its context, use `gh pr create --base <base_branch>`
    to target that branch instead of the default.
 7. Call `report_push(card_id, branch, pr_url)` after pushing.
-8. Call `report_usage` with your token consumption (`prompt_tokens`, `completion_tokens`, and `cache_read_tokens` / `cache_creation_tokens` if available).
-9. Transition to `done`: `transition_card(card_id, new_state='done')`.
-10. Release: `release_card(card_id, agent_id)`.
-11. Print `AUTONOMOUS_COMPLETE` structured output and stop.
+8. If the card context shows a PR-gate flag, run the PR Gates section before transitioning.
+9. Call `report_usage` with your token consumption (`prompt_tokens`, `completion_tokens`, and `cache_read_tokens` / `cache_creation_tokens` if available).
+10. Transition to `done`: `transition_card(card_id, new_state='done')`.
+11. Release: `release_card(card_id, agent_id)`.
+12. Print `AUTONOMOUS_COMPLETE` structured output and stop.
 
 **NEVER push to main or master.** This is non-negotiable. Fast path never
 skips: claim, heartbeat, tests, branch protection, release_card.
@@ -262,12 +263,14 @@ Based on the card's current state and body content:
        the PR targets the correct branch.
     c. Call `report_push(card_id, branch, pr_url)` with the PR URL (if a PR
        was created) or just the branch name.
-20. Transition the card to `done`:
+20. If the card context shows a PR-gate flag, run the PR Gates section now. If
+    it parks the card, stop here - do not transition to done.
+21. Transition the card to `done`:
     `transition_card(card_id='<card_id>', new_state='done')`.
-21. Release the card claim:
+22. Release the card claim:
     `release_card(card_id='<card_id>', agent_id=<your_agent_id>)`.
     **Mandatory.** Skipping this orphans the card until heartbeat timeout (30 min).
-22. Print structured output:
+23. Print structured output:
     ```
     AUTONOMOUS_COMPLETE
     card_id: <card_id>
@@ -276,6 +279,48 @@ Based on the card's current state and body content:
     branch: <branch_name if set>
     pr_url: <PR URL if created>
     ```
+
+## PR Gates
+
+Run this only when a PR exists and the card context shows `**Wait for CI:**
+enabled` or `**Copilot review:** enabled`. Run it after `report_push` and
+before any transition to `done`. Heartbeat before and after every wait.
+
+If a gate flag is set but PR creation failed, do NOT transition to done:
+upsert a `## PR Gates` section on the card explaining the failure, release
+the claim, and stop (card stays in review).
+
+**Copilot gate first** (when `**Copilot review:** enabled`):
+
+1. Check requested reviewers: `gh pr view <pr-url> --json reviewRequests`.
+   If Copilot is absent, request it:
+   `gh pr edit <pr-url> --add-reviewer copilot-pull-request-reviewer[bot]`,
+   then re-check. If the request fails or the reviewer does not appear,
+   add a card log entry with the exact error and skip this gate.
+2. Wait for the review: poll `gh api repos/{owner}/{repo}/pulls/{n}/reviews`
+   every 30s (10 min cap) until a review by
+   `copilot-pull-request-reviewer[bot]` appears for the current head SHA.
+   On timeout, log it on the card and skip to the CI gate.
+3. Triage every finding as valid or invalid with a one-line reason. Upsert
+   the triage to the card as `## Copilot Review (Round <N>)`.
+4. Fix valid findings, commit, push, and re-request the review (step 1
+   command). Ignore repeated comments already triaged in a prior round.
+5. Cap: 3 rounds. On exhaustion upsert `## PR Gates` with the open findings,
+   release the claim, and stop (card stays in review).
+
+**CI gate last** (when `**Wait for CI:** enabled`):
+
+1. Poll `gh pr checks <pr-url>` every 30s. If no checks appear within 3
+   minutes of the last push, the repo has no CI - the gate passes.
+2. Green = every check passed or skipped. On green, proceed.
+3. On any failure: read the failing run
+   (`gh run view <run-id> --log-failed`), fix, commit, push, and poll again
+   for the new head SHA.
+4. Cap: 3 fix rounds; overall wait cap 45 minutes. On exhaustion or timeout
+   upsert `## PR Gates` with the failing checks and links, release the
+   claim, and stop (card stays in review).
+
+When every enabled gate passes, continue to the done transition.
 
 ## Branch Protection (MANDATORY)
 

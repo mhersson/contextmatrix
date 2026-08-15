@@ -53,58 +53,62 @@ type cardHandlers struct {
 
 // createCardRequest is the JSON body for creating a card.
 type createCardRequest struct {
-	Title             string              `json:"title"`
-	Type              string              `json:"type"`
-	Priority          string              `json:"priority"`
-	Labels            []string            `json:"labels"`
-	Parent            string              `json:"parent"`
-	Body              string              `json:"body"`
-	Assignee          string              `json:"assignee"`
-	Source            *board.Source       `json:"source"`
-	Autonomous        bool                `json:"autonomous"`
-	CreatePR          *bool               `json:"create_pr"`
-	BaseBranch        string              `json:"base_branch"`
-	Vetted            bool                `json:"vetted"`
-	Skills            *[]string           `json:"skills,omitempty"`
-	ModelOrchestrator string              `json:"model_orchestrator,omitempty"`
-	ModelCoder        string              `json:"model_coder,omitempty"`
-	ModelReviewer     string              `json:"model_reviewer,omitempty"`
-	BestOfN           int                 `json:"best_of_n"`
-	MaxCapability     bool                `json:"max_capability"`
-	MobParticipants   int                 `json:"mob_participants"`
-	MobPhases         []string            `json:"mob_phases"`
-	MobGuests         []string            `json:"mob_guests"`
-	Verify            *board.VerifyConfig `json:"verify,omitempty"`
+	Title              string              `json:"title"`
+	Type               string              `json:"type"`
+	Priority           string              `json:"priority"`
+	Labels             []string            `json:"labels"`
+	Parent             string              `json:"parent"`
+	Body               string              `json:"body"`
+	Assignee           string              `json:"assignee"`
+	Source             *board.Source       `json:"source"`
+	Autonomous         bool                `json:"autonomous"`
+	CreatePR           *bool               `json:"create_pr"`
+	AwaitCI            bool                `json:"await_ci"`
+	AwaitCopilotReview bool                `json:"await_copilot_review"`
+	BaseBranch         string              `json:"base_branch"`
+	Vetted             bool                `json:"vetted"`
+	Skills             *[]string           `json:"skills,omitempty"`
+	ModelOrchestrator  string              `json:"model_orchestrator,omitempty"`
+	ModelCoder         string              `json:"model_coder,omitempty"`
+	ModelReviewer      string              `json:"model_reviewer,omitempty"`
+	BestOfN            int                 `json:"best_of_n"`
+	MaxCapability      bool                `json:"max_capability"`
+	MobParticipants    int                 `json:"mob_participants"`
+	MobPhases          []string            `json:"mob_phases"`
+	MobGuests          []string            `json:"mob_guests"`
+	Verify             *board.VerifyConfig `json:"verify,omitempty"`
 }
 
 // updateCardRequest is the JSON body for full card updates.
 // All fields use value types to match PUT's full-replacement semantics.
 type updateCardRequest struct {
-	Title             string         `json:"title"`
-	Type              string         `json:"type"`
-	State             string         `json:"state"`
-	Priority          string         `json:"priority"`
-	Labels            []string       `json:"labels"`
-	Parent            string         `json:"parent"`
-	Subtasks          []string       `json:"subtasks"`
-	DependsOn         []string       `json:"depends_on"`
-	Context           []string       `json:"context"`
-	Custom            map[string]any `json:"custom"`
-	Body              string         `json:"body"`
-	Assignee          string         `json:"assignee"`
-	Autonomous        bool           `json:"autonomous"`
-	CreatePR          bool           `json:"create_pr"`
-	Vetted            bool           `json:"vetted"`
-	Skills            *[]string      `json:"skills,omitempty"`
-	Phase             *string        `json:"phase,omitempty"`
-	ModelOrchestrator string         `json:"model_orchestrator,omitempty"`
-	ModelCoder        string         `json:"model_coder,omitempty"`
-	ModelReviewer     string         `json:"model_reviewer,omitempty"`
-	BestOfN           int            `json:"best_of_n"`
-	MaxCapability     bool           `json:"max_capability"`
-	MobParticipants   int            `json:"mob_participants"`
-	MobPhases         []string       `json:"mob_phases"`
-	MobGuests         []string       `json:"mob_guests"`
+	Title              string         `json:"title"`
+	Type               string         `json:"type"`
+	State              string         `json:"state"`
+	Priority           string         `json:"priority"`
+	Labels             []string       `json:"labels"`
+	Parent             string         `json:"parent"`
+	Subtasks           []string       `json:"subtasks"`
+	DependsOn          []string       `json:"depends_on"`
+	Context            []string       `json:"context"`
+	Custom             map[string]any `json:"custom"`
+	Body               string         `json:"body"`
+	Assignee           string         `json:"assignee"`
+	Autonomous         bool           `json:"autonomous"`
+	CreatePR           bool           `json:"create_pr"`
+	AwaitCI            bool           `json:"await_ci"`
+	AwaitCopilotReview bool           `json:"await_copilot_review"`
+	Vetted             bool           `json:"vetted"`
+	Skills             *[]string      `json:"skills,omitempty"`
+	Phase              *string        `json:"phase,omitempty"`
+	ModelOrchestrator  string         `json:"model_orchestrator,omitempty"`
+	ModelCoder         string         `json:"model_coder,omitempty"`
+	ModelReviewer      string         `json:"model_reviewer,omitempty"`
+	BestOfN            int            `json:"best_of_n"`
+	MaxCapability      bool           `json:"max_capability"`
+	MobParticipants    int            `json:"mob_participants"`
+	MobPhases          []string       `json:"mob_phases"`
+	MobGuests          []string       `json:"mob_guests"`
 }
 
 // patchCardRequest is the JSON body for partial card updates.
@@ -116,25 +120,27 @@ type updateCardRequest struct {
 // project default applies again". This sits alongside the normal
 // `skills` field used for explicit list / explicit empty.
 type patchCardRequest struct {
-	Title             *string   `json:"title,omitempty"`
-	Type              *string   `json:"type,omitempty"`
-	State             *string   `json:"state,omitempty"`
-	Priority          *string   `json:"priority,omitempty"`
-	Labels            []string  `json:"labels,omitempty"`
-	Body              *string   `json:"body,omitempty"`
-	Assignee          *string   `json:"assignee,omitempty"`
-	Autonomous        *bool     `json:"autonomous,omitempty"`
-	CreatePR          *bool     `json:"create_pr,omitempty"`
-	Vetted            *bool     `json:"vetted,omitempty"`
-	BaseBranch        *string   `json:"base_branch,omitempty"`
-	Skills            *[]string `json:"skills,omitempty"`
-	SkillsClear       bool      `json:"skills_clear,omitempty"`
-	Phase             *string   `json:"phase,omitempty"`
-	ModelOrchestrator *string   `json:"model_orchestrator,omitempty"`
-	ModelCoder        *string   `json:"model_coder,omitempty"`
-	ModelReviewer     *string   `json:"model_reviewer,omitempty"`
-	BestOfN           *int      `json:"best_of_n,omitempty"`
-	MaxCapability     *bool     `json:"max_capability,omitempty"`
+	Title              *string   `json:"title,omitempty"`
+	Type               *string   `json:"type,omitempty"`
+	State              *string   `json:"state,omitempty"`
+	Priority           *string   `json:"priority,omitempty"`
+	Labels             []string  `json:"labels,omitempty"`
+	Body               *string   `json:"body,omitempty"`
+	Assignee           *string   `json:"assignee,omitempty"`
+	Autonomous         *bool     `json:"autonomous,omitempty"`
+	CreatePR           *bool     `json:"create_pr,omitempty"`
+	AwaitCI            *bool     `json:"await_ci,omitempty"`
+	AwaitCopilotReview *bool     `json:"await_copilot_review,omitempty"`
+	Vetted             *bool     `json:"vetted,omitempty"`
+	BaseBranch         *string   `json:"base_branch,omitempty"`
+	Skills             *[]string `json:"skills,omitempty"`
+	SkillsClear        bool      `json:"skills_clear,omitempty"`
+	Phase              *string   `json:"phase,omitempty"`
+	ModelOrchestrator  *string   `json:"model_orchestrator,omitempty"`
+	ModelCoder         *string   `json:"model_coder,omitempty"`
+	ModelReviewer      *string   `json:"model_reviewer,omitempty"`
+	BestOfN            *int      `json:"best_of_n,omitempty"`
+	MaxCapability      *bool     `json:"max_capability,omitempty"`
 	// Mob session fields: MobParticipants nil = don't change; the two slices
 	// follow the Labels convention (nil = don't change, [] = clear).
 	MobParticipants *int     `json:"mob_participants,omitempty"`
@@ -481,13 +487,14 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 	// Autonomous and model-pin fields can only be set by human users (UI),
 	// never by agents - mirrors the update and patch guards. Pins set at
 	// create time flow onto the card and reach the agent via get_task_context.
-	if isNonHumanAgent(r) && (req.Autonomous || req.CreatePR != nil || req.BaseBranch != "" || req.Vetted ||
+	if isNonHumanAgent(r) && (req.Autonomous || req.CreatePR != nil || req.AwaitCI || req.AwaitCopilotReview ||
+		req.BaseBranch != "" || req.Vetted ||
 		req.ModelOrchestrator != "" || req.ModelCoder != "" || req.ModelReviewer != "" ||
 		req.BestOfN != 0 || req.MaxCapability || req.MobParticipants != 0 || len(req.MobPhases) > 0 || len(req.MobGuests) > 0 ||
 		req.Verify != nil || req.Assignee != "") {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
 			"forbidden",
-			"autonomous, create_pr, base_branch, vetted, model pins, best_of_n, max_capability, mob fields, verify, and assignee can only be set via the UI")
+			"autonomous, create_pr, await_ci, await_copilot_review, base_branch, vetted, model pins, best_of_n, max_capability, mob fields, verify, and assignee can only be set via the UI")
 
 		return
 	}
@@ -516,28 +523,30 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	input := service.CreateCardInput{
-		Title:             req.Title,
-		Type:              req.Type,
-		Priority:          req.Priority,
-		Labels:            req.Labels,
-		Parent:            req.Parent,
-		Body:              req.Body,
-		Assignee:          req.Assignee,
-		Source:            req.Source,
-		Autonomous:        req.Autonomous,
-		CreatePR:          req.CreatePR,
-		BaseBranch:        req.BaseBranch,
-		Vetted:            req.Vetted,
-		Skills:            req.Skills,
-		ModelOrchestrator: req.ModelOrchestrator,
-		ModelCoder:        req.ModelCoder,
-		ModelReviewer:     req.ModelReviewer,
-		BestOfN:           req.BestOfN,
-		MaxCapability:     req.MaxCapability,
-		MobParticipants:   req.MobParticipants,
-		MobPhases:         req.MobPhases,
-		MobGuests:         req.MobGuests,
-		Verify:            req.Verify,
+		Title:              req.Title,
+		Type:               req.Type,
+		Priority:           req.Priority,
+		Labels:             req.Labels,
+		Parent:             req.Parent,
+		Body:               req.Body,
+		Assignee:           req.Assignee,
+		Source:             req.Source,
+		Autonomous:         req.Autonomous,
+		CreatePR:           req.CreatePR,
+		AwaitCI:            req.AwaitCI,
+		AwaitCopilotReview: req.AwaitCopilotReview,
+		BaseBranch:         req.BaseBranch,
+		Vetted:             req.Vetted,
+		Skills:             req.Skills,
+		ModelOrchestrator:  req.ModelOrchestrator,
+		ModelCoder:         req.ModelCoder,
+		ModelReviewer:      req.ModelReviewer,
+		BestOfN:            req.BestOfN,
+		MaxCapability:      req.MaxCapability,
+		MobParticipants:    req.MobParticipants,
+		MobPhases:          req.MobPhases,
+		MobGuests:          req.MobGuests,
+		Verify:             req.Verify,
 	}
 
 	card, err := h.svc.CreateCard(r.Context(), projectName, input)
@@ -607,6 +616,8 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 	// For PUT semantics, compare against existing values to catch both setting AND clearing.
 	if isNonHumanAgent(r) && (req.Autonomous != existingCard.Autonomous ||
 		req.CreatePR != existingCard.CreatePR ||
+		req.AwaitCI != existingCard.AwaitCI ||
+		req.AwaitCopilotReview != existingCard.AwaitCopilotReview ||
 		req.Vetted != existingCard.Vetted ||
 		req.ModelOrchestrator != existingCard.ModelOrchestrator ||
 		req.ModelCoder != existingCard.ModelCoder ||
@@ -619,7 +630,7 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 		req.Assignee != normalizeAssignee(existingCard.Assignee)) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
 			"forbidden",
-			"autonomous, create_pr, vetted, model pins, best_of_n, max_capability, mob fields, and assignee can only be changed via the UI")
+			"autonomous, create_pr, await_ci, await_copilot_review, vetted, model pins, best_of_n, max_capability, mob fields, and assignee can only be changed via the UI")
 
 		return
 	}
@@ -648,32 +659,34 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	input := service.UpdateCardInput{
-		Title:             req.Title,
-		Type:              req.Type,
-		State:             req.State,
-		Priority:          req.Priority,
-		Labels:            req.Labels,
-		Parent:            req.Parent,
-		Subtasks:          req.Subtasks,
-		DependsOn:         req.DependsOn,
-		Context:           req.Context,
-		Custom:            req.Custom,
-		Body:              req.Body,
-		Assignee:          req.Assignee,
-		ImmediateCommit:   existingCard.AssignedAgent == "",
-		Autonomous:        req.Autonomous,
-		CreatePR:          req.CreatePR,
-		Vetted:            req.Vetted,
-		Skills:            req.Skills,
-		Phase:             req.Phase,
-		ModelOrchestrator: req.ModelOrchestrator,
-		ModelCoder:        req.ModelCoder,
-		ModelReviewer:     req.ModelReviewer,
-		BestOfN:           req.BestOfN,
-		MaxCapability:     req.MaxCapability,
-		MobParticipants:   req.MobParticipants,
-		MobPhases:         req.MobPhases,
-		MobGuests:         req.MobGuests,
+		Title:              req.Title,
+		Type:               req.Type,
+		State:              req.State,
+		Priority:           req.Priority,
+		Labels:             req.Labels,
+		Parent:             req.Parent,
+		Subtasks:           req.Subtasks,
+		DependsOn:          req.DependsOn,
+		Context:            req.Context,
+		Custom:             req.Custom,
+		Body:               req.Body,
+		Assignee:           req.Assignee,
+		ImmediateCommit:    existingCard.AssignedAgent == "",
+		Autonomous:         req.Autonomous,
+		CreatePR:           req.CreatePR,
+		AwaitCI:            req.AwaitCI,
+		AwaitCopilotReview: req.AwaitCopilotReview,
+		Vetted:             req.Vetted,
+		Skills:             req.Skills,
+		Phase:              req.Phase,
+		ModelOrchestrator:  req.ModelOrchestrator,
+		ModelCoder:         req.ModelCoder,
+		ModelReviewer:      req.ModelReviewer,
+		BestOfN:            req.BestOfN,
+		MaxCapability:      req.MaxCapability,
+		MobParticipants:    req.MobParticipants,
+		MobPhases:          req.MobPhases,
+		MobGuests:          req.MobGuests,
 	}
 
 	card, err := h.svc.UpdateCard(r.Context(), projectName, cardID, input)
@@ -709,6 +722,8 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 	// Autonomous and model-pin fields can only be set by human users (UI), never by agents.
 	if isNonHumanAgent(r) && (req.Autonomous != nil ||
 		req.CreatePR != nil ||
+		req.AwaitCI != nil ||
+		req.AwaitCopilotReview != nil ||
 		req.Vetted != nil ||
 		req.BaseBranch != nil ||
 		req.ModelOrchestrator != nil ||
@@ -723,7 +738,7 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 		req.Assignee != nil) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
 			"forbidden",
-			"autonomous, create_pr, vetted, base_branch, model pins, best_of_n, max_capability, mob fields, verify, and assignee can only be set via the UI")
+			"autonomous, create_pr, await_ci, await_copilot_review, vetted, base_branch, model pins, best_of_n, max_capability, mob fields, verify, and assignee can only be set via the UI")
 
 		return
 	}
@@ -784,30 +799,32 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	input := service.PatchCardInput{
-		Title:             req.Title,
-		Type:              req.Type,
-		State:             req.State,
-		Priority:          req.Priority,
-		Labels:            req.Labels,
-		Body:              req.Body,
-		Assignee:          req.Assignee,
-		ImmediateCommit:   existingCard.AssignedAgent == "",
-		Autonomous:        req.Autonomous,
-		CreatePR:          req.CreatePR,
-		Vetted:            req.Vetted,
-		BaseBranch:        req.BaseBranch,
-		Skills:            req.Skills,
-		SkillsClear:       req.SkillsClear,
-		Phase:             req.Phase,
-		ModelOrchestrator: req.ModelOrchestrator,
-		ModelCoder:        req.ModelCoder,
-		ModelReviewer:     req.ModelReviewer,
-		BestOfN:           req.BestOfN,
-		MaxCapability:     req.MaxCapability,
-		MobParticipants:   req.MobParticipants,
-		MobPhases:         req.MobPhases,
-		MobGuests:         req.MobGuests,
-		Verify:            req.Verify,
+		Title:              req.Title,
+		Type:               req.Type,
+		State:              req.State,
+		Priority:           req.Priority,
+		Labels:             req.Labels,
+		Body:               req.Body,
+		Assignee:           req.Assignee,
+		ImmediateCommit:    existingCard.AssignedAgent == "",
+		Autonomous:         req.Autonomous,
+		CreatePR:           req.CreatePR,
+		AwaitCI:            req.AwaitCI,
+		AwaitCopilotReview: req.AwaitCopilotReview,
+		Vetted:             req.Vetted,
+		BaseBranch:         req.BaseBranch,
+		Skills:             req.Skills,
+		SkillsClear:        req.SkillsClear,
+		Phase:              req.Phase,
+		ModelOrchestrator:  req.ModelOrchestrator,
+		ModelCoder:         req.ModelCoder,
+		ModelReviewer:      req.ModelReviewer,
+		BestOfN:            req.BestOfN,
+		MaxCapability:      req.MaxCapability,
+		MobParticipants:    req.MobParticipants,
+		MobPhases:          req.MobPhases,
+		MobGuests:          req.MobGuests,
+		Verify:             req.Verify,
 		// AgentID attributes the mutation: the commit message, the
 		// state-change and assignee activity entries, and the published event
 		// all name the caller instead of falling back to "system". The

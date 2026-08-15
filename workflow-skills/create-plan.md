@@ -518,7 +518,9 @@ straight to Phase 10:
    a `base_branch` field, pass `--base <base_branch>` so the PR targets the
    correct branch.
 4. Call `report_push(card_id=<parent_id>, branch=<branch_name>, pr_url=<url>)`.
-5. Proceed directly to Phase 10.
+5. If the card context shows a PR-gate flag, run the PR Gates section now. If
+   it parks the card, stop - do not proceed to Phase 10.
+6. Proceed directly to Phase 10.
 
 ## Step 3: Prompt path (Local HITL only)
 
@@ -538,10 +540,55 @@ If the user approves the commit and the parent card has a `branch_name`, ask:
   enabled, create a PR using `gh pr create`. If the card has a `base_branch`
   field, pass `--base <base_branch>`. Call
   `report_push(card_id=<parent_id>, branch=<branch_name>, pr_url=<url>)`.
+  Then, if a PR-gate flag is set, run the PR Gates section.
 - **User declines push:** skip push and PR - no `report_push` call.
 
 Only proceed to Phase 10 after the push/PR question is fully resolved (approved
 and done, or declined).
+
+---
+
+# PR Gates
+
+Run this only when a PR exists and the card context shows `**Wait for CI:**
+enabled` or `**Copilot review:** enabled`. Run it after `report_push` and
+before any transition to `done`. Heartbeat before and after every wait.
+
+If a gate flag is set but PR creation failed, do NOT transition to done:
+upsert a `## PR Gates` section on the card explaining the failure, release
+the claim, and stop (card stays in review).
+
+**Copilot gate first** (when `**Copilot review:** enabled`):
+
+1. Check requested reviewers: `gh pr view <pr-url> --json reviewRequests`.
+   If Copilot is absent, request it:
+   `gh pr edit <pr-url> --add-reviewer copilot-pull-request-reviewer[bot]`,
+   then re-check. If the request fails or the reviewer does not appear,
+   add a card log entry with the exact error and skip this gate.
+2. Wait for the review: poll `gh api repos/{owner}/{repo}/pulls/{n}/reviews`
+   every 30s (10 min cap) until a review by
+   `copilot-pull-request-reviewer[bot]` appears for the current head SHA.
+   On timeout, log it on the card and skip to the CI gate.
+3. Triage every finding as valid or invalid with a one-line reason. Upsert
+   the triage to the card as `## Copilot Review (Round <N>)`.
+4. Fix valid findings, commit, push, and re-request the review (step 1
+   command). Ignore repeated comments already triaged in a prior round.
+5. Cap: 3 rounds. On exhaustion upsert `## PR Gates` with the open findings,
+   release the claim, and stop (card stays in review).
+
+**CI gate last** (when `**Wait for CI:** enabled`):
+
+1. Poll `gh pr checks <pr-url>` every 30s. If no checks appear within 3
+   minutes of the last push, the repo has no CI - the gate passes.
+2. Green = every check passed or skipped. On green, proceed.
+3. On any failure: read the failing run
+   (`gh run view <run-id> --log-failed`), fix, commit, push, and poll again
+   for the new head SHA.
+4. Cap: 3 fix rounds; overall wait cap 45 minutes. On exhaustion or timeout
+   upsert `## PR Gates` with the failing checks and links, release the
+   claim, and stop (card stays in review).
+
+When every enabled gate passes, continue to the done transition.
 
 ---
 

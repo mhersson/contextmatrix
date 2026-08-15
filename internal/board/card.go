@@ -60,16 +60,26 @@ type Card struct {
 	// Verify overrides the project's verify gate for this card, merged
 	// field-by-field over it at trigger time (see ResolveVerify). Human-set
 	// only, like the model pins - never writable via the MCP agent surface.
-	Verify         *VerifyConfig `yaml:"verify,omitempty"             json:"verify,omitempty"`
-	Vetted         bool          `yaml:"vetted,omitempty"             json:"vetted"`
-	CreatePR       bool          `yaml:"create_pr,omitempty"          json:"create_pr,omitempty"`
-	BranchName     string        `yaml:"branch_name,omitempty"        json:"branch_name,omitempty"`
-	BaseBranch     string        `yaml:"base_branch,omitempty"        json:"base_branch,omitempty"`
-	PRUrl          string        `yaml:"pr_url,omitempty"             json:"pr_url,omitempty"`
-	ReviewAttempts int           `yaml:"review_attempts,omitempty"    json:"review_attempts,omitempty"`
-	WorkerStatus   string        `yaml:"worker_status,omitempty"      json:"worker_status,omitempty"`
+	Verify   *VerifyConfig `yaml:"verify,omitempty"             json:"verify,omitempty"`
+	Vetted   bool          `yaml:"vetted,omitempty"             json:"vetted"`
+	CreatePR bool          `yaml:"create_pr,omitempty"          json:"create_pr,omitempty"`
+	// AwaitCI, when true, keeps the card in review after the PR is opened
+	// until the PR's checks pass; the agent's pr_gates phase watches CI,
+	// fixes failures (bounded rounds), and only then transitions to done.
+	// Human-set only. Meaningful only when a PR exists (create_pr).
+	AwaitCI bool `yaml:"await_ci,omitempty"           json:"await_ci,omitempty"`
+	// AwaitCopilotReview, when true, has the pr_gates phase request a GitHub
+	// Copilot code review on the PR, wait for it, and address valid findings
+	// before the CI gate / done. Human-set only. Meaningful only when a PR
+	// exists (create_pr).
+	AwaitCopilotReview bool   `yaml:"await_copilot_review,omitempty" json:"await_copilot_review,omitempty"`
+	BranchName         string `yaml:"branch_name,omitempty"        json:"branch_name,omitempty"`
+	BaseBranch         string `yaml:"base_branch,omitempty"        json:"base_branch,omitempty"`
+	PRUrl              string `yaml:"pr_url,omitempty"             json:"pr_url,omitempty"`
+	ReviewAttempts     int    `yaml:"review_attempts,omitempty"    json:"review_attempts,omitempty"`
+	WorkerStatus       string `yaml:"worker_status,omitempty"      json:"worker_status,omitempty"`
 	// Phase is the autonomous orchestrator's position within the run
-	// (plan|execute|judge|document|review|integrate|done). Orthogonal to State: State is the
+	// (plan|execute|judge|document|review|integrate|pr_gates|done). Orthogonal to State: State is the
 	// board lifecycle, Phase is agent progress inside it. Empty for cards not
 	// driven by the agent backend.
 	Phase          string        `yaml:"phase,omitempty"            json:"phase,omitempty"`
@@ -143,7 +153,7 @@ const maxCardSize = 2 * 1024 * 1024
 // clears the field and is always valid.
 func ValidPhase(p string) bool {
 	switch p {
-	case "", "plan", "execute", "judge", "document", "review", "integrate", "done":
+	case "", "plan", "execute", "judge", "document", "review", "integrate", "pr_gates", "done":
 		return true
 	}
 

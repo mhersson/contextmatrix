@@ -136,6 +136,10 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
             models={models}
             onAutonomousChange={form.setAutonomous}
             onCreatePRChange={form.setCreatePR}
+            awaitCI={form.awaitCI}
+            awaitCopilotReview={form.awaitCopilotReview}
+            onAwaitCIChange={form.setAwaitCI}
+            onAwaitCopilotReviewChange={form.setAwaitCopilotReview}
             bestOfN={form.bestOfN}
             bestOfNMax={bestOfNMax}
             bestOfNDefault={bestOfNDefault}
