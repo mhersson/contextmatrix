@@ -10,6 +10,10 @@ const baseProps = {
   onModelPinChange: vi.fn(),
   onBaseBranchChange: vi.fn(),
   branches: ['main', 'develop'],
+  awaitCI: false,
+  awaitCopilotReview: false,
+  onAwaitCIChange: vi.fn(),
+  onAwaitCopilotReviewChange: vi.fn(),
 };
 
 describe('AutomationCheckboxes - model steering', () => {
@@ -53,6 +57,43 @@ describe('AutomationCheckboxes - model steering', () => {
         `row ${i} should precede row ${i + 1}`,
       ).toBeTruthy();
     }
+  });
+});
+
+describe('PR gate checkboxes', () => {
+  it('hides both gate rows when Create PR is off', () => {
+    render(<AutomationCheckboxes {...baseProps} createPR={false} />);
+    expect(screen.queryByLabelText('Wait for CI')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Request Copilot review')).not.toBeInTheDocument();
+  });
+
+  it('shows and toggles the gate rows when Create PR is on', () => {
+    const onAwaitCIChange = vi.fn();
+    const onAwaitCopilotReviewChange = vi.fn();
+    render(
+      <AutomationCheckboxes
+        {...baseProps}
+        createPR={true}
+        awaitCI={false}
+        awaitCopilotReview={true}
+        onAwaitCIChange={onAwaitCIChange}
+        onAwaitCopilotReviewChange={onAwaitCopilotReviewChange}
+      />,
+    );
+    const ci = screen.getByLabelText('Wait for CI');
+    const copilot = screen.getByLabelText('Request Copilot review');
+    expect(ci).not.toBeChecked();
+    expect(copilot).toBeChecked();
+    fireEvent.click(ci);
+    expect(onAwaitCIChange).toHaveBeenCalledWith(true);
+    fireEvent.click(copilot);
+    expect(onAwaitCopilotReviewChange).toHaveBeenCalledWith(false);
+  });
+
+  it('disables the gate rows when automation is locked', () => {
+    render(<AutomationCheckboxes {...baseProps} createPR={true} disabled />);
+    expect(screen.getByLabelText('Wait for CI')).toBeDisabled();
+    expect(screen.getByLabelText('Request Copilot review')).toBeDisabled();
   });
 });
 
@@ -374,6 +415,10 @@ describe('AutomationCheckboxes - mob execute vs Best-of-N', () => {
     onModelPinChange: noop,
     onBaseBranchChange: noop,
     branches: [] as string[],
+    awaitCI: false,
+    awaitCopilotReview: false,
+    onAwaitCIChange: noop,
+    onAwaitCopilotReviewChange: noop,
     taskBackend: 'agent',
     mobParticipants: 3,
     mobExecuteCheckpoints: true,

@@ -58,6 +58,8 @@ export function isCardDirty(edited: Card, original: Card): boolean {
     !arraysEqual(edited.mob_phases, original.mob_phases) ||
     !arraysEqual(edited.mob_guests, original.mob_guests) ||
     (edited.create_pr ?? false) !== (original.create_pr ?? false) ||
+    (edited.await_ci ?? false) !== (original.await_ci ?? false) ||
+    (edited.await_copilot_review ?? false) !== (original.await_copilot_review ?? false) ||
     (edited.vetted ?? false) !== (original.vetted ?? false) ||
     (edited.base_branch ?? '') !== (original.base_branch ?? '') ||
     !skillsEqual(edited.skills, original.skills) ||
@@ -105,6 +107,12 @@ export function buildCardPatch(edited: Card, original: Card): PatchCardInput {
   }
   if ((edited.create_pr ?? false) !== (original.create_pr ?? false)) {
     updates.create_pr = edited.create_pr ?? false;
+  }
+  if ((edited.await_ci ?? false) !== (original.await_ci ?? false)) {
+    updates.await_ci = edited.await_ci ?? false;
+  }
+  if ((edited.await_copilot_review ?? false) !== (original.await_copilot_review ?? false)) {
+    updates.await_copilot_review = edited.await_copilot_review ?? false;
   }
   if ((edited.vetted ?? false) !== (original.vetted ?? false)) {
     updates.vetted = edited.vetted ?? false;

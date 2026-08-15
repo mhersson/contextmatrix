@@ -10,6 +10,12 @@ interface AutomationCheckboxesProps {
   createPR: boolean;
   onAutonomousChange: (value: boolean) => void;
   onCreatePRChange: (value: boolean) => void;
+  /** PR gate: hold the card in review until the PR's checks pass. */
+  awaitCI: boolean;
+  /** PR gate: request a Copilot review and address valid findings. */
+  awaitCopilotReview: boolean;
+  onAwaitCIChange: (value: boolean) => void;
+  onAwaitCopilotReviewChange: (value: boolean) => void;
   /**
    * Active task backend ("agent" | ""). When `'agent'`, the three model-pin
    * inputs render as the model-steering row. When unset there is no
@@ -125,6 +131,8 @@ interface AutomationCheckboxesProps {
 export function AutomationCheckboxes({
   autonomous, createPR,
   onAutonomousChange, onCreatePRChange,
+  awaitCI, awaitCopilotReview,
+  onAwaitCIChange, onAwaitCopilotReviewChange,
   taskBackend,
   modelOrchestrator = '', modelCoder = '', modelReviewer = '',
   onModelPinChange, models = [], favorites,
@@ -380,6 +388,39 @@ export function AutomationCheckboxes({
           )}
         </span>
       </div>
+
+      {/* PR gates - only meaningful when a PR will be created */}
+      {createPR && (
+        <>
+          <div className="bf-spread">
+            <label className="bf-switch">
+              <input
+                type="checkbox"
+                aria-label="Wait for CI"
+                checked={awaitCI}
+                disabled={disabled}
+                onChange={(e) => onAwaitCIChange(e.target.checked)}
+              />
+              <span>Wait for CI to pass</span>
+            </label>
+            <span className="bf-hint">stays in review until checks pass</span>
+          </div>
+
+          <div className="bf-spread">
+            <label className="bf-switch">
+              <input
+                type="checkbox"
+                aria-label="Request Copilot review"
+                checked={awaitCopilotReview}
+                disabled={disabled}
+                onChange={(e) => onAwaitCopilotReviewChange(e.target.checked)}
+              />
+              <span>Request Copilot review</span>
+            </label>
+            <span className="bf-hint">addresses findings, then re-checks CI</span>
+          </div>
+        </>
+      )}
 
       {/* Base branch */}
       <div className="bf-spread">

@@ -93,6 +93,12 @@ export function AutomationTab({
             setEditedCard((prev) => ({ ...prev, autonomous: v }))
           }
           onCreatePRChange={(v) => setEditedCard((prev) => ({ ...prev, create_pr: v }))}
+          awaitCI={editedCard.await_ci ?? false}
+          awaitCopilotReview={editedCard.await_copilot_review ?? false}
+          onAwaitCIChange={(v) => setEditedCard((prev) => ({ ...prev, await_ci: v }))}
+          onAwaitCopilotReviewChange={(v) =>
+            setEditedCard((prev) => ({ ...prev, await_copilot_review: v }))
+          }
           branchName={card.branch_name}
           prUrl={card.pr_url}
           reviewAttempts={card.review_attempts}
