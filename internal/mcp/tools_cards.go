@@ -54,8 +54,9 @@ type createCardInput struct {
 	AgentID string `json:"agent_id,omitempty" jsonschema:"caller identity (accepted for client parity; not used for attribution)"`
 }
 
-// NOTE: vetted, autonomous, create_pr, base_branch, best_of_n, max_capability,
-// assignee, the mob session fields (mob_participants, mob_phases, mob_guests), and
+// NOTE: vetted, autonomous, create_pr, await_ci, await_copilot_review,
+// base_branch, best_of_n, max_capability, assignee, the mob session fields
+// (mob_participants, mob_phases, mob_guests), and
 // model pin fields (model_orchestrator, model_coder, model_reviewer) are
 // intentionally excluded - they are human-only fields. Model pins are excluded
 // for the same reason: they express human intent about which model to use and
