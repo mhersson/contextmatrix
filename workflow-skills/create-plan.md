@@ -580,11 +580,20 @@ the claim, and stop (card stays in review).
 
 **CI gate last** (when `**Wait for CI:** enabled`):
 
-1. Poll `gh pr checks <pr-url>` every 30s. If no checks appear within 3
-   minutes of the last push, the repo has no CI - the gate passes.
+1. Poll `gh pr checks <pr-url>` every 30s. If it fails with "Resource not
+   accessible by personal access token" (fine-grained PAT), switch for the
+   rest of the gate: read the head SHA (`gh pr view <pr-url> --json
+   headRefOid`), then poll `gh run list -R <owner>/<repo> --commit
+   <head-sha> --limit 100 --json name,status,conclusion,url` plus
+   `gh api repos/<owner>/<repo>/commits/<head-sha>/status`; completed
+   success/skipped counts green, failure/timed_out/cancelled/error red,
+   anything else pending. Re-read the head SHA after every push. If no
+   checks appear within 3 minutes of the last push, the repo has no CI -
+   the gate passes.
 2. Green = every check passed or skipped. On green, proceed.
 3. On any failure: read the failing run
-   (`gh run view <run-id> --log-failed`), fix, commit, push, and poll again
+   (`gh run view <run-id> --log-failed`; in fallback mode the run id comes
+   from the `gh run list` url), fix, commit, push, and poll again
    for the new head SHA.
 4. Cap: 3 fix rounds; overall wait cap 45 minutes. On exhaustion or timeout
    upsert `## PR Gates` with the failing checks and links, release the
