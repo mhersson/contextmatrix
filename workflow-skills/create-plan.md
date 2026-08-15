@@ -590,6 +590,10 @@ the claim, and stop (card stays in review).
 
 When every enabled gate passes, continue to the done transition.
 
+After the gates finish - passed, skipped, or parked - call `report_usage`
+with the tokens the gates consumed. On re-entry after a park, the `## PR
+Gates` section's counters carry the rounds already used; never reset them.
+
 ---
 
 # Phase 10: Finalization

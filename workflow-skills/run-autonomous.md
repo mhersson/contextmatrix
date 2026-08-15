@@ -81,6 +81,7 @@ Based on the card's current state and body content:
 | `todo` or `in_progress`, has `## Plan` but no subtasks | Phase 2: Subtask Creation (inline) |
 | `todo` or `in_progress`, has subtasks, not all done | Phase 3: Execution |
 | `in_progress`, all subtasks done, no `## Review Findings` section (any round) | Phase 4: Documentation |
+| `review`, body has a `## PR Gates` section | PR Gates section (the section's counters carry the rounds already used), then Phase 6 steps 21-23 |
 | `review` | Phase 5: Review |
 | `done` | Nothing to do - inform the user |
 
@@ -254,7 +255,7 @@ Based on the card's current state and body content:
 
 ## Phase 6: Finalization
 
-18. Commit any remaining changes in a conventional commit with a bullet-point body. **No card IDs in commit messages.** Skip if nothing to commit. Then call `report_usage` one final time with your remaining token consumption.
+18. Commit any remaining changes in a conventional commit with a bullet-point body. **No card IDs in commit messages.** Skip if nothing to commit. Then call `report_usage` with your token consumption so far.
 19. If the card has a `branch_name`:
     a. Push the feature branch: `git push -u origin <branch_name>`.
     b. If `create_pr` is enabled, create a PR using `gh pr create` with a body
@@ -321,6 +322,10 @@ the claim, and stop (card stays in review).
    claim, and stop (card stays in review).
 
 When every enabled gate passes, continue to the done transition.
+
+After the gates finish - passed, skipped, or parked - call `report_usage`
+with the tokens the gates consumed. On re-entry after a park, the `## PR
+Gates` section's counters carry the rounds already used; never reset them.
 
 ## Branch Protection (MANDATORY)
 

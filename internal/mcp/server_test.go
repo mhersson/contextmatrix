@@ -3274,7 +3274,14 @@ func TestOrchestratorSkills_PRGates(t *testing.T) {
 			name+" must cap gate fix rounds at 3")
 		assert.Contains(t, content, "`## PR Gates` section",
 			name+" park note must use the ## PR Gates card section")
+		assert.Contains(t, content, "the tokens the gates consumed",
+			name+" must report gate token usage")
 	}
+
+	runAuto, err := os.ReadFile(filepath.Join("..", "..", "workflow-skills", "run-autonomous.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(runAuto), "`review`, body has a `## PR Gates` section",
+		"run-autonomous must route a gate-parked card back to the gates, not Phase 5")
 }
 
 // TestPlanDraftSkillIsSelfContained pins the drafting sub-agent's contract:
