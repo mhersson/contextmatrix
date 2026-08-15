@@ -149,6 +149,7 @@ func TestNormalizePhase(t *testing.T) {
 		{"document", "document"},
 		{"review", "review"},
 		{"integrate", "integrate"},
+		{"pr_gates", "pr_gates"},
 		{"done", "done"},
 		{"bogus", "other"},
 		{"PLAN", "other"},

@@ -842,7 +842,7 @@ func (s *CardService) buildUpdateApply(ctx context.Context, input UpdateCardInpu
 					Err:     board.ErrInvalidPhase,
 					Field:   "phase",
 					Value:   *input.Phase,
-					Message: fmt.Sprintf("invalid phase %q: must be one of plan, execute, judge, document, review, integrate, done, or empty", *input.Phase),
+					Message: fmt.Sprintf("invalid phase %q: must be one of plan, execute, judge, document, review, integrate, pr_gates, done, or empty", *input.Phase),
 				})
 			}
 
@@ -1120,7 +1120,7 @@ func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput)
 					Err:     board.ErrInvalidPhase,
 					Field:   "phase",
 					Value:   *input.Phase,
-					Message: fmt.Sprintf("invalid phase %q: must be one of plan, execute, judge, document, review, integrate, done, or empty", *input.Phase),
+					Message: fmt.Sprintf("invalid phase %q: must be one of plan, execute, judge, document, review, integrate, pr_gates, done, or empty", *input.Phase),
 				}
 			}
 

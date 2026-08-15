@@ -738,6 +738,7 @@ func TestValidPhase(t *testing.T) {
 		{"document", true},
 		{"review", true},
 		{"integrate", true},
+		{"pr_gates", true},
 		{"done", true},
 		{"shipping", false},
 		{"PLAN", false},

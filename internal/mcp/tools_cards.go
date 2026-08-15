@@ -71,7 +71,7 @@ type updateCardInput struct {
 	Labels   []string  `json:"labels,omitempty" jsonschema:"new labels (replaces all)"`
 	Skills   *[]string `json:"skills,omitempty" jsonschema:"new task skills (replaces all); [] means none, omit to leave unchanged"`
 	Body     *string   `json:"body,omitempty" jsonschema:"new markdown body"`
-	Phase    *string   `json:"phase,omitempty" jsonschema:"orchestrator phase: plan|execute|judge|document|review|integrate|done; empty clears"`
+	Phase    *string   `json:"phase,omitempty" jsonschema:"orchestrator phase: plan|execute|judge|document|review|integrate|pr_gates|done; empty clears"`
 	// UpsertSectionHeading and UpsertSectionContent must be provided together
 	// (or neither): replace-or-append one H2 section without resending the
 	// whole body. Mutually exclusive with Body - enforced by the service layer.
@@ -153,7 +153,7 @@ type reportUsageInput struct {
 	CacheCreationTokens int64    `json:"cache_creation_tokens,omitempty" jsonschema:"number of cache-creation tokens (billed at 1.25× base input rate)"`
 	ActualCostUSD       *float64 `json:"actual_cost_usd,omitempty" jsonschema:"authoritative provider-reported cost in USD for this delta; omit to use the server rate table"`
 	Source              string   `json:"source,omitempty" jsonschema:"who produced the numbers: self (default, agent-estimated) or collector (measured from real usage frames)"`
-	Phase               string   `json:"phase,omitempty" jsonschema:"FSM phase this usage belongs to (plan|execute|judge|document|review|integrate|done); omit to use the card's current phase"`
+	Phase               string   `json:"phase,omitempty" jsonschema:"FSM phase this usage belongs to (plan|execute|judge|document|review|integrate|pr_gates|done); omit to use the card's current phase"`
 	Step                string   `json:"step,omitempty" jsonschema:"model-call kind within the phase (main|gate|brainstorm|verify_propose|mob_seat|mob_moderator|checkpoint|judge); omit for the primary phase call"`
 	DurationMS          int64    `json:"duration_ms,omitempty" jsonschema:"wall time of the model step in milliseconds; used for latency metrics only"`
 }

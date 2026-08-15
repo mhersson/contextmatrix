@@ -506,12 +506,12 @@ persisted to card frontmatter. `subtask_cost_usd` is the summed
 list responses do not carry it); omitted when zero.
 
 **Agent-managed field** - `phase`: the agent-orchestrator's progress within a run
-(`plan` | `execute` | `judge` | `document` | `review` | `integrate` | `done`), orthogonal
+(`plan` | `execute` | `judge` | `document` | `review` | `integrate` | `pr_gates` | `done`), orthogonal
 to `state`. `judge` is exercised only during a Best-of-N run (see `best_of_n`
 below) - the agent-backend orchestrator selects a winner among the racing
 candidates there before continuing to `document`; it is a no-op phase for
 normal runs. Enum-validated; the empty string clears it and means "not agent-driven". Settable
-via the `update_card` MCP tool and REST (PUT/PATCH).
+via the `update_card` MCP tool and REST (PUT/PATCH). `pr_gates` is the post-integrate step that waits on the PR's CI and/or Copilot review when the card's `await_ci` / `await_copilot_review` flags are set (see `## PR gates` below).
 
 **Section upsert** - the MCP `update_card` tool additionally accepts
 `upsert_section_heading` + `upsert_section_content` (both or neither; the

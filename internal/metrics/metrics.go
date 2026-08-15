@@ -243,7 +243,7 @@ var (
 // any layer without import cycles.
 var validPhases = map[string]struct{}{
 	"plan": {}, "execute": {}, "judge": {}, "document": {},
-	"review": {}, "integrate": {}, "done": {},
+	"review": {}, "integrate": {}, "pr_gates": {}, "done": {},
 }
 
 var validSteps = map[string]struct{}{
