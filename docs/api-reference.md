@@ -268,7 +268,7 @@ clients. The raw error is always logged server-side with the request's
 | Code               | HTTP | When                                                                                                                                               |
 | ------------------ | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `CARD_NOT_VETTED`  | 403  | A non-human agent calls `POST /claim` on a card with `source != null && vetted == false`.                                                          |
-| `HUMAN_ONLY_FIELD` | 403  | An agent without `human:` prefix attempts to set `autonomous`, `create_pr`, `vetted`, `assignee`, `base_branch`, a model pin (`model_orchestrator`, `model_coder`, `model_reviewer`), `best_of_n`, `max_capability`, a mob field (`mob_participants`, `mob_phases`, `mob_guests`), or `verify`. |
+| `HUMAN_ONLY_FIELD` | 403  | An agent without `human:` prefix attempts to set `autonomous`, `create_pr`, `await_ci`, `await_copilot_review`, `vetted`, `assignee`, `base_branch`, a model pin (`model_orchestrator`, `model_coder`, `model_reviewer`), `best_of_n`, `max_capability`, a mob field (`mob_participants`, `mob_phases`, `mob_guests`), or `verify`. |
 
 ## Authentication (multi mode)
 

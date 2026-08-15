@@ -690,9 +690,9 @@ CM retries failed webhooks with exponential backoff (`internal/backend`):
 
 A `/trigger` starts one disposable container that runs the card end to end:
 clone the repo, claim the card over MCP, plan, execute, document, review,
-integrate, and complete via `complete_task`. The container exits when the run
-finishes, and the backend removes it. A `/kill` destroys the container
-immediately - uncommitted work is discarded.
+integrate, pr_gates, and complete via `complete_task`. The container exits
+when the run finishes, and the backend removes it. A `/kill` destroys the
+container immediately - uncommitted work is discarded.
 
 CM is the single authority on whether a container should be running. Two
 mechanisms enforce that, reasoning from different truths so a bug in either

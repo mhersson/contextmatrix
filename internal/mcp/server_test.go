@@ -3251,6 +3251,32 @@ func TestOrchestratorHaltThreshold_ThreeCycles(t *testing.T) {
 		"run-autonomous.md AUTONOMOUS_HALTED reason must reference the 3-cycle budget")
 }
 
+// TestOrchestratorSkills_PRGates pins the PR-gates procedure in both
+// orchestrator skills: the gates run after report_push and before the done
+// transition, honor await_ci / await_copilot_review, and cap fix rounds at 3.
+func TestOrchestratorSkills_PRGates(t *testing.T) {
+	for _, name := range []string{"create-plan.md", "run-autonomous.md"} {
+		path := filepath.Join("..", "..", "workflow-skills", name)
+		data, err := os.ReadFile(path)
+		require.NoError(t, err, name+" must be readable")
+
+		content := string(data)
+
+		assert.Contains(t, content, "PR Gates",
+			name+" must contain the PR Gates section")
+		assert.Contains(t, content, "Wait for CI",
+			name+" must reference the Wait for CI flag label")
+		assert.Contains(t, content, "Copilot review",
+			name+" must reference the Copilot review flag label")
+		assert.Regexp(t, `(?si)report_push.*PR Gates`, content,
+			name+" must run the gates after report_push")
+		assert.Regexp(t, `(?si)PR Gates.*3 rounds`, content,
+			name+" must cap gate fix rounds at 3")
+		assert.Contains(t, content, "`## PR Gates` section",
+			name+" park note must use the ## PR Gates card section")
+	}
+}
+
 // TestPlanDraftSkillIsSelfContained pins the drafting sub-agent's contract:
 // the completion markers, the two card-body sections it writes, the
 // board-write identity rule, and the forbidden lifecycle tools.
