@@ -54,7 +54,7 @@ type createCardInput struct {
 	AgentID string `json:"agent_id,omitempty" jsonschema:"caller identity (accepted for client parity; not used for attribution)"`
 }
 
-// NOTE: vetted, autonomous, create_pr, await_ci, await_copilot_review,
+// NOTE: vetted, create_pr, await_ci, await_copilot_review,
 // base_branch, best_of_n, max_capability, assignee, the mob session fields
 // (mob_participants, mob_phases, mob_guests), and
 // model pin fields (model_orchestrator, model_coder, model_reviewer) are
@@ -78,6 +78,7 @@ type updateCardInput struct {
 	// whole body. Mutually exclusive with Body - enforced by the service layer.
 	UpsertSectionHeading *string `json:"upsert_section_heading,omitempty" jsonschema:"H2 heading (without ##) to replace or append; use with upsert_section_content instead of body to avoid re-sending the whole body"`
 	UpsertSectionContent *string `json:"upsert_section_content,omitempty" jsonschema:"markdown content for the section named by upsert_section_heading"`
+	Autonomous           *bool   `json:"autonomous,omitempty" jsonschema:"set the autonomous mode flag on the card"`
 }
 
 type transitionCardInput struct {
@@ -327,13 +328,14 @@ func registerUpdateCard(server *mcp.Server, svc *service.CardService) {
 		}
 
 		patchInput := service.PatchCardInput{
-			AgentID:  input.AgentID,
-			Title:    input.Title,
-			Priority: input.Priority,
-			Labels:   input.Labels,
-			Skills:   input.Skills,
-			Body:     input.Body,
-			Phase:    input.Phase,
+			AgentID:    input.AgentID,
+			Title:      input.Title,
+			Priority:   input.Priority,
+			Labels:     input.Labels,
+			Skills:     input.Skills,
+			Body:       input.Body,
+			Phase:      input.Phase,
+			Autonomous: input.Autonomous,
 		}
 
 		if input.UpsertSectionHeading != nil {

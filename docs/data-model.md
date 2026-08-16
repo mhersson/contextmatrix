@@ -544,7 +544,7 @@ mirrored by `service.PatchCardInput.UpsertSection`
 (`internal/service/service_cards.go`).
 
 **Human-only fields** (may only be set by agents whose `X-Agent-ID` starts with
-`human:`): `vetted`, `assignee`, `autonomous`, `create_pr`, `await_ci`,
+`human:`): `vetted`, `assignee`, `create_pr`, `await_ci`,
 `await_copilot_review`, the three model pins (`model_orchestrator`,
 `model_coder`, `model_reviewer`), `base_branch`, `best_of_n`, `max_capability`,
 the mob fields (`mob_participants`, `mob_phases`, `mob_guests`), and `verify`.
@@ -567,7 +567,11 @@ run until a human changes or clears it, and it has effect only on the agent
 backend (see `docs/remote-execution.md`). Ignored (zeroed at trigger, with a
 warning) when the card's mob session covers the `execute` phase and the server
 allows checkpoints. Agents that attempt to set any of these fields receive 403
-`HUMAN_ONLY_FIELD`. The MCP `update_card` tool does not expose them. `await_ci`
+`HUMAN_ONLY_FIELD`. The MCP `update_card` tool does not expose them. `autonomous`
+is the exception: it remains human-only via REST (an agent that sends it on
+POST/PUT/PATCH receives 403 `HUMAN_ONLY_FIELD`), but the MCP `update_card` tool
+exposes an `autonomous` field so any MCP-connected agent can set or clear the
+flag before a card is run - see `### autonomous` below. `await_ci`
 and `await_copilot_review` are plain booleans on POST, PUT, and PATCH (no
 create-time defaulting); see `## PR gates` for semantics.
 
@@ -591,6 +595,30 @@ In the UI the "Maximum capability" checkbox appears in the card Automation
 rail and the create panel only while automatic model selection is on, and
 re-checking automatic selection clears pins but never this flag. How it narrows
 selection is documented in `docs/model-selection.md` § The decision order.
+
+### `autonomous` (optional, bool)
+
+When `true`, the card runs the autonomous lifecycle: `start_workflow` routes it
+to `run-autonomous`, human approval gates are bypassed, and (for worker
+containers) the backend forces `interactive` off server-side. `false`/absent
+is the default. See `docs/agent-workflow.md` § Autonomous mode.
+
+The flag has two write paths with different caller gates:
+
+- **MCP `update_card`** exposes an `autonomous` field (`*bool`) that any
+  MCP-connected agent can set or clear. This is the intended path for an agent
+  harness (e.g. Claude Code planning a set of tasks) to mark which cards are
+  suitable for autonomous execution before any of them are run. Omitting the
+  field leaves the stored value unchanged (`nil` = don't change).
+- **REST** (POST/PUT/PATCH) keeps `autonomous` human-only: an agent whose
+  `X-Agent-ID` lacks the `human:` prefix that sets or changes it receives 403
+  `HUMAN_ONLY_FIELD`. A PUT omits the field to clear it (full-replacement
+  semantics); a PATCH leaves it unchanged when `nil`.
+
+The `promote_to_autonomous` MCP tool and `POST /api/projects/{project}/cards/{id}/promote`
+remain the path for flipping an already-running HITL card to autonomous (they
+also drive the backend `/promote` webhook). Setting `autonomous` via
+`update_card` only writes the flag - it does not trigger a running worker.
 
 ### Mob fields (optional)
 

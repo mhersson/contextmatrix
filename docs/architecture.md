@@ -64,11 +64,18 @@ control (in none mode):**
   "this operation is part of the human workflow," not to prevent forgery -
   true in multi mode too, since MCP never gained a session concept.
 - **Human-only operations on cards** (e.g. flipping `autonomous: true` via
-  `PromoteToAutonomous` / the `promote_to_autonomous` MCP tool): the same
+  `PromoteToAutonomous` / the `promote_to_autonomous` MCP tool, which also
+  drives the backend `/promote` webhook for a running HITL card): the same
   `human:` prefix check, same intent. The REST handler in
   `internal/api/backend_control.go` falls back to `human:api` when `X-Agent-ID`
   is absent so the service-layer gate still passes for direct API calls in none
   mode (in multi mode the session identity already satisfies it).
+  The `autonomous` _flag itself_ is a narrower exception: the MCP `update_card`
+  tool exposes an `autonomous` field any MCP-connected agent can set or clear
+  (so an agent harness can mark cards suitable for autonomous runs before they
+  are executed), while REST POST/PUT/PATCH keep it human-only. Setting the flag
+  via `update_card` only writes it; it does not trigger or convert a running
+  worker.
 
 **`auth.mode: multi` adds real authentication: login, sessions, and an admin
 role.** Users, sessions, one-time tokens, and the GitHub credential pool are

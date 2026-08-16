@@ -268,7 +268,7 @@ clients. The raw error is always logged server-side with the request's
 | Code               | HTTP | When                                                                                                                                               |
 | ------------------ | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `CARD_NOT_VETTED`  | 403  | A non-human agent calls `POST /claim` on a card with `source != null && vetted == false`.                                                          |
-| `HUMAN_ONLY_FIELD` | 403  | An agent without `human:` prefix attempts to set `autonomous`, `create_pr`, `await_ci`, `await_copilot_review`, `vetted`, `assignee`, `base_branch`, a model pin (`model_orchestrator`, `model_coder`, `model_reviewer`), `best_of_n`, `max_capability`, a mob field (`mob_participants`, `mob_phases`, `mob_guests`), or `verify`. |
+| `HUMAN_ONLY_FIELD` | 403  | An agent without `human:` prefix attempts to set `autonomous` (via REST only; `autonomous` is settable via the MCP `update_card` tool), `create_pr`, `await_ci`, `await_copilot_review`, `vetted`, `assignee`, `base_branch`, a model pin (`model_orchestrator`, `model_coder`, `model_reviewer`), `best_of_n`, `max_capability`, a mob field (`mob_participants`, `mob_phases`, `mob_guests`), or `verify`. |
 
 ## Authentication (multi mode)
 
@@ -2277,6 +2277,17 @@ Body redaction for non-human callers applies to the surfaces that carry
 bodies: `get_card`, `get_task_context`, and the skill-injection path below
 (redaction runs before section filtering, so the unvetted placeholder is what
 passes through the filter's fallback).
+
+#### `update_card` autonomous flag
+
+`update_card` accepts an optional `autonomous` boolean that sets or clears the
+card's autonomous-mode flag. Any MCP-connected agent can set it - this is the
+intended path for an agent harness planning multiple tasks to mark which are
+suitable for autonomous execution before any card is run. Omitting the field
+leaves the stored value unchanged. Setting the flag only writes it; it does
+not trigger a running worker (use `promote_to_autonomous` for that). The REST
+POST/PUT/PATCH surfaces keep `autonomous` human-only. See
+`docs/data-model.md` § `autonomous` for the full gate semantics.
 
 #### `update_card` section upsert
 
