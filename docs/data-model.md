@@ -631,7 +631,10 @@ At trigger time CM resolves the two **field by field** - card over project:
 `command` is a single shell line the agent runs via `bash -c`; `timeout_seconds`
 bounds the run (`0` = agent default) and applies to detected/proposed commands
 too; `env` lists container environment variable **names** passed through to the
-verify subprocess - names only, never values.
+verify subprocess and the model's bash tool - names only, never values. The
+resolved values are readable by model-run commands and appear unredacted in
+session transcripts sent to the LLM provider, so never declare a name whose
+value embeds a credential (e.g. `PGPASSWORD`, a `DATABASE_URL` with userinfo).
 
 Both the project and card write paths validate the config (a failure returns 422
 `VALIDATION_ERROR`) and normalize a zero-value config to nil so it is omitted

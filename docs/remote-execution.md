@@ -236,7 +236,9 @@ how the agent picks from them.
 project's field by field and omits it when nothing resolves; the agent then
 falls back to its own detection. When present, the agent runs `command` via
 `bash -c` bounded by `timeout_seconds`, passing the named `env` variables
-through by name (never value) on top of its scrubbed allowlist.
+through by name (never value) on top of its scrubbed allowlist. The same
+resolved set reaches the model's bash tool, so declared values are
+model-visible and land unredacted in session transcripts.
 
 `git_token` is a short-lived credential for the project repo, minted by CM from
 the project's `github_credential` binding (or the instance `github.*`
