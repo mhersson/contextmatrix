@@ -157,21 +157,23 @@ func TestUpdateCard_AutonomousFlag(t *testing.T) {
 		// Initially autonomous must be false (default zero value).
 		getResult := callTool(t, env, "get_card", map[string]any{"card_id": card.ID})
 		require.False(t, getResult.IsError)
+
 		var initial board.Card
 		unmarshalResult(t, getResult, &initial)
 		assert.False(t, initial.Autonomous, "new card should not be autonomous by default")
 
 		// Set autonomous to true.
 		result, err := callToolRaw(t, env, "update_card", map[string]any{
-			"project":     "test-project",
-			"card_id":     card.ID,
-			"autonomous":  true,
+			"project":    "test-project",
+			"card_id":    card.ID,
+			"autonomous": true,
 		})
 		require.False(t, resultIsError(result, err), "update_card with autonomous=true should succeed: %s", errorText(result, err))
 
 		// Fetch and verify autonomous is true.
 		getResult = callTool(t, env, "get_card", map[string]any{"card_id": card.ID})
 		require.False(t, getResult.IsError)
+
 		var updated board.Card
 		unmarshalResult(t, getResult, &updated)
 		assert.True(t, updated.Autonomous, "autonomous flag should be true after setting it")
@@ -184,23 +186,24 @@ func TestUpdateCard_AutonomousFlag(t *testing.T) {
 
 		// Set autonomous to true first.
 		result, err := callToolRaw(t, env, "update_card", map[string]any{
-			"project":     "test-project",
-			"card_id":     card.ID,
-			"autonomous":  true,
+			"project":    "test-project",
+			"card_id":    card.ID,
+			"autonomous": true,
 		})
 		require.False(t, resultIsError(result, err), "first update should succeed: %s", errorText(result, err))
 
 		// Now set autonomous to false.
 		result, err = callToolRaw(t, env, "update_card", map[string]any{
-			"project":     "test-project",
-			"card_id":     card.ID,
-			"autonomous":  false,
+			"project":    "test-project",
+			"card_id":    card.ID,
+			"autonomous": false,
 		})
 		require.False(t, resultIsError(result, err), "update_card with autonomous=false should succeed: %s", errorText(result, err))
 
 		// Fetch and verify autonomous is false.
 		getResult := callTool(t, env, "get_card", map[string]any{"card_id": card.ID})
 		require.False(t, getResult.IsError)
+
 		var toggled board.Card
 		unmarshalResult(t, getResult, &toggled)
 		assert.False(t, toggled.Autonomous, "autonomous flag should be false after setting it to false")
