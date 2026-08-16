@@ -30,7 +30,8 @@ var validVerifyEnvName = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
 
 // secretShapedEnvPrefixes and secretShapedEnvSuffixes name env vars that look
 // like credentials. Verify env is passthrough names only; denying these keeps
-// an operator from routing instance secrets into an agent-run subprocess.
+// an operator from routing instance secrets into an agent-run subprocess or
+// the model's shell.
 var (
 	secretShapedEnvPrefixes = []string{"CM_", "CMX_", "LLM_", "GITHUB_"}
 	secretShapedEnvSuffixes = []string{"_TOKEN", "_KEY", "_SECRET", "_PASSWORD"}
@@ -72,7 +73,7 @@ func validateVerifyConfig(v *board.VerifyConfig) error {
 		}
 
 		if isSecretShapedEnvName(name) {
-			return fmt.Errorf("env name %q looks secret-shaped; verify env passes names only, never secrets", name)
+			return fmt.Errorf("env name %q looks secret-shaped; verify env passes names only, never secrets - resolved values are visible to the agent's model and its session transcripts", name)
 		}
 	}
 
