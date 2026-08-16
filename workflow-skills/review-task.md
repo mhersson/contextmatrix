@@ -146,8 +146,8 @@ Specialist hard constraints:
 ### Specialist C - Security & Performance
 
 - Input validation; injection (SQL, command, path traversal, template).
-- AuthN/AuthZ deviations from the trust model documented in `CLAUDE.md`. Do not
-  flag the absence of auth when the project states it has none.
+- AuthN/AuthZ deviations from the documented trust model. Do not flag the
+  absence of auth when the project states it has none.
 - Secrets handling.
 - Dependency hygiene on added/bumped packages: known CVEs, lockfile correctness.
 - Algorithmic complexity, N+1, quadratic loops on user input.
