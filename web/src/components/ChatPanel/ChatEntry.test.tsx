@@ -66,6 +66,48 @@ describe('ChatEntry memoization', () => {
   });
 });
 
+// jsdom has no layout engine, so the clipping these guard against cannot be
+// observed directly - only the two properties that prevent it. `wrap-anywhere`
+// is `overflow-wrap: anywhere`, which unlike `break-word` counts toward
+// min-content sizing; `max-w-full` clamps the shrink-to-fit bubble to its 85%
+// parent. Without both, a long unbreakable token sets a min-content width
+// wider than the cap, the bubble grows to match, and the transcript's
+// overflow-x-hidden slices the text.
+describe('ChatEntry long-token wrapping', () => {
+  const longToken =
+    'FlowMetricsServiceTest.explicitLabelsRemainAnIndependentConjunctiveConstraintWithPiScope';
+
+  it('keeps an agent bubble inside its column when the text has no break opportunity', () => {
+    render(<ChatEntry entry={makeEntry(1, 'text', longToken)} />);
+
+    const bubble = screen.getByTestId('markdown-stub').parentElement;
+    expect(bubble).toHaveClass('wrap-anywhere');
+    expect(bubble).toHaveClass('max-w-full');
+  });
+
+  it('keeps a user bubble inside its column when the text has no break opportunity', () => {
+    render(<ChatEntry entry={makeEntry(1, 'user', longToken)} />);
+
+    const bubble = screen.getByText(longToken);
+    expect(bubble).toHaveClass('wrap-anywhere');
+    expect(bubble).toHaveClass('max-w-full');
+  });
+
+  // `wrap-anywhere` cannot rescue content that refuses to wrap at all - a
+  // fenced code block is `white-space: pre`, and a percentage max-width does
+  // not clamp min-content contribution. The wrapper is a flex item, so its
+  // automatic minimum size would size it to that unwrappable content and beat
+  // its own max-width; `min-w-0` is what lets the 85% cap win. The code block
+  // then scrolls inside itself, which is what `pre > code` already does.
+  it('clamps both bubble wrappers so unshrinkable content cannot widen the column', () => {
+    const { rerender } = render(<ChatEntry entry={makeEntry(1, 'text', '```\nlong\n```')} />);
+    expect(screen.getByTestId('markdown-stub').parentElement?.parentElement).toHaveClass('min-w-0');
+
+    rerender(<ChatEntry entry={makeEntry(2, 'user', longToken)} />);
+    expect(screen.getByText(longToken).parentElement).toHaveClass('min-w-0');
+  });
+});
+
 describe('ChatEntry tool_result rendering', () => {
   it('renders tool_result through the plain-text branch, not markdown', () => {
     markdownRenders.mockClear();

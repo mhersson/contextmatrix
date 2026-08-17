@@ -298,7 +298,7 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
           tabs={tabs}
           activeTab={activeTab}
           onTabChange={setActiveTab}
-          railExpanded={railExpanded}
+          railMode={railExpanded ? 'expanded' : 'collapsed'}
           onToggleRail={() => setRailExpanded((v) => !v)}
         />
       </div>

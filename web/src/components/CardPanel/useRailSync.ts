@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import type React from 'react';
 import type { Card } from '../../types';
-import type { RailTabKey } from './CardPanelBody';
+import type { RailMode, RailTabKey } from './CardPanelBody';
 import { safeReadBool, safeWriteBool } from '../../utils/safeStorage';
 
 const RAIL_STORAGE_KEY = 'contextmatrix-rail-expanded';
@@ -9,9 +9,17 @@ const RAIL_STORAGE_KEY = 'contextmatrix-rail-expanded';
 const safeReadRail = () => safeReadBool(RAIL_STORAGE_KEY);
 const safeWriteRail = (value: boolean) => safeWriteBool(RAIL_STORAGE_KEY, value);
 
+/** The two-level preference the storage key holds, resolved to a mode. `full`
+ *  is never stored, so this is also where exiting full width lands. */
+const restoreMode = (isChatInteractive: boolean): RailMode =>
+  (safeReadRail() ?? isChatInteractive) ? 'expanded' : 'collapsed';
+
 export interface RailSync {
-  railExpanded: boolean;
-  setRailExpanded: React.Dispatch<React.SetStateAction<boolean>>;
+  railMode: RailMode;
+  /** Flips collapsed ↔ expanded and persists the choice. */
+  toggleRail: () => void;
+  /** Enters full width, or leaves it for the persisted two-level preference. */
+  toggleFull: () => void;
   activeTab: RailTabKey;
   onTabChange: (tab: RailTabKey) => void;
 }
@@ -25,11 +33,12 @@ export interface RailSync {
  * State machine summary:
  *
  *  - Card identity change (cardId changes): full reset - editedCard,
- *    railExpanded → safeReadRail() ?? isChatInteractive, activeTab → defaultTab.
- *  - Same card, new SSE object reference: editedCard refreshes; railExpanded
+ *    railMode → restoreMode(), activeTab → defaultTab.
+ *  - Same card, new SSE object reference: editedCard refreshes; railMode
  *    and activeTab are preserved.
- *  - isChatInteractive flip to true: resets activeTab → 'chat', railExpanded →
- *    true (and persists true to localStorage).
+ *  - isChatInteractive flip to true: resets activeTab → 'chat', railMode →
+ *    'expanded' (and persists true to localStorage) - unless the rail is
+ *    already 'full', which is wider still and stays.
  *  - isChatInteractive flip to false: ARMS the debounce; after two further
  *    consecutive renders still observing false it fires once, switching
  *    activeTab back to defaultTab (only if the user is still on 'chat').
@@ -43,9 +52,12 @@ export interface RailSync {
  * with the prop change. The debounce counter lives in the sync state object
  * (not a useRef) to comply with the react-hooks/refs lint rule.
  *
- * railExpanded is persisted to localStorage under RAIL_STORAGE_KEY so the
- * expanded/collapsed preference survives view-switching (chat, AllProjects)
- * that unmounts CardPanel, and page reloads.
+ * The collapsed/expanded preference is persisted to localStorage under
+ * RAIL_STORAGE_KEY so it survives view-switching (chat, AllProjects) that
+ * unmounts CardPanel, and page reloads. `full` is deliberately session-only:
+ * a 95vw drawer greeting the user on every card they click is the wrong
+ * default, so entering full width leaves the stored preference untouched and
+ * exiting returns to it.
  */
 export function useRailSync(
   card: Card,
@@ -53,9 +65,7 @@ export function useRailSync(
   defaultTab: RailTabKey,
   setEditedCard: React.Dispatch<React.SetStateAction<Card>>,
 ): RailSync {
-  const [railExpanded, setRailExpandedRaw] = useState<boolean>(
-    () => safeReadRail() ?? isChatInteractive,
-  );
+  const [railMode, setRailMode] = useState<RailMode>(() => restoreMode(isChatInteractive));
   const [activeTab, setActiveTab] = useState<RailTabKey>(defaultTab);
   const [sync, setSync] = useState({
     cardId: card.id,
@@ -65,19 +75,17 @@ export function useRailSync(
     armed: false,
   });
 
-  // Wrapped setter that persists every change to localStorage.
-  // Stable reference (dep array []) because setRailExpandedRaw is a stable
-  // React dispatch and safeWriteRail is a module-level function.
-  const setRailExpanded: React.Dispatch<React.SetStateAction<boolean>> = useCallback(
-    (action: React.SetStateAction<boolean>) => {
-      setRailExpandedRaw((prev) => {
-        const next = typeof action === 'function' ? action(prev) : action;
-        safeWriteRail(next);
-        return next;
-      });
-    },
-    [],
-  );
+  const toggleRail = useCallback(() => {
+    setRailMode((prev) => {
+      const next: RailMode = prev === 'collapsed' ? 'expanded' : 'collapsed';
+      safeWriteRail(next === 'expanded');
+      return next;
+    });
+  }, []);
+
+  const toggleFull = useCallback(() => {
+    setRailMode((prev) => (prev === 'full' ? restoreMode(isChatInteractive) : 'full'));
+  }, [isChatInteractive]);
 
   // In-render state machine - must not be moved to useEffect.
   if (sync.cardId !== card.id) {
@@ -85,22 +93,25 @@ export function useRailSync(
     // using the in-memory railExpanded value: another tab may have written a
     // different preference since this tab last changed it, and reading here
     // ensures we pick up that concurrent write instead of clobbering it.
-    const restoredExpanded = safeReadRail() ?? isChatInteractive;
     setSync({ cardId: card.id, card, isChatInteractive, liveOffCount: 0, armed: false });
     setEditedCard(card);
-    setRailExpandedRaw(restoredExpanded);
+    setRailMode(restoreMode(isChatInteractive));
     setActiveTab(defaultTab);
   } else if (sync.card !== card || sync.isChatInteractive !== isChatInteractive) {
     const flippedOn = sync.isChatInteractive !== isChatInteractive && isChatInteractive;
     const flippedOff = sync.isChatInteractive && !isChatInteractive;
     if (sync.card !== card) setEditedCard(card);
     if (flippedOn) {
-      // Interactive chat flipped live: jump to chat tab, expand rail, disarm.
-      // Persist the forced-expand so it survives remounts.
+      // Interactive chat flipped live: jump to chat tab, widen rail, disarm.
+      // Persist the forced-expand so it survives remounts - the stored
+      // preference is two-level, and `full` is not a value it can hold.
       safeWriteRail(true);
       setSync({ cardId: card.id, card, isChatInteractive, liveOffCount: 0, armed: false });
       setActiveTab('chat');
-      setRailExpandedRaw(true);
+      // Full width already gives the chat more room than expanded does, so a
+      // session going live must not undo it: the user chose that width
+      // deliberately, and hitting Run is when the big transcript matters most.
+      setRailMode((prev) => (prev === 'full' ? 'full' : 'expanded'));
     } else {
       // A true→false flip arms the debounce; only while armed do further
       // renders count. Firing (or reaching the threshold off the chat tab)
@@ -130,8 +141,9 @@ export function useRailSync(
   };
 
   return {
-    railExpanded,
-    setRailExpanded,
+    railMode,
+    toggleRail,
+    toggleFull,
     activeTab,
     onTabChange,
   };

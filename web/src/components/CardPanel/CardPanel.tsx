@@ -33,15 +33,17 @@ interface CardPanelProps {
 
 /**
  * Bifold card detail panel - full-width header row over a two-column body
- * (left: labels + description, right: tabbed rail). The rail can be expanded
- * to widen the whole drawer and reshape the grid to 40/60 so the plan and
- * the rail can sit side-by-side.
+ * (left: labels + description, right: tabbed rail). The rail has three width
+ * levels: collapsed, expanded (reshapes the grid to 40/60 so the plan and the
+ * rail sit side-by-side), and full (drops the left column so the rail spans
+ * the whole drawer). The drawer's own width never changes.
  *
  * State layering:
  *   - `editedCard` holds in-flight edits; `isCardDirty` drives the Save
  *     button and the save-before-run ordering.
- *   - `railExpanded` persists across tab switches, card-state changes, and
- *     SSE-driven card refreshes; resets only on card identity change.
+ *   - `railMode` persists across tab switches, card-state changes, and
+ *     SSE-driven card refreshes; resets only on card identity change, where
+ *     `full` falls back to the persisted collapsed/expanded preference.
  *   - `activeTab` persists similarly; resets on card identity change or when
  *     the default tab changes (e.g. entering/leaving HITL).
  *
@@ -87,7 +89,7 @@ export function CardPanel(props: CardPanelProps) {
 
   const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
 
-  const { railExpanded, setRailExpanded, activeTab, onTabChange } = useRailSync(
+  const { railMode, toggleRail, toggleFull, activeTab, onTabChange } = useRailSync(
     card,
     isChatInteractive,
     defaultTab,
@@ -241,7 +243,9 @@ export function CardPanel(props: CardPanelProps) {
 
       <div
         ref={panelRef}
-        className="card-panel card-panel-bifold animate-panel-slide-in"
+        className={`card-panel card-panel-bifold animate-panel-slide-in${
+          railMode === 'full' ? ' card-panel-bifold--full' : ''
+        }`}
         role="dialog"
         aria-modal="true"
         aria-label="Card details"
@@ -282,8 +286,9 @@ export function CardPanel(props: CardPanelProps) {
           tabs={tabs}
           activeTab={effectiveTab}
           onTabChange={onTabChange}
-          railExpanded={railExpanded}
-          onToggleRail={() => setRailExpanded((v) => !v)}
+          railMode={railMode}
+          onToggleRail={toggleRail}
+          onToggleFull={toggleFull}
         />
       </div>
 

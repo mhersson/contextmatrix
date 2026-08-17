@@ -46,10 +46,10 @@ function ChatEntryImpl({ entry, stampHHMM, stampTitle }: ChatEntryProps) {
   if (entry.type === 'user') {
     return (
       <div className="flex justify-end">
-        <div className="flex flex-col items-end max-w-[85%]">
+        <div className="flex flex-col items-end max-w-[85%] min-w-0">
           {stamp && <TimestampLabel hhmm={stamp.hhmm} title={stamp.title} dateTime={entry.ts} />}
           <div
-            className="rounded-lg px-3 py-2 text-sm whitespace-pre-wrap break-words"
+            className="rounded-lg px-3 py-2 text-sm whitespace-pre-wrap wrap-anywhere max-w-full"
             style={{ backgroundColor: 'var(--bg-blue)', color: 'var(--fg)' }}
           >
             {entry.content}
@@ -62,11 +62,15 @@ function ChatEntryImpl({ entry, stampHHMM, stampTitle }: ChatEntryProps) {
   if (entry.type === 'text') {
     return (
       <div className="flex justify-start">
-        <div className="flex flex-col items-start max-w-[85%]">
+        <div className="flex flex-col items-start max-w-[85%] min-w-0">
           {stamp && <TimestampLabel hhmm={stamp.hhmm} title={stamp.title} dateTime={entry.ts} />}
           {entry.agent && <SpeakerChip author={entry.agent} model={entry.model} />}
+          {/* The bubble is a shrink-to-fit flex item, so its width follows its
+              min-content size. `wrap-anywhere` (not `break-words`, which the
+              spec excludes from min-content sizing) keeps a long identifier
+              from dictating that width; `max-w-full` is the hard clamp. */}
           <div
-            className="rounded-lg px-3 py-2 text-sm break-words"
+            className="rounded-lg px-3 py-2 text-sm wrap-anywhere max-w-full"
             style={{ backgroundColor: 'var(--bg2)', color: 'var(--fg)' }}
           >
             <ChatMarkdown source={entry.content} />

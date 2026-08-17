@@ -516,6 +516,15 @@ describe('CreateCardPanel - mobile layout (≤ 768px)', () => {
   });
 });
 
+describe('CreateCardPanel - rail width controls', () => {
+  it('offers the expand chevron but not full width, which belongs to card details', () => {
+    render(<CreateCardPanel {...makeProps()} />);
+
+    expect(screen.getByRole('button', { name: 'Expand rail' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Full width' })).not.toBeInTheDocument();
+  });
+});
+
 describe('CreateCardPanel - MDEditor preview skipHtml XSS prevention', () => {
   const xssBody = '<iframe src="https://example.com"></iframe>\n<script>alert(\'xss\')</script>\nhello';
 
