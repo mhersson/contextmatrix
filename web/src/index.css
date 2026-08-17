@@ -574,8 +574,16 @@ textarea {
   border-bottom-color: var(--red);
   background: color-mix(in oklab, var(--bg-red) 50%, transparent);
 }
-.bf-rail-expand {
+/* Width controls at the right end of the rail tab strip. The wrapper owns the
+   `margin-left: auto` so the two buttons stay adjacent - auto margins on both
+   would split the free space between them. */
+.bf-rail-controls {
   margin-left: auto;
+  display: flex;
+  align-items: stretch;
+  flex-shrink: 0;
+}
+.bf-rail-expand {
   padding: 0 12px;
   font-family: var(--font-mono);
   font-size: 11px;
@@ -1013,6 +1021,14 @@ textarea {
   }
 }
 
+/* Full-width rail. The drawer keeps its width - CardPanelBody drops the left
+   column so the rail spans the whole panel instead. With no left column to
+   contrast against, the rail drops its darker tint, same as the mobile
+   single-column case. */
+.card-panel-bifold--full [data-testid="body-rail"] {
+  background-color: var(--bg0);
+}
+
 /* Override markdown editor styles for Everforest theme.
  *
  * The library's CSS is lazy-loaded with the MDEditor chunk and appended to
@@ -1180,6 +1196,15 @@ textarea {
  * the entry snug, headings shrink, and pre blocks pick up a bit of
  * contrast. Scoped via `.bf-chat-markdown` in CardChat.
  */
+.bf-chat-markdown {
+  /* `anywhere`, not `break-word`: only `anywhere` counts toward min-content
+     sizing, so a long identifier in an inline <code> cannot widen a
+     shrink-to-fit chat bubble past its column and get clipped by the
+     transcript's overflow-x-hidden. Covers every markdown chat surface -
+     card rail, system entries, and the global chat panes. */
+  overflow-wrap: anywhere;
+}
+
 .bf-chat-markdown .wmde-markdown {
   font-size: 0.875rem !important;
 }

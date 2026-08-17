@@ -3,6 +3,11 @@ import { useMediaQuery } from '../../hooks/useMediaQuery';
 
 export type RailTabKey = 'card' | 'chat' | 'automation' | 'info' | 'danger';
 
+/** Rail width levels. All three reshape the split inside a drawer of constant
+ *  width; `full` is the degenerate case where the left column drops out and
+ *  the rail gets the whole panel. */
+export type RailMode = 'collapsed' | 'expanded' | 'full';
+
 export interface RailTab {
   key: RailTabKey;
   label: string;
@@ -15,8 +20,11 @@ interface CardPanelBodyProps {
   tabs: RailTab[];
   activeTab: RailTabKey;
   onTabChange: (tab: RailTabKey) => void;
-  railExpanded: boolean;
+  railMode: RailMode;
   onToggleRail: () => void;
+  /** Omitted by surfaces that don't offer full width (card creation), which
+   *  drops the toggle rather than exposing a mode they can't enter. */
+  onToggleFull?: () => void;
 }
 
 /**
@@ -24,25 +32,33 @@ interface CardPanelBodyProps {
  *
  * Collapsed rail → grid 1fr / minmax(320px, 380px).
  * Expanded rail → grid 40% / 60% (the orchestrator widens the whole panel).
+ * Full rail → single column; the left column drops out and the rail spans the
+ * drawer, whose own width is unchanged.
  *
  * The rail strip sits above the tab content and contains the tab buttons plus
- * a permanent Expand/Collapse toggle on the right.
+ * the width controls on the right: an Expand/Collapse chevron and a full-width
+ * toggle. Only the full-width toggle survives in full mode - the chevron
+ * reshapes a split that no longer exists there.
  *
  * On narrow viewports (≤ 768px) the two columns collapse into a single
  * rail-only column. The left-column content is injected as the first tab
  * ("Card") so Labels + Description remain reachable without the horizontal
- * split. The rail-expand toggle is hidden in this mode (meaningless with
- * one column).
+ * split. Both width controls are hidden in this mode (meaningless with one
+ * column). Full mode does NOT inject that tab: it is an explicit, temporary
+ * choice with the toggle that undoes it one click away.
  */
 export function CardPanelBody({
   left,
   tabs,
   activeTab,
   onTabChange,
-  railExpanded,
+  railMode,
   onToggleRail,
+  onToggleFull,
 }: CardPanelBodyProps) {
   const isMobile = useMediaQuery('(max-width: 768px)');
+  const isFull = railMode === 'full';
+  const singleColumn = isMobile || isFull;
 
   const renderedTabs: RailTab[] = isMobile
     ? [
@@ -66,9 +82,9 @@ export function CardPanelBody({
   // collapsed width to the expanded width and the left column shrinks by
   // the same amount. Widths come from CSS custom properties defined in
   // `index.css` so themes/breakpoints can override without touching JSX.
-  const gridTemplate = isMobile
+  const gridTemplate = singleColumn
     ? '1fr'
-    : railExpanded
+    : railMode === 'expanded'
       ? '1fr var(--rail-expanded-width, 600px)'
       : '1fr var(--rail-collapsed-width, 340px)';
 
@@ -78,7 +94,7 @@ export function CardPanelBody({
       data-testid="body-bifold"
       style={{ gridTemplateColumns: gridTemplate }}
     >
-      {!isMobile && (
+      {!singleColumn && (
         <div
           className="overflow-y-auto overflow-x-hidden p-5 space-y-5 border-r border-[var(--bg3)] min-w-0"
           data-testid="body-left"
@@ -116,16 +132,42 @@ export function CardPanelBody({
           })}
 
           {!isMobile && (
-            <button
-              type="button"
-              onClick={onToggleRail}
-              className="bf-rail-expand"
-              aria-label={railExpanded ? 'Collapse rail' : 'Expand rail'}
-              aria-pressed={railExpanded}
-              title={railExpanded ? 'Collapse rail' : 'Expand rail'}
-            >
-              <span className="bf-rail-expand-arrow">{railExpanded ? '›‹' : '‹›'}</span>
-            </button>
+            <div className="bf-rail-controls">
+              {!isFull && (
+                <button
+                  type="button"
+                  onClick={onToggleRail}
+                  className="bf-rail-expand"
+                  aria-label={railMode === 'expanded' ? 'Collapse rail' : 'Expand rail'}
+                  aria-pressed={railMode === 'expanded'}
+                  title={railMode === 'expanded' ? 'Collapse rail' : 'Expand rail'}
+                >
+                  <span className="bf-rail-expand-arrow">
+                    {railMode === 'expanded' ? '›‹' : '‹›'}
+                  </span>
+                </button>
+              )}
+
+              {/* Labelled only on the way out: the collapsed strip has no room
+                  for text, but full mode has the whole drawer and the exit
+                  should name itself rather than leave the user reading a
+                  glyph. */}
+              {onToggleFull && (
+                <button
+                  type="button"
+                  onClick={onToggleFull}
+                  className="bf-rail-expand"
+                  aria-label={isFull ? 'Exit full width' : 'Full width'}
+                  aria-pressed={isFull}
+                  title={isFull ? 'Exit full width' : 'Full width'}
+                >
+                  <span className="bf-rail-expand-arrow" aria-hidden="true">
+                    {isFull ? '⤡' : '⤢'}
+                  </span>
+                  {isFull && <span>Exit full width</span>}
+                </button>
+              )}
+            </div>
           )}
         </div>
 

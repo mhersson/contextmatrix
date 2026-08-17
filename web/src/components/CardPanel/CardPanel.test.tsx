@@ -200,6 +200,64 @@ describe('CardPanel - bifold layout', () => {
   });
 });
 
+describe('CardPanel - full-width rail', () => {
+  it('drops the left column and makes the body a single column', () => {
+    render(<CardPanel {...makeProps()} />);
+    expect(screen.getByTestId('body-left')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Full width' }));
+
+    expect(screen.queryByTestId('body-left')).not.toBeInTheDocument();
+    expect(screen.getByTestId('body-bifold').style.gridTemplateColumns).toBe('1fr');
+  });
+
+  // The drawer's own width never changes; the modifier exists so the rail can
+  // drop the darker tint it wears when there is a left column beside it.
+  it('marks the panel full-width so the rail sheds its two-column tint', () => {
+    render(<CardPanel {...makeProps()} />);
+    const panel = screen.getByRole('dialog', { name: 'Card details' });
+    expect(panel).not.toHaveClass('card-panel-bifold--full');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Full width' }));
+
+    expect(panel).toHaveClass('card-panel-bifold--full');
+  });
+
+  it('restores the previous rail width when full width is exited', () => {
+    render(<CardPanel {...makeProps()} />);
+    const grid = screen.getByTestId('body-bifold');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand rail' }));
+    expect(grid.style.gridTemplateColumns).toContain('600px');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Full width' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Exit full width' }));
+
+    expect(grid.style.gridTemplateColumns).toContain('600px');
+    expect(screen.getByTestId('body-left')).toBeInTheDocument();
+  });
+
+  it('hides the collapse/expand chevron while full width, since there is no left column', () => {
+    render(<CardPanel {...makeProps()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Full width' }));
+
+    expect(screen.queryByRole('button', { name: 'Expand rail' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Collapse rail' })).not.toBeInTheDocument();
+  });
+
+  it('does not carry full width over to the next card opened', () => {
+    const { rerender } = render(<CardPanel {...makeProps({ card: baseCard })} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Full width' }));
+    expect(screen.queryByTestId('body-left')).not.toBeInTheDocument();
+
+    const other = { ...baseCard, id: 'TEST-002', title: 'Other card' };
+    rerender(<CardPanel {...makeProps({ card: other })} />);
+
+    expect(screen.getByTestId('body-left')).toBeInTheDocument();
+    expect(screen.getByTestId('body-bifold').style.gridTemplateColumns).toContain('340px');
+  });
+});
+
 describe('CardPanel - Info tab hosts the state picker', () => {
   it('switches to Info and reveals the State select', async () => {
     render(<CardPanel {...makeProps()} />);
@@ -687,6 +745,12 @@ describe('CardPanel - mobile layout (≤ 768px)', () => {
     render(<CardPanel {...makeProps()} />);
     expect(screen.queryByRole('button', { name: 'Expand rail' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Collapse rail' })).not.toBeInTheDocument();
+  });
+
+  it('hides the full-width toggle, which is meaningless on a single column', () => {
+    render(<CardPanel {...makeProps()} />);
+    expect(screen.queryByRole('button', { name: 'Full width' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Exit full width' })).not.toBeInTheDocument();
   });
 });
 
