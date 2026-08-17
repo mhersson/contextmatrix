@@ -37,7 +37,8 @@ export interface RailSync {
  *  - Same card, new SSE object reference: editedCard refreshes; railMode
  *    and activeTab are preserved.
  *  - isChatInteractive flip to true: resets activeTab → 'chat', railMode →
- *    'expanded' (and persists true to localStorage).
+ *    'expanded' (and persists true to localStorage) - unless the rail is
+ *    already 'full', which is wider still and stays.
  *  - isChatInteractive flip to false: ARMS the debounce; after two further
  *    consecutive renders still observing false it fires once, switching
  *    activeTab back to defaultTab (only if the user is still on 'chat').
@@ -101,12 +102,16 @@ export function useRailSync(
     const flippedOff = sync.isChatInteractive && !isChatInteractive;
     if (sync.card !== card) setEditedCard(card);
     if (flippedOn) {
-      // Interactive chat flipped live: jump to chat tab, expand rail, disarm.
-      // Persist the forced-expand so it survives remounts.
+      // Interactive chat flipped live: jump to chat tab, widen rail, disarm.
+      // Persist the forced-expand so it survives remounts - the stored
+      // preference is two-level, and `full` is not a value it can hold.
       safeWriteRail(true);
       setSync({ cardId: card.id, card, isChatInteractive, liveOffCount: 0, armed: false });
       setActiveTab('chat');
-      setRailMode('expanded');
+      // Full width already gives the chat more room than expanded does, so a
+      // session going live must not undo it: the user chose that width
+      // deliberately, and hitting Run is when the big transcript matters most.
+      setRailMode((prev) => (prev === 'full' ? 'full' : 'expanded'));
     } else {
       // A true→false flip arms the debounce; only while armed do further
       // renders count. Firing (or reaching the threshold off the chat tab)

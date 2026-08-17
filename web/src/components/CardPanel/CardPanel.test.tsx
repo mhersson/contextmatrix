@@ -256,6 +256,43 @@ describe('CardPanel - full-width rail', () => {
     expect(screen.getByTestId('body-left')).toBeInTheDocument();
     expect(screen.getByTestId('body-bifold').style.gridTemplateColumns).toContain('340px');
   });
+
+  // The flip-on branch expands the rail to give the live chat room. Full width
+  // already gives it more than expanded does, so a session going live must not
+  // undo a width the user chose deliberately - hitting Run is the moment the
+  // big transcript matters most.
+  it('keeps full width when an interactive chat session goes live', () => {
+    const { rerender } = render(<CardPanel {...makeProps({ card: baseCard })} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Full width' }));
+
+    const live = {
+      ...baseCard,
+      state: 'in_progress',
+      worker_status: 'running' as const,
+      autonomous: false,
+    };
+    rerender(<CardPanel {...makeProps({ card: live })} />);
+
+    expect(screen.queryByTestId('body-left')).not.toBeInTheDocument();
+    expect(screen.getByTestId('body-bifold').style.gridTemplateColumns).toBe('1fr');
+    // The rest of the flip-on behaviour is unchanged: chat still takes focus.
+    expect(screen.getByRole('tab', { name: /Chat/ })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('still expands a collapsed rail when an interactive chat session goes live', () => {
+    const { rerender } = render(<CardPanel {...makeProps({ card: baseCard })} />);
+    expect(screen.getByTestId('body-bifold').style.gridTemplateColumns).toContain('340px');
+
+    const live = {
+      ...baseCard,
+      state: 'in_progress',
+      worker_status: 'running' as const,
+      autonomous: false,
+    };
+    rerender(<CardPanel {...makeProps({ card: live })} />);
+
+    expect(screen.getByTestId('body-bifold').style.gridTemplateColumns).toContain('600px');
+  });
 });
 
 describe('CardPanel - Info tab hosts the state picker', () => {

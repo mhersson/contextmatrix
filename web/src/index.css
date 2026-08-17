@@ -290,13 +290,6 @@
     min-width: unset;
     max-width: 100%;
   }
-
-  /* Bifold collapses to a single rail-only column (CardPanelBody injects a
-     "Card" tab with the left-column content). The rail no longer needs a
-     darker tint since there's no left column to contrast against. */
-  .card-panel-bifold [data-testid="body-rail"] {
-    background-color: var(--bg0);
-  }
 }
 
 * {
@@ -1013,20 +1006,29 @@ textarea {
 .card-panel-bifold [data-testid="body-rail"] {
   background-color: color-mix(in oklab, var(--bg-dim) 40%, var(--bg0));
 }
+/* Both single-column cases shed that tint - there is no left column left to
+   contrast against. Mobile (≤ 768px) collapses to the rail alone, with the
+   left-column content injected as a "Card" tab; full-width mode drops the
+   left column while the drawer keeps its width.
+
+   Both selectors tie with the two-column rule above on specificity, so they
+   win on source order alone. They must stay below it - a media query buys no
+   specificity, and hoisting either one back up silently restores the tint. */
+@media (max-width: 768px) {
+  .card-panel-bifold [data-testid="body-rail"] {
+    background-color: var(--bg0);
+  }
+}
+.card-panel-bifold--full [data-testid="body-rail"] {
+  background-color: var(--bg0);
+}
+
 @media (max-width: 920px) {
   .card-panel-bifold {
     width: 100%;
     min-width: unset;
     max-width: unset;
   }
-}
-
-/* Full-width rail. The drawer keeps its width - CardPanelBody drops the left
-   column so the rail spans the whole panel instead. With no left column to
-   contrast against, the rail drops its darker tint, same as the mobile
-   single-column case. */
-.card-panel-bifold--full [data-testid="body-rail"] {
-  background-color: var(--bg0);
 }
 
 /* Override markdown editor styles for Everforest theme.
