@@ -19,6 +19,7 @@ import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { useCollapsedColumns } from '../../hooks/useCollapsedColumns';
 import { useCollapsedCards } from '../../hooks/useCollapsedCards';
+import { useColumnSort } from '../../hooks/useColumnSort';
 import { Column } from './Column';
 import { CardItem } from './CardItem';
 import { BoardBand } from './BoardBand';
@@ -45,27 +46,6 @@ const TYPE_RANK: Record<string, number> = {
   task: 2,
   subtask: 3,
 };
-
-// Precomputed numeric timestamps keyed by card id, reused by sort comparators.
-// Building this once per filteredCards avoids O(N log N) Date constructions
-// inside the comparator functions.
-type CardTimestamps = { created: number; updated: number };
-
-function compareTodoCardsWithTs(
-  a: Card,
-  b: Card,
-  ts: Map<string, CardTimestamps>,
-): number {
-  const pa = PRIORITY_RANK[a.priority] ?? 999;
-  const pb = PRIORITY_RANK[b.priority] ?? 999;
-  if (pa !== pb) return pa - pb;
-  const ta = TYPE_RANK[a.type] ?? 999;
-  const tb = TYPE_RANK[b.type] ?? 999;
-  if (ta !== tb) return ta - tb;
-  const ca = ts.get(a.id)?.created ?? 0;
-  const cb = ts.get(b.id)?.created ?? 0;
-  return ca - cb;
-}
 
 interface BoardProps {
   cards: Card[];
@@ -140,6 +120,7 @@ export function Board({
   const cardIds = useMemo(() => cards.map((c) => c.id), [cards]);
   const [collapsedColumns, toggleCollapse] = useCollapsedColumns(config.name, config.states);
   const { collapsed: collapsedCards, toggle: toggleCardCollapse, collapseMany, expandMany } = useCollapsedCards(config.name, cardIds);
+  const [getSort, setSort] = useColumnSort(config.name, config.states);
 
   // Both sensor hooks are called unconditionally (React rules of hooks).
   // isTouchDevice() selects which pointer-style sensor to pass to useSensors:
@@ -225,7 +206,7 @@ export function Board({
 
   const cardsByState = useMemo(() => {
     // Build timestamp map once so comparators don't parse dates per comparison.
-    const ts = new Map<string, CardTimestamps>();
+    const ts = new Map<string, { created: number; updated: number }>();
     for (const card of filteredCards) {
       ts.set(card.id, {
         created: new Date(card.created).getTime(),
@@ -243,16 +224,33 @@ export function Board({
       }
     }
     for (const state of config.states) {
-      if (state === 'todo') {
-        grouped[state].sort((a, b) => compareTodoCardsWithTs(a, b, ts));
-      } else {
+      const mode = getSort(state);
+      if (mode === 'recent') {
         grouped[state].sort(
           (a, b) => (ts.get(b.id)?.updated ?? 0) - (ts.get(a.id)?.updated ?? 0),
         );
+      } else if (mode === 'id-asc') {
+        grouped[state].sort((a, b) => a.id.localeCompare(b.id));
+      } else if (mode === 'id-desc') {
+        grouped[state].sort((a, b) => b.id.localeCompare(a.id));
+      } else if (mode === 'priority') {
+        grouped[state].sort((a, b) => {
+          const pa = PRIORITY_RANK[a.priority] ?? 999;
+          const pb = PRIORITY_RANK[b.priority] ?? 999;
+          if (pa !== pb) return pa - pb;
+          return (ts.get(a.id)?.created ?? 0) - (ts.get(b.id)?.created ?? 0);
+        });
+      } else if (mode === 'type') {
+        grouped[state].sort((a, b) => {
+          const ta = TYPE_RANK[a.type] ?? 999;
+          const tb = TYPE_RANK[b.type] ?? 999;
+          if (ta !== tb) return ta - tb;
+          return (ts.get(a.id)?.created ?? 0) - (ts.get(b.id)?.created ?? 0);
+        });
       }
     }
     return grouped;
-  }, [filteredCards, config.states]);
+  }, [filteredCards, config.states, getSort]);
 
   // Keep a ref to the latest filter/search booleans so the shortcut handler
   // never needs to be recreated. The ref is read inside the stable wrapper, so
@@ -405,6 +403,8 @@ export function Board({
                   state={state}
                   cards={cardsByState[state]}
                   config={config}
+                  sortMode={getSort(state)}
+                  onSortChange={(mode) => setSort(state, mode)}
                   collapsed={collapsedColumns.has(state)}
                   onToggleCollapse={toggleCollapse}
                   onCardClick={onCardClick}
