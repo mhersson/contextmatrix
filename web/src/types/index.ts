@@ -141,6 +141,8 @@ export interface ProjectConfig {
   github_credential?: string;
 }
 
+export type SortMode = 'recent' | 'id-asc' | 'id-desc' | 'priority' | 'type';
+
 export interface CardFilter {
   state?: string;
   type?: string;
