@@ -2,12 +2,37 @@ import { useCallback, useState } from 'react';
 import type { SortMode } from '../types';
 import { safeGetJSON, safeSetJSON } from '../utils/safeStorage';
 
+const SORT_MODES: ReadonlySet<string> = new Set<SortMode>([
+  'recent',
+  'id-asc',
+  'id-desc',
+  'priority',
+  'type',
+]);
+
 function storageKey(project: string): string {
   return `contextmatrix-column-sort-${project}`;
 }
 
-function loadRecord(project: string): Record<string, SortMode> {
-  return safeGetJSON<Record<string, SortMode>>(storageKey(project)) ?? {};
+/**
+ * Reads the stored record, dropping entries whose state is not on the board and
+ * entries whose value is not a known sort mode (hand-edited or retired values).
+ */
+function loadRecord(project: string, states: string[]): Record<string, SortMode> {
+  const stored = safeGetJSON<Record<string, string>>(storageKey(project));
+  if (!stored) return {};
+
+  return prune(stored, states);
+}
+
+function prune(record: Record<string, string>, states: string[]): Record<string, SortMode> {
+  const valid = new Set(states);
+  const result: Record<string, SortMode> = {};
+  for (const [state, mode] of Object.entries(record)) {
+    if (valid.has(state) && SORT_MODES.has(mode)) result[state] = mode as SortMode;
+  }
+
+  return result;
 }
 
 /**
@@ -16,67 +41,43 @@ function loadRecord(project: string): Record<string, SortMode> {
  * Returns a tuple [getSort, setSort]:
  * - `getSort(state)` returns the current sort mode for a column (defaults to
  *   `'recent'` for states not in the record).
- * - `setSort(state, mode)` updates the record, persists it, and prunes
- *   orphaned states (keys not in the current `states` array).
- *
- * On mount (and project change), reads from localStorage and prunes orphans.
+ * - `setSort(state, mode)` updates the record and persists it, pruning states
+ *   that are no longer on the board.
  */
 export function useColumnSort(
   project: string,
   states: string[],
 ): [(state: string) => SortMode, (state: string, mode: SortMode) => void] {
-  const [record, setRecord] = useState<Record<string, SortMode>>(() => {
-    const r = loadRecord(project);
-    return pruneOrphans(r, states);
-  });
+  // Track [project, record] together so a project change is detected during
+  // render and the stored record for the new project is returned immediately,
+  // without an extra useEffect round-trip.
+  const [state, setState] = useState<{ project: string; record: Record<string, SortMode> }>(() => ({
+    project,
+    record: loadRecord(project, states),
+  }));
 
-  // Detect project change and reload.
-  const [prevProject, setPrevProject] = useState(project);
-  if (project !== prevProject) {
-    setPrevProject(project);
-    const r = loadRecord(project);
-    const pruned = pruneOrphans(r, states);
-    setRecord(pruned);
+  let record = state.record;
+  if (state.project !== project) {
+    record = loadRecord(project, states);
+    setState({ project, record });
   }
 
   const getSort = useCallback(
-    (state: string): SortMode => record[state] ?? 'recent',
+    (column: string): SortMode => record[column] ?? 'recent',
     [record],
   );
 
   const setSort = useCallback(
-    (state: string, mode: SortMode) => {
-      setRecord((prev) => {
-        const next = { ...prev, [state]: mode };
-        const pruned = pruneOrphans(next, states);
-        safeSetJSON(storageKey(project), pruned);
-        return pruned;
+    (column: string, mode: SortMode) => {
+      setState((prev) => {
+        const next = prune({ ...prev.record, [column]: mode }, states);
+        safeSetJSON(storageKey(project), next);
+
+        return { project: prev.project, record: next };
       });
     },
     [project, states],
   );
 
   return [getSort, setSort];
-}
-
-function pruneOrphans(
-  record: Record<string, SortMode>,
-  states: string[],
-): Record<string, SortMode> {
-  const valid = new Set(states);
-  let changed = false;
-  const result: Record<string, SortMode> = {};
-  for (const [key, value] of Object.entries(record)) {
-    if (valid.has(key)) {
-      result[key] = value;
-    } else {
-      changed = true;
-    }
-  }
-  // If we removed orphans and the previous value was the same object identity,
-  // return the pruned copy only when something actually changed.
-  if (!changed && Object.keys(result).length === Object.keys(record).length) {
-    return record;
-  }
-  return result;
 }

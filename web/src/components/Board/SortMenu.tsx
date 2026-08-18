@@ -77,7 +77,8 @@ export function SortMenu({ current, onChange }: SortMenuProps) {
               <button
                 key={mode}
                 type="button"
-                role="menuitem"
+                role="menuitemradio"
+                aria-checked={isActive}
                 onClick={() => handleSelect(mode)}
                 className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-left transition-colors hover:opacity-80"
                 style={{

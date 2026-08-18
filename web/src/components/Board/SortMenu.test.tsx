@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { SortMenu } from './SortMenu';
-import type { SortMode } from '../../types';
 
 describe('SortMenu', () => {
   const onChange = vi.fn();

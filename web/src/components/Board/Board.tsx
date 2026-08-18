@@ -33,19 +33,27 @@ import { deriveMetricsProps } from './metrics';
 
 const NOW_RAIL_STORAGE_KEY = 'contextmatrix-now-rail-open';
 
-const PRIORITY_RANK: Record<string, number> = {
-  critical: 0,
-  high: 1,
-  medium: 2,
-  low: 3,
-};
+// Built-in card types in sort order. Custom types from `.board.yaml` rank
+// after these, in the order the board declares them.
+const TYPE_ORDER = ['bug', 'feature', 'task', 'subtask'];
 
-const TYPE_RANK: Record<string, number> = {
-  bug: 0,
-  feature: 1,
-  task: 2,
-  subtask: 3,
-};
+// Rank not covered by the board config - sorts last, ties broken by created.
+const UNRANKED = Number.MAX_SAFE_INTEGER;
+
+function buildRank(order: string[]): Record<string, number> {
+  const rank: Record<string, number> = {};
+  for (const key of order) {
+    if (!(key in rank)) rank[key] = Object.keys(rank).length;
+  }
+
+  return rank;
+}
+
+// Card IDs are zero-padded to three digits, so plain lexicographic order breaks
+// once a project passes 999 cards (PREFIX-1000 < PREFIX-200). Compare numerically.
+function compareIds(a: string, b: string): number {
+  return a.localeCompare(b, undefined, { numeric: true });
+}
 
 interface BoardProps {
   cards: Card[];
@@ -122,6 +130,13 @@ export function Board({
   const { collapsed: collapsedCards, toggle: toggleCardCollapse, collapseMany, expandMany } = useCollapsedCards(config.name, cardIds);
   const [getSort, setSort] = useColumnSort(config.name, config.states);
 
+  // Priority ranks come from the board's own scale, most urgent first:
+  // `.board.yaml` lists priorities least-urgent-first (low, medium, high,
+  // critical), so the declared order is reversed. Types keep the built-in
+  // order, with board-specific types appended.
+  const priorityRank = useMemo(() => buildRank([...config.priorities].reverse()), [config.priorities]);
+  const typeRank = useMemo(() => buildRank([...TYPE_ORDER, ...config.types]), [config.types]);
+
   // Both sensor hooks are called unconditionally (React rules of hooks).
   // isTouchDevice() selects which pointer-style sensor to pass to useSensors:
   // - Touch: 250ms delay distinguishes press-and-hold drag from scroll.
@@ -163,7 +178,7 @@ export function Board({
       }
     }
     // Zero-padded PREFIX-NNN ids sort lexicographically in creation order.
-    for (const list of map.values()) list.sort((a, b) => a.id.localeCompare(b.id));
+    for (const list of map.values()) list.sort((a, b) => compareIds(a.id, b.id));
     return map;
   }, [cards, cardIdSet]);
 
@@ -223,34 +238,38 @@ export function Board({
         grouped[card.state].push(card);
       }
     }
+    const created = (c: Card) => ts.get(c.id)?.created ?? 0;
+    const updated = (c: Card) => ts.get(c.id)?.updated ?? 0;
+
     for (const state of config.states) {
-      const mode = getSort(state);
-      if (mode === 'recent') {
-        grouped[state].sort(
-          (a, b) => (ts.get(b.id)?.updated ?? 0) - (ts.get(a.id)?.updated ?? 0),
-        );
-      } else if (mode === 'id-asc') {
-        grouped[state].sort((a, b) => a.id.localeCompare(b.id));
-      } else if (mode === 'id-desc') {
-        grouped[state].sort((a, b) => b.id.localeCompare(a.id));
-      } else if (mode === 'priority') {
-        grouped[state].sort((a, b) => {
-          const pa = PRIORITY_RANK[a.priority] ?? 999;
-          const pb = PRIORITY_RANK[b.priority] ?? 999;
-          if (pa !== pb) return pa - pb;
-          return (ts.get(a.id)?.created ?? 0) - (ts.get(b.id)?.created ?? 0);
-        });
-      } else if (mode === 'type') {
-        grouped[state].sort((a, b) => {
-          const ta = TYPE_RANK[a.type] ?? 999;
-          const tb = TYPE_RANK[b.type] ?? 999;
-          if (ta !== tb) return ta - tb;
-          return (ts.get(a.id)?.created ?? 0) - (ts.get(b.id)?.created ?? 0);
-        });
+      const list = grouped[state];
+      switch (getSort(state)) {
+        case 'id-asc':
+          list.sort((a, b) => compareIds(a.id, b.id));
+          break;
+        case 'id-desc':
+          list.sort((a, b) => compareIds(b.id, a.id));
+          break;
+        case 'priority':
+          list.sort(
+            (a, b) =>
+              (priorityRank[a.priority] ?? UNRANKED) - (priorityRank[b.priority] ?? UNRANKED) ||
+              created(a) - created(b),
+          );
+          break;
+        case 'type':
+          list.sort(
+            (a, b) =>
+              (typeRank[a.type] ?? UNRANKED) - (typeRank[b.type] ?? UNRANKED) ||
+              created(a) - created(b),
+          );
+          break;
+        default:
+          list.sort((a, b) => updated(b) - updated(a));
       }
     }
     return grouped;
-  }, [filteredCards, config.states, getSort]);
+  }, [filteredCards, config.states, getSort, priorityRank, typeRank]);
 
   // Keep a ref to the latest filter/search booleans so the shortcut handler
   // never needs to be recreated. The ref is read inside the stable wrapper, so

@@ -132,8 +132,9 @@ See [Multi-User Mode](#multi-user-mode).
   `localStorage`.
 - **Column sorting** - a sort menu in each column header switches how cards in
   that column are ordered: **Recent** (most recently updated first, the
-  default), **ID** ascending or descending, **Priority** (critical → high →
-  medium → low), or **Type** (bug → feature → task → subtask). Priority and Type
+  default), **ID** ascending or descending, **Priority** (most urgent first,
+  following the project's own `priorities` scale), or **Type** (bug → feature →
+  task → subtask, with any board-specific types after those). Priority and Type
   order cards earliest-created first within each group. The choice is stored
   per-user per-project in `localStorage`, and each column keeps its own
   selection independent of the others.

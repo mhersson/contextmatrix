@@ -138,6 +138,19 @@ describe('useColumnSort', () => {
     expect(lastWrite).toHaveProperty('in_progress', 'type');
   });
 
+  it('ignores a stored mode that is not a known sort mode', () => {
+    localStorageMock.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ todo: 'manual', done: 'priority' }),
+    );
+
+    const { result } = renderHook(() => useColumnSort(PROJECT, STATES));
+
+    const [getSort] = result.current;
+    expect(getSort('todo')).toBe('recent');
+    expect(getSort('done')).toBe('priority');
+  });
+
   it('state survives re-mount via localStorage', () => {
     const { result, unmount } = renderHook(() => useColumnSort(PROJECT, STATES));
 
