@@ -133,11 +133,19 @@ See [Multi-User Mode](#multi-user-mode).
 - **Column sorting** - a sort menu in each column header switches how cards in
   that column are ordered: **Recent** (most recently updated first, the
   default), **ID** ascending or descending, **Priority** (most urgent first,
-  following the project's own `priorities` scale), or **Type** (bug → feature →
-  task → subtask, with any board-specific types after those). Priority and Type
-  order cards earliest-created first within each group. The choice is stored
-  per-user per-project in `localStorage`, and each column keeps its own
-  selection independent of the others.
+  following the project's own `priorities` scale), **Type** (bug → feature →
+  task → subtask, with any board-specific types after those), or **Manual**
+  (drag cards into your own order). Priority and Type order cards
+  earliest-created first within each group. The choice is stored per-user
+  per-project in `localStorage`, and each column keeps its own selection
+  independent of the others.
+- **Drag-to-reorder** - dragging a card within a column drops it in place and
+  switches that column's sort to **Manual**; dragging a card to a different
+  column still moves it through the board's transitions and leaves the target
+  column's sort mode untouched. Cards outside the hand-made order (new arrivals,
+  or cards returning from a terminal state) sort to the bottom, most recently
+  updated first. The order is per user, stored in `localStorage` alongside the
+  sort choice - there's no shared or cross-device ordering.
 - **Dashboard** - per-project or all-state counts, active agents, and token cost
   breakdown.
 - **Chat** - global multi-pane chat surface (`/chat`). Up to 4 simultaneous chat
