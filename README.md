@@ -130,6 +130,13 @@ See [Multi-User Mode](#multi-user-mode).
   panel. Columns collapse to a narrow vertical strip; individual cards collapse
   to a single header row. Both collapsed sets are persisted per-project in
   `localStorage`.
+- **Column sorting** - a sort menu in each column header switches how cards in
+  that column are ordered: **Recent** (most recently updated first, the
+  default), **ID** ascending or descending, **Priority** (critical → high →
+  medium → low), or **Type** (bug → feature → task → subtask). Priority and Type
+  order cards earliest-created first within each group. The choice is stored
+  per-user per-project in `localStorage`, and each column keeps its own
+  selection independent of the others.
 - **Dashboard** - per-project or all-state counts, active agents, and token cost
   breakdown.
 - **Chat** - global multi-pane chat surface (`/chat`). Up to 4 simultaneous chat
