@@ -1,13 +1,16 @@
 import { useDroppable } from '@dnd-kit/core';
-import type { Card, ProjectConfig } from '../../types';
+import type { Card, ProjectConfig, SortMode } from '../../types';
 import { CardItem } from './CardItem';
 import { displayState } from '../../lib/stateLabels';
 import { stateColors } from '../../lib/chip';
+import { SortMenu } from './SortMenu';
 
 interface ColumnProps {
   state: string;
   cards: Card[];
   config: ProjectConfig;
+  sortMode: SortMode;
+  onSortChange: (mode: SortMode) => void;
   collapsed?: boolean;
   onToggleCollapse?: (state: string) => void;
   onCardClick?: (card: Card) => void;
@@ -22,7 +25,7 @@ interface ColumnProps {
 }
 
 
-export function Column({ state, cards, config, collapsed, onToggleCollapse, onCardClick, activeCardState, flashCardId, collapsedCards, onToggleCardCollapse, onCollapseAll, onExpandAll, onParentClick, subtasksByParent }: ColumnProps) {
+export function Column({ state, cards, config, sortMode, onSortChange, collapsed, onToggleCollapse, onCardClick, activeCardState, flashCardId, collapsedCards, onToggleCardCollapse, onCollapseAll, onExpandAll, onParentClick, subtasksByParent }: ColumnProps) {
   const { setNodeRef, isOver } = useDroppable({
     id: state,
   });
@@ -147,6 +150,7 @@ export function Column({ state, cards, config, collapsed, onToggleCollapse, onCa
               )}
             </button>
           )}
+          <SortMenu current={sortMode} onChange={onSortChange} />
           <span className="chip-pill" style={{ backgroundColor: 'var(--bg2)', color: 'var(--grey1)' }}>
             {cards.length}
           </span>

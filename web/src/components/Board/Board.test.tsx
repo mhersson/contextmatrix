@@ -574,3 +574,361 @@ describe('Board - subtask phase strip & column membership', () => {
     expect(screen.getByLabelText('Card TEST-001: Parent card')).toBeInTheDocument();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Board - column sort integration
+// ---------------------------------------------------------------------------
+
+describe('Board - column sort', () => {
+  const originalMatchMedia = window.matchMedia;
+
+  afterEach(() => {
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: originalMatchMedia,
+    });
+  });
+
+  const makeCard = (id: string, state: string, overrides: Partial<Card> = {}): Card => ({
+    id,
+    title: `Card ${id}`,
+    project: 'test-project',
+    type: overrides.parent ? 'subtask' : 'task',
+    state,
+    priority: 'medium',
+    created: '2026-01-01T00:00:00Z',
+    updated: '2026-01-01T00:00:00Z',
+    body: '',
+    ...overrides,
+  });
+
+  const sortConfig: ProjectConfig = {
+    name: 'sort-test',
+    prefix: 'SORT',
+    next_id: 1,
+    states: ['todo', 'done'],
+    transitions: { todo: ['done'], done: [] },
+    types: ['task'],
+    priorities: ['low', 'medium', 'high', 'critical'],
+  };
+
+  it('defaults to "recent" order (most recent updated first)', () => {
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    const cards = [
+      makeCard('SORT-001', 'todo', { updated: '2026-01-03T00:00:00Z', created: '2026-01-01T00:00:00Z' }),
+      makeCard('SORT-002', 'todo', { updated: '2026-01-02T00:00:00Z', created: '2026-01-02T00:00:00Z' }),
+      makeCard('SORT-003', 'todo', { updated: '2026-01-01T00:00:00Z', created: '2026-01-03T00:00:00Z' }),
+    ];
+    render(
+      <Board
+        cards={cards}
+        config={sortConfig}
+        loading={false}
+        error={null}
+        activeAgents={[]}
+        cardsCompletedToday={0}
+        activityEntries={[]}
+        currentAgent={null}
+      />,
+    );
+
+    // Default "recent" sorts by updated descending: SORT-001 (Jan 3), SORT-002 (Jan 2), SORT-003 (Jan 1)
+    const todoColumn = screen.getByRole('heading', { name: /Backlog column/ });
+    const column = todoColumn.closest('[data-accent="stripe"]')!;
+    const cardItems = column.querySelectorAll('[aria-label^="Card SORT"]');
+    expect(cardItems).toHaveLength(3);
+    expect(cardItems[0]).toHaveAttribute('aria-label', 'Card SORT-001: Card SORT-001');
+    expect(cardItems[1]).toHaveAttribute('aria-label', 'Card SORT-002: Card SORT-002');
+    expect(cardItems[2]).toHaveAttribute('aria-label', 'Card SORT-003: Card SORT-003');
+  });
+
+  it('switches to id-asc order when selected from sort menu', () => {
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    const cards = [
+      makeCard('SORT-003', 'todo', { updated: '2026-01-03T00:00:00Z' }),
+      makeCard('SORT-001', 'todo', { updated: '2026-01-01T00:00:00Z' }),
+      makeCard('SORT-002', 'todo', { updated: '2026-01-02T00:00:00Z' }),
+    ];
+    render(
+      <Board
+        cards={cards}
+        config={sortConfig}
+        loading={false}
+        error={null}
+        activeAgents={[]}
+        cardsCompletedToday={0}
+        activityEntries={[]}
+        currentAgent={null}
+      />,
+    );
+
+    // Find the sort menu trigger in the first column
+    const sortTriggers = screen.getAllByRole('button', { name: /select sort order/i });
+    // First column (todo)
+    fireEvent.click(sortTriggers[0]);
+
+    // Click "ID ↑" to sort ascending by ID
+    fireEvent.click(screen.getByText('ID ↑'));
+
+    // Now cards should be in ID order: SORT-001, SORT-002, SORT-003
+    const todoColumn = screen.getByRole('heading', { name: /Backlog column/ });
+    const column = todoColumn.closest('[data-accent="stripe"]')!;
+    const cardItems = column.querySelectorAll('[aria-label^="Card SORT"]');
+    expect(cardItems).toHaveLength(3);
+    expect(cardItems[0]).toHaveAttribute('aria-label', 'Card SORT-001: Card SORT-001');
+    expect(cardItems[1]).toHaveAttribute('aria-label', 'Card SORT-002: Card SORT-002');
+    expect(cardItems[2]).toHaveAttribute('aria-label', 'Card SORT-003: Card SORT-003');
+  });
+
+  it('switches to id-desc order when selected from sort menu', () => {
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    const cards = [
+      makeCard('SORT-001', 'todo', { updated: '2026-01-01T00:00:00Z' }),
+      makeCard('SORT-002', 'todo', { updated: '2026-01-02T00:00:00Z' }),
+      makeCard('SORT-003', 'todo', { updated: '2026-01-03T00:00:00Z' }),
+    ];
+    render(
+      <Board
+        cards={cards}
+        config={sortConfig}
+        loading={false}
+        error={null}
+        activeAgents={[]}
+        cardsCompletedToday={0}
+        activityEntries={[]}
+        currentAgent={null}
+      />,
+    );
+
+    const sortTriggers = screen.getAllByRole('button', { name: /select sort order/i });
+    fireEvent.click(sortTriggers[0]);
+
+    fireEvent.click(screen.getByText('ID ↓'));
+
+    const todoColumn = screen.getByRole('heading', { name: /Backlog column/ });
+    const column = todoColumn.closest('[data-accent="stripe"]')!;
+    const cardItems = column.querySelectorAll('[aria-label^="Card SORT"]');
+    expect(cardItems).toHaveLength(3);
+    expect(cardItems[0]).toHaveAttribute('aria-label', 'Card SORT-003: Card SORT-003');
+    expect(cardItems[1]).toHaveAttribute('aria-label', 'Card SORT-002: Card SORT-002');
+    expect(cardItems[2]).toHaveAttribute('aria-label', 'Card SORT-001: Card SORT-001');
+  });
+
+  it('switches to priority order when selected', () => {
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    const cards = [
+      makeCard('SORT-001', 'todo', { priority: 'low' }),
+      makeCard('SORT-002', 'todo', { priority: 'critical' }),
+      makeCard('SORT-003', 'todo', { priority: 'high' }),
+    ];
+    render(
+      <Board
+        cards={cards}
+        config={sortConfig}
+        loading={false}
+        error={null}
+        activeAgents={[]}
+        cardsCompletedToday={0}
+        activityEntries={[]}
+        currentAgent={null}
+      />,
+    );
+
+    const sortTriggers = screen.getAllByRole('button', { name: /select sort order/i });
+    fireEvent.click(sortTriggers[0]);
+
+    fireEvent.click(screen.getByText('Priority'));
+
+    const todoColumn = screen.getByRole('heading', { name: /Backlog column/ });
+    const column = todoColumn.closest('[data-accent="stripe"]')!;
+    const cardItems = column.querySelectorAll('[aria-label^="Card SORT"]');
+    expect(cardItems).toHaveLength(3);
+    // Priority order: critical (0), high (1), low (3)
+    expect(cardItems[0]).toHaveAttribute('aria-label', 'Card SORT-002: Card SORT-002');
+    expect(cardItems[1]).toHaveAttribute('aria-label', 'Card SORT-003: Card SORT-003');
+    expect(cardItems[2]).toHaveAttribute('aria-label', 'Card SORT-001: Card SORT-001');
+  });
+
+  it('switches to type order when selected', () => {
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    const cards = [
+      makeCard('SORT-001', 'todo', { type: 'feature' }),
+      makeCard('SORT-002', 'todo', { type: 'bug' }),
+      makeCard('SORT-003', 'todo', { type: 'task' }),
+    ];
+    render(
+      <Board
+        cards={cards}
+        config={sortConfig}
+        loading={false}
+        error={null}
+        activeAgents={[]}
+        cardsCompletedToday={0}
+        activityEntries={[]}
+        currentAgent={null}
+      />,
+    );
+
+    const sortTriggers = screen.getAllByRole('button', { name: /select sort order/i });
+    fireEvent.click(sortTriggers[0]);
+
+    fireEvent.click(screen.getByText('Type'));
+
+    const todoColumn = screen.getByRole('heading', { name: /Backlog column/ });
+    const column = todoColumn.closest('[data-accent="stripe"]')!;
+    const cardItems = column.querySelectorAll('[aria-label^="Card SORT"]');
+    expect(cardItems).toHaveLength(3);
+    // Type order: bug (0), feature (1), task (2)
+    expect(cardItems[0]).toHaveAttribute('aria-label', 'Card SORT-002: Card SORT-002');
+    expect(cardItems[1]).toHaveAttribute('aria-label', 'Card SORT-001: Card SORT-001');
+    expect(cardItems[2]).toHaveAttribute('aria-label', 'Card SORT-003: Card SORT-003');
+  });
+
+  it('sort mode is selected per-column; done column has its own sort independent of todo', () => {
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    const twoStateConfig: ProjectConfig = {
+      ...sortConfig,
+      states: ['todo', 'done'],
+    };
+    const cards = [
+      makeCard('SORT-001', 'todo', { updated: '2026-01-03T00:00:00Z' }),
+      makeCard('SORT-002', 'todo', { updated: '2026-01-01T00:00:00Z' }),
+      makeCard('SORT-010', 'done', { updated: '2026-01-02T00:00:00Z' }),
+      makeCard('SORT-011', 'done', { updated: '2026-01-01T00:00:00Z' }),
+    ];
+    render(
+      <Board
+        cards={cards}
+        config={twoStateConfig}
+        loading={false}
+        error={null}
+        activeAgents={[]}
+        cardsCompletedToday={0}
+        activityEntries={[]}
+        currentAgent={null}
+      />,
+    );
+
+    // Change todo sort to id-asc
+    const sortTriggers = screen.getAllByRole('button', { name: /select sort order/i });
+    fireEvent.click(sortTriggers[0]);
+    fireEvent.click(screen.getByText('ID ↑'));
+
+    // Todo should now be id-asc: SORT-001, SORT-002
+    const todoColumn = screen.getByRole('heading', { name: /Backlog column/ });
+    const todoCol = todoColumn.closest('[data-accent="stripe"]')!;
+    const todoCards = todoCol.querySelectorAll('[aria-label^="Card SORT"]');
+    expect(todoCards[0]).toHaveAttribute('aria-label', 'Card SORT-001: Card SORT-001');
+    expect(todoCards[1]).toHaveAttribute('aria-label', 'Card SORT-002: Card SORT-002');
+
+    // Done should still be "recent": SORT-010 (Jan 2), SORT-011 (Jan 1)
+    const doneColumn = screen.getByRole('heading', { name: /Shipped column/ });
+    const doneCol = doneColumn.closest('[data-accent="stripe"]')!;
+    const doneCards = doneCol.querySelectorAll('[aria-label^="Card SORT"]');
+    expect(doneCards[0]).toHaveAttribute('aria-label', 'Card SORT-010: Card SORT-010');
+    expect(doneCards[1]).toHaveAttribute('aria-label', 'Card SORT-011: Card SORT-011');
+  });
+
+  it('id sort stays numeric once a project passes 999 cards', () => {
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    const cards = [
+      makeCard('SORT-1000', 'todo'),
+      makeCard('SORT-099', 'todo'),
+      makeCard('SORT-200', 'todo'),
+    ];
+    render(
+      <Board
+        cards={cards}
+        config={sortConfig}
+        loading={false}
+        error={null}
+        activeAgents={[]}
+        cardsCompletedToday={0}
+        activityEntries={[]}
+        currentAgent={null}
+      />,
+    );
+
+    const sortTriggers = screen.getAllByRole('button', { name: /select sort order/i });
+    fireEvent.click(sortTriggers[0]);
+    fireEvent.click(screen.getByText('ID ↑'));
+
+    const column = screen.getByRole('heading', { name: /Backlog column/ }).closest('[data-accent="stripe"]')!;
+    const cardItems = column.querySelectorAll('[aria-label^="Card SORT"]');
+    expect(cardItems[0]).toHaveAttribute('aria-label', 'Card SORT-099: Card SORT-099');
+    expect(cardItems[1]).toHaveAttribute('aria-label', 'Card SORT-200: Card SORT-200');
+    expect(cardItems[2]).toHaveAttribute('aria-label', 'Card SORT-1000: Card SORT-1000');
+  });
+
+  it('priority sort follows the board\'s own priority scale', () => {
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    const customConfig: ProjectConfig = {
+      ...sortConfig,
+      priorities: ['minor', 'major', 'blocker'],
+    };
+    const cards = [
+      makeCard('SORT-001', 'todo', { priority: 'minor' }),
+      makeCard('SORT-002', 'todo', { priority: 'blocker' }),
+      makeCard('SORT-003', 'todo', { priority: 'major' }),
+    ];
+    render(
+      <Board
+        cards={cards}
+        config={customConfig}
+        loading={false}
+        error={null}
+        activeAgents={[]}
+        cardsCompletedToday={0}
+        activityEntries={[]}
+        currentAgent={null}
+      />,
+    );
+
+    const sortTriggers = screen.getAllByRole('button', { name: /select sort order/i });
+    fireEvent.click(sortTriggers[0]);
+    fireEvent.click(screen.getByText('Priority'));
+
+    // Most urgent first: the scale is declared least-urgent-first.
+    const column = screen.getByRole('heading', { name: /Backlog column/ }).closest('[data-accent="stripe"]')!;
+    const cardItems = column.querySelectorAll('[aria-label^="Card SORT"]');
+    expect(cardItems[0]).toHaveAttribute('aria-label', 'Card SORT-002: Card SORT-002');
+    expect(cardItems[1]).toHaveAttribute('aria-label', 'Card SORT-003: Card SORT-003');
+    expect(cardItems[2]).toHaveAttribute('aria-label', 'Card SORT-001: Card SORT-001');
+  });
+
+  it('type sort ranks board-specific types after the built-in ones', () => {
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    const customConfig: ProjectConfig = {
+      ...sortConfig,
+      types: ['task', 'bug', 'chore'],
+    };
+    const cards = [
+      makeCard('SORT-001', 'todo', { type: 'chore' }),
+      makeCard('SORT-002', 'todo', { type: 'task' }),
+      makeCard('SORT-003', 'todo', { type: 'bug' }),
+    ];
+    render(
+      <Board
+        cards={cards}
+        config={customConfig}
+        loading={false}
+        error={null}
+        activeAgents={[]}
+        cardsCompletedToday={0}
+        activityEntries={[]}
+        currentAgent={null}
+      />,
+    );
+
+    const sortTriggers = screen.getAllByRole('button', { name: /select sort order/i });
+    fireEvent.click(sortTriggers[0]);
+    fireEvent.click(screen.getByText('Type'));
+
+    // bug (built-in 0), task (built-in 2), then chore (board-specific).
+    const column = screen.getByRole('heading', { name: /Backlog column/ }).closest('[data-accent="stripe"]')!;
+    const cardItems = column.querySelectorAll('[aria-label^="Card SORT"]');
+    expect(cardItems[0]).toHaveAttribute('aria-label', 'Card SORT-003: Card SORT-003');
+    expect(cardItems[1]).toHaveAttribute('aria-label', 'Card SORT-002: Card SORT-002');
+    expect(cardItems[2]).toHaveAttribute('aria-label', 'Card SORT-001: Card SORT-001');
+  });
+});
