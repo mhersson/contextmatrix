@@ -139,13 +139,15 @@ See [Multi-User Mode](#multi-user-mode).
   earliest-created first within each group. The choice is stored per-user
   per-project in `localStorage`, and each column keeps its own selection
   independent of the others.
-- **Drag-to-reorder** - dragging a card within a column drops it in place and
-  switches that column's sort to **Manual**; dragging a card to a different
-  column still moves it through the board's transitions and leaves the target
-  column's sort mode untouched. Cards outside the hand-made order (new arrivals,
-  or cards returning from a terminal state) sort to the bottom, most recently
-  updated first. The order is per user, stored in `localStorage` alongside the
-  sort choice - there's no shared or cross-device ordering.
+- **Drag-to-reorder** - dropping a card onto another card in the same column
+  reorders it in place and switches that column's sort to **Manual**; dropping
+  it on empty column space or the column header does nothing. Dragging a card
+  to a different column still moves it through the board's transitions and
+  leaves the target column's sort mode untouched. Cards outside the hand-made
+  order (new arrivals, or cards returning from a terminal state) sort to the
+  bottom, most recently updated first. The order is per user, stored in
+  `localStorage` alongside the sort choice - there's no shared or cross-device
+  ordering.
 - **Dashboard** - per-project or all-state counts, active agents, and token cost
   breakdown.
 - **Chat** - global multi-pane chat surface (`/chat`). Up to 4 simultaneous chat
