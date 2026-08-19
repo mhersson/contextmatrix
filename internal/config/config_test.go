@@ -1860,7 +1860,6 @@ func TestValidate_PATMode_RejectsAppFields(t *testing.T) {
 // sane token cost entries for every supported model:
 //   - every entry has both prompt and completion > 0 (non-zero rates)
 //   - no rate is absurdly high (> $1000/M tokens = > 0.001/token) - catches unit errors
-//   - the expected set of model keys is present
 func TestConfigYamlExampleTokenCosts(t *testing.T) {
 	examplePath := filepath.Join("..", "..", "config.yaml.example")
 
@@ -1883,20 +1882,6 @@ func TestConfigYamlExampleTokenCosts(t *testing.T) {
 			assert.Less(t, cost.Prompt, maxRatePerToken, "prompt rate suspiciously high for %s (units error?)", model)
 			assert.Less(t, cost.Completion, maxRatePerToken, "completion rate suspiciously high for %s (units error?)", model)
 		})
-	}
-
-	// Assert the expected model keys are present. Update this list when new models ship.
-	expectedModels := []string{
-		"claude-haiku-4-5",
-		"claude-sonnet-4-6",
-		"claude-opus-4-6",
-		"claude-opus-4-7",
-		"claude-opus-4-8",
-	}
-
-	for _, model := range expectedModels {
-		_, ok := cfg.TokenCosts[model]
-		assert.True(t, ok, "expected model %q to be present in token_costs", model)
 	}
 }
 

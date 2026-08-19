@@ -129,6 +129,10 @@ workflow-skills/           → agent lifecycle skills (markdown, served via MCP 
 - Tests next to code (`card.go` → `card_test.go`), table-driven, `t.TempDir()`,
   `t.Helper()` in helpers. `testify/assert` for checks, `testify/require` for
   fatal ones.
+- Tests must exercise behavior. A test that only fails when someone rewords a
+  string, renames a heading, or edits prose is not a test - do not write it, and
+  delete it when found. Asserting exact text is legitimate only where the text is
+  a wire contract a consumer parses; if no code reads it, no test should pin it.
 - Logging: `log/slog` with structured fields. No `fmt.Println` in production.
 - Names: `CardFilter` not `CardFilterStruct`; `ParseCard` not
   `ParseCardFromBytes`. Concrete types from constructors, interfaces from
@@ -151,6 +155,13 @@ properties only - no palette-specific code, no hardcoded hex.
   git-backed) at your own repo. The agent and chat backends clone the
   `{git_remote_url, ref}` pointer CM derives from it. See
   `docs/agent-workflow.md` § Task skills.
+- **Never unit-test skill prose.** Workflow skills and task skills are
+  instructions, not code - no Go test may assert on their wording, headings, or
+  markdown syntax. TDD does not apply to authoring them. The only permitted
+  automated check is structural: that a skill file a builder references exists
+  and parses. Behavior belongs in tests against `internal/mcp` with fixture
+  skills, never against `workflow-skills/`. The same rule covers `docs/*.md` and
+  any other prose the repo ships.
 
 ### Documentation
 
