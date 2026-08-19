@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useCallback, useState } from 'react';
-import { useDraggable } from '@dnd-kit/core';
+import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import type { Card } from '../../types';
 import { chipTint, typeColors } from '../../lib/chip';
@@ -17,6 +17,12 @@ interface CardItemProps {
   /** Opens a card by id in the panel; also used by subtask peek rows. */
   onParentClick?: (cardId: string) => void;
   subtasks?: Card[];
+  /**
+   * True for the DragOverlay's copy of the dragged card. Disables the
+   * hook so the overlay doesn't register a second droppable whose rect
+   * follows the cursor and poisons collision detection.
+   */
+  dragOverlay?: boolean;
 }
 
 const cardIdStyle: React.CSSProperties = {
@@ -27,10 +33,16 @@ const cardIdStyle: React.CSSProperties = {
   color: 'var(--grey1)',
 };
 
-function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollapse, onParentClick, subtasks }: CardItemProps) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollapse, onParentClick, subtasks, dragOverlay }: CardItemProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: card.id,
     data: { card },
+    disabled: dragOverlay,
+    // Keyboard dragging is deliberately unsupported (mouse/touch only), so
+    // the default "sortable" role description would announce an affordance
+    // screen reader users can't reach. role="button"/tabIndex stay below -
+    // Enter still opens the card.
+    attributes: { roleDescription: 'card' },
   });
 
   const cardRef = useRef<HTMLDivElement>(null);
@@ -56,6 +68,7 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
 
   const style = {
     transform: CSS.Translate.toString(transform),
+    transition,
     opacity: isDragging ? 0.5 : 1,
   };
 
@@ -113,8 +126,11 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
     </button>
   ) : null;
 
-  // Enter opens the card (matches onClick). Space is reserved for dnd-kit's
-  // KeyboardSensor to pick up / drop during drag, so we must not swallow it.
+  // Enter opens the card (matches onClick). No keyboard drag sensor is
+  // registered, so this handler owns onKeyDown outright - if one is ever
+  // re-added, note that {...listeners} is spread ahead of onKeyDown below,
+  // so React keeps this later prop and the sensor's activator would be
+  // silently discarded.
   // Ignore events bubbling from nested buttons (chevron, badges, strip, rows).
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.target !== e.currentTarget) return;

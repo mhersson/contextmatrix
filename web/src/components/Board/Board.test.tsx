@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, within, waitFor, act } from '@testing-library/react';
+import type { DndContextProps } from '@dnd-kit/core';
+import { KeyboardSensor } from '@dnd-kit/core';
 import { isTouchDevice } from '../../utils/isTouchDevice';
 import { Board } from './Board';
 import type { Card, ProjectConfig } from '../../types';
@@ -87,21 +89,38 @@ describe('isTouchDevice', () => {
 // ---------------------------------------------------------------------------
 
 // Minimal mock for @dnd-kit/core - we only care that DndContext receives the
-// correct sensors prop. We capture it via a spy on DndContext.
+// correct props (sensors, onDragEnd). DndContext is replaced with a
+// pass-through that renders its children and captures its props so
+// onDragEnd can be invoked directly from a test.
+let capturedDndProps: DndContextProps = {};
 vi.mock('@dnd-kit/core', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dnd-kit/core')>();
   return {
     ...actual,
-    useDraggable: () => ({
+    useDroppable: () => ({
+      setNodeRef: () => {},
+      isOver: false,
+    }),
+    DndContext: (props: DndContextProps) => {
+      capturedDndProps = props;
+      return props.children;
+    },
+  };
+});
+
+// CardItem uses useSortable (@dnd-kit/sortable); Column's SortableContext
+// and verticalListSortingStrategy stay real via importOriginal.
+vi.mock('@dnd-kit/sortable', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dnd-kit/sortable')>();
+  return {
+    ...actual,
+    useSortable: () => ({
       attributes: {},
       listeners: {},
       setNodeRef: () => {},
       transform: null,
+      transition: undefined,
       isDragging: false,
-    }),
-    useDroppable: () => ({
-      setNodeRef: () => {},
-      isOver: false,
     }),
   };
 });
@@ -151,6 +170,59 @@ function mockMatchMediaTrueFor(trueQuery: string) {
     }),
   });
 }
+
+// ---------------------------------------------------------------------------
+// Board - keyboard drag removed
+// ---------------------------------------------------------------------------
+
+describe('Board - keyboard drag removed', () => {
+  const originalMatchMedia = window.matchMedia;
+
+  afterEach(() => {
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: originalMatchMedia,
+    });
+  });
+
+  it('registers exactly one sensor and it is not the KeyboardSensor', () => {
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    render(
+      <Board
+        cards={[sampleCard]}
+        config={baseConfig}
+        loading={false}
+        error={null}
+        activeAgents={[]}
+        cardsCompletedToday={0}
+        activityEntries={[]}
+        currentAgent={null}
+      />
+    );
+    expect(capturedDndProps.sensors).toHaveLength(1);
+    expect(capturedDndProps.sensors!.every((d) => d.sensor !== KeyboardSensor)).toBe(true);
+  });
+
+  it('screen-reader instructions describe mouse/touch dragging, not keyboard', () => {
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    render(
+      <Board
+        cards={[sampleCard]}
+        config={baseConfig}
+        loading={false}
+        error={null}
+        activeAgents={[]}
+        cardsCompletedToday={0}
+        activityEntries={[]}
+        currentAgent={null}
+      />
+    );
+    const draggable = capturedDndProps.accessibility?.screenReaderInstructions?.draggable;
+    expect(draggable).toBeTruthy();
+    expect(draggable).not.toMatch(/space bar/i);
+    expect(draggable).not.toMatch(/arrow keys/i);
+  });
+});
 
 describe('Board - mobile NowRail drawer', () => {
   const originalMatchMedia = window.matchMedia;
@@ -930,5 +1002,455 @@ describe('Board - column sort', () => {
     expect(cardItems[0]).toHaveAttribute('aria-label', 'Card SORT-003: Card SORT-003');
     expect(cardItems[1]).toHaveAttribute('aria-label', 'Card SORT-002: Card SORT-002');
     expect(cardItems[2]).toHaveAttribute('aria-label', 'Card SORT-001: Card SORT-001');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Board - handleDragEnd: resolve a card-id or column-id drop target
+// ---------------------------------------------------------------------------
+
+describe('Board - handleDragEnd drop-target resolution', () => {
+  const originalMatchMedia = window.matchMedia;
+
+  afterEach(() => {
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: originalMatchMedia,
+    });
+  });
+
+  const dragConfig: ProjectConfig = {
+    name: 'drag-test',
+    prefix: 'DRAG',
+    next_id: 1,
+    states: ['todo', 'in_progress', 'done'],
+    transitions: { todo: ['in_progress', 'done'], in_progress: ['done'], done: [] },
+    types: ['task'],
+    priorities: ['medium'],
+  };
+
+  const makeCard = (id: string, state: string): Card => ({
+    id,
+    title: `Card ${id}`,
+    project: 'drag-test',
+    type: 'task',
+    state,
+    priority: 'medium',
+    created: '2026-01-01T00:00:00Z',
+    updated: '2026-01-01T00:00:00Z',
+    body: '',
+  });
+
+  type DragEndHandler = NonNullable<DndContextProps['onDragEnd']>;
+  function dragEndEvent(activeId: string, activeCard: Card, overId: string | null): Parameters<DragEndHandler>[0] {
+    return {
+      active: { id: activeId, data: { current: { card: activeCard } } },
+      over: overId ? { id: overId } : null,
+    } as unknown as Parameters<DragEndHandler>[0];
+  }
+
+  function renderDragBoard(cards: Card[]) {
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    const onCardMove = vi.fn<(id: string, state: string) => Promise<boolean>>().mockResolvedValue(true);
+    render(
+      <Board
+        cards={cards}
+        config={dragConfig}
+        loading={false}
+        error={null}
+        activeAgents={[]}
+        cardsCompletedToday={0}
+        activityEntries={[]}
+        currentAgent={null}
+        onCardMove={onCardMove}
+      />,
+    );
+    return onCardMove;
+  }
+
+  it('dropping over a card in another column resolves to that card\'s state', () => {
+    const todoCard = makeCard('DRAG-001', 'todo');
+    const doneCard = makeCard('DRAG-002', 'done');
+    const onCardMove = renderDragBoard([todoCard, doneCard]);
+    capturedDndProps.onDragEnd!(dragEndEvent('DRAG-001', todoCard, 'DRAG-002'));
+    expect(onCardMove).toHaveBeenCalledWith('DRAG-001', 'done');
+  });
+
+  it('dropping over a column id calls onCardMove with that state', () => {
+    const todoCard = makeCard('DRAG-001', 'todo');
+    const onCardMove = renderDragBoard([todoCard]);
+    capturedDndProps.onDragEnd!(dragEndEvent('DRAG-001', todoCard, 'in_progress'));
+    expect(onCardMove).toHaveBeenCalledWith('DRAG-001', 'in_progress');
+  });
+
+  it('an invalid transition calls nothing', () => {
+    const doneCard = makeCard('DRAG-001', 'done');
+    const todoCard = makeCard('DRAG-002', 'todo');
+    const onCardMove = renderDragBoard([doneCard, todoCard]);
+    capturedDndProps.onDragEnd!(dragEndEvent('DRAG-001', doneCard, 'DRAG-002'));
+    expect(onCardMove).not.toHaveBeenCalled();
+  });
+
+  it('a same-column drop calls nothing', () => {
+    const cardA = makeCard('DRAG-001', 'todo');
+    const cardB = makeCard('DRAG-002', 'todo');
+    const onCardMove = renderDragBoard([cardA, cardB]);
+    capturedDndProps.onDragEnd!(dragEndEvent('DRAG-001', cardA, 'DRAG-002'));
+    expect(onCardMove).not.toHaveBeenCalled();
+  });
+
+  it('an unresolvable over.id calls nothing', () => {
+    const todoCard = makeCard('DRAG-001', 'todo');
+    const onCardMove = renderDragBoard([todoCard]);
+    capturedDndProps.onDragEnd!(dragEndEvent('DRAG-001', todoCard, 'DRAG-999'));
+    expect(onCardMove).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Board - manual order: persistence on drop, seeding, and per-column scope
+// ---------------------------------------------------------------------------
+
+describe('Board - manual order', () => {
+  const originalMatchMedia = window.matchMedia;
+
+  afterEach(() => {
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: originalMatchMedia,
+    });
+  });
+
+  const manualConfig: ProjectConfig = {
+    name: 'manual-test',
+    prefix: 'MAN',
+    next_id: 1,
+    states: ['todo', 'done'],
+    transitions: { todo: ['done'], done: [] },
+    types: ['task'],
+    priorities: ['low', 'medium', 'high', 'critical'],
+  };
+
+  const makeCard = (id: string, state: string, overrides: Partial<Card> = {}): Card => ({
+    id,
+    title: `Card ${id}`,
+    project: 'manual-test',
+    type: 'task',
+    state,
+    priority: 'medium',
+    created: '2026-01-01T00:00:00Z',
+    updated: '2026-01-01T00:00:00Z',
+    body: '',
+    ...overrides,
+  });
+
+  // Recent-descending order out of the box: 001 (day 3) before 002 (day 2)
+  // before 003 (day 1).
+  const cardA = () => makeCard('MAN-001', 'todo', { updated: '2026-01-03T00:00:00Z' });
+  const cardB = () => makeCard('MAN-002', 'todo', { updated: '2026-01-02T00:00:00Z' });
+  const cardC = () => makeCard('MAN-003', 'todo', { updated: '2026-01-01T00:00:00Z' });
+
+  type DragEndHandler = NonNullable<DndContextProps['onDragEnd']>;
+  function dragEndEvent(activeId: string, activeCard: Card, overId: string | null): Parameters<DragEndHandler>[0] {
+    return {
+      active: { id: activeId, data: { current: { card: activeCard } } },
+      over: overId ? { id: overId } : null,
+    } as unknown as Parameters<DragEndHandler>[0];
+  }
+
+  function renderManualBoard(cards: Card[]) {
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    const onCardMove = vi.fn<(id: string, state: string) => Promise<boolean>>().mockResolvedValue(true);
+    const utils = render(
+      <Board
+        cards={cards}
+        config={manualConfig}
+        loading={false}
+        error={null}
+        activeAgents={[]}
+        cardsCompletedToday={0}
+        activityEntries={[]}
+        currentAgent={null}
+        onCardMove={onCardMove}
+      />,
+    );
+    return { onCardMove, ...utils };
+  }
+
+  // Reads the card ids of one column, in rendered (visual) order.
+  function columnCardIds(headingName: RegExp): string[] {
+    const heading = screen.getByRole('heading', { name: headingName });
+    const column = heading.closest('[data-accent="stripe"]')!;
+    return Array.from(column.querySelectorAll('[aria-label^="Card MAN"]')).map(
+      (el) => el.getAttribute('aria-label')!.match(/^Card (\S+):/)![1],
+    );
+  }
+
+  function sortTrigger(columnIndex: number): HTMLElement {
+    return screen.getAllByRole('button', { name: /select sort order/i })[columnIndex];
+  }
+
+  function isManualChecked(): boolean {
+    return screen.getByText('Manual').closest('button')!.getAttribute('aria-checked') === 'true';
+  }
+
+  it('a same-column drop reorders the column and flips its sort menu to Manual', () => {
+    const cards = [cardA(), cardB(), cardC()];
+    renderManualBoard(cards);
+    expect(columnCardIds(/Backlog column/)).toEqual(['MAN-001', 'MAN-002', 'MAN-003']);
+
+    act(() => {
+      capturedDndProps.onDragEnd!(dragEndEvent('MAN-001', cards[0], 'MAN-003'));
+    });
+
+    expect(columnCardIds(/Backlog column/)).toEqual(['MAN-002', 'MAN-003', 'MAN-001']);
+
+    fireEvent.click(sortTrigger(0));
+    expect(isManualChecked()).toBe(true);
+    fireEvent.click(sortTrigger(0));
+  });
+
+  it('the new order survives an unmount/remount', () => {
+    const cards = [cardA(), cardB(), cardC()];
+    const first = renderManualBoard(cards);
+
+    act(() => {
+      capturedDndProps.onDragEnd!(dragEndEvent('MAN-001', cards[0], 'MAN-003'));
+    });
+    expect(columnCardIds(/Backlog column/)).toEqual(['MAN-002', 'MAN-003', 'MAN-001']);
+
+    first.unmount();
+    renderManualBoard(cards);
+    expect(columnCardIds(/Backlog column/)).toEqual(['MAN-002', 'MAN-003', 'MAN-001']);
+  });
+
+  it('a second drop moves a card back up', () => {
+    const cards = [cardA(), cardB(), cardC()];
+    renderManualBoard(cards);
+
+    act(() => {
+      capturedDndProps.onDragEnd!(dragEndEvent('MAN-001', cards[0], 'MAN-003'));
+    });
+    expect(columnCardIds(/Backlog column/)).toEqual(['MAN-002', 'MAN-003', 'MAN-001']);
+
+    act(() => {
+      capturedDndProps.onDragEnd!(dragEndEvent('MAN-001', cards[0], 'MAN-002'));
+    });
+    expect(columnCardIds(/Backlog column/)).toEqual(['MAN-001', 'MAN-002', 'MAN-003']);
+  });
+
+  it('selecting Manual from the menu with nothing stored leaves the visible order untouched', () => {
+    const cards = [cardA(), cardB(), cardC()];
+    renderManualBoard(cards);
+    expect(columnCardIds(/Backlog column/)).toEqual(['MAN-001', 'MAN-002', 'MAN-003']);
+
+    fireEvent.click(sortTrigger(0));
+    fireEvent.click(screen.getByText('Manual'));
+
+    expect(columnCardIds(/Backlog column/)).toEqual(['MAN-001', 'MAN-002', 'MAN-003']);
+  });
+
+  it('switching to Priority and back to Manual restores the hand order', () => {
+    const cards = [
+      cardA(),
+      makeCard('MAN-002', 'todo', { updated: '2026-01-02T00:00:00Z', priority: 'critical' }),
+      cardC(),
+    ];
+    renderManualBoard(cards);
+
+    act(() => {
+      capturedDndProps.onDragEnd!(dragEndEvent('MAN-001', cards[0], 'MAN-003'));
+    });
+    const handOrder = columnCardIds(/Backlog column/);
+    expect(handOrder).toEqual(['MAN-002', 'MAN-003', 'MAN-001']);
+
+    fireEvent.click(sortTrigger(0));
+    fireEvent.click(screen.getByText('Priority'));
+    // Most urgent first: critical (MAN-002), then the medium-priority tie
+    // broken by original list order (MAN-001, MAN-003).
+    expect(columnCardIds(/Backlog column/)).toEqual(['MAN-002', 'MAN-001', 'MAN-003']);
+
+    fireEvent.click(sortTrigger(0));
+    fireEvent.click(screen.getByText('Manual'));
+    expect(columnCardIds(/Backlog column/)).toEqual(handOrder);
+  });
+
+  it('a card not in the stored order renders below the known ones, newest first', () => {
+    const a = cardA();
+    const b = cardB();
+    const { rerender } = renderManualBoard([a, b]);
+
+    act(() => {
+      capturedDndProps.onDragEnd!(dragEndEvent('MAN-002', b, 'MAN-001'));
+    });
+    expect(columnCardIds(/Backlog column/)).toEqual(['MAN-002', 'MAN-001']);
+
+    // Two cards arrive after the hand order was recorded - neither was ever
+    // seen by the stored order, so both sort below it, newest first.
+    const d = makeCard('MAN-004', 'todo', { updated: '2026-01-05T00:00:00Z' });
+    const e = makeCard('MAN-005', 'todo', { updated: '2026-01-04T00:00:00Z' });
+    rerender(
+      <Board
+        cards={[a, b, d, e]}
+        config={manualConfig}
+        loading={false}
+        error={null}
+        activeAgents={[]}
+        cardsCompletedToday={0}
+        activityEntries={[]}
+        currentAgent={null}
+        onCardMove={vi.fn<(id: string, state: string) => Promise<boolean>>().mockResolvedValue(true)}
+      />,
+    );
+
+    expect(columnCardIds(/Backlog column/)).toEqual(['MAN-002', 'MAN-001', 'MAN-004', 'MAN-005']);
+  });
+
+  it('a cross-column drop does not switch the target column to Manual', () => {
+    const todoCard = makeCard('MAN-001', 'todo');
+    const doneCard = makeCard('MAN-010', 'done');
+    const { onCardMove } = renderManualBoard([todoCard, doneCard]);
+
+    act(() => {
+      capturedDndProps.onDragEnd!(dragEndEvent('MAN-001', todoCard, 'MAN-010'));
+    });
+    expect(onCardMove).toHaveBeenCalledWith('MAN-001', 'done');
+
+    fireEvent.click(sortTrigger(1));
+    expect(isManualChecked()).toBe(false);
+  });
+
+  it('manual order is per column: todo manual while done stays on recent', () => {
+    const cards = [
+      cardA(),
+      cardB(),
+      makeCard('MAN-010', 'done', { updated: '2026-01-02T00:00:00Z' }),
+      makeCard('MAN-011', 'done', { updated: '2026-01-01T00:00:00Z' }),
+    ];
+    renderManualBoard(cards);
+
+    act(() => {
+      capturedDndProps.onDragEnd!(dragEndEvent('MAN-001', cards[0], 'MAN-002'));
+    });
+
+    fireEvent.click(sortTrigger(0));
+    expect(isManualChecked()).toBe(true);
+    fireEvent.click(sortTrigger(0));
+
+    fireEvent.click(sortTrigger(1));
+    expect(isManualChecked()).toBe(false);
+    fireEvent.click(sortTrigger(1));
+
+    // Done is still "recent": MAN-010 (Jan 2) before MAN-011 (Jan 1).
+    expect(columnCardIds(/Shipped column/)).toEqual(['MAN-010', 'MAN-011']);
+  });
+
+  it('a same-column drop on the column body is a no-op', () => {
+    const cards = [cardA(), cardB(), cardC()];
+    renderManualBoard(cards);
+    expect(columnCardIds(/Backlog column/)).toEqual(['MAN-001', 'MAN-002', 'MAN-003']);
+
+    act(() => {
+      // over.id is the column itself, not a card - a release over the empty
+      // area below the last card or over the header.
+      capturedDndProps.onDragEnd!(dragEndEvent('MAN-001', cards[0], 'todo'));
+    });
+
+    expect(columnCardIds(/Backlog column/)).toEqual(['MAN-001', 'MAN-002', 'MAN-003']);
+    fireEvent.click(sortTrigger(0));
+    expect(isManualChecked()).toBe(false);
+    fireEvent.click(sortTrigger(0));
+    expect(localStorage.getItem('contextmatrix-manual-order-manual-test')).toBeNull();
+  });
+
+  it('a cross-column drop into a target column already on manual records the dropped position', async () => {
+    localStorage.setItem('contextmatrix-column-sort-manual-test', '{"done":"manual"}');
+    const cards = [
+      makeCard('MAN-001', 'todo'),
+      makeCard('MAN-010', 'done', { updated: '2026-01-02T00:00:00Z' }),
+      makeCard('MAN-011', 'done', { updated: '2026-01-01T00:00:00Z' }),
+    ];
+    const { onCardMove } = renderManualBoard(cards);
+
+    act(() => {
+      capturedDndProps.onDragEnd!(dragEndEvent('MAN-001', cards[0], 'MAN-011'));
+    });
+
+    await waitFor(() => {
+      expect(localStorage.getItem('contextmatrix-manual-order-manual-test')).not.toBeNull();
+    });
+    expect(onCardMove).toHaveBeenCalledWith('MAN-001', 'done');
+    expect(JSON.parse(localStorage.getItem('contextmatrix-manual-order-manual-test')!)).toEqual({
+      done: ['MAN-010', 'MAN-001', 'MAN-011'],
+    });
+  });
+
+  it('an onCardMove resolving false records no order for the target column', async () => {
+    localStorage.setItem('contextmatrix-column-sort-manual-test', '{"done":"manual"}');
+    const cards = [
+      makeCard('MAN-001', 'todo'),
+      makeCard('MAN-010', 'done', { updated: '2026-01-02T00:00:00Z' }),
+      makeCard('MAN-011', 'done', { updated: '2026-01-01T00:00:00Z' }),
+    ];
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    const onCardMove = vi.fn<(id: string, state: string) => Promise<boolean>>().mockResolvedValue(false);
+    render(
+      <Board
+        cards={cards}
+        config={manualConfig}
+        loading={false}
+        error={null}
+        activeAgents={[]}
+        cardsCompletedToday={0}
+        activityEntries={[]}
+        currentAgent={null}
+        onCardMove={onCardMove}
+      />,
+    );
+
+    act(() => {
+      capturedDndProps.onDragEnd!(dragEndEvent('MAN-001', cards[0], 'MAN-011'));
+    });
+
+    await waitFor(() => {
+      expect(onCardMove).toHaveBeenCalledWith('MAN-001', 'done');
+    });
+    expect(localStorage.getItem('contextmatrix-manual-order-manual-test')).toBeNull();
+  });
+
+  it('an onCardMove that throws warns and records no order for the target column', async () => {
+    localStorage.setItem('contextmatrix-column-sort-manual-test', '{"done":"manual"}');
+    const cards = [
+      makeCard('MAN-001', 'todo'),
+      makeCard('MAN-010', 'done', { updated: '2026-01-02T00:00:00Z' }),
+      makeCard('MAN-011', 'done', { updated: '2026-01-01T00:00:00Z' }),
+    ];
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    const onCardMove = vi.fn<(id: string, state: string) => Promise<boolean>>().mockRejectedValue(new Error('move failed'));
+    render(
+      <Board
+        cards={cards}
+        config={manualConfig}
+        loading={false}
+        error={null}
+        activeAgents={[]}
+        cardsCompletedToday={0}
+        activityEntries={[]}
+        currentAgent={null}
+        onCardMove={onCardMove}
+      />,
+    );
+
+    act(() => {
+      capturedDndProps.onDragEnd!(dragEndEvent('MAN-001', cards[0], 'MAN-011'));
+    });
+
+    await waitFor(() => {
+      expect(warnSpy).toHaveBeenCalled();
+    });
+    expect(localStorage.getItem('contextmatrix-manual-order-manual-test')).toBeNull();
+
+    warnSpy.mockRestore();
   });
 });

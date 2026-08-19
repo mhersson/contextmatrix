@@ -1,8 +1,7 @@
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
   DndContext,
   DragOverlay,
-  KeyboardSensor,
   closestCorners,
   useSensor,
   useSensors,
@@ -11,8 +10,7 @@ import {
   type DragStartEvent,
   type DragEndEvent,
 } from '@dnd-kit/core';
-import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
-import type { ActiveAgent, Card, CardFilter, MetricSeries, ProjectConfig, SyncStatus } from '../../types';
+import type { ActiveAgent, Card, CardFilter, MetricSeries, ProjectConfig, SortMode, SyncStatus } from '../../types';
 import { isTouchDevice } from '../../utils/isTouchDevice';
 import { safeReadBool, safeWriteBool } from '../../utils/safeStorage';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
@@ -20,6 +18,8 @@ import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { useCollapsedColumns } from '../../hooks/useCollapsedColumns';
 import { useCollapsedCards } from '../../hooks/useCollapsedCards';
 import { useColumnSort } from '../../hooks/useColumnSort';
+import { useManualOrder } from '../../hooks/useManualOrder';
+import { applyMove } from '../../lib/manualOrder';
 import { Column } from './Column';
 import { CardItem } from './CardItem';
 import { BoardBand } from './BoardBand';
@@ -78,7 +78,7 @@ interface BoardProps {
   activityBackfillLoaded?: boolean;
   currentAgent: string | null;
   onCardClick?: (card: Card) => void;
-  onCardMove?: (cardId: string, newState: string) => Promise<void>;
+  onCardMove?: (cardId: string, newState: string) => Promise<boolean>;
   onCreateCard?: (state: string) => void;
   flashCardId?: string | null;
   onParentClick?: (cardId: string) => void;
@@ -129,6 +129,7 @@ export function Board({
   const [collapsedColumns, toggleCollapse] = useCollapsedColumns(config.name, config.states);
   const { collapsed: collapsedCards, toggle: toggleCardCollapse, collapseMany, expandMany } = useCollapsedCards(config.name, cardIds);
   const [getSort, setSort] = useColumnSort(config.name, config.states);
+  const { getOrder, hasOrder, setOrder } = useManualOrder(config.name, cards, config.states);
 
   // Priority ranks come from the board's own scale, most urgent first:
   // `.board.yaml` lists priorities least-urgent-first (low, medium, high,
@@ -141,15 +142,10 @@ export function Board({
   // isTouchDevice() selects which pointer-style sensor to pass to useSensors:
   // - Touch: 250ms delay distinguishes press-and-hold drag from scroll.
   // - Pointer: 5px distance threshold for immediate mouse drag.
-  // KeyboardSensor is always registered so users can Tab to a card, press
-  // Space to pick up, arrow keys to move, Space to drop, Esc to cancel.
   const pointerSensor = useSensor(PointerSensor, { activationConstraint: { distance: 5 } });
   const touchSensor = useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } });
-  const keyboardSensor = useSensor(KeyboardSensor, {
-    coordinateGetter: sortableKeyboardCoordinates,
-  });
   const touchDevice = isTouchDevice();
-  const sensors = useSensors(touchDevice ? touchSensor : pointerSensor, keyboardSensor);
+  const sensors = useSensors(touchDevice ? touchSensor : pointerSensor);
 
   const hasFilter = Object.values(filter).some(Boolean);
   // Defer the search query so per-keystroke typing is never blocked by the
@@ -189,6 +185,13 @@ export function Board({
     [cards, cardIdSet],
   );
 
+  // Resolves a drag-end `over.id` to the card it landed on, so handleDragEnd
+  // can derive the target column from wherever the drop occurred.
+  const boardCardById = useMemo(
+    () => new Map(boardCards.map((c) => [c.id, c])),
+    [boardCards],
+  );
+
   const filteredCards = useMemo(() => {
     if (!hasFilter && !hasSearch) return boardCards;
     const matches = (card: Card) => {
@@ -219,16 +222,78 @@ export function Board({
     );
   }, [boardCards, subtasksByParent, filter, hasFilter, hasSearch, searchTerm]);
 
-  const cardsByState = useMemo(() => {
-    // Build timestamp map once so comparators don't parse dates per comparison.
-    const ts = new Map<string, { created: number; updated: number }>();
-    for (const card of filteredCards) {
-      ts.set(card.id, {
-        created: new Date(card.created).getTime(),
-        updated: new Date(card.updated).getTime(),
-      });
-    }
+  // Sorts one column's cards under `mode`. Shared between the render-path
+  // grouping below and `columnOrder`, which event handlers use to compute the
+  // full column order for `applyMove` - never called during render itself.
+  const sortColumn = useCallback(
+    (state: string, list: Card[], mode: SortMode): Card[] => {
+      // Build a timestamp map scoped to this call so comparators don't parse
+      // dates per comparison.
+      const ts = new Map<string, { created: number; updated: number }>();
+      for (const card of list) {
+        ts.set(card.id, {
+          created: new Date(card.created).getTime(),
+          updated: new Date(card.updated).getTime(),
+        });
+      }
+      const created = (c: Card) => ts.get(c.id)?.created ?? 0;
+      const updated = (c: Card) => ts.get(c.id)?.updated ?? 0;
 
+      const sorted = [...list];
+      switch (mode) {
+        case 'id-asc':
+          sorted.sort((a, b) => compareIds(a.id, b.id));
+          break;
+        case 'id-desc':
+          sorted.sort((a, b) => compareIds(b.id, a.id));
+          break;
+        case 'priority':
+          sorted.sort(
+            (a, b) =>
+              (priorityRank[a.priority] ?? UNRANKED) - (priorityRank[b.priority] ?? UNRANKED) ||
+              created(a) - created(b),
+          );
+          break;
+        case 'type':
+          sorted.sort(
+            (a, b) =>
+              (typeRank[a.type] ?? UNRANKED) - (typeRank[b.type] ?? UNRANKED) ||
+              created(a) - created(b),
+          );
+          break;
+        case 'manual': {
+          const order = getOrder(state);
+          const index = new Map(order.map((id, i) => [id, i]));
+          sorted.sort((a, b) => {
+            const ia = index.get(a.id);
+            const ib = index.get(b.id);
+            if (ia !== undefined && ib !== undefined) return ia - ib;
+            if (ia !== undefined) return -1;
+            if (ib !== undefined) return 1;
+            return updated(b) - updated(a);
+          });
+          break;
+        }
+        default:
+          sorted.sort((a, b) => updated(b) - updated(a));
+      }
+      return sorted;
+    },
+    [priorityRank, typeRank, getOrder],
+  );
+
+  // Computes the full (unfiltered) drop-order for one column - the input
+  // `applyMove` needs so a search or filter never flattens hidden neighbours
+  // out of the stored order. Called only from event handlers.
+  const columnOrder = useCallback(
+    (state: string): string[] => {
+      const list = boardCards.filter((c) => c.state === state);
+      return sortColumn(state, list, getSort(state)).map((c) => c.id);
+    },
+    [boardCards, getSort, sortColumn],
+  );
+
+  const cardsByState = useMemo(() => {
     const grouped: Record<string, Card[]> = {};
     for (const state of config.states) {
       grouped[state] = [];
@@ -238,38 +303,11 @@ export function Board({
         grouped[card.state].push(card);
       }
     }
-    const created = (c: Card) => ts.get(c.id)?.created ?? 0;
-    const updated = (c: Card) => ts.get(c.id)?.updated ?? 0;
-
     for (const state of config.states) {
-      const list = grouped[state];
-      switch (getSort(state)) {
-        case 'id-asc':
-          list.sort((a, b) => compareIds(a.id, b.id));
-          break;
-        case 'id-desc':
-          list.sort((a, b) => compareIds(b.id, a.id));
-          break;
-        case 'priority':
-          list.sort(
-            (a, b) =>
-              (priorityRank[a.priority] ?? UNRANKED) - (priorityRank[b.priority] ?? UNRANKED) ||
-              created(a) - created(b),
-          );
-          break;
-        case 'type':
-          list.sort(
-            (a, b) =>
-              (typeRank[a.type] ?? UNRANKED) - (typeRank[b.type] ?? UNRANKED) ||
-              created(a) - created(b),
-          );
-          break;
-        default:
-          list.sort((a, b) => updated(b) - updated(a));
-      }
+      grouped[state] = sortColumn(state, grouped[state], getSort(state));
     }
     return grouped;
-  }, [filteredCards, config.states, getSort, priorityRank, typeRank]);
+  }, [filteredCards, config.states, getSort, sortColumn]);
 
   // Keep a ref to the latest filter/search booleans so the shortcut handler
   // never needs to be recreated. The ref is read inside the stable wrapper, so
@@ -303,18 +341,62 @@ export function Board({
     const { active, over } = event;
     setActiveCard(null);
 
-    if (!over || !onCardMove) return;
+    if (!over) return;
 
     const cardId = active.id as string;
-    const newState = over.id as string;
     const card = active.data.current?.card as Card | undefined;
+    if (!card) return;
 
-    if (!card || card.state === newState) return;
+    // A drop over a card resolves to that card's column; a drop over a
+    // column id resolves directly. Anything else (e.g. a stale id) bails.
+    const overId = over.id as string;
+    const overCard = boardCardById.get(overId);
+    const targetState = overCard ? overCard.state : config.states.includes(overId) ? overId : undefined;
+    if (targetState === undefined) return;
+
+    if (targetState === card.state) {
+      // A same-column drop expresses an ordering intent only when it lands
+      // on another card - a drop on the column body or header (no resolved
+      // card) and a drop back on the dragged card itself are both no-ops,
+      // skipping both the write and the mode flip.
+      if (!overCard) return;
+      if (overId === cardId) return;
+      setOrder(card.state, applyMove(getOrder(card.state), columnOrder(card.state), cardId, overId));
+      if (getSort(card.state) !== 'manual') setSort(card.state, 'manual');
+      return;
+    }
+
+    if (!onCardMove) return;
 
     const validTargets = config.transitions[card.state] || [];
-    if (!validTargets.includes(newState)) return;
+    if (!validTargets.includes(targetState)) return;
 
-    onCardMove(cardId, newState);
+    // Crossing columns is a state change, not an ordering intent - never
+    // flips the target to manual, but a target already on manual records the
+    // dropped position (a drop on the column body lands at the end, which
+    // applyMove already does for an over-id it can't resolve). The order is
+    // computed eagerly, against pre-move data, so the closure doesn't race
+    // the state update the move itself triggers; it is written only when
+    // onCardMove resolves true, so a rejected or unsuccessful move leaves the
+    // stored order untouched.
+    const nextOrder = getSort(targetState) === 'manual'
+      ? applyMove(getOrder(targetState), columnOrder(targetState), cardId, overId)
+      : null;
+
+    // .catch() is chained before .then() so a throw inside setOrder (the
+    // .then() callback) is never caught here and misreported as a failed
+    // move.
+    onCardMove(cardId, targetState)
+      .catch((err: unknown) => {
+        console.warn(`move ${cardId} -> ${targetState} failed`, err);
+        return false;
+      })
+      .then((ok) => {
+        // The moved card is judged against targetState, not the state it still
+        // carries in `cards` at this point - otherwise a drop out of a terminal
+        // column is pruned away as terminal and the dropped position is lost.
+        if (ok && nextOrder) setOrder(targetState, nextOrder, cardId);
+      });
   }
 
   function handleDragCancel() {
@@ -412,6 +494,12 @@ export function Board({
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}
+        accessibility={{
+          screenReaderInstructions: {
+            draggable:
+              'Drag a card with the mouse or by touch to move it to another column, or drop it onto another card to reorder it within a column.',
+          },
+        }}
       >
         <div className="flex md:flex-1 md:min-h-0 min-h-[calc(100dvh-3rem)]">
           <div className="flex-1 overflow-x-auto overflow-y-hidden">
@@ -423,7 +511,14 @@ export function Board({
                   cards={cardsByState[state]}
                   config={config}
                   sortMode={getSort(state)}
-                  onSortChange={(mode) => setSort(state, mode)}
+                  onSortChange={(mode) => {
+                    // Seed under the outgoing mode before flipping, so
+                    // selecting Manual with nothing stored captures the
+                    // order the user was already looking at instead of
+                    // reshuffling the column.
+                    if (mode === 'manual' && !hasOrder(state)) setOrder(state, columnOrder(state));
+                    setSort(state, mode);
+                  }}
                   collapsed={collapsedColumns.has(state)}
                   onToggleCollapse={toggleCollapse}
                   onCardClick={onCardClick}
@@ -461,7 +556,7 @@ export function Board({
         <DragOverlay>
           {activeCard ? (
             <div className="w-[260px]">
-              <CardItem card={activeCard} subtasks={subtasksByParent.get(activeCard.id)} />
+              <CardItem card={activeCard} subtasks={subtasksByParent.get(activeCard.id)} dragOverlay />
             </div>
           ) : null}
         </DragOverlay>

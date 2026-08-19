@@ -8,6 +8,7 @@ const SORT_MODES: ReadonlySet<string> = new Set<SortMode>([
   'id-desc',
   'priority',
   'type',
+  'manual',
 ]);
 
 function storageKey(project: string): string {

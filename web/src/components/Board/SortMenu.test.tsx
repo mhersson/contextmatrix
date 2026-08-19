@@ -30,6 +30,7 @@ describe('SortMenu', () => {
     expect(screen.getByText('ID ↓')).toBeTruthy();
     expect(screen.getByText('Priority')).toBeTruthy();
     expect(screen.getByText('Type')).toBeTruthy();
+    expect(screen.getByText('Manual')).toBeTruthy();
   });
 
   it('calls onChange with the correct mode when an item is clicked', () => {
@@ -60,6 +61,13 @@ describe('SortMenu', () => {
     fireEvent.click(screen.getByRole('button', { name: /sort/i }));
     fireEvent.click(screen.getByText('Type'));
     expect(onChange).toHaveBeenCalledWith('type');
+  });
+
+  it('calls onChange with "manual" when Manual is clicked', () => {
+    render(<SortMenu current="recent" onChange={onChange} />);
+    fireEvent.click(screen.getByRole('button', { name: /sort/i }));
+    fireEvent.click(screen.getByText('Manual'));
+    expect(onChange).toHaveBeenCalledWith('manual');
   });
 
   it('closes the dropdown after an item is selected', () => {
@@ -106,5 +114,16 @@ describe('SortMenu', () => {
     // Inactive mode does not
     const recentOption = screen.getByText('Recent').closest('button');
     expect(recentOption?.textContent).not.toContain('●');
+  });
+
+  it('marks Manual active via aria-checked when current is "manual"', () => {
+    render(<SortMenu current="manual" onChange={onChange} />);
+    fireEvent.click(screen.getByRole('button', { name: /sort/i }));
+
+    const manualOption = screen.getByText('Manual').closest('button');
+    expect(manualOption?.getAttribute('aria-checked')).toBe('true');
+
+    const recentOption = screen.getByText('Recent').closest('button');
+    expect(recentOption?.getAttribute('aria-checked')).toBe('false');
   });
 });

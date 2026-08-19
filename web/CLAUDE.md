@@ -24,7 +24,7 @@ Auto-loaded when working in `web/`. Backend conventions live in the root
 - **No `localStorage` outside the documented allowlist:** theme, `palette`, human
   agent ID, last project, `last_chat_id`, chat section collapse, `chat_layout`,
   collapsed column/card state, `chat_filter_prefs`, rail-expanded, NowRail-open,
-  column-sort preferences.
+  column-sort preferences, `contextmatrix-manual-order-<project>`.
   Adding a key means adding it here.
 
 ## Color palettes

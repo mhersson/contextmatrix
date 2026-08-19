@@ -1,4 +1,5 @@
 import type { Card } from '../../types';
+import { isTerminalState } from '../../lib/cardState';
 
 export interface DeriveMetricsInput {
   stateCounts?: Record<string, number>;
@@ -66,16 +67,13 @@ export function deriveMetricsProps({
   // (parents + standalone cards), so subtasks do not inflate the rolling
   // headline. Prefer server-side stateCountsParents; fall back to filtering
   // cards by !parent. openCount keeps the pre-PR semantics - stalled counts
-  // as open (only done/not_planned are excluded).
+  // as open (only terminal states are excluded).
   const openCount = stateCountsParents !== undefined
     ? Object.entries(stateCountsParents).reduce(
-        (sum, [state, n]) =>
-          state === 'done' || state === 'not_planned' ? sum : sum + n,
+        (sum, [state, n]) => (isTerminalState(state) ? sum : sum + n),
         0,
       )
-    : cards.filter(
-        (c) => !c.parent && c.state !== 'done' && c.state !== 'not_planned',
-      ).length;
+    : cards.filter((c) => !c.parent && !isTerminalState(c.state)).length;
   const inReviewCount = stateCountsParents !== undefined
     ? stateCountsParents['review'] ?? 0
     : cards.filter((c) => !c.parent && c.state === 'review').length;

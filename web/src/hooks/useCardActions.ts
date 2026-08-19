@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import { api, isAPIError } from '../api/client';
+import { isTerminalState } from '../lib/cardState';
 import type { Card, PatchCardInput, CreateCardInput } from '../types';
 
 interface UseCardActionsParams {
@@ -26,18 +27,27 @@ export function useCardActions({
   onCardDeleted,
 }: UseCardActionsParams) {
   const handleCardMove = useCallback(
-    async (cardId: string, newState: string) => {
+    async (cardId: string, newState: string): Promise<boolean> => {
       const card = cards.find((c) => c.id === cardId);
-      if (!card) return;
+      if (!card) return false;
       const oldState = card.state;
+      // Terminal targets skip the optimistic apply: the durable manual-order
+      // prune evicts an id from its column the instant it sees a terminal
+      // state, so an optimistic terminal state that later reverts on PATCH
+      // failure would strand the card at the bottom of its old column.
+      // Non-terminal moves keep the optimistic-then-rollback behaviour.
+      const optimistic = !isTerminalState(newState);
       suppressSSE(cardId);
-      updateCardLocally(cardId, { state: newState });
+      if (optimistic) updateCardLocally(cardId, { state: newState });
       try {
         await api.patchCard(selectedProject, cardId, { state: newState });
+        if (!optimistic) updateCardLocally(cardId, { state: newState });
         showToast(`Moved to ${newState}`, 'success');
+        return true;
       } catch (err) {
-        updateCardLocally(cardId, { state: oldState });
+        if (optimistic) updateCardLocally(cardId, { state: oldState });
         showToast(isAPIError(err) ? err.error : 'Failed to move card', 'error');
+        return false;
       } finally {
         unsuppressSSE(cardId);
       }
