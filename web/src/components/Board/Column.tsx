@@ -1,4 +1,6 @@
+import { useMemo } from 'react';
 import { useDroppable } from '@dnd-kit/core';
+import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import type { Card, ProjectConfig, SortMode } from '../../types';
 import { CardItem } from './CardItem';
 import { displayState } from '../../lib/stateLabels';
@@ -44,7 +46,7 @@ export function Column({ state, cards, config, sortMode, onSortChange, collapsed
   const dimClass = activeCardState && isInvalidTarget ? 'opacity-50' : '';
 
   // Bulk collapse/expand logic: show button only for 2+ cards
-  const cardIds = cards.map((c) => c.id);
+  const cardIds = useMemo(() => cards.map((c) => c.id), [cards]);
   const allCollapsed = cardIds.length >= 2 && cardIds.every((id) => collapsedCards?.has(id));
   const showBulkToggle = cards.length >= 2 && (onCollapseAll || onExpandAll);
 
@@ -164,18 +166,20 @@ export function Column({ state, cards, config, sortMode, onSortChange, collapsed
             No cards
           </p>
         ) : (
-          cards.map((card) => (
-            <CardItem
-              key={card.id}
-              card={card}
-              onClick={() => onCardClick?.(card)}
-              flashCardId={flashCardId}
-              isCollapsed={collapsedCards?.has(card.id)}
-              onToggleCollapse={onToggleCardCollapse}
-              onParentClick={onParentClick}
-              subtasks={subtasksByParent?.get(card.id)}
-            />
-          ))
+          <SortableContext items={cardIds} strategy={verticalListSortingStrategy}>
+            {cards.map((card) => (
+              <CardItem
+                key={card.id}
+                card={card}
+                onClick={() => onCardClick?.(card)}
+                flashCardId={flashCardId}
+                isCollapsed={collapsedCards?.has(card.id)}
+                onToggleCollapse={onToggleCardCollapse}
+                onParentClick={onParentClick}
+                subtasks={subtasksByParent?.get(card.id)}
+              />
+            ))}
+          </SortableContext>
         )}
       </div>
     </div>

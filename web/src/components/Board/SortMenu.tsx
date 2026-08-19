@@ -8,6 +8,7 @@ const SORT_OPTIONS: { mode: SortMode; label: string }[] = [
   { mode: 'id-desc', label: 'ID \u2193' },
   { mode: 'priority', label: 'Priority' },
   { mode: 'type', label: 'Type' },
+  { mode: 'manual', label: 'Manual' },
 ];
 
 export interface SortMenuProps {

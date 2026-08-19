@@ -3,16 +3,29 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { CardItem } from './CardItem';
 import type { Card } from '../../types';
 
-// @dnd-kit requires a DndContext - provide a minimal mock
-vi.mock('@dnd-kit/core', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@dnd-kit/core')>();
+// @dnd-kit requires a DndContext - provide a minimal mock. Passes through the
+// `attributes` option the component supplies, defaulting to dnd-kit's real
+// default ('sortable') when absent, so an assertion on aria-roledescription
+// tests what CardItem passes in rather than a value the mock hardcodes.
+vi.mock('@dnd-kit/sortable', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dnd-kit/sortable')>();
   return {
     ...actual,
-    useDraggable: () => ({
-      attributes: {},
+    // Every attribute the component can override is passed through, defaulting
+    // to dnd-kit's own value - otherwise an assertion on a hardcoded mock value
+    // cannot fail when the component stops setting it.
+    useSortable: (options: {
+      attributes?: { roleDescription?: string; role?: string; tabIndex?: number };
+    }) => ({
+      attributes: {
+        role: options?.attributes?.role ?? 'button',
+        tabIndex: options?.attributes?.tabIndex ?? 0,
+        'aria-roledescription': options?.attributes?.roleDescription ?? 'sortable',
+      },
       listeners: {},
       setNodeRef: () => {},
       transform: null,
+      transition: undefined,
       isDragging: false,
     }),
   };
@@ -171,6 +184,24 @@ describe('CardItem - subtask phase strip & peek', () => {
     const root = screen.getByLabelText(`Card ${baseCard.id}: ${baseCard.title}`);
     expect(root.className).toContain('animate-card-flash');
     expect(screen.getByTitle('Subtask TEST-101')).toBeInTheDocument();
+  });
+});
+
+describe('CardItem - keyboard activation', () => {
+  it('Enter on the card root calls onClick (no keyboard drag sensor to compete with)', () => {
+    const onClick = vi.fn();
+    render(<CardItem card={baseCard} onClick={onClick} />);
+    fireEvent.keyDown(screen.getByLabelText(`Card ${baseCard.id}: ${baseCard.title}`), { key: 'Enter' });
+    expect(onClick).toHaveBeenCalledOnce();
+  });
+
+  it('does not announce the card as "sortable" - there is no keyboard drag path', () => {
+    render(<CardItem card={baseCard} />);
+    const root = screen.getByLabelText(`Card ${baseCard.id}: ${baseCard.title}`);
+    expect(root).not.toHaveAttribute('aria-roledescription', 'sortable');
+    expect(root).toHaveAttribute('aria-roledescription', 'card');
+    expect(root).toHaveAttribute('role', 'button');
+    expect(root).toHaveAttribute('tabIndex', '0');
   });
 });
 

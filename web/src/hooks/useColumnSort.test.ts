@@ -141,7 +141,7 @@ describe('useColumnSort', () => {
   it('ignores a stored mode that is not a known sort mode', () => {
     localStorageMock.setItem(
       STORAGE_KEY,
-      JSON.stringify({ todo: 'manual', done: 'priority' }),
+      JSON.stringify({ todo: 'bogus', done: 'priority' }),
     );
 
     const { result } = renderHook(() => useColumnSort(PROJECT, STATES));
@@ -163,5 +163,28 @@ describe('useColumnSort', () => {
     const [getSort] = result2.current;
     expect(getSort('review')).toBe('id-asc');
     expect(getSort('todo')).toBe('recent');
+  });
+
+  it('setSort with "manual" persists and survives re-mount', () => {
+    const { result, unmount } = renderHook(() => useColumnSort(PROJECT, STATES));
+
+    act(() => {
+      result.current[1]('todo', 'manual');
+    });
+
+    const [getSort] = result.current;
+    expect(getSort('todo')).toBe('manual');
+
+    const writes = localStorageMock.setItem.mock.calls.filter(
+      ([key]) => key === STORAGE_KEY,
+    );
+    const lastWrite = JSON.parse(writes[writes.length - 1][1]) as Record<string, SortMode>;
+    expect(lastWrite).toEqual({ todo: 'manual' });
+
+    unmount();
+
+    const { result: result2 } = renderHook(() => useColumnSort(PROJECT, STATES));
+    const [getSort2] = result2.current;
+    expect(getSort2('todo')).toBe('manual');
   });
 });

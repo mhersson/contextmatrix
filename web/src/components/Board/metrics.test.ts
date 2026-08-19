@@ -39,6 +39,7 @@ describe('deriveMetricsProps', () => {
       stalled: 0,
       todo: 4,
       done: 8,
+      not_planned: 6,
     };
 
     const result = deriveMetricsProps({
@@ -63,7 +64,7 @@ describe('deriveMetricsProps', () => {
     expect(result.stalledSubtasks).toBe(1); // 1 - 0
 
     // openCount: sum of stateCountsParents excluding done/not_planned
-    // in_progress(2) + review(1) + stalled(0) + todo(4) = 7
+    // in_progress(2) + review(1) + stalled(0) + todo(4) = 7; not_planned(6) excluded
     expect(result.openCount).toBe(7);
     expect(result.inReviewCount).toBe(1);
 
@@ -83,6 +84,8 @@ describe('deriveMetricsProps', () => {
       { id: 'A-001', state: 'in_progress', parent: '', title: 't' } as never,
       { id: 'A-002', state: 'review', parent: 'A-001', title: 't' } as never,
       { id: 'A-003', state: 'stalled', parent: '', title: 't' } as never,
+      { id: 'A-004', state: 'done', parent: '', title: 't' } as never,
+      { id: 'A-005', state: 'not_planned', parent: '', title: 't' } as never,
     ];
 
     const result = deriveMetricsProps({
@@ -109,5 +112,9 @@ describe('deriveMetricsProps', () => {
     // shippedToday falls back to cardsCompletedToday when parents missing
     expect(result.shippedTodayParents).toBe(2);
     expect(result.shippedTodaySubtasks).toBeUndefined();
+
+    // openCount (cards-derived): !parent && not terminal - A-001, A-003 only;
+    // A-002 is a subtask, A-004 (done) and A-005 (not_planned) are excluded.
+    expect(result.openCount).toBe(2);
   });
 });
