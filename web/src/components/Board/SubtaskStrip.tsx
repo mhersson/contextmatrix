@@ -8,6 +8,7 @@ interface SubtaskStripProps {
   expanded?: boolean;
   onToggle?: () => void;
   interactive?: boolean;
+  tall?: boolean;
 }
 
 /**
@@ -15,7 +16,7 @@ interface SubtaskStripProps {
  * that subtask's state. Interactive mode is a button that toggles the peek
  * list; static mode renders plain segments (no toggle affordance).
  */
-export function SubtaskStrip({ subtasks, expanded = false, onToggle, interactive = true }: SubtaskStripProps) {
+export function SubtaskStrip({ subtasks, expanded = false, onToggle, interactive = true, tall = false }: SubtaskStripProps) {
   const segments = subtasks.map((s) => (
     <span
       key={s.id}
@@ -35,7 +36,7 @@ export function SubtaskStrip({ subtasks, expanded = false, onToggle, interactive
   return (
     <button
       type="button"
-      className="phase-strip"
+      className={`phase-strip${tall ? ' phase-strip--tall' : ''}`}
       aria-expanded={expanded}
       aria-label={`${subtasks.length} subtask${subtasks.length === 1 ? '' : 's'}`}
       onClick={(e) => { e.stopPropagation(); onToggle?.(); }}

@@ -98,6 +98,20 @@ describe('SubtaskStrip', () => {
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
     expect(container.querySelectorAll('.phase-seg')).toHaveLength(3);
   });
+
+  it('adds phase-strip--tall class when tall prop is true', () => {
+    render(<SubtaskStrip subtasks={three} tall onToggle={vi.fn()} />);
+    const strip = screen.getByRole('button', { name: '3 subtasks' });
+    expect(strip.className).toContain('phase-strip--tall');
+  });
+
+  it('tall prop is silently ignored in static (non-interactive) mode', () => {
+    const { container } = render(<SubtaskStrip subtasks={three} interactive={false} tall />);
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    const div = container.querySelector('.phase-strip');
+    expect(div).toBeInTheDocument();
+    expect(div!.className).not.toContain('phase-strip--tall');
+  });
 });
 
 describe('SubtaskPeekList', () => {

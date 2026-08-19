@@ -96,6 +96,7 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
       subtasks={subtasks!}
       expanded={peekOpen}
       onToggle={() => setPeekChoice(!peekOpen)}
+      tall={!isCollapsed}
     />
   ) : null;
 
