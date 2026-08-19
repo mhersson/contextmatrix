@@ -88,12 +88,14 @@ missing specialty's coverage.
      - If a prior entry has `action="review_completed"`, parse `head=<sha>` from
        its message - this is a working-tree snapshot from the prior pass.
      - Otherwise use the card's `base_branch` if set, else `main`.
-  2. **Compute the review surface:**
-     - Snapshot base: `git diff <sha> --name-only` (working tree vs. snapshot -
-       single command captures the delta).
-     - Branch base: `git diff <base>..HEAD --name-only` plus
-       `git status --porcelain` for working-tree (`M`, `A`, `??`). Union is the
-       surface.
+  2. **Compute the review surface.** `git diff` never lists untracked files
+     and a snapshot never contains them (Step 5), so union both of these on
+     either path:
+     - Snapshot base `git diff <sha> --name-only`, or branch base
+       `git diff <base>..HEAD --name-only`.
+     - `git status --porcelain -uall` for working-tree (`M`, `A`, `??`).
+       `-uall` stops the default from collapsing a new directory into a single
+       `?? dir/` entry that hides every file under it.
   3. `Read` each file directly. Untracked files are in scope.
 - Call `get_card` and `get_subtask_summary` for context.
 - Engage whichever installed specialist skills match your work (their
@@ -118,6 +120,13 @@ Specialist hard constraints:
 - Severity must follow the 4-tier scale below. Use Nits sparingly - only for
   pure polish (spelling, formatting, naming preference) with no functional or
   design impact. When uncertain between Minor and Nit, choose Minor.
+- Never run a command that discards or rewrites working-tree state -
+  `git checkout --`, `git restore`, `git stash`, `git reset`, `git clean`. The
+  tree holds uncommitted work from every sub-agent in the round.
+- To reproduce a finding, copy what you need to a temp directory outside the
+  repo and experiment there. Never create scratch or probe files inside the
+  repo; if you do, delete them before reporting, and never report your own
+  artifacts as findings.
 
 ### Specialist A - Correctness
 
@@ -296,9 +305,9 @@ summary: <one-line summary>
 
 Then capture a working-tree snapshot and call `add_log`:
 
-1. Run `git stash create -u`. If the output is non-empty, that is the snapshot
+1. Run `git stash create`. If the output is non-empty, that is the snapshot
    SHA - skip step 2.
-2. If the output is empty (no uncommitted changes), run `git rev-parse HEAD`.
+2. If the output is empty (no tracked modifications), run `git rev-parse HEAD`.
    That is the snapshot SHA.
 3. Call `add_log`:
 
@@ -310,7 +319,9 @@ add_log(card_id=<parent>, agent_id=<your id>,
 
 Use two separate Bash tool calls for steps 1 and 2. Do not combine them in a
 single call with `&&` or `;`. Never use bare `git stash`, which would reset the
-working tree. `git stash create -u` creates a stash object without touching it.
+working tree. `git stash create` creates a stash object without touching it. It
+records tracked modifications only - it ignores `-u` and never stores untracked
+files, which is why the next round's surface must union `git status`.
 
 Do **not** call `release_card`. Do **not** call `transition_card`.
 
