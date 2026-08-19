@@ -2877,6 +2877,10 @@ textarea {
   cursor: inherit;
   margin: 0;
 }
+.phase-strip--tall {
+  padding: 8px 0;
+  margin: -8px 0 0;
+}
 .phase-seg {
   height: 6px;
   flex: 1;
