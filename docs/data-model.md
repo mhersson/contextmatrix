@@ -23,10 +23,25 @@
    commits, and excludes the card from active agent and open task counts. No
    automatic mechanism ever transitions a card to `not_planned`.
 
+   Terminal states are also absorbing for the multi-step transition walker
+   (`FindShortestPath`, used by `TransitionTo` and so by `complete_task`): a
+   card in `not_planned` leaves it only by a single explicit transition, and no
+   path ever routes *through* `done` or `not_planned` on its way elsewhere.
+   Without this, completing a cancelled card walks it `not_planned` → `todo` →
+   `done` and silently undoes the cancellation. Direct transitions are
+   unaffected, so `not_planned` → `todo` remains the way a human resumes a
+   cancelled card - after which it is an ordinary `todo` card again.
+
 3. **One agent per card.** `POST /api/projects/{project}/cards/{id}/claim` fails
    with 409 if card is already claimed. Only the assigned agent can mutate a
    claimed card - API checks `X-Agent-ID` header against `assigned_agent` and
    returns 403 on mismatch. Unclaimed cards can be mutated by anyone.
+
+   A card in a terminal state (`done` or `not_planned`) cannot be claimed at
+   all: `ClaimCard` returns `ErrCardTerminal` (409). The one exemption is the
+   agent that already holds the claim, because an agent keeps its claim through
+   `done` until `ReleaseCard` flushes its deferred commits - a re-claim there is
+   a heartbeat refresh, not a new agent picking up finished work.
 
 4. **Human identity.** Humans use agent IDs prefixed with `human:` (e.g.,
    `human:alice`). The claim system treats them identically to AI agents. The

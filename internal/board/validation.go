@@ -313,6 +313,14 @@ func (v *Validator) AllowedTransitions(cfg *ProjectConfig, fromState string) []s
 // fromState to toState, using BFS on the transition graph. The returned path
 // excludes fromState but includes toState. Returns an empty slice if fromState
 // equals toState. Returns ErrNoPath if no valid path exists.
+//
+// Terminal states are absorbing for the walk: a card in not_planned leaves it
+// only by the single explicit hop a human drives, and no path ever routes
+// *through* a terminal state on its way somewhere else. Both rules exist
+// because callers walk multi-step paths on the card's behalf - without them,
+// complete_task on a cancelled card silently reopens and finishes it
+// (not_planned -> todo -> done). Direct transitions are unaffected; the single
+// hop out of not_planned is exactly how a human un-cancels a card.
 func (v *Validator) FindShortestPath(cfg *ProjectConfig, fromState, toState string) ([]string, error) {
 	if err := v.ValidateState(cfg, fromState); err != nil {
 		return nil, err
@@ -326,6 +334,22 @@ func (v *Validator) FindShortestPath(cfg *ProjectConfig, fromState, toState stri
 		return nil, nil
 	}
 
+	// not_planned is manual-only: a card resumes work because someone put it
+	// back in todo, never because a walk passed through on its way to done.
+	if fromState == StateNotPlanned {
+		if slices.Contains(v.AllowedTransitions(cfg, fromState), toState) {
+			return []string{toState}, nil
+		}
+
+		return nil, &ValidationError{
+			Err:   ErrNoPath,
+			Field: "state",
+			Value: toState,
+			Message: fmt.Sprintf("no implicit path from %q to %q: move the card to %q first",
+				fromState, toState, StateTodo),
+		}
+	}
+
 	// BFS
 	visited := map[string]string{fromState: ""} // state -> parent
 	queue := []string{fromState}
@@ -336,6 +360,12 @@ func (v *Validator) FindShortestPath(cfg *ProjectConfig, fromState, toState stri
 
 		for _, next := range v.AllowedTransitions(cfg, current) {
 			if _, seen := visited[next]; seen {
+				continue
+			}
+
+			// Reachable as a destination, never as a waypoint: routing through
+			// done or not_planned would finish or cancel the card in passing.
+			if IsTerminalState(next) && next != toState {
 				continue
 			}
 

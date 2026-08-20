@@ -578,3 +578,105 @@ func TestForceReleaseCard_TerminalStateStrayClaim(t *testing.T) {
 	assert.Empty(t, released.AssignedAgent)
 	assert.Equal(t, board.StateDone, released.State, "terminal state must be untouched")
 }
+
+// TestClaimCard_TerminalState pins the invariant the code has always assumed
+// but never enforced: no agent goes to work on a finished card. Claiming a
+// not_planned card is how a cancelled subtask gets picked up and reimplemented.
+func TestClaimCard_TerminalState(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("not_planned card cannot be claimed", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title: "Cancelled by a human", Type: "task", Priority: "medium",
+		})
+		require.NoError(t, err)
+
+		_, err = svc.TransitionTo(ctx, "test-project", card.ID, board.StateNotPlanned)
+		require.NoError(t, err)
+
+		_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-1")
+		require.ErrorIs(t, err, ErrCardTerminal)
+
+		reloaded, err := svc.GetCard(ctx, "test-project", card.ID)
+		require.NoError(t, err)
+		assert.Empty(t, reloaded.AssignedAgent, "refused claim must not land on the card")
+		assert.Equal(t, board.StateNotPlanned, reloaded.State)
+	})
+
+	t.Run("done card cannot be claimed by another agent", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title: "Finished", Type: "task", Priority: "medium",
+		})
+		require.NoError(t, err)
+
+		_, err = svc.TransitionTo(ctx, "test-project", card.ID, board.StateInProgress)
+		require.NoError(t, err)
+		_, err = svc.TransitionTo(ctx, "test-project", card.ID, board.StateDone)
+		require.NoError(t, err)
+
+		_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-2")
+		require.ErrorIs(t, err, ErrCardTerminal)
+
+		reloaded, err := svc.GetCard(ctx, "test-project", card.ID)
+		require.NoError(t, err)
+		assert.Empty(t, reloaded.AssignedAgent)
+	})
+
+	// The holder exemption must key on a claim that actually exists: agent_id
+	// is only length-checked, so an empty one would otherwise match the empty
+	// assigned_agent of an unclaimed terminal card and walk straight through.
+	t.Run("empty agent id cannot claim a terminal card", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title: "Cancelled, unclaimed", Type: "task", Priority: "medium",
+		})
+		require.NoError(t, err)
+
+		_, err = svc.TransitionTo(ctx, "test-project", card.ID, board.StateNotPlanned)
+		require.NoError(t, err)
+
+		_, err = svc.ClaimCard(ctx, "test-project", card.ID, "")
+		require.ErrorIs(t, err, ErrCardTerminal)
+
+		reloaded, err := svc.GetCard(ctx, "test-project", card.ID)
+		require.NoError(t, err)
+		assert.Nil(t, reloaded.LastHeartbeat, "refused claim must not set a heartbeat")
+	})
+
+	// An agent keeps its claim through done so ReleaseCard can flush deferred
+	// commits (see enforceTerminalStateInvariants). A re-claim by that holder is
+	// a heartbeat refresh, not a new agent picking up finished work.
+	t.Run("holder may reclaim its own done card", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title: "Finished by me", Type: "task", Priority: "medium",
+		})
+		require.NoError(t, err)
+
+		_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-1")
+		require.NoError(t, err)
+
+		_, err = svc.TransitionTo(ctx, "test-project", card.ID, board.StateInProgress)
+		require.NoError(t, err)
+
+		done, err := svc.TransitionTo(ctx, "test-project", card.ID, board.StateDone)
+		require.NoError(t, err)
+		require.Equal(t, "agent-1", done.AssignedAgent, "claim is retained through done")
+
+		reclaimed, err := svc.ClaimCard(ctx, "test-project", card.ID, "agent-1")
+		require.NoError(t, err)
+
+		assert.Equal(t, "agent-1", reclaimed.AssignedAgent, "the holder keeps the card")
+		assert.Equal(t, board.StateDone, reclaimed.State, "a re-claim does not move a done card")
+	})
+}

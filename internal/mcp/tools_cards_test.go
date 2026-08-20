@@ -326,3 +326,67 @@ func TestGetCard_SectionsAndIncludeActivityLogCombined(t *testing.T) {
 	assert.Empty(t, got.ActivityLog)
 	assert.Equal(t, card.ID, got.ID, "card id must be preserved")
 }
+
+// parkNotPlanned puts a card in not_planned with the given claim, seeded
+// straight into the store. The default test config has no todo -> not_planned
+// edge, and a live claim on a not_planned card is an anomaly the service layer
+// clears on entry - both are exactly the shapes these regressions need.
+func parkNotPlanned(t *testing.T, env *testEnv, cardID, agentID string) {
+	t.Helper()
+
+	ctx := context.Background()
+
+	card, err := env.store.GetCard(ctx, "test-project", cardID)
+	require.NoError(t, err)
+
+	card.State = board.StateNotPlanned
+	card.AssignedAgent = agentID
+
+	require.NoError(t, env.store.UpdateCard(ctx, "test-project", card))
+}
+
+// TestNotPlannedCardCannotBeWorked is the regression for the reported incident:
+// a human cancelled a subtask, and hours later an agent claimed it, implemented
+// it, and drove it to done via not_planned -> todo -> done. Both halves of that
+// sequence are now refused.
+func TestNotPlannedCardCannotBeWorked(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("claim_card refuses a cancelled card", func(t *testing.T) {
+		env := setupMCP(t)
+
+		card := createTestCard(t, env, "Cancelled subtask", "task", "medium")
+		parkNotPlanned(t, env, card.ID, "")
+
+		result := callTool(t, env, "claim_card", map[string]any{
+			"project":  "test-project",
+			"card_id":  card.ID,
+			"agent_id": "agent-A",
+		})
+		require.True(t, result.IsError, "claiming a not_planned card must fail")
+
+		after, err := env.store.GetCard(ctx, "test-project", card.ID)
+		require.NoError(t, err)
+		assert.Equal(t, board.StateNotPlanned, after.State)
+		assert.Empty(t, after.AssignedAgent)
+	})
+
+	t.Run("complete_task does not walk a cancelled card to done", func(t *testing.T) {
+		env := setupMCP(t)
+
+		card := createTestCard(t, env, "Cancelled subtask with a stray claim", "task", "medium")
+		parkNotPlanned(t, env, card.ID, "agent-A")
+
+		result := callTool(t, env, "complete_task", map[string]any{
+			"project":  "test-project",
+			"card_id":  card.ID,
+			"agent_id": "agent-A",
+			"summary":  "feat: work that was never wanted",
+		})
+		require.True(t, result.IsError, "completing a not_planned card must fail")
+
+		after, err := env.store.GetCard(ctx, "test-project", card.ID)
+		require.NoError(t, err)
+		assert.Equal(t, board.StateNotPlanned, after.State, "the card must not be resurrected")
+	})
+}
