@@ -48,6 +48,9 @@ const AdminGuard = lazy(() =>
 const PlaybooksPage = lazy(() =>
   import('./components/Playbooks/PlaybooksPage').then((m) => ({ default: m.PlaybooksPage }))
 );
+const PlaybookDetailPage = lazy(() =>
+  import('./components/Playbooks/PlaybookDetailPage').then((m) => ({ default: m.PlaybookDetailPage }))
+);
 
 /** Minimal placeholder shown while a lazy-loaded route chunk is being fetched. */
 function AppShellSkeleton() {
@@ -96,6 +99,7 @@ function AppInner() {
                       <Route path="chat" element={<ChatPage />} />
                       <Route path="chat/:id" element={<ChatPage />} />
                       <Route path="playbooks" element={<PlaybooksPage />} />
+                      <Route path="playbooks/:id" element={<PlaybookDetailPage />} />
                       <Route path="admin/users" element={<AdminGuard><AdminUsersPage /></AdminGuard>} />
                       <Route path="admin/credentials" element={<AdminGuard><AdminCredentialsPage /></AdminGuard>} />
                       <Route path="admin/chats" element={<AdminGuard><AdminChatsPage /></AdminGuard>} />

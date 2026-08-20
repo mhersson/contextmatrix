@@ -2119,6 +2119,26 @@ textarea {
   animation: apd-spin 0.9s linear infinite;
 }
 
+/* Playbook entry node - agent-active card pulses aqua to signal it's the
+   entry currently being worked. */
+@keyframes pb-pulse-kf {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--aqua) 45%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+.pb-pulse {
+  animation: pb-pulse-kf 2.2s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pb-pulse {
+    animation: none;
+  }
+}
+
 .apd-section-title {
   font-family: var(--font-sans);
   font-weight: 600;

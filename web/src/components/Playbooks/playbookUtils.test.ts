@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PlaybookEntry, PlaybookSummary } from '../../types';
-import { frontierIndex, isFullyComplete, segmentColor } from './playbookUtils';
+import { arrayMoveLocal, frontierIndex, isFullyComplete, segmentColor } from './playbookUtils';
 
 function entry(complete: boolean): PlaybookEntry {
   return { id: `e-${complete}`, type: 'manual', complete };
@@ -46,5 +46,18 @@ describe('segmentColor', () => {
     ['pending', 'var(--bg2)'],
   ])('%s -> %s', (seg, expected) => {
     expect(segmentColor(seg)).toBe(expected);
+  });
+});
+
+describe('arrayMoveLocal', () => {
+  it('moves an item from one index to another without mutating the input', () => {
+    const input = ['a', 'b', 'c'];
+    const result = arrayMoveLocal(input, 0, 2);
+    expect(result).toEqual(['b', 'c', 'a']);
+    expect(input).toEqual(['a', 'b', 'c']);
+  });
+
+  it('moves an item backward', () => {
+    expect(arrayMoveLocal(['a', 'b', 'c'], 2, 0)).toEqual(['c', 'a', 'b']);
   });
 });
