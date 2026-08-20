@@ -673,6 +673,7 @@ func main() {
 		LLMEndpoint:            llmEndpointFromConfig(cfg.LLMEndpoint),
 		BestOfN:                cfg.BestOfN,
 		Mob:                    cfg.Mob,
+		Playbooks:              pbSvc,
 	}
 	if catalogBuilder != nil && agentAA {
 		routerCfg.Catalog = catalogBuilder

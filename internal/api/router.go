@@ -105,6 +105,12 @@ const (
 	ErrCodeImageAnimated       = "IMAGE_ANIMATED"
 	ErrCodeImageMissingFile    = "IMAGE_MISSING_FILE"
 	ErrCodeImageInvalidPayload = "IMAGE_INVALID_PAYLOAD"
+
+	// Playbooks. NOT_FOUND -> 404 (unknown playbook / entry id).
+	// ENTRY_EXISTS -> 409 (duplicate card entry).
+	ErrCodePlaybookNotFound      = "PLAYBOOK_NOT_FOUND"
+	ErrCodePlaybookEntryNotFound = "PLAYBOOK_ENTRY_NOT_FOUND"
+	ErrCodePlaybookEntryExists   = "PLAYBOOK_ENTRY_EXISTS"
 )
 
 // APIError is the standard error response format.
@@ -227,6 +233,8 @@ type RouterConfig struct {
 	// value disables mob sessions (MaxParticipants 0 → only 0 validates),
 	// matching BestOfN's pre-config.Load-defaults contract.
 	Mob config.MobConfig
+	// Playbooks is optional; playbook routes are registered only when set.
+	Playbooks *service.PlaybookService
 }
 
 // EndpointModelView is the api-package projection of modelcatalog.EndpointModel
@@ -350,6 +358,21 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	mux.HandleFunc("PUT /api/projects/{project}/cards/{id}", ch.updateCard)
 	mux.HandleFunc("PATCH /api/projects/{project}/cards/{id}", ch.patchCard)
 	mux.HandleFunc("DELETE /api/projects/{project}/cards/{id}", ch.deleteCard)
+
+	// Playbook routes - registered only when the playbook subsystem is wired
+	// (see RouterConfig.Playbooks; nil in single-binary configs where the
+	// boards dir cannot host a playbooks/ directory).
+	if cfg.Playbooks != nil {
+		pbh := &playbookHandlers{svc: cfg.Playbooks}
+		mux.HandleFunc("GET /api/playbooks", pbh.list)
+		mux.HandleFunc("POST /api/playbooks", pbh.create)
+		mux.HandleFunc("GET /api/playbooks/{id}", pbh.get)
+		mux.HandleFunc("PATCH /api/playbooks/{id}", pbh.patch)
+		mux.HandleFunc("DELETE /api/playbooks/{id}", pbh.delete)
+		mux.HandleFunc("POST /api/playbooks/{id}/entries", pbh.addEntry)
+		mux.HandleFunc("PATCH /api/playbooks/{id}/entries/{entryId}", pbh.patchEntry)
+		mux.HandleFunc("DELETE /api/playbooks/{id}/entries/{entryId}", pbh.deleteEntry)
+	}
 
 	// Agent routes
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/claim", ah.claimCard)
@@ -1037,6 +1060,10 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusNotFound, ErrCodeCardNotFound, "card not found", "")
 	case errors.Is(err, board.ErrParentNotFound):
 		writeError(w, http.StatusNotFound, ErrCodeParentNotFound, "parent card not found", validationDetails(err))
+	case errors.Is(err, storage.ErrPlaybookNotFound):
+		writeError(w, http.StatusNotFound, ErrCodePlaybookNotFound, "playbook not found", "")
+	case errors.Is(err, service.ErrPlaybookEntryNotFound):
+		writeError(w, http.StatusNotFound, ErrCodePlaybookEntryNotFound, "playbook entry not found", "")
 
 	// --- Conflict sentinels (409) ---
 	case errors.Is(err, storage.ErrProjectExists):
@@ -1057,6 +1084,8 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusConflict, ErrCodeNotClaimed, "card is not claimed", "")
 	case errors.Is(err, service.ErrCardTerminal):
 		writeError(w, http.StatusConflict, ErrCodeInvalidTransition, "card is in a terminal state", sanitizeErrorDetails(err))
+	case errors.Is(err, service.ErrDuplicateCardEntry):
+		writeError(w, http.StatusConflict, ErrCodePlaybookEntryExists, "card already in playbook", sanitizeErrorDetails(err))
 
 	// --- Forbidden sentinels (403) ---
 	case errors.Is(err, service.ErrProtectedBranch):
@@ -1080,6 +1109,8 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid input", sanitizeErrorDetails(err))
 
 	// --- Validation sentinels (422) - mutation body shape/semantics ---
+	case errors.Is(err, service.ErrInvalidPlaybookEntry), errors.Is(err, board.ErrInvalidPlaybook):
+		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "invalid playbook input", sanitizeErrorDetails(err))
 	case errors.Is(err, board.ErrInvalidProjectConfig),
 		errors.Is(err, board.ErrMissingStalledState),
 		errors.Is(err, board.ErrMissingStalledTransitions),
