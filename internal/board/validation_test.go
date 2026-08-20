@@ -640,3 +640,73 @@ func TestValidateWorkerStatus(t *testing.T) {
 		assert.Equal(t, "worker_status", ve.Field)
 	})
 }
+
+// TestFindShortestPath_TerminalStatesAreAbsorbing pins that the path walker
+// never resurrects finished work. A card parked in not_planned leaves it only
+// by the explicit single hop a human drives (rule: from not_planned, only
+// todo); without this, complete_task's walk turns a cancelled card into
+// not_planned -> todo -> done all on its own.
+func TestFindShortestPath_TerminalStatesAreAbsorbing(t *testing.T) {
+	v := NewValidator()
+	cfg := testProjectConfigForValidation()
+
+	tests := []struct {
+		name     string
+		from     string
+		to       string
+		wantPath []string
+		wantErr  error
+	}{
+		{"direct hop out of not_planned is allowed", "not_planned", "todo", []string{"todo"}, nil},
+		{"direct hop to auto-injected stalled is allowed", "not_planned", "stalled", []string{"stalled"}, nil},
+		{"no walk from not_planned to done", "not_planned", "done", nil, ErrNoPath},
+		{"no walk from not_planned to in_progress", "not_planned", "in_progress", nil, ErrNoPath},
+		{"not_planned is still reachable as a target", "todo", "not_planned", []string{"not_planned"}, nil},
+	}
+
+	// The default validation config has no edge into not_planned; add the one
+	// the reported board carries so the target case is exercised.
+	cfg.Transitions["todo"] = []string{"in_progress", "not_planned"}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path, err := v.FindShortestPath(cfg, tt.from, tt.to)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+				assert.Nil(t, path)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantPath, path)
+		})
+	}
+
+	t.Run("a terminal state is never an intermediate hop", func(t *testing.T) {
+		// The only route from in_progress back to todo runs through done.
+		routeThroughDone := &ProjectConfig{
+			Name:       "test",
+			Prefix:     "TEST",
+			States:     []string{"todo", "in_progress", "done", "stalled", "not_planned"},
+			Types:      []string{"task"},
+			Priorities: []string{"low"},
+			Transitions: map[string][]string{
+				"todo":        {"in_progress"},
+				"in_progress": {"done"},
+				"done":        {"todo"},
+				"stalled":     {},
+				"not_planned": {},
+			},
+		}
+
+		path, err := v.FindShortestPath(routeThroughDone, "in_progress", "todo")
+		require.ErrorIs(t, err, ErrNoPath)
+		assert.Nil(t, path)
+
+		// The same terminal state as the target is still reachable.
+		path, err = v.FindShortestPath(routeThroughDone, "todo", "done")
+		require.NoError(t, err)
+		assert.Equal(t, []string{"in_progress", "done"}, path)
+	})
+}

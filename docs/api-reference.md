@@ -207,7 +207,9 @@ otherwise the server generates a UUID. The same id is emitted as the
 - 404: card, project, chat session, or referenced parent not found -
   parent-not-found uses code `PARENT_NOT_FOUND`; also unknown one-time token
   or unknown admin username (`TOKEN_INVALID`, `USER_NOT_FOUND`)
-- 409: conflict (invalid transition, card already claimed, already-running
+- 409: conflict (invalid transition, card already claimed, `POST /claim` on a
+  card in a terminal state - `done` or `not_planned` - by anyone other than the
+  agent already holding the claim, already-running
   worker task → `WORKER_CONFLICT`); also a bootstrap token redeemed after a
   user already exists, or an edit that would leave zero active admins
   (`VALIDATION_ERROR`); also a cold chat session or a broken/unavailable git

@@ -179,7 +179,9 @@ Full detail and examples: `docs/data-model.md`.
 2. **State transitions** - enforced per `.board.yaml` `transitions`; invalid
    → 409.
 3. **One agent per card** - claim required; `X-Agent-ID` must match
-   `assigned_agent` (403 on mismatch).
+   `assigned_agent` (403 on mismatch). A card in a terminal state (`done` /
+   `not_planned`) cannot be claimed (409), except by the agent already holding
+   the claim.
 4. **Human identity** - agent IDs prefixed `human:` (e.g. `human:alice`).
 5. **Every mutation auto-commits** via `GitManager.CommitFile()`.
 6. **Activity log** - append-only, capped at 50 entries per card.
@@ -187,8 +189,10 @@ Full detail and examples: `docs/data-model.md`.
    `stalled` and clears the agent. `stalled` is system-managed.
 8. **`not_planned`** - manual-only; built-in but follows normal transition rules
    (a state reaches it only by listing it in `.board.yaml`). From `not_planned`,
-   only `todo`. Releases the claim, flushes deferred commits, excluded from
-   active-agent and open-task counts.
+   only `todo`, and only as an explicit single transition: terminal states are
+   absorbing for the path walker, so `complete_task` can never resurrect a
+   cancelled card via `not_planned` → `todo` → `done`. Releases the claim,
+   flushes deferred commits, excluded from active-agent and open-task counts.
 9. **External source tracking** - `source` field (Jira/GitHub imports),
    immutable after creation.
 10. **Parent auto-transitions** - parent goes `in_progress` when its first

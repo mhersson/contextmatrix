@@ -54,6 +54,25 @@ func (s *CardService) ClaimCard(ctx context.Context, project, id, agentID string
 		return nil, fmt.Errorf("get card snapshot: %w", err)
 	}
 
+	// A terminal card is finished work - done, or a human's deliberate
+	// not_planned. Claiming one is how a cancelled card gets picked up and
+	// reimplemented, so refuse: it must be moved back to todo first. Checked
+	// under writeMu so a concurrent transition cannot slip past it.
+	//
+	// The holder is exempt: an agent keeps its claim through done until
+	// ReleaseCard flushes deferred commits, and a re-claim there is a heartbeat
+	// refresh rather than a new agent adopting the card. not_planned clears the
+	// claim on entry, so nothing can be exempt in that state. The exemption
+	// requires a claim that actually exists - agent_id is only length-checked,
+	// so an empty one would otherwise match an unclaimed card's empty
+	// assigned_agent.
+	heldByCaller := snapshot.AssignedAgent != "" && snapshot.AssignedAgent == agentID
+	if board.IsTerminalState(snapshot.State) && !heldByCaller {
+		s.writeMu.Unlock()
+
+		return nil, fmt.Errorf("claim card %s in state %s: %w", id, snapshot.State, ErrCardTerminal)
+	}
+
 	// Claim via lock manager (returns modified card)
 	card, err := s.lock.Claim(ctx, project, id, agentID)
 	if err != nil {
