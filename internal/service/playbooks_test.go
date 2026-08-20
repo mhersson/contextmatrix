@@ -88,6 +88,19 @@ func newPlaybookTestEnv(t *testing.T) *playbookTestEnv {
 	return &playbookTestEnv{svc: svc, cards: cards, committer: committer, bus: bus, clk: fake, pushed: &pushed}
 }
 
+// createCard adds an extra card to project-alpha for tests that need more
+// than the fixture's default ALPHA-001.
+func (env *playbookTestEnv) createCard(t *testing.T, id, state string) {
+	t.Helper()
+
+	card := &board.Card{
+		ID: id, Title: id, Project: "project-alpha",
+		Type: "task", State: state, Priority: "medium",
+		Created: time.Now().UTC(), Updated: time.Now().UTC(),
+	}
+	require.NoError(t, env.cards.CreateCard(context.Background(), "project-alpha", card))
+}
+
 func validProjectConfigForPlaybooks() *board.ProjectConfig {
 	return &board.ProjectConfig{
 		Name: "project-alpha", Prefix: "ALPHA", NextID: 2,
@@ -237,4 +250,212 @@ func TestPlaybookService_CommitFailureRollsBack(t *testing.T) {
 	require.NoError(t, listErr)
 	assert.Empty(t, list, "store rolled back after commit failure")
 	assert.Equal(t, 0, *env.pushed)
+}
+
+func TestPlaybookService_ConcurrentMutationsSerialized(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{Title: "Race", AgentID: "human:a"})
+	require.NoError(t, err)
+
+	var wg sync.WaitGroup
+	for range 20 {
+		wg.Go(func() {
+			_, aerr := env.svc.AddEntry(ctx, "race", PlaybookEntryInput{Type: board.EntryTypeManual, Text: "step"}, "human:a")
+			assert.NoError(t, aerr)
+		})
+	}
+
+	wg.Wait()
+
+	detail, err := env.svc.Get(ctx, "race")
+	require.NoError(t, err)
+	assert.Equal(t, 20, detail.Total, "no lost updates")
+
+	seen := map[string]bool{}
+	for _, e := range detail.Entries {
+		assert.False(t, seen[e.ID], "entry IDs unique under concurrency")
+		seen[e.ID] = true
+	}
+}
+
+func TestPlaybookService_AddEntryAppends(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{
+		Title: "Add", AgentID: "human:a",
+		Entries: []PlaybookEntryInput{{Type: board.EntryTypeManual, Text: "first"}},
+	})
+	require.NoError(t, err)
+
+	detail, err := env.svc.AddEntry(ctx, "add", PlaybookEntryInput{Type: board.EntryTypeManual, Text: "second"}, "human:a")
+	require.NoError(t, err)
+	require.Len(t, detail.Entries, 2)
+	assert.Equal(t, "second", detail.Entries[1].Text)
+	assert.Equal(t, "e2", detail.Entries[1].ID)
+}
+
+func TestPlaybookService_EntryIDsNeverReused(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{
+		Title: "IDs", AgentID: "human:a",
+		Entries: []PlaybookEntryInput{{Type: board.EntryTypeManual, Text: "one"}},
+	})
+	require.NoError(t, err)
+
+	_, err = env.svc.RemoveEntry(ctx, "ids", "e1", "human:a")
+	require.NoError(t, err)
+
+	detail, err := env.svc.AddEntry(ctx, "ids", PlaybookEntryInput{Type: board.EntryTypeManual, Text: "two"}, "human:a")
+	require.NoError(t, err)
+	assert.Equal(t, "e2", detail.Entries[0].ID, "deleted e1 is never reused")
+}
+
+func TestPlaybookService_DoneToggle(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{
+		Title: "Done", AgentID: "human:a",
+		Entries: []PlaybookEntryInput{{Type: board.EntryTypeManual, Text: "gate"}},
+	})
+	require.NoError(t, err)
+
+	yes, no := true, false
+
+	detail, err := env.svc.UpdateEntry(ctx, "done", "e1", UpdateEntryInput{Done: &yes}, "human:bob")
+	require.NoError(t, err)
+
+	e := detail.Entries[0]
+	assert.True(t, e.Done)
+	assert.Equal(t, "human:bob", e.DoneBy)
+	require.NotNil(t, e.DoneAt)
+	assert.Equal(t, 1, detail.Complete)
+
+	detail, err = env.svc.UpdateEntry(ctx, "done", "e1", UpdateEntryInput{Done: &no}, "human:bob")
+	require.NoError(t, err)
+
+	e = detail.Entries[0]
+	assert.False(t, e.Done)
+	assert.Empty(t, e.DoneBy, "unchecking clears the stamp")
+	assert.Nil(t, e.DoneAt)
+
+	env.clk.Advance(time.Hour)
+	detail, err = env.svc.UpdateEntry(ctx, "done", "e1", UpdateEntryInput{Done: &yes}, "human:carol")
+	require.NoError(t, err)
+	assert.Equal(t, "human:carol", detail.Entries[0].DoneBy, "re-check restamps from the new caller")
+	require.NotNil(t, detail.Entries[0].DoneAt)
+	assert.Equal(t, time.Date(2026, 8, 20, 10, 0, 0, 0, time.UTC), *detail.Entries[0].DoneAt, "done_at from the advanced clock")
+	assert.Equal(t, time.Date(2026, 8, 20, 10, 0, 0, 0, time.UTC), detail.Updated, "updated_at bumped from the advanced clock")
+}
+
+func TestPlaybookService_UpdateEntryTypeValidation(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{
+		Title: "Types", AgentID: "human:a",
+		Entries: []PlaybookEntryInput{{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"}},
+	})
+	require.NoError(t, err)
+
+	yes := true
+	_, err = env.svc.UpdateEntry(ctx, "types", "e1", UpdateEntryInput{Done: &yes}, "human:a")
+	require.ErrorIs(t, err, ErrInvalidPlaybookEntry, "done on a card entry is invalid")
+
+	text := "nope"
+	_, err = env.svc.UpdateEntry(ctx, "types", "e1", UpdateEntryInput{Text: &text}, "human:a")
+	require.ErrorIs(t, err, ErrInvalidPlaybookEntry, "text on a card entry is invalid")
+
+	note := "notes are fine on both types"
+	detail, err := env.svc.UpdateEntry(ctx, "types", "e1", UpdateEntryInput{Note: &note}, "human:a")
+	require.NoError(t, err)
+	assert.Equal(t, note, detail.Entries[0].Note)
+}
+
+func TestPlaybookService_MoveSemantics(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{
+		Title: "Move", AgentID: "human:a",
+		Entries: []PlaybookEntryInput{
+			{Type: board.EntryTypeManual, Text: "a"},
+			{Type: board.EntryTypeManual, Text: "b"},
+			{Type: board.EntryTypeManual, Text: "c"},
+		},
+	})
+	require.NoError(t, err)
+
+	order := func(d *PlaybookDetail) []string {
+		ids := make([]string, len(d.Entries))
+		for i, e := range d.Entries {
+			ids[i] = e.ID
+		}
+
+		return ids
+	}
+
+	pos := 0 // move e3 to the front
+	detail, err := env.svc.UpdateEntry(ctx, "move", "e3", UpdateEntryInput{Position: &pos}, "human:a")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"e3", "e1", "e2"}, order(detail))
+
+	pos = 99 // beyond end clamps to end
+	detail, err = env.svc.UpdateEntry(ctx, "move", "e3", UpdateEntryInput{Position: &pos}, "human:a")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"e1", "e2", "e3"}, order(detail))
+
+	pos = -1
+	_, err = env.svc.UpdateEntry(ctx, "move", "e1", UpdateEntryInput{Position: &pos}, "human:a")
+	assert.ErrorIs(t, err, ErrInvalidPlaybookEntry, "negative position rejected")
+}
+
+func TestPlaybookService_EntryNotFound(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{Title: "NF", AgentID: "human:a"})
+	require.NoError(t, err)
+
+	_, err = env.svc.RemoveEntry(ctx, "nf", "e9", "human:a")
+	assert.ErrorIs(t, err, ErrPlaybookEntryNotFound)
+}
+
+func TestPlaybookService_ListSegments(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	env.createCard(t, "ALPHA-002", "done")
+	env.createCard(t, "ALPHA-003", "todo")
+
+	card, err := env.cards.GetCard(ctx, "project-alpha", "ALPHA-001")
+	require.NoError(t, err)
+
+	card.State = "in_progress"
+	require.NoError(t, env.cards.UpdateCard(ctx, "project-alpha", card))
+
+	_, err = env.svc.Create(ctx, CreatePlaybookInput{
+		Title: "Segments", AgentID: "human:a",
+		Entries: []PlaybookEntryInput{
+			{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"}, // active
+			{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-002"}, // complete
+			{Type: board.EntryTypeManual, Text: "manual done"},                       // complete, once toggled
+			{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-003"}, // missing, once deleted
+		},
+	})
+	require.NoError(t, err)
+
+	yes := true
+	_, err = env.svc.UpdateEntry(ctx, "segments", "e3", UpdateEntryInput{Done: &yes}, "human:a")
+	require.NoError(t, err)
+
+	require.NoError(t, env.cards.DeleteCard(ctx, "project-alpha", "ALPHA-003"))
+
+	list, err := env.svc.List(ctx)
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+
+	summary := list[0]
+	assert.Equal(t, []string{"active", "complete", "complete", "missing"}, summary.Segments)
+	assert.Equal(t, 2, summary.Complete)
+	assert.Equal(t, 4, summary.Total)
+	assert.Equal(t, 1, summary.Projects, "distinct projects among card entries")
 }

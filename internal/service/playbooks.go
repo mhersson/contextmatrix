@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -66,6 +68,16 @@ type CreatePlaybookInput struct {
 type UpdatePlaybookInput struct {
 	Title       *string
 	Description *string
+}
+
+// UpdateEntryInput patches one playbook entry. Nil fields are left
+// unchanged. Done and Text apply only to manual entries; Note applies to
+// both types; Position moves the entry to that final index in the array.
+type UpdateEntryInput struct {
+	Done     *bool
+	Note     *string
+	Text     *string
+	Position *int
 }
 
 // PlaybookSummary is the list-view projection of a playbook: enough to
@@ -245,6 +257,8 @@ func (s *PlaybookService) Create(ctx context.Context, input CreatePlaybookInput)
 
 	if err := s.enqueueCommit(ctx, p.ID, "created"); err != nil {
 		if rbErr := s.store.Delete(ctx, p.ID); rbErr != nil {
+			slog.Error("playbook rollback after commit failure failed", "playbook", p.ID, "error", rbErr)
+
 			return nil, errors.Join(err, fmt.Errorf("rollback failed: %w", rbErr))
 		}
 
@@ -327,6 +341,8 @@ func (s *PlaybookService) Delete(ctx context.Context, id, agentID string) error 
 
 	if err := s.enqueueCommit(ctx, id, "deleted"); err != nil {
 		if rbErr := s.store.Create(ctx, snapshot); rbErr != nil {
+			slog.Error("playbook rollback after commit failure failed", "playbook", id, "error", rbErr)
+
 			return errors.Join(err, fmt.Errorf("rollback failed: %w", rbErr))
 		}
 
@@ -372,6 +388,8 @@ func (s *PlaybookService) mutate(ctx context.Context, id, action, agentID string
 
 	if err := s.enqueueCommit(ctx, id, action); err != nil {
 		if rbErr := s.store.Save(ctx, snapshot); rbErr != nil {
+			slog.Error("playbook rollback after commit failure failed", "playbook", id, "error", rbErr)
+
 			return nil, errors.Join(err, fmt.Errorf("rollback failed: %w", rbErr))
 		}
 
@@ -459,6 +477,98 @@ func (s *PlaybookService) buildEntry(ctx context.Context, p *board.Playbook, in 
 	p.NextEntryID++
 
 	return &e, nil
+}
+
+// AddEntry appends one new entry to the playbook.
+func (s *PlaybookService) AddEntry(ctx context.Context, id string, in PlaybookEntryInput, agentID string) (*PlaybookDetail, error) {
+	return s.mutate(ctx, id, "add entry", agentID, func(p *board.Playbook) error {
+		e, err := s.buildEntry(ctx, p, in)
+		if err != nil {
+			return err
+		}
+
+		p.Entries = append(p.Entries, *e)
+
+		return nil
+	})
+}
+
+// RemoveEntry deletes one entry from the playbook. The entry's ID is never
+// reused - NextEntryID only ever increments.
+func (s *PlaybookService) RemoveEntry(ctx context.Context, id, entryID, agentID string) (*PlaybookDetail, error) {
+	return s.mutate(ctx, id, "remove entry "+entryID, agentID, func(p *board.Playbook) error {
+		i := p.FindEntry(entryID)
+		if i < 0 {
+			return fmt.Errorf("%w: %s", ErrPlaybookEntryNotFound, entryID)
+		}
+
+		p.Entries = slices.Delete(p.Entries, i, i+1)
+
+		return nil
+	})
+}
+
+// UpdateEntry patches one entry's done/note/text/position. Done and text
+// apply only to manual entries; checking done stamps DoneBy/DoneAt from the
+// caller and clock, unchecking clears both, and re-checking restamps.
+// Position is the entry's final index after removal from the array:
+// negative is rejected, beyond-end clamps to the end.
+func (s *PlaybookService) UpdateEntry(ctx context.Context, id, entryID string, in UpdateEntryInput, agentID string) (*PlaybookDetail, error) {
+	return s.mutate(ctx, id, "update entry "+entryID, agentID, func(p *board.Playbook) error {
+		i := p.FindEntry(entryID)
+		if i < 0 {
+			return fmt.Errorf("%w: %s", ErrPlaybookEntryNotFound, entryID)
+		}
+
+		e := &p.Entries[i]
+
+		if (in.Done != nil || in.Text != nil) && e.Type != board.EntryTypeManual {
+			return fmt.Errorf("%w: done and text apply only to manual entries", ErrInvalidPlaybookEntry)
+		}
+
+		if in.Text != nil {
+			if strings.TrimSpace(*in.Text) == "" {
+				return fmt.Errorf("%w: text must not be empty", ErrInvalidPlaybookEntry)
+			}
+
+			e.Text = *in.Text
+		}
+
+		if in.Done != nil {
+			if *in.Done {
+				e.Done = true
+				e.DoneBy = agentID
+				at := s.clk.Now().UTC().Truncate(time.Second)
+				e.DoneAt = &at
+			} else {
+				e.Done = false
+				e.DoneBy = ""
+				e.DoneAt = nil
+			}
+		}
+
+		if in.Note != nil {
+			e.Note = *in.Note
+		}
+
+		if in.Position != nil {
+			pos := *in.Position
+			if pos < 0 {
+				return fmt.Errorf("%w: position must not be negative", ErrInvalidPlaybookEntry)
+			}
+
+			moved := p.Entries[i]
+			p.Entries = slices.Delete(p.Entries, i, i+1)
+
+			if pos > len(p.Entries) {
+				pos = len(p.Entries)
+			}
+
+			p.Entries = slices.Insert(p.Entries, pos, moved)
+		}
+
+		return nil
+	})
 }
 
 // resolve turns a stored playbook into its API-facing detail: each card
