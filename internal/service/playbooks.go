@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"slices"
 	"strings"
 	"sync"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/clock"
+	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/gitops"
 	"github.com/mhersson/contextmatrix/internal/storage"
@@ -257,7 +257,7 @@ func (s *PlaybookService) Create(ctx context.Context, input CreatePlaybookInput)
 
 	if err := s.enqueueCommit(ctx, p.ID, "created"); err != nil {
 		if rbErr := s.store.Delete(ctx, p.ID); rbErr != nil {
-			slog.Error("playbook rollback after commit failure failed", "playbook", p.ID, "error", rbErr)
+			ctxlog.Logger(ctx).Error("playbook rollback after commit failure failed", "playbook", p.ID, "error", rbErr)
 
 			return nil, errors.Join(err, fmt.Errorf("rollback failed: %w", rbErr))
 		}
@@ -341,7 +341,7 @@ func (s *PlaybookService) Delete(ctx context.Context, id, agentID string) error 
 
 	if err := s.enqueueCommit(ctx, id, "deleted"); err != nil {
 		if rbErr := s.store.Create(ctx, snapshot); rbErr != nil {
-			slog.Error("playbook rollback after commit failure failed", "playbook", id, "error", rbErr)
+			ctxlog.Logger(ctx).Error("playbook rollback after commit failure failed", "playbook", id, "error", rbErr)
 
 			return errors.Join(err, fmt.Errorf("rollback failed: %w", rbErr))
 		}
@@ -388,7 +388,7 @@ func (s *PlaybookService) mutate(ctx context.Context, id, action, agentID string
 
 	if err := s.enqueueCommit(ctx, id, action); err != nil {
 		if rbErr := s.store.Save(ctx, snapshot); rbErr != nil {
-			slog.Error("playbook rollback after commit failure failed", "playbook", id, "error", rbErr)
+			ctxlog.Logger(ctx).Error("playbook rollback after commit failure failed", "playbook", id, "error", rbErr)
 
 			return nil, errors.Join(err, fmt.Errorf("rollback failed: %w", rbErr))
 		}
