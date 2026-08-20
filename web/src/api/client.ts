@@ -29,6 +29,12 @@ import type {
   CredentialInfo,
   CreateCredentialInput,
   ModelOutcomeStats,
+  PlaybookSummary,
+  PlaybookDetail,
+  CreatePlaybookInput,
+  PatchPlaybookInput,
+  NewPlaybookEntry,
+  PatchPlaybookEntryInput,
 } from '../types';
 
 const BASE_URL = '/api';
@@ -590,6 +596,58 @@ class APIClient {
     }
 
     return response.json();
+  }
+
+  // Playbooks
+  async listPlaybooks(): Promise<PlaybookSummary[]> {
+    return this.request<PlaybookSummary[]>('/playbooks');
+  }
+
+  async createPlaybook(input: CreatePlaybookInput): Promise<PlaybookDetail> {
+    return this.request<PlaybookDetail>('/playbooks', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  }
+
+  async getPlaybook(id: string): Promise<PlaybookDetail> {
+    return this.request<PlaybookDetail>(`/playbooks/${encodeURIComponent(id)}`);
+  }
+
+  async patchPlaybook(id: string, input: PatchPlaybookInput): Promise<PlaybookDetail> {
+    return this.request<PlaybookDetail>(`/playbooks/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    });
+  }
+
+  async deletePlaybook(id: string): Promise<void> {
+    return this.request<void>(`/playbooks/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  }
+
+  async addPlaybookEntry(id: string, entry: NewPlaybookEntry): Promise<PlaybookDetail> {
+    return this.request<PlaybookDetail>(`/playbooks/${encodeURIComponent(id)}/entries`, {
+      method: 'POST',
+      body: JSON.stringify(entry),
+    });
+  }
+
+  async patchPlaybookEntry(
+    id: string,
+    entryId: string,
+    input: PatchPlaybookEntryInput
+  ): Promise<PlaybookDetail> {
+    return this.request<PlaybookDetail>(
+      `/playbooks/${encodeURIComponent(id)}/entries/${encodeURIComponent(entryId)}`,
+      { method: 'PATCH', body: JSON.stringify(input) }
+    );
+  }
+
+  async deletePlaybookEntry(id: string, entryId: string): Promise<PlaybookDetail> {
+    return this.request<PlaybookDetail>(
+      `/playbooks/${encodeURIComponent(id)}/entries/${encodeURIComponent(entryId)}`,
+      { method: 'DELETE' }
+    );
   }
 }
 

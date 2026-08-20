@@ -45,6 +45,9 @@ const AdminModelSelectionPage = lazy(() =>
 const AdminGuard = lazy(() =>
   import('./components/Admin').then((m) => ({ default: m.AdminGuard }))
 );
+const PlaybooksPage = lazy(() =>
+  import('./components/Playbooks/PlaybooksPage').then((m) => ({ default: m.PlaybooksPage }))
+);
 
 /** Minimal placeholder shown while a lazy-loaded route chunk is being fetched. */
 function AppShellSkeleton() {
@@ -92,6 +95,7 @@ function AppInner() {
                       <Route path="all" element={<AllProjectsDashboard onNewProject={() => setNewProjectOpen(true)} />} />
                       <Route path="chat" element={<ChatPage />} />
                       <Route path="chat/:id" element={<ChatPage />} />
+                      <Route path="playbooks" element={<PlaybooksPage />} />
                       <Route path="admin/users" element={<AdminGuard><AdminUsersPage /></AdminGuard>} />
                       <Route path="admin/credentials" element={<AdminGuard><AdminCredentialsPage /></AdminGuard>} />
                       <Route path="admin/chats" element={<AdminGuard><AdminChatsPage /></AdminGuard>} />
