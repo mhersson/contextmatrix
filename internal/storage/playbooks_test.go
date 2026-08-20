@@ -194,3 +194,59 @@ func TestPlaybookStore_GuardsProjectCollision(t *testing.T) {
 	_, err := NewFilesystemPlaybookStore(dir)
 	assert.ErrorIs(t, err, ErrPlaybooksDirIsProject)
 }
+
+func TestPlaybookStore_CreatePathTraversal(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewFilesystemPlaybookStore(dir)
+	require.NoError(t, err)
+
+	err = store.Create(context.Background(), testPlaybook("../../../evil"))
+	require.ErrorIs(t, err, ErrInvalidPath)
+
+	// Nothing was written outside the playbooks directory.
+	_, statErr := os.Stat(filepath.Join(dir, "..", "..", "evil.yaml"))
+	assert.True(t, os.IsNotExist(statErr))
+}
+
+func TestPlaybookStore_SavePathTraversal(t *testing.T) {
+	// Save checks the index before it ever builds a path, so an id that was
+	// never legitimately created (path traversal can never enter the index -
+	// Create validates it and loadIndex only accepts ids that pass
+	// board.Playbook.Validate) is rejected as not-found rather than reaching
+	// path validation. This mirrors TestFilesystemStore_DeleteProject_PathTraversal:
+	// the index lookup is itself a guard against arbitrary ids reaching disk.
+	dir := t.TempDir()
+	store, err := NewFilesystemPlaybookStore(dir)
+	require.NoError(t, err)
+
+	err = store.Save(context.Background(), testPlaybook("../../../evil"))
+	require.ErrorIs(t, err, ErrPlaybookNotFound)
+
+	// Defense-in-depth: path() itself also refuses the id, so even a future
+	// bug that lets a bad id slip into the index cannot reach atomicWriteFile.
+	store.mu.Lock()
+	store.playbooks["../../../evil"] = testPlaybook("../../../evil")
+	store.mu.Unlock()
+
+	err = store.Save(context.Background(), testPlaybook("../../../evil"))
+	assert.ErrorIs(t, err, ErrInvalidPath)
+}
+
+func TestPlaybookStore_DeletePathTraversal(t *testing.T) {
+	// Same shape as Save: the index lookup already guards Delete against an
+	// id that was never legitimately indexed. path()'s own validation is
+	// exercised the same way, by poisoning the index directly.
+	dir := t.TempDir()
+	store, err := NewFilesystemPlaybookStore(dir)
+	require.NoError(t, err)
+
+	err = store.Delete(context.Background(), "../../../evil")
+	require.ErrorIs(t, err, ErrPlaybookNotFound)
+
+	store.mu.Lock()
+	store.playbooks["../../../evil"] = testPlaybook("../../../evil")
+	store.mu.Unlock()
+
+	err = store.Delete(context.Background(), "../../../evil")
+	assert.ErrorIs(t, err, ErrInvalidPath)
+}

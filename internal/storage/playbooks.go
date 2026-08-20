@@ -59,8 +59,14 @@ func (s *FilesystemPlaybookStore) dir() string {
 	return filepath.Join(s.boardsDir, playbooksDirName)
 }
 
-func (s *FilesystemPlaybookStore) path(id string) string {
-	return filepath.Join(s.dir(), id+".yaml")
+// path returns the filesystem path for a playbook id after validating that
+// the id cannot escape the playbooks directory (mirrors FilesystemStore.cardPath).
+func (s *FilesystemPlaybookStore) path(id string) (string, error) {
+	if err := validatePathComponent(id); err != nil {
+		return "", fmt.Errorf("playbook id: %w", err)
+	}
+
+	return filepath.Join(s.dir(), id+".yaml"), nil
 }
 
 // loadIndex reads every non-dotfile *.yaml in playbooks/. Callers must hold
@@ -183,7 +189,10 @@ func (s *FilesystemPlaybookStore) Create(ctx context.Context, p *board.Playbook)
 		return ErrPlaybookExists
 	}
 
-	filePath := s.path(p.ID)
+	filePath, err := s.path(p.ID)
+	if err != nil {
+		return err
+	}
 
 	if _, err := os.Stat(filePath); err == nil {
 		return ErrPlaybookExists
@@ -223,12 +232,17 @@ func (s *FilesystemPlaybookStore) Save(ctx context.Context, p *board.Playbook) e
 		return ErrPlaybookNotFound
 	}
 
+	filePath, err := s.path(p.ID)
+	if err != nil {
+		return err
+	}
+
 	data, err := board.SerializePlaybook(p)
 	if err != nil {
 		return fmt.Errorf("serialize playbook: %w", err)
 	}
 
-	if err := atomicWriteFile(s.path(p.ID), data); err != nil {
+	if err := atomicWriteFile(filePath, data); err != nil {
 		return fmt.Errorf("write playbook file: %w", err)
 	}
 
@@ -250,7 +264,12 @@ func (s *FilesystemPlaybookStore) Delete(ctx context.Context, id string) error {
 		return ErrPlaybookNotFound
 	}
 
-	if err := os.Remove(s.path(id)); err != nil && !os.IsNotExist(err) {
+	filePath, err := s.path(id)
+	if err != nil {
+		return err
+	}
+
+	if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove playbook file: %w", err)
 	}
 
