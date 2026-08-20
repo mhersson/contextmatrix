@@ -727,6 +727,56 @@ func TestPushListener_SurvivesPanic(t *testing.T) {
 	assert.GreaterOrEqual(t, callCount, 2, "pushHook must have been called at least twice")
 }
 
+// fakePlaybookSync records the interaction ordering pullRebase must honor.
+type fakePlaybookSync struct {
+	mu    sync.Mutex
+	calls []string
+}
+
+func (f *fakePlaybookSync) record(s string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.calls = append(f.calls, s)
+}
+
+func (f *fakePlaybookSync) LockWrites()   { f.record("lock") }
+func (f *fakePlaybookSync) UnlockWrites() { f.record("unlock") }
+func (f *fakePlaybookSync) Reload(context.Context) error {
+	f.record("reload")
+
+	return nil
+}
+
+// TestPullRebase_QuiescesAndReloadsPlaybooks verifies that a pull which
+// brings in new upstream commits locks playbook writes for the whole
+// pull+rebase+reload window and reloads the playbook index afterwards.
+func TestPullRebase_QuiescesAndReloadsPlaybooks(t *testing.T) {
+	syncer, upstream, _, _ := setupSyncTest(t)
+	ctx := context.Background()
+
+	// Make a commit on upstream via a second clone, mirroring
+	// TestPullRebase_NewUpstreamCommits, so the syncer's clone is behind and
+	// pullRebase takes the rebase+reload path rather than the up-to-date
+	// short-circuit.
+	clone2 := filepath.Join(t.TempDir(), "clone2")
+	run(t, "", "git", "clone", upstream, clone2)
+	run(t, clone2, "git", "config", "user.email", "test@test.com")
+	run(t, clone2, "git", "config", "user.name", "Test")
+	require.NoError(t, os.WriteFile(filepath.Join(clone2, "remote.txt"), []byte("remote"), 0o644))
+	run(t, clone2, "git", "add", "-A")
+	run(t, clone2, "git", "commit", "-m", "remote commit")
+	run(t, clone2, "git", "push", "origin", "HEAD")
+
+	fake := &fakePlaybookSync{}
+	syncer.SetPlaybooks(fake)
+
+	require.NoError(t, syncer.PullOnStartup(ctx))
+
+	require.Equal(t, []string{"lock", "reload", "unlock"}, fake.calls,
+		"playbook writes must be locked for the whole pull+rebase+reload window")
+}
+
 func gitopsTestProvider(t testing.TB) githubauth.TokenGenerator {
 	t.Helper()
 

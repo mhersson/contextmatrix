@@ -183,7 +183,10 @@ export type EventType =
   | 'worker.triggered'
   | 'worker.started'
   | 'worker.failed'
-  | 'worker.killed';
+  | 'worker.killed'
+  | 'playbook.created'
+  | 'playbook.updated'
+  | 'playbook.deleted';
 
 export interface SyncStatus {
   last_sync_time: string | null;
@@ -662,6 +665,76 @@ export interface ModelCatalogResponse {
   // endpoint's served list; 'none' = no catalog builder configured server-side.
   source: 'openrouter' | 'endpoint' | 'none';
   models: ModelCatalogEntry[];
+}
+
+// Playbooks - a checklist of card and manual entries tracked across
+// projects. Progress and per-entry state derive from live card state on the
+// server, so the summary segments must be refetched on card.* events too.
+export type PlaybookSegment = 'complete' | 'active' | 'missing' | 'pending';
+
+export interface PlaybookEntry {
+  id: string;
+  type: 'card' | 'manual';
+  project?: string;
+  card?: string;
+  text?: string;
+  done?: boolean;
+  done_by?: string;
+  done_at?: string;
+  note?: string;
+  card_title?: string;
+  card_state?: string;
+  card_assigned_agent?: string;
+  missing?: boolean;
+  complete: boolean;
+}
+
+export interface PlaybookSummary {
+  id: string;
+  title: string;
+  complete: number;
+  total: number;
+  segments: PlaybookSegment[];
+  projects: number;
+  updated_at: string;
+}
+
+export interface PlaybookDetail {
+  id: string;
+  title: string;
+  description?: string;
+  created_by?: string;
+  created_at: string;
+  updated_at: string;
+  complete: number;
+  total: number;
+  entries: PlaybookEntry[];
+}
+
+export interface NewPlaybookEntry {
+  type: 'card' | 'manual';
+  project?: string;
+  card?: string;
+  text?: string;
+  note?: string;
+}
+
+export interface CreatePlaybookInput {
+  title: string;
+  description?: string;
+  entries?: NewPlaybookEntry[];
+}
+
+export interface PatchPlaybookInput {
+  title?: string;
+  description?: string;
+}
+
+export interface PatchPlaybookEntryInput {
+  done?: boolean;
+  note?: string;
+  text?: string;
+  position?: number;
 }
 
 export interface ChatSessionUpdate {

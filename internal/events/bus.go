@@ -26,6 +26,12 @@ const (
 	ProjectUpdated    EventType = "project.updated"
 	ProjectDeleted    EventType = "project.deleted"
 
+	// Playbook events. Published with empty Project so they pass every
+	// SSE project filter (playbooks are global).
+	PlaybookCreated EventType = "playbook.created"
+	PlaybookUpdated EventType = "playbook.updated"
+	PlaybookDeleted EventType = "playbook.deleted"
+
 	SyncStarted   EventType = "sync.started"
 	SyncCompleted EventType = "sync.completed"
 	SyncConflict  EventType = "sync.conflict"

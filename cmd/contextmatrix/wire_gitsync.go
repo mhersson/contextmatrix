@@ -23,6 +23,7 @@ func wireGitSync(
 	gitMgr *gitops.Manager,
 	store *storage.FilesystemStore,
 	svc *service.CardService,
+	pbSvc *service.PlaybookService,
 	bus *events.Bus,
 ) *gitsync.Syncer {
 	if !gitMgr.HasRemote() {
@@ -37,12 +38,22 @@ func wireGitSync(
 		return nil
 	}
 
+	// SetPlaybooks must run before PullOnStartup so the initial pull already
+	// quiesces and reloads the playbook index, not just later periodic pulls.
+	if pbSvc != nil {
+		syncer.SetPlaybooks(pbSvc)
+	}
+
 	if err := syncer.PullOnStartup(ctx); err != nil {
 		slog.Warn("initial pull failed", "error", err)
 	}
 
 	if cfg.Boards.GitAutoPush {
 		svc.SetOnCommit(syncer.NotifyCommit)
+
+		if pbSvc != nil {
+			pbSvc.SetOnCommit(syncer.NotifyCommit)
+		}
 	}
 
 	syncer.Start(ctx)

@@ -244,6 +244,27 @@ func main() {
 	svc.SetCommitQueue(commitQueue)
 	slog.Info("commit queue initialized")
 
+	// Initialize the playbook store and service. A pre-existing project
+	// named "playbooks" in the boards repo collides with the playbooks
+	// directory, so the subsystem is disabled (pbSvc stays nil) rather than
+	// failing startup - renaming that project is an operator decision.
+	var pbSvc *service.PlaybookService
+
+	pbStore, err := storage.NewFilesystemPlaybookStore(cfg.Boards.Dir)
+
+	switch {
+	case errors.Is(err, storage.ErrPlaybooksDirIsProject):
+		slog.Error("playbooks disabled: a project named \"playbooks\" exists in the boards repo; rename that project to enable playbooks")
+	case err != nil:
+		slog.Error("failed to create playbook store", "error", err)
+		os.Exit(1)
+	default:
+		pbSvc = service.NewPlaybookService(pbStore, store, bus, lockMgr.Clock(), cfg.Boards.GitAutoCommit)
+		pbSvc.SetCommitQueue(commitQueue)
+
+		slog.Info("playbook service initialized")
+	}
+
 	// Create context for background tasks
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -267,7 +288,7 @@ func main() {
 	svc.StartTimeoutChecker(ctx, stalledTick)
 
 	// Initialize git sync
-	syncer := wireGitSync(ctx, cfg, git, store, svc, bus)
+	syncer := wireGitSync(ctx, cfg, git, store, svc, pbSvc, bus)
 
 	// Multi-user auth: master key, auth.db, service, bootstrap link, janitor.
 	// In auth.mode "none" every one of these stays nil/off and the router
@@ -594,6 +615,7 @@ func main() {
 		Outcomes:          opStore,
 		Bus:               bus,
 		AwaitMax:          awaitMax,
+		Playbooks:         pbSvc,
 	})
 
 	mcpHandler := mcpserver.NewHandler(mcpSrv, cfg.MCPAPIKey)
@@ -652,6 +674,7 @@ func main() {
 		LLMEndpoint:            llmEndpointFromConfig(cfg.LLMEndpoint),
 		BestOfN:                cfg.BestOfN,
 		Mob:                    cfg.Mob,
+		Playbooks:              pbSvc,
 	}
 	if catalogBuilder != nil && agentAA {
 		routerCfg.Catalog = catalogBuilder

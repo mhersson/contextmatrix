@@ -42,6 +42,8 @@ type ServerConfig struct {
 	// AwaitMax caps how long a single await_subtasks call may block. Zero
 	// takes the built-in default.
 	AwaitMax time.Duration
+	// Playbooks is optional; playbook tools are registered only when set.
+	Playbooks *service.PlaybookService
 }
 
 // NewServer creates a configured MCP server with all tools and prompts registered.
@@ -63,6 +65,7 @@ func NewServer(cfg ServerConfig) *mcp.Server {
 		Outcomes:          cfg.Outcomes,
 		Bus:               cfg.Bus,
 		AwaitMax:          cfg.AwaitMax,
+		Playbooks:         cfg.Playbooks,
 	})
 	registerPrompts(server, cfg.Service, cfg.WorkflowSkillsDir)
 

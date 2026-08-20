@@ -116,6 +116,12 @@ func (s *CardService) CreateProject(ctx context.Context, input CreateProjectInpu
 		input.Name = slugifyDisplayName(input.DisplayName)
 	}
 
+	// "playbooks" is the reserved top-level directory for cross-project
+	// playbooks; a project with that name would collide with it on disk.
+	if strings.EqualFold(input.Name, "playbooks") {
+		return nil, fmt.Errorf("%w: %q is a reserved name", storage.ErrInvalidInput, input.Name)
+	}
+
 	if !validProjectName.MatchString(input.Name) {
 		return nil, fmt.Errorf("invalid project name %q: must be alphanumeric with hyphens/underscores: %w", input.Name, board.ErrInvalidProjectConfig)
 	}

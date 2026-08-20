@@ -60,6 +60,19 @@ type Syncer struct {
 	// when set. Used in tests to inject panics or controlled errors.
 	pullHook func(ctx context.Context, trigger string) error
 	pushHook func(ctx context.Context) error
+
+	// playbooks quiesces playbook writes during pull+rebase and reloads the
+	// playbook index afterwards. Nil when the playbooks subsystem is
+	// disabled.
+	playbooks playbookSync
+}
+
+// playbookSync is the slice of PlaybookService the syncer needs: quiesce
+// writes during pull+rebase and reload the index afterwards.
+type playbookSync interface {
+	LockWrites()
+	UnlockWrites()
+	Reload(ctx context.Context) error
 }
 
 // NewSyncer creates a new Syncer. Returns nil if the repository has no remote
@@ -110,6 +123,12 @@ func (s *Syncer) SetClock(c clock.Clock) {
 	}
 
 	s.clk = c
+}
+
+// SetPlaybooks wires the playbook service in. Must be called before Start.
+// Nil (subsystem disabled) leaves sync behavior unchanged.
+func (s *Syncer) SetPlaybooks(p playbookSync) {
+	s.playbooks = p
 }
 
 // PullOnStartup performs an initial pull+rebase. Errors are returned but
@@ -199,6 +218,17 @@ func (s *Syncer) pullRebase(ctx context.Context, trigger string) error {
 		Data:      map[string]any{"trigger": trigger},
 	})
 
+	// The playbook lock MUST be acquired before the card lock. Card
+	// LockWrites pauses the shared commit queue, and a playbook mutation
+	// holds its write mutex while awaiting its queued commit - queue
+	// Pause/AwaitIdle do not drain buffered jobs, so locking in the other
+	// order deadlocks against a mutation enqueued around the pause. No
+	// ABBA risk: playbook mutations never take the card mutex.
+	if s.playbooks != nil {
+		s.playbooks.LockWrites()
+		defer s.playbooks.UnlockWrites()
+	}
+
 	// Lock writes to prevent mutations during pull+rebase+index rebuild.
 	s.svc.LockWrites()
 	defer s.svc.UnlockWrites()
@@ -285,6 +315,16 @@ func (s *Syncer) pullRebase(ctx context.Context, trigger string) error {
 		s.publishError(trigger, err)
 
 		return fmt.Errorf("reload index after pull: %w", err)
+	}
+
+	if s.playbooks != nil {
+		if err := s.playbooks.Reload(ctx); err != nil {
+			wrapped := fmt.Errorf("reload playbooks after pull: %w", err)
+			s.setError(wrapped)
+			s.publishError(trigger, wrapped)
+
+			return wrapped
+		}
 	}
 
 	// Clear cached validators/configs/templates.

@@ -393,6 +393,18 @@ and commit completion. The service layer closes that gap on failure:
   field (wired via `SetChatCostSummarizer`) that, when non-nil, is called on each
   `GetDashboard` invocation to append server-wide chat-cost aggregates to the
   per-project `DashboardData` payload.
+- **PlaybookService** (`service.PlaybookService`): orchestrates playbook
+  CRUD, mirroring `CardService`'s store/git/events/clock composition but
+  scoped to the global `playbooks` partition rather than a per-project board.
+  A service-level write mutex serializes all mutations (the store's
+  `RWMutex` protects the index, not a read-modify-write cycle). Commits ride
+  the same `CommitQueue` under the reserved partition key `playbooks`, so
+  they get a dedicated serialized worker with no queue changes; commits are
+  pushed via the same `onCommit` callback wiring as `CardService`, so a
+  playbook commit is not left sitting unpushed until an unrelated card
+  mutation. `LockWrites`/`UnlockWrites` let the syncer quiesce playbook
+  writes during a pull+rebase - see gitsync Syncer below for the lock
+  ordering this requires.
 - **Session Log Manager** (`backend/sessionlog.Manager`): server-side per-card
   SSE buffer and fan-out hub. Keeps a single long-lived authenticated upstream
   connection to the backend per active card, tees events into a bounded ring
@@ -566,7 +578,14 @@ and commit completion. The service layer closes that gap on failure:
   commit (when `boards.git_auto_push` is enabled). Coordinates with the service
   layer through `LockWrites`/`UnlockWrites` and with the commit queue through
   `Pause`/`Resume`/`AwaitIdle` so rebases never race against in-flight go-git
-  commits.
+  commits. When the playbook subsystem is wired in, the syncer also quiesces
+  `PlaybookService` for the pull+rebase+reload window and reloads its index
+  afterwards. Lock order is load-bearing: the playbook lock is acquired
+  **before** the card lock. A playbook mutation holds its write mutex while
+  awaiting its queued commit, and `CardService.LockWrites` pauses that same
+  shared commit queue - taking the card lock first would deadlock the sync
+  against a playbook mutation enqueued around the pause. The reverse order is
+  safe because playbook mutations never take the card mutex.
 - **GitHub integration** (`github`): three pieces - `client.go` (HTTP client for
   GitHub REST API used during issue import / branch listing), `parse.go` (issue
   → card mapping rules), `syncer.go` (per-project import loop driven by
@@ -677,4 +696,17 @@ project-beta/
   .board.yaml
   templates/
   tasks/
+playbooks/
+  alpha-rollout.yaml
+  beta-launch.yaml
 ```
+
+`playbooks/` is a reserved top-level directory, not a project -
+`board.DiscoverProjects` skips any directory without a `.board.yaml`, so it is
+invisible to project discovery. `CreateProject` rejects a project named
+`playbooks` (case-insensitive). Because that name was legal before the
+playbook subsystem existed, startup guards the collision: if
+`<boards.dir>/playbooks/.board.yaml` is present (a pre-existing project
+literally named `playbooks`), the playbook subsystem is disabled - no REST
+routes or MCP tools are registered - with a logged error naming the
+rename-the-project migration, and the rest of the server starts normally.

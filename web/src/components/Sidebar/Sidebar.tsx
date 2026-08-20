@@ -133,6 +133,21 @@ export function Sidebar({ onNewProject, onNewChat, mobileOpen = false, onMobileC
           )}
         </NavLink>
 
+        <NavLink to="/playbooks" className="block" onClick={mobileOpen ? onMobileClose : undefined}>
+          {({ isActive }) => (
+            <div
+              className="px-3 py-2 rounded text-sm transition-colors"
+              style={{
+                backgroundColor: isActive ? 'var(--bg2)' : 'transparent',
+                color: isActive ? 'var(--fg)' : 'var(--grey2)',
+              }}
+              aria-current={isActive ? 'page' : undefined}
+            >
+              Playbooks
+            </div>
+          )}
+        </NavLink>
+
         <div className="my-2 border-t" style={{ borderColor: 'var(--bg3)' }} />
 
         {sortedProjects.map((p, i) => (
