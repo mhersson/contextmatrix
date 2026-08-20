@@ -1,3 +1,4 @@
+import { Link } from 'react-router';
 import type { PlaybookDetail, PlaybookSegment } from '../../types';
 import { SegmentedProgress } from './SegmentedProgress';
 
@@ -26,7 +27,9 @@ export function PlaybookDetailHeader({
 }: PlaybookDetailHeaderProps) {
   return (
     <>
-      <p className="font-mono text-xs" style={{ color: 'var(--grey1)' }}>playbooks / {detail.id}</p>
+      <p className="font-mono text-xs" style={{ color: 'var(--grey1)' }}>
+        <Link to="/playbooks" style={{ color: 'inherit' }}>playbooks</Link> / {detail.id}
+      </p>
 
       {editingTitle ? (
         <input

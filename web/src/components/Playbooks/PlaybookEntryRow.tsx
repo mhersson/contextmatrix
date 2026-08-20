@@ -3,6 +3,7 @@ import { Link } from 'react-router';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import type { PlaybookEntry } from '../../types';
+import { formatRelativeTime } from '../CardPanel/utils';
 import { entryStateChip, projectColor } from './playbookUtils';
 import { EntryNode } from './EntryNode';
 import { PlaybookEntryNote } from './PlaybookEntryNote';
@@ -105,7 +106,8 @@ export function PlaybookEntryRowView({
 
           {entry.type === 'manual' && entry.complete && (entry.done_by || entry.done_at) && (
             <span className="text-[10px]" style={{ color: 'var(--grey0)' }}>
-              {entry.done_by}{entry.done_by && entry.done_at ? ' · ' : ''}{entry.done_at}
+              {entry.done_by}{entry.done_by && entry.done_at ? ' · ' : ''}
+              {entry.done_at && formatRelativeTime(entry.done_at)}
             </span>
           )}
         </div>

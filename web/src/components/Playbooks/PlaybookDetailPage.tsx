@@ -10,6 +10,7 @@ import { arrayMoveLocal, persistReorder } from './playbookUtils';
 import { PlaybookDetailHeader } from './PlaybookDetailHeader';
 import { PlaybookEntryList } from './PlaybookEntryList';
 import { AddEntryComposer } from './AddEntryComposer';
+import { PlaybooksBar } from './PlaybooksBar';
 
 // Progress segments derive from live card state, not a stored field, so they
 // stay in sync with card.* events that only trigger a refetch.
@@ -50,7 +51,7 @@ export function PlaybookDetailPage() {
   );
 
   const applyPatch = useCallback((promise: Promise<PlaybookDetail>) => {
-    promise.then(setDetail).catch(() => { showToast('Update failed', 'error'); fetchDetail(); });
+    return promise.then(setDetail).catch(() => { showToast('Update failed', 'error'); fetchDetail(); });
   }, [showToast, fetchDetail]);
 
   const handleToggleDone = useCallback((entryId: string, done: boolean) => {
@@ -75,7 +76,7 @@ export function PlaybookDetailPage() {
 
   const handleAdd = useCallback(async (entry: NewPlaybookEntry) => {
     if (!detail) return;
-    applyPatch(api.addPlaybookEntry(detail.id, entry));
+    await applyPatch(api.addPlaybookEntry(detail.id, entry));
   }, [detail, applyPatch]);
 
   const handleDragEnd = useCallback((event: DragEndEvent) => {
@@ -133,6 +134,7 @@ export function PlaybookDetailPage() {
 
   return (
     <div className="h-full overflow-y-auto">
+      <PlaybooksBar />
       <div className="p-6 max-w-3xl mx-auto">
         <PlaybookDetailHeader
           detail={detail}

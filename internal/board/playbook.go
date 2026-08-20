@@ -152,6 +152,11 @@ func (p *Playbook) HasCardEntry(project, card string) bool {
 	return false
 }
 
+// maxSlugLength caps the derived slug so it can never produce a filename
+// beyond the filesystem's NAME_MAX; atomicWriteFile fails with ENAMETOOLONG
+// on longer names, surfacing as a 500 on POST /api/playbooks.
+const maxSlugLength = 100
+
 // SlugifyPlaybookTitle derives a playbook ID from a title. Falls back to
 // "playbook" when nothing usable remains; the service uniquifies collisions
 // with a numeric suffix.
@@ -159,6 +164,10 @@ func SlugifyPlaybookTitle(title string) string {
 	s := strings.ToLower(strings.TrimSpace(title))
 	s = playbookNonAlphanum.ReplaceAllString(s, "-")
 	s = strings.Trim(s, "-")
+
+	if len(s) > maxSlugLength {
+		s = strings.TrimRight(s[:maxSlugLength], "-")
+	}
 
 	if s == "" {
 		return "playbook"

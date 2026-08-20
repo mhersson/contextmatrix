@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router';
 import { PlaybookDetailPage } from './PlaybookDetailPage';
 import { persistReorder } from './playbookUtils';
@@ -31,6 +31,10 @@ vi.mock('../../hooks/useProjects', () => ({
     projects: [{ name: 'alpha', display_name: 'Alpha' }],
     loading: false, error: null, connected: true, refreshProjects: () => {},
   }),
+}));
+
+vi.mock('../../context/MobileSidebarContext', () => ({
+  useMobileSidebar: () => ({ isOpen: false, toggle: () => {}, close: () => {} }),
 }));
 
 function baseDetail(): PlaybookDetail {
@@ -68,6 +72,14 @@ describe('PlaybookDetailPage', () => {
     expect(screen.getByRole('img', { name: /1 of 2 complete/i })).toBeInTheDocument();
   });
 
+  it('links the breadcrumb back to the playbooks list', async () => {
+    vi.mocked(api.getPlaybook).mockResolvedValue(baseDetail());
+    renderPage();
+    await screen.findByText('Roll');
+    const crumb = screen.getByRole('link', { name: /^playbooks$/i });
+    expect(crumb.getAttribute('href')).toBe('/playbooks');
+  });
+
   it('shows the not-found state when the fetch rejects', async () => {
     vi.mocked(api.getPlaybook).mockRejectedValueOnce({ error: 'playbook not found', code: 'PLAYBOOK_NOT_FOUND' });
     renderPage();
@@ -78,5 +90,32 @@ describe('PlaybookDetailPage', () => {
     vi.mocked(api.patchPlaybookEntry).mockResolvedValue(baseDetail());
     await persistReorder('roll', baseDetail(), 'e2', 'e1');
     expect(api.patchPlaybookEntry).toHaveBeenCalledWith('roll', 'e2', { position: 0 });
+  });
+
+  it('does not reset the add composer until the add request actually settles', async () => {
+    vi.mocked(api.getPlaybook).mockResolvedValue(baseDetail());
+    let resolveAdd: (value: PlaybookDetail) => void = () => {};
+    vi.mocked(api.addPlaybookEntry).mockReturnValue(new Promise((resolve) => { resolveAdd = resolve; }));
+    renderPage();
+    await screen.findByText('Roll');
+
+    fireEvent.click(screen.getByRole('button', { name: /^manual$/i }));
+    const textInput = screen.getByPlaceholderText('Manual step');
+    fireEvent.change(textInput, { target: { value: 'ship it' } });
+    const addButton = screen.getByRole('button', { name: /add entry/i });
+    fireEvent.click(addButton);
+    expect(addButton).toBeDisabled();
+
+    // Give any pending microtasks a chance to run. Before the fix,
+    // handleAdd's await resolved without waiting on the real API call, so
+    // the composer would already have reset here - clearing the button's
+    // disabled guard and the typed text before the request settled.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(addButton).toBeDisabled();
+    expect(textInput).toHaveValue('ship it');
+
+    resolveAdd(baseDetail());
+    await waitFor(() => expect(textInput).toHaveValue(''));
+    expect(api.addPlaybookEntry).toHaveBeenCalledTimes(1);
   });
 });

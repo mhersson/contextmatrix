@@ -20,6 +20,7 @@ export function PlaybooksPage() {
   const [completedOpen, setCompletedOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newTitle, setNewTitle] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const { subscribe, reconnectEpoch } = useSSEBus();
   const { showToast } = useToast();
   const navigate = useNavigate();
@@ -38,13 +39,17 @@ export function PlaybooksPage() {
   const completed = (playbooks ?? []).filter(isFullyComplete);
 
   const handleCreate = async () => {
+    if (submitting) return;
     const title = newTitle.trim();
     if (!title) return;
+    setSubmitting(true);
     try {
       const detail = await api.createPlaybook({ title });
       navigate(`/playbooks/${detail.id}`);
     } catch {
       showToast('Failed to create playbook', 'error');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -84,10 +89,16 @@ export function PlaybooksPage() {
                   if (e.key === 'Escape') cancelCreate();
                 }}
                 placeholder="Playbook title"
+                aria-label="Playbook title"
                 className="px-3 py-1.5 rounded text-sm"
                 style={{ backgroundColor: 'var(--bg2)', border: '1px solid var(--bg3)', color: 'var(--fg)' }}
               />
-              <button onClick={handleCreate} className="px-3 py-1.5 rounded text-sm font-medium" style={buttonStyle}>
+              <button
+                onClick={handleCreate}
+                disabled={submitting}
+                className="px-3 py-1.5 rounded text-sm font-medium"
+                style={buttonStyle}
+              >
                 Create
               </button>
               <button onClick={cancelCreate} className="px-3 py-1.5 rounded text-sm" style={{ color: 'var(--grey1)' }}>

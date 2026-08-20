@@ -1,6 +1,7 @@
 package board
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -102,8 +103,14 @@ func TestSlugifyPlaybookTitle(t *testing.T) {
 		{"  Worker Image!! Rollout  ", "worker-image-rollout"},
 		{"___", "playbook"},
 		{"", "playbook"},
+		{strings.Repeat("x", 250), strings.Repeat("x", 100)},
+		// Truncation lands exactly on a hyphen; it must be trimmed too.
+		{strings.Repeat("a ", 60), strings.Repeat("a-", 49) + "a"},
 	}
 	for _, tt := range tests {
-		assert.Equal(t, tt.want, SlugifyPlaybookTitle(tt.in), tt.in)
+		got := SlugifyPlaybookTitle(tt.in)
+		assert.Equal(t, tt.want, got, tt.in)
+		assert.LessOrEqual(t, len(got), maxSlugLength, tt.in)
+		assert.Regexp(t, playbookIDPattern, got, tt.in)
 	}
 }

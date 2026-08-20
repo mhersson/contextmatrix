@@ -47,4 +47,13 @@ describe('PlaybookEntryRowView', () => {
     render(<MemoryRouter><PlaybookEntryRowView entry={cardEntry()} index={0} isFrontier={true} {...noop} /></MemoryRouter>);
     expect(screen.getByLabelText('next up')).toBeInTheDocument();
   });
+
+  it('formats done_at as a relative time, not a raw ISO string', () => {
+    const doneAt = '2020-01-01T00:00:00Z';
+    render(<MemoryRouter><PlaybookEntryRowView
+      entry={{ id: 'e3', type: 'manual', text: 'redeploy', complete: true, done: true, done_by: 'human:alice', done_at: doneAt }}
+      index={1} isFrontier={false} {...noop} /></MemoryRouter>);
+    expect(screen.queryByText(doneAt)).not.toBeInTheDocument();
+    expect(screen.getByText(/\d+d ago/)).toBeInTheDocument();
+  });
 });
