@@ -50,6 +50,8 @@ type testEnv struct {
 	boardsDir         string
 	workflowSkillsDir string
 	cancel            context.CancelFunc
+	// pb is set only by setupMCPWithPlaybooks; nil for the base fixture.
+	pb *service.PlaybookService
 }
 
 // setupMCP creates a full test environment: boards dir, project, service layer,

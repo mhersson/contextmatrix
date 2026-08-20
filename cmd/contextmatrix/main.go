@@ -615,6 +615,7 @@ func main() {
 		Outcomes:          opStore,
 		Bus:               bus,
 		AwaitMax:          awaitMax,
+		Playbooks:         pbSvc,
 	})
 
 	mcpHandler := mcpserver.NewHandler(mcpSrv, cfg.MCPAPIKey)

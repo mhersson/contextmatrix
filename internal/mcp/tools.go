@@ -26,6 +26,7 @@ type registerToolsConfig struct {
 	Outcomes          OutcomeWriter
 	Bus               *events.Bus
 	AwaitMax          time.Duration
+	Playbooks         *service.PlaybookService
 }
 
 // registerTools adds all MCP tools to the server.
@@ -69,6 +70,10 @@ func registerTools(cfg registerToolsConfig) {
 
 	if cfg.Outcomes != nil {
 		registerReportModelOutcome(server, svc, cfg.Outcomes)
+	}
+
+	if cfg.Playbooks != nil {
+		registerPlaybookTools(server, cfg.Playbooks)
 	}
 }
 

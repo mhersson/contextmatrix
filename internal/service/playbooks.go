@@ -624,18 +624,28 @@ func (s *PlaybookService) resolve(ctx context.Context, p *board.Playbook) (*Play
 
 // summarize derives the list-view projection of a playbook by resolving it
 // (the same mapping resolve uses for the full detail view) and reducing the
-// resolved entries to segments/counts. Shared by List and the MCP layer so
-// both surfaces render identical progress.
+// resolved entries to segments/counts via SummarizeDetail. Shared by List
+// and the MCP layer so both surfaces render identical progress.
 func (s *PlaybookService) summarize(ctx context.Context, p *board.Playbook) (PlaybookSummary, error) {
 	detail, err := s.resolve(ctx, p)
 	if err != nil {
 		return PlaybookSummary{}, err
 	}
 
-	segments := make([]string, len(detail.Entries))
-	projects := make(map[string]struct{}, len(detail.Entries))
+	return SummarizeDetail(detail), nil
+}
 
-	for i, ed := range detail.Entries {
+// SummarizeDetail reduces a resolved detail to its list-view projection:
+// one status segment per entry ("complete" | "active" | "missing" |
+// "pending") plus the count of distinct projects referenced by card
+// entries. Exported so callers that already hold a *PlaybookDetail (e.g.
+// the MCP layer's mutation responses) can derive the same slim summary
+// without a second resolve against the card store.
+func SummarizeDetail(d *PlaybookDetail) PlaybookSummary {
+	segments := make([]string, len(d.Entries))
+	projects := make(map[string]struct{}, len(d.Entries))
+
+	for i, ed := range d.Entries {
 		switch {
 		case ed.Complete:
 			segments[i] = "complete"
@@ -653,12 +663,12 @@ func (s *PlaybookService) summarize(ctx context.Context, p *board.Playbook) (Pla
 	}
 
 	return PlaybookSummary{
-		ID:       p.ID,
-		Title:    p.Title,
-		Complete: detail.Complete,
-		Total:    detail.Total,
+		ID:       d.ID,
+		Title:    d.Title,
+		Complete: d.Complete,
+		Total:    d.Total,
 		Segments: segments,
 		Projects: len(projects),
-		Updated:  p.Updated,
-	}, nil
+		Updated:  d.Updated,
+	}
 }
