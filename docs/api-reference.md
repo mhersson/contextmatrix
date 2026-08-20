@@ -59,6 +59,15 @@ GET    /api/chats/{id}/stream                          ?since_seq=           # S
 POST   /api/sync                                      # trigger git sync
 GET    /api/sync                                       # sync status
 
+GET    /api/playbooks                                  # list playbook summaries (optional subsystem; see below)
+POST   /api/playbooks                                  # create playbook (title, description?, entries?)
+GET    /api/playbooks/{id}                             # resolved detail
+PATCH  /api/playbooks/{id}                             # update title/description
+DELETE /api/playbooks/{id}                             # delete playbook
+POST   /api/playbooks/{id}/entries                     # append entry (card reference or manual step)
+PATCH  /api/playbooks/{id}/entries/{entryId}            # update entry (done/note/text/position)
+DELETE /api/playbooks/{id}/entries/{entryId}            # remove entry
+
 GET    /api/task-skills                                # list available task skill names
 GET    /api/app/config                                 # server-side app config (theme/palette/version/auth_mode; slim pre-login payload in multi mode)
 GET    /api/models                                     # model catalog for the card model-pin pickers (source: openrouter|endpoint|none)
@@ -1433,6 +1442,193 @@ Returns current sync status.
 | `last_sync_error` | string (omitempty) | Error message from the most recent failed sync.               |
 | `syncing`         | bool               | `true` while a sync is in flight.                             |
 | `enabled`         | bool               | Whether automatic sync is enabled in config.                  |
+
+## Playbook Endpoints
+
+Cross-project ordered lists - global and shared, no per-project scoping, no
+ownership gate. See `docs/data-model.md` § Playbooks for the file format and
+domain rules. The subsystem is optional: routes are registered only when a
+pre-existing project literally named `playbooks` does not occupy the boards
+repo's reserved `playbooks/` directory. When disabled, none of these routes
+exist (a request against them 404s at the mux, not with `PLAYBOOK_NOT_FOUND`).
+
+### GET /api/playbooks
+
+Returns the list-view summary of every playbook, sorted by id.
+
+```json
+[
+  {
+    "id": "alpha-rollout",
+    "title": "Alpha feature rollout",
+    "complete": 1,
+    "total": 3,
+    "segments": ["complete", "active", "pending"],
+    "projects": 2,
+    "updated_at": "2026-08-20T10:30:00Z"
+  }
+]
+```
+
+`segments` is one status per entry in playbook order (`complete` | `active` |
+`missing` | `pending`); `projects` counts the distinct projects referenced by
+card entries.
+
+### POST /api/playbooks
+
+Creates a playbook. All-or-nothing: an invalid or duplicate entry rejects the
+whole call and nothing is written or committed.
+
+```json
+{
+  "title": "Alpha feature rollout",
+  "description": "optional free text",
+  "entries": [
+    { "type": "card", "project": "project-alpha", "card": "ALPHA-101", "note": "merge this one first" },
+    { "type": "manual", "text": "Rebuild worker image and redeploy" }
+  ]
+}
+```
+
+The id is derived from `title` and returned in the response; it never
+changes. `entries` is optional (an empty playbook is valid). Response **201**
+with the full detail (same shape as `GET /api/playbooks/{id}`).
+
+**Errors:**
+
+| Status | Code                    | When                                                                   |
+| ------ | ----------------------- | ----------------------------------------------------------------------- |
+| 400    | `BAD_REQUEST`           | `title` is empty                                                       |
+| 409    | `PLAYBOOK_ENTRY_EXISTS` | duplicate `{project, card}` entry                                      |
+| 422    | `VALIDATION_ERROR`      | invalid entry (unknown type, missing project/card/text, unknown card)  |
+
+### GET /api/playbooks/{id}
+
+Returns the resolved detail: metadata plus every entry joined against the
+card store (title, state, assigned agent for card entries; broken references
+render with `missing: true`).
+
+```json
+{
+  "id": "alpha-rollout",
+  "title": "Alpha feature rollout",
+  "description": "optional free text",
+  "created_by": "human:alice",
+  "created_at": "2026-08-20T09:00:00Z",
+  "updated_at": "2026-08-20T10:30:00Z",
+  "complete": 1,
+  "total": 3,
+  "entries": [
+    {
+      "id": "e1",
+      "type": "card",
+      "project": "project-alpha",
+      "card": "ALPHA-101",
+      "note": "merge this one first",
+      "card_title": "Implement user auth",
+      "card_state": "in_progress",
+      "card_assigned_agent": "claude-7a3f",
+      "complete": false
+    },
+    {
+      "id": "e2",
+      "type": "manual",
+      "text": "Rebuild worker image and redeploy",
+      "done": true,
+      "done_by": "human:alice",
+      "done_at": "2026-08-20T10:30:00Z",
+      "complete": true
+    }
+  ]
+}
+```
+
+**Errors:** 404 `PLAYBOOK_NOT_FOUND`.
+
+### PATCH /api/playbooks/{id}
+
+Updates `title` and/or `description`. Omitted fields are left unchanged; the
+id never changes.
+
+```json
+{ "title": "Alpha feature rollout (revised)" }
+```
+
+Response **200** with the full detail.
+
+**Errors:** 404 `PLAYBOOK_NOT_FOUND`, 422 `VALIDATION_ERROR` (empty title).
+
+### DELETE /api/playbooks/{id}
+
+Deletes the playbook file (git history preserves it). Does not affect the
+cards it referenced. Response **204 No Content**.
+
+**Errors:** 404 `PLAYBOOK_NOT_FOUND`.
+
+### POST /api/playbooks/{id}/entries
+
+Appends one entry to the end of the playbook.
+
+```json
+{ "type": "card", "project": "project-beta", "card": "BETA-042" }
+```
+
+```json
+{ "type": "manual", "text": "Run the live runbook" }
+```
+
+`project` and `card` are required when `type` is `card`; `text` is required
+when `type` is `manual`. `note` is optional on both. Response **201** with
+the full detail.
+
+**Errors:**
+
+| Status | Code                     | When                                                                  |
+| ------ | ------------------------ | ------------------------------------------------------------------------ |
+| 404    | `PLAYBOOK_NOT_FOUND`     | unknown playbook id                                                    |
+| 409    | `PLAYBOOK_ENTRY_EXISTS`  | duplicate `{project, card}` entry                                      |
+| 422    | `VALIDATION_ERROR`       | invalid entry (unknown type, missing field, unknown card)              |
+
+### PATCH /api/playbooks/{id}/entries/{entryId}
+
+Patches one entry's `done`, `note`, `text`, or `position`. `done` and `text`
+apply only to manual entries; `note` applies to both types. Checking `done`
+stamps `done_by`/`done_at` from the resolved caller identity and the server
+clock; unchecking clears both, and a later re-check restamps them.
+`position` is the entry's final index after the move (interpreted after
+removing it from the array): values beyond the end clamp to the end,
+negative is rejected.
+
+```json
+{ "done": true }
+```
+
+```json
+{ "position": 0 }
+```
+
+Response **200** with the full detail.
+
+**Errors:**
+
+| Status | Code                        | When                                                              |
+| ------ | --------------------------- | -------------------------------------------------------------------- |
+| 404    | `PLAYBOOK_NOT_FOUND`        | unknown playbook id                                                |
+| 404    | `PLAYBOOK_ENTRY_NOT_FOUND`  | unknown entry id                                                   |
+| 422    | `VALIDATION_ERROR`          | `done`/`text` on a card entry, empty `text`, negative `position`   |
+
+### DELETE /api/playbooks/{id}/entries/{entryId}
+
+Removes one entry. Its id is never reused. Response **200** with the full
+detail (unlike `DELETE /api/playbooks/{id}`, which returns 204 - the
+playbook itself still exists).
+
+**Errors:** 404 `PLAYBOOK_NOT_FOUND`, 404 `PLAYBOOK_ENTRY_NOT_FOUND`.
+
+**Attribution** (`created_by`, `done_by`): the same resolved identity as
+cards - the session-derived `human:<username>` wins in multi mode; otherwise
+`X-Agent-ID`, falling back to `human:web` for the UI. See § Agent
+identification above.
 
 ## Worker & Backend Endpoints
 

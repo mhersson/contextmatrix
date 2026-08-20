@@ -271,6 +271,22 @@ when the skill is engaged (it never broadens). Push changes to your remote: the
 agent and chat backends re-clone from the `{git_remote_url, ref}` pointer CM
 derives on each run.
 
+## Playbooks
+
+Playbooks are cross-project ordered lists of cards and manual gate steps,
+managed via eight ungated MCP tools (`list_playbooks`, `get_playbook`,
+`create_playbook`, `update_playbook`, `delete_playbook`,
+`add_playbook_entry`, `update_playbook_entry`, `remove_playbook_entry`) - see
+`docs/data-model.md` § Playbooks and `docs/api-reference.md` § Playbook
+Endpoints. They exist for external planning sessions and the web UI, not for
+card-working agents: no workflow skill directs an agent at a playbook, and a
+card-execution session (`start_workflow`, `execute-task`, `review-task`, ...)
+has no reason to call these tools.
+
+An entry's `note` field is a human-only commentary channel, contractually
+excluded from any agent-facing context now and in any future runnable
+version of playbooks. Do not surface entry notes to a model as instructions.
+
 ## Verification
 
 A card's work is verified before it can pass review. The agent resolves the

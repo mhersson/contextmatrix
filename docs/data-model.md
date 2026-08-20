@@ -764,6 +764,123 @@ cleared when a template is accepted (either automatically or after
 confirmation). This ensures template auto-loading is only applied to unedited
 content.
 
+## Playbooks
+
+A playbook is a cross-project ordered list of steps: card references, manual
+gate steps, or both. Playbooks are global and shared team artifacts, stored
+one file per playbook at `<boards.dir>/playbooks/<id>.yaml`, at the top level
+of the boards repository (not inside any project directory). Order is array
+order; no other ordering state exists. Playbooks are not runnable -
+ContextMatrix never executes anything itself; a playbook is coordination
+state for humans and planning sessions.
+
+```yaml
+id: alpha-rollout            # server-generated slug, immutable
+title: Alpha feature rollout
+description: optional free text shown on the detail page
+created_by: human:alice      # informational attribution
+created_at: 2026-08-20T09:00:00Z
+updated_at: 2026-08-20T10:30:00Z
+next_entry_id: 4             # persisted counter; entry IDs are never reused
+entries:
+  - id: e1
+    type: card
+    project: project-alpha
+    card: ALPHA-101
+    note: "merge this one first"
+  - id: e2
+    type: manual
+    text: "Rebuild worker image and redeploy"
+    done: true
+    done_by: human:alice
+    done_at: 2026-08-20T10:30:00Z
+  - id: e3
+    type: card
+    project: project-beta
+    card: BETA-042
+```
+
+### Rules
+
+- **ID**: server-generated kebab-case slug derived from `title` at creation
+  (matches `[a-z0-9][a-z0-9-]*`). Immutable - the title stays editable and a
+  title edit never renames the file. Collisions are uniquified with a
+  numeric suffix (`alpha-rollout-2`, `alpha-rollout-3`, ...) under the
+  service's write lock, so creation never surfaces a collision error to the
+  caller.
+- **Order is array order.** No other ordering state exists.
+- **Entry IDs** are `e<N>`, allocated from the persisted `next_entry_id`
+  counter. Stable under reorder and never reused after deletion - deleting an
+  entry never decrements the counter.
+- **Card entries** (`type: card`): `project` and `card` are both required and
+  must reference an existing card at add time. Duplicate `{project, card}`
+  pairs within one playbook are rejected with 409 `PLAYBOOK_ENTRY_EXISTS`.
+  Card status is never stored in the playbook; it is resolved live at read
+  time against the card store. If the referenced card (or its whole project)
+  is later deleted, the entry is kept, rendered as a broken reference
+  (`missing: true`), and counts as incomplete in progress.
+- **Manual entries** (`type: manual`): required `text`, plus `done` /
+  `done_by` / `done_at`. Text remains editable. Checking `done` stamps
+  `done_by`/`done_at` from the caller identity and the server clock;
+  unchecking clears both, and a later re-check restamps them from the new
+  caller and clock.
+- **`note`** is optional on both entry types. It is a human-only
+  channel - writable from the UI and MCP, but contractually excluded from
+  any future agent-facing context (see `docs/agent-workflow.md`).
+- **Progress is derived, never stored**: a card entry counts complete when
+  its card is in a terminal state (`done` or `not_planned`), a manual entry
+  when `done`. Broken references count in the total but never in complete.
+  Progress is `complete/total`.
+- **Empty `entries` is valid** (a playbook mid-planning).
+- **Parsing is lenient two ways**, matching the card store: unknown YAML
+  fields are ignored rather than rejected, so older binaries tolerate files
+  written by newer ones; and a file that fails to parse or validate at load
+  or reload is skipped with a warning rather than aborting startup or a
+  sync.
+- **Reserved name**: `playbooks` is a reserved top-level directory in the
+  boards repo. `CreateProject` rejects a project named `playbooks`
+  (case-insensitive). Because that name was legal before playbooks existed,
+  startup guards the collision: if `<boards.dir>/playbooks/.board.yaml` is
+  present, the playbook subsystem is disabled (REST routes and MCP tools are
+  not registered) with a logged error naming the rename migration, and the
+  rest of the server starts normally. The store loads only non-dotfile
+  `*.yaml` files.
+
+### Go type definitions
+
+```go
+// internal/board/playbook.go
+
+type Playbook struct {
+    ID          string          `yaml:"id"                    json:"id"`
+    Title       string          `yaml:"title"                 json:"title"`
+    Description string          `yaml:"description,omitempty" json:"description,omitempty"`
+    CreatedBy   string          `yaml:"created_by,omitempty"  json:"created_by,omitempty"`
+    Created     time.Time       `yaml:"created_at"            json:"created_at"`
+    Updated     time.Time       `yaml:"updated_at"            json:"updated_at"`
+    NextEntryID int             `yaml:"next_entry_id"         json:"next_entry_id"`
+    Entries     []PlaybookEntry `yaml:"entries"               json:"entries"`
+}
+
+type PlaybookEntry struct {
+    ID      string     `yaml:"id"                json:"id"`
+    Type    string     `yaml:"type"              json:"type"`
+    Project string     `yaml:"project,omitempty" json:"project,omitempty"`
+    Card    string     `yaml:"card,omitempty"    json:"card,omitempty"`
+    Text    string     `yaml:"text,omitempty"    json:"text,omitempty"`
+    Done    bool       `yaml:"done,omitempty"    json:"done,omitempty"`
+    DoneBy  string     `yaml:"done_by,omitempty" json:"done_by,omitempty"`
+    DoneAt  *time.Time `yaml:"done_at,omitempty" json:"done_at,omitempty"`
+    Note    string     `yaml:"note,omitempty"    json:"note,omitempty"`
+}
+```
+
+`Type` is one of `card` or `manual`. The service layer additionally exposes a
+resolved view (`PlaybookDetail` / `PlaybookEntryDetail` in
+`internal/service/playbooks.go`) that joins each card entry against the live
+card store - see `docs/api-reference.md` § Playbook Endpoints for the
+resolved JSON shape.
+
 ## Project board config format
 
 ```yaml

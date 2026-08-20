@@ -215,6 +215,10 @@ Full detail and examples: `docs/data-model.md`.
     Never a permission boundary. Validated against the user roster in multi
     mode; hidden entirely in none mode (there is no user roster to validate
     against).
+15. **Playbooks** - cross-project ordered lists at `playbooks/<id>.yaml` in
+    the boards repo; global/shared; entries are card refs (live status,
+    never stored) or manual gate steps; entry notes are a human-only
+    channel; `playbooks` is a reserved project name.
 
 ## Running & verifying
 
