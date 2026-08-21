@@ -1,10 +1,21 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { Sidebar } from './Sidebar';
+import { api } from '../../api/client';
+import type { PlaybookSummary } from '../../types';
 
 vi.mock('../../hooks/useProjects', () => ({
   useProjects: vi.fn(),
+}));
+
+vi.mock('../../hooks/useSSEBus', () => ({
+  useSSEBus: () => ({
+    subscribe: () => () => {},
+    connected: true,
+    error: null,
+    reconnectEpoch: 0,
+  }),
 }));
 
 vi.mock('../../hooks/ProjectSummariesProvider', () => ({
@@ -42,7 +53,18 @@ const defaultProjects = [
   { name: 'mango', prefix: 'M', next_id: 1, states: [], types: [], priorities: [], transitions: {} },
 ];
 
+function playbook(id: string): PlaybookSummary {
+  return { id, title: id, complete: 0, total: 2, segments: [], projects: 1, updated_at: '' };
+}
+
 describe('Sidebar', () => {
+  beforeEach(() => {
+    vi.spyOn(api, 'listPlaybooks').mockResolvedValue([]);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('renders projects in alphabetical order regardless of input order', () => {
     mockUseProjects.mockReturnValue({
       projects: [
@@ -87,6 +109,47 @@ describe('Sidebar', () => {
 
     const names = projectLinks.map((link) => link.textContent);
     expect(names).toEqual(['alpha', 'Bravo', 'Charlie']);
+  });
+
+  describe('playbooks shortcut', () => {
+    beforeEach(() => {
+      mockUseProjects.mockReturnValue({
+        projects: defaultProjects,
+        loading: false,
+        error: null,
+        connected: true,
+        refreshProjects: async () => {},
+      });
+    });
+
+    const playbooksLink = () =>
+      screen.getAllByRole('link').find((link) => link.getAttribute('href')?.startsWith('/playbooks'));
+
+    it('links directly to the single playbook when exactly one exists', async () => {
+      vi.spyOn(api, 'listPlaybooks').mockResolvedValue([playbook('pb-1')]);
+      renderSidebar();
+      await waitFor(() => {
+        expect(playbooksLink()?.getAttribute('href')).toBe('/playbooks/pb-1');
+      });
+    });
+
+    it('links to the list when multiple playbooks exist', async () => {
+      vi.spyOn(api, 'listPlaybooks').mockResolvedValue([playbook('pb-1'), playbook('pb-2')]);
+      renderSidebar();
+      await waitFor(() => {
+        expect(api.listPlaybooks).toHaveBeenCalled();
+      });
+      expect(playbooksLink()?.getAttribute('href')).toBe('/playbooks');
+    });
+
+    it('links to the list when the playbook fetch fails', async () => {
+      vi.spyOn(api, 'listPlaybooks').mockRejectedValue(new Error('boom'));
+      renderSidebar();
+      await waitFor(() => {
+        expect(api.listPlaybooks).toHaveBeenCalled();
+      });
+      expect(playbooksLink()?.getAttribute('href')).toBe('/playbooks');
+    });
   });
 
   describe('mobile overlay', () => {

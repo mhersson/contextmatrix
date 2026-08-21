@@ -1,11 +1,14 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { NavLink } from 'react-router';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { NavLink, useLocation } from 'react-router';
+import { api } from '../../api/client';
 import { useProjects } from '../../hooks/useProjects';
 import { useProjectSummariesContext } from '../../hooks/ProjectSummariesProvider';
+import { useSSEBus } from '../../hooks/useSSEBus';
 import { useTheme } from '../../hooks/useTheme';
 import { useOptionalAuth } from '../../hooks/useAuth';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { formatVersionWithLocalTime } from '../../utils/formatVersion';
+import type { PlaybookSummary } from '../../types';
 import { ProjectCard } from './ProjectCard';
 import { ChatSection } from './ChatSection';
 import { UserMenu } from './UserMenu';
@@ -38,32 +41,49 @@ function PlaybooksIcon() {
   );
 }
 
+// With exactly one playbook the sidebar link jumps straight to its detail
+// page; the list stays reachable via the detail page's back link, so the
+// "New playbook" action is never trapped behind the shortcut.
+function usePlaybooksLinkTarget(): string {
+  const [playbooks, setPlaybooks] = useState<PlaybookSummary[] | null>(null);
+  const { subscribe, reconnectEpoch } = useSSEBus();
+  const fetchAll = useCallback(() => {
+    api.listPlaybooks().then(setPlaybooks).catch(() => setPlaybooks(null));
+  }, []);
+  useEffect(() => { fetchAll(); }, [fetchAll, reconnectEpoch]);
+  useEffect(() => subscribe('playbook.*', fetchAll), [subscribe, fetchAll]);
+  return playbooks?.length === 1 ? `/playbooks/${playbooks[0].id}` : '/playbooks';
+}
+
 interface WorkspaceNavLinkProps {
   to: string;
+  /** Path prefix that marks this link active; defaults to `to`. */
+  activeBase?: string;
   label: string;
   icon: ReactNode;
   onNavigate?: () => void;
 }
 
-function WorkspaceNavLink({ to, label, icon, onNavigate }: WorkspaceNavLinkProps) {
+function WorkspaceNavLink({ to, activeBase, label, icon, onNavigate }: WorkspaceNavLinkProps) {
+  const { pathname } = useLocation();
+  const base = activeBase ?? to;
+  const isActive = pathname === base || pathname.startsWith(`${base}/`);
   return (
     <NavLink to={to} className="block" onClick={onNavigate}>
-      {({ isActive }) => (
-        <div
-          className={`sb-navrow${isActive ? ' active' : ''} flex items-center gap-2 px-3 py-1 rounded text-[12.5px] transition-colors`}
-          style={{ color: isActive ? 'var(--fg)' : 'var(--grey2)' }}
-          aria-current={isActive ? 'page' : undefined}
+      <div
+        className={`sb-navrow${isActive ? ' active' : ''} flex items-center gap-2 px-3 py-1 rounded text-[12.5px] transition-colors`}
+        style={{ color: isActive ? 'var(--fg)' : 'var(--grey2)' }}
+        aria-current={isActive ? 'page' : undefined}
+      >
+        <span
+          className="flex shrink-0"
+          style={{ color: isActive ? 'var(--aqua)' : 'var(--grey1)' }}
+          aria-hidden="true"
         >
-          <span
-            className="flex shrink-0"
-            style={{ color: isActive ? 'var(--aqua)' : 'var(--grey1)' }}
-            aria-hidden="true"
-          >
-            {icon}
-          </span>
-          {label}
-        </div>
-      )}
+          {icon}
+        </span>
+        {label}
+      </div>
     </NavLink>
   );
 }
@@ -84,6 +104,7 @@ export function Sidebar({ onNewProject, onNewChat, mobileOpen = false, onMobileC
     [projects]
   );
   const { summaries } = useProjectSummariesContext();
+  const playbooksTarget = usePlaybooksLinkTarget();
 
   // Mobile drawer: trap focus and close on Escape.
   useFocusTrap(drawerRef, mobileOpen);
@@ -176,7 +197,8 @@ export function Sidebar({ onNewProject, onNewChat, mobileOpen = false, onMobileC
             onNavigate={mobileOpen ? onMobileClose : undefined}
           />
           <WorkspaceNavLink
-            to="/playbooks"
+            to={playbooksTarget}
+            activeBase="/playbooks"
             label="Playbooks"
             icon={<PlaybooksIcon />}
             onNavigate={mobileOpen ? onMobileClose : undefined}
