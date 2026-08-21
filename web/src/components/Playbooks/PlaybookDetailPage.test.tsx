@@ -68,7 +68,10 @@ describe('PlaybookDetailPage', () => {
     vi.mocked(api.getPlaybook).mockResolvedValue(baseDetail());
     renderPage();
     expect(await screen.findByText('Roll')).toBeInTheDocument();
-    expect(screen.getByText('The card')).toBeInTheDocument();
+    expect(screen.getByText('done step')).toBeInTheDocument();
+    // The frontier card renders in the entry list and again as the side
+    // panel's "next up" link.
+    expect(screen.getAllByText('The card')).toHaveLength(2);
     expect(screen.getByRole('img', { name: /1 of 2 complete/i })).toBeInTheDocument();
   });
 

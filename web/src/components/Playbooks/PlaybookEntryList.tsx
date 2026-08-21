@@ -43,6 +43,8 @@ export function PlaybookEntryList({
               entry={entry}
               index={index}
               isFrontier={index === frontier}
+              prevComplete={index > 0 ? entries[index - 1].complete : undefined}
+              isLast={index === entries.length - 1}
               onToggleDone={onToggleDone}
               onSaveNote={onSaveNote}
               onSaveText={onSaveText}

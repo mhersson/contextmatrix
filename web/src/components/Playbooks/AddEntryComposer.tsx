@@ -76,7 +76,8 @@ export function AddEntryComposer({ onAdd, entries }: AddEntryComposerProps) {
   const canAdd = mode === 'card' ? !!selectedCard : manualText.trim().length > 0;
 
   return (
-    <div className="rounded-[10px] border p-3" style={{ borderColor: 'var(--bg2)' }}>
+    <div className="pb-side-card">
+      <h2 className="pb-eyebrow">Add entry</h2>
       <div className="flex gap-2 mb-2">
         {(['card', 'manual'] as const).map((m) => (
           <button

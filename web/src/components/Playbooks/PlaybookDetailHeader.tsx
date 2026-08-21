@@ -1,10 +1,8 @@
 import { Link } from 'react-router';
-import type { PlaybookDetail, PlaybookSegment } from '../../types';
-import { SegmentedProgress } from './SegmentedProgress';
+import type { PlaybookDetail } from '../../types';
 
 interface PlaybookDetailHeaderProps {
   detail: PlaybookDetail;
-  segments: PlaybookSegment[];
   editingTitle: boolean;
   editingDescription: boolean;
   onStartEditTitle: () => void;
@@ -20,9 +18,10 @@ function blurOnEnter(e: React.KeyboardEvent<HTMLInputElement>) {
   if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
 }
 
-/** Breadcrumb, click-to-edit title/description, and the progress + delete row. */
+/** Breadcrumb plus click-to-edit title/description; progress lives in the
+ * side panel, so the title row carries the Delete action. */
 export function PlaybookDetailHeader({
-  detail, segments, editingTitle, editingDescription,
+  detail, editingTitle, editingDescription,
   onStartEditTitle, onStartEditDescription, onSaveTitle, onSaveDescription, onDeleteClick,
 }: PlaybookDetailHeaderProps) {
   return (
@@ -31,24 +30,29 @@ export function PlaybookDetailHeader({
         <Link to="/playbooks" style={{ color: 'inherit' }}>playbooks</Link> / {detail.id}
       </p>
 
-      {editingTitle ? (
-        <input
-          autoFocus
-          defaultValue={detail.title}
-          onBlur={(e) => onSaveTitle(e.target.value)}
-          onKeyDown={blurOnEnter}
-          className="text-2xl font-medium w-full mt-1 mb-2 bg-transparent rounded px-1"
-          style={{ ...editableInputStyle, fontFamily: 'var(--font-display)' }}
-        />
-      ) : (
-        <h1
-          onClick={onStartEditTitle}
-          className="cursor-text mt-1 mb-2"
-          style={{ fontFamily: 'var(--font-display)', fontWeight: 500, fontSize: '24px', color: 'var(--fg)' }}
-        >
-          {detail.title}
-        </h1>
-      )}
+      <div className="flex items-baseline gap-4 mt-1 mb-2">
+        {editingTitle ? (
+          <input
+            autoFocus
+            defaultValue={detail.title}
+            onBlur={(e) => onSaveTitle(e.target.value)}
+            onKeyDown={blurOnEnter}
+            className="text-2xl font-medium flex-1 min-w-0 bg-transparent rounded px-1"
+            style={{ ...editableInputStyle, fontFamily: 'var(--font-display)' }}
+          />
+        ) : (
+          <h1
+            onClick={onStartEditTitle}
+            className="cursor-text flex-1 min-w-0"
+            style={{ fontFamily: 'var(--font-display)', fontWeight: 500, fontSize: '24px', color: 'var(--fg)' }}
+          >
+            {detail.title}
+          </h1>
+        )}
+        <button type="button" onClick={onDeleteClick} className="text-sm shrink-0" style={{ color: 'var(--red)' }}>
+          Delete
+        </button>
+      </div>
 
       {editingDescription ? (
         <input
@@ -69,16 +73,6 @@ export function PlaybookDetailHeader({
           {detail.description || 'Add a description'}
         </p>
       )}
-
-      <div className="flex items-center gap-3 mb-4">
-        <SegmentedProgress segments={segments} className="flex-1" />
-        <span className="font-mono text-xs" style={{ color: 'var(--grey1)' }}>
-          {detail.complete} of {detail.total} complete
-        </span>
-        <button type="button" onClick={onDeleteClick} className="text-sm" style={{ color: 'var(--red)' }}>
-          Delete
-        </button>
-      </div>
     </>
   );
 }
