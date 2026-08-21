@@ -9,7 +9,7 @@ import type { NewPlaybookEntry, PlaybookDetail, PlaybookSegment } from '../../ty
 import { arrayMoveLocal, persistReorder } from './playbookUtils';
 import { PlaybookDetailHeader } from './PlaybookDetailHeader';
 import { PlaybookEntryList } from './PlaybookEntryList';
-import { AddEntryComposer } from './AddEntryComposer';
+import { PlaybookSidePanel } from './PlaybookSidePanel';
 import { PlaybooksBar } from './PlaybooksBar';
 
 // Progress segments derive from live card state, not a stored field, so they
@@ -135,29 +135,32 @@ export function PlaybookDetailPage() {
   return (
     <div className="h-full overflow-y-auto">
       <PlaybooksBar />
-      <div className="p-6 max-w-3xl mx-auto">
-        <PlaybookDetailHeader
-          detail={detail}
-          segments={entrySegments(detail)}
-          editingTitle={editingTitle}
-          editingDescription={editingDescription}
-          onStartEditTitle={() => setEditingTitle(true)}
-          onStartEditDescription={() => setEditingDescription(true)}
-          onSaveTitle={saveTitle}
-          onSaveDescription={saveDescription}
-          onDeleteClick={() => setDeleteOpen(true)}
-        />
+      <div className="p-6 pb-page">
+        <div className="pb-workbench">
+          <div className="pb-track">
+            <PlaybookDetailHeader
+              detail={detail}
+              editingTitle={editingTitle}
+              editingDescription={editingDescription}
+              onStartEditTitle={() => setEditingTitle(true)}
+              onStartEditDescription={() => setEditingDescription(true)}
+              onSaveTitle={saveTitle}
+              onSaveDescription={saveDescription}
+              onDeleteClick={() => setDeleteOpen(true)}
+            />
 
-        <PlaybookEntryList
-          entries={detail.entries}
-          onDragEnd={handleDragEnd}
-          onToggleDone={handleToggleDone}
-          onSaveNote={handleSaveNote}
-          onSaveText={handleSaveText}
-          onRemove={handleRemove}
-        />
+            <PlaybookEntryList
+              entries={detail.entries}
+              onDragEnd={handleDragEnd}
+              onToggleDone={handleToggleDone}
+              onSaveNote={handleSaveNote}
+              onSaveText={handleSaveText}
+              onRemove={handleRemove}
+            />
+          </div>
 
-        <AddEntryComposer onAdd={handleAdd} entries={detail.entries} />
+          <PlaybookSidePanel detail={detail} segments={entrySegments(detail)} onAdd={handleAdd} />
+        </div>
       </div>
 
       <ConfirmModal

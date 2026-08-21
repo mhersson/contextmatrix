@@ -45,7 +45,7 @@ describe('PlaybookEntryRowView', () => {
 
   it('marks the frontier row', () => {
     render(<MemoryRouter><PlaybookEntryRowView entry={cardEntry()} index={0} isFrontier={true} {...noop} /></MemoryRouter>);
-    expect(screen.getByLabelText('next up')).toBeInTheDocument();
+    expect(screen.getByText('next up')).toBeInTheDocument();
   });
 
   it('formats done_at as a relative time, not a raw ISO string', () => {

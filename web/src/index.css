@@ -2150,6 +2150,149 @@ textarea {
   }
 }
 
+/* Playbook detail workbench - route rail, frontier spotlight, side panel.
+   The rail geometry couples to the 22px EntryNode and the shared row
+   padding, so it lives here rather than in per-element utilities. */
+.pb-entry-row {
+  --pb-rowpad: 12px;
+  display: flex;
+}
+
+.pb-gutter {
+  position: relative;
+  width: 30px;
+  flex: none;
+}
+
+.pb-node-slot {
+  position: absolute;
+  top: var(--pb-rowpad);
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.pb-rail {
+  position: absolute;
+  left: 50%;
+  width: 0;
+  transform: translateX(-50%);
+  border-left: 2px solid var(--green);
+}
+
+.pb-rail-dash {
+  border-left-style: dashed;
+  border-left-color: var(--bg3);
+}
+
+.pb-rail-top {
+  top: 0;
+  height: var(--pb-rowpad);
+}
+
+.pb-rail-bot {
+  top: calc(var(--pb-rowpad) + 22px);
+  bottom: 0;
+}
+
+.pb-rowmain {
+  padding: var(--pb-rowpad) 0;
+}
+
+.pb-hairline {
+  border-top: 1px solid var(--bg1);
+}
+
+.pb-spotlight {
+  background: color-mix(in srgb, var(--purple) 7%, transparent);
+  box-shadow: inset 2px 0 0 var(--purple);
+  border-radius: 0 8px 8px 0;
+  padding-left: 10px;
+  padding-right: 6px;
+}
+
+.pb-nextup-chip {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--purple);
+  border: 1px solid color-mix(in srgb, var(--purple) 45%, transparent);
+  padding: 1px 7px;
+  border-radius: 999px;
+  flex: none;
+}
+
+/* Empty note affordances stay quiet until the row is engaged; touch
+   devices have no hover, so they keep the affordance visible. */
+.pb-note-add {
+  opacity: 0;
+}
+
+.pb-entry-row:hover .pb-note-add,
+.pb-entry-row:focus-within .pb-note-add {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .pb-note-add {
+    opacity: 1;
+  }
+}
+
+.pb-workbench {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 28px;
+  align-items: flex-start;
+  justify-content: center;
+  max-width: 1088px;
+  margin: 0 auto;
+}
+
+.pb-track {
+  flex: 1 1 560px;
+  max-width: 760px;
+  min-width: 0;
+}
+
+.pb-side {
+  flex: 1 1 300px;
+  max-width: 300px;
+  position: sticky;
+  top: 24px;
+}
+
+/* The page wrapper is the size container, so the un-cap/un-stick fires
+   exactly when the flex line actually wraps (track 560px basis + 28px gap
+   + side 300px basis = 888px) - a viewport query would miss because the
+   app sidebar's width varies between 240px and 48px. */
+.pb-page {
+  container-type: inline-size;
+}
+
+@container (width < 888px) {
+  .pb-side {
+    max-width: none;
+    position: static;
+  }
+}
+
+.pb-side-card {
+  background: var(--bg0);
+  border: 1px solid var(--bg2);
+  border-radius: 12px;
+  padding: 14px;
+}
+
+.pb-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--grey1);
+  margin: 0 0 10px;
+}
+
 .apd-section-title {
   font-family: var(--font-sans);
   font-weight: 600;

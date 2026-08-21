@@ -39,7 +39,7 @@ export function PlaybookEntryNote({ note, onSave }: PlaybookEntryNoteProps) {
     <button
       type="button"
       onClick={() => setEditing(true)}
-      className="block mt-1 text-left"
+      className={`block mt-1 text-left transition-opacity${note ? '' : ' pb-note-add'}`}
       style={{
         fontFamily: 'var(--font-display)',
         fontStyle: 'italic',
