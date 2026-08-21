@@ -3549,6 +3549,46 @@ textarea {
   background-color: var(--bg3);
 }
 
+/* Sidebar zones - eyebrow labels share the version line's mono "system
+   voice"; the chat dock recesses onto --bg-dim as a lower shelf for
+   transient sessions. Palette-portable: CSS custom properties only. */
+.sb-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--grey0);
+}
+.sb-eyebrow-btn {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--green);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.sb-eyebrow-btn:hover {
+  background-color: var(--bg1);
+}
+.sb-chat-dock {
+  background-color: var(--bg-dim);
+  border-top: 1px solid var(--bg2);
+  border-bottom: 1px solid var(--bg2);
+}
+.sb-navrow {
+  background-color: transparent;
+}
+.sb-navrow:hover {
+  background-color: var(--bg1);
+}
+.sb-navrow.active {
+  background-color: var(--bg2);
+}
+@media (prefers-reduced-motion: reduce) {
+  .sb-activity-spin {
+    animation: none;
+  }
+}
+
 /* Sidebar chat session rows */
 .cm-chat-row {
   background-color: transparent;

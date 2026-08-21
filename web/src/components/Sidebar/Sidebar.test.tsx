@@ -103,14 +103,14 @@ describe('Sidebar', () => {
     it('does not render overlay backdrop when mobileOpen is false', () => {
       renderSidebar({ mobileOpen: false });
       // The backdrop has aria-hidden="true" and no role - check it's absent
-      const backdrop = document.querySelector('[aria-hidden="true"]');
+      const backdrop = document.querySelector('div[aria-hidden="true"]');
       expect(backdrop).toBeNull();
     });
 
     it('renders overlay backdrop and close button when mobileOpen is true', () => {
       renderSidebar({ mobileOpen: true, onMobileClose: vi.fn() });
 
-      const backdrop = document.querySelector('[aria-hidden="true"]');
+      const backdrop = document.querySelector('div[aria-hidden="true"]');
       expect(backdrop).not.toBeNull();
 
       const closeBtn = screen.getByTitle('Close sidebar');
@@ -121,7 +121,7 @@ describe('Sidebar', () => {
       const onMobileClose = vi.fn();
       renderSidebar({ mobileOpen: true, onMobileClose });
 
-      const backdrop = document.querySelector('[aria-hidden="true"]') as HTMLElement;
+      const backdrop = document.querySelector('div[aria-hidden="true"]') as HTMLElement;
       fireEvent.click(backdrop);
 
       expect(onMobileClose).toHaveBeenCalledTimes(1);
@@ -150,7 +150,7 @@ describe('Sidebar', () => {
       expect(onMobileClose).toHaveBeenCalledTimes(1);
     });
 
-    it('calls onMobileClose when the All Projects nav link is clicked', () => {
+    it('calls onMobileClose when the Dashboard nav link is clicked', () => {
       const onMobileClose = vi.fn();
       renderSidebar({ mobileOpen: true, onMobileClose });
 

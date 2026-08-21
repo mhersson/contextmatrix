@@ -20,7 +20,7 @@ export function PageHeader({
     <header className="apd-page-header">
       <div className="apd-page-title-block min-w-0">
         <p className="apd-eyebrow">
-          All Projects · <b>Operations Overview</b>
+          Dashboard · <b>Operations Overview</b>
         </p>
         <h1 className="apd-title-display">
           Operations<span style={{ color: 'var(--aqua)' }}>.</span>
