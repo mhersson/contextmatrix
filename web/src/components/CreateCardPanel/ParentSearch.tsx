@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import type { Card } from '../../types';
+import { isTerminalState } from '../../lib/cardState';
 
 interface ParentSearchProps {
   parent: string;
@@ -25,6 +26,7 @@ export function ParentSearch({ parent, setParent, cards }: ParentSearchProps) {
     if (!parentSearch) return [];
     const q = parentSearch.toLowerCase();
     return cards
+      .filter((c) => !isTerminalState(c.state))
       .filter((c) => c.id.toLowerCase().includes(q) || c.title.toLowerCase().includes(q))
       .slice(0, 8);
   }, [parentSearch, cards]);
