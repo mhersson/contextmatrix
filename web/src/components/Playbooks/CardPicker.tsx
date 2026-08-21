@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import type { Card, ProjectConfig } from '../../types';
+import { isTerminalState } from '../../lib/cardState';
 
 interface CardPickerProps {
   projects: ProjectConfig[];
@@ -24,9 +25,10 @@ export function CardPicker({
 }: CardPickerProps) {
   const filteredCards = useMemo(() => {
     const term = filter.trim().toLowerCase();
+    const openCards = cards.filter((c) => !isTerminalState(c.state));
     const matches = term
-      ? cards.filter((c) => c.id.toLowerCase().includes(term) || c.title.toLowerCase().includes(term))
-      : cards;
+      ? openCards.filter((c) => c.id.toLowerCase().includes(term) || c.title.toLowerCase().includes(term))
+      : openCards;
     return matches.slice(0, 8);
   }, [cards, filter]);
 
