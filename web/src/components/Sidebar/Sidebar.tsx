@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { NavLink } from 'react-router';
 import { useProjects } from '../../hooks/useProjects';
 import { useProjectSummariesContext } from '../../hooks/ProjectSummariesProvider';
@@ -15,6 +15,57 @@ interface SidebarProps {
   onNewChat: () => void;
   mobileOpen?: boolean;
   onMobileClose?: () => void;
+}
+
+function DashboardIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3.5" y="3.5" width="7" height="7" rx="1" />
+      <rect x="13.5" y="3.5" width="7" height="7" rx="1" />
+      <rect x="3.5" y="13.5" width="7" height="7" rx="1" />
+      <rect x="13.5" y="13.5" width="7" height="7" rx="1" />
+    </svg>
+  );
+}
+
+function PlaybooksIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="6" cy="5" r="2" />
+      <path d="M6 7v7a4 4 0 0 0 4 4h4" />
+      <path d="M18 15.2 20.8 18 18 20.8 15.2 18z" />
+    </svg>
+  );
+}
+
+interface WorkspaceNavLinkProps {
+  to: string;
+  label: string;
+  icon: ReactNode;
+  onNavigate?: () => void;
+}
+
+function WorkspaceNavLink({ to, label, icon, onNavigate }: WorkspaceNavLinkProps) {
+  return (
+    <NavLink to={to} className="block" onClick={onNavigate}>
+      {({ isActive }) => (
+        <div
+          className={`sb-navrow${isActive ? ' active' : ''} flex items-center gap-2 px-3 py-1 rounded text-[12.5px] transition-colors`}
+          style={{ color: isActive ? 'var(--fg)' : 'var(--grey2)' }}
+          aria-current={isActive ? 'page' : undefined}
+        >
+          <span
+            className="flex shrink-0"
+            style={{ color: isActive ? 'var(--aqua)' : 'var(--grey1)' }}
+            aria-hidden="true"
+          >
+            {icon}
+          </span>
+          {label}
+        </div>
+      )}
+    </NavLink>
+  );
 }
 
 export function Sidebar({ onNewProject, onNewChat, mobileOpen = false, onMobileClose }: SidebarProps) {
@@ -115,47 +166,30 @@ export function Sidebar({ onNewProject, onNewChat, mobileOpen = false, onMobileC
         )}
       </div>
 
-      <nav aria-label="Projects" className="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
+      <nav aria-label="Projects" className="flex-1 overflow-y-auto py-1.5">
+        <div className="px-2">
+          <div className="sb-eyebrow px-3 pt-2 pb-1">Workspace</div>
+          <WorkspaceNavLink
+            to="/all"
+            label="Dashboard"
+            icon={<DashboardIcon />}
+            onNavigate={mobileOpen ? onMobileClose : undefined}
+          />
+          <WorkspaceNavLink
+            to="/playbooks"
+            label="Playbooks"
+            icon={<PlaybooksIcon />}
+            onNavigate={mobileOpen ? onMobileClose : undefined}
+          />
+        </div>
+
         <ChatSection onNewChat={onNewChat} />
-        <div className="my-2 border-t" style={{ borderColor: 'var(--bg3)' }} />
-        <NavLink to="/all" className="block" onClick={mobileOpen ? onMobileClose : undefined}>
-          {({ isActive }) => (
-            <div
-              className="px-3 py-2 rounded text-sm transition-colors"
-              style={{
-                backgroundColor: isActive ? 'var(--bg2)' : 'transparent',
-                color: isActive ? 'var(--fg)' : 'var(--grey2)',
-              }}
-              aria-current={isActive ? 'page' : undefined}
-            >
-              All Projects
-            </div>
-          )}
-        </NavLink>
 
-        <NavLink to="/playbooks" className="block" onClick={mobileOpen ? onMobileClose : undefined}>
-          {({ isActive }) => (
-            <div
-              className="px-3 py-2 rounded text-sm transition-colors"
-              style={{
-                backgroundColor: isActive ? 'var(--bg2)' : 'transparent',
-                color: isActive ? 'var(--fg)' : 'var(--grey2)',
-              }}
-              aria-current={isActive ? 'page' : undefined}
-            >
-              Playbooks
-            </div>
-          )}
-        </NavLink>
-
-        <div className="my-2 border-t" style={{ borderColor: 'var(--bg3)' }} />
-
-        {sortedProjects.map((p, i) => (
-          <div key={p.name}>
-            {i > 0 && (
-              <div className="mx-3 my-0.5 border-t" style={{ borderColor: 'var(--bg3)' }} />
-            )}
+        <div className="px-2">
+          <div className="sb-eyebrow px-3 pt-2 pb-1">Projects</div>
+          {sortedProjects.map((p) => (
             <NavLink
+              key={p.name}
               to={`/projects/${p.name}`}
               end={false}
               className="block"
@@ -167,14 +201,14 @@ export function Sidebar({ onNewProject, onNewChat, mobileOpen = false, onMobileC
                 </div>
               )}
             </NavLink>
-          </div>
-        ))}
+          ))}
 
-        {sortedProjects.length === 0 && (
-          <div className="px-3 py-4 text-sm text-center" style={{ color: 'var(--grey0)' }}>
-            No projects
-          </div>
-        )}
+          {sortedProjects.length === 0 && (
+            <div className="px-3 py-4 text-sm text-center" style={{ color: 'var(--grey0)' }}>
+              No projects
+            </div>
+          )}
+        </div>
       </nav>
 
       <div className="px-3 py-3 border-t flex flex-col gap-2" style={{ borderColor: 'var(--bg3)' }}>

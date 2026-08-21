@@ -13,20 +13,19 @@ export function ProjectCard({ name, displayName, summary, isActive }: ProjectCar
 
   return (
     <div
-      className="px-3 py-2 rounded transition-colors cursor-pointer"
-      style={{ backgroundColor: isActive ? 'var(--bg2)' : 'transparent' }}
+      className={`sb-navrow${isActive ? ' active' : ''} px-3 py-2 rounded transition-colors cursor-pointer`}
     >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5 min-w-0">
           <span
-            className="text-sm font-medium truncate"
+            className="text-[13px] font-medium truncate"
             style={{ color: isActive ? 'var(--fg)' : 'var(--grey2)' }}
           >
             {displayName ?? name}
           </span>
           {inProgressCount > 0 && (
             <svg
-              className="animate-spin flex-shrink-0"
+              className="sb-activity-spin animate-spin flex-shrink-0"
               width="12"
               height="12"
               viewBox="0 0 12 12"

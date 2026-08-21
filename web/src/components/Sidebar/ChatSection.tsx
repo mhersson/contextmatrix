@@ -58,38 +58,29 @@ export function ChatSection({ onNewChat }: { onNewChat: () => void }) {
   };
 
   return (
-    <div
-      className="px-2 py-2"
-      style={
-        !collapsed
-          ? { backgroundColor: 'color-mix(in oklab, var(--bg-dim) 90%, black)' }
-          : undefined
-      }
-    >
+    <div className="sb-chat-dock my-1.5 px-2 py-1">
       <div className="flex items-center justify-between px-3 py-1">
         <button
           type="button"
           onClick={toggle}
-          className="text-sm font-medium flex items-center gap-1"
-          style={{ color: 'var(--fg)' }}
+          className="sb-eyebrow flex items-center gap-1.5"
           aria-expanded={!collapsed}
           aria-controls="chat-section-list"
         >
-          <span aria-hidden="true">{collapsed ? '▸' : '▼'}</span>
+          <span aria-hidden="true" className="text-[8px]">{collapsed ? '▸' : '▼'}</span>
           Chat
         </button>
         <button
           type="button"
           onClick={handleNewChat}
-          className="text-xs px-2 py-0.5 rounded hover:opacity-80"
-          style={{ color: 'var(--green)', backgroundColor: 'var(--bg1)' }}
+          className="sb-eyebrow-btn"
           title="New chat"
         >
           + new
         </button>
       </div>
       {!collapsed && (
-        <ul id="chat-section-list" className="mt-1 space-y-0.5">
+        <ul id="chat-section-list" className="mt-0.5 space-y-0.5 pb-0.5">
           {sessions.length === 0 ? (
             <li className="px-3 py-2 text-xs italic" style={{ color: 'var(--grey1)' }}>
               No chats yet.
@@ -111,7 +102,7 @@ export function ChatSection({ onNewChat }: { onNewChat: () => void }) {
                   onDragEnd={() => {
                     window.dispatchEvent(new Event(CHAT_DRAG_END_EVENT));
                   }}
-                  className="cm-chat-row block w-full text-left px-3 py-1.5 rounded text-sm flex items-center gap-2"
+                  className="cm-chat-row block w-full text-left px-3 py-1.5 rounded text-[12.5px] flex items-center gap-2"
                   style={{ cursor: draggable ? 'grab' : 'pointer' }}
                 >
                   <span className="truncate flex-1">{s.title || '(untitled)'}</span>
