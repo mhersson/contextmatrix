@@ -157,7 +157,7 @@ export function PlaybookDetailPage() {
           onRemove={handleRemove}
         />
 
-        <AddEntryComposer onAdd={handleAdd} />
+        <AddEntryComposer onAdd={handleAdd} entries={detail.entries} />
       </div>
 
       <ConfirmModal

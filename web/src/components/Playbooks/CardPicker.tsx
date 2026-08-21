@@ -11,6 +11,8 @@ interface CardPickerProps {
   onFilterChange: (filter: string) => void;
   selectedCard: Card | null;
   onSelectCard: (card: Card) => void;
+  /** Card IDs to hide from the results, e.g. cards already in the playbook. */
+  excludeIds?: ReadonlySet<string>;
 }
 
 const inputStyle = {
@@ -21,16 +23,16 @@ const inputStyle = {
 
 /** Project select + client-side filtered card list, for the composer's Card mode. */
 export function CardPicker({
-  projects, project, onProjectChange, cards, filter, onFilterChange, selectedCard, onSelectCard,
+  projects, project, onProjectChange, cards, filter, onFilterChange, selectedCard, onSelectCard, excludeIds,
 }: CardPickerProps) {
   const filteredCards = useMemo(() => {
     const term = filter.trim().toLowerCase();
-    const openCards = cards.filter((c) => !isTerminalState(c.state));
+    const openCards = cards.filter((c) => !isTerminalState(c.state) && !excludeIds?.has(c.id));
     const matches = term
       ? openCards.filter((c) => c.id.toLowerCase().includes(term) || c.title.toLowerCase().includes(term))
       : openCards;
     return matches.slice(0, 8);
-  }, [cards, filter]);
+  }, [cards, filter, excludeIds]);
 
   return (
     <div className="flex flex-col gap-2">
@@ -52,7 +54,7 @@ export function CardPicker({
         style={inputStyle}
       />
       {!selectedCard && filter && (
-        <ul className="max-h-40 overflow-y-auto rounded border" style={{ borderColor: 'var(--bg3)' }}>
+        <ul aria-label="Card results" className="max-h-40 overflow-y-auto rounded border" style={{ borderColor: 'var(--bg3)' }}>
           {filteredCards.map((c) => (
             <li key={c.id}>
               <button

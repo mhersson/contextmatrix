@@ -1,11 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '../../api/client';
 import { useProjects } from '../../hooks/useProjects';
-import type { Card, NewPlaybookEntry } from '../../types';
+import type { Card, NewPlaybookEntry, PlaybookEntry } from '../../types';
 import { CardPicker } from './CardPicker';
 
 interface AddEntryComposerProps {
   onAdd: (entry: NewPlaybookEntry) => Promise<void>;
+  /** Current playbook entries; their cards are hidden from the picker. */
+  entries: PlaybookEntry[];
 }
 
 const inputStyle = {
@@ -16,7 +18,7 @@ const inputStyle = {
 
 /** Appends a new card or manual entry to the end of the playbook - order is
  * adjusted afterward by dragging, so this never takes a position. */
-export function AddEntryComposer({ onAdd }: AddEntryComposerProps) {
+export function AddEntryComposer({ onAdd, entries }: AddEntryComposerProps) {
   const { projects } = useProjects();
   const [mode, setMode] = useState<'card' | 'manual'>('card');
   const [project, setProject] = useState('');
@@ -31,6 +33,11 @@ export function AddEntryComposer({ onAdd }: AddEntryComposerProps) {
   // empty and only needs a fallback until the user (or the projects list)
   // supplies a real value.
   const effectiveProject = project || projects[0]?.name || '';
+
+  const existingCardIds = useMemo(
+    () => new Set(entries.flatMap((e) => (e.type === 'card' && e.project === effectiveProject && e.card ? [e.card] : []))),
+    [entries, effectiveProject],
+  );
 
   useEffect(() => {
     if (!effectiveProject) return;
@@ -97,6 +104,7 @@ export function AddEntryComposer({ onAdd }: AddEntryComposerProps) {
           onFilterChange={(f) => { setCardFilter(f); setSelectedCard(null); }}
           selectedCard={selectedCard}
           onSelectCard={(c) => { setSelectedCard(c); setCardFilter(`${c.id} - ${c.title}`); }}
+          excludeIds={existingCardIds}
         />
       ) : (
         <input
