@@ -83,6 +83,11 @@ shared by the agent and chat backends).
 - **Global chat surface** - a `/chat` route hosts long-lived, board-aware chat
   sessions independent of any card. Up to 4 are tiled in a resizable layout,
   persisted across reloads.
+- **Playbooks** - cross-project runbooks that mix live card references with
+  manual gate steps, stored as YAML in the boards repo. Card entries track
+  their card's live state; manual steps are human check-offs with per-entry
+  human-only notes. The detail view threads a route rail through the entries,
+  spotlights the next step, and supports drag-to-reorder.
 - **Image attachments** - paste from the clipboard or drag-and-drop screenshots
   into a card description. Uploads are resized server-side, content-hashed for
   deduplication, and surfaced to agents as base64 via MCP (`get_card`,
