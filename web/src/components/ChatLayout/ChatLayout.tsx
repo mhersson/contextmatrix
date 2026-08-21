@@ -177,13 +177,13 @@ export function ChatLayout(props: Props) {
 
 function EmptyLayoutHero({ onNewChat }: { onNewChat: () => void }) {
   return (
-    <div className="chat-layout chat-layout--empty">
-      <div className="chat-layout-empty-card">
-        <div className="chat-layout-empty-icon" aria-hidden="true">▦</div>
-        <div className="chat-layout-empty-title">No chats open</div>
-        <div className="chat-layout-empty-hint">
+    <div className="empty-hero">
+      <div className="empty-hero-card">
+        <div className="empty-hero-icon" aria-hidden="true">▦</div>
+        <div className="empty-hero-title">No chats open</div>
+        <div className="empty-hero-hint">
           Pick a chat from the sidebar or
-          <button type="button" className="chat-layout-empty-link" onClick={onNewChat}>+ New chat</button>
+          <button type="button" className="empty-hero-link" onClick={onNewChat}>+ New chat</button>
         </div>
       </div>
     </div>
