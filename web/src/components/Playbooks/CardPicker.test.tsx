@@ -38,7 +38,7 @@ const cards = [
   makeCard('ALPHA-005', 'not_planned'),
 ];
 
-function renderPicker() {
+function renderPicker(excludeIds?: ReadonlySet<string>) {
   render(
     <CardPicker
       projects={projects}
@@ -49,6 +49,7 @@ function renderPicker() {
       onFilterChange={vi.fn()}
       selectedCard={null}
       onSelectCard={vi.fn()}
+      excludeIds={excludeIds}
     />,
   );
 }
@@ -65,5 +66,12 @@ describe('CardPicker', () => {
     renderPicker();
     expect(screen.queryByText('ALPHA-004')).not.toBeInTheDocument();
     expect(screen.queryByText('ALPHA-005')).not.toBeInTheDocument();
+  });
+
+  it('excludes cards listed in excludeIds from the results', () => {
+    renderPicker(new Set(['ALPHA-001']));
+    expect(screen.queryByText('ALPHA-001')).not.toBeInTheDocument();
+    expect(screen.getByText('ALPHA-002')).toBeInTheDocument();
+    expect(screen.getByText('ALPHA-003')).toBeInTheDocument();
   });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router';
 import { PlaybookDetailPage } from './PlaybookDetailPage';
 import { persistReorder } from './playbookUtils';
@@ -117,5 +117,28 @@ describe('PlaybookDetailPage', () => {
     resolveAdd(baseDetail());
     await waitFor(() => expect(textInput).toHaveValue(''));
     expect(api.addPlaybookEntry).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides cards already in the playbook from the add-entry picker', async () => {
+    vi.mocked(api.getPlaybook).mockResolvedValue(baseDetail());
+    const card = (id: string, title: string) => ({
+      id, title, project: 'alpha', type: 'task', state: 'todo', priority: 'medium',
+      created: '2026-01-01T00:00:00Z', updated: '2026-01-01T00:00:00Z', body: '',
+    });
+    vi.mocked(api.getCards).mockResolvedValueOnce([
+      card('ALPHA-101', 'The card'),
+      card('ALPHA-102', 'Another card'),
+    ]);
+    renderPage();
+    await screen.findByText('Roll');
+
+    const filterInput = screen.getByPlaceholderText('Filter cards by id or title');
+    fireEvent.change(filterInput, { target: { value: 'card' } });
+
+    // Scope to the picker's results list - the entry list renders the
+    // ALPHA-101 id badge on the existing entry row regardless.
+    const results = await screen.findByRole('list', { name: 'Card results' });
+    expect(within(results).getByText('ALPHA-102')).toBeInTheDocument();
+    expect(within(results).queryByText('ALPHA-101')).not.toBeInTheDocument();
   });
 });
