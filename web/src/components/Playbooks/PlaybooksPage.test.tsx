@@ -19,9 +19,12 @@ vi.mock('../../hooks/useSSEBus', () => ({
   useSSEBus: () => ({ subscribe: () => () => {}, connected: true, error: null, reconnectEpoch: 0 }),
 }));
 
-vi.mock('../../hooks/useToast', () => ({
-  useToast: () => ({ showToast: () => {} }),
-}));
+vi.mock('../../hooks/useToast', () => {
+  // Stable identity: a fresh showToast per render would destabilize the
+  // page's fetch callback and trigger duplicate fetches in tests.
+  const toast = { showToast: () => {} };
+  return { useToast: () => toast };
+});
 
 vi.mock('../../context/MobileSidebarContext', () => ({
   useMobileSidebar: () => ({ isOpen: false, toggle: () => {}, close: () => {} }),
@@ -61,5 +64,41 @@ describe('PlaybooksPage', () => {
 
     resolveCreate({ id: 'new-rollout', title: 'New rollout', created_at: '', updated_at: '', complete: 0, total: 0, entries: [] });
     await waitFor(() => expect(createButton).not.toBeDisabled());
+  });
+
+  it('replaces the header layout with a centered hero when there are no playbooks', async () => {
+    vi.mocked(api.listPlaybooks).mockResolvedValueOnce([]);
+    render(<MemoryRouter><PlaybooksPage /></MemoryRouter>);
+
+    expect(await screen.findByText('No playbooks yet')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Playbooks' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /new playbook/i })).toBeInTheDocument();
+  });
+
+  it('creates a playbook from the hero via Enter', async () => {
+    vi.mocked(api.listPlaybooks).mockResolvedValueOnce([]);
+    vi.mocked(api.createPlaybook).mockResolvedValueOnce({ id: 'first-one', title: 'First one', created_at: '', updated_at: '', complete: 0, total: 0, entries: [] });
+    render(<MemoryRouter><PlaybooksPage /></MemoryRouter>);
+    await screen.findByText('No playbooks yet');
+
+    fireEvent.click(screen.getByRole('button', { name: /new playbook/i }));
+    const titleInput = screen.getByLabelText('Playbook title');
+    fireEvent.change(titleInput, { target: { value: 'First one' } });
+    fireEvent.keyDown(titleInput, { key: 'Enter' });
+
+    await waitFor(() => expect(api.createPlaybook).toHaveBeenCalledWith({ title: 'First one' }));
+  });
+
+  it('cancels the hero create flow on Escape', async () => {
+    vi.mocked(api.listPlaybooks).mockResolvedValueOnce([]);
+    render(<MemoryRouter><PlaybooksPage /></MemoryRouter>);
+    await screen.findByText('No playbooks yet');
+
+    fireEvent.click(screen.getByRole('button', { name: /new playbook/i }));
+    const titleInput = screen.getByLabelText('Playbook title');
+    fireEvent.keyDown(titleInput, { key: 'Escape' });
+
+    expect(screen.queryByLabelText('Playbook title')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /new playbook/i })).toBeInTheDocument();
   });
 });

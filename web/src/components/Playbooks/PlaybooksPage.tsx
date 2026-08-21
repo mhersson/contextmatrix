@@ -7,12 +7,7 @@ import type { PlaybookSummary } from '../../types';
 import { isFullyComplete } from './playbookUtils';
 import { PlaybookRow } from './PlaybookRow';
 import { PlaybooksBar } from './PlaybooksBar';
-
-const buttonStyle = {
-  backgroundColor: 'var(--bg-green)',
-  color: 'var(--green)',
-  border: '1px solid var(--green)',
-};
+import { CreatePlaybookForm, PlaybooksEmptyHero, createButtonStyle } from './PlaybooksEmptyHero';
 
 export function PlaybooksPage() {
   const [playbooks, setPlaybooks] = useState<PlaybookSummary[] | null>(null);
@@ -58,6 +53,25 @@ export function PlaybooksPage() {
     setNewTitle('');
   };
 
+  const isEmpty = playbooks !== null && active.length === 0 && completed.length === 0;
+
+  if (isEmpty) {
+    return (
+      <div className="h-full flex flex-col">
+        <PlaybooksBar />
+        <PlaybooksEmptyHero
+          creating={creating}
+          onStartCreate={() => setCreating(true)}
+          title={newTitle}
+          onTitleChange={setNewTitle}
+          onCreate={handleCreate}
+          onCancel={cancelCreate}
+          submitting={submitting}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="h-full overflow-y-auto">
       <PlaybooksBar />
@@ -79,37 +93,18 @@ export function PlaybooksPage() {
             </h1>
           </div>
           {creating ? (
-            <div className="flex items-center gap-2">
-              <input
-                autoFocus
-                value={newTitle}
-                onChange={(e) => setNewTitle(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleCreate();
-                  if (e.key === 'Escape') cancelCreate();
-                }}
-                placeholder="Playbook title"
-                aria-label="Playbook title"
-                className="px-3 py-1.5 rounded text-sm"
-                style={{ backgroundColor: 'var(--bg2)', border: '1px solid var(--bg3)', color: 'var(--fg)' }}
-              />
-              <button
-                onClick={handleCreate}
-                disabled={submitting}
-                className="px-3 py-1.5 rounded text-sm font-medium"
-                style={buttonStyle}
-              >
-                Create
-              </button>
-              <button onClick={cancelCreate} className="px-3 py-1.5 rounded text-sm" style={{ color: 'var(--grey1)' }}>
-                Cancel
-              </button>
-            </div>
+            <CreatePlaybookForm
+              title={newTitle}
+              onTitleChange={setNewTitle}
+              onCreate={handleCreate}
+              onCancel={cancelCreate}
+              submitting={submitting}
+            />
           ) : (
             <button
               onClick={() => setCreating(true)}
               className="px-3 py-1.5 rounded text-sm font-medium"
-              style={buttonStyle}
+              style={createButtonStyle}
             >
               New playbook
             </button>
@@ -120,9 +115,6 @@ export function PlaybooksPage() {
           <div style={{ color: 'var(--grey1)' }}>Loading...</div>
         ) : (
           <>
-            {active.length === 0 && completed.length === 0 && (
-              <div style={{ color: 'var(--grey1)' }}>No playbooks yet.</div>
-            )}
             {active.map((p) => <PlaybookRow key={p.id} playbook={p} />)}
 
             {completed.length > 0 && (
