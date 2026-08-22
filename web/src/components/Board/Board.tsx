@@ -1,4 +1,4 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -80,6 +80,10 @@ interface BoardProps {
   currentAgent: string | null;
   headerCollapsed?: boolean;
   onToggleHeaderCollapsed?: () => void;
+  /** Secondary header actions (console/settings/stop-all) rendered left of New Card in whichever band is showing. */
+  headerActions?: ReactNode;
+  /** Mobile-only sidebar opener forwarded to the band's menu button. */
+  onOpenSidebar?: () => void;
   onCardClick?: (card: Card) => void;
   onCardMove?: (cardId: string, newState: string) => Promise<boolean>;
   onCreateCard?: (state: string) => void;
@@ -112,6 +116,8 @@ export function Board({
   currentAgent,
   headerCollapsed,
   onToggleHeaderCollapsed,
+  headerActions,
+  onOpenSidebar,
   onCardClick,
   onCardMove,
   onCreateCard,
@@ -482,6 +488,8 @@ export function Board({
           shippedLast7d={shippedLast7dParents}
           shippedPrior7d={shippedPrior7dParents}
           onCreateCard={() => onCreateCard?.(config.states[0])}
+          actions={headerActions}
+          onOpenSidebar={onOpenSidebar}
           {...toggleHeaderProps}
         />
       ) : (
@@ -496,6 +504,8 @@ export function Board({
             shippedLast7d={shippedLast7dParents}
             shippedPrior7d={shippedPrior7dParents}
             onCreateCard={() => onCreateCard?.(config.states[0])}
+            actions={headerActions}
+            onOpenSidebar={onOpenSidebar}
             {...toggleHeaderProps}
           />
 

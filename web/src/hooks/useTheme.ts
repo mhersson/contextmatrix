@@ -90,14 +90,14 @@ interface ThemeContextValue {
    * pre-login payload and on older servers.
    */
   mobExecuteCheckpoints: boolean;
-  toggleTheme: () => void;
+  setTheme: (theme: Theme) => void;
   setPalette: (palette: Palette) => void;
 }
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<Theme>(() => {
+  const [theme, setThemeState] = useState<Theme>(() => {
     const initial = getInitialTheme();
     applyTheme(initial);
     return initial;
@@ -182,8 +182,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     // only on the authenticated fetch.
   }, [user?.username]);
 
-  const toggleTheme = useCallback(() => {
-    setTheme((current) => (current === 'dark' ? 'light' : 'dark'));
+  const setTheme = useCallback((t: Theme) => {
+    setThemeState(t);
   }, []);
 
   const setPalette = useCallback((p: Palette) => {
@@ -196,11 +196,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     () => ({
       theme, palette, version, taskBackend, chatEnabled, favorites, bestOfNMax, bestOfNDefault,
       mobMaxParticipants, mobDefaultParticipants, mobGuestNames, mobExecuteCheckpoints,
-      toggleTheme, setPalette,
+      setTheme, setPalette,
     }),
     [theme, palette, version, taskBackend, chatEnabled, favorites, bestOfNMax, bestOfNDefault,
       mobMaxParticipants, mobDefaultParticipants, mobGuestNames, mobExecuteCheckpoints,
-      toggleTheme, setPalette],
+      setTheme, setPalette],
   );
 
   return createElement(ThemeContext.Provider, { value }, children);

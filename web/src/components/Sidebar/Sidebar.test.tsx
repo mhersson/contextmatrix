@@ -28,7 +28,12 @@ vi.mock('../../hooks/ProjectSummariesProvider', () => ({
 }));
 
 vi.mock('../../hooks/useTheme', () => ({
-  useTheme: vi.fn(() => ({ theme: 'dark', palette: 'everforest', version: '', toggleTheme: () => {} })),
+  useTheme: vi.fn(() => ({ theme: 'dark', palette: 'everforest', version: '', setTheme: () => {}, setPalette: () => {} })),
+}));
+
+const authState = vi.hoisted(() => ({ current: null as unknown }));
+vi.mock('../../hooks/useAuth', () => ({
+  useOptionalAuth: () => authState.current,
 }));
 
 vi.mock('./ChatSection', () => ({
@@ -226,5 +231,35 @@ describe('Sidebar', () => {
       expect(onMobileClose).toHaveBeenCalledTimes(1);
     });
 
+  });
+});
+
+describe('Sidebar footer appearance slot', () => {
+  beforeEach(() => {
+    mockUseProjects.mockReturnValue({ projects: defaultProjects, loading: false, error: null, connected: true, refreshProjects: async () => {} });
+  });
+  afterEach(() => {
+    authState.current = null;
+  });
+
+  it('none mode: shows a standalone Appearance chip and no user chip', () => {
+    authState.current = null;
+    renderSidebar();
+    const chip = screen.getByRole('button', { name: /appearance/i });
+    fireEvent.click(chip);
+    expect(screen.getByRole('menuitemradio', { name: 'Dark' })).toBeInTheDocument();
+    expect(screen.queryByText(/signed in as/i)).toBeNull();
+  });
+
+  it('multi mode: the user chip owns appearance; no standalone Appearance chip', () => {
+    authState.current = {
+      mode: 'multi',
+      user: { username: 'alice', display_name: 'Alice', is_admin: false },
+      logout: vi.fn(),
+    };
+    renderSidebar();
+    expect(screen.queryByRole('button', { name: /^appearance$/i })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Alice/ }));
+    expect(screen.getByRole('menuitemradio', { name: 'Dark' })).toBeInTheDocument();
   });
 });

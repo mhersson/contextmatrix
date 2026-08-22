@@ -130,8 +130,8 @@ describe('ThemeProvider palette', () => {
   });
 });
 
-describe('ThemeProvider dark/light toggle', () => {
-  it('toggleTheme switches between dark and light without affecting palette', async () => {
+describe('ThemeProvider dark/light selection', () => {
+  it('setTheme applies the chosen mode without affecting palette', async () => {
     mockFetchAppConfig('radix');
 
     await act(async () => {
@@ -142,19 +142,36 @@ describe('ThemeProvider dark/light toggle', () => {
       expect(document.documentElement.getAttribute('data-palette')).toBe('radix');
     });
 
-    const initialTheme = latest!.theme;
-    const flipped: 'dark' | 'light' = initialTheme === 'dark' ? 'light' : 'dark';
+    act(() => {
+      latest!.setTheme('light');
+    });
+    await waitFor(() => {
+      expect(latest!.theme).toBe('light');
+    });
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
 
     act(() => {
-      latest!.toggleTheme();
+      latest!.setTheme('dark');
     });
-
     await waitFor(() => {
-      expect(latest!.theme).toBe(flipped);
+      expect(latest!.theme).toBe('dark');
     });
+    expect(document.documentElement.hasAttribute('data-theme')).toBe(false);
 
     expect(document.documentElement.getAttribute('data-palette')).toBe('radix');
     expect(latest!.palette).toBe('radix');
+  });
+
+  it('setTheme with the current mode is a no-op', async () => {
+    mockFetchAppConfig('everforest');
+    await act(async () => {
+      renderWithProvider();
+    });
+    const before = latest!.theme;
+    act(() => {
+      latest!.setTheme(before);
+    });
+    expect(latest!.theme).toBe(before);
   });
 });
 

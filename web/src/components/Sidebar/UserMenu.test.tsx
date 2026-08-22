@@ -14,6 +14,16 @@ vi.mock('../../hooks/useAuth', () => ({
   useOptionalAuth: () => authState.current,
 }));
 
+const themeState = vi.hoisted(() => ({
+  theme: 'dark' as 'dark' | 'light',
+  palette: 'everforest' as 'everforest' | 'radix' | 'catppuccin',
+  setTheme: vi.fn(),
+  setPalette: vi.fn(),
+}));
+vi.mock('../../hooks/useTheme', () => ({
+  useTheme: () => themeState,
+}));
+
 function setAuth(isAdmin: boolean) {
   authState.current = {
     mode: 'multi',
@@ -55,5 +65,31 @@ describe('UserMenu admin section', () => {
     expect(screen.queryByRole('menuitem', { name: 'Users' })).not.toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: 'Change password' })).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: 'Sign out' })).toBeInTheDocument();
+  });
+});
+
+describe('UserMenu appearance section', () => {
+  it('offers theme and palette radios between the admin section and account actions', () => {
+    setAuth(true);
+    render(<UserMenu />);
+    fireEvent.click(screen.getByRole('button', { name: /Root/ }));
+
+    const admin = screen.getByText('ADMIN');
+    const appearance = screen.getByText('APPEARANCE');
+    const changePw = screen.getByRole('menuitem', { name: 'Change password' });
+    expect(admin.compareDocumentPosition(appearance) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(appearance.compareDocumentPosition(changePw) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole('menuitemradio', { name: 'Dark' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('menuitemradio', { name: 'Everforest' })).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('shows the appearance section to non-admins too and keeps the menu open after a pick', () => {
+    setAuth(false);
+    render(<UserMenu />);
+    fireEvent.click(screen.getByRole('button', { name: /Root/ }));
+
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Light' }));
+    expect(themeState.setTheme).toHaveBeenCalledWith('light');
+    expect(screen.getByRole('menuitemradio', { name: 'Radix' })).toBeInTheDocument();
   });
 });

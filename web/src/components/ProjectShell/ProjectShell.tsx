@@ -15,9 +15,11 @@ import { useActivityFeed } from '../../hooks/useActivityFeed';
 import { useResizeDivider } from '../../hooks/useResizeDivider';
 import { useBoardHeaderCollapsed } from '../../hooks/useBoardHeaderCollapsed';
 import { useConsoleState } from '../../context/ConsoleStateContext';
+import { useMobileSidebar } from '../../context/MobileSidebarContext';
 import { useTheme } from '../../hooks/useTheme';
-import { AppHeader } from '../AppHeader';
 import { Board } from '../Board';
+import { BoardHeaderActions } from '../Board/BoardHeaderActions';
+import { ProjectSettingsCrumb } from '../ProjectSettings/ProjectSettingsCrumb';
 import { CardPanel } from '../CardPanel';
 import { CreateCardPanel } from '../CreateCardPanel';
 import { ErrorBoundary } from '../ErrorBoundary';
@@ -55,6 +57,7 @@ export function ProjectShell() {
   const [createPanelOpen, setCreatePanelOpen] = useState(false);
   const [flashCardId, setFlashCardId] = useState<string | null>(null);
   const { isOpen: consoleOpen, toggle: toggleConsole, close: closeConsole } = useConsoleState();
+  const { toggle: openSidebar } = useMobileSidebar();
   const [headerCollapsed, toggleHeaderCollapsed] = useBoardHeaderCollapsed();
   const flashTimer = useTimeoutRef();
   const mainRef = useRef<HTMLDivElement>(null);
@@ -234,16 +237,19 @@ export function ProjectShell() {
     )
   );
 
+  const headerActions = (
+    <BoardHeaderActions
+      onOpenSettings={() => navigate(`/projects/${project}/settings`)}
+      taskBackendConfigured={!!taskBackend}
+      consoleOpen={consoleOpen}
+      onToggleConsole={toggleConsole}
+      hasActiveWorkers={hasActiveWorkers}
+      onStopAll={handleStopAll}
+    />
+  );
+
   return (
     <>
-      <AppHeader
-        project={project || ''}
-        hasActiveWorkers={hasActiveWorkers}
-        onStopAll={handleStopAll}
-        taskBackendConfigured={!!taskBackend}
-        consoleOpen={consoleOpen}
-        onToggleConsole={toggleConsole}
-      />
       <main ref={mainRef} className="flex-1 overflow-hidden flex flex-col">
         <div
           style={{ flex: consoleOpen ? `0 1 ${boardPercent}%` : '1 1 100%' }}
@@ -276,6 +282,8 @@ export function ProjectShell() {
                       currentAgent={identity}
                       headerCollapsed={headerCollapsed}
                       onToggleHeaderCollapsed={toggleHeaderCollapsed}
+                      headerActions={headerActions}
+                      onOpenSidebar={openSidebar}
                       onCardClick={handleCardClick} onCardMove={handleCardMove}
                       onCreateCard={handleOpenCreate} flashCardId={flashCardId}
                       onParentClick={handleSubtaskClick}
@@ -293,12 +301,17 @@ export function ProjectShell() {
               <Route
                 path="settings"
                 element={
-                  <ProjectSettings
-                    project={project || ''}
-                    onUpdated={handleProjectUpdated}
-                    onDeleted={handleProjectDeleted}
-                    showToast={showToast}
-                  />
+                  <div className="flex flex-col h-full">
+                    <ProjectSettingsCrumb project={project || ''} onOpenSidebar={openSidebar} />
+                    <div className="flex-1 min-h-0">
+                      <ProjectSettings
+                        project={project || ''}
+                        onUpdated={handleProjectUpdated}
+                        onDeleted={handleProjectDeleted}
+                        showToast={showToast}
+                      />
+                    </div>
+                  </div>
                 }
               />
               <Route path="*" element={<NotFound />} />
