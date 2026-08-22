@@ -22,6 +22,7 @@ export function UserMenu({ onNavigate }: { onNavigate?: () => void } = {}) {
   const [open, setOpen] = useState(false);
   const [changeOpen, setChangeOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   const goto = (path: string) => {
     setOpen(false);
@@ -29,7 +30,10 @@ export function UserMenu({ onNavigate }: { onNavigate?: () => void } = {}) {
     navigate(path);
   };
 
-  useMenuDismiss(containerRef, open, () => setOpen(false));
+  useMenuDismiss(containerRef, open, () => {
+    if (containerRef.current?.contains(document.activeElement)) triggerRef.current?.focus();
+    setOpen(false);
+  });
 
   if (!auth || auth.mode !== 'multi' || !auth.user) return null;
 
@@ -40,6 +44,7 @@ export function UserMenu({ onNavigate }: { onNavigate?: () => void } = {}) {
   return (
     <div ref={containerRef} className="relative">
       <button
+        ref={triggerRef}
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={open}

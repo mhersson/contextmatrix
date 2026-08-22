@@ -19,7 +19,7 @@ import { useMobileSidebar } from '../../context/MobileSidebarContext';
 import { useTheme } from '../../hooks/useTheme';
 import { Board } from '../Board';
 import { BoardHeaderActions } from '../Board/BoardHeaderActions';
-import { ProjectSettingsCrumb } from '../ProjectSettings/ProjectSettingsCrumb';
+import { ProjectCrumb } from '../ProjectCrumb/ProjectCrumb';
 import { CardPanel } from '../CardPanel';
 import { CreateCardPanel } from '../CreateCardPanel';
 import { ErrorBoundary } from '../ErrorBoundary';
@@ -239,7 +239,7 @@ export function ProjectShell() {
 
   const headerActions = (
     <BoardHeaderActions
-      onOpenSettings={() => navigate(`/projects/${project}/settings`)}
+      settingsHref={`/projects/${project}/settings`}
       taskBackendConfigured={!!taskBackend}
       consoleOpen={consoleOpen}
       onToggleConsole={toggleConsole}
@@ -290,9 +290,12 @@ export function ProjectShell() {
                       onSyncClick={triggerSync}
                     />
                   ) : (
-                    <div className="flex items-center justify-center h-full">
-                      <div style={{ color: 'var(--grey1)' }}>
-                        {loading ? 'Loading board...' : error || 'Project not found'}
+                    <div className="flex flex-col h-full">
+                      <ProjectCrumb project={project || ''} onOpenSidebar={openSidebar} />
+                      <div className="flex-1 flex items-center justify-center">
+                        <div style={{ color: 'var(--grey1)' }}>
+                          {loading ? 'Loading board...' : error || 'Project not found'}
+                        </div>
                       </div>
                     </div>
                   )
@@ -302,7 +305,7 @@ export function ProjectShell() {
                 path="settings"
                 element={
                   <div className="flex flex-col h-full">
-                    <ProjectSettingsCrumb project={project || ''} onOpenSidebar={openSidebar} />
+                    <ProjectCrumb project={project || ''} current="Settings" onOpenSidebar={openSidebar} />
                     <div className="flex-1 min-h-0">
                       <ProjectSettings
                         project={project || ''}

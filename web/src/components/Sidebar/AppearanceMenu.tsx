@@ -10,12 +10,19 @@ import { AppearanceMenuItems } from './AppearanceMenuItems';
 export function AppearanceMenu() {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
-  useMenuDismiss(containerRef, open, () => setOpen(false));
+  // Escape/outside-click unmounts the menu; hand focus back to the chip when
+  // it was inside so keyboard users do not drop to <body>.
+  useMenuDismiss(containerRef, open, () => {
+    if (containerRef.current?.contains(document.activeElement)) triggerRef.current?.focus();
+    setOpen(false);
+  });
 
   return (
     <div ref={containerRef} className="relative">
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"

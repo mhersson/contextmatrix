@@ -835,15 +835,34 @@ describe('ProjectShell - board header collapse', () => {
 // Project header chrome: the band is the only header (no AppHeader bar)
 // ---------------------------------------------------------------------------
 describe('ProjectShell header chrome', () => {
-  it('hands Board the action cluster with a Settings button that routes to /settings', async () => {
+  it('hands Board the action cluster with a Settings link to /settings', async () => {
     renderProjectShell();
     const actions = screen.getByTestId('header-actions');
-    const settings = within(actions).getByRole('button', { name: /settings/i });
+    const settings = within(actions).getByRole('link', { name: /settings/i });
+    expect(settings).toHaveAttribute('href', '/projects/test/settings');
     // Console appears because the mocked useTheme reports taskBackend: 'agent'.
     expect(within(actions).getByRole('button', { name: /console/i })).toBeInTheDocument();
 
     act(() => settings.click());
     expect(await screen.findByTestId('project-settings')).toBeInTheDocument();
+  });
+
+  it('keeps the sidebar opener when the board cannot render (no config)', async () => {
+    const { useBoard } = await import('../../hooks/useBoard');
+    const previous = vi.mocked(useBoard).getMockImplementation();
+    vi.mocked(useBoard).mockReturnValue({
+      config: null, cards: [], loading: false, error: 'Project not found', connected: false,
+      refresh: vi.fn(), listEpoch: 0, refreshCard: vi.fn(), updateCardLocally: vi.fn(),
+      removeCardLocally: vi.fn(), suppressSSE: vi.fn(), unsuppressSSE: vi.fn(),
+    } as unknown as ReturnType<typeof useBoard>);
+    try {
+      renderProjectShell();
+      expect(screen.getByText('Project not found')).toBeInTheDocument();
+      act(() => screen.getByRole('button', { name: /open menu/i }).click());
+      expect(mobileSidebarToggle).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.mocked(useBoard).mockImplementation(previous!);
+    }
   });
 
   it('wires the band menu button to the mobile sidebar toggle', () => {

@@ -45,4 +45,13 @@ describe('AppearanceMenuItems', () => {
     expect(themeState.setPalette).toHaveBeenCalledWith('catppuccin');
     expect(themeState.setTheme).not.toHaveBeenCalled();
   });
+
+  it('exposes theme and palette as separately labelled radio groups', () => {
+    render(<AppearanceMenuItems />);
+    const theme = screen.getByRole('group', { name: 'Theme' });
+    const palette = screen.getByRole('group', { name: 'Palette' });
+    expect(theme).toContainElement(screen.getByRole('menuitemradio', { name: 'Dark' }));
+    expect(palette).toContainElement(screen.getByRole('menuitemradio', { name: 'Radix' }));
+    expect(theme).not.toContainElement(screen.getByRole('menuitemradio', { name: 'Radix' }));
+  });
 });

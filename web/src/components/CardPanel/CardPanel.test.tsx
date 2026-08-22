@@ -6,7 +6,8 @@ import type { Card, ProjectConfig } from '../../types';
 const theme = vi.hoisted(() => ({
   theme: 'dark',
   palette: 'everforest',
-  toggleTheme: () => {},
+  setTheme: () => {},
+  setPalette: () => {},
   taskBackend: 'agent',
 }));
 vi.mock('../../hooks/useTheme', () => ({

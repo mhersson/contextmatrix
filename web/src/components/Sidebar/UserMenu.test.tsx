@@ -92,4 +92,15 @@ describe('UserMenu appearance section', () => {
     expect(themeState.setTheme).toHaveBeenCalledWith('light');
     expect(screen.getByRole('menuitemradio', { name: 'Radix' })).toBeInTheDocument();
   });
+
+  it('returns focus to the user chip when Escape closes the menu from inside it', () => {
+    setAuth(false);
+    render(<UserMenu />);
+    const chip = screen.getByRole('button', { name: /Root/ });
+    fireEvent.click(chip);
+    screen.getByRole('menuitemradio', { name: 'Light' }).focus();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(document.activeElement).toBe(chip);
+  });
 });

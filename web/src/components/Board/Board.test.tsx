@@ -1619,4 +1619,16 @@ describe('Board header actions slot', () => {
     fireEvent.click(screen.getByRole('button', { name: /open menu/i }));
     expect(onOpenSidebar).toHaveBeenCalledTimes(1);
   });
+
+  it('keeps the sidebar opener in the error and loading states', () => {
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    const onOpenSidebar = vi.fn();
+    const { rerender } = render(<Board {...boardProps} error="boom" onOpenSidebar={onOpenSidebar} />);
+    expect(screen.getByText('boom')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /open menu/i }));
+    expect(onOpenSidebar).toHaveBeenCalledTimes(1);
+
+    rerender(<Board {...boardProps} loading onOpenSidebar={onOpenSidebar} />);
+    expect(screen.getByRole('button', { name: /open menu/i })).toBeInTheDocument();
+  });
 });

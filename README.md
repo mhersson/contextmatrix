@@ -161,11 +161,11 @@ See [Multi-User Mode](#multi-user-mode).
 - **Execution console** - when a task backend is enabled, a toggleable console
   (`>_` button in the header, keyboard `c`) streams live container logs below
   the board with a resizable divider.
-- **Theme toggle** - sun/moon icon toggles dark/light, persisted in
-  `localStorage`, defaulting to your system `prefers-color-scheme`.
-- **Palette selector** - a dropdown picks between **Everforest** (default),
-  **Radix**, and **Catppuccin**. The server default is set via the `theme`
-  config key; each browser's choice is stored under the `palette` key and
+- **Appearance** - the sidebar footer menu (the user chip in multi-user mode,
+  an Appearance chip otherwise) picks Light/Dark and the palette: **Everforest**
+  (default), **Radix**, or **Catppuccin**. Dark/light persists in
+  `localStorage`; the palette's server default is set via the `theme` config
+  key and each browser's choice is stored under the `palette` key and
   overrides it on subsequent loads.
 
 ## Multi-User Mode

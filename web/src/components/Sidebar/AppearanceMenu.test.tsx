@@ -40,4 +40,21 @@ describe('AppearanceMenu', () => {
     fireEvent.mouseDown(screen.getByText('outside'));
     expect(screen.queryByRole('menu')).toBeNull();
   });
+
+  it('stays open after a pick so theme and palette can be chosen together', () => {
+    render(<AppearanceMenu />);
+    fireEvent.click(screen.getByRole('button', { name: /appearance/i }));
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Catppuccin' }));
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+  });
+
+  it('returns focus to the chip when Escape closes the menu from inside it', () => {
+    render(<AppearanceMenu />);
+    const chip = screen.getByRole('button', { name: /appearance/i });
+    fireEvent.click(chip);
+    screen.getByRole('menuitemradio', { name: 'Light' }).focus();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(document.activeElement).toBe(chip);
+  });
 });

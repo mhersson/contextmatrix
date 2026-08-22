@@ -50,9 +50,10 @@ block). A stored value wins over the server default; invalid values fall back.
 `BoardMicroBand.tsx`) is the only header on project routes - there is no bar
 above it. `ProjectShell` hands `Board` a `headerActions` slot
 (`Board/BoardHeaderActions.tsx`: Stop All / Console toggle / Settings) rendered
-left of New Card, and the mobile sidebar opener. The settings page gets
-`ProjectSettings/ProjectSettingsCrumb.tsx` (`Projects • <project> • Settings`)
-for the same reason.
+left of New Card, and the mobile sidebar opener. Routes and states that render
+no band (settings page, board loading/error) get `ProjectCrumb/ProjectCrumb.tsx`
+(`Projects • <project>[ • Settings]`) for the same reason: every project view
+keeps the hamburger and a way back to the board.
 
 **Semantic CSS variables** (full hex in `index.css`):
 

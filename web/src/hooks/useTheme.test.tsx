@@ -149,6 +149,7 @@ describe('ThemeProvider dark/light selection', () => {
       expect(latest!.theme).toBe('light');
     });
     expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+    expect(localStorageMock.getItem('theme')).toBe('light');
 
     act(() => {
       latest!.setTheme('dark');
@@ -157,6 +158,7 @@ describe('ThemeProvider dark/light selection', () => {
       expect(latest!.theme).toBe('dark');
     });
     expect(document.documentElement.hasAttribute('data-theme')).toBe(false);
+    expect(localStorageMock.getItem('theme')).toBe('dark');
 
     expect(document.documentElement.getAttribute('data-palette')).toBe('radix');
     expect(latest!.palette).toBe('radix');

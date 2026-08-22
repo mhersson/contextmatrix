@@ -24,6 +24,7 @@ import { Column } from './Column';
 import { CardItem } from './CardItem';
 import { BoardBand } from './BoardBand';
 import { BoardMicroBand } from './BoardMicroBand';
+import { ProjectCrumb } from '../ProjectCrumb/ProjectCrumb';
 import { MetricsRibbon } from './MetricsRibbon';
 import { SpotlightStrip } from './SpotlightStrip';
 import { FilterChipBar } from './FilterChipBar';
@@ -433,13 +434,25 @@ export function Board({
     setActiveCard(null);
   }
 
-  if (loading) return <BoardSkeleton />;
+  // Loading and error states render no band, so they carry the crumb row
+  // themselves - it is the only home for the mobile sidebar opener here.
+  if (loading) {
+    return (
+      <div className="flex flex-col h-full">
+        <ProjectCrumb project={config.name} onOpenSidebar={onOpenSidebar} />
+        <BoardSkeleton />
+      </div>
+    );
+  }
 
   if (error) {
     return (
-      <div className="p-6">
-        <div className="bg-[var(--bg-red)] border border-[var(--red)] rounded-lg p-4">
-          <p className="text-[var(--red)]">{error}</p>
+      <div className="flex flex-col h-full">
+        <ProjectCrumb project={config.name} onOpenSidebar={onOpenSidebar} />
+        <div className="p-6">
+          <div className="bg-[var(--bg-red)] border border-[var(--red)] rounded-lg p-4">
+            <p className="text-[var(--red)]">{error}</p>
+          </div>
         </div>
       </div>
     );

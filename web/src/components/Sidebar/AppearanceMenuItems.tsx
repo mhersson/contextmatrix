@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import { useTheme } from '../../hooks/useTheme';
 
 type ThemeCtx = ReturnType<typeof useTheme>;
@@ -40,19 +41,25 @@ function RadioItem({ label, checked, onSelect }: { label: string; checked: boole
  */
 export function AppearanceMenuItems() {
   const { theme, palette, setTheme, setPalette } = useTheme();
+  const themeId = useId();
+  const paletteId = useId();
   return (
     <>
       <div className="px-3 pt-2 pb-1 text-[10px] font-semibold tracking-wide" style={{ color: 'var(--grey0)' }}>
         APPEARANCE
       </div>
-      <div className="sb-eyebrow px-3 pt-1 pb-0.5">Theme</div>
-      {THEMES.map((t) => (
-        <RadioItem key={t.id} label={t.label} checked={theme === t.id} onSelect={() => setTheme(t.id)} />
-      ))}
-      <div className="sb-eyebrow px-3 pt-1.5 pb-0.5">Palette</div>
-      {PALETTES.map((p) => (
-        <RadioItem key={p.id} label={p.label} checked={palette === p.id} onSelect={() => setPalette(p.id)} />
-      ))}
+      <div role="group" aria-labelledby={themeId}>
+        <div id={themeId} className="sb-eyebrow px-3 pt-1 pb-0.5">Theme</div>
+        {THEMES.map((t) => (
+          <RadioItem key={t.id} label={t.label} checked={theme === t.id} onSelect={() => setTheme(t.id)} />
+        ))}
+      </div>
+      <div role="group" aria-labelledby={paletteId}>
+        <div id={paletteId} className="sb-eyebrow px-3 pt-1.5 pb-0.5">Palette</div>
+        {PALETTES.map((p) => (
+          <RadioItem key={p.id} label={p.label} checked={palette === p.id} onSelect={() => setPalette(p.id)} />
+        ))}
+      </div>
     </>
   );
 }

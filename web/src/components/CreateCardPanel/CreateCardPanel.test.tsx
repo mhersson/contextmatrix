@@ -8,7 +8,8 @@ vi.mock('../../hooks/useTheme', () => ({
   useTheme: () => ({
     theme: 'dark',
     palette: 'everforest',
-    toggleTheme: vi.fn(),
+    setTheme: vi.fn(),
+    setPalette: vi.fn(),
     taskBackend: 'agent',
     bestOfNMax: 5,
     bestOfNDefault: 3,

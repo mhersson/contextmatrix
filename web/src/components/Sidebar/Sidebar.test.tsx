@@ -236,19 +236,27 @@ describe('Sidebar', () => {
 
 describe('Sidebar footer appearance slot', () => {
   beforeEach(() => {
+    vi.spyOn(api, 'listPlaybooks').mockResolvedValue([]);
     mockUseProjects.mockReturnValue({ projects: defaultProjects, loading: false, error: null, connected: true, refreshProjects: async () => {} });
   });
   afterEach(() => {
+    vi.restoreAllMocks();
     authState.current = null;
   });
 
   it('none mode: shows a standalone Appearance chip and no user chip', () => {
-    authState.current = null;
+    authState.current = { mode: 'none', status: 'authenticated', user: null, version: null, setUser: vi.fn(), logout: vi.fn() };
     renderSidebar();
     const chip = screen.getByRole('button', { name: /appearance/i });
     fireEvent.click(chip);
     expect(screen.getByRole('menuitemradio', { name: 'Dark' })).toBeInTheDocument();
-    expect(screen.queryByText(/signed in as/i)).toBeNull();
+    expect(screen.queryByTitle(/^signed in as/i)).toBeNull();
+  });
+
+  it('no AuthProvider at all behaves like none mode', () => {
+    authState.current = null;
+    renderSidebar();
+    expect(screen.getByRole('button', { name: /appearance/i })).toBeInTheDocument();
   });
 
   it('multi mode: the user chip owns appearance; no standalone Appearance chip', () => {
@@ -259,6 +267,7 @@ describe('Sidebar footer appearance slot', () => {
     };
     renderSidebar();
     expect(screen.queryByRole('button', { name: /^appearance$/i })).toBeNull();
+    expect(screen.getByTitle(/^signed in as alice/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Alice/ }));
     expect(screen.getByRole('menuitemradio', { name: 'Dark' })).toBeInTheDocument();
   });

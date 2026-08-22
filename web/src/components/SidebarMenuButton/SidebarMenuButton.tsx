@@ -1,7 +1,7 @@
 /**
- * Mobile-only hamburger that opens the sidebar drawer. Each page header owns
- * one (UtilityBar, PlaybooksBar, the board bands, the settings crumb) so the
- * drawer is reachable from every route below the md breakpoint.
+ * Mobile-only hamburger that opens the sidebar drawer. Every page header owns
+ * one (UtilityBar, PlaybooksBar, the board bands, ProjectCrumb) so the drawer
+ * is reachable from every route below the md breakpoint.
  */
 export function SidebarMenuButton({ onClick }: { onClick: () => void }) {
   return (

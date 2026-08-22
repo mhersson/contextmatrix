@@ -2727,26 +2727,33 @@ textarea {
   background: var(--bg3);
   margin: 0 6px;
 }
-/* Micro-band: icon-only squares; titles carry the names. */
+/* Icon-only variant: the label stays in the accessibility tree (so the
+   accessible name is still "Console"/"Settings") but is visually hidden. */
 .board-microband .board-header-actions__btn {
   width: 28px;
   height: 28px;
   padding: 0;
   justify-content: center;
+  gap: 0;
 }
 .board-microband .board-header-actions__btn svg {
   width: 15px;
   height: 15px;
 }
 .board-microband .board-header-actions__label {
-  display: none;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 .board-microband .board-header-actions__sep {
   margin: 0 4px;
 }
 
-/* ── Settings crumb (project settings page header) ───────────────────── */
-.settings-crumb {
+/* ── Project crumb (settings page + band-less board states) ──────────── */
+.project-crumb {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -3619,15 +3626,35 @@ textarea {
     font-size: 22px;
     letter-spacing: -0.015em;
   }
-  .settings-crumb {
+  .project-crumb {
     padding: 12px 14px 0;
+  }
+  /* The micro-band holds the only sidebar opener on phones; keep it pinned
+     while the kanban scrolls (the board root is the scroller below 768px). */
+  .board-microband {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background: var(--bg-dim);
   }
   /* Action cluster goes icon-only; New Card takes the remaining width. */
   .board-band__actions {
     width: 100%;
   }
+  .board-band .board-header-actions__btn {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    justify-content: center;
+    gap: 0;
+  }
   .board-band .board-header-actions__label {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
   }
   .board-band__cta {
     flex: 1;
