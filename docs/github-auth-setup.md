@@ -33,7 +33,7 @@ for how this maps onto all-in-one, CM-plus-worker-VM, and Kubernetes layouts.
 | CI checks poll (`await_ci` gate)             | worker via `gh pr checks`                      | Checks: read                | Not available - gate falls back to Actions: read + Commit statuses: read |
 | CI failure logs (`await_ci` gate)            | worker via `gh run view --log-failed`          | Actions: read               | Actions: read                 |
 | Status-API CI results (non-Actions CI)       | worker via `gh pr checks`                      | Commit statuses: read       | Commit statuses: read         |
-| Copilot reviewer request (`await_copilot_review` gate) | worker via `gh pr edit --add-reviewer` | Members: read (organization) | Members: read (organization) |
+| Copilot reviewer request + review read (`await_copilot_review` gate) | worker via `gh api repos/{o}/{r}/pulls/{n}/requested_reviewers` and `.../reviews` | Pull requests: read & write | Pull requests: read and write |
 
 CM does not call GitHub's PR-creation endpoint itself - the worker container runs
 `gh pr create` (or equivalent) using the token CM minted for that run. CM's own
@@ -53,14 +53,26 @@ The four PR-gate rows apply only to cards that set `await_ci` or
   the PAT permissions above cover. GitHub Actions CI and status-API CI are
   fully visible in fallback mode; only third-party integrations that report
   exclusively through the Checks API are not.
-- **Members is an organization permission**, needed only on org-owned repos:
-  `gh pr edit --add-reviewer` fetches the organization's teams before adding
-  any reviewer. Without it the Copilot gate is skipped and the gh error is
-  recorded on the card. Community reports indicate requesting a Copilot
-  review works with user-scoped fine-grained PATs (Pull requests: read and
-  write) but not with App installation tokens in some setups; if the
-  Copilot gate logs a request failure under App auth, that asymmetry is the
-  likely cause.
+- **The Copilot gate needs no permission beyond Pull requests: read and
+  write.** The worker requests the reviewer with
+  `gh api --method POST repos/{owner}/{repo}/pulls/{n}/requested_reviewers`,
+  reads pending requests back from the same endpoint, and reads reviews and
+  review comments from the REST `pulls/{n}/reviews` endpoints - all covered
+  by the PR-creation row above. It does not use `gh pr edit
+  --add-reviewer`, so the organization-level Members permission is not
+  needed. Community reports indicate requesting a Copilot review works with
+  user-scoped fine-grained PATs but not with App installation tokens in some
+  setups; if the Copilot gate logs a request failure under App auth, that
+  asymmetry is the likely cause. When checking by hand, use
+  `gh api repos/{owner}/{repo}/pulls/{n}/requested_reviewers` - gh's
+  `pr view --json reviewRequests` drops Bot-typed reviewers and never shows
+  Copilot, which is why the worker reads REST. Gate behaviour: if the
+  reviewer is still unlisted after the request, the gate waits for the
+  review anyway (default 20 minutes,
+  `CMX_GATES_COPILOT_WAIT_TIMEOUT_SECONDS`); only a 422 "Copilot isn't
+  available for this repository" response records the reason on the card
+  and passes the gate without waiting; a review that lands late is picked
+  up by one more check after the CI gate.
 
 App-installation tokens automatically include `Metadata: read` - that's not a
 separate setting. Fine-grained PAT users have to remember to include it
@@ -81,16 +93,16 @@ explicitly.
 3. Under **Permissions → Repository permissions**, set:
    - **Contents**: read & write
    - **Issues**: read (only if you'll use issue importing)
-   - **Pull requests**: read & write (worker containers create PRs)
+   - **Pull requests**: read & write (worker containers create PRs and,
+     for `await_copilot_review`, request and read Copilot reviews)
    - **Checks**: read (only if cards set `await_ci` - `gh pr checks` reads
      check-run results)
    - **Actions**: read (only if cards set `await_ci` - `gh run view
      --log-failed` fetches failing-run logs)
    - **Commit statuses**: read (only if cards set `await_ci` and a CI system
      reports through the legacy status API)
-4. Under **Permissions → Organization permissions**, set **Members**: read if
-   org-owned repos use the `await_copilot_review` gate (`gh pr edit
-   --add-reviewer` fetches organization teams).
+4. Leave **Permissions → Organization permissions** empty - the
+   `await_copilot_review` gate needs only Pull requests: read & write.
 5. Under **Where can this GitHub App be installed?**, choose **Only on this
    account** (recommended) or **Any account** if you want to install it on
    multiple orgs.
@@ -182,14 +194,15 @@ granted the **Contents: read & write** permission).
    - **Contents**: Read and write
    - **Issues**: Read (for issue importing)
    - **Metadata**: Read (auto-included; double-check it's there)
-   - **Pull requests**: Read and write (worker containers create PRs)
+   - **Pull requests**: Read and write (worker containers create PRs and,
+     for `await_copilot_review`, request and read Copilot reviews)
    - **Actions**: Read (only if cards set `await_ci` - CI polling fallback and
      failing-run logs)
    - **Commit statuses**: Read (only if cards set `await_ci` and a CI system
      reports through the legacy status API)
-4. Under **Organization permissions** (shown when the token's resource owner
-   is an organization), grant **Members**: Read if org-owned repos use the
-   `await_copilot_review` gate.
+4. Leave **Organization permissions** (shown when the token's resource owner
+   is an organization) empty - the `await_copilot_review` gate needs only
+   Pull requests: Read and write.
 5. Click **Generate token**, copy it (it's shown only once), and store it in
    your secrets manager.
 
