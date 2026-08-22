@@ -108,8 +108,9 @@ list is required so the flex child can shrink below its content height.
 Mobile exception (< 768px): the Board page relaxes this so the chrome above the
 kanban can scroll away - Board root adds `overflow-y-auto` (desktop keeps
 `md:overflow-hidden`), the columns wrapper gets `min-h-[calc(100dvh-3rem)]`, and
-`.board-footer` becomes `sticky` so the rail toggle stays reachable. No other
-layer changes.
+`.board-footer` becomes `sticky` so the rail toggle stays reachable, and
+`.board-microband` is likewise `sticky` (top: 0, opaque `--bg-dim`) so the only
+sidebar opener stays pinned while the kanban scrolls. No other layer changes.
 
 ## Drag-and-drop sensors
 

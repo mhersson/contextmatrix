@@ -57,4 +57,19 @@ describe('AppearanceMenu', () => {
     expect(screen.queryByRole('menu')).toBeNull();
     expect(document.activeElement).toBe(chip);
   });
+
+  it('returns focus to the chip when an outside click closes the menu from inside it', () => {
+    render(
+      <div>
+        <AppearanceMenu />
+        <button type="button">outside</button>
+      </div>
+    );
+    const chip = screen.getByRole('button', { name: /appearance/i });
+    fireEvent.click(chip);
+    screen.getByRole('menuitemradio', { name: 'Light' }).focus();
+    fireEvent.mouseDown(screen.getByText('outside'));
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(document.activeElement).toBe(chip);
+  });
 });

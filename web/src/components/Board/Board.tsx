@@ -85,6 +85,12 @@ interface BoardProps {
   headerActions?: ReactNode;
   /** Mobile-only sidebar opener forwarded to the band's menu button. */
   onOpenSidebar?: () => void;
+  /**
+   * Route project slug for the band-less loading/error crumb. `config` can
+   * lag a project switch (useBoard keeps the previous project's config until
+   * the new fetch resolves), so the crumb must not name itself from it.
+   */
+  projectName?: string;
   onCardClick?: (card: Card) => void;
   onCardMove?: (cardId: string, newState: string) => Promise<boolean>;
   onCreateCard?: (state: string) => void;
@@ -119,6 +125,7 @@ export function Board({
   onToggleHeaderCollapsed,
   headerActions,
   onOpenSidebar,
+  projectName,
   onCardClick,
   onCardMove,
   onCreateCard,
@@ -436,10 +443,11 @@ export function Board({
 
   // Loading and error states render no band, so they carry the crumb row
   // themselves - it is the only home for the mobile sidebar opener here.
+  const crumbProject = projectName ?? config.name;
   if (loading) {
     return (
       <div className="flex flex-col h-full">
-        <ProjectCrumb project={config.name} onOpenSidebar={onOpenSidebar} />
+        <ProjectCrumb project={crumbProject} onOpenSidebar={onOpenSidebar} />
         <BoardSkeleton />
       </div>
     );
@@ -448,7 +456,7 @@ export function Board({
   if (error) {
     return (
       <div className="flex flex-col h-full">
-        <ProjectCrumb project={config.name} onOpenSidebar={onOpenSidebar} />
+        <ProjectCrumb project={crumbProject} onOpenSidebar={onOpenSidebar} />
         <div className="p-6">
           <div className="bg-[var(--bg-red)] border border-[var(--red)] rounded-lg p-4">
             <p className="text-[var(--red)]">{error}</p>

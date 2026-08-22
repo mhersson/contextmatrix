@@ -851,13 +851,13 @@ describe('ProjectShell header chrome', () => {
     const { useBoard } = await import('../../hooks/useBoard');
     const previous = vi.mocked(useBoard).getMockImplementation();
     vi.mocked(useBoard).mockReturnValue({
-      config: null, cards: [], loading: false, error: 'Project not found', connected: false,
+      config: null, cards: [], loading: false, error: 'board fetch exploded', connected: false,
       refresh: vi.fn(), listEpoch: 0, refreshCard: vi.fn(), updateCardLocally: vi.fn(),
       removeCardLocally: vi.fn(), suppressSSE: vi.fn(), unsuppressSSE: vi.fn(),
     } as unknown as ReturnType<typeof useBoard>);
     try {
       renderProjectShell();
-      expect(screen.getByText('Project not found')).toBeInTheDocument();
+      expect(screen.getByText('board fetch exploded')).toBeInTheDocument();
       act(() => screen.getByRole('button', { name: /open menu/i }).click());
       expect(mobileSidebarToggle).toHaveBeenCalledTimes(1);
     } finally {

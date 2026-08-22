@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router';
 import { BoardHeaderActions } from './BoardHeaderActions';
 
 function renderActions(ui: React.ReactElement) {
-  return render(<MemoryRouter>{ui}</MemoryRouter>);
+  return render(ui, { wrapper: MemoryRouter });
 }
 
 describe('BoardHeaderActions', () => {
@@ -24,25 +24,28 @@ describe('BoardHeaderActions', () => {
     expect(screen.queryByRole('button', { name: /console/i })).toBeNull();
 
     const onToggleConsole = vi.fn();
-    rerender(<MemoryRouter><BoardHeaderActions {...base} taskBackendConfigured consoleOpen={false} onToggleConsole={onToggleConsole} /></MemoryRouter>);
+    rerender(<BoardHeaderActions {...base} taskBackendConfigured consoleOpen={false} onToggleConsole={onToggleConsole} />);
     const btn = screen.getByRole('button', { name: /console/i });
     expect(btn).toHaveAttribute('aria-pressed', 'false');
     fireEvent.click(btn);
     expect(onToggleConsole).toHaveBeenCalledTimes(1);
 
-    rerender(<MemoryRouter><BoardHeaderActions {...base} taskBackendConfigured consoleOpen onToggleConsole={onToggleConsole} /></MemoryRouter>);
+    rerender(<BoardHeaderActions {...base} taskBackendConfigured consoleOpen onToggleConsole={onToggleConsole} />);
     expect(screen.getByRole('button', { name: /console/i })).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('shows Stop All only while workers are active and confirms before stopping', () => {
     const onStopAll = vi.fn();
-    const { rerender } = renderActions(<BoardHeaderActions {...base} onStopAll={onStopAll} />);
+    const { rerender } = renderActions(<div className="slot"><BoardHeaderActions {...base} onStopAll={onStopAll} /></div>);
     expect(screen.queryByRole('button', { name: /stop all/i })).toBeNull();
 
-    rerender(<MemoryRouter><BoardHeaderActions {...base} hasActiveWorkers onStopAll={onStopAll} /></MemoryRouter>);
+    rerender(<div className="slot"><BoardHeaderActions {...base} hasActiveWorkers onStopAll={onStopAll} /></div>);
     fireEvent.click(screen.getByRole('button', { name: /^stop all$/i }));
     expect(onStopAll).not.toHaveBeenCalled();
     const dialog = screen.getByRole('dialog');
+    // The band is a sticky stacking context on phones; the dialog must escape
+    // the slot it is rendered from so it is not trapped beneath board chrome.
+    expect(dialog.closest('.slot')).toBeNull();
 
     fireEvent.click(within(dialog).getByRole('button', { name: /stop all/i }));
     expect(onStopAll).toHaveBeenCalledTimes(1);

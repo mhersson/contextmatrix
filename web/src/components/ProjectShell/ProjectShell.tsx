@@ -284,6 +284,7 @@ export function ProjectShell() {
                       onToggleHeaderCollapsed={toggleHeaderCollapsed}
                       headerActions={headerActions}
                       onOpenSidebar={openSidebar}
+                      projectName={project}
                       onCardClick={handleCardClick} onCardMove={handleCardMove}
                       onCreateCard={handleOpenCreate} flashCardId={flashCardId}
                       onParentClick={handleSubtaskClick}

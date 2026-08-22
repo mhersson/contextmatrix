@@ -30,10 +30,7 @@ export function UserMenu({ onNavigate }: { onNavigate?: () => void } = {}) {
     navigate(path);
   };
 
-  useMenuDismiss(containerRef, open, () => {
-    if (containerRef.current?.contains(document.activeElement)) triggerRef.current?.focus();
-    setOpen(false);
-  });
+  useMenuDismiss(containerRef, open, () => setOpen(false), triggerRef);
 
   if (!auth || auth.mode !== 'multi' || !auth.user) return null;
 

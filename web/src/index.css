@@ -2706,11 +2706,13 @@ textarea {
   font-size: 14px;
   color: var(--grey1);
   white-space: nowrap;
+  text-decoration: none;
   transition: color 0.15s, background-color 0.15s;
 }
 .board-header-actions__btn:hover {
   color: var(--fg);
   background-color: var(--bg1);
+  text-decoration: none;
 }
 .board-header-actions__btn[aria-pressed="true"] {
   color: var(--fg);

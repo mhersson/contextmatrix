@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router';
 import { Sidebar } from './Sidebar';
 import { api } from '../../api/client';
 import type { PlaybookSummary } from '../../types';
+import type { AuthContextValue } from '../../hooks/useAuth';
 
 vi.mock('../../hooks/useProjects', () => ({
   useProjects: vi.fn(),
@@ -32,6 +33,7 @@ vi.mock('../../hooks/useTheme', () => ({
 }));
 
 const authState = vi.hoisted(() => ({ current: null as unknown }));
+const setAuthState = (v: AuthContextValue | null) => { authState.current = v; };
 vi.mock('../../hooks/useAuth', () => ({
   useOptionalAuth: () => authState.current,
 }));
@@ -245,7 +247,7 @@ describe('Sidebar footer appearance slot', () => {
   });
 
   it('none mode: shows a standalone Appearance chip and no user chip', () => {
-    authState.current = { mode: 'none', status: 'authenticated', user: null, version: null, setUser: vi.fn(), logout: vi.fn() };
+    setAuthState({ mode: 'none', status: 'authenticated', user: null, version: null, setUser: vi.fn(), logout: vi.fn() });
     renderSidebar();
     const chip = screen.getByRole('button', { name: /appearance/i });
     fireEvent.click(chip);
@@ -260,11 +262,14 @@ describe('Sidebar footer appearance slot', () => {
   });
 
   it('multi mode: the user chip owns appearance; no standalone Appearance chip', () => {
-    authState.current = {
+    setAuthState({
       mode: 'multi',
+      status: 'authenticated',
       user: { username: 'alice', display_name: 'Alice', is_admin: false },
+      version: null,
+      setUser: vi.fn(),
       logout: vi.fn(),
-    };
+    });
     renderSidebar();
     expect(screen.queryByRole('button', { name: /^appearance$/i })).toBeNull();
     expect(screen.getByTitle(/^signed in as alice/i)).toBeInTheDocument();

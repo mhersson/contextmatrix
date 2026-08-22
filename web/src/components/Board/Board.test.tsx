@@ -1631,4 +1631,11 @@ describe('Board header actions slot', () => {
     rerender(<Board {...boardProps} loading onOpenSidebar={onOpenSidebar} />);
     expect(screen.getByRole('button', { name: /open menu/i })).toBeInTheDocument();
   });
+
+  it('names the route project in the band-less crumb even when config is stale', () => {
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    render(<Board {...boardProps} projectName="fresh" error="boom" />);
+    expect(screen.getByText('fresh')).toBeInTheDocument();
+    expect(screen.queryByText(baseConfig.name)).toBeNull();
+  });
 });

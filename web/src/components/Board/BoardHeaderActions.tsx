@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link } from 'react-router';
 import { ConfirmModal } from '../ConfirmModal/ConfirmModal';
 
@@ -16,7 +17,9 @@ interface BoardHeaderActionsProps {
  * Stop All (only while workers run), the worker-console toggle (only with a
  * task backend), and a Settings link. Labels go visually hidden (still in the
  * accessibility tree) inside the micro-band and on narrow viewports; titles
- * carry the keyboard hints.
+ * carry the keyboard hints. The Stop All confirm is portaled to <body>: the
+ * micro-band is a sticky stacking context on phones, and a fixed overlay
+ * rendered inside it would sit beneath the board footer and rail.
  */
 export function BoardHeaderActions({
   settingsHref,
@@ -71,18 +74,21 @@ export function BoardHeaderActions({
         <span className="board-header-actions__sep" aria-hidden="true" />
       </div>
 
-      <ConfirmModal
-        open={confirmStopAllOpen}
-        title="Stop all running tasks?"
-        message="All active worker containers will be destroyed and uncommitted work discarded."
-        confirmLabel="Stop all"
-        variant="danger"
-        onConfirm={() => {
-          setConfirmStopAllOpen(false);
-          onStopAll?.();
-        }}
-        onCancel={() => setConfirmStopAllOpen(false)}
-      />
+      {createPortal(
+        <ConfirmModal
+          open={confirmStopAllOpen}
+          title="Stop all running tasks?"
+          message="All active worker containers will be destroyed and uncommitted work discarded."
+          confirmLabel="Stop all"
+          variant="danger"
+          onConfirm={() => {
+            setConfirmStopAllOpen(false);
+            onStopAll?.();
+          }}
+          onCancel={() => setConfirmStopAllOpen(false)}
+        />,
+        document.body,
+      )}
     </>
   );
 }

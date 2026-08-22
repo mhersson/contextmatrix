@@ -12,12 +12,7 @@ export function AppearanceMenu() {
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
-  // Escape/outside-click unmounts the menu; hand focus back to the chip when
-  // it was inside so keyboard users do not drop to <body>.
-  useMenuDismiss(containerRef, open, () => {
-    if (containerRef.current?.contains(document.activeElement)) triggerRef.current?.focus();
-    setOpen(false);
-  });
+  useMenuDismiss(containerRef, open, () => setOpen(false), triggerRef);
 
   return (
     <div ref={containerRef} className="relative">
