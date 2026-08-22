@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
 import { useTimeoutRef } from '../../hooks/useTimeoutRef';
-import { useParams, useNavigate, useMatch, Routes, Route } from 'react-router';
+import { useParams, useNavigate, Routes, Route } from 'react-router';
 import { useBoard } from '../../hooks/useBoard';
 import { useSync } from '../../hooks/useSync';
 import { useIdentity } from '../../hooks/useIdentity';
@@ -56,9 +56,6 @@ export function ProjectShell() {
   const [flashCardId, setFlashCardId] = useState<string | null>(null);
   const { isOpen: consoleOpen, toggle: toggleConsole, close: closeConsole } = useConsoleState();
   const [headerCollapsed, toggleHeaderCollapsed] = useBoardHeaderCollapsed();
-  // The collapse toggle lives in the top bar but only affects the board
-  // chrome, so it renders only on the board route.
-  const onBoardRoute = useMatch('/projects/:project') !== null;
   const flashTimer = useTimeoutRef();
   const mainRef = useRef<HTMLDivElement>(null);
   const { boardPercent, isDragging, handleProps: dividerHandleProps } = useResizeDivider({
@@ -246,8 +243,6 @@ export function ProjectShell() {
         taskBackendConfigured={!!taskBackend}
         consoleOpen={consoleOpen}
         onToggleConsole={toggleConsole}
-        headerCollapsed={headerCollapsed}
-        onToggleHeaderCollapsed={onBoardRoute ? toggleHeaderCollapsed : undefined}
       />
       <main ref={mainRef} className="flex-1 overflow-hidden flex flex-col">
         <div
@@ -280,6 +275,7 @@ export function ProjectShell() {
                       activityBackfillLoaded={activity.backfillLoaded}
                       currentAgent={identity}
                       headerCollapsed={headerCollapsed}
+                      onToggleHeaderCollapsed={toggleHeaderCollapsed}
                       onCardClick={handleCardClick} onCardMove={handleCardMove}
                       onCreateCard={handleOpenCreate} flashCardId={flashCardId}
                       onParentClick={handleSubtaskClick}

@@ -12,11 +12,9 @@ interface AppHeaderProps {
   taskBackendConfigured?: boolean;
   consoleOpen?: boolean;
   onToggleConsole?: () => void;
-  headerCollapsed?: boolean;
-  onToggleHeaderCollapsed?: () => void;
 }
 
-export function AppHeader({ project, hasActiveWorkers, onStopAll, taskBackendConfigured, consoleOpen, onToggleConsole, headerCollapsed, onToggleHeaderCollapsed }: AppHeaderProps) {
+export function AppHeader({ project, hasActiveWorkers, onStopAll, taskBackendConfigured, consoleOpen, onToggleConsole }: AppHeaderProps) {
   const base = `/projects/${project}`;
   const { toggle } = useMobileSidebar();
   const [confirmStopAllOpen, setConfirmStopAllOpen] = useState(false);
@@ -85,31 +83,6 @@ export function AppHeader({ project, hasActiveWorkers, onStopAll, taskBackendCon
       </div>
 
       <div className="flex items-center gap-2 sm:gap-3">
-        {onToggleHeaderCollapsed && (
-          <button
-            type="button"
-            onClick={onToggleHeaderCollapsed}
-            aria-expanded={!headerCollapsed}
-            aria-label={headerCollapsed ? 'Expand board header' : 'Collapse board header'}
-            title={headerCollapsed ? 'Expand board header' : 'Collapse board header'}
-            className="p-1 rounded transition-colors hover:bg-[var(--bg2)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--aqua)]"
-            style={{ color: 'var(--grey1)' }}
-          >
-            {headerCollapsed ? (
-              /* Double chevron down - expand the board header */
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 4l-7 7-7-7" />
-              </svg>
-            ) : (
-              /* Double chevron up - collapse the board header */
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 20l7-7 7 7" />
-              </svg>
-            )}
-          </button>
-        )}
         {hasActiveWorkers && onStopAll && (
           <button
             type="button"

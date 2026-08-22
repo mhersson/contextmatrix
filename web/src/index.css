@@ -2569,12 +2569,26 @@ textarea {
 /* ── Board band (header) ──────────────────────────────────────────────── */
 .board-band {
   padding: 22px 24px 18px;
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 20px;
-  align-items: end;
+  display: flex;
+  flex-direction: column;
   border-bottom: 1px solid var(--bg3);
   position: relative;
+}
+/* Fixed-height crumb row: the collapse toggle centers on the crumb, and the
+   title sits at the same offset whether or not the toggle renders. */
+.board-band__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  min-height: 24px;
+  margin-bottom: 5px;
+}
+.board-band__main {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
 }
 .board-band::after {
   content: "";
@@ -2598,7 +2612,6 @@ textarea {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 10px;
 }
 .board-band__crumb .dot {
   width: 4px;
@@ -2671,6 +2684,9 @@ textarea {
   align-items: center;
   gap: 16px;
   min-height: 40px;
+  /* The explicit min-height would otherwise let the board column squash the
+     band to 40px on phones, where the stats wrap to a second line. */
+  flex-shrink: 0;
   padding: 6px 24px;
   border-bottom: 1px solid var(--bg3);
 }
@@ -2703,16 +2719,28 @@ textarea {
 .board-microband__alert {
   color: var(--red);
 }
+.board-microband__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
 @media (max-width: 768px) {
+  /* Line 1: title + actions; line 2: stats on their own row. */
   .board-microband {
     flex-wrap: wrap;
     padding: 8px 14px;
     row-gap: 4px;
   }
   .board-microband__stats {
+    flex-basis: 100%;
+    order: 1;
     flex-wrap: wrap;
     overflow: visible;
     white-space: normal;
+  }
+  .board-microband__actions {
+    margin-left: auto;
   }
 }
 
@@ -3496,14 +3524,17 @@ textarea {
 @media (max-width: 768px) {
   /* BoardBand: stack vertically, smaller title, full-width CTA */
   .board-band {
-    grid-template-columns: 1fr;
     padding: 16px 14px 14px;
+  }
+  .board-band__main {
+    flex-direction: column;
+    align-items: stretch;
   }
   .board-band__title {
     font-size: 22px;
     letter-spacing: -0.015em;
   }
-  .board-band button {
+  .board-band__cta {
     width: 100%;
     justify-content: center;
   }

@@ -38,4 +38,21 @@ describe('BoardBand', () => {
     expect(screen.getByText(/14 shipped this week/)).toBeInTheDocument();
     expect(screen.getByText(/\+27%/)).toBeInTheDocument();
   });
+
+  it('renders a collapse toggle in the crumb row when a handler is provided', () => {
+    const onToggleCollapsed = vi.fn();
+    const { container } = render(<BoardBand {...props} onToggleCollapsed={onToggleCollapsed} />);
+
+    const toggle = screen.getByRole('button', { name: /collapse board header/i });
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(container.querySelector('.board-band__top')).toContainElement(toggle);
+
+    fireEvent.click(toggle);
+    expect(onToggleCollapsed).toHaveBeenCalledTimes(1);
+  });
+
+  it('omits the collapse toggle without a handler', () => {
+    render(<BoardBand {...props} />);
+    expect(screen.queryByRole('button', { name: /board header/i })).toBeNull();
+  });
 });

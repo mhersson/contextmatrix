@@ -47,4 +47,23 @@ describe('BoardMicroBand', () => {
     fireEvent.click(screen.getByRole('button', { name: /new card/i }));
     expect(onCreateCard).toHaveBeenCalledTimes(1);
   });
+
+  it('renders an expand toggle beside New Card when a handler is provided', () => {
+    const onToggleCollapsed = vi.fn();
+    const { container } = render(<BoardMicroBand {...props} onToggleCollapsed={onToggleCollapsed} />);
+
+    const toggle = screen.getByRole('button', { name: /expand board header/i });
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    const actions = container.querySelector('.board-microband__actions');
+    expect(actions).toContainElement(toggle);
+    expect(actions).toContainElement(screen.getByRole('button', { name: /new card/i }));
+
+    fireEvent.click(toggle);
+    expect(onToggleCollapsed).toHaveBeenCalledTimes(1);
+  });
+
+  it('omits the expand toggle without a handler', () => {
+    render(<BoardMicroBand {...props} />);
+    expect(screen.queryByRole('button', { name: /board header/i })).toBeNull();
+  });
 });
