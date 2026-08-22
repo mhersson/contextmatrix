@@ -19,7 +19,8 @@ interface BoardMicroBandProps {
 /**
  * One-row replacement for BoardBand + MetricsRibbon while the board header is
  * collapsed: small display-font title, the ribbon numbers as an inline mono
- * summary, and a compact New Card action with the expand toggle beside it.
+ * summary, a compact New Card action, and the expand toggle at the far right
+ * so it shares a column with the collapse toggle in the expanded band.
  * Counts are parent-only, matching the expanded chrome.
  */
 export function BoardMicroBand({
@@ -69,7 +70,6 @@ export function BoardMicroBand({
         )}
       </div>
       <div className="board-microband__actions">
-        {onToggleCollapsed && <HeaderCollapseToggle ref={toggleRef} collapsed onToggle={onToggleCollapsed} />}
         <button
           type="button"
           onClick={onCreateCard}
@@ -78,6 +78,7 @@ export function BoardMicroBand({
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" strokeLinecap="round" strokeLinejoin="round" /></svg>
           New Card
         </button>
+        {onToggleCollapsed && <HeaderCollapseToggle ref={toggleRef} collapsed onToggle={onToggleCollapsed} />}
       </div>
     </div>
   );

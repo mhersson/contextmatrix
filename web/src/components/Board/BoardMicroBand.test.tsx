@@ -48,7 +48,7 @@ describe('BoardMicroBand', () => {
     expect(onCreateCard).toHaveBeenCalledTimes(1);
   });
 
-  it('renders an expand toggle beside New Card when a handler is provided', () => {
+  it('renders an expand toggle after New Card when a handler is provided', () => {
     const onToggleCollapsed = vi.fn();
     const { container } = render(<BoardMicroBand {...props} onToggleCollapsed={onToggleCollapsed} />);
 
@@ -56,7 +56,9 @@ describe('BoardMicroBand', () => {
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
     const actions = container.querySelector('.board-microband__actions');
     expect(actions).toContainElement(toggle);
-    expect(actions).toContainElement(screen.getByRole('button', { name: /new card/i }));
+    const newCard = screen.getByRole('button', { name: /new card/i });
+    expect(actions).toContainElement(newCard);
+    expect(newCard.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     fireEvent.click(toggle);
     expect(onToggleCollapsed).toHaveBeenCalledTimes(1);
