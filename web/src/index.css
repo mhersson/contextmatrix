@@ -2697,17 +2697,20 @@ textarea {
   align-items: center;
   gap: 4px;
 }
+/* 7px vertical padding + the 14px/1.5 line box = 35px, the same height the
+   New Card CTA gets from its py-2, so every button in the row shares one
+   height and one font size. */
 .board-header-actions__btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 10px;
+  padding: 7px 10px;
   border-radius: 4px;
   font-size: 14px;
   color: var(--grey1);
   white-space: nowrap;
   text-decoration: none;
-  transition: color 0.15s, background-color 0.15s;
+  transition: color 0.15s, background-color 0.15s, opacity 0.15s;
 }
 .board-header-actions__btn:hover {
   color: var(--fg);
@@ -2717,6 +2720,19 @@ textarea {
 .board-header-actions__btn[aria-pressed="true"] {
   color: var(--fg);
   background-color: var(--bg3);
+}
+/* Stop All: the destructive member of the cluster. Same box as its siblings,
+   tinted red; it keeps its text label in the icon-only variants below because
+   it has no icon. */
+.board-header-actions__btn--danger {
+  background-color: var(--bg-red);
+  color: var(--red);
+  font-weight: 500;
+}
+.board-header-actions__btn--danger:hover {
+  background-color: var(--bg-red);
+  color: var(--red);
+  opacity: 0.9;
 }
 .board-header-actions__btn svg {
   width: 16px;
@@ -2737,6 +2753,11 @@ textarea {
   padding: 0;
   justify-content: center;
   gap: 0;
+}
+.board-microband .board-header-actions__btn--danger {
+  width: auto;
+  padding: 0 8px;
+  font-size: 0.875rem;
 }
 .board-microband .board-header-actions__btn svg {
   width: 15px;
@@ -3649,6 +3670,11 @@ textarea {
     padding: 0;
     justify-content: center;
     gap: 0;
+  }
+  .board-band .board-header-actions__btn--danger {
+    width: auto;
+    padding: 0 8px;
+    font-size: 0.875rem;
   }
   .board-band .board-header-actions__label {
     position: absolute;
