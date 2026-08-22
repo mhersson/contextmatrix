@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
 import { useTimeoutRef } from '../../hooks/useTimeoutRef';
-import { useParams, useNavigate, Routes, Route } from 'react-router';
+import { useParams, useNavigate, useMatch, Routes, Route } from 'react-router';
 import { useBoard } from '../../hooks/useBoard';
 import { useSync } from '../../hooks/useSync';
 import { useIdentity } from '../../hooks/useIdentity';
@@ -13,6 +13,7 @@ import { useBackendHealth } from '../../hooks/useBackendHealth';
 import { useDashboardPolling } from '../../hooks/useDashboardPolling';
 import { useActivityFeed } from '../../hooks/useActivityFeed';
 import { useResizeDivider } from '../../hooks/useResizeDivider';
+import { useBoardHeaderCollapsed } from '../../hooks/useBoardHeaderCollapsed';
 import { useConsoleState } from '../../context/ConsoleStateContext';
 import { useTheme } from '../../hooks/useTheme';
 import { AppHeader } from '../AppHeader';
@@ -54,6 +55,10 @@ export function ProjectShell() {
   const [createPanelOpen, setCreatePanelOpen] = useState(false);
   const [flashCardId, setFlashCardId] = useState<string | null>(null);
   const { isOpen: consoleOpen, toggle: toggleConsole, close: closeConsole } = useConsoleState();
+  const [headerCollapsed, toggleHeaderCollapsed] = useBoardHeaderCollapsed();
+  // The collapse toggle lives in the top bar but only affects the board
+  // chrome, so it renders only on the board route.
+  const onBoardRoute = useMatch('/projects/:project') !== null;
   const flashTimer = useTimeoutRef();
   const mainRef = useRef<HTMLDivElement>(null);
   const { boardPercent, isDragging, handleProps: dividerHandleProps } = useResizeDivider({
@@ -241,6 +246,8 @@ export function ProjectShell() {
         taskBackendConfigured={!!taskBackend}
         consoleOpen={consoleOpen}
         onToggleConsole={toggleConsole}
+        headerCollapsed={headerCollapsed}
+        onToggleHeaderCollapsed={onBoardRoute ? toggleHeaderCollapsed : undefined}
       />
       <main ref={mainRef} className="flex-1 overflow-hidden flex flex-col">
         <div
@@ -272,6 +279,7 @@ export function ProjectShell() {
                       activityEntries={activity.entries}
                       activityBackfillLoaded={activity.backfillLoaded}
                       currentAgent={identity}
+                      headerCollapsed={headerCollapsed}
                       onCardClick={handleCardClick} onCardMove={handleCardMove}
                       onCreateCard={handleOpenCreate} flashCardId={flashCardId}
                       onParentClick={handleSubtaskClick}

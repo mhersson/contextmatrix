@@ -23,6 +23,7 @@ import { applyMove } from '../../lib/manualOrder';
 import { Column } from './Column';
 import { CardItem } from './CardItem';
 import { BoardBand } from './BoardBand';
+import { BoardMicroBand } from './BoardMicroBand';
 import { MetricsRibbon } from './MetricsRibbon';
 import { SpotlightStrip } from './SpotlightStrip';
 import { FilterChipBar } from './FilterChipBar';
@@ -77,6 +78,7 @@ interface BoardProps {
   activityEntries: ActivityEntry[];
   activityBackfillLoaded?: boolean;
   currentAgent: string | null;
+  headerCollapsed?: boolean;
   onCardClick?: (card: Card) => void;
   onCardMove?: (cardId: string, newState: string) => Promise<boolean>;
   onCreateCard?: (state: string) => void;
@@ -107,6 +109,7 @@ export function Board({
   activityEntries,
   activityBackfillLoaded,
   currentAgent,
+  headerCollapsed,
   onCardClick,
   onCardMove,
   onCreateCard,
@@ -439,46 +442,70 @@ export function Board({
     cardsCompletedPrior7dParents,
   });
 
+  // The spotlight strip is the only place stalled/blocked cards surface (the
+  // stalled column is filtered out of the kanban), so the collapsed header
+  // drops only its all-clear form - never the strip itself.
+  const hasAttention = cards.some((c) => c.state === 'stalled' || c.state === 'blocked');
+
   return (
     <div className="flex flex-col h-full overflow-y-auto md:overflow-hidden">
-      <BoardBand
-        projectName={config.name}
-        displayName={config.display_name}
-        activeAgents={activeAgents.length}
-        openCount={openCount}
-        inReviewCount={inReviewCount}
-        shippedToday={shippedTodayParents}
-        shippedLast7d={shippedLast7dParents}
-        shippedPrior7d={shippedPrior7dParents}
-        onCreateCard={() => onCreateCard?.(config.states[0])}
-      />
+      {headerCollapsed ? (
+        <BoardMicroBand
+          projectName={config.name}
+          displayName={config.display_name}
+          activeAgents={activeAgents.length}
+          openCount={openCount}
+          inReviewCount={inReviewCount}
+          stalled={stalledParents}
+          shippedToday={shippedTodayParents}
+          shippedLast7d={shippedLast7dParents}
+          shippedPrior7d={shippedPrior7dParents}
+          onCreateCard={() => onCreateCard?.(config.states[0])}
+        />
+      ) : (
+        <>
+          <BoardBand
+            projectName={config.name}
+            displayName={config.display_name}
+            activeAgents={activeAgents.length}
+            openCount={openCount}
+            inReviewCount={inReviewCount}
+            shippedToday={shippedTodayParents}
+            shippedLast7d={shippedLast7dParents}
+            shippedPrior7d={shippedPrior7dParents}
+            onCreateCard={() => onCreateCard?.(config.states[0])}
+          />
 
-      <MetricsRibbon
-        activeAgents={activeAgents.length}
-        inFlight={inFlightParents}
-        inFlightSubtasks={inFlightSubtasks}
-        stalled={stalledParents}
-        stalledSubtasks={stalledSubtasks}
-        shippedToday={shippedTodayParents}
-        shippedTodaySubtasks={shippedTodaySubtasks}
-        shipped7d={shippedLast7dParents}
-        shipped7dSubtasks={shipped7dSubtasks}
-        shipped7dPrior={shippedPrior7dParents}
-        activeAgentsSeries={metricSeries?.active_agents}
-        inFlightSeries={metricSeries?.in_flight_parents}
-        stalledSeries={metricSeries?.stalled_parents}
-        shippedSeries={metricSeries?.shipped_parents}
-      />
+          <MetricsRibbon
+            activeAgents={activeAgents.length}
+            inFlight={inFlightParents}
+            inFlightSubtasks={inFlightSubtasks}
+            stalled={stalledParents}
+            stalledSubtasks={stalledSubtasks}
+            shippedToday={shippedTodayParents}
+            shippedTodaySubtasks={shippedTodaySubtasks}
+            shipped7d={shippedLast7dParents}
+            shipped7dSubtasks={shipped7dSubtasks}
+            shipped7dPrior={shippedPrior7dParents}
+            activeAgentsSeries={metricSeries?.active_agents}
+            inFlightSeries={metricSeries?.in_flight_parents}
+            stalledSeries={metricSeries?.stalled_parents}
+            shippedSeries={metricSeries?.shipped_parents}
+          />
+        </>
+      )}
 
-      <SpotlightStrip
-        cards={cards}
-        subtasksByParent={subtasksByParent}
-        flashCardId={flashCardId}
-        onCardClick={(cardId) => {
-          const c = cards.find((x) => x.id === cardId);
-          if (c) onCardClick?.(c);
-        }}
-      />
+      {(!headerCollapsed || hasAttention) && (
+        <SpotlightStrip
+          cards={cards}
+          subtasksByParent={subtasksByParent}
+          flashCardId={flashCardId}
+          onCardClick={(cardId) => {
+            const c = cards.find((x) => x.id === cardId);
+            if (c) onCardClick?.(c);
+          }}
+        />
+      )}
 
       <FilterChipBar
         filter={filter}

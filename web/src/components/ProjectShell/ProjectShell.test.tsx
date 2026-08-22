@@ -122,8 +122,19 @@ vi.mock('../../hooks/useSSEBus', () => ({
 // Capture the onCreate prop from CreateCardPanel so tests can invoke it.
 let capturedOnCreate: ((input: CreateCardInput, opts?: { run?: boolean; interactive?: boolean }) => Promise<void>) | null = null;
 
+// Capture AppHeader props so tests can assert what the shell wires into the
+// top bar (e.g. the board-route-only header collapse toggle).
+let capturedAppHeaderProps: Record<string, unknown> = {};
+
 vi.mock('../AppHeader', () => ({
-  AppHeader: () => <div data-testid="app-header" />,
+  AppHeader: (props: Record<string, unknown>) => {
+    capturedAppHeaderProps = props;
+    return <div data-testid="app-header" />;
+  },
+}));
+
+vi.mock('../ProjectSettings/ProjectSettings', () => ({
+  ProjectSettings: () => <div data-testid="project-settings" />,
 }));
 
 vi.mock('../Board', () => ({
@@ -794,5 +805,32 @@ describe('ProjectShell - card-scoped worker-log liveness', () => {
       await renderWithLogs([makeLog('TEST-1', 'own a'), makeLog('TEST-1', 'own b')]);
       expect(screen.getByTestId('card-panel-log-count')).toHaveTextContent('2');
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Board header toggle - route gating
+// ---------------------------------------------------------------------------
+
+describe('board header toggle route gating', () => {
+  function renderShellAt(path: string) {
+    capturedAppHeaderProps = {};
+    return render(
+      <MemoryRouter initialEntries={[path]}>
+        <Routes>
+          <Route path="/projects/:project/*" element={<ProjectShell />} />
+        </Routes>
+      </MemoryRouter>
+    );
+  }
+
+  it('passes the collapse handler to AppHeader on the board route', () => {
+    renderShellAt('/projects/test');
+    expect(capturedAppHeaderProps.onToggleHeaderCollapsed).toBeTypeOf('function');
+  });
+
+  it('omits the collapse handler off the board route', () => {
+    renderShellAt('/projects/test/settings');
+    expect(capturedAppHeaderProps.onToggleHeaderCollapsed).toBeUndefined();
   });
 });
