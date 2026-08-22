@@ -25,10 +25,10 @@ Each needs its own brainstorm and plan before it is picked up.
 - **`useDashboardPolling` visibility gate.** Gate the poll on
   `document.visibilityState !== 'hidden'` - as `useBackendHealth` already does - so
   a backgrounded tab stops polling.
-- **`PaletteSelector` ARIA menu pattern.** The selector sets `role="menu"` /
-  `role="menuitem"` but lacks `aria-haspopup`, `aria-expanded`, and
-  ArrowDown/Up/Home/End/Enter keyboard navigation. `PaneHeader.tsx` implements the
-  full pattern - mirror it.
+- **Sidebar footer menus ARIA pattern.** `UserMenu` and `AppearanceMenu` set
+  `role="menu"` with `aria-haspopup` / `aria-expanded` on the trigger but lack
+  ArrowDown/Up/Home/End/Enter keyboard navigation between items.
+  `PaneHeader.tsx` implements the full pattern - mirror it.
 
 ## Cross-cutting
 

@@ -1571,3 +1571,71 @@ describe('Board - collapsed header', () => {
     expect(document.activeElement).toBe(search);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Board header: actions slot + sidebar opener reach whichever band is showing
+// ---------------------------------------------------------------------------
+describe('Board header actions slot', () => {
+  const originalMatchMedia = window.matchMedia;
+  afterEach(() => {
+    Object.defineProperty(window, 'matchMedia', { writable: true, value: originalMatchMedia });
+  });
+
+  const boardProps = {
+    cards: [sampleCard],
+    config: baseConfig,
+    loading: false,
+    error: null,
+    activeAgents: [],
+    cardsCompletedToday: 0,
+    activityEntries: [],
+    currentAgent: null,
+  };
+
+  it('renders headerActions next to New Card in the expanded band', () => {
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    const { container } = render(
+      <Board {...boardProps} headerCollapsed={false} headerActions={<button type="button">Console</button>} />
+    );
+    expect(container.querySelector('.board-band__actions')).toContainElement(
+      screen.getByRole('button', { name: 'Console' })
+    );
+  });
+
+  it('renders headerActions in the micro-band when collapsed', () => {
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    const { container } = render(
+      <Board {...boardProps} headerCollapsed headerActions={<button type="button">Console</button>} />
+    );
+    expect(container.querySelector('.board-microband__actions')).toContainElement(
+      screen.getByRole('button', { name: 'Console' })
+    );
+  });
+
+  it('forwards onOpenSidebar to the band as the menu button', () => {
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    const onOpenSidebar = vi.fn();
+    render(<Board {...boardProps} onOpenSidebar={onOpenSidebar} />);
+    fireEvent.click(screen.getByRole('button', { name: /open menu/i }));
+    expect(onOpenSidebar).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the sidebar opener in the error and loading states', () => {
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    const onOpenSidebar = vi.fn();
+    const { rerender } = render(<Board {...boardProps} error="boom" onOpenSidebar={onOpenSidebar} />);
+    expect(screen.getByText('boom')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /open menu/i }));
+    expect(onOpenSidebar).toHaveBeenCalledTimes(1);
+
+    rerender(<Board {...boardProps} loading onOpenSidebar={onOpenSidebar} />);
+    expect(screen.getByRole('button', { name: /open menu/i })).toBeInTheDocument();
+  });
+
+  it('names the route project in the band-less crumb even when config is stale', () => {
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    render(<Board {...boardProps} projectName="fresh" error="boom" />);
+    expect(screen.getByText('fresh')).toBeInTheDocument();
+    expect(screen.queryByText(baseConfig.name)).toBeNull();
+  });
+});

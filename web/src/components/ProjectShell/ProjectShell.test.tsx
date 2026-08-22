@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, act, waitFor } from '@testing-library/react';
+import { render, screen, act, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useNavigate, useSearchParams } from 'react-router';
 import { ProjectShell } from './ProjectShell';
 import type { Card, CreateCardInput, ProjectConfig } from '../../types';
@@ -122,15 +122,13 @@ vi.mock('../../hooks/useSSEBus', () => ({
 // Capture the onCreate prop from CreateCardPanel so tests can invoke it.
 let capturedOnCreate: ((input: CreateCardInput, opts?: { run?: boolean; interactive?: boolean }) => Promise<void>) | null = null;
 
-vi.mock('../AppHeader', () => ({
-  AppHeader: () => <div data-testid="app-header" />,
-}));
-
 vi.mock('../Board', () => ({
-  Board: ({ onCreateCard, headerCollapsed, onToggleHeaderCollapsed }: {
+  Board: ({ onCreateCard, headerCollapsed, onToggleHeaderCollapsed, headerActions, onOpenSidebar }: {
     onCreateCard?: () => void;
     headerCollapsed?: boolean;
     onToggleHeaderCollapsed?: () => void;
+    headerActions?: React.ReactNode;
+    onOpenSidebar?: () => void;
   }) => {
     return (
       <div data-testid="board" data-header-collapsed={String(!!headerCollapsed)}>
@@ -138,9 +136,17 @@ vi.mock('../Board', () => ({
         {onToggleHeaderCollapsed && (
           <button data-testid="toggle-header-btn" onClick={onToggleHeaderCollapsed}>Toggle Header</button>
         )}
+        {onOpenSidebar && (
+          <button data-testid="open-sidebar-btn" onClick={onOpenSidebar}>Open Sidebar</button>
+        )}
+        <div data-testid="header-actions">{headerActions}</div>
       </div>
     );
   },
+}));
+
+vi.mock('../ProjectSettings/ProjectSettings', () => ({
+  ProjectSettings: () => <div data-testid="project-settings" />,
 }));
 
 vi.mock('../CardPanel', () => ({
@@ -191,9 +197,10 @@ vi.mock('../../api/client', () => ({
     err != null && typeof err === 'object' && 'error' in err,
 }));
 
-// context/MobileSidebarContext is used by AppHeader; mock it.
+// context/MobileSidebarContext feeds the band's hamburger; mock it.
+const mobileSidebarToggle = vi.hoisted(() => vi.fn());
 vi.mock('../../context/MobileSidebarContext', () => ({
-  useMobileSidebar: vi.fn(() => ({ isOpen: false, toggle: vi.fn(), close: vi.fn() })),
+  useMobileSidebar: vi.fn(() => ({ isOpen: false, toggle: mobileSidebarToggle, close: vi.fn() })),
 }));
 
 // context/ConsoleStateContext is used by ProjectShell; mock it.
@@ -206,7 +213,8 @@ vi.mock('../../hooks/useTheme', () => ({
   useTheme: () => ({
     theme: 'dark',
     palette: 'everforest',
-    toggleTheme: () => {},
+    setTheme: () => {},
+    setPalette: () => {},
     taskBackend: 'agent',
   }),
 }));
@@ -820,5 +828,59 @@ describe('ProjectShell - board header collapse', () => {
 
     act(() => screen.getByTestId('toggle-header-btn').click());
     expect(board.getAttribute('data-header-collapsed')).toBe(before);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Project header chrome: the band is the only header (no AppHeader bar)
+// ---------------------------------------------------------------------------
+describe('ProjectShell header chrome', () => {
+  it('hands Board the action cluster with a Settings link to /settings', async () => {
+    renderProjectShell();
+    const actions = screen.getByTestId('header-actions');
+    const settings = within(actions).getByRole('link', { name: /settings/i });
+    expect(settings).toHaveAttribute('href', '/projects/test/settings');
+    // Console appears because the mocked useTheme reports taskBackend: 'agent'.
+    expect(within(actions).getByRole('button', { name: /console/i })).toBeInTheDocument();
+
+    act(() => settings.click());
+    expect(await screen.findByTestId('project-settings')).toBeInTheDocument();
+  });
+
+  it('keeps the sidebar opener when the board cannot render (no config)', async () => {
+    const { useBoard } = await import('../../hooks/useBoard');
+    const previous = vi.mocked(useBoard).getMockImplementation();
+    vi.mocked(useBoard).mockReturnValue({
+      config: null, cards: [], loading: false, error: 'board fetch exploded', connected: false,
+      refresh: vi.fn(), listEpoch: 0, refreshCard: vi.fn(), updateCardLocally: vi.fn(),
+      removeCardLocally: vi.fn(), suppressSSE: vi.fn(), unsuppressSSE: vi.fn(),
+    } as unknown as ReturnType<typeof useBoard>);
+    try {
+      renderProjectShell();
+      expect(screen.getByText('board fetch exploded')).toBeInTheDocument();
+      act(() => screen.getByRole('button', { name: /open menu/i }).click());
+      expect(mobileSidebarToggle).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.mocked(useBoard).mockImplementation(previous!);
+    }
+  });
+
+  it('wires the band menu button to the mobile sidebar toggle', () => {
+    renderProjectShell();
+    act(() => screen.getByTestId('open-sidebar-btn').click());
+    expect(mobileSidebarToggle).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders the settings crumb above the settings page with a link back to the board', async () => {
+    render(
+      <MemoryRouter initialEntries={['/projects/test/settings']}>
+        <Routes>
+          <Route path="/projects/:project/*" element={<ProjectShell />} />
+        </Routes>
+      </MemoryRouter>
+    );
+    expect(await screen.findByTestId('project-settings')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'test' })).toHaveAttribute('href', '/projects/test');
+    expect(screen.getByText('Settings')).toBeInTheDocument();
   });
 });

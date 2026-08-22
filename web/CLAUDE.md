@@ -36,13 +36,24 @@ so components reference variables only and need no changes when the palette
 switches.
 
 **Selection:** the server default comes from `theme` in config
-(`GET /api/app/config`); users override it per-browser via the PaletteSelector in
-`AppHeader`, persisted to `localStorage.palette`. `ThemeProvider` applies
+(`GET /api/app/config`); users override it per-browser via the APPEARANCE group
+in the sidebar footer (`Sidebar/AppearanceMenuItems.tsx` - inside `UserMenu` in
+multi mode, inside the standalone `AppearanceMenu` chip in none mode), persisted
+to `localStorage.palette`. `ThemeProvider` applies
 `data-palette="<name>"` on `<html>` (Everforest = no attribute, the default CSS
 block). A stored value wins over the server default; invalid values fall back.
 
-**Dark/light** is orthogonal and user-toggleable: dark = no `data-theme`; light =
-`data-theme="light"`.
+**Dark/light** is orthogonal and user-selectable from the same menu: dark = no
+`data-theme`; light = `data-theme="light"`.
+
+**Project header:** the board band (`Board/BoardBand.tsx`, collapsed:
+`BoardMicroBand.tsx`) is the only header on project routes - there is no bar
+above it. `ProjectShell` hands `Board` a `headerActions` slot
+(`Board/BoardHeaderActions.tsx`: Stop All / Console toggle / Settings) rendered
+left of New Card, and the mobile sidebar opener. Routes and states that render
+no band (settings page, board loading/error) get `ProjectCrumb/ProjectCrumb.tsx`
+(`Projects • <project>[ • Settings]`) for the same reason: every project view
+keeps the hamburger and a way back to the board.
 
 **Semantic CSS variables** (full hex in `index.css`):
 
@@ -97,8 +108,9 @@ list is required so the flex child can shrink below its content height.
 Mobile exception (< 768px): the Board page relaxes this so the chrome above the
 kanban can scroll away - Board root adds `overflow-y-auto` (desktop keeps
 `md:overflow-hidden`), the columns wrapper gets `min-h-[calc(100dvh-3rem)]`, and
-`.board-footer` becomes `sticky` so the rail toggle stays reachable. No other
-layer changes.
+`.board-footer` becomes `sticky` so the rail toggle stays reachable, and
+`.board-microband` is likewise `sticky` (top: 0, opaque `--bg-dim`) so the only
+sidebar opener stays pinned while the kanban scrolls. No other layer changes.
 
 ## Drag-and-drop sensors
 

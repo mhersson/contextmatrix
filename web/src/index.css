@@ -2678,6 +2678,100 @@ textarea {
   color: var(--bg4);
 }
 
+.board-band__top-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.board-band__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* ── Board header actions (secondary cluster left of New Card) ───────── */
+.board-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.board-header-actions__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 14px;
+  color: var(--grey1);
+  white-space: nowrap;
+  text-decoration: none;
+  transition: color 0.15s, background-color 0.15s;
+}
+.board-header-actions__btn:hover {
+  color: var(--fg);
+  background-color: var(--bg1);
+  text-decoration: none;
+}
+.board-header-actions__btn[aria-pressed="true"] {
+  color: var(--fg);
+  background-color: var(--bg3);
+}
+.board-header-actions__btn svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+.board-header-actions__sep {
+  width: 1px;
+  height: 18px;
+  background: var(--bg3);
+  margin: 0 6px;
+}
+/* Icon-only variant: the label stays in the accessibility tree (so the
+   accessible name is still "Console"/"Settings") but is visually hidden. */
+.board-microband .board-header-actions__btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  justify-content: center;
+  gap: 0;
+}
+.board-microband .board-header-actions__btn svg {
+  width: 15px;
+  height: 15px;
+}
+.board-microband .board-header-actions__label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.board-microband .board-header-actions__sep {
+  margin: 0 4px;
+}
+
+/* ── Project crumb (settings page + band-less board states) ──────────── */
+.project-crumb {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 16px 24px 0;
+  flex-shrink: 0;
+}
+.board-band__crumb .link {
+  color: var(--grey2);
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+.board-band__crumb .link:hover {
+  color: var(--fg);
+}
+
 /* ── Board micro-band (collapsed header) ─────────────────────────────── */
 .board-microband {
   display: flex;
@@ -3534,8 +3628,38 @@ textarea {
     font-size: 22px;
     letter-spacing: -0.015em;
   }
-  .board-band__cta {
+  .project-crumb {
+    padding: 12px 14px 0;
+  }
+  /* The micro-band holds the only sidebar opener on phones; keep it pinned
+     while the kanban scrolls (the board root is the scroller below 768px). */
+  .board-microband {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background: var(--bg-dim);
+  }
+  /* Action cluster goes icon-only; New Card takes the remaining width. */
+  .board-band__actions {
     width: 100%;
+  }
+  .board-band .board-header-actions__btn {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    justify-content: center;
+    gap: 0;
+  }
+  .board-band .board-header-actions__label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .board-band__cta {
+    flex: 1;
     justify-content: center;
   }
 
@@ -3612,23 +3736,6 @@ textarea {
   .board-footer__conn-label {
     display: none;
   }
-}
-
-/* AppHeader icon buttons (ThemeToggle, PaletteSelector trigger) */
-.cm-header-icon-btn {
-  color: var(--grey1);
-  background: transparent;
-}
-.cm-header-icon-btn:hover {
-  color: var(--fg);
-}
-
-/* PaletteSelector dropdown menu items */
-.cm-pal-menu-item {
-  background-color: transparent;
-}
-.cm-pal-menu-item:hover {
-  background-color: var(--bg3);
 }
 
 /* Sidebar zones - eyebrow labels share the version line's mono "system

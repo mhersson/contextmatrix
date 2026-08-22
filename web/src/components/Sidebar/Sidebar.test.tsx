@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router';
 import { Sidebar } from './Sidebar';
 import { api } from '../../api/client';
 import type { PlaybookSummary } from '../../types';
+import type { AuthContextValue } from '../../hooks/useAuth';
 
 vi.mock('../../hooks/useProjects', () => ({
   useProjects: vi.fn(),
@@ -28,7 +29,13 @@ vi.mock('../../hooks/ProjectSummariesProvider', () => ({
 }));
 
 vi.mock('../../hooks/useTheme', () => ({
-  useTheme: vi.fn(() => ({ theme: 'dark', palette: 'everforest', version: '', toggleTheme: () => {} })),
+  useTheme: vi.fn(() => ({ theme: 'dark', palette: 'everforest', version: '', setTheme: () => {}, setPalette: () => {} })),
+}));
+
+const authState = vi.hoisted(() => ({ current: null as unknown }));
+const setAuthState = (v: AuthContextValue | null) => { authState.current = v; };
+vi.mock('../../hooks/useAuth', () => ({
+  useOptionalAuth: () => authState.current,
 }));
 
 vi.mock('./ChatSection', () => ({
@@ -226,5 +233,47 @@ describe('Sidebar', () => {
       expect(onMobileClose).toHaveBeenCalledTimes(1);
     });
 
+  });
+});
+
+describe('Sidebar footer appearance slot', () => {
+  beforeEach(() => {
+    vi.spyOn(api, 'listPlaybooks').mockResolvedValue([]);
+    mockUseProjects.mockReturnValue({ projects: defaultProjects, loading: false, error: null, connected: true, refreshProjects: async () => {} });
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    authState.current = null;
+  });
+
+  it('none mode: shows a standalone Appearance chip and no user chip', () => {
+    setAuthState({ mode: 'none', status: 'authenticated', user: null, version: null, setUser: vi.fn(), logout: vi.fn() });
+    renderSidebar();
+    const chip = screen.getByRole('button', { name: /appearance/i });
+    fireEvent.click(chip);
+    expect(screen.getByRole('menuitemradio', { name: 'Dark' })).toBeInTheDocument();
+    expect(screen.queryByTitle(/^signed in as/i)).toBeNull();
+  });
+
+  it('no AuthProvider at all behaves like none mode', () => {
+    authState.current = null;
+    renderSidebar();
+    expect(screen.getByRole('button', { name: /appearance/i })).toBeInTheDocument();
+  });
+
+  it('multi mode: the user chip owns appearance; no standalone Appearance chip', () => {
+    setAuthState({
+      mode: 'multi',
+      status: 'authenticated',
+      user: { username: 'alice', display_name: 'Alice', is_admin: false },
+      version: null,
+      setUser: vi.fn(),
+      logout: vi.fn(),
+    });
+    renderSidebar();
+    expect(screen.queryByRole('button', { name: /^appearance$/i })).toBeNull();
+    expect(screen.getByTitle(/^signed in as alice/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Alice/ }));
+    expect(screen.getByRole('menuitemradio', { name: 'Dark' })).toBeInTheDocument();
   });
 });

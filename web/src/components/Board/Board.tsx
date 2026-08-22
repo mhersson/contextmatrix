@@ -1,4 +1,4 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -24,6 +24,7 @@ import { Column } from './Column';
 import { CardItem } from './CardItem';
 import { BoardBand } from './BoardBand';
 import { BoardMicroBand } from './BoardMicroBand';
+import { ProjectCrumb } from '../ProjectCrumb/ProjectCrumb';
 import { MetricsRibbon } from './MetricsRibbon';
 import { SpotlightStrip } from './SpotlightStrip';
 import { FilterChipBar } from './FilterChipBar';
@@ -80,6 +81,16 @@ interface BoardProps {
   currentAgent: string | null;
   headerCollapsed?: boolean;
   onToggleHeaderCollapsed?: () => void;
+  /** Secondary header actions (console/settings/stop-all) rendered left of New Card in whichever band is showing. */
+  headerActions?: ReactNode;
+  /** Mobile-only sidebar opener forwarded to the band's menu button. */
+  onOpenSidebar?: () => void;
+  /**
+   * Route project slug for the band-less loading/error crumb. `config` can
+   * lag a project switch (useBoard keeps the previous project's config until
+   * the new fetch resolves), so the crumb must not name itself from it.
+   */
+  projectName?: string;
   onCardClick?: (card: Card) => void;
   onCardMove?: (cardId: string, newState: string) => Promise<boolean>;
   onCreateCard?: (state: string) => void;
@@ -112,6 +123,9 @@ export function Board({
   currentAgent,
   headerCollapsed,
   onToggleHeaderCollapsed,
+  headerActions,
+  onOpenSidebar,
+  projectName,
   onCardClick,
   onCardMove,
   onCreateCard,
@@ -427,13 +441,26 @@ export function Board({
     setActiveCard(null);
   }
 
-  if (loading) return <BoardSkeleton />;
+  // Loading and error states render no band, so they carry the crumb row
+  // themselves - it is the only home for the mobile sidebar opener here.
+  const crumbProject = projectName ?? config.name;
+  if (loading) {
+    return (
+      <div className="flex flex-col h-full">
+        <ProjectCrumb project={crumbProject} onOpenSidebar={onOpenSidebar} />
+        <BoardSkeleton />
+      </div>
+    );
+  }
 
   if (error) {
     return (
-      <div className="p-6">
-        <div className="bg-[var(--bg-red)] border border-[var(--red)] rounded-lg p-4">
-          <p className="text-[var(--red)]">{error}</p>
+      <div className="flex flex-col h-full">
+        <ProjectCrumb project={crumbProject} onOpenSidebar={onOpenSidebar} />
+        <div className="p-6">
+          <div className="bg-[var(--bg-red)] border border-[var(--red)] rounded-lg p-4">
+            <p className="text-[var(--red)]">{error}</p>
+          </div>
         </div>
       </div>
     );
@@ -482,6 +509,8 @@ export function Board({
           shippedLast7d={shippedLast7dParents}
           shippedPrior7d={shippedPrior7dParents}
           onCreateCard={() => onCreateCard?.(config.states[0])}
+          actions={headerActions}
+          onOpenSidebar={onOpenSidebar}
           {...toggleHeaderProps}
         />
       ) : (
@@ -496,6 +525,8 @@ export function Board({
             shippedLast7d={shippedLast7dParents}
             shippedPrior7d={shippedPrior7dParents}
             onCreateCard={() => onCreateCard?.(config.states[0])}
+            actions={headerActions}
+            onOpenSidebar={onOpenSidebar}
             {...toggleHeaderProps}
           />
 

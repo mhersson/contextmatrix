@@ -70,7 +70,7 @@ async function getAppConfigWithRetry(signal?: AbortSignal): Promise<AppConfig> {
   }
 }
 
-interface AuthContextValue {
+export interface AuthContextValue {
   mode: AuthMode;
   status: AuthStatus;
   user: SessionUser | null;

@@ -55,4 +55,30 @@ describe('BoardBand', () => {
     render(<BoardBand {...props} />);
     expect(screen.queryByRole('button', { name: /board header/i })).toBeNull();
   });
+
+  it('renders the actions slot before New Card inside the main-row actions', () => {
+    const { container } = render(
+      <BoardBand {...props} actions={<button type="button">Console</button>} />
+    );
+    const actions = container.querySelector('.board-band__actions');
+    const consoleBtn = screen.getByRole('button', { name: 'Console' });
+    const newCard = screen.getByRole('button', { name: /new card/i });
+    expect(actions).toContainElement(consoleBtn);
+    expect(actions).toContainElement(newCard);
+    expect(consoleBtn.compareDocumentPosition(newCard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('renders a sidebar menu button in the crumb row when onOpenSidebar is provided', () => {
+    const onOpenSidebar = vi.fn();
+    const { container } = render(<BoardBand {...props} onOpenSidebar={onOpenSidebar} />);
+    const btn = screen.getByRole('button', { name: /open menu/i });
+    expect(container.querySelector('.board-band__top')).toContainElement(btn);
+    fireEvent.click(btn);
+    expect(onOpenSidebar).toHaveBeenCalledTimes(1);
+  });
+
+  it('omits the sidebar menu button without a handler', () => {
+    render(<BoardBand {...props} />);
+    expect(screen.queryByRole('button', { name: /open menu/i })).toBeNull();
+  });
 });

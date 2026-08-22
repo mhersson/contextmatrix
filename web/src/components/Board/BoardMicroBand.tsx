@@ -1,5 +1,6 @@
-import type { Ref } from 'react';
+import type { ReactNode, Ref } from 'react';
 import { HeaderCollapseToggle } from './HeaderCollapseToggle';
+import { SidebarMenuButton } from '../SidebarMenuButton/SidebarMenuButton';
 
 interface BoardMicroBandProps {
   projectName: string;
@@ -14,13 +15,18 @@ interface BoardMicroBandProps {
   onCreateCard: () => void;
   onToggleCollapsed?: () => void;
   toggleRef?: Ref<HTMLButtonElement>;
+  /** Secondary actions rendered immediately left of New Card (icon-only here). */
+  actions?: ReactNode;
+  /** Mobile-only sidebar opener, rendered before the title. */
+  onOpenSidebar?: () => void;
 }
 
 /**
  * One-row replacement for BoardBand + MetricsRibbon while the board header is
  * collapsed: small display-font title, the ribbon numbers as an inline mono
- * summary, a compact New Card action, and the expand toggle at the far right
- * so it shares a column with the collapse toggle in the expanded band.
+ * summary, the icon-only action cluster, a compact New Card action, and the
+ * expand toggle at the far right so it shares a column with the collapse
+ * toggle in the expanded band.
  * Counts are parent-only, matching the expanded chrome.
  */
 export function BoardMicroBand({
@@ -36,6 +42,8 @@ export function BoardMicroBand({
   onCreateCard,
   onToggleCollapsed,
   toggleRef,
+  actions,
+  onOpenSidebar,
 }: BoardMicroBandProps) {
   const title = displayName ?? projectName;
 
@@ -47,6 +55,7 @@ export function BoardMicroBand({
 
   return (
     <div className="board-microband">
+      {onOpenSidebar && <SidebarMenuButton onClick={onOpenSidebar} />}
       <h2 className="board-microband__title">{title}</h2>
       <div className="board-microband__stats">
         <span className={activeAgents > 0 ? 'board-microband__live' : undefined}>{activeAgents} agents</span>
@@ -70,6 +79,7 @@ export function BoardMicroBand({
         )}
       </div>
       <div className="board-microband__actions">
+        {actions}
         <button
           type="button"
           onClick={onCreateCard}

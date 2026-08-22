@@ -12,6 +12,7 @@ import type { PlaybookSummary } from '../../types';
 import { ProjectCard } from './ProjectCard';
 import { ChatSection } from './ChatSection';
 import { UserMenu } from './UserMenu';
+import { AppearanceMenu } from './AppearanceMenu';
 
 interface SidebarProps {
   onNewProject: () => void;
@@ -234,7 +235,9 @@ export function Sidebar({ onNewProject, onNewChat, mobileOpen = false, onMobileC
       </nav>
 
       <div className="px-3 py-3 border-t flex flex-col gap-2" style={{ borderColor: 'var(--bg3)' }}>
-        <UserMenu onNavigate={mobileOpen ? onMobileClose : undefined} />
+        {auth?.mode === 'multi'
+          ? <UserMenu onNavigate={mobileOpen ? onMobileClose : undefined} />
+          : <AppearanceMenu />}
         {canCreateProject && (
           <button
             onClick={onNewProject}

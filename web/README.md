@@ -43,9 +43,9 @@ The Go backend runs as a separate process on `:8080`. See the repo root
 
 Three palettes ship with the UI: `everforest` (default), `radix`, and
 `catppuccin`. The server-side default is set by the `theme:` field in
-`config.yaml`. Users can override the palette per-browser via the
-PaletteSelector in `AppHeader` (persisted to `localStorage` under the key
-`palette`) - see `web/src/components/AppHeader/PaletteSelector.tsx`.
+`config.yaml`. Users can override the palette per-browser from the APPEARANCE
+group in the sidebar footer menu (persisted to `localStorage` under the key
+`palette`) - see `web/src/components/Sidebar/AppearanceMenuItems.tsx`.
 
 ## Conventions
 

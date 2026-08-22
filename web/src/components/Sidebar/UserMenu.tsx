@@ -3,11 +3,13 @@ import { useNavigate } from 'react-router';
 import { useOptionalAuth } from '../../hooks/useAuth';
 import { useMenuDismiss } from '../../hooks/useMenuDismiss';
 import { ChangePasswordModal } from '../Auth/ChangePasswordModal';
+import { AppearanceMenuItems } from './AppearanceMenuItems';
 
 /**
  * Sidebar-footer user chip for multi mode: display name + a small menu with
- * change-password and sign-out. Renders nothing in none mode or while
- * logged out, so call sites need no conditional.
+ * the admin pages, the appearance radios, change-password and sign-out.
+ * Renders nothing in none mode or while logged out, so call sites need no
+ * conditional (none mode gets AppearanceMenu in the same slot instead).
  *
  * Uses useOptionalAuth (not useAuth) so Sidebar still renders in tests that
  * mount it without an AuthProvider - see deviation note in task-6-report.md.
@@ -20,6 +22,7 @@ export function UserMenu({ onNavigate }: { onNavigate?: () => void } = {}) {
   const [open, setOpen] = useState(false);
   const [changeOpen, setChangeOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   const goto = (path: string) => {
     setOpen(false);
@@ -27,7 +30,7 @@ export function UserMenu({ onNavigate }: { onNavigate?: () => void } = {}) {
     navigate(path);
   };
 
-  useMenuDismiss(containerRef, open, () => setOpen(false));
+  useMenuDismiss(containerRef, open, () => setOpen(false), triggerRef);
 
   if (!auth || auth.mode !== 'multi' || !auth.user) return null;
 
@@ -38,6 +41,7 @@ export function UserMenu({ onNavigate }: { onNavigate?: () => void } = {}) {
   return (
     <div ref={containerRef} className="relative">
       <button
+        ref={triggerRef}
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -88,6 +92,8 @@ export function UserMenu({ onNavigate }: { onNavigate?: () => void } = {}) {
               <div className="border-t my-1" style={{ borderColor: 'var(--bg3)' }} aria-hidden="true" />
             </>
           )}
+          <AppearanceMenuItems />
+          <div className="border-t my-1" style={{ borderColor: 'var(--bg3)' }} aria-hidden="true" />
           <button
             role="menuitem"
             onClick={() => {

@@ -68,4 +68,27 @@ describe('BoardMicroBand', () => {
     render(<BoardMicroBand {...props} />);
     expect(screen.queryByRole('button', { name: /board header/i })).toBeNull();
   });
+
+  it('renders the actions slot before New Card, with the expand toggle still last', () => {
+    const { container } = render(
+      <BoardMicroBand {...props} actions={<button type="button">Console</button>} onToggleCollapsed={() => {}} />
+    );
+    const actions = container.querySelector('.board-microband__actions');
+    const consoleBtn = screen.getByRole('button', { name: 'Console' });
+    const newCard = screen.getByRole('button', { name: /new card/i });
+    const toggle = screen.getByRole('button', { name: /expand board header/i });
+    expect(actions).toContainElement(consoleBtn);
+    expect(consoleBtn.compareDocumentPosition(newCard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(newCard.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('renders a sidebar menu button before the title when onOpenSidebar is provided', () => {
+    const onOpenSidebar = vi.fn();
+    render(<BoardMicroBand {...props} onOpenSidebar={onOpenSidebar} />);
+    const btn = screen.getByRole('button', { name: /open menu/i });
+    const title = screen.getByRole('heading', { name: 'ContextMatrix · core' });
+    expect(btn.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(btn);
+    expect(onOpenSidebar).toHaveBeenCalledTimes(1);
+  });
 });
