@@ -38,8 +38,7 @@ export function BoardHeaderActions({
           <button
             type="button"
             onClick={() => setConfirmStopAllOpen(true)}
-            className="px-2 py-1 rounded text-xs font-medium hover:opacity-90 transition-opacity mr-1"
-            style={{ backgroundColor: 'var(--bg-red)', color: 'var(--red)' }}
+            className="board-header-actions__btn board-header-actions__btn--danger"
             title="Stop all running tasks"
           >
             Stop All
