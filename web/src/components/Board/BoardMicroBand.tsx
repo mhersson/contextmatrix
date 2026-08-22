@@ -1,3 +1,6 @@
+import type { Ref } from 'react';
+import { HeaderCollapseToggle } from './HeaderCollapseToggle';
+
 interface BoardMicroBandProps {
   projectName: string;
   displayName?: string;
@@ -9,13 +12,16 @@ interface BoardMicroBandProps {
   shippedLast7d?: number;
   shippedPrior7d?: number;
   onCreateCard: () => void;
+  onToggleCollapsed?: () => void;
+  toggleRef?: Ref<HTMLButtonElement>;
 }
 
 /**
  * One-row replacement for BoardBand + MetricsRibbon while the board header is
  * collapsed: small display-font title, the ribbon numbers as an inline mono
- * summary, and a compact New Card action. Counts are parent-only, matching
- * the expanded chrome.
+ * summary, a compact New Card action, and the expand toggle at the far right
+ * so it shares a column with the collapse toggle in the expanded band.
+ * Counts are parent-only, matching the expanded chrome.
  */
 export function BoardMicroBand({
   projectName,
@@ -28,6 +34,8 @@ export function BoardMicroBand({
   shippedLast7d,
   shippedPrior7d,
   onCreateCard,
+  onToggleCollapsed,
+  toggleRef,
 }: BoardMicroBandProps) {
   const title = displayName ?? projectName;
 
@@ -61,14 +69,17 @@ export function BoardMicroBand({
           </span>
         )}
       </div>
-      <button
-        type="button"
-        onClick={onCreateCard}
-        className="px-2.5 py-1.5 rounded text-sm font-medium bg-[var(--green)] text-[var(--bg-dim)] hover:opacity-90 transition-opacity inline-flex items-center gap-1.5 flex-shrink-0"
-      >
-        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" strokeLinecap="round" strokeLinejoin="round" /></svg>
-        New Card
-      </button>
+      <div className="board-microband__actions">
+        <button
+          type="button"
+          onClick={onCreateCard}
+          className="px-2.5 py-1.5 rounded text-sm font-medium bg-[var(--green)] text-[var(--bg-dim)] hover:opacity-90 transition-opacity inline-flex items-center gap-1.5 flex-shrink-0"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          New Card
+        </button>
+        {onToggleCollapsed && <HeaderCollapseToggle ref={toggleRef} collapsed onToggle={onToggleCollapsed} />}
+      </div>
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, within, waitFor, act } from '@testing-library/react';
 import type { DndContextProps } from '@dnd-kit/core';
@@ -1502,5 +1503,71 @@ describe('Board - collapsed header', () => {
     expect(screen.getByText('Active agents')).toBeInTheDocument();
     expect(screen.getByText('Needs Attention')).toBeInTheDocument();
     expect(screen.getByText(/no stalled or blocked cards/i)).toBeInTheDocument();
+  });
+
+  it('wires the toggle into the expanded band', () => {
+    const onToggle = vi.fn();
+    render(<Board {...baseProps} cards={[sampleCard]} headerCollapsed={false} onToggleHeaderCollapsed={onToggle} />);
+    fireEvent.click(screen.getByRole('button', { name: /collapse board header/i }));
+    expect(onToggle).toHaveBeenCalledTimes(1);
+  });
+
+  it('wires the toggle into the micro-band', () => {
+    const onToggle = vi.fn();
+    render(<Board {...baseProps} cards={[sampleCard]} headerCollapsed onToggleHeaderCollapsed={onToggle} />);
+    fireEvent.click(screen.getByRole('button', { name: /expand board header/i }));
+    expect(onToggle).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders no header toggle without a handler', () => {
+    render(<Board {...baseProps} cards={[sampleCard]} headerCollapsed={false} />);
+    expect(screen.queryByRole('button', { name: /board header/i })).toBeNull();
+  });
+
+  it('hands keyboard focus to the replacement toggle across the band swap', () => {
+    function Harness() {
+      const [collapsed, setCollapsed] = useState(false);
+      return (
+        <Board
+          {...baseProps}
+          cards={[sampleCard]}
+          headerCollapsed={collapsed}
+          onToggleHeaderCollapsed={() => setCollapsed((c) => !c)}
+        />
+      );
+    }
+    render(<Harness />);
+
+    const collapseBtn = screen.getByRole('button', { name: /collapse board header/i });
+    collapseBtn.focus();
+    fireEvent.click(collapseBtn);
+
+    const expandBtn = screen.getByRole('button', { name: /expand board header/i });
+    expect(document.activeElement).toBe(expandBtn);
+
+    fireEvent.click(expandBtn);
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: /collapse board header/i }));
+  });
+
+  it('leaves focus alone when the toggle was not focused', () => {
+    function Harness() {
+      const [collapsed, setCollapsed] = useState(false);
+      return (
+        <Board
+          {...baseProps}
+          cards={[sampleCard]}
+          headerCollapsed={collapsed}
+          onToggleHeaderCollapsed={() => setCollapsed((c) => !c)}
+        />
+      );
+    }
+    render(<Harness />);
+
+    const search = screen.getByPlaceholderText(/search cards/i);
+    search.focus();
+    fireEvent.click(screen.getByRole('button', { name: /collapse board header/i }));
+
+    expect(screen.getByRole('button', { name: /expand board header/i })).toBeInTheDocument();
+    expect(document.activeElement).toBe(search);
   });
 });

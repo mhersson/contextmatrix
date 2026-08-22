@@ -79,6 +79,7 @@ interface BoardProps {
   activityBackfillLoaded?: boolean;
   currentAgent: string | null;
   headerCollapsed?: boolean;
+  onToggleHeaderCollapsed?: () => void;
   onCardClick?: (card: Card) => void;
   onCardMove?: (cardId: string, newState: string) => Promise<boolean>;
   onCreateCard?: (state: string) => void;
@@ -110,6 +111,7 @@ export function Board({
   activityBackfillLoaded,
   currentAgent,
   headerCollapsed,
+  onToggleHeaderCollapsed,
   onCardClick,
   onCardMove,
   onCreateCard,
@@ -402,6 +404,25 @@ export function Board({
       });
   }
 
+  // The collapse toggle lives inside whichever band is showing, so toggling
+  // unmounts the focused button. Remember whether it had focus and move focus
+  // to its replacement after the swap, so keyboard users can toggle again and
+  // screen readers hear the new aria-expanded state.
+  const headerToggleRef = useRef<HTMLButtonElement>(null);
+  const refocusHeaderToggle = useRef(false);
+  const handleToggleHeader = useCallback(() => {
+    refocusHeaderToggle.current = document.activeElement === headerToggleRef.current;
+    onToggleHeaderCollapsed?.();
+  }, [onToggleHeaderCollapsed]);
+  useEffect(() => {
+    if (!refocusHeaderToggle.current) return;
+    refocusHeaderToggle.current = false;
+    headerToggleRef.current?.focus();
+  }, [headerCollapsed]);
+  const toggleHeaderProps = onToggleHeaderCollapsed
+    ? { onToggleCollapsed: handleToggleHeader, toggleRef: headerToggleRef }
+    : {};
+
   function handleDragCancel() {
     setActiveCard(null);
   }
@@ -461,6 +482,7 @@ export function Board({
           shippedLast7d={shippedLast7dParents}
           shippedPrior7d={shippedPrior7dParents}
           onCreateCard={() => onCreateCard?.(config.states[0])}
+          {...toggleHeaderProps}
         />
       ) : (
         <>
@@ -474,6 +496,7 @@ export function Board({
             shippedLast7d={shippedLast7dParents}
             shippedPrior7d={shippedPrior7dParents}
             onCreateCard={() => onCreateCard?.(config.states[0])}
+            {...toggleHeaderProps}
           />
 
           <MetricsRibbon

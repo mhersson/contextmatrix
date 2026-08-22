@@ -122,26 +122,22 @@ vi.mock('../../hooks/useSSEBus', () => ({
 // Capture the onCreate prop from CreateCardPanel so tests can invoke it.
 let capturedOnCreate: ((input: CreateCardInput, opts?: { run?: boolean; interactive?: boolean }) => Promise<void>) | null = null;
 
-// Capture AppHeader props so tests can assert what the shell wires into the
-// top bar (e.g. the board-route-only header collapse toggle).
-let capturedAppHeaderProps: Record<string, unknown> = {};
-
 vi.mock('../AppHeader', () => ({
-  AppHeader: (props: Record<string, unknown>) => {
-    capturedAppHeaderProps = props;
-    return <div data-testid="app-header" />;
-  },
-}));
-
-vi.mock('../ProjectSettings/ProjectSettings', () => ({
-  ProjectSettings: () => <div data-testid="project-settings" />,
+  AppHeader: () => <div data-testid="app-header" />,
 }));
 
 vi.mock('../Board', () => ({
-  Board: ({ onCreateCard }: { onCreateCard?: () => void }) => {
+  Board: ({ onCreateCard, headerCollapsed, onToggleHeaderCollapsed }: {
+    onCreateCard?: () => void;
+    headerCollapsed?: boolean;
+    onToggleHeaderCollapsed?: () => void;
+  }) => {
     return (
-      <div data-testid="board">
+      <div data-testid="board" data-header-collapsed={String(!!headerCollapsed)}>
         <button data-testid="open-create-btn" onClick={onCreateCard}>Open Create</button>
+        {onToggleHeaderCollapsed && (
+          <button data-testid="toggle-header-btn" onClick={onToggleHeaderCollapsed}>Toggle Header</button>
+        )}
       </div>
     );
   },
@@ -809,28 +805,20 @@ describe('ProjectShell - card-scoped worker-log liveness', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Board header toggle - route gating
+// Board header collapse - shell wiring
 // ---------------------------------------------------------------------------
 
-describe('board header toggle route gating', () => {
-  function renderShellAt(path: string) {
-    capturedAppHeaderProps = {};
-    return render(
-      <MemoryRouter initialEntries={[path]}>
-        <Routes>
-          <Route path="/projects/:project/*" element={<ProjectShell />} />
-        </Routes>
-      </MemoryRouter>
-    );
-  }
+describe('ProjectShell - board header collapse', () => {
+  it('hands Board a working toggle that flips headerCollapsed', () => {
+    renderProjectShell();
 
-  it('passes the collapse handler to AppHeader on the board route', () => {
-    renderShellAt('/projects/test');
-    expect(capturedAppHeaderProps.onToggleHeaderCollapsed).toBeTypeOf('function');
-  });
+    const board = screen.getByTestId('board');
+    const before = board.getAttribute('data-header-collapsed');
 
-  it('omits the collapse handler off the board route', () => {
-    renderShellAt('/projects/test/settings');
-    expect(capturedAppHeaderProps.onToggleHeaderCollapsed).toBeUndefined();
+    act(() => screen.getByTestId('toggle-header-btn').click());
+    expect(board.getAttribute('data-header-collapsed')).toBe(before === 'true' ? 'false' : 'true');
+
+    act(() => screen.getByTestId('toggle-header-btn').click());
+    expect(board.getAttribute('data-header-collapsed')).toBe(before);
   });
 });
