@@ -562,20 +562,29 @@ the claim, and stop (card stays in review).
 
 **Copilot gate first** (when `**Copilot review:** enabled`):
 
-1. Check requested reviewers: `gh pr view <pr-url> --json reviewRequests`.
-   If Copilot is absent, request it:
-   `gh pr edit <pr-url> --add-reviewer copilot-pull-request-reviewer[bot]`,
-   then re-check. If the request fails or the reviewer does not appear,
-   add a card log entry with the exact error and skip this gate.
-2. Wait for the review: poll `gh api repos/{owner}/{repo}/pulls/{n}/reviews`
-   every 30s (10 min cap) until a review by
-   `copilot-pull-request-reviewer[bot]` appears for the current head SHA.
-   On timeout, log it on the card and skip to the CI gate.
-3. Triage every finding as valid or invalid with a one-line reason. Upsert
+1. Probe for a review already on the head:
+   `gh api --paginate repos/{owner}/{repo}/pulls/{n}/reviews`. If a review
+   by `copilot-pull-request-reviewer[bot]` exists for the current head SHA,
+   skip to step 4.
+2. Check requested reviewers:
+   `gh api repos/{owner}/{repo}/pulls/{n}/requested_reviewers` - never
+   `gh pr view --json reviewRequests`, which drops Bot reviewers. If Copilot
+   is absent from `users[]`, request it:
+   `gh api --method POST repos/{owner}/{repo}/pulls/{n}/requested_reviewers -f 'reviewers[]=copilot-pull-request-reviewer[bot]'`,
+   then re-check. Only a 422 "Copilot isn't available for this repository"
+   skips this gate: log the exact error on the card and move on. Any other
+   request failure, or a reviewer that still does not appear, is logged on
+   the card and waited through (step 3) - a repository ruleset may add
+   Copilot asynchronously.
+3. Wait for the review: poll the step 1 command every 30s (20 min cap)
+   until a review by `copilot-pull-request-reviewer[bot]` appears for the
+   current head SHA. On timeout, log it on the card and continue to the CI
+   gate.
+4. Triage every finding as valid or invalid with a one-line reason. Upsert
    the triage to the card as `## Copilot Review (Round <N>)`.
-4. Fix valid findings, commit, push, and re-request the review (step 1
+5. Fix valid findings, commit, push, and re-request the review (step 2
    command). Ignore repeated comments already triaged in a prior round.
-5. Cap: 3 rounds. On exhaustion upsert `## PR Gates` with the open findings,
+6. Cap: 3 rounds. On exhaustion upsert `## PR Gates` with the open findings,
    release the claim, and stop (card stays in review).
 
 **CI gate last** (when `**Wait for CI:** enabled`):
@@ -600,7 +609,10 @@ the claim, and stop (card stays in review).
    upsert `## PR Gates` with the failing checks and links, release the
    claim, and stop (card stays in review).
 
-When every enabled gate passes, continue to the done transition.
+When every enabled gate passes: if the Copilot gate ended without a review
+(timed out, or the request never confirmed), run the Copilot step 1 probe
+once more - a review that landed during the CI wait is triaged (steps 4-6)
+before continuing. Otherwise continue to the done transition.
 
 After the gates finish - passed, skipped, or parked - call `report_usage`
 with the tokens the gates consumed. On re-entry after a park, the `## PR
