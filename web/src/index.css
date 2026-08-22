@@ -2665,6 +2665,57 @@ textarea {
   color: var(--bg4);
 }
 
+/* ── Board micro-band (collapsed header) ─────────────────────────────── */
+.board-microband {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 40px;
+  padding: 6px 24px;
+  border-bottom: 1px solid var(--bg3);
+}
+.board-microband__title {
+  font-family: var(--font-display);
+  font-weight: 460;
+  font-size: 17px;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+  color: var(--fg);
+  margin: 0;
+  white-space: nowrap;
+}
+.board-microband__stats {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--grey1);
+  white-space: nowrap;
+}
+.board-microband__live {
+  color: var(--aqua);
+}
+.board-microband__alert {
+  color: var(--red);
+}
+@media (max-width: 768px) {
+  .board-microband {
+    flex-wrap: wrap;
+    padding: 8px 14px;
+    row-gap: 4px;
+  }
+  .board-microband__stats {
+    flex-wrap: wrap;
+    overflow: visible;
+    white-space: normal;
+  }
+}
+
 /* ── Metrics ribbon ──────────────────────────────────────────────────── */
 .metrics-ribbon {
   display: grid;

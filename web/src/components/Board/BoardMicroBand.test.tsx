@@ -1,0 +1,50 @@
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
+import { BoardMicroBand } from './BoardMicroBand';
+
+describe('BoardMicroBand', () => {
+  const props = {
+    projectName: 'contextmatrix',
+    displayName: 'ContextMatrix · core',
+    activeAgents: 4,
+    openCount: 23,
+    inReviewCount: 7,
+    stalled: 2,
+    shippedToday: 3,
+    onCreateCard: vi.fn(),
+  };
+
+  it('shows the display name and the inline summary numbers', () => {
+    render(<BoardMicroBand {...props} />);
+    expect(screen.getByRole('heading', { name: 'ContextMatrix · core' })).toBeInTheDocument();
+    expect(screen.getByText('4 agents')).toBeInTheDocument();
+    expect(screen.getByText('23 open')).toBeInTheDocument();
+    expect(screen.getByText('7 review')).toBeInTheDocument();
+    expect(screen.getByText('2 stalled')).toBeInTheDocument();
+    expect(screen.getByText('3 today')).toBeInTheDocument();
+  });
+
+  it('falls back to the project name without a display name', () => {
+    render(<BoardMicroBand {...props} displayName={undefined} />);
+    expect(screen.getByRole('heading', { name: 'contextmatrix' })).toBeInTheDocument();
+  });
+
+  it('shows the 7d count with delta when prior data exists', () => {
+    render(<BoardMicroBand {...props} shippedLast7d={14} shippedPrior7d={11} />);
+    expect(screen.getByText(/14 · 7d/)).toBeInTheDocument();
+    expect(screen.getByText(/\+27%/)).toBeInTheDocument();
+  });
+
+  it('omits the delta when there is no prior window', () => {
+    render(<BoardMicroBand {...props} shippedLast7d={14} shippedPrior7d={0} />);
+    expect(screen.getByText(/14 · 7d/)).toBeInTheDocument();
+    expect(screen.queryByText(/%/)).toBeNull();
+  });
+
+  it('invokes onCreateCard when the compact New Card is clicked', () => {
+    const onCreateCard = vi.fn();
+    render(<BoardMicroBand {...props} onCreateCard={onCreateCard} />);
+    fireEvent.click(screen.getByRole('button', { name: /new card/i }));
+    expect(onCreateCard).toHaveBeenCalledTimes(1);
+  });
+});

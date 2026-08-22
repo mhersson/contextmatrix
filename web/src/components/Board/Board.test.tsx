@@ -1454,3 +1454,53 @@ describe('Board - manual order', () => {
     warnSpy.mockRestore();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Board - collapsed header
+// ---------------------------------------------------------------------------
+
+describe('Board - collapsed header', () => {
+  const baseProps = {
+    config: baseConfig,
+    loading: false,
+    error: null,
+    activeAgents: [],
+    cardsCompletedToday: 0,
+    activityEntries: [],
+    currentAgent: null,
+  };
+
+  it('replaces the band and ribbon with the micro-band when collapsed', () => {
+    render(<Board {...baseProps} cards={[sampleCard]} headerCollapsed />);
+
+    expect(screen.getByRole('heading', { name: 'test-project' })).toBeInTheDocument();
+    expect(screen.queryByText('Active agents')).toBeNull();
+    expect(screen.queryByText('In flight')).toBeNull();
+    expect(screen.getByRole('button', { name: /new card/i })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/search cards/i)).toBeInTheDocument();
+  });
+
+  it('drops the all-clear spotlight strip when collapsed', () => {
+    render(<Board {...baseProps} cards={[sampleCard]} headerCollapsed />);
+    expect(screen.queryByText('Needs Attention')).toBeNull();
+  });
+
+  it('keeps the spotlight strip when a card is stalled', () => {
+    const stalledCard: Card = { ...sampleCard, id: 'TEST-002', state: 'stalled' };
+    render(<Board {...baseProps} cards={[sampleCard, stalledCard]} headerCollapsed />);
+    expect(screen.getByText('Needs Attention')).toBeInTheDocument();
+  });
+
+  it('keeps the spotlight strip when a card is blocked', () => {
+    const blockedCard: Card = { ...sampleCard, id: 'TEST-003', state: 'blocked' };
+    render(<Board {...baseProps} cards={[sampleCard, blockedCard]} headerCollapsed />);
+    expect(screen.getByText('Needs Attention')).toBeInTheDocument();
+  });
+
+  it('leaves the expanded header unchanged', () => {
+    render(<Board {...baseProps} cards={[sampleCard]} headerCollapsed={false} />);
+    expect(screen.getByText('Active agents')).toBeInTheDocument();
+    expect(screen.getByText('Needs Attention')).toBeInTheDocument();
+    expect(screen.getByText(/no stalled or blocked cards/i)).toBeInTheDocument();
+  });
+});
