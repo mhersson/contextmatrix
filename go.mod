@@ -1,6 +1,6 @@
 module github.com/mhersson/contextmatrix
 
-go 1.26.6
+go 1.26.7
 
 require (
 	github.com/go-git/go-git/v5 v5.19.2
