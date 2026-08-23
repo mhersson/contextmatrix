@@ -984,6 +984,7 @@ constants in `internal/service/service.go`:
 | `body`                    | 512 KB     | `maxBodyLen` (`512 * 1024` bytes); applies to the body resulting from a section upsert too |
 | individual label          | 100 chars  | `maxLabelLen`                     |
 | `labels` slice length     | 50 entries | `maxLabels`                       |
+| `depends_on` slice length | 50 entries | `maxDependsOn`                    |
 | `agent_id` / `X-Agent-ID` | 256 chars  | `maxAgentIDLen`                   |
 | `assignee`                | 64 chars   | `maxAssigneeLen`                  |
 | `activity_log[].message`  | 2000 chars | `maxLogMessage`                   |
