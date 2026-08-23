@@ -3,18 +3,24 @@ import { render, screen } from '@testing-library/react';
 import { CardPicker } from './CardPicker';
 import type { Card, ProjectConfig } from '../../types';
 
-const projects: ProjectConfig[] = [
-  {
-    name: 'alpha',
-    prefix: 'ALPHA',
-    next_id: 1,
-    states: ['todo', 'in_progress', 'done'],
-    types: ['task'],
-    priorities: ['low', 'medium', 'high'],
-    transitions: { todo: ['in_progress'], in_progress: ['done'], done: [] },
-    templates: {},
-  },
-];
+const alphaProject: ProjectConfig = {
+  name: 'alpha',
+  prefix: 'ALPHA',
+  next_id: 1,
+  states: ['todo', 'in_progress', 'done'],
+  types: ['task'],
+  priorities: ['low', 'medium', 'high'],
+  transitions: { todo: ['in_progress'], in_progress: ['done'], done: [] },
+  templates: {},
+};
+
+const betaProject: ProjectConfig = {
+  ...alphaProject,
+  name: 'beta',
+  prefix: 'BETA',
+};
+
+const projects: ProjectConfig[] = [alphaProject];
 
 function makeCard(id: string, state: string): Card {
   return {
@@ -38,10 +44,10 @@ const cards = [
   makeCard('ALPHA-005', 'not_planned'),
 ];
 
-function renderPicker(excludeIds?: ReadonlySet<string>) {
+function renderPicker(excludeIds?: ReadonlySet<string>, pickerProjects: ProjectConfig[] = projects) {
   render(
     <CardPicker
-      projects={projects}
+      projects={pickerProjects}
       project="alpha"
       onProjectChange={vi.fn()}
       cards={cards}
@@ -73,5 +79,20 @@ describe('CardPicker', () => {
     expect(screen.queryByText('ALPHA-001')).not.toBeInTheDocument();
     expect(screen.getByText('ALPHA-002')).toBeInTheDocument();
     expect(screen.getByText('ALPHA-003')).toBeInTheDocument();
+  });
+
+  it('finds the filter input by its label', () => {
+    renderPicker();
+    expect(screen.getByLabelText('Filter cards by id or title')).toBeInTheDocument();
+  });
+
+  it('renders no project select with a single project', () => {
+    renderPicker(undefined, [alphaProject]);
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+  });
+
+  it('renders a project select with more than one project', () => {
+    renderPicker(undefined, [alphaProject, betaProject]);
+    expect(screen.getByRole('combobox')).toBeInTheDocument();
   });
 });

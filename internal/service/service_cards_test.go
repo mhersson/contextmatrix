@@ -870,3 +870,72 @@ func TestCreateUpdatePatchCard_MaxCapability(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, patched.MaxCapability)
 }
+
+// TestCreateUpdatePatchCard_DependsOnLimit verifies that create, PUT, and
+// PATCH all reject a depends_on list over maxDependsOn with the same error
+// the Labels count limit produces (ErrFieldTooLong), before any card
+// mutation is applied.
+func TestCreateUpdatePatchCard_DependsOnLimit(t *testing.T) {
+	overLimit := make([]string, maxDependsOn+1)
+	for i := range overLimit {
+		overLimit[i] = fmt.Sprintf("TEST-%d", i+1)
+	}
+
+	t.Run("create", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		_, err := svc.CreateCard(context.Background(), "test-project", CreateCardInput{
+			Title:     "t",
+			Type:      "task",
+			Priority:  "low",
+			DependsOn: overLimit,
+		})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrFieldTooLong)
+	})
+
+	t.Run("update (PUT)", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		ctx := context.Background()
+
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "t",
+			Type:     "task",
+			Priority: "low",
+		})
+		require.NoError(t, err)
+
+		_, err = svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
+			Title:     card.Title,
+			Type:      card.Type,
+			State:     card.State,
+			Priority:  card.Priority,
+			DependsOn: overLimit,
+		})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrFieldTooLong)
+	})
+
+	t.Run("patch", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		ctx := context.Background()
+
+		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title:    "t",
+			Type:     "task",
+			Priority: "low",
+		})
+		require.NoError(t, err)
+
+		_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+			DependsOn: overLimit,
+		})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrFieldTooLong)
+	})
+}

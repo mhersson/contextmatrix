@@ -984,6 +984,7 @@ constants in `internal/service/service.go`:
 | `body`                    | 512 KB     | `maxBodyLen` (`512 * 1024` bytes); applies to the body resulting from a section upsert too |
 | individual label          | 100 chars  | `maxLabelLen`                     |
 | `labels` slice length     | 50 entries | `maxLabels`                       |
+| `depends_on` slice length | 50 entries | `maxDependsOn`                    |
 | `agent_id` / `X-Agent-ID` | 256 chars  | `maxAgentIDLen`                   |
 | `assignee`                | 64 chars   | `maxAssigneeLen`                  |
 | `activity_log[].message`  | 2000 chars | `maxLogMessage`                   |
@@ -1024,6 +1025,14 @@ back-edge. On a hit, the service returns a `ValidationError` wrapping
 `"circular dependency detected: ALPHA-001 and ALPHA-007 depend on each other"`.
 The check runs under `writeMu` to prevent two concurrent edits from racing into
 a cycle.
+
+`depends_on` is directly settable on `PATCH` and MCP `update_card` (previously
+only `POST`, `PUT`, and `create_card` could set it): omitting the field leaves
+the stored list unchanged, an explicit `[]` clears it - the same nil/empty
+convention as `labels`. The reference and cycle checks above always run
+against the resulting card state, not just the fields a given call changed, so
+an existing `depends_on` is re-validated even when a patch touches unrelated
+fields.
 
 ## `create_pr` semantics
 

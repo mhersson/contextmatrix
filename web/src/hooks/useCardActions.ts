@@ -3,6 +3,44 @@ import { api, isAPIError } from '../api/client';
 import { isTerminalState } from '../lib/cardState';
 import type { Card, PatchCardInput, CreateCardInput } from '../types';
 
+/**
+ * `board.Card` tags most panel-clearable fields `omitempty`, so a PATCH
+ * response that clears one to its zero value omits the key entirely - a
+ * shallow `{ ...card, ...updated }` merge can't overwrite a key the source
+ * lacks, leaving the stale value in place until an unrelated SSE update
+ * happens to touch it. Every clearable key gets its zero value spread in
+ * first so `...updated` overrides it when the server actually sent one;
+ * `dependencies_met` and `skills` are named explicitly afterward since their
+ * cleared values (`undefined` and `null`) aren't the spread's zero value.
+ * GET-only hydrated fields (e.g. `subtask_cost_usd`) are deliberately absent
+ * from this list - they're computed on read, never part of a PATCH round trip.
+ */
+function clearSafeCardUpdate(updated: Card): Partial<Card> {
+  return {
+    labels: [],
+    assignee: '',
+    context: [],
+    mob_phases: [],
+    mob_guests: [],
+    create_pr: false,
+    await_ci: false,
+    await_copilot_review: false,
+    max_capability: false,
+    best_of_n: 0,
+    mob_participants: 0,
+    base_branch: '',
+    model_orchestrator: '',
+    model_coder: '',
+    model_reviewer: '',
+    depends_on: [],
+    assigned_agent: '',
+    last_heartbeat: undefined,
+    ...updated,
+    dependencies_met: updated.dependencies_met,
+    skills: updated.skills ?? null,
+  };
+}
+
 interface UseCardActionsParams {
   selectedProject: string;
   selectedCard: Card | null;
@@ -59,14 +97,15 @@ export function useCardActions({
     async (updates: PatchCardInput) => {
       if (!selectedCard) return;
       try {
-        await api.patchCard(selectedProject, selectedCard.id, updates);
+        const updated = await api.patchCard(selectedProject, selectedCard.id, updates);
+        updateCardLocally(selectedCard.id, clearSafeCardUpdate(updated));
         showToast('Card saved', 'success');
       } catch (err) {
         showToast(isAPIError(err) ? err.error : 'Failed to save card', 'error');
         throw err;
       }
     },
-    [selectedCard, selectedProject, showToast]
+    [selectedCard, selectedProject, showToast, updateCardLocally]
   );
 
   const handleClaim = useCallback(

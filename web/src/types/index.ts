@@ -256,6 +256,7 @@ export interface PatchCardInput {
   skills?: string[] | null;
   skills_clear?: boolean;
   assignee?: string;
+  depends_on?: string[];
 }
 
 export interface ActiveAgent {

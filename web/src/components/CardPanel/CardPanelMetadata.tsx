@@ -13,6 +13,7 @@ interface CardPanelMetadataProps {
   config: ProjectConfig;
   currentAgentId: string | null;
   workerAttached: boolean;
+  cards: Card[];
   onStateChange: (state: string) => void;
   onSubtaskClick: (cardId: string) => void;
   onClaim: () => void;
@@ -23,6 +24,7 @@ interface CardPanelMetadataProps {
   excludeStateFromPicker?: string | null;
   assignee: string | undefined;
   onAssigneeChange: (v: string) => void;
+  onDependsOnChange: (ids: string[]) => Promise<void>;
 }
 
 /**
@@ -46,6 +48,7 @@ export function CardPanelMetadata({
   config,
   currentAgentId,
   workerAttached,
+  cards,
   onStateChange,
   onSubtaskClick,
   onClaim,
@@ -56,6 +59,7 @@ export function CardPanelMetadata({
   excludeStateFromPicker,
   assignee,
   onAssigneeChange,
+  onDependsOnChange,
 }: CardPanelMetadataProps) {
   return (
     <div className="flex-1 min-h-0 overflow-y-auto">
@@ -84,8 +88,11 @@ export function CardPanelMetadata({
 
       <MetadataRelated
         card={card}
+        config={config}
         workerAttached={workerAttached}
+        cards={cards}
         onSubtaskClick={onSubtaskClick}
+        onDependsOnChange={onDependsOnChange}
       />
 
       <MetadataSource

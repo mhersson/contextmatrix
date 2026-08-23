@@ -54,6 +54,7 @@ const (
 	maxBodyLen    = 512 * 1024 // 512 KB
 	maxLabelLen   = 100
 	maxLabels     = 50
+	maxDependsOn  = 50
 	maxAgentIDLen = 256
 	maxLogMessage = 2000
 	maxLogAction  = 200
