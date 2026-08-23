@@ -2487,6 +2487,17 @@ not trigger a running worker (use `promote_to_autonomous` for that). The REST
 POST/PUT/PATCH surfaces keep `autonomous` human-only. See
 `docs/data-model.md` § `autonomous` for the full gate semantics.
 
+#### `update_card` depends_on
+
+`update_card` accepts an optional `depends_on` array that replaces the card's
+full dependency list. Omitting the field leaves the stored list unchanged; an
+explicit `[]` clears it. `PATCH /api/projects/{project}/cards/{id}` exposes
+the same field with identical semantics (`POST` and `PUT` already replace the
+whole list unconditionally). Both surfaces reject an unknown card ID, a
+cross-project ID, a self-reference, or a change that would introduce a
+circular dependency with 409 `DEPENDENCIES_NOT_MET`. See
+`docs/data-model.md` § `depends_on` cycle detection.
+
 #### `update_card` section upsert
 
 `update_card` accepts an optional `upsert_section_heading` +
