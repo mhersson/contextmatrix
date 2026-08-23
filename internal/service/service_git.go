@@ -205,7 +205,7 @@ func (s *CardService) rollbackCardOnCommitFailure(
 		return fmt.Errorf("git commit (no snapshot for rollback): %w", commitErr)
 	}
 
-	if rollbackErr := s.store.UpdateCard(ctx, project, snapshot); rollbackErr != nil {
+	if rollbackErr := s.store.UpdateCard(context.WithoutCancel(ctx), project, snapshot); rollbackErr != nil {
 		metrics.RollbackFailuresTotal.Inc()
 		ctxlog.Logger(ctx).Error("commit failed and rollback failed; cache + disk inconsistent",
 			"project", project,
