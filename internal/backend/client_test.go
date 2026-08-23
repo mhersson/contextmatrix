@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -654,4 +655,101 @@ func TestListImages_NotOKIsError(t *testing.T) {
 
 	_, err := NewClient(srv.URL, "test-key").ListImages(context.Background())
 	require.Error(t, err)
+}
+
+// TestClient_RetryOn500_UsesFreshHMAC verifies that a retry after a 500
+// carries a fresh HMAC signature that passes a real replay cache on the
+// second attempt, where the first attempt already consumed the pair.
+// This test must fail against the old code (sign-once-before-loop).
+func TestClient_RetryOn500_UsesFreshHMAC(t *testing.T) {
+	origBackoff := BackoffBase
+	BackoffBase = time.Millisecond
+
+	t.Cleanup(func() { BackoffBase = origBackoff })
+
+	const apiKey = "shared-secret"
+
+	cache := NewSignatureCache()
+
+	var attempts atomic.Int32
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := attempts.Add(1)
+
+		// Verify the HMAC signature against the replay cache, exactly as
+		// the backend middleware would.
+		sigHeader := r.Header.Get(protocol.SignatureHeader)
+		tsHeader := r.Header.Get(protocol.TimestampHeader)
+		sig := strings.TrimPrefix(sigHeader, "sha256=")
+
+		body, _ := io.ReadAll(r.Body)
+
+		if !protocol.VerifySignatureWithTimestamp(apiKey, r.Method, r.URL.RequestURI(), sig, tsHeader, body, protocol.DefaultMaxClockSkew, cache) {
+			// Signature rejected (e.g. replay) - return 401.
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"ok":false,"error":"invalid signature"}`))
+
+			return
+		}
+
+		if n < 2 {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"ok":false,"error":"temporary"}`))
+
+			return
+		}
+
+		_ = json.NewEncoder(w).Encode(protocol.SuccessResponse{OK: true})
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, apiKey)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	err := c.Trigger(ctx, TriggerPayload{CardID: "TEST-001", Project: "p"})
+	require.NoError(t, err)
+	require.Equal(t, int32(2), attempts.Load(),
+		"second attempt with fresh signature should succeed")
+}
+
+// TestClient_Retry_TimestampAdvances verifies that when send() retries, the
+// timestamp on attempt N+1 is strictly greater than the timestamp on attempt N,
+// confirming the max(now, prevTS+1) force-advance works regardless of wall clock.
+func TestClient_Retry_TimestampAdvances(t *testing.T) {
+	origBackoff := BackoffBase
+	BackoffBase = time.Millisecond
+
+	t.Cleanup(func() { BackoffBase = origBackoff })
+
+	var capturedTS []int64
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tsHeader := r.Header.Get(protocol.TimestampHeader)
+		ts, err := strconv.ParseInt(tsHeader, 10, 64)
+		assert.NoError(t, err)
+
+		capturedTS = append(capturedTS, ts)
+
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"ok":false,"error":"temporary"}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "key")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// All retries will fail; we just care about the captured timestamps.
+	_ = c.Trigger(ctx, TriggerPayload{CardID: "TEST-001", Project: "p"})
+
+	require.Len(t, capturedTS, maxRetries, "should have made all retry attempts")
+
+	for i := 1; i < len(capturedTS); i++ {
+		assert.Greater(t, capturedTS[i], capturedTS[i-1],
+			"timestamp on attempt %d (%d) must be > timestamp on attempt %d (%d)",
+			i+1, capturedTS[i], i, capturedTS[i-1])
+	}
 }
