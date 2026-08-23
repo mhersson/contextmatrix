@@ -258,11 +258,18 @@ func (c *Client) send(ctx context.Context, rawURL string, payload any) error {
 		return err
 	}
 
-	ts := strconv.FormatInt(time.Now().Unix(), 10)
-	signature := protocol.SignPayloadWithTimestamp(c.apiKey, http.MethodPost, uri, body, ts)
+	var (
+		lastErr error
+		prevTS  int64
+	)
 
-	var lastErr error
 	for attempt := range maxRetries {
+		now := time.Now().Unix()
+		tsVal := max(now, prevTS+1)
+		prevTS = tsVal
+		ts := strconv.FormatInt(tsVal, 10)
+		signature := protocol.SignPayloadWithTimestamp(c.apiKey, http.MethodPost, uri, body, ts)
+
 		lastErr = c.doRequest(ctx, rawURL, body, signature, ts)
 		if lastErr == nil {
 			return nil
