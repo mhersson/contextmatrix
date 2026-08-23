@@ -390,3 +390,36 @@ func TestNotPlannedCardCannotBeWorked(t *testing.T) {
 		assert.Equal(t, board.StateNotPlanned, after.State, "the card must not be resurrected")
 	})
 }
+
+// TestUpdateCard_DependsOn covers the update_card depends_on field: setting it
+// returns the new list on the summary, and a later call that omits it leaves
+// the list untouched.
+func TestUpdateCard_DependsOn(t *testing.T) {
+	env := setupMCP(t)
+
+	other := createTestCard(t, env, "Dependency target", "task", "medium")
+	card := createTestCard(t, env, "Depends on target", "task", "medium")
+
+	result := callTool(t, env, "update_card", map[string]any{
+		"project":    "test-project",
+		"card_id":    card.ID,
+		"depends_on": []string{other.ID},
+	})
+	require.False(t, result.IsError)
+
+	var updated CardSummary
+	unmarshalResult(t, result, &updated)
+	assert.Equal(t, []string{other.ID}, updated.DependsOn)
+
+	result2 := callTool(t, env, "update_card", map[string]any{
+		"project": "test-project",
+		"card_id": card.ID,
+		"title":   "Depends on target, renamed",
+	})
+	require.False(t, result2.IsError)
+
+	var updated2 CardSummary
+	unmarshalResult(t, result2, &updated2)
+	assert.Equal(t, "Depends on target, renamed", updated2.Title)
+	assert.Equal(t, []string{other.ID}, updated2.DependsOn, "omitting depends_on must leave the list unchanged")
+}

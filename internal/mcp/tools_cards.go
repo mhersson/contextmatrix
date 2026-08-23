@@ -64,15 +64,16 @@ type createCardInput struct {
 // Assignee names a responsible human, which only a human can decide.
 // MaxCapability controls cost vs. capability steering, also a human decision.
 type updateCardInput struct {
-	Project  string    `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
-	CardID   string    `json:"card_id" jsonschema:"required,card ID"`
-	AgentID  string    `json:"agent_id,omitempty" jsonschema:"agent performing the update - if set and card is claimed by a different agent, returns ErrAgentMismatch"`
-	Title    *string   `json:"title,omitempty" jsonschema:"new title"`
-	Priority *string   `json:"priority,omitempty" jsonschema:"new priority"`
-	Labels   []string  `json:"labels,omitempty" jsonschema:"new labels (replaces all)"`
-	Skills   *[]string `json:"skills,omitempty" jsonschema:"new task skills (replaces all); [] means none, omit to leave unchanged"`
-	Body     *string   `json:"body,omitempty" jsonschema:"new markdown body"`
-	Phase    *string   `json:"phase,omitempty" jsonschema:"orchestrator phase: plan|execute|judge|document|review|integrate|pr_gates|done; empty clears"`
+	Project   string    `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
+	CardID    string    `json:"card_id" jsonschema:"required,card ID"`
+	AgentID   string    `json:"agent_id,omitempty" jsonschema:"agent performing the update - if set and card is claimed by a different agent, returns ErrAgentMismatch"`
+	Title     *string   `json:"title,omitempty" jsonschema:"new title"`
+	Priority  *string   `json:"priority,omitempty" jsonschema:"new priority"`
+	Labels    []string  `json:"labels,omitempty" jsonschema:"new labels (replaces all)"`
+	DependsOn []string  `json:"depends_on,omitempty" jsonschema:"card IDs this depends on; replaces the list; [] clears; omit to leave unchanged"`
+	Skills    *[]string `json:"skills,omitempty" jsonschema:"new task skills (replaces all); [] means none, omit to leave unchanged"`
+	Body      *string   `json:"body,omitempty" jsonschema:"new markdown body"`
+	Phase     *string   `json:"phase,omitempty" jsonschema:"orchestrator phase: plan|execute|judge|document|review|integrate|pr_gates|done; empty clears"`
 	// UpsertSectionHeading and UpsertSectionContent must be provided together
 	// (or neither): replace-or-append one H2 section without resending the
 	// whole body. Mutually exclusive with Body - enforced by the service layer.
@@ -332,6 +333,7 @@ func registerUpdateCard(server *mcp.Server, svc *service.CardService) {
 			Title:      input.Title,
 			Priority:   input.Priority,
 			Labels:     input.Labels,
+			DependsOn:  input.DependsOn,
 			Skills:     input.Skills,
 			Body:       input.Body,
 			Phase:      input.Phase,

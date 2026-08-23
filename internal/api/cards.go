@@ -125,6 +125,7 @@ type patchCardRequest struct {
 	State              *string   `json:"state,omitempty"`
 	Priority           *string   `json:"priority,omitempty"`
 	Labels             []string  `json:"labels,omitempty"`
+	DependsOn          *[]string `json:"depends_on,omitempty"`
 	Body               *string   `json:"body,omitempty"`
 	Assignee           *string   `json:"assignee,omitempty"`
 	Autonomous         *bool     `json:"autonomous,omitempty"`
@@ -826,11 +827,16 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 		MobGuests:          req.MobGuests,
 		Verify:             req.Verify,
 		// AgentID attributes the mutation: the commit message, the
-		// state-change and assignee activity entries, and the published event
-		// all name the caller instead of falling back to "system". The
-		// service-layer ownership check it activates is redundant with
-		// validateAgentOwnership above - same identity, same rule.
+		// state-change, assignee, and dependencies activity entries, and the
+		// published event all name the caller instead of falling back to
+		// "system". The service-layer ownership check it activates is
+		// redundant with validateAgentOwnership above - same identity, same
+		// rule.
 		AgentID: extractAgentID(r),
+	}
+
+	if req.DependsOn != nil {
+		input.DependsOn = *req.DependsOn
 	}
 
 	card, err := h.svc.PatchCard(r.Context(), projectName, cardID, input)

@@ -113,6 +113,7 @@ type PatchCardInput struct {
 	State              *string
 	Priority           *string
 	Labels             []string // nil = don't change, empty slice = clear
+	DependsOn          []string // nil = don't change, empty slice = clear
 	Body               *string
 	ImmediateCommit    bool // If true, commit immediately even when gitDeferredCommit is on.
 	Autonomous         *bool
@@ -229,6 +230,51 @@ func appendAssigneeChangeLog(card *board.Card, oldAssignee, agent string, ts tim
 	})
 
 	card.ActivityLog = trimActivityLog(card.ActivityLog)
+}
+
+// dependsOnAction is the activity-log Action value emitted whenever a card's
+// DependsOn list changes via UpdateCard or PatchCard.
+const dependsOnAction = "dependencies_updated"
+
+// appendDependsOnChangeLog records a depends_on change on card.ActivityLog.
+// The caller must have already confirmed the list differs from the
+// pre-mutation snapshot (via dependsOnEqual). An empty agent string is
+// normalised to "system", matching appendStateChangeLog. Dependencies gate
+// the in_progress transition, so this gives an agent that suddenly can't
+// claim a card a record of who added the blocker.
+func appendDependsOnChangeLog(card *board.Card, agent string, ts time.Time) {
+	if agent == "" {
+		agent = "system"
+	}
+
+	message := "depends_on cleared"
+	if len(card.DependsOn) > 0 {
+		message = fmt.Sprintf("depends_on set to [%s]", strings.Join(card.DependsOn, ", "))
+	}
+
+	card.ActivityLog = append(card.ActivityLog, board.ActivityEntry{
+		Agent:     agent,
+		Timestamp: ts,
+		Action:    dependsOnAction,
+		Message:   message,
+	})
+
+	card.ActivityLog = trimActivityLog(card.ActivityLog)
+}
+
+// dependsOnEqual reports whether two depends_on lists contain the same IDs,
+// ignoring order. Both PatchCard and UpdateCard normalize IDs to uppercase
+// and dedupe via normalizeIDs before this comparison runs, so a caller that
+// resubmits the same dependencies in a different order does not produce a
+// phantom log entry.
+func dependsOnEqual(a, b []string) bool {
+	sortedA := slices.Clone(a)
+	sortedB := slices.Clone(b)
+
+	slices.Sort(sortedA)
+	slices.Sort(sortedB)
+
+	return slices.Equal(sortedA, sortedB)
 }
 
 // trimActivityLog enforces the activity-log cap while preserving
@@ -585,7 +631,7 @@ func (s *CardService) buildNewCardFromInput(
 		card.BranchName = generateBranchName(card.ID, card.Title)
 	}
 
-	if err := validateFieldLimits(card.Title, card.Body, card.Assignee, card.Labels); err != nil {
+	if err := validateFieldLimits(card.Title, card.Body, card.Assignee, card.Labels, card.DependsOn); err != nil {
 		return nil, err
 	}
 
@@ -745,7 +791,7 @@ func (s *CardService) UpdateCard(ctx context.Context, project, id string, input 
 
 	// Caller-level validation (length limits). Kept here so a rejected call
 	// never touches writeMu.
-	if err := validateFieldLimits(input.Title, input.Body, input.Assignee, input.Labels); err != nil {
+	if err := validateFieldLimits(input.Title, input.Body, input.Assignee, input.Labels, input.DependsOn); err != nil {
 		return nil, err
 	}
 
@@ -878,6 +924,7 @@ func (s *CardService) buildUpdateApply(ctx context.Context, input UpdateCardInpu
 // Only non-nil fields in the input are updated.
 func (s *CardService) PatchCard(ctx context.Context, project, id string, input PatchCardInput) (*board.Card, error) {
 	id = strings.ToUpper(id)
+	input.DependsOn = normalizeIDs(input.DependsOn)
 
 	// Field length limits for provided fields. Checked before acquiring writeMu
 	// so a rejected call has no side effects.
@@ -917,6 +964,13 @@ func validatePatchFieldLimits(input PatchCardInput) error {
 				return fmt.Errorf("label %q length %d exceeds limit of %d: %w", l, len(l), maxLabelLen, ErrFieldTooLong)
 			}
 		}
+	}
+
+	// input.DependsOn is already normalized (see PatchCard) so this bound is
+	// checked once, before writeMu, rather than after validateCardReferences
+	// has already spent one GetCard per element under the write lock.
+	if len(input.DependsOn) > maxDependsOn {
+		return fmt.Errorf("depends_on count %d exceeds limit of %d: %w", len(input.DependsOn), maxDependsOn, ErrFieldTooLong)
 	}
 
 	if err := validateCardVerify(input.Verify); err != nil {
@@ -1011,6 +1065,10 @@ func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput)
 			}
 
 			card.Type = newType
+		}
+
+		if input.DependsOn != nil {
+			card.DependsOn = input.DependsOn
 		}
 
 		if input.State != nil {
@@ -1527,6 +1585,13 @@ func (s *CardService) applyCardMutation(
 		appendAssigneeChangeLog(card, snapshot.Assignee, opts.commitAgentID, card.Updated)
 	}
 
+	// DependsOn gates the in_progress transition, so it gets the same
+	// snapshot-diff activity trail as Assignee - covering both UpdateCard
+	// (full replace) and PatchCard (nil means unchanged) uniformly.
+	if !dependsOnEqual(card.DependsOn, snapshot.DependsOn) {
+		appendDependsOnChangeLog(card, opts.commitAgentID, card.Updated)
+	}
+
 	// Release agent claim on not_planned and clear worker_status on terminal
 	// states. Must happen before validate+persist so the written card reflects
 	// the invariants.
@@ -1739,7 +1804,7 @@ func normalizeIDs(ids []string) []string {
 }
 
 // validateFieldLimits checks that user-supplied string fields do not exceed length limits.
-func validateFieldLimits(title, body, assignee string, labels []string) error {
+func validateFieldLimits(title, body, assignee string, labels, dependsOn []string) error {
 	if len(title) > maxTitleLen {
 		return fmt.Errorf("title length %d exceeds limit of %d: %w", len(title), maxTitleLen, ErrFieldTooLong)
 	}
@@ -1760,6 +1825,10 @@ func validateFieldLimits(title, body, assignee string, labels []string) error {
 		if len(l) > maxLabelLen {
 			return fmt.Errorf("label %q length %d exceeds limit of %d: %w", l, len(l), maxLabelLen, ErrFieldTooLong)
 		}
+	}
+
+	if len(dependsOn) > maxDependsOn {
+		return fmt.Errorf("depends_on count %d exceeds limit of %d: %w", len(dependsOn), maxDependsOn, ErrFieldTooLong)
 	}
 
 	return nil
