@@ -14,6 +14,7 @@ interface BuildCardPanelTabsOptions {
   cardLogs: readonly LogEntry[];
   currentAgentId: string | null;
   workerAttached: boolean;
+  cards: Card[];
   isChatLive: boolean;
   isChatInteractive: boolean;
   onClaim: () => Promise<void>;
@@ -32,6 +33,7 @@ interface BuildCardPanelTabsOptions {
   automationLocked: boolean;
   automationLockedReason: string;
   excludeStateFromPicker: string | null;
+  onDependsOnChange: (ids: string[]) => Promise<void>;
 }
 
 /**
@@ -98,10 +100,12 @@ export function buildCardPanelTabs(opts: BuildCardPanelTabsOptions): {
         config={opts.config}
         currentAgentId={opts.currentAgentId}
         workerAttached={opts.workerAttached}
+        cards={opts.cards}
         onSubtaskClick={opts.onSubtaskClick}
         onClaim={opts.onClaim}
         onRelease={opts.onRelease}
         excludeStateFromPicker={opts.excludeStateFromPicker}
+        onDependsOnChange={opts.onDependsOnChange}
       />
     ),
   });

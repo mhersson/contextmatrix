@@ -354,7 +354,7 @@ export function ProjectShell() {
       {currentSelectedCard && config && (
         <ErrorBoundary key={currentSelectedCard.id}>
           <CardPanel
-            card={currentSelectedCard} config={config}
+            card={currentSelectedCard} config={config} cards={cards}
             cardLogs={gatedCardLogs}
             onClose={() => setSelectedCard(null)} onSave={handleCardSave}
             onDelete={handleCardDelete}

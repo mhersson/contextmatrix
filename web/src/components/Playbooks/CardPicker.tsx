@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useId, useMemo } from 'react';
 import type { Card, ProjectConfig } from '../../types';
 import { isTerminalState } from '../../lib/cardState';
 
@@ -13,6 +13,8 @@ interface CardPickerProps {
   onSelectCard: (card: Card) => void;
   /** Card IDs to hide from the results, e.g. cards already in the playbook. */
   excludeIds?: ReadonlySet<string>;
+  /** Focus the filter input on mount. Default false - Playbooks manages its own focus. */
+  autoFocus?: boolean;
 }
 
 const inputStyle = {
@@ -24,7 +26,9 @@ const inputStyle = {
 /** Project select + client-side filtered card list, for the composer's Card mode. */
 export function CardPicker({
   projects, project, onProjectChange, cards, filter, onFilterChange, selectedCard, onSelectCard, excludeIds,
+  autoFocus = false,
 }: CardPickerProps) {
+  const filterId = useId();
   const filteredCards = useMemo(() => {
     const term = filter.trim().toLowerCase();
     const openCards = cards.filter((c) => !isTerminalState(c.state) && !excludeIds?.has(c.id));
@@ -36,22 +40,27 @@ export function CardPicker({
 
   return (
     <div className="flex flex-col gap-2">
-      <select
-        value={project}
-        onChange={(e) => onProjectChange(e.target.value)}
-        className="px-2 py-1 rounded text-sm"
-        style={inputStyle}
-      >
-        {projects.map((p) => (
-          <option key={p.name} value={p.name}>{p.display_name || p.name}</option>
-        ))}
-      </select>
+      {projects.length > 1 && (
+        <select
+          value={project}
+          onChange={(e) => onProjectChange(e.target.value)}
+          className="px-2 py-1 rounded text-sm"
+          style={inputStyle}
+        >
+          {projects.map((p) => (
+            <option key={p.name} value={p.name}>{p.display_name || p.name}</option>
+          ))}
+        </select>
+      )}
+      <label htmlFor={filterId} className="sr-only">Filter cards by id or title</label>
       <input
+        id={filterId}
         value={filter}
         onChange={(e) => onFilterChange(e.target.value)}
         placeholder="Filter cards by id or title"
         className="px-2 py-1 rounded text-sm"
         style={inputStyle}
+        autoFocus={autoFocus}
       />
       {!selectedCard && filter && (
         <ul aria-label="Card results" className="max-h-40 overflow-y-auto rounded border" style={{ borderColor: 'var(--bg3)' }}>

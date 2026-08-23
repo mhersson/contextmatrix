@@ -18,6 +18,7 @@ import { ConfirmModal } from '../ConfirmModal/ConfirmModal';
 interface CardPanelProps {
   card: Card;
   config: ProjectConfig;
+  cards: Card[];
   cardLogs?: readonly LogEntry[];
   onClose: () => void;
   onSave: (updates: PatchCardInput) => Promise<void>;
@@ -51,7 +52,7 @@ interface CardPanelProps {
  * before firing the worker webhook.
  */
 export function CardPanel(props: CardPanelProps) {
-  const { card, config, cardLogs = [], onClose, onSave, onDelete, onClaim, onRelease,
+  const { card, config, cards, cardLogs = [], onClose, onSave, onDelete, onClaim, onRelease,
     onSubtaskClick, currentAgentId, onRunCard, onStopCard, onForceRelease } = props;
 
   const panelRef = useRef<HTMLDivElement>(null);
@@ -111,6 +112,12 @@ export function CardPanel(props: CardPanelProps) {
     if (!card.assigned_agent) return;
     await onRelease(card.assigned_agent);
   }, [card.assigned_agent, onRelease]);
+
+  const handleDependsOnChange = useCallback((ids: string[]) => {
+    return onSave({ depends_on: ids }).catch(() => {
+      // handleCardSave already surfaced the error toast.
+    });
+  }, [onSave]);
 
   const canDelete =
     (card.state === 'todo' || card.state === 'not_planned') && !card.assigned_agent;
@@ -204,6 +211,7 @@ export function CardPanel(props: CardPanelProps) {
     cardLogs,
     currentAgentId,
     workerAttached,
+    cards,
     isChatLive,
     isChatInteractive,
     onClaim: handleClaim,
@@ -222,6 +230,7 @@ export function CardPanel(props: CardPanelProps) {
     automationLocked,
     automationLockedReason,
     excludeStateFromPicker,
+    onDependsOnChange: handleDependsOnChange,
   });
 
   // If the active tab disappears (e.g. live session ended, chat tab removed),

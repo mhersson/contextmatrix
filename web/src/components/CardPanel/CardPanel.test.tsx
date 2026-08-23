@@ -94,6 +94,7 @@ function makeProps(overrides?: Partial<Parameters<typeof CardPanel>[0]>) {
   return {
     card: baseCard,
     config,
+    cards: [baseCard],
     onClose: vi.fn(),
     onSave: vi.fn().mockResolvedValue(undefined),
     onClaim: vi.fn().mockResolvedValue(undefined),

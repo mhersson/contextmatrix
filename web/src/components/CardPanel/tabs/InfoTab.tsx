@@ -9,10 +9,12 @@ interface InfoTabProps {
   config: ProjectConfig;
   currentAgentId: string | null;
   workerAttached: boolean;
+  cards: Card[];
   onSubtaskClick: (cardId: string) => void;
   onClaim: () => Promise<void>;
   onRelease: () => Promise<void>;
   excludeStateFromPicker: string | null;
+  onDependsOnChange: (ids: string[]) => Promise<void>;
 }
 
 /**
@@ -28,10 +30,12 @@ export function InfoTab({
   config,
   currentAgentId,
   workerAttached,
+  cards,
   onSubtaskClick,
   onClaim,
   onRelease,
   excludeStateFromPicker,
+  onDependsOnChange,
 }: InfoTabProps) {
   return (
     <CardPanelMetadata
@@ -40,6 +44,7 @@ export function InfoTab({
       config={config}
       currentAgentId={currentAgentId}
       workerAttached={workerAttached}
+      cards={cards}
       onStateChange={(state) => setEditedCard((prev) => ({ ...prev, state }))}
       onSubtaskClick={onSubtaskClick}
       onClaim={onClaim}
@@ -50,6 +55,7 @@ export function InfoTab({
       excludeStateFromPicker={excludeStateFromPicker}
       assignee={editedCard.assignee}
       onAssigneeChange={(v) => setEditedCard((prev) => ({ ...prev, assignee: v || undefined }))}
+      onDependsOnChange={onDependsOnChange}
     />
   );
 }

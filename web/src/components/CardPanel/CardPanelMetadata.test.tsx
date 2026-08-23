@@ -60,6 +60,7 @@ const defaultProps = {
   config,
   currentAgentId: null,
   workerAttached: false,
+  cards: [baseCard],
   onStateChange: vi.fn(),
   onSubtaskClick: vi.fn(),
   onClaim: vi.fn(),
@@ -70,6 +71,7 @@ const defaultProps = {
   excludeStateFromPicker: null,
   assignee: undefined,
   onAssigneeChange: vi.fn(),
+  onDependsOnChange: vi.fn(),
 };
 
 describe('CardPanelMetadata - status section', () => {
