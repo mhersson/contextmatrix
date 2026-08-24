@@ -299,7 +299,7 @@ describe('CreateCardPanel - Best-of-N and Mob at create time', () => {
 
     expect(onCreate).toHaveBeenCalledOnce();
     const [input] = onCreate.mock.calls[0];
-    expect(input).toMatchObject({ title: 'Mob card', mob_participants: 3, mob_phases: ['plan', 'review'] });
+    expect(input).toMatchObject({ title: 'Mob card', mob_participants: 3, mob_phases: ['review'] });
   });
 
   it('omits best_of_n and mob_participants when left at Off', async () => {
