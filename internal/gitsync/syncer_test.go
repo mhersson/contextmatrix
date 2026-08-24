@@ -3,6 +3,8 @@ package gitsync
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -442,6 +444,95 @@ func TestRunGit_WithAuthEnv(t *testing.T) {
 	out, err := runGit(context.Background(), dir, authEnv, "status")
 	require.NoError(t, err)
 	assert.Contains(t, out, "On branch")
+}
+
+// TestSyncer_FetchTimeout_Loopback exercises the fetch timeout by pointing the
+// syncer's origin at a TCP listener that accepts but never responds. The
+// injected short network timeout must cause pullRebase to return an error
+// within the bound + margin rather than block indefinitely.
+func TestSyncer_FetchTimeout_Loopback(t *testing.T) {
+	syncer, _, clone, _ := setupSyncTest(t)
+
+	// Start a loopback listener that accepts connections but never sends a
+	// response (not even the git protocol header).
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		_ = listener.Close()
+	})
+
+	port := listener.Addr().(*net.TCPAddr).Port
+
+	// Accept one connection in the background and let it hang.
+	done := make(chan struct{})
+
+	t.Cleanup(func() { close(done) })
+
+	go func() {
+		conn, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			return
+		}
+		defer conn.Close()
+		// Never read or write - just hold the connection open until
+		// the test context or the injected timeout cancels it.
+		<-done
+	}()
+
+	// Repoint the origin remote at the loopback listener.
+	remoteURL := fmt.Sprintf("http://127.0.0.1:%d/board.git", port)
+	run(t, clone, "git", "remote", "set-url", "origin", remoteURL)
+
+	// Inject a short network timeout (500ms). The fetch URL points at a
+	// black-hole listener, so the fetch must time out.
+	syncer.SetNetworkTimeout(500 * time.Millisecond)
+
+	// Run pullRebase off the test goroutine and bound the wait rather than
+	// measuring elapsed time after it returns. Without cmd.WaitDelay the
+	// orphaned git-remote-http keeps the output pipe open and pullRebase never
+	// returns at all, so a post-hoc elapsed assertion would never be reached:
+	// the regression would surface as a package-wide test timeout instead of a
+	// failure here. Injected timeout (500ms) + WaitDelay (3s) + scheduling
+	// margin.
+	const bound = 5 * time.Second
+
+	errCh := make(chan error, 1)
+	start := time.Now()
+
+	go func() { errCh <- syncer.pullRebase(context.Background(), "timeout_test") }()
+
+	select {
+	case fetchErr := <-errCh:
+		t.Logf("pullRebase returned after %v: %v", time.Since(start), fetchErr)
+		require.Error(t, fetchErr)
+		assert.Contains(t, fetchErr.Error(), "git fetch")
+	case <-time.After(bound):
+		t.Fatalf("pullRebase did not return within %v: the fetch deadline or cmd.WaitDelay is not bounding the call", bound)
+	}
+}
+
+// TestSyncer_IsBehind_SucceedsWithShortTimeout verifies that local-only
+// operations (isBehind) succeed even with a short network timeout, because
+// they never touch the network and should not be bounded by it.
+func TestSyncer_IsBehind_SucceedsWithShortTimeout(t *testing.T) {
+	syncer, _, _, _ := setupSyncTest(t)
+
+	// Inject a very short network timeout so a real fetch would die fast.
+	syncer.SetNetworkTimeout(1 * time.Millisecond)
+
+	// isBehind uses rev-list with local refs only - no network access.
+	// It should succeed immediately even with a tiny timeout.
+	branch, err := syncer.git.CurrentBranch()
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	behind, err := syncer.isBehind(ctx, branch, "origin/"+branch)
+	require.NoError(t, err)
+
+	// After initial push, the clone is up to date with its upstream
+	// (the bare repo). So isBehind should report false (not behind).
+	assert.False(t, behind, "clone should be up to date with upstream")
 }
 
 // TestSyncer_PushWithRetry_BlocksOnWriteMu verifies that pushWithRetry waits

@@ -48,6 +48,11 @@ type Syncer struct {
 	// tests can inject a fake clock via SetClock before calling Start.
 	clk clock.Clock
 
+	// networkTimeout is the timeout for network git operations (fetch).
+	// Defaults to gitops.NetworkGitTimeout; tests can inject a shorter
+	// value via SetNetworkTimeout.
+	networkTimeout time.Duration
+
 	mu            sync.RWMutex
 	lastSyncTime  time.Time
 	lastSyncError string
@@ -101,16 +106,17 @@ func NewSyncer(
 	}
 
 	return &Syncer{
-		git:      git,
-		store:    store,
-		svc:      svc,
-		bus:      bus,
-		repoPath: repoPath,
-		interval: interval,
-		autoPull: autoPull,
-		autoPush: autoPush,
-		clk:      clock.Real(),
-		pushCh:   make(chan struct{}, 1),
+		git:            git,
+		store:          store,
+		svc:            svc,
+		bus:            bus,
+		repoPath:       repoPath,
+		interval:       interval,
+		autoPull:       autoPull,
+		autoPush:       autoPush,
+		clk:            clock.Real(),
+		networkTimeout: gitops.NetworkGitTimeout,
+		pushCh:         make(chan struct{}, 1),
 	}
 }
 
@@ -123,6 +129,13 @@ func (s *Syncer) SetClock(c clock.Clock) {
 	}
 
 	s.clk = c
+}
+
+// SetNetworkTimeout overrides the timeout for network git operations
+// (fetch). Used by tests to shorten the bound; production code is not
+// expected to call it.
+func (s *Syncer) SetNetworkTimeout(d time.Duration) {
+	s.networkTimeout = d
 }
 
 // SetPlaybooks wires the playbook service in. Must be called before Start.
@@ -246,12 +259,15 @@ func (s *Syncer) pullRebase(ctx context.Context, trigger string) error {
 	// (the SSH agent handles auth). Any other error (e.g. token-mint failure)
 	// is logged as a warning so the root cause is visible; the subsequent
 	// network call will then fail with the real permission error.
-	authEnv, authErr := s.git.AuthEnv(ctx)
+	fetchCtx, fetchCancel := context.WithTimeout(ctx, s.networkTimeout)
+	defer fetchCancel()
+
+	authEnv, authErr := s.git.AuthEnv(fetchCtx)
 	if authErr != nil {
 		slog.Warn("git sync: could not obtain auth env", "error", authErr)
 	}
 
-	if _, err := runGit(ctx, s.repoPath, authEnv, "fetch", "origin"); err != nil {
+	if _, err := runGit(fetchCtx, s.repoPath, authEnv, "fetch", "origin"); err != nil {
 		s.setError(err)
 		s.publishError(trigger, err)
 
@@ -547,6 +563,7 @@ func runGit(ctx context.Context, dir string, authEnv []string, args ...string) (
 
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
+	cmd.WaitDelay = 3 * time.Second
 
 	if len(authEnv) > 0 {
 		cmd.Env = append(os.Environ(), authEnv...)
