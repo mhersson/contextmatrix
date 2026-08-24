@@ -27,7 +27,7 @@ The operator-facing controls, most direct first:
 | Restrict which vendors are eligible   | `backends.agent.model_allowlist`            | `config.yaml`                                | Vendor prefixes (`qwen`, `z-ai`); replaces the built-in list; inert on the `openai` leg        |
 | Rate models AA does not know          | `backends.agent.model_priors`               | `config.yaml`                                | `openai` leg only; verbatim 0..1 priors                                                        |
 | Widen or narrow the price band        | `selector_price_headroom`                   | agent backend `serve.yaml`                   | Default 1.5; env `CMX_SELECTOR_PRICE_HEADROOM`                                                 |
-| Set the orchestrator model            | `backends.agent.default_model`              | `config.yaml`                                | Card pins override it; the selector's own empty-pool fallback is the agent's serve default     |
+| Set the orchestrator model            | `backends.agent.default_model`              | `config.yaml`                                | Card pins override it; the selector's empty-pool fallback resolves to the trigger's `default_model` when set, else the agent's serve default, else the compiled-in `deepseek/deepseek-v4-flash`
 | Reset learned win-rates               | `DELETE /api/admin/model-outcomes`          | REST (admin)                                 | Clears outcome stats; does not touch the blacklist                                             |
 | Control Best-of-N race size           | `best_of_n.*`                               | `config.yaml`                                | Caps the number of racing candidates, never the candidate list                                 |
 
@@ -209,9 +209,11 @@ What the Builder produces depends on configuration
 
 **Without an AA key there is no `selection` block in the trigger payload at
 all.** The agent then falls back to defaults for every phase - the trigger's
-`default_model` for orchestrator phases, its own serve-config default for
-selector picks - and no card pin is honored (a pin resolves against the
-candidate catalog, which is empty). Auto-selection requires the key.
+`default_model` for orchestrator phases, the same three-tier fallback for
+selector picks (trigger `default_model` first, then the agent's serve default,
+then the compiled-in `deepseek/deepseek-v4-flash`) - and no card pin is
+honored (a pin resolves against the candidate catalog, which is empty).
+Auto-selection requires the key.
 
 ## What the trigger carries
 
@@ -329,10 +331,10 @@ reference:
 5. **Best value.** Within the band, the highest-prior candidate wins; ties go
    to the cheaper model. Models outside the band never win on quality - the
    band is what keeps a frontier model from being picked for a `simple` task.
-6. **Empty pool.** If nothing survives, the pick falls back to the agent's
-   serve-config default model, ultimately `deepseek/deepseek-v4-flash`. The
-   trigger's `backends.agent.default_model` feeds the orchestrator-model
-   resolution, not this fallback.
+6. **Empty pool.** If nothing survives, the pick resolves with three-tier
+   precedence: the trigger's `backends.agent.default_model` when set, else the
+   agent's serve-config default, else the compiled-in
+   `deepseek/deepseek-v4-flash`.
 
 `max_capability` (a per-card, human-set flag) narrows this sequence when the
 card is configured for automatic selection. ContextMatrix stores the flag and
@@ -354,12 +356,14 @@ and Best-of-N seats. Only a resolvable card pin escapes it.
   tier outright, still tie-breaking to the cheaper model. The tier bar still
   bounds the pool, so the pick is the most capable model that clears the
   card's tier, not the most capable model available.
-- Step 6 is unchanged: an empty pool still falls back to the agent's
-  serve-config default.
+- Step 6 is unchanged: an empty pool still resolves with the same three-tier
+  precedence (trigger `default_model`, agent serve default, compiled-in
+  default).
 - The flag does not rescue a tier whose bar empties the pool. When no candidate
-  clears the tier bar, the selector returns the agent's serve-config default
-  with no event explaining the downgrade - which may be a weaker model than the
-  one the bar just filtered out.
+  clears the tier bar, the selector returns the three-tier fallback (trigger
+  `default_model`, agent serve default, compiled-in default) with no event
+  explaining the downgrade - which may be a weaker model than the one the bar
+  just filtered out.
 
 ### Worked example
 
@@ -522,7 +526,7 @@ overrides; this table maps the knobs to their effect on selection.
 | Key                                  | Default              | Effect                                                                  |
 | ------------------------------------ | -------------------- | ----------------------------------------------------------------------- |
 | `backends.agent.aa_api_key`          | unset                | Enables the candidate catalog; without it, no auto-selection at all     |
-| `backends.agent.default_model`       | unset                | Orchestrator model for the run; card pins override. The selector's empty-pool fallback is the agent's serve default |
+| `backends.agent.default_model`       | unset                | Orchestrator model for the run; card pins override. The selector's empty-pool fallback: trigger `default_model` when set, else agent serve default, else compiled-in `deepseek/deepseek-v4-flash` |
 | `backends.agent.model_allowlist`     | built-in vendor list | Replaces the trusted-creator list (OpenRouter leg only)                 |
 | `backends.agent.aa_model_map`        | none                 | Endpoint slug -> AA stem (`openai` leg only)                            |
 | `backends.agent.model_priors`        | none                 | Verbatim 0..1 priors for slugs AA does not rate (`openai` leg only)     |
@@ -543,7 +547,7 @@ and the equal prompt+completion price weighting.
 
 | Symptom                                        | Cause                                                                 | Behavior                                                                          |
 | ---------------------------------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| Every phase runs on a default model            | No `aa_api_key` (no `selection` block at all) or an empty candidate set (block present, zero candidates) | The agent cannot auto-select; orchestrator phases use the trigger `default_model`, selector picks the agent serve default |
+| Every phase runs on a default model            | No `aa_api_key` (no `selection` block at all) or an empty candidate set (block present, zero candidates) | The agent cannot auto-select; orchestrator phases use the trigger `default_model`, selector picks resolve with three-tier precedence (trigger `default_model`, agent serve default, compiled-in default) |
 | Candidates gone after a restart during an AA outage | The cache is in-memory only - a restart loses the last-good catalog | While CM stays up, a failed refresh keeps serving the last-good catalog (60s retry cooldown); after a restart, candidates return on the first successful refresh |
 | A pinned model is ignored                      | The pin is not in the candidate list (below floor, unmapped endpoint model, or no catalog) | All resolution paths warn on the card and fall back: orchestrator resolution on each call, coder and reviewer picks once per run per pin type. CM validates pins against the wider served set, so the write was accepted |
 | A favorite is never picked                     | Blacklisted, below the tier bar, not a candidate (outside the allowlist), or its tier entry was replaced wholesale by a project override | Favorites are preferences, not overrides; check `selection.blacklist` and the bar |
