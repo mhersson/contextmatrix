@@ -141,7 +141,7 @@ func cloneRepo(ctx context.Context, targetDir, url, label string, provider githu
 		return nil, fmt.Errorf("build auth env: %w", err)
 	}
 
-	cloneCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
+	cloneCtx, cancel := context.WithTimeout(ctx, NetworkGitTimeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(cloneCtx, "git", "clone", url, targetDir)
