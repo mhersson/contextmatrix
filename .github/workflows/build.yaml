@@ -19,6 +19,13 @@ on:
       - "LICENSE"
   workflow_dispatch:
 
+# Only one run per ref. Superseded pull-request runs are cancelled so they stop
+# occupying the two self-hosted runner slots; push and workflow_dispatch runs
+# build and push an image, so they always run to completion.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   go-checks:
     if: github.event_name != 'push'
@@ -29,6 +36,12 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+          # The self-hosted runners share one persistent GOMODCACHE and GOCACHE
+          # on the host, so the action's cache has nothing to add. Restoring it
+          # tar-extracts a ~1.8 GiB blob over those live directories, which
+          # corrupts modules when two Go jobs run concurrently, and the save
+          # step re-tars ~8 GiB only to lose the key race with the other job.
+          cache: false
 
       - name: Prepare web/dist placeholder for go:embed
         run: mkdir -p web/dist && touch web/dist/.gitkeep
@@ -89,6 +102,12 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+          # The self-hosted runners share one persistent GOMODCACHE and GOCACHE
+          # on the host, so the action's cache has nothing to add. Restoring it
+          # tar-extracts a ~1.8 GiB blob over those live directories, which
+          # corrupts modules when two Go jobs run concurrently, and the save
+          # step re-tars ~8 GiB only to lose the key race with the other job.
+          cache: false
 
       - name: Prepare web/dist placeholder for go:embed
         run: mkdir -p web/dist && touch web/dist/.gitkeep
@@ -120,7 +139,9 @@ jobs:
 
           echo "No callable, fixable vulnerabilities. Remaining findings are uncalled by this code or have no upstream fix."
 
-  hadolint:
+  # Hadolint, ShellCheck and the install-script test each take under ten
+  # seconds. Run them as one job so they cost one runner slot instead of three.
+  static-checks:
     if: github.event_name != 'push'
     runs-on: self-hosted
     steps:
@@ -131,22 +152,10 @@ jobs:
         with:
           dockerfile: Dockerfile
 
-  shellcheck:
-    if: github.event_name != 'push'
-    runs-on: self-hosted
-    steps:
-      - uses: actions/checkout@v7
-
       - name: ShellCheck
         uses: ludeeus/action-shellcheck@2.0.0
         with:
           scandir: scripts
-
-  install-script-checks:
-    if: github.event_name != 'push'
-    runs-on: self-hosted
-    steps:
-      - uses: actions/checkout@v7
 
       - name: make test-install
         run: make test-install
@@ -180,7 +189,7 @@ jobs:
 
   build:
     runs-on: self-hosted
-    needs: [go-checks, frontend-checks, govulncheck, hadolint, shellcheck, install-script-checks, image-scan]
+    needs: [go-checks, frontend-checks, govulncheck, static-checks, image-scan]
     if: |
       always() &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&

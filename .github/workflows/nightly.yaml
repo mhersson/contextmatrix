@@ -15,6 +15,12 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+          # The self-hosted runners share one persistent GOMODCACHE and GOCACHE
+          # on the host, so the action's cache has nothing to add. Restoring it
+          # tar-extracts a ~1.8 GiB blob over those live directories, which
+          # corrupts modules when two Go jobs run concurrently, and the save
+          # step re-tars ~8 GiB only to lose the key race with the other job.
+          cache: false
 
       - name: Prepare web/dist placeholder for go:embed
         run: mkdir -p web/dist && touch web/dist/.gitkeep
