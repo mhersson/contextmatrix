@@ -311,7 +311,7 @@ describe('AutomationCheckboxes - Mob block', () => {
     expect(values).toEqual(['Off', '2', '3']);
   });
 
-  it('enabling from Off defaults phases to plan+review', () => {
+  it('enabling from Off defaults phases to review only', () => {
     const onParticipants = vi.fn();
     const onPhases = vi.fn();
     render(
@@ -324,7 +324,7 @@ describe('AutomationCheckboxes - Mob block', () => {
     );
     fireEvent.change(screen.getByLabelText('Mob seats'), { target: { value: '3' } });
     expect(onParticipants).toHaveBeenCalledWith(3);
-    expect(onPhases).toHaveBeenCalledWith(['plan', 'review']);
+    expect(onPhases).toHaveBeenCalledWith(['review']);
   });
 
   it('turning Off clears phases and guests', () => {

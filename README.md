@@ -74,12 +74,13 @@ shared by the agent and chat backends).
   own budget and an auto-selected coder model (distinct models where the
   eligible pool allows; see [model selection](docs/model-selection.md)); a
   judge phase picks the winner, which is the only branch pushed.
-- **Mob sessions (A2A)** - set `mob_participants` and the plan and review
-  phases become moderated multi-agent discussions over the A2A protocol -
-  internal seats plus optional registered guest agents - with the live
-  transcript streamed to the card's chat tab. Discussions degrade to the
-  solo path rather than failing the run, and a mob session composes freely
-  with a Best-of-N execute race.
+- **Mob sessions (A2A)** - set `mob_participants` and the selected phases
+  become moderated multi-agent discussions over the A2A protocol - internal
+  seats plus optional registered guest agents - with the live transcript
+  streamed to the card's chat tab. Review is on by default; plan and execute
+  are per-phase opt-in choices. Discussions degrade to the solo path rather
+  than failing the run, and a mob session composes freely with a Best-of-N
+  execute race.
 - **Global chat surface** - a `/chat` route hosts long-lived, board-aware chat
   sessions independent of any card. Up to 4 are tiled in a resizable layout,
   persisted across reloads.

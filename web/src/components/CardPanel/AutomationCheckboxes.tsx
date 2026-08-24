@@ -250,7 +250,7 @@ export function AutomationCheckboxes({
                 onMobParticipantsChange?.(n);
                 if (n >= 2 && !mobOn) {
                   // Enabling from Off: default the phase set.
-                  onMobPhasesChange?.(['plan', 'review']);
+                  onMobPhasesChange?.(['review']);
                 } else if (n === 0) {
                   // Turning Off: clear the dependent fields so a stale
                   // guest list can't fail validation later.
