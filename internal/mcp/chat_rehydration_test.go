@@ -44,6 +44,9 @@ func newTestChatManager(t *testing.T) (*chat.Manager, *chatTestDeps) {
 		Clock:   clock.Real(),
 		IdleTTL: time.Hour,
 	})
+	// Consumer goroutines hold a checked-out sqlite connection that
+	// store.Close does not reach; cancel them before the temp dir is removed.
+	t.Cleanup(func() { _ = mgr.Close(context.Background()) })
 
 	return mgr, &chatTestDeps{store: store}
 }
