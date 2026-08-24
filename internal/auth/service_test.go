@@ -233,6 +233,123 @@ func TestLogin_OverlongUsernameRejectedBeforeLimiter(t *testing.T) {
 	assert.Zero(t, n, "overlong usernames must never become limiter keys")
 }
 
+func TestLogin_ConcurrencyGate(t *testing.T) {
+	t.Parallel()
+
+	t.Run("saturated gate returns LoginBusyError immediately", func(t *testing.T) {
+		t.Parallel()
+
+		svc, _, _ := newTestService(t)
+		ctx := context.Background()
+
+		// Hold all 4 gate slots.
+		for range loginGateSlots {
+			svc.gate <- struct{}{}
+		}
+
+		_, _, err := svc.Login(ctx, "busyuser", "whatever12", "1.2.3.4")
+
+		var busy *LoginBusyError
+		require.ErrorAs(t, err, &busy)
+
+		// Drain the gate so it does not leak.
+		for range loginGateSlots {
+			<-svc.gate
+		}
+	})
+
+	t.Run("saturated gate does not touch limiter", func(t *testing.T) {
+		t.Parallel()
+
+		svc, _, _ := newTestService(t)
+		ctx := context.Background()
+
+		// Hold all 4 gate slots.
+		for range loginGateSlots {
+			svc.gate <- struct{}{}
+		}
+
+		// Saturated call against an unknown user: returns busy, not a
+		// limiter failure.
+		_, _, err := svc.Login(ctx, "limiter-check", "whatever12", "1.2.3.4")
+
+		var busy *LoginBusyError
+		require.ErrorAs(t, err, &busy)
+
+		// Release one slot. Now the gate has 3 held, 1 free.
+		<-svc.gate
+
+		// Three failed attempts against the same key: each passes the
+		// gate and records a limiter Failure.
+		for range 3 {
+			_, _, err := svc.Login(ctx, "limiter-check", "wrong", "1.2.3.4")
+			require.ErrorIs(t, err, ErrInvalidCredentials)
+		}
+
+		// The 4th attempt should be rate-limited (failed 3 times
+		// above, counting from 0 means 0+3=3 failures, so the next
+		// Allow returns false).
+		_, _, err = svc.Login(ctx, "limiter-check", "whatever12", "1.2.3.4")
+
+		var rle2 *RateLimitedError
+		require.ErrorAs(t, err, &rle2)
+
+		// Drain remaining gate slots.
+		for range loginGateSlots - 1 {
+			<-svc.gate
+		}
+	})
+
+	t.Run("release slot then valid login succeeds", func(t *testing.T) {
+		t.Parallel()
+
+		svc, store, _ := newTestService(t)
+		ctx := context.Background()
+
+		seedUser(t, svc, store, "bob", "secure passphrase 42", false)
+
+		// Hold all 4 gate slots.
+		for range loginGateSlots {
+			svc.gate <- struct{}{}
+		}
+
+		// Release one slot.
+		<-svc.gate
+
+		// Wrong password still produces a uniform error.
+		_, _, err := svc.Login(ctx, "bob", "wrong guess", "1.2.3.4")
+		require.ErrorIs(t, err, ErrInvalidCredentials)
+
+		// Correct password succeeds.
+		_, raw, err := svc.Login(ctx, "bob", "secure passphrase 42", "1.2.3.4")
+		require.NoError(t, err)
+		require.NotEmpty(t, raw)
+
+		// Drain remaining gate slots.
+		for range loginGateSlots - 1 {
+			<-svc.gate
+		}
+	})
+
+	t.Run("normal paths unaffected", func(t *testing.T) {
+		t.Parallel()
+
+		svc, store, _ := newTestService(t)
+		ctx := context.Background()
+
+		seedUser(t, svc, store, "charlie", "my password!", false)
+
+		// Valid login succeeds.
+		_, raw, err := svc.Login(ctx, "charlie", "my password!", "1.2.3.4")
+		require.NoError(t, err)
+		require.NotEmpty(t, raw)
+
+		// Unknown user returns ErrInvalidCredentials.
+		_, _, err = svc.Login(ctx, "ghost", "whatever12", "9.9.9.9")
+		require.ErrorIs(t, err, ErrInvalidCredentials)
+	})
+}
+
 // weakTestHash builds a valid argon2id PHC string with weaker-than-current
 // parameters (same technique as TestVerifyPassword_OldParamsStillVerify).
 func weakTestHash(t *testing.T, password string) string {

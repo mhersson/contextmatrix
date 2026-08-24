@@ -196,6 +196,15 @@ func (h *authHandlers) login(w http.ResponseWriter, r *http.Request) {
 
 	user, raw, err := h.svc.Login(r.Context(), req.Username, req.Password, auth.ClientIP(r.RemoteAddr))
 	if err != nil {
+		var lbe *auth.LoginBusyError
+
+		if errors.As(err, &lbe) {
+			w.Header().Set("Retry-After", "1")
+			writeError(w, http.StatusServiceUnavailable, ErrCodeLoginBusy, "server busy, try again later", "")
+
+			return
+		}
+
 		var rle *auth.RateLimitedError
 
 		if errors.As(err, &rle) {

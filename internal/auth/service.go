@@ -15,6 +15,10 @@ import (
 // self-service change) - never on login, so raising it cannot lock users out.
 const MinPasswordLength = 10
 
+// loginGateSlots limits concurrent argon2id derivations on the login path
+// (4 slots => peak 256 MiB against the recommended 512 MiB limit).
+const loginGateSlots = 4
+
 // renewAfter is how stale a session's last_seen may get before a validation
 // performs a sliding renewal. Keeps the hot path from writing on every request.
 const renewAfter = 5 * time.Minute
@@ -26,6 +30,14 @@ var (
 	ErrSessionInvalid     = errors.New("auth: session invalid")
 	ErrPasswordTooShort   = fmt.Errorf("auth: password must be at least %d characters", MinPasswordLength)
 )
+
+// LoginBusyError reports that the concurrency gate is saturated; the caller
+// should retry after a short delay.
+type LoginBusyError struct{}
+
+func (e *LoginBusyError) Error() string {
+	return "auth: server busy, retry later"
+}
 
 // RateLimitedError reports a login attempt rejected by the rate limiter.
 type RateLimitedError struct {
@@ -59,6 +71,8 @@ type Service struct {
 
 	providerMu sync.Mutex
 	providers  map[string]providerCacheEntry
+
+	gate chan struct{}
 }
 
 // NewService wires a Service on the real clock.
@@ -69,17 +83,44 @@ func NewService(store *authstore.Store, idleTTL time.Duration) *Service {
 		limiter:   NewLimiter(),
 		now:       time.Now,
 		providers: make(map[string]providerCacheEntry),
+		gate:      make(chan struct{}, loginGateSlots),
 	}
 }
 
 // IdleTTL exposes the sliding session lifetime for cookie max-age.
 func (s *Service) IdleTTL() time.Duration { return s.idleTTL }
 
+// HoldLoginGate acquires all concurrency-gate slots and returns a release
+// function. Only for use in tests; calling it in production code would block
+// the login path indefinitely.
+func (s *Service) HoldLoginGate() func() {
+	for range loginGateSlots {
+		s.gate <- struct{}{}
+	}
+
+	return func() {
+		for range loginGateSlots {
+			<-s.gate
+		}
+	}
+}
+
 // Login verifies credentials and creates a session. It returns the user and
 // the RAW session token (the caller sets it as a cookie; only its hash is
 // stored). Failures are uniform ErrInvalidCredentials; repeated failures per
 // account+IP earn a RateLimitedError.
 func (s *Service) Login(ctx context.Context, username, password, clientIP string) (*authstore.User, string, error) {
+	// Acquire a concurrency slot so at most loginGateSlots argon2id
+	// derivations run simultaneously. Reject immediately when saturated
+	// without touching the limiter.
+	select {
+	case s.gate <- struct{}{}:
+	default:
+		return nil, "", &LoginBusyError{}
+	}
+
+	defer func() { <-s.gate }()
+
 	// Bound the username before it becomes a limiter key - the rule caps
 	// usernames at 32 chars, and unbounded attacker-chosen keys would grow
 	// the limiter map. Burn comparable time so the early reject is not a
@@ -96,7 +137,7 @@ func (s *Service) Login(ctx context.Context, username, password, clientIP string
 		return nil, "", &RateLimitedError{RetryAfter: retry}
 	}
 
-	fail := func() (*authstore.User, string, error) {
+	fail := func() (*authstore.User, string, error) { //nolint:unparam // always returns nil user on failure
 		s.limiter.Failure(key)
 
 		return nil, "", ErrInvalidCredentials

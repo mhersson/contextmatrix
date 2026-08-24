@@ -236,7 +236,8 @@ otherwise the server generates a UUID. The same id is emitted as the
   mint failure on `GET /api/agent/git-credentials` or
   `GET /api/worker/git-credentials` (`INTERNAL_ERROR`)
 - 503: no task backend configured (`BACKEND_DISABLED`), sync disabled
-  (`SYNC_DISABLED`), or `/readyz` dependency check failed
+  (`SYNC_DISABLED`), `/readyz` dependency check failed, or the login
+  argon2id concurrency gate is saturated (`LOGIN_BUSY`, `Retry-After: 1` set)
 
 **Error code / HTTP status mapping (selected):**
 
@@ -246,6 +247,7 @@ otherwise the server generates a UUID. The same id is emitted as the
 | `UNAUTHORIZED`            | 401     | no/expired session (multi mode); SPA redirects to login       |
 | `FORBIDDEN`               | 403     | authenticated but not admin, on an admin-gated route (multi mode) |
 | `RATE_LIMITED`            | 429     | too many failed logins for one account+IP; `Retry-After` header set |
+| `LOGIN_BUSY`              | 503     | argon2id concurrency gate saturated; `Retry-After: 1` header set |
 | `TOKEN_INVALID`           | 404/410 | one-time token unknown (404), or already redeemed/expired (410) |
 | `USER_NOT_FOUND`          | 404     | unknown username on an admin user-management route            |
 | `PROJECT_NOT_FOUND`       | 404     | project slug does not exist                                   |
@@ -375,6 +377,13 @@ Repeated failures for the same (normalized username, client IP) pair trip an
 in-memory rate limiter: the first two failures are free, the third blocks for
 1 second, doubling per further failure up to a 5-minute cap. A blocked
 attempt returns **429 `RATE_LIMITED`** with a `Retry-After` header (seconds).
+
+Because each login runs a memory-hard argon2id derivation, the login path is
+also capped to four concurrent derivations (peak 256Mi). A request that
+arrives while all four slots are held is rejected immediately with **503
+`LOGIN_BUSY`** and a `Retry-After: 1` header - it is never queued. A saturated
+rejection does not count as a failed attempt against the account+IP limiter,
+so retrying after the reported delay is safe.
 
 The client IP is the TCP peer address (`RemoteAddr`); `X-Forwarded-For` is
 deliberately not consulted, since honoring it without a trusted-proxy
