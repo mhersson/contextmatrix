@@ -212,8 +212,11 @@ Notes:
   unless it is `app` (with `app_id` + `installation_id` + `private_key_path`) or
   `pat` (with `pat.token`). See `docs/github-auth-setup.md`.
 - **Memory sizing.** argon2id password hashing allocates **64Mi per concurrent
-  login by design** (memory-hardness is the point). 128Mi request / 512Mi limit
-  suits a small team; a 128Mi *limit* OOM-kills the pod under normal login load.
+  login by design** (memory-hardness is the point). The login path caps
+  concurrent derivations at four (peak 256Mi); a request that saturates the
+  gate is rejected immediately with 503 rather than queued. A 128Mi request /
+  512Mi limit suits a small team; a 128Mi *limit* OOM-kills the pod under
+  normal login load.
 - **Read-only root filesystem** works with `emptyDir` mounts for `/tmp` and
   `/home/nobody`; `/data` is the writable PVC and the two `/secrets/*` paths are
   read-only Secret mounts.
