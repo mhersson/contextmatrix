@@ -446,26 +446,6 @@ func TestRunGit_WithAuthEnv(t *testing.T) {
 	assert.Contains(t, out, "On branch")
 }
 
-// TestRunGit_WaitDelay verifies that runGit sets cmd.WaitDelay so that
-// orphaned subprocesses (e.g. git-remote-https) cannot prevent Wait from
-// returning after the process exits.
-func TestRunGit_WaitDelay(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git binary not found")
-	}
-
-	dir := t.TempDir()
-	run(t, dir, "git", "init")
-
-	// We cannot directly inspect cmd.WaitDelay from runGit because it is
-	// internal to the function. Instead, verify that runGit still works
-	// normally and that the WaitDelay does not interfere with normal
-	// execution (a regression test: the 3s margin is generous and fast
-	// local commands return well within it).
-	_, err := runGit(context.Background(), dir, nil, "status")
-	require.NoError(t, err)
-}
-
 // TestSyncer_FetchTimeout_Loopback exercises the fetch timeout by pointing the
 // syncer's origin at a TCP listener that accepts but never responds. The
 // injected short network timeout must cause pullRebase to return an error
@@ -508,22 +488,28 @@ func TestSyncer_FetchTimeout_Loopback(t *testing.T) {
 	// black-hole listener, so the fetch must time out.
 	syncer.SetNetworkTimeout(500 * time.Millisecond)
 
-	ctx := context.Background()
+	// Run pullRebase off the test goroutine and bound the wait rather than
+	// measuring elapsed time after it returns. Without cmd.WaitDelay the
+	// orphaned git-remote-http keeps the output pipe open and pullRebase never
+	// returns at all, so a post-hoc elapsed assertion would never be reached:
+	// the regression would surface as a package-wide test timeout instead of a
+	// failure here. Injected timeout (500ms) + WaitDelay (3s) + scheduling
+	// margin.
+	const bound = 5 * time.Second
+
+	errCh := make(chan error, 1)
 	start := time.Now()
 
-	err = syncer.pullRebase(ctx, "timeout_test")
+	go func() { errCh <- syncer.pullRebase(context.Background(), "timeout_test") }()
 
-	elapsed := time.Since(start)
-	t.Logf("pullRebase returned with error after %v: %v", elapsed, err)
-
-	// Must return an error (the fetch timed out).
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "git fetch")
-
-	// Must return within a reasonable bound: injected timeout (500ms) plus
-	// WaitDelay (3s) plus margin for scheduling delays (5s total).
-	assert.Less(t, elapsed, 5*time.Second,
-		"pullRebase should time out within injected timeout + WaitDelay + margin")
+	select {
+	case fetchErr := <-errCh:
+		t.Logf("pullRebase returned after %v: %v", time.Since(start), fetchErr)
+		require.Error(t, fetchErr)
+		assert.Contains(t, fetchErr.Error(), "git fetch")
+	case <-time.After(bound):
+		t.Fatalf("pullRebase did not return within %v: the fetch deadline or cmd.WaitDelay is not bounding the call", bound)
+	}
 }
 
 // TestSyncer_IsBehind_SucceedsWithShortTimeout verifies that local-only
