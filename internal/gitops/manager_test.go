@@ -3,6 +3,8 @@ package gitops
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1321,4 +1323,133 @@ func TestManager_AuthEnv_BuildsExpectedSlice(t *testing.T) {
 	expectedCred := base64.StdEncoding.EncodeToString([]byte("x-access-token:ghp_xyz"))
 	assert.Equal(t, "GIT_CONFIG_VALUE_0=Authorization: Basic "+expectedCred, env[2])
 	assert.Equal(t, "GIT_TERMINAL_PROMPT=0", env[3])
+}
+
+// TestNetworkTimeout verifies that network git operations fail within the
+// injected timeout when the remote is a black-hole loopback listener, and
+// that local-only git operations are unaffected.
+func TestNetworkTimeout(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not found, skipping")
+	}
+
+	// Start a loopback listener that accepts connections and never responds.
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	t.Cleanup(func() { _ = l.Close() })
+
+	// Accept connections and hold them open without reading/writing.
+	done := make(chan struct{})
+
+	t.Cleanup(func() { close(done) })
+
+	go func() {
+		for {
+			conn, err := l.Accept()
+			if err != nil {
+				return
+			}
+
+			go func(c net.Conn) {
+				<-done
+
+				_ = c.Close()
+			}(conn)
+		}
+	}()
+
+	port := l.Addr().(*net.TCPAddr).Port
+	remoteURL := fmt.Sprintf("http://127.0.0.1:%d/board.git", port)
+
+	// Create a working repo with a commit and point origin at the black hole.
+	workDir := t.TempDir()
+	mgr, err := NewManager(workDir, "", "test", staticTestProvider(t))
+	require.NoError(t, err)
+	mgr.SetAuthor("Test", "test@test.com")
+
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "init.txt"), []byte("init"), 0o644))
+	require.NoError(t, mgr.CommitFile(context.Background(), "init.txt", "initial commit"))
+	require.NoError(t, mgr.AddRemote(context.Background(), "origin", remoteURL))
+
+	// Inject a short network timeout. The injected timeout is 500 ms; the
+	// context deadline kills the direct git process, after which WaitDelay
+	// (3 s) accounts for orphaned git-remote-https children. We use a total
+	// deadline of ~4 s so the test completes promptly on failure.
+	shortTimeout := 500 * time.Millisecond
+	mgr.SetNetworkTimeout(shortTimeout)
+
+	totalDeadline := shortTimeout + 3500*time.Millisecond
+
+	t.Run("Push", func(t *testing.T) {
+		ctx := context.Background()
+		errCh := make(chan error, 1)
+
+		go func() {
+			errCh <- mgr.Push(ctx)
+		}()
+
+		select {
+		case err := <-errCh:
+			require.Error(t, err, "Push must fail against black-hole remote")
+			assert.Contains(t, err.Error(), "push",
+				"error must be wrapped with operation context")
+		case <-time.After(totalDeadline):
+			t.Fatal("Push did not complete within the expected timeout window")
+		}
+	})
+
+	t.Run("Pull", func(t *testing.T) {
+		ctx := context.Background()
+		errCh := make(chan error, 1)
+
+		go func() {
+			errCh <- mgr.Pull(ctx)
+		}()
+
+		select {
+		case err := <-errCh:
+			require.Error(t, err, "Pull must fail against black-hole remote")
+			assert.Contains(t, err.Error(), "pull",
+				"error must be wrapped with operation context")
+		case <-time.After(totalDeadline):
+			t.Fatal("Pull did not complete within the expected timeout window")
+		}
+	})
+
+	t.Run("PullFastForward", func(t *testing.T) {
+		ctx := context.Background()
+		errCh := make(chan error, 1)
+
+		go func() {
+			errCh <- mgr.PullFastForward(ctx)
+		}()
+
+		select {
+		case err := <-errCh:
+			require.Error(t, err, "PullFastForward must fail against black-hole remote")
+			assert.Contains(t, err.Error(), "pull",
+				"error must be wrapped with operation context")
+		case <-time.After(totalDeadline):
+			t.Fatal("PullFastForward did not complete within the expected timeout window")
+		}
+	})
+
+	t.Run("LocalOperation", func(t *testing.T) {
+		// Local-only git operations (status) must still succeed with the
+		// short timeout, proving only network calls are bounded.
+		ctx := context.Background()
+		errCh := make(chan error, 1)
+
+		go func() {
+			errCh <- mgr.runGit(ctx, "status")
+		}()
+
+		select {
+		case err := <-errCh:
+			require.NoError(t, err, "git status must succeed with short timeout")
+		case <-time.After(totalDeadline):
+			t.Fatal("git status did not complete within the expected timeout window")
+		}
+	})
 }

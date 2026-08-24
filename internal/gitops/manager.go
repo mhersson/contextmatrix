@@ -26,6 +26,10 @@ import (
 	"github.com/mhersson/contextmatrix/internal/metrics"
 )
 
+// NetworkGitTimeout is the maximum duration for network git operations
+// (pull, push, fetch). Matches the existing clone timeout precedent.
+const NetworkGitTimeout = 120 * time.Second
+
 // DefaultAuthor is used when no author is configured.
 var DefaultAuthor = object.Signature{
 	Name:  "ContextMatrix",
@@ -55,6 +59,11 @@ type Manager struct {
 	author   object.Signature
 	label    string                    // short identifier used in log messages
 	provider githubauth.TokenGenerator // REPLACES authMode + token
+
+	// networkTimeout is the timeout for network git operations (pull, push,
+	// fetch). Defaults to NetworkGitTimeout; tests can inject a shorter value
+	// via SetNetworkTimeout.
+	networkTimeout time.Duration
 
 	// worktreeMu protects m.repo, m.author, and any operation that stages,
 	// commits, or reads the working tree / .git/index.
@@ -98,11 +107,12 @@ func NewManager(repoPath, cloneURL, label string, provider githubauth.TokenGener
 	}
 
 	mgr := &Manager{
-		repo:     repo,
-		repoPath: absPath,
-		author:   DefaultAuthor,
-		label:    label,
-		provider: provider,
+		repo:           repo,
+		repoPath:       absPath,
+		author:         DefaultAuthor,
+		label:          label,
+		provider:       provider,
+		networkTimeout: NetworkGitTimeout,
 	}
 
 	// If a remote URL is provided but the repo was opened (not cloned),
@@ -165,6 +175,13 @@ func (m *Manager) SetAuthor(name, email string) {
 	defer m.worktreeMu.Unlock()
 
 	m.author = object.Signature{Name: name, Email: email}
+}
+
+// SetNetworkTimeout overrides the timeout for network git operations.
+// Used by tests to shorten the bound; production code is not expected to
+// call it.
+func (m *Manager) SetNetworkTimeout(d time.Duration) {
+	m.networkTimeout = d
 }
 
 // CommitFile stages a specific file and commits it.
@@ -321,7 +338,11 @@ func (m *Manager) Pull(ctx context.Context) error {
 	}
 
 	m.netMu.Lock()
-	netErr := m.runGit(ctx, "pull", "--rebase", "origin")
+
+	gitCtx, cancel := context.WithTimeout(ctx, m.networkTimeout)
+	defer cancel()
+
+	netErr := m.runGit(gitCtx, "pull", "--rebase", "origin")
 	m.netMu.Unlock()
 
 	if netErr != nil {
@@ -356,7 +377,11 @@ func (m *Manager) PullFastForward(ctx context.Context) error {
 	}
 
 	m.netMu.Lock()
-	netErr := m.runGit(ctx, "pull", "--ff-only", "origin")
+
+	gitCtx, cancel := context.WithTimeout(ctx, m.networkTimeout)
+	defer cancel()
+
+	netErr := m.runGit(gitCtx, "pull", "--ff-only", "origin")
 	m.netMu.Unlock()
 
 	if netErr != nil {
@@ -394,7 +419,11 @@ func (m *Manager) Push(ctx context.Context) error {
 	}
 
 	m.netMu.Lock()
-	netErr := m.runGit(ctx, "push", "--set-upstream", "origin", "HEAD")
+
+	gitCtx, cancel := context.WithTimeout(ctx, m.networkTimeout)
+	defer cancel()
+
+	netErr := m.runGit(gitCtx, "push", "--set-upstream", "origin", "HEAD")
 	m.netMu.Unlock()
 
 	if netErr != nil {
@@ -509,6 +538,7 @@ func (m *Manager) runGit(ctx context.Context, args ...string) error {
 
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = m.repoPath
+	cmd.WaitDelay = 3 * time.Second
 
 	if env, err := AuthEnvFromProvider(ctx, m.provider); err == nil && len(env) > 0 {
 		cmd.Env = append(os.Environ(), env...)
