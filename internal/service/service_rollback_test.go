@@ -58,6 +58,132 @@ func (f *failingCommitter) record() error {
 	return f.err
 }
 
+// cancelOnCommitCommitter delegates to a failingCommitter but calls cancel
+// before each record. This reproduces the exact ordering where the request
+// context is cancelled after the store write but before the rollback store
+// write. It implements Committer explicitly (rather than embedding) so the
+// cancel hook fires on every commit attempt.
+type cancelOnCommitCommitter struct {
+	inner  failingCommitter
+	cancel context.CancelFunc
+}
+
+func (c *cancelOnCommitCommitter) CommitFile(_ context.Context, _, _ string) error {
+	c.cancel()
+
+	return c.inner.record()
+}
+
+func (c *cancelOnCommitCommitter) CommitFiles(_ context.Context, _ []string, _ string) error {
+	c.cancel()
+
+	return c.inner.record()
+}
+
+func (c *cancelOnCommitCommitter) CommitFilesShell(_ context.Context, _ []string, _ string) error {
+	c.cancel()
+
+	return c.inner.record()
+}
+
+func (c *cancelOnCommitCommitter) CommitAll(_ context.Context, _ string) error {
+	c.cancel()
+
+	return c.inner.record()
+}
+
+func (c *cancelOnCommitCommitter) ReloadRepo(_ context.Context) error {
+	return nil
+}
+
+// TestApplyCardMutation_RollbackOnCommitFailure_CancelledContext verifies
+// that when the request context is cancelled *after* the store write has
+// landed but *before* the rollback store write, the rollback succeeds on
+// a cancel-detached context and does not increment RollbackFailuresTotal.
+func TestApplyCardMutation_RollbackOnCommitFailure_CancelledContext(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title:    "Cancel Rollback Target",
+		Type:     "task",
+		Priority: "medium",
+		Body:     "pre-mutation body",
+	})
+	require.NoError(t, err)
+
+	preTitle := card.Title
+	preBody := card.Body
+	preState := card.State
+
+	// Capture baseline before the mutation so we can assert
+	// RollbackFailuresTotal did not increment.
+	baseCount := testutil.ToFloat64(metrics.RollbackFailuresTotal)
+
+	// Create a cancellable context and a committer that cancels it when
+	// record() is called (inside processJob, after the pre-execute
+	// ctx.Err() check has already passed).
+	cancelCtx, cancel := context.WithCancel(context.Background())
+	sentinel := errors.New("commit boom")
+
+	committer := &cancelOnCommitCommitter{
+		inner:  failingCommitter{err: sentinel},
+		cancel: cancel,
+	}
+	failQueue := gitops.NewCommitQueueWithCommitter(committer, 0)
+
+	t.Cleanup(func() { _ = failQueue.Close(context.Background()) })
+	svc.SetCommitQueue(failQueue)
+
+	newTitle := "Should Not Stick"
+	newBody := "Should not persist"
+
+	_, err = svc.PatchCard(cancelCtx, "test-project", card.ID, PatchCardInput{
+		Title:           &newTitle,
+		Body:            &newBody,
+		ImmediateCommit: true,
+	})
+	require.Error(t, err, "commit failure must propagate to caller")
+
+	// The returned error must be the simple "git commit:" form, not the
+	// "rollback failed, state inconsistent" form.
+	assert.Contains(t, err.Error(), "git commit",
+		"error must reference git commit")
+	assert.NotContains(t, err.Error(), "rollback failed, state inconsistent",
+		"error must not indicate an inconsistent state")
+
+	// RollbackFailuresTotal must NOT have incremented: the rollback
+	// succeeded on the detached context.
+	gotCount := testutil.ToFloat64(metrics.RollbackFailuresTotal)
+	assert.InDelta(t, baseCount, gotCount, 0.0001,
+		"RollbackFailuresTotal should not increment (base=%f, got=%f)", baseCount, gotCount)
+
+	// Card in the service cache must be rolled back to pre-mutation state.
+	reloaded, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, preTitle, reloaded.Title, "cached title should be rolled back")
+	assert.Equal(t, preBody, reloaded.Body, "cached body should be rolled back")
+	assert.Equal(t, preState, reloaded.State, "cached state should be unchanged")
+
+	// Card on disk must also be rolled back. Open a fresh store to bypass
+	// the cache.
+	fresh, err := storage.NewFilesystemStore(svc.boardsDir)
+	require.NoError(t, err)
+
+	onDisk, err := fresh.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, preTitle, onDisk.Title, "on-disk title must match pre-mutation snapshot")
+	assert.Equal(t, preState, onDisk.State, "on-disk state must match pre-mutation snapshot")
+
+	// Confirm the committer was actually exercised.
+	committer.inner.mu.Lock()
+	calls := committer.inner.calls
+	committer.inner.mu.Unlock()
+	assert.Positive(t, calls, "committer should have been called at least once")
+}
+
 // TestApplyCardMutation_RollbackOnCommitFailure verifies that when the
 // async commit fails, the card's state in the cache + disk is restored
 // to the pre-mutation snapshot and the returned error references the
