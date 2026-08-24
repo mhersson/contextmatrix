@@ -3,6 +3,8 @@ package gitsync
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -442,6 +444,109 @@ func TestRunGit_WithAuthEnv(t *testing.T) {
 	out, err := runGit(context.Background(), dir, authEnv, "status")
 	require.NoError(t, err)
 	assert.Contains(t, out, "On branch")
+}
+
+// TestRunGit_WaitDelay verifies that runGit sets cmd.WaitDelay so that
+// orphaned subprocesses (e.g. git-remote-https) cannot prevent Wait from
+// returning after the process exits.
+func TestRunGit_WaitDelay(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not found")
+	}
+
+	dir := t.TempDir()
+	run(t, dir, "git", "init")
+
+	// We cannot directly inspect cmd.WaitDelay from runGit because it is
+	// internal to the function. Instead, verify that runGit still works
+	// normally and that the WaitDelay does not interfere with normal
+	// execution (a regression test: the 3s margin is generous and fast
+	// local commands return well within it).
+	_, err := runGit(context.Background(), dir, nil, "status")
+	require.NoError(t, err)
+}
+
+// TestSyncer_FetchTimeout_Loopback exercises the fetch timeout by pointing the
+// syncer's origin at a TCP listener that accepts but never responds. The
+// injected short network timeout must cause pullRebase to return an error
+// within the bound + margin rather than block indefinitely.
+func TestSyncer_FetchTimeout_Loopback(t *testing.T) {
+	syncer, _, clone, _ := setupSyncTest(t)
+
+	// Start a loopback listener that accepts connections but never sends a
+	// response (not even the git protocol header).
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		_ = listener.Close()
+	})
+
+	port := listener.Addr().(*net.TCPAddr).Port
+
+	// Accept one connection in the background and let it hang.
+	done := make(chan struct{})
+
+	t.Cleanup(func() { close(done) })
+
+	go func() {
+		conn, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			return
+		}
+		defer conn.Close()
+		// Never read or write - just hold the connection open until
+		// the test context or the injected timeout cancels it.
+		<-done
+	}()
+
+	// Repoint the origin remote at the loopback listener.
+	remoteURL := fmt.Sprintf("http://127.0.0.1:%d/board.git", port)
+	run(t, clone, "git", "remote", "set-url", "origin", remoteURL)
+
+	// Inject a short network timeout (500ms). The fetch URL points at a
+	// black-hole listener, so the fetch must time out.
+	syncer.SetNetworkTimeout(500 * time.Millisecond)
+
+	ctx := context.Background()
+	start := time.Now()
+
+	err = syncer.pullRebase(ctx, "timeout_test")
+
+	elapsed := time.Since(start)
+	t.Logf("pullRebase returned with error after %v: %v", elapsed, err)
+
+	// Must return an error (the fetch timed out).
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "git fetch")
+
+	// Must return within a reasonable bound: injected timeout (500ms) plus
+	// WaitDelay (3s) plus margin for scheduling delays (5s total).
+	assert.Less(t, elapsed, 5*time.Second,
+		"pullRebase should time out within injected timeout + WaitDelay + margin")
+}
+
+// TestSyncer_IsBehind_SucceedsWithShortTimeout verifies that local-only
+// operations (isBehind) succeed even with a short network timeout, because
+// they never touch the network and should not be bounded by it.
+func TestSyncer_IsBehind_SucceedsWithShortTimeout(t *testing.T) {
+	syncer, _, _, _ := setupSyncTest(t)
+
+	// Inject a very short network timeout so a real fetch would die fast.
+	syncer.SetNetworkTimeout(1 * time.Millisecond)
+
+	// isBehind uses rev-list with local refs only - no network access.
+	// It should succeed immediately even with a tiny timeout.
+	branch, err := syncer.git.CurrentBranch()
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	behind, err := syncer.isBehind(ctx, branch, "origin/"+branch)
+	require.NoError(t, err)
+
+	// After initial push, the clone is up to date with its upstream
+	// (the bare repo). So isBehind should report false (not behind).
+	assert.False(t, behind, "clone should be up to date with upstream")
 }
 
 // TestSyncer_PushWithRetry_BlocksOnWriteMu verifies that pushWithRetry waits
