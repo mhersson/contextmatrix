@@ -236,8 +236,12 @@ If any condition fails, `revise` the original card. When in doubt, `revise`.
 For each Minor finding that passed the gate, apply the fix described in its Fix
 field directly in the working tree. After all fixes are applied:
 
-1. Run the project's test suite. If tests fail, revert the fixes
-   (`git checkout -- <files>`) and set the recommendation to `revise`.
+1. Run the project's test suite. If tests fail, leave the fixes in place and
+   set the recommendation to `revise`. Never run `git checkout --`,
+   `git restore`, `git stash`, `git reset`, or `git clean` to undo them: the
+   tree holds uncommitted work from every sub-agent in the round, and those
+   commands would discard it. Name the applied-but-failing fixes in the
+   findings so the next round knows what is in the tree.
 2. If tests pass, set the recommendation to `approve`.
 
 Mark each fixed Minor in the findings output with `(fixed inline)` so the
