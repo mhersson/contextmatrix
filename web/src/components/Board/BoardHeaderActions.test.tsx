@@ -34,6 +34,25 @@ describe('BoardHeaderActions', () => {
     expect(screen.getByRole('button', { name: /console/i })).toHaveAttribute('aria-pressed', 'true');
   });
 
+  it('shows a separator between Stop All and Console when both are visible', () => {
+    const { rerender } = renderActions(
+      <BoardHeaderActions {...base} hasActiveWorkers taskBackendConfigured />,
+    );
+    const container = document.querySelector('.board-header-actions')!;
+    const buttons = container.querySelectorAll(':scope > button');
+    expect(buttons).toHaveLength(2); // Stop All + Console
+    // The first child after Stop All should be the separator, then Console
+    const children = Array.from(container.children);
+    const sepIdx = children.findIndex((c) => c.classList.contains('board-header-actions__sep'));
+    expect(sepIdx).toBeGreaterThan(0); // there is at least one sep
+    expect(sepIdx).toBeLessThan(children.length - 1); // not the last child
+    // When Stop All is hidden the extra separator should not be present
+    rerender(<BoardHeaderActions {...base} taskBackendConfigured />);
+    const children2 = Array.from(container.children);
+    const seps = children2.filter((c) => c.classList.contains('board-header-actions__sep'));
+    expect(seps).toHaveLength(1); // only the trailing one after Settings
+  });
+
   it('shows Stop All only while workers are active and confirms before stopping', () => {
     const onStopAll = vi.fn();
     const { rerender } = renderActions(<div className="slot"><BoardHeaderActions {...base} onStopAll={onStopAll} /></div>);
