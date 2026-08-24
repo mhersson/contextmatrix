@@ -44,6 +44,9 @@ export function BoardHeaderActions({
             Stop All
           </button>
         )}
+        {hasActiveWorkers && onStopAll && taskBackendConfigured && onToggleConsole && (
+          <span className="board-header-actions__sep" aria-hidden="true" />
+        )}
         {taskBackendConfigured && onToggleConsole && (
           <button
             type="button"
