@@ -80,8 +80,12 @@ const (
 
 	// Multi-user auth. UNAUTHORIZED → 401 (no/expired session; the SPA
 	// redirects to login). RATE_LIMITED → 429 with a Retry-After header.
+	// LOGIN_BUSY → 503 with Retry-After: 1 when the argon2id concurrency
+	// gate is saturated - server-saturation, not a per-account lockout, so
+	// it stays distinct from RATE_LIMITED.
 	ErrCodeUnauthorized = "UNAUTHORIZED"
 	ErrCodeRateLimited  = "RATE_LIMITED"
+	ErrCodeLoginBusy    = "LOGIN_BUSY"
 
 	// FORBIDDEN → 403: authenticated but lacking rights (non-admin on an
 	// admin route). Distinct from AGENT_MISMATCH (card-claim ownership).

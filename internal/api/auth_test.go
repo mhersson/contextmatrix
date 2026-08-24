@@ -278,6 +278,47 @@ func TestAuthJourney_RateLimit429(t *testing.T) {
 	assert.NotEmpty(t, resp.Header.Get("Retry-After"))
 }
 
+func TestAuthJourney_LoginBusy503(t *testing.T) {
+	server, svc, _ := newAuthTestServer(t)
+
+	// Saturate the login gate: hold all 4 slots.
+	release := svc.HoldLoginGate()
+
+	// A saturated gate must return 503 with the correct code and Retry-After.
+	req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/auth/login",
+		jsonBody(t, map[string]string{"username": "root", "password": "root password1"}))
+	req.Header.Set("X-Requested-With", "contextmatrix")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+	_ = resp.Body.Close()
+
+	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+	assert.Equal(t, ErrCodeLoginBusy, apiErr.Code)
+	assert.Equal(t, "server busy, try again later", apiErr.Error)
+	assert.Equal(t, "1", resp.Header.Get("Retry-After"))
+
+	// Release the gate and verify login works normally.
+	release()
+
+	cookie := login(t, server, "root", "root password1")
+	assert.True(t, cookie.HttpOnly)
+
+	// Bad password still returns uniform 401.
+	req, _ = http.NewRequest(http.MethodPost, server.URL+"/api/auth/login",
+		jsonBody(t, map[string]string{"username": "root", "password": "wrong"}))
+	req.Header.Set("X-Requested-With", "contextmatrix")
+
+	resp, err = http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	_ = resp.Body.Close()
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+}
+
 func TestAuthJourney_InviteRedemption(t *testing.T) {
 	server, svc, store := newAuthTestServer(t)
 

@@ -90,6 +90,21 @@ func NewService(store *authstore.Store, idleTTL time.Duration) *Service {
 // IdleTTL exposes the sliding session lifetime for cookie max-age.
 func (s *Service) IdleTTL() time.Duration { return s.idleTTL }
 
+// HoldLoginGate acquires all concurrency-gate slots and returns a release
+// function. Only for use in tests; calling it in production code would block
+// the login path indefinitely.
+func (s *Service) HoldLoginGate() func() {
+	for range loginGateSlots {
+		s.gate <- struct{}{}
+	}
+
+	return func() {
+		for range loginGateSlots {
+			<-s.gate
+		}
+	}
+}
+
 // Login verifies credentials and creates a session. It returns the user and
 // the RAW session token (the caller sets it as a cookie; only its hash is
 // stored). Failures are uniform ErrInvalidCredentials; repeated failures per
