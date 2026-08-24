@@ -4143,11 +4143,8 @@ func TestAppendMessage_NotCommittedAppendReusesSeq(t *testing.T) {
 	// Arm one-shot: next AppendMessage returns error without INSERTing.
 	naStore.FailNext()
 
-	msg2Raw, err := mgr.AppendMessage(ctx, sess.ID, chat.RoleUser, "second")
+	_, err = mgr.AppendMessage(ctx, sess.ID, chat.RoleUser, "second")
 	require.Error(t, err, "the second append must propagate the injected store error")
-	// The msg struct may or may not be zero-valued; we don't assert on it.
-
-	_ = msg2Raw
 
 	// Third append must succeed and reuse seq=2 (the reseed found MAX(seq)=1,
 	// so the counter went back to 1 then incremented to 2).
@@ -4191,7 +4188,6 @@ func TestAppendMessage_CancelledContextDoesNotCancelPersistence(t *testing.T) {
 	var wg sync.WaitGroup
 
 	wg.Go(func() {
-
 		_, appendErr = mgr.AppendMessage(cancelCtx, sess.ID, chat.RoleUser, "second")
 	})
 
@@ -4273,4 +4269,46 @@ func TestClearContext_DividerCommittedButErrored(t *testing.T) {
 	require.Len(t, msgs, 5, "3 pre-clear + 1 committed divider + 1 post-clear = 5")
 	assert.Equal(t, chat.EventKindDivider, msgs[3].Kind, "the fourth row must be the divider")
 	assert.Equal(t, chat.ContextClearedMarker, msgs[3].Content)
+}
+
+// TestAppendMessage_ReseedFailureLeavesCounterAheadOfDisk covers the fallback
+// branch: the row committed, the append still errored, and the reseed read
+// also failed. The counter must be left ahead of disk rather than decremented
+// back onto the committed row, because a counter behind disk collides on
+// UNIQUE(session_id, seq) and wedges every later append. A gap in seq is
+// harmless - nothing depends on it being contiguous.
+func TestAppendMessage_ReseedFailureLeavesCounterAheadOfDisk(t *testing.T) {
+	t.Parallel()
+
+	inner, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = inner.Close() })
+
+	store := &commitThenErrorNoReseedStore{Store: inner}
+
+	mgr, _, cleanup := newTestManagerWithStore(t, store)
+	defer cleanup()
+
+	ctx := context.Background()
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "human:t"})
+	require.NoError(t, err)
+
+	// Seed seq counter with one persisted message (seq=1).
+	msg1, err := mgr.AppendMessage(ctx, sess.ID, chat.RoleUser, "first")
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), msg1.Seq)
+
+	// Arm both faults: the next append commits at seq 2 then errors, and the
+	// reseed MaxSeq that follows also fails.
+	store.FailNext()
+
+	_, err = mgr.AppendMessage(ctx, sess.ID, chat.RoleUser, "second")
+	require.Error(t, err, "the second append must propagate the injected store error")
+
+	// The counter stayed at 2, so the next append takes 3 and skips the
+	// committed row. A decrement here would retry seq 2 and hit the UNIQUE
+	// index on the row that did commit.
+	msg3, err := mgr.AppendMessage(ctx, sess.ID, chat.RoleUser, "third")
+	require.NoError(t, err, "append after a failed reseed must not UNIQUE-collide with the committed row")
+	assert.Equal(t, int64(3), msg3.Seq, "seq must be 3: the committed row owns seq 2")
 }

@@ -1023,12 +1023,10 @@ func (m *Manager) doClearContext(ctx context.Context, sessionID string) error {
 
 		maxSeq, reseedErr := m.store.MaxSeq(reseedCtx, sessionID)
 		if reseedErr != nil {
-			// Last resort: the old decrement, so a transient read
-			// failure does not leave the counter ahead of disk.
-			m.mu.Lock()
-			m.seqMap[sessionID]--
-			m.mu.Unlock()
-			m.logger.Warn("chat: ClearContext failed and seq reseed failed; rolled back",
+			// Leave the counter ahead of disk rather than decrement it
+			// onto a possibly-committed divider row - see the same
+			// fallback in appendMessageWithKind.
+			m.logger.Warn("chat: ClearContext failed and seq reseed failed; counter left ahead of disk",
 				"session_id", sessionID, "error", reseedErr)
 		} else {
 			m.mu.Lock()
@@ -1569,12 +1567,13 @@ func (m *Manager) appendMessageWithKind(ctx context.Context, sessionID string, r
 
 		maxSeq, reseedErr := m.store.MaxSeq(reseedCtx, sessionID)
 		if reseedErr != nil {
-			// Last resort: the old decrement, so a transient read
-			// failure does not leave the counter ahead of disk.
-			m.mu.Lock()
-			m.seqMap[sessionID]--
-			m.mu.Unlock()
-			m.logger.Warn("chat: append failed and seq reseed failed; rolled back",
+			// Leave the counter where it is. Nothing depends on seq
+			// being contiguous - it is an ordering key and a row
+			// identity - so a counter ahead of disk only leaves a gap.
+			// A counter behind disk collides on UNIQUE(session_id, seq)
+			// and wedges every later append on this session, which is
+			// the failure mode this reseed exists to prevent.
+			m.logger.Warn("chat: append failed and seq reseed failed; counter left ahead of disk",
 				"session_id", sessionID, "error", reseedErr)
 		} else {
 			m.mu.Lock()

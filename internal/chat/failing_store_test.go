@@ -269,3 +269,42 @@ func (c *clearCommitThenErrorStore) ClearTranscriptAtomic(ctx context.Context, s
 
 	return marked, msg, nil
 }
+
+// commitThenErrorNoReseedStore commits the INSERT, errors on AppendMessage,
+// and fails the follow-up MaxSeq so the reseed cannot heal the counter from
+// disk. Exercises the fallback branch where the counter must be left ahead of
+// disk rather than decremented back onto the committed row. Used by
+// TestAppendMessage_ReseedFailureLeavesCounterAheadOfDisk.
+type commitThenErrorNoReseedStore struct {
+	chat.Store
+	failNext   atomic.Bool
+	failMaxSeq atomic.Bool
+}
+
+// FailNext arms both faults together: the next AppendMessage commits then
+// errors, and the reseed MaxSeq that follows it fails.
+func (c *commitThenErrorNoReseedStore) FailNext() {
+	c.failMaxSeq.Store(true)
+	c.failNext.Store(true)
+}
+
+func (c *commitThenErrorNoReseedStore) AppendMessage(ctx context.Context, m chat.Message) (int64, error) {
+	seq, err := c.Store.AppendMessage(ctx, m)
+	if err != nil {
+		return seq, err
+	}
+
+	if c.failNext.CompareAndSwap(true, false) {
+		return seq, errors.New("injected: AppendMessage error after commit")
+	}
+
+	return seq, nil
+}
+
+func (c *commitThenErrorNoReseedStore) MaxSeq(ctx context.Context, sessionID string) (int64, error) {
+	if c.failMaxSeq.CompareAndSwap(true, false) {
+		return 0, errors.New("injected: MaxSeq failure")
+	}
+
+	return c.Store.MaxSeq(ctx, sessionID)
+}
