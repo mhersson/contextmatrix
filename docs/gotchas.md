@@ -19,6 +19,24 @@
   collide with the shell-git rebase on `.git/index.lock`. `UnlockWrites` must
   call `Resume()` before releasing `writeMu`; reversing the order leaves the
   queue paused under a fresh write.
+- **Network git calls are bounded by `gitops.NetworkGitTimeout` (120 s), and
+  both `runGit`s set `cmd.WaitDelay`:** the gitsync `fetch`, and `Manager`
+  `pull --rebase`, `pull --ff-only`, and `push` each run under
+  `context.WithTimeout(ctx, gitops.NetworkGitTimeout)`, so a hung or
+  black-holed remote cannot wedge the board while `pullRebase` / `pushWithRetry`
+  hold `LockWrites`. Clone shares the same 120 s value at `cloneRepo`. Local
+  git calls (`rebase`, `isBehind`, `status`) are deliberately unwrapped - do not
+  add a timeout to them. A `context.WithTimeout` alone is not enough to release
+  the lock: both `runGit` implementations assign a `bytes.Buffer` to
+  `cmd.Stdout`/`cmd.Stderr`, so `os/exec` wires up OS pipes and `cmd.Run()`
+  blocks until every holder of the write end exits. Over HTTPS, `git fetch` /
+  `git push` spawn a `git-remote-https` child that inherits those pipes, and
+  `exec.CommandContext` kills only the direct `git` process on deadline - the
+  orphaned helper keeps the pipe open and `cmd.Run()` keeps blocking. Both
+  implementations set `cmd.WaitDelay = 3 * time.Second` so `Wait` returns even
+  with that grandchild alive. Do not remove the `WaitDelay`; a deadline without
+  it does not reliably release `writeMu`. Keep any new network git call inside
+  the `WithTimeout` wrapper and keep the `WaitDelay` set.
 - **Deferred git commits (`boards.git_deferred_commit`):** When
   `boards.git_deferred_commit: true` in `config.yaml`, agent mutations
   (heartbeats, log entries, intermediate updates) are batched and committed in a
