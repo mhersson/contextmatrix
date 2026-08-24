@@ -200,3 +200,72 @@ func (g *gatingStore) AppendMessage(ctx context.Context, m chat.Message) (int64,
 
 	return g.Store.AppendMessage(ctx, m)
 }
+
+// commitThenErrorStore wraps a real chat.Store and injects a one-shot error
+// on AppendMessage AFTER delegating to the inner store (which commits the
+// INSERT). Simulates the modernc.org/sqlite cancellation race where
+// sqlite3_step returns SQLITE_DONE but the driver overwrites the result
+// with ctx.Err(). Used by TestAppendMessage_CommittedButErroredDoesNotWedge.
+type commitThenErrorStore struct {
+	chat.Store
+	failNext atomic.Bool
+}
+
+func (c *commitThenErrorStore) FailNext() { c.failNext.Store(true) }
+
+func (c *commitThenErrorStore) AppendMessage(ctx context.Context, m chat.Message) (int64, error) {
+	seq, err := c.Store.AppendMessage(ctx, m)
+	if err != nil {
+		return seq, err
+	}
+
+	if c.failNext.CompareAndSwap(true, false) {
+		return seq, errors.New("injected: AppendMessage error after commit (simulated cancellation race)")
+	}
+
+	return seq, nil
+}
+
+// noopAppendStore wraps a real chat.Store and injects a one-shot error on
+// AppendMessage WITHOUT delegating to the inner store. Simulates a store
+// failure where the row is never persisted. Used by
+// TestAppendMessage_NotCommittedAppendReusesSeq.
+type noopAppendStore struct {
+	chat.Store
+	failNext atomic.Bool
+}
+
+func (n *noopAppendStore) FailNext() { n.failNext.Store(true) }
+
+func (n *noopAppendStore) AppendMessage(ctx context.Context, m chat.Message) (int64, error) {
+	if n.failNext.CompareAndSwap(true, false) {
+		return 0, errors.New("injected: AppendMessage error without commit")
+	}
+
+	return n.Store.AppendMessage(ctx, m)
+}
+
+// clearCommitThenErrorStore wraps a real chat.Store and injects a one-shot
+// error on ClearTranscriptAtomic AFTER delegating to the inner store (which
+// commits the divider). Simulates the modernc.org/sqlite cancellation race
+// for the divider write path. Used by
+// TestClearContext_DividerCommittedButErrored.
+type clearCommitThenErrorStore struct {
+	chat.Store
+	failNext atomic.Bool
+}
+
+func (c *clearCommitThenErrorStore) FailNext() { c.failNext.Store(true) }
+
+func (c *clearCommitThenErrorStore) ClearTranscriptAtomic(ctx context.Context, sessionID string, divider chat.Message) (int64, chat.Message, error) {
+	marked, msg, err := c.Store.ClearTranscriptAtomic(ctx, sessionID, divider)
+	if err != nil {
+		return marked, msg, err
+	}
+
+	if c.failNext.CompareAndSwap(true, false) {
+		return marked, msg, errors.New("injected: ClearTranscriptAtomic error after commit (simulated cancellation race)")
+	}
+
+	return marked, msg, nil
+}

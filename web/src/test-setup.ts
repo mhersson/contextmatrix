@@ -20,7 +20,15 @@ if (typeof globalThis.ResizeObserver === 'undefined') {
 // JSDOM window in that environment. Without this, any test that touches
 // localStorage (directly or via a hook like useRailSync, useChatFilterPrefs)
 // throws ReferenceError before the test body runs.
-if (typeof globalThis.localStorage === 'undefined') {
+//
+// On Node 25+, vitest passes --localstorage-file which makes globalThis
+// expose a broken localStorage stub that lacks getItem/setItem/removeItem.
+// Detect that case and replace it with the polyfill too.
+const needsLocalStoragePolyfill =
+  typeof globalThis.localStorage === 'undefined' ||
+  typeof globalThis.localStorage.getItem !== 'function';
+
+if (needsLocalStoragePolyfill) {
   const store = new Map<string, string>();
   const polyfill: Storage = {
     get length() {
