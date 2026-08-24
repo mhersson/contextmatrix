@@ -1007,12 +1007,33 @@ func (m *Manager) doClearContext(ctx context.Context, sessionID string) error {
 		RehydrationPhase: phase,
 	}
 
-	markedCount, msg, err := m.store.ClearTranscriptAtomic(ctx, sessionID, divider)
+	// Part 2: detach persistence from the caller context so a cancelled HTTP
+	// request cannot race a committed autocommit INSERT in modernc.org/sqlite.
+	persistCtx, persistCancel := context.WithTimeout(context.WithoutCancel(ctx), persistTimeout)
+	defer persistCancel()
+
+	markedCount, msg, err := m.store.ClearTranscriptAtomic(persistCtx, sessionID, divider)
 	if err != nil {
-		// Roll back the seq reservation so the next append re-uses it.
-		m.mu.Lock()
-		m.seqMap[sessionID]--
-		m.mu.Unlock()
+		// Part 1: reseed the counter from MAX(seq) on disk instead of a
+		// blind decrement. The per-session append lock is still held, so
+		// MAX(seq) on disk is authoritative. Unchanged from the
+		// appendMessageWithKind pattern above.
+		reseedCtx, reseedCancel := context.WithTimeout(context.WithoutCancel(ctx), reseedTimeout)
+		defer reseedCancel()
+
+		maxSeq, reseedErr := m.store.MaxSeq(reseedCtx, sessionID)
+		if reseedErr != nil {
+			// Leave the counter ahead of disk rather than decrement it
+			// onto a possibly-committed divider row - see the same
+			// fallback in appendMessageWithKind.
+			m.logger.Warn("chat: ClearContext failed and seq reseed failed; counter left ahead of disk",
+				"session_id", sessionID, "error", reseedErr)
+		} else {
+			m.mu.Lock()
+			m.seqMap[sessionID] = maxSeq
+			m.mu.Unlock()
+		}
+
 		sl.Unlock()
 
 		return fmt.Errorf("chat: ClearContext: atomic transcript update: %w", err)
@@ -1388,6 +1409,16 @@ func (m *Manager) rollbackContainer(_ context.Context, reason, sessID, container
 	}
 }
 
+// Timeouts for detached persistence and seq reseed on ambiguous failures.
+// Persistence runs detached from the caller's context so a cancelled HTTP
+// request cannot race a committed autocommit INSERT; reseed reads MAX(seq)
+// from the store to heal the in-memory counter when a write outcome is
+// uncertain.
+const (
+	reseedTimeout  = 10 * time.Second
+	persistTimeout = 30 * time.Second
+)
+
 // maxMessageBytes caps a single persisted transcript entry. Verbose tool
 // output (e.g. a tool_result containing a large file dump) would otherwise
 // grow the transcript store linearly without bound. The user-message path is
@@ -1515,16 +1546,40 @@ func (m *Manager) appendMessageWithKind(ctx context.Context, sessionID string, r
 		RehydrationPhase: phase,
 	}
 
-	if _, err := m.store.AppendMessage(ctx, msg); err != nil {
-		// The seq was claimed but the store write failed. Roll back the
-		// in-memory counter so the next append re-uses it; the UNIQUE
-		// index on (session_id, seq) would otherwise reject a future
-		// AppendMessage if the failed write somehow made it to disk. The
-		// per-session lock is still held so the rollback is sequenced
-		// before any other append on this session.
-		m.mu.Lock()
-		m.seqMap[sessionID]--
-		m.mu.Unlock()
+	// Part 2: detach persistence from the caller context so a cancelled HTTP
+	// request cannot race a committed autocommit INSERT in modernc.org/sqlite.
+	persistCtx, persistCancel := context.WithTimeout(context.WithoutCancel(ctx), persistTimeout)
+	defer persistCancel()
+
+	if _, err := m.store.AppendMessage(persistCtx, msg); err != nil {
+		// Part 1: reseed the counter from MAX(seq) on disk instead of a
+		// blind decrement. The per-session append lock is still held, so
+		// no concurrent writer for this session can have raced and
+		// MAX(seq) is authoritative. If the row committed despite the
+		// error, MAX(seq) returns N and the next append takes N+1; if it
+		// did not commit, MAX(seq) returns N-1 and the next append reuses
+		// N - matching the old decrement behaviour.
+		//
+		// Use a detached context - the caller's context may be exactly
+		// what failed the write.
+		reseedCtx, reseedCancel := context.WithTimeout(context.WithoutCancel(ctx), reseedTimeout)
+		defer reseedCancel()
+
+		maxSeq, reseedErr := m.store.MaxSeq(reseedCtx, sessionID)
+		if reseedErr != nil {
+			// Leave the counter where it is. Nothing depends on seq
+			// being contiguous - it is an ordering key and a row
+			// identity - so a counter ahead of disk only leaves a gap.
+			// A counter behind disk collides on UNIQUE(session_id, seq)
+			// and wedges every later append on this session, which is
+			// the failure mode this reseed exists to prevent.
+			m.logger.Warn("chat: append failed and seq reseed failed; counter left ahead of disk",
+				"session_id", sessionID, "error", reseedErr)
+		} else {
+			m.mu.Lock()
+			m.seqMap[sessionID] = maxSeq
+			m.mu.Unlock()
+		}
 
 		return Message{}, fmt.Errorf("chat: append: %w", err)
 	}

@@ -15,6 +15,8 @@ import (
 )
 
 func TestIdleReaper_EndsWarmIdlePastTTL(t *testing.T) {
+	t.Parallel()
+
 	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
@@ -29,7 +31,6 @@ func TestIdleReaper_EndsWarmIdlePastTTL(t *testing.T) {
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
 
 	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", CreatedBy: "x"})
 	require.NoError(t, err)
@@ -39,7 +40,24 @@ func TestIdleReaper_EndsWarmIdlePastTTL(t *testing.T) {
 	require.NoError(t, store.UpdateSession(ctx, sess))
 
 	reaper := chat.NewIdleReaper(mgr, 1*time.Millisecond)
-	go reaper.Run(ctx)
+
+	reaperDone := make(chan struct{})
+
+	go func() {
+		defer close(reaperDone)
+
+		reaper.Run(ctx)
+	}()
+
+	// Registered after the store's Close cleanup so it runs first (LIFO):
+	// the reaper ticks every 1ms, so it must be fully stopped before the
+	// store closes and before t.TempDir() is removed. Cancelling without
+	// waiting lets a tick touch the DB afterwards, recreating the -wal/-shm
+	// files and failing TempDir cleanup with "directory not empty".
+	t.Cleanup(func() {
+		cancel()
+		<-reaperDone
+	})
 
 	require.Eventually(t, func() bool {
 		got, err := store.GetSession(ctx, sess.ID)

@@ -20,7 +20,17 @@ if (typeof globalThis.ResizeObserver === 'undefined') {
 // JSDOM window in that environment. Without this, any test that touches
 // localStorage (directly or via a hook like useRailSync, useChatFilterPrefs)
 // throws ReferenceError before the test body runs.
-if (typeof globalThis.localStorage === 'undefined') {
+//
+// Node defines localStorage as an own accessor on globalThis whether or not
+// --localstorage-file was passed, so `typeof` alone is not a reliable probe
+// across versions: depending on the flag it yields either undefined or an
+// object with no Storage methods. Probe for getItem so both shapes are
+// replaced by the polyfill.
+const needsLocalStoragePolyfill =
+  typeof globalThis.localStorage === 'undefined' ||
+  typeof globalThis.localStorage.getItem !== 'function';
+
+if (needsLocalStoragePolyfill) {
   const store = new Map<string, string>();
   const polyfill: Storage = {
     get length() {
