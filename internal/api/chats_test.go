@@ -120,6 +120,11 @@ func newChatFixtureWithBackend(t *testing.T, opts fixtureOpts) (*http.ServeMux, 
 		IdleTTL:      time.Hour,
 		DefaultModel: defaultModel,
 	})
+	// Cancel the manager's consumer goroutines before the store and t.TempDir
+	// go away: they hold a checked-out sqlite connection that store.Close does
+	// not reach, which otherwise recreates the WAL sidecars mid-cleanup.
+	t.Cleanup(func() { _ = mgr.Close(context.Background()) })
+
 	hub := chat.NewSSEHub(64)
 	mux := http.NewServeMux()
 
