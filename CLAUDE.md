@@ -242,7 +242,7 @@ hand-create the stub; `make test` owns it.
 
 `web/node_modules` is gitignored, so a fresh clone or a container has none.
 `make build`, `make test-frontend` and `make lint-frontend` all shell into `web/`
-and fail on a missing binary until `make install-frontend` has run once. Run it
+and fail until `make install-frontend` has populated `web/node_modules`. Run it
 before the first build in any new checkout.
 
 `config.yaml.example` is a fully-commented template documenting every field, its
@@ -274,11 +274,11 @@ make lint      # clean
 make build     # builds (run make install-frontend first in a fresh checkout)
 ```
 
+- When `web/` changed: `make test-frontend` and `make lint-frontend` - both clean.
 - **Never commit without explicit user approval.** No exceptions.
 - Conventional commits: `type(scope): concise summary`. Always include a scope.
 - Body uses bullet points for the what and why - no long paragraphs.
 - Never reference plan phases, task numbers, or private card IDs in messages.
-- When `web/` changed: `make test-frontend` and `make lint-frontend` - both clean.
 
 ## Agent interaction rules
 
