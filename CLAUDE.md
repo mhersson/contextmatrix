@@ -223,10 +223,13 @@ Full detail and examples: `docs/data-model.md`.
 ## Running & verifying
 
 ```bash
-make build              # binary with embedded frontend
+make build              # binary with embedded frontend (needs make install-frontend first)
 make run                # runs on :8080
 make test               # all Go tests; stubs web/dist for the embed (run first in a fresh clone)
 make lint               # golangci-lint run (read-only, never rewrites the tree)
+make install-frontend   # npm install in web/; web/node_modules is gitignored and absent in fresh clones
+make test-frontend      # vitest run in web/
+make lint-frontend      # eslint in web/
 make test-integration   # real-binary harness, stub LLM, requires Docker
 cd web && npm run dev   # frontend hot reload, proxies /api → :8080
 make install-config     # copy config.yaml.example + workflow skills into your XDG config dir
@@ -237,6 +240,11 @@ clone** - it stubs `web/dist` for the `//go:embed all:dist` in `web/embed.go`,
 which otherwise fails with `pattern all:dist: no matching files found`. Don't
 hand-create the stub; `make test` owns it.
 
+`web/node_modules` is gitignored, so a fresh clone or a container has none.
+`make build`, `make test-frontend` and `make lint-frontend` all shell into `web/`
+and fail on a missing binary until `make install-frontend` has run once. Run it
+before the first build in any new checkout.
+
 `config.yaml.example` is a fully-commented template documenting every field, its
 default, and its `CONTEXTMATRIX_*` env override. `scripts/install.sh` copies it
 (and the workflow skills) into `$XDG_CONFIG_HOME/contextmatrix` (or
@@ -246,7 +254,8 @@ default, and its `CONTEXTMATRIX_*` env override. `scripts/install.sh` copies it
 
 - `make test` - clean, no regressions.
 - `make lint` - clean.
-- `make build` - builds.
+- `make build` - builds (run `make install-frontend` first in a fresh checkout).
+- When `web/` changed: `make test-frontend` and `make lint-frontend` - both clean.
 - API / frontend / MCP changes - exercise the real surface (curl an endpoint,
   drive the browser flow, invoke the tool). Agents verify via MCP tools, never
   curl (see below).
@@ -262,13 +271,14 @@ Run before every commit:
 go fix ./...   # adopt modern stdlib idioms
 make test      # clean
 make lint      # clean
-make build     # builds
+make build     # builds (run make install-frontend first in a fresh checkout)
 ```
 
 - **Never commit without explicit user approval.** No exceptions.
 - Conventional commits: `type(scope): concise summary`. Always include a scope.
 - Body uses bullet points for the what and why - no long paragraphs.
 - Never reference plan phases, task numbers, or private card IDs in messages.
+- When `web/` changed: `make test-frontend` and `make lint-frontend` - both clean.
 
 ## Agent interaction rules
 

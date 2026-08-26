@@ -14,6 +14,10 @@ run: build
 # The stub keeps //go:embed all:dist compilable on fresh clones (web/dist is
 # gitignored and only exists after a frontend build); nothing is committed,
 # and real builds overwrite dist via build-frontend.
+#
+# No -count=1: Go's cache keys on package inputs, so an edited package always
+# re-runs. The stateful targets (test-race, test-integration) carry it where a
+# cached pass would be wrong.
 test:
 	@mkdir -p web/dist && touch web/dist/.gitkeep
 	go test ./cmd/... ./internal/...
