@@ -83,47 +83,45 @@ func NewClient(baseURL, apiKey string) *Client {
 	}
 }
 
-// Trigger sends a trigger webhook to start a task.
+// Trigger sends a trigger webhook to start a task. Each attempt carries its
+// own fresh X-Correlation-ID, logged here with the card it belongs to, so the
+// id the agent admits is unique to the one launch it produced.
 func (c *Client) Trigger(ctx context.Context, p TriggerPayload) error {
-	correlationID, err := newCorrelationID()
-	if err != nil {
-		return err
-	}
-
-	ctxlog.Logger(ctx).Info("backend trigger webhook",
-		"correlation_id", correlationID,
-		"project", p.Project,
-		"card_id", p.CardID,
-	)
-
-	return c.send(ctx, c.baseURL+"/trigger", p, correlationID)
+	return c.send(ctx, c.baseURL+"/trigger", p, func(correlationID string, attempt int) {
+		ctxlog.Logger(ctx).Info("backend trigger webhook",
+			"correlation_id", correlationID,
+			"attempt", attempt,
+			"project", p.Project,
+			"card_id", p.CardID,
+		)
+	})
 }
 
 // Kill sends a kill webhook to stop a specific task.
 func (c *Client) Kill(ctx context.Context, p KillPayload) error {
-	return c.send(ctx, c.baseURL+"/kill", p, "")
+	return c.send(ctx, c.baseURL+"/kill", p, nil)
 }
 
 // StopAll sends a stop-all webhook to stop all tasks.
 func (c *Client) StopAll(ctx context.Context, p StopAllPayload) error {
-	return c.send(ctx, c.baseURL+"/stop-all", p, "")
+	return c.send(ctx, c.baseURL+"/stop-all", p, nil)
 }
 
 // Message sends a human message to a running interactive task.
 func (c *Client) Message(ctx context.Context, p MessagePayload) error {
-	return c.send(ctx, c.baseURL+"/message", p, "")
+	return c.send(ctx, c.baseURL+"/message", p, nil)
 }
 
 // Promote sends a promote webhook to signal that an interactive task may proceed.
 func (c *Client) Promote(ctx context.Context, p PromotePayload) error {
-	return c.send(ctx, c.baseURL+"/promote", p, "")
+	return c.send(ctx, c.baseURL+"/promote", p, nil)
 }
 
 // EndSession sends an end-session webhook so the backend closes the worker
 // container's stdin; claude receives EOF and exits, ending the interactive
 // session.
 func (c *Client) EndSession(ctx context.Context, p EndSessionPayload) error {
-	return c.send(ctx, c.baseURL+"/end-session", p, "")
+	return c.send(ctx, c.baseURL+"/end-session", p, nil)
 }
 
 // HealthInfo is the parsed shape of the backend's /health response.
@@ -266,10 +264,12 @@ func requestURI(rawURL string) (string, error) {
 }
 
 // newCorrelationID returns a fresh random 32-character hex id used to
-// correlate one trigger webhook with the agent run it causes. The receiver
-// keys per-run state by the X-Correlation-ID header, so the id must be unique
-// per Trigger call - never derived from project or card, which would collide
-// across a re-trigger of the same card.
+// correlate one trigger attempt with the agent run it causes. The receiver
+// keys per-run state (log-redaction sessions, container labels) by the
+// X-Correlation-ID header, so the id must be unique per launch the agent
+// could admit: never derived from project or card, and never shared between
+// retry attempts - a timed-out attempt may have started a run, and its retry
+// can be admitted as a second launch, which must not share the first one's id.
 func newCorrelationID() (string, error) {
 	var buf [16]byte
 	if _, err := crand.Read(buf[:]); err != nil {
@@ -279,9 +279,11 @@ func newCorrelationID() (string, error) {
 	return hex.EncodeToString(buf[:]), nil
 }
 
-// send marshals payload, signs it, and POSTs to rawURL with retries. An empty
-// correlationID suppresses the X-Correlation-ID header (non-trigger calls).
-func (c *Client) send(ctx context.Context, rawURL string, payload any, correlationID string) error {
+// send marshals payload, signs it, and POSTs to rawURL with retries. A non-nil
+// correlate makes every attempt carry its own fresh X-Correlation-ID and
+// receives each (id, attempt) pair for logging; nil suppresses the header
+// (non-trigger calls).
+func (c *Client) send(ctx context.Context, rawURL string, payload any, correlate func(id string, attempt int)) error {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("marshal payload: %w", err)
@@ -303,6 +305,17 @@ func (c *Client) send(ctx context.Context, rawURL string, payload any, correlati
 		prevTS = tsVal
 		ts := strconv.FormatInt(tsVal, 10)
 		signature := protocol.SignPayloadWithTimestamp(c.apiKey, http.MethodPost, uri, body, ts)
+
+		correlationID := ""
+
+		if correlate != nil {
+			correlationID, err = newCorrelationID()
+			if err != nil {
+				return err
+			}
+
+			correlate(correlationID, attempt+1)
+		}
 
 		lastErr = c.doRequest(ctx, rawURL, body, signature, ts, correlationID)
 		if lastErr == nil {

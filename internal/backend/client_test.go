@@ -815,10 +815,13 @@ func TestClient_Trigger_CorrelationIDUniquePerCall(t *testing.T) {
 		"two triggers of the same card must carry different correlation ids")
 }
 
-// TestClient_Trigger_CorrelationIDStableAcrossRetries verifies that the
-// correlation id is generated once per Trigger call and reused across retry
-// attempts, so all attempts of one trigger share the id.
-func TestClient_Trigger_CorrelationIDStableAcrossRetries(t *testing.T) {
+// TestClient_Trigger_CorrelationIDFreshPerAttempt verifies that every retry
+// attempt of one Trigger call carries its own correlation id: a timed-out
+// attempt may have started a run, and a retry the agent admits as a second
+// launch must never share the first launch's id - shared ids would collide
+// the per-run state (redaction sessions, container labels) the agent keys
+// by this header.
+func TestClient_Trigger_CorrelationIDFreshPerAttempt(t *testing.T) {
 	origBackoff := BackoffBase
 	BackoffBase = time.Millisecond
 
@@ -850,11 +853,17 @@ func TestClient_Trigger_CorrelationIDStableAcrossRetries(t *testing.T) {
 	_ = c.Trigger(ctx, TriggerPayload{CardID: "TEST-001", Project: "p"})
 
 	require.Len(t, captured, maxRetries, "should have made all retry attempts")
-	assert.NotEmpty(t, captured[0])
 
-	for i, id := range captured[1:] {
-		assert.Equal(t, captured[0], id,
-			"attempt %d must reuse the correlation id of the first attempt", i+2)
+	seen := make(map[string]int, len(captured))
+
+	for i, id := range captured {
+		assert.NotEmpty(t, id, "attempt %d must carry a correlation id", i+1)
+
+		if prev, dup := seen[id]; dup {
+			t.Errorf("attempts %d and %d share correlation id %q; every attempt must mint its own", prev+1, i+1, id)
+		}
+
+		seen[id] = i
 	}
 }
 
