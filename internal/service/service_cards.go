@@ -339,7 +339,45 @@ func (s *CardService) ListCards(ctx context.Context, project string, filter stor
 		s.enrichDependenciesMet(ctx, card)
 	}
 
+	s.enrichPlaybookMembership(ctx, project, cards...)
+
 	return cards, nil
+}
+
+// enrichPlaybookMembership fills InPlaybooks on each card from the playbook
+// store. Best-effort: membership is presentation metadata, so a missing
+// lister or a listing failure leaves the field empty rather than failing
+// the read.
+func (s *CardService) enrichPlaybookMembership(ctx context.Context, project string, cards ...*board.Card) {
+	if s.playbooks == nil || len(cards) == 0 {
+		return
+	}
+
+	playbooks, err := s.playbooks.List(ctx)
+	if err != nil {
+		ctxlog.Logger(ctx).Warn("playbook membership enrichment skipped", "error", err)
+
+		return
+	}
+
+	membership := make(map[string][]string)
+
+	for _, p := range playbooks {
+		seen := make(map[string]bool)
+
+		for _, e := range p.Entries {
+			if e.Type != board.EntryTypeCard || e.Project != project || seen[e.Card] {
+				continue
+			}
+
+			seen[e.Card] = true
+			membership[e.Card] = append(membership[e.Card], p.ID)
+		}
+	}
+
+	for _, card := range cards {
+		card.InPlaybooks = membership[card.ID]
+	}
 }
 
 // PageOpts controls cursor-based pagination for card listings.
@@ -460,6 +498,8 @@ func (s *CardService) ListCardsPage(
 		s.enrichDependenciesMet(ctx, card)
 	}
 
+	s.enrichPlaybookMembership(ctx, project, result.Items...)
+
 	// Populate Total only on the first page. Derived from the UN-filtered
 	// project size so it survives filter changes between pages; also lets
 	// clients display "showing X of Y" while filtering.
@@ -486,6 +526,7 @@ func (s *CardService) GetCard(ctx context.Context, project, id string) (*board.C
 
 	s.enrichDependenciesMet(ctx, card)
 	s.enrichSubtaskCost(ctx, card)
+	s.enrichPlaybookMembership(ctx, project, card)
 
 	return card, nil
 }

@@ -1,7 +1,6 @@
 import type { Card } from '../../types';
 import { gitHubIcon } from '../icons';
-import { chipTint, priorityColors, workerStatusStyles, shortCardId, typeColors } from '../../lib/chip';
-import { avatarGradient } from '../../utils/colorHash';
+import { chipTint, typeColors } from '../../lib/chip';
 import { useOptionalAuth } from '../../hooks/useAuth';
 import { useUsers } from '../../hooks/useUsers';
 import { userInitials, userLabel } from '../../lib/users';
@@ -9,17 +8,19 @@ import { userInitials, userLabel } from '../../lib/users';
 export interface CardChipRowProps {
   card: Card;
   compact?: boolean;
-  onParentClick?: (cardId: string) => void;
 }
 
 /**
  * Renders the chip row for a board card.
  *
- * compact=true  - collapsed card header: type initial, source badges, parent badge.
- * compact=false - expanded card footer: priority dot, parent, agent, deps, autonomous,
- *                 best-of-n, worker status, branch, labels.
+ * compact=true  - collapsed card header: type initial and source badges.
+ * compact=false - expanded card footer: the assignee initials circle only,
+ *                 so an assigned card is spottable at a glance. Renders
+ *                 nothing when unassigned - every other signal lives in the
+ *                 header icon cluster (CardSignalIcons) or the open card
+ *                 panel.
  */
-export function CardChipRow({ card, compact = false, onParentClick }: CardChipRowProps) {
+export function CardChipRow({ card, compact = false }: CardChipRowProps) {
   // Called unconditionally before the compact early return (rules of hooks).
   const auth = useOptionalAuth();
   const users = useUsers(auth?.mode === 'multi' && !!card.assignee);
@@ -43,168 +44,29 @@ export function CardChipRow({ card, compact = false, onParentClick }: CardChipRo
             unvetted
           </span>
         )}
-        {card.parent && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onParentClick?.(card.parent!); }}
-            className="chip-pill flex-shrink-0 hover:opacity-80 transition-opacity"
-            style={{ background: 'var(--bg-blue)', color: 'var(--aqua)' }}
-            title={`Parent: ${card.parent}`}
-            aria-label={`Navigate to parent ${card.parent}`}
-          >
-            <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-            </svg>
-            <span style={{ fontFamily: 'var(--font-mono)' }}>{shortCardId(card.parent)}</span>
-          </button>
-        )}
       </>
     );
   }
 
+  // Assignee circle - hidden outside multi mode (no logins, no ownership
+  // semantics to display) even if a hand-edited board file sets one.
+  const assignee = card.assignee;
+  if (auth?.mode !== 'multi' || !assignee) return null;
+
+  const rosterUser = users.find((u) => u.username === assignee);
+  const label = rosterUser ? userLabel(rosterUser) : assignee;
+
   return (
     <div className="flex items-center flex-wrap gap-2">
-      {/* Priority dot */}
       <span
-        className="w-2 h-2 rounded-full"
-        style={{ backgroundColor: priorityColors[card.priority] || 'var(--grey1)' }}
-        title={card.priority}
-        aria-label={`Priority: ${card.priority}`}
-      />
-
-      {/* Parent ID badge */}
-      {card.parent && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onParentClick?.(card.parent!); }}
-          className="chip-pill hover:opacity-80 transition-opacity"
-          style={chipTint('var(--aqua)')}
-          title={`Parent: ${card.parent}`}
-          aria-label={`Navigate to parent ${card.parent}`}
-        >
-          <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-          </svg>
-          <span style={{ fontFamily: 'var(--font-mono)' }}>{shortCardId(card.parent)}</span>
-        </button>
-      )}
-
-      {/* Agent indicator */}
-      {card.assigned_agent && (
-        (() => {
-          const grad = avatarGradient(card.assigned_agent);
-          return (
-            <span
-              className="chip-pill truncate max-w-[140px] inline-flex items-center gap-1.5 pr-2"
-              style={{ backgroundColor: 'color-mix(in srgb, var(--aqua) 16%, transparent)', color: 'var(--aqua)' }}
-              title={card.assigned_agent}
-            >
-              <span
-                className="agent-avatar agent-avatar--online"
-                style={{ '--av-from': grad.from, '--av-to': grad.to } as React.CSSProperties}
-              />
-              <span className="truncate">{card.assigned_agent.replace(/^claude-/, '').replace(/^human:/, '')}</span>
-            </span>
-          );
-        })()
-      )}
-
-      {/* Assignee circle - hidden outside multi mode (no logins, no ownership
-          semantics to display) even if a hand-edited board file sets one. */}
-      {auth?.mode === 'multi' && card.assignee && (() => {
-        const rosterUser = users.find((u) => u.username === card.assignee);
-        const label = rosterUser ? userLabel(rosterUser) : card.assignee;
-        return (
-          <span
-            className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-semibold flex-shrink-0"
-            style={{ backgroundColor: 'var(--bg-blue)', color: 'var(--blue)' }}
-            title={`Assignee: ${label}`}
-            role="img"
-            aria-label={`Assignee: ${label}`}
-          >
-            {userInitials(rosterUser?.display_name, card.assignee)}
-          </span>
-        );
-      })()}
-
-      {/* Dependency status */}
-      {card.depends_on && card.depends_on.length > 0 && (
-        <span
-          className="chip-pill"
-          style={chipTint(card.dependencies_met ? 'var(--green)' : 'var(--red)')}
-          title={card.dependencies_met ? 'All dependencies met' : 'Blocked by dependencies'}
-        >
-          {card.dependencies_met ? 'deps met' : 'blocked'}
-        </span>
-      )}
-
-      {/* Autonomous badge */}
-      {card.autonomous && (
-        <span
-          className="chip-pill"
-          style={chipTint('var(--purple)')}
-          title="Autonomous mode"
-        >
-          auto
-        </span>
-      )}
-
-      {/* Best of N badge - suppressed when the card's mob session covers the
-          execute phase: mob coding takes priority and the race will not run. */}
-      {card.best_of_n != null && card.best_of_n >= 2 &&
-        !((card.mob_participants ?? 0) >= 2 && (card.mob_phases ?? []).includes('execute')) && (
-        <span
-          className="chip-pill"
-          style={chipTint('var(--purple)')}
-          title="Best-of-N: multiple candidates judged, best one adopted"
-        >
-          Best of {card.best_of_n}
-        </span>
-      )}
-
-      {/* Mob badge */}
-      {card.mob_participants != null && card.mob_participants >= 2 && (
-        <span
-          className="chip-pill"
-          style={chipTint('var(--purple)')}
-          title="Mob session: multiple agents discuss the selected phases"
-        >
-          mob {card.mob_participants}
-        </span>
-      )}
-
-      {/* Worker status badge */}
-      {card.worker_status && workerStatusStyles[card.worker_status] && (
-        <span
-          className={`chip-pill${card.worker_status === 'running' ? ' animate-pulse' : ''}`}
-          style={{
-            backgroundColor: workerStatusStyles[card.worker_status].bg,
-            color: workerStatusStyles[card.worker_status].text,
-          }}
-          title={`Worker: ${card.worker_status}`}
-          aria-label={`Worker status: ${card.worker_status}`}
-        >
-          {card.worker_status}
-        </span>
-      )}
-
-      {/* Branch badge - branch_name exists on every card since names are
-          generated at create, so gate on run activity to keep the chip
-          meaning "work exists on this branch". */}
-      {card.branch_name && (card.worker_status || card.state !== 'todo') && (
-        <span
-          className="chip-pill truncate max-w-[120px]"
-          style={chipTint('var(--green)')}
-          title={`Branch: ${card.branch_name}`}
-        >
-          {card.branch_name.split('/').pop()}
-        </span>
-      )}
-
-      {/* Labels */}
-      {card.labels?.map((label) => (
-        <span key={label} className="chip-pill" style={chipTint('var(--purple)')}>
-          {label}
-        </span>
-      ))}
+        className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-semibold flex-shrink-0"
+        style={{ backgroundColor: 'var(--bg-blue)', color: 'var(--blue)' }}
+        title={`Assignee: ${label}`}
+        role="img"
+        aria-label={`Assignee: ${label}`}
+      >
+        {userInitials(rosterUser?.display_name, assignee)}
+      </span>
     </div>
   );
 }

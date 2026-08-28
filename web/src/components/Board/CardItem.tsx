@@ -2,9 +2,11 @@ import { memo, useEffect, useRef, useCallback, useState } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import type { Card } from '../../types';
-import { chipTint, typeColors } from '../../lib/chip';
+import { chipTint, priorityColors, typeColors } from '../../lib/chip';
+import { cardSignals, HEADER_SIGNAL_CAP } from '../../lib/cardSignals';
 import { gitHubIcon } from '../icons';
 import { CardChipRow } from './CardChipRow';
+import { CardSignalIcons } from './CardSignalIcons';
 import { SubtaskStrip, SubtaskPeekList } from './SubtaskStrip';
 import { hasUnmetDeps } from '../../lib/chip';
 
@@ -14,7 +16,7 @@ interface CardItemProps {
   flashCardId?: string | null;
   isCollapsed?: boolean;
   onToggleCollapse?: (cardId: string) => void;
-  /** Opens a card by id in the panel; also used by subtask peek rows. */
+  /** Opens a card by id in the panel; used by the subtask peek rows. */
   onParentClick?: (cardId: string) => void;
   subtasks?: Card[];
   /**
@@ -74,9 +76,11 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
 
   const isAgentActive = card.assigned_agent && card.state !== 'stalled';
   const isStalled = card.state === 'stalled';
+  const isWorkerFailed = card.worker_status === 'failed';
   const isNotPlanned = card.state === 'not_planned';
 
-  const borderClass = isStalled
+  // Status red (stalled or failed worker) wins over the claim styling.
+  const borderClass = isStalled || isWorkerFailed
     ? 'border-l-[3px] border-l-[var(--red)]'
     : isNotPlanned
       ? 'border-l-[3px] border-l-[var(--bg4)]'
@@ -91,12 +95,12 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
     ? (hasUnmetDeps(card) ? 'card-orphan-tint card-orphan-tint--dep-blocked' : 'card-orphan-tint')
     : '';
 
-  const strip = hasSubtasks ? (
+  const strip = hasSubtasks && !isCollapsed ? (
     <SubtaskStrip
       subtasks={subtasks!}
       expanded={peekOpen}
       onToggle={() => setPeekChoice(!peekOpen)}
-      tall={!isCollapsed}
+      tall
     />
   ) : null;
 
@@ -104,13 +108,23 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
     <SubtaskPeekList subtasks={subtasks!} onOpen={(id) => onParentClick?.(id)} />
   ) : null;
 
-  const stalledBg: React.CSSProperties | undefined = isStalled ? {
+  const statusBg: React.CSSProperties | undefined = isStalled || isWorkerFailed ? {
     background: 'linear-gradient(90deg, color-mix(in oklab, var(--bg-red) 75%, transparent) 0%, var(--bg1) 50%)',
   } : undefined;
 
   const activeBg: React.CSSProperties | undefined = isAgentActive ? {
     background: 'linear-gradient(90deg, color-mix(in oklab, var(--bg-aqua) 60%, transparent) 0%, var(--bg1) 40%)',
   } : undefined;
+
+  const priorityDot = (size: number) => (
+    <span
+      className="rounded-full flex-shrink-0"
+      style={{ width: size, height: size, backgroundColor: priorityColors[card.priority] || 'var(--grey1)' }}
+      title={`Priority: ${card.priority}`}
+      role="img"
+      aria-label={`Priority: ${card.priority}`}
+    />
+  );
 
   const collapseButton = onToggleCollapse ? (
     <button
@@ -145,7 +159,7 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
     return (
       <div
         ref={setRefs}
-        style={{ ...style, ...(stalledBg ?? activeBg) }}
+        style={{ ...style, ...(statusBg ?? activeBg) }}
         {...listeners}
         {...attributes}
         onClick={onClick}
@@ -161,12 +175,14 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
           ${isFlashing ? 'animate-card-flash' : ''}
         `}
       >
-        {/* Collapsed header: ID, type badge, parent badge, mini strip, and toggle button */}
+        {/* Collapsed header: priority dot, ID, type badge, title, and toggle
+            button. No strip and no signal icons - status reads from the
+            border/wash; everything else waits for the expanded view. */}
         <div className="flex items-center gap-2">
+          {priorityDot(6)}
           <span className="flex-shrink-0" style={cardIdStyle}>{card.id}</span>
-          <CardChipRow card={card} compact onParentClick={onParentClick} />
+          <CardChipRow card={card} compact />
           <span className="text-xs text-[var(--fg)] truncate min-w-0 flex-1">{card.title}</span>
-          {strip && <span className="w-16 flex-shrink-0">{strip}</span>}
           {collapseButton}
         </div>
         {peekList}
@@ -177,7 +193,7 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
   return (
     <div
       ref={setRefs}
-      style={{ ...style, ...(stalledBg ?? activeBg) }}
+      style={{ ...style, ...(statusBg ?? activeBg) }}
       {...listeners}
       {...attributes}
       onClick={onClick}
@@ -193,13 +209,30 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
         ${isFlashing ? 'animate-card-flash' : ''}
       `}
     >
-      {/* Header: ID, Type badge, and collapse toggle */}
+      {/* Header: priority dot, ID, type badge, signal icons, collapse toggle.
+          A crowded cluster (HEADER_SIGNAL_CAP+ signals) collapses the type
+          pill to its initial so the icons keep fitting in the header. */}
       <div className="flex items-center justify-between mb-2">
-        <span style={cardIdStyle}>{card.id}</span>
+        <span className="flex items-center gap-1.5 min-w-0">
+          {priorityDot(7)}
+          <span style={cardIdStyle}>{card.id}</span>
+        </span>
         <div className="flex items-center gap-1.5">
-          <span className="chip-pill" style={chipTint(typeColors[card.type] || 'var(--grey1)')}>
-            {card.type}
-          </span>
+          {cardSignals(card).length >= HEADER_SIGNAL_CAP ? (
+            <span
+              className="chip-pill"
+              style={chipTint(typeColors[card.type] || 'var(--grey1)')}
+              title={card.type}
+              aria-label={`Type: ${card.type}`}
+            >
+              {card.type.charAt(0)}
+            </span>
+          ) : (
+            <span className="chip-pill" style={chipTint(typeColors[card.type] || 'var(--grey1)')}>
+              {card.type}
+            </span>
+          )}
+          <CardSignalIcons card={card} />
           {card.source?.system === 'github' && gitHubIcon}
           {card.source && !card.vetted && (
             <span className="chip-pill flex-shrink-0" style={chipTint('var(--yellow)')}>
@@ -227,8 +260,8 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
       {/* Subtask phase strip: one segment per subtask, click to peek */}
       {strip}
 
-      {/* Footer: Priority, Parent, Agent, Labels */}
-      <CardChipRow card={card} onParentClick={onParentClick} />
+      {/* Footer: assignee, deps, best-of-n - omitted entirely when empty */}
+      <CardChipRow card={card} />
 
       {peekList}
     </div>

@@ -261,6 +261,7 @@ func main() {
 	default:
 		pbSvc = service.NewPlaybookService(pbStore, store, bus, lockMgr.Clock(), cfg.Boards.GitAutoCommit)
 		pbSvc.SetCommitQueue(commitQueue)
+		svc.SetPlaybookLister(pbStore)
 
 		slog.Info("playbook service initialized")
 	}

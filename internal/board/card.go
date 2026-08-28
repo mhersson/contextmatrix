@@ -91,11 +91,14 @@ type Card struct {
 	// SubtaskCostHasEstimates reports whether any direct subtask's cost
 	// includes rate-table-estimated buckets. Computed on read alongside
 	// SubtaskCostUSD, never persisted.
-	SubtaskCostHasEstimates bool            `yaml:"-" json:"subtask_cost_has_estimates,omitempty"`
-	Created                 time.Time       `yaml:"created"                    json:"created"`
-	Updated                 time.Time       `yaml:"updated"                    json:"updated"`
-	ActivityLog             []ActivityEntry `yaml:"activity_log,omitempty"     json:"activity_log,omitempty"`
-	Body                    string          `yaml:"-"                          json:"body"`
+	SubtaskCostHasEstimates bool `yaml:"-" json:"subtask_cost_has_estimates,omitempty"`
+	// InPlaybooks lists the IDs of playbooks holding a card entry for this
+	// card. Computed on read, never persisted.
+	InPlaybooks []string        `yaml:"-" json:"in_playbooks,omitempty"`
+	Created     time.Time       `yaml:"created"                    json:"created"`
+	Updated     time.Time       `yaml:"updated"                    json:"updated"`
+	ActivityLog []ActivityEntry `yaml:"activity_log,omitempty"     json:"activity_log,omitempty"`
+	Body        string          `yaml:"-"                          json:"body"`
 }
 
 // ActivityEntry represents a log entry from an agent working on a card.

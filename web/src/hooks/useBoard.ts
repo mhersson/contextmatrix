@@ -186,6 +186,14 @@ export function useBoard(
         return;
       }
 
+      // Playbook membership is annotated onto cards at read time, so any
+      // playbook change can flip a card's playbook icon. Playbook events are
+      // global (no project field); refetch the board.
+      if (event.type.startsWith('playbook.')) {
+        fetchData();
+        return;
+      }
+
       // Handle project config updates - reload to get new transitions
       if (event.type === 'project.updated' && event.project === project) {
         api.getProject(project).then(setConfig).catch((err) => {
@@ -249,18 +257,20 @@ export function useBoard(
 
   useEffect(() => {
     // Board reacts to card mutations, worker lifecycle, sync pulls that may
-    // bring new card data, and project config updates (to pick up new
-    // transitions). We register one subscriber per pattern instead of a
+    // bring new card data, playbook changes (membership icons), and project
+    // config updates (to pick up new transitions). We register one subscriber per pattern instead of a
     // wildcard so unrelated events (e.g. other projects' activity) do not
     // reach the handler.
     const unsubCard = subscribe('card.*', handleEvent);
     const unsubWorker = subscribe('worker.*', handleEvent);
     const unsubSync = subscribe('sync.*', handleEvent);
+    const unsubPlaybook = subscribe('playbook.*', handleEvent);
     const unsubProjectUpdated = subscribe('project.updated', handleEvent);
     return () => {
       unsubCard();
       unsubWorker();
       unsubSync();
+      unsubPlaybook();
       unsubProjectUpdated();
     };
   }, [subscribe, handleEvent]);

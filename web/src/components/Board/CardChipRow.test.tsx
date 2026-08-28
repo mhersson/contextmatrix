@@ -30,35 +30,54 @@ const baseCard: Card = {
   body: '',
 };
 
-describe('CardChipRow - mob badge', () => {
-  it('shows "mob N" when mob_participants >= 2', () => {
-    render(<CardChipRow card={{ ...baseCard, mob_participants: 3 }} />);
-    expect(screen.getByText('mob 3')).toBeInTheDocument();
+describe('CardChipRow - declutter: footer omitted unless assigned', () => {
+  it('renders nothing for a card whose signals all moved to icons or the panel', () => {
+    const { container } = render(
+      <CardChipRow
+        card={{
+          ...baseCard,
+          labels: ['model-selection', 'observability'],
+          branch_name: 'test-001/chip-row-card',
+          worker_status: 'running',
+          mob_participants: 3,
+          best_of_n: 3,
+          autonomous: true,
+          assigned_agent: 'claude-sonnet-worker',
+          depends_on: ['TEST-009'],
+        }}
+      />,
+    );
+    expect(container).toBeEmptyDOMElement();
   });
 
-  it('hides the badge when mob is off or undefined', () => {
-    const { rerender } = render(<CardChipRow card={baseCard} />);
-    expect(screen.queryByText(/mob/)).not.toBeInTheDocument();
-
-    rerender(<CardChipRow card={{ ...baseCard, mob_participants: 0 }} />);
-    expect(screen.queryByText(/mob/)).not.toBeInTheDocument();
+  it('never prints the agent name', () => {
+    authState.current = { mode: 'multi' };
+    render(
+      <CardChipRow
+        card={{ ...baseCard, assigned_agent: 'claude-sonnet-worker', assignee: 'alice' }}
+      />,
+    );
+    expect(screen.queryByText(/sonnet-worker/)).not.toBeInTheDocument();
   });
-});
 
-describe('CardChipRow - branch badge gating', () => {
-  it('hides the branch chip on a fresh todo card without run activity', () => {
-    render(<CardChipRow card={{ ...baseCard, branch_name: 'test-001/chip-row-card' }} />);
+  it('never renders label, branch, deps, or best-of-n pills', () => {
+    render(
+      <CardChipRow
+        card={{
+          ...baseCard,
+          labels: ['observability'],
+          branch_name: 'test-001/chip-row-card',
+          state: 'in_progress',
+          depends_on: ['TEST-009'],
+          dependencies_met: true,
+          best_of_n: 3,
+        }}
+      />,
+    );
+    expect(screen.queryByText('observability')).not.toBeInTheDocument();
     expect(screen.queryByText('chip-row-card')).not.toBeInTheDocument();
-  });
-
-  it('shows the branch chip once a worker has touched the card', () => {
-    render(<CardChipRow card={{ ...baseCard, branch_name: 'test-001/chip-row-card', worker_status: 'running' }} />);
-    expect(screen.getByText('chip-row-card')).toBeInTheDocument();
-  });
-
-  it('shows the branch chip when the card has left todo', () => {
-    render(<CardChipRow card={{ ...baseCard, branch_name: 'test-001/chip-row-card', state: 'in_progress' }} />);
-    expect(screen.getByText('chip-row-card')).toBeInTheDocument();
+    expect(screen.queryByText('deps met')).not.toBeInTheDocument();
+    expect(screen.queryByText('Best of 3')).not.toBeInTheDocument();
   });
 });
 
@@ -125,23 +144,10 @@ describe('CardChipRow - assignee chip', () => {
   });
 });
 
-describe('CardChipRow - Best of N vs mob execute', () => {
-  it('suppresses the Best of N chip when mob execute is active', () => {
-    render(
-      <CardChipRow
-        card={{ ...baseCard, best_of_n: 3, mob_participants: 3, mob_phases: ['plan', 'execute'] }}
-      />,
-    );
-    expect(screen.queryByText('Best of 3')).not.toBeInTheDocument();
-    expect(screen.getByText('mob 3')).toBeInTheDocument();
-  });
-
-  it('keeps the Best of N chip when the mob skips execute', () => {
-    render(
-      <CardChipRow
-        card={{ ...baseCard, best_of_n: 3, mob_participants: 3, mob_phases: ['plan', 'review'] }}
-      />,
-    );
-    expect(screen.getByText('Best of 3')).toBeInTheDocument();
+describe('CardChipRow - compact mode', () => {
+  it('shows the type initial and no parent badge', () => {
+    render(<CardChipRow card={{ ...baseCard, type: 'bug', parent: 'TEST-000' }} compact />);
+    expect(screen.getByLabelText('Type: bug')).toBeInTheDocument();
+    expect(screen.queryByTitle(/^Parent:/)).not.toBeInTheDocument();
   });
 });

@@ -61,6 +61,8 @@ export interface Card {
   subtask_cost_usd?: number;
   /** True when any direct subtask's cost includes rate-table-estimated buckets. */
   subtask_cost_has_estimates?: boolean;
+  /** IDs of playbooks holding a card entry for this card. Computed on read. */
+  in_playbooks?: string[];
   body: string;
   // skills uses three-state semantics (matching the backend):
   //   undefined / null - use project default (or full set if project default is null)
