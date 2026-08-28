@@ -268,11 +268,15 @@ permissions, or they report `TASK_BLOCKED` (see `docs/agent-workflow.md`).
 Run before every commit:
 
 ```bash
-go fix ./...   # adopt modern stdlib idioms
 make test      # clean
 make lint      # clean
 make build     # builds (run make install-frontend first in a fresh checkout)
 ```
+
+Never run `go fix ./...` here: a Go toolchain newer than go.mod rewrites
+idioms (errors.AsType, WaitGroup.Go, strings.SplitSeq) that the module's
+declared version cannot build in CI. Adopting new idioms is a deliberate,
+separate change: bump go.mod first, then run go fix as its own commit.
 
 - When `web/` changed: `make test-frontend` and `make lint-frontend` - both clean.
 - **Never commit without explicit user approval.** No exceptions.
