@@ -41,6 +41,7 @@ const (
 	WorkerStarted   EventType = "worker.started"
 	WorkerFailed    EventType = "worker.failed"
 	WorkerKilled    EventType = "worker.killed"
+	WorkerParked    EventType = "worker.parked"
 )
 
 // Event represents a board event that can be published to subscribers.

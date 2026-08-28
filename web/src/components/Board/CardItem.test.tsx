@@ -122,6 +122,21 @@ describe('CardItem - declutter', () => {
     expect(root.className).not.toContain('animate-pulse-border');
   });
 
+  it('a parked card gets the yellow status border', () => {
+    const card = { ...baseCard, state: 'review', worker_status: 'parked' as const };
+    render(<CardItem card={card} />);
+    const root = screen.getByLabelText(`Card ${card.id}: ${card.title}`);
+    expect(root.className).toContain('border-l-[var(--yellow)]');
+    expect(root.className).not.toContain('animate-pulse-border');
+  });
+
+  it('failed red beats parked yellow', () => {
+    const card = { ...baseCard, state: 'stalled', worker_status: 'parked' as const };
+    render(<CardItem card={card} />);
+    const root = screen.getByLabelText(`Card ${card.id}: ${card.title}`);
+    expect(root.className).toContain('border-l-[var(--red)]');
+  });
+
   it('keeps the failed status border when collapsed', () => {
     const card = { ...baseCard, worker_status: 'failed' as const };
     render(<CardItem card={card} isCollapsed onToggleCollapse={vi.fn()} />);

@@ -91,4 +91,5 @@ export const workerStatusStyles: Record<WorkerStatus, { bg: string; text: string
   running: { bg: 'var(--bg-blue)', text: 'var(--aqua)', label: 'Worker running' },
   failed: { bg: 'var(--bg-red)', text: 'var(--red)', label: 'Worker failed' },
   killed: { bg: 'var(--bg4)', text: 'var(--grey1)', label: 'Worker killed' },
+  parked: { bg: 'var(--bg-yellow)', text: 'var(--yellow)', label: 'Parked for a human' },
 };

@@ -50,6 +50,9 @@ describe('CardSignalIcons', () => {
 
     rerender(<CardSignalIcons card={{ ...baseCard, worker_status: 'killed' }} />);
     expect(screen.getByRole('img', { name: 'Worker killed' })).toBeInTheDocument();
+
+    rerender(<CardSignalIcons card={{ ...baseCard, worker_status: 'parked' }} />);
+    expect(screen.getByRole('img', { name: 'Parked - left for a human, see the card log' })).toBeInTheDocument();
   });
 
   it('shows the playbook icon naming the playbooks', () => {

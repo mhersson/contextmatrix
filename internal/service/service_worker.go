@@ -131,6 +131,81 @@ func (s *CardService) RecordPush(ctx context.Context, project, id, agentID, bran
 	return card, nil
 }
 
+// ReportParked records that the agent parked the card's run - review or PR
+// gates left for a human - by setting worker_status to "parked" with the
+// reason in the activity log. Called by the worker right before its container
+// exits; the "completed" callback that follows preserves the park (see
+// UpdateWorkerStatus), and the next trigger's "queued" replaces it. Returns
+// lock.ErrAgentMismatch when the caller does not hold the claim.
+func (s *CardService) ReportParked(ctx context.Context, project, id, agentID, reason string) (*board.Card, error) {
+	id = strings.ToUpper(id)
+
+	s.writeMu.Lock()
+
+	card, err := s.store.GetCard(ctx, project, id)
+	if err != nil {
+		s.writeMu.Unlock()
+
+		return nil, fmt.Errorf("get card: %w", err)
+	}
+
+	// Snapshot for rollback on commit failure.
+	snapshot, err := s.store.GetCard(ctx, project, id)
+	if err != nil {
+		s.writeMu.Unlock()
+
+		return nil, fmt.Errorf("get card snapshot: %w", err)
+	}
+
+	if card.AssignedAgent != agentID {
+		s.writeMu.Unlock()
+
+		return nil, lock.ErrAgentMismatch
+	}
+
+	card.WorkerStatus = "parked"
+	card.Updated = s.clk.Now()
+
+	if reason != "" {
+		card.ActivityLog = append(card.ActivityLog, board.ActivityEntry{
+			Agent:     agentID,
+			Action:    "parked",
+			Message:   reason,
+			Timestamp: s.clk.Now(),
+		})
+		card.ActivityLog = trimActivityLog(card.ActivityLog)
+	}
+
+	if err := s.store.UpdateCard(ctx, project, card); err != nil {
+		s.writeMu.Unlock()
+
+		return nil, fmt.Errorf("update card: %w", err)
+	}
+
+	commitDone, notify := s.enqueueCardCommit(ctx, project, id, agentID, "worker_status: parked")
+
+	s.writeMu.Unlock()
+
+	if err := s.awaitCommit(commitDone, notify); err != nil {
+		s.writeMu.Lock()
+		rollbackErr := s.rollbackCardOnCommitFailure(ctx, project, snapshot, err)
+		s.writeMu.Unlock()
+
+		return nil, rollbackErr
+	}
+
+	s.bus.Publish(events.Event{
+		Type:      events.WorkerParked,
+		Project:   project,
+		CardID:    id,
+		Agent:     agentID,
+		Timestamp: s.clk.Now(),
+		Data:      map[string]any{"worker_status": "parked", "reason": reason},
+	})
+
+	return card, nil
+}
+
 // IncrementReviewAttempts atomically increments the review_attempts counter on a card.
 // Returns lock.ErrAgentMismatch if the caller is not the assigned agent, and
 // ErrReviewAttemptsCapped if the counter has reached maxReviewAttempts.
@@ -259,6 +334,12 @@ func (s *CardService) UpdateWorkerStatus(ctx context.Context, project, cardID, s
 		message = "container cleaned up after run completed"
 	}
 
+	// An agent-reported park precedes the container's normal exit, so the
+	// "completed" callback that follows must not erase it - the run ended,
+	// but the card is waiting on a human, not finished. The claim still
+	// clears below; the next trigger's "queued" replaces the park.
+	preserveParked := status == "completed" && card.WorkerStatus == "parked"
+
 	prevWorkerStatus := card.WorkerStatus
 	hadAgent := card.AssignedAgent != ""
 	card.WorkerStatus = status
@@ -272,6 +353,10 @@ func (s *CardService) UpdateWorkerStatus(ctx context.Context, project, cardID, s
 	// On completed, also clear worker_status since the run is over.
 	if status == "completed" {
 		card.WorkerStatus = ""
+	}
+
+	if preserveParked {
+		card.WorkerStatus = "parked"
 	}
 
 	s.appendWorkerStatusMessage(card, message)

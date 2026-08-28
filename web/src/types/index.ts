@@ -51,7 +51,7 @@ export interface Card {
   base_branch?: string;
   pr_url?: string;
   review_attempts?: number;
-  worker_status?: 'queued' | 'running' | 'failed' | 'killed';
+  worker_status?: 'queued' | 'running' | 'failed' | 'killed' | 'parked';
   created: string;
   updated: string;
   activity_log?: ActivityEntry[];
@@ -186,6 +186,7 @@ export type EventType =
   | 'worker.started'
   | 'worker.failed'
   | 'worker.killed'
+  | 'worker.parked'
   | 'playbook.created'
   | 'playbook.updated'
   | 'playbook.deleted';

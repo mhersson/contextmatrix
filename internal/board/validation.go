@@ -236,7 +236,7 @@ func (v *Validator) ValidateCard(cfg *ProjectConfig, card *Card) error {
 }
 
 // validWorkerStatuses is the set of valid worker_status values.
-var validWorkerStatuses = []string{"", "queued", "running", "failed", "killed", "completed"}
+var validWorkerStatuses = []string{"", "queued", "running", "failed", "killed", "completed", "parked"}
 
 // validWorkerCallbackStatuses is the subset of statuses a backend callback can set.
 // "queued" and "killed" are server-only; the backend can report "running", "failed", or "completed".

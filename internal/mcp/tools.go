@@ -57,6 +57,7 @@ func registerTools(cfg registerToolsConfig) {
 	registerStartReview(server, svc, cfg.WorkflowSkillsDir)
 	registerGetSkill(server, svc, cfg.WorkflowSkillsDir)
 	registerReportPush(server, svc)
+	registerReportParked(server, svc)
 	registerIncrementReviewAttempts(server, svc)
 	registerPromoteToAutonomous(server, svc)
 

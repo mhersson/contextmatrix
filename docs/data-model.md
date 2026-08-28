@@ -1012,12 +1012,19 @@ its workflow state. The full set of valid values lives in
 | `failed`     | backend status callback | The worker exited with an error, or the trigger webhook failed.               |
 | `killed`     | service layer           | The worker was forcibly stopped by a server-initiated `stop` / `stop-all`.    |
 | `completed`  | backend status callback | The worker finished successfully.                                             |
+| `parked`     | MCP `report_parked`     | The run parked the card (review / PR gates left for a human); reason in the activity log. |
 
 The backend reports through the `POST /api/agent/status` callback, whose
 accepted subset (`validWorkerCallbackStatuses`) is `running`, `failed`, and
-`completed` - the backend cannot self-report `queued` or `killed` because both
-are server-managed lifecycle states. Setting an invalid value returns 422
-`VALIDATION_ERROR`.
+`completed` - the backend cannot self-report `queued`, `killed`, or `parked`
+because they are server-managed lifecycle states. Setting an invalid value
+returns 422 `VALIDATION_ERROR`.
+
+`parked` is set by the claiming agent via the MCP `report_parked` tool right
+before its container exits. The `completed` callback that follows preserves it
+(the run ended, but the card is waiting on a human, not finished) while still
+clearing the claim; the next trigger's `queued` replaces it like any other
+stale terminal status.
 
 ## `depends_on` cycle detection
 
