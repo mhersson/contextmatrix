@@ -262,6 +262,19 @@ Every card carries a generated `branch_name`, so the worker always creates a
 feature branch; the card's stored `create_pr` (default true at create)
 decides whether a pull request is opened, regardless of the launch mode.
 
+Every trigger request also carries an `X-Correlation-ID` request header: a
+random 32-character hex id that CM mints fresh for every trigger attempt in
+`internal/backend/client.go`. No two attempts ever share an id - not two
+triggers of the same card, and not two retry attempts of one trigger - because
+the agent backend keys per-run state (log-redaction sessions, container
+labels) by this header, and a timed-out attempt may have started a run whose
+retry the agent admits as a second launch; distinct ids keep those launches
+isolated. Each attempt's id is logged with the project and card id, and the
+agent logs the id it admits, so a board-side trigger matches the exact agent
+run it produced. The other webhook calls (`/kill`, `/stop-all`, `/message`,
+`/promote`, `/end-session`) do not send the header. It is not part of the
+HMAC: the signature covers the body only, so signing is unaffected.
+
 #### Task skills
 
 CM resolves the skill list `card.skills > project.default_skills > nil` and
@@ -687,6 +700,10 @@ CM retries failed webhooks with exponential backoff (`internal/backend`):
 - Retries only on network errors and HTTP 5xx.
 - HTTP 4xx fails immediately.
 - Per-request timeout: 10 seconds.
+
+Every retry attempt of one trigger mints its own `X-Correlation-ID` and logs
+it, so a launch the agent admits is always uniquely identified even when a
+timed-out earlier attempt also started a run.
 
 ## Worker lifecycle
 

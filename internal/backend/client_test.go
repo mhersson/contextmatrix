@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -752,4 +753,131 @@ func TestClient_Retry_TimestampAdvances(t *testing.T) {
 			"timestamp on attempt %d (%d) must be > timestamp on attempt %d (%d)",
 			i+1, capturedTS[i], i, capturedTS[i-1])
 	}
+}
+
+// TestClient_Trigger_CorrelationIDHeader pins the trigger wire contract: the
+// request must carry a non-empty X-Correlation-ID alongside the existing
+// signature and timestamp headers, which stay untouched.
+func TestClient_Trigger_CorrelationIDHeader(t *testing.T) {
+	var (
+		correlationID           string
+		receivedSig, receivedTS string
+	)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		correlationID = r.Header.Get(correlationIDHeader)
+		receivedSig = r.Header.Get(protocol.SignatureHeader)
+		receivedTS = r.Header.Get(protocol.TimestampHeader)
+		_ = json.NewEncoder(w).Encode(protocol.SuccessResponse{OK: true})
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "key")
+	err := c.Trigger(context.Background(), TriggerPayload{CardID: "TEST-001", Project: "p"})
+	require.NoError(t, err)
+
+	assert.NotEmpty(t, correlationID, "trigger request must carry a non-empty X-Correlation-ID header")
+	assert.True(t, strings.HasPrefix(receivedSig, "sha256="), "signature header must remain present")
+	assert.NotEmpty(t, receivedTS, "timestamp header must remain present")
+}
+
+// TestClient_Trigger_CorrelationIDUniquePerCall verifies that two Trigger
+// calls for the same project/card produce two different, non-empty
+// correlation ids - the id must be fresh per call, not derived from the
+// payload.
+func TestClient_Trigger_CorrelationIDUniquePerCall(t *testing.T) {
+	var mu sync.Mutex
+
+	var captured []string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := r.Header.Get(correlationIDHeader)
+		_ = json.NewEncoder(w).Encode(protocol.SuccessResponse{OK: true})
+
+		mu.Lock()
+		defer mu.Unlock()
+
+		captured = append(captured, id)
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "key")
+	ctx := context.Background()
+	payload := TriggerPayload{CardID: "TEST-001", Project: "p"}
+
+	require.NoError(t, c.Trigger(ctx, payload))
+	require.NoError(t, c.Trigger(ctx, payload))
+
+	require.Len(t, captured, 2)
+	assert.NotEmpty(t, captured[0])
+	assert.NotEmpty(t, captured[1])
+	assert.NotEqual(t, captured[0], captured[1],
+		"two triggers of the same card must carry different correlation ids")
+}
+
+// TestClient_Trigger_CorrelationIDFreshPerAttempt verifies that every retry
+// attempt of one Trigger call carries its own correlation id: a timed-out
+// attempt may have started a run, and a retry the agent admits as a second
+// launch must never share the first launch's id - shared ids would collide
+// the per-run state (redaction sessions, container labels) the agent keys
+// by this header.
+func TestClient_Trigger_CorrelationIDFreshPerAttempt(t *testing.T) {
+	origBackoff := BackoffBase
+	BackoffBase = time.Millisecond
+
+	t.Cleanup(func() { BackoffBase = origBackoff })
+
+	var mu sync.Mutex
+
+	var captured []string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := r.Header.Get(correlationIDHeader)
+
+		mu.Lock()
+		defer mu.Unlock()
+
+		captured = append(captured, id)
+
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"ok":false,"error":"temporary"}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "key")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// All retries fail; we only care about the captured correlation ids.
+	_ = c.Trigger(ctx, TriggerPayload{CardID: "TEST-001", Project: "p"})
+
+	require.Len(t, captured, maxRetries, "should have made all retry attempts")
+
+	seen := make(map[string]int, len(captured))
+
+	for i, id := range captured {
+		assert.NotEmpty(t, id, "attempt %d must carry a correlation id", i+1)
+
+		if prev, dup := seen[id]; dup {
+			t.Errorf("attempts %d and %d share correlation id %q; every attempt must mint its own", prev+1, i+1, id)
+		}
+
+		seen[id] = i
+	}
+}
+
+// TestClient_Kill_NoCorrelationIDHeader verifies that non-trigger webhook
+// calls leave the X-Correlation-ID header unset.
+func TestClient_Kill_NoCorrelationIDHeader(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, exists := r.Header[http.CanonicalHeaderKey(correlationIDHeader)]
+		assert.False(t, exists, "kill request must not carry X-Correlation-ID")
+
+		_ = json.NewEncoder(w).Encode(protocol.SuccessResponse{OK: true})
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "key")
+	require.NoError(t, c.Kill(context.Background(), KillPayload{CardID: "TEST-001", Project: "p"}))
 }
