@@ -23,6 +23,26 @@ describe('filterLogEntries', () => {
     const withTools = filterLogEntries(logs, { showText: false, showToolCalls: true, showThinking: false });
     expect(withTools.map((e) => e.type)).toEqual(['tool_call', 'tool_result', 'stderr', 'user']);
   });
+
+  it('hides slog INFO/DEBUG diagnostics on stderr, keeps WARN/ERROR and non-slog stderr', () => {
+    const allOn = { showText: true, showToolCalls: true, showThinking: true };
+    const diagnostics: LogEntry[] = [
+      entry('stderr', '2026/08/28 05:07:54 INFO selector: tier reachability card_id=CTXMAX-738 role=coder tier=moderate bar=0.76'),
+      entry('stderr', '2026/08/28 05:10:34 DEBUG http client retry attempt=2'),
+      entry('stderr', 'time=2026-08-28T05:07:54.123Z level=INFO msg="selector: pick" card_id=CTXMAX-738'),
+      entry('stderr', 'time=2026-08-28T05:07:54.123Z level=DEBUG msg=cache'),
+    ];
+    expect(filterLogEntries(diagnostics, allOn)).toEqual([]);
+
+    const kept: LogEntry[] = [
+      entry('stderr', '2026/08/28 05:07:54 WARN selector: favorite configured for an unknown tier tier=critical'),
+      entry('stderr', '2026/08/28 05:07:54 ERROR release card failed card=CTXMAX-738'),
+      entry('stderr', 'time=2026-08-28T05:07:54.123Z level=WARN msg=degraded'),
+      entry('stderr', 'panic: runtime error: invalid memory address'),
+      entry('stderr', 'model call failed: context deadline exceeded'),
+    ];
+    expect(filterLogEntries(kept, allOn)).toEqual(kept);
+  });
 });
 
 describe('decorateLogs', () => {
