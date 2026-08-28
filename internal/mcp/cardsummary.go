@@ -57,6 +57,7 @@ type CardSummary struct {
 	TokenUsage              *board.TokenUsage   `json:"token_usage,omitempty"`
 	SubtaskCostUSD          float64             `json:"subtask_cost_usd,omitempty"`
 	SubtaskCostHasEstimates bool                `json:"subtask_cost_has_estimates,omitempty"`
+	InPlaybooks             []string            `json:"in_playbooks,omitempty"`
 	Created                 time.Time           `json:"created"`
 	Updated                 time.Time           `json:"updated"`
 }
@@ -111,6 +112,7 @@ func summarizeCard(c *board.Card) *CardSummary {
 		TokenUsage:              c.TokenUsage,
 		SubtaskCostUSD:          c.SubtaskCostUSD,
 		SubtaskCostHasEstimates: c.SubtaskCostHasEstimates,
+		InPlaybooks:             c.InPlaybooks,
 		Created:                 c.Created,
 		Updated:                 c.Updated,
 	}

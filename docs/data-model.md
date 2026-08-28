@@ -332,6 +332,7 @@ type Card struct {
     TokenUsage          *TokenUsage     `yaml:"token_usage,omitempty"           json:"token_usage,omitempty"`
     UsageBreakdown      []UsageBucket   `yaml:"usage_breakdown,omitempty"       json:"usage_breakdown,omitempty"`
     SubtaskCostUSD      float64         `yaml:"-"                               json:"subtask_cost_usd,omitempty"`
+    InPlaybooks         []string        `yaml:"-"                               json:"in_playbooks,omitempty"`
     Created             time.Time       `yaml:"created"                         json:"created"`
     Updated             time.Time       `yaml:"updated"                         json:"updated"`
     ActivityLog         []ActivityEntry `yaml:"activity_log,omitempty"          json:"activity_log,omitempty"`
@@ -523,12 +524,15 @@ generation.
 **Server-managed fields** (set by service layer, not by clients directly): `id`,
 `created`, `updated`, `assigned_agent`, `last_heartbeat`, `activity_log`,
 `worker_status`, `review_attempts`, `branch_name`, `token_usage`,
-`usage_breakdown`, `dependencies_met`, `subtask_cost_usd`.
+`usage_breakdown`, `dependencies_met`, `subtask_cost_usd`, `in_playbooks`.
 
-`dependencies_met` and `subtask_cost_usd` are computed on read and never
-persisted to card frontmatter. `subtask_cost_usd` is the summed
+`dependencies_met`, `subtask_cost_usd` and `in_playbooks` are computed on read
+and never persisted to card frontmatter. `subtask_cost_usd` is the summed
 `estimated_cost_usd` of the card's direct subtasks (single-card GET only;
-list responses do not carry it); omitted when zero.
+list responses do not carry it); omitted when zero. `in_playbooks` lists the
+IDs of playbooks holding a card entry for the card (single-card GET and list
+responses); omitted when empty, and best-effort - a playbook-store failure
+leaves it empty rather than failing the read.
 
 **Agent-managed field** - `phase`: the agent-orchestrator's progress within a run
 (`plan` | `execute` | `judge` | `document` | `review` | `integrate` | `pr_gates` | `done`), orthogonal

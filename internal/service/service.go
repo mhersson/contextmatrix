@@ -140,10 +140,26 @@ type CardService struct {
 	// same-concrete-type restriction of atomic.Value.
 	chatCostSummarizer atomic.Pointer[ChatCostSummarizer]
 
+	// playbooks is optional; when non-nil card reads annotate InPlaybooks
+	// from it. Wired via SetPlaybookLister once at startup, before serving.
+	playbooks PlaybookLister
+
 	// Per-project caches
 	mu        sync.RWMutex
 	configs   map[string]*board.ProjectConfig
 	templates map[string]map[string]string // project -> type -> template
+}
+
+// PlaybookLister is the slice of the playbook store card reads need to
+// annotate playbook membership. Implemented by storage.FilesystemPlaybookStore.
+type PlaybookLister interface {
+	List(ctx context.Context) ([]*board.Playbook, error)
+}
+
+// SetPlaybookLister wires the playbook store into card reads. Nil-safe:
+// without a lister, InPlaybooks simply stays empty.
+func (s *CardService) SetPlaybookLister(l PlaybookLister) {
+	s.playbooks = l
 }
 
 // SetChatCostSummarizer wires a ChatCostSummarizer into the service. Nil-safe:
