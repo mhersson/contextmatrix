@@ -50,9 +50,9 @@ var DefaultAuthor = object.Signature{
 // Methods that need both locks acquire and release netMu first, then
 // briefly take worktreeMu for the post-network reload. They are NEVER
 // nested: holding netMu while acquiring worktreeMu (or vice versa) is a
-// bug - see the doc comment on Pull for the prescribed sequence. This
-// keeps gitsync's upstream svc.writeMu → netMu order clean and prevents
-// any deadlock between the two manager-level locks.
+// bug - see the doc comment on PullFastForward for the prescribed sequence.
+// This keeps gitsync's upstream svc.writeMu → netMu order clean and
+// prevents any deadlock between the two manager-level locks.
 type Manager struct {
 	repo     *git.Repository
 	repoPath string
@@ -319,54 +319,15 @@ func (m *Manager) CommitAll(ctx context.Context, message string) error {
 	return nil
 }
 
-// Pull fetches and rebases from the origin remote using shell git.
-// Returns nil if no remote is configured (with a warning logged).
-//
-// Lock sequence: worktreeMu (hasRemote check) → released → netMu (network
-// op) → released → worktreeMu (reload). The two locks are NEVER nested so
-// a slow remote cannot block per-project CommitQueue workers (which only
-// need worktreeMu).
-func (m *Manager) Pull(ctx context.Context) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-
-	if !m.HasRemote() {
-		slog.Warn("no remote 'origin' configured, skipping pull")
-
-		return nil
-	}
-
-	m.netMu.Lock()
-
-	gitCtx, cancel := context.WithTimeout(ctx, m.networkTimeout)
-	defer cancel()
-
-	netErr := m.runGit(gitCtx, "pull", "--rebase", "origin")
-	m.netMu.Unlock()
-
-	if netErr != nil {
-		return fmt.Errorf("pull: %w", netErr)
-	}
-
-	m.worktreeMu.Lock()
-	reloadErr := m.reloadRepo()
-	m.worktreeMu.Unlock()
-
-	if reloadErr != nil {
-		return fmt.Errorf("reload after pull: %w", reloadErr)
-	}
-
-	return nil
-}
-
 // PullFastForward fetches and fast-forwards from the origin remote using
 // shell git. Returns nil immediately if no remote is configured.
 // Non-fast-forward situations (divergent history) return a non-nil error
 // so the caller can log and continue without modifying the working tree.
 //
-// Lock sequence: see Pull. Network round-trip runs under netMu only;
-// reload runs under worktreeMu only; the two are never held together.
+// Lock sequence: worktreeMu (hasRemote check) → released → netMu (network
+// op) → released → worktreeMu (reload). The two locks are NEVER nested so
+// a slow remote cannot block per-project CommitQueue workers (which only
+// need worktreeMu).
 func (m *Manager) PullFastForward(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -404,9 +365,9 @@ func (m *Manager) PullFastForward(ctx context.Context) error {
 // the current branch already has a tracking upstream configured.
 // Returns nil if no remote is configured (with a warning logged).
 //
-// Lock sequence: see Pull. The network push runs under netMu only so
-// concurrent commits (which need worktreeMu) are not blocked even if the
-// remote is slow or unreachable.
+// Lock sequence: see PullFastForward. The network push runs under netMu
+// only so concurrent commits (which need worktreeMu) are not blocked even
+// if the remote is slow or unreachable.
 func (m *Manager) Push(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err

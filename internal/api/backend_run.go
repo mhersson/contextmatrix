@@ -327,8 +327,8 @@ func (h *backendHandlers) attachMob(ctx context.Context, payload *backend.Trigge
 
 	// If the card explicitly selected phases but every one was filtered out
 	// (e.g. an execute-only card with execute checkpoints off), do NOT attach
-	// the spec: the agent reads empty Phases as its "plan+review both on"
-	// default, which would silently run discussions the operator never chose.
+	// the spec: the agent expands empty Phases to its "review only" default,
+	// which would silently run a discussion the operator never chose.
 	// Run solo instead. Cards that never set mob_phases keep that default.
 	if len(card.MobPhases) > 0 && len(spec.Phases) == 0 {
 		h.recordMobWarning(ctx, project, id,

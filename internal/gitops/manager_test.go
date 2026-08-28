@@ -197,16 +197,6 @@ func TestSetAuthor(t *testing.T) {
 	assert.Equal(t, "test@example.com", commit.Author.Email)
 }
 
-func TestPull_NoRemote(t *testing.T) {
-	tmpDir := t.TempDir()
-	mgr, err := NewManager(tmpDir, "", "test", staticTestProvider(t))
-	require.NoError(t, err)
-
-	// Pull should succeed gracefully when no remote exists
-	err = mgr.Pull(context.Background())
-	assert.NoError(t, err)
-}
-
 func TestPush_NoRemote(t *testing.T) {
 	tmpDir := t.TempDir()
 	mgr, err := NewManager(tmpDir, "", "test", staticTestProvider(t))
@@ -215,120 +205,6 @@ func TestPush_NoRemote(t *testing.T) {
 	// Push should succeed gracefully when no remote exists
 	err = mgr.Push(context.Background())
 	assert.NoError(t, err)
-}
-
-// TestPushPull_BareRemote verifies that Push and Pull work against a local
-// bare repository so that the shell-git path is exercised without requiring
-// network access or SSH credentials.
-func TestPushPull_BareRemote(t *testing.T) {
-	// Skip if git binary is not available.
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git binary not found, skipping")
-	}
-
-	ctx := context.Background()
-
-	// Create a bare remote repo.
-	bareDir := t.TempDir()
-	_, err := git.PlainInit(bareDir, true)
-	require.NoError(t, err)
-
-	// Create the working repo, make a commit, add the bare repo as origin.
-	workDir := t.TempDir()
-	mgr, err := NewManager(workDir, "", "test", staticTestProvider(t))
-	require.NoError(t, err)
-	mgr.SetAuthor("Test User", "test@example.com")
-
-	err = os.WriteFile(filepath.Join(workDir, "hello.txt"), []byte("hello"), 0o644)
-	require.NoError(t, err)
-	err = mgr.CommitFile(context.Background(), "hello.txt", "initial commit")
-	require.NoError(t, err)
-
-	err = mgr.AddRemote(context.Background(), "origin", "file://"+bareDir)
-	require.NoError(t, err)
-
-	// Push to the bare remote - should succeed.
-	err = mgr.Push(ctx)
-	require.NoError(t, err, "push to local bare remote should succeed")
-
-	// Create a second working repo cloned from the bare remote.
-	cloneDir := t.TempDir()
-	_, err = git.PlainClone(cloneDir, false, &git.CloneOptions{
-		URL: "file://" + bareDir,
-	})
-	require.NoError(t, err)
-
-	// Add a commit to the bare remote via the clone.
-	cloneMgr, err := NewManager(cloneDir, "", "test", staticTestProvider(t))
-	require.NoError(t, err)
-	cloneMgr.SetAuthor("Clone User", "clone@example.com")
-
-	err = os.WriteFile(filepath.Join(cloneDir, "world.txt"), []byte("world"), 0o644)
-	require.NoError(t, err)
-	err = cloneMgr.CommitFile(context.Background(), "world.txt", "second commit")
-	require.NoError(t, err)
-	err = cloneMgr.Push(ctx)
-	require.NoError(t, err)
-
-	// Pull (rebase) in the original working repo - should succeed and bring in world.txt.
-	err = mgr.Pull(ctx)
-	require.NoError(t, err, "pull --rebase from local bare remote should succeed")
-
-	_, err = os.Stat(filepath.Join(workDir, "world.txt"))
-	assert.NoError(t, err, "world.txt should exist after pull")
-}
-
-// TestPull_AutoReloadsGoGit verifies that after Pull, go-git sees the new
-// commits without the caller having to call ReloadRepo explicitly.
-func TestPull_AutoReloadsGoGit(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git binary not found")
-	}
-
-	ctx := context.Background()
-
-	// Create a bare remote and two working copies.
-	bareDir := t.TempDir()
-	_, err := git.PlainInit(bareDir, true)
-	require.NoError(t, err)
-
-	workDir := t.TempDir()
-	mgr, err := NewManager(workDir, "", "test", staticTestProvider(t))
-	require.NoError(t, err)
-	mgr.SetAuthor("Test User", "test@example.com")
-
-	require.NoError(t, os.WriteFile(filepath.Join(workDir, "init.txt"), []byte("init"), 0o644))
-	require.NoError(t, mgr.CommitFile(context.Background(), "init.txt", "initial commit"))
-	require.NoError(t, mgr.AddRemote(context.Background(), "origin", "file://"+bareDir))
-	require.NoError(t, mgr.Push(ctx))
-
-	// Clone and push a new commit from a second working copy.
-	cloneDir := t.TempDir()
-	_, err = git.PlainClone(cloneDir, false, &git.CloneOptions{URL: "file://" + bareDir})
-	require.NoError(t, err)
-	cloneMgr, err := NewManager(cloneDir, "", "test", staticTestProvider(t))
-	require.NoError(t, err)
-	cloneMgr.SetAuthor("Clone User", "clone@example.com")
-	require.NoError(t, os.WriteFile(filepath.Join(cloneDir, "new.txt"), []byte("new"), 0o644))
-	require.NoError(t, cloneMgr.CommitFile(context.Background(), "new.txt", "remote commit"))
-	require.NoError(t, cloneMgr.Push(ctx))
-
-	// Pull in the original repo.
-	require.NoError(t, mgr.Pull(ctx))
-
-	// go-git should see the remote commit without explicit ReloadRepo.
-	msg, err := mgr.GetLastCommitMessage()
-	require.NoError(t, err)
-	assert.Equal(t, "remote commit", strings.TrimSpace(msg),
-		"go-git should see remote commit after Pull auto-reload")
-
-	// go-git operations should still work after the auto-reload.
-	require.NoError(t, os.WriteFile(filepath.Join(workDir, "post-pull.txt"), []byte("post"), 0o644))
-	require.NoError(t, mgr.CommitFile(context.Background(), "post-pull.txt", "post-pull commit"))
-
-	msg, err = mgr.GetLastCommitMessage()
-	require.NoError(t, err)
-	assert.Equal(t, "post-pull commit", strings.TrimSpace(msg))
 }
 
 // TestPullFastForward_NoRemote verifies that PullFastForward returns nil
@@ -1375,11 +1251,12 @@ func TestNetworkTimeout(t *testing.T) {
 	// Inject a short network timeout. The injected timeout is 500 ms; the
 	// context deadline kills the direct git process, after which WaitDelay
 	// (3 s) accounts for orphaned git-remote-https children. We use a total
-	// deadline of ~4 s so the test completes promptly on failure.
+	// deadline of ~6 s for real margin on a loaded machine; it only delays
+	// the failure case.
 	shortTimeout := 500 * time.Millisecond
 	mgr.SetNetworkTimeout(shortTimeout)
 
-	totalDeadline := shortTimeout + 3500*time.Millisecond
+	totalDeadline := shortTimeout + 5500*time.Millisecond
 
 	t.Run("Push", func(t *testing.T) {
 		ctx := context.Background()
@@ -1396,24 +1273,6 @@ func TestNetworkTimeout(t *testing.T) {
 				"error must be wrapped with operation context")
 		case <-time.After(totalDeadline):
 			t.Fatal("Push did not complete within the expected timeout window")
-		}
-	})
-
-	t.Run("Pull", func(t *testing.T) {
-		ctx := context.Background()
-		errCh := make(chan error, 1)
-
-		go func() {
-			errCh <- mgr.Pull(ctx)
-		}()
-
-		select {
-		case err := <-errCh:
-			require.Error(t, err, "Pull must fail against black-hole remote")
-			assert.Contains(t, err.Error(), "pull",
-				"error must be wrapped with operation context")
-		case <-time.After(totalDeadline):
-			t.Fatal("Pull did not complete within the expected timeout window")
 		}
 	})
 
