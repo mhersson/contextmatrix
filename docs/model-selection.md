@@ -27,6 +27,7 @@ The operator-facing controls, most direct first:
 | Restrict which vendors are eligible   | `backends.agent.model_allowlist`            | `config.yaml`                                | Vendor prefixes (`qwen`, `z-ai`); replaces the built-in list; inert on the `openai` leg        |
 | Rate models AA does not know          | `backends.agent.model_priors`               | `config.yaml`                                | `openai` leg only; verbatim 0..1 priors                                                        |
 | Widen or narrow the price band        | `selector_price_headroom`                   | agent backend `serve.yaml`                   | Default 1.5; env `CMX_SELECTOR_PRICE_HEADROOM`                                                 |
+| Raise or lower a tier's quality bar   | `selector_tier_bars`                        | agent backend `serve.yaml`                   | Merges over the built-in ladder per tier; must stay non-decreasing; env `CMX_SELECTOR_TIER_BARS` (JSON) |
 | Set the orchestrator model            | `backends.agent.default_model`              | `config.yaml`                                | Card pins override it; the selector's empty-pool fallback resolves to the trigger's `default_model` when set, else the agent's serve default, else the compiled-in `deepseek/deepseek-v4-flash`
 | Reset learned win-rates               | `DELETE /api/admin/model-outcomes`          | REST (admin)                                 | Clears outcome stats; does not touch the blacklist                                             |
 | Control Best-of-N race size           | `best_of_n.*`                               | `config.yaml`                                | Caps the number of racing candidates, never the candidate list                                 |
@@ -266,7 +267,8 @@ repository when a constant here drifts.
 ### Tiers are quality floors, not buckets
 
 A tier does not assign models to groups. It is a minimum quality bar applied
-to the candidate's per-role prior at pick time:
+to the candidate's per-role prior at pick time. These are the built-in
+defaults:
 
 | Tier       | Bar (prior must be >=) |
 | ---------- | ---------------------- |
@@ -274,6 +276,15 @@ to the candidate's per-role prior at pick time:
 | `moderate` | 0.76                   |
 | `complex`  | 0.82                   |
 | `critical` | 0.90                   |
+
+`selector_tier_bars` (agent `serve.yaml`, env `CMX_SELECTOR_TIER_BARS`,
+JSON-encoded) lets an operator override any subset of this ladder. A partial
+map **merges over** the defaults - naming one tier raises or lowers only that
+rung, and the other three keep their built-in value, so a one-line override
+like `{"critical": 0.95}` can never silently zero out the rest of the ladder.
+The merged ladder must stay non-decreasing (`simple <= moderate <= complex <=
+critical`); a lower rung configured above a higher one fails validation at
+startup.
 
 The same model serves every tier whose bar it clears. Cost never decides a
 tier - it only orders models within the eligible set. The bar is compared
@@ -300,9 +311,15 @@ resolves to `moderate`.
 
 ### The decision order
 
-For one pick - a role (`coder` or `reviewer`), a tier, and an estimated prompt
-size - the selector runs this sequence. This is the "why did it pick X"
-reference:
+For one pick - a role (`coder` or `reviewer`), a requested tier, and an
+estimated prompt size - the selector runs this sequence. This is the "why did
+it pick X" reference. Steps 2-5 run once per rung of the tier ladder: starting
+at the requested tier, an empty rung steps down to the next configured tier
+with a strictly lower bar and repeats the same steps there, until a rung
+produces a model or the ladder bottoms out at step 6. Each rung's result is
+exactly what a direct request at that rung would have picked, so walking down
+can never hand back a worse model than asking for the lower tier directly
+would have.
 
 1. **Card pin.** If the pinned slug is present in the payload candidate list,
    it wins unconditionally - over the blacklist, over the tier bar, over the
@@ -316,25 +333,51 @@ reference:
    which keeps below-floor models, so a pin can pass validation in the UI and
    still fall through at run time.
 2. **Favorites.** The `(tier, role)` favorite list is scanned in configured
-   order, then the `(tier, any-role)` list. The first favorite that is a
-   *live candidate* wins outright, skipping the price logic and the
-   vendor-diversity preference. Live candidate means: tool-capable, clears
-   the tier bar, not blacklisted, not excluded this run, fits the context
-   window - favorites are preferences, not overrides.
+   order, then the `(tier, any-role)` list, both evaluated against the rung
+   being tried. The first favorite that is a *live candidate* wins outright,
+   skipping the price logic and the vendor-diversity preference. Live
+   candidate means: tool-capable, clears the rung's bar, not blacklisted, not
+   excluded this run, fits the context window - favorites are preferences,
+   not overrides.
 3. **Filter.** Remaining candidates must be tool-capable, not in the per-run
    exclude set, not blacklisted, allowed by the vendor-diversity constraint
-   (multi-seat picks only), at or above the tier bar for the role, and have a
-   context window that fits the estimated prompt.
+   (multi-seat picks only), at or above the rung's bar for the role, and have
+   a context window that fits the estimated prompt.
 4. **Price band.** Price is the sum of prompt and completion per-token rates.
    The band spans from the cheapest surviving candidate up to
    `cheapest x headroom` (headroom defaults to 1.5).
 5. **Best value.** Within the band, the highest-prior candidate wins; ties go
    to the cheaper model. Models outside the band never win on quality - the
    band is what keeps a frontier model from being picked for a `simple` task.
-6. **Empty pool.** If nothing survives, the pick resolves with three-tier
-   precedence: the trigger's `backends.agent.default_model` when set, else the
-   agent's serve-config default, else the compiled-in
-   `deepseek/deepseek-v4-flash`.
+   If the rung is dry, the walk steps down to the next configured rung and
+   retries from step 2.
+6. **Ladder bottom: the capable default.** Once every rung is dry, the pick
+   falls to the operator's capable default: the trigger's
+   `backends.agent.default_model` when set, else the agent's serve-config
+   default, else the compiled-in `deepseek/deepseek-v4-flash`. The default is
+   not an unconditional floor - it is filtered by the same exclude set,
+   blacklist, vendor bars, and window-fit check as any candidate, though never
+   by the quality bar (an operator-configured default is typically absent
+   from the catalog, so there is usually no measured prior to bar it on). A
+   default that fails one of those filters means the whole pick refuses - the
+   no-model path - and each phase answers refusal differently: the coder
+   phase parks the card as blocked; a fix round parks the card back to
+   review, since the code under review is already written and pushed; the
+   Best-of-N judge degrades to the unjudged-winner path; a mob discussion
+   falls back to the solo specialist panel; the verify-command proposer just
+   skips the step, since an unproposed gate is safe.
+
+Every pick - laddered, favorite, pinned, or the capable default - emits a
+`model_selected` transcript event naming the phase, model, source, and both
+the requested and met tier, so nothing a phase ran on is silent even when it
+was at bar. A pick that lands below the tier it was asked for also gets a
+one-time card-log advisory per `(phase, role, requested -> met)` combination
+plus a `state_change` warning event - a downgrade is never inferred from
+behavior alone.
+
+To keep the upper rungs served instead of walking down, pin or favorite a
+model at `complex`/`critical`, or lower the `selector_tier_bars` entry for
+whichever rung keeps emptying.
 
 `max_capability` (a per-card, human-set flag) narrows this sequence when the
 card is configured for automatic selection. ContextMatrix stores the flag and
@@ -356,14 +399,16 @@ and Best-of-N seats. Only a resolvable card pin escapes it.
   tier outright, still tie-breaking to the cheaper model. The tier bar still
   bounds the pool, so the pick is the most capable model that clears the
   card's tier, not the most capable model available.
-- Step 6 is unchanged: an empty pool still resolves with the same three-tier
-  precedence (trigger `default_model`, agent serve default, compiled-in
-  default).
-- The flag does not rescue a tier whose bar empties the pool. When no candidate
-  clears the tier bar, the selector returns the three-tier fallback (trigger
-  `default_model`, agent serve default, compiled-in default) with no event
-  explaining the downgrade - which may be a weaker model than the one the bar
-  just filtered out.
+- Steps 5-6 are unchanged: a dry rung still steps down the ladder the same
+  way, and the ladder bottom is still the hard-filtered capable default - the
+  flag changes how a populated rung is picked from, not which models the
+  default is checked against or whether it can refuse.
+- The flag does not rescue a tier whose bar empties every rung down to the
+  ladder bottom. A walk-down under `max_capability` still selects the
+  *highest-prior* candidate at whichever rung it lands on, which may be a
+  weaker model than the one the requested tier's bar just filtered out. The
+  pick is traced like any other: a transcript event, plus a card-log advisory
+  the first time that shortfall occurs on the run.
 
 ### Worked example
 
@@ -410,10 +455,18 @@ set, plus:
   otherwise the pick runs vendor-blind. The price band re-anchors on the
   vendor-filtered subset, so a diverse seat can cost more than the
   vendor-blind choice would - accepted on purpose.
-- **Wrap-around on a dry pool**: when the eligible pool runs out, the previous
-  pick is reused rather than escalating to the default model. Model scarcity
-  never shrinks the seat count - a 3-model tier with a 4-candidate race runs
-  one model twice.
+- **Clamp down before repeating**: each seat runs the full ladder walk against
+  the growing exclude set, so a seat that cannot stay at the requested tier
+  first takes a distinct model at a lower rung rather than duplicating the
+  seat above it - independent judgment from a lower-bar reviewer beats a
+  second copy of the higher-bar one, and costs less. Only when nothing is
+  selectable at any rung - or the seat's only answer is the capable default
+  repeating past the first seat - does the selector fall back to reusing the
+  previous seat's pick, flagged `Duplicate: true` so a repeat is never
+  presented as an independent judgment. Model scarcity never shrinks the seat
+  count - a 3-model tier with a 4-candidate race runs one model twice, marked
+  as the duplicate it is. If even the first seat has nothing selectable, the
+  whole panel comes back empty.
 - The review panel is 3 seats (correctness, design, security lenses) and
   excludes every model that wrote the code under review plus any model marked
   incapable during the run - a model does not review its own work.
@@ -507,6 +560,23 @@ Two consequences follow directly from folding solo runs into the same table:
   `expected_wins` (weight 1/1, versus a race win's smaller 1/n_candidates).
   This is dilution toward the neutral win rate, not inflation above it.
 
+#### Ladder walk-down failures are not charged
+
+A `failed` row from a walked-down pick - source `auto` or `favorite`, landed
+below the tier it was asked for - is not reported at all: the model was never
+rated for that tier's work, so charging the failure would lower the very
+prior that emptied the rung, walking the next selection down even further.
+The suppression applies to both solo reports and every candidate row in a
+Best-of-N race. Only `failed` is suppressed - a `loss` is still the judge
+preferring another implementation, a real comparative measurement the row
+exists to carry, and a `win` from a walked-down pick is always recorded:
+succeeding above your rung is evidence the rung above should stay reachable.
+
+Pins and the capable default are never suppressed this way: a pin is operator
+intent the selector never scored against a bar, and the capable default sits
+below every rung, so their `failed` rows are the only evidence that exists
+about that choice - both stay charged.
+
 ### Observability
 
 - `GET /api/admin/model-outcomes` - per-model win rates, expected wins, cost,
@@ -537,11 +607,14 @@ overrides; this table maps the knobs to their effect on selection.
 | `best_of_n.default_candidates`       | 3                    | UI-suggested race size                                                  |
 | `best_of_n.outcome_floor`            | 20                   | Samples required before win-rates bias selection                        |
 | `selector_price_headroom` (agent `serve.yaml`) | 1.5        | Width of the price band; env `CMX_SELECTOR_PRICE_HEADROOM`              |
+| `selector_tier_bars` (agent `serve.yaml`) | built-in ladder (0.65 / 0.76 / 0.82 / 0.90) | Per-tier quality bars; merges over the defaults per tier, must stay non-decreasing; env `CMX_SELECTOR_TIER_BARS` (JSON) |
 
-**Not configurable** (compile-time constants): the 0.65 candidate floor, the
-tier bars (0.65 / 0.76 / 0.82 / 0.90), the 6-hour catalog TTL and 60-second
-failure cooldown, the AA pagination cap and fetch budget, the API endpoints,
-and the equal prompt+completion price weighting.
+**Not configurable** (compile-time constants): the 0.65 candidate floor (CM's
+catalog screen - a different number from the agent's tier bars, which happen
+to share 0.65 for `simple` by coincidence and are configurable via
+`selector_tier_bars`, see above), the 6-hour catalog TTL and 60-second failure
+cooldown, the AA pagination cap and fetch budget, the API endpoints, and the
+equal prompt+completion price weighting.
 
 ## Failure modes
 
