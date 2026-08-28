@@ -1,7 +1,6 @@
 import type { Card } from '../../types';
 import { hasUnmetDeps, priorityColors, shortCardId, stripSegClass } from '../../lib/chip';
 import { chipClassForState } from '../CardPanel/utils';
-import { avatarGradient } from '../../utils/colorHash';
 
 interface SubtaskStripProps {
   subtasks: Card[];
@@ -89,15 +88,6 @@ export function SubtaskPeekList({ subtasks, onOpen }: SubtaskPeekListProps) {
               style={{ backgroundColor: priorityColors[s.priority] || 'var(--grey1)' }}
               aria-label={`Priority: ${s.priority}`}
             />
-            {s.assigned_agent && (() => {
-              const grad = avatarGradient(s.assigned_agent);
-              return (
-                <span
-                  className="agent-avatar agent-avatar--online flex-shrink-0"
-                  style={{ '--av-from': grad.from, '--av-to': grad.to, width: 12, height: 12 } as React.CSSProperties}
-                />
-              );
-            })()}
           </button>
         );
       })}

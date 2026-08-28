@@ -61,71 +61,72 @@ function makeSub(id: string, overrides: Partial<Card> = {}): Card {
   };
 }
 
-describe('CardItem - parent ID badge', () => {
-  describe('expanded view (isCollapsed=false)', () => {
-    it('renders parent badge when card.parent is defined', () => {
-      render(<CardItem card={subtaskCard} />);
-      expect(screen.getByTitle('Parent: TEST-001')).toBeInTheDocument();
-      // Board card shows just the numeric suffix; full ID stays in tooltip/aria-label.
-      expect(screen.getByTitle('Parent: TEST-001')).toHaveTextContent('001');
-      expect(screen.getByTitle('Parent: TEST-001')).not.toHaveTextContent('TEST-001');
-    });
-
-    it('parent badge has correct aria-label', () => {
-      render(<CardItem card={subtaskCard} />);
-      expect(screen.getByRole('button', { name: 'Navigate to parent TEST-001' })).toBeInTheDocument();
-    });
-
-    it('does not render parent badge when card.parent is absent', () => {
-      render(<CardItem card={baseCard} />);
-      expect(screen.queryByTitle(/^Parent:/)).not.toBeInTheDocument();
-    });
-
-    it('calls onParentClick with the parent ID when badge is clicked', () => {
-      const onParentClick = vi.fn();
-      render(<CardItem card={subtaskCard} onParentClick={onParentClick} />);
-      fireEvent.click(screen.getByTitle('Parent: TEST-001'));
-      expect(onParentClick).toHaveBeenCalledOnce();
-      expect(onParentClick).toHaveBeenCalledWith('TEST-001');
-    });
-
-    it('does not call card onClick when parent badge is clicked', () => {
-      const onClick = vi.fn();
-      const onParentClick = vi.fn();
-      render(<CardItem card={subtaskCard} onClick={onClick} onParentClick={onParentClick} />);
-      fireEvent.click(screen.getByTitle('Parent: TEST-001'));
-      expect(onClick).not.toHaveBeenCalled();
-      expect(onParentClick).toHaveBeenCalledOnce();
-    });
+describe('CardItem - declutter', () => {
+  it('renders no parent badge in either view', () => {
+    const { rerender } = render(<CardItem card={subtaskCard} />);
+    expect(screen.queryByTitle(/^Parent:/)).not.toBeInTheDocument();
+    rerender(<CardItem card={subtaskCard} isCollapsed />);
+    expect(screen.queryByTitle(/^Parent:/)).not.toBeInTheDocument();
   });
 
-  describe('collapsed view (isCollapsed=true)', () => {
-    it('renders parent badge when card.parent is defined', () => {
-      render(<CardItem card={subtaskCard} isCollapsed />);
-      expect(screen.getByTitle('Parent: TEST-001')).toBeInTheDocument();
-      // Collapsed view shows just the numeric suffix to save horizontal space;
-      // the full ID stays in the tooltip and aria-label.
-      expect(screen.getByTitle('Parent: TEST-001')).toHaveTextContent('001');
-      expect(screen.getByTitle('Parent: TEST-001')).not.toHaveTextContent('TEST-001');
-    });
+  it('shows the priority dot in the header in both views', () => {
+    const { rerender } = render(<CardItem card={baseCard} />);
+    expect(screen.getByRole('img', { name: 'Priority: medium' })).toBeInTheDocument();
+    rerender(<CardItem card={baseCard} isCollapsed />);
+    expect(screen.getByRole('img', { name: 'Priority: medium' })).toBeInTheDocument();
+  });
 
-    it('parent badge has correct aria-label', () => {
-      render(<CardItem card={subtaskCard} isCollapsed />);
-      expect(screen.getByRole('button', { name: 'Navigate to parent TEST-001' })).toBeInTheDocument();
-    });
+  it('collapses the type pill to its initial when the header gets crowded', () => {
+    const crowded = {
+      ...baseCard,
+      type: 'feature',
+      autonomous: true,
+      mob_participants: 3,
+      worker_status: 'running' as const,
+      in_playbooks: ['rollout'],
+    };
+    render(<CardItem card={crowded} />);
+    const pill = screen.getByLabelText('Type: feature');
+    expect(pill).toHaveTextContent(/^f$/);
+    expect(screen.queryByText('feature')).not.toBeInTheDocument();
+  });
 
-    it('does not render parent badge when card.parent is absent', () => {
-      render(<CardItem card={baseCard} isCollapsed />);
-      expect(screen.queryByTitle(/^Parent:/)).not.toBeInTheDocument();
-    });
+  it('keeps the full type pill when few signals show', () => {
+    render(<CardItem card={{ ...baseCard, type: 'feature', autonomous: true }} />);
+    expect(screen.getByText('feature')).toBeInTheDocument();
+  });
 
-    it('calls onParentClick with the parent ID when badge is clicked in collapsed view', () => {
-      const onParentClick = vi.fn();
-      render(<CardItem card={subtaskCard} isCollapsed onParentClick={onParentClick} />);
-      fireEvent.click(screen.getByTitle('Parent: TEST-001'));
-      expect(onParentClick).toHaveBeenCalledOnce();
-      expect(onParentClick).toHaveBeenCalledWith('TEST-001');
-    });
+  it('renders signal icons in the expanded header, none when collapsed', () => {
+    const card = { ...baseCard, autonomous: true, mob_participants: 3, worker_status: 'running' as const };
+    const { rerender } = render(<CardItem card={card} />);
+    expect(screen.getByRole('img', { name: 'Autonomous' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Mob session - 3 agents' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Worker running' })).toBeInTheDocument();
+    rerender(<CardItem card={card} isCollapsed onToggleCollapse={vi.fn()} />);
+    expect(screen.queryByRole('img', { name: 'Autonomous' })).not.toBeInTheDocument();
+  });
+
+  it('never prints the agent name on a claimed card but keeps the pulse border', () => {
+    const card = { ...baseCard, assigned_agent: 'claude-sonnet-worker' };
+    render(<CardItem card={card} />);
+    expect(screen.queryByText(/sonnet-worker/)).not.toBeInTheDocument();
+    const root = screen.getByLabelText(`Card ${card.id}: ${card.title}`);
+    expect(root.className).toContain('animate-pulse-border');
+  });
+
+  it('a failed worker gets the red status border, beating the claim styling', () => {
+    const card = { ...baseCard, assigned_agent: 'claude-sonnet-worker', worker_status: 'failed' as const };
+    render(<CardItem card={card} />);
+    const root = screen.getByLabelText(`Card ${card.id}: ${card.title}`);
+    expect(root.className).toContain('border-l-[var(--red)]');
+    expect(root.className).not.toContain('animate-pulse-border');
+  });
+
+  it('keeps the failed status border when collapsed', () => {
+    const card = { ...baseCard, worker_status: 'failed' as const };
+    render(<CardItem card={card} isCollapsed onToggleCollapse={vi.fn()} />);
+    const root = screen.getByLabelText(`Card ${card.id}: ${card.title}`);
+    expect(root.className).toContain('border-l-[var(--red)]');
   });
 });
 
@@ -171,11 +172,9 @@ describe('CardItem - subtask phase strip & peek', () => {
     expect(onClick).not.toHaveBeenCalled();
   });
 
-  it('collapsed parent keeps an interactive mini strip', () => {
+  it('collapsed parent shows no strip', () => {
     render(<CardItem card={baseCard} subtasks={subs} isCollapsed onToggleCollapse={vi.fn()} />);
-    const strip = screen.getByRole('button', { name: '2 subtasks' });
-    fireEvent.click(strip);
-    expect(screen.getByTitle('Subtask TEST-101')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /subtask/ })).not.toBeInTheDocument();
   });
 
   it('flashCardId naming a subtask flashes the parent card and auto-opens the peek', () => {
@@ -183,6 +182,14 @@ describe('CardItem - subtask phase strip & peek', () => {
     render(<CardItem card={baseCard} subtasks={subs} flashCardId="TEST-101" />);
     const root = screen.getByLabelText(`Card ${baseCard.id}: ${baseCard.title}`);
     expect(root.className).toContain('animate-card-flash');
+    expect(screen.getByTitle('Subtask TEST-101')).toBeInTheDocument();
+  });
+
+  it('a subtask flash still surfaces the peek rows on a collapsed parent', () => {
+    window.HTMLElement.prototype.scrollIntoView = vi.fn();
+    render(
+      <CardItem card={baseCard} subtasks={subs} isCollapsed onToggleCollapse={vi.fn()} flashCardId="TEST-101" />,
+    );
     expect(screen.getByTitle('Subtask TEST-101')).toBeInTheDocument();
   });
 });

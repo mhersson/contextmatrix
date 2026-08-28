@@ -153,7 +153,7 @@ describe('SubtaskPeekList', () => {
     expect(stateBlocked.className).not.toContain('peek-row--dep-blocked');
   });
 
-  it('agent-held non-stalled rows get the active modifier and avatar; stalled rows do not', () => {
+  it('agent-held non-stalled rows get the active modifier without an avatar; stalled rows get neither', () => {
     render(
       <SubtaskPeekList
         subtasks={[
@@ -165,7 +165,8 @@ describe('SubtaskPeekList', () => {
     );
     const active = screen.getByTitle('Subtask TEST-002');
     expect(active.className).toContain('peek-row--agent');
-    expect(active.querySelector('.agent-avatar')).not.toBeNull();
+    // The row tint is the claim signal; the avatar dot is gone from peek rows.
+    expect(active.querySelector('.agent-avatar')).toBeNull();
     expect(screen.getByTitle('Subtask TEST-003').className).not.toContain('peek-row--agent');
   });
 });

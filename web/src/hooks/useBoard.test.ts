@@ -165,6 +165,37 @@ describe('useBoard - SSE reconnect resync', () => {
   });
 });
 
+describe('useBoard - playbook events', () => {
+  beforeEach(() => {
+    instances = [];
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.mocked(api.getProject).mockResolvedValue(projectConfig);
+    vi.mocked(api.getCards).mockResolvedValue(cards);
+    vi.mocked(api.getCard).mockRejectedValue(new Error('not used in this test'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  it('refetches the board when a playbook changes (membership icons may flip)', async () => {
+    renderHook(() => useBoard('alpha'), { wrapper });
+    await waitFor(() => expect(vi.mocked(api.getCards)).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      latestInstance()._triggerOpen();
+    });
+    act(() => {
+      latestInstance().onmessage?.({
+        data: JSON.stringify({ type: 'playbook.updated', card_id: '', project: '' }),
+      } as MessageEvent);
+    });
+
+    await waitFor(() => expect(vi.mocked(api.getCards)).toHaveBeenCalledTimes(2));
+  });
+});
+
 describe('useBoard - refreshCard (panel-open hydration)', () => {
   beforeEach(() => {
     instances = [];
