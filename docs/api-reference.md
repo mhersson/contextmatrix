@@ -2463,7 +2463,7 @@ information gain.
 | Shape | Tools |
 | ----- | ----- |
 | Full card (`body` + `activity_log` + `usage_breakdown`) | `get_card`; `get_task_context` (primary card and parent only) |
-| Card summary (no `body`, no `activity_log`, no `usage_breakdown`) | `create_card`, `update_card`, `transition_card`, `claim_card`, `release_card`, `add_log`, `complete_task`, `report_usage`, `report_push`, `promote_to_autonomous`, `increment_review_attempts`, `list_cards`, `get_ready_tasks`, `get_task_context` siblings |
+| Card summary (no `body`, no `activity_log`, no `usage_breakdown`) | `create_card`, `update_card`, `transition_card`, `claim_card`, `release_card`, `add_log`, `complete_task`, `report_usage`, `report_push`, `report_parked`, `promote_to_autonomous`, `increment_review_attempts`, `list_cards`, `get_ready_tasks`, `get_task_context` siblings |
 | Minimal ack (`card_id`, `state`, `last_heartbeat`) | `heartbeat` |
 
 All scalar and bounded fields (`state`, `assigned_agent`, `review_attempts`,

@@ -183,6 +183,17 @@ type reportPushOutput struct {
 	Card *CardSummary `json:"card"`
 }
 
+type reportParkedInput struct {
+	Project string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
+	CardID  string `json:"card_id" jsonschema:"required,card ID"`
+	AgentID string `json:"agent_id" jsonschema:"required,agent ID"`
+	Reason  string `json:"reason" jsonschema:"required,why the run parked the card, e.g. review parked: attempts cap exhausted without approval"`
+}
+
+type reportParkedOutput struct {
+	Card *CardSummary `json:"card"`
+}
+
 type promoteToAutonomousInput struct {
 	Project string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
 	CardID  string `json:"card_id" jsonschema:"required,card ID"`
@@ -697,6 +708,29 @@ func registerReportPush(server *mcp.Server, svc *service.CardService) {
 		}
 
 		return nil, reportPushOutput{Card: summarizeCard(card)}, nil
+	})
+}
+
+// --- report_parked tool ---
+
+func registerReportParked(server *mcp.Server, svc *service.CardService) {
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "report_parked",
+		Description: "Report that this run is parking the card - review or PR gates left for a human. " +
+			"Sets worker_status to \"parked\" (survives the run's completed callback; the next trigger clears it) " +
+			"and records the reason in the activity log. Requires the claim: agent_id must match assigned_agent.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input reportParkedInput) (*mcp.CallToolResult, reportParkedOutput, error) {
+		project, err := resolveProject(ctx, svc, input.Project, input.CardID)
+		if err != nil {
+			return nil, reportParkedOutput{}, err
+		}
+
+		card, err := svc.ReportParked(ctx, project, input.CardID, input.AgentID, strings.TrimSpace(input.Reason))
+		if err != nil {
+			return nil, reportParkedOutput{}, fmt.Errorf("report parked: %w", err)
+		}
+
+		return nil, reportParkedOutput{Card: summarizeCard(card)}, nil
 	})
 }
 
