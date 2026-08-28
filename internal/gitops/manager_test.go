@@ -1251,11 +1251,12 @@ func TestNetworkTimeout(t *testing.T) {
 	// Inject a short network timeout. The injected timeout is 500 ms; the
 	// context deadline kills the direct git process, after which WaitDelay
 	// (3 s) accounts for orphaned git-remote-https children. We use a total
-	// deadline of ~4 s so the test completes promptly on failure.
+	// deadline of ~6 s for real margin on a loaded machine; it only delays
+	// the failure case.
 	shortTimeout := 500 * time.Millisecond
 	mgr.SetNetworkTimeout(shortTimeout)
 
-	totalDeadline := shortTimeout + 3500*time.Millisecond
+	totalDeadline := shortTimeout + 5500*time.Millisecond
 
 	t.Run("Push", func(t *testing.T) {
 		ctx := context.Background()

@@ -1007,17 +1007,17 @@ func (m *Manager) doClearContext(ctx context.Context, sessionID string) error {
 		RehydrationPhase: phase,
 	}
 
-	// Part 2: detach persistence from the caller context so a cancelled HTTP
+	// Detach persistence from the caller context so a cancelled HTTP
 	// request cannot race a committed autocommit INSERT in modernc.org/sqlite.
 	persistCtx, persistCancel := context.WithTimeout(context.WithoutCancel(ctx), persistTimeout)
 	defer persistCancel()
 
 	markedCount, msg, err := m.store.ClearTranscriptAtomic(persistCtx, sessionID, divider)
 	if err != nil {
-		// Part 1: reseed the counter from MAX(seq) on disk instead of a
-		// blind decrement. The per-session append lock is still held, so
+		// Reseed the counter from MAX(seq) on disk instead of a blind
+		// decrement. The per-session append lock is still held, so
 		// MAX(seq) on disk is authoritative. Unchanged from the
-		// appendMessageWithKind pattern above.
+		// appendMessageWithKind pattern below.
 		reseedCtx, reseedCancel := context.WithTimeout(context.WithoutCancel(ctx), reseedTimeout)
 		defer reseedCancel()
 
@@ -1546,14 +1546,14 @@ func (m *Manager) appendMessageWithKind(ctx context.Context, sessionID string, r
 		RehydrationPhase: phase,
 	}
 
-	// Part 2: detach persistence from the caller context so a cancelled HTTP
+	// Detach persistence from the caller context so a cancelled HTTP
 	// request cannot race a committed autocommit INSERT in modernc.org/sqlite.
 	persistCtx, persistCancel := context.WithTimeout(context.WithoutCancel(ctx), persistTimeout)
 	defer persistCancel()
 
 	if _, err := m.store.AppendMessage(persistCtx, msg); err != nil {
-		// Part 1: reseed the counter from MAX(seq) on disk instead of a
-		// blind decrement. The per-session append lock is still held, so
+		// Reseed the counter from MAX(seq) on disk instead of a blind
+		// decrement. The per-session append lock is still held, so
 		// no concurrent writer for this session can have raced and
 		// MAX(seq) is authoritative. If the row committed despite the
 		// error, MAX(seq) returns N and the next append takes N+1; if it
