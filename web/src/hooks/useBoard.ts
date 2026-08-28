@@ -232,6 +232,7 @@ export function useBoard(
         case 'worker.started':
         case 'worker.failed':
         case 'worker.killed':
+        case 'worker.parked':
           api.getCard(project, event.card_id).then(mergeCard).catch((err) => {
             console.error('Failed to refresh card after SSE event:', event.card_id, err);
           });

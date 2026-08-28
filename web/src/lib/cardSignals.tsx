@@ -79,6 +79,13 @@ const circleSlashIcon = (
   </svg>
 );
 
+const circleParkingIcon = (
+  <svg {...signalSvgProps}>
+    <circle cx="12" cy="12" r="10" />
+    <path d="M9 17V7h4a3 3 0 0 1 0 6H9" />
+  </svg>
+);
+
 const bookOpenIcon = (
   <svg {...signalSvgProps}>
     <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
@@ -117,6 +124,7 @@ const workerSignals: Record<WorkerStatus, Omit<CardSignal, 'key' | 'importance'>
   running: { label: 'Worker running', color: 'var(--aqua)', icon: activityIcon, pulse: true },
   failed: { label: 'Worker failed - open card for the log', color: 'var(--red)', icon: alertTriangleIcon },
   killed: { label: 'Worker killed', color: 'var(--grey1)', icon: circleSlashIcon },
+  parked: { label: 'Parked - left for a human, see the card log', color: 'var(--yellow)', icon: circleParkingIcon },
 };
 
 /** Builds the card's signals in display order. */

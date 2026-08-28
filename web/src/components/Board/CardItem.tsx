@@ -77,16 +77,20 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
   const isAgentActive = card.assigned_agent && card.state !== 'stalled';
   const isStalled = card.state === 'stalled';
   const isWorkerFailed = card.worker_status === 'failed';
+  const isParked = card.worker_status === 'parked';
   const isNotPlanned = card.state === 'not_planned';
 
-  // Status red (stalled or failed worker) wins over the claim styling.
+  // Status red (stalled or failed worker) wins over parked yellow, which
+  // wins over the claim styling.
   const borderClass = isStalled || isWorkerFailed
     ? 'border-l-[3px] border-l-[var(--red)]'
-    : isNotPlanned
-      ? 'border-l-[3px] border-l-[var(--bg4)]'
-      : isAgentActive
-        ? 'border-l-[3px] border-l-[var(--aqua)] animate-pulse-border'
-        : 'border-l-[3px] border-l-transparent';
+    : isParked
+      ? 'border-l-[3px] border-l-[var(--yellow)]'
+      : isNotPlanned
+        ? 'border-l-[3px] border-l-[var(--bg4)]'
+        : isAgentActive
+          ? 'border-l-[3px] border-l-[var(--aqua)] animate-pulse-border'
+          : 'border-l-[3px] border-l-transparent';
 
   // Attached subtasks never reach CardItem, so a board card with a parent is
   // by construction an orphan (its parent left the board list). Keep the
@@ -110,6 +114,8 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
 
   const statusBg: React.CSSProperties | undefined = isStalled || isWorkerFailed ? {
     background: 'linear-gradient(90deg, color-mix(in oklab, var(--bg-red) 75%, transparent) 0%, var(--bg1) 50%)',
+  } : isParked ? {
+    background: 'linear-gradient(90deg, color-mix(in oklab, var(--bg-yellow) 75%, transparent) 0%, var(--bg1) 50%)',
   } : undefined;
 
   const activeBg: React.CSSProperties | undefined = isAgentActive ? {
