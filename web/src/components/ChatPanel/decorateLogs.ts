@@ -6,8 +6,17 @@ export type Decorated =
   | { entry: LogEntry; showStamp: false }
   | { entry: LogEntry; showStamp: true; hhmm: string; title: string };
 
-/** Filter-bar predicate: text / tool traffic / thinking are toggleable, and
- *  tool results ride the Tool calls checkbox; everything else always shows. */
+/** Worker slog diagnostics at INFO/DEBUG level, in either stdlib output shape:
+ *  the default-handler prefix ("2026/08/28 05:07:54 INFO msg ...") or a
+ *  TextHandler line ("time=... level=INFO ..."). These belong in the worker
+ *  console, not the conversation; WARN/ERROR and non-slog stderr (harness
+ *  errors, panics) still show. */
+const SLOG_DIAGNOSTIC =
+  /^(?:\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2} (?:INFO|DEBUG) |time=\S+ level=(?:INFO|DEBUG) )/;
+
+/** Filter-bar predicate: text / tool traffic / thinking are toggleable, tool
+ *  results ride the Tool calls checkbox, stderr drops INFO/DEBUG slog
+ *  diagnostics unconditionally; everything else always shows. */
 export function filterLogEntries(
   logs: readonly LogEntry[],
   prefs: ChatFilterPrefs,
@@ -16,6 +25,7 @@ export function filterLogEntries(
     if (e.type === 'text') return prefs.showText;
     if (e.type === 'tool_call' || e.type === 'tool_result') return prefs.showToolCalls;
     if (e.type === 'thinking') return prefs.showThinking;
+    if (e.type === 'stderr') return !SLOG_DIAGNOSTIC.test(e.content);
     return true;
   });
 }
