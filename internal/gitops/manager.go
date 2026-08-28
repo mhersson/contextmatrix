@@ -50,9 +50,9 @@ var DefaultAuthor = object.Signature{
 // Methods that need both locks acquire and release netMu first, then
 // briefly take worktreeMu for the post-network reload. They are NEVER
 // nested: holding netMu while acquiring worktreeMu (or vice versa) is a
-// bug - see the doc comment on Pull for the prescribed sequence. This
-// keeps gitsync's upstream svc.writeMu → netMu order clean and prevents
-// any deadlock between the two manager-level locks.
+// bug - see the doc comment on PullFastForward for the prescribed sequence.
+// This keeps gitsync's upstream svc.writeMu → netMu order clean and
+// prevents any deadlock between the two manager-level locks.
 type Manager struct {
 	repo     *git.Repository
 	repoPath string
@@ -365,9 +365,9 @@ func (m *Manager) PullFastForward(ctx context.Context) error {
 // the current branch already has a tracking upstream configured.
 // Returns nil if no remote is configured (with a warning logged).
 //
-// Lock sequence: see Pull. The network push runs under netMu only so
-// concurrent commits (which need worktreeMu) are not blocked even if the
-// remote is slow or unreachable.
+// Lock sequence: see PullFastForward. The network push runs under netMu
+// only so concurrent commits (which need worktreeMu) are not blocked even
+// if the remote is slow or unreachable.
 func (m *Manager) Push(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
