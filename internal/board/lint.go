@@ -40,7 +40,7 @@ func LintSelfContained(text string, foreignRepos []string) []string {
 
 	for _, repo := range foreignRepos {
 		for _, form := range repoMatchForms(repo) {
-			if form != "" && strings.Contains(lower, strings.ToLower(form)) {
+			if form != "" && hasMatchWithBoundary(lower, strings.ToLower(form)) {
 				warnings = append(warnings, fmt.Sprintf(
 					"reference to another project's repo %q: the executing agent's container clones only this project's repo - make the card self-contained or move that work to a card on the other project",
 					form))
@@ -54,7 +54,8 @@ func LintSelfContained(text string, foreignRepos []string) []string {
 }
 
 // repoMatchForms derives the matchable forms of a repo URL: the URL itself
-// (with and without a .git suffix) and its owner/name path tail.
+// (with and without a .git suffix) and its owner/name path tail. Handles both
+// HTTPS (github.com/owner/repo) and SSH (git@github.com:owner/repo) URLs.
 func repoMatchForms(repoURL string) []string {
 	repoURL = strings.TrimSpace(repoURL)
 	if repoURL == "" {
@@ -64,11 +65,61 @@ func repoMatchForms(repoURL string) []string {
 	bare := strings.TrimSuffix(repoURL, ".git")
 	forms := []string{bare}
 
-	// owner/name tail: last two path segments of the URL.
-	segs := strings.Split(strings.Trim(bare, "/"), "/")
-	if len(segs) >= 2 {
-		forms = append(forms, segs[len(segs)-2]+"/"+segs[len(segs)-1])
+	// owner/name tail: last two path segments, using both / and : as separators
+	// to handle both HTTPS (github.com/owner/repo) and SSH (git@github.com:owner/repo).
+	trimmed := strings.Trim(bare, "/")
+	if idx := strings.LastIndexAny(trimmed, "/:"); idx >= 0 {
+		rest := trimmed[idx+1:]
+		if idx2 := strings.LastIndexAny(trimmed[:idx], "/:"); idx2 >= 0 {
+			owner := trimmed[idx2+1 : idx]
+			if owner != "" && rest != "" {
+				forms = append(forms, owner+"/"+rest)
+			}
+		}
 	}
 
 	return forms
+}
+
+// hasMatchWithBoundary reports whether needle appears in haystack with word/path
+// boundaries on both sides: the character before and after the match must be
+// absent or not in [A-Za-z0-9_-].
+func hasMatchWithBoundary(haystack, needle string) bool {
+	idx := 0
+	for {
+		pos := strings.Index(haystack[idx:], needle)
+		if pos < 0 {
+			return false
+		}
+
+		actualPos := idx + pos
+
+		// Check boundary before the match
+		if actualPos > 0 {
+			before := haystack[actualPos-1]
+			if isWordPathChar(before) {
+				idx = actualPos + 1
+
+				continue
+			}
+		}
+
+		// Check boundary after the match
+		endPos := actualPos + len(needle)
+		if endPos < len(haystack) {
+			after := haystack[endPos]
+			if isWordPathChar(after) {
+				idx = actualPos + 1
+
+				continue
+			}
+		}
+
+		return true
+	}
+}
+
+func isWordPathChar(b byte) bool {
+	return (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z') ||
+		(b >= '0' && b <= '9') || b == '_' || b == '-'
 }
