@@ -354,7 +354,7 @@ func lintCardMutation(ctx context.Context, svc *service.CardService, project, ca
 func registerCreateCard(server *mcp.Server, svc *service.CardService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "create_card",
-		Description: "Create a new card in a project. Returns a card summary with the generated ID (the body is stored but not echoed back). The card starts in the project's first state (usually 'todo'). IMPORTANT: After creation, the card must be claimed with claim_card before any work begins. Never start working on a card without claiming it first.",
+		Description: "Create a new card in a project. Returns a card summary with the generated ID (the body is stored but not echoed back). The card starts in the project's first state (usually 'todo'). IMPORTANT: After creation, the card must be claimed with claim_card before any work begins. Never start working on a card without claiming it first. EXECUTION CONTRACT: the card may be executed by an autonomous agent in a container holding only a fresh clone of the project repo - write the body self-contained (inline context; no local-machine paths, no other repos) with acceptance criteria verifiable inside that repo. One card = one deliverable; split independent deliverables into separate cards linked with depends_on. The response may include 'warnings' - fix them with update_card before proceeding.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input createCardInput) (*mcp.CallToolResult, *cardMutationResult, error) {
 		// depends_on is part of CreateCardInput so create + dependency wiring
 		// happen as a single atomic operation (one git commit, no race window
@@ -386,7 +386,7 @@ func registerUpdateCard(server *mcp.Server, svc *service.CardService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "update_card",
 		Description: "Update a card's mutable fields. Only provided fields are changed; omitted fields keep their current values. Does NOT change state - use transition_card for state changes. " +
-			"Prefer upsert_section_heading/upsert_section_content for adding or updating one section - never re-send a body containing human-authored text just to append.",
+			"Prefer upsert_section_heading/upsert_section_content for adding or updating one section - never re-send a body containing human-authored text just to append. The same execution contract as create_card applies: keep the body self-contained and acceptance criteria verifiable inside the project repo. The response may include 'warnings'.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input updateCardInput) (*mcp.CallToolResult, *cardMutationResult, error) {
 		if (input.UpsertSectionHeading == nil) != (input.UpsertSectionContent == nil) {
 			return nil, nil, fmt.Errorf("upsert_section_heading and upsert_section_content must be provided together")
