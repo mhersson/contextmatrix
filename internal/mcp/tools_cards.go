@@ -49,9 +49,9 @@ type createCardInput struct {
 	// AgentID is accepted for parity with the other card tools: the agent MCP
 	// client injects agent_id into every call, so create_card must declare it or
 	// the strict (additionalProperties:false) schema rejects the orchestrator's
-	// subtask creation. Not threaded to attribution today (the service has no
-	// author param); present so the call validates.
-	AgentID string `json:"agent_id,omitempty" jsonschema:"caller identity (accepted for client parity; not used for attribution)"`
+	// subtask creation. Threaded into the self_containment_warning activity
+	// entry's Agent field when the lint finds something to flag.
+	AgentID string `json:"agent_id,omitempty" jsonschema:"caller identity (attributed on the self_containment_warning activity entry when the lint flags the body)"`
 }
 
 // NOTE: vetted, create_pr, await_ci, await_copilot_review,

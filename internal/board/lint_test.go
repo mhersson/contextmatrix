@@ -25,9 +25,15 @@ func TestLintSelfContained(t *testing.T) {
 		{name: "foreign repo owner-name form", text: "Port the helper from mhersson/other-project first", repos: foreign, wantN: 1},
 		{name: "own in-repo paths untouched", text: "Files: internal/board/card.go, web/src/App.tsx", repos: foreign, wantN: 0},
 		{name: "multiple findings", text: "Read /home/a/x.md and ~/y.md", repos: foreign, wantN: 2},
-		{name: "no foreign repos configured", text: "plain body", repos: foreign, wantN: 0},
+		{name: "clean short body", text: "plain body", repos: foreign, wantN: 0},
+		{name: "no foreign repos configured", text: "plain body", repos: nil, wantN: 0},
 		{name: "ssh repo url matched by owner-name", text: "Port the helper from mhersson/other-project first", repos: []string{"git@github.com:mhersson/other-project.git"}, wantN: 1},
 		{name: "prefix collision no false positive", text: "See mhersson/other-project-v2 for details", repos: []string{"https://github.com/mhersson/other-project.git"}, wantN: 0},
+		{name: "in-repo path resembling /home/ mid-path", text: "web/src/pages/home/HomePage.tsx", repos: foreign, wantN: 0},
+		{name: "in-repo path resembling /Users/ mid-path", text: "api/Users/controller.cs", repos: foreign, wantN: 0},
+		{name: "linux home path at line start", text: "/home/alice/docs/design.md", repos: foreign, wantN: 1},
+		{name: "linux home path mid-sentence", text: "Follow this: /home/alice/docs/design.md", repos: foreign, wantN: 1},
+		{name: "bare last segment of foreign repo no false positive", text: "See other-project for details", repos: foreign, wantN: 0},
 	}
 
 	for _, tt := range tests {

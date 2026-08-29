@@ -728,6 +728,12 @@ Changing `assignee` (including clearing it) appends an `assigned` activity-log
 entry - `"Assigned to <user>"` or `"Unassigned (was <user>)"` - attributed to
 the acting identity (empty agent ID normalizes to `"system"`).
 
+The self-containment lint on `create_card` and `update_card` (MCP only)
+appends a `self_containment_warning` activity-log entry naming the warning
+count when the mutated title or body matches a local-path or foreign-repo
+signal; attributed to the acting identity, best-effort (see
+`docs/agent-workflow.md` § Card self-containment).
+
 `PATCH` on a card currently claimed by a different agent is rejected 403
 `AGENT_MISMATCH` like any other patch, regardless of which fields are being
 changed - `assignee` gets no special exemption from the claim-ownership check.

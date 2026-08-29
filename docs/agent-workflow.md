@@ -335,8 +335,11 @@ and body, flagging five signal categories: absolute Unix paths (`/home/...`,
 URLs, and references to another project's repo (matched by full URL or its
 `owner/name` tail). A hit never blocks the mutation - it adds a `warnings`
 field to the response and appends a `self_containment_warning` activity-log
-entry naming the count. The creating agent is expected to fix the flagged
-text with a follow-up `update_card` call before moving on.
+entry naming the count. The log write is best-effort: on a card claimed by a
+different agent than the one attributed on the call (or an omitted `agent_id`
+against a claimed card), it is silently rejected and the mutation still
+succeeds - the `warnings` field is unaffected. The creating agent is expected
+to fix the flagged text with a follow-up `update_card` call before moving on.
 
 ### Deliverable split
 

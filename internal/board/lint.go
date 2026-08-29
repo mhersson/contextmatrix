@@ -13,7 +13,7 @@ var selfContainmentPatterns = []struct {
 	re     *regexp.Regexp
 	reason string
 }{
-	{regexp.MustCompile(`(?:/home/|/Users/)[^\s"'` + "`" + `)\]]*`), "absolute path on the card author's machine"},
+	{regexp.MustCompile(`(?:^|[\s"'` + "`" + `(\[])(?:/home/|/Users/)[^\s"'` + "`" + `)\]]*`), "absolute path on the card author's machine"},
 	{regexp.MustCompile(`(?:^|[\s"'` + "`" + `(\[])~/[^\s"'` + "`" + `)\]]*`), "home-relative path on the card author's machine"},
 	{regexp.MustCompile(`(?i)\b[a-z]:\\[^\s"'` + "`" + `)\]]*`), "Windows path on the card author's machine"},
 	{regexp.MustCompile(`file://[^\s"'` + "`" + `)\]]*`), "file:// URL"},
