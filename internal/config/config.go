@@ -102,6 +102,7 @@ var (
 		"_DEFAULT_MODEL",
 		"_AA_API_KEY",
 		"_MODEL_ALLOWLIST",
+		"_CATALOG_QUALITY_FLOOR",
 	}
 	chatBackendEnvSuffixes = []string{
 		"_URL",
@@ -200,6 +201,12 @@ type AgentBackendConfig struct {
 	// slug, the AA join is skipped for that slug and these priors are used
 	// verbatim. openai type only.
 	ModelPriors map[string]PriorOverride `yaml:"model_priors"`
+
+	// CatalogQualityFloor is the minimum normalized quality score (0..1) a
+	// model's coder or reviewer prior must clear on at least one role to stay
+	// in the candidate pool. 0 means unset, and modelcatalog.NewBuilder's
+	// existing <=0 fallback keeps it at 0.65. Validated to be in [0, 1).
+	CatalogQualityFloor float64 `yaml:"catalog_quality_floor"`
 }
 
 // ChatBackendConfig is the contextmatrix-chat chat-serving backend entry.
@@ -641,6 +648,10 @@ func (c *Config) Validate() error {
 			if _, err := time.ParseDuration(a.ReconcileInterval); err != nil {
 				return fmt.Errorf("invalid backends.agent.reconcile_interval %q: %w", a.ReconcileInterval, err)
 			}
+		}
+
+		if a.CatalogQualityFloor < 0 || a.CatalogQualityFloor >= 1 {
+			return fmt.Errorf("backends.agent.catalog_quality_floor must be in [0, 1) (got %v)", a.CatalogQualityFloor)
 		}
 	}
 
@@ -1474,6 +1485,15 @@ func applyAgentBackendEnv(cfg *Config) error {
 		}
 
 		a.ModelAllowlist = allow
+	}
+
+	if v := os.Getenv(prefix + "_CATALOG_QUALITY_FLOOR"); v != "" {
+		f, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return fmt.Errorf("invalid %s_CATALOG_QUALITY_FLOOR %q: %w", prefix, v, err)
+		}
+
+		a.CatalogQualityFloor = f
 	}
 
 	return nil
