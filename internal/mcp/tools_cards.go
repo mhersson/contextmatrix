@@ -49,9 +49,9 @@ type createCardInput struct {
 	// AgentID is accepted for parity with the other card tools: the agent MCP
 	// client injects agent_id into every call, so create_card must declare it or
 	// the strict (additionalProperties:false) schema rejects the orchestrator's
-	// subtask creation. Not threaded to attribution today (the service has no
-	// author param); present so the call validates.
-	AgentID string `json:"agent_id,omitempty" jsonschema:"caller identity (accepted for client parity; not used for attribution)"`
+	// subtask creation. Threaded into the self_containment_warning activity
+	// entry's Agent field when the lint finds something to flag.
+	AgentID string `json:"agent_id,omitempty" jsonschema:"caller identity (attributed on the self_containment_warning activity entry when the lint flags the body)"`
 }
 
 // NOTE: vetted, create_pr, await_ci, await_copilot_review,
@@ -296,11 +296,66 @@ func prefixSectionKeep(sections []string) []string {
 	return keep
 }
 
+// cardMutationResult is the typed output of create_card and update_card: the
+// card summary plus advisory self-containment warnings. Warnings never block
+// the mutation - the caller is expected to fix the body via update_card.
+type cardMutationResult struct {
+	CardSummary
+	Warnings []string `json:"warnings,omitempty"`
+}
+
+// foreignRepoRefs collects the repo URLs of every project EXCEPT project, for
+// the self-containment lint. Best-effort: any error returns nil - the lint is
+// advisory and must never fail a card mutation.
+func foreignRepoRefs(ctx context.Context, svc *service.CardService, project string) []string {
+	projects, err := svc.ListProjects(ctx)
+	if err != nil {
+		return nil
+	}
+
+	var refs []string
+
+	for _, p := range projects {
+		if p.Name == project {
+			continue
+		}
+
+		if p.Repo != "" {
+			refs = append(refs, p.Repo)
+		}
+
+		for _, r := range p.Repos {
+			refs = append(refs, r.URL)
+		}
+	}
+
+	return refs
+}
+
+// lintCardMutation runs the self-containment lint over the mutated fields and,
+// when it finds anything, appends an advisory activity-log entry. Best-effort
+// on the log write; the warnings are returned regardless.
+func lintCardMutation(ctx context.Context, svc *service.CardService, project, cardID, agentID, verb, text string) []string {
+	warnings := board.LintSelfContained(text, foreignRepoRefs(ctx, svc, project))
+	if len(warnings) == 0 {
+		return nil
+	}
+
+	entry := board.ActivityEntry{
+		Agent:   agentID,
+		Action:  "self_containment_warning",
+		Message: fmt.Sprintf("%s with %d self-containment warning(s) - body references the card author's environment", verb, len(warnings)),
+	}
+	_, _ = svc.AddLogEntry(ctx, project, cardID, entry) //nolint:errcheck // advisory note; must not fail the mutation
+
+	return warnings
+}
+
 func registerCreateCard(server *mcp.Server, svc *service.CardService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "create_card",
-		Description: "Create a new card in a project. Returns a card summary with the generated ID (the body is stored but not echoed back). The card starts in the project's first state (usually 'todo'). IMPORTANT: After creation, the card must be claimed with claim_card before any work begins. Never start working on a card without claiming it first.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, input createCardInput) (*mcp.CallToolResult, *CardSummary, error) {
+		Description: "Create a new card in a project. Returns a card summary with the generated ID (the body is stored but not echoed back). The card starts in the project's first state (usually 'todo'). IMPORTANT: After creation, the card must be claimed with claim_card before any work begins. Never start working on a card without claiming it first. EXECUTION CONTRACT: the card may be executed by an autonomous agent in a container holding only a fresh clone of the project repo - write the body self-contained (inline context; no local-machine paths, no other repos) with acceptance criteria verifiable inside that repo. One card = one deliverable; split independent deliverables into separate cards linked with depends_on. The response may include 'warnings' - fix them with update_card before proceeding.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input createCardInput) (*mcp.CallToolResult, *cardMutationResult, error) {
 		// depends_on is part of CreateCardInput so create + dependency wiring
 		// happen as a single atomic operation (one git commit, no race window
 		// between create and follow-up update).
@@ -320,7 +375,10 @@ func registerCreateCard(server *mcp.Server, svc *service.CardService) {
 			return nil, nil, fmt.Errorf("create card: %w", err)
 		}
 
-		return nil, summarizeCard(card), nil
+		lintText := strings.Join([]string{input.Title, input.Body}, "\n")
+		warnings := lintCardMutation(ctx, svc, input.Project, card.ID, input.AgentID, "created", lintText)
+
+		return nil, &cardMutationResult{CardSummary: *summarizeCard(card), Warnings: warnings}, nil
 	})
 }
 
@@ -328,8 +386,8 @@ func registerUpdateCard(server *mcp.Server, svc *service.CardService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "update_card",
 		Description: "Update a card's mutable fields. Only provided fields are changed; omitted fields keep their current values. Does NOT change state - use transition_card for state changes. " +
-			"Prefer upsert_section_heading/upsert_section_content for adding or updating one section - never re-send a body containing human-authored text just to append.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, input updateCardInput) (*mcp.CallToolResult, *CardSummary, error) {
+			"Prefer upsert_section_heading/upsert_section_content for adding or updating one section - never re-send a body containing human-authored text just to append. The same execution contract as create_card applies: keep the body self-contained and acceptance criteria verifiable inside the project repo. The response may include 'warnings'.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input updateCardInput) (*mcp.CallToolResult, *cardMutationResult, error) {
 		if (input.UpsertSectionHeading == nil) != (input.UpsertSectionContent == nil) {
 			return nil, nil, fmt.Errorf("upsert_section_heading and upsert_section_content must be provided together")
 		}
@@ -363,7 +421,25 @@ func registerUpdateCard(server *mcp.Server, svc *service.CardService) {
 			return nil, nil, fmt.Errorf("update card %s: %w", input.CardID, err)
 		}
 
-		return nil, summarizeCard(card), nil
+		var parts []string
+		if input.Title != nil {
+			parts = append(parts, *input.Title)
+		}
+
+		if input.Body != nil {
+			parts = append(parts, *input.Body)
+		}
+
+		if input.UpsertSectionContent != nil {
+			parts = append(parts, *input.UpsertSectionContent)
+		}
+
+		var warnings []string
+		if len(parts) > 0 {
+			warnings = lintCardMutation(ctx, svc, project, card.ID, input.AgentID, "updated", strings.Join(parts, "\n"))
+		}
+
+		return nil, &cardMutationResult{CardSummary: *summarizeCard(card), Warnings: warnings}, nil
 	})
 }
 

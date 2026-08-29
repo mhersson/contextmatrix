@@ -251,6 +251,22 @@ Heartbeat before prompting. Heartbeat on resume. See the Heartbeat section.
 Call `get_card(card_id=<parent_id>)` and read the current `## Plan` section -
 the plan lives on the card, not in your context.
 
+### Executing a deliverable split
+
+If the plan draft contains a `## Split` section, execute it before creating
+subtasks:
+
+1. For each split entry, call `create_card` (no parent) with its title and
+   self-contained body. Set `depends_on` to the original card's ID (plus
+   earlier split cards) only where ordering is real.
+2. Copy the original card's `autonomous` flag onto each new card with
+   `update_card`.
+3. Narrow the original card's body to the first deliverable with
+   `update_card`, and confirm the narrowed scope with the human.
+4. Call `add_log` on the original card listing the created card IDs and the
+   reason for the split.
+5. Continue planning ONLY the original (narrowed) card.
+
 For each subtask described in the `## Plan` section:
 
 1. Call `list_cards(project=<project>, parent=<parent_id>)` to fetch any

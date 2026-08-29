@@ -93,6 +93,14 @@ Break the work into subtasks following these rules:
   line listing the file paths the subtask is expected to create or
   modify. This grounds the plan and makes the reviewer's `git diff`
   check meaningful.
+- **Deliverable split.** If the decomposition reveals the card is really
+  multiple independent deliverables - groups of subtasks that are not slices
+  of one deliverable - do NOT cram them in. Plan only the first deliverable and list the others under a
+  `## Split` heading in your draft: one entry per extra deliverable with a
+  title and a self-contained description (inline the context it needs - the
+  new card must satisfy the same self-containment rules as any card). If the
+  split would create more than 4 new cards, stop: the card is mis-scoped -
+  present the decomposition to the human instead of splitting automatically.
 
 ## Step 3: Plan self-review
 

@@ -24,6 +24,27 @@ import (
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
+// serverInstructions is the execution contract every connecting MCP client
+// sees at initialize time. Card-creating agents in external harnesses have no
+// other way to learn that the executor runs in a self-contained container.
+const serverInstructions = `ContextMatrix coordinates tasks executed by autonomous agents. Cards may be
+executed by contextmatrix-agent inside a self-contained container that clones
+ONLY the project's code repository at startup. Nothing from the card author's
+environment exists there: no local files, no sibling checkouts, no other
+repositories. The card author cannot know which executor will run a card, so
+write every card as if it will be executed there.
+
+When creating or updating cards, write them self-contained:
+- Inline any context the executor needs; never reference files on your machine
+  or in other checkouts.
+- Reference only paths that exist inside the project repository.
+- Every acceptance criterion must be verifiable from inside that repository.
+- One card = one deliverable a single agent workflow can complete. Split
+  multiple independent deliverables into separate cards linked with
+  depends_on.
+- If create_card or update_card returns warnings, fix the card body with
+  update_card before proceeding.`
+
 // ServerConfig collects the dependencies for NewServer. ChatManager,
 // ImageStore, Blacklist, Outcomes, and Bus are optional and default to nil;
 // when nil, the corresponding tool surfaces are not registered (or, for image
@@ -53,7 +74,7 @@ func NewServer(cfg ServerConfig) *mcp.Server {
 			Name:    "contextmatrix",
 			Version: "0.1.0",
 		},
-		nil,
+		&mcp.ServerOptions{Instructions: serverInstructions},
 	)
 
 	registerTools(registerToolsConfig{

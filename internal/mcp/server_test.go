@@ -2991,3 +2991,11 @@ func TestGetSkill_InjectsPRGateFlags(t *testing.T) {
 	assert.Contains(t, out.Content, "**Wait for CI:** enabled")
 	assert.Contains(t, out.Content, "**Copilot review:** enabled")
 }
+
+func TestServerInstructionsPresent(t *testing.T) {
+	env := setupMCP(t)
+
+	initResult := env.session.InitializeResult()
+	require.NotNil(t, initResult)
+	assert.NotEmpty(t, initResult.Instructions, "server instructions should be non-empty")
+}
