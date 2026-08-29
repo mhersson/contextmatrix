@@ -193,6 +193,31 @@ func TestBuildFromAAMapExactRowHit(t *testing.T) {
 	assert.InDelta(t, 3e-6, got.Candidate.PromptPricePerTok, 1e-12)
 }
 
+// TestBuildFromAAMapUnscoredVariantSuggestsScoredBase covers the common
+// mis-mapping: an unscored VARIANT slug is mapped while the family's BASE row
+// carries the scores. The trimmed rescan must suggest the scored base row
+// itself, not just suffixed branches.
+func TestBuildFromAAMapUnscoredVariantSuggestsScoredBase(t *testing.T) {
+	aa := []aaModel{
+		{Slug: "vendor-x-1", Creator: "vendor", CodingIndex: new(float64(80)), IntelIndex: new(float64(80))},
+		{Slug: "vendor-x-1-thinking", Creator: "vendor", CodingIndex: nil, IntelIndex: nil},
+	}
+	endpoint := map[string]orEntry{
+		"model-a": {PromptPrice: 3e-6, CompletionPrice: 15e-6, ContextWindow: 200000, Tools: true},
+	}
+	aaModelMap := map[string]string{"model-a": "vendor-x-1-thinking"}
+
+	scored, exclusions := buildFromAAMap(aa, endpoint, aaModelMap, nil, 0.65)
+	require.Empty(t, scored)
+	require.Len(t, exclusions, 1)
+	assert.Equal(t, exclUnscored, exclusions[0].Reason)
+
+	require.Len(t, exclusions[0].Siblings, 1, "the scored base row must be the suggestion")
+	assert.Equal(t, "vendor-x-1", exclusions[0].Siblings[0].Slug)
+	assert.InDelta(t, 1.0, exclusions[0].Siblings[0].Coder, 1e-9)
+	assert.InDelta(t, 1.0, exclusions[0].Siblings[0].Reviewer, 1e-9)
+}
+
 // TestBuildFromAAMapBelowFloorExclusion covers the exclBelowFloor branch for
 // the AA-join path: a scored mapped row whose normalized priors both fall
 // below the floor is excluded rather than scored.

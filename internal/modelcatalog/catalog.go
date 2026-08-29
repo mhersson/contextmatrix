@@ -599,26 +599,28 @@ func buildFromAAMap(aa []aaModel, endpoint map[string]orEntry, aaModelMap map[st
 // the scored base row and sibling branches. The result is display-only: it
 // never feeds back into scoring.
 func scoredSiblings(aa []aaModel, aaSlug string, maxCoding, maxIntel float64) []aaSibling {
-	out := siblingsWithPrefix(aa, aaSlug, maxCoding, maxIntel)
+	out := siblingsInFamily(aa, aaSlug, aaSlug, maxCoding, maxIntel)
 	if len(out) > 0 {
 		return out
 	}
 
-	base := aaSlug
-	if i := strings.LastIndex(base, "-"); i > 0 {
-		return siblingsWithPrefix(aa, base[:i], maxCoding, maxIntel)
+	if i := strings.LastIndex(aaSlug, "-"); i > 0 {
+		return siblingsInFamily(aa, aaSlug[:i], aaSlug, maxCoding, maxIntel)
 	}
 
 	return nil
 }
 
-// siblingsWithPrefix collects scored AA rows whose Slug has prefix+"-" as a
-// prefix, excluding the mapped row itself and other unscored rows.
-func siblingsWithPrefix(aa []aaModel, prefix string, maxCoding, maxIntel float64) []aaSibling {
+// siblingsInFamily collects the scored AA rows in base's family - the row
+// named base itself and rows prefixed "base-" - excluding the mapped row and
+// unscored rows. Including base matters on the trimmed rescan: a mapping that
+// missed on an unscored variant slug should suggest the scored base row, not
+// just its suffixed branches.
+func siblingsInFamily(aa []aaModel, base, mapped string, maxCoding, maxIntel float64) []aaSibling {
 	var out []aaSibling
 
 	for _, m := range aa {
-		if m.Slug == prefix || !strings.HasPrefix(m.Slug, prefix+"-") {
+		if m.Slug == mapped || (m.Slug != base && !strings.HasPrefix(m.Slug, base+"-")) {
 			continue
 		}
 
