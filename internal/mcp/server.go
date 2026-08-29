@@ -27,11 +27,12 @@ import (
 // serverInstructions is the execution contract every connecting MCP client
 // sees at initialize time. Card-creating agents in external harnesses have no
 // other way to learn that the executor runs in a self-contained container.
-const serverInstructions = `ContextMatrix coordinates tasks executed by autonomous agents. Cards are
+const serverInstructions = `ContextMatrix coordinates tasks executed by autonomous agents. Cards may be
 executed by contextmatrix-agent inside a self-contained container that clones
 ONLY the project's code repository at startup. Nothing from the card author's
 environment exists there: no local files, no sibling checkouts, no other
-repositories.
+repositories. The card author cannot know which executor will run a card, so
+write every card as if it will be executed there.
 
 When creating or updating cards, write them self-contained:
 - Inline any context the executor needs; never reference files on your machine
