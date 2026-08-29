@@ -327,9 +327,9 @@ backends: {}
 #    # candidate pool. A model passes if EITHER its coder or reviewer prior
 #    # clears this floor - it does not need both roles above the threshold.
 #    # Applies to both catalog legs (OpenRouter and openai) and both roles.
-#    # 0 means unset, which falls back to the modelcatalog Builder's default
-#    # of 0.65.
-#    # Default: 0
+#    # 0 means unset (the unset representation, not the effective floor); the
+#    # modelcatalog Builder's <=0 fallback keeps the effective floor at 0.65.
+#    # Effective default: 0.65
 #    # Env: CONTEXTMATRIX_BACKEND_AGENT_CATALOG_QUALITY_FLOOR
 #    catalog_quality_floor: 0
 #

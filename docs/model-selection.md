@@ -142,9 +142,13 @@ documents the same caveat inline.
 
 ### The quality floor
 
-A model is dropped when **both** priors fall below 0.65 - clearing the floor
-for either role keeps it as a candidate for that role's picks. The floor is
-hardcoded and not configurable.
+A model is dropped when **both** priors fall below the floor - clearing the floor
+for either role keeps it as a candidate for that role's picks. The floor defaults to
+0.65 and is configured via `backends.agent.catalog_quality_floor`
+(env `CONTEXTMATRIX_BACKEND_AGENT_CATALOG_QUALITY_FLOOR`). 0 means unset, and
+the Builder's fallback keeps the effective floor at 0.65 (which corresponds to
+"within 65% of current best"); values outside [0, 1) are rejected at config
+load.
 
 ### Slug mapping (OpenRouter leg)
 
@@ -182,7 +186,7 @@ strongest sibling variant's score - there is no variant aggregation and no
 wildcard escape hatch. A nil index on the mapped row yields no prior for that
 role (the candidate competes only on the scored axis); with both axes nil the
 model produces no candidate. `model_priors` entries bypass the AA join entirely
-- the configured 0..1 values are used verbatim. The same 0.65 floor applies.
+- the configured 0..1 values are used verbatim. The same floor applies.
 
 Exclusions are loud: every served, tool-capable model that does not become a
 candidate is logged at WARN with its slug and the specific reason - no
@@ -613,6 +617,7 @@ overrides; this table maps the knobs to their effect on selection.
 | `backends.agent.aa_model_map`        | none                 | Endpoint slug -> exact AA slug (`openai` leg only)                      |
 | `backends.agent.model_priors`        | none                 | Verbatim 0..1 priors for slugs AA does not rate (`openai` leg only)     |
 | `backends.agent.favorites`           | none                 | Per-tier preferred models, optionally per role                          |
+| `backends.agent.catalog_quality_floor` | 0.65               | Minimum quality prior on at least one role to keep a model as a selection candidate; applies to both catalog legs. Env `CONTEXTMATRIX_BACKEND_AGENT_CATALOG_QUALITY_FLOOR` |
 | `favorites` in a project `.board.yaml` | none               | Per-project override; replaces the global entry per tier; hand-edited only (see `docs/data-model.md`) |
 | `llm_endpoint.type`                  | `openrouter`         | Selects the catalog leg and the wire dialect                            |
 | `best_of_n.max_candidates`           | 5                    | Hard cap on a card's race size                                          |
@@ -621,10 +626,7 @@ overrides; this table maps the knobs to their effect on selection.
 | `selector_price_headroom` (agent `serve.yaml`) | 1.5        | Width of the price band; env `CMX_SELECTOR_PRICE_HEADROOM`              |
 | `selector_tier_bars` (agent `serve.yaml`) | built-in ladder (0.65 / 0.76 / 0.82 / 0.90) | Per-tier quality bars; merges over the defaults per tier, must stay non-decreasing; env `CMX_SELECTOR_TIER_BARS` (JSON) |
 
-**Not configurable** (compile-time constants): the 0.65 candidate floor (CM's
-catalog screen - a different number from the agent's tier bars, which happen
-to share 0.65 for `simple` by coincidence and are configurable via
-`selector_tier_bars`, see above), the 6-hour catalog TTL and 60-second failure
+**Not configurable** (compile-time constants): the 6-hour catalog TTL and 60-second failure
 cooldown, the AA pagination cap and fetch budget, the API endpoints, and the
 equal prompt+completion price weighting.
 

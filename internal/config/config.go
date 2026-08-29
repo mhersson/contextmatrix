@@ -650,7 +650,7 @@ func (c *Config) Validate() error {
 			}
 		}
 
-		if a.CatalogQualityFloor < 0 || a.CatalogQualityFloor >= 1 {
+		if !(a.CatalogQualityFloor >= 0 && a.CatalogQualityFloor < 1) {
 			return fmt.Errorf("backends.agent.catalog_quality_floor must be in [0, 1) (got %v)", a.CatalogQualityFloor)
 		}
 	}
