@@ -2,7 +2,9 @@ package modelcatalog
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -28,10 +30,10 @@ type Builder struct {
 	ttl                           time.Duration
 
 	// Endpoint leg (openai type). When endpointBaseURL != "", refresh() fuses
-	// the endpoint catalog with AA priors via stemMap/priors instead of the OR leg.
+	// the endpoint catalog with AA priors via aaModelMap/priors instead of the OR leg.
 	endpointBaseURL string
 	endpointAPIKey  string
-	stemMap         map[string]string
+	aaModelMap      map[string]string
 	priors          map[string]PriorOverride
 
 	// favorites are operator-configured slugs (flattened across tiers/roles).
@@ -56,13 +58,13 @@ type Builder struct {
 type BuilderOption func(*Builder)
 
 // WithEndpoint switches the Builder to the openai endpoint leg: it fetches the
-// endpoint's /v1/models (authenticated) and fuses with AA priors via stemMap,
+// endpoint's /v1/models (authenticated) and fuses with AA priors via aaModelMap,
 // with per-slug operator overrides from priors.
-func WithEndpoint(baseURL, apiKey string, stemMap map[string]string, priors map[string]PriorOverride) BuilderOption {
+func WithEndpoint(baseURL, apiKey string, aaModelMap map[string]string, priors map[string]PriorOverride) BuilderOption {
 	return func(b *Builder) {
 		b.endpointBaseURL = baseURL
 		b.endpointAPIKey = apiKey
-		b.stemMap = stemMap
+		b.aaModelMap = aaModelMap
 		b.priors = priors
 	}
 }
@@ -284,24 +286,39 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 			return nil, err
 		}
 
-		cands := buildFromStemMap(aa, ep, b.stemMap, b.priors, b.floor)
+		built, exclusions := buildFromAAMap(aa, ep, b.aaModelMap, b.priors, b.floor)
+
+		// Deterministic audit trail: buildFromAAMap iterates the endpoint map,
+		// so both lists arrive in map order. Sort by slug so refresh-to-refresh
+		// logs are diffable (Served() sorts the same way).
+		slices.SortFunc(exclusions, func(a, c aaExclusion) int { return strings.Compare(a.Slug, c.Slug) })
+		slices.SortFunc(built, func(a, c aaScored) int { return strings.Compare(a.Candidate.Slug, c.Candidate.Slug) })
 
 		// "Served but unselectable" is a loud condition, not a silent one: a
-		// tool-capable served model that yields no candidate (unmapped, no
-		// override, or below the floor) means selection will fall back to the
-		// default model for that quality. Surface it.
-		toolCapable := 0
-
-		for _, e := range ep {
-			if e.Tools {
-				toolCapable++
+		// tool-capable served model that yields no candidate (unmapped, mapped
+		// to a missing AA slug, unscored, or below the floor) means selection
+		// will fall back to the default model for that quality. One WARN per
+		// excluded model, naming the slug and the specific reason.
+		for _, x := range exclusions {
+			if len(x.Siblings) > 0 {
+				slog.Warn("endpoint model not selectable", "slug", x.Slug, "reason", x.Reason,
+					"siblings", formatSiblings(x.Siblings))
+			} else {
+				slog.Warn("endpoint model not selectable", "slug", x.Slug, "reason", x.Reason)
 			}
 		}
 
-		if len(cands) < toolCapable {
-			slog.Warn("endpoint models served but not selectable",
-				"served_tool_capable", toolCapable, "candidates", len(cands),
-				"reason", "unmapped to AA, no model_priors override, or below the quality floor")
+		// Resolved candidate set: one line per served candidate with its priors
+		// and where they came from, so the operator can audit the join.
+		for _, s := range built {
+			slog.Info("endpoint model scored",
+				"slug", s.Candidate.Slug, "coder_prior", s.Candidate.CoderPrior,
+				"reviewer_prior", s.Candidate.ReviewerPrior, "source", s.Source)
+		}
+
+		cands := make([]protocol.CandidateModel, 0, len(built))
+		for _, s := range built {
+			cands = append(cands, s.Candidate)
 		}
 
 		return cands, nil
@@ -430,82 +447,205 @@ type PriorOverride struct {
 	Reviewer float64
 }
 
-// buildFromStemMap fuses Artificial Analysis priors with an endpoint catalog for
-// the openai type. It iterates the endpoint's served models; for each it uses an
-// operator override when present (AA join skipped for that slug), otherwise it
-// aggregates the strongest prior across the mapped AA stem and its variant rows.
+// aaExclusionReason names why a served, tool-capable endpoint model did not
+// become a selection candidate.
+type aaExclusionReason string
+
+const (
+	exclUnmapped      aaExclusionReason = "no aa_model_map or model_priors entry"
+	exclAASlugMissing aaExclusionReason = "mapped AA slug not found in the AA catalog"
+	exclUnscored      aaExclusionReason = "mapped AA row has no usable scores"
+	exclBelowFloor    aaExclusionReason = "below the quality floor for both roles"
+)
+
+// aaExclusion is one served, tool-capable endpoint model that produced no
+// candidate. Siblings is populated only for exclUnscored: scored AA rows
+// sharing the mapped slug's family-base prefix, with their normalized scores -
+// a re-pointing hint for the operator. It is display-only and never feeds back
+// into scoring.
+type aaExclusion struct {
+	Slug     string
+	Reason   aaExclusionReason
+	Siblings []aaSibling
+}
+
+// aaSibling is one scored AA variant row suggested as a re-pointing target.
+type aaSibling struct {
+	Slug     string
+	Coder    float64
+	Reviewer float64
+}
+
+// aaScored pairs a resolved candidate with the provenance of its priors for
+// the refresh log: "model_priors override" or the exact AA slug it was scored
+// from.
+type aaScored struct {
+	Candidate protocol.CandidateModel
+	Source    string
+}
+
+// buildFromAAMap fuses Artificial Analysis priors with an endpoint catalog for
+// the openai type. It iterates the endpoint's served models; for each it uses
+// an operator override when present (AA join skipped for that slug), otherwise
+// it joins the exact AA row named by aaModelMap: the single row whose Slug
+// equals the mapped value, and only that row's coding/intelligence indices,
+// normalized against the response-wide maxima. AA publishes separate rows per
+// reasoning-effort variant with the base row frequently unscored, so a
+// per-family aggregate would silently pin a gateway model to its strongest
+// sibling variant's score; exact-row semantics keep the priors pointing at the
+// variant the gateway actually serves. A nil index on the mapped row yields no
+// prior for that role (the candidate competes only on the scored axis); with
+// both axes nil the model produces no candidate and the exclusion carries the
+// scored sibling variants as a re-pointing hint.
 //
-// Family aggregation takes the best coder prior and the best reviewer prior
-// INDEPENDENTLY across the stem's rows ("stem", "stem-*"). This deliberately
-// differs from the OpenRouter build() collapse, which keeps both priors from the
-// single highest combined-score row: AA populates variant rows inconsistently
-// (the base slug is frequently unscored while a sibling variant carries the
-// score), so a per-axis maximum is the safer family aggregation here. The two
-// legs can therefore rank a shared model differently - accepted, documented.
-//
-// A served, tool-capable model that is neither overridden nor mapped is skipped
-// (the caller counts these for the "served but unselectable" WARN). Output is
-// keyed by endpoint slug and filtered to tool-capable, floor-clearing models.
-func buildFromStemMap(aa []aaModel, endpoint map[string]orEntry, stemMap map[string]string, priors map[string]PriorOverride, floor float64) []protocol.CandidateModel {
+// A served, tool-capable model that is neither overridden nor mapped to a
+// usable scored row is returned as an exclusion with its reason. Output
+// candidates are keyed by endpoint slug and filtered to tool-capable,
+// floor-clearing models.
+func buildFromAAMap(aa []aaModel, endpoint map[string]orEntry, aaModelMap map[string]string, priors map[string]PriorOverride, floor float64) ([]aaScored, []aaExclusion) {
 	maxCoding, maxIntel := maxIndices(aa)
 
-	out := make([]protocol.CandidateModel, 0, len(endpoint))
+	var (
+		scored     []aaScored
+		exclusions []aaExclusion
+	)
 
 	for slug, e := range endpoint {
 		if !e.Tools {
 			continue // endpoint reports the model cannot use tools
 		}
 
-		var coder, rev float64
-
-		var creator string
-
 		if p, ok := priors[slug]; ok {
 			// Operator override: used verbatim, AA join skipped for this slug
 			// (which leaves the creator unknown).
-			coder, rev = p.Coder, p.Reviewer
-		} else {
-			stem, mapped := stemMap[slug]
-			if !mapped || maxCoding <= 0 || maxIntel <= 0 {
-				continue // unmapped and no override, or AA has no usable scores
+			if p.Coder < floor && p.Reviewer < floor {
+				exclusions = append(exclusions, aaExclusion{Slug: slug, Reason: exclBelowFloor})
+
+				continue
 			}
 
-			// Per-axis max across the stem family (see doc comment).
-			for _, m := range aa {
-				if m.Slug != stem && !strings.HasPrefix(m.Slug, stem+"-") {
-					continue
-				}
+			scored = append(scored, aaScored{
+				Candidate: protocol.CandidateModel{
+					Slug:                  slug,
+					PromptPricePerTok:     e.PromptPrice,
+					CompletionPricePerTok: e.CompletionPrice,
+					ContextWindow:         e.ContextWindow,
+					CoderPrior:            p.Coder,
+					ReviewerPrior:         p.Reviewer,
+				},
+				Source: "model_priors override",
+			})
 
-				if creator == "" {
-					// Family rows share one creator; captured even from
-					// unscored rows (the base row often has nil indices).
-					creator = m.Creator
-				}
-
-				if c := norm(m.CodingIndex, maxCoding); c > coder {
-					coder = c
-				}
-
-				if r := norm(m.IntelIndex, maxIntel); r > rev {
-					rev = r
-				}
-			}
+			continue
 		}
+
+		aaSlug, mapped := aaModelMap[slug]
+		if !mapped {
+			exclusions = append(exclusions, aaExclusion{Slug: slug, Reason: exclUnmapped})
+
+			continue
+		}
+
+		row := slices.IndexFunc(aa, func(m aaModel) bool { return m.Slug == aaSlug })
+		if row < 0 {
+			exclusions = append(exclusions, aaExclusion{Slug: slug, Reason: exclAASlugMissing})
+
+			continue
+		}
+
+		m := aa[row]
+
+		if m.CodingIndex == nil && m.IntelIndex == nil {
+			exclusions = append(exclusions, aaExclusion{
+				Slug:     slug,
+				Reason:   exclUnscored,
+				Siblings: scoredSiblings(aa, aaSlug, maxCoding, maxIntel),
+			})
+
+			continue
+		}
+
+		coder := norm(m.CodingIndex, maxCoding)
+		rev := norm(m.IntelIndex, maxIntel)
 
 		if coder < floor && rev < floor {
-			continue // below the quality floor for both roles
+			exclusions = append(exclusions, aaExclusion{Slug: slug, Reason: exclBelowFloor})
+
+			continue
 		}
 
-		out = append(out, protocol.CandidateModel{
-			Slug:                  slug,
-			PromptPricePerTok:     e.PromptPrice,
-			CompletionPricePerTok: e.CompletionPrice,
-			ContextWindow:         e.ContextWindow,
-			CoderPrior:            coder,
-			ReviewerPrior:         rev,
-			Creator:               creator,
+		scored = append(scored, aaScored{
+			Candidate: protocol.CandidateModel{
+				Slug:                  slug,
+				PromptPricePerTok:     e.PromptPrice,
+				CompletionPricePerTok: e.CompletionPrice,
+				ContextWindow:         e.ContextWindow,
+				CoderPrior:            coder,
+				ReviewerPrior:         rev,
+				Creator:               m.Creator,
+			},
+			Source: aaSlug,
+		})
+	}
+
+	return scored, exclusions
+}
+
+// scoredSiblings lists the scored AA rows sharing the mapped slug's family
+// prefix, with their normalized scores. It first scans for "aaSlug-" prefixed
+// variants (the usual case: the mapped slug is the unscored family base); if
+// that yields nothing, it trims the last '-'-delimited segment from aaSlug and
+// rescans, so a mapping that misses on an unscored variant slug still surfaces
+// the scored base row and sibling branches. The result is display-only: it
+// never feeds back into scoring.
+func scoredSiblings(aa []aaModel, aaSlug string, maxCoding, maxIntel float64) []aaSibling {
+	out := siblingsInFamily(aa, aaSlug, aaSlug, maxCoding, maxIntel)
+	if len(out) > 0 {
+		return out
+	}
+
+	if i := strings.LastIndex(aaSlug, "-"); i > 0 {
+		return siblingsInFamily(aa, aaSlug[:i], aaSlug, maxCoding, maxIntel)
+	}
+
+	return nil
+}
+
+// siblingsInFamily collects the scored AA rows in base's family - the row
+// named base itself and rows prefixed "base-" - excluding the mapped row and
+// unscored rows. Including base matters on the trimmed rescan: a mapping that
+// missed on an unscored variant slug should suggest the scored base row, not
+// just its suffixed branches.
+func siblingsInFamily(aa []aaModel, base, mapped string, maxCoding, maxIntel float64) []aaSibling {
+	var out []aaSibling
+
+	for _, m := range aa {
+		if m.Slug == mapped || (m.Slug != base && !strings.HasPrefix(m.Slug, base+"-")) {
+			continue
+		}
+
+		if m.CodingIndex == nil && m.IntelIndex == nil {
+			continue
+		}
+
+		out = append(out, aaSibling{
+			Slug:     m.Slug,
+			Coder:    norm(m.CodingIndex, maxCoding),
+			Reviewer: norm(m.IntelIndex, maxIntel),
 		})
 	}
 
 	return out
+}
+
+// formatSiblings renders sibling suggestions as one pre-formatted
+// "slug:coder=X,reviewer=Y" list for the exclusion WARN record, keeping the
+// log record's attribute shape independent of sibling count.
+func formatSiblings(sibs []aaSibling) string {
+	parts := make([]string, 0, len(sibs))
+	for _, s := range sibs {
+		parts = append(parts, fmt.Sprintf("%s:coder=%.2f,reviewer=%.2f", s.Slug, s.Coder, s.Reviewer))
+	}
+
+	return strings.Join(parts, "; ")
 }
