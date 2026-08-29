@@ -169,18 +169,30 @@ instead:
 | Aspect            | `openrouter` leg                              | `openai` leg                                                  |
 | ----------------- | --------------------------------------------- | ------------------------------------------------------------- |
 | Eligibility       | trusted-creator allowlist                     | membership in `aa_model_map` or `model_priors`                |
-| Quality source    | AA row joined by mapped slug                  | AA stem family (`aa_model_map`) or verbatim `model_priors`    |
-| Variant handling  | best combined-prior row per served slug       | independent per-axis max across the stem family               |
+| Quality source    | AA row joined by mapped slug                  | exact mapped AA row (`aa_model_map`) or verbatim `model_priors` |
+| Variant handling  | best combined-prior row per served slug       | none - only the mapped AA row's own scores      |
 | Pricing / window  | OpenRouter catalog                            | endpoint catalog                                              |
 
-`aa_model_map` maps an endpoint slug to its AA model stem; the Builder
-aggregates every AA row in that stem family and takes the best coding and best
-intelligence values independently (AA populates variant rows inconsistently,
-so the per-axis max is deliberate). `model_priors` entries bypass the AA join
-entirely - the configured 0..1 values are used verbatim. The same 0.65 floor
-applies. When the endpoint serves tool-capable models that produce no
-candidate (unmapped, no prior, or below the floor), the Builder logs a warning
-naming the gap so a thin candidate set is never silent.
+`aa_model_map` maps an endpoint slug to the **exact AA slug** of the variant
+the gateway serves; the Builder looks up only that row and uses its coding and
+intelligence indices, normalized against the response-wide maxima. AA publishes
+separate rows per reasoning-effort variant and the base row is frequently
+unscored, so per-family aggregation would silently pin a gateway model to its
+strongest sibling variant's score - there is no variant aggregation and no
+wildcard escape hatch. A nil index on the mapped row yields no prior for that
+role (the candidate competes only on the scored axis); with both axes nil the
+model produces no candidate. `model_priors` entries bypass the AA join entirely
+- the configured 0..1 values are used verbatim. The same 0.65 floor applies.
+
+Exclusions are loud: every served, tool-capable model that does not become a
+candidate is logged at WARN with its slug and the specific reason - no
+`aa_model_map` or `model_priors` entry, mapped AA slug not found in the AA
+catalog, mapped AA row has no usable scores (with the scored sibling rows and
+their normalized scores named so the operator can re-point the mapping), or
+below the quality floor for both roles. The refresh also logs the resolved
+candidate set: one line per served candidate with its coder prior, reviewer
+prior, and score source (`model_priors override` or the exact AA slug it was
+scored from).
 
 ### Caching and refresh
 
@@ -598,7 +610,7 @@ overrides; this table maps the knobs to their effect on selection.
 | `backends.agent.aa_api_key`          | unset                | Enables the candidate catalog; without it, no auto-selection at all     |
 | `backends.agent.default_model`       | unset                | Orchestrator model for the run; card pins override. The selector's empty-pool fallback: trigger `default_model` when set, else agent serve default, else compiled-in `deepseek/deepseek-v4-flash` |
 | `backends.agent.model_allowlist`     | built-in vendor list | Replaces the trusted-creator list (OpenRouter leg only)                 |
-| `backends.agent.aa_model_map`        | none                 | Endpoint slug -> AA stem (`openai` leg only)                            |
+| `backends.agent.aa_model_map`        | none                 | Endpoint slug -> exact AA slug (`openai` leg only)                      |
 | `backends.agent.model_priors`        | none                 | Verbatim 0..1 priors for slugs AA does not rate (`openai` leg only)     |
 | `backends.agent.favorites`           | none                 | Per-tier preferred models, optionally per role                          |
 | `favorites` in a project `.board.yaml` | none               | Per-project override; replaces the global entry per tier; hand-edited only (see `docs/data-model.md`) |
@@ -625,7 +637,7 @@ equal prompt+completion price weighting.
 | A pinned model is ignored                      | The pin is not in the candidate list (below floor, unmapped endpoint model, or no catalog) | All resolution paths warn on the card and fall back: orchestrator resolution on each call, coder and reviewer picks once per run per pin type. CM validates pins against the wider served set, so the write was accepted |
 | A favorite is never picked                     | Blacklisted, below the tier bar, not a candidate (outside the allowlist), or its tier entry was replaced wholesale by a project override | Favorites are preferences, not overrides; check `selection.blacklist` and the bar |
 | `model_allowlist` has no effect                | `llm_endpoint.type: openai`                                           | The allowlist only screens the OpenRouter leg; use `aa_model_map` / `model_priors` |
-| Endpoint models served but never selected      | Unmapped in `aa_model_map`, no `model_priors` entry, or below floor   | The Builder logs a warning naming the gap at refresh time                          |
+| Endpoint models served but never selected      | Unmapped in `aa_model_map`, mapped to a nonexistent AA slug, mapped to an unscored AA row, no `model_priors` entry, or below floor | One WARN per excluded model at refresh time, naming the slug and the reason; unscored mappings also name the scored sibling rows |
 | A model keeps disappearing from selection      | It was reported incapable and blacklisted                             | One-way; pin it or delete the `model_blacklist` row to restore                     |
 | Win-rates visibly not affecting picks          | `samples < outcome_floor`                                             | By design - below the floor the stats have zero effect                             |
 | Priors dropped across the board overnight      | A new frontier model topped the AA leaderboard                        | Priors are normalized to the current best; expected drift                          |

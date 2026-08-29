@@ -322,11 +322,17 @@ backends: {}
 #    # Env: CONTEXTMATRIX_BACKEND_AGENT_MODEL_ALLOWLIST (comma-separated)
 #    model_allowlist: []
 #
-#    # aa_model_map maps each endpoint model slug to its Artificial Analysis model
-#    # stem. Used only when llm_endpoint.type is "openai". The AA lookup fuses
-#    # the endpoint's pricing / context-window data with AA quality scores to
-#    # produce a selection candidate. Unmapped slugs are ignored unless they have
-#    # an entry in model_priors below.
+#    # aa_model_map maps each endpoint model slug to the EXACT Artificial
+#    # Analysis slug of the variant the gateway actually serves. Used only when
+#    # llm_endpoint.type is "openai". The Builder scores the model from that one
+#    # AA row only - there is no family or variant aggregation, and no wildcard
+#    # matching. Reasoning-effort variants are separate AA rows with independent
+#    # scores, so map the served variant precisely: a gateway serving
+#    # default-effort "vendor-x-1" must map to the scored "vendor-x-1" row and
+#    # does NOT inherit a "vendor-x-1-thinking" sibling's score. An unmapped
+#    # slug is ignored unless it has an entry in model_priors below. Unmapped
+#    # or unscored models are excluded from selection and named in the WARN
+#    # log at each catalog refresh.
 #    # Example: endpoint slug "model-a" is scored by AA as "vendor-x-1".
 #    # aa_model_map:
 #    #   model-a: vendor-x-1
