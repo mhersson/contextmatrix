@@ -262,6 +262,11 @@ func (b *Builder) Validate(ctx context.Context, slug string) bool {
 	return false
 }
 
+// Floor returns the quality floor configured for this Builder.
+func (b *Builder) Floor() float64 {
+	return b.floor
+}
+
 func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error) {
 	// Endpoint leg (openai type): pricing comes from the endpoint's own /models
 	// and is independent of Artificial Analysis, so fetch it whenever configured

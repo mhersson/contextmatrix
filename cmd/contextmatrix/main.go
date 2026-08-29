@@ -462,63 +462,33 @@ func main() {
 	// Model catalog builder: constructed whenever there is a rate source. The
 	// AA+agent path also yields selection candidates (routerCfg.Catalog below);
 	// the endpoint-only path (chat-only deployments) yields pricing only.
-	var catalogBuilder *modelcatalog.Builder
-
-	// agentCfg is nil when the agent backend is absent or disabled; every
-	// read below is behind hasAgent.
 	agentCfg, hasAgent := cfg.AgentBackend()
-	agentAA := hasAgent && agentCfg.AAAPIKey != ""
 
 	chatBackendCfg, chatBackendEnabled := cfg.ChatBackend()
 	chatOpenRouter := chatBackendEnabled && chatBackendCfg.APIKey != ""
 
-	switch {
-	case agentAA:
-		var opts []modelcatalog.BuilderOption
+	catalogBuilder := newCatalogBuilder(cfg, agentCfg, hasAgent, chatOpenRouter)
 
-		if cfg.LLMEndpoint.Type == config.LLMEndpointTypeOpenAI {
-			priors := make(map[string]modelcatalog.PriorOverride, len(agentCfg.ModelPriors))
-			for slug, p := range agentCfg.ModelPriors {
-				priors[slug] = modelcatalog.PriorOverride{Coder: p.Coder, Reviewer: p.Reviewer}
+	// agentAA is needed below for the routerCfg.Catalog guard.
+	agentAA := hasAgent && agentCfg.AAAPIKey != ""
+
+	if catalogBuilder != nil {
+		mode := "openrouter-catalog-only"
+
+		if agentAA {
+			if cfg.LLMEndpoint.Type == config.LLMEndpointTypeOpenAI {
+				mode = "aa+candidates (openai)"
+			} else {
+				mode = "aa+candidates (openrouter)"
 			}
-
-			opts = append(opts, modelcatalog.WithEndpoint(
-				cfg.LLMEndpoint.BaseURL, cfg.LLMEndpoint.APIKey, agentCfg.AAModelMap, priors))
+		} else if cfg.LLMEndpoint.Type == config.LLMEndpointTypeOpenAI {
+			mode = "endpoint-pricing-only"
 		}
 
-		opts = append(opts, modelcatalog.WithFavorites(flattenFavorites(agentCfg.Favorites)))
-
-		catalogBuilder = modelcatalog.NewBuilder(agentCfg.AAAPIKey, 0.65, agentCfg.ModelAllowlist, 0, opts...)
-
-		slog.Info("model catalog builder initialized", "endpoint_type", cfg.LLMEndpoint.Type, "mode", "aa+candidates")
-
-	case cfg.LLMEndpoint.Type == config.LLMEndpointTypeOpenAI:
-		// Endpoint pricing without AA/agent: Rate() prices endpoint-served models
-		// for chat cost accounting; there are no selection candidates.
-		catalogBuilder = modelcatalog.NewBuilder("", 0.65, nil, 0,
-			modelcatalog.WithEndpoint(cfg.LLMEndpoint.BaseURL, cfg.LLMEndpoint.APIKey, nil, nil))
-
-		slog.Info("model catalog builder initialized", "endpoint_type", cfg.LLMEndpoint.Type, "mode", "endpoint-pricing-only")
-
-	case hasAgent || chatOpenRouter:
-		// OpenRouter catalog without AA: no selection candidates, but the
-		// served set drives the model pickers, write-time validation, and
-		// chat cost pricing on AA-less deployments. On a chat-only deployment
-		// there is no agent entry - no allowlist or favorites apply.
-		var (
-			allowlist []string
-			favorites map[string]board.TierFavorites
-		)
-
-		if hasAgent {
-			allowlist = agentCfg.ModelAllowlist
-			favorites = agentCfg.Favorites
-		}
-
-		catalogBuilder = modelcatalog.NewBuilder("", 0.65, allowlist, 0,
-			modelcatalog.WithFavorites(flattenFavorites(favorites)))
-
-		slog.Info("model catalog builder initialized", "endpoint_type", cfg.LLMEndpoint.Type, "mode", "openrouter-catalog-only")
+		slog.Info("model catalog builder initialized",
+			"endpoint_type", cfg.LLMEndpoint.Type,
+			"mode", mode,
+			"quality_floor", catalogBuilder.Floor())
 	}
 
 	// Wire catalog rate lookup into the service so every cost path (ReportUsage,
@@ -828,6 +798,63 @@ func dirHasGit(dir string) bool {
 	_, err := os.Stat(filepath.Join(dir, ".git"))
 
 	return err == nil
+}
+
+// newCatalogBuilder constructs the model catalog Builder from the current
+// configuration. Returns nil when there is no rate source (no AA key, no
+// endpoint, and no OpenRouter catalog).
+func newCatalogBuilder(cfg *config.Config, agentCfg *config.AgentBackendConfig, hasAgent bool, chatOpenRouter bool) *modelcatalog.Builder {
+	agentAA := hasAgent && agentCfg.AAAPIKey != ""
+
+	switch {
+	case agentAA:
+		var opts []modelcatalog.BuilderOption
+
+		if cfg.LLMEndpoint.Type == config.LLMEndpointTypeOpenAI {
+			priors := make(map[string]modelcatalog.PriorOverride, len(agentCfg.ModelPriors))
+			for slug, p := range agentCfg.ModelPriors {
+				priors[slug] = modelcatalog.PriorOverride{Coder: p.Coder, Reviewer: p.Reviewer}
+			}
+
+			opts = append(opts, modelcatalog.WithEndpoint(
+				cfg.LLMEndpoint.BaseURL, cfg.LLMEndpoint.APIKey, agentCfg.AAModelMap, priors))
+		}
+
+		opts = append(opts, modelcatalog.WithFavorites(flattenFavorites(agentCfg.Favorites)))
+
+		return modelcatalog.NewBuilder(agentCfg.AAAPIKey, agentCfg.CatalogQualityFloor, agentCfg.ModelAllowlist, 0, opts...)
+
+	case cfg.LLMEndpoint.Type == config.LLMEndpointTypeOpenAI:
+		floor := 0.0
+		if hasAgent {
+			floor = agentCfg.CatalogQualityFloor
+		}
+
+		return modelcatalog.NewBuilder("", floor, nil, 0,
+			modelcatalog.WithEndpoint(cfg.LLMEndpoint.BaseURL, cfg.LLMEndpoint.APIKey, nil, nil))
+
+	case hasAgent || chatOpenRouter:
+		var (
+			allowlist []string
+			favorites map[string]board.TierFavorites
+		)
+
+		if hasAgent {
+			allowlist = agentCfg.ModelAllowlist
+			favorites = agentCfg.Favorites
+		}
+
+		floor := 0.0
+		if hasAgent {
+			floor = agentCfg.CatalogQualityFloor
+		}
+
+		return modelcatalog.NewBuilder("", floor, allowlist, 0,
+			modelcatalog.WithFavorites(flattenFavorites(favorites)))
+
+	default:
+		return nil
+	}
 }
 
 // flattenFavorites de-duplicates every favorite slug across tiers and roles

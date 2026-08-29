@@ -3119,6 +3119,121 @@ backends:
 	}
 }
 
+func TestAgentCatalogQualityFloor(t *testing.T) {
+	t.Run("YAML parses", func(t *testing.T) {
+		cfg, err := loadFromYAML(t, `
+boards:
+  dir: /tmp
+github:
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
+backends:
+  agent:
+    url: "http://x"
+    api_key: "aaaabbbbccccddddeeeeffffgggghhhh"
+    catalog_quality_floor: 0.5
+`)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if cfg.Backends.Agent == nil {
+			t.Fatal("agent entry must be present")
+		}
+
+		if cfg.Backends.Agent.CatalogQualityFloor != 0.5 {
+			t.Errorf("expected catalog_quality_floor 0.5, got %v", cfg.Backends.Agent.CatalogQualityFloor)
+		}
+	})
+
+	t.Run("env override reaches field", func(t *testing.T) {
+		t.Setenv("CONTEXTMATRIX_BACKEND_AGENT_CATALOG_QUALITY_FLOOR", "0.7")
+
+		cfg, err := loadFromYAML(t, `
+boards:
+  dir: /tmp
+github:
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
+backends:
+  agent:
+    url: "http://x"
+    api_key: "aaaabbbbccccddddeeeeffffgggghhhh"
+`)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if cfg.Backends.Agent == nil {
+			t.Fatal("agent entry must be present")
+		}
+
+		if cfg.Backends.Agent.CatalogQualityFloor != 0.7 {
+			t.Errorf("expected env override 0.7, got %v", cfg.Backends.Agent.CatalogQualityFloor)
+		}
+	})
+
+	t.Run("Validate rejects negative", func(t *testing.T) {
+		_, err := loadFromYAML(t, `
+boards:
+  dir: /tmp
+github:
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
+backends:
+  agent:
+    url: "http://x"
+    api_key: "aaaabbbbccccddddeeeeffffgggghhhh"
+    catalog_quality_floor: -0.1
+`)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "catalog_quality_floor")
+	})
+
+	t.Run("Validate rejects >= 1", func(t *testing.T) {
+		_, err := loadFromYAML(t, `
+boards:
+  dir: /tmp
+github:
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
+backends:
+  agent:
+    url: "http://x"
+    api_key: "aaaabbbbccccddddeeeeffffgggghhhh"
+    catalog_quality_floor: 1.0
+`)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "catalog_quality_floor")
+	})
+
+	t.Run("unset passes validation and stays zero", func(t *testing.T) {
+		cfg, err := loadFromYAML(t, `
+boards:
+  dir: /tmp
+github:
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
+backends:
+  agent:
+    url: "http://x"
+    api_key: "aaaabbbbccccddddeeeeffffgggghhhh"
+`)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if cfg.Backends.Agent.CatalogQualityFloor != 0 {
+			t.Errorf("expected unset field to stay 0, got %v", cfg.Backends.Agent.CatalogQualityFloor)
+		}
+	})
+}
+
 // ---------- LLM Endpoint config tests ----------
 
 func TestLLMEndpointConfigParses(t *testing.T) {

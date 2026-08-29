@@ -281,6 +281,7 @@ task_skills:
 #   CONTEXTMATRIX_BACKEND_<NAME>_ENABLED
 #   CONTEXTMATRIX_BACKEND_<NAME>_RECONCILE_INTERVAL         (agent only)
 #   CONTEXTMATRIX_BACKEND_<NAME>_DEFAULT_MODEL              (agent and chat)
+#   CONTEXTMATRIX_BACKEND_<NAME>_CATALOG_QUALITY_FLOOR      (agent only)
 backends: {}
 #  agent:
 #    # contextmatrix-agent: card execution only (no chat). Drives models over
@@ -321,6 +322,16 @@ backends: {}
 #    # selection. The allowlist is only consulted on the OpenRouter leg.
 #    # Env: CONTEXTMATRIX_BACKEND_AGENT_MODEL_ALLOWLIST (comma-separated)
 #    model_allowlist: []
+#
+#    # Minimum normalized quality score (0..1) for a model to stay in the
+#    # candidate pool. A model passes if EITHER its coder or reviewer prior
+#    # clears this floor - it does not need both roles above the threshold.
+#    # Applies to both catalog legs (OpenRouter and openai) and both roles.
+#    # 0 means unset (the unset representation, not the effective floor); the
+#    # modelcatalog Builder's <=0 fallback keeps the effective floor at 0.65.
+#    # Effective default: 0.65
+#    # Env: CONTEXTMATRIX_BACKEND_AGENT_CATALOG_QUALITY_FLOOR
+#    catalog_quality_floor: 0
 #
 #    # aa_model_map maps each endpoint model slug to the EXACT Artificial
 #    # Analysis slug of the variant the gateway actually serves. Used only when
