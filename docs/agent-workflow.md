@@ -306,6 +306,77 @@ config (Project Settings → Verify) so future runs start from step 1. The
 declared `timeout_seconds` and `env` bound and provision every step, not just the
 declared command.
 
+## Card self-containment
+
+Cards may execute inside a self-contained worker container that clones only
+the project's code repository at startup - nothing from the card author's
+environment travels with it: no local files, no sibling checkouts, no other
+project's repo. The MCP server states this contract at `initialize` time (the
+`Instructions` field every connecting client receives) and repeats it in the
+`create_card` and `update_card` tool descriptions, so agents outside CM's own
+skills learn the constraint too. `create-task.md` restates the full contract
+for every new card; `create-plan.md` and `plan-draft.md` apply the same
+self-containment rules specifically to the cards a deliverable split creates
+(see below).
+
+A self-contained card:
+
+- Inlines any context the executor needs - never references files on the
+  author's machine or in another checkout.
+- References only paths that exist inside the project repository.
+- States acceptance criteria verifiable from inside that repository.
+- Covers exactly one deliverable a single agent workflow can complete.
+
+### Self-containment warnings
+
+`create_card` and `update_card` run an advisory lint over the mutated title
+and body, flagging five signal categories: absolute Unix paths (`/home/...`,
+`/Users/...`), home-relative paths (`~/...`), Windows drive paths, `file://`
+URLs, and references to another project's repo (matched by full URL or its
+`owner/name` tail). A hit never blocks the mutation - it adds a `warnings`
+field to the response and appends a `self_containment_warning` activity-log
+entry naming the count. The creating agent is expected to fix the flagged
+text with a follow-up `update_card` call before moving on.
+
+### Deliverable split
+
+One card = one deliverable. When `plan-draft` finds the decomposition covers
+multiple independent deliverables - not slices of one deliverable - it plans
+only the first and lists the rest under a `## Split` heading in the draft:
+one entry per extra deliverable, each with a title and a self-contained
+description. `create-plan` Phase 3 executes the split before creating
+subtasks: each extra deliverable becomes a new top-level card (not a
+subtask), inherits the original card's `autonomous` flag, and links back to
+it with `depends_on` where ordering is real; the original card's body
+narrows to the first deliverable, and an `add_log` entry on the original
+records the created card IDs and the reason for the split. If the split
+would produce more than 4 new cards, the card is mis-scoped - `plan-draft`
+stops short of splitting and presents the decomposition to a human instead.
+
+### Unreachable acceptance criteria
+
+contextmatrix-agent's containerized executor prompts apply a reachability
+rule before spending turns on an acceptance criterion: an AC is unreachable
+when it requires reading an input that does not exist in the clone, or
+writing outside the clone. An AC asking for an in-repo artifact that does not
+exist yet - "add `docs/design.md` documenting the flow" - is not unreachable;
+the absence is the work. When the executor finds an unreachable AC it skips
+it and records it immediately as an activity-log entry with a conventional
+prefix:
+
+```
+UNREACHABLE-AC: "<quoted criterion>" - references ~/docs/design.md, not present in repo
+```
+
+Before bouncing a card for an unmet acceptance criterion, the reviewer
+prompt checks the activity log for `UNREACHABLE-AC` entries covering it and
+verifies each claim independently - confirming the referenced input is
+genuinely absent, or the output path genuinely falls outside the clone -
+rather than trusting it. A verified claim is excluded from the pass/fail
+verdict but stays visible to the human in the activity log; an unverified
+one (the artifact exists, or the path is inside the repo) is treated as
+wrong and the card bounces as usual.
+
 ## Slash command interface
 
 CC exposes these slash commands via the MCP `prompts` capability:
