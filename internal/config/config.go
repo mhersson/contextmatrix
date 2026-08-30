@@ -349,9 +349,6 @@ type BestOfNConfig struct {
 	// DefaultCandidates is the operator-recommended candidate count, surfaced in
 	// the UI control's tooltip and shipped via app config. Default 3.
 	DefaultCandidates int `yaml:"default_candidates"`
-	// OutcomeFloor is the per-model recorded-outcome count required before
-	// win-rates bias model selection. Default 20.
-	OutcomeFloor int `yaml:"outcome_floor"`
 }
 
 // MobGuest is one operator-registered external A2A discussion participant.
@@ -986,14 +983,6 @@ func applyBestOfNDefaults(cfg *Config) {
 
 		cfg.BestOfN.DefaultCandidates = min(3, cfg.BestOfN.MaxCandidates)
 	}
-
-	if cfg.BestOfN.OutcomeFloor < 1 {
-		if cfg.BestOfN.OutcomeFloor != 0 {
-			slog.Warn("best_of_n.outcome_floor < 1; using default", "value", cfg.BestOfN.OutcomeFloor)
-		}
-
-		cfg.BestOfN.OutcomeFloor = 20
-	}
 }
 
 // applyMobDefaults sets Mob fields that are zero or out of range.
@@ -1325,13 +1314,19 @@ func applyEnvOverrides(cfg *Config) error {
 		cfg.LLMEndpoint.APIKey = v
 	}
 
+	// The outcome-bias mechanism was retired. A stale YAML outcome_floor key
+	// fails startup via strict decoding, but env-configured deployments get
+	// no such signal - warn so the variable gets cleaned up.
+	if v := os.Getenv("CONTEXTMATRIX_BEST_OF_N_OUTCOME_FLOOR"); v != "" {
+		slog.Warn("CONTEXTMATRIX_BEST_OF_N_OUTCOME_FLOOR is removed and ignored; unset it", "value", v)
+	}
+
 	for _, o := range []struct {
 		env string
 		dst *int
 	}{
 		{"CONTEXTMATRIX_BEST_OF_N_MAX_CANDIDATES", &cfg.BestOfN.MaxCandidates},
 		{"CONTEXTMATRIX_BEST_OF_N_DEFAULT_CANDIDATES", &cfg.BestOfN.DefaultCandidates},
-		{"CONTEXTMATRIX_BEST_OF_N_OUTCOME_FLOOR", &cfg.BestOfN.OutcomeFloor},
 	} {
 		if v := os.Getenv(o.env); v != "" {
 			n, err := strconv.Atoi(v)

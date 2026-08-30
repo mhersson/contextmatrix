@@ -225,11 +225,11 @@ its log redactor. See [Mob sessions](#mob-sessions).
 
 `selection` (`protocol.SelectionContext`) carries the auto-selection inputs:
 the rated model `candidates` from CM's cached catalog, the operator `favorites`
-merged with project entries replacing global ones per tier, the self-learning
-`blacklist` of models CM has marked incapable, an `outcome_floor`, and
-per-model outcome stats. The agent picks the orchestrator, coder, and reviewer
-models from these inputs. It is omitted when CM has no model catalog
-configured. See `docs/model-selection.md` for how the candidates are built and
+merged with project entries replacing global ones per tier, and the
+`blacklist` of models CM has marked incapable. The agent picks the
+orchestrator, coder, and reviewer models from these inputs; recorded model
+outcomes never ship - selection is priors-only. It is omitted when CM has no
+model catalog configured. See `docs/model-selection.md` for how the candidates are built and
 how the agent picks from them.
 
 `verify` is the resolved verify gate. CM merges the card's `verify` over the

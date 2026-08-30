@@ -29,7 +29,8 @@ The operator-facing controls, most direct first:
 | Widen or narrow the price band        | `selector_price_headroom`                   | agent backend `serve.yaml`                   | Default 1.5; env `CMX_SELECTOR_PRICE_HEADROOM`                                                 |
 | Raise or lower a tier's quality bar   | `selector_tier_bars`                        | agent backend `serve.yaml`                   | Merges over the built-in ladder per tier; must stay non-decreasing; env `CMX_SELECTOR_TIER_BARS` (JSON) |
 | Set the orchestrator model            | `backends.agent.default_model`              | `config.yaml`                                | Card pins override it; the selector's empty-pool fallback resolves to the trigger's `default_model` when set, else the agent's serve default, else the compiled-in `deepseek/deepseek-v4-flash`
-| Reset learned win-rates               | `DELETE /api/admin/model-outcomes`          | REST (admin)                                 | Clears outcome stats; does not touch the blacklist                                             |
+| Clear the outcome ledger              | `DELETE /api/admin/model-outcomes`          | REST (admin)                                 | Observability data only - selection never reads it; does not touch the blacklist               |
+| Delist a blacklisted model            | `DELETE /api/admin/model-blacklist/{slug...}` | REST (admin) / model-selection admin page  | Makes the model selectable again; the list itself is `GET /api/admin/model-blacklist`          |
 | Control Best-of-N race size           | `best_of_n.*`                               | `config.yaml`                                | Caps the number of racing candidates, never the candidate list                                 |
 
 Details for each: [The decision order](#the-decision-order),
@@ -45,19 +46,19 @@ flowchart TB
 
     subgraph cm["ContextMatrix - the data plane"]
         builder["modelcatalog.Builder<br/>rate · screen · map · join · cache (6h TTL)"]
-        trigger["card-run trigger<br/>selection: candidates, favorites,<br/>blacklist, outcome_floor"]
+        trigger["card-run trigger<br/>selection: candidates, favorites,<br/>blacklist"]
         opsdb[("ops.db<br/>model_outcomes · model_blacklist")]
     end
 
     subgraph agent["agent backend - the algorithm"]
-        registry["selection registry<br/>tier bars · pins · favorites · price band<br/>vendor diversity · outcome bias"]
+        registry["selection registry<br/>tier bars · pins · favorites · price band<br/>vendor diversity"]
         picks["per-role picks<br/>orchestrator / coder / reviewer / judge / mob seats"]
     end
 
     aa --> builder
     served --> builder
     builder -->|cached candidates| trigger
-    opsdb -->|blacklist + outcome stats| trigger
+    opsdb -->|blacklist| trigger
     trigger --> registry
     registry --> picks
     picks -->|"MCP: report_model_outcome,<br/>report_incapable_model"| opsdb
@@ -67,9 +68,8 @@ flowchart TB
 | ------------------------------------------------------------- | ----------------------------------------------------------- |
 | Candidate list: rated, screened, priced, tool-capable models  | Card and subtask complexity tiers (planner LLM output)      |
 | Normalized quality priors per role (coder, reviewer)          | The pick per role and tier: pin, favorite, bar, price band  |
-| Favorites merge (global plus project)                         | Outcome-bias application to the coder prior                 |
-| Blacklist and outcome stats from `ops.db`                     | Vendor diversity across multi-seat picks                    |
-| The `outcome_floor` threshold                                 | In-run incapable-model recovery and re-selection            |
+| Favorites merge (global plus project)                         | Vendor diversity across multi-seat picks                    |
+| Blacklist from `ops.db`                                       | In-run incapable-model recovery and re-selection            |
 
 The agent is a pure consumer: it fetches nothing itself and holds no embedded
 model knowledge. Everything it knows about models arrives in the trigger
@@ -242,8 +242,7 @@ is configured (see [Builder modes](#builder-modes)):
 | --------------- | ---------------------------------------------------------------------------------------- |
 | `candidates`    | the cached catalog, cloned per trigger                                                   |
 | `favorites`     | operator tier preferences, global merged with project                                    |
-| `blacklist`     | slugs the self-learning loop has marked incapable (from `ops.db`)                        |
-| `outcome_floor` | minimum per-model sample count before win-rates bias selection (`best_of_n.outcome_floor`) |
+| `blacklist`     | slugs reported incapable (from `ops.db`)                                                 |
 
 Each `CandidateModel` carries:
 
@@ -254,14 +253,16 @@ Each `CandidateModel` carries:
 | `context_window`                                  | tokens                                                         |
 | `coder_prior`, `reviewer_prior`                   | normalized quality, `[0, 1]`                                   |
 | `creator`                                         | vendor prefix, drives the agent's vendor-diversity preference  |
-| `outcomes`                                        | `{samples, wins, expected_wins}` when the model has recorded outcome history (Best-of-N or solo) |
+
+Recorded model outcomes never ship in the trigger: selection is priors-only,
+and the outcome ledger (below) exists for operators, not the selector.
 
 Assembly rules:
 
 - **Favorites merge**: a project's `.board.yaml` `favorites` entry for a tier
   replaces the global `backends.agent.favorites` entry for that tier
   wholesale - the merge is per tier, not per role.
-- **Blacklist and outcome reads are best-effort**: a failed `ops.db` read logs
+- **The blacklist read is best-effort**: a failed `ops.db` read logs
   a warning and the trigger proceeds without that input rather than blocking
   the run.
 - **`best_of_n` clamps the race size, never the candidate list**: the payload
@@ -443,23 +444,6 @@ qualify; `z-ai/glm-5.2` has the higher prior and wins. The frontier models
 never enter the comparison - at `critical` tier (bar 0.90) they would be the
 only survivors, and the band would re-anchor on them.
 
-### Outcome bias
-
-Recorded Best-of-N results nudge future coder picks. When a candidate arrives
-with outcome stats and `samples >= outcome_floor`, its **coder prior** is
-multiplied by:
-
-```
-clamp(1 + (wins - expected_wins) / samples,  0.8,  1.2)
-```
-
-A model that wins more head-to-head races than field size predicts gets up to
-a 20% prior boost; a chronic loser is damped up to 20%. The reviewer prior is
-never biased. Below the floor the stats have zero effect - selection behaves
-exactly as if no history existed. `expected_wins` accumulates `1/n` per race
-of size `n`, so the comparison is fair across races of different sizes and
-self-play (the same model in several slots) nets out neutral.
-
 ### Multi-seat picks
 
 Review panels, Best-of-N candidate sets, and mob discussion seats need several
@@ -524,10 +508,13 @@ review paths); the fourth incapable model parks the card for a human. There is
 no automatic tier escalation on failure - escalation to `complex` is policy
 (the authoritative review pass), never a retry mechanism.
 
-## Self-learning: blacklist and outcomes
+## Blacklist and the outcome ledger
 
-Two feedback loops persist in ContextMatrix's `ops.db` and shape every future
-trigger.
+Two data sets persist in ContextMatrix's `ops.db`. Only the blacklist feeds
+back into selection; the outcome ledger is observability for operators.
+Recorded win-rates never bias a pick - the sample volumes a single instance
+collects are far too small to out-signal the Artificial Analysis priors, and
+a solo completion is not evidence of anything comparative.
 
 ### The blacklist
 
@@ -535,71 +522,48 @@ trigger.
 Blacklisted slugs ship in every subsequent trigger's `selection.blacklist`,
 and the agent's selector filters them out of every non-pinned pick.
 
-The blacklist is **one-way**: no MCP tool, REST endpoint, or UI removes an
-entry. The escape hatches are a card pin (pins beat the blacklist, provided
-the slug is still a candidate) or deleting the row from `ops.db` directly
-(`sqlite3 ops.db "DELETE FROM model_blacklist WHERE slug = '...'"`).
-Re-reporting an already-blacklisted slug updates the reason and timestamp,
-never duplicates.
+No MCP tool removes an entry - agents cannot delist. Operators delist via
+`DELETE /api/admin/model-blacklist/{slug}` or the delist button on the admin
+model-selection page; a card pin also beats the blacklist for one card,
+provided the slug is still a candidate. Re-reporting an already-blacklisted
+slug updates the reason and timestamp, never duplicates - including a slug
+that was delisted and fails again.
 
-### Best-of-N outcomes
+### The outcome ledger
 
 After a Best-of-N race, the judge phase reports one row per candidate via
 `report_model_outcome`: `win`, `loss`, or `failed` (dropped before judging),
-with verify status, cost, and field size. The tool requires an active claim on
-the card; field size (`n_candidates`) must be at least 1. ContextMatrix
-aggregates rows into per-model stats - `samples`, `wins`, and `expected_wins`
-(`SUM(1.0 / n_candidates)` per row) - and attaches them to matching candidates
-on the next trigger, where they drive the [outcome bias](#outcome-bias) once
-samples reach `outcome_floor`.
+with verify status, cost, and field size. A card that never races
+(`n_candidates: 1`) still reports its own result - `win` or `failed`, no
+judge model. The tool requires an active claim on the card; field size
+(`n_candidates`) must be at least 1.
 
-#### Solo outcomes
+The rows aggregate into per-model stats served by the admin endpoint and UI,
+split by kind so the two are never conflated:
 
-A card that never races (`n_candidates: 1`) still reports its own result:
-`win` or `failed`, with no judge model. Because `expected_wins` accrues
-`1/n_candidates` per row regardless of result, a solo row always stakes 1.0
-expected wins - the most a single row can stake, where a race row stakes only
-`1/n`. A solo win also banks 1 actual win, so actual and expected cancel
-exactly: the row is neutral, pulling the bias factor toward parity rather
-than above it. (A spotless race record, by contrast, is maximally positive -
-each race win banks a full win against only the `1/n` staked.) A solo
-failure banks 0 wins against that same 1.0 expected wins, so it subtracts
-the maximum a single sample can subtract - a heavier per-sample penalty than
-a raced loss, which forfeits only the `1/n_candidates` staked on that race.
-
-Two consequences follow directly from folding solo runs into the same table:
-
-- A model that has never raced can cross `outcome_floor` on solo volume
-  alone, activating the bias multiplier without a single head-to-head result.
-- A model holding a high bias factor from races regresses toward neutral as
-  solo wins accumulate, because each solo win adds equally to `samples` and
-  `expected_wins` (weight 1/1, versus a race win's smaller 1/n_candidates).
-  This is dilution toward the neutral win rate, not inflation above it.
-
-#### Ladder walk-down failures are not charged
+- **Race stats** (`n_candidates > 1`): samples, wins, and a win rate - real
+  head-to-head measurements.
+- **Solo stats** (`n_candidates = 1`): run and failure counts. A solo
+  completion is not a win over anything, so no solo win rate exists; only
+  the failures carry signal ("this model does not finish our cards").
 
 A `failed` row from a walked-down pick - source `auto` or `favorite`, landed
 below the tier it was asked for - is not reported at all: the model was never
-rated for that tier's work, so charging the failure would lower the very
-prior that emptied the rung, walking the next selection down even further.
-The suppression applies to both solo reports and every candidate row in a
-Best-of-N race. Only `failed` is suppressed - a `loss` is still the judge
-preferring another implementation, a real comparative measurement the row
-exists to carry, and a `win` from a walked-down pick is always recorded:
-succeeding above your rung is evidence the rung above should stay reachable.
-
-Pins and the capable default are never suppressed this way: a pin is operator
-intent the selector never scored against a bar, and the capable default sits
-below every rung, so their `failed` rows are the only evidence that exists
-about that choice - both stay charged.
+rated for that tier's work, so the failure is not its record to carry. Pins
+and the capable default are never suppressed this way - their `failed` rows
+are the only evidence that exists about that choice.
 
 ### Observability
 
-- `GET /api/admin/model-outcomes` - per-model win rates, expected wins, cost,
-  and whether the sample count makes the model's stats `active`;
-  `DELETE` on the same path resets the stats (the blacklist is untouched).
+- `GET /api/admin/model-outcomes` - the per-model ledger: race samples, race
+  wins, race win rate, solo runs, solo failures, and cost;
+  `DELETE` on the same path clears it (the blacklist is untouched).
   Full schema in `docs/api-reference.md`.
-- The admin UI's model-selection page shows the same data with a reset button.
+- `GET /api/admin/model-blacklist` - every blacklisted model with reason,
+  sample card, reporter, and timestamps;
+  `DELETE /api/admin/model-blacklist/{slug}` delists one model.
+- The admin UI's model-selection page shows both tables: outcome stats with a
+  reset button, and the blacklist with a per-row delist button.
 - Metrics: `contextmatrix_model_outcomes_total{model,result}` and
   `contextmatrix_model_blacklists_total{model}`. There are no catalog metrics
   (no refresh counter or candidate gauge); catalog health surfaces in logs.
@@ -622,7 +586,6 @@ overrides; this table maps the knobs to their effect on selection.
 | `llm_endpoint.type`                  | `openrouter`         | Selects the catalog leg and the wire dialect                            |
 | `best_of_n.max_candidates`           | 5                    | Hard cap on a card's race size                                          |
 | `best_of_n.default_candidates`       | 3                    | UI-suggested race size                                                  |
-| `best_of_n.outcome_floor`            | 20                   | Samples required before win-rates bias selection                        |
 | `selector_price_headroom` (agent `serve.yaml`) | 1.5        | Width of the price band; env `CMX_SELECTOR_PRICE_HEADROOM`              |
 | `selector_tier_bars` (agent `serve.yaml`) | built-in ladder (0.65 / 0.76 / 0.82 / 0.90) | Per-tier quality bars; merges over the defaults per tier, must stay non-decreasing; env `CMX_SELECTOR_TIER_BARS` (JSON) |
 
@@ -640,8 +603,8 @@ equal prompt+completion price weighting.
 | A favorite is never picked                     | Blacklisted, below the tier bar, not a candidate (outside the allowlist), or its tier entry was replaced wholesale by a project override | Favorites are preferences, not overrides; check `selection.blacklist` and the bar |
 | `model_allowlist` has no effect                | `llm_endpoint.type: openai`                                           | The allowlist only screens the OpenRouter leg; use `aa_model_map` / `model_priors` |
 | Endpoint models served but never selected      | Unmapped in `aa_model_map`, mapped to a nonexistent AA slug, mapped to an unscored AA row, no `model_priors` entry, or below floor | One WARN per excluded model at refresh time, naming the slug and the reason; unscored mappings also name the scored sibling rows |
-| A model keeps disappearing from selection      | It was reported incapable and blacklisted                             | One-way; pin it or delete the `model_blacklist` row to restore                     |
-| Win-rates visibly not affecting picks          | `samples < outcome_floor`                                             | By design - below the floor the stats have zero effect                             |
+| A model keeps disappearing from selection      | It was reported incapable and blacklisted                             | Check the admin model-selection page; delist it there, or pin it for one card      |
+| Recorded outcomes visibly not affecting picks  | Selection is priors-only                                              | By design - the outcome ledger is observability, never a selection input           |
 | Priors dropped across the board overnight      | A new frontier model topped the AA leaderboard                        | Priors are normalized to the current best; expected drift                          |
 | A newly served model is missing                | Catalog is cached                                                     | Up to 6h staleness; restart CM to force a refresh                                  |
 

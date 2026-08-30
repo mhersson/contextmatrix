@@ -3328,31 +3328,39 @@ func TestBestOfNConfigDefaultsAndOverrides(t *testing.T) {
 		cfg := loadConfigFromYAML(t, "port: 8080\n") // use the file's existing helper; if named differently, adapt
 		assert.Equal(t, 5, cfg.BestOfN.MaxCandidates)
 		assert.Equal(t, 3, cfg.BestOfN.DefaultCandidates)
-		assert.Equal(t, 20, cfg.BestOfN.OutcomeFloor)
 	})
 
 	t.Run("yaml values", func(t *testing.T) {
-		cfg := loadConfigFromYAML(t, "best_of_n:\n  max_candidates: 4\n  default_candidates: 2\n  outcome_floor: 10\n")
+		cfg := loadConfigFromYAML(t, "best_of_n:\n  max_candidates: 4\n  default_candidates: 2\n")
 		assert.Equal(t, 4, cfg.BestOfN.MaxCandidates)
 		assert.Equal(t, 2, cfg.BestOfN.DefaultCandidates)
-		assert.Equal(t, 10, cfg.BestOfN.OutcomeFloor)
 	})
 
 	t.Run("env overrides", func(t *testing.T) {
 		t.Setenv("CONTEXTMATRIX_BEST_OF_N_MAX_CANDIDATES", "3")
 		t.Setenv("CONTEXTMATRIX_BEST_OF_N_DEFAULT_CANDIDATES", "2")
-		t.Setenv("CONTEXTMATRIX_BEST_OF_N_OUTCOME_FLOOR", "5")
 		cfg := loadConfigFromYAML(t, "port: 8080\n")
 		assert.Equal(t, 3, cfg.BestOfN.MaxCandidates)
 		assert.Equal(t, 2, cfg.BestOfN.DefaultCandidates)
-		assert.Equal(t, 5, cfg.BestOfN.OutcomeFloor)
 	})
 
 	t.Run("invalid values normalized", func(t *testing.T) {
-		cfg := loadConfigFromYAML(t, "best_of_n:\n  max_candidates: 1\n  default_candidates: 9\n  outcome_floor: 0\n")
+		cfg := loadConfigFromYAML(t, "best_of_n:\n  max_candidates: 1\n  default_candidates: 9\n")
 		assert.Equal(t, 5, cfg.BestOfN.MaxCandidates, "max < 2 falls back to default")
 		assert.Equal(t, 3, cfg.BestOfN.DefaultCandidates, "default > max falls back")
-		assert.Equal(t, 20, cfg.BestOfN.OutcomeFloor, "floor < 1 falls back")
+	})
+
+	t.Run("removed outcome_floor key is rejected", func(t *testing.T) {
+		// The outcome-bias mechanism was retired; strict decoding makes a
+		// stale outcome_floor key fail loudly instead of being silently
+		// ignored, so operators clean their config at upgrade time.
+		boardsDir := filepath.Join(t.TempDir(), "boards")
+		require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+		base := "boards:\n  dir: " + boardsDir + "\ngithub:\n  auth_mode: \"pat\"\n  pat:\n    token: \"ghp_test\"\n"
+		_, err := loadFromYAML(t, base+"best_of_n:\n  outcome_floor: 20\n")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "outcome_floor")
 	})
 
 	t.Run("invalid env values normalized", func(t *testing.T) {

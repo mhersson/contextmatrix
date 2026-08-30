@@ -37,12 +37,12 @@ func TestModelOutcomesRecordStatsReset(t *testing.T) {
 	}
 
 	ax := byModel["a/x"]
-	assert.Equal(t, 2, ax.Samples)
-	assert.Equal(t, 1, ax.Wins)
-	assert.InDelta(t, 1.0/3+1.0/2, ax.ExpectedWins, 1e-9)
+	assert.Equal(t, 2, ax.RaceSamples)
+	assert.Equal(t, 1, ax.RaceWins)
+	assert.Equal(t, 0, ax.SoloSamples)
 	assert.InDelta(t, 2.0, ax.TotalCostUSD, 1e-9)
-	assert.Equal(t, 1, byModel["c/z"].Samples, "failed counts as a sample")
-	assert.Equal(t, 0, byModel["c/z"].Wins)
+	assert.Equal(t, 1, byModel["c/z"].RaceSamples, "failed counts as a race sample")
+	assert.Equal(t, 0, byModel["c/z"].RaceWins)
 
 	n, err := st.ResetModelOutcomes(ctx)
 	require.NoError(t, err)
@@ -65,6 +65,8 @@ func TestRecordModelOutcomesValidation(t *testing.T) {
 	assert.Error(t, err, "unknown result rejected") //nolint:testifylint
 	err = st.RecordModelOutcomes(context.Background(), []ModelOutcome{{Model: "a", Result: "win", NCandidates: 0}})
 	assert.Error(t, err, "n_candidates < 1 rejected") //nolint:testifylint
+	err = st.RecordModelOutcomes(context.Background(), []ModelOutcome{{Model: "a", Result: "loss", NCandidates: 1}})
+	assert.Error(t, err, "solo loss rejected: only a judge produces a loss, and a solo run has no judge") //nolint:testifylint
 	assert.NoError(t, st.RecordModelOutcomes(context.Background(), nil), "empty batch is a no-op")
 }
 
@@ -92,14 +94,15 @@ func TestRecordModelOutcomesSoloAdmitted(t *testing.T) {
 	}
 
 	ax := byModel["a/x"]
-	assert.Equal(t, 1, ax.Samples)
-	assert.Equal(t, 1, ax.Wins)
-	assert.InDelta(t, 1.0, ax.ExpectedWins, 1e-9, "a solo win reports expected-wins 1.0")
+	assert.Equal(t, 0, ax.RaceSamples, "a solo run is not a race sample")
+	assert.Equal(t, 0, ax.RaceWins, "a solo completion is not a race win")
+	assert.Equal(t, 1, ax.SoloSamples)
+	assert.Equal(t, 0, ax.SoloFailures)
 
 	by := byModel["b/y"]
-	assert.Equal(t, 1, by.Samples)
-	assert.Equal(t, 0, by.Wins)
-	assert.InDelta(t, 1.0, by.ExpectedWins, 1e-9, "a solo failure still reports expected-wins 1.0, penalizing at full weight")
+	assert.Equal(t, 1, by.SoloSamples)
+	assert.Equal(t, 1, by.SoloFailures)
+	assert.Equal(t, 0, by.RaceSamples)
 }
 
 func TestSchemaUpgradeFromV1AddsOutcomes(t *testing.T) {

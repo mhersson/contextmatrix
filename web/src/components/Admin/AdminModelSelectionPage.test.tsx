@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { AdminModelSelectionPage } from './AdminModelSelectionPage';
-import type { ModelOutcomeStats, ModelOutcomeEntry } from '../../types';
+import type { ModelOutcomeStats, ModelOutcomeEntry, ModelBlacklistEntry } from '../../types';
 
 const mocks = vi.hoisted(() => ({
   adminModelOutcomes: vi.fn(),
   adminResetModelOutcomes: vi.fn(),
+  adminModelBlacklist: vi.fn(),
+  adminDelistModel: vi.fn(),
 }));
 
 vi.mock('../../api/client', async (importOriginal) => {
@@ -16,6 +18,8 @@ vi.mock('../../api/client', async (importOriginal) => {
       ...orig.api,
       adminModelOutcomes: mocks.adminModelOutcomes,
       adminResetModelOutcomes: mocks.adminResetModelOutcomes,
+      adminModelBlacklist: mocks.adminModelBlacklist,
+      adminDelistModel: mocks.adminDelistModel,
     },
   };
 });
@@ -23,36 +27,64 @@ vi.mock('../../api/client', async (importOriginal) => {
 function entry(overrides: Partial<ModelOutcomeEntry> = {}): ModelOutcomeEntry {
   return {
     model: 'deepseek/deepseek-v4-flash',
-    samples: 22,
-    wins: 13,
-    win_rate: 0.59,
-    expected_wins: 9.5,
+    race_samples: 8,
+    race_wins: 5,
+    race_win_rate: 0.625,
+    solo_samples: 14,
+    solo_failures: 2,
     total_cost_usd: 1.42,
-    active: true,
     ...overrides,
   };
 }
 
 function stats(overrides: Partial<ModelOutcomeStats> = {}): ModelOutcomeStats {
   return {
-    outcome_floor: 20,
     total_samples: 84,
     models: [entry()],
     ...overrides,
   };
 }
 
+function blacklistEntry(overrides: Partial<ModelBlacklistEntry> = {}): ModelBlacklistEntry {
+  return {
+    slug: 'moonshotai/kimi-k3',
+    reason: 'tool calls failed to parse on 3 consecutive turns',
+    sample_card: 'CM-101',
+    reported_by: 'agent:worker-1',
+    first_seen: 1756400000,
+    last_seen: 1756500000,
+    ...overrides,
+  };
+}
+
 beforeEach(() => {
   vi.resetAllMocks();
+  mocks.adminModelBlacklist.mockResolvedValue({ models: [] });
 });
 
 describe('AdminModelSelectionPage - list', () => {
-  it('renders a row per model with samples, wins, win rate, cost, and active/inert label', async () => {
+  it('renders a row per model with race and solo stats kept separate', async () => {
     mocks.adminModelOutcomes.mockResolvedValue(
       stats({
         models: [
-          entry({ model: 'deepseek/deepseek-v4-flash', samples: 22, wins: 13, win_rate: 0.59, total_cost_usd: 1.42, active: true }),
-          entry({ model: 'qwen/qwen3-max', samples: 5, wins: 1, win_rate: 0.2, total_cost_usd: 0.31, active: false }),
+          entry({
+            model: 'deepseek/deepseek-v4-flash',
+            race_samples: 8,
+            race_wins: 5,
+            race_win_rate: 0.625,
+            solo_samples: 14,
+            solo_failures: 2,
+            total_cost_usd: 1.42,
+          }),
+          entry({
+            model: 'qwen/qwen3-max',
+            race_samples: 0,
+            race_wins: 0,
+            race_win_rate: 0,
+            solo_samples: 6,
+            solo_failures: 1,
+            total_cost_usd: 0.31,
+          }),
         ],
       }),
     );
@@ -61,22 +93,20 @@ describe('AdminModelSelectionPage - list', () => {
 
     await waitFor(() => expect(screen.getByText('deepseek/deepseek-v4-flash')).toBeInTheDocument());
     expect(screen.getByText('qwen/qwen3-max')).toBeInTheDocument();
-    expect(screen.getByText('22')).toBeInTheDocument();
-    expect(screen.getByText('13')).toBeInTheDocument();
-    expect(screen.getByText('59%')).toBeInTheDocument();
-    expect(screen.getByText('20%')).toBeInTheDocument();
+    expect(screen.getByText('63%')).toBeInTheDocument();
+    expect(screen.getByText('14')).toBeInTheDocument();
     expect(screen.getByText('$1.42')).toBeInTheDocument();
-    expect(screen.getByText('Active')).toBeInTheDocument();
-    expect(screen.getByText('Inert')).toBeInTheDocument();
+    // A model that never raced shows no race win rate at all - a solo
+    // completion is not a win over anything.
+    expect(screen.queryByText('0%')).not.toBeInTheDocument();
   });
 
-  it('shows total sample count and the configured outcome floor', async () => {
-    mocks.adminModelOutcomes.mockResolvedValue(stats({ outcome_floor: 20, total_samples: 84 }));
+  it('shows the total recorded outcome count', async () => {
+    mocks.adminModelOutcomes.mockResolvedValue(stats({ total_samples: 84 }));
 
     render(<AdminModelSelectionPage />);
 
-    await waitFor(() => expect(screen.getByText(/Outcome floor: 20 samples/)).toBeInTheDocument());
-    expect(screen.getByText(/84 total recorded outcomes/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/84 total recorded outcomes/)).toBeInTheDocument());
   });
 
   it('falls back to a generic message when adminModelOutcomes rejects with a non-APIError shape', async () => {
@@ -112,7 +142,7 @@ describe('AdminModelSelectionPage - reset flow', () => {
 
     const dialog = await screen.findByRole('dialog');
     expect(
-      within(dialog).getByText('Delete all 84 recorded outcomes? Model selection returns to priors-only.'),
+      within(dialog).getByText('Delete all 84 recorded outcomes? This clears the observability ledger; model selection is unaffected.'),
     ).toBeInTheDocument();
     expect(mocks.adminResetModelOutcomes).not.toHaveBeenCalled();
 
@@ -157,5 +187,90 @@ describe('AdminModelSelectionPage - reset flow', () => {
 
     // Component survives the error - the row is still rendered, not crashed.
     expect(screen.getByText('deepseek/deepseek-v4-flash')).toBeInTheDocument();
+  });
+});
+
+describe('AdminModelSelectionPage - blacklist', () => {
+  it('renders a row per blacklisted model with slug, reason, sample card, and reporter', async () => {
+    mocks.adminModelOutcomes.mockResolvedValue(stats());
+    mocks.adminModelBlacklist.mockResolvedValue({
+      models: [
+        blacklistEntry(),
+        blacklistEntry({ slug: 'x-ai/grok-5-mini', reason: 'no forward progress', sample_card: '', reported_by: 'agent:worker-2' }),
+      ],
+    });
+
+    render(<AdminModelSelectionPage />);
+
+    await waitFor(() => expect(screen.getByText('moonshotai/kimi-k3')).toBeInTheDocument());
+    expect(screen.getByText('x-ai/grok-5-mini')).toBeInTheDocument();
+    expect(screen.getByText('tool calls failed to parse on 3 consecutive turns')).toBeInTheDocument();
+    expect(screen.getByText('CM-101')).toBeInTheDocument();
+    expect(screen.getByText('agent:worker-1')).toBeInTheDocument();
+  });
+
+  it('shows an empty-state message when nothing is blacklisted', async () => {
+    mocks.adminModelOutcomes.mockResolvedValue(stats());
+
+    render(<AdminModelSelectionPage />);
+
+    expect(await screen.findByText(/no models are blacklisted/i)).toBeInTheDocument();
+  });
+
+  it('delist opens a confirm dialog, then deletes the slug and refetches on confirm', async () => {
+    mocks.adminModelOutcomes.mockResolvedValue(stats());
+    mocks.adminModelBlacklist
+      .mockResolvedValueOnce({ models: [blacklistEntry()] })
+      .mockResolvedValueOnce({ models: [] });
+    mocks.adminDelistModel.mockResolvedValue({ deleted: 'moonshotai/kimi-k3' });
+
+    render(<AdminModelSelectionPage />);
+
+    await waitFor(() => expect(screen.getByText('moonshotai/kimi-k3')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delist moonshotai/kimi-k3' }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(mocks.adminDelistModel).not.toHaveBeenCalled();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: /delist/i }));
+
+    await waitFor(() => expect(mocks.adminDelistModel).toHaveBeenCalledWith('moonshotai/kimi-k3'));
+    await waitFor(() => expect(mocks.adminModelBlacklist).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByText('moonshotai/kimi-k3')).not.toBeInTheDocument());
+  });
+
+  it('cancelling the delist dialog does not delete', async () => {
+    mocks.adminModelOutcomes.mockResolvedValue(stats());
+    mocks.adminModelBlacklist.mockResolvedValue({ models: [blacklistEntry()] });
+
+    render(<AdminModelSelectionPage />);
+
+    await waitFor(() => expect(screen.getByText('moonshotai/kimi-k3')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Delist moonshotai/kimi-k3' }));
+
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: /cancel/i }));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(mocks.adminDelistModel).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a delist failure as an inline error without crashing', async () => {
+    mocks.adminModelOutcomes.mockResolvedValue(stats());
+    mocks.adminModelBlacklist.mockResolvedValue({ models: [blacklistEntry()] });
+    mocks.adminDelistModel.mockRejectedValue({ code: 'INTERNAL_ERROR', error: 'failed to delete blacklist entry' });
+
+    render(<AdminModelSelectionPage />);
+
+    await waitFor(() => expect(screen.getByText('moonshotai/kimi-k3')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Delist moonshotai/kimi-k3' }));
+
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: /delist/i }));
+
+    await waitFor(() => expect(mocks.adminDelistModel).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText(/failed to delete blacklist entry/i)).toBeInTheDocument();
+    expect(screen.getByText('moonshotai/kimi-k3')).toBeInTheDocument();
   });
 });

@@ -580,23 +580,38 @@ export interface CreateCredentialInput {
   secret: string;
 }
 
-// Admin - Best-of-N model-outcome stats. Registered in both auth modes (see
-// docs/api-reference.md § GET /api/admin/model-outcomes); `win_rate` is a
-// fraction (0..1), not a percentage.
+// Admin - recorded model-outcome ledger, split by kind: race rows are
+// Best-of-N head-to-head results, solo rows are single-model runs where only
+// a failure carries signal. Observability only - selection never reads it.
+// `race_win_rate` is a fraction (0..1) over race rows alone.
 export interface ModelOutcomeEntry {
   model: string;
-  samples: number;
-  wins: number;
-  win_rate: number;
-  expected_wins: number;
+  race_samples: number;
+  race_wins: number;
+  race_win_rate: number;
+  solo_samples: number;
+  solo_failures: number;
   total_cost_usd: number;
-  active: boolean;
 }
 
 export interface ModelOutcomeStats {
-  outcome_floor: number;
   total_samples: number;
   models: ModelOutcomeEntry[];
+}
+
+// Admin - blacklisted models (reported incapable by the agent backend).
+// Timestamps are unix seconds.
+export interface ModelBlacklistEntry {
+  slug: string;
+  reason: string;
+  sample_card?: string;
+  reported_by: string;
+  first_seen: number;
+  last_seen: number;
+}
+
+export interface ModelBlacklist {
+  models: ModelBlacklistEntry[];
 }
 
 export type ChatStatus = 'cold' | 'active' | 'warm-idle' | 'ending';

@@ -423,7 +423,6 @@ images:
 # best_of_n:
 #   max_candidates: 5      # hard cap on a card's best_of_n value (CONTEXTMATRIX_BEST_OF_N_MAX_CANDIDATES)
 #   default_candidates: 3  # operator-recommended count shown in the UI tooltip (CONTEXTMATRIX_BEST_OF_N_DEFAULT_CANDIDATES)
-#   outcome_floor: 20      # per-model samples before win-rates bias selection (CONTEXTMATRIX_BEST_OF_N_OUTCOME_FLOOR)
 
 # Mob sessions (agent backend only). A card with mob_participants >= 2
 # convenes N agents that discuss its plan and review over the A2A protocol;

@@ -12,7 +12,6 @@ import (
 	"github.com/mhersson/contextmatrix/internal/backend"
 	"github.com/mhersson/contextmatrix/internal/backend/sessionlog"
 	"github.com/mhersson/contextmatrix/internal/config"
-	"github.com/mhersson/contextmatrix/internal/opstore/sqlite"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
@@ -48,13 +47,6 @@ type blacklistReader interface {
 	BlacklistedSlugs(ctx context.Context) ([]string, error)
 }
 
-// outcomeStatsReader supplies Best-of-N head-to-head aggregates for
-// selection. Implemented by opstore/sqlite.Store; lives here for the same
-// reason as catalogProvider and blacklistReader.
-type outcomeStatsReader interface {
-	ModelOutcomeStats(ctx context.Context) ([]sqlite.OutcomeStats, error)
-}
-
 // backendHandlers contains handlers for remote execution endpoints. This
 // handler set exists only for the agent backend - the callback endpoints it
 // serves mount at config.AgentCallbackPath.
@@ -75,17 +67,11 @@ type backendHandlers struct {
 	catalog   catalogProvider
 	blacklist blacklistReader
 
-	// outcomes supplies Best-of-N head-to-head aggregates attached per-candidate
-	// to SelectionContext.Candidates[i].Outcomes. nil disables attachment; a
-	// read failure is best-effort (logged, selection proceeds without stats),
-	// mirroring the blacklist read above.
-	outcomes outcomeStatsReader
-
 	// bestOfN bounds the card-level best_of_n value forwarded to the agent
-	// backend (payload.BestOfN = min(card.BestOfN, bestOfN.MaxCandidates)) and
-	// supplies SelectionContext.OutcomeFloor. Zero value (MaxCandidates 0)
-	// clamps every non-zero card value down to 0, matching RouterConfig.BestOfN's
-	// pre-config.Load-defaults zero-value contract.
+	// backend (payload.BestOfN = min(card.BestOfN, bestOfN.MaxCandidates)).
+	// Zero value (MaxCandidates 0) clamps every non-zero card value down to 0,
+	// matching RouterConfig.BestOfN's pre-config.Load-defaults zero-value
+	// contract.
 	bestOfN config.BestOfNConfig
 
 	// mob supplies the trigger-time mob session re-clamp bounds and the guest
