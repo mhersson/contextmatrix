@@ -312,6 +312,110 @@ func TestGetDashboard_ModelCosts_BucketsByModel(t *testing.T) {
 	assert.InDelta(t, 0.05, unknown.EstimatedCostUSD, 1e-9)
 }
 
+// TestGetDashboard_Costs30dWindow verifies ModelCosts30d / CardCosts30d
+// restrict the rollups to cards updated inside the last-30d window (the same
+// boundary as TotalCostUSDLast30d), while the all-time slices keep everything.
+func TestGetDashboard_Costs30dWindow(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+	svc, project, cleanup := setupDashboardServiceAt(t, now)
+	t.Cleanup(cleanup)
+
+	recentID := createCardWithUsage(ctx, t, svc, project, "recent", "claude-opus-4-7", 100, 50, 1.50)
+	oldID := createCardWithUsage(ctx, t, svc, project, "old", "claude-haiku-4-5", 200, 60, 2.00)
+	// Boundary cards pin the exact window edge: edge-in sits ON windowStart
+	// (inclusive), edge-out one second before it (excluded). Any drift
+	// between costWindowStart and the KPI window flips one of them.
+	edgeInID := createCardWithUsage(ctx, t, svc, project, "edge-in", "claude-sonnet-4-6", 30, 10, 0.75)
+	edgeOutID := createCardWithUsage(ctx, t, svc, project, "edge-out", "claude-haiku-4-5", 30, 10, 0.50)
+
+	windowStart := costWindowStart(now, time.UTC)
+
+	backdate := func(id string, updated time.Time) {
+		card, err := svc.GetCard(ctx, project, id)
+		require.NoError(t, err)
+
+		card.Updated = updated
+		require.NoError(t, svc.store.UpdateCard(ctx, project, card))
+	}
+	backdate(recentID, now.Add(-5*24*time.Hour))
+	backdate(oldID, now.Add(-40*24*time.Hour))
+	backdate(edgeInID, windowStart)
+	backdate(edgeOutID, windowStart.Add(-time.Second))
+
+	data, err := svc.GetDashboard(ctx, project)
+	require.NoError(t, err)
+
+	// All-time slices keep every card / model.
+	assert.Len(t, data.ModelCosts, 3, "all-time model rollup keeps all models")
+	assert.Len(t, data.CardCosts, 4, "all-time card rollup keeps all cards")
+
+	// 30d slices keep the in-window cards only: recent and edge-in.
+	in30d := map[string]float64{}
+	for _, cc := range data.CardCosts30d {
+		in30d[cc.CardID] = cc.EstimatedCostUSD
+	}
+
+	require.Len(t, in30d, 2, "30d card rollup keeps exactly the in-window cards")
+	assert.InDelta(t, 1.50, in30d[recentID], 1e-9)
+	assert.InDelta(t, 0.75, in30d[edgeInID], 1e-9, "Updated == windowStart is inside the window")
+	assert.NotContains(t, in30d, edgeOutID, "one second before windowStart is outside")
+	assert.NotContains(t, in30d, oldID)
+
+	models30d := map[string]float64{}
+	for _, mc := range data.ModelCosts30d {
+		models30d[mc.Model] = mc.EstimatedCostUSD
+	}
+
+	require.Len(t, models30d, 2, "30d model rollup keeps only in-window models")
+	assert.InDelta(t, 1.50, models30d["claude-opus-4-7"], 1e-9)
+	assert.InDelta(t, 0.75, models30d["claude-sonnet-4-6"], 1e-9)
+
+	// Window sums agree with the KPI figure.
+	var sum30d float64
+	for _, cc := range data.CardCosts30d {
+		sum30d += cc.EstimatedCostUSD
+	}
+
+	assert.InDelta(t, data.TotalCostUSDLast30d, sum30d, 1e-9,
+		"30d card rollup must sum to the last-30d KPI total")
+}
+
+// TestGetDashboard_Costs30dWindow_SubtaskFoldsIntoParent verifies that a
+// subtask updated inside the window still folds its spend into the parent's
+// CardCosts30d row even when the parent itself was last updated outside it.
+func TestGetDashboard_Costs30dWindow_SubtaskFoldsIntoParent(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+	svc, project, cleanup := setupDashboardServiceAt(t, now)
+	t.Cleanup(cleanup)
+
+	parentID := createCardWithUsage(ctx, t, svc, project, "parent", "claude-opus-4-7", 100, 50, 1.00)
+	subID := createCardWithUsage(ctx, t, svc, project, "sub", "claude-opus-4-7", 40, 20, 0.25)
+
+	parent, err := svc.GetCard(ctx, project, parentID)
+	require.NoError(t, err)
+
+	parent.Updated = now.Add(-40 * 24 * time.Hour)
+	require.NoError(t, svc.store.UpdateCard(ctx, project, parent))
+
+	sub, err := svc.GetCard(ctx, project, subID)
+	require.NoError(t, err)
+
+	sub.Parent = parentID
+	sub.Updated = now.Add(-2 * 24 * time.Hour)
+	require.NoError(t, svc.store.UpdateCard(ctx, project, sub))
+
+	data, err := svc.GetDashboard(ctx, project)
+	require.NoError(t, err)
+
+	require.Len(t, data.CardCosts30d, 1, "only the subtask's spend is in the window")
+	assert.Equal(t, parentID, data.CardCosts30d[0].CardID,
+		"in-window subtask spend folds into the parent row")
+	assert.InDelta(t, 0.25, data.CardCosts30d[0].EstimatedCostUSD, 1e-9,
+		"parent's own out-of-window spend stays excluded")
+}
+
 // TestGetDashboard_ModelCosts_SameModelTwoBucketsCountsCardOnce verifies that a
 // card with two breakdown buckets on the SAME model (different agents) counts
 // once in ModelCost.CardCount - matching the legacy once-per-card semantics -
