@@ -1,10 +1,19 @@
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import type { LogEntry } from '../../types';
 import { TimestampLabel } from '../../utils/chatTimestamp';
 import { ChatMarkdown } from './ChatMarkdown';
+import { ClampedMarkdown } from './ClampedMarkdown';
 import { CollapsiblePayload } from './CollapsiblePayload';
 import { SpeakerChip } from './SpeakerChip';
-import { accentFor, textFor } from './chatEntryUtils';
+import {
+  TEXT_CLAMP_CHAR_THRESHOLD,
+  TEXT_CLAMP_LINE_THRESHOLD,
+  accentFor,
+  countNewlines,
+  parseStructured,
+  textFor,
+} from './chatEntryUtils';
+import { StructuredPayload } from './StructuredPayload';
 
 interface ChatEntryProps {
   entry: LogEntry;
@@ -18,6 +27,13 @@ function ChatEntryImpl({ entry, stampHHMM, stampTitle }: ChatEntryProps) {
   const stamp = stampHHMM !== undefined && stampTitle !== undefined
     ? { hhmm: stampHHMM, title: stampTitle }
     : null;
+
+  // Entries are reference-stable ring-buffer rows, so this parses each text
+  // body at most once per mount.
+  const structured = useMemo(
+    () => (entry.type === 'text' && entry.kind !== 'divider' ? parseStructured(entry.content) : null),
+    [entry],
+  );
 
   // Structural divider sentinel (kind="divider") rendered as a horizontal
   // rule with a small inline label rather than the normal system message
@@ -73,7 +89,14 @@ function ChatEntryImpl({ entry, stampHHMM, stampTitle }: ChatEntryProps) {
             className="rounded-lg px-3 py-2 text-sm wrap-anywhere max-w-full"
             style={{ backgroundColor: 'var(--bg2)', color: 'var(--fg)' }}
           >
-            <ChatMarkdown source={entry.content} />
+            {structured ? (
+              <StructuredPayload pretty={structured} />
+            ) : entry.content.length > TEXT_CLAMP_CHAR_THRESHOLD ||
+              countNewlines(entry.content, TEXT_CLAMP_LINE_THRESHOLD) > TEXT_CLAMP_LINE_THRESHOLD ? (
+              <ClampedMarkdown source={entry.content} />
+            ) : (
+              <ChatMarkdown source={entry.content} />
+            )}
           </div>
         </div>
       </div>

@@ -4,21 +4,13 @@ import {
   COLLAPSE_LINE_THRESHOLD,
   PREVIEW_CHAR_LIMIT,
   PREVIEW_LINE_LIMIT,
+  countNewlines,
 } from './chatEntryUtils';
 
 interface CollapsiblePayloadProps {
   content: string;
   accent: string;
   textColor: string;
-}
-
-function countNewlines(s: string, limit: number): number {
-  let count = 0;
-  const scan = s.length > 2048 ? s.slice(0, 2048) : s;
-  for (let i = 0; i < scan.length && count <= limit; i++) {
-    if (scan[i] === '\n') count++;
-  }
-  return count;
 }
 
 /** Cut the string preview at PREVIEW_LINE_LIMIT lines within PREVIEW_CHAR_LIMIT
