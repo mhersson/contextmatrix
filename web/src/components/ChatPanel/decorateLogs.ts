@@ -14,9 +14,17 @@ export type Decorated =
 const SLOG_DIAGNOSTIC =
   /^(?:\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2} (?:INFO|DEBUG) |time=\S+ level=(?:INFO|DEBUG) )/;
 
+/** Harness state_change events arrive as system entries whose content is a raw
+ *  JSON dump ({"stop":"done","turns":21}, {"event":"wrap_up_nudge",...}). They
+ *  belong in the worker console, not the conversation. The bridge caps these
+ *  payloads, so the JSON can arrive truncated - match lexically, don't parse.
+ *  Prose system messages never start with `{"`. */
+const SYSTEM_EVENT_JSON = /^\s*\{"/;
+
 /** Filter-bar predicate: text / tool traffic / thinking are toggleable, tool
  *  results ride the Tool calls checkbox, stderr drops INFO/DEBUG slog
- *  diagnostics unconditionally; everything else always shows. */
+ *  diagnostics and system drops raw JSON event dumps unconditionally;
+ *  everything else always shows. */
 export function filterLogEntries(
   logs: readonly LogEntry[],
   prefs: ChatFilterPrefs,
@@ -26,6 +34,7 @@ export function filterLogEntries(
     if (e.type === 'tool_call' || e.type === 'tool_result') return prefs.showToolCalls;
     if (e.type === 'thinking') return prefs.showThinking;
     if (e.type === 'stderr') return !SLOG_DIAGNOSTIC.test(e.content);
+    if (e.type === 'system') return !SYSTEM_EVENT_JSON.test(e.content);
     return true;
   });
 }

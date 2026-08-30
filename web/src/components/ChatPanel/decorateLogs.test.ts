@@ -43,6 +43,24 @@ describe('filterLogEntries', () => {
     ];
     expect(filterLogEntries(kept, allOn)).toEqual(kept);
   });
+
+  it('drops system entries carrying raw JSON event dumps, keeps prose system messages', () => {
+    const allOn = { showText: true, showToolCalls: true, showThinking: true };
+    const dropped: LogEntry[] = [
+      entry('system', '{"stop":"done","turns":21}'),
+      entry('system', '{"event":"wrap_up_nudge","turns_remaining":5}'),
+      // The log bridge caps state_change payloads, so a dump can arrive as
+      // truncated (unparseable) JSON - it must still be dropped.
+      entry('system', '{"stop":"max_cost","detail":"a long reason that got cut mid-sen'),
+    ];
+    expect(filterLogEntries(dropped, allOn)).toEqual([]);
+
+    const kept: LogEntry[] = [
+      entry('system', 'Session resumed after restart'),
+      entry('system', 'The agent is waiting for human input'),
+    ];
+    expect(filterLogEntries(kept, allOn)).toEqual(kept);
+  });
 });
 
 describe('decorateLogs', () => {
