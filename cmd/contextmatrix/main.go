@@ -606,8 +606,8 @@ func main() {
 	// conditionally below to avoid boxing a nil *modelcatalog.Builder into the
 	// catalogProvider interface - a typed nil defeats the h.catalog != nil guard
 	// in runCard and causes a panic on the mutex lock (nil receiver dereference).
-	// Blacklist, Outcomes, OutcomesAdmin, and BlacklistAdmin (all opStore)
-	// are always non-nil so they are set unconditionally.
+	// Blacklist, OutcomesAdmin, and BlacklistAdmin (all opStore) are always
+	// non-nil so they are set unconditionally.
 	// chatBackendCfg is the dedicated "chat" backend entry (nil when absent
 	// or disabled), already fetched above for the catalog builder switch. Its
 	// key authenticates the chat service's task-skills pointer fetch.
@@ -635,7 +635,6 @@ func main() {
 		ChatWorkerAPIKey:       chatWorkerAPIKey,
 		ImageStore:             imageStore,
 		Blacklist:              opStore,
-		Outcomes:               opStore,
 		OutcomesAdmin:          opStore,
 		BlacklistAdmin:         opStore,
 		ServedModels:           servedModelsFn,      // nil when catalogBuilder == nil

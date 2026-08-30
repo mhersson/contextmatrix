@@ -14,7 +14,6 @@ import (
 
 	"github.com/mhersson/contextmatrix/internal/auth"
 	"github.com/mhersson/contextmatrix/internal/authstore"
-	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/opstore/sqlite"
 )
 
@@ -38,16 +37,13 @@ func (s *stubOutcomeAdminStore) ResetModelOutcomes(context.Context) (int64, erro
 
 // newOutcomeAdminServer builds a router exposing GET/DELETE
 // /api/admin/model-outcomes. Mirrors newAuthTestServer (auth_test.go) but
-// wires OutcomesAdmin/BestOfN and, in multi mode, seeds both an admin
+// wires OutcomesAdmin and, in multi mode, seeds both an admin
 // ("root") and a non-admin ("bob") account so both sides of the role gate
 // are reachable via a real login.
-func newOutcomeAdminServer(t *testing.T, store outcomeAdminStore, floor int, multiMode bool) *httptest.Server {
+func newOutcomeAdminServer(t *testing.T, store outcomeAdminStore, multiMode bool) *httptest.Server {
 	t.Helper()
 
-	cfg := RouterConfig{
-		OutcomesAdmin: store,
-		BestOfN:       config.BestOfNConfig{OutcomeFloor: floor},
-	}
+	cfg := RouterConfig{OutcomesAdmin: store}
 
 	if multiMode {
 		st, err := authstore.Open(filepath.Join(t.TempDir(), "auth.db"))
@@ -99,10 +95,10 @@ func deleteWithCSRF(t *testing.T, url string, cookie *http.Cookie) *http.Request
 
 func TestAdminModelOutcomes_NoneMode(t *testing.T) {
 	store := &stubOutcomeAdminStore{
-		stats:   []sqlite.OutcomeStats{{Model: "m", Samples: 5, Wins: 2}},
+		stats:   []sqlite.OutcomeStats{{Model: "m", RaceSamples: 3, RaceWins: 2, SoloSamples: 2}},
 		deleted: 7,
 	}
-	server := newOutcomeAdminServer(t, store, 20, false)
+	server := newOutcomeAdminServer(t, store, false)
 
 	// GET with no session at all - none mode is open, like project management.
 	resp, err := http.Get(server.URL + "/api/admin/model-outcomes")
@@ -115,6 +111,9 @@ func TestAdminModelOutcomes_NoneMode(t *testing.T) {
 	var stats modelOutcomeStatsResponse
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&stats))
 	assert.Equal(t, 5, stats.TotalSamples)
+	require.Len(t, stats.Models, 1)
+	assert.Equal(t, 3, stats.Models[0].RaceSamples)
+	assert.Equal(t, 2, stats.Models[0].SoloSamples)
 
 	// DELETE - needs the CSRF header (unconditional in every mode), still no session.
 	resp2, err := http.DefaultClient.Do(deleteWithCSRF(t, server.URL+"/api/admin/model-outcomes", nil))
@@ -131,7 +130,7 @@ func TestAdminModelOutcomes_NoneMode(t *testing.T) {
 
 func TestAdminModelOutcomes_MultiMode_NonAdmin403(t *testing.T) {
 	store := &stubOutcomeAdminStore{}
-	server := newOutcomeAdminServer(t, store, 20, true)
+	server := newOutcomeAdminServer(t, store, true)
 	cookie := login(t, server, "bob", "bob password1")
 
 	req, err := http.NewRequest(http.MethodGet, server.URL+"/api/admin/model-outcomes", nil)
@@ -164,12 +163,12 @@ func TestAdminModelOutcomes_MultiMode_NonAdmin403(t *testing.T) {
 func TestAdminModelOutcomes_MultiMode_Admin200(t *testing.T) {
 	store := &stubOutcomeAdminStore{
 		stats: []sqlite.OutcomeStats{
-			{Model: "a", Samples: 21, Wins: 9, ExpectedWins: 7, TotalCostUSD: 1.23},
-			{Model: "b", Samples: 3, Wins: 1},
+			{Model: "a", RaceSamples: 21, RaceWins: 9, TotalCostUSD: 1.23},
+			{Model: "b", SoloSamples: 3, SoloFailures: 1},
 		},
 		deleted: 24,
 	}
-	server := newOutcomeAdminServer(t, store, 20, true)
+	server := newOutcomeAdminServer(t, store, true)
 	cookie := login(t, server, "root", "root password1")
 
 	req, err := http.NewRequest(http.MethodGet, server.URL+"/api/admin/model-outcomes", nil)
@@ -185,10 +184,8 @@ func TestAdminModelOutcomes_MultiMode_Admin200(t *testing.T) {
 
 	var got modelOutcomeStatsResponse
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
-	assert.Equal(t, 20, got.OutcomeFloor)
 	require.Len(t, got.Models, 2)
-	assert.True(t, got.Models[0].Active, "21 samples >= floor 20")
-	assert.False(t, got.Models[1].Active, "3 samples < floor 20")
+	assert.Equal(t, 24, got.TotalSamples, "race and solo samples both count toward the total")
 
 	resp2, err := http.DefaultClient.Do(deleteWithCSRF(t, server.URL+"/api/admin/model-outcomes", cookie))
 	require.NoError(t, err)
@@ -203,18 +200,18 @@ func TestAdminModelOutcomes_MultiMode_Admin200(t *testing.T) {
 }
 
 // TestAdminModelOutcomes_StatsShape exercises the handler directly (no auth
-// scaffolding needed - shape/arithmetic only) with the brief's exact case:
-// floor 20, one model with 21 samples/9 wins (win_rate ~0.4286, active),
-// another with 3 samples (inactive), total_samples 24.
+// scaffolding needed - shape/arithmetic only): race stats and solo stats stay
+// separate, the win rate is computed over race rows only, and the total sums
+// both kinds.
 func TestAdminModelOutcomes_StatsShape(t *testing.T) {
-	t.Run("floor 20, mixed samples", func(t *testing.T) {
+	t.Run("race and solo split", func(t *testing.T) {
 		store := &stubOutcomeAdminStore{
 			stats: []sqlite.OutcomeStats{
-				{Model: "a", Samples: 21, Wins: 9, ExpectedWins: 7.5, TotalCostUSD: 3.5},
-				{Model: "b", Samples: 3, Wins: 1},
+				{Model: "a", RaceSamples: 8, RaceWins: 5, SoloSamples: 12, SoloFailures: 2, TotalCostUSD: 3.5},
+				{Model: "b", SoloSamples: 3, SoloFailures: 1},
 			},
 		}
-		h := &outcomeAdminHandlers{store: store, outcomeFloor: 20}
+		h := &outcomeAdminHandlers{store: store}
 
 		req := httptest.NewRequest(http.MethodGet, "/api/admin/model-outcomes", nil)
 		w := httptest.NewRecorder()
@@ -228,30 +225,24 @@ func TestAdminModelOutcomes_StatsShape(t *testing.T) {
 		var got modelOutcomeStatsResponse
 		require.NoError(t, json.NewDecoder(res.Body).Decode(&got))
 
-		assert.Equal(t, 20, got.OutcomeFloor)
-		assert.Equal(t, 24, got.TotalSamples)
+		assert.Equal(t, 23, got.TotalSamples)
 		require.Len(t, got.Models, 2)
 
 		a := got.Models[0]
 		assert.Equal(t, "a", a.Model)
-		assert.Equal(t, 21, a.Samples)
-		assert.Equal(t, 9, a.Wins)
-		assert.InDelta(t, 0.4286, a.WinRate, 1e-3)
-		assert.InDelta(t, 7.5, a.ExpectedWins, 1e-9)
+		assert.Equal(t, 8, a.RaceSamples)
+		assert.Equal(t, 5, a.RaceWins)
+		assert.InDelta(t, 0.625, a.RaceWinRate, 1e-9)
+		assert.Equal(t, 12, a.SoloSamples)
+		assert.Equal(t, 2, a.SoloFailures)
 		assert.InDelta(t, 3.5, a.TotalCostUSD, 1e-9)
-		assert.True(t, a.Active)
-
-		b := got.Models[1]
-		assert.Equal(t, "b", b.Model)
-		assert.Equal(t, 3, b.Samples)
-		assert.False(t, b.Active)
 	})
 
-	t.Run("win_rate guards divide-by-zero when samples is 0", func(t *testing.T) {
+	t.Run("race_win_rate guards divide-by-zero when a model never raced", func(t *testing.T) {
 		store := &stubOutcomeAdminStore{
-			stats: []sqlite.OutcomeStats{{Model: "z", Samples: 0, Wins: 0}},
+			stats: []sqlite.OutcomeStats{{Model: "z", SoloSamples: 4}},
 		}
-		h := &outcomeAdminHandlers{store: store, outcomeFloor: 20}
+		h := &outcomeAdminHandlers{store: store}
 
 		req := httptest.NewRequest(http.MethodGet, "/api/admin/model-outcomes", nil)
 		w := httptest.NewRecorder()
@@ -263,8 +254,7 @@ func TestAdminModelOutcomes_StatsShape(t *testing.T) {
 		var got modelOutcomeStatsResponse
 		require.NoError(t, json.NewDecoder(res.Body).Decode(&got))
 		require.Len(t, got.Models, 1)
-		assert.Zero(t, got.Models[0].WinRate)
-		assert.False(t, got.Models[0].Active)
+		assert.Zero(t, got.Models[0].RaceWinRate)
 	})
 }
 
@@ -274,7 +264,7 @@ func TestAdminModelOutcomes_StatsShape(t *testing.T) {
 func TestAdminModelOutcomes_StoreErrors(t *testing.T) {
 	t.Run("getStats store error", func(t *testing.T) {
 		store := &stubOutcomeAdminStore{statsErr: assert.AnError}
-		h := &outcomeAdminHandlers{store: store, outcomeFloor: 20}
+		h := &outcomeAdminHandlers{store: store}
 
 		req := httptest.NewRequest(http.MethodGet, "/api/admin/model-outcomes", nil)
 		w := httptest.NewRecorder()
@@ -292,7 +282,7 @@ func TestAdminModelOutcomes_StoreErrors(t *testing.T) {
 
 	t.Run("reset store error", func(t *testing.T) {
 		store := &stubOutcomeAdminStore{deleteErr: assert.AnError}
-		h := &outcomeAdminHandlers{store: store, outcomeFloor: 20}
+		h := &outcomeAdminHandlers{store: store}
 
 		req := httptest.NewRequest(http.MethodDelete, "/api/admin/model-outcomes", nil)
 		w := httptest.NewRecorder()

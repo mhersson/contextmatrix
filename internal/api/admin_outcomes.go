@@ -21,32 +21,33 @@ type outcomeAdminStore interface {
 
 // outcomeAdminHandlers serves GET/DELETE /api/admin/model-outcomes.
 type outcomeAdminHandlers struct {
-	store        outcomeAdminStore
-	outcomeFloor int
+	store outcomeAdminStore
 	// authEnabled mirrors "multi mode": when true, both endpoints require an
 	// admin session. In none mode they are open, same trust posture as
 	// project management.
 	authEnabled bool
 }
 
-// modelOutcomeStatsResponse is the GET /api/admin/model-outcomes body.
+// modelOutcomeStatsResponse is the GET /api/admin/model-outcomes body. The
+// stats are an observability ledger only - selection is priors-based and
+// never reads them.
 type modelOutcomeStatsResponse struct {
-	OutcomeFloor int                      `json:"outcome_floor"`
 	TotalSamples int                      `json:"total_samples"`
 	Models       []modelOutcomeStatsEntry `json:"models"`
 }
 
-// modelOutcomeStatsEntry is one model's aggregated Best-of-N record.
+// modelOutcomeStatsEntry is one model's recorded history, split by kind:
+// race rows are Best-of-N head-to-head results, solo rows are single-model
+// runs where only a failure carries signal. The two are never summed into
+// one win-rate - a solo completion is not a win over anything.
 type modelOutcomeStatsEntry struct {
 	Model        string  `json:"model"`
-	Samples      int     `json:"samples"`
-	Wins         int     `json:"wins"`
-	WinRate      float64 `json:"win_rate"`
-	ExpectedWins float64 `json:"expected_wins"`
+	RaceSamples  int     `json:"race_samples"`
+	RaceWins     int     `json:"race_wins"`
+	RaceWinRate  float64 `json:"race_win_rate"`
+	SoloSamples  int     `json:"solo_samples"`
+	SoloFailures int     `json:"solo_failures"`
 	TotalCostUSD float64 `json:"total_cost_usd"`
-	// Active reports whether Samples has reached the configured
-	// outcome_floor - below it, win-rate is too noisy to act on.
-	Active bool `json:"active"`
 }
 
 // gate enforces the admin role in multi mode; a no-op (always true) in none
@@ -73,24 +74,23 @@ func (h *outcomeAdminHandlers) getStats(w http.ResponseWriter, r *http.Request) 
 	}
 
 	resp := modelOutcomeStatsResponse{
-		OutcomeFloor: h.outcomeFloor,
-		Models:       make([]modelOutcomeStatsEntry, 0, len(stats)),
+		Models: make([]modelOutcomeStatsEntry, 0, len(stats)),
 	}
 
 	for _, s := range stats {
 		entry := modelOutcomeStatsEntry{
 			Model:        s.Model,
-			Samples:      s.Samples,
-			Wins:         s.Wins,
-			ExpectedWins: s.ExpectedWins,
+			RaceSamples:  s.RaceSamples,
+			RaceWins:     s.RaceWins,
+			SoloSamples:  s.SoloSamples,
+			SoloFailures: s.SoloFailures,
 			TotalCostUSD: s.TotalCostUSD,
-			Active:       s.Samples >= h.outcomeFloor,
 		}
-		if s.Samples > 0 {
-			entry.WinRate = float64(s.Wins) / float64(s.Samples)
+		if s.RaceSamples > 0 {
+			entry.RaceWinRate = float64(s.RaceWins) / float64(s.RaceSamples)
 		}
 
-		resp.TotalSamples += s.Samples
+		resp.TotalSamples += s.RaceSamples + s.SoloSamples
 		resp.Models = append(resp.Models, entry)
 	}
 

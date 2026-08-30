@@ -14,12 +14,16 @@ type ModelOutcome struct {
 	NCandidates                                      int
 }
 
-// OutcomeStats aggregates a model's recorded appearances.
+// OutcomeStats aggregates a model's recorded appearances, split by kind: a
+// race row (n_candidates > 1) is a head-to-head result, a solo row is a
+// single-model run whose completion proves nothing comparative - only the
+// failures carry signal. The two are never summed into one win-rate.
 type OutcomeStats struct {
 	Model        string
-	Samples      int
-	Wins         int
-	ExpectedWins float64
+	RaceSamples  int
+	RaceWins     int
+	SoloSamples  int
+	SoloFailures int
 	TotalCostUSD float64
 }
 
@@ -41,6 +45,12 @@ func (s *Store) RecordModelOutcomes(ctx context.Context, rows []ModelOutcome) er
 
 		if r.NCandidates < 1 {
 			return fmt.Errorf("record model outcomes: row %d: n_candidates must be >= 1, got %d", i, r.NCandidates)
+		}
+
+		// A loss is a judge preferring another candidate; a solo run has no
+		// judge, so its only results are win (completed) or failed.
+		if r.NCandidates == 1 && r.Result == "loss" {
+			return fmt.Errorf("record model outcomes: row %d: a solo run cannot record a loss", i)
 		}
 	}
 
@@ -75,13 +85,14 @@ func (s *Store) RecordModelOutcomes(ctx context.Context, rows []ModelOutcome) er
 	return nil
 }
 
-// ModelOutcomeStats aggregates per-model samples, wins, expected wins, and cost.
+// ModelOutcomeStats aggregates per-model race and solo counts, and cost.
 func (s *Store) ModelOutcomeStats(ctx context.Context) ([]OutcomeStats, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT model,
-		       COUNT(*),
-		       SUM(CASE WHEN result = 'win' THEN 1 ELSE 0 END),
-		       SUM(1.0 / n_candidates),
+		       SUM(CASE WHEN n_candidates > 1 THEN 1 ELSE 0 END),
+		       SUM(CASE WHEN n_candidates > 1 AND result = 'win' THEN 1 ELSE 0 END),
+		       SUM(CASE WHEN n_candidates = 1 THEN 1 ELSE 0 END),
+		       SUM(CASE WHEN n_candidates = 1 AND result = 'failed' THEN 1 ELSE 0 END),
 		       SUM(cost_usd)
 		FROM model_outcomes
 		GROUP BY model
@@ -95,7 +106,7 @@ func (s *Store) ModelOutcomeStats(ctx context.Context) ([]OutcomeStats, error) {
 
 	for rows.Next() {
 		var st OutcomeStats
-		if err := rows.Scan(&st.Model, &st.Samples, &st.Wins, &st.ExpectedWins, &st.TotalCostUSD); err != nil {
+		if err := rows.Scan(&st.Model, &st.RaceSamples, &st.RaceWins, &st.SoloSamples, &st.SoloFailures, &st.TotalCostUSD); err != nil {
 			return nil, fmt.Errorf("scan outcome stats: %w", err)
 		}
 

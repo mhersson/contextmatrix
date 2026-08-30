@@ -27,19 +27,18 @@ vi.mock('../../api/client', async (importOriginal) => {
 function entry(overrides: Partial<ModelOutcomeEntry> = {}): ModelOutcomeEntry {
   return {
     model: 'deepseek/deepseek-v4-flash',
-    samples: 22,
-    wins: 13,
-    win_rate: 0.59,
-    expected_wins: 9.5,
+    race_samples: 8,
+    race_wins: 5,
+    race_win_rate: 0.625,
+    solo_samples: 14,
+    solo_failures: 2,
     total_cost_usd: 1.42,
-    active: true,
     ...overrides,
   };
 }
 
 function stats(overrides: Partial<ModelOutcomeStats> = {}): ModelOutcomeStats {
   return {
-    outcome_floor: 20,
     total_samples: 84,
     models: [entry()],
     ...overrides,
@@ -64,12 +63,28 @@ beforeEach(() => {
 });
 
 describe('AdminModelSelectionPage - list', () => {
-  it('renders a row per model with samples, wins, win rate, cost, and active/inert label', async () => {
+  it('renders a row per model with race and solo stats kept separate', async () => {
     mocks.adminModelOutcomes.mockResolvedValue(
       stats({
         models: [
-          entry({ model: 'deepseek/deepseek-v4-flash', samples: 22, wins: 13, win_rate: 0.59, total_cost_usd: 1.42, active: true }),
-          entry({ model: 'qwen/qwen3-max', samples: 5, wins: 1, win_rate: 0.2, total_cost_usd: 0.31, active: false }),
+          entry({
+            model: 'deepseek/deepseek-v4-flash',
+            race_samples: 8,
+            race_wins: 5,
+            race_win_rate: 0.625,
+            solo_samples: 14,
+            solo_failures: 2,
+            total_cost_usd: 1.42,
+          }),
+          entry({
+            model: 'qwen/qwen3-max',
+            race_samples: 0,
+            race_wins: 0,
+            race_win_rate: 0,
+            solo_samples: 6,
+            solo_failures: 1,
+            total_cost_usd: 0.31,
+          }),
         ],
       }),
     );
@@ -78,22 +93,20 @@ describe('AdminModelSelectionPage - list', () => {
 
     await waitFor(() => expect(screen.getByText('deepseek/deepseek-v4-flash')).toBeInTheDocument());
     expect(screen.getByText('qwen/qwen3-max')).toBeInTheDocument();
-    expect(screen.getByText('22')).toBeInTheDocument();
-    expect(screen.getByText('13')).toBeInTheDocument();
-    expect(screen.getByText('59%')).toBeInTheDocument();
-    expect(screen.getByText('20%')).toBeInTheDocument();
+    expect(screen.getByText('63%')).toBeInTheDocument();
+    expect(screen.getByText('14')).toBeInTheDocument();
     expect(screen.getByText('$1.42')).toBeInTheDocument();
-    expect(screen.getByText('Active')).toBeInTheDocument();
-    expect(screen.getByText('Inert')).toBeInTheDocument();
+    // A model that never raced shows no race win rate at all - a solo
+    // completion is not a win over anything.
+    expect(screen.queryByText('0%')).not.toBeInTheDocument();
   });
 
-  it('shows total sample count and the configured outcome floor', async () => {
-    mocks.adminModelOutcomes.mockResolvedValue(stats({ outcome_floor: 20, total_samples: 84 }));
+  it('shows the total recorded outcome count', async () => {
+    mocks.adminModelOutcomes.mockResolvedValue(stats({ total_samples: 84 }));
 
     render(<AdminModelSelectionPage />);
 
-    await waitFor(() => expect(screen.getByText(/Outcome floor: 20 samples/)).toBeInTheDocument());
-    expect(screen.getByText(/84 total recorded outcomes/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/84 total recorded outcomes/)).toBeInTheDocument());
   });
 
   it('falls back to a generic message when adminModelOutcomes rejects with a non-APIError shape', async () => {
@@ -129,7 +142,7 @@ describe('AdminModelSelectionPage - reset flow', () => {
 
     const dialog = await screen.findByRole('dialog');
     expect(
-      within(dialog).getByText('Delete all 84 recorded outcomes? Model selection returns to priors-only.'),
+      within(dialog).getByText('Delete all 84 recorded outcomes? This clears the observability ledger; model selection is unaffected.'),
     ).toBeInTheDocument();
     expect(mocks.adminResetModelOutcomes).not.toHaveBeenCalled();
 

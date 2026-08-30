@@ -70,7 +70,7 @@ func runMobTrigger(t *testing.T, mobCfg config.MobConfig, patch *service.PatchCa
 	router := NewRouter(RouterConfig{
 		Service: svc, Bus: bus, Backend: backendClient,
 		AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
-		BestOfN:         config.BestOfNConfig{MaxCandidates: 5, DefaultCandidates: 3, OutcomeFloor: 20},
+		BestOfN:         config.BestOfNConfig{MaxCandidates: 5, DefaultCandidates: 3},
 		Mob:             mobCfg,
 	})
 

@@ -727,33 +727,33 @@ Best-of-N outcome tracking does not depend on the auth system. In
 `auth.mode: multi` it requires an admin session, same as the routes above
 (**403 `FORBIDDEN`** otherwise - see § Admin gate above).
 
-Returns aggregated per-model head-to-head stats recorded by the Best-of-N
-judge phase (agent backend only; see `docs/remote-execution.md`), as reported
-by the MCP `report_model_outcome` tool. `docs/model-selection.md` documents
-how these stats bias future model selection:
+Returns the per-model outcome ledger recorded via the MCP
+`report_model_outcome` tool - an observability surface only; model selection
+is priors-based and never reads it (`docs/model-selection.md`). Race rows
+(`n_candidates > 1`, Best-of-N head-to-head results) and solo rows
+(single-model runs) aggregate separately - a solo completion is not a win
+over anything, so there is no combined win rate:
 
 ```json
 {
-  "outcome_floor": 20,
   "total_samples": 84,
   "models": [
     {
       "model": "deepseek/deepseek-v4-flash",
-      "samples": 22,
-      "wins": 13,
-      "win_rate": 0.59,
-      "expected_wins": 9.5,
-      "total_cost_usd": 1.42,
-      "active": true
+      "race_samples": 8,
+      "race_wins": 5,
+      "race_win_rate": 0.625,
+      "solo_samples": 14,
+      "solo_failures": 2,
+      "total_cost_usd": 1.42
     }
   ]
 }
 ```
 
-`outcome_floor` echoes the configured `best_of_n.outcome_floor`
-(`config.yaml`). `active` is `true` once a model's `samples` reaches that
-floor - below it, `win_rate` is too thin a sample to bias selection, and the
-agent's registry ignores the entry. `win_rate` is `0` when `samples` is `0`.
+`race_win_rate` is computed over race rows alone and is `0` when
+`race_samples` is `0`. `total_samples` sums race and solo rows across all
+models.
 
 ### DELETE /api/admin/model-outcomes
 

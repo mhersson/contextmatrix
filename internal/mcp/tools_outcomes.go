@@ -79,9 +79,9 @@ func reportModelOutcomeHandler(svc *service.CardService, w OutcomeWriter) func(c
 func registerReportModelOutcome(server *mcp.Server, svc *service.CardService, w OutcomeWriter) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "report_model_outcome",
-		Description: "Record model outcomes (win/loss/failed) so future coder-model selection " +
-			"can learn from results: one row per candidate after a Best-of-N judge phase, or a " +
-			"single n_candidates=1 row for a solo run's own outcome. Requires the caller to " +
-			"hold the card's claim.",
+		Description: "Record model outcomes (win/loss/failed) in the observability ledger: " +
+			"one row per candidate after a Best-of-N judge phase, or a single n_candidates=1 " +
+			"row for a solo run's own outcome. The ledger is for operators; selection is " +
+			"priors-based and never reads it. Requires the caller to hold the card's claim.",
 	}, reportModelOutcomeHandler(svc, w))
 }

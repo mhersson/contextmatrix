@@ -170,20 +170,11 @@ type RouterConfig struct {
 	// Catalog != nil before attaching Selection, so omitting them is safe.
 	Catalog   catalogProvider
 	Blacklist blacklistReader
-	// Outcomes supplies Best-of-N head-to-head aggregates attached per-candidate
-	// on SelectionContext (runCard guards on it via h.outcomes != nil, same
-	// best-effort posture as Blacklist). In main.go this is the same opstore
-	// handle passed as Blacklist - one store, two read-only interfaces.
-	Outcomes outcomeStatsReader
 	// OutcomesAdmin supplies the read+reset surface for the admin
-	// model-outcomes endpoints (GET/DELETE /api/admin/model-outcomes).
-	// Outcomes (above) is deliberately read-only - runCard's selection path
-	// never resets data - so widening it to add ResetModelOutcomes would
-	// force every consumer/test double of that narrow interface to grow a
-	// method it never calls; this is a separate, wider interface instead.
-	// In main.go this is the same opstore handle passed as
-	// Outcomes/Blacklist/Catalog - one store, several narrowly sliced
-	// interfaces.
+	// model-outcomes endpoints (GET/DELETE /api/admin/model-outcomes) - an
+	// observability ledger; selection never reads it. In main.go this is the
+	// same opstore handle passed as Blacklist/Catalog - one store, several
+	// narrowly sliced interfaces.
 	OutcomesAdmin outcomeAdminStore
 	// BlacklistAdmin supplies the list+delist surface for the admin
 	// model-blacklist endpoints (GET /api/admin/model-blacklist,
@@ -406,9 +397,8 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	// trust posture as project management above.
 	if cfg.OutcomesAdmin != nil {
 		oh := &outcomeAdminHandlers{
-			store:        cfg.OutcomesAdmin,
-			outcomeFloor: cfg.BestOfN.OutcomeFloor,
-			authEnabled:  cfg.AuthService != nil,
+			store:       cfg.OutcomesAdmin,
+			authEnabled: cfg.AuthService != nil,
 		}
 		mux.HandleFunc("GET /api/admin/model-outcomes", oh.getStats)
 		mux.HandleFunc("DELETE /api/admin/model-outcomes", oh.reset)
@@ -494,7 +484,6 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		replayCache:            backend.NewSignatureCache(),
 		catalog:                cfg.Catalog,
 		blacklist:              cfg.Blacklist,
-		outcomes:               cfg.Outcomes,
 		bestOfN:                cfg.BestOfN,
 		mob:                    cfg.Mob,
 		taskSkillsDir:          cfg.TaskSkillsDir,

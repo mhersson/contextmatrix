@@ -12,7 +12,6 @@ import (
 	"github.com/mhersson/contextmatrix/internal/backend"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
-	"github.com/mhersson/contextmatrix/internal/opstore/sqlite"
 )
 
 // runCard handles POST /api/projects/{project}/cards/{id}/run - "Run Now".
@@ -144,41 +143,12 @@ func (h *backendHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// Clone: the catalog returns its shared cached slice, and the
-		// outcomes-attach loop below writes Candidates[i].Outcomes in place.
-		// Without a defensive copy that write would alias the catalog's
-		// backing array - racing concurrent runCard requests and leaking
-		// stale Outcomes pointers into the cache past a model-outcomes reset.
+		// Clone: the catalog returns its shared cached slice; a defensive
+		// copy keeps the payload independent of the cache's backing array.
 		payload.Selection = &protocol.SelectionContext{
 			Candidates: slices.Clone(h.catalog.Candidates(r.Context())),
 			Favorites:  mergeFavorites(h.backendCfg.Favorites, projectCfg.Favorites),
 			Blacklist:  bl,
-		}
-
-		payload.Selection.OutcomeFloor = h.bestOfN.OutcomeFloor
-
-		if h.outcomes != nil {
-			// Best-effort, mirroring the blacklist read above: a stats read
-			// failure must not block the trigger, but it is logged so a silent
-			// miss doesn't let selection quietly run unbiased with no trace.
-			stats, statsErr := h.outcomes.ModelOutcomeStats(r.Context())
-			if statsErr != nil {
-				ctxlog.Logger(r.Context()).Warn("failed to read model outcomes; selection proceeds without them",
-					"card_id", id, "project", project, "error", statsErr)
-			} else if len(stats) > 0 {
-				byModel := make(map[string]sqlite.OutcomeStats, len(stats))
-				for _, st := range stats {
-					byModel[st.Model] = st
-				}
-
-				for i, c := range payload.Selection.Candidates {
-					if st, ok := byModel[c.Slug]; ok {
-						payload.Selection.Candidates[i].Outcomes = &protocol.OutcomeStats{
-							Samples: st.Samples, Wins: st.Wins, ExpectedWins: st.ExpectedWins,
-						}
-					}
-				}
-			}
 		}
 	}
 

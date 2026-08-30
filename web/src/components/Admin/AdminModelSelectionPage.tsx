@@ -7,19 +7,19 @@ import { ConfirmModal } from '../ConfirmModal/ConfirmModal';
 import { ModelBlacklistTable } from './ModelBlacklistTable';
 import { ModelOutcomesTable } from './ModelOutcomesTable';
 
-const EMPTY_STATS: ModelOutcomeStats = { outcome_floor: 0, total_samples: 0, models: [] };
+const EMPTY_STATS: ModelOutcomeStats = { total_samples: 0, models: [] };
 const EMPTY_BLACKLIST: ModelBlacklist = { models: [] };
 
 const fetchOutcomes = () => api.adminModelOutcomes();
 const fetchBlacklist = () => api.adminModelBlacklist();
 
-/** Admin-only Model selection data page: per-model Best-of-N outcome stats
- * (samples, wins, win rate, cost, active-vs-floor status) plus a destructive
- * reset that wipes every recorded outcome, and the incapable-model blacklist
- * with per-row delisting. Open in none mode (see AdminGuard), admin-gated in
- * multi mode - same trust posture as project management. Owns all data
- * fetching and the mutations; the tables it renders are purely
- * presentational. */
+/** Admin-only Model selection data page: the recorded-outcome ledger (race
+ * and solo stats kept separate; observability only, selection never reads
+ * it) plus a destructive reset that wipes every recorded outcome, and the
+ * incapable-model blacklist with per-row delisting. Open in none mode (see
+ * AdminGuard), admin-gated in multi mode - same trust posture as project
+ * management. Owns all data fetching and the mutations; the tables it
+ * renders are purely presentational. */
 export function AdminModelSelectionPage() {
   const {
     items: stats,
@@ -76,7 +76,7 @@ export function AdminModelSelectionPage() {
       </div>
 
       <p className="text-sm" style={{ color: 'var(--grey1)' }}>
-        {`Outcome floor: ${stats.outcome_floor} samples · ${stats.total_samples} total recorded outcomes`}
+        {`${stats.total_samples} total recorded outcomes · observability only, selection is priors-based`}
       </p>
 
       {actionError && (
@@ -112,7 +112,7 @@ export function AdminModelSelectionPage() {
       <ConfirmModal
         open={confirmOpen}
         title="Reset selection data?"
-        message={`Delete all ${stats.total_samples} recorded outcomes? Model selection returns to priors-only.`}
+        message={`Delete all ${stats.total_samples} recorded outcomes? This clears the observability ledger; model selection is unaffected.`}
         variant="danger"
         confirmLabel="Reset"
         onConfirm={() => void confirmReset()}
