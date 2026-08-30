@@ -333,6 +333,9 @@ export interface DashboardData {
   agent_costs: AgentCost[];
   model_costs: ModelCost[];
   card_costs: CardCost[];
+  /** Same rollups restricted to cards updated in the last-30d window. */
+  model_costs_30d?: ModelCost[];
+  card_costs_30d?: CardCost[];
   // Server-wide chat cost aggregates (not per-project; cached 30s server-side).
   chat_cost_usd_last_30d?: number;
   chat_cost_usd_prior_30d?: number;

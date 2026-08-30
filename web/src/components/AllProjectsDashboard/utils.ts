@@ -111,7 +111,9 @@ export function aggregateDashboards(
   const allAgents: ActiveAgent[] = [];
   const agentCostMap = new Map<string, AgentCost>();
   const modelCostMap = new Map<string, ModelCost>();
+  const modelCost30dMap = new Map<string, ModelCost>();
   const allCardCosts: CardCost[] = [];
+  const allCardCosts30d: CardCost[] = [];
 
   for (const data of summaries.values()) {
     for (const [state, count] of Object.entries(data.state_counts)) {
@@ -166,6 +168,19 @@ export function aggregateDashboards(
         modelCostMap.set(mc.model, { ...mc });
       }
     }
+    for (const mc of data.model_costs_30d ?? []) {
+      const existing = modelCost30dMap.get(mc.model);
+      if (existing) {
+        existing.prompt_tokens += mc.prompt_tokens;
+        existing.completion_tokens += mc.completion_tokens;
+        existing.estimated_cost_usd += mc.estimated_cost_usd;
+        existing.card_count += mc.card_count;
+        existing.has_estimates = existing.has_estimates || mc.has_estimates;
+      } else {
+        modelCost30dMap.set(mc.model, { ...mc });
+      }
+    }
+    allCardCosts30d.push(...(data.card_costs_30d ?? []));
   }
 
   // Chat cost is server-wide (not per-project). Pick the first response that
@@ -203,6 +218,8 @@ export function aggregateDashboards(
     agent_costs: Array.from(agentCostMap.values()),
     model_costs: Array.from(modelCostMap.values()),
     card_costs: allCardCosts,
+    model_costs_30d: Array.from(modelCost30dMap.values()),
+    card_costs_30d: allCardCosts30d,
     chat_cost_usd_last_30d: chatCostSource?.chat_cost_usd_last_30d,
     chat_cost_usd_prior_30d: chatCostSource?.chat_cost_usd_prior_30d,
     chat_cost_series_30d: chatCostSource?.chat_cost_series_30d,
@@ -239,32 +256,6 @@ export function agentInitials(agentId: string): string {
 
 export function formatUsd(amount: number): string {
   return `$${amount.toFixed(2)}`;
-}
-
-export function summarySentence(
-  projectCount: number,
-  totalCards: number,
-  agentCount: number,
-  stalled: number,
-  blockedProjects: number,
-): string {
-  const projects = `${projectCount} ${projectCount === 1 ? 'project' : 'projects'}`;
-  const cards = `${totalCards} ${totalCards === 1 ? 'card' : 'cards'}`;
-  const agents = `${agentCount} ${agentCount === 1 ? 'agent' : 'agents'} on duty`;
-  const lead = `${projects} active across ${cards}, with ${agents}.`;
-  const tails: string[] = [];
-  if (stalled > 0) {
-    tails.push(`${stalled} ${stalled === 1 ? 'card is' : 'cards are'} currently stalled`);
-  }
-  if (blockedProjects > 0) {
-    tails.push(
-      `${blockedProjects} ${blockedProjects === 1 ? 'project has' : 'projects have'} cards in the blocked state`,
-    );
-  }
-  if (tails.length === 0) {
-    return `${lead} No stalls or blockers detected.`;
-  }
-  return `${lead} ${tails.join(' and ')}.`;
 }
 
 export function buildPrefixMap(projects: ProjectConfig[]): Map<string, string> {

@@ -1,6 +1,17 @@
-interface PageHeaderProps {
-  summary: string;
+import { useMobileSidebar } from '../../context/MobileSidebarContext';
+import { SidebarMenuButton } from '../SidebarMenuButton/SidebarMenuButton';
+
+export interface SummaryStats {
   projectCount: number;
+  totalCards: number;
+  agentCount: number;
+  stalledCount: number;
+}
+
+interface CommandStripProps {
+  /** null while the first dashboard fetch is in flight - the strip renders
+   *  without the summary so the mobile hamburger stays reachable. */
+  stats: SummaryStats | null;
   onRefresh: () => void;
   onNewProject: () => void;
   refreshing: boolean;
@@ -8,26 +19,44 @@ interface PageHeaderProps {
   showNewProject?: boolean;
 }
 
-export function PageHeader({
-  summary,
-  projectCount,
+function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? '' : 's'}`;
+}
+
+export function CommandStrip({
+  stats,
   onRefresh,
   onNewProject,
   refreshing,
   showNewProject = true,
-}: PageHeaderProps) {
+}: CommandStripProps) {
+  const { toggle } = useMobileSidebar();
+
   return (
-    <header className="apd-page-header">
-      <div className="apd-page-title-block min-w-0">
-        <p className="apd-eyebrow">
-          Dashboard · <b>Operations Overview</b>
+    <header className="apd-strip">
+      <SidebarMenuButton onClick={toggle} />
+      <div className="min-w-0 shrink-0">
+        <p className="apd-strip-eyebrow">
+          ContextMatrix <span aria-hidden="true">/</span> All projects
         </p>
-        <h1 className="apd-title-display">
-          Operations<span style={{ color: 'var(--aqua)' }}>.</span>
-        </h1>
-        <p className="apd-subtitle">{summary}</p>
+        <h1 className="apd-strip-title">Operations</h1>
       </div>
-      <div className="apd-header-actions">
+      {stats && (
+        <p className="apd-strip-summary truncate min-w-0">
+          <b>{plural(stats.projectCount, 'project')}</b>
+          {' · '}
+          {plural(stats.totalCards, 'card')}
+          {' · '}
+          <b>{plural(stats.agentCount, 'agent')}</b> active
+          {stats.stalledCount > 0 && (
+            <>
+              {' · '}
+              <span className="apd-strip-stalled">{stats.stalledCount} stalled</span>
+            </>
+          )}
+        </p>
+      )}
+      <div className="apd-strip-actions">
         <button
           type="button"
           onClick={onRefresh}
@@ -40,7 +69,7 @@ export function PageHeader({
             opacity: refreshing ? 0.6 : 1,
           }}
           aria-busy={refreshing}
-          title={projectCount === 0 ? 'No projects to refresh' : 'Refresh dashboard'}
+          title="Refresh dashboard"
         >
           <svg
             viewBox="0 0 14 14"

@@ -1,12 +1,14 @@
 import { Link, useNavigate } from 'react-router';
 import type { ProjectConfig } from '../../types';
 import { useMemo } from 'react';
+import { chipTint } from '../../lib/chip';
 import {
   distributionSegments,
   formatUsd,
   projectRow,
 } from './utils';
 import type { DashboardData } from '../../types';
+import { DeckPanel } from './DeckPanel';
 
 interface ProjectsTableProps {
   projects: ProjectConfig[];
@@ -37,9 +39,6 @@ function DistributionBar({
           />
         ))}
       </div>
-      <span className="apd-dist-num" style={{ color: 'var(--grey1)' }}>
-        {total}
-      </span>
     </div>
   );
 }
@@ -57,46 +56,16 @@ export function ProjectsTable({ projects, summaries }: ProjectsTableProps) {
   }, [projects, summaries]);
 
   return (
-    <section
-      className="apd-card"
-      style={{
-        borderColor: 'var(--bg3)',
-        backgroundColor: 'var(--bg1)',
-        overflow: 'hidden',
-      }}
+    <DeckPanel
+      area="projects"
+      accent="var(--blue)"
+      title="Projects"
+      meta={`${projects.length} · A→Z`}
     >
-      <div
-        className="flex items-center justify-between"
-        style={{
-          padding: '16px 20px 14px',
-          borderBottom: '1px solid var(--bg2)',
-        }}
-      >
-        <div className="flex items-baseline gap-2.5">
-          <h2 className="apd-section-title">Projects</h2>
-          <span className="apd-count" style={{ color: 'var(--grey1)' }}>
-            {projects.length}
-          </span>
-        </div>
-        <span
-          style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--grey1)' }}
-        >
-          Sort: A→Z
-        </span>
-      </div>
       {rows.length === 0 ? (
-        <div
-          style={{
-            padding: '32px 20px',
-            textAlign: 'center',
-            color: 'var(--grey0)',
-            fontSize: 13,
-          }}
-        >
-          No projects yet
-        </div>
+        <div className="apd-panel-empty">No projects yet</div>
       ) : (
-        <div style={{ overflowX: 'auto' }}>
+        <div className="apd-panel-body">
           <table className="apd-projects-table" style={{ color: 'var(--fg)' }}>
             <thead>
               <tr>
@@ -128,38 +97,27 @@ export function ProjectsTable({ projects, summaries }: ProjectsTableProps) {
                         className="apd-project-link"
                         onClick={(e) => e.stopPropagation()}
                       >
-                        <div className="flex items-center gap-3 min-w-0">
+                        <div className="flex items-center gap-2.5 min-w-0">
                           <span
-                            className="apd-project-dot"
+                            className="truncate min-w-0"
                             style={{
-                              backgroundColor: 'var(--bg4)',
+                              color: 'var(--fg)',
+                              fontWeight: 500,
+                              fontSize: 13,
+                              letterSpacing: '-0.01em',
                             }}
-                          />
-                          <span className="min-w-0">
-                            <span
-                              className="block truncate"
-                              style={{
-                                color: 'var(--fg)',
-                                fontWeight: 500,
-                                fontSize: 13.5,
-                                letterSpacing: '-0.01em',
-                              }}
-                            >
-                              {display}
-                            </span>
-                            <span
-                              className="block truncate"
-                              style={{
-                                fontFamily: 'var(--font-mono)',
-                                fontSize: 11,
-                                color: 'var(--grey1)',
-                                letterSpacing: '-0.01em',
-                                marginTop: 1,
-                              }}
-                            >
-                              {repo || name}
-                            </span>
+                            title={repo || undefined}
+                          >
+                            {display}
                           </span>
+                          {row.config.prefix && (
+                            <span
+                              className="chip-pill flex-shrink-0"
+                              style={chipTint('var(--grey1)')}
+                            >
+                              {row.config.prefix}
+                            </span>
+                          )}
                         </div>
                       </Link>
                     </td>
@@ -167,7 +125,7 @@ export function ProjectsTable({ projects, summaries }: ProjectsTableProps) {
                       className="apd-num"
                       style={{
                         fontFamily: 'var(--font-mono)',
-                        fontSize: 12,
+                        fontSize: 11.5,
                         color: 'var(--fg)',
                       }}
                     >
@@ -184,7 +142,7 @@ export function ProjectsTable({ projects, summaries }: ProjectsTableProps) {
                       className="apd-num"
                       style={{
                         fontFamily: 'var(--font-mono)',
-                        fontSize: 12,
+                        fontSize: 11.5,
                         color: row.cost > 0 ? 'var(--yellow)' : 'var(--grey0)',
                       }}
                     >
@@ -197,6 +155,6 @@ export function ProjectsTable({ projects, summaries }: ProjectsTableProps) {
           </table>
         </div>
       )}
-    </section>
+    </DeckPanel>
   );
 }

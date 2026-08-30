@@ -17,8 +17,9 @@ interface KpiTileProps {
   label: string;
   badge: string;
   value: ReactNode;
-  source: string;
-  accent: 'blue' | 'yellow' | 'green' | 'purple';
+  accent: 'blue' | 'yellow' | 'green' | 'aqua';
+  /** Cost tiles keep a neutral figure; the accent only drives border/wash. */
+  neutralValue?: boolean;
   tooltip?: string;
   delta?: { pct: number; up: boolean };
   sparkline?: { values: number[]; color: string };
@@ -28,87 +29,37 @@ const ACCENT_TO_VAR: Record<KpiTileProps['accent'], string> = {
   blue: 'var(--blue)',
   yellow: 'var(--yellow)',
   green: 'var(--green)',
-  purple: 'var(--purple)',
+  aqua: 'var(--aqua)',
 };
 
-function KpiTile({ label, badge, value, source, accent, tooltip, delta, sparkline }: KpiTileProps) {
-  const numStyle: CSSProperties = {
-    fontFamily: 'var(--font-sans)',
-    fontWeight: 500,
-    fontSize: 40,
-    lineHeight: 1.0,
-    letterSpacing: '-0.04em',
-    marginTop: 8,
-    color: ACCENT_TO_VAR[accent],
-    fontVariantNumeric: 'tabular-nums',
-  };
+function KpiTile({ label, badge, value, accent, neutralValue, tooltip, delta, sparkline }: KpiTileProps) {
+  const accentVar = ACCENT_TO_VAR[accent];
   return (
     <div
-      className="apd-card apd-kpi"
+      className="apd-kpi"
       title={tooltip}
       // aria-label intentionally not set: accessible name is composed from descendants
-      style={{
-        borderColor: 'var(--bg3)',
-        backgroundColor: 'var(--bg1)',
-        padding: '18px 20px',
-      }}
+      style={{ '--apd-acc': accentVar } as CSSProperties}
     >
-      <div
-        className="flex items-center justify-between"
-        style={{
-          fontSize: 11.5,
-          color: 'var(--grey1)',
-          letterSpacing: '-0.005em',
-          fontWeight: 500,
-        }}
-      >
+      <div className="apd-kpi-label">
         <span>{label}</span>
-        <span
-          style={{
-            fontFamily: 'var(--font-mono)',
-            fontSize: 10.5,
-            color: 'var(--grey1)',
-            padding: '2px 7px',
-            borderRadius: 3,
-            backgroundColor: 'var(--bg2)',
-            border: '1px solid var(--bg3)',
-            letterSpacing: '0.04em',
-          }}
-        >
-          {badge}
-        </span>
+        <span className="apd-kpi-badge">{badge}</span>
       </div>
-      <div
-        style={{
-          ...numStyle,
-          display: 'inline-flex',
-          alignItems: 'baseline',
-          gap: 8,
-        }}
-      >
-        {value}
-        {delta !== undefined && (
-          <span
-            className={`metric-tile__delta ${delta.up ? 'metric-tile__delta--up' : 'metric-tile__delta--down'}`}
-          >
-            {delta.up ? '+' : ''}{delta.pct}%
-          </span>
+      <div className="apd-kpi-value-row">
+        <span className="apd-kpi-value" style={{ color: neutralValue ? 'var(--fg)' : accentVar }}>
+          {value}
+          {delta !== undefined && (
+            <span
+              className={`apd-kpi-delta metric-tile__delta ${delta.up ? 'metric-tile__delta--up' : 'metric-tile__delta--down'}`}
+            >
+              {delta.up ? '+' : ''}{delta.pct}%
+            </span>
+          )}
+        </span>
+        {sparkline && (
+          <Sparkline values={sparkline.values} color={sparkline.color} />
         )}
       </div>
-      <div
-        style={{
-          marginTop: 8,
-          fontSize: 11,
-          color: 'var(--grey0)',
-          fontFamily: 'var(--font-mono)',
-          letterSpacing: '-0.01em',
-        }}
-      >
-        {source}
-      </div>
-      {sparkline && (
-        <Sparkline values={sparkline.values} color={sparkline.color} />
-      )}
     </div>
   );
 }
@@ -168,15 +119,11 @@ export function KpiRow({
   const chatDeltaUp = hasChatDelta && (chatCostLast30dUsd >= chatCostPrior30dUsd || chatDeltaPct === 0);
 
   return (
-    <div
-      className="apd-kpi-row"
-      style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 20 }}
-    >
+    <div className="apd-kpi-row">
       <KpiTile
         label="Open tasks"
         badge="ALL"
         value={openParents}
-        source="state_counts_parents (todo)"
         accent="blue"
         tooltip={DELIVERY_UNIT_TOOLTIP}
       />
@@ -184,7 +131,6 @@ export function KpiRow({
         label="In progress"
         badge="ACTIVE"
         value={inProgressParents}
-        source="state_counts_parents (in_progress+review)"
         accent="yellow"
         tooltip={DELIVERY_UNIT_TOOLTIP}
       />
@@ -192,7 +138,6 @@ export function KpiRow({
         label="Done today"
         badge="UTC"
         value={doneTodayParents}
-        source="cards_completed_today_parents"
         accent="green"
         tooltip={DELIVERY_UNIT_TOOLTIP}
       />
@@ -200,22 +145,21 @@ export function KpiRow({
         label="Cost · 30d"
         badge="USD"
         value={<CostValue amount={costLast30dUsd} estimated={costHasEstimates} />}
-        source="sum(card.cost where updated >= now-30d)"
-        accent="purple"
+        accent="green"
+        neutralValue
         tooltip={COST_TOOLTIP}
         delta={hasDelta ? { pct: deltaPct, up: deltaUp } : undefined}
-        sparkline={costSeries30d !== undefined ? { values: costSeries30d, color: 'var(--purple)' } : undefined}
+        sparkline={costSeries30d !== undefined ? { values: costSeries30d, color: 'var(--green)' } : undefined}
       />
-      {/* Spec says accent="purple" but blue is used here to disambiguate from the adjacent card-scoped Cost tile which is purple. */}
       <KpiTile
         label="Chat cost · 30d"
         badge="USD"
         value={<CostValue amount={chatCostLast30dUsd} />}
-        source="sum(chat.cost where last_active >= now-30d)"
-        accent="blue"
+        accent="aqua"
+        neutralValue
         tooltip={CHAT_COST_TOOLTIP}
         delta={hasChatDelta ? { pct: chatDeltaPct, up: chatDeltaUp } : undefined}
-        sparkline={chatCostSeries30d !== undefined ? { values: chatCostSeries30d, color: 'var(--blue)' } : undefined}
+        sparkline={chatCostSeries30d !== undefined ? { values: chatCostSeries30d, color: 'var(--aqua)' } : undefined}
       />
     </div>
   );

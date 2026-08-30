@@ -1890,200 +1890,293 @@ textarea {
 
 /* ============================================================
    All Projects Dashboard (/all)
-   Refined operations overview. Uses only existing palette tokens
-   so all three palettes (Everforest, Radix, Catppuccin) render
-   correctly. Component naming: .apd-* (All-Projects Dashboard).
+   Single-viewport command deck: header strip + KPI row + a fixed
+   grid of panels; zero page scroll above 1100px, only panel
+   bodies scroll. Panels adopt the board-card language (left
+   accent borders, diagonal accent washes, chip pills, mono IDs).
+   Uses only existing palette tokens so all three palettes
+   (Everforest, Radix, Catppuccin) render correctly. Component
+   naming: .apd-* (All-Projects Dashboard).
    ============================================================ */
 .apd-root {
-  --apd-pad: 32px;
-  --apd-gap: 20px;
-  --apd-radius: 6px;
+  --apd-pad: 18px;
+  --apd-gap: 12px;
+  --apd-radius: 10px;
   font-feature-settings: "ss01", "cv11";
 }
-.apd-section-pad {
-  padding-left: var(--apd-pad);
-  padding-right: var(--apd-pad);
-  margin-bottom: var(--apd-gap);
+
+/* --- command strip header --- */
+.apd-strip {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-shrink: 0;
+  padding: 8px var(--apd-pad);
+  border-bottom: 1px solid var(--bg1);
 }
-.apd-grid-asym {
+.apd-strip-eyebrow {
+  margin: 0 0 1px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--grey1);
+  white-space: nowrap;
+}
+.apd-strip-eyebrow span {
+  color: var(--bg4);
+}
+.apd-strip-title {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  color: var(--fg);
+}
+.apd-strip-summary {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--grey1);
+  letter-spacing: -0.005em;
+}
+.apd-strip-summary b {
+  color: var(--fg);
+  font-weight: 600;
+}
+.apd-strip-stalled {
+  color: var(--red);
+  font-weight: 600;
+}
+.apd-strip-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* --- body + deck grid (board height-chain discipline) --- */
+.apd-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--apd-gap);
+  padding: var(--apd-gap) var(--apd-pad);
+  overflow: hidden;
+}
+.apd-deck {
+  flex: 1;
+  min-height: 0;
   display: grid;
   gap: var(--apd-gap);
-  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, 0.9fr);
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-areas:
+    "projects agents activity"
+    "models topcards activity";
 }
-@media (max-width: 1240px) {
-  .apd-grid-asym {
-    grid-template-columns: 1fr;
+.apd-area-projects {
+  grid-area: projects;
+}
+.apd-area-agents {
+  grid-area: agents;
+}
+.apd-area-models {
+  grid-area: models;
+}
+.apd-area-topcards {
+  grid-area: topcards;
+}
+.apd-area-activity {
+  grid-area: activity;
+}
+
+/* --- panel shell: the board-card language at panel scale --- */
+.apd-panel {
+  background:
+    linear-gradient(
+        115deg,
+        color-mix(in srgb, var(--apd-acc, var(--bg3)) 6%, transparent),
+        transparent 46%
+      )
+      var(--bg0);
+  border: 1px solid var(--bg1);
+  border-left: 3px solid var(--apd-acc, var(--bg3));
+  border-radius: var(--apd-radius);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.apd-panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px 7px;
+  flex-shrink: 0;
+}
+.apd-panel-title {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  color: var(--fg);
+}
+.apd-panel-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--grey0);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.apd-panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--bg3) transparent;
+}
+.apd-panel-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px 16px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--grey0);
+  font-style: italic;
+}
+
+/* --- KPI tiles --- */
+.apd-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--apd-gap);
+  flex-shrink: 0;
+}
+.apd-kpi {
+  background:
+    linear-gradient(
+        115deg,
+        color-mix(in srgb, var(--apd-acc, var(--bg3)) 7%, transparent),
+        transparent 52%
+      )
+      var(--bg0);
+  border: 1px solid var(--bg1);
+  border-left: 3px solid var(--apd-acc, var(--bg3));
+  border-radius: var(--apd-radius);
+  padding: 10px 14px 12px;
+  min-width: 0;
+  overflow: hidden;
+}
+/* The sparkline yields before the figure does: it may shrink to nothing on
+   narrow tiles instead of bleeding across the tile border. */
+.apd-kpi .spark {
+  flex: 0 1 80px;
+  min-width: 0;
+}
+.apd-kpi-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--grey1);
+  font-weight: 500;
+  letter-spacing: -0.005em;
+}
+.apd-kpi-badge {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--grey0);
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--bg1);
+  letter-spacing: 0.05em;
+}
+.apd-kpi-value-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 7px;
+}
+.apd-kpi-value {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 27px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.035em;
+  font-variant-numeric: tabular-nums;
+}
+.apd-kpi-delta {
+  padding: 1.5px 6px;
+  border-radius: 9999px;
+}
+/* Cost semantics on the KPI deltas: spend going up is the bad direction. */
+.apd-kpi-delta.metric-tile__delta--up {
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 14%, transparent);
+}
+.apd-kpi-delta.metric-tile__delta--down {
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 14%, transparent);
+}
+
+/* --- responsive fallback: the deck stacks and the body scrolls --- */
+/* Five tiles no longer fit a row on narrow desktops - step to 3 columns
+   (two rows) before the full stacked fallback below takes over. */
+@media (max-width: 1350px) {
+  .apd-kpi-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (max-width: 1100px) {
+  .apd-body {
+    overflow-y: auto;
   }
   .apd-kpi-row {
-    grid-template-columns: repeat(2, 1fr) !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .apd-deck {
+    display: flex;
+    flex-direction: column;
+  }
+  .apd-panel-body {
+    max-height: 320px;
   }
 }
 @media (max-width: 768px) {
   .apd-root {
-    --apd-pad: 16px;
-    --apd-gap: 14px;
+    --apd-pad: 12px;
+  }
+  .apd-strip {
+    flex-wrap: wrap;
+    gap: 8px 14px;
   }
   .apd-kpi-row {
-    grid-template-columns: 1fr !important;
-  }
-}
-
-.apd-utility-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 42px;
-  padding-left: var(--apd-pad);
-  padding-right: var(--apd-pad);
-  border-bottom: 1px solid var(--bg3);
-  background: var(--bg-dim);
-  color: var(--grey1);
-  font-size: 12px;
-  letter-spacing: -0.005em;
-  flex-shrink: 0;
-  gap: 8px;
-}
-.apd-util-right {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: -0.01em;
-  flex-shrink: 0;
-}
-@media (max-width: 768px) {
-  .apd-util-right {
-    gap: 8px;
-  }
-  .apd-sync-pill-label {
-    display: inline-block;
-    max-width: 14ch;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    vertical-align: bottom;
-  }
-}
-
-.apd-page-header {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 24px;
-  align-items: end;
-  padding: 32px var(--apd-pad) 22px;
-}
-.apd-eyebrow {
-  font-size: 11px;
-  color: var(--grey1);
-  letter-spacing: -0.005em;
-  font-weight: 500;
-  margin: 0 0 8px;
-}
-.apd-eyebrow b {
-  color: var(--aqua);
-  font-weight: 500;
-}
-.apd-title-display {
-  font-family: var(--font-sans);
-  font-size: clamp(28px, 6vw, 48px);
-  line-height: 1;
-  letter-spacing: -0.035em;
-  font-weight: 600;
-  color: var(--fg);
-  margin: 0;
-}
-.apd-subtitle {
-  margin: 14px 0 0;
-  font-size: 13.5px;
-  color: var(--grey1);
-  letter-spacing: -0.005em;
-  line-height: 1.55;
-  max-width: 62ch;
-}
-.apd-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  align-self: end;
-  flex-wrap: wrap;
-}
-@media (max-width: 768px) {
-  .apd-page-header {
     grid-template-columns: 1fr;
-    padding: 22px var(--apd-pad) 14px;
-    gap: 14px;
-  }
-  .apd-header-actions {
-    align-self: start;
-  }
-  .apd-subtitle {
-    margin-top: 10px;
-    font-size: 13px;
-  }
-  .apd-eyebrow {
-    margin-bottom: 6px;
   }
 }
 
 .apd-foot-strip {
-  padding: 14px var(--apd-pad);
+  padding: 8px var(--apd-pad);
 }
 @media (max-width: 768px) {
   .apd-foot-strip {
     gap: 8px !important;
-    padding-top: 10px;
-    padding-bottom: 10px;
-  }
-}
-
-.apd-card {
-  border: 1px solid var(--bg3);
-  border-radius: var(--apd-radius);
-  background: var(--bg1);
-  transition: border-color 200ms ease;
-}
-.apd-meta-line {
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  color: var(--grey1);
-}
-.apd-kpi {
-  transition: border-color 200ms ease;
-}
-.apd-kpi:hover {
-  border-color: var(--bg4);
-}
-
-.apd-sync-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 8px;
-  border: 1px solid var(--bg3);
-  border-radius: 11px;
-  font-family: var(--font-sans);
-  font-size: 11px;
-  letter-spacing: -0.005em;
-  white-space: nowrap;
-}
-.apd-sync-pill-dot,
-.apd-pulse-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.apd-pulse-dot {
-  animation: apd-pulse 1.4s ease-in-out infinite;
-}
-@keyframes apd-pulse {
-  0%,
-  100% {
-    opacity: 0.5;
-  }
-  50% {
-    opacity: 1;
   }
 }
 
@@ -2293,46 +2386,35 @@ textarea {
   margin: 0 0 10px;
 }
 
-.apd-section-title {
-  font-family: var(--font-sans);
-  font-weight: 600;
-  font-size: 17px;
-  line-height: 1.1;
-  letter-spacing: -0.025em;
-  color: var(--fg);
-  margin: 0;
-}
-.apd-count {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--grey1);
-  padding: 2px 7px;
-  border-radius: 3px;
-  background: var(--bg2);
-  border: 1px solid var(--bg3);
-  letter-spacing: -0.005em;
-}
-
 .apd-projects-table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: 12.5px;
   color: var(--fg);
+}
+.apd-projects-table th:nth-child(2) {
+  width: 46px;
+}
+.apd-projects-table th:nth-child(3) {
+  width: 26%;
+}
+.apd-projects-table th:nth-child(4) {
+  width: 62px;
 }
 .apd-projects-table th {
   text-align: left;
   font-weight: 500;
-  padding: 10px 16px;
-  font-size: 11px;
+  padding: 6px 14px;
+  font-size: 10.5px;
   letter-spacing: -0.005em;
-  border-bottom: 1px solid var(--bg2);
-  background: var(--bg1);
+  border-bottom: 1px solid var(--bg1);
   white-space: nowrap;
   color: var(--grey1);
 }
 .apd-projects-table td {
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--bg2);
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--bg1);
   vertical-align: middle;
   transition: background-color 140ms ease;
 }
@@ -2348,7 +2430,7 @@ textarea {
   cursor: pointer;
 }
 .apd-project-row:hover td {
-  background-color: var(--bg2);
+  background-color: var(--bg1);
 }
 .apd-project-link {
   display: block;
@@ -2358,13 +2440,6 @@ textarea {
 .apd-project-link:hover {
   color: inherit;
 }
-.apd-project-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  display: inline-block;
-}
 
 .apd-dist-row {
   display: flex;
@@ -2373,22 +2448,15 @@ textarea {
 }
 .apd-dist-bar {
   display: flex;
-  height: 6px;
-  border-radius: 2px;
+  height: 5px;
+  border-radius: 3px;
   overflow: hidden;
   flex: 1;
-  min-width: 120px;
+  min-width: 90px;
 }
 .apd-dist-bar > span {
   display: block;
   height: 100%;
-}
-.apd-dist-num {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  width: 32px;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
 }
 
 .apd-search-input {
@@ -2410,56 +2478,29 @@ textarea {
   transition: background-color 140ms ease;
 }
 .apd-card-row:hover:not(:disabled) {
-  background-color: var(--bg2);
-}
-
-.apd-tab-strip {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 0 12px;
-}
-.apd-tab-btn {
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  padding: 11px 12px 10px;
-  font-family: inherit;
-  font-size: 12.5px;
-  font-weight: 500;
-  letter-spacing: -0.005em;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-  transition:
-    color 140ms ease,
-    border-color 140ms ease;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-.apd-tab-btn:hover {
-  color: var(--fg);
-}
-.apd-tab-count {
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  padding: 1px 6px;
-  border-radius: 3px;
-  letter-spacing: -0.01em;
+  background-color: var(--bg1);
 }
 
 .apd-cost-row {
   display: grid;
-  grid-template-columns: minmax(0, 130px) 1fr 70px 50px;
-  gap: 14px;
+  grid-template-columns: minmax(0, 140px) 1fr 64px 36px;
+  gap: 10px;
   align-items: center;
-  padding: 9px 0;
+  padding: 7px 0;
 }
 .apd-cost-row:last-child {
   border-bottom: none !important;
 }
+.apd-model-pill {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
 .apd-bar-wrap {
-  height: 18px;
+  height: 6px;
   border-radius: 3px;
   overflow: hidden;
   position: relative;
@@ -2470,21 +2511,42 @@ textarea {
   transition: width 200ms ease;
 }
 
+/* Agent rows as mini board cards: bg1 surface, aqua status border,
+   the agent-active gradient wash from CardItem. */
 .apd-agent-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 7px 10px;
+  margin-bottom: 6px;
+  border-radius: calc(var(--apd-radius) - 3px);
+  border-left: 3px solid var(--aqua);
+  background:
+    linear-gradient(
+        90deg,
+        color-mix(in srgb, var(--aqua) 10%, transparent),
+        transparent 45%
+      )
+      var(--bg1);
   font: inherit;
+  text-decoration: none;
   transition: background-color 140ms ease;
 }
-.apd-agent-row:hover:not(:disabled) {
+.apd-agent-row:hover:not(.apd-agent-row-static) {
   background-color: var(--bg2);
 }
+.apd-agent-row:last-child {
+  margin-bottom: 0;
+}
 .apd-agent-avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
   display: grid;
   place-items: center;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 500;
 }
 .apd-role-tag {
@@ -2499,8 +2561,10 @@ textarea {
 .apd-agents-footer {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 1px;
-  background: var(--bg2);
+  gap: 10px;
+  padding: 8px 14px 10px;
+  border-top: 1px solid var(--bg1);
+  flex-shrink: 0;
 }
 
 .apd-activity-row {
@@ -2509,7 +2573,7 @@ textarea {
   color: inherit;
 }
 .apd-activity-row:hover:not(:disabled):not(.apd-activity-row-static) {
-  background-color: var(--bg2);
+  background-color: var(--bg1);
 }
 .apd-activity-row:last-child {
   border-bottom: none !important;
@@ -2534,7 +2598,6 @@ textarea {
    Mirrors the convention used elsewhere (see web/src/index.css:1426): a thin
    aqua outline with negative offset so it sits inside the element's border. */
 .apd-chip:focus-visible,
-.apd-tab-btn:focus-visible,
 .apd-card-row:focus-visible,
 .apd-agent-row:focus-visible,
 .apd-activity-row:focus-visible,
@@ -2543,10 +2606,6 @@ textarea {
   outline-offset: -2px;
   border-radius: 5px;
 }
-.apd-tab-btn:focus-visible {
-  outline-offset: -3px;
-  border-radius: 3px;
-}
 .apd-search-input:focus {
   border-color: var(--aqua);
   outline: none;
@@ -2554,12 +2613,6 @@ textarea {
 .apd-search-input:focus-visible {
   outline: 2px solid color-mix(in oklab, var(--aqua) 60%, var(--bg3));
   outline-offset: -1px;
-}
-/* The whole tabpanel becomes a focus target when the user tabs through tabs;
-   keep its outline restrained since the panel can be tall. */
-.apd-card [role="tabpanel"]:focus-visible {
-  outline: 1px dashed color-mix(in oklab, var(--aqua) 50%, var(--bg3));
-  outline-offset: -3px;
 }
 
 /* ════════════════════════════════════════════════════════════════════════

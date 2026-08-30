@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import type { CardCost, ProjectConfig } from '../../types';
 import { filterCardCosts } from '../../utils/costTableUtils';
+import { DeckPanel } from './DeckPanel';
 import { projectForCardId } from './utils';
 
 interface TopCardsPanelProps {
@@ -74,7 +75,7 @@ export function TopCardsPanel({ cardCosts, prefixMap, projects }: TopCardsPanelP
     ? `Top ${top.length} of ${filtered.length} matching · ${sorted.length} total`
     : selectedProject
       ? `Top ${top.length} of ${filtered.length} in ${selectedLabel} · ${sorted.length} total`
-      : `Top ${top.length} of ${sorted.length} cards`;
+      : `Top ${top.length} of ${sorted.length} cards · 30d`;
   const headBadge = isFiltered
     ? `${top.length} / ${filtered.length}`
     : `${top.length} / ${sorted.length}`;
@@ -83,50 +84,27 @@ export function TopCardsPanel({ cardCosts, prefixMap, projects }: TopCardsPanelP
     ? 'No matching cards'
     : selectedProject
       ? `No cards in ${selectedLabel} yet`
-      : 'No card costs reported yet';
+      : 'No card costs in the last 30 days';
 
   const rowStyle = {
     display: 'grid',
     gridTemplateColumns: 'auto 1fr auto',
-    gap: 12,
+    gap: 10,
     alignItems: 'center',
-    padding: '10px 12px',
-    borderRadius: 5,
+    padding: '8px 10px',
+    borderRadius: 7,
     textAlign: 'left' as const,
     textDecoration: 'none',
   };
 
   return (
-    <section
-      className="apd-card"
-      style={{
-        borderColor: 'var(--bg3)',
-        backgroundColor: 'var(--bg1)',
-        overflow: 'hidden',
-        display: 'flex',
-        flexDirection: 'column',
-      }}
-    >
-      <div
-        className="flex items-baseline gap-2.5"
-        style={{
-          padding: '16px 20px 14px',
-          borderBottom: '1px solid var(--bg2)',
-        }}
-      >
-        <h2 className="apd-section-title">Top cards</h2>
-        <span
-          className="apd-count"
-          style={{ color: 'var(--grey1)', fontFamily: 'var(--font-mono)' }}
-        >
-          {headBadge}
-        </span>
-      </div>
+    <DeckPanel area="topcards" accent="var(--yellow)" title="Top cards" meta={`${headBadge} · 30d`}>
       <div
         className="flex items-center gap-2"
         style={{
-          padding: '12px 16px 10px',
-          borderBottom: '1px solid var(--bg2)',
+          padding: '2px 14px 9px',
+          borderBottom: '1px solid var(--bg1)',
+          flexShrink: 0,
         }}
       >
         <label htmlFor="topcards-project-filter" className="sr-only">
@@ -137,11 +115,11 @@ export function TopCardsPanel({ cardCosts, prefixMap, projects }: TopCardsPanelP
           value={selectedProject}
           onChange={(e) => handleProjectChange(e.target.value)}
           style={{
-            backgroundColor: 'var(--bg2)',
+            backgroundColor: 'var(--bg1)',
             color: 'var(--fg)',
-            border: '1px solid var(--bg3)',
-            borderRadius: 4,
-            padding: '7px 11px',
+            border: '1px solid var(--bg2)',
+            borderRadius: 6,
+            padding: '6px 10px',
             fontSize: 12,
             flexShrink: 0,
           }}
@@ -162,27 +140,17 @@ export function TopCardsPanel({ cardCosts, prefixMap, projects }: TopCardsPanelP
           autoComplete="off"
           className="apd-search-input"
           style={{
-            backgroundColor: 'var(--bg2)',
+            backgroundColor: 'var(--bg1)',
             color: 'var(--fg)',
-            border: '1px solid var(--bg3)',
+            border: '1px solid var(--bg2)',
             flex: 1,
             minWidth: 0,
           }}
         />
       </div>
-      <div style={{ padding: '6px 6px 8px', flex: 1, minHeight: 0 }}>
+      <div className="apd-panel-body" style={{ padding: '5px 6px' }}>
         {top.length === 0 ? (
-          <div
-            style={{
-              padding: '32px 16px',
-              textAlign: 'center',
-              fontSize: 12.5,
-              color: 'var(--grey0)',
-              fontStyle: 'italic',
-            }}
-          >
-            {emptyCopy}
-          </div>
+          <div className="apd-panel-empty">{emptyCopy}</div>
         ) : (
           top.map((c) => {
             const project = projectForCardId(c.card_id, prefixMap);
@@ -191,10 +159,10 @@ export function TopCardsPanel({ cardCosts, prefixMap, projects }: TopCardsPanelP
               <span
                 style={{
                   fontFamily: 'var(--font-mono)',
-                  fontSize: 11.5,
-                  color: 'var(--aqua)',
+                  fontSize: 10.5,
+                  color: 'var(--grey1)',
                   fontWeight: 500,
-                  letterSpacing: '-0.01em',
+                  letterSpacing: '0.04em',
                   whiteSpace: 'nowrap',
                 }}
               >
@@ -205,9 +173,10 @@ export function TopCardsPanel({ cardCosts, prefixMap, projects }: TopCardsPanelP
               <span
                 className="block truncate min-w-0"
                 style={{
-                  fontSize: 13,
+                  fontSize: 12.5,
                   color: 'var(--fg)',
-                  letterSpacing: '-0.01em',
+                  fontWeight: 500,
+                  letterSpacing: '-0.005em',
                 }}
               >
                 {c.card_title}
@@ -217,7 +186,7 @@ export function TopCardsPanel({ cardCosts, prefixMap, projects }: TopCardsPanelP
               <span
                 style={{
                   fontFamily: 'var(--font-mono)',
-                  fontSize: 12,
+                  fontSize: 11.5,
                   color: 'var(--yellow)',
                   fontVariantNumeric: 'tabular-nums',
                   letterSpacing: '-0.01em',
@@ -256,17 +225,18 @@ export function TopCardsPanel({ cardCosts, prefixMap, projects }: TopCardsPanelP
       <div
         className="flex items-center justify-between"
         style={{
-          padding: '10px 16px',
-          borderTop: '1px solid var(--bg2)',
+          padding: '8px 14px',
+          borderTop: '1px solid var(--bg1)',
           fontFamily: 'var(--font-mono)',
-          fontSize: 11,
+          fontSize: 10.5,
           color: 'var(--grey1)',
           letterSpacing: '-0.01em',
+          flexShrink: 0,
         }}
       >
         <span>{footerLabel}</span>
         <span style={{ color: 'var(--grey1)' }}>Sorted by cost ↓</span>
       </div>
-    </section>
+    </DeckPanel>
   );
 }

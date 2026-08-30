@@ -7,18 +7,17 @@ import { useProjectSummariesContext } from '../../hooks/ProjectSummariesProvider
 import { useSSEBus } from '../../hooks/useSSEBus';
 import { useToast } from '../../hooks/useToast';
 import type { AppConfig, SyncStatus } from '../../types';
-import { UtilityBar } from './UtilityBar';
-import { PageHeader } from './PageHeader';
+import { CommandStrip } from './CommandStrip';
 import { KpiRow } from './KpiRow';
 import { ProjectsTable } from './ProjectsTable';
 import { TopCardsPanel } from './TopCardsPanel';
-import { CostAgentsPanel } from './CostAgentsPanel';
+import { AgentsOnDuty } from './AgentsOnDuty';
+import { CostByModel } from './CostByModel';
 import { ActivityFeed } from './ActivityFeed';
 import { FootStrip } from './FootStrip';
 import {
   aggregateDashboards,
   buildPrefixMap,
-  summarySentence,
 } from './utils';
 
 interface AllProjectsDashboardProps {
@@ -27,7 +26,6 @@ interface AllProjectsDashboardProps {
 
 export function AllProjectsDashboard({ onNewProject }: AllProjectsDashboardProps) {
   const { projects, refreshProjects } = useProjects();
-  const projectNames = useMemo(() => projects.map((p) => p.name), [projects]);
   const { summaries, errors, loading, refresh } = useProjectSummariesContext();
   const { subscribe } = useSSEBus();
   const { showToast } = useToast();
@@ -98,19 +96,16 @@ export function AllProjectsDashboard({ onNewProject }: AllProjectsDashboardProps
     [aggregated],
   );
   const stalled = aggregated.state_counts.stalled ?? 0;
-  const blockedProjects = useMemo(() => {
-    let n = 0;
-    for (const name of projectNames) {
-      const d = summaries.get(name);
-      if (d && (d.state_counts.blocked ?? 0) > 0) n++;
-    }
-    return n;
-  }, [projectNames, summaries]);
   const agentCount = aggregated.active_agents.length;
 
-  const summary = useMemo(
-    () => summarySentence(projects.length, totalCards, agentCount, stalled, blockedProjects),
-    [projects.length, totalCards, agentCount, stalled, blockedProjects],
+  const stats = useMemo(
+    () => ({
+      projectCount: projects.length,
+      totalCards,
+      agentCount,
+      stalledCount: stalled,
+    }),
+    [projects.length, totalCards, agentCount, stalled],
   );
 
   const handleRefresh = useCallback(async () => {
@@ -145,12 +140,18 @@ export function AllProjectsDashboard({ onNewProject }: AllProjectsDashboardProps
     minHeight: 0,
   } as const;
 
-  // Keep UtilityBar mounted on the loading splash so the mobile hamburger
+  // Keep CommandStrip mounted on the loading splash so the mobile hamburger
   // is reachable before the first dashboard fetch resolves.
   if (loading && summaries.size === 0 && projects.length === 0) {
     return (
       <div className="apd-root" style={rootStyle}>
-        <UtilityBar syncStatus={syncStatus} version={appConfig?.version ?? null} />
+        <CommandStrip
+          stats={null}
+          onRefresh={handleRefresh}
+          onNewProject={handleNewProject}
+          refreshing={refreshing}
+          showNewProject={canCreateProject}
+        />
         <div
           className="flex items-center justify-center"
           style={{ flex: 1, color: 'var(--grey1)' }}
@@ -164,40 +165,34 @@ export function AllProjectsDashboard({ onNewProject }: AllProjectsDashboardProps
 
   return (
     <div className="apd-root" style={rootStyle}>
-      <UtilityBar syncStatus={syncStatus} version={appConfig?.version ?? null} />
-      <div className="apd-scroll" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
-        <PageHeader
-          summary={summary}
-          projectCount={projects.length}
-          onRefresh={handleRefresh}
-          onNewProject={handleNewProject}
-          refreshing={refreshing}
-          showNewProject={canCreateProject}
+      <CommandStrip
+        stats={stats}
+        onRefresh={handleRefresh}
+        onNewProject={handleNewProject}
+        refreshing={refreshing}
+        showNewProject={canCreateProject}
+      />
+      <div className="apd-body">
+        <KpiRow
+          costLast30dUsd={aggregated.total_cost_usd_last_30d ?? 0}
+          costPrior30dUsd={aggregated.total_cost_usd_prior_30d ?? 0}
+          costSeries30d={aggregated.cost_series_30d}
+          costHasEstimates={aggregated.total_cost_has_estimates_last_30d}
+          stateCountsParents={aggregated.state_counts_parents}
+          doneTodayParents={aggregated.cards_completed_today_parents}
+          chatCostLast30dUsd={aggregated.chat_cost_usd_last_30d ?? 0}
+          chatCostPrior30dUsd={aggregated.chat_cost_usd_prior_30d ?? 0}
+          chatCostSeries30d={aggregated.chat_cost_series_30d}
         />
-        <div className="apd-section-pad">
-          <KpiRow
-            costLast30dUsd={aggregated.total_cost_usd_last_30d ?? 0}
-            costPrior30dUsd={aggregated.total_cost_usd_prior_30d ?? 0}
-            costSeries30d={aggregated.cost_series_30d}
-            costHasEstimates={aggregated.total_cost_has_estimates_last_30d}
-            stateCountsParents={aggregated.state_counts_parents}
-            doneTodayParents={aggregated.cards_completed_today_parents}
-            chatCostLast30dUsd={aggregated.chat_cost_usd_last_30d ?? 0}
-            chatCostPrior30dUsd={aggregated.chat_cost_usd_prior_30d ?? 0}
-            chatCostSeries30d={aggregated.chat_cost_series_30d}
-          />
-        </div>
-        <div className="apd-section-pad apd-grid-asym">
+        <div className="apd-deck">
           <ProjectsTable projects={projects} summaries={summaries} />
-          <TopCardsPanel cardCosts={aggregated.card_costs} prefixMap={prefixMap} projects={projects} />
-        </div>
-        <div className="apd-section-pad apd-grid-asym">
-          <CostAgentsPanel
-            modelCosts={aggregated.model_costs}
+          <AgentsOnDuty
             activeAgents={aggregated.active_agents}
             stalledCount={stalled}
             prefixMap={prefixMap}
           />
+          <CostByModel modelCosts={aggregated.model_costs_30d ?? []} />
+          <TopCardsPanel cardCosts={aggregated.card_costs_30d ?? []} prefixMap={prefixMap} projects={projects} />
           <ActivityFeed prefixMap={prefixMap} />
         </div>
       </div>
