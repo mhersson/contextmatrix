@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -3566,10 +3567,10 @@ func TestRunCardSelectionCarriesNoOutcomeData(t *testing.T) {
 		},
 	}
 
-	capturedPayload := &backend.TriggerPayload{}
+	var capturedBody []byte
 
 	mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewDecoder(r.Body).Decode(capturedPayload)
+		capturedBody, _ = io.ReadAll(r.Body)
 
 		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
 	}))
@@ -3596,10 +3597,14 @@ func TestRunCardSelectionCarriesNoOutcomeData(t *testing.T) {
 	defer closeBody(t, resp.Body)
 
 	require.Equal(t, http.StatusAccepted, resp.StatusCode)
-	require.NotNil(t, capturedPayload.Selection)
-	assert.Zero(t, capturedPayload.Selection.OutcomeFloor)
+
+	var capturedPayload backend.TriggerPayload
+	require.NoError(t, json.Unmarshal(capturedBody, &capturedPayload))
+	require.NotNil(t, capturedPayload.Selection, "sanity: selection must be attached")
 	require.Len(t, capturedPayload.Selection.Candidates, 1)
-	assert.Nil(t, capturedPayload.Selection.Candidates[0].Outcomes)
+
+	assert.NotContains(t, string(capturedBody), `"outcomes"`)
+	assert.NotContains(t, string(capturedBody), `"outcome_floor"`)
 }
 
 func TestMergeFavorites(t *testing.T) {
