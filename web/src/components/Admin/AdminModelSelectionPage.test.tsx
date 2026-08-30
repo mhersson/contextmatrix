@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { AdminModelSelectionPage } from './AdminModelSelectionPage';
-import type { ModelOutcomeStats, ModelOutcomeEntry } from '../../types';
+import type { ModelOutcomeStats, ModelOutcomeEntry, ModelBlacklistEntry } from '../../types';
 
 const mocks = vi.hoisted(() => ({
   adminModelOutcomes: vi.fn(),
   adminResetModelOutcomes: vi.fn(),
+  adminModelBlacklist: vi.fn(),
+  adminDelistModel: vi.fn(),
 }));
 
 vi.mock('../../api/client', async (importOriginal) => {
@@ -16,6 +18,8 @@ vi.mock('../../api/client', async (importOriginal) => {
       ...orig.api,
       adminModelOutcomes: mocks.adminModelOutcomes,
       adminResetModelOutcomes: mocks.adminResetModelOutcomes,
+      adminModelBlacklist: mocks.adminModelBlacklist,
+      adminDelistModel: mocks.adminDelistModel,
     },
   };
 });
@@ -42,8 +46,21 @@ function stats(overrides: Partial<ModelOutcomeStats> = {}): ModelOutcomeStats {
   };
 }
 
+function blacklistEntry(overrides: Partial<ModelBlacklistEntry> = {}): ModelBlacklistEntry {
+  return {
+    slug: 'moonshotai/kimi-k3',
+    reason: 'tool calls failed to parse on 3 consecutive turns',
+    sample_card: 'CM-101',
+    reported_by: 'agent:worker-1',
+    first_seen: 1756400000,
+    last_seen: 1756500000,
+    ...overrides,
+  };
+}
+
 beforeEach(() => {
   vi.resetAllMocks();
+  mocks.adminModelBlacklist.mockResolvedValue({ models: [] });
 });
 
 describe('AdminModelSelectionPage - list', () => {
@@ -157,5 +174,90 @@ describe('AdminModelSelectionPage - reset flow', () => {
 
     // Component survives the error - the row is still rendered, not crashed.
     expect(screen.getByText('deepseek/deepseek-v4-flash')).toBeInTheDocument();
+  });
+});
+
+describe('AdminModelSelectionPage - blacklist', () => {
+  it('renders a row per blacklisted model with slug, reason, sample card, and reporter', async () => {
+    mocks.adminModelOutcomes.mockResolvedValue(stats());
+    mocks.adminModelBlacklist.mockResolvedValue({
+      models: [
+        blacklistEntry(),
+        blacklistEntry({ slug: 'x-ai/grok-5-mini', reason: 'no forward progress', sample_card: '', reported_by: 'agent:worker-2' }),
+      ],
+    });
+
+    render(<AdminModelSelectionPage />);
+
+    await waitFor(() => expect(screen.getByText('moonshotai/kimi-k3')).toBeInTheDocument());
+    expect(screen.getByText('x-ai/grok-5-mini')).toBeInTheDocument();
+    expect(screen.getByText('tool calls failed to parse on 3 consecutive turns')).toBeInTheDocument();
+    expect(screen.getByText('CM-101')).toBeInTheDocument();
+    expect(screen.getByText('agent:worker-1')).toBeInTheDocument();
+  });
+
+  it('shows an empty-state message when nothing is blacklisted', async () => {
+    mocks.adminModelOutcomes.mockResolvedValue(stats());
+
+    render(<AdminModelSelectionPage />);
+
+    expect(await screen.findByText(/no models are blacklisted/i)).toBeInTheDocument();
+  });
+
+  it('delist opens a confirm dialog, then deletes the slug and refetches on confirm', async () => {
+    mocks.adminModelOutcomes.mockResolvedValue(stats());
+    mocks.adminModelBlacklist
+      .mockResolvedValueOnce({ models: [blacklistEntry()] })
+      .mockResolvedValueOnce({ models: [] });
+    mocks.adminDelistModel.mockResolvedValue({ deleted: 'moonshotai/kimi-k3' });
+
+    render(<AdminModelSelectionPage />);
+
+    await waitFor(() => expect(screen.getByText('moonshotai/kimi-k3')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delist moonshotai/kimi-k3' }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(mocks.adminDelistModel).not.toHaveBeenCalled();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: /delist/i }));
+
+    await waitFor(() => expect(mocks.adminDelistModel).toHaveBeenCalledWith('moonshotai/kimi-k3'));
+    await waitFor(() => expect(mocks.adminModelBlacklist).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByText('moonshotai/kimi-k3')).not.toBeInTheDocument());
+  });
+
+  it('cancelling the delist dialog does not delete', async () => {
+    mocks.adminModelOutcomes.mockResolvedValue(stats());
+    mocks.adminModelBlacklist.mockResolvedValue({ models: [blacklistEntry()] });
+
+    render(<AdminModelSelectionPage />);
+
+    await waitFor(() => expect(screen.getByText('moonshotai/kimi-k3')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Delist moonshotai/kimi-k3' }));
+
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: /cancel/i }));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(mocks.adminDelistModel).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a delist failure as an inline error without crashing', async () => {
+    mocks.adminModelOutcomes.mockResolvedValue(stats());
+    mocks.adminModelBlacklist.mockResolvedValue({ models: [blacklistEntry()] });
+    mocks.adminDelistModel.mockRejectedValue({ code: 'INTERNAL_ERROR', error: 'failed to delete blacklist entry' });
+
+    render(<AdminModelSelectionPage />);
+
+    await waitFor(() => expect(screen.getByText('moonshotai/kimi-k3')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Delist moonshotai/kimi-k3' }));
+
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: /delist/i }));
+
+    await waitFor(() => expect(mocks.adminDelistModel).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText(/failed to delete blacklist entry/i)).toBeInTheDocument();
+    expect(screen.getByText('moonshotai/kimi-k3')).toBeInTheDocument();
   });
 });

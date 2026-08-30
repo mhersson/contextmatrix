@@ -98,6 +98,8 @@ DELETE /api/admin/chats/{id}                              # delete any session (
 
 GET    /api/admin/model-outcomes                            # Best-of-N per-model outcome stats (both auth modes; admin-gated only in multi)
 DELETE /api/admin/model-outcomes                            # reset recorded outcomes (both auth modes; admin-gated only in multi)
+GET    /api/admin/model-blacklist                           # blacklisted models with reasons (both auth modes; admin-gated only in multi)
+DELETE /api/admin/model-blacklist/{slug...}                 # delist one model (both auth modes; admin-gated only in multi)
 
 GET    /api/events?project=                           # SSE stream
 GET    /healthz                                        # liveness probe (shallow)
@@ -295,10 +297,12 @@ every endpoint documented in this section simply is not registered: a plain
 `docs/architecture.md` for the full security-review framing; this section
 documents the wire contract.
 
-**Exception:** `GET`/`DELETE /api/admin/model-outcomes` is the one
-`/api/admin/*` pair registered in **both** auth modes - Best-of-N outcome
-tracking does not depend on the auth system. It is documented at the end of
-this section, after the chat admin routes.
+**Exception:** the model-outcomes and model-blacklist pairs
+(`GET`/`DELETE /api/admin/model-outcomes`,
+`GET /api/admin/model-blacklist` / `DELETE /api/admin/model-blacklist/{slug...}`)
+are the only `/api/admin/*` routes registered in **both** auth modes -
+model-selection feedback tracking does not depend on the auth system. They are
+documented at the end of this section, after the chat admin routes.
 
 **Session gate.** `sessionGuard` runs on every request in multi mode and
 rejects any request with no valid session - reads as well as writes, unlike
@@ -761,6 +765,43 @@ reports what was deleted) with the row count:
 ```
 
 Same both-modes-registered / admin-gated-in-multi behavior as `GET` above.
+
+### GET /api/admin/model-blacklist
+
+Same both-modes-registered / admin-gated-in-multi behavior as the
+model-outcomes pair. Returns every model the agent backend has reported
+incapable via the MCP `report_incapable_model` tool. Blacklisted models are
+excluded from every automatic pick; only a card pin overrides
+(`docs/model-selection.md` § The blacklist). Timestamps are unix seconds;
+`sample_card` is omitted when the report carried none:
+
+```json
+{
+  "models": [
+    {
+      "slug": "moonshotai/kimi-k3",
+      "reason": "tool calls failed to parse on 3 consecutive turns",
+      "sample_card": "CM-101",
+      "reported_by": "agent:worker-1",
+      "first_seen": 1756400000,
+      "last_seen": 1756500000
+    }
+  ]
+}
+```
+
+### DELETE /api/admin/model-blacklist/{slug...}
+
+Removes one model from the blacklist, making it selectable again. The path
+parameter is a rest wildcard because model slugs contain a slash - request
+`DELETE /api/admin/model-blacklist/moonshotai/kimi-k3` literally, no
+URL-encoding. Returns **200 OK** with the deleted slug:
+
+```json
+{ "deleted": "moonshotai/kimi-k3" }
+```
+
+**Errors:** `404 MODEL_NOT_BLACKLISTED` when the slug is not on the list.
 
 ## Health Endpoints
 

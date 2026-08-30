@@ -28,6 +28,7 @@ import type {
   InviteInfo,
   CredentialInfo,
   CreateCredentialInput,
+  ModelBlacklist,
   ModelOutcomeStats,
   PlaybookSummary,
   PlaybookDetail,
@@ -397,6 +398,16 @@ class APIClient {
 
   async adminResetModelOutcomes(): Promise<{ deleted: number }> {
     return this.request<{ deleted: number }>('/admin/model-outcomes', { method: 'DELETE' });
+  }
+
+  async adminModelBlacklist(): Promise<ModelBlacklist> {
+    return this.request<ModelBlacklist>('/admin/model-blacklist');
+  }
+
+  // Slug goes into the path unencoded on purpose: model slugs contain a
+  // slash (z-ai/glm-5.2) and the backend route is a rest wildcard.
+  async adminDelistModel(slug: string): Promise<{ deleted: string }> {
+    return this.request<{ deleted: string }>(`/admin/model-blacklist/${slug}`, { method: 'DELETE' });
   }
 
   // Task skills (project default + per-card selectors)

@@ -599,6 +599,21 @@ export interface ModelOutcomeStats {
   models: ModelOutcomeEntry[];
 }
 
+// Admin - blacklisted models (reported incapable by the agent backend).
+// Timestamps are unix seconds.
+export interface ModelBlacklistEntry {
+  slug: string;
+  reason: string;
+  sample_card?: string;
+  reported_by: string;
+  first_seen: number;
+  last_seen: number;
+}
+
+export interface ModelBlacklist {
+  models: ModelBlacklistEntry[];
+}
+
 export type ChatStatus = 'cold' | 'active' | 'warm-idle' | 'ending';
 
 export interface ChatSession {

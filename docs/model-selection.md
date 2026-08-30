@@ -30,6 +30,7 @@ The operator-facing controls, most direct first:
 | Raise or lower a tier's quality bar   | `selector_tier_bars`                        | agent backend `serve.yaml`                   | Merges over the built-in ladder per tier; must stay non-decreasing; env `CMX_SELECTOR_TIER_BARS` (JSON) |
 | Set the orchestrator model            | `backends.agent.default_model`              | `config.yaml`                                | Card pins override it; the selector's empty-pool fallback resolves to the trigger's `default_model` when set, else the agent's serve default, else the compiled-in `deepseek/deepseek-v4-flash`
 | Reset learned win-rates               | `DELETE /api/admin/model-outcomes`          | REST (admin)                                 | Clears outcome stats; does not touch the blacklist                                             |
+| Delist a blacklisted model            | `DELETE /api/admin/model-blacklist/{slug}`  | REST (admin) / model-selection admin page    | Makes the model selectable again; the list itself is `GET /api/admin/model-blacklist`          |
 | Control Best-of-N race size           | `best_of_n.*`                               | `config.yaml`                                | Caps the number of racing candidates, never the candidate list                                 |
 
 Details for each: [The decision order](#the-decision-order),
@@ -535,12 +536,12 @@ trigger.
 Blacklisted slugs ship in every subsequent trigger's `selection.blacklist`,
 and the agent's selector filters them out of every non-pinned pick.
 
-The blacklist is **one-way**: no MCP tool, REST endpoint, or UI removes an
-entry. The escape hatches are a card pin (pins beat the blacklist, provided
-the slug is still a candidate) or deleting the row from `ops.db` directly
-(`sqlite3 ops.db "DELETE FROM model_blacklist WHERE slug = '...'"`).
-Re-reporting an already-blacklisted slug updates the reason and timestamp,
-never duplicates.
+No MCP tool removes an entry - agents cannot delist. Operators delist via
+`DELETE /api/admin/model-blacklist/{slug}` or the delist button on the admin
+model-selection page; a card pin also beats the blacklist for one card,
+provided the slug is still a candidate. Re-reporting an already-blacklisted
+slug updates the reason and timestamp, never duplicates - including a slug
+that was delisted and fails again.
 
 ### Best-of-N outcomes
 
@@ -599,7 +600,11 @@ about that choice - both stay charged.
   and whether the sample count makes the model's stats `active`;
   `DELETE` on the same path resets the stats (the blacklist is untouched).
   Full schema in `docs/api-reference.md`.
-- The admin UI's model-selection page shows the same data with a reset button.
+- `GET /api/admin/model-blacklist` - every blacklisted model with reason,
+  sample card, reporter, and timestamps;
+  `DELETE /api/admin/model-blacklist/{slug}` delists one model.
+- The admin UI's model-selection page shows both tables: outcome stats with a
+  reset button, and the blacklist with a per-row delist button.
 - Metrics: `contextmatrix_model_outcomes_total{model,result}` and
   `contextmatrix_model_blacklists_total{model}`. There are no catalog metrics
   (no refresh counter or candidate gauge); catalog health surfaces in logs.
@@ -640,7 +645,7 @@ equal prompt+completion price weighting.
 | A favorite is never picked                     | Blacklisted, below the tier bar, not a candidate (outside the allowlist), or its tier entry was replaced wholesale by a project override | Favorites are preferences, not overrides; check `selection.blacklist` and the bar |
 | `model_allowlist` has no effect                | `llm_endpoint.type: openai`                                           | The allowlist only screens the OpenRouter leg; use `aa_model_map` / `model_priors` |
 | Endpoint models served but never selected      | Unmapped in `aa_model_map`, mapped to a nonexistent AA slug, mapped to an unscored AA row, no `model_priors` entry, or below floor | One WARN per excluded model at refresh time, naming the slug and the reason; unscored mappings also name the scored sibling rows |
-| A model keeps disappearing from selection      | It was reported incapable and blacklisted                             | One-way; pin it or delete the `model_blacklist` row to restore                     |
+| A model keeps disappearing from selection      | It was reported incapable and blacklisted                             | Check the admin model-selection page; delist it there, or pin it for one card      |
 | Win-rates visibly not affecting picks          | `samples < outcome_floor`                                             | By design - below the floor the stats have zero effect                             |
 | Priors dropped across the board overnight      | A new frontier model topped the AA leaderboard                        | Priors are normalized to the current best; expected drift                          |
 | A newly served model is missing                | Catalog is cached                                                     | Up to 6h staleness; restart CM to force a refresh                                  |

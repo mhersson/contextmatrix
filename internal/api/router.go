@@ -185,6 +185,12 @@ type RouterConfig struct {
 	// Outcomes/Blacklist/Catalog - one store, several narrowly sliced
 	// interfaces.
 	OutcomesAdmin outcomeAdminStore
+	// BlacklistAdmin supplies the list+delist surface for the admin
+	// model-blacklist endpoints (GET /api/admin/model-blacklist,
+	// DELETE /api/admin/model-blacklist/{slug...}). Separate from Blacklist
+	// (slug-only, trigger path) for the same narrow-interface reason as
+	// OutcomesAdmin; in main.go it is the same opstore handle.
+	BlacklistAdmin blacklistAdminStore
 
 	// ChatEndpointModels, when non-nil, is the raw (uncached) upstream fetch for
 	// the openai-endpoint model list. Set when llm_endpoint.type == "openai".
@@ -406,6 +412,17 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		}
 		mux.HandleFunc("GET /api/admin/model-outcomes", oh.getStats)
 		mux.HandleFunc("DELETE /api/admin/model-outcomes", oh.reset)
+	}
+
+	// Admin model-blacklist: same trust posture as model-outcomes. The
+	// DELETE route uses a rest wildcard because model slugs contain a slash.
+	if cfg.BlacklistAdmin != nil {
+		bh := &blacklistAdminHandlers{
+			store:       cfg.BlacklistAdmin,
+			authEnabled: cfg.AuthService != nil,
+		}
+		mux.HandleFunc("GET /api/admin/model-blacklist", bh.list)
+		mux.HandleFunc("DELETE /api/admin/model-blacklist/{slug...}", bh.delist)
 	}
 
 	// Auth routes - only in multi mode.
