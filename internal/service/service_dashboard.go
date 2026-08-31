@@ -129,6 +129,12 @@ type DashboardData struct {
 	AgentCosts                   []AgentCost  `json:"agent_costs"`
 	ModelCosts                   []ModelCost  `json:"model_costs"`
 	CardCosts                    []CardCost   `json:"card_costs"`
+	// ModelCosts30d / CardCosts30d restrict the same rollups to cards whose
+	// Updated falls inside the last-30d window (the same boundary as
+	// TotalCostUSDLast30d): a card's full cost attributes to its last-touch
+	// day, so the slices sum to the 30d KPI figure.
+	ModelCosts30d []ModelCost `json:"model_costs_30d"`
+	CardCosts30d  []CardCost  `json:"card_costs_30d"`
 	// ChatCostUSDLast30d, ChatCostUSDPrior30d, and ChatCostSeries30d are
 	// server-wide aggregates (not per-project). They ride on the per-project
 	// dashboard payload for fan-out convenience and are cached in chat.Manager
@@ -159,7 +165,23 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 		}
 	}
 
-	agentCosts, modelCosts, cardCosts, totalCostUSD := aggregateCostsByAgentModel(cards)
+	byID := buildCardIndex(cards)
+	agentCosts, modelCosts, cardCosts, totalCostUSD := aggregateCostsWithParentIndex(cards, byID)
+
+	// 30d rollups: same window boundary as bucketCostSeries' last30d (local
+	// midnight, 29 days back). The full card index keeps subtask folding
+	// intact when a parent's own last touch falls outside the window.
+	windowStart := costWindowStart(now, tz)
+
+	var cards30d []*board.Card
+
+	for _, card := range cards {
+		if card.TokenUsage != nil && !card.Updated.Before(windowStart) {
+			cards30d = append(cards30d, card)
+		}
+	}
+
+	_, modelCosts30d, cardCosts30d, _ := aggregateCostsWithParentIndex(cards30d, byID)
 
 	// Every card that contributes to totalCostUSD folds its costHasEstimates
 	// flag into exactly one CardCost row (its own, or its parent's via
@@ -222,6 +244,8 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 		AgentCosts:                   agentCosts,
 		ModelCosts:                   modelCosts,
 		CardCosts:                    cardCosts,
+		ModelCosts30d:                modelCosts30d,
+		CardCosts30d:                 cardCosts30d,
 		ChatCostUSDLast30d:           chatLast30d,
 		ChatCostUSDPrior30d:          chatPrior30d,
 		ChatCostSeries30d:            chatSeries30d,
@@ -420,17 +444,29 @@ func costHasEstimates(c *board.Card) bool {
 // Map iteration is randomized, so the sort is a determinism guarantee at the
 // API boundary - the frontend re-sorts for display.
 func aggregateCostsByAgentModel(cards []*board.Card) (agentCosts []AgentCost, modelCosts []ModelCost, cardCosts []CardCost, totalCostUSD float64) {
+	return aggregateCostsWithParentIndex(cards, buildCardIndex(cards))
+}
+
+// buildCardIndex maps card ID → card for parent lookups during subtask folding.
+func buildCardIndex(cards []*board.Card) map[string]*board.Card {
+	byID := make(map[string]*board.Card, len(cards))
+	for _, card := range cards {
+		byID[card.ID] = card
+	}
+
+	return byID
+}
+
+// aggregateCostsWithParentIndex is aggregateCostsByAgentModel with the parent
+// index supplied by the caller, so a windowed subset of cards can still fold
+// subtask spend into parents that sit outside the subset.
+func aggregateCostsWithParentIndex(cards []*board.Card, byID map[string]*board.Card) (agentCosts []AgentCost, modelCosts []ModelCost, cardCosts []CardCost, totalCostUSD float64) {
 	agentCostMap := make(map[string]*AgentCost)
 	modelCostMap := make(map[string]*ModelCost)
 
 	// Per-card rows fold subtask spend into the parent's row so the Top cards
 	// table shows per-run cost and its column still sums to the project total.
 	// Rows materialize in first-touch card order.
-	byID := make(map[string]*board.Card, len(cards))
-	for _, card := range cards {
-		byID[card.ID] = card
-	}
-
 	cardCostMap := make(map[string]*CardCost)
 
 	var cardCostOrder []string
@@ -604,6 +640,15 @@ func aggregateCostsByAgentModel(cards []*board.Card) (agentCosts []AgentCost, mo
 	return agentCosts, modelCosts, cardCosts, totalCostUSD
 }
 
+// costWindowStart returns the start of the last-30d cost window: local
+// midnight 29 days back - identical to bucketCostSeries' dayStarts[0]
+// boundary, so windowed rollups agree with TotalCostUSDLast30d.
+func costWindowStart(now time.Time, tz *time.Location) time.Time {
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, tz)
+
+	return todayStart.Add(-29 * 24 * time.Hour)
+}
+
 // bucketCostSeries computes cost aggregates over a 30-day sliding window.
 // It returns:
 //   - last30d: sum of EstimatedCostUSD for cards whose Updated is within the
@@ -622,24 +667,23 @@ func bucketCostSeries(cards []*board.Card, now time.Time, tz *time.Location) (la
 
 	series30d = make([]float64, numDays)
 
-	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, tz)
+	// Window boundaries.
+	// "Last 30 days" = the 30 daily buckets ending at the next tz midnight
+	// (so the actual window spans 30 * 24h aligned on local midnight, not
+	// strictly now-720h). Deriving the buckets from costWindowStart keeps
+	// this window structurally identical to the ModelCosts30d/CardCosts30d
+	// rollups in GetDashboard.
+	windowStart := costWindowStart(now, tz)
+	priorStart := windowStart.Add(-30 * 24 * time.Hour) // start of the prior 30d window
 
-	// dayStarts[i] = todayStart - (29-i)*24h  → index 0 is the oldest bucket.
+	// dayStarts[i] = windowStart + i*24h  → index 0 is the oldest bucket.
 	dayStarts := make([]time.Time, numDays)
 	dayEnds := make([]time.Time, numDays)
 
 	for i := range numDays {
-		offset := time.Duration(numDays-1-i) * 24 * time.Hour
-		dayStarts[i] = todayStart.Add(-offset)
+		dayStarts[i] = windowStart.Add(time.Duration(i) * 24 * time.Hour)
 		dayEnds[i] = dayStarts[i].Add(24 * time.Hour)
 	}
-
-	// Window boundaries.
-	// "Last 30 days" = the 30 daily buckets ending at the next tz midnight
-	// (so the actual window spans 30 * 24h aligned on local midnight, not
-	// strictly now-720h).
-	windowStart := dayStarts[0]                         // start of the 30-day window
-	priorStart := windowStart.Add(-30 * 24 * time.Hour) // start of the prior 30d window
 
 	for _, card := range cards {
 		if card.TokenUsage == nil {

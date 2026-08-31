@@ -1,6 +1,7 @@
 import { Link } from 'react-router';
 import type { ActiveAgent } from '../../types';
 import { formatRelativeTime } from '../CardPanel/utils';
+import { DeckPanel } from './DeckPanel';
 import {
   agentInitials,
   compactSeconds,
@@ -10,16 +11,13 @@ import {
   projectForCardId,
 } from './utils';
 
-const agentRowStyle = {
-  display: 'grid',
-  gridTemplateColumns: 'auto 1fr auto',
-  gap: 12,
-  alignItems: 'center',
-  padding: '11px 12px',
-  borderRadius: 5,
-  textAlign: 'left' as const,
-  textDecoration: 'none',
-};
+const cardIdStyle = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: 10.5,
+  fontWeight: 500,
+  letterSpacing: '0.04em',
+  color: 'var(--grey1)',
+} as const;
 
 function FooterCell({
   label,
@@ -31,15 +29,15 @@ function FooterCell({
   valueColor?: string;
 }) {
   return (
-    <div style={{ backgroundColor: 'var(--bg1)', padding: '13px 16px' }}>
-      <div style={{ fontSize: 10.5, color: 'var(--grey1)', fontWeight: 500 }}>{label}</div>
+    <div>
+      <div style={{ fontSize: 9.5, color: 'var(--grey0)', fontWeight: 500 }}>{label}</div>
       <div
         style={{
           fontFamily: 'var(--font-sans)',
           fontWeight: 500,
-          fontSize: 20,
+          fontSize: 15,
           color: valueColor ?? 'var(--fg)',
-          marginTop: 3,
+          marginTop: 2,
           fontVariantNumeric: 'tabular-nums',
           letterSpacing: '-0.015em',
         }}
@@ -63,21 +61,18 @@ export function AgentsOnDuty({
   const oldest = oldestClaim(activeAgents);
 
   return (
-    <>
+    <DeckPanel
+      area="agents"
+      accent="var(--aqua)"
+      title="Agents on duty"
+      meta={`${activeAgents.length} live`}
+    >
       {activeAgents.length === 0 ? (
-        <div
-          style={{
-            padding: '32px 20px',
-            textAlign: 'center',
-            fontSize: 12.5,
-            color: 'var(--grey0)',
-            fontStyle: 'italic',
-          }}
-        >
+        <div className="apd-panel-empty" style={{ flex: 1 }}>
           No agents currently active
         </div>
       ) : (
-        <div style={{ padding: 8 }}>
+        <div className="apd-panel-body" style={{ padding: '0 10px 8px' }}>
           {activeAgents.map((a) => {
             const human = isHumanAgent(a.agent_id);
             const project = projectForCardId(a.card_id, prefixMap);
@@ -100,7 +95,7 @@ export function AgentsOnDuty({
                   <span
                     className="flex items-center gap-1.5"
                     style={{
-                      fontSize: 13,
+                      fontSize: 12.5,
                       color: 'var(--fg)',
                       fontWeight: 500,
                       letterSpacing: '-0.01em',
@@ -119,22 +114,16 @@ export function AgentsOnDuty({
                     </span>
                   </span>
                   <span
-                    className="block truncate apd-meta-line"
-                    style={{
-                      letterSpacing: '-0.01em',
-                      marginTop: 2,
-                    }}
+                    className="block truncate"
+                    style={{ fontSize: 11.5, color: 'var(--grey1)', marginTop: 2 }}
                   >
-                    <span style={{ color: 'var(--aqua)', fontWeight: 500 }}>
-                      {a.card_id}
-                    </span>{' '}
-                    · {a.card_title}
+                    <span style={cardIdStyle}>{a.card_id}</span> · {a.card_title}
                   </span>
                 </span>
                 <span
                   style={{
                     fontFamily: 'var(--font-mono)',
-                    fontSize: 11,
+                    fontSize: 10.5,
                     color: 'var(--grey1)',
                     textAlign: 'right',
                     whiteSpace: 'nowrap',
@@ -152,7 +141,6 @@ export function AgentsOnDuty({
                 key={`${a.agent_id}-${a.card_id}`}
                 to={`/projects/${project}`}
                 className="apd-agent-row"
-                style={agentRowStyle}
               >
                 {inner}
               </Link>
@@ -160,7 +148,6 @@ export function AgentsOnDuty({
               <div
                 key={`${a.agent_id}-${a.card_id}`}
                 className="apd-agent-row apd-agent-row-static"
-                style={agentRowStyle}
               >
                 {inner}
               </div>
@@ -168,10 +155,7 @@ export function AgentsOnDuty({
           })}
         </div>
       )}
-      <div
-        className="apd-agents-footer"
-        style={{ borderTop: '1px solid var(--bg2)' }}
-      >
+      <div className="apd-agents-footer">
         <FooterCell
           label="Median heartbeat"
           value={median !== null ? compactSeconds(median) : ' - '}
@@ -183,6 +167,6 @@ export function AgentsOnDuty({
           valueColor={stalledCount > 0 ? 'var(--red)' : 'var(--fg)'}
         />
       </div>
-    </>
+    </DeckPanel>
   );
 }

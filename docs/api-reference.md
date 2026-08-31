@@ -1331,6 +1331,8 @@ Returns dashboard metrics for a project.
       "estimated_cost_usd": 0.033
     }
   ],
+  "model_costs_30d": ["... same shape as model_costs, last-30d window only"],
+  "card_costs_30d": ["... same shape as card_costs, last-30d window only"],
   "chat_cost_usd_last_30d": 0.142,
   "chat_cost_usd_prior_30d": 0.098,
   "chat_cost_series_30d": [0.001, 0.004, 0.009, "... (30 daily buckets, oldest first)"]
@@ -1348,6 +1350,12 @@ longer exists keep their own row.
 Cards whose token-usage records have an empty `model` string are bucketed
 under `"unknown"`. Each card is attributed to its most-recently-used model
 (cards that used multiple models show under the last one).
+
+`model_costs_30d` and `card_costs_30d` are the same rollups restricted to
+cards whose `updated` falls inside the last-30d window - the same boundary as
+`total_cost_usd_last_30d`, so `card_costs_30d` sums to that figure. Subtask
+spend inside the window still folds into the parent's row even when the
+parent's own last touch is older.
 
 `cards_completed_last_7d` counts cards whose `updated` falls inside the
 trailing 7-day window ending at "now"; `cards_completed_prior_7d` counts the

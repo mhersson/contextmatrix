@@ -2,7 +2,7 @@ import { useMobileSidebar } from '../../context/MobileSidebarContext';
 import { SidebarMenuButton } from '../SidebarMenuButton/SidebarMenuButton';
 
 /** Slim mobile-only bar giving the Playbooks page the same hamburger
- *  affordance as UtilityBar - no sync pill or clock, just sidebar access. */
+ *  affordance as the dashboard's CommandStrip - just sidebar access. */
 export function PlaybooksBar() {
   const { toggle } = useMobileSidebar();
 

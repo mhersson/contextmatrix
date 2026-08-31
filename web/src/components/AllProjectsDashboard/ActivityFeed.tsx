@@ -3,7 +3,8 @@ import { Link } from 'react-router';
 import type { BoardEvent } from '../../types';
 import { useSSEBus } from '../../hooks/useSSEBus';
 import { formatRelativeTime } from '../CardPanel/utils';
-import { projectForCardId, stateColor } from './utils';
+import { DeckPanel } from './DeckPanel';
+import { isHumanAgent, projectForCardId, stateColor } from './utils';
 
 interface ActivityFeedProps {
   prefixMap: Map<string, string>;
@@ -126,51 +127,17 @@ export function ActivityFeed({ prefixMap }: ActivityFeedProps) {
   );
 
   return (
-    <section
-      className="apd-card"
-      style={{
-        borderColor: 'var(--bg3)',
-        backgroundColor: 'var(--bg1)',
-        overflow: 'hidden',
-        display: 'flex',
-        flexDirection: 'column',
-      }}
+    <DeckPanel
+      area="activity"
+      accent="var(--purple)"
+      title="Activity"
+      meta={
+        <span style={{ color: connected ? 'var(--aqua)' : 'var(--grey1)' }}>{liveLabel}</span>
+      }
     >
-      <div
-        className="flex items-center justify-between"
-        style={{
-          padding: '16px 20px 14px',
-          borderBottom: '1px solid var(--bg2)',
-        }}
-      >
-        <div className="flex items-baseline gap-2.5">
-          <h2 className="apd-section-title">Recent activity</h2>
-          <span
-            className="apd-count"
-            style={{
-              color: connected ? 'var(--aqua)' : 'var(--grey1)',
-              backgroundColor: connected ? 'var(--bg-aqua)' : 'var(--bg2)',
-              border: connected ? '1px solid transparent' : '1px solid var(--bg3)',
-              fontFamily: 'var(--font-mono)',
-            }}
-          >
-            {liveLabel}
-          </span>
-        </div>
-      </div>
-      <div className="flex flex-col" style={{ flex: 1, minHeight: 0, padding: '6px 0' }}>
+      <div className="apd-panel-body" style={{ padding: '0 0 6px' }}>
         {entries.length === 0 ? (
-          <div
-            style={{
-              padding: '32px 20px',
-              textAlign: 'center',
-              fontSize: 12.5,
-              color: 'var(--grey0)',
-              fontStyle: 'italic',
-            }}
-          >
-            Waiting for activity…
-          </div>
+          <div className="apd-panel-empty">Waiting for activity…</div>
         ) : (
           entries.map((entry) => {
             const body = renderEvent(entry.event);
@@ -187,16 +154,17 @@ export function ActivityFeed({ prefixMap }: ActivityFeedProps) {
                 <span
                   style={{
                     fontFamily: 'var(--font-mono)',
-                    fontSize: 11,
-                    color: 'var(--grey1)',
+                    fontSize: 10,
+                    color: 'var(--grey0)',
                     paddingTop: 2,
+                    fontVariantNumeric: 'tabular-nums',
                   }}
                 >
                   {relTs}
                 </span>
                 <span
                   style={{
-                    fontSize: 13,
+                    fontSize: 12.5,
                     color: 'var(--grey2)',
                     lineHeight: 1.5,
                     letterSpacing: '-0.005em',
@@ -205,9 +173,10 @@ export function ActivityFeed({ prefixMap }: ActivityFeedProps) {
                   <span
                     style={{
                       fontFamily: 'var(--font-mono)',
-                      fontSize: 11.5,
+                      fontSize: 10.5,
                       color: 'var(--aqua)',
                       fontWeight: 500,
+                      letterSpacing: '0.04em',
                     }}
                   >
                     {entry.event.card_id}
@@ -220,7 +189,7 @@ export function ActivityFeed({ prefixMap }: ActivityFeedProps) {
                       <span
                         style={{
                           fontFamily: 'var(--font-mono)',
-                          fontSize: 11.5,
+                          fontSize: 11,
                           fontWeight: 500,
                           color: stateColor(body.state),
                         }}
@@ -232,8 +201,12 @@ export function ActivityFeed({ prefixMap }: ActivityFeedProps) {
                     <span style={{ color: 'var(--grey1)' }}>{body.prefix}</span>
                   )}
                   <span
-                    className="apd-meta-line"
-                    style={{ marginLeft: 6 }}
+                    style={{
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: 10.5,
+                      marginLeft: 6,
+                      color: isHumanAgent(body.agent) ? 'var(--purple)' : 'var(--aqua)',
+                    }}
                   >
                     {body.agent}
                   </span>
@@ -242,10 +215,10 @@ export function ActivityFeed({ prefixMap }: ActivityFeedProps) {
             );
             const rowStyle = {
               display: 'grid',
-              gridTemplateColumns: '64px 1fr',
-              gap: 12,
-              padding: '11px 20px',
-              borderBottom: '1px solid var(--bg2)',
+              gridTemplateColumns: '56px 1fr',
+              gap: 10,
+              padding: '8px 14px',
+              borderBottom: '1px solid var(--bg1)',
               alignItems: 'start',
               textDecoration: 'none',
             } as const;
@@ -272,6 +245,6 @@ export function ActivityFeed({ prefixMap }: ActivityFeedProps) {
           })
         )}
       </div>
-    </section>
+    </DeckPanel>
   );
 }
