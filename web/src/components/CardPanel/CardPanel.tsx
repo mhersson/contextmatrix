@@ -154,10 +154,17 @@ export function CardPanel(props: CardPanelProps) {
 
   useCardPanelKeyboard(handleClose, handleSave);
 
+  // A parked run was left for a human on purpose; once that human moves the
+  // card back to todo it must be re-runnable - nothing ever clears
+  // worker_status on the way back. The API's own gate rejects only an
+  // in-flight worker (queued/running).
   const canRun =
     !!taskBackend &&
     card.state === 'todo' &&
-    (!card.worker_status || card.worker_status === 'failed' || card.worker_status === 'killed');
+    (!card.worker_status ||
+      card.worker_status === 'failed' ||
+      card.worker_status === 'killed' ||
+      card.worker_status === 'parked');
 
   const workerAttached = isWorkerAttached(card, currentAgentId);
   const primary = primaryAction(card, editedCard.autonomous ?? false, config, canRun);

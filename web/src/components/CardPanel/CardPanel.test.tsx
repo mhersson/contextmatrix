@@ -463,6 +463,21 @@ describe('CardPanel - run gating on global task backend', () => {
     render(<CardPanel {...makeProps()} />);
     expect(screen.queryByRole('button', { name: /Run HITL/ })).not.toBeInTheDocument();
   });
+
+  // A parked run leaves worker_status "parked" and nothing clears it on the
+  // way back to todo; the run gate must keep such a card re-runnable.
+  it.each(['parked', 'failed', 'killed'] as const)(
+    'offers Run for a todo card whose last run settled as %s',
+    (workerStatus) => {
+      render(
+        <CardPanel
+          {...makeProps()}
+          card={{ ...baseCard, worker_status: workerStatus }}
+        />,
+      );
+      expect(screen.getByRole('button', { name: /Run HITL/ })).toBeInTheDocument();
+    },
+  );
 });
 
 describe('CardPanel - transition primary rollback', () => {
