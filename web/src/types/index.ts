@@ -662,6 +662,8 @@ export interface ChatModel {
   id: string;
   label: string;
   max_tokens: number;
+  /** Present with true when the slug is on the ops.db model blacklist. */
+  blacklisted?: boolean;
 }
 
 export interface ChatModelList {

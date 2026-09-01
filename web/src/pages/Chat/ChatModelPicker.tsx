@@ -1,4 +1,5 @@
 import { useId } from 'react';
+import { BlacklistedChip } from '../../components/BlacklistedChip';
 import { ModelCombobox } from '../../components/ModelCombobox';
 import { useTheme } from '../../hooks/useTheme';
 import { formatTokens } from '../../lib/format';
@@ -24,10 +25,12 @@ interface ChatModelPickerProps {
  *    provided, vendor-screened model list, plus a favorites chip row
  *    (operator-configured slugs from app config). Degrades to a free-text
  *    input when the server list is empty (catalog-unavailable path). Always
- *    renders, even though the `models` list is empty.
+ *    renders, even though the `models` list is empty. A blacklisted entry
+ *    (the chip) stays selectable - pinning it is an informed override.
  *  - 'endpoint': server-provided model list from the configured OpenAI-
- *    compatible endpoint; rendered as a <select>. Renders nothing when the
- *    list is empty - new chats then use the server default.
+ *    compatible endpoint; rendered as a <select>, with blacklisted entries
+ *    marked in the option text. Renders nothing when the list is empty -
+ *    new chats then use the server default.
  */
 export function ChatModelPicker({
   source,
@@ -43,6 +46,13 @@ export function ChatModelPicker({
   // AutomationTab). Only relevant in openrouter mode.
   const favorites =
     openRouter && favsByTier ? [...new Set(Object.values(favsByTier).flat())] : [];
+  // The committed slug is marked by the BlacklistedChip riding next to the
+  // combobox (ModelPinsSection pattern); the flagged set also marks matching
+  // entries in the dropdown options before anything is committed.
+  const blacklistedSlugs = models.filter((m) => m.blacklisted).map((m) => m.id);
+  // The combobox shows only the committed slug, so the shared blacklisted chip
+  // rides next to it (ModelPinsSection pattern) when that slug is flagged.
+  const current = models.find((m) => m.id === model);
 
   const label = (
     <label htmlFor={fieldId} className="block text-xs mb-1" style={{ color: 'var(--grey2)' }}>
@@ -65,6 +75,7 @@ export function ChatModelPicker({
           {models.map((m) => (
             <option key={m.id} value={m.id}>
               {m.label} ({formatTokens(m.max_tokens)} context)
+              {m.blacklisted ? ' - blacklisted (reported incapable; a pin overrides)' : ''}
               {m.id === defaultModel ? ' - default' : ''}
             </option>
           ))}
@@ -103,15 +114,19 @@ export function ChatModelPicker({
         </div>
       )}
       <div className="mb-4">
-        <ModelCombobox
-          id={fieldId}
-          value={model}
-          onChange={onChange}
-          options={models.map((m) => m.id)}
-          placeholder="OpenRouter slug, e.g. anthropic/claude-sonnet-4"
-          ariaLabel="Model"
-          className="bf-input w-full font-mono"
-        />
+        <div className="flex items-center gap-2 min-w-0">
+          <ModelCombobox
+            id={fieldId}
+            value={model}
+            onChange={onChange}
+            options={models.map((m) => m.id)}
+            flaggedSlugs={blacklistedSlugs}
+            placeholder="OpenRouter slug, e.g. anthropic/claude-sonnet-4"
+            ariaLabel="Model"
+            className="bf-input w-full font-mono"
+          />
+          {current && current.blacklisted && <BlacklistedChip />}
+        </div>
       </div>
     </>
   );

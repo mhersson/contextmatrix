@@ -1,11 +1,14 @@
 import { useId, useState } from 'react';
 import type { CSSProperties, KeyboardEvent } from 'react';
+import { BlacklistedChip } from '../BlacklistedChip';
 
 interface ModelComboboxProps {
   value: string;
   onChange: (value: string) => void;
   /** Catalog slugs. Empty = catalog unavailable → plain free-text input. */
   options: string[];
+  /** Slugs on the model blacklist; matching options render a BlacklistedChip (purely informational - selection stays enabled). */
+  flaggedSlugs?: string[];
   placeholder?: string;
   disabled?: boolean;
   ariaLabel?: string;
@@ -26,6 +29,7 @@ export function ModelCombobox({
   value,
   onChange,
   options,
+  flaggedSlugs,
   placeholder,
   disabled = false,
   ariaLabel,
@@ -65,6 +69,7 @@ export function ModelCombobox({
   const q = draft.trim().toLowerCase();
   const filtered = q === '' ? options : options.filter((o) => o.toLowerCase().includes(q));
   const unknown = value !== '' && !options.includes(value);
+  const flagged = new Set(flaggedSlugs ?? []);
 
   function commit(slug: string) {
     setDraft(slug);
@@ -168,7 +173,10 @@ export function ModelCombobox({
               className="cursor-pointer px-2 py-1"
               style={{ background: i === highlight ? 'var(--bg-visual)' : undefined }}
             >
-              {slug}
+              <span className="inline-flex items-center gap-1.5">
+                {slug}
+                {flagged.has(slug) && <BlacklistedChip />}
+              </span>
             </li>
           ))}
         </ul>

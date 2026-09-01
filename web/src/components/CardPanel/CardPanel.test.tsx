@@ -158,6 +158,7 @@ describe('CardPanel - blacklisted model marker in the pin pickers', () => {
   });
 });
 
+describe('CardPanel - bifold layout', () => {
   it('renders the primary tabs (Automation, Info, Danger) for a non-HITL card', () => {
     render(<CardPanel {...makeProps()} />);
     expect(screen.getByRole('tab', { name: /Automation/ })).toBeInTheDocument();

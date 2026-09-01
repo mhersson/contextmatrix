@@ -150,6 +150,7 @@ export function ModelPinsSection({
       {!automatic && favorites && favorites.length > 0 && (
         <FavoriteChips
           favorites={favorites}
+          blacklistedSlugs={blacklistedSlugs}
           disabled={disabled}
           onPick={handleFavoriteClick}
         />
@@ -172,6 +173,7 @@ export function ModelPinsSection({
                 value={value}
                 onChange={(v) => onChange(field, v)}
                 options={models}
+                flaggedSlugs={blacklistedSlugs}
                 disabled={disabled}
                 placeholder="selector decides"
                 ariaLabel={`${label} model pin`}
