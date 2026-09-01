@@ -46,12 +46,11 @@ export function ChatModelPicker({
   // AutomationTab). Only relevant in openrouter mode.
   const favorites =
     openRouter && favsByTier ? [...new Set(Object.values(favsByTier).flat())] : [];
-  // The committed slug is marked by the BlacklistedChip riding next to the
-  // combobox (ModelPinsSection pattern); the flagged set also marks matching
-  // entries in the dropdown options before anything is committed.
+  // Flagged slugs mark the dropdown options, the favorites chips, and - via
+  // the chip riding next to the combobox (ModelPinsSection pattern) - the
+  // committed value.
   const blacklistedSlugs = models.filter((m) => m.blacklisted).map((m) => m.id);
-  // The combobox shows only the committed slug, so the shared blacklisted chip
-  // rides next to it (ModelPinsSection pattern) when that slug is flagged.
+  const blacklisted = new Set(blacklistedSlugs);
   const current = models.find((m) => m.id === model);
 
   const label = (
@@ -106,9 +105,13 @@ export function ChatModelPicker({
                 cursor: 'pointer',
                 whiteSpace: 'nowrap',
                 lineHeight: '1.6',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
               }}
             >
               {slug}
+              {blacklisted.has(slug) && <BlacklistedChip />}
             </button>
           ))}
         </div>

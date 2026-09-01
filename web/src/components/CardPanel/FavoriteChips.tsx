@@ -57,6 +57,9 @@ export function FavoriteChips({ favorites, blacklistedSlugs, disabled, onPick }:
               whiteSpace: 'nowrap',
               lineHeight: '1.6',
               opacity: disabled ? 0.5 : 1,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
             }}
           >
             {slug}

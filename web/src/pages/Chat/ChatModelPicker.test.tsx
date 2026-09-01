@@ -194,6 +194,45 @@ describe('ChatModelPicker', () => {
     );
   });
 
+  it('openrouter mode: marks a blacklisted favorite chip and keeps it clickable', () => {
+    const onChange = vi.fn();
+    const { unmount } = render(
+      <ChatModelPicker
+        source="openrouter"
+        model=""
+        defaultModel=""
+        models={flaggedModels}
+        onChange={onChange}
+      />,
+    );
+    // The mocked favorite is not in the flagged set - no marker.
+    expect(
+      screen.getByRole('button', { name: /anthropic\/claude-opus-4/ }),
+    ).not.toHaveTextContent('blacklisted');
+    unmount();
+
+    render(
+      <ChatModelPicker
+        source="openrouter"
+        model=""
+        defaultModel=""
+        models={[
+          {
+            id: 'anthropic/claude-opus-4',
+            label: 'anthropic/claude-opus-4',
+            max_tokens: 200_000,
+            blacklisted: true,
+          },
+        ]}
+        onChange={onChange}
+      />,
+    );
+    const chip = screen.getByRole('button', { name: /anthropic\/claude-opus-4/ });
+    expect(chip).toHaveTextContent('blacklisted');
+    fireEvent.click(chip);
+    expect(onChange).toHaveBeenCalledWith('anthropic/claude-opus-4');
+  });
+
   it('endpoint mode: selecting the flagged model still calls onChange with its id', () => {
     const onChange = vi.fn();
     render(
