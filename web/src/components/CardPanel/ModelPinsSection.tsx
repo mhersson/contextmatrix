@@ -1,4 +1,5 @@
 import { useId, useState } from 'react';
+import { BlacklistedChip } from '../BlacklistedChip';
 import { ModelCombobox } from '../ModelCombobox';
 import { FavoriteChips } from './FavoriteChips';
 
@@ -12,6 +13,12 @@ interface ModelPinsSectionProps {
   disabled?: boolean;
   /** CM model-catalog slugs; [] = catalog unavailable → free-text fallback. */
   models: string[];
+  /**
+   * Slugs on the ops.db model blacklist (reported incapable by the agent
+   * backend). Rendered with a BlacklistedChip next to the flagged entries;
+   * purely informational - pinning a blacklisted model stays allowed.
+   */
+  blacklistedSlugs?: string[];
   /**
    * Operator-configured favorite slugs (flattened across tiers, de-duped).
    * When present and non-empty, a chip row is rendered above the pin inputs.
@@ -63,6 +70,7 @@ export function ModelPinsSection({
   onChange,
   disabled = false,
   models,
+  blacklistedSlugs,
   favorites,
   maxCapability,
   onMaxCapabilityChange,
@@ -105,6 +113,7 @@ export function ModelPinsSection({
     onChange(firstEmpty?.field ?? 'model_orchestrator', slug);
   }
 
+  const blacklisted = new Set(blacklistedSlugs ?? []);
 
   return (
     <>
@@ -168,6 +177,7 @@ export function ModelPinsSection({
                 ariaLabel={`${label} model pin`}
                 inputStyle={{ width: 'auto', minWidth: '180px', fontSize: '11.5px' }}
               />
+              {blacklisted.has(value) && <BlacklistedChip />}
             </div>
           </div>
         );

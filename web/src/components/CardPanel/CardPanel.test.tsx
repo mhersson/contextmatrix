@@ -42,8 +42,12 @@ vi.mock('@uiw/react-markdown-preview', () => ({
   ),
 }));
 
+const useModelCatalogMock = vi.hoisted(() => vi.fn());
 vi.mock('../../hooks/useModelCatalog', () => ({
-  useModelCatalog: vi.fn().mockReturnValue({ source: 'none', models: [] }),
+  useModelCatalog: useModelCatalogMock.mockReturnValue({
+    source: 'none',
+    models: [],
+  }),
 }));
 
 vi.mock('../../api/client', () => ({
@@ -109,7 +113,51 @@ function makeProps(overrides?: Partial<Parameters<typeof CardPanel>[0]>) {
   };
 }
 
-describe('CardPanel - bifold layout', () => {
+describe('CardPanel - blacklisted model marker in the pin pickers', () => {
+  const catalog = [
+    { id: 'vendor/good-model', max_tokens: 200000 },
+    { id: 'vendor/bad-model', max_tokens: 100000, blacklisted: true },
+  ];
+
+  beforeEach(() => {
+    useModelCatalogMock.mockReturnValue({ source: 'none', models: [] });
+  });
+
+  it('renders the marker for a flagged pin only', () => {
+    useModelCatalogMock.mockReturnValue({ source: 'openrouter', models: catalog });
+    render(
+      <CardPanel
+        {...makeProps({ card: { ...baseCard, model_orchestrator: 'vendor/bad-model' } })}
+      />,
+    );
+    expect(screen.getByTitle(/reported incapable/i)).toBeInTheDocument();
+  });
+
+  it('renders no marker for an unflagged pin', () => {
+    useModelCatalogMock.mockReturnValue({ source: 'openrouter', models: catalog });
+    render(
+      <CardPanel
+        {...makeProps({ card: { ...baseCard, model_orchestrator: 'vendor/good-model' } })}
+      />,
+    );
+    expect(screen.queryByTitle(/reported incapable/i)).not.toBeInTheDocument();
+  });
+
+  it('keeps a blacklisted model selectable via the combobox', () => {
+    useModelCatalogMock.mockReturnValue({ source: 'openrouter', models: catalog });
+    render(
+      <CardPanel
+        {...makeProps({ card: { ...baseCard, model_orchestrator: 'vendor/good-model' } })}
+      />,
+    );
+    const orchestrator = screen.getByLabelText('Orchestrator model pin');
+    fireEvent.change(orchestrator, { target: { value: 'vendor/bad-model' } });
+    fireEvent.blur(orchestrator);
+    expect(orchestrator).toHaveValue('vendor/bad-model');
+    expect(screen.getByTitle(/reported incapable/i)).toBeInTheDocument();
+  });
+});
+
   it('renders the primary tabs (Automation, Info, Danger) for a non-HITL card', () => {
     render(<CardPanel {...makeProps()} />);
     expect(screen.getByRole('tab', { name: /Automation/ })).toBeInTheDocument();

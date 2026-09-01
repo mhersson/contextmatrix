@@ -42,8 +42,12 @@ vi.mock('@uiw/react-md-editor', () => ({
   ),
 }));
 
+const useModelCatalogMock = vi.hoisted(() => vi.fn());
 vi.mock('../../hooks/useModelCatalog', () => ({
-  useModelCatalog: vi.fn().mockReturnValue({ source: 'none', models: [] }),
+  useModelCatalog: useModelCatalogMock.mockReturnValue({
+    source: 'none',
+    models: [],
+  }),
 }));
 
 vi.mock('../../api/client', () => ({
@@ -93,6 +97,50 @@ function makeProps(overrides?: Partial<Parameters<typeof CreateCardPanel>[0]>) {
     ...overrides,
   };
 }
+
+describe('CreateCardPanel - blacklisted model marker in the pin pickers', () => {
+  const catalog = [
+    { id: 'vendor/good-model', max_tokens: 200000 },
+    { id: 'vendor/bad-model', max_tokens: 100000, blacklisted: true },
+  ];
+
+  beforeEach(() => {
+    useModelCatalogMock.mockReturnValue({ source: 'none', models: [] });
+  });
+
+  it('renders the marker for a flagged pin only', () => {
+    useModelCatalogMock.mockReturnValue({ source: 'openrouter', models: catalog });
+    render(<CreateCardPanel {...makeProps()} />);
+    // Create mode starts with empty pins (automatic selection), so the pin
+    // rows are hidden until the toggle is unchecked.
+    fireEvent.click(screen.getByLabelText('Automatic model selection'));
+    const orchestrator = screen.getByLabelText('Orchestrator model pin');
+    fireEvent.change(orchestrator, { target: { value: 'vendor/bad-model' } });
+    fireEvent.blur(orchestrator);
+    expect(screen.getByTitle(/reported incapable/i)).toBeInTheDocument();
+    expect(screen.getAllByTitle(/reported incapable/i)).toHaveLength(1);
+  });
+
+  it('renders no marker for an unflagged pin', () => {
+    useModelCatalogMock.mockReturnValue({ source: 'openrouter', models: catalog });
+    render(<CreateCardPanel {...makeProps()} />);
+    fireEvent.click(screen.getByLabelText('Automatic model selection'));
+    const orchestrator = screen.getByLabelText('Orchestrator model pin');
+    fireEvent.change(orchestrator, { target: { value: 'vendor/good-model' } });
+    fireEvent.blur(orchestrator);
+    expect(screen.queryByTitle(/reported incapable/i)).not.toBeInTheDocument();
+  });
+
+  it('keeps a blacklisted model selectable via the combobox', () => {
+    useModelCatalogMock.mockReturnValue({ source: 'openrouter', models: catalog });
+    render(<CreateCardPanel {...makeProps()} />);
+    fireEvent.click(screen.getByLabelText('Automatic model selection'));
+    const orchestrator = screen.getByLabelText('Orchestrator model pin');
+    fireEvent.change(orchestrator, { target: { value: 'vendor/bad-model' } });
+    fireEvent.blur(orchestrator);
+    expect(orchestrator).toHaveValue('vendor/bad-model');
+  });
+});
 
 describe('CreateCardPanel - bifold shell', () => {
   it('omits the Danger Zone tab in create mode', () => {

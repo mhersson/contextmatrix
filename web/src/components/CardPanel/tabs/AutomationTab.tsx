@@ -40,6 +40,9 @@ export function AutomationTab({
   // screened OpenRouter list or the endpoint list. Agent path only.
   const catalog = useModelCatalog(taskBackend === 'agent');
   const models = catalog.models.map((m) => m.id);
+  const blacklistedSlugs = catalog.models
+    .filter((m) => m.blacklisted)
+    .map((m) => m.id);
 
   // Flatten all per-tier All slugs into a single de-duplicated list for the
   // chip row. Only relevant when taskBackend === 'agent'; the prop is ignored
@@ -62,6 +65,7 @@ export function AutomationTab({
             setEditedCard((prev) => ({ ...prev, [field]: value }))
           }
           models={models}
+          blacklistedSlugs={blacklistedSlugs}
           favorites={favorites}
           bestOfN={editedCard.best_of_n}
           bestOfNMax={bestOfNMax}
