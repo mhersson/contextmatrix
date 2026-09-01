@@ -529,6 +529,14 @@ provided the slug is still a candidate. Re-reporting an already-blacklisted
 slug updates the reason and timestamp, never duplicates - including a slug
 that was delisted and fails again.
 
+The model pickers in the UI carry the flag too: `GET /api/models` and
+`GET /api/chats/models` mark blacklisted entries, and every picker surfaces
+the marker at pick time - a "blacklisted" chip next to the combobox input and
+on the flagged entry in its dropdown, on favorites chips, and in the option
+text of plain dropdowns (where the text also states the meaning, since a
+native `<option>` cannot host a tooltip). Selection stays enabled either way -
+the marker is what makes a pin an informed override rather than an accident.
+
 ### The outcome ledger
 
 After a Best-of-N race, the judge phase reports one row per candidate via

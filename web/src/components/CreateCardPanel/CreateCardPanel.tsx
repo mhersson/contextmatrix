@@ -67,6 +67,9 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
   // screened OpenRouter list or the endpoint list. Agent path only.
   const catalog = useModelCatalog(taskBackend === 'agent');
   const models = catalog.models.map((m) => m.id);
+  const blacklistedSlugs = catalog.models
+    .filter((m) => m.blacklisted)
+    .map((m) => m.id);
 
   // Field-keyed dispatch - a future ModelPinField union extension fails the
   // Record exhaustiveness check at compile time instead of silently routing
@@ -134,6 +137,7 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
             modelReviewer={form.modelReviewer}
             onModelPinChange={(field, value) => pinSetters[field](value)}
             models={models}
+            blacklistedSlugs={blacklistedSlugs}
             onAutonomousChange={form.setAutonomous}
             onCreatePRChange={form.setCreatePR}
             awaitCI={form.awaitCI}

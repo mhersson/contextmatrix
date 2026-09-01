@@ -1,6 +1,10 @@
+import { BlacklistedChip } from '../BlacklistedChip';
+
 interface FavoriteChipsProps {
   /** Operator-configured favorite slugs (flattened across tiers, de-duped). */
   favorites: string[];
+  /** Blacklisted slugs; a flagged favorite renders a BlacklistedChip before it is clicked. */
+  blacklistedSlugs?: string[];
   disabled: boolean;
   onPick: (slug: string) => void;
 }
@@ -8,9 +12,12 @@ interface FavoriteChipsProps {
 /**
  * The "Favorites" chip row above the model pins - one clickable chip per
  * operator-configured favorite slug. Which pin a click fills is the parent's
- * decision (ModelPinsSection targets the first empty pin).
+ * decision (ModelPinsSection targets the first empty pin). Chips for
+ * blacklisted slugs carry the BlacklistedChip marker but stay clickable -
+ * a pin is an informed override by design.
  */
-export function FavoriteChips({ favorites, disabled, onPick }: FavoriteChipsProps) {
+export function FavoriteChips({ favorites, blacklistedSlugs, disabled, onPick }: FavoriteChipsProps) {
+  const blacklisted = new Set(blacklistedSlugs ?? []);
   return (
     <div
       className="bf-spread"
@@ -50,9 +57,13 @@ export function FavoriteChips({ favorites, disabled, onPick }: FavoriteChipsProp
               whiteSpace: 'nowrap',
               lineHeight: '1.6',
               opacity: disabled ? 0.5 : 1,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
             }}
           >
             {slug}
+            {blacklisted.has(slug) && <BlacklistedChip />}
           </button>
         ))}
       </div>

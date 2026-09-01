@@ -36,6 +36,12 @@ interface AutomationCheckboxesProps {
   /** OpenRouter catalog slugs for pin autocomplete; [] = free-text only. */
   models?: string[];
   /**
+   * Slugs on the ops.db model blacklist (reported incapable by the agent
+   * backend). Passed through to ModelPinsSection which renders a marker next
+   * to flagged entries; selection stays enabled for them by design.
+   */
+  blacklistedSlugs?: string[];
+  /**
    * Operator-configured favorite slugs (flattened across tiers, de-duped).
    * Passed through to ModelPinsSection which renders them as preset chips.
    * Only relevant when taskBackend === 'agent'.
@@ -135,7 +141,7 @@ export function AutomationCheckboxes({
   onAwaitCIChange, onAwaitCopilotReviewChange,
   taskBackend,
   modelOrchestrator = '', modelCoder = '', modelReviewer = '',
-  onModelPinChange, models = [], favorites,
+  onModelPinChange, models = [], blacklistedSlugs, favorites,
   bestOfN, bestOfNMax, bestOfNDefault, onBestOfNChange,
   mobParticipants, mobMaxParticipants, mobDefaultParticipants,
   mobPhases, mobGuests, mobGuestNames, mobExecuteCheckpoints,
@@ -199,6 +205,7 @@ export function AutomationCheckboxes({
           onChange={onModelPinChange}
           disabled={disabled}
           models={models}
+          blacklistedSlugs={blacklistedSlugs}
           favorites={favorites}
           maxCapability={maxCapability}
           onMaxCapabilityChange={onMaxCapabilityChange}

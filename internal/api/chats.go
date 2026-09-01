@@ -99,6 +99,10 @@ type chatHandlers struct {
 	// validateModel, when non-nil, reports whether a slug is in the served
 	// set. Fail-open on an empty catalog. Used by createChat in openrouter mode.
 	validateModel func(ctx context.Context, slug string) bool
+	// blacklist, when non-nil, marks picker entries reported incapable by
+	// the agent backend (best-effort: a read failure serves the list
+	// without flags). nil omits the field entirely.
+	blacklist blacklistReader
 }
 
 func newChatHandlers(mgr *chat.Manager, hub *chat.SSEHub, chatBackendCfg *config.ChatBackendConfig) *chatHandlers {
@@ -287,6 +291,9 @@ type chatModelEntry struct {
 	ID        string `json:"id"`
 	Label     string `json:"label"`
 	MaxTokens int64  `json:"max_tokens"`
+	// Blacklisted is true only for models in the opstore blacklist; omitempty
+	// keeps the key off the wire for every other model.
+	Blacklisted bool `json:"blacklisted,omitempty"`
 }
 
 // containsModelID reports whether id is present in the picker model list.
@@ -336,6 +343,8 @@ func (h *chatHandlers) listModels(w http.ResponseWriter, r *http.Request) {
 			models = []chatModelEntry{}
 		}
 
+		models = h.markBlacklisted(r.Context(), models)
+
 		writeJSON(w, http.StatusOK, response{Source: "endpoint", Models: models, Default: h.orDefault})
 
 		return
@@ -346,6 +355,8 @@ func (h *chatHandlers) listModels(w http.ResponseWriter, r *http.Request) {
 		if h.servedModels != nil {
 			models = h.servedModels(r.Context())
 		}
+
+		models = h.markBlacklisted(r.Context(), models)
 
 		writeJSON(w, http.StatusOK, response{
 			Source:  "openrouter",
@@ -359,6 +370,26 @@ func (h *chatHandlers) listModels(w http.ResponseWriter, r *http.Request) {
 	// No chat backend configured: an empty endpoint-mode list renders
 	// nothing in the picker.
 	writeJSON(w, http.StatusOK, response{Source: "endpoint", Models: []chatModelEntry{}, Default: ""})
+}
+
+// markBlacklisted returns the picker list with Blacklisted set on entries
+// whose ID is in the opstore blacklist. Best-effort: a failed read (or a nil
+// reader) returns the list unflagged; only the blacklist read itself is
+// swallowed, never the model fetch. The input may be a shared cached slice,
+// so flagged output is always a fresh slice - the cache is never mutated.
+func (h *chatHandlers) markBlacklisted(ctx context.Context, models []chatModelEntry) []chatModelEntry {
+	flagged := blacklistedSet(ctx, h.blacklist)
+	if flagged == nil {
+		return models
+	}
+
+	out := make([]chatModelEntry, len(models))
+	for i, m := range models {
+		m.Blacklisted = flagged[m.ID]
+		out[i] = m
+	}
+
+	return out
 }
 
 func (h *chatHandlers) getChat(w http.ResponseWriter, r *http.Request) {

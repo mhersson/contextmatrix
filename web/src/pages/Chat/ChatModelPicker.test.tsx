@@ -14,6 +14,16 @@ const endpointModels: ChatModel[] = [
   { id: 'claude-opus-4-8', label: 'Opus 4.8', max_tokens: 1_000_000 },
 ];
 
+const flaggedModels: ChatModel[] = [
+  { id: 'bad/model', label: 'bad/model', max_tokens: 200_000, blacklisted: true },
+  { id: 'good/model', label: 'good/model', max_tokens: 200_000 },
+];
+
+const flaggedEndpointModels: ChatModel[] = [
+  { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', max_tokens: 1_000_000 },
+  { id: 'claude-opus-4-8', label: 'Opus 4.8', max_tokens: 1_000_000, blacklisted: true },
+];
+
 describe('ChatModelPicker', () => {
   it('endpoint mode: renders a <select> of the server models', () => {
     render(
@@ -100,5 +110,141 @@ describe('ChatModelPicker', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: /anthropic\/claude-opus-4/ }));
     expect(onChange).toHaveBeenCalledWith('anthropic/claude-opus-4');
+  });
+
+  it('openrouter mode: marks the selected flagged model with the blacklisted chip, unflagged without', () => {
+    render(
+      <ChatModelPicker
+        source="openrouter"
+        model="bad/model"
+        defaultModel=""
+        models={flaggedModels}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('blacklisted')).toBeInTheDocument();
+  });
+
+  it('openrouter mode: no chip for an unflagged value', () => {
+    render(
+      <ChatModelPicker
+        source="openrouter"
+        model="good/model"
+        defaultModel=""
+        models={flaggedModels}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText('blacklisted')).not.toBeInTheDocument();
+  });
+
+  it('openrouter mode: selecting the flagged model still calls onChange with its id', () => {
+    const onChange = vi.fn();
+    render(
+      <ChatModelPicker
+        source="openrouter"
+        model=""
+        defaultModel=""
+        models={flaggedModels}
+        onChange={onChange}
+      />,
+    );
+    const input = screen.getByRole('combobox');
+    fireEvent.focus(input);
+    fireEvent.mouseDown(screen.getByRole('option', { name: /bad\/model/ }));
+    expect(onChange).toHaveBeenCalledWith('bad/model');
+  });
+
+  it('openrouter mode: marks the flagged entry in the dropdown options before anything is committed', () => {
+    const onChange = vi.fn();
+    render(
+      <ChatModelPicker
+        source="openrouter"
+        model=""
+        defaultModel=""
+        models={flaggedModels}
+        onChange={onChange}
+      />,
+    );
+    const input = screen.getByRole('combobox');
+    fireEvent.focus(input);
+    expect(screen.getByRole('option', { name: /bad\/model/ })).toHaveTextContent('blacklisted');
+    expect(screen.getByRole('option', { name: /good\/model/ })).not.toHaveTextContent(
+      'blacklisted',
+    );
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('endpoint mode: flags blacklisted entries in the option text, unflagged without', () => {
+    render(
+      <ChatModelPicker
+        source="endpoint"
+        model="claude-sonnet-4-6"
+        defaultModel=""
+        models={flaggedEndpointModels}
+        onChange={vi.fn()}
+      />,
+    );
+    const flagged = screen.getByRole('option', { name: /Opus 4\.8/ });
+    expect(flagged).toHaveTextContent('blacklisted');
+    expect(flagged).toHaveTextContent('reported incapable');
+    expect(flagged).not.toBeDisabled();
+    expect(screen.getByRole('option', { name: /Sonnet 4\.6/ })).not.toHaveTextContent(
+      'blacklisted',
+    );
+  });
+
+  it('openrouter mode: marks a blacklisted favorite chip and keeps it clickable', () => {
+    const onChange = vi.fn();
+    const { unmount } = render(
+      <ChatModelPicker
+        source="openrouter"
+        model=""
+        defaultModel=""
+        models={flaggedModels}
+        onChange={onChange}
+      />,
+    );
+    // The mocked favorite is not in the flagged set - no marker.
+    expect(
+      screen.getByRole('button', { name: /anthropic\/claude-opus-4/ }),
+    ).not.toHaveTextContent('blacklisted');
+    unmount();
+
+    render(
+      <ChatModelPicker
+        source="openrouter"
+        model=""
+        defaultModel=""
+        models={[
+          {
+            id: 'anthropic/claude-opus-4',
+            label: 'anthropic/claude-opus-4',
+            max_tokens: 200_000,
+            blacklisted: true,
+          },
+        ]}
+        onChange={onChange}
+      />,
+    );
+    const chip = screen.getByRole('button', { name: /anthropic\/claude-opus-4/ });
+    expect(chip).toHaveTextContent('blacklisted');
+    fireEvent.click(chip);
+    expect(onChange).toHaveBeenCalledWith('anthropic/claude-opus-4');
+  });
+
+  it('endpoint mode: selecting the flagged model still calls onChange with its id', () => {
+    const onChange = vi.fn();
+    render(
+      <ChatModelPicker
+        source="endpoint"
+        model="claude-sonnet-4-6"
+        defaultModel=""
+        models={flaggedEndpointModels}
+        onChange={onChange}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'claude-opus-4-8' } });
+    expect(onChange).toHaveBeenCalledWith('claude-opus-4-8');
   });
 });

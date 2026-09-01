@@ -281,4 +281,35 @@ describe('ModelPinsSection', () => {
     expect(screen.getByLabelText('Coder model pin')).toBeDisabled();
     expect(screen.getByLabelText('Reviewer model pin')).toBeDisabled();
   });
+
+  it('marks the flagged entry in the combobox dropdown options', () => {
+    renderRevealed({
+      models: ['vendor/good-model', 'vendor/bad-model'],
+      blacklistedSlugs: ['vendor/bad-model'],
+    });
+    const input = screen.getByRole('combobox', { name: 'Orchestrator model pin' });
+    fireEvent.focus(input);
+    expect(screen.getByRole('option', { name: /vendor\/bad-model/ })).toHaveTextContent(
+      'blacklisted',
+    );
+    expect(screen.getByRole('option', { name: /vendor\/good-model/ })).not.toHaveTextContent(
+      'blacklisted',
+    );
+  });
+
+  it('marks a blacklisted favorite chip before it is clicked, and picking it still commits', () => {
+    const onChange = vi.fn();
+    renderRevealed({
+      onChange,
+      favorites: ['vendor/good-model', 'vendor/bad-model'],
+      blacklistedSlugs: ['vendor/bad-model'],
+    });
+    const flagged = screen.getByRole('button', { name: /vendor\/bad-model/ });
+    expect(flagged).toHaveTextContent('blacklisted');
+    expect(screen.getByRole('button', { name: /vendor\/good-model/ })).not.toHaveTextContent(
+      'blacklisted',
+    );
+    fireEvent.click(flagged);
+    expect(onChange).toHaveBeenCalledWith('model_orchestrator', 'vendor/bad-model');
+  });
 });
