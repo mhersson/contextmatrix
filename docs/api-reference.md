@@ -1075,6 +1075,15 @@ pins are an agent-backend concern.
 { "source": "openrouter", "models": [ { "id": "anthropic/claude-sonnet-4.5", "max_tokens": 200000 } ] }
 ```
 
+Models reported incapable by the agent backend (present in the opstore model
+blacklist, see `GET /api/admin/model-blacklist`) carry `"blacklisted": true`.
+The field is `omitempty` - absent entirely from every non-blacklisted entry,
+never sent as `false`. The join is best-effort: a failed blacklist read logs a
+warning server-side and serves the list with no flags rather than failing the
+request. The flag is informational - selecting or pinning a blacklisted model
+stays allowed by design (a pin deliberately overrides the blacklist, see
+`docs/model-selection.md`).
+
 Card model pins (`model_orchestrator` / `model_coder` / `model_reviewer` on
 card create, update, and patch) are validated against this same served set:
 setting a pin to a slug outside it returns 422 `VALIDATION_ERROR` ("model pin
