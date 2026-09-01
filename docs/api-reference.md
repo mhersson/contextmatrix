@@ -2196,6 +2196,13 @@ Response (`source: "openrouter"`):
 }
 ```
 
+Entries in the opstore model blacklist (reported incapable by the agent
+backend) additionally carry `"blacklisted": true`; like `GET /api/models` the
+field is `omitempty`, absent from every other entry. The join is best-effort:
+a failed blacklist read logs a warning and serves the list unflagged rather
+than failing the request. The flag is informational - a flagged model stays
+selectable.
+
 When no chat backend is configured the response is
 `{"source": "endpoint", "models": [], "default": ""}`.
 
