@@ -489,24 +489,11 @@ type aaScored struct {
 	Source    string
 }
 
-// buildFromAAMap fuses Artificial Analysis priors with an endpoint catalog for
-// the openai type. It iterates the endpoint's served models; for each it uses
-// an operator override when present (AA join skipped for that slug), otherwise
-// it joins the exact AA row named by aaModelMap: the single row whose Slug
-// equals the mapped value, and only that row's coding/intelligence indices,
-// normalized against the response-wide maxima. AA publishes separate rows per
-// reasoning-effort variant with the base row frequently unscored, so a
-// per-family aggregate would silently pin a gateway model to its strongest
-// sibling variant's score; exact-row semantics keep the priors pointing at the
-// variant the gateway actually serves. A nil index on the mapped row yields no
-// prior for that role (the candidate competes only on the scored axis); with
-// both axes nil the model produces no candidate and the exclusion carries the
-// scored sibling variants as a re-pointing hint.
-//
-// A served, tool-capable model that is neither overridden nor mapped to a
-// usable scored row is returned as an exclusion with its reason. Output
-// candidates are keyed by endpoint slug and filtered to tool-capable,
-// floor-clearing models.
+// buildFromAAMap scores each tool-capable served slug for the openai leg. A model_priors override
+// is used verbatim (AA join skipped); otherwise the slug joins the ONE AA row named by aaModelMap -
+// never a family or variant aggregate - and is scored per axis from that row (a nil index yields no
+// prior for that role). Everything that yields no floor-clearing candidate is returned as an
+// exclusion with its reason; unscored rows carry scored siblings as a hint.
 func buildFromAAMap(aa []aaModel, endpoint map[string]orEntry, aaModelMap map[string]string, priors map[string]PriorOverride, floor float64) ([]aaScored, []aaExclusion) {
 	maxCoding, maxIntel := maxIndices(aa)
 

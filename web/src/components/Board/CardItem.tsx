@@ -266,7 +266,7 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
       {/* Subtask phase strip: one segment per subtask, click to peek */}
       {strip}
 
-      {/* Footer: assignee, deps, best-of-n - omitted entirely when empty */}
+      {/* Footer: assignee circle only. */}
       <CardChipRow card={card} />
 
       {peekList}

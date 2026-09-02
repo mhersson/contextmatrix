@@ -3,11 +3,9 @@ import { chipTint } from '../../lib/chip';
 import { cardSignals, splitCardSignals } from '../../lib/cardSignals';
 
 /**
- * The board card's signal cluster: what used to be footer pills (auto, mob,
- * best-of-n, deps, worker status) plus playbook membership and the special
- * "simple" label, rendered as accent-tinted stroke icons with tooltip + aria
- * labels. Crowded cards cap at four icons; the least important collapse
- * behind a "+N" chip whose tooltip names them.
+ * Header signal cluster: worker status, deps, autonomous, mob, best-of-n,
+ * playbook membership and the "simple" label as tinted stroke icons with
+ * tooltip + aria labels. At most four show; the rest fold into a "+N" chip.
  */
 export function CardSignalIcons({ card }: { card: Card }) {
   const signals = cardSignals(card);

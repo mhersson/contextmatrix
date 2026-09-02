@@ -20,28 +20,11 @@ interface MetadataRelatedProps {
 }
 
 /**
- * Related-card sections of the Info rail tab: Parent (subtask cards only,
- * rendered id-only - it never reads `related`), Subtasks, and Depends on.
- * Subtasks and Depends-on chip labels share one hydration effect - the
- * combined set of `card.subtasks` + `card.depends_on` IDs is fetched via
- * `api.getCard` on mount and whenever the id membership changes.
- * `Promise.allSettled` + a per-id catch fallback means one 404 doesn't wipe
- * the whole related map.
- *
- * The "+ add dependency" trigger opens a popover (`useMenuDismiss` closes it
- * on outside click / Escape) hosting `CardPicker`, filtered client-side
- * against the `cards` prop threaded down from `ProjectShell`'s SSE-fed board
- * list - no separate fetch, no staleness. Add/remove disable the trigger and
- * every remove button for the duration of the in-flight `onDependsOnChange`
- * call and compute the next list from the `card.depends_on` prop, never a
- * local copy: the controls stay disabled until the promise settles, so by
- * the time they re-enable the parent's `updateCardLocally` has already
- * applied the response (or, on rejection, `card.depends_on` was never
- * touched) - either way the next click reads the current source of truth
- * instead of a second copy that could diverge from it.
- *
- * Effect deps use joined-string markers so SSE updates that rebuild the
- * card object without changing the id membership don't re-fire the fetch.
+ * Related-card sections of the Info tab: Parent (id only), Subtasks, Depends on.
+ * Subtask and dependency labels are hydrated via api.getCard whenever the id
+ * membership changes (joined-string deps so SSE object churn does not refetch).
+ * The dependency picker filters the board's own `cards`; add/remove compute the
+ * next list from `card.depends_on` after the save settles - never a local copy.
  */
 export function MetadataRelated({
   card,
