@@ -14,6 +14,17 @@ const safeWriteRail = (value: boolean) => safeWriteBool(RAIL_STORAGE_KEY, value)
 const restoreMode = (isChatInteractive: boolean): RailMode =>
   (safeReadRail() ?? isChatInteractive) ? 'expanded' : 'collapsed';
 
+/** `next` with the keys the user changed since `prev` kept from `draft`. */
+export function mergeDraft(draft: Card, prev: Card, next: Card): Card {
+  const out: Card = { ...next };
+  for (const key of Object.keys(draft) as (keyof Card)[]) {
+    if (!Object.is(draft[key], prev[key])) {
+      (out as unknown as Record<string, unknown>)[key] = draft[key];
+    }
+  }
+  return out;
+}
+
 export interface RailSync {
   railMode: RailMode;
   /** Flips collapsed ↔ expanded and persists the choice. */
@@ -34,8 +45,9 @@ export interface RailSync {
  *
  *  - Card identity change (cardId changes): full reset - editedCard,
  *    railMode → restoreMode(), activeTab → defaultTab.
- *  - Same card, new SSE object reference: editedCard refreshes; railMode
- *    and activeTab are preserved.
+ *  - Same card, new SSE object reference: editedCard takes the server values
+ *    for every field the user has not edited; railMode and activeTab are
+ *    preserved.
  *  - isChatInteractive flip to true: resets activeTab → 'chat', railMode →
  *    'expanded' (and persists true to localStorage) - unless the rail is
  *    already 'full', which is wider still and stays.
@@ -100,7 +112,7 @@ export function useRailSync(
   } else if (sync.card !== card || sync.isChatInteractive !== isChatInteractive) {
     const flippedOn = sync.isChatInteractive !== isChatInteractive && isChatInteractive;
     const flippedOff = sync.isChatInteractive && !isChatInteractive;
-    if (sync.card !== card) setEditedCard(card);
+    if (sync.card !== card) setEditedCard((draft) => mergeDraft(draft, sync.card, card));
     if (flippedOn) {
       // Interactive chat flipped live: jump to chat tab, widen rail, disarm.
       // Persist the forced-expand so it survives remounts - the stored
