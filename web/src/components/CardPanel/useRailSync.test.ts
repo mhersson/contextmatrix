@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { mergeDraft } from './useRailSync';
+import { renderHook, act } from '@testing-library/react';
+import { useState } from 'react';
+import { mergeDraft, useRailSync } from './useRailSync';
 import type { Card } from '../../types';
 
 const base = { id: 'T-1', title: 'old', body: 'text', depends_on: [] as string[] } as Card;
@@ -44,5 +46,34 @@ describe('mergeDraft', () => {
     const next = { ...base, labels: ['a', 'b'] } as Card;
 
     expect(mergeDraft(draft, prev, next).labels).toEqual(['a', 'x']);
+  });
+});
+
+describe('useRailSync - server refresh against an open draft', () => {
+  // Drives the hook the way CardPanel does: the panel owns the editedCard
+  // state and hands its setter in, so this pins the merge at the call site
+  // rather than only in mergeDraft.
+  const useHarness = (card: Card) => {
+    const [editedCard, setEditedCard] = useState<Card>(card);
+    useRailSync(card, false, 'automation', setEditedCard);
+    return { editedCard, setEditedCard };
+  };
+
+  it('keeps the typed title and takes the server depends_on', () => {
+    const c1 = { ...base } as Card;
+    const { result, rerender } = renderHook(({ card }: { card: Card }) => useHarness(card), {
+      initialProps: { card: c1 },
+    });
+
+    act(() => {
+      result.current.setEditedCard((draft) => ({ ...draft, title: 'typed but unsaved' }));
+    });
+
+    // Same card id, new object reference from the server (an SSE refresh).
+    const c2 = { ...c1, depends_on: ['T-2'] } as Card;
+    rerender({ card: c2 });
+
+    expect(result.current.editedCard.title).toBe('typed but unsaved');
+    expect(result.current.editedCard.depends_on).toEqual(['T-2']);
   });
 });
