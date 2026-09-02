@@ -17,9 +17,10 @@ interface UseBoardResult {
   refresh: () => Promise<void>;
   /**
    * Increments on every successful wholesale list replace (initial load,
-   * sync-pull reload, SSE-reconnect resync). Consumers holding a hydrated
-   * card key re-hydration effects on this: the replace rebuilds `cards` from
-   * the list endpoint, which omits single-card-GET-only fields.
+   * sync-pull reload, SSE-reconnect resync, silent playbook refresh).
+   * Consumers holding a hydrated card key re-hydration effects on this: the
+   * replace rebuilds `cards` from the list endpoint, which omits
+   * single-card-GET-only fields.
    */
   listEpoch: number;
   refreshCard: (cardId: string) => Promise<void>;
@@ -101,9 +102,14 @@ export function useBoard(
   // keeping any card whose PATCH is still in flight.
   const refreshCards = useCallback(() => {
     if (!project) return;
+    // Read-only snapshot (never incremented): guards against this refresh
+    // landing after a newer fetchData call (e.g. a project/filter switch)
+    // already took over, without invalidating that fetchData call itself.
+    const reqId = reqIdRef.current;
     api
       .getCards(project, stableFilter)
       .then((next) => {
+        if (reqId !== reqIdRef.current) return;
         setCards((prev) =>
           next.map((c) => (inFlightRef.current.has(c.id) ? (prev.find((p) => p.id === c.id) ?? c) : c)),
         );

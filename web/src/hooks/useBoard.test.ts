@@ -180,11 +180,24 @@ describe('useBoard - playbook events', () => {
   });
 
   it('refreshes the cards on a playbook change without showing the loading skeleton', async () => {
+    const listCard: Card = {
+      id: 'ALPHA-1',
+      title: 'Alpha card',
+      project: 'alpha',
+      type: 'task',
+      state: 'todo',
+      priority: 'medium',
+      created: '2026-01-01T00:00:00Z',
+      updated: '2026-01-01T00:00:00Z',
+      body: '',
+    };
+    vi.mocked(api.getCards).mockResolvedValueOnce([listCard]);
+
     const { result } = renderHook(() => useBoard('alpha'), { wrapper });
     await waitFor(() => expect(vi.mocked(api.getCards)).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    const refreshed = [{ ...cards[0], in_playbooks: ['pb-1'] }];
+    const refreshed = [{ ...listCard, in_playbooks: ['pb-1'] }];
     vi.mocked(api.getCards).mockResolvedValueOnce(refreshed);
 
     act(() => {
@@ -202,6 +215,121 @@ describe('useBoard - playbook events', () => {
     await waitFor(() => expect(vi.mocked(api.getCards)).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(result.current.cards[0]?.in_playbooks).toEqual(['pb-1']));
     expect(result.current.loading).toBe(false);
+  });
+
+  it('drops a playbook refresh for the previous project once a project switch has landed', async () => {
+    const alphaCard: Card = {
+      id: 'ALPHA-1',
+      title: 'Alpha card',
+      project: 'alpha',
+      type: 'task',
+      state: 'todo',
+      priority: 'medium',
+      created: '2026-01-01T00:00:00Z',
+      updated: '2026-01-01T00:00:00Z',
+      body: '',
+    };
+    const betaCard: Card = {
+      id: 'BETA-1',
+      title: 'Beta card',
+      project: 'beta',
+      type: 'task',
+      state: 'todo',
+      priority: 'medium',
+      created: '2026-01-01T00:00:00Z',
+      updated: '2026-01-01T00:00:00Z',
+      body: '',
+    };
+
+    vi.mocked(api.getCards).mockResolvedValueOnce([alphaCard]);
+
+    const { result, rerender } = renderHook(
+      ({ project }: { project: string }) => useBoard(project),
+      { wrapper, initialProps: { project: 'alpha' } },
+    );
+
+    await waitFor(() => expect(vi.mocked(api.getCards)).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    act(() => {
+      latestInstance()._triggerOpen();
+    });
+
+    // The playbook refresh for 'alpha' is issued but held unresolved, so it
+    // can land after the 'beta' switch below has already completed.
+    let resolveAlphaRefresh: (cards: Card[]) => void = () => {};
+    const alphaRefreshPromise = new Promise<Card[]>((resolve) => {
+      resolveAlphaRefresh = resolve;
+    });
+    vi.mocked(api.getCards).mockReturnValueOnce(alphaRefreshPromise);
+
+    act(() => {
+      latestInstance().onmessage?.({
+        data: JSON.stringify({ type: 'playbook.updated', card_id: '', project: '' }),
+      } as MessageEvent);
+    });
+    await waitFor(() => expect(vi.mocked(api.getCards)).toHaveBeenCalledTimes(2));
+
+    vi.mocked(api.getCards).mockResolvedValueOnce([betaCard]);
+    rerender({ project: 'beta' });
+
+    await waitFor(() => expect(vi.mocked(api.getCards)).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await waitFor(() => expect(result.current.cards).toEqual([betaCard]));
+
+    // The stale alpha refresh finally resolves - it must not clobber beta's
+    // already-landed card list.
+    await act(async () => {
+      resolveAlphaRefresh([{ ...alphaCard, in_playbooks: ['pb-1'] }]);
+      await alphaRefreshPromise;
+    });
+
+    expect(result.current.cards).toEqual([betaCard]);
+    expect(result.current.loading).toBe(false);
+  });
+
+  it('preserves a card whose patch is in flight across a playbook refresh', async () => {
+    const listCard: Card = {
+      id: 'ALPHA-1',
+      title: 'Alpha card',
+      project: 'alpha',
+      type: 'task',
+      state: 'todo',
+      priority: 'medium',
+      created: '2026-01-01T00:00:00Z',
+      updated: '2026-01-01T00:00:00Z',
+      body: '',
+    };
+    vi.mocked(api.getCards).mockResolvedValueOnce([listCard]);
+
+    const { result } = renderHook(() => useBoard('alpha'), { wrapper });
+    await waitFor(() => expect(vi.mocked(api.getCards)).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    // A patchCard is in flight for this card: an optimistic local update is
+    // applied and its id is suppressed, same as ProjectShell does around a
+    // real PATCH call.
+    act(() => {
+      result.current.suppressSSE('ALPHA-1');
+      result.current.updateCardLocally('ALPHA-1', { title: 'Optimistic title' });
+    });
+
+    // The playbook refresh's server snapshot predates the in-flight PATCH.
+    vi.mocked(api.getCards).mockResolvedValueOnce([{ ...listCard, in_playbooks: ['pb-1'] }]);
+
+    act(() => {
+      latestInstance()._triggerOpen();
+    });
+    act(() => {
+      latestInstance().onmessage?.({
+        data: JSON.stringify({ type: 'playbook.updated', card_id: '', project: '' }),
+      } as MessageEvent);
+    });
+
+    await waitFor(() => expect(vi.mocked(api.getCards)).toHaveBeenCalledTimes(2));
+    // The in-flight card is preserved rather than overwritten by the stale
+    // refresh's server snapshot.
+    expect(result.current.cards[0]?.title).toBe('Optimistic title');
   });
 });
 
