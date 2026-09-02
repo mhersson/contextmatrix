@@ -1840,13 +1840,7 @@ func TestGetDashboard(t *testing.T) {
 	assert.InDelta(t, 0.0315, dashboard.TotalCostUSD, 0.0001)
 
 	// Card costs: 2 cards have usage.
-	assert.Len(t, dashboard.CardCosts, 2)
-
-	// Agent costs: both cards report usage under "agent-1" (breakdown-based attribution).
-	// card1 has no assigned agent but its breakdown bucket records agent-1 - the
-	// aggregation reads breakdown rows so both cards land in one bucket.
-	assert.Len(t, dashboard.AgentCosts, 1)
-	assert.Equal(t, "agent-1", dashboard.AgentCosts[0].AgentID)
+	assert.Len(t, dashboard.CardCosts30d, 2)
 }
 
 // setupEmptyTest creates a test environment with no projects.

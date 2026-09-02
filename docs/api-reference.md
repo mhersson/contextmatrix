@@ -1312,16 +1312,7 @@ Returns dashboard metrics for a project.
     "stalled":       [0, 0, 1, 1, 0, 0, 0, 0],
     "shipped":       [1, 0, 2, 1, 1, 2, 1, 2]
   },
-  "agent_costs": [
-    {
-      "agent_id": "claude-7a3f",
-      "prompt_tokens": 30000,
-      "completion_tokens": 8000,
-      "estimated_cost_usd": 0.21,
-      "card_count": 5
-    }
-  ],
-  "model_costs": [
+  "model_costs_30d": [
     {
       "model": "claude-sonnet-4-5",
       "prompt_tokens": 25000,
@@ -1330,7 +1321,7 @@ Returns dashboard metrics for a project.
       "card_count": 4
     }
   ],
-  "card_costs": [
+  "card_costs_30d": [
     {
       "card_id": "ALPHA-003",
       "card_title": "...",
@@ -1340,8 +1331,6 @@ Returns dashboard metrics for a project.
       "estimated_cost_usd": 0.033
     }
   ],
-  "model_costs_30d": ["... same shape as model_costs, last-30d window only"],
-  "card_costs_30d": ["... same shape as card_costs, last-30d window only"],
   "chat_cost_usd_last_30d": 0.142,
   "chat_cost_usd_prior_30d": 0.098,
   "chat_cost_series_30d": [0.001, 0.004, 0.009, "... (30 daily buckets, oldest first)"]
@@ -1350,21 +1339,19 @@ Returns dashboard metrics for a project.
 
 `assigned_agent` is omitted when no agent currently owns the card.
 
-`card_costs` folds each subtask's tokens and cost into its parent's row, so
-rows are per-run and the column still sums to `total_cost_usd`. A parent row
-appears even when only its subtasks have spend. Subtasks whose parent card no
-longer exists keep their own row.
+`card_costs_30d` folds each subtask's tokens and cost into its parent's row, so
+rows are per-run. A parent row appears even when only its subtasks have spend.
+Subtasks whose parent card no longer exists keep their own row.
 
-`model_costs` aggregates token usage and cost per model across the project.
+`model_costs_30d` aggregates token usage and cost per model across the project.
 Cards whose token-usage records have an empty `model` string are bucketed
 under `"unknown"`. Each card is attributed to its most-recently-used model
 (cards that used multiple models show under the last one).
 
-`model_costs_30d` and `card_costs_30d` are the same rollups restricted to
-cards whose `updated` falls inside the last-30d window - the same boundary as
-`total_cost_usd_last_30d`, so `card_costs_30d` sums to that figure. Subtask
-spend inside the window still folds into the parent's row even when the
-parent's own last touch is older.
+Both rollups are restricted to cards whose `updated` falls inside the last-30d
+window - the same boundary as `total_cost_usd_last_30d`, so `card_costs_30d`
+sums to that figure. Subtask spend inside the window still folds into the
+parent's row even when the parent's own last touch is older.
 
 `cards_completed_last_7d` counts cards whose `updated` falls inside the
 trailing 7-day window ending at "now"; `cards_completed_prior_7d` counts the

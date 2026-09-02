@@ -52,9 +52,6 @@ const dashboardStub: DashboardData = {
     stalled_parents: [],
     shipped_parents: [],
   },
-  agent_costs: [],
-  card_costs: [],
-  model_costs: [],
 };
 
 // Two independent consumers of the context, mirroring Sidebar + AllProjectsDashboard

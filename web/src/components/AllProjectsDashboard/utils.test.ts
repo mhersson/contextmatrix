@@ -26,17 +26,14 @@ function summary(overrides: Partial<DashboardData> = {}): DashboardData {
       stalled_parents: [],
       shipped_parents: [],
     },
-    agent_costs: [],
-    card_costs: [],
-    model_costs: [],
     ...overrides,
   };
 }
 
-describe('aggregateDashboards model_costs fold', () => {
+describe('aggregateDashboards model_costs_30d fold', () => {
   it('sums the same model across projects', () => {
     const a = summary({
-      model_costs: [
+      model_costs_30d: [
         {
           model: 'claude-opus-4-7',
           prompt_tokens: 100,
@@ -47,7 +44,7 @@ describe('aggregateDashboards model_costs fold', () => {
       ],
     });
     const b = summary({
-      model_costs: [
+      model_costs_30d: [
         {
           model: 'claude-opus-4-7',
           prompt_tokens: 200,
@@ -63,8 +60,8 @@ describe('aggregateDashboards model_costs fold', () => {
         ['proj-b', b],
       ]),
     );
-    expect(result.model_costs).toHaveLength(1);
-    const opus = result.model_costs[0];
+    expect(result.model_costs_30d).toHaveLength(1);
+    const opus = result.model_costs_30d![0];
     expect(opus.model).toBe('claude-opus-4-7');
     expect(opus.prompt_tokens).toBe(300);
     expect(opus.completion_tokens).toBe(110);
@@ -74,7 +71,7 @@ describe('aggregateDashboards model_costs fold', () => {
 
   it('keeps distinct models separate', () => {
     const a = summary({
-      model_costs: [
+      model_costs_30d: [
         {
           model: 'claude-opus-4-7',
           prompt_tokens: 1,
@@ -92,18 +89,18 @@ describe('aggregateDashboards model_costs fold', () => {
       ],
     });
     const result = aggregateDashboards(new Map([['proj-a', a]]));
-    const models = result.model_costs.map((m) => m.model).sort();
+    const models = result.model_costs_30d!.map((m) => m.model).sort();
     expect(models).toEqual(['claude-opus-4-7', 'unknown']);
   });
 
-  it('returns an empty model_costs array for an empty input', () => {
+  it('returns an empty model_costs_30d array for an empty input', () => {
     const result = aggregateDashboards(new Map());
-    expect(result.model_costs).toEqual([]);
+    expect(result.model_costs_30d).toEqual([]);
   });
 
-  it('does not mutate input model_costs entries', () => {
+  it('does not mutate input model_costs_30d entries', () => {
     const input = summary({
-      model_costs: [
+      model_costs_30d: [
         {
           model: 'claude-opus-4-7',
           prompt_tokens: 100,
@@ -113,14 +110,14 @@ describe('aggregateDashboards model_costs fold', () => {
         },
       ],
     });
-    const snapshot = { ...input.model_costs[0] };
+    const snapshot = { ...input.model_costs_30d![0] };
     aggregateDashboards(
       new Map([
         ['proj-a', input],
         ['proj-b', input],
       ]),
     );
-    expect(input.model_costs[0]).toEqual(snapshot);
+    expect(input.model_costs_30d![0]).toEqual(snapshot);
   });
 });
 

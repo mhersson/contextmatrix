@@ -25,9 +25,6 @@ function summary(total: number): DashboardData {
     cards_completed_last_7d: 0,
     cards_completed_prior_7d: 0,
     metric_series: { points: [] },
-    agent_costs: [],
-    card_costs: [],
-    model_costs: [],
   } as unknown as DashboardData;
 }
 

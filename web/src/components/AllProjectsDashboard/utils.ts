@@ -1,6 +1,5 @@
 import type {
   ActiveAgent,
-  AgentCost,
   CardCost,
   DashboardData,
   ModelCost,
@@ -109,10 +108,7 @@ export function aggregateDashboards(
   let completedPrior7d = 0;
   let completedPrior7dParents = 0;
   const allAgents: ActiveAgent[] = [];
-  const agentCostMap = new Map<string, AgentCost>();
-  const modelCostMap = new Map<string, ModelCost>();
   const modelCost30dMap = new Map<string, ModelCost>();
-  const allCardCosts: CardCost[] = [];
   const allCardCosts30d: CardCost[] = [];
 
   for (const data of summaries.values()) {
@@ -143,31 +139,6 @@ export function aggregateDashboards(
     completedPrior7d += data.cards_completed_prior_7d ?? 0;
     completedPrior7dParents += data.cards_completed_prior_7d_parents ?? 0;
     allAgents.push(...data.active_agents);
-    allCardCosts.push(...data.card_costs);
-    for (const ac of data.agent_costs) {
-      const existing = agentCostMap.get(ac.agent_id);
-      if (existing) {
-        existing.prompt_tokens += ac.prompt_tokens;
-        existing.completion_tokens += ac.completion_tokens;
-        existing.estimated_cost_usd += ac.estimated_cost_usd;
-        existing.card_count += ac.card_count;
-        existing.has_estimates = existing.has_estimates || ac.has_estimates;
-      } else {
-        agentCostMap.set(ac.agent_id, { ...ac });
-      }
-    }
-    for (const mc of data.model_costs) {
-      const existing = modelCostMap.get(mc.model);
-      if (existing) {
-        existing.prompt_tokens += mc.prompt_tokens;
-        existing.completion_tokens += mc.completion_tokens;
-        existing.estimated_cost_usd += mc.estimated_cost_usd;
-        existing.card_count += mc.card_count;
-        existing.has_estimates = existing.has_estimates || mc.has_estimates;
-      } else {
-        modelCostMap.set(mc.model, { ...mc });
-      }
-    }
     for (const mc of data.model_costs_30d ?? []) {
       const existing = modelCost30dMap.get(mc.model);
       if (existing) {
@@ -215,9 +186,6 @@ export function aggregateDashboards(
       stalled_parents: [],
       shipped_parents: [],
     },
-    agent_costs: Array.from(agentCostMap.values()),
-    model_costs: Array.from(modelCostMap.values()),
-    card_costs: allCardCosts,
     model_costs_30d: Array.from(modelCost30dMap.values()),
     card_costs_30d: allCardCosts30d,
     chat_cost_usd_last_30d: chatCostSource?.chat_cost_usd_last_30d,
