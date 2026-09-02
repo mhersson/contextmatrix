@@ -580,6 +580,44 @@ func TestUpdateCardSelfContainmentWarnsOnlyForNewSignals(t *testing.T) {
 	assert.Equal(t, 2, activityCount(after, "self_containment_warning"))
 }
 
+// TestCreateCardDuplicateSubtaskDoesNotRewarn pins what the create path lints:
+// the duplicate-subtask guard returns the pre-existing card, so linting the
+// submitted text keeps that no-op create from re-warning about a signal
+// already on the card it hands back.
+func TestCreateCardDuplicateSubtaskDoesNotRewarn(t *testing.T) {
+	env := setupMCP(t)
+	ctx := context.Background()
+
+	parent := createTestCard(t, env, "Dedup parent", "feature", "high")
+
+	result := callTool(t, env, "create_card", map[string]any{
+		"project": "test-project", "title": "Shared subtask title", "type": "task",
+		"priority": "medium", "parent": parent.ID, "body": "see ~/notes.md",
+	})
+	require.False(t, result.IsError)
+
+	var first cardMutationResult
+	unmarshalResult(t, result, &first)
+	assert.Len(t, first.Warnings, 1)
+
+	// Same title under the same parent: the dedup guard returns the existing
+	// card instead of creating one, and this body carries no signal.
+	result = callTool(t, env, "create_card", map[string]any{
+		"project": "test-project", "title": "Shared subtask title", "type": "task",
+		"priority": "medium", "parent": parent.ID, "body": "update internal/api/auth.go",
+	})
+	require.False(t, result.IsError)
+
+	var second cardMutationResult
+	unmarshalResult(t, result, &second)
+	assert.Equal(t, first.ID, second.ID, "a duplicate subtask must return the existing card")
+	assert.Empty(t, second.Warnings, "a deduped create must not re-warn about the existing card")
+
+	existing, err := env.store.GetCard(ctx, "test-project", first.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 1, activityCount(existing, "self_containment_warning"), "log=%+v", existing.ActivityLog)
+}
+
 // setupMCPTwoProjects mirrors setupMCP but registers a second project
 // ("other-project") with a repo and a repos[] entry, and gives the primary
 // project ("test-project") its own repo too - so the self-containment lint's

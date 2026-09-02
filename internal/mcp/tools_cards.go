@@ -435,9 +435,15 @@ func registerUpdateCard(server *mcp.Server, svc *service.CardService) {
 			}
 		}
 
-		before, err := svc.GetCard(ctx, project, input.CardID)
-		if err != nil {
-			return nil, nil, fmt.Errorf("get card %s: %w", input.CardID, err)
+		lintable := input.Title != nil || input.Body != nil || input.UpsertSectionContent != nil
+
+		var before *board.Card
+
+		if lintable {
+			before, err = svc.GetCard(ctx, project, input.CardID)
+			if err != nil {
+				return nil, nil, fmt.Errorf("get card %s: %w", input.CardID, err)
+			}
 		}
 
 		card, err := svc.PatchCard(ctx, project, input.CardID, patchInput)
@@ -446,7 +452,7 @@ func registerUpdateCard(server *mcp.Server, svc *service.CardService) {
 		}
 
 		var warnings []string
-		if input.Title != nil || input.Body != nil || input.UpsertSectionContent != nil {
+		if lintable {
 			warnings = lintCardMutation(ctx, svc, project, card.ID, input.AgentID, "updated", lintText(card), lintText(before))
 		}
 
