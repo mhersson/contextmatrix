@@ -179,9 +179,13 @@ describe('useBoard - playbook events', () => {
     vi.clearAllMocks();
   });
 
-  it('refetches the board when a playbook changes (membership icons may flip)', async () => {
-    renderHook(() => useBoard('alpha'), { wrapper });
+  it('refreshes the cards on a playbook change without showing the loading skeleton', async () => {
+    const { result } = renderHook(() => useBoard('alpha'), { wrapper });
     await waitFor(() => expect(vi.mocked(api.getCards)).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const refreshed = [{ ...cards[0], in_playbooks: ['pb-1'] }];
+    vi.mocked(api.getCards).mockResolvedValueOnce(refreshed);
 
     act(() => {
       latestInstance()._triggerOpen();
@@ -192,7 +196,12 @@ describe('useBoard - playbook events', () => {
       } as MessageEvent);
     });
 
+    // The refetch is in flight; the board must not have flipped to loading.
+    expect(result.current.loading).toBe(false);
+
     await waitFor(() => expect(vi.mocked(api.getCards)).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(result.current.cards[0]?.in_playbooks).toEqual(['pb-1']));
+    expect(result.current.loading).toBe(false);
   });
 });
 

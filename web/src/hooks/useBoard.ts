@@ -97,6 +97,23 @@ export function useBoard(
     }
   }, [project, stableFilter]);
 
+  // Silent list refresh: replaces the card list without touching `loading`,
+  // keeping any card whose PATCH is still in flight.
+  const refreshCards = useCallback(() => {
+    if (!project) return;
+    api
+      .getCards(project, stableFilter)
+      .then((next) => {
+        setCards((prev) =>
+          next.map((c) => (inFlightRef.current.has(c.id) ? (prev.find((p) => p.id === c.id) ?? c) : c)),
+        );
+        setListEpoch((e) => e + 1);
+      })
+      .catch((err) => {
+        console.error('Failed to refresh cards:', err);
+      });
+  }, [project, stableFilter]);
+
   // Reset state on project/filter change (render-time pattern).
   const [prevProject, setPrevProject] = useState(project);
   const [prevFilter, setPrevFilter] = useState(stableFilter);
@@ -186,11 +203,11 @@ export function useBoard(
         return;
       }
 
-      // Playbook membership is annotated onto cards at read time, so any
-      // playbook change can flip a card's playbook icon. Playbook events are
-      // global (no project field); refetch the board.
+      // Playbook membership is annotated onto cards at read time and playbook
+      // events are global, so every board refreshes - silently: a skeleton
+      // for another user's note edit would cancel drags and reset scroll.
       if (event.type.startsWith('playbook.')) {
-        fetchData();
+        refreshCards();
         return;
       }
 
@@ -239,7 +256,7 @@ export function useBoard(
           break;
       }
     },
-    [project, fetchData, mergeCard]
+    [project, fetchData, mergeCard, refreshCards]
   );
 
   const { subscribe, connected, error: sseError, reconnectEpoch } = useSSEBus();
