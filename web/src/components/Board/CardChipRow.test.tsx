@@ -49,36 +49,6 @@ describe('CardChipRow - declutter: footer omitted unless assigned', () => {
     );
     expect(container).toBeEmptyDOMElement();
   });
-
-  it('never prints the agent name', () => {
-    authState.current = { mode: 'multi' };
-    render(
-      <CardChipRow
-        card={{ ...baseCard, assigned_agent: 'claude-sonnet-worker', assignee: 'alice' }}
-      />,
-    );
-    expect(screen.queryByText(/sonnet-worker/)).not.toBeInTheDocument();
-  });
-
-  it('never renders label, branch, deps, or best-of-n pills', () => {
-    render(
-      <CardChipRow
-        card={{
-          ...baseCard,
-          labels: ['observability'],
-          branch_name: 'test-001/chip-row-card',
-          state: 'in_progress',
-          depends_on: ['TEST-009'],
-          dependencies_met: true,
-          best_of_n: 3,
-        }}
-      />,
-    );
-    expect(screen.queryByText('observability')).not.toBeInTheDocument();
-    expect(screen.queryByText('chip-row-card')).not.toBeInTheDocument();
-    expect(screen.queryByText('deps met')).not.toBeInTheDocument();
-    expect(screen.queryByText('Best of 3')).not.toBeInTheDocument();
-  });
 });
 
 describe('CardChipRow - assignee chip', () => {

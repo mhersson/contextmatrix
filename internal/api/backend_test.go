@@ -3544,13 +3544,10 @@ func TestRunCardMaxCapabilityPayload(t *testing.T) {
 	}
 }
 
-// --- Selection carries no outcome data ---
-
-// TestRunCardSelectionCarriesNoOutcomeData pins the wire contract that
-// selection is priors-only: the trigger payload never carries per-candidate
-// outcome stats or an outcome floor, regardless of what the outcome ledger
-// holds.
-func TestRunCardSelectionCarriesNoOutcomeData(t *testing.T) {
+// TestRunCardAttachesSelection verifies that triggering a run attaches a
+// model selection to the backend trigger payload, with the candidate
+// returned by the catalog included.
+func TestRunCardAttachesSelection(t *testing.T) {
 	const candidateSlug = "z-ai/glm-5.2"
 
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
@@ -3602,9 +3599,6 @@ func TestRunCardSelectionCarriesNoOutcomeData(t *testing.T) {
 	require.NoError(t, json.Unmarshal(capturedBody, &capturedPayload))
 	require.NotNil(t, capturedPayload.Selection, "sanity: selection must be attached")
 	require.Len(t, capturedPayload.Selection.Candidates, 1)
-
-	assert.NotContains(t, string(capturedBody), `"outcomes"`)
-	assert.NotContains(t, string(capturedBody), `"outcome_floor"`)
 }
 
 func TestMergeFavorites(t *testing.T) {

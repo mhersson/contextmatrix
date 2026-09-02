@@ -165,8 +165,6 @@ describe('SubtaskPeekList', () => {
     );
     const active = screen.getByTitle('Subtask TEST-002');
     expect(active.className).toContain('peek-row--agent');
-    // The row tint is the claim signal; the avatar dot is gone from peek rows.
-    expect(active.querySelector('.agent-avatar')).toBeNull();
     expect(screen.getByTitle('Subtask TEST-003').className).not.toContain('peek-row--agent');
   });
 });

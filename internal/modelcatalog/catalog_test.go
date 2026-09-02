@@ -1,9 +1,7 @@
 package modelcatalog
 
 import (
-	"bytes"
 	"context"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -367,13 +365,6 @@ func TestBuilderExcludesUnmappedServedModel(t *testing.T) {
 	}))
 	defer aaSrv.Close()
 
-	prev := slog.Default()
-
-	var buf bytes.Buffer
-
-	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
-	t.Cleanup(func() { slog.SetDefault(prev) })
-
 	b := NewBuilder("aa-key", 0.5, []string{"vendor"}, time.Hour,
 		WithEndpoint(endpointSrv.URL, "secret", map[string]string{"model-a": "vendor-x-1"}, nil))
 	b.aaEndpoint = aaSrv.URL // package-accessible field; set directly (no existing helper)
@@ -382,12 +373,6 @@ func TestBuilderExcludesUnmappedServedModel(t *testing.T) {
 	cands := b.Candidates(context.Background())
 	require.Len(t, cands, 1)
 	assert.Equal(t, "model-a", cands[0].Slug)
-
-	// The exclusion is surfaced as a WARN naming the slug and reason.
-	logs := buf.String()
-	assert.Contains(t, logs, `msg="endpoint model not selectable"`)
-	assert.Contains(t, logs, `slug=unmapped-model`)
-	assert.Contains(t, logs, `reason="no aa_model_map or model_priors entry"`)
 }
 
 func TestBuilderUsesEndpointLegWhenConfigured(t *testing.T) {

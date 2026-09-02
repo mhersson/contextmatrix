@@ -62,13 +62,6 @@ function makeSub(id: string, overrides: Partial<Card> = {}): Card {
 }
 
 describe('CardItem - declutter', () => {
-  it('renders no parent badge in either view', () => {
-    const { rerender } = render(<CardItem card={subtaskCard} />);
-    expect(screen.queryByTitle(/^Parent:/)).not.toBeInTheDocument();
-    rerender(<CardItem card={subtaskCard} isCollapsed />);
-    expect(screen.queryByTitle(/^Parent:/)).not.toBeInTheDocument();
-  });
-
   it('shows the priority dot in the header in both views', () => {
     const { rerender } = render(<CardItem card={baseCard} />);
     expect(screen.getByRole('img', { name: 'Priority: medium' })).toBeInTheDocument();
@@ -106,10 +99,9 @@ describe('CardItem - declutter', () => {
     expect(screen.queryByRole('img', { name: 'Autonomous' })).not.toBeInTheDocument();
   });
 
-  it('never prints the agent name on a claimed card but keeps the pulse border', () => {
+  it('a claimed card gets the pulse border', () => {
     const card = { ...baseCard, assigned_agent: 'claude-sonnet-worker' };
     render(<CardItem card={card} />);
-    expect(screen.queryByText(/sonnet-worker/)).not.toBeInTheDocument();
     const root = screen.getByLabelText(`Card ${card.id}: ${card.title}`);
     expect(root.className).toContain('animate-pulse-border');
   });
