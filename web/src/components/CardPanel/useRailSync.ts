@@ -3,6 +3,7 @@ import type React from 'react';
 import type { Card } from '../../types';
 import type { RailMode, RailTabKey } from './CardPanelBody';
 import { safeReadBool, safeWriteBool } from '../../utils/safeStorage';
+import { arraysEqual, skillsEqual } from './utils';
 
 const RAIL_STORAGE_KEY = 'contextmatrix-rail-expanded';
 
@@ -14,11 +15,28 @@ const safeWriteRail = (value: boolean) => safeWriteBool(RAIL_STORAGE_KEY, value)
 const restoreMode = (isChatInteractive: boolean): RailMode =>
   (safeReadRail() ?? isChatInteractive) ? 'expanded' : 'collapsed';
 
+/**
+ * True when `a` (the draft) differs from `b` (last known server value) in a
+ * way that counts as a user edit. Array fields compare by content, matching
+ * `isCardDirty`: a save never resets the draft, so a reference check would
+ * read a saved array as "still edited" forever once the server's own
+ * reference moves on.
+ */
+function fieldChanged(key: keyof Card, a: unknown, b: unknown): boolean {
+  if (key === 'skills') {
+    return !skillsEqual(a as string[] | null | undefined, b as string[] | null | undefined);
+  }
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return !arraysEqual(a as string[] | undefined, b as string[] | undefined);
+  }
+  return !Object.is(a, b);
+}
+
 /** `next` with the keys the user changed since `prev` kept from `draft`. */
 export function mergeDraft(draft: Card, prev: Card, next: Card): Card {
   const out: Card = { ...next };
   for (const key of Object.keys(draft) as (keyof Card)[]) {
-    if (!Object.is(draft[key], prev[key])) {
+    if (fieldChanged(key, draft[key], prev[key])) {
       (out as unknown as Record<string, unknown>)[key] = draft[key];
     }
   }
