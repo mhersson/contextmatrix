@@ -526,6 +526,60 @@ func TestUpdateCardSelfContainmentWarnings(t *testing.T) {
 		"expected a self_containment_warning activity entry, got: %+v", after.ActivityLog)
 }
 
+func activityCount(card *board.Card, action string) int {
+	n := 0
+
+	for _, entry := range card.ActivityLog {
+		if entry.Action == action {
+			n++
+		}
+	}
+
+	return n
+}
+
+func TestUpdateCardSelfContainmentWarnsOnlyForNewSignals(t *testing.T) {
+	env := setupMCP(t)
+	ctx := context.Background()
+
+	card := createTestCard(t, env, "Rewritten target", "task", "medium")
+
+	// First write introduces one signal: one warning, one log entry.
+	result := callTool(t, env, "update_card", map[string]any{
+		"project": "test-project", "card_id": card.ID, "body": "see ~/notes.md",
+	})
+	require.False(t, result.IsError)
+
+	// The agent rewrites the whole body every phase; the old signal is still
+	// there and nothing new arrived.
+	result = callTool(t, env, "update_card", map[string]any{
+		"project": "test-project", "card_id": card.ID, "body": "see ~/notes.md\n\n## Plan\n\n- step one",
+	})
+	require.False(t, result.IsError)
+
+	var second cardMutationResult
+	unmarshalResult(t, result, &second)
+	assert.Empty(t, second.Warnings, "a signal already on the card is not re-warned")
+
+	after, err := env.store.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 1, activityCount(after, "self_containment_warning"), "log=%+v", after.ActivityLog)
+
+	// A genuinely new signal warns and logs again.
+	result = callTool(t, env, "update_card", map[string]any{
+		"project": "test-project", "card_id": card.ID, "body": "see ~/notes.md and file:///tmp/x.md",
+	})
+	require.False(t, result.IsError)
+
+	var third cardMutationResult
+	unmarshalResult(t, result, &third)
+	assert.Len(t, third.Warnings, 1)
+
+	after, err = env.store.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 2, activityCount(after, "self_containment_warning"))
+}
+
 // setupMCPTwoProjects mirrors setupMCP but registers a second project
 // ("other-project") with a repo and a repos[] entry, and gives the primary
 // project ("test-project") its own repo too - so the self-containment lint's
