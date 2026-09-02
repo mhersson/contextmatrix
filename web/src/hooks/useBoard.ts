@@ -64,6 +64,11 @@ export function useBoard(
   // (e.g. triggered by SSE sync.completed) from overwriting a newer one.
   const reqIdRef = useRef(0);
 
+  // Per-instance monotonic counter for silent refreshes. These never stamp
+  // reqIdRef, so without their own id two back-to-back refreshes would carry
+  // the same one and whichever resolved last would win, even when older.
+  const refreshSeqRef = useRef(0);
+
   const fetchData = useCallback(async () => {
     if (!project) {
       setConfig(null);
@@ -106,10 +111,11 @@ export function useBoard(
     // landing after a newer fetchData call (e.g. a project/filter switch)
     // already took over, without invalidating that fetchData call itself.
     const reqId = reqIdRef.current;
+    const refreshSeq = ++refreshSeqRef.current;
     api
       .getCards(project, stableFilter)
       .then((next) => {
-        if (reqId !== reqIdRef.current) return;
+        if (reqId !== reqIdRef.current || refreshSeq !== refreshSeqRef.current) return;
         setCards((prev) =>
           next.map((c) => (inFlightRef.current.has(c.id) ? (prev.find((p) => p.id === c.id) ?? c) : c)),
         );
