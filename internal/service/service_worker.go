@@ -392,12 +392,14 @@ func (s *CardService) UpdateWorkerStatus(ctx context.Context, project, cardID, s
 		return nil, rollbackErr
 	}
 
-	// A failed/killed callback with the claim still in place is the only
-	// terminal path that bypasses ReleaseCard: a hard worker crash never
-	// releases. Post-terminal cleanup callbacks were normalized to
-	// "completed" above and the release already popped the run.
-	if (status == "failed" || status == "killed") && hadAgent {
+	// Two terminal paths bypass ReleaseCard: a hard worker crash (failed or
+	// killed with the claim still held) and a park, whose container exits
+	// normally after report_parked. Both end the run here.
+	switch {
+	case (status == "failed" || status == "killed") && hadAgent:
 		s.observeRunEnd(project, card, "failed")
+	case preserveParked && hadAgent:
+		s.observeRunEnd(project, card, "review_parked")
 	}
 
 	s.runSessionManagerLifecycleHooks(ctx, cardID, project, prevWorkerStatus, status)
