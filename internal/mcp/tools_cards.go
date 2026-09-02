@@ -394,7 +394,8 @@ func registerCreateCard(server *mcp.Server, svc *service.CardService) {
 			return nil, nil, fmt.Errorf("create card: %w", err)
 		}
 
-		warnings := lintCardMutation(ctx, svc, input.Project, card.ID, input.AgentID, "created", lintText(card), "")
+		submitted := strings.Join([]string{input.Title, input.Body}, "\n")
+		warnings := lintCardMutation(ctx, svc, input.Project, card.ID, input.AgentID, "created", submitted, "")
 
 		return nil, &cardMutationResult{CardSummary: *summarizeCard(card), Warnings: warnings}, nil
 	})
