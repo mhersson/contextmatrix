@@ -69,6 +69,11 @@ func TestReportParked_SurvivesCompletedCallback(t *testing.T) {
 		testutil.ToFloat64(metrics.CardRunsTotal.WithLabelValues("test-project", "review_parked", "normal")), 1e-9,
 		"the completed callback after a park is the run's end")
 
+	svc.telemetryMu.Lock()
+	assert.NotContains(t, svc.runStarts, telemetryKey("test-project", card.ID),
+		"the park's run start is popped")
+	svc.telemetryMu.Unlock()
+
 	// A re-trigger replaces the park like any other stale terminal status.
 	got, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "queued", "task queued for worker")
 	require.NoError(t, err)
