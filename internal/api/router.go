@@ -165,9 +165,10 @@ type RouterConfig struct {
 	ImageStore images.Store
 
 	// Catalog and Blacklist supply model-selection inputs for agent-backend
-	// triggers (attached as SelectionContext on TriggerPayload). Both are nil
-	// until T8 wires the real implementations in main.go; runCard guards on
-	// Catalog != nil before attaching Selection, so omitting them is safe.
+	// triggers (attached as SelectionContext on TriggerPayload); runCard
+	// skips Selection when Catalog is nil, so omitting either is safe.
+	// Blacklist also marks blacklisted entries in the model pickers
+	// (best-effort: a failed read serves the list without flags).
 	Catalog   catalogProvider
 	Blacklist blacklistReader
 	// OutcomesAdmin supplies the read+reset surface for the admin
@@ -194,12 +195,6 @@ type RouterConfig struct {
 	// endpoint's served list. Feeds the openrouter-mode chat picker and
 	// GET /api/models.
 	ServedModels func(context.Context) []ServedModelView
-	// PickerBlacklist, when non-nil, marks picker entries whose slug is in
-	// the opstore model blacklist with blacklisted: true on GET /api/models
-	// and GET /api/chats/models (best-effort: a failed read serves the list
-	// without flags). Same nil-when-unwired contract as ServedModels; in
-	// main.go this is the same opstore handle passed as Blacklist.
-	PickerBlacklist blacklistReader
 	// ServedModelsSource labels ServedModels for GET /api/models: "openrouter"
 	// or "endpoint". Empty when ServedModels is nil.
 	ServedModelsSource string
@@ -473,7 +468,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	// Model catalog for the card pin pickers - available regardless of chat
 	// mode; returns source "none" when no catalog builder is configured.
-	mch := &modelCatalogHandlers{served: cfg.ServedModels, source: cfg.ServedModelsSource, blacklist: cfg.PickerBlacklist}
+	mch := &modelCatalogHandlers{served: cfg.ServedModels, source: cfg.ServedModelsSource, blacklist: cfg.Blacklist}
 	mux.HandleFunc("GET /api/models", mch.listModels)
 
 	// Sync routes
@@ -542,7 +537,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	// Chat routes - registered only when both the manager and hub are wired.
 	if cfg.ChatManager != nil && cfg.ChatHub != nil {
 		chh := newChatHandlers(cfg.ChatManager, cfg.ChatHub, cfg.ChatBackendCfg)
-		chh.blacklist = cfg.PickerBlacklist
+		chh.blacklist = cfg.Blacklist
 
 		if cfg.ChatEndpointModels != nil {
 			emFn := cfg.ChatEndpointModels
