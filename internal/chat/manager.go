@@ -1401,11 +1401,11 @@ const (
 	persistTimeout = 30 * time.Second
 )
 
-// reseedSeq re-reads the session's MAX(seq) after a failed write and reseeds
-// the in-memory counter from disk under the per-session lock, instead of
-// decrementing it. The row may have committed despite the error, so a
-// decrement could land behind disk and collide on UNIQUE(session_id, seq),
-// wedging every later append; a counter left ahead of disk only leaves a gap.
+// reseedSeq re-reads MAX(seq) after a failed write and reseeds the in-memory
+// counter from disk instead of decrementing it. Callers hold the session's
+// append lock, so MAX(seq) is authoritative. The row may have committed
+// despite the error: a decrement could land behind disk and collide on
+// UNIQUE(session_id, seq) and wedge every later append. A gap is harmless.
 func (m *Manager) reseedSeq(ctx context.Context, sessionID, op string) {
 	reseedCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), reseedTimeout)
 	defer cancel()

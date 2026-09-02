@@ -106,7 +106,8 @@ export function ProjectShell() {
   // retrigger this effect. Also keyed on listEpoch: a wholesale list replace
   // (sync pull, SSE-reconnect resync) rebuilds `cards` from the list endpoint
   // and wipes hydrated fields, so the epoch bump re-fires the fetch. No loop:
-  // refreshCard merges without bumping the epoch - only fetchData bumps it.
+  // refreshCard merges without bumping the epoch - only the wholesale list
+  // replaces (fetchData, the silent playbook refresh) bump it.
   const selectedCardId = selectedCard?.id;
   useEffect(() => {
     if (!project || !selectedCardId) return;

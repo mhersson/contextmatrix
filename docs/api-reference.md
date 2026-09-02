@@ -1345,8 +1345,9 @@ Subtasks whose parent card no longer exists keep their own row.
 
 `model_costs_30d` aggregates token usage and cost per model across the project.
 Cards whose token-usage records have an empty `model` string are bucketed
-under `"unknown"`. Each card is attributed to its most-recently-used model
-(cards that used multiple models show under the last one).
+under `"unknown"`. A card with a usage breakdown contributes to every model row
+it used (tokens and cost per bucket, `card_count` once per model); a card
+without one lands under its `token_usage.model`.
 
 Both rollups are restricted to cards whose `updated` falls inside the last-30d
 window - the same boundary as `total_cost_usd_last_30d`, so `card_costs_30d`
