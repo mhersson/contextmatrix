@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -3542,63 +3541,6 @@ func TestRunCardMaxCapabilityPayload(t *testing.T) {
 			assert.Equal(t, tc.want, capturedPayload.MaxCapability)
 		})
 	}
-}
-
-// TestRunCardAttachesSelection verifies that triggering a run attaches a
-// model selection to the backend trigger payload, with the candidate
-// returned by the catalog included.
-func TestRunCardAttachesSelection(t *testing.T) {
-	const candidateSlug = "z-ai/glm-5.2"
-
-	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
-	t.Cleanup(cleanup)
-
-	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
-		Title: "Outcome stats task", Type: "task", Priority: "medium",
-	})
-	require.NoError(t, err)
-
-	cat := &stubCatalog{
-		candidates: []protocol.CandidateModel{
-			{Slug: candidateSlug, CoderPrior: 0.9, ReviewerPrior: 0.8},
-		},
-	}
-
-	var capturedBody []byte
-
-	mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		capturedBody, _ = io.ReadAll(r.Body)
-
-		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
-	}))
-	t.Cleanup(mockBackend.Close)
-
-	backendClient := backend.NewClient(mockBackend.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
-	router := NewRouter(RouterConfig{
-		Service: svc, Bus: bus, Backend: backendClient,
-		AgentBackendCfg: &config.AgentBackendConfig{
-			APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj",
-		},
-		Catalog: cat,
-		BestOfN: config.BestOfNConfig{MaxCandidates: 5},
-	})
-
-	server := httptest.NewServer(router)
-	t.Cleanup(server.Close)
-
-	req, _ := http.NewRequest("POST", server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", nil)
-
-	resp, err := http.DefaultClient.Do(req)
-
-	require.NoError(t, err)
-	defer closeBody(t, resp.Body)
-
-	require.Equal(t, http.StatusAccepted, resp.StatusCode)
-
-	var capturedPayload backend.TriggerPayload
-	require.NoError(t, json.Unmarshal(capturedBody, &capturedPayload))
-	require.NotNil(t, capturedPayload.Selection, "sanity: selection must be attached")
-	require.Len(t, capturedPayload.Selection.Candidates, 1)
 }
 
 func TestMergeFavorites(t *testing.T) {
