@@ -312,15 +312,29 @@ func (s *CardService) SetSharedRepo(shared bool) {
 }
 
 // LockWrites acquires the write mutex, preventing all card mutations.
-// Exposed for the gitsync layer, which must suspend all writes during
-// pull+rebuild to avoid interleaving with a rebase. If a commit queue is
-// configured, it is also paused and drained so no async commit subprocess
-// races against an external shell rebase/push.
+// Exposed for the gitsync layer, which must suspend writes across the
+// repository operation it is about to run: a rebase on a private board
+// repository, a merge on a shared one. If a commit queue is configured it is
+// also paused, so no async commit subprocess races that shell git operation
+// on .git/index.lock.
 //
-// On a shared repository the drain is total: every queued card commit runs
-// before this returns, because the merge that follows has to see a fully
-// committed tree. Otherwise only the commits already executing are waited
-// out, and buffered ones resume after UnlockWrites.
+// How much is waited out depends on the repository:
+//
+//   - Shared: the drain is total. Every queued card commit runs before this
+//     returns, because the merge that follows has to see a fully committed
+//     tree. Best-effort within a 30 s budget - on expiry this logs and
+//     returns anyway, so a caller that needs certainty checks IsClean rather
+//     than trusting the return.
+//   - Otherwise: only the commits already executing are waited out. Buffered
+//     ones stay queued and run after UnlockWrites, which is sufficient for a
+//     rebase.
+//
+// Ordering constraint owed to the caller: the commit queue is shared with
+// PlaybookService, so a caller that locks both must take
+// PlaybookService.LockWrites first. A playbook mutation awaits its own commit
+// while holding the playbook lock; if that job lands in a queue this method
+// has already paused, the playbook lock is held until UnlockWrites, which the
+// caller only reaches after acquiring it. See PlaybookService.LockWrites.
 func (s *CardService) LockWrites() {
 	s.writeMu.Lock()
 
@@ -328,7 +342,7 @@ func (s *CardService) LockWrites() {
 		return
 	}
 
-	// The lock is already held so new writes cannot enqueue fresh jobs
+	// The lock is already held so no card write can enqueue a fresh job
 	// while we wait; the budget bounds a wedged commit.
 	drainCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

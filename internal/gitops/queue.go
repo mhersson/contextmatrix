@@ -571,15 +571,23 @@ func (q *CommitQueue) AwaitIdle(ctx context.Context) error {
 	}
 }
 
-// Drain lets every buffered job run to completion and leaves the queue
-// paused. Unlike AwaitIdle, which only waits out the commits already
+// Drain runs whatever is buffered plus whatever arrives while it runs, then
+// pauses. Unlike AwaitIdle, which only waits out the commits already
 // executing, Drain also waits for jobs still sitting in a per-project
 // channel - required before a shell merge, which needs every card change
 // already committed.
 //
-// Callers hold the service write lock, so no new job can arrive while the
-// queue is briefly resumed. On a cancelled context the queue is still left
-// paused and the context error is returned.
+// Drain does not assume the queue is quiescent. Holding the card write lock
+// stops card commits from arriving, but the queue is shared: a playbook
+// commit can still enqueue during the window Drain leaves the queue resumed.
+// Such a job is waited out because Enqueue counts it under q.mu before the
+// channel send, so Drain cannot observe zero while a job is in flight. Do
+// not move that increment after the send. A job that races in after Drain
+// has paused simply waits, buffered, until the caller resumes the queue.
+//
+// Quiescence across both writers is the caller's job, not this method's: see
+// the lock-ordering contract on CardService.LockWrites. On a cancelled
+// context the queue is still left paused and the context error is returned.
 func (q *CommitQueue) Drain(ctx context.Context) error {
 	q.Resume()
 
