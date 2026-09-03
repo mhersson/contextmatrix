@@ -67,7 +67,7 @@ func registerClaimCard(server *mcp.Server, svc *service.CardService) {
 
 		card, err := svc.ClaimCard(ctx, project, input.CardID, input.AgentID)
 		if err != nil {
-			return nil, claimCardOutput{}, fmt.Errorf("claim card %s: %w", input.CardID, err)
+			return nil, claimCardOutput{}, remoteErr(fmt.Errorf("claim card %s: %w", input.CardID, err))
 		}
 
 		out := claimCardOutput{CardSummary: summarizeCard(card)}

@@ -75,7 +75,7 @@ func registerCreateProject(server *mcp.Server, svc *service.CardService) {
 			Transitions: input.Transitions,
 		})
 		if err != nil {
-			return nil, nil, fmt.Errorf("create project %s: %w", input.Name, err)
+			return nil, nil, remoteErr(fmt.Errorf("create project %s: %w", input.Name, err))
 		}
 
 		return nil, cfg, nil
@@ -110,7 +110,7 @@ func registerUpdateProject(server *mcp.Server, svc *service.CardService) {
 			DefaultSkills: cur.DefaultSkills,
 		})
 		if err != nil {
-			return nil, nil, fmt.Errorf("update project %s: %w", input.Project, err)
+			return nil, nil, remoteErr(fmt.Errorf("update project %s: %w", input.Project, err))
 		}
 
 		return nil, cfg, nil
@@ -123,7 +123,7 @@ func registerDeleteProject(server *mcp.Server, svc *service.CardService) {
 		Description: "Delete a project. The project must have zero cards - delete all cards first. Removes the project directory and configuration.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input deleteProjectToolInput) (*mcp.CallToolResult, deleteProjectOutput, error) {
 		if err := svc.DeleteProject(ctx, input.Project); err != nil {
-			return nil, deleteProjectOutput{}, fmt.Errorf("delete project %s: %w", input.Project, err)
+			return nil, deleteProjectOutput{}, remoteErr(fmt.Errorf("delete project %s: %w", input.Project, err))
 		}
 
 		return nil, deleteProjectOutput{Deleted: true}, nil

@@ -253,10 +253,11 @@ func isNonHumanAgent(r *http.Request) bool {
 	return agentID != "" && !board.IsHumanAgentID(agentID)
 }
 
-// validateAgentOwnership checks if the requesting agent can mutate a claimed card.
-// Returns an error message if unauthorized, empty string if allowed.
-// Unclaimed cards can be mutated by anyone.
-func validateAgentOwnership(r *http.Request, card *board.Card) string {
+// validateAgentOwnership checks whether the caller may mutate a claimed card.
+// Returns a message when not, empty when allowed. Unclaimed cards can be
+// mutated by anyone; on a shared board a claim granted by another instance
+// belongs to that instance's agent even when the IDs match.
+func validateAgentOwnership(r *http.Request, card *board.Card, svc *service.CardService) string {
 	if card.AssignedAgent == "" {
 		return "" // Unclaimed cards can be mutated by anyone
 	}
@@ -266,7 +267,11 @@ func validateAgentOwnership(r *http.Request, card *board.Card) string {
 		return "X-Agent-ID header required to modify claimed card"
 	}
 
-	if agentID != card.AssignedAgent {
+	if !svc.OwnsClaim(card, agentID) {
+		if card.ClaimedElsewhere(svc.InstanceID()) {
+			return "card is claimed by " + card.AssignedAgent + " via instance " + card.ClaimedVia
+		}
+
 		return "card is claimed by " + card.AssignedAgent
 	}
 
@@ -607,7 +612,7 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if errMsg := validateAgentOwnership(r, existingCard); errMsg != "" {
+	if errMsg := validateAgentOwnership(r, existingCard, h.svc); errMsg != "" {
 		writeError(w, http.StatusForbidden, ErrCodeAgentMismatch, "agent mismatch", errMsg)
 
 		return
@@ -759,7 +764,7 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if errMsg := validateAgentOwnership(r, existingCard); errMsg != "" {
+	if errMsg := validateAgentOwnership(r, existingCard, h.svc); errMsg != "" {
 		writeError(w, http.StatusForbidden, ErrCodeAgentMismatch, "agent mismatch", errMsg)
 
 		return
@@ -868,7 +873,7 @@ func (h *cardHandlers) deleteCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if errMsg := validateAgentOwnership(r, existingCard); errMsg != "" {
+	if errMsg := validateAgentOwnership(r, existingCard, h.svc); errMsg != "" {
 		writeError(w, http.StatusForbidden, ErrCodeAgentMismatch, "agent mismatch", errMsg)
 
 		return

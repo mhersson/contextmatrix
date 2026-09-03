@@ -281,3 +281,33 @@ func TestHandleServiceError_BoardValidationSentinels(t *testing.T) {
 		})
 	}
 }
+
+// TestHandleServiceError_RemoteUnreachable pins the 503 mapping a
+// push-verified write gets when the boards remote could not be reached.
+func TestHandleServiceError_RemoteUnreachable(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/projects/p/cards", nil)
+
+	handleServiceError(rec, req, fmt.Errorf("create card: %w: fetch: dial tcp", service.ErrRemoteUnreachable))
+
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+
+	var apiErr APIError
+	require.NoError(t, encodingjson.NewDecoder(rec.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodeRemoteUnreachable, apiErr.Code)
+}
+
+// TestHandleServiceError_ClaimFencedIsAgentMismatch pins that a fenced claim
+// reaches agents as the existing lost-claim error, not as a new code.
+func TestHandleServiceError_ClaimFencedIsAgentMismatch(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/projects/p/cards/X-1/release", nil)
+
+	handleServiceError(rec, req, fmt.Errorf("release card: %w", service.ErrClaimFenced))
+
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+
+	var apiErr APIError
+	require.NoError(t, encodingjson.NewDecoder(rec.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodeAgentMismatch, apiErr.Code)
+}

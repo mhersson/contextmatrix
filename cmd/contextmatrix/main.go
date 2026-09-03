@@ -652,6 +652,8 @@ func main() {
 		GitHubAllowedHosts:     cfg.GitHub.AllowedHosts(),
 		ProviderForProject:     providerForProject,
 		SessionManager:         sessionMgr,
+		InstanceID:             cfg.Instance.ID,
+		SharedBoards:           cfg.Boards.Shared,
 		Theme:                  cfg.Theme,
 		Version:                buildVersion(),
 		MCPHandler:             mcpHandler,

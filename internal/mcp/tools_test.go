@@ -2,7 +2,11 @@ package mcp
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
@@ -577,4 +581,54 @@ func TestStartReview_MissingCard(t *testing.T) {
 	})
 
 	require.True(t, resultIsError(result, err), "start_review for unknown card must fail")
+}
+
+// TestRemoteErr pins the stable prefix the workflow skills retry on, and that
+// wrapping preserves the sentinel and leaves unrelated errors untouched.
+func TestRemoteErr(t *testing.T) {
+	wrapped := fmt.Errorf("claim card X-1: %w: fetch failed", service.ErrRemoteUnreachable)
+	assert.True(t, strings.HasPrefix(remoteErr(wrapped).Error(), "remote unreachable:"))
+	require.ErrorIs(t, remoteErr(wrapped), service.ErrRemoteUnreachable)
+
+	other := errors.New("boom")
+	assert.Same(t, other, remoteErr(other))
+}
+
+// TestClaimCard_RemoteUnreachablePrefix verifies that a claim that never
+// reached the remote is reported to the agent with the retry prefix.
+func TestClaimCard_RemoteUnreachablePrefix(t *testing.T) {
+	env := setupMCP(t)
+
+	// The card is created before the runner is set, so the create commits
+	// locally and only the claim goes through the shared cycle.
+	card := createTestCard(t, env, "Shared task", "task", "medium")
+
+	env.svc.SetSharedRepo(true)
+	env.svc.SetSyncRunner(func(context.Context, string, service.SyncMutation) (service.SyncOutcome, error) {
+		return service.SyncOutcome{}, errors.New("fetch: dial tcp")
+	})
+
+	result, err := callToolRaw(t, env, "claim_card", map[string]any{"card_id": card.ID, "agent_id": "agent-1"})
+	require.True(t, resultIsError(result, err))
+	assert.True(t, strings.HasPrefix(errorText(result, err), "remote unreachable:"), errorText(result, err))
+}
+
+// TestRequireActiveClaim_ForeignInstance verifies that a claim granted by
+// another instance is refused here even though the agent IDs match, and that
+// the message names the instance holding it.
+func TestRequireActiveClaim_ForeignInstance(t *testing.T) {
+	env := setupMCP(t)
+	env.svc.SetLease("lap-a", time.Hour, time.Minute)
+
+	card := createTestCard(t, env, "Peer task", "task", "medium")
+
+	c, err := env.store.GetCard(context.Background(), "test-project", card.ID)
+	require.NoError(t, err)
+
+	c.AssignedAgent, c.ClaimedVia = "agent-1", "lap-b"
+	require.NoError(t, env.store.UpdateCard(context.Background(), "test-project", c))
+
+	err = requireActiveClaim(context.Background(), env.svc, "test-project", card.ID, "agent-1", "add_log")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "lap-b")
 }

@@ -311,3 +311,17 @@ func TestMobGuestNames(t *testing.T) {
 		{Name: "desk", URL: "http://b", Token: "y"},
 	}))
 }
+
+// TestGetAppConfig_InstanceFields pins that the full payload tells the UI
+// which instance it is talking to and whether the board is shared.
+func TestGetAppConfig_InstanceFields(t *testing.T) {
+	h := &appConfigHandlers{theme: "everforest", version: "v", instanceID: "lap-a", sharedBoards: true}
+
+	rec := httptest.NewRecorder()
+	h.getAppConfig(rec, httptest.NewRequest(http.MethodGet, "/api/app/config", nil))
+
+	var got map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&got))
+	assert.Equal(t, "lap-a", got["instance_id"])
+	assert.Equal(t, true, got["shared_boards"])
+}
