@@ -278,7 +278,9 @@ managed via eight ungated MCP tools (`list_playbooks`, `get_playbook`,
 `create_playbook`, `update_playbook`, `delete_playbook`,
 `add_playbook_entry`, `update_playbook_entry`, `remove_playbook_entry`) - see
 `docs/data-model.md` § Playbooks and `docs/api-reference.md` § Playbook
-Endpoints. They exist for external planning sessions and the web UI, not for
+Endpoints. `create_playbook` accepts `boards_repo` to choose the boards
+repository when the server serves several; omit it for the first. They exist
+for external planning sessions and the web UI, not for
 card-working agents: no workflow skill directs an agent at a playbook, and a
 card-execution session (`start_workflow`, `execute-task`, `review-task`, ...)
 has no reason to call these tools.
@@ -725,9 +727,13 @@ execution batch. In all other cases, `needs_human: true`.
 
 On a shared board (`boards.shared: true`) a `claim_card`, `create_card`,
 `create_project`, `update_project`, `delete_project` or `create_playbook`
-call may fail with an error starting with `remote unreachable:`. The server
-could not verify the write against the boards remote; nothing changed. The
-workflow skills wait 10 seconds and retry the call, at most 3 times, before
+call may fail with an error starting with `remote unreachable:`.
+`create_project` and `create_playbook` accept `boards_repo` (a name from the
+server's boards config, listed by `list_projects` on every project as
+`boards_repo`); an unknown name is an ordinary error, not a retryable one.
+The server could not verify the write against the boards remote; nothing
+changed. The workflow skills wait 10 seconds and retry the call, at most 3
+times, before
 reporting the task blocked. `create_card` retries are safe: the server
 deduplicates an identically titled subtask.
 

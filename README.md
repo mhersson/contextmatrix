@@ -89,6 +89,9 @@ shared by the agent and chat backends).
   their card's live state; manual steps are human check-offs with per-entry
   human-only notes. The detail view threads a route rail through the entries,
   spotlights the next step, and supports drag-to-reorder.
+- **Several boards repositories** - a shared team repo next to a private one
+  on one instance; projects stay unique across repos, the sidebar and
+  dashboard group by repo, and the repo is chosen at creation time.
 - **Image attachments** - paste from the clipboard or drag-and-drop screenshots
   into a card description. Uploads are resized server-side, content-hashed for
   deduplication, and surfaced to agents as base64 via MCP (`get_card`,

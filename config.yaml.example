@@ -170,6 +170,22 @@ mcp_api_key: ""
 # Boards repository configuration.
 # All settings below relate to the boards git repository - the separate repo
 # that stores your kanban cards and project configs.
+#
+# boards is one repository (the mapping below, named "boards") or a list of
+# named repositories. With a list, every entry takes the same fields plus a
+# required name; the first entry is the default for creation, an earlier
+# entry wins when two repos hold a project of the same name, and dirs may not
+# nest. The CONTEXTMATRIX_BOARDS_* overrides apply to the single-repo mapping
+# only; setting one with a list is a startup error.
+#
+# boards:
+#   - name: team
+#     dir: ~/boards/team
+#     git_remote_url: https://github.com/org/boards.git
+#     git_clone_on_empty: true
+#     shared: true
+#   - name: private
+#     dir: ~/boards/private
 boards:
   # Path to the directory that holds your boards (a separate git repository).
   # This field is required - the server will not start without it.
@@ -231,6 +247,9 @@ boards:
   # Every instance on the repository must run a ContextMatrix version with
   # shared-board support: an older one does not know the claim ownership
   # fields and drops them whenever it rewrites a card.
+  # Supported topology: one clone per developer laptop, optionally next to a
+  # private repo in the list form. A shared entry whose clone has no origin
+  # refuses to start.
   # Default: false
   # Env: CONTEXTMATRIX_BOARDS_SHARED (true/false/1/0)
   shared: false
@@ -244,6 +263,7 @@ boards:
   # 403 AGENT_MISMATCH until a sync cycle succeeds. The fence is not
   # persisted, so after a restart with the remote unreachable every own claim
   # answers that way until the first cycle gets through.
+  # lease_interval must be shorter than heartbeat_timeout.
   # Env: CONTEXTMATRIX_BOARDS_LEASE_INTERVAL, CONTEXTMATRIX_BOARDS_LEASE_TIMEOUT
   lease_interval: 5m
   lease_timeout: 1h
