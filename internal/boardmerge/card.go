@@ -139,18 +139,20 @@ func mergeCards(base, ours, theirs *board.Card, project string, c Context) (*boa
 	path := project + "/tasks/" + ours.ID + ".md"
 	oursLater := ours.Updated.After(theirs.Updated)
 
-	audit := func(rule, field string) {
+	audit := func(rule, field, losing string) {
 		res = append(res, Resolution{
 			Path: path, CardID: ours.ID, Rule: rule,
 			Detail: field + ": local (" + c.OursCommit + ") vs remote (" + c.TheirsCommit + ")",
 		})
-		audits = append(audits, auditEntry(c, rule, field+" from "+loserSide(oursLater)+" overridden"))
+		audits = append(audits, auditEntry(c, rule, field+" from "+losing+" overridden"))
 	}
 
 	scalar := func(field string, b, o, t string) string {
 		return pickLater(b, o, t, oursLater, audit, field)
 	}
 
+	// A three-way bool never conflicts: with two values, a side that differs
+	// from the other always matches the ancestor. flag exists for uniformity.
 	flag := func(field string, b, o, t bool) bool {
 		return pickLater(b, o, t, oursLater, audit, field)
 	}
@@ -168,18 +170,18 @@ func mergeCards(base, ours, theirs *board.Card, project string, c Context) (*boa
 	case ours.State == theirs.State:
 		out.State = ours.State
 	case board.IsTerminalState(ours.State) != board.IsTerminalState(theirs.State):
-		winner, loserState := ours.State, theirs.State
+		winner, loserState, losing := ours.State, theirs.State, sideRemote
 		if board.IsTerminalState(theirs.State) {
-			winner, loserState = theirs.State, ours.State
+			winner, loserState, losing = theirs.State, ours.State, sideLocal
 		}
 
 		out.State = winner
 
-		// The non-terminal side is overridden only if it actually moved. If it
-		// still holds the ancestor's state, the terminal side is a one-sided
-		// change and nothing was lost.
+		// The overridden side is the non-terminal one, whichever was updated
+		// last. It lost something only if it actually moved: a one-sided move
+		// into a terminal state overrides nothing.
 		if loserState != base.State {
-			audit(RuleTerminalWins, "state")
+			audit(RuleTerminalWins, "state", losing)
 		}
 	default:
 		out.State = scalar("state", base.State, ours.State, theirs.State)
@@ -225,7 +227,7 @@ func mergeCards(base, ours, theirs *board.Card, project string, c Context) (*boa
 			verify = ours.Verify
 		}
 
-		audit(RuleLaterUpdated, "verify")
+		audit(RuleLaterUpdated, "verify", loserSide(oursLater))
 	}
 
 	out.Verify = verify
@@ -280,9 +282,9 @@ func mergeBody(base, ours, theirs *board.Card, path string, oursLater bool, c Co
 		return merged, nil, nil
 	}
 
-	body, loserCommit := theirs.Body, c.TheirsCommit
+	body, loserCommit := theirs.Body, c.OursCommit
 	if oursLater {
-		body, loserCommit = ours.Body, c.OursCommit
+		body, loserCommit = ours.Body, c.TheirsCommit
 	}
 
 	res := []Resolution{{
@@ -295,12 +297,18 @@ func mergeBody(base, ours, theirs *board.Card, path string, oursLater bool, c Co
 	return body, res, []board.ActivityEntry{entry}
 }
 
+// sideLocal and sideRemote name the side an audit entry reports as overridden.
+const (
+	sideLocal  = "local"
+	sideRemote = "remote"
+)
+
 func loserSide(oursLater bool) string {
 	if oursLater {
-		return "remote"
+		return sideRemote
 	}
 
-	return "local"
+	return sideLocal
 }
 
 func firstNonNil(a, b *board.Source) *board.Source {
@@ -312,13 +320,13 @@ func firstNonNil(a, b *board.Source) *board.Source {
 }
 
 // pickLater is the three-way pick with the later-updated side as the tiebreak.
-func pickLater[T comparable](b, o, t T, oursLater bool, audit func(rule, field string), field string) T {
+func pickLater[T comparable](b, o, t T, oursLater bool, audit func(rule, field, losing string), field string) T {
 	v, conflict := pick(b, o, t)
 	if !conflict {
 		return v
 	}
 
-	audit(RuleLaterUpdated, field)
+	audit(RuleLaterUpdated, field, loserSide(oursLater))
 
 	if oursLater {
 		return o
@@ -395,7 +403,7 @@ func projectRenames(project string, renames map[string]string) map[string]string
 	return out
 }
 
-func mergeCustom(b, o, t map[string]any, oursLater bool, audit func(rule, field string)) map[string]any {
+func mergeCustom(b, o, t map[string]any, oursLater bool, audit func(rule, field, losing string)) map[string]any {
 	keys := map[string]bool{}
 
 	for _, m := range []map[string]any{b, o, t} {
@@ -429,7 +437,7 @@ func mergeCustom(b, o, t map[string]any, oursLater bool, audit func(rule, field 
 				out[k] = ov
 			}
 		default:
-			audit(RuleLaterUpdated, "custom."+k)
+			audit(RuleLaterUpdated, "custom."+k, loserSide(oursLater))
 
 			switch {
 			case oursLater && ook:

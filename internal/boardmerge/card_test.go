@@ -93,6 +93,8 @@ func TestMergeCards(t *testing.T) {
 				assert.Equal(t, "not_planned", got.State)
 				require.NotEmpty(t, res)
 				assert.Equal(t, RuleTerminalWins, res[0].Rule)
+				// The local in_progress lost, even though it was updated last.
+				assert.Contains(t, lastAudit(t, got).Message, "from local")
 			},
 		},
 		{
@@ -134,13 +136,24 @@ func TestMergeCards(t *testing.T) {
 			},
 		},
 		{
-			"bool changed on both later wins",
+			"bools changed on different sides",
 			func(c *board.Card) { c.Autonomous = true; c.Updated = ts(1) },
 			func(c *board.Card) { c.Vetted = true; c.Updated = ts(4) },
 			func(t *testing.T, got *board.Card, res []Resolution) {
 				assert.True(t, got.Autonomous)
 				assert.True(t, got.Vetted)
 				assert.Empty(t, res)
+			},
+		},
+		{
+			"counter changed on both later wins",
+			func(c *board.Card) { c.BestOfN = 2; c.Updated = ts(6) },
+			func(c *board.Card) { c.BestOfN = 3 },
+			func(t *testing.T, got *board.Card, res []Resolution) {
+				assert.Equal(t, 2, got.BestOfN)
+				require.Len(t, res, 1)
+				assert.Equal(t, RuleLaterUpdated, res[0].Rule)
+				assert.Contains(t, lastAudit(t, got).Message, "from remote")
 			},
 		},
 		{
@@ -276,7 +289,8 @@ func TestMergeCards_TerminalWinsOverOneSidedReopen(t *testing.T) {
 	assert.Equal(t, "high", got.Priority)
 	require.Len(t, res, 1)
 	assert.Equal(t, RuleTerminalWins, res[0].Rule)
-	assert.Equal(t, board.MergeAction, got.ActivityLog[len(got.ActivityLog)-1].Action)
+	// The remote reopen lost, even though neither side was updated last.
+	assert.Contains(t, lastAudit(t, got).Message, "from remote")
 }
 
 func TestMergeCards_SkillsClearedOnOneSide(t *testing.T) {
@@ -301,6 +315,79 @@ func TestMergeCards_DoesNotMutateInputs(t *testing.T) {
 	assert.Equal(t, []string{"a"}, o.Labels)
 	assert.Equal(t, "high", o.Priority)
 	assert.Equal(t, "low", th.Priority)
+}
+
+func lastAudit(t *testing.T, c *board.Card) board.ActivityEntry {
+	t.Helper()
+
+	require.NotEmpty(t, c.ActivityLog)
+
+	last := c.ActivityLog[len(c.ActivityLog)-1]
+	require.Equal(t, board.MergeAction, last.Action)
+
+	return last
+}
+
+func TestMergeCards_BodyConflictNamesTheLosingCommit(t *testing.T) {
+	c := testCtx()
+	c.OursCommit, c.TheirsCommit = "aaa111", "bbb222"
+
+	b, o, th := baseCard(), baseCard(), baseCard()
+	o.Body, o.Updated = "ours\n", ts(8)
+	th.Body = "theirs\n"
+
+	got, res := mergeCards(b, o, th, "alpha", c)
+	assert.Equal(t, "ours\n", got.Body)
+	require.Len(t, res, 1)
+
+	// The audit must point at the commit still holding the overridden text,
+	// which is the losing side's, never the winner's.
+	assert.Contains(t, res[0].Detail, "bbb222")
+	assert.NotContains(t, res[0].Detail, "aaa111")
+	assert.Contains(t, lastAudit(t, got).Message, "bbb222")
+	assert.Contains(t, lastAudit(t, got).Message, "from remote")
+}
+
+func TestMergeCards_Renames(t *testing.T) {
+	c := testCtx()
+	c.Renames = map[string]string{"alpha/ALPHA-001": "ALPHA-005"}
+
+	t.Run("references we add follow the re-mint", func(t *testing.T) {
+		b, o, th := baseCard(), baseCard(), baseCard()
+		b.DependsOn, th.DependsOn = nil, nil
+		o.DependsOn = []string{"ALPHA-001"}
+		o.Parent = "ALPHA-001"
+		o.Subtasks = []string{"ALPHA-001"}
+
+		got, res := mergeCards(b, o, th, "alpha", c)
+		assert.Equal(t, "ALPHA-005", got.Parent)
+		assert.Equal(t, []string{"ALPHA-005"}, got.DependsOn)
+		assert.Equal(t, []string{"ALPHA-005"}, got.Subtasks)
+		assert.Empty(t, res)
+	})
+	t.Run("references already in the ancestor are untouched", func(t *testing.T) {
+		b, o, th := baseCard(), baseCard(), baseCard()
+		b.Parent, o.Parent, th.Parent = "ALPHA-001", "ALPHA-001", "ALPHA-001"
+		b.DependsOn = []string{"ALPHA-001"}
+		o.DependsOn, th.DependsOn = []string{"ALPHA-001"}, []string{"ALPHA-001"}
+
+		got, _ := mergeCards(b, o, th, "alpha", c)
+		assert.Equal(t, "ALPHA-001", got.Parent)
+		assert.Equal(t, []string{"ALPHA-001"}, got.DependsOn)
+	})
+	t.Run("a rename for another project is ignored", func(t *testing.T) {
+		other := c
+		other.Renames = map[string]string{"beta/ALPHA-001": "BETA-005"}
+
+		b, o, th := baseCard(), baseCard(), baseCard()
+		b.DependsOn, th.DependsOn = nil, nil
+		o.DependsOn = []string{"ALPHA-001"}
+		o.Parent = "ALPHA-001"
+
+		got, _ := mergeCards(b, o, th, "alpha", other)
+		assert.Equal(t, "ALPHA-001", got.Parent)
+		assert.Equal(t, []string{"ALPHA-001"}, got.DependsOn)
+	})
 }
 
 func TestMergeCards_BodyCleanMerge(t *testing.T) {
