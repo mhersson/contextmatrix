@@ -227,11 +227,19 @@ func (s *PlaybookService) Create(ctx context.Context, input CreatePlaybookInput)
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
-	return s.createLocked(ctx, input, s.enqueueCommit)
+	detail, err := s.createLocked(ctx, input, s.enqueueCommit)
+	if err != nil {
+		return nil, err
+	}
+
+	s.publish(events.PlaybookCreated, detail.ID, input.AgentID, detail.Created)
+
+	return detail, nil
 }
 
 // createLocked is Create with writeMu held by the caller and the commit path
-// chosen by it.
+// chosen by it. The caller publishes playbook.created: inside a sync cycle
+// the create is not final until the push has landed.
 func (s *PlaybookService) createLocked(
 	ctx context.Context, input CreatePlaybookInput, commit func(ctx context.Context, id, action string) error,
 ) (*PlaybookDetail, error) {
@@ -288,8 +296,6 @@ func (s *PlaybookService) createLocked(
 		return nil, err
 	}
 
-	s.publish(events.PlaybookCreated, p.ID, input.AgentID, now)
-
 	return s.resolve(ctx, p)
 }
 
@@ -323,7 +329,18 @@ func (s *PlaybookService) createVerified(ctx context.Context, input CreatePlaybo
 			}
 
 			detail = d
-			created, _ = s.store.Get(ctx, d.ID)
+
+			cur, err := s.store.Get(ctx, d.ID)
+			if err != nil {
+				// Without the stored playbook the undo has nothing to
+				// identify, so a create that cannot be rolled back must not
+				// be reported as one that landed.
+				applyErr = fmt.Errorf("read created playbook %s: %w", d.ID, err)
+
+				return applyErr
+			}
+
+			created = cur
 
 			return nil
 		},
@@ -351,6 +368,8 @@ func (s *PlaybookService) createVerified(ctx context.Context, input CreatePlaybo
 	case err != nil:
 		return nil, fmt.Errorf("create playbook: %w: %w", ErrRemoteUnreachable, err)
 	}
+
+	s.publish(events.PlaybookCreated, detail.ID, input.AgentID, detail.Created)
 
 	return detail, nil
 }

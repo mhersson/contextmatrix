@@ -121,11 +121,13 @@ func TestForeignStall_UndoneWhenThePushNeverLands(t *testing.T) {
 
 	ctx := context.Background()
 
-	card, err := svc.store.GetCard(ctx, "test-project", "TEST-001")
-	if err != nil { // the verified create would fail with failAfter; write the card directly
-		card = &board.Card{ID: "TEST-001", Title: "t", Project: "test-project", Type: "task", State: "todo", Priority: "medium", Created: fake.Now(), Updated: fake.Now()}
-		require.NoError(t, svc.store.CreateCard(ctx, "test-project", card))
+	// The verified create would fail with failAfter, so the card goes in
+	// through the store.
+	card := &board.Card{
+		ID: "TEST-001", Title: "t", Project: "test-project", Type: "task", State: "todo",
+		Priority: "medium", Created: fake.Now(), Updated: fake.Now(),
 	}
+	require.NoError(t, svc.store.CreateCard(ctx, "test-project", card))
 
 	writeForeignClaim(t, svc, card.ID, fake.Now(), 1)
 	require.NoError(t, svc.ObserveLeases(ctx))
