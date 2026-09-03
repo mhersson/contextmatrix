@@ -273,3 +273,101 @@ func TestSharedReads_OverlayLiveBeat(t *testing.T) {
 	require.Len(t, dash.ActiveAgents, 1)
 	assert.Equal(t, fake.Now(), dash.ActiveAgents[0].LastHeartbeat)
 }
+
+func TestSharedFence_BlocksClaimWritesUntilConfirmed(t *testing.T) {
+	svc, fake, cleanup := newSharedService(t, 30*time.Minute)
+	defer cleanup()
+
+	ctx := context.Background()
+	card := createShared(t, svc)
+	_, err := svc.ClaimCard(ctx, "test-project", card.ID, "a")
+	require.NoError(t, err)
+
+	fake.Advance(61 * time.Minute)
+
+	_, err = svc.ReleaseCard(ctx, "test-project", card.ID, "a")
+	require.ErrorIs(t, err, ErrClaimFenced)
+	require.ErrorIs(t, err, lock.ErrAgentMismatch, "agents see the lost-claim error they already handle")
+
+	_, err = svc.TransitionTo(ctx, "test-project", card.ID, board.StateInProgress)
+	require.ErrorIs(t, err, ErrClaimFenced)
+
+	state := board.StateInProgress
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{State: &state, AgentID: "a"})
+	require.ErrorIs(t, err, ErrClaimFenced)
+
+	_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "running", "container started")
+	require.ErrorIs(t, err, ErrClaimFenced)
+
+	_, err = svc.HeartbeatCard(ctx, "test-project", card.ID, "a")
+	require.NoError(t, err, "heartbeats are how a fenced instance recovers, so they pass")
+
+	svc.SyncSucceeded(ctx)
+
+	_, err = svc.ReleaseCard(ctx, "test-project", card.ID, "a")
+	require.NoError(t, err)
+}
+
+func TestSharedFence_NeverOnPrivateOrUnclaimed(t *testing.T) {
+	svc, fake, cleanup := newSharedService(t, 30*time.Minute)
+	defer cleanup()
+
+	ctx := context.Background()
+	card := createShared(t, svc)
+
+	fake.Advance(2 * time.Hour)
+
+	_, err := svc.TransitionTo(ctx, "test-project", card.ID, board.StateInProgress)
+	require.NoError(t, err, "an unclaimed card has no lease")
+}
+
+func TestNoteClaimLost_PublishesAndDropsTheBeat(t *testing.T) {
+	svc, fake, cleanup := newSharedService(t, 30*time.Minute)
+	defer cleanup()
+
+	ctx := context.Background()
+	card := createShared(t, svc)
+	_, err := svc.ClaimCard(ctx, "test-project", card.ID, "a")
+	require.NoError(t, err)
+
+	fake.Advance(time.Minute)
+
+	_, err = svc.HeartbeatCard(ctx, "test-project", card.ID, "a")
+	require.NoError(t, err)
+
+	ch, unsub := svc.bus.Subscribe()
+	defer unsub()
+
+	svc.NoteClaimLost(ctx, "test-project", card.ID, "a", "lap-b", 2)
+
+	select {
+	case e := <-ch:
+		assert.Equal(t, events.ClaimLost, e.Type)
+		assert.Equal(t, card.ID, e.CardID)
+		assert.Equal(t, "a", e.Data["previous_agent"])
+		assert.Equal(t, "lap-b", e.Data["claimed_via"])
+		assert.Equal(t, 2, e.Data["claim_epoch"])
+	case <-time.After(time.Second):
+		t.Fatal("no claim.lost event")
+	}
+
+	onDisk, err := svc.store.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+
+	read, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, *onDisk.LastHeartbeat, *read.LastHeartbeat, "the live beat is gone with the claim")
+}
+
+func TestRecentlySynced(t *testing.T) {
+	svc, fake, cleanup := newSharedService(t, 30*time.Minute)
+	defer cleanup()
+
+	assert.False(t, svc.recentlySynced(), "never synced")
+
+	svc.SyncSucceeded(context.Background())
+	assert.True(t, svc.recentlySynced())
+
+	fake.Advance(3 * time.Minute)
+	assert.False(t, svc.recentlySynced(), "twice the pull interval has passed")
+}

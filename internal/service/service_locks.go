@@ -21,6 +21,13 @@ var ErrCardNotVetted = fmt.Errorf("card has not been vetted for agent use")
 // ErrForceReleaseRequiresHuman is returned when a non-human agent attempts to force-release a claim.
 var ErrForceReleaseRequiresHuman = fmt.Errorf("force-release requires human agent (agent_id must start with %q)", board.HumanAgentIDPrefix)
 
+// ErrClaimFenced is returned when a write needs a claim this instance holds
+// but the remote has not confirmed the lease for longer than lease_timeout, so
+// a peer may already have stalled or taken over the card. It wraps
+// lock.ErrAgentMismatch so callers see the lost-claim error they already
+// handle; heartbeats are exempt because a successful sync clears the fence.
+var ErrClaimFenced = fmt.Errorf("claim lease not confirmed on the remote: %w", lock.ErrAgentMismatch)
+
 // ClaimCard assigns a card to an agent.
 // Flow: lock claim → store update → git commit → publish event.
 func (s *CardService) ClaimCard(ctx context.Context, project, id, agentID string) (*board.Card, error) {
@@ -131,6 +138,12 @@ func (s *CardService) ReleaseCard(ctx context.Context, project, id, agentID stri
 		s.writeMu.Unlock()
 
 		return nil, fmt.Errorf("get card snapshot: %w", err)
+	}
+
+	if err := s.fenced(snapshot); err != nil {
+		s.writeMu.Unlock()
+
+		return nil, fmt.Errorf("release card: %w", err)
 	}
 
 	// Release via lock manager (returns modified card)

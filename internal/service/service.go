@@ -87,11 +87,7 @@ type CardService struct {
 
 	// syncMu guards lastSync: the service clock's reading at the end of the
 	// last successful sync cycle. Foreign stalls need a recent pull.
-	// Declared here so the shared-board sync cycle can adopt it directly;
-	// not yet read or written on this branch.
-	//nolint:unused // wired by the shared-board sync cycle
-	syncMu sync.Mutex
-	//nolint:unused // wired by the shared-board sync cycle
+	syncMu   sync.Mutex
 	lastSync time.Time
 
 	// writeMu serializes all card mutations (create, update, patch, delete,
@@ -504,6 +500,10 @@ func (s *CardService) transitionStep(
 	card, err := s.store.GetCard(ctx, project, cardID)
 	if err != nil {
 		return nil, fmt.Errorf("get card: %w", err)
+	}
+
+	if err := s.fenced(card); err != nil {
+		return nil, fmt.Errorf("transition card: %w", err)
 	}
 
 	oldState := card.State

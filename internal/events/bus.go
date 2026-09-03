@@ -22,9 +22,15 @@ const (
 	CardStalled       EventType = "card.stalled"
 	CardLogAdded      EventType = "card.log_added"
 	CardUsageReported EventType = "card.usage_reported"
-	ProjectCreated    EventType = "project.created"
-	ProjectUpdated    EventType = "project.updated"
-	ProjectDeleted    EventType = "project.deleted"
+
+	// ClaimLost is published on a shared board when a pull shows that a
+	// claim this instance held now belongs to another instance or was
+	// stalled by one. The backend integration ends the local run on it.
+	ClaimLost EventType = "claim.lost"
+
+	ProjectCreated EventType = "project.created"
+	ProjectUpdated EventType = "project.updated"
+	ProjectDeleted EventType = "project.deleted"
 
 	// Playbook events. Published with empty Project so they pass every
 	// SSE project filter (playbooks are global).

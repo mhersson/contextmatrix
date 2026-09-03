@@ -318,6 +318,12 @@ func (s *CardService) UpdateWorkerStatus(ctx context.Context, project, cardID, s
 		return card, nil
 	}
 
+	if err := s.fenced(card); err != nil {
+		s.writeMu.Unlock()
+
+		return nil, fmt.Errorf("worker status: %w", err)
+	}
+
 	// Post-terminal cleanup normalization: once the card has reached a
 	// terminal state (done/not_planned), the reconcile sweep and end-session
 	// subscriber kill the container as a cleanup step. The backend reports

@@ -1550,6 +1550,15 @@ func (s *CardService) applyCardMutation(
 	}
 
 	stateChanged := card.State != oldState
+
+	if stateChanged {
+		if err := s.fenced(snapshot); err != nil {
+			s.writeMu.Unlock()
+
+			return nil, err
+		}
+	}
+
 	card.Updated = s.clk.Now()
 
 	// A mutation attributed to the card's own owner is proof of liveness,
