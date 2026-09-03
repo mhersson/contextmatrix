@@ -40,6 +40,12 @@ func applyInvariants(card, theirs *board.Card, project string, c Context) (*boar
 		card.Parent = ""
 	}
 
+	card.ActivityLog = board.TrimActivityLog(card.ActivityLog)
+
+	if c.Project == nil {
+		return card, res // nothing more to check without the project config
+	}
+
 	cfg, err := c.Project(project)
 	if err != nil || cfg == nil {
 		return card, res // nothing more to check without the project config

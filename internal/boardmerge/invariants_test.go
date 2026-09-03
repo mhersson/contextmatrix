@@ -1,9 +1,11 @@
 package boardmerge
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/mhersson/contextmatrix/internal/board"
 )
@@ -92,6 +94,30 @@ func TestApplyInvariants(t *testing.T) {
 			tt.check(t, got, res)
 		})
 	}
+}
+
+func TestApplyInvariants_TrimsLogWhenProjectConfigFails(t *testing.T) {
+	c := testCtx()
+	c.Project = func(string) (*board.ProjectConfig, error) { return nil, errors.New("project config unavailable") }
+
+	k := baseCard()
+	k.State = "not_planned"
+	k.AssignedAgent = "x"
+	now := ts(1)
+	k.LastHeartbeat = &now
+	k.ActivityLog = make([]board.ActivityEntry, board.MaxActivityLogEntries+10)
+
+	for i := range k.ActivityLog {
+		k.ActivityLog[i] = board.ActivityEntry{Agent: "x", Action: "log", Timestamp: ts(i)}
+	}
+
+	got, res := applyInvariants(k, baseCard(), "alpha", c)
+
+	assert.Empty(t, got.AssignedAgent)
+	assert.Nil(t, got.LastHeartbeat)
+	require.NotEmpty(t, res)
+	assert.Equal(t, RuleInvariantRepair, res[0].Rule)
+	assert.LessOrEqual(t, len(got.ActivityLog), board.MaxActivityLogEntries)
 }
 
 func TestApplyInvariants_FallbackCopiesTheirsActivityLog(t *testing.T) {
