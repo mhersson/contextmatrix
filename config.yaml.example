@@ -12,6 +12,13 @@
 # Env: CONTEXTMATRIX_PORT
 port: 8080
 
+# Identity of this server among the instances sharing a boards repository.
+# Generated once as <hostname>-<6 hex> and stored in
+# $XDG_STATE_HOME/contextmatrix/instance_id when left empty.
+# Env: CONTEXTMATRIX_INSTANCE_ID
+instance:
+  id: ""
+
 # Log output format.
 # Allowed values: "text" (default, human-readable key=value) | "json" (structured JSON lines)
 # Default: text
@@ -214,6 +221,15 @@ boards:
   # Example: https://github.com/user/boards.git
   # Env: CONTEXTMATRIX_BOARDS_GIT_REMOTE_URL
   git_remote_url: ""
+
+  # Several ContextMatrix instances share this repository through its remote
+  # (one clone per developer laptop). Requires git_remote_url. Forces
+  # git_auto_commit, git_auto_pull and git_auto_push on and rejects
+  # git_deferred_commit. The syncer merges instead of rebasing and resolves
+  # conflicts itself; every pull tick is jittered by 25%.
+  # Default: false
+  # Env: CONTEXTMATRIX_BOARDS_SHARED (true/false/1/0)
+  shared: false
 
 # Task-skills repository configuration. An operator-provided repo of specialist
 # filesystem skills (one SKILL.md per directory) that the active task backend

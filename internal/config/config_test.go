@@ -3572,3 +3572,62 @@ func TestMobConfigValidation(t *testing.T) {
 		assert.Contains(t, err.Error(), "checkpoint_min_tier")
 	})
 }
+
+func TestValidate_SharedBoards(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(c *Config)
+		wantErr string
+	}{
+		{"requires remote", func(c *Config) { c.Boards.Shared = true; c.Boards.GitRemoteURL = "" }, "git_remote_url is required"},
+		{"rejects deferred", func(c *Config) {
+			c.Boards.Shared = true
+			c.Boards.GitRemoteURL = "https://x/y"
+			c.Boards.GitDeferredCommit = true
+		}, "git_deferred_commit"},
+		{"rejects auto_commit off", func(c *Config) {
+			c.Boards.Shared = true
+			c.Boards.GitRemoteURL = "https://x/y"
+			c.Boards.GitAutoCommit = false
+		}, "git_auto_commit"},
+		{"forces pull and push", func(c *Config) { c.Boards.Shared = true; c.Boards.GitRemoteURL = "https://x/y" }, ""},
+		{"bad instance id", func(c *Config) {
+			c.Boards.Shared = true
+			c.Boards.GitRemoteURL = "https://x/y"
+			c.Instance.ID = "Bad Name!"
+		}, "instance.id"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := defaults()
+			c.Boards.Dir = t.TempDir()
+			c.GitHub.AuthMode = "pat"
+			c.GitHub.PAT.Token = "x"
+			c.Instance.ID = "laptop-a1b2c3"
+			tt.mutate(c)
+
+			err := c.Validate()
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				assert.True(t, c.Boards.GitAutoPull)
+				assert.True(t, c.Boards.GitAutoPush)
+
+				return
+			}
+
+			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
+func TestLoadOrCreateInstanceID(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state", "instance_id")
+
+	first, err := LoadOrCreateInstanceID(path)
+	require.NoError(t, err)
+	assert.Regexp(t, `^[a-z0-9][a-z0-9._-]{0,63}$`, first)
+
+	second, err := LoadOrCreateInstanceID(path)
+	require.NoError(t, err)
+	assert.Equal(t, first, second)
+}
