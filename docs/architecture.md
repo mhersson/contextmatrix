@@ -603,8 +603,9 @@ and commit completion. The service layer closes that gap on failure:
   lands, so the caller can retry without a stray write reaching the remote
   later. After every successful cycle the syncer confirms the leases this
   instance holds; after every reload it records what the pull showed of other
-  instances' leases and reports claims lost at a higher epoch as
-  `claim.lost`.
+  instances' leases and reports the loss as `claim.lost` - a takeover
+  (another instance now in `claimed_via`) at any epoch, an emptied claim
+  tuple only at a higher epoch and outside a terminal state.
 - **GitHub integration** (`github`): three pieces - `client.go` (HTTP client for
   GitHub REST API used during issue import / branch listing), `parse.go` (issue
   → card mapping rules), `syncer.go` (per-project import loop driven by

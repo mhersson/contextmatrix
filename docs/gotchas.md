@@ -26,11 +26,14 @@
   pointing at the remote card (`rewriteLocalRefs` in
   `internal/gitsync/resolve.go`).
 - **A `Synced` body runs with the commit queue paused.** It must commit
-  through `CardService.commitNow` (shell git), never `enqueueCardCommit`: a
-  queued job waits for a resume that only comes after the cycle returns.
-  It must not take `writeMu` or the playbook lock (the cycle holds both) and
-  must not touch the network. `runVerified` is the only caller and wraps every
-  push-verified mutation.
+  through its `DirectCommit` path (`CardService.commitNow` for cards,
+  `PlaybookService.directCommit` for playbooks - both built by
+  `DirectCommitter`, shell git), never `enqueueCardCommit`: a queued job
+  waits for a resume that only comes after the cycle returns. It must not
+  take `writeMu` or the playbook lock (the cycle holds both) and must not
+  touch the network. `runVerified` wraps every push-verified card, project
+  and stall mutation; `PlaybookService.createVerified` is the one other body
+  and follows the same rules.
 - **Undo never bumps the epoch.** A verified write whose push never lands is
   reverted by restoring the pre-write tuple, epoch included, so a peer's claim
   made in the meantime outranks the reverted state in the next merge. An undo

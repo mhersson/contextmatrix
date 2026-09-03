@@ -218,9 +218,9 @@ otherwise the server generates a UUID. The same id is emitted as the
 - 404: card, project, chat session, or referenced parent not found -
   parent-not-found uses code `PARENT_NOT_FOUND`; also unknown one-time token
   or unknown admin username (`TOKEN_INVALID`, `USER_NOT_FOUND`)
-- 409: conflict (invalid transition, card already claimed - on a shared board
-  also when another instance won the claim during the sync cycle; the
-  response details name the instance - `POST /claim` on a
+- 409: conflict (invalid transition, card already claimed; on a shared board
+  also when another instance won the claim during the sync cycle, in which
+  case the details name that instance; `POST /claim` on a
   card in a terminal state - `done` or `not_planned` - by anyone other than the
   agent already holding the claim, already-running
   worker task → `WORKER_CONFLICT`); also a bootstrap token redeemed after a
@@ -244,7 +244,9 @@ otherwise the server generates a UUID. The same id is emitted as the
   argon2id concurrency gate is saturated (`LOGIN_BUSY`, `Retry-After: 1` set),
   or a push-verified write (card create, claim, force-release, project
   create/update/delete, playbook create) that could not be verified against
-  the boards remote within about 30 s (`REMOTE_UNREACHABLE`, shared boards
+  the boards remote: each sync cycle bounds its network calls to a short
+  timeout, the write retries a bounded number of cycles, and a cycle that
+  never lands the push fails the write (`REMOTE_UNREACHABLE`, shared boards
   only; retry)
 
 **Error code / HTTP status mapping (selected):**
