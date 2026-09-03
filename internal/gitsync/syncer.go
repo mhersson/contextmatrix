@@ -97,6 +97,11 @@ type Syncer struct {
 	svc      *service.CardService
 	bus      *events.Bus
 	repoPath string
+
+	// repo is the boards repo this syncer drives, the name the service
+	// resolves its git manager, queue and lock manager by.
+	repo string
+
 	interval time.Duration
 	autoPull bool
 	autoPush bool
@@ -237,6 +242,7 @@ func NewSyncer(
 		svc:            svc,
 		bus:            bus,
 		repoPath:       repoPath,
+		repo:           service.DefaultRepoName,
 		interval:       interval,
 		autoPull:       autoPull,
 		autoPush:       autoPush,
@@ -475,8 +481,8 @@ func (s *Syncer) pullRebase(ctx context.Context, trigger string) error {
 	}
 
 	// Lock writes to prevent mutations during pull+rebase+index rebuild.
-	s.svc.LockWrites()
-	defer s.svc.UnlockWrites()
+	s.svc.LockWrites(s.repo)
+	defer s.svc.UnlockWrites(s.repo)
 
 	branch, err := s.git.CurrentBranch()
 	if err != nil {
@@ -598,9 +604,9 @@ var reNonFastForward = regexp.MustCompile(`(?i)(non-fast-forward|fetch first|can
 // .git/index.lock without this serialization. pullRebase acquires writeMu
 // itself, so the lock must be released before calling it to avoid a deadlock.
 func (s *Syncer) pushWithRetry(ctx context.Context) error {
-	s.svc.LockWrites()
+	s.svc.LockWrites(s.repo)
 	err := s.git.Push(ctx)
-	s.svc.UnlockWrites()
+	s.svc.UnlockWrites(s.repo)
 
 	if err == nil {
 		return nil
@@ -633,9 +639,9 @@ func (s *Syncer) pushWithRetry(ctx context.Context) error {
 		return fmt.Errorf("pull before push retry: %w", err)
 	}
 
-	s.svc.LockWrites()
+	s.svc.LockWrites(s.repo)
 	err = s.git.Push(ctx)
-	s.svc.UnlockWrites()
+	s.svc.UnlockWrites(s.repo)
 
 	if err != nil {
 		slog.Error("git sync: push failed after rebase", "error", err)
@@ -713,8 +719,8 @@ func (s *Syncer) SyncedMutation(ctx context.Context, trigger string, m service.S
 
 	// Held across the whole cycle, Apply included, so no mutation lands
 	// between the merge and the push it is meant to be part of.
-	s.svc.LockWrites()
-	defer s.svc.UnlockWrites()
+	s.svc.LockWrites(s.repo)
+	defer s.svc.UnlockWrites(s.repo)
 
 	report, err := s.synced(ctx, trigger, m)
 

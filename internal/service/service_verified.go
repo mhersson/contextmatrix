@@ -66,9 +66,11 @@ func DirectCommitter(git *gitops.Manager) DirectCommit {
 }
 
 // SetSyncRunner routes push-verified mutations through the syncer. Must be
-// called before the server starts accepting requests.
+// called before the server starts accepting requests. Acts on the first
+// configured repo; multi-repo wiring uses the For variant.
 func (s *CardService) SetSyncRunner(run SyncRunner) {
-	s.syncRunner = run
+	s.repos[0].runner = run
+	s.mirrorLegacyFields()
 }
 
 // pushVerified reports whether mutations that depend on a global decision

@@ -6493,7 +6493,8 @@ func TestHealthCheck_GitNil(t *testing.T) {
 	ctx := context.Background()
 
 	// Remove the git manager to simulate an unconfigured git dependency.
-	svc.git = nil
+	svc.repos[0].Git = nil
+	svc.mirrorLegacyFields()
 
 	results := svc.HealthCheck(ctx)
 
@@ -6935,13 +6936,13 @@ func TestLockWrites_SharedRepoDrainsBufferedCommits(t *testing.T) {
 	done := enqueueBufferedCardCommit(t, svc, "test-project", card.ID)
 
 	svc.SetSharedRepo(true)
-	svc.LockWrites()
+	svc.LockWrites("")
 
 	after, err := svc.git.CommitCount()
 	require.NoError(t, err)
 	assert.Equal(t, before+1, after, "shared-repo LockWrites must drain the buffered commit")
 
-	svc.UnlockWrites()
+	svc.UnlockWrites("")
 	require.NoError(t, <-done)
 
 	// UnlockWrites must leave the queue usable again.
@@ -6971,13 +6972,13 @@ func TestLockWrites_NonSharedRepoLeavesBufferedCommits(t *testing.T) {
 	svc.commitQueue.Pause()
 	done := enqueueBufferedCardCommit(t, svc, "test-project", card.ID)
 
-	svc.LockWrites()
+	svc.LockWrites("")
 
 	during, err := svc.git.CommitCount()
 	require.NoError(t, err)
 	assert.Equal(t, before, during, "non-shared LockWrites must not wait for buffered commits")
 
-	svc.UnlockWrites()
+	svc.UnlockWrites("")
 	require.NoError(t, <-done)
 
 	after, err := svc.git.CommitCount()

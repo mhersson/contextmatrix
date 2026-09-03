@@ -544,7 +544,7 @@ func TestSyncer_PushWithRetry_BlocksOnWriteMu(t *testing.T) {
 	ctx := context.Background()
 
 	// Acquire the write lock from outside, simulating a concurrent pullRebase.
-	syncer.svc.LockWrites()
+	syncer.svc.LockWrites("")
 
 	pushDone := make(chan error, 1)
 
@@ -561,7 +561,7 @@ func TestSyncer_PushWithRetry_BlocksOnWriteMu(t *testing.T) {
 	}
 
 	// Release the lock - pushWithRetry should acquire it and finish quickly.
-	syncer.svc.UnlockWrites()
+	syncer.svc.UnlockWrites("")
 
 	select {
 	case err := <-pushDone:
@@ -575,11 +575,11 @@ func TestSyncer_PushWithRetry_BlocksOnWriteMu(t *testing.T) {
 	lockAcquired := make(chan struct{}, 1)
 
 	go func() {
-		syncer.svc.LockWrites()
+		syncer.svc.LockWrites("")
 
 		lockAcquired <- struct{}{}
 
-		syncer.svc.UnlockWrites()
+		syncer.svc.UnlockWrites("")
 	}()
 
 	select {
@@ -636,11 +636,11 @@ func TestSyncer_PushWithRetry_RetryPath_NoDeadlock(t *testing.T) {
 	lockAcquired := make(chan struct{}, 1)
 
 	go func() {
-		syncer.svc.LockWrites()
+		syncer.svc.LockWrites("")
 
 		lockAcquired <- struct{}{}
 
-		syncer.svc.UnlockWrites()
+		syncer.svc.UnlockWrites("")
 	}()
 
 	select {

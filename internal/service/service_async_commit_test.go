@@ -207,7 +207,7 @@ func TestAsyncCommit_LockWritesPausesQueue(t *testing.T) {
 	require.NoError(t, os.WriteFile(cardFile, append(data, []byte("\nmarker\n")...), 0o644))
 
 	// Hold LockWrites; while held, new enqueued jobs should not run.
-	svc.LockWrites()
+	svc.LockWrites("")
 
 	// Enqueue a job directly; should buffer but not execute.
 	done := q.Enqueue(gitops.CommitJob{
@@ -224,7 +224,7 @@ func TestAsyncCommit_LockWritesPausesQueue(t *testing.T) {
 	case <-time.After(30 * time.Millisecond):
 	}
 
-	svc.UnlockWrites()
+	svc.UnlockWrites("")
 
 	select {
 	case err := <-done:

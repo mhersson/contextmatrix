@@ -21,6 +21,7 @@ import (
 // and runs Undo when told the push never landed.
 type fakeRunner struct {
 	svc         *CardService
+	repo        string // empty means the first configured boards repo
 	calls       int
 	failBefore  int                       // cycles that fail before Apply runs
 	failAfter   bool                      // the push never lands: Undo runs, the error is returned
@@ -38,8 +39,8 @@ func (f *fakeRunner) run(ctx context.Context, trigger string, m SyncMutation) (S
 		return SyncOutcome{}, errors.New("fetch: remote unreachable")
 	}
 
-	f.svc.LockWrites()
-	defer f.svc.UnlockWrites()
+	f.svc.LockWrites(f.repo)
+	defer f.svc.UnlockWrites(f.repo)
 
 	out := SyncOutcome{BodyRan: true, Resolutions: f.resolutions}
 

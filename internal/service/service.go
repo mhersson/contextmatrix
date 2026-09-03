@@ -62,15 +62,27 @@ const (
 // CardService orchestrates all card operations by coordinating
 // storage, git, lock management, events, and validation.
 type CardService struct {
-	store             storage.Store
+	store          storage.Store
+	bus            *events.Bus
+	tokenCosts     map[string]ModelRate
+	catalogRate    func(model string) (ModelRate, bool)        // optional catalog-backed fallback
+	modelValidator func(ctx context.Context, slug string) bool // optional catalog-backed pin validation
+
+	// repos are the boards repositories in config order; repoIndex maps a
+	// name to its bundle. Every git, queue, directory, flag, runner, lease
+	// and lock-manager read goes through repoOf or repoNamed.
+	repos     []*BoardsRepo
+	repoIndex map[string]*BoardsRepo
+
+	// heartbeatTimeout is shared by every lock manager (validated at
+	// construction).
+	heartbeatTimeout time.Duration
+
+	// Transitional mirrors of repos[0]; no new code reads them.
 	git               *gitops.Manager
 	commitQueue       *gitops.CommitQueue
 	lock              *lock.Manager
-	bus               *events.Bus
 	boardsDir         string
-	tokenCosts        map[string]ModelRate
-	catalogRate       func(model string) (ModelRate, bool)        // optional catalog-backed fallback
-	modelValidator    func(ctx context.Context, slug string) bool // optional catalog-backed pin validation
 	gitAutoCommit     bool
 	gitDeferredCommit bool
 
@@ -95,6 +107,10 @@ type CardService struct {
 	syncMu   sync.Mutex
 	lastSync time.Time
 
+	// onCommit is called after each successful git commit.
+	// Used by the sync layer to trigger push-after-commit.
+	onCommit func()
+
 	// writeMu serializes all card mutations (create, update, patch, delete,
 	// claim, release, heartbeat, log). This prevents races like two agents
 	// claiming the same card simultaneously. LockWrites / UnlockWrites expose
@@ -114,10 +130,6 @@ type CardService struct {
 	telemetryMu sync.Mutex
 	phaseStarts map[string]phaseStart
 	runStarts   map[string]time.Time
-
-	// onCommit is called after each successful git commit.
-	// Used by the sync layer to trigger push-after-commit.
-	onCommit func()
 
 	validator *board.Validator
 
@@ -232,34 +244,20 @@ func NewCardService(
 	gitAutoCommit bool,
 	gitDeferredCommit bool,
 ) *CardService {
-	clk := lockMgr.Clock()
-	if clk == nil {
-		clk = clock.Real()
+	svc, err := NewCardServiceRepos(store, bus, tokenCosts, &BoardsRepo{
+		Name:              DefaultRepoName,
+		Store:             store,
+		Git:               git,
+		Dir:               boardsDir,
+		GitAutoCommit:     gitAutoCommit,
+		GitDeferredCommit: gitDeferredCommit,
+		Lock:              lockMgr,
+	})
+	if err != nil {
+		// One named repo with the caller's manager cannot fail validation;
+		// a nil manager panicked in this constructor before too.
+		panic(err)
 	}
-
-	slog.Debug("card service: adopting lock manager clock",
-		"clock_type", fmt.Sprintf("%T", clk),
-	)
-
-	svc := &CardService{
-		store:             store,
-		git:               git,
-		lock:              lockMgr,
-		bus:               bus,
-		boardsDir:         boardsDir,
-		tokenCosts:        tokenCosts,
-		gitAutoCommit:     gitAutoCommit,
-		gitDeferredCommit: gitDeferredCommit,
-		deferredPaths:     make(map[string][]string),
-		phaseStarts:       make(map[string]phaseStart),
-		runStarts:         make(map[string]time.Time),
-		validator:         board.NewValidator(),
-		clk:               clk,
-		configs:           make(map[string]*board.ProjectConfig),
-		templates:         make(map[string]map[string]string),
-	}
-	svc.stalledFn = svc.processStalled
-	svc.validateStalledCardFn = svc.validator.ValidateCard
 
 	return svc
 }
@@ -294,14 +292,18 @@ func (s *CardService) backendAuthor() string {
 // are routed through the queue so writeMu is only held across store writes
 // plus job enqueue (not the go-git operation itself). Passing nil reverts to
 // direct Manager.Commit* calls. Must be called before the server starts
-// accepting requests.
+// accepting requests. Acts on the first configured repo; multi-repo wiring
+// uses the For variant.
 func (s *CardService) SetCommitQueue(q *gitops.CommitQueue) {
-	s.commitQueue = q
+	s.repos[0].Queue = q
+	s.mirrorLegacyFields()
 }
 
 // SetOnCommit registers a callback invoked after each successful git commit.
+// Acts on the first configured repo; multi-repo wiring uses the For variant.
 func (s *CardService) SetOnCommit(fn func()) {
-	s.onCommit = fn
+	s.repos[0].onCommit = fn
+	s.mirrorLegacyFields()
 }
 
 // notifyCommit calls the onCommit callback if set.
@@ -323,18 +325,22 @@ func (s *CardService) ClearCaches() {
 
 // SetSharedRepo switches LockWrites to a full queue drain, required before
 // a shell merge on a repository other instances also write to. Must be called
-// before the server starts accepting requests.
+// before the server starts accepting requests. Acts on the first configured
+// repo; multi-repo wiring uses the For variant.
 func (s *CardService) SetSharedRepo(shared bool) {
-	s.sharedRepo = shared
+	s.repos[0].Shared = shared
+	s.mirrorLegacyFields()
 }
 
 // SetLease names this instance and sets the timings the fence and the
 // foreign-stall pass use. Must be called before the server starts accepting
-// requests. Unset (empty instance) means a private board.
+// requests. Unset (empty instance) means a private board. Acts on the first
+// configured repo; multi-repo wiring uses the For variant.
 func (s *CardService) SetLease(instance string, leaseTimeout, pullInterval time.Duration) {
-	s.instance = instance
-	s.leaseTimeout = leaseTimeout
-	s.pullInterval = pullInterval
+	r := s.repos[0]
+	r.Instance, r.LeaseTimeout, r.PullInterval = instance, leaseTimeout, pullInterval
+
+	s.mirrorLegacyFields()
 }
 
 // InstanceID returns this instance's ID, empty on a private board.
@@ -363,34 +369,41 @@ func (s *CardService) overlayLiveness(cards ...*board.Card) {
 	}
 }
 
-// LockWrites acquires the write mutex, preventing all card mutations.
-// Exposed for the gitsync layer, which must suspend writes across the
-// repository operation it is about to run: a rebase on a private board
-// repository, a merge on a shared one. If a commit queue is configured it is
-// also paused, so no async commit subprocess races that shell git operation
-// on .git/index.lock.
+// LockWrites acquires the write mutex, preventing all card mutations, and
+// quiesces the named repo's commit queue. Exposed for the gitsync layer,
+// which must suspend writes across the repository operation it is about to
+// run on that repo: a rebase on a private one, a merge on a shared one.
+// Only that repo's queue is touched; a sync cycle of one repo never waits
+// on another repo's commits.
 //
-// How much is waited out depends on the repository:
+// How much is waited out depends on the repo:
 //
-//   - Shared: the drain is total. Every queued card commit runs before this
-//     returns, because the merge that follows has to see a fully committed
-//     tree. Best-effort within a 30 s budget - on expiry this logs and
-//     returns anyway, so a caller that needs certainty checks IsClean rather
-//     than trusting the return.
-//   - Otherwise: only the commits already executing are waited out. Buffered
-//     ones stay queued and run after UnlockWrites, which is sufficient for a
-//     rebase.
+//   - Shared: the drain is total. Every queued commit of the repo runs
+//     before this returns, because the merge that follows has to see a
+//     fully committed tree. Best-effort within a 30 s budget - on expiry
+//     this logs and returns anyway, so a caller that needs certainty checks
+//     IsClean rather than trusting the return.
+//   - Otherwise: only the commits already executing are waited out.
+//     Buffered ones stay queued and run after UnlockWrites, which is
+//     sufficient for a rebase.
 //
-// Ordering constraint owed to the caller: the commit queue is shared with
-// PlaybookService, so a caller that locks both must take
-// PlaybookService.LockWrites first. A playbook mutation awaits its own commit
-// while holding the playbook lock; if that job lands in a queue this method
-// has already paused, the playbook lock is held until UnlockWrites, which the
-// caller only reaches after acquiring it. See PlaybookService.LockWrites.
-func (s *CardService) LockWrites() {
+// Ordering constraint owed to the caller: a caller that also locks
+// PlaybookService must take PlaybookService.LockWrites first. A playbook
+// mutation awaits its own commit while holding the playbook lock; if that
+// job lands in a queue this method has already paused, the playbook lock
+// is held until UnlockWrites, which the caller only reaches after acquiring
+// it. Empty repo means the first configured one.
+func (s *CardService) LockWrites(repo string) {
 	s.writeMu.Lock()
 
-	if s.commitQueue == nil {
+	r, err := s.repoNamed(repo)
+	if err != nil {
+		slog.Warn("lock writes: unknown boards repo, no commit queue quiesced", "repo", repo)
+
+		return
+	}
+
+	if r.Queue == nil {
 		return
 	}
 
@@ -399,25 +412,26 @@ func (s *CardService) LockWrites() {
 	drainCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if s.sharedRepo {
-		if err := s.commitQueue.Drain(drainCtx); err != nil {
-			slog.Warn("lock writes: commit queue drain incomplete", "error", err)
+	if r.Shared {
+		if err := r.Queue.Drain(drainCtx); err != nil {
+			slog.Warn("lock writes: commit queue drain incomplete", "repo", r.Name, "error", err)
 		}
 
 		return
 	}
 
-	s.commitQueue.Pause()
+	r.Queue.Pause()
 	// Best-effort drain: give in-flight commits a short window to finish
 	// so the subsequent shell rebase/push does not collide on .git/index.lock.
-	_ = s.commitQueue.AwaitIdle(drainCtx)
+	_ = r.Queue.AwaitIdle(drainCtx)
 }
 
-// UnlockWrites releases the write mutex and resumes the commit queue.
-// Paired with LockWrites.
-func (s *CardService) UnlockWrites() {
-	if s.commitQueue != nil {
-		s.commitQueue.Resume()
+// UnlockWrites resumes the named repo's commit queue and releases the write
+// mutex. Paired with LockWrites; the resume happens before the release so
+// no fresh write finds the queue paused.
+func (s *CardService) UnlockWrites(repo string) {
+	if r, err := s.repoNamed(repo); err == nil && r.Queue != nil {
+		r.Queue.Resume()
 	}
 
 	s.writeMu.Unlock()
@@ -608,7 +622,7 @@ type CheckResult struct {
 // HealthCheck runs a set of dependency checks and returns one CheckResult per check.
 // All checks are always run regardless of individual failures.
 func (s *CardService) HealthCheck(ctx context.Context) []CheckResult {
-	results := make([]CheckResult, 0, 3)
+	results := make([]CheckResult, 0, 2+len(s.repos))
 
 	// Check 1: store - list projects to verify the filesystem store is accessible.
 	_, err := s.store.ListProjects(ctx)
@@ -618,19 +632,23 @@ func (s *CardService) HealthCheck(ctx context.Context) []CheckResult {
 		Err:  err,
 	})
 
-	// Check 2: git - verify git manager is configured and the repo is accessible.
-	var gitErr error
-	if s.git == nil {
-		gitErr = fmt.Errorf("git manager not configured")
-	} else {
-		_, gitErr = s.git.CurrentBranch()
-	}
+	// Check 2: git - one per boards repo. The first keeps the plain "git"
+	// name so a single-repo instance reports exactly what it did before.
+	for i, r := range s.repos {
+		name := "git"
+		if i > 0 {
+			name = "git:" + r.Name
+		}
 
-	results = append(results, CheckResult{
-		Name: "git",
-		OK:   gitErr == nil,
-		Err:  gitErr,
-	})
+		var gitErr error
+		if r.Git == nil {
+			gitErr = fmt.Errorf("git manager not configured")
+		} else {
+			_, gitErr = r.Git.CurrentBranch()
+		}
+
+		results = append(results, CheckResult{Name: name, OK: gitErr == nil, Err: gitErr})
+	}
 
 	// Check 3: session_log - always ok; nil means no task backend (healthy),
 	// non-nil means it is operational.
