@@ -123,6 +123,64 @@ func TestPublishDiff_LargeDiffEmitsNothing(t *testing.T) {
 	assert.Empty(t, got)
 }
 
+func TestLostClaims(t *testing.T) {
+	own := func(epoch int) cardSnapshot {
+		return cardSnapshot{Project: "p", ID: "A-1", State: "in_progress", AssignedAgent: "agent-A-1", ClaimedVia: "lap-a", ClaimEpoch: epoch}
+	}
+
+	tests := []struct {
+		name   string
+		before cardSnapshot
+		after  cardSnapshot
+		gone   bool
+		want   []claimLoss
+	}{
+		{
+			"taken over at a higher epoch", own(1),
+			cardSnapshot{Project: "p", ID: "A-1", State: "in_progress", AssignedAgent: "agent-A-1", ClaimedVia: "lap-b", ClaimEpoch: 2},
+			false,
+			[]claimLoss{{Project: "p", ID: "A-1", PreviousAgent: "agent-A-1", NewVia: "lap-b", Epoch: 2}},
+		},
+		{
+			"double claim lost at an equal epoch", own(1),
+			cardSnapshot{Project: "p", ID: "A-1", State: "in_progress", AssignedAgent: "agent-A-1", ClaimedVia: "lap-b", ClaimEpoch: 1},
+			false,
+			[]claimLoss{{Project: "p", ID: "A-1", PreviousAgent: "agent-A-1", NewVia: "lap-b", Epoch: 1}},
+		},
+		{
+			"stalled by a peer at a higher epoch", own(1),
+			cardSnapshot{Project: "p", ID: "A-1", State: "stalled", ClaimEpoch: 2},
+			false,
+			[]claimLoss{{Project: "p", ID: "A-1", PreviousAgent: "agent-A-1", Epoch: 2}},
+		},
+		{"still ours is not a loss", own(1), own(1), false, nil},
+		{
+			"a completion with an empty tuple is a release, never a takeover", own(1),
+			cardSnapshot{Project: "p", ID: "A-1", State: "done", ClaimEpoch: 2},
+			false, nil,
+		},
+		{
+			"foreign card was never ours",
+			cardSnapshot{Project: "p", ID: "A-1", AssignedAgent: "x", ClaimedVia: "lap-b", ClaimEpoch: 1},
+			cardSnapshot{Project: "p", ID: "A-1", State: "stalled", ClaimEpoch: 2},
+			false, nil,
+		},
+		{"deleted card is the reconcile sweep's job", own(1), cardSnapshot{}, true, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			before := map[string]cardSnapshot{"p/A-1": tt.before}
+			after := map[string]cardSnapshot{}
+
+			if !tt.gone {
+				after["p/A-1"] = tt.after
+			}
+
+			assert.Equal(t, tt.want, lostClaims("lap-a", before, after))
+		})
+	}
+}
+
 // TestPublishDiff_AtTheCapStillEmits pins the boundary: exactly maxDiffEvents
 // changes are published, one more is not.
 func TestPublishDiff_AtTheCapStillEmits(t *testing.T) {

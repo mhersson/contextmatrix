@@ -74,12 +74,19 @@ type SyncStatus struct {
 	LastRemoteError string             `json:"last_remote_error,omitempty"`
 	UnpushedCommits int                `json:"unpushed_commits"`
 	Resolutions     []ResolutionRecord `json:"resolutions,omitempty"`
+
+	// ClaimsAtRisk is set on a shared repo once pushes have been failing
+	// for longer than lease_interval: peers cannot see this instance's lease
+	// renewals and will stall its cards after lease_timeout.
+	ClaimsAtRisk     bool       `json:"claims_at_risk"`
+	PushFailingSince *time.Time `json:"push_failing_since,omitempty"`
 }
 
 // SyncReport summarizes one shared sync cycle.
 type SyncReport struct {
 	ChangesPulled bool
 	Pushed        bool
+	BodyRan       bool
 	Resolutions   []boardmerge.Resolution
 }
 
@@ -115,6 +122,10 @@ type Syncer struct {
 	maxAttempts  int
 	retryBackoff time.Duration
 
+	// leaseInterval sets how long pushes may fail before the status reports
+	// claims at risk: peers stall a card once its lease stops changing.
+	leaseInterval time.Duration
+
 	mu            sync.RWMutex
 	lastSyncTime  time.Time
 	lastSyncError string
@@ -124,6 +135,11 @@ type Syncer struct {
 	lastRemoteError string
 	unpushed        int
 	resolutions     []ResolutionRecord // ring of the last maxResolutionRecords
+
+	// pushFailingSince marks when the remote first became unreachable or
+	// contended, since the last success. Zero means the last cycle (or none
+	// yet) succeeded.
+	pushFailingSince time.Time
 
 	pushCh chan struct{} // buffered(1), coalesces rapid commits
 	wg     sync.WaitGroup
@@ -178,6 +194,14 @@ func WithShared(instanceID string) Option {
 func WithSyncTimeout(d time.Duration) Option {
 	return func(s *Syncer) {
 		s.syncTimeout = d
+	}
+}
+
+// WithLeaseInterval sets how long pushes may fail before the status reports
+// claims at risk: peers stall a card once its lease stops changing.
+func WithLeaseInterval(d time.Duration) Option {
+	return func(s *Syncer) {
+		s.leaseInterval = d
 	}
 }
 
@@ -352,6 +376,12 @@ func (s *Syncer) Status() SyncStatus {
 
 	status.LastSyncError = s.lastSyncError
 
+	if !s.pushFailingSince.IsZero() {
+		t := s.pushFailingSince
+		status.PushFailingSince = &t
+		status.ClaimsAtRisk = s.shared && time.Since(s.pushFailingSince) > s.leaseInterval
+	}
+
 	return status
 }
 
@@ -376,6 +406,28 @@ func (s *Syncer) setUnpushed(n int) {
 	defer s.mu.Unlock()
 
 	s.unpushed = n
+}
+
+// notePushFailure starts the claims-at-risk clock on the first remote
+// failure and leaves it running until a cycle succeeds.
+func (s *Syncer) notePushFailure(err error) {
+	if !errors.Is(err, ErrRemoteUnreachable) && !errors.Is(err, ErrSyncContended) {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.pushFailingSince.IsZero() {
+		s.pushFailingSince = time.Now()
+	}
+}
+
+func (s *Syncer) clearPushFailure() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.pushFailingSince = time.Time{}
 }
 
 // recordResolutions appends to the bounded resolution log.
@@ -596,36 +648,47 @@ func (s *Syncer) pushWithRetry(ctx context.Context) error {
 	return nil
 }
 
-// Synced runs one shared-repo cycle: quiesce writes, commit anything dirty,
-// fetch, integrate the remote by fast-forward or merge, run body, and push
-// what the cycle produced. Only valid on a syncer built WithShared.
+// Synced runs one shared-repo cycle with an optional body and no undo. See
+// SyncedMutation.
+func (s *Syncer) Synced(ctx context.Context, trigger string, body func(ctx context.Context) error) (SyncReport, error) {
+	return s.SyncedMutation(ctx, trigger, service.SyncMutation{Apply: body})
+}
+
+// SyncedMutation runs one shared-repo cycle: quiesce writes, commit anything
+// dirty, fetch, integrate the remote by fast-forward or merge, run the
+// mutation's Apply, and push what the cycle produced. Only valid on a syncer
+// built WithShared.
 //
-// body, when non-nil, runs under the write locks after the first integration
-// and before the first push attempt, at most once per cycle: a push rejected
-// as non-fast-forward re-integrates but does not re-run it. It must never
-// touch the network.
+// Apply, when non-nil, runs under the write locks after the first
+// integration and before the first push attempt, at most once per cycle: a
+// push rejected as non-fast-forward re-integrates but does not re-run it. It
+// must never touch the network. A mutation's Apply runs once, after the
+// merge and reload; if the cycle then fails to push, its Undo runs under the
+// same locks before the error is returned, so the caller can retry without
+// leaving a write behind. Undo does not run when Apply itself failed - a
+// mutation that fails leaves nothing to undo.
 //
-// What body may do is narrower than it looks. Both write locks are held, and
-// on a shared repository LockWrites drains the commit queue and leaves it
-// paused for the whole cycle. A body that enqueues a commit and waits for it,
-// or that calls any CardService write method, therefore blocks until
-// UnlockWrites resumes the queue, which only happens after body returns. That
-// is an unrecoverable deadlock with no timeout.
+// What Apply may do is narrower than it looks. Both write locks are held,
+// and on a shared repository LockWrites drains the commit queue and leaves
+// it paused for the whole cycle. Apply enqueuing a commit and waiting for
+// it, or calling any CardService write method, therefore blocks until
+// UnlockWrites resumes the queue, which only happens after Apply returns.
+// That is an unrecoverable deadlock with no timeout.
 //
-// A body makes its board writes through the store instead - storage.Store
+// Apply makes its board writes through the store instead - storage.Store
 // methods such as CreateCard and UpdateCard, which write the file and update
 // the in-memory index together - and then commits the paths it wrote
 // synchronously with gitops.Manager.CommitFilesShell. Writing a card, project
 // config or playbook file straight to disk is wrong even though it commits:
 // the index keeps serving the pre-write copy until some later cycle pulls
 // something and reloads it, and the next service write to that record
-// overwrites the body's file from the stale copy.
+// overwrites Apply's file from the stale copy.
 //
 // The repository is never left mid-merge: every failure after a merge started
 // aborts it and returns an error, a merge left behind by an earlier cycle is
 // aborted before this one touches the tree, and the next cycle retries from a
 // clean tree.
-func (s *Syncer) Synced(ctx context.Context, trigger string, body func(ctx context.Context) error) (SyncReport, error) {
+func (s *Syncer) SyncedMutation(ctx context.Context, trigger string, m service.SyncMutation) (SyncReport, error) {
 	if !s.shared {
 		return SyncReport{}, errors.New("shared sync requires a syncer built with WithShared")
 	}
@@ -648,12 +711,12 @@ func (s *Syncer) Synced(ctx context.Context, trigger string, body func(ctx conte
 		defer s.playbooks.UnlockWrites()
 	}
 
-	// Held across the whole cycle, body included, so no mutation lands
+	// Held across the whole cycle, Apply included, so no mutation lands
 	// between the merge and the push it is meant to be part of.
 	s.svc.LockWrites()
 	defer s.svc.UnlockWrites()
 
-	report, err := s.synced(ctx, trigger, body)
+	report, err := s.synced(ctx, trigger, m)
 
 	// Recorded before the outcome is branched on. A resolution describes a
 	// merge commit that is already on HEAD, so it stays true whether or not
@@ -663,20 +726,38 @@ func (s *Syncer) Synced(ctx context.Context, trigger string, body func(ctx conte
 
 	if err != nil {
 		s.setError(err)
+		s.notePushFailure(err)
 		s.publishError(trigger, err)
 
 		return report, err
 	}
 
 	s.setSuccess()
+	s.clearPushFailure()
+	s.svc.SyncSucceeded(ctx)
 	s.publishCompleted(trigger, report.ChangesPulled, time.Since(start))
 
 	return report, nil
 }
 
-// synced is the body of Synced, run with both write locks held.
-func (s *Syncer) synced(ctx context.Context, trigger string, body func(ctx context.Context) error) (SyncReport, error) {
+// synced is the body of SyncedMutation, run with both write locks held.
+func (s *Syncer) synced(ctx context.Context, trigger string, m service.SyncMutation) (SyncReport, error) {
 	var report SyncReport
+
+	// fail runs the undo when the cycle dies after Apply ran, so the write
+	// never leaves this instance on a later push. Apply's own error does not
+	// come through here: a mutation that fails leaves nothing behind.
+	fail := func(err error) (SyncReport, error) {
+		if report.BodyRan && m.Undo != nil {
+			if uerr := m.Undo(ctx); uerr != nil {
+				slog.Error("git sync: undo after failed cycle", "trigger", trigger, "error", uerr)
+
+				err = fmt.Errorf("%w; undo failed: %w", err, uerr)
+			}
+		}
+
+		return report, err
+	}
 
 	// Must precede commitLeftovers: in a conflicted worktree the leftovers
 	// are the conflict markers, and staging them concludes the merge.
@@ -693,32 +774,30 @@ func (s *Syncer) synced(ctx context.Context, trigger string, body func(ctx conte
 		return report, fmt.Errorf("current branch: %w", err)
 	}
 
-	bodyRan := false
-
 	for attempt := range s.maxAttempts {
 		if err := s.fetch(ctx); err != nil {
-			return report, err
+			return fail(err)
 		}
 
 		pulled, res, err := s.integrate(ctx, trigger, branch)
 		if err != nil {
-			return report, err
+			return fail(err)
 		}
 
 		report.ChangesPulled = report.ChangesPulled || pulled
 		report.Resolutions = append(report.Resolutions, res...)
 
-		if body != nil && !bodyRan {
-			bodyRan = true
+		if m.Apply != nil && !report.BodyRan {
+			report.BodyRan = true
 
-			if err := body(ctx); err != nil {
+			if err := m.Apply(ctx); err != nil {
 				return report, fmt.Errorf("sync body: %w", err)
 			}
 		}
 
 		ahead, err := s.aheadCount(ctx, branch)
 		if err != nil {
-			return report, err
+			return fail(err)
 		}
 
 		s.setUnpushed(ahead)
@@ -751,7 +830,7 @@ func (s *Syncer) synced(ctx context.Context, trigger string, body func(ctx conte
 		if !reNonFastForward.MatchString(pushErr.Error()) {
 			s.setRemote(false, pushErr)
 
-			return report, fmt.Errorf("%w: push: %w", ErrRemoteUnreachable, pushErr)
+			return fail(fmt.Errorf("%w: push: %w", ErrRemoteUnreachable, pushErr))
 		}
 
 		slog.Info("git sync: push rejected, re-integrating", "attempt", attempt+1, "trigger", trigger)
@@ -760,11 +839,11 @@ func (s *Syncer) synced(ctx context.Context, trigger string, body func(ctx conte
 		// sleepJitter also returns on cancellation; report that as such
 		// rather than letting the next fetch fail as an unreachable remote.
 		if err := ctx.Err(); err != nil {
-			return report, err
+			return fail(err)
 		}
 	}
 
-	return report, fmt.Errorf("%w: push rejected %d times", ErrSyncContended, s.maxAttempts)
+	return fail(fmt.Errorf("%w: push rejected %d times", ErrSyncContended, s.maxAttempts))
 }
 
 // fetch updates the remote tracking refs under the per-call timeout.
@@ -1013,11 +1092,19 @@ func (s *Syncer) reloadAfterPull(ctx context.Context) error {
 		after, err := s.snapshotCards(ctx)
 		if err != nil {
 			slog.Warn("git sync: snapshot cards after reload", "error", err)
+		} else {
+			s.publishDiff(before, after)
 
-			return nil
+			for _, l := range lostClaims(s.instance, before, after) {
+				s.svc.NoteClaimLost(ctx, l.Project, l.ID, l.PreviousAgent, l.NewVia, l.Epoch)
+			}
 		}
+	}
 
-		s.publishDiff(before, after)
+	if s.shared {
+		if err := s.svc.ObserveLeases(ctx); err != nil {
+			slog.Warn("git sync: observe leases after reload", "error", err)
+		}
 	}
 
 	return nil
