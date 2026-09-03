@@ -22,6 +22,7 @@ type playbookEntryRequest struct {
 type createPlaybookRequest struct {
 	Title       string                 `json:"title"`
 	Description string                 `json:"description,omitempty"`
+	BoardsRepo  string                 `json:"boards_repo,omitempty"`
 	Entries     []playbookEntryRequest `json:"entries,omitempty"`
 }
 
@@ -88,6 +89,7 @@ func (h *playbookHandlers) create(w http.ResponseWriter, r *http.Request) {
 		Description: req.Description,
 		AgentID:     playbookAgentID(r),
 		Entries:     entries,
+		BoardsRepo:  req.BoardsRepo,
 	}
 
 	detail, err := h.svc.Create(r.Context(), input)

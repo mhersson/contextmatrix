@@ -23,6 +23,7 @@ type createProjectToolInput struct {
 	Name        string              `json:"name" jsonschema:"required,project name (alphanumeric with hyphens/underscores)"`
 	Prefix      string              `json:"prefix" jsonschema:"required,card ID prefix (e.g. ALPHA)"`
 	Repo        string              `json:"repo,omitempty" jsonschema:"git repository URL for the project code"`
+	BoardsRepo  string              `json:"boards_repo,omitempty" jsonschema:"boards repository to create the project in (a name from the server's boards config); defaults to the first configured repo"`
 	States      []string            `json:"states" jsonschema:"required,workflow states (must include stalled)"`
 	Types       []string            `json:"types" jsonschema:"required,card types (e.g. task bug feature)"`
 	Priorities  []string            `json:"priorities" jsonschema:"required,priority levels (e.g. low medium high)"`
@@ -63,12 +64,13 @@ func registerListProjects(server *mcp.Server, svc *service.CardService) {
 func registerCreateProject(server *mcp.Server, svc *service.CardService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "create_project",
-		Description: "Create a new project board with directory structure and configuration. The project name becomes the directory name. States must include 'stalled' and 'not_planned' (validator-enforced). The names 'todo', 'in_progress', 'review', and 'done' are also hardcoded into lifecycle behaviour (claim auto-transitions, complete_task, parent/child orchestration, dashboard metrics) - extra states may be added freely but these six built-in names should not be renamed. All states must have transition entries.",
+		Description: "Create a new project board with directory structure and configuration. The project name becomes the directory name. States must include 'stalled' and 'not_planned' (validator-enforced). The names 'todo', 'in_progress', 'review', and 'done' are also hardcoded into lifecycle behaviour (claim auto-transitions, complete_task, parent/child orchestration, dashboard metrics) - extra states may be added freely but these six built-in names should not be renamed. All states must have transition entries. With several boards repositories configured, boards_repo picks one; omit it for the first.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input createProjectToolInput) (*mcp.CallToolResult, *board.ProjectConfig, error) {
 		cfg, err := svc.CreateProject(ctx, service.CreateProjectInput{
 			Name:        input.Name,
 			Prefix:      input.Prefix,
 			Repo:        input.Repo,
+			BoardsRepo:  input.BoardsRepo,
 			States:      input.States,
 			Types:       input.Types,
 			Priorities:  input.Priorities,

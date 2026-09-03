@@ -31,6 +31,7 @@ type createPlaybookInput struct {
 	AgentID     string                   `json:"agent_id" jsonschema:"required,caller identity for created_by attribution"`
 	Title       string                   `json:"title" jsonschema:"required,playbook title; the immutable id is derived from it"`
 	Description string                   `json:"description,omitempty" jsonschema:"free-text description"`
+	BoardsRepo  string                   `json:"boards_repo,omitempty" jsonschema:"boards repository to create the playbook in; defaults to the first configured repo"`
 	Entries     []playbookEntryToolInput `json:"entries,omitempty" jsonschema:"initial ordered entries; the call is all-or-nothing"`
 }
 
@@ -147,7 +148,7 @@ func registerGetPlaybook(server *mcp.Server, pb *service.PlaybookService) {
 func registerCreatePlaybook(server *mcp.Server, pb *service.PlaybookService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "create_playbook",
-		Description: "Create a cross-project playbook: an ordered list of card references and manual gate steps. Entries are validated against existing cards; the call is all-or-nothing. The playbook id is derived from the title and never changes. Playbooks are not runnable; they coordinate order for humans and planning sessions.",
+		Description: "Create a cross-project playbook: an ordered list of card references and manual gate steps. Entries are validated against existing cards; the call is all-or-nothing. The playbook id is derived from the title and never changes. Playbooks are not runnable; they coordinate order for humans and planning sessions. boards_repo picks the boards repository when several are configured.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input createPlaybookInput) (*mcp.CallToolResult, service.PlaybookSummary, error) {
 		entries := make([]service.PlaybookEntryInput, len(input.Entries))
 		for i, e := range input.Entries {
@@ -156,6 +157,7 @@ func registerCreatePlaybook(server *mcp.Server, pb *service.PlaybookService) {
 
 		detail, err := pb.Create(ctx, service.CreatePlaybookInput{
 			Title: input.Title, Description: input.Description, AgentID: input.AgentID, Entries: entries,
+			BoardsRepo: input.BoardsRepo,
 		})
 		if err != nil {
 			return nil, service.PlaybookSummary{}, remoteErr(fmt.Errorf("create playbook %s: %w", input.Title, err))
