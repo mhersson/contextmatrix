@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -126,6 +127,41 @@ func TestMerge_ConflictAndResolve(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, short)
 	assert.NotContains(t, short, "\n")
+}
+
+// TestShowStage_AbsentStageUnderForeignLocale pins the locale plumbing.
+// An absent merge stage is recognised from git's own error text, and git
+// translates that text, so a server started from a localized desktop session
+// would fail every add/add and modify/delete resolution. Every git child runs
+// with the message locale pinned instead, whatever the process environment
+// says.
+func TestShowStage_AbsentStageUnderForeignLocale(t *testing.T) {
+	t.Setenv("LC_ALL", "de_DE.UTF-8")
+	t.Setenv("LANG", "de_DE.UTF-8")
+	t.Setenv("LANGUAGE", "de:fr")
+
+	mgr, _ := makeConflict(t)
+	ctx := context.Background()
+
+	branch, err := mgr.CurrentBranch()
+	require.NoError(t, err)
+
+	require.ErrorIs(t, mgr.Merge(ctx, "origin/"+branch), ErrMergeConflict)
+
+	// The child process sees the pinned locale, not the caller's.
+	seen, err := mgr.runGitOutput(ctx, "-c", "alias.showlocale=!printenv LC_ALL LANGUAGE", "showlocale")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"C", ""}, strings.Split(strings.TrimSuffix(seen, "\n"), "\n"))
+
+	// Stage 1 of an untracked path and stage 2 of a path only the remote has
+	// are both absent, and both must read as absent rather than as a failure.
+	missing, err := mgr.ShowStage(ctx, 1, "nope.txt")
+	require.NoError(t, err)
+	assert.Nil(t, missing)
+
+	theirs, err := mgr.ShowStage(ctx, 3, "a.txt")
+	require.NoError(t, err)
+	assert.Equal(t, "theirs\n", string(theirs))
 }
 
 func TestMerge_AbortRestoresCleanTree(t *testing.T) {

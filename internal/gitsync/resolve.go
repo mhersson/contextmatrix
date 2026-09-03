@@ -56,15 +56,32 @@ func (s *Syncer) resolveConflicts(
 
 		in := boardmerge.Input{Path: u.Path}
 
-		for stage, dst := range map[int]*[]byte{1: &in.Base, 2: &in.Ours, 3: &in.Theirs} {
-			data, stageErr := s.git.ShowStage(ctx, stage, u.Path)
+		// Only the stages git recorded are read. A stage it left out is the
+		// side that added or deleted the path, and the resolver reads that
+		// from the nil the Input already carries. Asking for it instead would
+		// put the merge on ShowStage's fallback, which recognises an absent
+		// stage from git's own message.
+		for _, st := range []struct {
+			number  int
+			present bool
+			dst     *[]byte
+		}{
+			{1, u.HasBase, &in.Base},
+			{2, u.HasOurs, &in.Ours},
+			{3, u.HasTheirs, &in.Theirs},
+		} {
+			if !st.present {
+				continue
+			}
+
+			data, stageErr := s.git.ShowStage(ctx, st.number, u.Path)
 			if stageErr != nil {
 				s.removeExtras()
 
 				return nil, fmt.Errorf("read merge stages of %s: %w", u.Path, stageErr)
 			}
 
-			*dst = data
+			*st.dst = data
 		}
 
 		// Renames carries every re-mint made so far this merge, so a card or

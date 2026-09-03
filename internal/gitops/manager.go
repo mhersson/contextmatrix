@@ -481,6 +481,21 @@ func (m *Manager) reloadRepo() error {
 	return nil
 }
 
+// gitEnv returns the environment every git child process runs with: the
+// caller's own environment with the message locale pinned to C.
+//
+// Git translates its diagnostics, and several of them are parsed rather than
+// only logged - isMissingStage reads "is in the index, but not at stage", the
+// syncer matches a non-fast-forward rejection. Both would break on a server
+// started from a localized desktop session. LANGUAGE is cleared as well
+// because gettext lets it override LC_ALL.
+//
+// The pinned entries come last: os/exec keeps the final occurrence of a key,
+// so an LC_ALL already in the environment is overridden rather than duplicated.
+func gitEnv() []string {
+	return append(os.Environ(), "LC_ALL=C", "LANG=C", "LANGUAGE=")
+}
+
 // runGit executes a git command in the repository directory.
 // This method does not acquire any locks itself; callers are responsible
 // for choosing the appropriate lock (worktreeMu for index-touching ops,
@@ -501,9 +516,13 @@ func (m *Manager) runGit(ctx context.Context, args ...string) error {
 	cmd.Dir = m.repoPath
 	cmd.WaitDelay = 3 * time.Second
 
-	if env, err := AuthEnvFromProvider(ctx, m.provider); err == nil && len(env) > 0 {
-		cmd.Env = append(os.Environ(), env...)
+	env := gitEnv()
+
+	if authEnv, err := AuthEnvFromProvider(ctx, m.provider); err == nil && len(authEnv) > 0 {
+		env = append(env, authEnv...)
 	}
+
+	cmd.Env = env
 
 	var stdout, stderr bytes.Buffer
 

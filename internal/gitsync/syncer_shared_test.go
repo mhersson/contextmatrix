@@ -157,6 +157,93 @@ func (n *sharedNode) sync(t *testing.T) SyncReport {
 	return r
 }
 
+// TestSynced_PushesWhenTheBranchIsNotOnTheRemoteYet covers first-time setup:
+// the upstream repository is empty, so origin/<branch> does not exist and an
+// ahead count has no revision to count against. The cycle must push anyway,
+// or the first instance of a shared board never reaches the remote and no
+// colleague can clone it.
+func TestSynced_PushesWhenTheBranchIsNotOnTheRemoteYet(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not found")
+	}
+
+	ctx := context.Background()
+	upstream := filepath.Join(t.TempDir(), "upstream.git")
+
+	run(t, "", "git", "init", "--bare", "-b", "main", upstream)
+
+	a := newSharedNode(t, upstream, "lap-a")
+
+	// Nothing was ever pushed, so this instance seeds the board itself.
+	require.NoError(t, os.MkdirAll(filepath.Join(a.dir, "test-project", "tasks"), 0o755))
+	require.NoError(t, board.SaveProjectConfig(filepath.Join(a.dir, "test-project"), testProjectConfig()))
+	require.NoError(t, a.store.ReloadIndex(ctx))
+
+	card := a.create(t, "first")
+
+	r, err := a.syncer.Synced(ctx, "test", nil)
+	require.NoError(t, err)
+	assert.True(t, r.Pushed, "the branch is not on the remote, so the whole local history is unpushed")
+	assert.Equal(t, 0, a.syncer.Status().UnpushedCommits)
+
+	// The upstream now carries the branch, so a colleague can clone it.
+	tracked := run(t, upstream, "git", "ls-tree", "-r", "--name-only", "main")
+	assert.Contains(t, tracked, "test-project/tasks/"+card.ID+".md")
+
+	b := newSharedNode(t, upstream, "lap-b")
+	b.sync(t)
+
+	got, err := b.store.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "first", got.Title)
+}
+
+// TestSynced_RecordsResolutionsWhenThePushFails pins the status log against
+// the failure this topology exists for: the merge resolved and committed, and
+// then the push did not land. Those resolutions describe commits that are on
+// HEAD either way, and a developer who has just lost a push is exactly the one
+// who goes looking for what the resolver decided.
+func TestSynced_RecordsResolutionsWhenThePushFails(t *testing.T) {
+	ctx := context.Background()
+	a, b, _ := setupSharedPair(t)
+
+	c := a.create(t, "x")
+	a.sync(t)
+	b.sync(t)
+
+	// Both sides edit the same card, so b has to resolve to integrate.
+	_, err := a.svc.UpdateCard(ctx, "test-project", c.ID,
+		service.UpdateCardInput{Title: "from a", Type: "task", State: "todo", Priority: "high"})
+	require.NoError(t, err)
+
+	a.sync(t)
+
+	_, err = b.svc.UpdateCard(ctx, "test-project", c.ID,
+		service.UpdateCardInput{Title: "from b", Type: "task", State: "todo", Priority: "low"})
+	require.NoError(t, err)
+
+	// One attempt, and the remote moves before it: b merges, resolves and
+	// commits, then loses the only push it gets.
+	b.syncer.maxAttempts = 1
+	b.syncer.retryBackoff = time.Millisecond
+	b.syncer.prePushHook = func(int) {
+		a.create(t, "a2")
+		require.True(t, a.sync(t).Pushed)
+	}
+
+	report, err := b.syncer.Synced(ctx, "test", nil)
+	require.ErrorIs(t, err, ErrSyncContended)
+	require.NotEmpty(t, report.Resolutions, "the merge must have resolved something to record")
+
+	recorded := b.syncer.Status().Resolutions
+	require.Len(t, recorded, len(report.Resolutions))
+
+	for i, want := range report.Resolutions {
+		assert.Equal(t, want, recorded[i].Resolution)
+		assert.Equal(t, "test", recorded[i].Trigger)
+	}
+}
+
 func TestSynced_PushesAndPullsWithoutConflict(t *testing.T) {
 	a, b, _ := setupSharedPair(t)
 

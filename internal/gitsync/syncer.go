@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"regexp"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -609,8 +610,16 @@ func (s *Syncer) pushWithRetry(ctx context.Context) error {
 // paused for the whole cycle. A body that enqueues a commit and waits for it,
 // or that calls any CardService write method, therefore blocks until
 // UnlockWrites resumes the queue, which only happens after body returns. That
-// is an unrecoverable deadlock with no timeout. Write files directly and
-// commit them with gitops.Manager.CommitFilesShell instead.
+// is an unrecoverable deadlock with no timeout.
+//
+// A body makes its board writes through the store instead - storage.Store
+// methods such as CreateCard and UpdateCard, which write the file and update
+// the in-memory index together - and then commits the paths it wrote
+// synchronously with gitops.Manager.CommitFilesShell. Writing a card, project
+// config or playbook file straight to disk is wrong even though it commits:
+// the index keeps serving the pre-write copy until some later cycle pulls
+// something and reloads it, and the next service write to that record
+// overwrites the body's file from the stale copy.
 //
 // The repository is never left mid-merge: every failure after a merge started
 // aborts it and returns an error, a merge left behind by an earlier cycle is
@@ -645,6 +654,13 @@ func (s *Syncer) Synced(ctx context.Context, trigger string, body func(ctx conte
 	defer s.svc.UnlockWrites()
 
 	report, err := s.synced(ctx, trigger, body)
+
+	// Recorded before the outcome is branched on. A resolution describes a
+	// merge commit that is already on HEAD, so it stays true whether or not
+	// the push that followed it succeeded - and a failed push is exactly when
+	// an operator goes looking for what the resolver did.
+	s.recordResolutions(trigger, report.Resolutions)
+
 	if err != nil {
 		s.setError(err)
 		s.publishError(trigger, err)
@@ -652,7 +668,6 @@ func (s *Syncer) Synced(ctx context.Context, trigger string, body func(ctx conte
 		return report, err
 	}
 
-	s.recordResolutions(trigger, report.Resolutions)
 	s.setSuccess()
 	s.publishCompleted(trigger, report.ChangesPulled, time.Since(start))
 
@@ -701,7 +716,7 @@ func (s *Syncer) synced(ctx context.Context, trigger string, body func(ctx conte
 			}
 		}
 
-		ahead, err := s.git.AheadCount(ctx, branch)
+		ahead, err := s.aheadCount(ctx, branch)
 		if err != nil {
 			return report, err
 		}
@@ -1013,6 +1028,37 @@ func (s *Syncer) hasRef(ctx context.Context, ref string) bool {
 	_, err := runGit(ctx, s.repoPath, nil, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
 
 	return err == nil
+}
+
+// aheadCount reports how many commits a push would send.
+//
+// A branch that has never been pushed has no origin/<branch> to count
+// against, and rev-list exits non-zero on the unknown revision rather than
+// reporting zero. That is the first-run shape: an empty upstream is cloned,
+// the first project is created locally, and without this the cycle would fail
+// on the count every tick and the board would never reach the remote. Every
+// local commit is unpushed in that case, and the push that follows creates the
+// branch upstream. A repository with no commits at all has nothing to send.
+func (s *Syncer) aheadCount(ctx context.Context, branch string) (int, error) {
+	if s.hasRef(ctx, "origin/"+branch) {
+		return s.git.AheadCount(ctx, branch)
+	}
+
+	if !s.hasRef(ctx, "HEAD") {
+		return 0, nil
+	}
+
+	out, err := runGit(ctx, s.repoPath, nil, "rev-list", "--count", "HEAD")
+	if err != nil {
+		return 0, fmt.Errorf("count local commits: %w", err)
+	}
+
+	n, err := strconv.Atoi(strings.TrimSpace(out))
+	if err != nil {
+		return 0, fmt.Errorf("parse local commit count: %w", err)
+	}
+
+	return n, nil
 }
 
 // sleepJitter waits base with +-25% jitter so concurrent instances do not

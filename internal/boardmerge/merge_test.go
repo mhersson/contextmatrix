@@ -20,6 +20,16 @@ func TestClassify(t *testing.T) {
 		{"alpha/templates/bug.md", KindOther, "", ""},
 		{"alpha/tasks/.tmp-123", KindOther, "", ""},
 		{"README.md", KindOther, "", ""},
+		// No layer validates a project prefix, so ids the uppercase shape
+		// would miss are still cards the index loader serves.
+		{"alpha/tasks/alpha-001.md", KindCard, "alpha", "alpha-001"},
+		{"alpha/tasks/2fa-007.md", KindCard, "alpha", "2fa-007"},
+		{"alpha/tasks/my_proj-042.md", KindCard, "alpha", "my_proj-042"},
+		// The loader reads one directory, never a subtree, and skips dotfiles
+		// and anything the id shape does not reach.
+		{"alpha/tasks/sub/BETA-002.md", KindOther, "", ""},
+		{"alpha/tasks/.tmp-123.md", KindOther, "", ""},
+		{"alpha/tasks/notes.md", KindOther, "", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {

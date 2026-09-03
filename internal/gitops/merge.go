@@ -41,6 +41,7 @@ func (m *Manager) runGitOutput(ctx context.Context, args ...string) (string, err
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = m.repoPath
 	cmd.WaitDelay = 3 * time.Second
+	cmd.Env = gitEnv()
 
 	var stdout, stderr bytes.Buffer
 
@@ -249,6 +250,11 @@ func (m *Manager) ShowStage(ctx context.Context, stage int, path string) ([]byte
 // failure. The first two messages are what git prints for an untracked path
 // and for a tracked path with no entry at the requested stage; the third
 // covers older versions that report it as a bad object name.
+//
+// This is a fallback. Callers that already know which stages git recorded, as
+// the resolver does from UnmergedPath, should ask only for those and never
+// reach it. Matching works because every git child runs under gitEnv, which
+// pins the message locale to C.
 func isMissingStage(err error) bool {
 	msg := err.Error()
 

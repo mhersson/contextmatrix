@@ -89,8 +89,17 @@ const (
 	RulePlaybookDedupe    = "playbook.entry_dedupe"
 )
 
+// cardPath matches what the index loader accepts as a card: any .md file
+// directly under a project's tasks directory. The id part is deliberately not
+// restricted to an uppercase prefix - nothing in ContextMatrix validates the
+// shape of a project prefix, so a card whose id came from a lowercase or
+// digit-leading prefix is a real card the loader serves. A pattern that
+// missed it would classify it as an ordinary file, dropping the local side of
+// every conflict on it with no re-mint. Only the trailing -<digits> that
+// GenerateCardID always appends is required, and a leading dot is excluded so
+// the store's own .tmp- files never look like cards.
 var (
-	cardPath     = regexp.MustCompile(`^([^/]+)/tasks/([A-Z][A-Z0-9]*-[0-9]+)\.md$`)
+	cardPath     = regexp.MustCompile(`^([^/]+)/tasks/([^./][^/]*-[0-9]+)\.md$`)
 	playbookPath = regexp.MustCompile(`^playbooks/([^/]+)\.yaml$`)
 )
 
