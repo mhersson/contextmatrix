@@ -3631,3 +3631,50 @@ func TestLoadOrCreateInstanceID(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, first, second)
 }
+
+func TestValidate_LeaseFields(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(c *Config)
+		wantErr string
+	}{
+		{"defaults pass", func(c *Config) {}, ""},
+		{"bad interval", func(c *Config) { c.Boards.LeaseInterval = "soon" }, "lease_interval"},
+		{"bad timeout", func(c *Config) { c.Boards.LeaseTimeout = "later" }, "lease_timeout"},
+		{"timeout too short", func(c *Config) { c.Boards.LeaseTimeout = "30m" }, "lease_timeout must exceed"},
+		{"not checked when private", func(c *Config) { c.Boards.Shared = false; c.Boards.LeaseTimeout = "1m" }, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := defaults()
+			c.Boards.Dir = t.TempDir()
+			c.GitHub.AuthMode = "pat"
+			c.GitHub.PAT.Token = "x"
+			c.Boards.Shared = true
+			c.Boards.GitRemoteURL = "https://x/y"
+			c.Instance.ID = "laptop-a1b2c3"
+			tt.mutate(c)
+
+			err := c.Validate()
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+
+				return
+			}
+
+			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
+func TestLeaseDurations(t *testing.T) {
+	c := defaults()
+
+	i, err := c.LeaseIntervalDuration()
+	require.NoError(t, err)
+	assert.Equal(t, 5*time.Minute, i)
+
+	to, err := c.LeaseTimeoutDuration()
+	require.NoError(t, err)
+	assert.Equal(t, time.Hour, to)
+}

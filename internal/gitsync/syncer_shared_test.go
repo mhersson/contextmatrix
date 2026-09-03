@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -28,9 +29,13 @@ type sharedNode struct {
 	syncer *Syncer
 	store  *storage.FilesystemStore
 	svc    *service.CardService
+	pb     *service.PlaybookService
+	runner service.SyncRunner
 	git    *gitops.Manager
 	bus    *events.Bus
+	clk    *clock.FakeClock
 	dir    string
+	id     string
 }
 
 // setupSharedPair builds one bare upstream and two independent clones, each
@@ -94,18 +99,115 @@ func newSharedNode(t *testing.T, upstream, instance string) *sharedNode {
 	require.NoError(t, err)
 
 	bus := events.NewBus()
-	svc := service.NewCardService(store, gitMgr, lock.NewManager(store, 30*time.Minute), bus, dir, nil, true, false)
+	clk := clock.Fake(time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC))
+
+	lockMgr := lock.NewManagerWithClock(store, 30*time.Minute, clk)
+	lockMgr.SetShared(instance, 5*time.Minute, time.Hour)
+
+	svc := service.NewCardService(store, gitMgr, lockMgr, bus, dir, nil, true, false)
 	svc.SetSharedRepo(true)
+	svc.SetLease(instance, time.Hour, time.Minute)
 
 	queue := gitops.NewCommitQueue(gitMgr, 0)
 	svc.SetCommitQueue(queue)
 	t.Cleanup(func() { _ = queue.Close(context.Background()) })
 
 	syncer := NewSyncer(gitMgr, store, svc, bus, dir, true, true, time.Minute,
-		WithShared(instance), WithSyncTimeout(5*time.Second))
+		WithShared(instance), WithSyncTimeout(5*time.Second), WithLeaseInterval(5*time.Minute))
 	require.NotNil(t, syncer)
 
-	return &sharedNode{syncer: syncer, store: store, svc: svc, git: gitMgr, bus: bus, dir: dir}
+	runner := func(ctx context.Context, trigger string, m service.SyncMutation) (service.SyncOutcome, error) {
+		r, err := syncer.SyncedMutation(ctx, trigger, m)
+
+		return service.SyncOutcome{BodyRan: r.BodyRan, Pushed: r.Pushed, Resolutions: r.Resolutions}, err
+	}
+
+	svc.SetSyncRunner(runner)
+
+	pbStore, err := storage.NewFilesystemPlaybookStore(dir)
+	require.NoError(t, err)
+
+	pb := service.NewPlaybookService(pbStore, store, bus, clk, true)
+	pb.SetCommitQueue(queue)
+	pb.SetSyncRunner(runner, service.DirectCommitter(gitMgr))
+	syncer.SetPlaybooks(pb)
+
+	return &sharedNode{
+		syncer: syncer, store: store, svc: svc, pb: pb, runner: runner,
+		git: gitMgr, bus: bus, clk: clk, dir: dir, id: instance,
+	}
+}
+
+func (n *sharedNode) claim(t *testing.T, id, agent string) *board.Card {
+	t.Helper()
+
+	c, err := n.svc.ClaimCard(context.Background(), "test-project", id, agent)
+	require.NoError(t, err)
+
+	return c
+}
+
+func (n *sharedNode) heartbeat(t *testing.T, id, agent string) {
+	t.Helper()
+
+	_, err := n.svc.HeartbeatCard(context.Background(), "test-project", id, agent)
+	require.NoError(t, err)
+}
+
+func (n *sharedNode) sweep(t *testing.T) {
+	t.Helper()
+
+	require.NoError(t, n.svc.SweepStalled(context.Background()))
+}
+
+func (n *sharedNode) card(t *testing.T, id string) *board.Card {
+	t.Helper()
+
+	c, err := n.store.GetCard(context.Background(), "test-project", id)
+	require.NoError(t, err)
+
+	return c
+}
+
+func (n *sharedNode) lastCommit(t *testing.T) string {
+	t.Helper()
+
+	return strings.TrimSpace(run(t, n.dir, "git", "log", "--format=%s", "-1"))
+}
+
+func boardEntry(agent string) board.ActivityEntry {
+	return board.ActivityEntry{Agent: agent, Action: "note", Message: "x"}
+}
+
+// writeClaim marks a card as held by agent through instance via, at the given
+// epoch, and commits it, as a peer's pushed claim would look after a pull.
+func (n *sharedNode) writeClaim(t *testing.T, id, agent, via string, epoch int) {
+	t.Helper()
+
+	ctx := context.Background()
+
+	c, err := n.store.GetCard(ctx, "test-project", id)
+	require.NoError(t, err)
+
+	now := n.clk.Now()
+	c.AssignedAgent, c.ClaimedVia, c.ClaimedAt, c.LastHeartbeat, c.ClaimEpoch = agent, via, &now, &now, epoch
+	c.State = "in_progress"
+	require.NoError(t, n.store.UpdateCard(ctx, "test-project", c))
+	require.NoError(t, n.git.CommitFilesShell(ctx, []string{"test-project/tasks/" + id + ".md"}, "claim by "+via))
+}
+
+func (n *sharedNode) writeStall(t *testing.T, id string, epoch int) {
+	t.Helper()
+
+	ctx := context.Background()
+
+	c, err := n.store.GetCard(ctx, "test-project", id)
+	require.NoError(t, err)
+
+	c.ClearClaim()
+	c.State, c.ClaimEpoch = "stalled", epoch
+	require.NoError(t, n.store.UpdateCard(ctx, "test-project", c))
+	require.NoError(t, n.git.CommitFilesShell(ctx, []string{"test-project/tasks/" + id + ".md"}, "stall"))
 }
 
 func (n *sharedNode) create(t *testing.T, title string) *board.Card {
@@ -114,6 +216,38 @@ func (n *sharedNode) create(t *testing.T, title string) *board.Card {
 	c, err := n.svc.CreateCard(context.Background(), "test-project",
 		service.CreateCardInput{Title: title, Type: "task", Priority: "medium"})
 	require.NoError(t, err)
+
+	return c
+}
+
+// unpushed turns push verification off for the duration of fn, so the cards
+// it creates stay on a local commit the remote has never seen. That is the
+// state two clones are in when both mint before either pushes, and it is the
+// only way to build an add/add id collision: a verified create pushes before
+// it returns, so the second clone would already hold the first clone's card.
+func (n *sharedNode) unpushed(fn func()) {
+	n.svc.SetSyncRunner(nil)
+	defer n.svc.SetSyncRunner(n.runner)
+
+	fn()
+}
+
+func (n *sharedNode) createUnpushed(t *testing.T, title string) *board.Card {
+	t.Helper()
+
+	var c *board.Card
+
+	n.unpushed(func() { c = n.create(t, title) })
+
+	return c
+}
+
+func (n *sharedNode) dependentUnpushed(t *testing.T, title, dependsOn string) *board.Card {
+	t.Helper()
+
+	var c *board.Card
+
+	n.unpushed(func() { c = n.dependent(t, title, dependsOn) })
 
 	return c
 }
@@ -179,11 +313,13 @@ func TestSynced_PushesWhenTheBranchIsNotOnTheRemoteYet(t *testing.T) {
 	require.NoError(t, board.SaveProjectConfig(filepath.Join(a.dir, "test-project"), testProjectConfig()))
 	require.NoError(t, a.store.ReloadIndex(ctx))
 
+	// The create runs its own cycle, and that is the one facing a remote
+	// without the branch: it has to push the whole local history anyway.
 	card := a.create(t, "first")
+	assert.Equal(t, 0, a.syncer.Status().UnpushedCommits, "the create pushed the branch the remote lacked")
 
-	r, err := a.syncer.Synced(ctx, "test", nil)
+	_, err := a.syncer.Synced(ctx, "test", nil)
 	require.NoError(t, err)
-	assert.True(t, r.Pushed, "the branch is not on the remote, so the whole local history is unpushed")
 	assert.Equal(t, 0, a.syncer.Status().UnpushedCommits)
 
 	// The upstream now carries the branch, so a colleague can clone it.
@@ -227,8 +363,8 @@ func TestSynced_RecordsResolutionsWhenThePushFails(t *testing.T) {
 	b.syncer.maxAttempts = 1
 	b.syncer.retryBackoff = time.Millisecond
 	b.syncer.prePushHook = func(int) {
-		a.create(t, "a2")
-		require.True(t, a.sync(t).Pushed)
+		a.create(t, "a2") // the verified create pushes on its own
+		require.Equal(t, 0, a.syncer.Status().UnpushedCommits, "the remote must have moved")
 	}
 
 	report, err := b.syncer.Synced(ctx, "test", nil)
@@ -247,10 +383,10 @@ func TestSynced_RecordsResolutionsWhenThePushFails(t *testing.T) {
 func TestSynced_PushesAndPullsWithoutConflict(t *testing.T) {
 	a, b, _ := setupSharedPair(t)
 
-	a.create(t, "from a")
+	a.create(t, "from a") // the verified create pushes on its own
 
-	ra := a.sync(t)
-	assert.True(t, ra.Pushed)
+	a.sync(t)
+	assert.Equal(t, 0, a.syncer.Status().UnpushedCommits)
 
 	rb := b.sync(t)
 	assert.True(t, rb.ChangesPulled)
@@ -473,8 +609,8 @@ func TestSynced_PushRejectedThenRetriesAndPushes(t *testing.T) {
 		// Advance the remote once, so b's first push is rejected as a
 		// non-fast-forward and the cycle has to re-integrate.
 		if attempt == 0 {
-			a.create(t, "a2")
-			require.True(t, a.sync(t).Pushed)
+			a.create(t, "a2") // the verified create pushes on its own
+			require.Equal(t, 0, a.syncer.Status().UnpushedCommits, "the remote must have moved")
 		}
 	}
 
@@ -516,8 +652,8 @@ func TestSynced_ContendedRemoteExhaustsRetries(t *testing.T) {
 		attempts++
 
 		// Every attempt loses the race: the remote always moves first.
-		a.create(t, fmt.Sprintf("a%d", attempts+1))
-		require.True(t, a.sync(t).Pushed)
+		a.create(t, fmt.Sprintf("a%d", attempts+1)) // the verified create pushes on its own
+		require.Equal(t, 0, a.syncer.Status().UnpushedCommits, "the remote must have moved")
 	}
 
 	_, err := b.syncer.Synced(context.Background(), "test", nil)
@@ -539,8 +675,8 @@ func TestSynced_BodyRunsAfterIntegrationAndIsPushed(t *testing.T) {
 	b.sync(t)
 
 	// b advances the remote, so a's cycle has to integrate before the body runs.
-	fromB := b.create(t, "from b")
-	require.True(t, b.sync(t).Pushed)
+	fromB := b.create(t, "from b") // the verified create pushes on its own
+	require.Equal(t, 0, b.syncer.Status().UnpushedCommits, "the remote must have moved")
 
 	rel := filepath.Join("test-project", "notes.md")
 	sawPulledCard := false
@@ -701,4 +837,139 @@ func TestSharedEntryPointsRunTheMergeCycle(t *testing.T) {
 			assert.Contains(t, got.Body, "hand edit", "the cycle must have pushed the leftover commit")
 		})
 	}
+}
+
+func TestSyncedMutation_UndoRunsWhenThePushNeverLands(t *testing.T) {
+	a, b, _ := setupSharedPair(t)
+
+	a.create(t, "seed")
+	a.sync(t)
+	b.sync(t)
+
+	rel := filepath.Join("test-project", "note.md")
+	undone := false
+
+	b.syncer.maxAttempts = 1
+	b.syncer.retryBackoff = time.Millisecond
+	b.syncer.prePushHook = func(int) {
+		a.create(t, "a moved first") // the verified create pushes on its own
+		require.Equal(t, 0, a.syncer.Status().UnpushedCommits, "the remote must have moved")
+	}
+
+	report, err := b.syncer.SyncedMutation(context.Background(), "test", service.SyncMutation{
+		Apply: func(ctx context.Context) error {
+			if err := os.WriteFile(filepath.Join(b.dir, rel), []byte("applied\n"), 0o644); err != nil {
+				return err
+			}
+
+			return b.git.CommitFilesShell(ctx, []string{rel}, "apply")
+		},
+		Undo: func(ctx context.Context) error {
+			undone = true
+
+			if err := os.Remove(filepath.Join(b.dir, rel)); err != nil {
+				return err
+			}
+
+			return b.git.CommitFilesShell(ctx, []string{rel}, "undo")
+		},
+	})
+	require.ErrorIs(t, err, ErrSyncContended)
+	assert.True(t, report.BodyRan)
+	assert.True(t, undone)
+
+	_, statErr := os.Stat(filepath.Join(b.dir, rel))
+	assert.True(t, os.IsNotExist(statErr), "the applied file is gone")
+
+	clean, dirty, err := b.git.IsClean(context.Background())
+	require.NoError(t, err)
+	assert.True(t, clean, dirty)
+	assert.False(t, b.git.MergeInProgress())
+}
+
+func TestSyncedMutation_ApplyErrorSkipsUndo(t *testing.T) {
+	a, _, _ := setupSharedPair(t)
+
+	errApply := errors.New("apply refused")
+	undone := false
+
+	report, err := a.syncer.SyncedMutation(context.Background(), "test", service.SyncMutation{
+		Apply: func(context.Context) error { return errApply },
+		Undo: func(context.Context) error {
+			undone = true
+
+			return nil
+		},
+	})
+	require.ErrorIs(t, err, errApply)
+	assert.True(t, report.BodyRan)
+	assert.False(t, undone, "a mutation that fails leaves nothing to undo")
+}
+
+// TestSynced_ConfirmsOwnLeases covers the fence after a restart: a claim this
+// instance holds is unconfirmed until a cycle succeeds.
+func TestSynced_ConfirmsOwnLeases(t *testing.T) {
+	a, _, _ := setupSharedPair(t)
+	ctx := context.Background()
+
+	c := a.create(t, "x")
+	a.writeClaim(t, c.ID, "agent-x", a.id, 1)
+
+	_, err := a.svc.ReleaseCard(ctx, "test-project", c.ID, "agent-x")
+	require.ErrorIs(t, err, service.ErrClaimFenced)
+
+	a.sync(t)
+
+	_, err = a.svc.ReleaseCard(ctx, "test-project", c.ID, "agent-x")
+	require.NoError(t, err)
+}
+
+func TestSynced_ReportsClaimLostAfterAPeerStalledTheCard(t *testing.T) {
+	a, b, _ := setupSharedPair(t)
+
+	c := a.create(t, "x")
+	a.sync(t)
+	b.sync(t)
+
+	a.writeClaim(t, c.ID, "agent-x", a.id, 1)
+	a.sync(t)
+	b.sync(t)
+
+	b.writeStall(t, c.ID, 2)
+	require.True(t, b.sync(t).Pushed)
+
+	ch, unsubscribe := a.bus.Subscribe()
+	defer unsubscribe()
+
+	a.sync(t)
+
+	var got []events.Event
+
+	drainEvents(ch, &got)
+	assertHasEventType(t, got, events.ClaimLost)
+
+	for _, e := range got {
+		if e.Type == events.ClaimLost {
+			assert.Equal(t, c.ID, e.CardID)
+			assert.Equal(t, "agent-x", e.Data["previous_agent"])
+			assert.Equal(t, 2, e.Data["claim_epoch"])
+		}
+	}
+
+	_, err := a.svc.HeartbeatCard(context.Background(), "test-project", c.ID, "agent-x")
+	require.Error(t, err, "the local agent has lost the card")
+}
+
+func TestSynced_ClaimsAtRiskOncePushesFailPastTheLeaseInterval(t *testing.T) {
+	a, _, upstream := setupSharedPair(t)
+	a.syncer.leaseInterval = 0 // the first failure already puts claims at risk
+
+	require.NoError(t, os.RemoveAll(upstream))
+
+	_, err := a.syncer.Synced(context.Background(), "test", nil)
+	require.ErrorIs(t, err, ErrRemoteUnreachable)
+
+	st := a.syncer.Status()
+	require.NotNil(t, st.PushFailingSince)
+	assert.True(t, st.ClaimsAtRisk)
 }

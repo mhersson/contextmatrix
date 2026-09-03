@@ -54,6 +54,11 @@ skill instructions and parent card plan.
 
 Call `claim_card` with your card ID and your agent ID.
 
+If the error message starts with `remote unreachable:`, the board could not
+verify the claim against its remote. Wait 10 seconds and call `claim_card`
+again, at most 3 times. Any other error, or a fourth failure, is a failed
+claim.
+
 If the claim fails for **any reason**, print `TASK_BLOCKED` (Step 8 format) with
 the error and stop. **Never proceed without a successful claim.**
 
@@ -215,6 +220,9 @@ cases**, set `needs_human: true`.
 call returns an error, a build breaks, tests fail unexpectedly, or anything else
 you cannot recover from - do NOT silently stop. Always end with one of:
 
+- **`remote unreachable:` prefix** - a tool error starting with this prefix is
+  transient: the board could not reach its git remote. Wait 10 seconds and
+  retry the same call, at most 3 times, before treating it as a failure.
 - **Partial completion** - Use `TASK_COMPLETE` (Step 7 format) with
   `summary: Partial: <what was done>. <what was NOT done and why>` and
   `needs_human: true`.

@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"time"
@@ -120,11 +121,26 @@ func requireActiveClaim(ctx context.Context, svc *service.CardService, project, 
 		return fmt.Errorf("%s: card %s is not claimed; %s requires an active claim (call claim_card first)", toolName, cardID, toolName)
 	}
 
-	if card.AssignedAgent != agentID {
+	if !svc.OwnsClaim(card, agentID) {
+		if card.ClaimedElsewhere(svc.InstanceID()) {
+			return fmt.Errorf("%s: card %s is claimed by %s via instance %s, not through this instance",
+				toolName, cardID, card.AssignedAgent, card.ClaimedVia)
+		}
+
 		return fmt.Errorf("%s: card %s is claimed by %s, not %s", toolName, cardID, card.AssignedAgent, agentID)
 	}
 
 	return nil
+}
+
+// remoteErr puts the stable prefix the workflow skills retry on in front of
+// a push-verified mutation's remote failure. Every other error passes through.
+func remoteErr(err error) error {
+	if errors.Is(err, service.ErrRemoteUnreachable) {
+		return fmt.Errorf("remote unreachable: %w", err)
+	}
+
+	return err
 }
 
 // --- get_skill schema types (shared with tools_workflow.go) ---

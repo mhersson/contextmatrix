@@ -459,3 +459,71 @@ func TestPlaybookService_ListSegments(t *testing.T) {
 	assert.Equal(t, 4, summary.Total)
 	assert.Equal(t, 1, summary.Projects, "distinct projects among card entries")
 }
+
+func TestPlaybookCreateVerified_PublishesNothingWhenThePushNeverLands(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+
+	env.svc.SetSyncRunner(func(ctx context.Context, _ string, m SyncMutation) (SyncOutcome, error) {
+		env.svc.LockWrites()
+		defer env.svc.UnlockWrites()
+
+		if err := m.Apply(ctx); err != nil {
+			return SyncOutcome{BodyRan: true}, err
+		}
+
+		if err := m.Undo(ctx); err != nil {
+			return SyncOutcome{BodyRan: true}, err
+		}
+
+		return SyncOutcome{BodyRan: true}, errors.New("push: remote unreachable")
+	}, func(_ context.Context, _ []string, _ string) error { return nil })
+
+	ch, unsub := env.bus.Subscribe()
+	defer unsub()
+
+	ctx := context.Background()
+
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{Title: "Release train", AgentID: "human:a"})
+	require.ErrorIs(t, err, ErrRemoteUnreachable)
+
+	list, err := env.svc.List(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, list, "the undo removed the playbook")
+
+	select {
+	case e := <-ch:
+		t.Fatalf("published %s for a create that never landed", e.Type)
+	default:
+	}
+}
+
+func TestPlaybookCreateVerified_RunsInsideTheCycle(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	calls, commits := 0, 0
+
+	env.svc.SetSyncRunner(func(ctx context.Context, trigger string, m SyncMutation) (SyncOutcome, error) {
+		calls++
+
+		env.svc.LockWrites()
+		defer env.svc.UnlockWrites()
+
+		if err := m.Apply(ctx); err != nil {
+			return SyncOutcome{BodyRan: true}, err
+		}
+
+		return SyncOutcome{BodyRan: true, Pushed: true}, nil
+	}, func(_ context.Context, paths []string, _ string) error {
+		commits++
+
+		assert.Equal(t, []string{"playbooks/release-train.yaml"}, paths)
+
+		return nil
+	})
+
+	detail, err := env.svc.Create(context.Background(), CreatePlaybookInput{Title: "Release train", AgentID: "human:a"})
+	require.NoError(t, err)
+	assert.Equal(t, "release-train", detail.ID)
+	assert.Equal(t, 1, calls)
+	assert.Equal(t, 1, commits, "the cycle commits directly; the queue is paused inside it")
+	assert.Empty(t, env.committer.msgs, "nothing went through the queue")
+}

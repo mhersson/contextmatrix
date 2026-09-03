@@ -11,10 +11,18 @@ function isOffline(status: SyncStatus | null): boolean {
   return status?.shared === true && status.remote_reachable === false;
 }
 
+// Only a shared repo can put claims at risk. Gating on `shared` as well as the
+// flag keeps a private board silent if the field is ever stale or reused, and
+// mirrors the condition BoardFooter applies.
+function isAtRisk(status: SyncStatus | null): boolean {
+  return status?.shared === true && status.claims_at_risk === true;
+}
+
 function syncLine(status: SyncStatus | null): string {
   if (!status) return 'sync unknown';
   if (!status.enabled) return 'sync disabled';
   if (isOffline(status)) return 'sync offline';
+  if (isAtRisk(status)) return 'pushes failing · claims at risk';
   if (status.last_sync_error) return 'sync error';
   if (status.syncing) return 'syncing…';
   let line = status.last_sync_time
@@ -30,6 +38,9 @@ function syncLine(status: SyncStatus | null): string {
 function systemsLabel(status: SyncStatus | null): { label: string; color: string } {
   if (isOffline(status)) {
     return { label: 'Sync offline', color: 'var(--red)' };
+  }
+  if (isAtRisk(status)) {
+    return { label: 'Claims at risk', color: 'var(--red)' };
   }
   if (status?.last_sync_error) {
     return { label: 'Sync degraded', color: 'var(--red)' };

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -107,10 +108,44 @@ func (s *CardService) GetProject(ctx context.Context, name string) (*board.Proje
 }
 
 // CreateProject creates a new project with directory structure and .board.yaml.
+// On a shared board it runs inside a sync cycle so a name a peer took first is
+// seen before the directory is written.
 func (s *CardService) CreateProject(ctx context.Context, input CreateProjectInput) (*board.ProjectConfig, error) {
+	if s.pushVerified() {
+		return s.createProjectVerified(ctx, input)
+	}
+
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
+	cfg, err := s.createProjectLocked(ctx, input, func(ctx context.Context, name string) error {
+		return s.git.CommitAll(ctx, projectCommitMessage(name, "created"))
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	s.bus.Publish(events.Event{
+		Type:      events.ProjectCreated,
+		Project:   cfg.Name,
+		Timestamp: s.clk.Now(),
+	})
+
+	return cfg, nil
+}
+
+// projectCommitMessage formats a project-level commit message.
+func projectCommitMessage(name, action string) string {
+	return fmt.Sprintf("[contextmatrix] %s: project %s", name, action)
+}
+
+// createProjectLocked is CreateProject with writeMu held by the caller and the
+// commit path chosen by it. commit is handed the resolved project name, which
+// the slug derivation above may have filled in. It does not publish; the
+// caller does.
+func (s *CardService) createProjectLocked(
+	ctx context.Context, input CreateProjectInput, commit func(ctx context.Context, name string) error,
+) (*board.ProjectConfig, error) {
 	// Auto-derive slug from DisplayName when Name is not provided.
 	if input.Name == "" && input.DisplayName != "" {
 		input.Name = slugifyDisplayName(input.DisplayName)
@@ -158,8 +193,7 @@ func (s *CardService) CreateProject(ctx context.Context, input CreateProjectInpu
 	// special-case; for project-level events that fire at most once per
 	// project-lifecycle, serializing via the manager's own mutex is fine.
 	if s.gitAutoCommit {
-		msg := fmt.Sprintf("[contextmatrix] %s: project created", input.Name)
-		if err := s.git.CommitAll(ctx, msg); err != nil {
+		if err := commit(ctx, input.Name); err != nil {
 			return nil, fmt.Errorf("git commit: %w", err)
 		}
 
@@ -170,9 +204,60 @@ func (s *CardService) CreateProject(ctx context.Context, input CreateProjectInpu
 	s.configs[input.Name] = cfg
 	s.mu.Unlock()
 
+	return cfg, nil
+}
+
+// createProjectVerified writes the project inside a sync cycle. The undo only
+// fires when the .board.yaml on disk is still byte-for-byte what the write
+// produced, so a merge that adopted a peer's project of the same name is left
+// alone.
+func (s *CardService) createProjectVerified(ctx context.Context, input CreateProjectInput) (*board.ProjectConfig, error) {
+	var (
+		cfg     *board.ProjectConfig
+		written []byte
+	)
+
+	_, err := s.runVerified(ctx, "create project",
+		func(ctx context.Context) error {
+			c, err := s.createProjectLocked(ctx, input, func(ctx context.Context, name string) error {
+				return s.commitAllReloaded(projectCommitMessage(name, "created"))(ctx)
+			})
+			if err != nil {
+				return err
+			}
+
+			cfg = c
+			written, _ = os.ReadFile(filepath.Join(s.boardsDir, c.Name, ".board.yaml"))
+
+			return nil
+		},
+		func(ctx context.Context) error {
+			if cfg == nil {
+				return nil
+			}
+
+			cur, err := os.ReadFile(filepath.Join(s.boardsDir, cfg.Name, ".board.yaml"))
+			if err != nil || !bytes.Equal(cur, written) {
+				return nil // gone, or no longer what we wrote
+			}
+
+			if err := s.store.DeleteProject(ctx, cfg.Name); err != nil {
+				return fmt.Errorf("delete project: %w", err)
+			}
+
+			s.mu.Lock()
+			delete(s.configs, cfg.Name)
+			s.mu.Unlock()
+
+			return s.commitAllReloaded(projectCommitMessage(cfg.Name, "create undone: remote unreachable"))(ctx)
+		})
+	if err != nil {
+		return nil, err
+	}
+
 	s.bus.Publish(events.Event{
 		Type:      events.ProjectCreated,
-		Project:   input.Name,
+		Project:   cfg.Name,
 		Timestamp: s.clk.Now(),
 	})
 
@@ -181,23 +266,71 @@ func (s *CardService) CreateProject(ctx context.Context, input CreateProjectInpu
 
 // UpdateProject updates a project's mutable configuration.
 // Rejects removal of states, types, or priorities currently in use by cards.
+// On a shared board it runs inside a sync cycle so the config the caller edits
+// is the merged one.
 func (s *CardService) UpdateProject(ctx context.Context, name string, input UpdateProjectInput) (*board.ProjectConfig, error) {
+	if s.pushVerified() {
+		return s.updateProjectVerified(ctx, name, input)
+	}
+
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
+	cfg, _, err := s.updateProjectLocked(ctx, name, input, func(ctx context.Context) error {
+		return s.commitQueuedProjectConfig(ctx, name)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	s.bus.Publish(events.Event{
+		Type:      events.ProjectUpdated,
+		Project:   name,
+		Timestamp: s.clk.Now(),
+	})
+
+	return cfg, nil
+}
+
+// commitQueuedProjectConfig commits a project's .board.yaml through the commit
+// queue when configured, so ordering is preserved with concurrent card
+// commits; otherwise it commits inline.
+func (s *CardService) commitQueuedProjectConfig(ctx context.Context, name string) error {
+	path := filepath.Join(name, ".board.yaml")
+	msg := projectCommitMessage(name, "updated")
+
+	if s.commitQueue != nil {
+		return <-s.commitQueue.Enqueue(gitops.CommitJob{
+			Project: name,
+			Kind:    gitops.CommitKindFile,
+			Path:    path,
+			Message: msg,
+			Ctx:     ctx,
+		})
+	}
+
+	return s.git.CommitFile(ctx, path, msg)
+}
+
+// updateProjectLocked is UpdateProject with writeMu held by the caller and the
+// commit path chosen by it. It returns the pre-update snapshot alongside the
+// new config, and does not publish; the caller does.
+func (s *CardService) updateProjectLocked(
+	ctx context.Context, name string, input UpdateProjectInput, commit func(ctx context.Context) error,
+) (updated, snapshot *board.ProjectConfig, err error) {
 	cfg, err := s.store.GetProject(ctx, name)
 	if err != nil {
-		return nil, fmt.Errorf("get project: %w", err)
+		return nil, nil, fmt.Errorf("get project: %w", err)
 	}
 
 	// Deep-copy pre-update config so a failed git commit can restore the
 	// store to its prior on-disk + cached state.
-	snapshot := copyProjectConfig(cfg)
+	snapshot = copyProjectConfig(cfg)
 
 	// Check for in-use values that would be removed
 	cards, err := s.store.ListCards(ctx, name, storage.CardFilter{})
 	if err != nil {
-		return nil, fmt.Errorf("list cards: %w", err)
+		return nil, nil, fmt.Errorf("list cards: %w", err)
 	}
 
 	if len(cards) > 0 {
@@ -214,7 +347,7 @@ func (s *CardService) UpdateProject(ctx context.Context, name string, input Upda
 		newStates := toSet(input.States)
 		for state := range usedStates {
 			if !newStates[state] {
-				return nil, fmt.Errorf("cannot remove state %q: in use by cards: %w", state, board.ErrInvalidProjectConfig)
+				return nil, nil, fmt.Errorf("cannot remove state %q: in use by cards: %w", state, board.ErrInvalidProjectConfig)
 			}
 		}
 
@@ -227,14 +360,14 @@ func (s *CardService) UpdateProject(ctx context.Context, name string, input Upda
 			}
 
 			if !newTypes[typ] {
-				return nil, fmt.Errorf("cannot remove type %q: in use by cards: %w", typ, board.ErrInvalidProjectConfig)
+				return nil, nil, fmt.Errorf("cannot remove type %q: in use by cards: %w", typ, board.ErrInvalidProjectConfig)
 			}
 		}
 
 		newPriorities := toSet(input.Priorities)
 		for pri := range usedPriorities {
 			if !newPriorities[pri] {
-				return nil, fmt.Errorf("cannot remove priority %q: in use by cards: %w", pri, board.ErrInvalidProjectConfig)
+				return nil, nil, fmt.Errorf("cannot remove priority %q: in use by cards: %w", pri, board.ErrInvalidProjectConfig)
 			}
 		}
 	}
@@ -272,7 +405,7 @@ func (s *CardService) UpdateProject(ctx context.Context, name string, input Upda
 		if input.RemoteExecution.WorkerImage != nil {
 			image := strings.TrimSpace(*input.RemoteExecution.WorkerImage)
 			if err := validateWorkerImage("worker_image", image); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 
 			re.WorkerImage = image
@@ -281,7 +414,7 @@ func (s *CardService) UpdateProject(ctx context.Context, name string, input Upda
 		if input.RemoteExecution.ChatWorkerImage != nil {
 			image := strings.TrimSpace(*input.RemoteExecution.ChatWorkerImage)
 			if err := validateWorkerImage("chat_worker_image", image); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 
 			re.ChatWorkerImage = image
@@ -300,7 +433,7 @@ func (s *CardService) UpdateProject(ctx context.Context, name string, input Upda
 	// .board.yaml stays clean.
 	if input.Verify != nil {
 		if err := validateProjectVerify(input.Verify); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		cfg.Verify = normalizeVerify(input.Verify)
@@ -308,30 +441,12 @@ func (s *CardService) UpdateProject(ctx context.Context, name string, input Upda
 
 	// SaveProject validates and persists
 	if err := s.store.SaveProject(ctx, cfg); err != nil {
-		return nil, fmt.Errorf("save project: %w", err)
+		return nil, nil, fmt.Errorf("save project: %w", err)
 	}
 
-	// Git commit. Route through the commit queue when configured so ordering
-	// is preserved with concurrent card commits; otherwise commit inline.
 	if s.gitAutoCommit {
-		path := filepath.Join(name, ".board.yaml")
-		msg := fmt.Sprintf("[contextmatrix] %s: project updated", name)
-
-		var commitErr error
-		if s.commitQueue != nil {
-			commitErr = <-s.commitQueue.Enqueue(gitops.CommitJob{
-				Project: name,
-				Kind:    gitops.CommitKindFile,
-				Path:    path,
-				Message: msg,
-				Ctx:     ctx,
-			})
-		} else {
-			commitErr = s.git.CommitFile(ctx, path, msg)
-		}
-
-		if commitErr != nil {
-			return nil, s.rollbackProjectUpdateOnCommitFailure(ctx, name, snapshot, commitErr)
+		if commitErr := commit(ctx); commitErr != nil {
+			return nil, nil, s.rollbackProjectUpdateOnCommitFailure(ctx, name, snapshot, commitErr)
 		}
 
 		s.notifyCommit()
@@ -341,6 +456,61 @@ func (s *CardService) UpdateProject(ctx context.Context, name string, input Upda
 	s.mu.Lock()
 	s.configs[name] = cfg
 	s.mu.Unlock()
+
+	return cfg, snapshot, nil
+}
+
+// updateProjectVerified edits the project inside a sync cycle. The undo only
+// fires when the .board.yaml on disk is still byte-for-byte what the write
+// produced, so an edit the merge has already reconciled is left alone.
+func (s *CardService) updateProjectVerified(
+	ctx context.Context, name string, input UpdateProjectInput,
+) (*board.ProjectConfig, error) {
+	var (
+		cfg      *board.ProjectConfig
+		snapshot *board.ProjectConfig
+		written  []byte
+	)
+
+	configPath := filepath.Join(name, ".board.yaml")
+
+	_, err := s.runVerified(ctx, "update project",
+		func(ctx context.Context) error {
+			c, snap, err := s.updateProjectLocked(ctx, name, input, func(ctx context.Context) error {
+				return s.commitNow(ctx, []string{configPath}, projectCommitMessage(name, "updated"))
+			})
+			if err != nil {
+				return err
+			}
+
+			cfg, snapshot = c, snap
+			written, _ = os.ReadFile(filepath.Join(s.boardsDir, configPath))
+
+			return nil
+		},
+		func(ctx context.Context) error {
+			if snapshot == nil {
+				return nil
+			}
+
+			cur, err := os.ReadFile(filepath.Join(s.boardsDir, configPath))
+			if err != nil || !bytes.Equal(cur, written) {
+				return nil // gone, or no longer what we wrote
+			}
+
+			if err := s.store.SaveProject(ctx, snapshot); err != nil {
+				return fmt.Errorf("restore project: %w", err)
+			}
+
+			s.mu.Lock()
+			s.configs[name] = snapshot
+			s.mu.Unlock()
+
+			return s.commitNow(ctx, []string{configPath}, projectCommitMessage(name, "update undone: remote unreachable"))
+		})
+	if err != nil {
+		return nil, err
+	}
 
 	s.bus.Publish(events.Event{
 		Type:      events.ProjectUpdated,
@@ -406,23 +576,69 @@ func (s *CardService) rollbackProjectUpdateOnCommitFailure(
 // cache. This is self-contained - no GitManager API change - and safe for a
 // project being deleted because the invariant is zero cards, so the tree is
 // small (.board.yaml plus any template files).
+//
+// On a shared board it runs inside a sync cycle, so a card a peer added is
+// seen before the zero-card invariant is trusted.
 func (s *CardService) DeleteProject(ctx context.Context, name string) error {
+	if s.pushVerified() {
+		return s.deleteProjectVerified(ctx, name)
+	}
+
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
+	if _, err := s.deleteProjectLocked(ctx, name, func(ctx context.Context) error {
+		return s.commitQueuedProjectDelete(ctx, name)
+	}); err != nil {
+		return err
+	}
+
+	s.bus.Publish(events.Event{
+		Type:      events.ProjectDeleted,
+		Project:   name,
+		Timestamp: s.clk.Now(),
+	})
+
+	return nil
+}
+
+// commitQueuedProjectDelete stages the project's removal through the commit
+// queue when configured so a failing committer injected by tests exercises the
+// rollback path; otherwise it commits inline.
+func (s *CardService) commitQueuedProjectDelete(ctx context.Context, name string) error {
+	msg := projectCommitMessage(name, "deleted")
+
+	if s.commitQueue != nil {
+		return <-s.commitQueue.Enqueue(gitops.CommitJob{
+			Project: name,
+			Kind:    gitops.CommitKindAll,
+			Message: msg,
+			Ctx:     ctx,
+		})
+	}
+
+	return s.git.CommitAll(ctx, msg)
+}
+
+// deleteProjectLocked is DeleteProject with writeMu held by the caller and the
+// commit path chosen by it. It returns the pre-delete directory snapshot and
+// does not publish; the caller does.
+func (s *CardService) deleteProjectLocked(
+	ctx context.Context, name string, commit func(ctx context.Context) error,
+) (*projectDirSnapshot, error) {
 	// Check exists
 	if _, err := s.store.GetProject(ctx, name); err != nil {
-		return fmt.Errorf("get project: %w", err)
+		return nil, fmt.Errorf("get project: %w", err)
 	}
 
 	// Check no cards
 	count, err := s.store.ProjectCardCount(ctx, name)
 	if err != nil {
-		return fmt.Errorf("count cards: %w", err)
+		return nil, fmt.Errorf("count cards: %w", err)
 	}
 
 	if count > 0 {
-		return fmt.Errorf("project %q has %d cards: %w", name, count, storage.ErrProjectHasCards)
+		return nil, fmt.Errorf("project %q has %d cards: %w", name, count, storage.ErrProjectHasCards)
 	}
 
 	// Snapshot the project directory tree before deletion so we can restore
@@ -430,35 +646,19 @@ func (s *CardService) DeleteProject(ctx context.Context, name string) error {
 	// is the destructive step.
 	snapshot, snapErr := snapshotProjectDir(filepath.Join(s.boardsDir, name))
 	if snapErr != nil {
-		return fmt.Errorf("snapshot project dir for rollback: %w", snapErr)
+		return nil, fmt.Errorf("snapshot project dir for rollback: %w", snapErr)
 	}
 
 	// Delete from store (removes directory and index)
 	if err := s.store.DeleteProject(ctx, name); err != nil {
-		return fmt.Errorf("delete project: %w", err)
+		return nil, fmt.Errorf("delete project: %w", err)
 	}
 
 	// Git commit. CommitAll stages everything - the now-absent project dir
-	// is recorded as deletions. Route through the commit queue when
-	// configured so a failing committer injected by tests can exercise the
-	// rollback path; fall back to an inline Manager call otherwise.
+	// is recorded as deletions.
 	if s.gitAutoCommit {
-		msg := fmt.Sprintf("[contextmatrix] %s: project deleted", name)
-
-		var commitErr error
-		if s.commitQueue != nil {
-			commitErr = <-s.commitQueue.Enqueue(gitops.CommitJob{
-				Project: name,
-				Kind:    gitops.CommitKindAll,
-				Message: msg,
-				Ctx:     ctx,
-			})
-		} else {
-			commitErr = s.git.CommitAll(ctx, msg)
-		}
-
-		if commitErr != nil {
-			return s.rollbackProjectDeleteOnCommitFailure(ctx, name, snapshot, commitErr)
+		if commitErr := commit(ctx); commitErr != nil {
+			return nil, s.rollbackProjectDeleteOnCommitFailure(ctx, name, snapshot, commitErr)
 		}
 
 		s.notifyCommit()
@@ -469,6 +669,51 @@ func (s *CardService) DeleteProject(ctx context.Context, name string) error {
 	delete(s.configs, name)
 	delete(s.templates, name)
 	s.mu.Unlock()
+
+	return snapshot, nil
+}
+
+// deleteProjectVerified removes the project inside a sync cycle. The undo only
+// restores the tree when the directory is still absent, so a peer's project
+// the merge brought back is left alone.
+func (s *CardService) deleteProjectVerified(ctx context.Context, name string) error {
+	var snapshot *projectDirSnapshot
+
+	projectDir := filepath.Join(s.boardsDir, name)
+
+	_, err := s.runVerified(ctx, "delete project",
+		func(ctx context.Context) error {
+			snap, err := s.deleteProjectLocked(ctx, name, s.commitAllReloaded(projectCommitMessage(name, "deleted")))
+			if err != nil {
+				return err
+			}
+
+			snapshot = snap
+
+			return nil
+		},
+		func(ctx context.Context) error {
+			if snapshot == nil {
+				return nil
+			}
+
+			if _, err := os.Stat(projectDir); err == nil {
+				return nil // the merge brought a directory back; leave it alone
+			}
+
+			if err := snapshot.restore(projectDir); err != nil {
+				return fmt.Errorf("restore project dir: %w", err)
+			}
+
+			if err := s.reloadStoreIndex(ctx); err != nil {
+				return fmt.Errorf("reload store index: %w", err)
+			}
+
+			return s.commitAllReloaded(projectCommitMessage(name, "delete undone: remote unreachable"))(ctx)
+		})
+	if err != nil {
+		return err
+	}
 
 	s.bus.Publish(events.Event{
 		Type:      events.ProjectDeleted,

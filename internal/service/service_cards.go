@@ -9,10 +9,12 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/boardmerge"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/gitops"
@@ -293,6 +295,8 @@ func (s *CardService) ListCards(ctx context.Context, project string, filter stor
 		return nil, err
 	}
 
+	s.overlayLiveness(cards...)
+
 	for _, card := range cards {
 		s.enrichDependenciesMet(ctx, card)
 	}
@@ -452,6 +456,8 @@ func (s *CardService) ListCardsPage(
 		result.NextCursor = encodePageCursor(page[len(page)-1].ID)
 	}
 
+	s.overlayLiveness(result.Items...)
+
 	for _, card := range result.Items {
 		s.enrichDependenciesMet(ctx, card)
 	}
@@ -482,6 +488,7 @@ func (s *CardService) GetCard(ctx context.Context, project, id string) (*board.C
 		return nil, err
 	}
 
+	s.overlayLiveness(card)
 	s.enrichDependenciesMet(ctx, card)
 	s.enrichSubtaskCost(ctx, card)
 	s.enrichPlaybookMembership(ctx, project, card)
@@ -489,12 +496,58 @@ func (s *CardService) GetCard(ctx context.Context, project, id string) (*board.C
 	return card, nil
 }
 
+// commitFn commits a multi-file write. The ordinary path routes through the
+// queue; a push-verified write commits directly because the queue is paused.
+type commitFn func(ctx context.Context, paths []string, message string) error
+
+// commitQueued is the ordinary multi-file commit.
+func (s *CardService) commitQueued(ctx context.Context, paths []string, message string) error {
+	if s.commitQueue != nil {
+		return <-s.commitQueue.Enqueue(gitops.CommitJob{
+			Project: firstPathProject(paths[0]),
+			Kind:    gitops.CommitKindFiles,
+			Paths:   paths,
+			Message: message,
+			Ctx:     ctx,
+		})
+	}
+
+	return s.git.CommitFiles(ctx, paths, message)
+}
+
 // CreateCard creates a new card in the project.
 // Flow: allocate ID → build card → dedup guard → store+commit → publish event.
+// On a shared board the whole write runs inside a sync cycle so the ID is
+// allocated against the merged next_id and the response carries the ID the
+// merge settled on.
 func (s *CardService) CreateCard(ctx context.Context, project string, input CreateCardInput) (*board.Card, error) {
+	if s.pushVerified() {
+		return s.createCardVerified(ctx, project, input)
+	}
+
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
+	card, created, err := s.createCardLocked(ctx, project, input, s.commitQueued)
+	if err != nil {
+		return nil, err
+	}
+
+	if created {
+		s.publishCreated(project, card, input)
+	}
+
+	s.enrichDependenciesMet(ctx, card)
+
+	return card, nil
+}
+
+// createCardLocked is CreateCard with writeMu held by the caller and the
+// commit path chosen by it. created is false when the dedupe guard returned
+// an existing subtask.
+func (s *CardService) createCardLocked(
+	ctx context.Context, project string, input CreateCardInput, commit commitFn,
+) (*board.Card, bool, error) {
 	// Lock to ensure atomic ID generation.
 	s.mu.Lock()
 
@@ -502,7 +555,7 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 	if err != nil {
 		s.mu.Unlock()
 
-		return nil, fmt.Errorf("get project config: %w", err)
+		return nil, false, fmt.Errorf("get project config: %w", err)
 	}
 
 	cardID := board.GenerateCardID(cfg)
@@ -510,29 +563,34 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 	if err := s.store.SaveProject(ctx, cfg); err != nil {
 		s.mu.Unlock()
 
-		return nil, fmt.Errorf("save project config: %w", err)
+		return nil, false, fmt.Errorf("save project config: %w", err)
 	}
 
 	s.mu.Unlock()
 
 	card, err := s.buildNewCardFromInput(ctx, project, cardID, cfg, input)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	if existing, deduped, dedupErr := s.applyDedupGuard(ctx, project, input); dedupErr != nil {
-		return nil, dedupErr
+		return nil, false, dedupErr
 	} else if deduped {
-		return existing, nil
+		return existing, false, nil
 	}
 
-	committed, err := s.commitNewCardWithNextID(ctx, project, card)
+	committed, err := s.commitNewCardWithNextID(ctx, project, card, commit)
 	if err != nil {
-		return nil, errors.Join(append([]error{err}, s.rollbackCreate(ctx, project, card, cfg)...)...)
+		return nil, false, errors.Join(append([]error{err}, s.rollbackCreate(ctx, project, card)...)...)
 	}
 
-	// Publish event - include source metadata so SSE listeners can
-	// display contextual notifications (e.g. "New issue from GitHub").
+	return committed, true, nil
+}
+
+// publishCreated announces a new card. Source metadata rides along so SSE
+// listeners can display contextual notifications (e.g. "New issue from
+// GitHub").
+func (s *CardService) publishCreated(project string, card *board.Card, input CreateCardInput) {
 	var eventData map[string]any
 	if input.Source != nil {
 		eventData = map[string]any{
@@ -544,14 +602,89 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 	s.bus.Publish(events.Event{
 		Type:      events.CardCreated,
 		Project:   project,
-		CardID:    committed.ID,
-		Timestamp: committed.Created,
+		CardID:    card.ID,
+		Timestamp: card.Created,
 		Data:      eventData,
 	})
+}
 
-	s.enrichDependenciesMet(ctx, committed)
+// createCardVerified allocates the ID and writes the card inside one sync
+// cycle, so the number comes from the merged next_id and the caller is only
+// told about a card the remote already holds.
+func (s *CardService) createCardVerified(ctx context.Context, project string, input CreateCardInput) (*board.Card, error) {
+	var (
+		created *board.Card
+		fresh   bool
+	)
 
-	return committed, nil
+	out, err := s.runVerified(ctx, "create card",
+		func(ctx context.Context) error {
+			c, isNew, err := s.createCardLocked(ctx, project, input, s.commitNow)
+			created, fresh = c, isNew
+
+			return err
+		},
+		func(ctx context.Context) error {
+			if !fresh {
+				return nil
+			}
+
+			return s.undoCreateLocked(ctx, project, created)
+		})
+	if err != nil {
+		return nil, err
+	}
+
+	// The merge may have kept a peer's card under our minted ID and
+	// re-minted ours; the resolutions say where it went.
+	id := created.ID
+
+	for _, r := range out.Resolutions {
+		if r.Rule == boardmerge.RuleAddAddRemint && r.OldID == id && strings.HasPrefix(r.Path, project+"/") {
+			id = r.NewID
+		}
+	}
+
+	card := created
+
+	if id != created.ID || out.Pushed {
+		if card, err = s.store.GetCard(ctx, project, id); err != nil {
+			return nil, fmt.Errorf("read created card %s: %w", id, err)
+		}
+	}
+
+	if fresh {
+		s.publishCreated(project, card, input)
+	}
+
+	s.enrichDependenciesMet(ctx, card)
+
+	return card, nil
+}
+
+// undoCreateLocked removes the card a verified create wrote when its push
+// never landed. The merge may have re-minted it, so the card is found by
+// its creation stamp and title, not its ID. next_id is left alone: an ID
+// gap is harmless and a peer may have advanced it since.
+func (s *CardService) undoCreateLocked(ctx context.Context, project string, created *board.Card) error {
+	cards, err := s.store.ListCards(ctx, project, storage.CardFilter{})
+	if err != nil {
+		return fmt.Errorf("list cards: %w", err)
+	}
+
+	for _, c := range cards {
+		if c.Title != created.Title || !c.Created.Truncate(time.Second).Equal(created.Created.Truncate(time.Second)) {
+			continue
+		}
+
+		if err := s.store.DeleteCard(ctx, project, c.ID); err != nil {
+			return fmt.Errorf("delete card: %w", err)
+		}
+
+		return s.commitNow(ctx, []string{s.cardPath(project, c.ID)}, commitMessage("", c.ID, "create undone: remote unreachable"))
+	}
+
+	return nil
 }
 
 // buildNewCardFromInput assembles a *board.Card from the caller's input and the
@@ -721,7 +854,9 @@ func (s *CardService) applyDedupGuard(
 // on another machine. The commit is routed through the queue when configured,
 // but awaited under writeMu (held by CreateCard) so a failed commit can be
 // rolled back before the next writer observes transient NextID state.
-func (s *CardService) commitNewCardWithNextID(ctx context.Context, project string, card *board.Card) (*board.Card, error) {
+func (s *CardService) commitNewCardWithNextID(
+	ctx context.Context, project string, card *board.Card, commit commitFn,
+) (*board.Card, error) {
 	if err := s.store.CreateCard(ctx, project, card); err != nil {
 		return nil, fmt.Errorf("create card: %w", err)
 	}
@@ -731,21 +866,7 @@ func (s *CardService) commitNewCardWithNextID(ctx context.Context, project strin
 		configPath := filepath.Join(project, ".board.yaml")
 		msg := commitMessage("", card.ID, "created")
 
-		var gitErr error
-
-		if s.commitQueue != nil {
-			gitErr = <-s.commitQueue.Enqueue(gitops.CommitJob{
-				Project: project,
-				Kind:    gitops.CommitKindFiles,
-				Paths:   []string{cardPath, configPath},
-				Message: msg,
-				Ctx:     ctx,
-			})
-		} else {
-			gitErr = s.git.CommitFiles(ctx, []string{cardPath, configPath}, msg)
-		}
-
-		if gitErr != nil {
+		if gitErr := commit(ctx, []string{cardPath, configPath}, msg); gitErr != nil {
 			return nil, fmt.Errorf("git commit: %w", gitErr)
 		}
 
@@ -755,13 +876,14 @@ func (s *CardService) commitNewCardWithNextID(ctx context.Context, project strin
 	return card, nil
 }
 
-// rollbackCreate removes an orphaned card file and restores NextID after a
-// git commit failure, mirroring the snapshot/restore discipline of
-// applyCardMutation. Any rollback errors are returned so the caller can join
-// them with the primary git error - this surfaces partial-rollback scenarios
-// (e.g. orphaned card on disk) to the caller rather than silently discarding
-// them.
-func (s *CardService) rollbackCreate(ctx context.Context, project string, card *board.Card, cfg *board.ProjectConfig) []error {
+// rollbackCreate removes an orphaned card file and hands back its number
+// after a git commit failure. next_id is re-read from the store rather than
+// restored from the caller's copy: on a shared board a pull may have advanced
+// it since, and rewinding a peer's allocation would mint a duplicate. Any
+// rollback errors are returned so the caller can join them with the primary
+// git error - this surfaces partial-rollback scenarios (e.g. orphaned card on
+// disk) rather than silently discarding them.
+func (s *CardService) rollbackCreate(ctx context.Context, project string, card *board.Card) []error {
 	var errs []error
 
 	if delErr := s.store.DeleteCard(ctx, project, card.ID); delErr != nil {
@@ -769,15 +891,33 @@ func (s *CardService) rollbackCreate(ctx context.Context, project string, card *
 		errs = append(errs, fmt.Errorf("rollback delete card: %w", delErr))
 	}
 
-	cfg.NextID--
-
-	if saveErr := s.store.SaveProject(ctx, cfg); saveErr != nil {
-		ctxlog.Logger(ctx).Error("failed to rollback NextID after git error",
-			"card_id", card.ID, "next_id", cfg.NextID, "error", saveErr)
-		errs = append(errs, fmt.Errorf("rollback save project: %w", saveErr))
+	cfg, err := s.store.GetProject(ctx, project)
+	if err != nil {
+		return append(errs, fmt.Errorf("rollback read project: %w", err))
 	}
 
+	if cfg.NextID == cardNumber(card.ID)+1 {
+		cfg.NextID--
+
+		if saveErr := s.store.SaveProject(ctx, cfg); saveErr != nil {
+			ctxlog.Logger(ctx).Error("failed to rollback NextID after git error",
+				"card_id", card.ID, "next_id", cfg.NextID, "error", saveErr)
+			errs = append(errs, fmt.Errorf("rollback save project: %w", saveErr))
+		}
+	}
+
+	s.mu.Lock()
+	delete(s.configs, project)
+	s.mu.Unlock()
+
 	return errs
+}
+
+// cardNumber returns the numeric suffix of a card ID, 0 when it has none.
+func cardNumber(id string) int {
+	n, _ := strconv.Atoi(id[strings.LastIndex(id, "-")+1:])
+
+	return n
 }
 
 // UpdateCard performs a full update of a card's mutable fields.
@@ -999,7 +1139,7 @@ func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput)
 		// Verify agent ownership before applying any mutations so a rejected
 		// call produces no side effects. Empty AgentID skips the check for
 		// backward-compatible callers that do not supply an agent ID.
-		if input.AgentID != "" && card.AssignedAgent != "" && card.AssignedAgent != input.AgentID {
+		if input.AgentID != "" && card.AssignedAgent != "" && !s.OwnsClaim(card, input.AgentID) {
 			return fmt.Errorf("agent authorization: %w", lock.ErrAgentMismatch)
 		}
 
@@ -1370,7 +1510,7 @@ func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry
 	}
 
 	// Verify agent ownership.
-	if card.AssignedAgent != "" && card.AssignedAgent != entry.Agent {
+	if card.AssignedAgent != "" && !s.OwnsClaim(card, entry.Agent) {
 		s.writeMu.Unlock()
 
 		return nil, fmt.Errorf("agent authorization: %w", lock.ErrAgentMismatch)
@@ -1387,7 +1527,7 @@ func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry
 
 	// See applyCardMutation: an owner-attributed log entry is proof of
 	// liveness and refreshes the claim heartbeat on the same write.
-	if entry.Agent != "" && card.AssignedAgent == entry.Agent {
+	if entry.Agent != "" && s.OwnsClaim(card, entry.Agent) {
 		now := card.Updated
 		card.LastHeartbeat = &now
 	}
@@ -1545,6 +1685,15 @@ func (s *CardService) applyCardMutation(
 	}
 
 	stateChanged := card.State != oldState
+
+	if stateChanged {
+		if err := s.fenced(snapshot); err != nil {
+			s.writeMu.Unlock()
+
+			return nil, err
+		}
+	}
+
 	card.Updated = s.clk.Now()
 
 	// A mutation attributed to the card's own owner is proof of liveness,
@@ -1554,7 +1703,7 @@ func (s *CardService) applyCardMutation(
 	// no agent attribution), and those must never bump: extending a claim
 	// nobody is actively renewing would mask a dead agent past the stall
 	// timeout.
-	if opts.commitAgentID != "" && card.AssignedAgent == opts.commitAgentID {
+	if opts.commitAgentID != "" && s.OwnsClaim(card, opts.commitAgentID) {
 		now := card.Updated
 		card.LastHeartbeat = &now
 	}
@@ -1594,7 +1743,7 @@ func (s *CardService) applyCardMutation(
 	// Release agent claim on not_planned and clear worker_status on terminal
 	// states. Must happen before validate+persist so the written card reflects
 	// the invariants.
-	enforceTerminalStateInvariants(card, stateChanged)
+	s.applyTerminalInvariants(project, card, stateChanged)
 
 	if err := s.runValidatorsAndDeps(ctx, project, id, card, cfg, opts.skipValidators); err != nil {
 		s.writeMu.Unlock()

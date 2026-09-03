@@ -68,7 +68,7 @@ func (s *CardService) RecordPush(ctx context.Context, project, id, agentID, bran
 	}
 
 	// Verify agent ownership.
-	if card.AssignedAgent != agentID {
+	if !s.OwnsClaim(card, agentID) {
 		s.writeMu.Unlock()
 
 		return nil, lock.ErrAgentMismatch
@@ -157,7 +157,7 @@ func (s *CardService) ReportParked(ctx context.Context, project, id, agentID, re
 		return nil, fmt.Errorf("get card snapshot: %w", err)
 	}
 
-	if card.AssignedAgent != agentID {
+	if !s.OwnsClaim(card, agentID) {
 		s.writeMu.Unlock()
 
 		return nil, lock.ErrAgentMismatch
@@ -222,7 +222,7 @@ func (s *CardService) IncrementReviewAttempts(ctx context.Context, project, id, 
 	}
 
 	// Verify agent ownership.
-	if card.AssignedAgent != agentID {
+	if !s.OwnsClaim(card, agentID) {
 		s.writeMu.Unlock()
 
 		return nil, lock.ErrAgentMismatch
@@ -305,6 +305,25 @@ func (s *CardService) UpdateWorkerStatus(ctx context.Context, project, cardID, s
 		return nil, fmt.Errorf("get card snapshot: %w", err)
 	}
 
+	// A worker another instance runs reports to that instance. A callback
+	// for such a card (a stop-all, a stale backend tracker) must not land
+	// here: the tuple it would write competes with the peer's at an equal
+	// epoch and could overwrite a running state with killed.
+	if card.ClaimedElsewhere(s.instance) {
+		s.writeMu.Unlock()
+
+		ctxlog.Logger(ctx).Info("worker status ignored: card claimed via another instance",
+			"card_id", cardID, "project", project, "claimed_via", card.ClaimedVia, "status", status)
+
+		return card, nil
+	}
+
+	if err := s.fenced(card); err != nil {
+		s.writeMu.Unlock()
+
+		return nil, fmt.Errorf("worker status: %w", err)
+	}
+
 	// Post-terminal cleanup normalization: once the card has reached a
 	// terminal state (done/not_planned), the reconcile sweep and end-session
 	// subscriber kill the container as a cleanup step. The backend reports
@@ -347,8 +366,13 @@ func (s *CardService) UpdateWorkerStatus(ctx context.Context, project, cardID, s
 
 	// Clear agent claim on terminal worker statuses.
 	if status == "failed" || status == "killed" || status == "completed" {
-		card.AssignedAgent = ""
-		card.LastHeartbeat = nil
+		card.ClearClaim()
+
+		if hadAgent && s.sharedClaims() {
+			card.ClaimEpoch++
+		}
+
+		s.lock.ClearBeat(project, cardID)
 	}
 	// On completed, also clear worker_status since the run is over.
 	if status == "completed" {

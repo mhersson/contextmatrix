@@ -21,6 +21,7 @@ import { Board } from '../Board';
 import { BoardHeaderActions } from '../Board/BoardHeaderActions';
 import { ProjectCrumb } from '../ProjectCrumb/ProjectCrumb';
 import { CardPanel } from '../CardPanel';
+import { isForeignClaim } from '../CardPanel/utils';
 import { CreateCardPanel } from '../CreateCardPanel';
 import { ErrorBoundary } from '../ErrorBoundary';
 import { NotFound } from '../NotFound';
@@ -51,7 +52,7 @@ export function ProjectShell() {
   const { projects } = useProjects();
   const { showToast } = useToast();
   const { identity } = useIdentity();
-  const { taskBackend } = useTheme();
+  const { taskBackend, instanceId } = useTheme();
 
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
   const [createPanelOpen, setCreatePanelOpen] = useState(false);
@@ -198,9 +199,11 @@ export function ProjectShell() {
     ? cards.find((c) => c.id === selectedCard.id) || selectedCard
     : null;
   const panelOpen = !!currentSelectedCard || createPanelOpen;
+  // A card another instance claimed runs in that instance's worker: Stop All
+  // here would have nothing to stop, so it is excluded from the count.
   const hasActiveWorkers = useMemo(
-    () => cards.some((c) => c.worker_status === 'queued' || c.worker_status === 'running'),
-    [cards]
+    () => cards.some((c) => (c.worker_status === 'queued' || c.worker_status === 'running') && !isForeignClaim(c, instanceId)),
+    [cards, instanceId]
   );
 
   // Card-scoped log stream for CardChat - enabled when chat is "live": any

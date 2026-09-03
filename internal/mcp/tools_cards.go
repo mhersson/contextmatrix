@@ -391,7 +391,7 @@ func registerCreateCard(server *mcp.Server, svc *service.CardService) {
 
 		card, err := svc.CreateCard(ctx, input.Project, svcInput)
 		if err != nil {
-			return nil, nil, fmt.Errorf("create card: %w", err)
+			return nil, nil, remoteErr(fmt.Errorf("create card: %w", err))
 		}
 
 		submitted := strings.Join([]string{input.Title, input.Body}, "\n")

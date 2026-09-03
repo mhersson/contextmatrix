@@ -191,7 +191,7 @@ func (s *CardService) ReportUsage(ctx context.Context, project, id string, input
 	}
 
 	// Verify agent ownership.
-	if card.AssignedAgent != "" && card.AssignedAgent != input.AgentID {
+	if card.AssignedAgent != "" && !s.OwnsClaim(card, input.AgentID) {
 		return nil, fmt.Errorf("agent authorization: %w", lock.ErrAgentMismatch)
 	}
 

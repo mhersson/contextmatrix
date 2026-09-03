@@ -165,6 +165,20 @@ describe('BoardFooter', () => {
     expect(screen.getByText(/3 unpushed/)).toBeInTheDocument();
   });
 
+  it('warns when pushes have been failing longer than the lease interval', () => {
+    render(
+      <BoardFooter
+        syncStatus={{ last_sync_time: null, syncing: false, enabled: true, shared: true, remote_reachable: true, unpushed_commits: 3, claims_at_risk: true, push_failing_since: '2026-09-03T12:00:00Z' }}
+        cardCount={1}
+        columnCount={1}
+        onSyncClick={() => {}}
+      />,
+    );
+    const btn = screen.getByRole('button');
+    expect(btn).toHaveTextContent('claims at risk');
+    expect(btn).toHaveAttribute('title', expect.stringContaining('lease'));
+  });
+
   it('mentions resolved conflicts in the tooltip', () => {
     renderFooter({ syncStatus: { last_sync_time: new Date().toISOString(), syncing: false, enabled: true, shared: true, remote_reachable: true, unpushed_commits: 0,
       resolutions: [{ path: 'p/tasks/P-1.md', rule: 'scalar.later_updated', at: new Date().toISOString(), trigger: 'periodic' }] } });

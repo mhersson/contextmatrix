@@ -2,6 +2,8 @@ import { useId, useState } from 'react';
 import type { Card, ProjectConfig } from '../../types';
 import { headerTitleStyle } from '../../lib/header-tokens';
 import {
+  formatRelativeTime,
+  isForeignClaim,
   isWorkerAttached,
   primaryAction,
 } from './utils';
@@ -27,6 +29,11 @@ interface CardPanelHeaderProps {
   onStopCard: () => Promise<void>;
   onOpenDependency?: (depId: string) => void;
   firstUnfinishedDep?: string | null;
+  /**
+   * This server's instance id on a shared boards repo ('' or null on a
+   * private board). A claim granted by another instance withholds Stop.
+   */
+  instanceId?: string | null;
 }
 
 export function CardPanelHeader({
@@ -47,6 +54,7 @@ export function CardPanelHeader({
   onStopCard,
   onOpenDependency,
   firstUnfinishedDep,
+  instanceId,
 }: CardPanelHeaderProps) {
   const titleId = useId();
   const priorityId = useId();
@@ -54,6 +62,7 @@ export function CardPanelHeader({
   const [confirmStopOpen, setConfirmStopOpen] = useState(false);
 
   const workerAttached = isWorkerAttached(card, currentAgentId);
+  const foreign = isForeignClaim(card, instanceId);
   const primary = primaryAction(card, editedCard.autonomous ?? false, config, canRun);
 
   const showSave = !workerAttached;
@@ -140,16 +149,27 @@ export function CardPanelHeader({
 
   const actions = workerAttached ? (
     <>
-      <div
-        role="status"
-        className="inline-flex items-center gap-2 px-3 py-1.5 rounded text-xs bg-[var(--bg-yellow)] text-[var(--yellow)]"
-      >
-        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M5.07 19h13.86c1.54 0 2.5-1.67 1.73-3L13.73 4c-.77-1.33-2.69-1.33-3.46 0L3.34 16c-.77 1.33.19 3 1.73 3z" />
-        </svg>
-        <span>Agent still owns this card - transitions locked</span>
-      </div>
-      {(card.worker_status === 'queued' || card.worker_status === 'running') && (
+      {foreign ? (
+        <div
+          role="status"
+          className="inline-flex items-center gap-2 px-3 py-1.5 rounded text-xs bg-[var(--bg-blue)] text-[var(--blue)]"
+          title={`Claimed via instance ${card.claimed_via}; stop and messages are available there`}
+        >
+          <span>Running on {card.claimed_via}</span>
+          {card.last_heartbeat && <span>· lease {formatRelativeTime(card.last_heartbeat)}</span>}
+        </div>
+      ) : (
+        <div
+          role="status"
+          className="inline-flex items-center gap-2 px-3 py-1.5 rounded text-xs bg-[var(--bg-yellow)] text-[var(--yellow)]"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M5.07 19h13.86c1.54 0 2.5-1.67 1.73-3L13.73 4c-.77-1.33-2.69-1.33-3.46 0L3.34 16c-.77 1.33.19 3 1.73 3z" />
+          </svg>
+          <span>Agent still owns this card - transitions locked</span>
+        </div>
+      )}
+      {!foreign && (card.worker_status === 'queued' || card.worker_status === 'running') && (
         <button
           type="button"
           onClick={() => setConfirmStopOpen(true)}

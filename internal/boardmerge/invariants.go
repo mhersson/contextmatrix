@@ -29,8 +29,9 @@ func applyInvariants(card, theirs *board.Card, project string, c Context) (*boar
 	// keeps it, so the holder's ReleaseCard call can still flush deferred
 	// commits and a re-claim by that holder is a heartbeat refresh, not a new
 	// agent taking finished work.
-	if card.State == board.StateNotPlanned && (card.AssignedAgent != "" || card.LastHeartbeat != nil) {
-		card.AssignedAgent, card.LastHeartbeat = "", nil
+	if card.State == board.StateNotPlanned && (card.AssignedAgent != "" || card.LastHeartbeat != nil ||
+		card.ClaimedVia != "" || card.ClaimedAt != nil) {
+		card.ClearClaim()
 
 		repair("not_planned clears the agent claim")
 	}

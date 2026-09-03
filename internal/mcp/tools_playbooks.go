@@ -158,7 +158,7 @@ func registerCreatePlaybook(server *mcp.Server, pb *service.PlaybookService) {
 			Title: input.Title, Description: input.Description, AgentID: input.AgentID, Entries: entries,
 		})
 		if err != nil {
-			return nil, service.PlaybookSummary{}, fmt.Errorf("create playbook %s: %w", input.Title, err)
+			return nil, service.PlaybookSummary{}, remoteErr(fmt.Errorf("create playbook %s: %w", input.Title, err))
 		}
 
 		return nil, service.SummarizeDetail(detail), nil

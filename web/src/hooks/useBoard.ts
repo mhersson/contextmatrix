@@ -256,6 +256,7 @@ export function useBoard(
         case 'card.claimed':
         case 'card.released':
         case 'card.stalled':
+        case 'claim.lost':
         case 'card.log_added':
         case 'worker.triggered':
         case 'worker.started':

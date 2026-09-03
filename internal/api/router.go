@@ -72,7 +72,11 @@ const (
 	ErrCodeContentTooLarge      = "CONTENT_TOO_LARGE"
 	ErrCodeSyncDisabled         = "SYNC_DISABLED"
 	ErrCodeSyncError            = "SYNC_ERROR"
-	ErrCodeNoGitHubRepo         = "NO_GITHUB_REPO"
+	// ErrCodeRemoteUnreachable -> 503: a shared-board write that must reach
+	// the boards remote before it is acknowledged could not. The board is
+	// unchanged and the caller may retry.
+	ErrCodeRemoteUnreachable = "REMOTE_UNREACHABLE"
+	ErrCodeNoGitHubRepo      = "NO_GITHUB_REPO"
 	// ErrCodeTooManySubscribers indicates the global SSE subscriber cap has
 	// been reached; the client should back off and retry later. Mirrors the
 	// per-session ErrCodeTooManyChats used by the chat hub.
@@ -142,11 +146,16 @@ type RouterConfig struct {
 	GitHubAPIBaseURL       string
 	GitHubAllowedHosts     []string
 	SessionManager         *sessionlog.Manager // optional; enables card-scoped SSE log path
-	Theme                  string              // active color palette ("everforest" or "radix")
-	Version                string              // build version string for display
-	MCPHandler             http.Handler        // optional; registered at POST/GET/DELETE /mcp when set
-	ChatManager            *chat.Manager       // optional; enables /api/chats routes
-	ChatHub                *chat.SSEHub        // optional; required when ChatManager is set
+	// InstanceID and SharedBoards describe this server's place among the
+	// instances sharing a boards repo, for the app-config payload. Empty and
+	// false on a private board.
+	InstanceID   string
+	SharedBoards bool
+	Theme        string        // active color palette ("everforest" or "radix")
+	Version      string        // build version string for display
+	MCPHandler   http.Handler  // optional; registered at POST/GET/DELETE /mcp when set
+	ChatManager  *chat.Manager // optional; enables /api/chats routes
+	ChatHub      *chat.SSEHub  // optional; required when ChatManager is set
 	// ChatBackendCfg is the dedicated "chat" backend entry. Its HMAC key
 	// authenticates GET /api/chat/task-skills-source (the chat service's
 	// pointer fetch). nil when no dedicated chat backend is configured.
@@ -313,6 +322,8 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		mobGuestNames:          mobGuestNames(cfg.Mob.Guests),
 		mobExecuteCheckpoints:  cfg.Mob.ExecuteCheckpoints(),
 		chatEnabled:            chatBackendConfigured,
+		instanceID:             cfg.InstanceID,
+		sharedBoards:           cfg.SharedBoards,
 	}
 	bh := &branchHandlers{
 		svc:                cfg.Service,
@@ -1113,6 +1124,11 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, service.ErrForceReleaseRequiresHuman):
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
 			"force-release requires a human agent", "agent_id must start with \"human:\"")
+
+	// --- Remote unavailable (503) - shared boards only ---
+	case errors.Is(err, service.ErrRemoteUnreachable):
+		writeError(w, http.StatusServiceUnavailable, ErrCodeRemoteUnreachable,
+			"boards remote unreachable; retry shortly", sanitizeErrorDetails(err))
 
 	// --- Bad-request sentinels (400) ---
 	case errors.Is(err, storage.ErrInvalidPath):

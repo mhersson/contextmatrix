@@ -3,8 +3,11 @@ package gitsync
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"time"
 
+	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
@@ -16,12 +19,16 @@ import (
 const maxDiffEvents = 16
 
 // cardSnapshot is the slice of a card the sync diff compares: enough to tell
-// created from deleted from moved from edited, and nothing else.
+// created from deleted from moved from edited, and nothing else - plus the
+// claim tuple lostClaims needs to tell a takeover from a release.
 type cardSnapshot struct {
-	Project string
-	ID      string
-	Updated time.Time
-	State   string
+	Project       string
+	ID            string
+	Updated       time.Time
+	State         string
+	AssignedAgent string
+	ClaimedVia    string
+	ClaimEpoch    int
 }
 
 // snapshotCards captures every card the store currently holds, keyed by
@@ -43,10 +50,13 @@ func (s *Syncer) snapshotCards(ctx context.Context) (map[string]cardSnapshot, er
 
 		for _, c := range cards {
 			out[p.Name+"/"+c.ID] = cardSnapshot{
-				Project: p.Name,
-				ID:      c.ID,
-				Updated: c.Updated,
-				State:   c.State,
+				Project:       p.Name,
+				ID:            c.ID,
+				Updated:       c.Updated,
+				State:         c.State,
+				AssignedAgent: c.AssignedAgent,
+				ClaimedVia:    c.ClaimedVia,
+				ClaimEpoch:    c.ClaimEpoch,
 			}
 		}
 	}
@@ -103,4 +113,51 @@ func (s *Syncer) publishDiff(before, after map[string]cardSnapshot) {
 	for _, e := range evts {
 		s.bus.Publish(e)
 	}
+}
+
+// claimLoss is a claim this instance held before a pull and no longer holds
+// after it, because a peer moved the card on at a higher epoch.
+type claimLoss struct {
+	Project, ID, PreviousAgent, NewVia string
+	Epoch                              int
+}
+
+// lostClaims lists the cards a pull took out of this instance's hands. A
+// deleted card is left to the reconcile sweep, which kills containers of
+// cards that no longer exist. Sorted by key for deterministic events.
+func lostClaims(instance string, before, after map[string]cardSnapshot) []claimLoss {
+	if instance == "" {
+		return nil
+	}
+
+	var out []claimLoss
+
+	for _, k := range slices.Sorted(maps.Keys(before)) {
+		b := before[k]
+		if b.AssignedAgent == "" || b.ClaimedVia != instance {
+			continue
+		}
+
+		a, ok := after[k]
+		if !ok {
+			continue
+		}
+
+		if a.AssignedAgent != "" && a.ClaimedVia == instance {
+			continue // still ours
+		}
+
+		// Another instance in claimed_via is a takeover at any epoch: the
+		// resolver leaves a double claim at the epoch both sides wrote. An
+		// empty tuple is a loss only at a higher epoch and outside a
+		// terminal state; a completion with an empty tuple is a release.
+		takenOver := a.AssignedAgent != "" && a.ClaimedVia != "" && a.ClaimedVia != instance
+		cleared := a.AssignedAgent == "" && a.ClaimEpoch > b.ClaimEpoch && !board.IsTerminalState(a.State)
+
+		if takenOver || cleared {
+			out = append(out, claimLoss{Project: b.Project, ID: b.ID, PreviousAgent: b.AssignedAgent, NewVia: a.ClaimedVia, Epoch: a.ClaimEpoch})
+		}
+	}
+
+	return out
 }

@@ -165,44 +165,21 @@ func mergeCards(base, ours, theirs *board.Card, project string, c Context) (*boa
 	out.ID, out.Project, out.Created = ours.ID, ours.Project, ours.Created
 	out.Source = firstNonNil(ours.Source, theirs.Source)
 
-	// State: a terminal state absorbs a non-terminal one.
-	switch {
-	case ours.State == theirs.State:
-		out.State = ours.State
-	case board.IsTerminalState(ours.State) != board.IsTerminalState(theirs.State):
-		winner, loserState, losing := ours.State, theirs.State, sideRemote
-		if board.IsTerminalState(theirs.State) {
-			winner, loserState, losing = theirs.State, ours.State, sideLocal
-		}
+	// The claim tuple is one unit owned by the instance holding the card.
+	mergeClaim(base, ours, theirs, oursLater, audit).applyTo(&out)
 
-		out.State = winner
-
-		// The overridden side is the non-terminal one, whichever was updated
-		// last. It lost something only if it actually moved: a one-sided move
-		// into a terminal state overrides nothing.
-		if loserState != base.State {
-			audit(RuleTerminalWins, "state", losing)
-		}
-	default:
-		out.State = scalar("state", base.State, ours.State, theirs.State)
-	}
-
-	// Scalars. The claim fields (assigned_agent, last_heartbeat, worker_status,
-	// phase) are plain scalars here; the claim epoch replaces them later.
+	// Scalars.
 	out.Title = scalar("title", base.Title, ours.Title, theirs.Title)
 	out.Type = scalar("type", base.Type, ours.Type, theirs.Type)
 	out.Priority = scalar("priority", base.Priority, ours.Priority, theirs.Priority)
 	out.Parent = scalar("parent", base.Parent, mapRef(ours.Parent, base.Parent, project, c.Renames), theirs.Parent)
 	out.Assignee = scalar("assignee", base.Assignee, ours.Assignee, theirs.Assignee)
-	out.AssignedAgent = scalar("assigned_agent", base.AssignedAgent, ours.AssignedAgent, theirs.AssignedAgent)
 	out.ModelOrchestrator = scalar("model_orchestrator", base.ModelOrchestrator, ours.ModelOrchestrator, theirs.ModelOrchestrator)
 	out.ModelCoder = scalar("model_coder", base.ModelCoder, ours.ModelCoder, theirs.ModelCoder)
 	out.ModelReviewer = scalar("model_reviewer", base.ModelReviewer, ours.ModelReviewer, theirs.ModelReviewer)
 	out.BranchName = scalar("branch_name", base.BranchName, ours.BranchName, theirs.BranchName)
 	out.BaseBranch = scalar("base_branch", base.BaseBranch, ours.BaseBranch, theirs.BaseBranch)
 	out.PRUrl = scalar("pr_url", base.PRUrl, ours.PRUrl, theirs.PRUrl)
-	out.WorkerStatus = scalar("worker_status", base.WorkerStatus, ours.WorkerStatus, theirs.WorkerStatus)
-	out.Phase = scalar("phase", base.Phase, ours.Phase, theirs.Phase)
 
 	// Flags and counters.
 	out.Autonomous = flag("autonomous", base.Autonomous, ours.Autonomous, theirs.Autonomous)
@@ -216,8 +193,6 @@ func mergeCards(base, ours, theirs *board.Card, project string, c Context) (*boa
 	out.ReviewAttempts = max(ours.ReviewAttempts, theirs.ReviewAttempts)
 
 	// Pointers and structs compared by value.
-	out.LastHeartbeat = pickHeartbeat(base.LastHeartbeat, ours.LastHeartbeat, theirs.LastHeartbeat)
-
 	verify, conflict := pickEq(base.Verify, ours.Verify, theirs.Verify, func(a, b *board.VerifyConfig) bool {
 		return reflect.DeepEqual(a, b)
 	})

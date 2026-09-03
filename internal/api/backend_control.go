@@ -234,6 +234,15 @@ func (h *backendHandlers) stopCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A worker another instance started reports to that instance. Killing it
+	// from here would leave the two boards disagreeing about the run.
+	if card.ClaimedElsewhere(h.svc.InstanceID()) {
+		writeError(w, http.StatusForbidden, ErrCodeAgentMismatch,
+			"card is running on another instance", "claimed via instance "+card.ClaimedVia)
+
+		return
+	}
+
 	if card.WorkerStatus != "queued" && card.WorkerStatus != "running" {
 		writeError(w, http.StatusConflict, ErrCodeWorkerNotRunning,
 			"card is not being executed by a worker",
@@ -309,22 +318,28 @@ func (h *backendHandlers) stopAll(w http.ResponseWriter, r *http.Request) {
 	failed := []string{}
 
 	for _, card := range cards {
-		if card.WorkerStatus == "queued" || card.WorkerStatus == "running" {
-			_, err := h.svc.UpdateWorkerStatus(r.Context(), project, card.ID, "killed", "stopped by stop-all")
-			if err != nil {
-				// Backend already received the kill webhook above; only CM's view of this
-				// card failed to update. Surface the drift in the response so the caller
-				// can reconcile rather than silently dropping it from affected_cards.
-				ctxlog.Logger(r.Context()).Error("failed to update worker_status during stop-all",
-					"card_id", card.ID, "project", project, "error", err)
-
-				failed = append(failed, card.ID)
-
-				continue
-			}
-
-			affected = append(affected, card.ID)
+		if card.WorkerStatus != "queued" && card.WorkerStatus != "running" {
+			continue
 		}
+
+		if card.ClaimedElsewhere(h.svc.InstanceID()) {
+			continue // another instance's worker; its stop-all is its own
+		}
+
+		_, err := h.svc.UpdateWorkerStatus(r.Context(), project, card.ID, "killed", "stopped by stop-all")
+		if err != nil {
+			// Backend already received the kill webhook above; only CM's view of this
+			// card failed to update. Surface the drift in the response so the caller
+			// can reconcile rather than silently dropping it from affected_cards.
+			ctxlog.Logger(r.Context()).Error("failed to update worker_status during stop-all",
+				"card_id", card.ID, "project", project, "error", err)
+
+			failed = append(failed, card.ID)
+
+			continue
+		}
+
+		affected = append(affected, card.ID)
 	}
 
 	// 207 Multi-Status when both partial-success and failures exist; 200 otherwise.

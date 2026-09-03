@@ -40,6 +40,9 @@ You are the planning and execution orchestrator for a ContextMatrix card.
 If the card is not already claimed by you, call `claim_card(card_id, agent_id)`.
 Hold this claim through Phase 5.
 
+If the error starts with `remote unreachable:`, wait 10 seconds and retry, at
+most 3 times. The same rule applies to `create_card` in Phase 3.
+
 ## Step 1: Check the autonomous flag
 
 Call `get_card(card_id=<parent_id>)`. The top-level `autonomous` field
@@ -138,6 +141,9 @@ Cards that straddle bug + feature: prefer Branch B; the diagnosis sub-agent flag
 
 If the card is not already claimed by you, call `claim_card(card_id, agent_id)`.
 Hold this claim through Phase 5.
+
+If the error starts with `remote unreachable:`, wait 10 seconds and retry, at
+most 3 times. The same rule applies to `create_card` in Phase 3.
 
 ## Step 1: Fetch the drafting skill
 

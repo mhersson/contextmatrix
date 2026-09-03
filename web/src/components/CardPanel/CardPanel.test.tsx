@@ -9,6 +9,8 @@ const theme = vi.hoisted(() => ({
   setTheme: () => {},
   setPalette: () => {},
   taskBackend: 'agent',
+  instanceId: '',
+  sharedBoards: false,
 }));
 vi.mock('../../hooks/useTheme', () => ({
   useTheme: () => theme,

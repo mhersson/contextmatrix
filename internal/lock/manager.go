@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/mhersson/contextmatrix/internal/board"
@@ -43,6 +44,19 @@ type Manager struct {
 	store   storage.Store
 	timeout time.Duration
 	clk     clock.Clock
+
+	// Shared-board state; empty instance means a private board.
+	instance      string
+	leaseInterval time.Duration
+	leaseTimeout  time.Duration
+
+	// leaseMu guards the three tables. It is never held while calling the
+	// store, except in ObserveLeases and ConfirmLeases, which take it for
+	// the whole scan so a concurrent beat cannot interleave with a rebuild.
+	leaseMu   sync.Mutex
+	beats     map[string]time.Time    // live heartbeats of claims this instance holds
+	foreign   map[string]foreignLease // what this instance last saw of other instances' claims
+	confirmed map[string]time.Time    // when each own claim was last confirmed on the remote
 }
 
 // NewManager creates a lock manager with the given store and heartbeat timeout.
@@ -59,31 +73,69 @@ func NewManagerWithClock(store storage.Store, timeout time.Duration, clk clock.C
 	}
 
 	return &Manager{
-		store:   store,
-		timeout: timeout,
-		clk:     clk,
+		store:     store,
+		timeout:   timeout,
+		clk:       clk,
+		beats:     map[string]time.Time{},
+		foreign:   map[string]foreignLease{},
+		confirmed: map[string]time.Time{},
 	}
 }
 
-// Claim attempts to assign a card to an agent. If the card is already claimed
-// by another agent, ErrAlreadyClaimed is returned. On success, returns the
-// modified card with assigned_agent and last_heartbeat set. The caller must
-// persist the card.
+// Claim assigns a card to an agent. On a private board a card held by another
+// agent is ErrAlreadyClaimed and a re-claim by the holder refreshes the
+// heartbeat. On a shared board ownership is the (agent, instance) pair: the
+// same agent ID claiming through another instance is refused while that
+// instance's lease is live, and takes the card over with a higher epoch once
+// the lease has expired. The caller must persist the card.
 func (m *Manager) Claim(ctx context.Context, project, cardID, agentID string) (*board.Card, error) {
 	card, err := m.store.GetCard(ctx, project, cardID)
 	if err != nil {
 		return nil, fmt.Errorf("get card: %w", err)
 	}
 
-	if card.AssignedAgent != "" && card.AssignedAgent != agentID {
+	now := m.clk.Now()
+
+	if m.instance == "" {
+		if card.AssignedAgent != "" && card.AssignedAgent != agentID {
+			return nil, fmt.Errorf("%w: currently held by %s", ErrAlreadyClaimed, card.AssignedAgent)
+		}
+
+		card.AssignedAgent = agentID
+		card.LastHeartbeat = &now
+		card.Updated = now
+
+		return card, nil
+	}
+
+	switch {
+	case card.ClaimHeldBy(agentID, m.instance):
+		// A refresh by the holder is liveness, not a new claim: the epoch
+		// stays so a peer's later stall or takeover still wins the merge.
+		card.LastHeartbeat = &now
+		card.Updated = now
+		m.recordBeat(project, cardID, now)
+
+		return card, nil
+	case card.AssignedAgent == "":
+	case card.ClaimedElsewhere(m.instance):
+		if !m.ForeignLeaseExpired(card) {
+			return nil, fmt.Errorf("%w: currently held by %s via %s", ErrAlreadyClaimed, card.AssignedAgent, card.ClaimedVia)
+		}
+		// An expired lease is taken over below like a fresh claim.
+	default:
 		return nil, fmt.Errorf("%w: currently held by %s", ErrAlreadyClaimed, card.AssignedAgent)
 	}
 
-	// If same agent is re-claiming, just update heartbeat
-	now := m.clk.Now()
 	card.AssignedAgent = agentID
+	card.ClaimedVia = m.instance
+	card.ClaimedAt = &now
+	card.ClaimEpoch++
 	card.LastHeartbeat = &now
 	card.Updated = now
+
+	m.recordBeat(project, cardID, now)
+	m.confirm(project, cardID, now)
 
 	return card, nil
 }
@@ -102,13 +154,11 @@ func (m *Manager) Release(ctx context.Context, project, cardID, agentID string) 
 		return nil, ErrNotClaimed
 	}
 
-	if card.AssignedAgent != agentID {
-		return nil, fmt.Errorf("%w: card is held by %s", ErrAgentMismatch, card.AssignedAgent)
+	if !card.ClaimHeldBy(agentID, m.instance) {
+		return nil, fmt.Errorf("%w: card is held by %s%s", ErrAgentMismatch, card.AssignedAgent, viaSuffix(card))
 	}
 
-	card.AssignedAgent = ""
-	card.LastHeartbeat = nil
-	card.Updated = m.clk.Now()
+	m.dropClaim(card, project, cardID)
 
 	return card, nil
 }
@@ -129,41 +179,71 @@ func (m *Manager) ForceRelease(ctx context.Context, project, cardID string) (*bo
 	}
 
 	prevAgent := card.AssignedAgent
-	card.AssignedAgent = ""
-	card.LastHeartbeat = nil
-	card.Updated = m.clk.Now()
+	m.dropClaim(card, project, cardID)
 
 	return card, prevAgent, nil
 }
 
-// Heartbeat updates the last_heartbeat timestamp for a claimed card.
-// If the card is not claimed, ErrNotClaimed is returned. If the card is
-// claimed by a different agent, ErrAgentMismatch is returned. On success,
-// returns the modified card. The caller must persist the card.
-func (m *Manager) Heartbeat(ctx context.Context, project, cardID, agentID string) (*board.Card, error) {
+// dropClaim clears the tuple, bumps the epoch on a shared board, and forgets
+// the live beat. It is the one place a claim ends.
+func (m *Manager) dropClaim(card *board.Card, project, cardID string) {
+	card.ClearClaim()
+	card.Updated = m.clk.Now()
+
+	if m.instance != "" {
+		card.ClaimEpoch++
+
+		m.ClearBeat(project, cardID)
+	}
+}
+
+func viaSuffix(card *board.Card) string {
+	if card.ClaimedVia == "" {
+		return ""
+	}
+
+	return " via " + card.ClaimedVia
+}
+
+// Heartbeat records liveness for a claimed card. persist reports whether the
+// returned card carries a new last_heartbeat the caller must write: always on
+// a private board; on a shared board only when the value on file is older
+// than lease_interval, so the file (and the remote) sees a renewal at most
+// once per interval while the live beat stays in memory.
+func (m *Manager) Heartbeat(ctx context.Context, project, cardID, agentID string) (*board.Card, bool, error) {
 	card, err := m.store.GetCard(ctx, project, cardID)
 	if err != nil {
-		return nil, fmt.Errorf("get card: %w", err)
+		return nil, false, fmt.Errorf("get card: %w", err)
 	}
 
 	if card.AssignedAgent == "" {
-		return nil, ErrNotClaimed
+		return nil, false, ErrNotClaimed
 	}
 
-	if card.AssignedAgent != agentID {
-		return nil, fmt.Errorf("%w: card is held by %s", ErrAgentMismatch, card.AssignedAgent)
+	if !card.ClaimHeldBy(agentID, m.instance) {
+		return nil, false, fmt.Errorf("%w: card is held by %s%s", ErrAgentMismatch, card.AssignedAgent, viaSuffix(card))
 	}
 
 	now := m.clk.Now()
+
+	if m.instance != "" {
+		m.recordBeat(project, cardID, now)
+
+		if card.LastHeartbeat != nil && now.Sub(*card.LastHeartbeat) < m.leaseInterval {
+			return card, false, nil
+		}
+	}
+
 	card.LastHeartbeat = &now
 	card.Updated = now
 
-	return card, nil
+	return card, true, nil
 }
 
 // FindStalled returns all cards across all projects where:
-// - assigned_agent is set (card is claimed)
-// - last_heartbeat is older than the configured timeout
+//   - assigned_agent is set (card is claimed)
+//   - the card is claimed via this instance (or with no claimed_via), and
+//     neither the file heartbeat nor the live beat is newer than the timeout
 //
 // This method does NOT modify the cards. The caller (Service Layer)
 // is responsible for transitioning stalled cards to the "stalled" state,
@@ -186,25 +266,13 @@ func (m *Manager) FindStalled(ctx context.Context) ([]StalledCard, error) {
 		}
 
 		for _, card := range cards {
-			if card.AssignedAgent == "" {
-				continue // Not claimed
+			if card.AssignedAgent == "" || card.ClaimedElsewhere(m.instance) {
+				continue // unclaimed, or another instance's to stall
 			}
 
-			if card.LastHeartbeat == nil {
-				// Claimed but no heartbeat - treat as stalled
-				stalled = append(stalled, StalledCard{
-					Project: proj.Name,
-					Card:    card,
-				})
-
-				continue
-			}
-
-			if card.LastHeartbeat.Before(cutoff) {
-				stalled = append(stalled, StalledCard{
-					Project: proj.Name,
-					Card:    card,
-				})
+			last := m.LastBeat(card)
+			if last == nil || last.Before(cutoff) {
+				stalled = append(stalled, StalledCard{Project: proj.Name, Card: card})
 			}
 		}
 	}

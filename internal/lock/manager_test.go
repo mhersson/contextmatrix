@@ -259,7 +259,7 @@ func TestHeartbeat_Success(t *testing.T) {
 	fake.Advance(10 * time.Millisecond)
 
 	// Heartbeat
-	card, err := mgr.Heartbeat(ctx, "test-project", "TEST-001", "agent-1")
+	card, _, err := mgr.Heartbeat(ctx, "test-project", "TEST-001", "agent-1")
 	require.NoError(t, err)
 
 	assert.Equal(t, "agent-1", card.AssignedAgent)
@@ -275,7 +275,7 @@ func TestHeartbeat_NotClaimed(t *testing.T) {
 	// Create an unclaimed card
 	createTestCard(t, store, "test-project", "TEST-001", "")
 
-	card, err := mgr.Heartbeat(ctx, "test-project", "TEST-001", "agent-1")
+	card, _, err := mgr.Heartbeat(ctx, "test-project", "TEST-001", "agent-1")
 
 	assert.Nil(t, card)
 	assert.ErrorIs(t, err, ErrNotClaimed)
@@ -289,7 +289,7 @@ func TestHeartbeat_AgentMismatch(t *testing.T) {
 	// Create a card claimed by agent-1
 	createTestCard(t, store, "test-project", "TEST-001", "agent-1")
 
-	card, err := mgr.Heartbeat(ctx, "test-project", "TEST-001", "agent-2")
+	card, _, err := mgr.Heartbeat(ctx, "test-project", "TEST-001", "agent-2")
 
 	assert.Nil(t, card)
 	assert.ErrorIs(t, err, ErrAgentMismatch)
@@ -300,7 +300,7 @@ func TestHeartbeat_CardNotFound(t *testing.T) {
 	mgr := NewManager(store, 30*time.Minute)
 	ctx := context.Background()
 
-	card, err := mgr.Heartbeat(ctx, "test-project", "NONEXISTENT", "agent-1")
+	card, _, err := mgr.Heartbeat(ctx, "test-project", "NONEXISTENT", "agent-1")
 
 	assert.Nil(t, card)
 	assert.ErrorIs(t, err, storage.ErrCardNotFound)
@@ -524,7 +524,7 @@ func TestHeartbeatUpdatesTimestamp(t *testing.T) {
 	fake.Advance(10 * time.Millisecond)
 
 	// Heartbeat
-	card, err := mgr.Heartbeat(ctx, "test-project", "TEST-001", "agent-1")
+	card, _, err := mgr.Heartbeat(ctx, "test-project", "TEST-001", "agent-1")
 	require.NoError(t, err)
 
 	assert.True(t, card.Updated.After(original.Updated))

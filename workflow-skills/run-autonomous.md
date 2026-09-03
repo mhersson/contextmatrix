@@ -61,6 +61,11 @@ If `Complexity: standard`, follow the full pipeline below.
 Call `claim_card(card_id, agent_id)` before determining the starting point.
 Hold this claim through the entire lifecycle.
 
+If the error starts with `remote unreachable:`, wait 10 seconds and retry, at
+most 3 times. The same rule applies to every `create_card` call in Phase 2:
+the server deduplicates an identically titled subtask, so a retry never
+creates a duplicate.
+
 ## Step 1: Create feature branch
 
 If `branch_name` is non-empty, create and switch to the feature branch now -

@@ -431,3 +431,32 @@ func TestEndSessionSubscriber_EndSession409_KillStillFires(t *testing.T) {
 	waitForCalls(t, fc, 1)
 	waitForKillCalls(t, fc, 1)
 }
+
+// TestEndSessionSubscriber_ClaimLost_KillsTheLocalRun covers the shared-board
+// path: a pull showed that another instance now holds the card. The card is
+// not terminal, but this instance's container must stop writing to a claim
+// it lost.
+func TestEndSessionSubscriber_ClaimLost_KillsTheLocalRun(t *testing.T) {
+	ctx := t.Context()
+
+	bus := events.NewBus()
+	cg := &fakeCardGetter{cards: map[string]*board.Card{
+		"proj/C-001": {ID: "C-001", State: "in_progress", AssignedAgent: "agent-C-001", ClaimedVia: "lap-b", WorkerStatus: "running"},
+	}}
+	fc := &fakeClient{}
+
+	backend.StartEndSessionSubscriber(ctx, bus, cg, fc, discardLogger())
+
+	bus.Publish(events.Event{
+		Type: events.ClaimLost, Project: "proj", CardID: "C-001",
+		Data: map[string]any{"previous_agent": "agent-C-001", "claimed_via": "lap-b"},
+	})
+
+	waitForCalls(t, fc, 1)
+	waitForKillCalls(t, fc, 1)
+
+	killCalls := fc.KillCalls()
+	require.Len(t, killCalls, 1)
+	assert.Equal(t, "C-001", killCalls[0].CardID)
+	assert.Equal(t, "proj", killCalls[0].Project)
+}

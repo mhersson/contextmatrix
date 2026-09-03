@@ -25,6 +25,38 @@
   colliding ID can be rewritten to the local re-mint when it should have kept
   pointing at the remote card (`rewriteLocalRefs` in
   `internal/gitsync/resolve.go`).
+- **A `Synced` body runs with the commit queue paused.** It must commit
+  through its `DirectCommit` path (`CardService.commitNow` for cards,
+  `PlaybookService.directCommit` for playbooks - both built by
+  `DirectCommitter`, shell git), never `enqueueCardCommit`: a queued job
+  waits for a resume that only comes after the cycle returns. It must not
+  take `writeMu` or the playbook lock (the cycle holds both) and must not
+  touch the network. `runVerified` wraps every push-verified card, project
+  and stall mutation; `PlaybookService.createVerified` is the one other body
+  and follows the same rules.
+- **Undo never bumps the epoch.** A verified write whose push never lands is
+  reverted by restoring the pre-write tuple, epoch included, so a peer's claim
+  made in the meantime outranks the reverted state in the next merge. An undo
+  that raised the epoch would win that merge and silently evict the peer.
+- **Two instances running one card present the same agent ID.** The agent
+  backend derives the ID from the card ID. Every ownership check must go
+  through `CardService.OwnsClaim` or `board.Card.ClaimHeldBy`; a bare
+  `AssignedAgent == agentID` comparison is a bug on a shared board.
+- **Heartbeats are not on disk.** `lock.Manager.LastBeat` is the liveness
+  accessor; `FindStalled`, the dashboard, `check_agent_health` and every card
+  read go through it. A code path that reads `card.LastHeartbeat` straight
+  from the store sees a value up to `lease_interval` old and will misjudge a
+  live claim.
+- **Foreign stall compares local time with local time.** `ObserveLeases`
+  records when a peer's lease value was first seen on this clock; expiry is
+  measured from that, never from the peer's timestamp. Clock skew between
+  laptops therefore cannot stall a live card, and a laptop that cannot push
+  loses its claims after `lease_timeout` even while its agent is alive.
+- **`claim.lost` is not a terminal state.** The end-session subscriber kills
+  the local container on it directly; the backend's kill callback that
+  follows is ignored by `UpdateWorkerStatus` because the card is now claimed
+  via another instance. A card a peer deleted under a running container is
+  left to the reconcile sweep's missing-card rule.
 - **`gitops.CommitQueue` per-project ordering, idle teardown:** the queue spawns
   one goroutine per `Project` value and serializes that project's commits in
   enqueue order; different projects commit in parallel. Production wires

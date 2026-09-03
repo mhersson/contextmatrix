@@ -3,10 +3,17 @@ import type { Card, LogEntry } from '../../types';
 import { api, isAPIError } from '../../api/client';
 import { ConfirmModal } from '../ConfirmModal/ConfirmModal';
 import { ChatPanel } from '../ChatPanel';
+import { isForeignClaim } from './utils';
 
 interface CardChatProps {
   card: Card;
   cardLogs: readonly LogEntry[];
+  /**
+   * This server's instance id on a shared boards repo ('' or null on a
+   * private board). A card another instance runs is read-only here: the
+   * message channel belongs to the instance holding the claim.
+   */
+  instanceId?: string | null;
 }
 
 /**
@@ -19,7 +26,7 @@ interface CardChatProps {
  * not active (stopped or promoted), with the compose row replaced by a
  * read-only footer.
  */
-export function CardChat({ card, cardLogs }: CardChatProps) {
+export function CardChat({ card, cardLogs, instanceId }: CardChatProps) {
   const [promoting, setPromoting] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [promoteError, setPromoteError] = useState<string | null>(null);
@@ -34,7 +41,8 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
     return () => { aliveRef.current = false; };
   }, []);
 
-  const hitlActive = card.worker_status === 'running' && !card.autonomous;
+  const foreign = isForeignClaim(card, instanceId);
+  const hitlActive = card.worker_status === 'running' && !card.autonomous && !foreign;
 
   const handleSend = async (content: string) => {
     try {
@@ -71,9 +79,11 @@ export function CardChat({ card, cardLogs }: CardChatProps) {
   // read-only transcript, so one caption covers them all while running.
   const readOnlyMessage = hitlActive
     ? undefined
-    : card.worker_status === 'running'
-      ? 'Autonomous run - read-only'
-      : 'Session ended - read-only';
+    : foreign
+      ? `Running on ${card.claimed_via} - read-only`
+      : card.worker_status === 'running'
+        ? 'Autonomous run - read-only'
+        : 'Session ended - read-only';
 
   // Footer renders only when HITL is active: the "Switch to Autonomous"
   // button. Once promoted, card.autonomous flips to true so hitlActive

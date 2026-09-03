@@ -224,6 +224,13 @@ func main() {
 
 	// Initialize lock manager
 	lockMgr := lock.NewManager(store, heartbeatTimeout)
+
+	if cfg.Boards.Shared {
+		leaseInterval, _ := cfg.LeaseIntervalDuration()
+		leaseTimeout, _ := cfg.LeaseTimeoutDuration()
+		lockMgr.SetShared(cfg.Instance.ID, leaseInterval, leaseTimeout)
+	}
+
 	slog.Info("lock manager initialized", "timeout", heartbeatTimeout)
 
 	// Convert token costs from config to service types
@@ -245,6 +252,12 @@ func main() {
 	// Must precede the syncer's startup cycle, which is the first sync to
 	// integrate a peer's writes.
 	svc.SetSharedRepo(cfg.Boards.Shared)
+
+	if cfg.Boards.Shared {
+		leaseTimeout, _ := cfg.LeaseTimeoutDuration()
+		pullInterval, _ := cfg.PullIntervalDuration()
+		svc.SetLease(cfg.Instance.ID, leaseTimeout, pullInterval)
+	}
 
 	slog.Info("card service initialized", "shared_repo", cfg.Boards.Shared)
 
@@ -289,9 +302,9 @@ func main() {
 	httpCtx, httpCancel := context.WithCancel(ctx)
 	defer httpCancel()
 
-	// Start timeout checker. Interval is configurable so test harnesses
-	// can shrink it for fast heartbeat-timeout scenarios; production
-	// default is 1m. Validate ensures the duration parses and is positive.
+	// The timeout checker's interval is configurable so test harnesses can
+	// shrink it for fast heartbeat-timeout scenarios; production default is
+	// 1m. Validate ensures the duration parses and is positive.
 	stalledTick, err := cfg.StalledCheckIntervalDuration()
 	if err != nil {
 		slog.Error("invalid stalled_check_interval; falling back to 1m", "error", err)
@@ -299,10 +312,13 @@ func main() {
 		stalledTick = time.Minute
 	}
 
-	svc.StartTimeoutChecker(ctx, stalledTick)
-
 	// Initialize git sync
 	syncer := wireGitSync(ctx, cfg, git, store, svc, pbSvc, bus)
+
+	// After the sync wiring: on a shared board the checker's stall writes are
+	// push-verified, so the sync runner must be in place before the first
+	// tick can read it.
+	svc.StartTimeoutChecker(ctx, stalledTick)
 
 	// Multi-user auth: master key, auth.db, service, bootstrap link, janitor.
 	// In auth.mode "none" every one of these stays nil/off and the router
@@ -639,6 +655,8 @@ func main() {
 		GitHubAllowedHosts:     cfg.GitHub.AllowedHosts(),
 		ProviderForProject:     providerForProject,
 		SessionManager:         sessionMgr,
+		InstanceID:             cfg.Instance.ID,
+		SharedBoards:           cfg.Boards.Shared,
 		Theme:                  cfg.Theme,
 		Version:                buildVersion(),
 		MCPHandler:             mcpHandler,

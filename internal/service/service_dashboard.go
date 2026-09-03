@@ -132,6 +132,8 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 		return nil, fmt.Errorf("list cards: %w", err)
 	}
 
+	s.overlayLiveness(cards...)
+
 	now := s.clk.Now()
 	tz := now.Location()
 

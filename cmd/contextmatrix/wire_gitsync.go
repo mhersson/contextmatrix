@@ -35,13 +35,31 @@ func wireGitSync(
 	var opts []gitsync.Option
 
 	if cfg.Boards.Shared {
-		opts = append(opts, gitsync.WithShared(cfg.Instance.ID))
+		leaseInterval, _ := cfg.LeaseIntervalDuration()
+		opts = append(opts, gitsync.WithShared(cfg.Instance.ID), gitsync.WithLeaseInterval(leaseInterval))
 	}
 
 	syncer := gitsync.NewSyncer(gitMgr, store, svc, bus, cfg.Boards.Dir,
 		cfg.Boards.GitAutoPull, cfg.Boards.GitAutoPush, pullInterval, opts...)
 	if syncer == nil {
 		return nil
+	}
+
+	// Mutations that depend on a global decision (an ID, a slug, a claim) run
+	// inside a sync cycle so the merge has happened before the write and the
+	// remote holds it before the caller is told it landed.
+	if cfg.Boards.Shared {
+		runner := func(ctx context.Context, trigger string, m service.SyncMutation) (service.SyncOutcome, error) {
+			r, err := syncer.SyncedMutation(ctx, trigger, m)
+
+			return service.SyncOutcome{BodyRan: r.BodyRan, Pushed: r.Pushed, Resolutions: r.Resolutions}, err
+		}
+
+		svc.SetSyncRunner(runner)
+
+		if pbSvc != nil {
+			pbSvc.SetSyncRunner(runner, service.DirectCommitter(gitMgr))
+		}
 	}
 
 	// SetPlaybooks must run before PullOnStartup so the initial pull already

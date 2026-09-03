@@ -37,6 +37,11 @@ type appConfigHandlers struct {
 	// chatBackendConfigured). Full payload only - lets the settings UI decide
 	// whether to render the chat image picker.
 	chatEnabled bool
+	// instanceID names this server among the instances sharing a boards repo;
+	// sharedBoards reports whether the board is shared at all. Empty and false
+	// on a private board, where both fields drop out of the payload.
+	instanceID   string
+	sharedBoards bool
 }
 
 type appConfigResponse struct {
@@ -52,6 +57,8 @@ type appConfigResponse struct {
 	MobGuestNames          []string            `json:"mob_guest_names,omitempty"`
 	MobExecuteCheckpoints  bool                `json:"mob_execute_checkpoints,omitempty"`
 	ChatEnabled            bool                `json:"chat_enabled"`
+	InstanceID             string              `json:"instance_id,omitempty"`
+	SharedBoards           bool                `json:"shared_boards,omitempty"`
 }
 
 // appConfigSlimResponse is served to unauthenticated callers in multi mode:
@@ -118,6 +125,8 @@ func (h *appConfigHandlers) getAppConfig(w http.ResponseWriter, r *http.Request)
 		MobGuestNames:          h.mobGuestNames,
 		MobExecuteCheckpoints:  h.mobExecuteCheckpoints,
 		ChatEnabled:            h.chatEnabled,
+		InstanceID:             h.instanceID,
+		SharedBoards:           h.sharedBoards,
 	})
 }
 

@@ -43,6 +43,14 @@
    `done` until `ReleaseCard` flushes its deferred commits - a re-claim there is
    a heartbeat refresh, not a new agent picking up finished work.
 
+   On a shared board (`boards.shared: true`) ownership is the pair
+   `(assigned_agent, claimed_via)`: the same agent ID claiming through another
+   instance is refused with 409 while that instance's lease is live and takes
+   the card over with a higher `claim_epoch` once the lease has expired.
+   `PUT`, `PATCH`, `DELETE`, `add_log` and `complete_task` check the pair. A
+   claim with no `claimed_via` predates shared boards and is honoured by any
+   instance.
+
 4. **Human identity.** Humans use agent IDs prefixed with `human:` (e.g.,
    `human:alice`). The claim system treats them identically to AI agents. The
    web UI stores the human's agent ID in localStorage and sends it via
@@ -65,7 +73,9 @@
    `merge`, message `<rule>: <detail> (instance <id>)`, for a field the merge
    overrode, a card re-minted on an add/add conflict, a dangling reference an
    invariant repair dropped, and an invalid merged card that fell back to the
-   remote version.
+   remote version. `claim.epoch_wins`, `claim.terminal_over_stall`,
+   `claim.double_claim` and `claim.active_over_release` record which side's
+   claim tuple a merge kept.
 
 7. **Heartbeat timeout.** If `last_heartbeat` exceeds configured timeout
    (default 30min), the service layer (`CardService.StartTimeoutChecker` in
@@ -87,6 +97,25 @@
    and passes the `X-Agent-ID` header through as the attributed agent, so it
    bumps `last_heartbeat` when that header names the card's current owner;
    `PUT` never does, since it carries no agent attribution at all.
+
+   On a shared board a heartbeat is recorded in memory and the file's
+   `last_heartbeat` (the lease) is rewritten only when older than
+   `boards.lease_interval`; `lock.Manager.LastBeat` returns the newer of the
+   two, and every read path, the stall checker and the dashboard use it. The
+   live beat counts only while the card still carries this instance's claim;
+   a card a peer took over, an unclaimed card and a claim that predates
+   shared boards all read the value on file. The stall checker acts on claims
+   this instance granted and on claims that predate shared boards (no
+   `claimed_via`). A claim another instance granted is stalled only after its
+   pushed lease has stayed unchanged for `boards.lease_timeout` on the local
+   clock, following a recent pull, through a push-verified sync cycle; the
+   stall bumps `claim_epoch`. A claim the remote has not confirmed for
+   `lease_timeout` is fenced: release, transition, state patch and
+   worker-status writes return 403 `AGENT_MISMATCH` until a sync cycle
+   succeeds; heartbeats pass, and the stall checker skips the card so the
+   next cycle settles it first. The fence is held in memory only, so after a
+   restart every own claim is fenced until the startup sync cycle succeeds -
+   with the remote down that is what an operator sees behind those 403s.
 
 8. **External source tracking.** Cards imported from external systems (Jira,
    GitHub Issues, etc.) use the `source` field to record origin. The
@@ -189,6 +218,9 @@ state: in_progress
 priority: high
 assigned_agent: claude-7a3f
 last_heartbeat: 2026-03-30T14:30:00Z
+claimed_via: laptop-3f9a2c   # instance that granted the claim (shared boards only)
+claimed_at: 2026-03-30T14:00:00Z
+claim_epoch: 4               # bumped on claim, release, stall, force-release, terminal transition
 parent: ""
 subtasks: [ALPHA-003, ALPHA-004] # operator-maintained - set by callers via UpdateCard; not auto-populated when subtasks are created
 depends_on: []
@@ -305,6 +337,9 @@ type Card struct {
     Priority            string          `yaml:"priority"                        json:"priority"`
     AssignedAgent       string          `yaml:"assigned_agent,omitempty"        json:"assigned_agent,omitempty"`
     LastHeartbeat       *time.Time      `yaml:"last_heartbeat,omitempty"        json:"last_heartbeat,omitempty"`
+    ClaimedVia          string          `yaml:"claimed_via,omitempty"           json:"claimed_via,omitempty"`
+    ClaimedAt           *time.Time      `yaml:"claimed_at,omitempty"            json:"claimed_at,omitempty"`
+    ClaimEpoch          int             `yaml:"claim_epoch,omitempty"           json:"claim_epoch,omitempty"`
     Parent              string          `yaml:"parent,omitempty"                json:"parent,omitempty"`
     Subtasks            []string        `yaml:"subtasks,omitempty"              json:"subtasks,omitempty"`
     DependsOn           []string        `yaml:"depends_on,omitempty"            json:"depends_on,omitempty"`

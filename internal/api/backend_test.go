@@ -12,9 +12,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -30,8 +32,11 @@ import (
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/events"
+	"github.com/mhersson/contextmatrix/internal/gitops"
+	"github.com/mhersson/contextmatrix/internal/lock"
 	"github.com/mhersson/contextmatrix/internal/modelcatalog"
 	"github.com/mhersson/contextmatrix/internal/service"
+	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
 // fakeTokenProvider is a githubauth.TokenGenerator test double for exercising
@@ -3945,4 +3950,181 @@ func TestGetGitCredentials_BackendDisabled_NotFound(t *testing.T) {
 	defer closeBody(t, resp.Body)
 
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+}
+
+// --- Shared boards: stop guards ---
+
+// killRecorder is an execution-backend stub that records the webhook paths it
+// received, so a test can assert a peer's container was never touched.
+type killRecorder struct {
+	mu    sync.Mutex
+	calls []string
+}
+
+func (k *killRecorder) record(path string) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	k.calls = append(k.calls, path)
+}
+
+func (k *killRecorder) paths() []string {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	return append([]string(nil), k.calls...)
+}
+
+// testSetupSharedBoards mirrors testSetupWithRemoteExecution for a shared
+// boards repo: the service and the lock manager carry an instance ID, and the
+// store is returned so a test can plant a claim a peer instance granted.
+func testSetupSharedBoards(t *testing.T, instance string) (*service.CardService, *events.Bus, storage.Store) {
+	t.Helper()
+
+	boardsDir := filepath.Join(t.TempDir(), "boards")
+	projectDir := filepath.Join(boardsDir, "test-project")
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(projectDir, ".board.yaml"), []byte(boardConfigRemoteExec), 0o644))
+
+	git, err := gitops.NewManager(boardsDir, "", "test", gitopsTestProvider(t))
+	require.NoError(t, err)
+
+	store, err := storage.NewFilesystemStore(boardsDir)
+	require.NoError(t, err)
+
+	bus := events.NewBus()
+	lockMgr := lock.NewManager(store, 30*time.Minute)
+	lockMgr.SetShared(instance, time.Minute, time.Hour)
+
+	svc := service.NewCardService(store, git, lockMgr, bus, boardsDir, nil, true, false)
+	svc.SetLease(instance, time.Hour, time.Minute)
+
+	return svc, bus, store
+}
+
+// plantForeignClaim writes the claim tuple a peer instance would have pushed.
+func plantForeignClaim(t *testing.T, store storage.Store, project, id, agent, via string) {
+	t.Helper()
+
+	card, err := store.GetCard(context.Background(), project, id)
+	require.NoError(t, err)
+
+	now := time.Now()
+	card.AssignedAgent, card.ClaimedVia = agent, via
+	card.ClaimedAt, card.LastHeartbeat = &now, &now
+
+	require.NoError(t, store.UpdateCard(context.Background(), project, card))
+}
+
+// runningCard creates a card and marks it as executed by a worker.
+func runningCard(t *testing.T, svc *service.CardService, title string) *board.Card {
+	t.Helper()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+		Title: title, Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "running", "running")
+	require.NoError(t, err)
+
+	return card
+}
+
+// TestStopCard_ForeignClaimRefused verifies that Stop refuses a card another
+// instance is running: its worker reports to that instance, so killing it from
+// here would leave both boards disagreeing about the run.
+func TestStopCard_ForeignClaimRefused(t *testing.T) {
+	svc, bus, store := testSetupSharedBoards(t, "lap-a")
+
+	card := runningCard(t, svc, "Peer task")
+	plantForeignClaim(t, store, "test-project", card.ID, "agent-X", "lap-b")
+
+	kills := &killRecorder{}
+
+	mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		kills.record(r.URL.Path)
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
+	}))
+	defer mockBackend.Close()
+
+	backendClient := backend.NewClient(mockBackend.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	router := NewRouter(RouterConfig{
+		Service: svc, Bus: bus, Backend: backendClient,
+		AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+		InstanceID:      "lap-a",
+		SharedBoards:    true,
+	})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	req, _ := http.NewRequest("POST",
+		server.URL+"/api/projects/test-project/cards/"+card.ID+"/stop", nil)
+	req.Header.Set("X-Agent-ID", "human:op")
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodeAgentMismatch, apiErr.Code)
+	assert.Contains(t, apiErr.Details, "lap-b")
+	assert.Empty(t, kills.paths(), "the peer's container is never touched")
+
+	unchanged, err := svc.GetCard(context.Background(), "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "running", unchanged.WorkerStatus)
+}
+
+// TestStopAll_SkipsForeignClaims verifies that Stop All only reports the cards
+// this instance actually stopped; a peer's running card is left to the peer.
+func TestStopAll_SkipsForeignClaims(t *testing.T) {
+	svc, bus, store := testSetupSharedBoards(t, "lap-a")
+
+	foreign := runningCard(t, svc, "Peer task")
+	plantForeignClaim(t, store, "test-project", foreign.ID, "agent-X", "lap-b")
+
+	local := runningCard(t, svc, "Local task")
+
+	mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
+	}))
+	defer mockBackend.Close()
+
+	backendClient := backend.NewClient(mockBackend.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	router := NewRouter(RouterConfig{
+		Service: svc, Bus: bus, Backend: backendClient,
+		AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+		InstanceID:      "lap-a",
+		SharedBoards:    true,
+	})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	req, _ := http.NewRequest("POST", server.URL+"/api/projects/test-project/stop-all", nil)
+	req.Header.Set("X-Agent-ID", "human:op")
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var result stopAllResponse
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
+	assert.Equal(t, []string{local.ID}, result.AffectedCards)
+	assert.Empty(t, result.FailedToUpdate)
+
+	untouched, err := svc.GetCard(context.Background(), "test-project", foreign.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "running", untouched.WorkerStatus)
 }

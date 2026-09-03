@@ -29,8 +29,8 @@ func TestSharedConvergence(t *testing.T) {
 	// Round 1: both create two cards without syncing in between, so both mint
 	// the same two ids and every card is an add/add against the other side.
 	for i := range 2 {
-		a.create(t, fmt.Sprintf("a%d", i))
-		b.create(t, fmt.Sprintf("b%d", i))
+		a.createUnpushed(t, fmt.Sprintf("a%d", i))
+		b.createUnpushed(t, fmt.Sprintf("b%d", i))
 	}
 
 	a.sync(t)
@@ -61,7 +61,7 @@ func TestSharedConvergence(t *testing.T) {
 	r2 := a.sync(t)
 	b.sync(t)
 
-	assertHasRule(t, r2.Resolutions, boardmerge.RuleTerminalWins)
+	assertHasRule(t, r2.Resolutions, boardmerge.RuleEpochWins)
 	assertConverged(t, a, b, 4)
 
 	got, err := a.store.GetCard(ctx, "test-project", target)
@@ -70,6 +70,7 @@ func TestSharedConvergence(t *testing.T) {
 	assert.Equal(t, "high", got.Priority, "the field the other side moved survives")
 	assert.Equal(t, []string{"hot"}, got.Labels)
 	assert.Empty(t, got.AssignedAgent, "not_planned holds no claim")
+	assert.Equal(t, 1, got.ClaimEpoch, "the terminal transition bumped the epoch, which is what decided the merge")
 
 	// Round 3: deleted on one side, edited on the other.
 	other := cards[1].ID

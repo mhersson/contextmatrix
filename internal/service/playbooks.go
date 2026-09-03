@@ -139,6 +139,9 @@ type PlaybookService struct {
 	queue         *gitops.CommitQueue
 	onCommit      func()
 
+	syncRunner   SyncRunner   // set on a shared board; Create runs inside a sync cycle
+	directCommit DirectCommit // the commit path inside that cycle
+
 	// writeMu serializes all playbook mutations (the store's RWMutex
 	// protects the index, not a read-modify-write cycle). Unlike
 	// CardService.LockWrites, this never touches the commit queue - see
@@ -205,13 +208,41 @@ func (s *PlaybookService) Reload(ctx context.Context) error {
 	return s.store.ReloadIndex(ctx)
 }
 
+// SetSyncRunner routes playbook creation through the syncer so the slug is
+// allocated against the merged playbooks directory. commit is the direct
+// commit path used inside the cycle. Must be called before the server starts
+// accepting requests.
+func (s *PlaybookService) SetSyncRunner(run SyncRunner, commit DirectCommit) {
+	s.syncRunner, s.directCommit = run, commit
+}
+
 // Create builds a new playbook from input, validating and resolving every
 // entry before the first store write so a bad entry never leaves a partial
 // playbook behind.
 func (s *PlaybookService) Create(ctx context.Context, input CreatePlaybookInput) (*PlaybookDetail, error) {
+	if s.syncRunner != nil {
+		return s.createVerified(ctx, input)
+	}
+
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
+	detail, err := s.createLocked(ctx, input, s.enqueueCommit)
+	if err != nil {
+		return nil, err
+	}
+
+	s.publish(events.PlaybookCreated, detail.ID, input.AgentID, detail.Created)
+
+	return detail, nil
+}
+
+// createLocked is Create with writeMu held by the caller and the commit path
+// chosen by it. The caller publishes playbook.created: inside a sync cycle
+// the create is not final until the push has landed.
+func (s *PlaybookService) createLocked(
+	ctx context.Context, input CreatePlaybookInput, commit func(ctx context.Context, id, action string) error,
+) (*PlaybookDetail, error) {
 	now := s.clk.Now().UTC().Truncate(time.Second)
 
 	p := &board.Playbook{
@@ -255,7 +286,7 @@ func (s *PlaybookService) Create(ctx context.Context, input CreatePlaybookInput)
 		id = fmt.Sprintf("%s-%d", base, n)
 	}
 
-	if err := s.enqueueCommit(ctx, p.ID, "created"); err != nil {
+	if err := commit(ctx, p.ID, "created"); err != nil {
 		if rbErr := s.store.Delete(ctx, p.ID); rbErr != nil {
 			ctxlog.Logger(ctx).Error("playbook rollback after commit failure failed", "playbook", p.ID, "error", rbErr)
 
@@ -265,9 +296,82 @@ func (s *PlaybookService) Create(ctx context.Context, input CreatePlaybookInput)
 		return nil, err
 	}
 
-	s.publish(events.PlaybookCreated, p.ID, input.AgentID, now)
-
 	return s.resolve(ctx, p)
+}
+
+// createVerified allocates the slug and writes the playbook inside a sync
+// cycle, so the ID is unique against the merged playbooks directory. Playbook
+// creation is rare, so it makes one attempt rather than the card paths' three.
+func (s *PlaybookService) createVerified(ctx context.Context, input CreatePlaybookInput) (*PlaybookDetail, error) {
+	var created *board.Playbook
+
+	commit := func(ctx context.Context, id, action string) error {
+		if !s.gitAutoCommit {
+			return nil
+		}
+
+		return s.directCommit(ctx, []string{playbooksDirName + "/" + id + ".yaml"},
+			fmt.Sprintf("playbook(%s): %s", id, action))
+	}
+
+	var (
+		detail   *PlaybookDetail
+		applyErr error
+	)
+
+	_, err := s.syncRunner(ctx, "create playbook", SyncMutation{
+		Apply: func(ctx context.Context) error {
+			d, err := s.createLocked(ctx, input, commit)
+			if err != nil {
+				applyErr = err
+
+				return err
+			}
+
+			detail = d
+
+			cur, err := s.store.Get(ctx, d.ID)
+			if err != nil {
+				// Without the stored playbook the undo has nothing to
+				// identify, so a create that cannot be rolled back must not
+				// be reported as one that landed.
+				applyErr = fmt.Errorf("read created playbook %s: %w", d.ID, err)
+
+				return applyErr
+			}
+
+			created = cur
+
+			return nil
+		},
+		Undo: func(ctx context.Context) error {
+			if created == nil {
+				return nil
+			}
+
+			cur, err := s.store.Get(ctx, created.ID)
+			if err != nil || !cur.Created.Equal(created.Created) {
+				return nil
+			}
+
+			if err := s.store.Delete(ctx, created.ID); err != nil {
+				return fmt.Errorf("delete playbook: %w", err)
+			}
+
+			return commit(ctx, created.ID, "create undone: remote unreachable")
+		},
+	})
+
+	switch {
+	case applyErr != nil:
+		return nil, applyErr
+	case err != nil:
+		return nil, fmt.Errorf("create playbook: %w: %w", ErrRemoteUnreachable, err)
+	}
+
+	s.publish(events.PlaybookCreated, detail.ID, input.AgentID, detail.Created)
+
+	return detail, nil
 }
 
 // List returns the list-view summary of every playbook.

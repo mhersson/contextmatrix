@@ -206,6 +206,14 @@ export function isWorkerAttached(card: Card, currentAgentId: string | null): boo
 }
 
 /**
+ * A claim granted by another ContextMatrix instance on a shared board. Such
+ * a card is running elsewhere: Stop and messages are that instance's to send.
+ */
+export function isForeignClaim(card: Card, instanceId: string | null | undefined): boolean {
+  return !!instanceId && !!card.assigned_agent && !!card.claimed_via && card.claimed_via !== instanceId;
+}
+
+/**
  * Decides which curated primary action button should appear in the top-right
  * of the header for a given card state. Returns null when no curated action
  * applies (fall back to the Move-to cluster in the Info tab).
