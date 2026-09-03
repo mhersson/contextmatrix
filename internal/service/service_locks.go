@@ -60,7 +60,7 @@ func (s *CardService) claimPreconditions(ctx context.Context, project, id, agent
 	// requires a claim that actually exists - agent_id is only length-checked,
 	// so an empty one would otherwise match an unclaimed card's empty
 	// assigned_agent.
-	if board.IsTerminalState(snapshot.State) && !snapshot.ClaimHeldBy(agentID, s.instance) {
+	if board.IsTerminalState(snapshot.State) && !snapshot.ClaimHeldBy(agentID, s.instanceFor(project)) {
 		return nil, fmt.Errorf("claim card %s in state %s: %w", id, snapshot.State, ErrCardTerminal)
 	}
 
@@ -94,7 +94,7 @@ func (s *CardService) ClaimCard(ctx context.Context, project, id, agentID string
 	}
 
 	// Claim via lock manager (returns modified card)
-	card, err := s.lock.Claim(ctx, project, id, agentID)
+	card, err := r.Lock.Claim(ctx, project, id, agentID)
 	if err != nil {
 		s.writeMu.Unlock()
 
@@ -145,14 +145,16 @@ func (s *CardService) ClaimCard(ctx context.Context, project, id, agentID string
 func (s *CardService) claimCardVerified(ctx context.Context, project, id, agentID string) (*board.Card, error) {
 	var snapshot, written *board.Card
 
-	_, err := s.runVerified(ctx, s.repoOf(project), "claim card",
+	r := s.repoOf(project)
+
+	_, err := s.runVerified(ctx, r, "claim card",
 		func(ctx context.Context) error {
 			snap, err := s.claimPreconditions(ctx, project, id, agentID)
 			if err != nil {
 				return err
 			}
 
-			card, err := s.lock.Claim(ctx, project, id, agentID)
+			card, err := r.Lock.Claim(ctx, project, id, agentID)
 			if err != nil {
 				return fmt.Errorf("claim card: %w", err)
 			}
@@ -184,7 +186,7 @@ func (s *CardService) claimCardVerified(ctx context.Context, project, id, agentI
 	// The merge may have handed a double claim to the instance that claimed
 	// first, or a peer's takeover may have outranked ours.
 	if !s.OwnsClaim(card, agentID) {
-		s.lock.ClearBeat(project, id)
+		r.Lock.ClearBeat(project, id)
 
 		return nil, fmt.Errorf("claim card %s: %w: taken by %s via %s during sync",
 			id, lock.ErrAlreadyClaimed, card.AssignedAgent, card.ClaimedVia)
@@ -242,7 +244,7 @@ func (s *CardService) undoClaimWrite(ctx context.Context, project, id string, wr
 		return fmt.Errorf("update card: %w", err)
 	}
 
-	s.lock.ClearBeat(project, id)
+	s.repoOf(project).Lock.ClearBeat(project, id)
 
 	return s.commitNow(ctx, []string{s.cardPath(project, id)}, commitMessage("", id, reason))
 }
@@ -269,7 +271,7 @@ func (s *CardService) ReleaseCard(ctx context.Context, project, id, agentID stri
 	}
 
 	// Release via lock manager (returns modified card)
-	card, err := s.lock.Release(ctx, project, id, agentID)
+	card, err := r.Lock.Release(ctx, project, id, agentID)
 	if err != nil {
 		s.writeMu.Unlock()
 
@@ -395,7 +397,7 @@ func (s *CardService) forceReleaseLocked(
 		return nil, nil, "", fmt.Errorf("get card snapshot: %w", err)
 	}
 
-	card, prevAgent, err := s.lock.ForceRelease(ctx, project, id)
+	card, prevAgent, err := s.repoOf(project).Lock.ForceRelease(ctx, project, id)
 	if err != nil {
 		return nil, nil, "", fmt.Errorf("force-release card: %w", err)
 	}
@@ -433,7 +435,9 @@ func (s *CardService) forceReleaseVerified(ctx context.Context, project, id, hum
 		prevAgent         string
 	)
 
-	_, err := s.runVerified(ctx, s.repoOf(project), "force-release",
+	r := s.repoOf(project)
+
+	_, err := s.runVerified(ctx, r, "force-release",
 		func(ctx context.Context) error {
 			snap, card, prev, err := s.forceReleaseLocked(ctx, project, id, humanID)
 			if err != nil {
@@ -494,7 +498,7 @@ func (s *CardService) HeartbeatCard(ctx context.Context, project, id, agentID st
 	s.writeMu.Lock()
 
 	// Heartbeat via lock manager (returns modified card)
-	card, persist, err := s.lock.Heartbeat(ctx, project, id, agentID)
+	card, persist, err := r.Lock.Heartbeat(ctx, project, id, agentID)
 	if err != nil {
 		s.writeMu.Unlock()
 
@@ -579,19 +583,21 @@ func (s *CardService) processStalled(ctx context.Context) error {
 
 	defer func() { metrics.StallScanDuration.Observe(time.Since(start).Seconds()) }()
 
-	stalled, err := s.lock.FindStalled(ctx)
-	if err != nil {
-		return fmt.Errorf("find stalled: %w", err)
-	}
+	for _, r := range s.repos {
+		stalled, err := r.Lock.FindStalled(ctx)
+		if err != nil {
+			return fmt.Errorf("find stalled in %s: %w", r.Name, err)
+		}
 
-	for _, sc := range stalled {
-		if err := s.markCardStalled(ctx, sc); err != nil {
-			ctxlog.Logger(ctx).Error("mark card stalled",
-				"project", sc.Project,
-				"card_id", sc.Card.ID,
-				"error", err,
-			)
-			// Continue processing other cards
+		for _, sc := range stalled {
+			if err := s.markCardStalled(ctx, sc); err != nil {
+				ctxlog.Logger(ctx).Error("mark card stalled",
+					"project", sc.Project,
+					"card_id", sc.Card.ID,
+					"error", err,
+				)
+				// Continue processing other cards
+			}
 		}
 	}
 
@@ -603,9 +609,7 @@ func (s *CardService) processStalled(ctx context.Context) error {
 		ctxlog.Logger(ctx).Error("process abandoned parents", "error", err)
 	}
 
-	if s.repos[0].pushVerified() {
-		s.processForeignStalls(ctx)
-	}
+	s.processForeignStalls(ctx)
 
 	return nil
 }
@@ -624,7 +628,7 @@ func (s *CardService) SweepStalled(ctx context.Context) error {
 // timeout AND has no active subtask - the last two guards prevent reaping a
 // parent that is merely between subtask claims.
 func (s *CardService) processAbandonedParents(ctx context.Context) error {
-	cutoff := s.clk.Now().Add(-s.lock.Timeout())
+	cutoff := s.clk.Now().Add(-s.heartbeatTimeout)
 
 	projects, err := s.store.ListProjects(ctx)
 	if err != nil {
@@ -734,6 +738,8 @@ func (s *CardService) reapAbandonedParent(ctx context.Context, project, cardID s
 // heartbeat timed out. It re-validates the live claim (TOCTOU) before handing
 // the mutation to stallCardLocked.
 func (s *CardService) markCardStalled(ctx context.Context, sc lock.StalledCard) error {
+	r := s.repoOf(sc.Project)
+
 	s.writeMu.Lock()
 
 	// Re-read card from store to avoid stale data (TOCTOU).
@@ -747,13 +753,13 @@ func (s *CardService) markCardStalled(ctx context.Context, sc lock.StalledCard) 
 	// Re-check if still stalled: agent may have sent a heartbeat in the
 	// meantime, or the claim may since belong to a peer instance, which this
 	// instance never stalls.
-	if card.AssignedAgent == "" || card.ClaimedElsewhere(s.instance) {
+	if card.AssignedAgent == "" || card.ClaimedElsewhere(r.Instance) {
 		s.writeMu.Unlock()
 
 		return nil
 	}
 
-	if last := s.lock.LastBeat(card); last != nil && s.clk.Now().Sub(*last) < s.lock.Timeout() {
+	if last := r.Lock.LastBeat(card); last != nil && s.clk.Now().Sub(*last) < s.heartbeatTimeout {
 		s.writeMu.Unlock()
 
 		return nil
@@ -763,7 +769,7 @@ func (s *CardService) markCardStalled(ctx context.Context, sc lock.StalledCard) 
 	// a peer may already hold the card. Sync first: a stall written now would
 	// race the takeover at the same epoch, and a peer's own foreign-stall
 	// sweep covers the card meanwhile.
-	if s.lock.Fenced(card) {
+	if r.Lock.Fenced(card) {
 		s.writeMu.Unlock()
 		ctxlog.Logger(ctx).Debug("stall skipped: own claim is fenced",
 			"project", sc.Project, "card_id", card.ID, "agent", card.AssignedAgent)
@@ -813,7 +819,7 @@ func (s *CardService) stallCardLocked(ctx context.Context, project string, card 
 	card.State = board.StateStalled
 	card.ClearClaim()
 
-	if s.sharedClaims() {
+	if r.sharedClaims() {
 		card.ClaimEpoch++
 	}
 
@@ -853,7 +859,7 @@ func (s *CardService) stallCardLocked(ctx context.Context, project string, card 
 		return fmt.Errorf("update card: %w", err)
 	}
 
-	s.lock.ClearBeat(project, card.ID)
+	r.Lock.ClearBeat(project, card.ID)
 
 	commitDone, notify := s.enqueueCardCommit(ctx, project, card.ID, "", reason)
 

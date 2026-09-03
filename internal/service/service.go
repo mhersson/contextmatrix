@@ -78,21 +78,6 @@ type CardService struct {
 	// construction).
 	heartbeatTimeout time.Duration
 
-	// Transitional mirrors of repos[0]; no new code reads them.
-	lock *lock.Manager
-
-	// instance, leaseTimeout and pullInterval come from SetLease on a shared
-	// board. instance stays empty on a private one, and every ownership and
-	// epoch rule keys off that.
-	instance     string
-	leaseTimeout time.Duration
-	pullInterval time.Duration
-
-	// syncMu guards lastSync: the service clock's reading at the end of the
-	// last successful sync cycle. Foreign stalls need a recent pull.
-	syncMu   sync.Mutex
-	lastSync time.Time
-
 	// writeMu serializes all card mutations (create, update, patch, delete,
 	// claim, release, heartbeat, log). This prevents races like two agents
 	// claiming the same card simultaneously. LockWrites / UnlockWrites expose
@@ -311,33 +296,32 @@ func (s *CardService) SetSharedRepo(shared bool) {
 func (s *CardService) SetLease(instance string, leaseTimeout, pullInterval time.Duration) {
 	r := s.repos[0]
 	r.Instance, r.LeaseTimeout, r.PullInterval = instance, leaseTimeout, pullInterval
-
-	s.mirrorLegacyFields()
 }
-
-// InstanceID returns this instance's ID, empty on a private board.
-func (s *CardService) InstanceID() string { return s.instance }
 
 // OwnsClaim reports whether agentID holds card's claim as seen from this
-// instance. Every ownership check goes through it.
+// instance. On a private repo the agent ID alone decides. Every ownership
+// check goes through it.
 func (s *CardService) OwnsClaim(card *board.Card, agentID string) bool {
-	return card.ClaimHeldBy(agentID, s.instance)
+	return card.ClaimHeldBy(agentID, s.instanceFor(card.Project))
 }
 
-func (s *CardService) sharedClaims() bool { return s.instance != "" }
+// ClaimedElsewhere reports whether another instance granted card's claim.
+// Always false for a card in a private repo.
+func (s *CardService) ClaimedElsewhere(card *board.Card) bool {
+	return card.ClaimedElsewhere(s.instanceFor(card.Project))
+}
 
-// overlayLiveness replaces each card's file heartbeat with the live beat when
-// that is newer. Every read path calls it so the UI, the health tool and the
-// dashboard see the same liveness the stall checker does. A no-op on a
-// private board: no live beat is ever recorded there, so the file value is
-// already authoritative.
+// overlayLiveness replaces each card's file heartbeat with the live beat of
+// its repo's lock manager when that is newer. Every read path calls it so
+// the UI, the health tool and the dashboard see the same liveness the stall
+// checker does. A no-op for cards in a private repo: no live beat is ever
+// recorded there, so the file value is already authoritative.
 func (s *CardService) overlayLiveness(cards ...*board.Card) {
-	if !s.sharedClaims() {
-		return
-	}
-
 	for _, c := range cards {
-		c.LastHeartbeat = s.lock.LastBeat(c)
+		r := s.repoOf(c.Project)
+		if r.sharedClaims() {
+			c.LastHeartbeat = r.Lock.LastBeat(c)
+		}
 	}
 }
 
@@ -410,7 +394,7 @@ func (s *CardService) UnlockWrites(repo string) {
 }
 
 func (s *CardService) HeartbeatTimeout() time.Duration {
-	return s.lock.Timeout()
+	return s.heartbeatTimeout
 }
 
 // Now returns the current time from the service's injected clock. Diagnostics

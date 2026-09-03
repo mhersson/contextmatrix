@@ -46,10 +46,12 @@ func enforceTerminalStateInvariants(card *board.Card, stateChanged, shared bool)
 // bookkeeping that belongs with it: a cancelled card carries no claim, so the
 // live beat and confirmation stamp this instance kept for it go too.
 func (s *CardService) applyTerminalInvariants(project string, card *board.Card, stateChanged bool) {
-	enforceTerminalStateInvariants(card, stateChanged, s.sharedClaims())
+	r := s.repoOf(project)
+
+	enforceTerminalStateInvariants(card, stateChanged, r.sharedClaims())
 
 	if stateChanged && card.State == board.StateNotPlanned {
-		s.lock.ClearBeat(project, card.ID)
+		r.Lock.ClearBeat(project, card.ID)
 	}
 }
 

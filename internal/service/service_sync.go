@@ -9,23 +9,35 @@ import (
 	"github.com/mhersson/contextmatrix/internal/events"
 )
 
-// SyncSucceeded is called by the syncer at the end of every successful cycle,
-// when the remote holds every local commit. The leases this instance holds
-// are confirmed and the pull clock restarts.
-func (s *CardService) SyncSucceeded(ctx context.Context) {
-	s.syncMu.Lock()
-	s.lastSync = s.clk.Now()
-	s.syncMu.Unlock()
+// SyncSucceeded is called by the syncer at the end of every successful
+// cycle of repo, when the remote holds every local commit of that repo. The
+// leases this instance holds there are confirmed and the repo's pull clock
+// restarts. Other repos are untouched: a fresh pull of one repo says nothing
+// about another.
+func (s *CardService) SyncSucceeded(ctx context.Context, repo string) {
+	r, err := s.repoNamed(repo)
+	if err != nil {
+		ctxlog.Logger(ctx).Warn("sync succeeded for unknown repo", "repo", repo)
 
-	if err := s.lock.ConfirmLeases(ctx); err != nil {
-		ctxlog.Logger(ctx).Warn("confirm leases after sync", "error", err)
+		return
+	}
+
+	r.markSynced(s.clk.Now())
+
+	if err := r.Lock.ConfirmLeases(ctx); err != nil {
+		ctxlog.Logger(ctx).Warn("confirm leases after sync", "repo", r.Name, "error", err)
 	}
 }
 
-// ObserveLeases is called by the syncer after every index reload so the lease
-// table reflects what the pull brought in.
-func (s *CardService) ObserveLeases(ctx context.Context) error {
-	if err := s.lock.ObserveLeases(ctx); err != nil {
+// ObserveLeases is called by the syncer after every index reload of repo so
+// that repo's lease table reflects what the pull brought in.
+func (s *CardService) ObserveLeases(ctx context.Context, repo string) error {
+	r, err := s.repoNamed(repo)
+	if err != nil {
+		return err
+	}
+
+	if err := r.Lock.ObserveLeases(ctx); err != nil {
 		return fmt.Errorf("observe leases: %w", err)
 	}
 
@@ -37,7 +49,7 @@ func (s *CardService) ObserveLeases(ctx context.Context) error {
 // recorded as ended, and claim.lost tells the backend integration to stop
 // the local container.
 func (s *CardService) NoteClaimLost(ctx context.Context, project, id, previousAgent, newVia string, epoch int) {
-	s.lock.ClearBeat(project, id)
+	s.repoOf(project).Lock.ClearBeat(project, id)
 
 	if card, err := s.store.GetCard(ctx, project, id); err == nil {
 		s.observeRunEnd(project, card, "claim_lost")
@@ -61,20 +73,10 @@ func (s *CardService) NoteClaimLost(ctx context.Context, project, id, previousAg
 	})
 }
 
-// recentlySynced reports whether the last successful cycle is within twice
-// the pull interval. Foreign stalls require it: a stale local view must not
-// judge a peer's lease.
-func (s *CardService) recentlySynced() bool {
-	s.syncMu.Lock()
-	defer s.syncMu.Unlock()
-
-	return !s.lastSync.IsZero() && s.clk.Now().Sub(s.lastSync) <= 2*s.pullInterval
-}
-
 // fenced refuses a write on a claim this instance holds but the remote has
 // not confirmed for lease_timeout.
 func (s *CardService) fenced(card *board.Card) error {
-	if s.lock.Fenced(card) {
+	if s.repoOf(card.Project).Lock.Fenced(card) {
 		return fmt.Errorf("card %s: %w", card.ID, ErrClaimFenced)
 	}
 

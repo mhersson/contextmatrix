@@ -740,7 +740,7 @@ func (s *Syncer) SyncedMutation(ctx context.Context, trigger string, m service.S
 
 	s.setSuccess()
 	s.clearPushFailure()
-	s.svc.SyncSucceeded(ctx)
+	s.svc.SyncSucceeded(ctx, s.repo)
 	s.publishCompleted(trigger, report.ChangesPulled, time.Since(start))
 
 	return report, nil
@@ -1108,7 +1108,7 @@ func (s *Syncer) reloadAfterPull(ctx context.Context) error {
 	}
 
 	if s.shared {
-		if err := s.svc.ObserveLeases(ctx); err != nil {
+		if err := s.svc.ObserveLeases(ctx, s.repo); err != nil {
 			slog.Warn("git sync: observe leases after reload", "error", err)
 		}
 	}

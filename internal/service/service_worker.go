@@ -313,7 +313,7 @@ func (s *CardService) UpdateWorkerStatus(ctx context.Context, project, cardID, s
 	// for such a card (a stop-all, a stale backend tracker) must not land
 	// here: the tuple it would write competes with the peer's at an equal
 	// epoch and could overwrite a running state with killed.
-	if card.ClaimedElsewhere(s.instance) {
+	if s.ClaimedElsewhere(card) {
 		s.writeMu.Unlock()
 
 		ctxlog.Logger(ctx).Info("worker status ignored: card claimed via another instance",
@@ -372,11 +372,11 @@ func (s *CardService) UpdateWorkerStatus(ctx context.Context, project, cardID, s
 	if status == "failed" || status == "killed" || status == "completed" {
 		card.ClearClaim()
 
-		if hadAgent && s.sharedClaims() {
+		if hadAgent && r.sharedClaims() {
 			card.ClaimEpoch++
 		}
 
-		s.lock.ClearBeat(project, cardID)
+		r.Lock.ClearBeat(project, cardID)
 	}
 	// On completed, also clear worker_status since the run is over.
 	if status == "completed" {

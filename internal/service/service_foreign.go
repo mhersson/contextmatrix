@@ -12,66 +12,71 @@ import (
 )
 
 // processForeignStalls stalls cards other instances hold whose pushed lease
-// has stayed unchanged for lease_timeout on this instance's clock. It only
-// runs on a fresh local view, and each stall is decided again against the
-// merged card inside a sync cycle, so a renewal that lands in the same cycle
-// cancels it. Errors are logged so one card never blocks the sweep.
+// has stayed unchanged for lease_timeout on this instance's clock. Each
+// shared repo is judged on its own recent pull: a fresh cycle of one repo
+// says nothing about the leases in another. Each stall is decided again
+// against the merged card inside a sync cycle of its repo. Errors are logged
+// so one card never blocks the sweep.
 func (s *CardService) processForeignStalls(ctx context.Context) {
-	if !s.recentlySynced() {
-		return
-	}
+	now := s.clk.Now()
 
-	projects, err := s.store.ListProjects(ctx)
-	if err != nil {
-		ctxlog.Logger(ctx).Error("foreign stall scan: list projects", "error", err)
+	for _, r := range s.repos {
+		if !r.pushVerified() || !r.recentlySynced(now) {
+			continue
+		}
 
-		return
-	}
-
-	for _, proj := range projects {
-		cards, err := s.store.ListCards(ctx, proj.Name, storage.CardFilter{})
+		projects, err := r.Store.ListProjects(ctx)
 		if err != nil {
-			ctxlog.Logger(ctx).Error("foreign stall scan: list cards", "project", proj.Name, "error", err)
+			ctxlog.Logger(ctx).Error("foreign stall scan: list projects", "repo", r.Name, "error", err)
 
 			continue
 		}
 
-		for _, card := range cards {
-			if !s.foreignStallCandidate(card) {
+		for _, proj := range projects {
+			cards, err := r.Store.ListCards(ctx, proj.Name, storage.CardFilter{})
+			if err != nil {
+				ctxlog.Logger(ctx).Error("foreign stall scan: list cards", "project", proj.Name, "error", err)
+
 				continue
 			}
 
-			if err := s.stallForeignVerified(ctx, proj.Name, card.ID); err != nil {
-				ctxlog.Logger(ctx).Error("foreign stall", "project", proj.Name, "card_id", card.ID, "error", err)
+			for _, card := range cards {
+				if !s.foreignStallCandidate(r, card) {
+					continue
+				}
+
+				if err := s.stallForeignVerified(ctx, r, proj.Name, card.ID); err != nil {
+					ctxlog.Logger(ctx).Error("foreign stall", "project", proj.Name, "card_id", card.ID, "error", err)
+				}
 			}
 		}
 	}
 }
 
-func (s *CardService) foreignStallCandidate(card *board.Card) bool {
-	return card.ClaimedElsewhere(s.instance) &&
+func (s *CardService) foreignStallCandidate(r *BoardsRepo, card *board.Card) bool {
+	return card.ClaimedElsewhere(r.Instance) &&
 		!board.IsTerminalState(card.State) && card.State != board.StateStalled &&
-		s.lock.ForeignLeaseExpired(card)
+		r.Lock.ForeignLeaseExpired(card)
 }
 
 // stallForeignVerified stalls one card inside a sync cycle. The apply step
 // re-reads the merged card and re-checks the lease, so nothing happens when
 // the pull brought a renewal or a release; the undo restores the peer's
 // tuple when the push never lands.
-func (s *CardService) stallForeignVerified(ctx context.Context, project, id string) error {
+func (s *CardService) stallForeignVerified(ctx context.Context, r *BoardsRepo, project, id string) error {
 	var (
 		snapshot, written *board.Card
 		prevAgent, via    string
 	)
 
-	_, err := s.runVerified(ctx, s.repoOf(project), "foreign stall",
+	_, err := s.runVerified(ctx, r, "foreign stall",
 		func(ctx context.Context) error {
 			card, err := s.store.GetCard(ctx, project, id)
 			if err != nil {
 				return fmt.Errorf("get card: %w", err)
 			}
 
-			if !s.foreignStallCandidate(card) {
+			if !s.foreignStallCandidate(r, card) {
 				return nil // the merge changed its mind
 			}
 
@@ -95,7 +100,7 @@ func (s *CardService) stallForeignVerified(ctx context.Context, project, id stri
 			appendStateChangeLog(card, previousState, board.StateStalled, "", card.Updated)
 			card.ActivityLog = board.TrimActivityLog(append(card.ActivityLog, board.ActivityEntry{
 				Agent: "system", Action: "stalled", Timestamp: card.Updated,
-				Message: fmt.Sprintf("lease held by %s via %s expired (instance %s)", prevAgent, via, s.instance),
+				Message: fmt.Sprintf("lease held by %s via %s expired (instance %s)", prevAgent, via, r.Instance),
 			}))
 
 			cfg, err := s.getConfig(ctx, project)

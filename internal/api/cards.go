@@ -268,7 +268,7 @@ func validateAgentOwnership(r *http.Request, card *board.Card, svc *service.Card
 	}
 
 	if !svc.OwnsClaim(card, agentID) {
-		if card.ClaimedElsewhere(svc.InstanceID()) {
+		if svc.ClaimedElsewhere(card) {
 			return "card is claimed by " + card.AssignedAgent + " via instance " + card.ClaimedVia
 		}
 

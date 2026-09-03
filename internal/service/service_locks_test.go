@@ -160,7 +160,7 @@ func TestProcessAbandonedParents_ReapsStuckParent(t *testing.T) {
 
 	// The run died: parent sits in_progress + unclaimed with no active subtask.
 	// Advance well past the stall timeout so it counts as abandoned.
-	fake.Advance(10 * svc.lock.Timeout())
+	fake.Advance(10 * svc.HeartbeatTimeout())
 	require.NoError(t, svc.processAbandonedParents(ctx))
 
 	got, err := svc.store.GetCard(ctx, "test-project", parent.ID)
@@ -194,7 +194,7 @@ func TestProcessAbandonedParents_SkipsParentWithActiveSubtask(t *testing.T) {
 	require.NoError(t, err)
 
 	// Parent is old enough that only the active-subtask guard can save it.
-	fake.Advance(10 * svc.lock.Timeout())
+	fake.Advance(10 * svc.HeartbeatTimeout())
 	require.NoError(t, svc.processAbandonedParents(ctx))
 
 	got, err := svc.store.GetCard(ctx, "test-project", parent.ID)

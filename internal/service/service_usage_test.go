@@ -1385,7 +1385,10 @@ func TestGetCard_SubtaskCostListFailureDoesNotFailRead(t *testing.T) {
 		ID: "CMX-001", Title: "t", Project: "p", Type: "task",
 		State: "todo", Priority: "medium",
 	}
-	svc := &CardService{store: failingListStore{card: card}}
+	svc := &CardService{
+		store: failingListStore{card: card},
+		repos: []*BoardsRepo{{Name: DefaultRepoName}},
+	}
 
 	got, err := svc.GetCard(context.Background(), "p", "CMX-001")
 

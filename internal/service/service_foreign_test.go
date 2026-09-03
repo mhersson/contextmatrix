@@ -21,8 +21,8 @@ func TestForeignStall_PushVerifiedAfterTheLeaseTimeout(t *testing.T) {
 	ctx := context.Background()
 	card := createShared(t, svc)
 	writeForeignClaim(t, svc, card.ID, fake.Now(), 1)
-	require.NoError(t, svc.ObserveLeases(ctx))
-	svc.SyncSucceeded(ctx)
+	require.NoError(t, svc.ObserveLeases(ctx, DefaultRepoName))
+	svc.SyncSucceeded(ctx, DefaultRepoName)
 
 	runner.calls = 0
 
@@ -30,7 +30,7 @@ func TestForeignStall_PushVerifiedAfterTheLeaseTimeout(t *testing.T) {
 	assert.Zero(t, runner.calls, "a live foreign lease is left alone")
 
 	fake.Advance(61 * time.Minute)
-	svc.SyncSucceeded(ctx) // a fresh pull is a precondition
+	svc.SyncSucceeded(ctx, DefaultRepoName) // a fresh pull is a precondition
 
 	ch, unsub := svc.bus.Subscribe()
 	defer unsub()
@@ -66,7 +66,7 @@ func TestForeignStall_RequiresARecentPull(t *testing.T) {
 	ctx := context.Background()
 	card := createShared(t, svc)
 	writeForeignClaim(t, svc, card.ID, fake.Now(), 1)
-	require.NoError(t, svc.ObserveLeases(ctx))
+	require.NoError(t, svc.ObserveLeases(ctx, DefaultRepoName))
 
 	runner.calls = 0
 
@@ -90,10 +90,10 @@ func TestForeignStall_RenewedLeaseInsideTheCycleCancelsIt(t *testing.T) {
 	ctx := context.Background()
 	card := createShared(t, svc)
 	writeForeignClaim(t, svc, card.ID, fake.Now(), 1)
-	require.NoError(t, svc.ObserveLeases(ctx))
+	require.NoError(t, svc.ObserveLeases(ctx, DefaultRepoName))
 
 	fake.Advance(61 * time.Minute)
-	svc.SyncSucceeded(ctx)
+	svc.SyncSucceeded(ctx, DefaultRepoName)
 
 	// The merge inside the cycle brought a renewal: the stall must not fire.
 	renewed := fake.Now()
@@ -102,7 +102,7 @@ func TestForeignStall_RenewedLeaseInsideTheCycleCancelsIt(t *testing.T) {
 
 	c.LastHeartbeat = &renewed
 	require.NoError(t, svc.store.UpdateCard(ctx, "test-project", c))
-	require.NoError(t, svc.ObserveLeases(ctx))
+	require.NoError(t, svc.ObserveLeases(ctx, DefaultRepoName))
 
 	require.NoError(t, svc.SweepStalled(ctx))
 
@@ -130,9 +130,9 @@ func TestForeignStall_UndoneWhenThePushNeverLands(t *testing.T) {
 	require.NoError(t, svc.store.CreateCard(ctx, "test-project", card))
 
 	writeForeignClaim(t, svc, card.ID, fake.Now(), 1)
-	require.NoError(t, svc.ObserveLeases(ctx))
+	require.NoError(t, svc.ObserveLeases(ctx, DefaultRepoName))
 	fake.Advance(61 * time.Minute)
-	svc.SyncSucceeded(ctx)
+	svc.SyncSucceeded(ctx, DefaultRepoName)
 
 	require.NoError(t, svc.SweepStalled(ctx), "a failed foreign stall is logged, not returned")
 	assert.Equal(t, 1, runner.undoCalls)

@@ -180,16 +180,8 @@ func NewCardServiceRepos(store storage.Store, bus *events.Bus, tokenCosts map[st
 	}
 	svc.stalledFn = svc.processStalled
 	svc.validateStalledCardFn = svc.validator.ValidateCard
-	svc.mirrorLegacyFields()
 
 	return svc, nil
-}
-
-// mirrorLegacyFields copies the first repo's bundle into the single-repo
-// fields the older call sites still read.
-func (s *CardService) mirrorLegacyFields() {
-	r := s.repos[0]
-	s.lock, s.instance, s.leaseTimeout, s.pullInterval = r.Lock, r.Instance, r.LeaseTimeout, r.PullInterval
 }
 
 // Repos returns the boards repositories in config order.
