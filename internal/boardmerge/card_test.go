@@ -96,6 +96,15 @@ func TestMergeCards(t *testing.T) {
 			},
 		},
 		{
+			"terminal on one side only is not an override",
+			func(_ *board.Card) {},
+			func(c *board.Card) { c.State = "done" },
+			func(t *testing.T, got *board.Card, res []Resolution) {
+				assert.Equal(t, "done", got.State)
+				assert.Empty(t, res)
+			},
+		},
+		{
 			"sets union",
 			func(c *board.Card) { c.Labels = []string{"a", "b"}; c.DependsOn = nil },
 			func(c *board.Card) { c.Labels = []string{"c"} },
@@ -256,6 +265,19 @@ func TestMergeCards(t *testing.T) {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+func TestMergeCards_TerminalWinsOverOneSidedReopen(t *testing.T) {
+	b, o, th := baseCard(), baseCard(), baseCard()
+	b.State, o.State, th.State = "done", "done", "todo"
+	o.Priority = "high"
+
+	got, res := mergeCards(b, o, th, "alpha", testCtx())
+	assert.Equal(t, "done", got.State)
+	assert.Equal(t, "high", got.Priority)
+	require.Len(t, res, 1)
+	assert.Equal(t, RuleTerminalWins, res[0].Rule)
+	assert.Equal(t, board.MergeAction, got.ActivityLog[len(got.ActivityLog)-1].Action)
+}
 
 func TestMergeCards_SkillsClearedOnOneSide(t *testing.T) {
 	b, o, th := baseCard(), baseCard(), baseCard()

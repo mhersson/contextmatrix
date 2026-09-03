@@ -168,13 +168,17 @@ func mergeCards(base, ours, theirs *board.Card, project string, c Context) (*boa
 	case ours.State == theirs.State:
 		out.State = ours.State
 	case board.IsTerminalState(ours.State) != board.IsTerminalState(theirs.State):
-		if board.IsTerminalState(ours.State) {
-			out.State = ours.State
-		} else {
-			out.State = theirs.State
+		winner, loserState := ours.State, theirs.State
+		if board.IsTerminalState(theirs.State) {
+			winner, loserState = theirs.State, ours.State
 		}
 
-		if ours.State != base.State && theirs.State != base.State {
+		out.State = winner
+
+		// The non-terminal side is overridden only if it actually moved. If it
+		// still holds the ancestor's state, the terminal side is a one-sided
+		// change and nothing was lost.
+		if loserState != base.State {
 			audit(RuleTerminalWins, "state")
 		}
 	default:
