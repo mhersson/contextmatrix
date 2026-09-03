@@ -15,6 +15,7 @@ port: 8080
 # Identity of this server among the instances sharing a boards repository.
 # Generated once as <hostname>-<6 hex> and stored in
 # $XDG_STATE_HOME/contextmatrix/instance_id when left empty.
+# Default: generated <hostname>-<6 hex>, persisted under the state dir
 # Env: CONTEXTMATRIX_INSTANCE_ID
 instance:
   id: ""
@@ -223,9 +224,9 @@ boards:
   git_remote_url: ""
 
   # Several ContextMatrix instances share this repository through its remote
-  # (one clone per developer laptop). Requires git_remote_url. Forces
-  # git_auto_commit, git_auto_pull and git_auto_push on and rejects
-  # git_deferred_commit. The syncer merges instead of rebasing and resolves
+  # (one clone per developer laptop). Requires git_remote_url and
+  # git_auto_commit, rejects git_deferred_commit, and forces git_auto_pull
+  # and git_auto_push on. The syncer merges instead of rebasing and resolves
   # conflicts itself; every pull tick is jittered by 25%.
   # Default: false
   # Env: CONTEXTMATRIX_BOARDS_SHARED (true/false/1/0)
