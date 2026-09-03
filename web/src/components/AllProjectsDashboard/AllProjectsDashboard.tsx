@@ -27,7 +27,7 @@ interface AllProjectsDashboardProps {
 export function AllProjectsDashboard({ onNewProject }: AllProjectsDashboardProps) {
   const { projects, refreshProjects } = useProjects();
   const { summaries, errors, loading, refresh } = useProjectSummariesContext();
-  const { syncStatuses } = useSync();
+  const { syncStatuses, refresh: refreshSyncStatuses } = useSync();
   const { showToast } = useToast();
 
   // UX honesty, not a security boundary - the API 403s a non-admin project
@@ -90,11 +90,11 @@ export function AllProjectsDashboard({ onNewProject }: AllProjectsDashboardProps
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await Promise.allSettled([refreshProjects(), refresh()]);
+      await Promise.allSettled([refreshProjects(), refresh(), refreshSyncStatuses()]);
     } finally {
       setRefreshing(false);
     }
-  }, [refresh, refreshProjects]);
+  }, [refresh, refreshProjects, refreshSyncStatuses]);
 
   const handleNewProject = useCallback(() => {
     if (onNewProject) onNewProject();

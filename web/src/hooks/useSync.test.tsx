@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, act } from '@testing-library/react';
+import { render, screen, waitFor, act, fireEvent } from '@testing-library/react';
 import type { BoardEvent, SyncStatus } from '../types';
 import { api } from '../api/client';
 import { SyncProvider, useSync } from './useSync';
@@ -28,7 +28,7 @@ const statuses: SyncStatus[] = [
 ];
 
 function Probe() {
-  const { syncStatuses, syncStatus, statusFor } = useSync();
+  const { syncStatuses, syncStatus, statusFor, refresh } = useSync();
   return (
     <div>
       <span data-testid="count">{syncStatuses.length}</span>
@@ -36,6 +36,7 @@ function Probe() {
       <span data-testid="private">{statusFor('private')?.enabled ? 'on' : 'off'}</span>
       <span data-testid="unpushed">{statusFor('team')?.unpushed_commits ?? 0}</span>
       <span data-testid="missing">{statusFor('nope') === null ? 'null' : 'found'}</span>
+      <button onClick={() => { void refresh(); }}>refresh</button>
     </div>
   );
 }
@@ -63,6 +64,17 @@ describe('useSync', () => {
       bus.handler?.({ type: 'sync.completed', project: '', card_id: '', timestamp: '', data: { repo: 'team' } } as BoardEvent);
     });
     await waitFor(() => expect(screen.getByTestId('unpushed').textContent).toBe('0'));
+    expect(vi.mocked(api.getSyncStatuses)).toHaveBeenCalledTimes(2);
+  });
+
+  it('refresh() re-fetches and updates syncStatuses', async () => {
+    render(<SyncProvider><Probe /></SyncProvider>);
+    await waitFor(() => expect(vi.mocked(api.getSyncStatuses)).toHaveBeenCalledTimes(1));
+    vi.mocked(api.getSyncStatuses).mockResolvedValue([{ ...statuses[0], unpushed_commits: 5 }, statuses[1]]);
+    await act(async () => {
+      fireEvent.click(screen.getByText('refresh'));
+    });
+    await waitFor(() => expect(screen.getByTestId('unpushed').textContent).toBe('5'));
     expect(vi.mocked(api.getSyncStatuses)).toHaveBeenCalledTimes(2);
   });
 

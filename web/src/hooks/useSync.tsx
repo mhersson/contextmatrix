@@ -12,6 +12,8 @@ interface SyncContextValue {
   statusFor: (repo?: string) => SyncStatus | null;
   /** Manual sync of one repo, or of every enabled repo without a name. */
   triggerSync: (repo?: string) => Promise<void>;
+  /** Re-fetches the status list without triggering a sync cycle. */
+  refresh: () => Promise<void>;
 }
 
 const SyncContext = createContext<SyncContextValue | null>(null);
@@ -26,8 +28,8 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   const inFlightRef = useRef(false);
   const { subscribe, reconnectEpoch } = useSSEBus();
 
-  const refresh = useCallback(() => {
-    api.getSyncStatuses().then(setSyncStatuses).catch(() => {
+  const refresh = useCallback((): Promise<void> => {
+    return api.getSyncStatuses().then(setSyncStatuses).catch(() => {
       // Sync endpoint may not be available; keep what we have.
     });
   }, []);
@@ -63,8 +65,8 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   }, [syncStatuses]);
 
   const value = useMemo<SyncContextValue>(
-    () => ({ syncStatuses, syncStatus: syncStatuses[0] ?? null, statusFor, triggerSync }),
-    [syncStatuses, statusFor, triggerSync],
+    () => ({ syncStatuses, syncStatus: syncStatuses[0] ?? null, statusFor, triggerSync, refresh }),
+    [syncStatuses, statusFor, triggerSync, refresh],
   );
 
   return <SyncContext.Provider value={value}>{children}</SyncContext.Provider>;

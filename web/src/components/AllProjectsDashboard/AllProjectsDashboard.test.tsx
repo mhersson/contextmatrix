@@ -20,7 +20,9 @@ vi.mock('../../api/client', () => ({
 }));
 
 vi.mock('../../hooks/useSync', () => ({
-  useSync: () => ({ syncStatuses: [], syncStatus: null, statusFor: () => null, triggerSync: async () => {} }),
+  useSync: () => ({
+    syncStatuses: [], syncStatus: null, statusFor: () => null, triggerSync: async () => {}, refresh: async () => {},
+  }),
 }));
 
 class FakeEventSource {

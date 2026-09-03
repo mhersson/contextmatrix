@@ -39,6 +39,7 @@ vi.mock('../../hooks/useSync', () => ({
     syncStatus: null,
     statusFor: vi.fn(() => null),
     triggerSync: vi.fn(),
+    refresh: vi.fn(),
   })),
 }));
 
