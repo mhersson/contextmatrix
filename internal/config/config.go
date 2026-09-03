@@ -136,12 +136,12 @@ func (b *Backends) UnmarshalYAML(node *yaml.Node) error {
 		switch key {
 		case BackendNameAgent:
 			b.Agent = &AgentBackendConfig{}
-			if err := decodeBackendEntry(val, b.Agent); err != nil {
+			if err := decodeStrictEntry(val, b.Agent); err != nil {
 				return fmt.Errorf("backends.agent: %w", err)
 			}
 		case BackendNameChat:
 			b.Chat = &ChatBackendConfig{}
-			if err := decodeBackendEntry(val, b.Chat); err != nil {
+			if err := decodeStrictEntry(val, b.Chat); err != nil {
 				return fmt.Errorf("backends.chat: %w", err)
 			}
 		case "runner":
@@ -156,12 +156,10 @@ func (b *Backends) UnmarshalYAML(node *yaml.Node) error {
 	return nil
 }
 
-// decodeBackendEntry strictly decodes one backends entry node into target.
-// node.Decode cannot enforce KnownFields, so the node is re-marshalled and
-// run through a KnownFields(true) decoder: a stale or typo'd per-entry field
-// (e.g. backends.chat.reconcile_interval) fails startup loudly instead of
-// being silently dropped.
-func decodeBackendEntry(node *yaml.Node, target any) error {
+// decodeStrictEntry strictly decodes one mapping node into target; used by
+// every per-entry block whose top-level decoder cannot enforce KnownFields
+// on its own.
+func decodeStrictEntry(node *yaml.Node, target any) error {
 	raw, err := yaml.Marshal(node)
 	if err != nil {
 		return fmt.Errorf("re-marshal entry: %w", err)
@@ -307,8 +305,27 @@ func (g *GitHubConfig) AllowedHosts() []string {
 	return []string{"github.com", g.Host}
 }
 
-// BoardsConfig holds all configuration related to the boards git repository.
+// DefaultBoardsName is the repo name the single-repo map form gets.
+const DefaultBoardsName = "boards"
+
+var boardsNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
+
+// boardsEnvSuffixes are the CONTEXTMATRIX_BOARDS_* overrides. They apply to
+// the single-repo form only; with a list of repos any of them set is an
+// error, because a value that silently landed on one entry of many would
+// be the hardest misconfiguration to spot.
+var boardsEnvSuffixes = []string{
+	"_DIR", "_GIT_AUTO_COMMIT", "_GIT_AUTO_PUSH", "_GIT_AUTO_PULL", "_GIT_PULL_INTERVAL",
+	"_GIT_DEFERRED_COMMIT", "_GIT_CLONE_ON_EMPTY", "_GIT_REMOTE_URL", "_SHARED",
+	"_LEASE_INTERVAL", "_LEASE_TIMEOUT",
+}
+
+// BoardsConfig is one boards git repository: where it lives, how it commits
+// and syncs, and whether other instances write to it too.
 type BoardsConfig struct {
+	// Name identifies the repo in the API (boards_repo, /api/sync) and the
+	// UI. Required in the list form; the map form is named "boards".
+	Name              string `yaml:"name"`
 	Dir               string `yaml:"dir"`
 	GitAutoCommit     bool   `yaml:"git_auto_commit"`
 	GitDeferredCommit bool   `yaml:"git_deferred_commit"`
@@ -326,6 +343,99 @@ type BoardsConfig struct {
 	// may stay unchanged before another instance may stall the card.
 	LeaseInterval string `yaml:"lease_interval"`
 	LeaseTimeout  string `yaml:"lease_timeout"`
+}
+
+func defaultBoardsConfig() BoardsConfig {
+	return BoardsConfig{
+		Name:            DefaultBoardsName,
+		GitAutoCommit:   true,
+		GitPullInterval: "60s",
+		LeaseInterval:   "5m",
+		LeaseTimeout:    "1h",
+	}
+}
+
+// PullIntervalDuration parses GitPullInterval as a time.Duration.
+func (e BoardsConfig) PullIntervalDuration() (time.Duration, error) {
+	return time.ParseDuration(e.GitPullInterval)
+}
+
+// LeaseIntervalDuration parses LeaseInterval as a time.Duration.
+func (e BoardsConfig) LeaseIntervalDuration() (time.Duration, error) {
+	return time.ParseDuration(e.LeaseInterval)
+}
+
+// LeaseTimeoutDuration parses LeaseTimeout as a time.Duration.
+func (e BoardsConfig) LeaseTimeoutDuration() (time.Duration, error) {
+	return time.ParseDuration(e.LeaseTimeout)
+}
+
+// Boards is the ordered list of boards repositories. Order is significant:
+// the first entry is the default target for creation and the earlier repo
+// wins when two repos hold a project of the same name. The YAML key accepts
+// a mapping (one repo, named "boards") or a list of mappings.
+type Boards []BoardsConfig
+
+// UnmarshalYAML accepts the map form and the list form. Each entry is
+// re-marshalled through a KnownFields decoder so a typo fails startup.
+func (b *Boards) UnmarshalYAML(node *yaml.Node) error {
+	switch node.Kind {
+	case yaml.MappingNode:
+		entry := defaultBoardsConfig()
+		if err := decodeStrictEntry(node, &entry); err != nil {
+			return fmt.Errorf("boards: %w", err)
+		}
+
+		if entry.Name == "" {
+			entry.Name = DefaultBoardsName
+		}
+
+		*b = Boards{entry}
+	case yaml.SequenceNode:
+		out := make(Boards, 0, len(node.Content))
+
+		for i, item := range node.Content {
+			entry := defaultBoardsConfig()
+			entry.Name = ""
+
+			if err := decodeStrictEntry(item, &entry); err != nil {
+				return fmt.Errorf("boards[%d]: %w", i, err)
+			}
+
+			if entry.Name == "" {
+				return fmt.Errorf("boards[%d]: name is required in the list form", i)
+			}
+
+			out = append(out, entry)
+		}
+
+		*b = out
+	default:
+		return fmt.Errorf("boards must be a mapping or a list of mappings")
+	}
+
+	return nil
+}
+
+// AnyShared reports whether at least one repo is shared with other instances.
+func (b Boards) AnyShared() bool {
+	for _, e := range b {
+		if e.Shared {
+			return true
+		}
+	}
+
+	return false
+}
+
+// Names returns the repo names in config order.
+func (b Boards) Names() []string {
+	names := make([]string, len(b))
+	for i, e := range b {
+		names[i] = e.Name
+	}
+
+	return names
 }
 
 // InstanceConfig identifies this server among the instances sharing a boards
@@ -456,9 +566,9 @@ type ChatConfig struct {
 
 // Config holds the application configuration.
 type Config struct {
-	Port             int          `yaml:"port"`
-	Boards           BoardsConfig `yaml:"boards"`
-	HeartbeatTimeout string       `yaml:"heartbeat_timeout"`
+	Port             int    `yaml:"port"`
+	Boards           Boards `yaml:"boards"`
+	HeartbeatTimeout string `yaml:"heartbeat_timeout"`
 	// AwaitMax bounds how long a single await_subtasks MCP call may block
 	// server-side before returning to the caller. Awaiting clients re-call
 	// on timeout, so this bounds one HTTP request, not the total wait.
@@ -496,16 +606,8 @@ type Config struct {
 
 func defaults() *Config {
 	return &Config{
-		Port: 8080,
-		Boards: BoardsConfig{
-			Dir:             "", // No default - must be configured
-			GitAutoCommit:   true,
-			GitAutoPush:     false,
-			GitAutoPull:     false,
-			GitPullInterval: "60s",
-			LeaseInterval:   "5m",
-			LeaseTimeout:    "1h",
-		},
+		Port:                 8080,
+		Boards:               Boards{defaultBoardsConfig()},
 		HeartbeatTimeout:     "30m",
 		AwaitMax:             "8m",
 		StalledCheckInterval: "1m",
@@ -526,8 +628,14 @@ func defaults() *Config {
 
 // Validate checks that required configuration fields are set.
 func (c *Config) Validate() error {
-	if c.Boards.Dir == "" {
-		return fmt.Errorf("boards.dir is required: configure it in config.yaml or set CONTEXTMATRIX_BOARDS_DIR")
+	if len(c.Boards) == 0 {
+		return fmt.Errorf("boards is required: configure it in config.yaml or set CONTEXTMATRIX_BOARDS_DIR")
+	}
+
+	for i := range c.Boards {
+		if c.Boards[i].Dir == "" {
+			return fmt.Errorf("%s.dir is required: configure it in config.yaml or set CONTEXTMATRIX_BOARDS_DIR", c.boardsLabel(i))
+		}
 	}
 
 	if err := c.LLMEndpoint.validate(); err != nil {
@@ -589,66 +697,8 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("stalled_check_interval must be positive (got %s)", d)
 	}
 
-	if c.Boards.GitPullInterval == "" {
-		c.Boards.GitPullInterval = "60s"
-	}
-
-	if _, err := time.ParseDuration(c.Boards.GitPullInterval); err != nil {
-		return fmt.Errorf("invalid boards.git_pull_interval %q: %w", c.Boards.GitPullInterval, err)
-	}
-
-	if c.Boards.GitCloneOnEmpty && c.Boards.GitRemoteURL == "" {
-		return fmt.Errorf("boards.git_remote_url is required when boards.git_clone_on_empty is enabled")
-	}
-	// All git remote URLs must be HTTPS - SSH is not supported.
-	if c.Boards.GitRemoteURL != "" && !strings.HasPrefix(c.Boards.GitRemoteURL, "https://") {
-		return fmt.Errorf("boards.git_remote_url must start with https:// (got %q)", c.Boards.GitRemoteURL)
-	}
-
-	if c.Boards.Shared {
-		if c.Boards.GitRemoteURL == "" {
-			return fmt.Errorf("boards.git_remote_url is required when boards.shared is true")
-		}
-
-		if c.Boards.GitDeferredCommit {
-			return fmt.Errorf("boards.git_deferred_commit must be false when boards.shared is true")
-		}
-
-		if !c.Boards.GitAutoCommit {
-			return fmt.Errorf("boards.git_auto_commit must be true when boards.shared is true")
-		}
-
-		c.Boards.GitAutoPull = true
-		c.Boards.GitAutoPush = true
-
-		if !instanceIDPattern.MatchString(c.Instance.ID) {
-			return fmt.Errorf("instance.id %q is invalid: must match %s", c.Instance.ID, instanceIDPattern)
-		}
-
-		if c.Boards.LeaseInterval == "" {
-			c.Boards.LeaseInterval = "5m"
-		}
-
-		if c.Boards.LeaseTimeout == "" {
-			c.Boards.LeaseTimeout = "1h"
-		}
-
-		leaseInterval, err := time.ParseDuration(c.Boards.LeaseInterval)
-		if err != nil {
-			return fmt.Errorf("invalid boards.lease_interval %q: %w", c.Boards.LeaseInterval, err)
-		}
-
-		leaseTimeout, err := time.ParseDuration(c.Boards.LeaseTimeout)
-		if err != nil {
-			return fmt.Errorf("invalid boards.lease_timeout %q: %w", c.Boards.LeaseTimeout, err)
-		}
-
-		heartbeat, _ := time.ParseDuration(c.HeartbeatTimeout)
-		pull, _ := time.ParseDuration(c.Boards.GitPullInterval)
-
-		if floor := heartbeat + 2*pull + leaseInterval; leaseTimeout <= floor {
-			return fmt.Errorf("boards.lease_timeout must exceed heartbeat_timeout + 2 * git_pull_interval + lease_interval (%s), got %s", floor, leaseTimeout)
-		}
+	if err := c.validateBoards(); err != nil {
+		return err
 	}
 
 	if c.TaskSkills.GitCloneOnEmpty && c.TaskSkills.GitRemoteURL == "" {
@@ -849,6 +899,143 @@ func (c *Config) Validate() error {
 	return nil
 }
 
+// boardsLabel names an entry in error messages. A single entry that is
+// unnamed or carries the default name is the single-repo form, so its
+// messages stay what they always were ("boards"); every other entry -
+// including an explicitly-named single-entry list - is named "boards[<name>]".
+func (c *Config) boardsLabel(i int) string {
+	name := c.Boards[i].Name
+	if len(c.Boards) == 1 && (name == "" || name == DefaultBoardsName) {
+		return "boards"
+	}
+
+	return fmt.Sprintf("boards[%s]", name)
+}
+
+// validateBoards checks every repo entry, then the names and directories
+// against each other. Runs after resolvePaths, so dirs are tilde-expanded.
+// The instance.id check runs last, after every entry has otherwise validated -
+// mirroring the single-repo form, where a bad remote or lease field was
+// always reported before a bad instance id.
+func (c *Config) validateBoards() error {
+	heartbeat, _ := time.ParseDuration(c.HeartbeatTimeout)
+
+	seen := make(map[string]bool, len(c.Boards))
+	dirs := make([]string, len(c.Boards))
+
+	for i := range c.Boards {
+		e := &c.Boards[i]
+		label := c.boardsLabel(i)
+
+		if (len(c.Boards) > 1 || (e.Name != "" && e.Name != DefaultBoardsName)) && !boardsNamePattern.MatchString(e.Name) {
+			return fmt.Errorf("%s.name %q is invalid: must match %s", label, e.Name, boardsNamePattern)
+		}
+
+		if seen[e.Name] {
+			return fmt.Errorf("boards: duplicate name %q", e.Name)
+		}
+
+		seen[e.Name] = true
+
+		abs, err := filepath.Abs(e.Dir)
+		if err != nil {
+			return fmt.Errorf("%s.dir: %w", label, err)
+		}
+
+		dirs[i] = filepath.Clean(abs)
+
+		for j := range i {
+			if dirs[i] == dirs[j] {
+				return fmt.Errorf("%s.dir %q is the same directory as %s.dir", label, e.Dir, c.boardsLabel(j))
+			}
+
+			if strings.HasPrefix(dirs[i], dirs[j]+string(filepath.Separator)) || strings.HasPrefix(dirs[j], dirs[i]+string(filepath.Separator)) {
+				return fmt.Errorf("%s.dir %q nests with %s.dir %q; boards repos may not contain each other", label, e.Dir, c.boardsLabel(j), c.Boards[j].Dir)
+			}
+		}
+
+		if err := e.validate(label, heartbeat); err != nil {
+			return err
+		}
+	}
+
+	if c.Boards.AnyShared() && !instanceIDPattern.MatchString(c.Instance.ID) {
+		return fmt.Errorf("instance.id %q is invalid: must match %s", c.Instance.ID, instanceIDPattern)
+	}
+
+	return nil
+}
+
+// validate checks one repo entry and fills its defaults. label is the
+// prefix its errors carry.
+func (e *BoardsConfig) validate(label string, heartbeat time.Duration) error {
+	if e.GitPullInterval == "" {
+		e.GitPullInterval = "60s"
+	}
+
+	if _, err := time.ParseDuration(e.GitPullInterval); err != nil {
+		return fmt.Errorf("invalid %s.git_pull_interval %q: %w", label, e.GitPullInterval, err)
+	}
+
+	if e.GitCloneOnEmpty && e.GitRemoteURL == "" {
+		return fmt.Errorf("%s.git_remote_url is required when %s.git_clone_on_empty is enabled", label, label)
+	}
+
+	if e.GitRemoteURL != "" && !strings.HasPrefix(e.GitRemoteURL, "https://") {
+		return fmt.Errorf("%s.git_remote_url must start with https:// (got %q)", label, e.GitRemoteURL)
+	}
+
+	if !e.Shared {
+		return nil
+	}
+
+	if e.GitRemoteURL == "" {
+		return fmt.Errorf("%s.git_remote_url is required when %s.shared is true", label, label)
+	}
+
+	if e.GitDeferredCommit {
+		return fmt.Errorf("%s.git_deferred_commit must be false when %s.shared is true", label, label)
+	}
+
+	if !e.GitAutoCommit {
+		return fmt.Errorf("%s.git_auto_commit must be true when %s.shared is true", label, label)
+	}
+
+	e.GitAutoPull = true
+	e.GitAutoPush = true
+
+	if e.LeaseInterval == "" {
+		e.LeaseInterval = "5m"
+	}
+
+	if e.LeaseTimeout == "" {
+		e.LeaseTimeout = "1h"
+	}
+
+	leaseInterval, err := time.ParseDuration(e.LeaseInterval)
+	if err != nil {
+		return fmt.Errorf("invalid %s.lease_interval %q: %w", label, e.LeaseInterval, err)
+	}
+
+	leaseTimeout, err := time.ParseDuration(e.LeaseTimeout)
+	if err != nil {
+		return fmt.Errorf("invalid %s.lease_timeout %q: %w", label, e.LeaseTimeout, err)
+	}
+
+	if leaseInterval >= heartbeat {
+		return fmt.Errorf("%s.lease_interval (%s) must be shorter than heartbeat_timeout (%s), or a live claim could be stalled before its lease is renewed", label, leaseInterval, heartbeat)
+	}
+
+	pull, _ := time.ParseDuration(e.GitPullInterval)
+
+	floor := heartbeat + 2*pull + leaseInterval
+	if leaseTimeout <= floor {
+		return fmt.Errorf("%s.lease_timeout must exceed heartbeat_timeout + 2 * git_pull_interval + lease_interval (%s), got %s", label, floor, leaseTimeout)
+	}
+
+	return nil
+}
+
 // FindConfigPath discovers the config file using XDG Base Directory conventions.
 // Search order:
 //  1. $XDG_CONFIG_HOME/contextmatrix/config.yaml (if XDG_CONFIG_HOME is set)
@@ -954,12 +1141,14 @@ func Load(path string) (*Config, error) {
 
 // resolvePaths expands tildes and derives default paths relative to the config file location.
 func resolvePaths(cfg *Config, configPath string) error {
-	boardsDir, err := expandTilde(cfg.Boards.Dir)
-	if err != nil {
-		return err
-	}
+	for i := range cfg.Boards {
+		dir, err := expandTilde(cfg.Boards[i].Dir)
+		if err != nil {
+			return err
+		}
 
-	cfg.Boards.Dir = boardsDir
+		cfg.Boards[i].Dir = dir
+	}
 
 	workflowSkillsDir, err := expandTilde(cfg.WorkflowSkillsDir)
 	if err != nil {
@@ -1256,40 +1445,60 @@ func applyEnvOverrides(cfg *Config) error {
 		}
 	}
 
-	if v := os.Getenv("CONTEXTMATRIX_BOARDS_DIR"); v != "" {
-		cfg.Boards.Dir = v
-	}
+	if len(cfg.Boards) > 1 {
+		var set []string
 
-	cfg.Boards.GitAutoCommit = parseBoolEnv("CONTEXTMATRIX_BOARDS_GIT_AUTO_COMMIT", cfg.Boards.GitAutoCommit)
-	cfg.Boards.GitAutoPush = parseBoolEnv("CONTEXTMATRIX_BOARDS_GIT_AUTO_PUSH", cfg.Boards.GitAutoPush)
-	cfg.Boards.GitAutoPull = parseBoolEnv("CONTEXTMATRIX_BOARDS_GIT_AUTO_PULL", cfg.Boards.GitAutoPull)
+		for _, suffix := range boardsEnvSuffixes {
+			if os.Getenv("CONTEXTMATRIX_BOARDS"+suffix) != "" {
+				set = append(set, "CONTEXTMATRIX_BOARDS"+suffix)
+			}
+		}
 
-	if v := os.Getenv("CONTEXTMATRIX_BOARDS_GIT_PULL_INTERVAL"); v != "" {
-		cfg.Boards.GitPullInterval = v
-	}
+		if len(set) > 0 {
+			return fmt.Errorf("%s: CONTEXTMATRIX_BOARDS_* overrides apply to the single-repo boards form only; this config lists %d boards repos", strings.Join(set, ", "), len(cfg.Boards))
+		}
+	} else {
+		if len(cfg.Boards) == 0 {
+			cfg.Boards = Boards{defaultBoardsConfig()}
+		}
 
-	cfg.Boards.GitDeferredCommit = parseBoolEnv("CONTEXTMATRIX_BOARDS_GIT_DEFERRED_COMMIT", cfg.Boards.GitDeferredCommit)
-	cfg.Boards.GitCloneOnEmpty = parseBoolEnv("CONTEXTMATRIX_BOARDS_GIT_CLONE_ON_EMPTY", cfg.Boards.GitCloneOnEmpty)
+		b := &cfg.Boards[0]
 
-	if v := os.Getenv("CONTEXTMATRIX_BOARDS_GIT_REMOTE_URL"); v != "" {
-		cfg.Boards.GitRemoteURL = v
-	}
+		if v := os.Getenv("CONTEXTMATRIX_BOARDS_DIR"); v != "" {
+			b.Dir = v
+		}
 
-	cfg.Boards.Shared = parseBoolEnv("CONTEXTMATRIX_BOARDS_SHARED", cfg.Boards.Shared)
+		b.GitAutoCommit = parseBoolEnv("CONTEXTMATRIX_BOARDS_GIT_AUTO_COMMIT", b.GitAutoCommit)
+		b.GitAutoPush = parseBoolEnv("CONTEXTMATRIX_BOARDS_GIT_AUTO_PUSH", b.GitAutoPush)
+		b.GitAutoPull = parseBoolEnv("CONTEXTMATRIX_BOARDS_GIT_AUTO_PULL", b.GitAutoPull)
 
-	if v := os.Getenv("CONTEXTMATRIX_BOARDS_LEASE_INTERVAL"); v != "" {
-		cfg.Boards.LeaseInterval = v
-	}
+		if v := os.Getenv("CONTEXTMATRIX_BOARDS_GIT_PULL_INTERVAL"); v != "" {
+			b.GitPullInterval = v
+		}
 
-	if v := os.Getenv("CONTEXTMATRIX_BOARDS_LEASE_TIMEOUT"); v != "" {
-		cfg.Boards.LeaseTimeout = v
+		b.GitDeferredCommit = parseBoolEnv("CONTEXTMATRIX_BOARDS_GIT_DEFERRED_COMMIT", b.GitDeferredCommit)
+		b.GitCloneOnEmpty = parseBoolEnv("CONTEXTMATRIX_BOARDS_GIT_CLONE_ON_EMPTY", b.GitCloneOnEmpty)
+
+		if v := os.Getenv("CONTEXTMATRIX_BOARDS_GIT_REMOTE_URL"); v != "" {
+			b.GitRemoteURL = v
+		}
+
+		b.Shared = parseBoolEnv("CONTEXTMATRIX_BOARDS_SHARED", b.Shared)
+
+		if v := os.Getenv("CONTEXTMATRIX_BOARDS_LEASE_INTERVAL"); v != "" {
+			b.LeaseInterval = v
+		}
+
+		if v := os.Getenv("CONTEXTMATRIX_BOARDS_LEASE_TIMEOUT"); v != "" {
+			b.LeaseTimeout = v
+		}
 	}
 
 	if v := os.Getenv("CONTEXTMATRIX_INSTANCE_ID"); v != "" {
 		cfg.Instance.ID = v
 	}
 
-	if cfg.Boards.Shared && cfg.Instance.ID == "" {
+	if cfg.Boards.AnyShared() && cfg.Instance.ID == "" {
 		id, err := LoadOrCreateInstanceID(defaultSQLiteDBPath("instance_id"))
 		if err != nil {
 			return fmt.Errorf("resolve instance id: %w", err)
@@ -1721,21 +1930,6 @@ func (c *Config) SessionIdleTTLDuration() (time.Duration, error) {
 // so this returns nil error in normal flow.
 func (c *Config) StalledCheckIntervalDuration() (time.Duration, error) {
 	return time.ParseDuration(c.StalledCheckInterval)
-}
-
-// PullIntervalDuration parses Boards.GitPullInterval as a time.Duration.
-func (c *Config) PullIntervalDuration() (time.Duration, error) {
-	return time.ParseDuration(c.Boards.GitPullInterval)
-}
-
-// LeaseIntervalDuration parses Boards.LeaseInterval as a time.Duration.
-func (c *Config) LeaseIntervalDuration() (time.Duration, error) {
-	return time.ParseDuration(c.Boards.LeaseInterval)
-}
-
-// LeaseTimeoutDuration parses Boards.LeaseTimeout as a time.Duration.
-func (c *Config) LeaseTimeoutDuration() (time.Duration, error) {
-	return time.ParseDuration(c.Boards.LeaseTimeout)
 }
 
 // BuildSlogHandler constructs a slog.Handler from the LogFormat and LogLevel fields.
