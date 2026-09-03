@@ -723,6 +723,14 @@ needs_human: true
 `{in_progress, review, done}` - i.e., being worked by another agent in this same
 execution batch. In all other cases, `needs_human: true`.
 
+On a shared board (`boards.shared: true`) a `claim_card`, `create_card`,
+`create_project`, `update_project`, `delete_project` or `create_playbook`
+call may fail with an error starting with `remote unreachable:`. The server
+could not verify the write against the boards remote; nothing changed. The
+workflow skills wait 10 seconds and retry the call, at most 3 times, before
+reporting the task blocked. `create_card` retries are safe: the server
+deduplicates an identically titled subtask.
+
 ## Blocker recovery
 
 Main agent logic when it receives `TASK_BLOCKED`:

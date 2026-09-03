@@ -595,7 +595,16 @@ and commit completion. The service layer closes that gap on failure:
   non-fast-forward rejection. A failure after a merge has started aborts it
   and leaves a clean tree, so every cycle either completes or retries from a
   clean tree. The periodic tick is jittered by 25% and also pushes, so an
-  unpushed commit never waits for the next local write.
+  unpushed commit never waits for the next local write. A push-verified
+  mutation (card create, claim, force-release, project create, update and
+  delete, playbook create, foreign stall) runs as the cycle's body through
+  `SyncedMutation`: applied once after the merge under both write locks,
+  pushed with the cycle, and undone under the same locks when the push never
+  lands, so the caller can retry without a stray write reaching the remote
+  later. After every successful cycle the syncer confirms the leases this
+  instance holds; after every reload it records what the pull showed of other
+  instances' leases and reports claims lost at a higher epoch as
+  `claim.lost`.
 - **GitHub integration** (`github`): three pieces - `client.go` (HTTP client for
   GitHub REST API used during issue import / branch listing), `parse.go` (issue
   → card mapping rules), `syncer.go` (per-project import loop driven by
@@ -663,6 +672,22 @@ invariant overrides write a `merge` activity entry on the surviving card;
 every resolution - including a delete-wins, an unparseable side kept
 verbatim, and a same-import dedupe - appears in `GET /api/sync` under
 `resolutions`.
+
+A claim on a shared board is owned by the pair `(assigned_agent, claimed_via)`
+plus a `claim_epoch` fence, never by the agent ID alone: the agent backend
+derives its agent ID from the card ID, so two laptops running one card
+present the same agent. `claimed_via` is the `instance.id` that granted the
+claim; the epoch is bumped on every claim, release, stall, force-release and
+terminal transition, and the side with the higher epoch supplies the whole
+claim tuple in a merge. Live heartbeats stay in memory (`lock.Manager`); the
+file's `last_heartbeat` is the lease and is rewritten only when older than
+`lease_interval`. Background loops act only on this instance's claims. A
+peer's claim is stalled only after its pushed lease has stayed unchanged for
+`lease_timeout` on the local clock, after a recent pull, through a
+push-verified cycle. A claim the remote has not confirmed for `lease_timeout`
+is fenced: release, transition and worker-status writes fail closed until a
+cycle succeeds. `done` keeps the claim until the holder releases it, on
+shared and private boards alike.
 
 ## File layout
 

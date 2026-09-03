@@ -218,7 +218,9 @@ otherwise the server generates a UUID. The same id is emitted as the
 - 404: card, project, chat session, or referenced parent not found -
   parent-not-found uses code `PARENT_NOT_FOUND`; also unknown one-time token
   or unknown admin username (`TOKEN_INVALID`, `USER_NOT_FOUND`)
-- 409: conflict (invalid transition, card already claimed, `POST /claim` on a
+- 409: conflict (invalid transition, card already claimed - on a shared board
+  also when another instance won the claim during the sync cycle; the
+  response details name the instance - `POST /claim` on a
   card in a terminal state - `done` or `not_planned` - by anyone other than the
   agent already holding the claim, already-running
   worker task → `WORKER_CONFLICT`); also a bootstrap token redeemed after a
@@ -239,7 +241,11 @@ otherwise the server generates a UUID. The same id is emitted as the
   `GET /api/worker/git-credentials` (`INTERNAL_ERROR`)
 - 503: no task backend configured (`BACKEND_DISABLED`), sync disabled
   (`SYNC_DISABLED`), `/readyz` dependency check failed, or the login
-  argon2id concurrency gate is saturated (`LOGIN_BUSY`, `Retry-After: 1` set)
+  argon2id concurrency gate is saturated (`LOGIN_BUSY`, `Retry-After: 1` set),
+  or a push-verified write (card create, claim, force-release, project
+  create/update/delete, playbook create) that could not be verified against
+  the boards remote within about 30 s (`REMOTE_UNREACHABLE`, shared boards
+  only; retry)
 
 **Error code / HTTP status mapping (selected):**
 
@@ -270,6 +276,7 @@ otherwise the server generates a UUID. The same id is emitted as the
 | `NO_GITHUB_REPO`          | 404     | project `repo` is not a GitHub URL                            |
 | `SYNC_DISABLED`           | 503     | sync trigger with no remote configured                        |
 | `SYNC_ERROR`              | 500     | sync trigger raised an error                                  |
+| `REMOTE_UNREACHABLE`      | 503     | shared boards: the write needs the remote and it could not be reached, or the push never landed; the board is unchanged, retry |
 
 **`APIError.details` sanitization:** downstream error strings that look like
 go-git transport errors, ssh/exec failures, or absolute filesystem paths are
@@ -892,6 +899,13 @@ Returns a single card. `subtask_cost_usd` is present on this response for a
 card with costed direct subtasks - computed on read, omitted when zero. It is
 absent from list responses (`GET /api/projects/{project}/cards`).
 
+`claimed_via`, `claimed_at`, and `claim_epoch` are read-only, shared-boards
+fields: `claimed_via` names the instance that granted the current claim,
+`claimed_at` is when it was granted, and `claim_epoch` is the fence bumped on
+every claim, release, stall, force-release and terminal transition. All three
+are absent (omitted, not zero-valued) on a private board and on a claim
+written before shared boards existed.
+
 ### Card list query parameters
 
 | Parameter     | Values           | Description                                                                                    |
@@ -1009,7 +1023,9 @@ mode:**
   "mob_default_participants": 3,
   "mob_guest_names": ["laptop"],
   "mob_execute_checkpoints": true,
-  "chat_enabled": true
+  "chat_enabled": true,
+  "instance_id": "laptop-3f9a2c",
+  "shared_boards": true
 }
 ```
 
@@ -1047,6 +1063,11 @@ uses it to decide whether to render the chat image picker. Unlike the other
 UI-facing fields above, it has no `omitempty`: it is always present on the
 full payload, `true` or `false`, and simply absent from the slim pre-login
 payload below.
+`instance_id` names this server among the instances sharing a boards repo
+(`instance.id` in `config.yaml`, auto-generated on first start when a shared
+board leaves it empty) and `shared_boards` mirrors `boards.shared`. Both drop
+out of the payload on a private board, where `instance_id` is normally empty.
+Full payload only, like the other fields above.
 
 **Response - unauthenticated caller in `multi` mode:** `task_backend`,
 `favorites`, `best_of_n_max`, `best_of_n_default`, `mob_max_participants`,
@@ -1487,16 +1508,24 @@ Returns current sync status.
   "last_sync_time": "2026-04-05T12:00:00Z",
   "last_sync_error": "",
   "syncing": false,
-  "enabled": true
+  "enabled": true,
+  "claims_at_risk": false
 }
 ```
 
-| Field             | Type               | Description                                                   |
-| ----------------- | ------------------ | ------------------------------------------------------------- |
-| `last_sync_time`  | RFC 3339 / `null`  | Timestamp of the last completed sync attempt; `null` if none. |
-| `last_sync_error` | string (omitempty) | Error message from the most recent failed sync.               |
-| `syncing`         | bool               | `true` while a sync is in flight.                             |
-| `enabled`         | bool               | Whether automatic sync is enabled in config.                  |
+| Field                | Type                | Description                                                   |
+| -------------------- | ------------------- | --------------------------------------------------------------|
+| `last_sync_time`     | RFC 3339 / `null`   | Timestamp of the last completed sync attempt; `null` if none. |
+| `last_sync_error`    | string (omitempty)  | Error message from the most recent failed sync.               |
+| `syncing`            | bool                | `true` while a sync is in flight.                              |
+| `enabled`            | bool                | Whether automatic sync is enabled in config.                   |
+| `claims_at_risk`     | bool                | Shared boards: `true` once pushes have been failing longer than `lease_interval` - peers cannot see this instance's lease renewals and will stall its cards after `lease_timeout`. |
+| `push_failing_since` | RFC 3339 (omitempty)| When the current push failure streak began; absent while pushes are succeeding. |
+
+A shared-board pull that moves a claim to another instance publishes
+`claim.lost` on `GET /api/events`. Its `data` carries `previous_agent` (the
+agent ID that lost the claim), `claimed_via` (the instance that now holds
+it), `claim_epoch` (the epoch the takeover landed at), and `source: "sync"`.
 
 ## Playbook Endpoints
 

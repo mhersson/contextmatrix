@@ -616,6 +616,11 @@ does not retroactively flip a successful run to failed. Task completion is
 **not** reported here - the in-container worker uses the MCP `complete_task`
 tool.
 
+On a shared board a callback for a card claimed via another instance is
+acknowledged and ignored: the peer's instance owns that worker. A callback
+for a card whose lease the remote has not confirmed for `lease_timeout` is
+refused with 403 `AGENT_MISMATCH`.
+
 #### GET /api/v1/cards/{project}/{id}/autonomous
 
 Read-only, called by the task backend during `/promote` to fail-closed confirm
@@ -741,6 +746,9 @@ therefore be stopped by CM explicitly.
    `200` no-op. `worker_status` is deliberately not consulted: a backend's
    completion callback flips the field before Docker cleanup actually succeeds,
    so gating on it would let a drifted status turn into a permanent leak.
+   The subscriber also fires on `claim.lost`: a pull showed that another
+   instance now holds the card, so the local container is ended and killed
+   even though the card is not terminal.
 2. **Reconcile sweep (Docker-authoritative backstop).**
    `internal/backend/reconcile.go` runs every `backends.agent.reconcile_interval`
    (default **60s**). Each tick it calls `GET /containers` and, for every
