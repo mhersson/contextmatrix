@@ -716,7 +716,7 @@ func extractStateChanges(card *board.Card) ([]stateChange, string) {
 	changes := make([]stateChange, 0, len(card.ActivityLog))
 
 	for _, e := range card.ActivityLog {
-		if e.Action != stateChangedAction {
+		if e.Action != board.StateChangedAction {
 			continue
 		}
 

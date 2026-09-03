@@ -93,7 +93,7 @@ func (s *CardService) RecordPush(ctx context.Context, project, id, agentID, bran
 	}
 
 	card.ActivityLog = append(card.ActivityLog, entry)
-	card.ActivityLog = trimActivityLog(card.ActivityLog)
+	card.ActivityLog = board.TrimActivityLog(card.ActivityLog)
 
 	card.Updated = s.clk.Now()
 
@@ -173,7 +173,7 @@ func (s *CardService) ReportParked(ctx context.Context, project, id, agentID, re
 			Message:   reason,
 			Timestamp: s.clk.Now(),
 		})
-		card.ActivityLog = trimActivityLog(card.ActivityLog)
+		card.ActivityLog = board.TrimActivityLog(card.ActivityLog)
 	}
 
 	if err := s.store.UpdateCard(ctx, project, card); err != nil {
@@ -444,7 +444,7 @@ func (s *CardService) appendWorkerStatusMessage(card *board.Card, message string
 		Action:    "worker_status",
 		Message:   message,
 	})
-	card.ActivityLog = trimActivityLog(card.ActivityLog)
+	card.ActivityLog = board.TrimActivityLog(card.ActivityLog)
 }
 
 // runSessionManagerLifecycleHooks drives the session-manager Start/Stop
@@ -533,7 +533,7 @@ func (s *CardService) PromoteToAutonomous(ctx context.Context, project, cardID, 
 	}
 
 	card.ActivityLog = append(card.ActivityLog, entry)
-	card.ActivityLog = trimActivityLog(card.ActivityLog)
+	card.ActivityLog = board.TrimActivityLog(card.ActivityLog)
 
 	if err := s.store.UpdateCard(ctx, project, card); err != nil {
 		s.writeMu.Unlock()

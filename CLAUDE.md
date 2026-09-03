@@ -76,6 +76,7 @@ internal/board/            → domain types: Card, ProjectConfig, StateMachine
 internal/storage/          → Store interface + FilesystemStore
 internal/gitops/           → GitManager (commit/pull/push via go-git) + async CommitQueue
 internal/gitsync/          → background board-repo sync
+internal/boardmerge/       → pure three-way merge rules for a shared boards repo
 internal/lock/             → claim/release/heartbeat + timeout checker
 internal/service/          → CardService: orchestrates store, git, lock, events, state machine
 internal/api/              → REST handlers (stdlib http.ServeMux) + SSE endpoint

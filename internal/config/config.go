@@ -2,11 +2,13 @@ package config
 
 import (
 	"bytes"
+	"crypto/rand"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -315,6 +317,16 @@ type BoardsConfig struct {
 	GitPullInterval   string `yaml:"git_pull_interval"`
 	GitCloneOnEmpty   bool   `yaml:"git_clone_on_empty"`
 	GitRemoteURL      string `yaml:"git_remote_url"`
+	// Shared marks a repo that several ContextMatrix instances write to
+	// through its remote. Forces auto commit, auto pull and auto push, and
+	// switches the syncer to the merge-and-resolve path.
+	Shared bool `yaml:"shared"`
+}
+
+// InstanceConfig identifies this server among the instances sharing a boards
+// repo. ID is generated once and persisted when not configured.
+type InstanceConfig struct {
+	ID string `yaml:"id"`
 }
 
 // TaskSkillsConfig holds configuration for the task-skills directory and its optional git backing.
@@ -462,18 +474,19 @@ type Config struct {
 	MCPAPIKey            string               `yaml:"mcp_api_key"`
 	// Backends declares the agent (task execution) and chat backend entries.
 	// The mapping's key set is closed - see Backends.UnmarshalYAML.
-	Backends      Backends      `yaml:"backends"`
-	GitHub        GitHubConfig  `yaml:"github"`
-	LogFormat     string        `yaml:"log_format"`      // "json" or "text", default "text"
-	LogLevel      string        `yaml:"log_level"`       // "debug"/"info"/"warn"/"error", default "info"
-	AdminPort     int           `yaml:"admin_port"`      // 0 = disabled
-	AdminBindAddr string        `yaml:"admin_bind_addr"` // listen address for admin server (pprof + /metrics); default "127.0.0.1"
-	Chat          ChatConfig    `yaml:"chat"`
-	Images        ImagesConfig  `yaml:"images"`
-	OpStore       OpStoreConfig `yaml:"op_store"`
-	BestOfN       BestOfNConfig `yaml:"best_of_n"`
-	Mob           MobConfig     `yaml:"mob"`
-	Auth          AuthConfig    `yaml:"auth"`
+	Backends      Backends       `yaml:"backends"`
+	GitHub        GitHubConfig   `yaml:"github"`
+	LogFormat     string         `yaml:"log_format"`      // "json" or "text", default "text"
+	LogLevel      string         `yaml:"log_level"`       // "debug"/"info"/"warn"/"error", default "info"
+	AdminPort     int            `yaml:"admin_port"`      // 0 = disabled
+	AdminBindAddr string         `yaml:"admin_bind_addr"` // listen address for admin server (pprof + /metrics); default "127.0.0.1"
+	Chat          ChatConfig     `yaml:"chat"`
+	Images        ImagesConfig   `yaml:"images"`
+	OpStore       OpStoreConfig  `yaml:"op_store"`
+	BestOfN       BestOfNConfig  `yaml:"best_of_n"`
+	Mob           MobConfig      `yaml:"mob"`
+	Auth          AuthConfig     `yaml:"auth"`
+	Instance      InstanceConfig `yaml:"instance"`
 }
 
 func defaults() *Config {
@@ -583,6 +596,27 @@ func (c *Config) Validate() error {
 	// All git remote URLs must be HTTPS - SSH is not supported.
 	if c.Boards.GitRemoteURL != "" && !strings.HasPrefix(c.Boards.GitRemoteURL, "https://") {
 		return fmt.Errorf("boards.git_remote_url must start with https:// (got %q)", c.Boards.GitRemoteURL)
+	}
+
+	if c.Boards.Shared {
+		if c.Boards.GitRemoteURL == "" {
+			return fmt.Errorf("boards.git_remote_url is required when boards.shared is true")
+		}
+
+		if c.Boards.GitDeferredCommit {
+			return fmt.Errorf("boards.git_deferred_commit must be false when boards.shared is true")
+		}
+
+		if !c.Boards.GitAutoCommit {
+			return fmt.Errorf("boards.git_auto_commit must be true when boards.shared is true")
+		}
+
+		c.Boards.GitAutoPull = true
+		c.Boards.GitAutoPush = true
+
+		if !instanceIDPattern.MatchString(c.Instance.ID) {
+			return fmt.Errorf("instance.id %q is invalid: must match %s", c.Instance.ID, instanceIDPattern)
+		}
 	}
 
 	if c.TaskSkills.GitCloneOnEmpty && c.TaskSkills.GitRemoteURL == "" {
@@ -949,6 +983,49 @@ func defaultSQLiteDBPath(filename string) string {
 	return filepath.Join(state, "contextmatrix", filename)
 }
 
+var instanceIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
+
+// LoadOrCreateInstanceID returns the instance ID stored at path, creating
+// the file with a fresh <hostname>-<6 hex> value on first use.
+func LoadOrCreateInstanceID(path string) (string, error) {
+	if data, err := os.ReadFile(path); err == nil {
+		id := strings.TrimSpace(string(data))
+		if instanceIDPattern.MatchString(id) {
+			return id, nil
+		}
+	}
+
+	host, _ := os.Hostname()
+	host = strings.ToLower(host)
+	host = regexp.MustCompile(`[^a-z0-9-]+`).ReplaceAllString(host, "-")
+	host = strings.Trim(host, "-")
+
+	if host == "" {
+		host = "cm"
+	}
+
+	if len(host) > 40 {
+		host = host[:40]
+	}
+
+	var raw [3]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", fmt.Errorf("generate instance id: %w", err)
+	}
+
+	id := fmt.Sprintf("%s-%x", host, raw)
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return "", fmt.Errorf("create state dir: %w", err)
+	}
+
+	if err := os.WriteFile(path, []byte(id+"\n"), 0o600); err != nil {
+		return "", fmt.Errorf("write instance id: %w", err)
+	}
+
+	return id, nil
+}
+
 // applyImagesDefaults sets Images fields that were not supplied by YAML.
 func applyImagesDefaults(cfg *Config) {
 	if cfg.Images.DBPath == "" {
@@ -1164,6 +1241,21 @@ func applyEnvOverrides(cfg *Config) error {
 
 	if v := os.Getenv("CONTEXTMATRIX_BOARDS_GIT_REMOTE_URL"); v != "" {
 		cfg.Boards.GitRemoteURL = v
+	}
+
+	cfg.Boards.Shared = parseBoolEnv("CONTEXTMATRIX_BOARDS_SHARED", cfg.Boards.Shared)
+
+	if v := os.Getenv("CONTEXTMATRIX_INSTANCE_ID"); v != "" {
+		cfg.Instance.ID = v
+	}
+
+	if cfg.Boards.Shared && cfg.Instance.ID == "" {
+		id, err := LoadOrCreateInstanceID(defaultSQLiteDBPath("instance_id"))
+		if err != nil {
+			return fmt.Errorf("resolve instance id: %w", err)
+		}
+
+		cfg.Instance.ID = id
 	}
 
 	if v := os.Getenv("CONTEXTMATRIX_GITHUB_AUTH_MODE"); v != "" {

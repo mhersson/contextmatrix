@@ -818,3 +818,19 @@ func TestIsTerminalState(t *testing.T) {
 		})
 	}
 }
+
+func TestProjectConfigRoundTrip(t *testing.T) {
+	cfg := &ProjectConfig{
+		Name: "p", Prefix: "P", NextID: 3,
+		States: []string{"todo", "done", "stalled", "not_planned"}, Types: []string{"task"}, Priorities: []string{"low"},
+		Transitions: map[string][]string{"todo": {"done"}, "stalled": {"todo"}, "not_planned": {"todo"}},
+	}
+	data, err := SerializeProjectConfig(cfg)
+	require.NoError(t, err)
+	back, err := ParseProjectConfig(data)
+	require.NoError(t, err)
+	assert.Equal(t, cfg, back)
+
+	_, err = ParseProjectConfig([]byte("name: p\n"))
+	require.Error(t, err)
+}

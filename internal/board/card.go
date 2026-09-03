@@ -156,6 +156,44 @@ var (
 // expansion and runaway allocations during YAML parsing (2 MiB).
 const maxCardSize = 2 * 1024 * 1024
 
+const (
+	// MaxActivityLogEntries caps a card's activity log. Older entries are
+	// dropped but preserved in git history.
+	MaxActivityLogEntries = 50
+	// StateChangedAction is the activity action written on every transition.
+	StateChangedAction = "state_changed"
+	// MergeAction is the activity action written by the sync resolver when a
+	// three-way merge overrode, re-minted or dropped something.
+	MergeAction = "merge"
+)
+
+// TrimActivityLog enforces MaxActivityLogEntries, dropping non-transition
+// entries oldest-first and only then the oldest transitions.
+func TrimActivityLog(log []ActivityEntry) []ActivityEntry {
+	if len(log) <= MaxActivityLogEntries {
+		return log
+	}
+
+	excess := len(log) - MaxActivityLogEntries
+	out := make([]ActivityEntry, 0, len(log))
+
+	for _, e := range log {
+		if excess > 0 && e.Action != StateChangedAction {
+			excess--
+
+			continue
+		}
+
+		out = append(out, e)
+	}
+
+	if len(out) > MaxActivityLogEntries {
+		out = out[len(out)-MaxActivityLogEntries:]
+	}
+
+	return out
+}
+
 // ValidPhase reports whether p is a recognized orchestrator phase. Empty
 // clears the field and is always valid.
 func ValidPhase(p string) bool {

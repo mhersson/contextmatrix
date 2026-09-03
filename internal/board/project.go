@@ -117,6 +117,30 @@ const (
 	maxConfigFileSize = 1 * 1024 * 1024 // 1 MiB
 )
 
+// ParseProjectConfig decodes and validates one .board.yaml document.
+func ParseProjectConfig(data []byte) (*ProjectConfig, error) {
+	var cfg ProjectConfig
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrMalformedProjectConfig, err)
+	}
+
+	if err := validateProjectConfig(&cfg); err != nil {
+		return nil, err
+	}
+
+	return &cfg, nil
+}
+
+// SerializeProjectConfig encodes cfg as .board.yaml content.
+func SerializeProjectConfig(cfg *ProjectConfig) ([]byte, error) {
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("marshal project config: %w", err)
+	}
+
+	return data, nil
+}
+
 // LoadProjectConfig reads a project's .board.yaml configuration.
 // The dir parameter should be the project directory (e.g., "boards/project-alpha").
 func LoadProjectConfig(dir string) (*ProjectConfig, error) {
@@ -140,16 +164,7 @@ func LoadProjectConfig(dir string) (*ProjectConfig, error) {
 		return nil, fmt.Errorf("read project config: %w", err)
 	}
 
-	var cfg ProjectConfig
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrMalformedProjectConfig, err)
-	}
-
-	if err := validateProjectConfig(&cfg); err != nil {
-		return nil, err
-	}
-
-	return &cfg, nil
+	return ParseProjectConfig(data)
 }
 
 // SaveProjectConfig writes a project's .board.yaml configuration.
@@ -164,9 +179,9 @@ func SaveProjectConfig(dir string, cfg *ProjectConfig) error {
 		return fmt.Errorf("create project directory: %w", err)
 	}
 
-	data, err := yaml.Marshal(cfg)
+	data, err := SerializeProjectConfig(cfg)
 	if err != nil {
-		return fmt.Errorf("marshal project config: %w", err)
+		return err
 	}
 
 	path := filepath.Join(dir, boardConfigFile)

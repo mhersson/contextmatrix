@@ -171,7 +171,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	slog.Info("boards git manager initialized", "repo_path", cfg.Boards.Dir)
+	// Peers reading the shared history need to see which instance authored a
+	// commit. Set before any commit this process makes, the startup pull's
+	// leftover commit included.
+	if cfg.Boards.Shared {
+		git.SetAuthor("ContextMatrix", "contextmatrix@"+cfg.Instance.ID)
+	}
+
+	slog.Info("boards git manager initialized",
+		"repo_path", cfg.Boards.Dir,
+		"shared", cfg.Boards.Shared,
+	)
 
 	// Initialize task-skills git manager.
 	taskSkillsCloneURL := ""
@@ -232,8 +242,11 @@ func main() {
 
 	// Initialize card service
 	svc := service.NewCardService(store, git, lockMgr, bus, cfg.Boards.Dir, tokenCosts, cfg.Boards.GitAutoCommit, cfg.Boards.GitDeferredCommit)
+	// Must precede the syncer's startup cycle, which is the first sync to
+	// integrate a peer's writes.
+	svc.SetSharedRepo(cfg.Boards.Shared)
 
-	slog.Info("card service initialized")
+	slog.Info("card service initialized", "shared_repo", cfg.Boards.Shared)
 
 	// Initialize the per-project commit queue so writes do not serialize on
 	// the blocking go-git call under writeMu. A 30-minute idle timeout

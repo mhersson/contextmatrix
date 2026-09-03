@@ -658,3 +658,133 @@ func TestCommitQueue_ShutdownCompletesPendingJob(t *testing.T) {
 
 	assert.Len(t, fake.snapshot(), 1)
 }
+
+// TestCommitQueue_DrainRunsBufferedJobs pins the contract Drain adds over
+// AwaitIdle: buffered jobs that have not started yet must run to completion,
+// and the queue is left paused so the caller can take the repository
+// exclusively afterwards.
+func TestCommitQueue_DrainRunsBufferedJobs(t *testing.T) {
+	f := &fakeCommitter{}
+	q := NewCommitQueueWithCommitter(f, 8)
+
+	t.Cleanup(func() { _ = q.Close(context.Background()) })
+
+	// Pause before enqueueing so all three jobs sit buffered: this is the
+	// state AwaitIdle reports as idle but Drain must still work through.
+	q.Pause()
+
+	dones := make([]<-chan error, 0, 3)
+	for range 3 {
+		dones = append(dones, q.Enqueue(CommitJob{
+			Project: "p",
+			Kind:    CommitKindFile,
+			Path:    "x",
+			Message: "m",
+			Ctx:     context.Background(),
+		}))
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	require.NoError(t, q.Drain(ctx))
+
+	for _, d := range dones {
+		require.NoError(t, <-d)
+	}
+
+	assert.Len(t, f.snapshot(), 3)
+
+	q.mu.Lock()
+	paused, pending := q.paused, q.pending
+	q.mu.Unlock()
+
+	assert.True(t, paused, "Drain must leave the queue paused")
+	assert.Equal(t, 0, pending, "every accepted job must be accounted for")
+}
+
+// TestCommitQueue_PauseAwaitIdleLeavesBufferedJobs is the counterpart: the
+// pre-existing Pause + AwaitIdle pairing reports quiescence while buffered
+// jobs are still waiting, which is why the shared-repo path needs Drain.
+func TestCommitQueue_PauseAwaitIdleLeavesBufferedJobs(t *testing.T) {
+	f := &fakeCommitter{}
+	q := NewCommitQueueWithCommitter(f, 8)
+
+	t.Cleanup(func() { _ = q.Close(context.Background()) })
+
+	q.Pause()
+	q.Enqueue(CommitJob{
+		Project: "p",
+		Kind:    CommitKindFile,
+		Path:    "x",
+		Message: "m",
+		Ctx:     context.Background(),
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	require.NoError(t, q.AwaitIdle(ctx))
+	assert.Empty(t, f.snapshot(), "AwaitIdle must not wait for buffered jobs")
+
+	q.mu.Lock()
+	pending := q.pending
+	q.mu.Unlock()
+
+	assert.Equal(t, 1, pending, "the buffered job is still outstanding")
+}
+
+// TestCommitQueue_DrainAfterCloseDoesNotHang pins that a job Enqueue rejects
+// because the queue is closed never enters the pending count, so a later
+// Drain returns immediately instead of waiting out its context.
+func TestCommitQueue_DrainAfterCloseDoesNotHang(t *testing.T) {
+	f := &fakeCommitter{}
+	q := NewCommitQueueWithCommitter(f, 8)
+
+	require.NoError(t, q.Close(context.Background()))
+	require.ErrorIs(t, <-q.Enqueue(CommitJob{
+		Project: "p",
+		Kind:    CommitKindFile,
+		Path:    "x",
+		Message: "m",
+		Ctx:     context.Background(),
+	}), ErrQueueClosed)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	require.NoError(t, q.Drain(ctx))
+}
+
+// TestCommitQueue_DrainCountsFailedJobs pins that a job whose commit fails
+// still leaves the pending count at zero, so a failing commit cannot wedge
+// every later Drain.
+func TestCommitQueue_DrainCountsFailedJobs(t *testing.T) {
+	boom := errors.New("commit failed")
+	f := &fakeCommitter{failOn: map[string]error{"m": boom}}
+	q := NewCommitQueueWithCommitter(f, 8)
+
+	t.Cleanup(func() { _ = q.Close(context.Background()) })
+
+	q.Pause()
+
+	done := q.Enqueue(CommitJob{
+		Project: "p",
+		Kind:    CommitKindFile,
+		Path:    "x",
+		Message: "m",
+		Ctx:     context.Background(),
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	require.NoError(t, q.Drain(ctx))
+	require.ErrorIs(t, <-done, boom)
+
+	q.mu.Lock()
+	pending := q.pending
+	q.mu.Unlock()
+
+	assert.Equal(t, 0, pending)
+}

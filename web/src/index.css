@@ -3628,6 +3628,9 @@ textarea {
 .board-footer__sync-dot--green {
   background: var(--green);
 }
+.board-footer__sync-dot--amber {
+  background: var(--yellow);
+}
 .board-footer__rail-toggle {
   display: inline-flex;
   align-items: center;

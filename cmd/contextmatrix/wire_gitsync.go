@@ -32,8 +32,14 @@ func wireGitSync(
 
 	pullInterval, _ := cfg.PullIntervalDuration()
 
+	var opts []gitsync.Option
+
+	if cfg.Boards.Shared {
+		opts = append(opts, gitsync.WithShared(cfg.Instance.ID))
+	}
+
 	syncer := gitsync.NewSyncer(gitMgr, store, svc, bus, cfg.Boards.Dir,
-		cfg.Boards.GitAutoPull, cfg.Boards.GitAutoPush, pullInterval)
+		cfg.Boards.GitAutoPull, cfg.Boards.GitAutoPush, pullInterval, opts...)
 	if syncer == nil {
 		return nil
 	}
@@ -62,6 +68,8 @@ func wireGitSync(
 		"auto_pull", cfg.Boards.GitAutoPull,
 		"auto_push", cfg.Boards.GitAutoPush,
 		"pull_interval", pullInterval,
+		"shared", cfg.Boards.Shared,
+		"instance", cfg.Instance.ID,
 	)
 
 	return syncer
