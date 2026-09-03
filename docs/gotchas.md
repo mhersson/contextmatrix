@@ -10,8 +10,8 @@
   not merely to idle. A buffered job that has not run yet is a dirty worktree,
   and a dirty worktree at merge time means autostash, which the shared path
   refuses to use. `commitLeftovers` is the backstop, not the design. Before it
-  runs, the cycle first aborts a merge an earlier crash left in progress
-  (`clearStaleMerge`) - staging that merge's conflict markers as
+  runs, the cycle first aborts a merge a crash or a container restart left in
+  progress (`clearStaleMerge`) - staging that merge's conflict markers as
   `external edit` would silently conclude it.
 - **Resolver order is load-bearing:** `.board.yaml` first (so `MintID` sees the
   merged `next_id`), add/add cards next (so renames exist), then cards, then

@@ -658,8 +658,10 @@ Several instances may share one boards repo through its remote
 are resolved by `internal/boardmerge` with card-aware three-way rules
 (terminal state absorbs, later `updated` breaks scalar ties, additive usage,
 set union for lists, activity log union, delete wins, remote wins the ID on
-an add/add and the local card is re-minted). Every override writes a `merge`
-activity entry on the card and appears in `GET /api/sync` under
+an add/add and the local card is re-minted). Field, state, body, re-mint and
+invariant overrides write a `merge` activity entry on the surviving card;
+every resolution - including a delete-wins, an unparseable side kept
+verbatim, and a same-import dedupe - appears in `GET /api/sync` under
 `resolutions`.
 
 ## File layout
