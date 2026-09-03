@@ -12,6 +12,7 @@ import (
 
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/boardmerge"
+	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/gitops"
 	"github.com/mhersson/contextmatrix/internal/lock"
@@ -495,4 +496,122 @@ func TestSynced_BodyErrorFailsCleanly(t *testing.T) {
 	clean, _, err := a.git.IsClean(context.Background())
 	require.NoError(t, err)
 	assert.True(t, clean)
+}
+
+// TestSynced_PublishesCardEventsAfterPull covers the in-place board update: a
+// small pull publishes one per-card event per changed card alongside the
+// sync.completed the UI uses to refetch after a large one.
+func TestSynced_PublishesCardEventsAfterPull(t *testing.T) {
+	a, b, _ := setupSharedPair(t)
+
+	ch, unsubscribe := b.bus.Subscribe()
+	defer unsubscribe()
+
+	a.create(t, "x")
+	a.sync(t)
+	b.sync(t)
+
+	var got []events.Event
+
+	drainEvents(ch, &got)
+
+	assertHasEventType(t, got, events.CardCreated)
+	assertHasEventType(t, got, events.SyncCompleted)
+
+	for _, e := range got {
+		if e.Type == events.CardCreated {
+			assert.Equal(t, "sync", e.Data["source"])
+			assert.Equal(t, "test-project", e.Project)
+		}
+	}
+}
+
+// TestSharedPeriodicTick_RunsSyncedOnJitteredSchedule drives the shared
+// periodic loop off a fake clock: one advance past the longest jittered wait
+// (1.25 * interval) must run a full shared cycle.
+func TestSharedPeriodicTick_RunsSyncedOnJitteredSchedule(t *testing.T) {
+	a, _, _ := setupSharedPair(t)
+
+	fake := clock.Fake(time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC))
+	a.syncer.SetClock(fake)
+	a.syncer.interval = time.Minute
+
+	ch, unsubscribe := a.bus.Subscribe()
+	defer unsubscribe()
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	t.Cleanup(func() {
+		cancel()
+		a.syncer.Wait()
+	})
+
+	a.syncer.Start(ctx)
+
+	// The loop registers its jittered timer with the fake clock before it
+	// blocks; advancing earlier would fire nothing.
+	require.Eventually(t, func() bool {
+		return fake.PendingTimers() > 0
+	}, 2*time.Second, time.Millisecond, "periodic loop never registered a timer")
+
+	fake.Advance(time.Duration(1.25 * float64(a.syncer.interval)))
+
+	deadline := time.After(10 * time.Second)
+
+	for {
+		select {
+		case e := <-ch:
+			if e.Type == events.SyncCompleted {
+				assert.Equal(t, "periodic", e.Data["trigger"])
+
+				return
+			}
+		case <-deadline:
+			t.Fatal("no sync.completed event after the jittered periodic tick")
+		}
+	}
+}
+
+// TestSharedEntryPointsRunTheMergeCycle covers the startup and manual entry
+// points. Both must route through the shared cycle, which commits a dirty tree
+// as an external edit and pushes it; the rebase path autostashes it instead and
+// leaves nothing for a peer to pull.
+func TestSharedEntryPointsRunTheMergeCycle(t *testing.T) {
+	cases := []struct {
+		name string
+		call func(context.Context, *Syncer) error
+	}{
+		{"startup", func(ctx context.Context, s *Syncer) error { return s.PullOnStartup(ctx) }},
+		{"manual", func(ctx context.Context, s *Syncer) error { return s.TriggerSync(ctx) }},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a, b, _ := setupSharedPair(t)
+
+			c := a.create(t, "x")
+			a.sync(t)
+			b.sync(t)
+
+			p := filepath.Join(a.dir, "test-project", "tasks", c.ID+".md")
+
+			data, err := os.ReadFile(p)
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(p, append(data, []byte("hand edit\n")...), 0o644))
+
+			require.NoError(t, tc.call(context.Background(), a.syncer))
+
+			assert.Contains(t, run(t, a.dir, "git", "log", "--oneline", "-1"), "external edit")
+
+			clean, _, err := a.git.IsClean(context.Background())
+			require.NoError(t, err)
+			assert.True(t, clean)
+
+			b.sync(t)
+
+			got, err := b.store.GetCard(context.Background(), "test-project", c.ID)
+			require.NoError(t, err)
+			assert.Contains(t, got.Body, "hand edit", "the cycle must have pushed the leftover commit")
+		})
+	}
 }

@@ -254,9 +254,16 @@ func (s *Syncer) SetPlaybooks(p playbookSync) {
 	s.playbooks = p
 }
 
-// PullOnStartup performs an initial pull+rebase. Errors are returned but
-// should not abort startup - the caller decides.
+// PullOnStartup performs an initial pull. Errors are returned but should not
+// abort startup - the caller decides. A shared repo runs the merge-based
+// cycle, which also pushes anything the last run left unpushed.
 func (s *Syncer) PullOnStartup(ctx context.Context) error {
+	if s.shared {
+		_, err := s.Synced(ctx, "startup", nil)
+
+		return err
+	}
+
 	return s.pullRebase(ctx, "startup")
 }
 
@@ -297,7 +304,15 @@ func (s *Syncer) NotifyCommit() {
 }
 
 // TriggerSync performs a manual sync: pull then push (if autoPush enabled).
+// A shared repo runs the merge-based cycle instead, which pushes on its own
+// whenever the integration leaves the branch ahead.
 func (s *Syncer) TriggerSync(ctx context.Context) error {
+	if s.shared {
+		_, err := s.Synced(ctx, "manual", nil)
+
+		return err
+	}
+
 	if err := s.pullRebase(ctx, "manual"); err != nil {
 		return err
 	}
@@ -952,6 +967,21 @@ func (s *Syncer) reloadAfterPull(ctx context.Context) error {
 		slog.Warn("git sync: reload go-git repo", "error", err)
 	}
 
+	// On a shared repo the pull carries other instances' card writes, so the
+	// index is sampled either side of the reload and the difference is
+	// published per card. A failed snapshot only costs the per-card events;
+	// the sync.completed refetch still reaches subscribers.
+	var before map[string]cardSnapshot
+
+	if s.shared {
+		snap, err := s.snapshotCards(ctx)
+		if err != nil {
+			slog.Warn("git sync: snapshot cards before reload", "error", err)
+		}
+
+		before = snap
+	}
+
 	if err := s.store.ReloadIndex(ctx); err != nil {
 		return fmt.Errorf("reload index: %w", err)
 	}
@@ -963,6 +993,17 @@ func (s *Syncer) reloadAfterPull(ctx context.Context) error {
 	}
 
 	s.svc.ClearCaches()
+
+	if s.shared && before != nil {
+		after, err := s.snapshotCards(ctx)
+		if err != nil {
+			slog.Warn("git sync: snapshot cards after reload", "error", err)
+
+			return nil
+		}
+
+		s.publishDiff(before, after)
+	}
 
 	return nil
 }
@@ -988,8 +1029,31 @@ func (s *Syncer) sleepJitter(ctx context.Context, base time.Duration) {
 	}
 }
 
-// periodicPull runs fetch+rebase at the configured interval.
+// runGuarded runs one unit of background work so neither a panic nor an error
+// inside it can take down the loop that scheduled it. label names the work in
+// the log line.
+func runGuarded(label string, fn func() error) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("git sync: guarded task panicked",
+				"task", label, "panic", r, "stack", string(debug.Stack()))
+		}
+	}()
+
+	if err := fn(); err != nil {
+		slog.Error("git sync: guarded task failed", "task", label, "error", err)
+	}
+}
+
+// periodicPull runs fetch+rebase at the configured interval. A shared repo
+// runs the merge-based cycle on a jittered schedule instead.
 func (s *Syncer) periodicPull(ctx context.Context) {
+	if s.shared {
+		s.sharedPeriodicSync(ctx)
+
+		return
+	}
+
 	ticker := s.clk.NewTicker(s.interval)
 	defer ticker.Stop()
 
@@ -1000,27 +1064,44 @@ func (s *Syncer) periodicPull(ctx context.Context) {
 
 			return
 		case <-ticker.C():
-			func() {
-				defer func() {
-					if r := recover(); r != nil {
-						slog.Error("git sync: periodic pull panicked", "panic", r, "stack", string(debug.Stack()))
-					}
-				}()
-
+			runGuarded("periodic pull", func() error {
 				pull := s.pullHook
 				if pull == nil {
 					pull = s.pullRebase
 				}
 
-				if err := pull(ctx, "periodic"); err != nil {
-					slog.Error("git sync: periodic pull failed", "error", err)
-				}
-			}()
+				return pull(ctx, "periodic")
+			})
 		}
 	}
 }
 
-// pushListener waits for commit notifications and pushes.
+// sharedPeriodicSync runs the shared cycle on a jittered schedule so several
+// instances writing one board repository never settle into a fixed period and
+// contend on every tick. Each cycle pushes whenever the integration leaves the
+// branch ahead, which is what re-sends a commit whose own push lost a race.
+func (s *Syncer) sharedPeriodicSync(ctx context.Context) {
+	for {
+		wait := time.Duration(float64(s.interval) * (0.75 + 0.5*rand.Float64())) //nolint:gosec // non-security jitter
+
+		select {
+		case <-ctx.Done():
+			slog.Info("git sync: periodic sync stopped")
+
+			return
+		case <-s.clk.After(wait):
+			runGuarded("periodic sync", func() error {
+				_, err := s.Synced(ctx, "periodic", nil)
+
+				return err
+			})
+		}
+	}
+}
+
+// pushListener waits for commit notifications and pushes. On a shared repo the
+// notification runs a full cycle, so the commit is integrated with whatever
+// peers pushed meanwhile before it goes out.
 func (s *Syncer) pushListener(ctx context.Context) {
 	for {
 		select {
@@ -1029,22 +1110,20 @@ func (s *Syncer) pushListener(ctx context.Context) {
 
 			return
 		case <-s.pushCh:
-			func() {
-				defer func() {
-					if r := recover(); r != nil {
-						slog.Error("git sync: push listener panicked", "panic", r, "stack", string(debug.Stack()))
-					}
-				}()
+			runGuarded("push listener", func() error {
+				if s.shared {
+					_, err := s.Synced(ctx, "push", nil)
+
+					return err
+				}
 
 				push := s.pushHook
 				if push == nil {
 					push = s.pushWithRetry
 				}
 
-				if err := push(ctx); err != nil {
-					slog.Error("git sync: push failed", "error", err)
-				}
-			}()
+				return push(ctx)
+			})
 		}
 	}
 }
