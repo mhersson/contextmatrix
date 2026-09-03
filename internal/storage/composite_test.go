@@ -178,6 +178,48 @@ func TestComposite_DeleteProjectUnhidesTheLaterCopy(t *testing.T) {
 	assert.Equal(t, "two", repo)
 }
 
+func TestComposite_ListProjectsReturnsEmptySliceNeverNil(t *testing.T) {
+	ctx := context.Background()
+
+	empty := t.TempDir()
+	sEmpty, err := NewFilesystemStore(empty)
+	require.NoError(t, err)
+
+	populated := t.TempDir()
+	setupTestProject(t, populated, "beta", "BETA")
+	sPopulated, err := NewFilesystemStore(populated)
+	require.NoError(t, err)
+
+	soloEmpty, err := NewComposite(NamedStore{Name: "solo", Store: sEmpty})
+	require.NoError(t, err)
+
+	twoRepos, err := NewComposite(
+		NamedStore{Name: "one", Store: sEmpty},
+		NamedStore{Name: "two", Store: sPopulated},
+	)
+	require.NoError(t, err)
+
+	viewOfEmptyRepo, err := twoRepos.View("one")
+	require.NoError(t, err)
+
+	tests := []struct {
+		name string
+		list func(context.Context) ([]board.ProjectConfig, error)
+	}{
+		{"composite with no visible projects", soloEmpty.ListProjects},
+		{"repo view of an empty repo", viewOfEmptyRepo.ListProjects},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			projects, err := tt.list(ctx)
+			require.NoError(t, err)
+			assert.NotNil(t, projects)
+			assert.Empty(t, projects)
+		})
+	}
+}
+
 func TestNewComposite_RejectsBadInput(t *testing.T) {
 	s, err := NewFilesystemStore(t.TempDir())
 	require.NoError(t, err)

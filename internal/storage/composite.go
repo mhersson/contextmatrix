@@ -236,7 +236,7 @@ func (c *Composite) ListProjects(ctx context.Context) ([]board.ProjectConfig, er
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	var out []board.ProjectConfig
+	out := make([]board.ProjectConfig, 0)
 
 	for i, r := range c.repos {
 		projects, err := r.Store.ListProjects(ctx)
@@ -390,7 +390,7 @@ func (v *RepoView) ListProjects(ctx context.Context) ([]board.ProjectConfig, err
 		return nil, err
 	}
 
-	var out []board.ProjectConfig
+	out := make([]board.ProjectConfig, 0)
 
 	for _, p := range all {
 		if p.BoardsRepo == v.repo {
