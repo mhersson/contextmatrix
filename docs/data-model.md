@@ -59,7 +59,13 @@
 
 6. **Activity log is append-only, capped at 50 entries.** Agents add entries via
    the MCP `add_log` tool. Older entries beyond 50 are dropped from the card
-   file but preserved in git history. Entries are never edited or deleted.
+   file but preserved in git history. Entries are never edited or deleted. On
+   a shared boards repository (`boards.shared: true`), the sync resolver in
+   `internal/boardmerge` also writes entries with `agent: system` and action
+   `merge`, message `<rule>: <detail> (instance <id>)`, for a field the merge
+   overrode, a card re-minted on an add/add conflict, a dangling reference an
+   invariant repair dropped, and an invalid merged card that fell back to the
+   remote version.
 
 7. **Heartbeat timeout.** If `last_heartbeat` exceeds configured timeout
    (default 30min), the service layer (`CardService.StartTimeoutChecker` in

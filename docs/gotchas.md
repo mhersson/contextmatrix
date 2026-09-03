@@ -3,6 +3,28 @@
 - **YAML frontmatter parsing:** use `bytes.SplitN(content, []byte("---"), 3)` to
   split. Element 0 is empty (before first `---`), element 1 is YAML, element 2
   is body. Handle `\r\n` line endings.
+- **Shared repos never rebase.** `Synced` uses `merge --ff-only` then
+  `merge --no-ff`. A rebase after a self-healed merge would drop the merge
+  commit and re-conflict. Do not "simplify" the shared path back to rebase.
+- **`LockWrites` drains the queue fully on shared repos** (`CommitQueue.Drain`),
+  not merely to idle. A buffered job that has not run yet is a dirty worktree,
+  and a dirty worktree at merge time means autostash, which the shared path
+  refuses to use. `commitLeftovers` is the backstop, not the design. Before it
+  runs, the cycle first aborts a merge an earlier crash left in progress
+  (`clearStaleMerge`) - staging that merge's conflict markers as
+  `external edit` would silently conclude it.
+- **Resolver order is load-bearing:** `.board.yaml` first (so `MintID` sees the
+  merged `next_id`), add/add cards next (so renames exist), then cards, then
+  playbooks, then everything else. `resolveRank` encodes it.
+- **Reference rewrite after a re-mint only touches the re-minted files plus
+  files our side changed since the merge base that the merge did not conflict
+  on.** A reference to the old ID in a file only the remote changed refers to
+  the remote card and must stay. That scope is wider than "changed only by
+  us": a file both sides edited in non-overlapping regions auto-merges and
+  reaches the rewrite too, so a reference the remote added there to a
+  colliding ID can be rewritten to the local re-mint when it should have kept
+  pointing at the remote card (`rewriteLocalRefs` in
+  `internal/gitsync/resolve.go`).
 - **`gitops.CommitQueue` per-project ordering, idle teardown:** the queue spawns
   one goroutine per `Project` value and serializes that project's commits in
   enqueue order; different projects commit in parallel. Production wires

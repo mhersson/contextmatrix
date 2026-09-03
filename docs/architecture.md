@@ -586,6 +586,16 @@ and commit completion. The service layer closes that gap on failure:
   shared commit queue - taking the card lock first would deadlock the sync
   against a playbook mutation enqueued around the pause. The reverse order is
   safe because playbook mutations never take the card mutex.
+  When `boards.shared` is true the syncer never rebases. Each cycle (`Synced`)
+  takes the playbook lock, then the service lock with a full commit-queue
+  drain, aborts a merge an earlier cycle left in progress, commits any dirty
+  files as `external edit`, fetches, fast-forwards or merges, hands every
+  unmerged path to `boardmerge`, commits the merge, reloads the index, and
+  pushes when the branch is ahead, retrying a bounded number of times on a
+  non-fast-forward rejection. A failure after a merge has started aborts it
+  and leaves a clean tree, so every cycle either completes or retries from a
+  clean tree. The periodic tick is jittered by 25% and also pushes, so an
+  unpushed commit never waits for the next local write.
 - **GitHub integration** (`github`): three pieces - `client.go` (HTTP client for
   GitHub REST API used during issue import / branch listing), `parse.go` (issue
   → card mapping rules), `syncer.go` (per-project import loop driven by
@@ -642,6 +652,16 @@ server creates it and runs `git init`.
 `boards.dir` in `config.yaml` should point outside the source tree - an absolute
 path or a path like `~/boards/contextmatrix`, not `./boards`.
 
+Several instances may share one boards repo through its remote
+(`boards.shared: true`). Each instance commits as
+`ContextMatrix <contextmatrix@<instance.id>>`, set once at startup. Conflicts
+are resolved by `internal/boardmerge` with card-aware three-way rules
+(terminal state absorbs, later `updated` breaks scalar ties, additive usage,
+set union for lists, activity log union, delete wins, remote wins the ID on
+an add/add and the local card is re-minted). Every override writes a `merge`
+activity entry on the card and appears in `GET /api/sync` under
+`resolutions`.
+
 ## File layout
 
 **Source code:**
@@ -668,6 +688,7 @@ internal/
   images/            # content-hashed image blob store + processor (resize/EXIF strip)
   github/            # GitHub client + issue parser + import syncer
   gitsync/           # boards repo background pull/push syncer
+  boardmerge/        # pure three-way merge rules for a shared boards repo
   events/            # in-process pub/sub (events.Bus)
   config/            # typed YAML loader
   ctxlog/            # request_id context logger + MCPCall context
