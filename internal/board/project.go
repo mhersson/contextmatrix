@@ -175,13 +175,13 @@ func SaveProjectConfig(dir string, cfg *ProjectConfig) error {
 		return err
 	}
 
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("create project directory: %w", err)
+	}
+
 	data, err := SerializeProjectConfig(cfg)
 	if err != nil {
 		return err
-	}
-
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("create project directory: %w", err)
 	}
 
 	path := filepath.Join(dir, boardConfigFile)
