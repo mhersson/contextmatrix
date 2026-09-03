@@ -1014,25 +1014,7 @@ func (m *Manager) doClearContext(ctx context.Context, sessionID string) error {
 
 	markedCount, msg, err := m.store.ClearTranscriptAtomic(persistCtx, sessionID, divider)
 	if err != nil {
-		// Reseed the counter from MAX(seq) on disk instead of a blind
-		// decrement. The per-session append lock is still held, so
-		// MAX(seq) on disk is authoritative. Unchanged from the
-		// appendMessageWithKind pattern below.
-		reseedCtx, reseedCancel := context.WithTimeout(context.WithoutCancel(ctx), reseedTimeout)
-		defer reseedCancel()
-
-		maxSeq, reseedErr := m.store.MaxSeq(reseedCtx, sessionID)
-		if reseedErr != nil {
-			// Leave the counter ahead of disk rather than decrement it
-			// onto a possibly-committed divider row - see the same
-			// fallback in appendMessageWithKind.
-			m.logger.Warn("chat: ClearContext failed and seq reseed failed; counter left ahead of disk",
-				"session_id", sessionID, "error", reseedErr)
-		} else {
-			m.mu.Lock()
-			m.seqMap[sessionID] = maxSeq
-			m.mu.Unlock()
-		}
+		m.reseedSeq(ctx, sessionID, "ClearContext")
 
 		sl.Unlock()
 
@@ -1419,6 +1401,28 @@ const (
 	persistTimeout = 30 * time.Second
 )
 
+// reseedSeq re-reads MAX(seq) after a failed write and reseeds the in-memory
+// counter from disk instead of decrementing it. Callers hold the session's
+// append lock, so MAX(seq) is authoritative. The row may have committed
+// despite the error: a decrement could land behind disk and collide on
+// UNIQUE(session_id, seq) and wedge every later append. A gap is harmless.
+func (m *Manager) reseedSeq(ctx context.Context, sessionID, op string) {
+	reseedCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), reseedTimeout)
+	defer cancel()
+
+	maxSeq, err := m.store.MaxSeq(reseedCtx, sessionID)
+	if err != nil {
+		m.logger.Warn("chat: "+op+" failed and seq reseed failed; counter left ahead of disk",
+			"session_id", sessionID, "error", err)
+
+		return
+	}
+
+	m.mu.Lock()
+	m.seqMap[sessionID] = maxSeq
+	m.mu.Unlock()
+}
+
 // maxMessageBytes caps a single persisted transcript entry. Verbose tool
 // output (e.g. a tool_result containing a large file dump) would otherwise
 // grow the transcript store linearly without bound. The user-message path is
@@ -1552,34 +1556,7 @@ func (m *Manager) appendMessageWithKind(ctx context.Context, sessionID string, r
 	defer persistCancel()
 
 	if _, err := m.store.AppendMessage(persistCtx, msg); err != nil {
-		// Reseed the counter from MAX(seq) on disk instead of a blind
-		// decrement. The per-session append lock is still held, so
-		// no concurrent writer for this session can have raced and
-		// MAX(seq) is authoritative. If the row committed despite the
-		// error, MAX(seq) returns N and the next append takes N+1; if it
-		// did not commit, MAX(seq) returns N-1 and the next append reuses
-		// N - matching the old decrement behaviour.
-		//
-		// Use a detached context - the caller's context may be exactly
-		// what failed the write.
-		reseedCtx, reseedCancel := context.WithTimeout(context.WithoutCancel(ctx), reseedTimeout)
-		defer reseedCancel()
-
-		maxSeq, reseedErr := m.store.MaxSeq(reseedCtx, sessionID)
-		if reseedErr != nil {
-			// Leave the counter where it is. Nothing depends on seq
-			// being contiguous - it is an ordering key and a row
-			// identity - so a counter ahead of disk only leaves a gap.
-			// A counter behind disk collides on UNIQUE(session_id, seq)
-			// and wedges every later append on this session, which is
-			// the failure mode this reseed exists to prevent.
-			m.logger.Warn("chat: append failed and seq reseed failed; counter left ahead of disk",
-				"session_id", sessionID, "error", reseedErr)
-		} else {
-			m.mu.Lock()
-			m.seqMap[sessionID] = maxSeq
-			m.mu.Unlock()
-		}
+		m.reseedSeq(ctx, sessionID, "append")
 
 		return Message{}, fmt.Errorf("chat: append: %w", err)
 	}

@@ -14,7 +14,7 @@ export function chipClassForState(state: string): string {
 }
 
 /** Shallow equality check for string arrays (used for label comparison). */
-function arraysEqual(a: string[] | undefined, b: string[] | undefined): boolean {
+export function arraysEqual(a: string[] | undefined, b: string[] | undefined): boolean {
   const aa = a ?? [];
   const bb = b ?? [];
   if (aa.length !== bb.length) return false;
@@ -28,7 +28,7 @@ function arraysEqual(a: string[] | undefined, b: string[] | undefined): boolean 
  * Three-state equality for `skills`. null and undefined are equivalent
  * ("use project default"); arrays are compared element-wise.
  */
-function skillsEqual(
+export function skillsEqual(
   a: string[] | null | undefined,
   b: string[] | null | undefined,
 ): boolean {

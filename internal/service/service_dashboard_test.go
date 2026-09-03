@@ -290,7 +290,7 @@ func TestGetDashboard_ModelCosts_BucketsByModel(t *testing.T) {
 	require.NoError(t, err)
 
 	byModel := map[string]ModelCost{}
-	for _, mc := range data.ModelCosts {
+	for _, mc := range data.ModelCosts30d {
 		byModel[mc.Model] = mc
 	}
 
@@ -314,7 +314,7 @@ func TestGetDashboard_ModelCosts_BucketsByModel(t *testing.T) {
 
 // TestGetDashboard_Costs30dWindow verifies ModelCosts30d / CardCosts30d
 // restrict the rollups to cards updated inside the last-30d window (the same
-// boundary as TotalCostUSDLast30d), while the all-time slices keep everything.
+// boundary as TotalCostUSDLast30d).
 func TestGetDashboard_Costs30dWindow(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
@@ -345,10 +345,6 @@ func TestGetDashboard_Costs30dWindow(t *testing.T) {
 
 	data, err := svc.GetDashboard(ctx, project)
 	require.NoError(t, err)
-
-	// All-time slices keep every card / model.
-	assert.Len(t, data.ModelCosts, 3, "all-time model rollup keeps all models")
-	assert.Len(t, data.CardCosts, 4, "all-time card rollup keeps all cards")
 
 	// 30d slices keep the in-window cards only: recent and edge-in.
 	in30d := map[string]float64{}
@@ -464,7 +460,7 @@ func TestGetDashboard_ModelCosts_SameModelTwoBucketsCountsCardOnce(t *testing.T)
 	require.NoError(t, err)
 
 	byModel := map[string]ModelCost{}
-	for _, mc := range data.ModelCosts {
+	for _, mc := range data.ModelCosts30d {
 		byModel[mc.Model] = mc
 	}
 
@@ -474,15 +470,6 @@ func TestGetDashboard_ModelCosts_SameModelTwoBucketsCountsCardOnce(t *testing.T)
 	assert.Equal(t, int64(300), sonnet.PromptTokens)
 	assert.Equal(t, int64(150), sonnet.CompletionTokens)
 	assert.InDelta(t, 0.30, sonnet.EstimatedCostUSD, 1e-9)
-
-	// Each agent still gets its own row with CardCount 1.
-	byAgent := map[string]AgentCost{}
-	for _, ac := range data.AgentCosts {
-		byAgent[ac.AgentID] = ac
-	}
-
-	assert.Equal(t, 1, byAgent["cmx-agent-a"].CardCount)
-	assert.Equal(t, 1, byAgent["cmx-agent-b"].CardCount)
 }
 
 func TestGetDashboard_ParentOnlyCounters(t *testing.T) {
@@ -1155,8 +1142,8 @@ func TestGetDashboard_CardCosts_FoldsSubtasksIntoParent(t *testing.T) {
 	data, err := svc.GetDashboard(ctx, project)
 	require.NoError(t, err)
 
-	require.Len(t, data.CardCosts, 1, "subtask rows must fold into the parent row")
-	row := data.CardCosts[0]
+	require.Len(t, data.CardCosts30d, 1, "subtask rows must fold into the parent row")
+	row := data.CardCosts30d[0]
 	assert.Equal(t, parentID, row.CardID)
 	assert.Equal(t, int64(1150), row.PromptTokens)
 	assert.Equal(t, int64(230), row.CompletionTokens)
@@ -1182,8 +1169,8 @@ func TestGetDashboard_CardCosts_ParentRowCreatedOnDemand(t *testing.T) {
 	data, err := svc.GetDashboard(ctx, project)
 	require.NoError(t, err)
 
-	require.Len(t, data.CardCosts, 1)
-	row := data.CardCosts[0]
+	require.Len(t, data.CardCosts30d, 1)
+	row := data.CardCosts30d[0]
 	assert.Equal(t, parent.ID, row.CardID)
 	assert.Equal(t, "usage-free parent", row.CardTitle)
 	assert.InDelta(t, 0.30, row.EstimatedCostUSD, 1e-9)
@@ -1216,9 +1203,9 @@ func TestGetDashboard_CardCosts_OrphanSubtaskKeepsRow(t *testing.T) {
 	data, err := svc.GetDashboard(ctx, project)
 	require.NoError(t, err)
 
-	require.Len(t, data.CardCosts, 1)
-	assert.Equal(t, orphan.ID, data.CardCosts[0].CardID)
-	assert.InDelta(t, 0.05, data.CardCosts[0].EstimatedCostUSD, 1e-9)
+	require.Len(t, data.CardCosts30d, 1)
+	assert.Equal(t, orphan.ID, data.CardCosts30d[0].CardID)
+	assert.InDelta(t, 0.05, data.CardCosts30d[0].EstimatedCostUSD, 1e-9)
 }
 
 // TestGetChatCostSummary_DeletePreservesCost guards the invariant that after

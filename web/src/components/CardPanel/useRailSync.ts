@@ -3,6 +3,7 @@ import type React from 'react';
 import type { Card } from '../../types';
 import type { RailMode, RailTabKey } from './CardPanelBody';
 import { safeReadBool, safeWriteBool } from '../../utils/safeStorage';
+import { arraysEqual, skillsEqual } from './utils';
 
 const RAIL_STORAGE_KEY = 'contextmatrix-rail-expanded';
 
@@ -13,6 +14,34 @@ const safeWriteRail = (value: boolean) => safeWriteBool(RAIL_STORAGE_KEY, value)
  *  is never stored, so this is also where exiting full width lands. */
 const restoreMode = (isChatInteractive: boolean): RailMode =>
   (safeReadRail() ?? isChatInteractive) ? 'expanded' : 'collapsed';
+
+/**
+ * True when `a` (the draft) differs from `b` (last known server value) in a
+ * way that counts as a user edit. Array fields compare by content, matching
+ * `isCardDirty`: a save never resets the draft, so a reference check would
+ * read a saved array as "still edited" forever once the server's own
+ * reference moves on.
+ */
+function fieldChanged(key: keyof Card, a: unknown, b: unknown): boolean {
+  if (key === 'skills') {
+    return !skillsEqual(a as string[] | null | undefined, b as string[] | null | undefined);
+  }
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return !arraysEqual(a as string[] | undefined, b as string[] | undefined);
+  }
+  return !Object.is(a, b);
+}
+
+/** `next` with the keys the user changed since `prev` kept from `draft`. */
+export function mergeDraft(draft: Card, prev: Card, next: Card): Card {
+  const out: Card = { ...next };
+  for (const key of Object.keys(draft) as (keyof Card)[]) {
+    if (fieldChanged(key, draft[key], prev[key])) {
+      (out as unknown as Record<string, unknown>)[key] = draft[key];
+    }
+  }
+  return out;
+}
 
 export interface RailSync {
   railMode: RailMode;
@@ -34,8 +63,9 @@ export interface RailSync {
  *
  *  - Card identity change (cardId changes): full reset - editedCard,
  *    railMode → restoreMode(), activeTab → defaultTab.
- *  - Same card, new SSE object reference: editedCard refreshes; railMode
- *    and activeTab are preserved.
+ *  - Same card, new SSE object reference: editedCard takes the server values
+ *    for every field the user has not edited; railMode and activeTab are
+ *    preserved.
  *  - isChatInteractive flip to true: resets activeTab → 'chat', railMode →
  *    'expanded' (and persists true to localStorage) - unless the rail is
  *    already 'full', which is wider still and stays.
@@ -100,7 +130,7 @@ export function useRailSync(
   } else if (sync.card !== card || sync.isChatInteractive !== isChatInteractive) {
     const flippedOn = sync.isChatInteractive !== isChatInteractive && isChatInteractive;
     const flippedOff = sync.isChatInteractive && !isChatInteractive;
-    if (sync.card !== card) setEditedCard(card);
+    if (sync.card !== card) setEditedCard((draft) => mergeDraft(draft, sync.card, card));
     if (flippedOn) {
       // Interactive chat flipped live: jump to chat tab, widen rail, disarm.
       // Persist the forced-expand so it survives remounts - the stored

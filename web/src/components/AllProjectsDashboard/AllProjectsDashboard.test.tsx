@@ -83,9 +83,6 @@ describe('AllProjectsDashboard - mount fetch count', () => {
         stalled_parents: [],
         shipped_parents: [],
       },
-      agent_costs: [],
-      card_costs: [],
-      model_costs: [],
     });
   });
 

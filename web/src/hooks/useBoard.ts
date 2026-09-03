@@ -17,9 +17,10 @@ interface UseBoardResult {
   refresh: () => Promise<void>;
   /**
    * Increments on every successful wholesale list replace (initial load,
-   * sync-pull reload, SSE-reconnect resync). Consumers holding a hydrated
-   * card key re-hydration effects on this: the replace rebuilds `cards` from
-   * the list endpoint, which omits single-card-GET-only fields.
+   * sync-pull reload, SSE-reconnect resync, silent playbook refresh).
+   * Consumers holding a hydrated card key re-hydration effects on this: the
+   * replace rebuilds `cards` from the list endpoint, which omits
+   * single-card-GET-only fields.
    */
   listEpoch: number;
   refreshCard: (cardId: string) => Promise<void>;
@@ -63,6 +64,11 @@ export function useBoard(
   // (e.g. triggered by SSE sync.completed) from overwriting a newer one.
   const reqIdRef = useRef(0);
 
+  // Per-instance monotonic counter for silent refreshes. These never stamp
+  // reqIdRef, so without their own id two back-to-back refreshes would carry
+  // the same one and whichever resolved last would win, even when older.
+  const refreshSeqRef = useRef(0);
+
   const fetchData = useCallback(async () => {
     if (!project) {
       setConfig(null);
@@ -95,6 +101,29 @@ export function useBoard(
     } finally {
       if (reqId === reqIdRef.current) setLoading(false);
     }
+  }, [project, stableFilter]);
+
+  // Silent list refresh: replaces the card list without touching `loading`,
+  // keeping any card whose PATCH is still in flight.
+  const refreshCards = useCallback(() => {
+    if (!project) return;
+    // Read-only snapshot (never incremented): guards against this refresh
+    // landing after a newer fetchData call (e.g. a project/filter switch)
+    // already took over, without invalidating that fetchData call itself.
+    const reqId = reqIdRef.current;
+    const refreshSeq = ++refreshSeqRef.current;
+    api
+      .getCards(project, stableFilter)
+      .then((next) => {
+        if (reqId !== reqIdRef.current || refreshSeq !== refreshSeqRef.current) return;
+        setCards((prev) =>
+          next.map((c) => (inFlightRef.current.has(c.id) ? (prev.find((p) => p.id === c.id) ?? c) : c)),
+        );
+        setListEpoch((e) => e + 1);
+      })
+      .catch((err) => {
+        console.error('Failed to refresh cards:', err);
+      });
   }, [project, stableFilter]);
 
   // Reset state on project/filter change (render-time pattern).
@@ -186,11 +215,11 @@ export function useBoard(
         return;
       }
 
-      // Playbook membership is annotated onto cards at read time, so any
-      // playbook change can flip a card's playbook icon. Playbook events are
-      // global (no project field); refetch the board.
+      // Playbook membership is annotated onto cards at read time and playbook
+      // events are global, so every board refreshes - silently: a skeleton
+      // for another user's note edit would cancel drags and reset scroll.
       if (event.type.startsWith('playbook.')) {
-        fetchData();
+        refreshCards();
         return;
       }
 
@@ -239,7 +268,7 @@ export function useBoard(
           break;
       }
     },
-    [project, fetchData, mergeCard]
+    [project, fetchData, mergeCard, refreshCards]
   );
 
   const { subscribe, connected, error: sseError, reconnectEpoch } = useSSEBus();

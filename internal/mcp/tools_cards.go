@@ -332,11 +332,26 @@ func foreignRepoRefs(ctx context.Context, svc *service.CardService, project stri
 	return refs
 }
 
-// lintCardMutation runs the self-containment lint over the mutated fields and,
-// when it finds anything, appends an advisory activity-log entry. Best-effort
-// on the log write; the warnings are returned regardless.
-func lintCardMutation(ctx context.Context, svc *service.CardService, project, cardID, agentID, verb, text string) []string {
-	warnings := board.LintSelfContained(text, foreignRepoRefs(ctx, svc, project))
+// lintCardMutation returns the self-containment warnings text carries that
+// previous does not, and records them as one advisory activity-log entry.
+// Diffing against the pre-mutation text keeps a full-body rewrite - the
+// agent's history writes - from re-warning about a signal already on the card.
+func lintCardMutation(ctx context.Context, svc *service.CardService, project, cardID, agentID, verb, text, previous string) []string {
+	repos := foreignRepoRefs(ctx, svc, project)
+
+	seen := make(map[string]bool)
+	for _, w := range board.LintSelfContained(previous, repos) {
+		seen[w] = true
+	}
+
+	var warnings []string
+
+	for _, w := range board.LintSelfContained(text, repos) {
+		if !seen[w] {
+			warnings = append(warnings, w)
+		}
+	}
+
 	if len(warnings) == 0 {
 		return nil
 	}
@@ -349,6 +364,10 @@ func lintCardMutation(ctx context.Context, svc *service.CardService, project, ca
 	_, _ = svc.AddLogEntry(ctx, project, cardID, entry) //nolint:errcheck // advisory note; must not fail the mutation
 
 	return warnings
+}
+
+func lintText(card *board.Card) string {
+	return card.Title + "\n" + card.Body
 }
 
 func registerCreateCard(server *mcp.Server, svc *service.CardService) {
@@ -375,8 +394,8 @@ func registerCreateCard(server *mcp.Server, svc *service.CardService) {
 			return nil, nil, fmt.Errorf("create card: %w", err)
 		}
 
-		lintText := strings.Join([]string{input.Title, input.Body}, "\n")
-		warnings := lintCardMutation(ctx, svc, input.Project, card.ID, input.AgentID, "created", lintText)
+		submitted := strings.Join([]string{input.Title, input.Body}, "\n")
+		warnings := lintCardMutation(ctx, svc, input.Project, card.ID, input.AgentID, "created", submitted, "")
 
 		return nil, &cardMutationResult{CardSummary: *summarizeCard(card), Warnings: warnings}, nil
 	})
@@ -416,27 +435,25 @@ func registerUpdateCard(server *mcp.Server, svc *service.CardService) {
 			}
 		}
 
+		lintable := input.Title != nil || input.Body != nil || input.UpsertSectionContent != nil
+
+		var before *board.Card
+
+		if lintable {
+			before, err = svc.GetCard(ctx, project, input.CardID)
+			if err != nil {
+				return nil, nil, fmt.Errorf("get card %s: %w", input.CardID, err)
+			}
+		}
+
 		card, err := svc.PatchCard(ctx, project, input.CardID, patchInput)
 		if err != nil {
 			return nil, nil, fmt.Errorf("update card %s: %w", input.CardID, err)
 		}
 
-		var parts []string
-		if input.Title != nil {
-			parts = append(parts, *input.Title)
-		}
-
-		if input.Body != nil {
-			parts = append(parts, *input.Body)
-		}
-
-		if input.UpsertSectionContent != nil {
-			parts = append(parts, *input.UpsertSectionContent)
-		}
-
 		var warnings []string
-		if len(parts) > 0 {
-			warnings = lintCardMutation(ctx, svc, project, card.ID, input.AgentID, "updated", strings.Join(parts, "\n"))
+		if lintable {
+			warnings = lintCardMutation(ctx, svc, project, card.ID, input.AgentID, "updated", lintText(card), lintText(before))
 		}
 
 		return nil, &cardMutationResult{CardSummary: *summarizeCard(card), Warnings: warnings}, nil

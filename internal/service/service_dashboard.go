@@ -29,22 +29,6 @@ type ActiveAgent struct {
 	LastHeartbeat time.Time `json:"last_heartbeat"`
 }
 
-// AgentCost contains per-agent cost aggregation.
-type AgentCost struct {
-	AgentID          string  `json:"agent_id"`
-	PromptTokens     int64   `json:"prompt_tokens"`
-	CompletionTokens int64   `json:"completion_tokens"`
-	EstimatedCostUSD float64 `json:"estimated_cost_usd"`
-	CardCount        int     `json:"card_count"`
-	// HasEstimates is true when any card folded into this row carries a
-	// rate-table-estimated cost. On the breakdown path this is bucket-level -
-	// only rows whose own (agent, model) bucket is estimated are flagged, so
-	// a card mixing actual and estimated buckets does not mark this row's
-	// actual-cost buckets; on the legacy fallback path (no breakdown) it is
-	// card-level via costHasEstimates.
-	HasEstimates bool `json:"has_estimates,omitempty"`
-}
-
 // ModelCost contains per-model cost aggregation. Cards whose TokenUsage has
 // no Model set are bucketed under "unknown" so totals reconcile.
 type ModelCost struct {
@@ -126,10 +110,7 @@ type DashboardData struct {
 	CardsCompletedPrior7d        int          `json:"cards_completed_prior_7d"`
 	CardsCompletedPrior7dParents int          `json:"cards_completed_prior_7d_parents"`
 	MetricSeries                 MetricSeries `json:"metric_series"`
-	AgentCosts                   []AgentCost  `json:"agent_costs"`
-	ModelCosts                   []ModelCost  `json:"model_costs"`
-	CardCosts                    []CardCost   `json:"card_costs"`
-	// ModelCosts30d / CardCosts30d restrict the same rollups to cards whose
+	// ModelCosts30d / CardCosts30d restrict the cost rollups to cards whose
 	// Updated falls inside the last-30d window (the same boundary as
 	// TotalCostUSDLast30d): a card's full cost attributes to its last-touch
 	// day, so the slices sum to the 30d KPI figure.
@@ -166,7 +147,7 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 	}
 
 	byID := buildCardIndex(cards)
-	agentCosts, modelCosts, cardCosts, totalCostUSD := aggregateCostsWithParentIndex(cards, byID)
+	_, cardCosts, totalCostUSD := aggregateCostsWithParentIndex(cards, byID)
 
 	// 30d rollups: same window boundary as bucketCostSeries' last30d (local
 	// midnight, 29 days back). The full card index keeps subtask folding
@@ -181,7 +162,7 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 		}
 	}
 
-	_, modelCosts30d, cardCosts30d, _ := aggregateCostsWithParentIndex(cards30d, byID)
+	modelCosts30d, cardCosts30d, _ := aggregateCostsWithParentIndex(cards30d, byID)
 
 	// Every card that contributes to totalCostUSD folds its costHasEstimates
 	// flag into exactly one CardCost row (its own, or its parent's via
@@ -241,9 +222,6 @@ func (s *CardService) GetDashboard(ctx context.Context, project string) (*Dashbo
 		CardsCompletedPrior7d:        completions.prior7d,
 		CardsCompletedPrior7dParents: completions.prior7dParents,
 		MetricSeries:                 sparkline,
-		AgentCosts:                   agentCosts,
-		ModelCosts:                   modelCosts,
-		CardCosts:                    cardCosts,
 		ModelCosts30d:                modelCosts30d,
 		CardCosts30d:                 cardCosts30d,
 		ChatCostUSDLast30d:           chatLast30d,
@@ -432,21 +410,6 @@ func costHasEstimates(c *board.Card) bool {
 		c.TokenUsage != nil && c.TokenUsage.EstimatedCostUSD != 0
 }
 
-// aggregateCostsByAgentModel rolls up token usage and estimated cost per agent
-// and per model. Returns sorted slices (cost desc, name asc on ties) ready for
-// the wire, the per-card cost list, and the grand total.
-//
-// For cards with UsageBreakdown the per-(agent, model) rows are the source of
-// truth - this fixes post-release attribution where card.AssignedAgent is empty.
-// Legacy cards without breakdown fall back to card.AssignedAgent for the agent
-// rollup so historical data is not regressed.
-//
-// Map iteration is randomized, so the sort is a determinism guarantee at the
-// API boundary - the frontend re-sorts for display.
-func aggregateCostsByAgentModel(cards []*board.Card) (agentCosts []AgentCost, modelCosts []ModelCost, cardCosts []CardCost, totalCostUSD float64) {
-	return aggregateCostsWithParentIndex(cards, buildCardIndex(cards))
-}
-
 // buildCardIndex maps card ID → card for parent lookups during subtask folding.
 func buildCardIndex(cards []*board.Card) map[string]*board.Card {
 	byID := make(map[string]*board.Card, len(cards))
@@ -457,11 +420,12 @@ func buildCardIndex(cards []*board.Card) map[string]*board.Card {
 	return byID
 }
 
-// aggregateCostsWithParentIndex is aggregateCostsByAgentModel with the parent
-// index supplied by the caller, so a windowed subset of cards can still fold
-// subtask spend into parents that sit outside the subset.
-func aggregateCostsWithParentIndex(cards []*board.Card, byID map[string]*board.Card) (agentCosts []AgentCost, modelCosts []ModelCost, cardCosts []CardCost, totalCostUSD float64) {
-	agentCostMap := make(map[string]*AgentCost)
+// aggregateCostsWithParentIndex rolls up token usage and estimated cost per
+// model and per card, plus the grand total. Cards with UsageBreakdown roll up
+// per bucket; legacy cards fall back to TokenUsage. The caller supplies the
+// parent index, so a windowed subset of cards can still fold subtask spend
+// into parents that sit outside the subset. Model rows sort cost desc, name asc.
+func aggregateCostsWithParentIndex(cards []*board.Card, byID map[string]*board.Card) (modelCosts []ModelCost, cardCosts []CardCost, totalCostUSD float64) {
 	modelCostMap := make(map[string]*ModelCost)
 
 	// Per-card rows fold subtask spend into the parent's row so the Top cards
@@ -508,34 +472,12 @@ func aggregateCostsWithParentIndex(cards []*board.Card, byID map[string]*board.C
 
 		if len(card.UsageBreakdown) > 0 {
 			// Breakdown path: sum each (agent, model) bucket directly.
-			// CardCount on both rollups is incremented once per card, not
-			// per bucket - two buckets on the same agent or model (e.g. two
-			// agents using one model) must not double-count the card.
-			cardAccounted := make(map[string]bool)  // agent → counted
+			// CardCount is incremented once per card, not per bucket - two
+			// buckets on the same model (e.g. two agents using one model)
+			// must not double-count the card.
 			modelAccounted := make(map[string]bool) // model → counted
 
 			for _, b := range card.UsageBreakdown {
-				agent := b.Agent
-				if agent == "" {
-					agent = "unassigned"
-				}
-
-				ac, ok := agentCostMap[agent]
-				if !ok {
-					ac = &AgentCost{AgentID: agent}
-					agentCostMap[agent] = ac
-				}
-
-				ac.PromptTokens += b.PromptTokens
-				ac.CompletionTokens += b.CompletionTokens
-				ac.EstimatedCostUSD += b.CostUSD
-				ac.HasEstimates = ac.HasEstimates || b.CostSource == "estimated"
-
-				if !cardAccounted[agent] {
-					ac.CardCount++
-					cardAccounted[agent] = true
-				}
-
 				// Skip zero-usage buckets from the model rollup.
 				if b.PromptTokens == 0 && b.CompletionTokens == 0 && b.CostUSD == 0 {
 					continue
@@ -563,24 +505,7 @@ func aggregateCostsWithParentIndex(cards []*board.Card, byID map[string]*board.C
 				}
 			}
 		} else {
-			// Legacy path: attribute by AssignedAgent as before.
-			agent := card.AssignedAgent
-			if agent == "" {
-				agent = "unassigned"
-			}
-
-			ac, ok := agentCostMap[agent]
-			if !ok {
-				ac = &AgentCost{AgentID: agent}
-				agentCostMap[agent] = ac
-			}
-
-			ac.PromptTokens += card.TokenUsage.PromptTokens
-			ac.CompletionTokens += card.TokenUsage.CompletionTokens
-			ac.EstimatedCostUSD += card.TokenUsage.EstimatedCostUSD
-			ac.HasEstimates = ac.HasEstimates || est
-			ac.CardCount++
-
+			// Legacy path: attribute the card's own TokenUsage.
 			// Skip cards with no measurable usage from the model rollup.
 			if card.TokenUsage.PromptTokens == 0 && card.TokenUsage.CompletionTokens == 0 && card.TokenUsage.EstimatedCostUSD == 0 {
 				continue
@@ -610,25 +535,12 @@ func aggregateCostsWithParentIndex(cards []*board.Card, byID map[string]*board.C
 		cardCosts = append(cardCosts, *cardCostMap[id])
 	}
 
-	agentCosts = make([]AgentCost, 0, len(agentCostMap))
-	for _, ac := range agentCostMap {
-		agentCosts = append(agentCosts, *ac)
-	}
-
 	modelCosts = make([]ModelCost, 0, len(modelCostMap))
 	for _, mc := range modelCostMap {
 		modelCosts = append(modelCosts, *mc)
 	}
 
 	// Stable wire ordering: cost desc, identifier asc on ties.
-	sort.Slice(agentCosts, func(i, j int) bool {
-		if agentCosts[i].EstimatedCostUSD != agentCosts[j].EstimatedCostUSD {
-			return agentCosts[i].EstimatedCostUSD > agentCosts[j].EstimatedCostUSD
-		}
-
-		return agentCosts[i].AgentID < agentCosts[j].AgentID
-	})
-
 	sort.Slice(modelCosts, func(i, j int) bool {
 		if modelCosts[i].EstimatedCostUSD != modelCosts[j].EstimatedCostUSD {
 			return modelCosts[i].EstimatedCostUSD > modelCosts[j].EstimatedCostUSD
@@ -637,7 +549,7 @@ func aggregateCostsWithParentIndex(cards []*board.Card, byID map[string]*board.C
 		return modelCosts[i].Model < modelCosts[j].Model
 	})
 
-	return agentCosts, modelCosts, cardCosts, totalCostUSD
+	return modelCosts, cardCosts, totalCostUSD
 }
 
 // costWindowStart returns the start of the last-30d cost window: local

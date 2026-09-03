@@ -684,21 +684,12 @@ func TestReportUsageSeedsMigrationBucketForLegacyCost(t *testing.T) {
 	assert.Equal(t, "cmx-agent-new", fresh.Agent)
 	assert.InDelta(t, 1.0, fresh.CostUSD, 1e-9)
 
-	// Dashboard rollups: $5 attributed to the legacy/unassigned agent, $1 to
-	// the reporting agent; grand total still $6.
+	// Dashboard rollups: grand total still $6.
 	cards, err := svc.store.ListCards(ctx, "test-project", storage.CardFilter{})
 	require.NoError(t, err)
 
-	agentCosts, _, _, total := aggregateCostsByAgentModel(cards)
+	_, _, total := aggregateCostsWithParentIndex(cards, buildCardIndex(cards))
 	assert.InDelta(t, 6.0, total, 1e-9, "grand total preserved")
-
-	byAgent := make(map[string]float64, len(agentCosts))
-	for _, ac := range agentCosts {
-		byAgent[ac.AgentID] = ac.EstimatedCostUSD
-	}
-
-	assert.InDelta(t, 5.0, byAgent["unassigned"], 1e-9, "legacy spend attributed to unassigned")
-	assert.InDelta(t, 1.0, byAgent["cmx-agent-new"], 1e-9, "delta attributed to reporting agent")
 }
 
 // TestReportUsageSeedsMigrationBucketForLegacyTokensZeroCost verifies the seed
@@ -762,21 +753,21 @@ func TestReportUsageSeedsMigrationBucketForLegacyTokensZeroCost(t *testing.T) {
 	assert.Equal(t, int64(1000), migration.PromptTokens)
 	assert.Equal(t, int64(500), migration.CompletionTokens)
 
-	// Token rollups are complete: legacy tokens land under unassigned,
-	// the delta under the reporting agent.
+	// Token rollups are complete: the legacy tokens land under the migrated
+	// model, the delta under the reporting model.
 	cards, err := svc.store.ListCards(ctx, "test-project", storage.CardFilter{})
 	require.NoError(t, err)
 
-	agentCosts, _, _, _ := aggregateCostsByAgentModel(cards)
+	modelCosts, _, _ := aggregateCostsWithParentIndex(cards, buildCardIndex(cards))
 
-	byAgent := make(map[string]AgentCost, len(agentCosts))
-	for _, ac := range agentCosts {
-		byAgent[ac.AgentID] = ac
+	byModel := make(map[string]ModelCost, len(modelCosts))
+	for _, mc := range modelCosts {
+		byModel[mc.Model] = mc
 	}
 
-	assert.Equal(t, int64(1000), byAgent["unassigned"].PromptTokens)
-	assert.Equal(t, int64(500), byAgent["unassigned"].CompletionTokens)
-	assert.Equal(t, int64(50), byAgent["cmx-agent-new"].PromptTokens)
+	assert.Equal(t, int64(1000), byModel["claude-sonnet-4-6"].PromptTokens)
+	assert.Equal(t, int64(500), byModel["claude-sonnet-4-6"].CompletionTokens)
+	assert.Equal(t, int64(50), byModel["openai/gpt-5.5"].PromptTokens)
 
 	// RecalculateCosts prices the migrated bucket from the rate table;
 	// the actual-cost delta bucket stays untouched.
@@ -970,84 +961,6 @@ func TestRecalculateCostsRepricesStaleEstimatedBuckets(t *testing.T) {
 	assert.InDelta(t, 0.42, bucketB.CostUSD, 1e-9, "actual bucket must not be modified")
 	assert.InDelta(t, bucketA.CostUSD+bucketB.CostUSD, after.TokenUsage.EstimatedCostUSD, 1e-9,
 		"EstimatedCostUSD must equal bucket sum after recalculation")
-}
-
-// TestCostByAgentSurvivesRelease verifies that aggregateCostsByAgentModel reads
-// from UsageBreakdown rows rather than card.AssignedAgent, so costs are attributed
-// correctly even after the agent is released and AssignedAgent is cleared.
-func TestCostByAgentSurvivesRelease(t *testing.T) {
-	ctx := context.Background()
-	now := time.Date(2026, 6, 12, 12, 0, 0, 0, time.UTC)
-
-	svc, project, cleanup := setupDashboardServiceAt(t, now)
-	t.Cleanup(cleanup)
-
-	// Inject cost rates so ReportUsage can price the estimated calls.
-	svc.tokenCosts = map[string]ModelRate{
-		"claude-sonnet-4-6": {Prompt: 0.000003, Completion: 0.000015},
-	}
-
-	// Create a card and claim it.
-	card, err := svc.CreateCard(ctx, project, CreateCardInput{
-		Title:    "Release attribution test",
-		Type:     "task",
-		Priority: "medium",
-	})
-	require.NoError(t, err)
-
-	_, err = svc.ClaimCard(ctx, project, card.ID, "cmx-agent-x")
-	require.NoError(t, err)
-
-	// Report usage on two models for the same agent.
-	cost := 0.25
-	_, err = svc.ReportUsage(ctx, project, card.ID, ReportUsageInput{
-		AgentID:          "cmx-agent-x",
-		Model:            "claude-sonnet-4-6",
-		PromptTokens:     1000,
-		CompletionTokens: 500,
-		ActualCostUSD:    &cost,
-	})
-	require.NoError(t, err)
-
-	cost2 := 0.17
-	_, err = svc.ReportUsage(ctx, project, card.ID, ReportUsageInput{
-		AgentID:          "cmx-agent-x",
-		Model:            "openai/gpt-5.5",
-		PromptTokens:     200,
-		CompletionTokens: 100,
-		ActualCostUSD:    &cost2,
-	})
-	require.NoError(t, err)
-
-	// Release the card: AssignedAgent is cleared.
-	_, err = svc.ReleaseCard(ctx, project, card.ID, "cmx-agent-x")
-	require.NoError(t, err)
-
-	// Verify AssignedAgent is empty (this is the precondition for the bug).
-	released, err := svc.GetCard(ctx, project, card.ID)
-	require.NoError(t, err)
-	assert.Empty(t, released.AssignedAgent, "AssignedAgent must be cleared after release")
-	require.Len(t, released.UsageBreakdown, 2, "breakdown rows must survive release")
-
-	// GetDashboard exercises aggregateCostsByAgentModel.
-	data, err := svc.GetDashboard(ctx, project)
-	require.NoError(t, err)
-
-	// Build a lookup map: agent_id → AgentCost.
-	byAgent := map[string]AgentCost{}
-	for _, ac := range data.AgentCosts {
-		byAgent[ac.AgentID] = ac
-	}
-
-	// The cost must appear under "cmx-agent-x", not under "unassigned".
-	agentRow, ok := byAgent["cmx-agent-x"]
-	require.True(t, ok, "cmx-agent-x must appear in AgentCosts even after release")
-	assert.InDelta(t, 0.42, agentRow.EstimatedCostUSD, 1e-9,
-		"total cost (0.25 + 0.17) must be attributed to cmx-agent-x")
-
-	_, hasUnassigned := byAgent["unassigned"]
-	assert.False(t, hasUnassigned,
-		"no cost should land in the unassigned bucket when breakdown rows are present")
 }
 
 // TestReportUsageResolvesRateOutsideWriteMu pins the lock ordering: the
@@ -1502,7 +1415,7 @@ func TestAggregateCostsFlagsEstimates(t *testing.T) {
 		},
 	}
 
-	agentCosts, modelCosts, cardCosts, _ := aggregateCostsByAgentModel(cards)
+	modelCosts, cardCosts, _ := aggregateCostsWithParentIndex(cards, buildCardIndex(cards))
 
 	byCard := map[string]bool{}
 	for _, c := range cardCosts {
@@ -1520,6 +1433,4 @@ func TestAggregateCostsFlagsEstimates(t *testing.T) {
 
 	assert.False(t, byModel["m1"])
 	assert.True(t, byModel["m2"])
-	require.NotEmpty(t, agentCosts)
-	assert.True(t, agentCosts[0].HasEstimates, "w1 mixes actual and estimated")
 }
