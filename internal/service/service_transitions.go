@@ -42,6 +42,17 @@ func enforceTerminalStateInvariants(card *board.Card, stateChanged, shared bool)
 	}
 }
 
+// applyTerminalInvariants is enforceTerminalStateInvariants plus the lease
+// bookkeeping that belongs with it: a cancelled card carries no claim, so the
+// live beat and confirmation stamp this instance kept for it go too.
+func (s *CardService) applyTerminalInvariants(project string, card *board.Card, stateChanged bool) {
+	enforceTerminalStateInvariants(card, stateChanged, s.sharedClaims())
+
+	if stateChanged && card.State == board.StateNotPlanned {
+		s.lock.ClearBeat(project, card.ID)
+	}
+}
+
 // applyStateChangeSideEffects runs post-commit side effects that fire when a
 // card's State has changed. Currently this flushes any accumulated deferred
 // commits when the card reaches a state where no subsequent Release or
@@ -163,7 +174,7 @@ func (s *CardService) transitionParentDirect(
 
 		// State-change invariants: release claim on not_planned, clear
 		// worker_status on terminal states.
-		enforceTerminalStateInvariants(parent, true, s.sharedClaims())
+		s.applyTerminalInvariants(parent.Project, parent, true)
 
 		if err := s.store.UpdateCard(ctx, parent.Project, parent); err != nil {
 			return fmt.Errorf("persist parent card: %w", err)

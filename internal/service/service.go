@@ -540,7 +540,7 @@ func (s *CardService) transitionStep(
 	// State-change invariants: release claim on not_planned, clear
 	// worker_status on terminal states. Each step in the path is a state
 	// change, so pass stateChanged=true.
-	enforceTerminalStateInvariants(card, true, s.sharedClaims())
+	s.applyTerminalInvariants(project, card, true)
 
 	if err := s.validator.ValidateCard(cfg, card); err != nil {
 		return nil, fmt.Errorf("validate card: %w", err)

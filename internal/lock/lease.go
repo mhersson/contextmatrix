@@ -58,9 +58,16 @@ func (m *Manager) ClearBeat(project, id string) {
 }
 
 // LastBeat returns the newer of the card's file heartbeat and the live beat
-// this instance holds for it. A card this instance never beat returns the
-// file value unchanged, so callers can use it for every card.
+// this instance holds for it. The live beat is liveness of a claim this
+// instance is running, so it is consulted only while the card still carries
+// that claim: an unclaimed card, a card a peer took over, and a claim from
+// before shared boards all report the file value, as does any card this
+// instance never beat. Callers can use it for every card.
 func (m *Manager) LastBeat(card *board.Card) *time.Time {
+	if card.AssignedAgent == "" || card.ClaimedVia != m.instance {
+		return card.LastHeartbeat
+	}
+
 	m.leaseMu.Lock()
 	live, ok := m.beats[leaseKey(card.Project, card.ID)]
 	m.leaseMu.Unlock()

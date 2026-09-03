@@ -133,6 +133,10 @@ func TestSharedNotPlanned_ClearsTupleAndBumps(t *testing.T) {
 	assert.Empty(t, cancelled.AssignedAgent)
 	assert.Empty(t, cancelled.ClaimedVia)
 	assert.Equal(t, 2, cancelled.ClaimEpoch)
+
+	read, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Nil(t, read.LastHeartbeat, "a cancelled card carries no live beat")
 }
 
 func TestSharedHeartbeat_RenewsTheFileOncePerLeaseInterval(t *testing.T) {
@@ -201,6 +205,38 @@ func TestSharedStall_SkipsForeignClaimsAndBumpsOwn(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, board.StateInProgress, other.State, "a peer's claim is never stalled by the heartbeat rule")
 	assert.Equal(t, "lap-b", other.ClaimedVia)
+}
+
+func TestSharedStall_SkipsAFencedOwnClaim(t *testing.T) {
+	svc, fake, cleanup := newSharedService(t, 30*time.Minute)
+	defer cleanup()
+
+	ctx := context.Background()
+	card := createShared(t, svc)
+	_, err := svc.ClaimCard(ctx, "test-project", card.ID, "a")
+	require.NoError(t, err)
+
+	// Out of contact for longer than the lease timeout: a peer may already
+	// have taken the card over, so this instance syncs before it writes a
+	// stall of its own.
+	fake.Advance(61 * time.Minute)
+	require.NoError(t, svc.SweepStalled(ctx))
+
+	got, err := svc.store.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "a", got.AssignedAgent, "a fenced claim is left for the next cycle to settle")
+	assert.Equal(t, 1, got.ClaimEpoch)
+
+	// Once a cycle has confirmed the lease, the heartbeat rule applies again.
+	svc.SyncSucceeded(ctx)
+	fake.Advance(31 * time.Minute)
+	require.NoError(t, svc.SweepStalled(ctx))
+
+	got, err = svc.store.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, board.StateStalled, got.State)
+	assert.Empty(t, got.AssignedAgent)
+	assert.Equal(t, 2, got.ClaimEpoch)
 }
 
 func TestSharedWorkerStatus_IgnoresForeignCard(t *testing.T) {

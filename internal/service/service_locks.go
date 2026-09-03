@@ -753,6 +753,18 @@ func (s *CardService) markCardStalled(ctx context.Context, sc lock.StalledCard) 
 		return nil
 	}
 
+	// This instance has been out of contact for longer than lease_timeout, so
+	// a peer may already hold the card. Sync first: a stall written now would
+	// race the takeover at the same epoch, and a peer's own foreign-stall
+	// sweep covers the card meanwhile.
+	if s.lock.Fenced(card) {
+		s.writeMu.Unlock()
+		ctxlog.Logger(ctx).Debug("stall skipped: own claim is fenced",
+			"project", sc.Project, "card_id", card.ID, "agent", card.AssignedAgent)
+
+		return nil
+	}
+
 	return s.stallCardLocked(ctx, sc.Project, card, "stalled (heartbeat timeout)")
 }
 

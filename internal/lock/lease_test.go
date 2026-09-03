@@ -189,6 +189,36 @@ func TestFindStalled_SharedSkipsForeignAndUsesLiveBeat(t *testing.T) {
 	assert.Equal(t, "TEST-003", stalled[0].Card.ID)
 }
 
+func TestLastBeat_OnlyOverlaysOwnClaims(t *testing.T) {
+	ctx := context.Background()
+	mgr, store, fake := newSharedManager(t)
+	createTestCardAt(t, store, "test-project", "TEST-001", "", fake.Now())
+
+	claimed, err := mgr.Claim(ctx, "test-project", "TEST-001", "a")
+	require.NoError(t, err)
+	require.NoError(t, store.UpdateCard(ctx, "test-project", claimed))
+
+	fake.Advance(time.Minute)
+
+	held, _, err := mgr.Heartbeat(ctx, "test-project", "TEST-001", "a")
+	require.NoError(t, err)
+	require.Equal(t, fake.Now(), *mgr.LastBeat(held), "the holder sees its own live beat")
+
+	// A merge handed the card to a peer: our beat says nothing about the
+	// lease the board now shows, and neither does it after a release.
+	taken := *held
+	taken.ClaimedVia, taken.ClaimEpoch = "lap-b", held.ClaimEpoch+1
+	assert.Equal(t, held.LastHeartbeat, mgr.LastBeat(&taken), "a foreign claim keeps the file lease")
+
+	released := *held
+	released.AssignedAgent, released.ClaimedVia = "", ""
+	assert.Equal(t, held.LastHeartbeat, mgr.LastBeat(&released), "an unclaimed card keeps the file lease")
+
+	legacy := *held
+	legacy.ClaimedVia = ""
+	assert.Equal(t, held.LastHeartbeat, mgr.LastBeat(&legacy), "a claim from before shared boards keeps the file lease")
+}
+
 func TestForeignLeaseExpired(t *testing.T) {
 	ctx := context.Background()
 	mgr, store, fake := newSharedManager(t)
