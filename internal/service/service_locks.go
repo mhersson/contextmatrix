@@ -66,7 +66,7 @@ func (s *CardService) ClaimCard(ctx context.Context, project, id, agentID string
 	// requires a claim that actually exists - agent_id is only length-checked,
 	// so an empty one would otherwise match an unclaimed card's empty
 	// assigned_agent.
-	heldByCaller := snapshot.AssignedAgent != "" && snapshot.AssignedAgent == agentID
+	heldByCaller := snapshot.ClaimHeldBy(agentID, s.instance)
 	if board.IsTerminalState(snapshot.State) && !heldByCaller {
 		s.writeMu.Unlock()
 
@@ -294,11 +294,20 @@ func (s *CardService) HeartbeatCard(ctx context.Context, project, id, agentID st
 	s.writeMu.Lock()
 
 	// Heartbeat via lock manager (returns modified card)
-	card, _, err := s.lock.Heartbeat(ctx, project, id, agentID)
+	card, persist, err := s.lock.Heartbeat(ctx, project, id, agentID)
 	if err != nil {
 		s.writeMu.Unlock()
 
 		return nil, fmt.Errorf("heartbeat card: %w", err)
+	}
+
+	// On a shared board the beat lives in memory until the file lease is
+	// older than lease_interval; the ack still reports the live value.
+	if !persist {
+		s.writeMu.Unlock()
+		s.overlayLiveness(card)
+
+		return card, nil
 	}
 
 	if err := s.store.UpdateCard(ctx, project, card); err != nil {
@@ -525,14 +534,16 @@ func (s *CardService) markCardStalled(ctx context.Context, sc lock.StalledCard) 
 		return nil
 	}
 
-	// Re-check if still stalled: agent may have sent a heartbeat in the meantime.
-	if card.AssignedAgent == "" {
+	// Re-check if still stalled: agent may have sent a heartbeat in the
+	// meantime, or the claim may since belong to a peer instance, which this
+	// instance never stalls.
+	if card.AssignedAgent == "" || card.ClaimedElsewhere(s.instance) {
 		s.writeMu.Unlock()
 
 		return nil
 	}
 
-	if card.LastHeartbeat != nil && s.clk.Now().Sub(*card.LastHeartbeat) < s.lock.Timeout() {
+	if last := s.lock.LastBeat(card); last != nil && s.clk.Now().Sub(*last) < s.lock.Timeout() {
 		s.writeMu.Unlock()
 
 		return nil
@@ -576,8 +587,11 @@ func (s *CardService) stallCardLocked(ctx context.Context, project string, card 
 	previousState := card.State
 
 	card.State = board.StateStalled
-	card.AssignedAgent = ""
-	card.LastHeartbeat = nil
+	card.ClearClaim()
+
+	if s.sharedClaims() {
+		card.ClaimEpoch++
+	}
 
 	// A stalled worker is presumed dead. Leaving worker_status at queued/running
 	// makes runCard 409 (ErrCodeWorkerConflict) on every future trigger until a
@@ -614,6 +628,8 @@ func (s *CardService) stallCardLocked(ctx context.Context, project string, card 
 
 		return fmt.Errorf("update card: %w", err)
 	}
+
+	s.lock.ClearBeat(project, card.ID)
 
 	commitDone, notify := s.enqueueCardCommit(ctx, project, card.ID, "", reason)
 

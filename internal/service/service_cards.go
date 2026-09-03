@@ -293,6 +293,8 @@ func (s *CardService) ListCards(ctx context.Context, project string, filter stor
 		return nil, err
 	}
 
+	s.overlayLiveness(cards...)
+
 	for _, card := range cards {
 		s.enrichDependenciesMet(ctx, card)
 	}
@@ -452,6 +454,8 @@ func (s *CardService) ListCardsPage(
 		result.NextCursor = encodePageCursor(page[len(page)-1].ID)
 	}
 
+	s.overlayLiveness(result.Items...)
+
 	for _, card := range result.Items {
 		s.enrichDependenciesMet(ctx, card)
 	}
@@ -482,6 +486,7 @@ func (s *CardService) GetCard(ctx context.Context, project, id string) (*board.C
 		return nil, err
 	}
 
+	s.overlayLiveness(card)
 	s.enrichDependenciesMet(ctx, card)
 	s.enrichSubtaskCost(ctx, card)
 	s.enrichPlaybookMembership(ctx, project, card)
@@ -999,7 +1004,7 @@ func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput)
 		// Verify agent ownership before applying any mutations so a rejected
 		// call produces no side effects. Empty AgentID skips the check for
 		// backward-compatible callers that do not supply an agent ID.
-		if input.AgentID != "" && card.AssignedAgent != "" && card.AssignedAgent != input.AgentID {
+		if input.AgentID != "" && card.AssignedAgent != "" && !s.OwnsClaim(card, input.AgentID) {
 			return fmt.Errorf("agent authorization: %w", lock.ErrAgentMismatch)
 		}
 
@@ -1370,7 +1375,7 @@ func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry
 	}
 
 	// Verify agent ownership.
-	if card.AssignedAgent != "" && card.AssignedAgent != entry.Agent {
+	if card.AssignedAgent != "" && !s.OwnsClaim(card, entry.Agent) {
 		s.writeMu.Unlock()
 
 		return nil, fmt.Errorf("agent authorization: %w", lock.ErrAgentMismatch)
@@ -1387,7 +1392,7 @@ func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry
 
 	// See applyCardMutation: an owner-attributed log entry is proof of
 	// liveness and refreshes the claim heartbeat on the same write.
-	if entry.Agent != "" && card.AssignedAgent == entry.Agent {
+	if entry.Agent != "" && s.OwnsClaim(card, entry.Agent) {
 		now := card.Updated
 		card.LastHeartbeat = &now
 	}
@@ -1554,7 +1559,7 @@ func (s *CardService) applyCardMutation(
 	// no agent attribution), and those must never bump: extending a claim
 	// nobody is actively renewing would mask a dead agent past the stall
 	// timeout.
-	if opts.commitAgentID != "" && card.AssignedAgent == opts.commitAgentID {
+	if opts.commitAgentID != "" && s.OwnsClaim(card, opts.commitAgentID) {
 		now := card.Updated
 		card.LastHeartbeat = &now
 	}
@@ -1594,7 +1599,7 @@ func (s *CardService) applyCardMutation(
 	// Release agent claim on not_planned and clear worker_status on terminal
 	// states. Must happen before validate+persist so the written card reflects
 	// the invariants.
-	enforceTerminalStateInvariants(card, stateChanged)
+	enforceTerminalStateInvariants(card, stateChanged, s.sharedClaims())
 
 	if err := s.runValidatorsAndDeps(ctx, project, id, card, cfg, opts.skipValidators); err != nil {
 		s.writeMu.Unlock()

@@ -10,49 +10,35 @@ import (
 	"github.com/mhersson/contextmatrix/internal/metrics"
 )
 
-// enforceTerminalStateInvariants clears fields that must be reset when a card
-// enters a terminal-ish state. Called before persisting a state change.
+// enforceTerminalStateInvariants applies the claim rules of a state change:
 //
-//   - not_planned: release agent claim so the lock manager won't treat the card
-//     as stalled. not_planned is a manual terminal state - no agent will be
-//     active on it.
+//   - not_planned releases the claim tuple. It is a manual terminal state
+//     and no agent will be active on it.
+//   - On a shared board every terminal state bumps claim_epoch, so the
+//     completion outranks a stale stall or takeover in a merge.
 //
-// Note: worker_status is intentionally NOT cleared here. The end-session
-// subscriber keys off worker_status ∈ {queued, running} to decide whether the
-// container is still live when the card hits a terminal state; clearing it
-// here would defeat the subscriber's trigger. The backend itself clears
-// worker_status via UpdateWorkerStatus("completed"/"failed"/"killed") once
-// the container has actually exited, which is the authoritative signal.
+// done keeps the claim in both modes: the holder releases it afterwards
+// (complete_task, the workflow skills' mandatory release_card), which on a
+// private board also flushes deferred commits. Four tests pin that contract:
+// TestDeferredCommitFlushOnDone, TestDeferredCommitParentManualReviewTransition,
+// TestDeferredCommitBoardYamlIncluded and
+// TestUpdateWorkerStatus_FailedAfterTerminalNormalizesToCompleted. The
+// stall checker skips terminal cards, so a done card with a live claim is
+// never flagged stalled.
 //
-// DESIGN TENSION (done state):
-// We deliberately do NOT clear AssignedAgent / LastHeartbeat on
-// board.StateDone here. The current contract is "agent retains claim
-// through done so the subsequent ReleaseCard call can flush any deferred
-// commits accumulated during the session." Several tests encode this
-// contract directly:
-//   - TestDeferredCommitFlushOnDone
-//   - TestDeferredCommitParentManualReviewTransition
-//   - TestDeferredCommitBoardYamlIncluded
-//   - TestUpdateWorkerStatus_FailedAfterTerminalNormalizesToCompleted
-//
-// The smell: a card in done with a live claim looks stalled to the lock
-// manager. Defense-in-depth lives in markCardStalled (it skips terminal
-// states even when AssignedAgent is non-empty), and ReleaseCard flushes
-// the deferred-commit queue then drops the claim. Having complete_task /
-// ReleaseCard own the claim-clear so done cards never carry a live agent
-// would be cleaner but requires rewriting the four tests above.
-//
-// Safe to call regardless of stateChanged - it only acts when the card's
-// current state is one of the targets. But callers should pass stateChanged
-// so we only mutate when there is actually a transition.
-func enforceTerminalStateInvariants(card *board.Card, stateChanged bool) {
+// worker_status is intentionally not cleared here: the end-session subscriber
+// and the backend's own terminal callback own that field.
+func enforceTerminalStateInvariants(card *board.Card, stateChanged, shared bool) {
 	if !stateChanged {
 		return
 	}
 
 	if card.State == board.StateNotPlanned {
-		card.AssignedAgent = ""
-		card.LastHeartbeat = nil
+		card.ClearClaim()
+	}
+
+	if shared && board.IsTerminalState(card.State) {
+		card.ClaimEpoch++
 	}
 }
 
@@ -177,7 +163,7 @@ func (s *CardService) transitionParentDirect(
 
 		// State-change invariants: release claim on not_planned, clear
 		// worker_status on terminal states.
-		enforceTerminalStateInvariants(parent, true)
+		enforceTerminalStateInvariants(parent, true, s.sharedClaims())
 
 		if err := s.store.UpdateCard(ctx, parent.Project, parent); err != nil {
 			return fmt.Errorf("persist parent card: %w", err)

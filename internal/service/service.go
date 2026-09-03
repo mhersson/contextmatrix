@@ -78,6 +78,22 @@ type CardService struct {
 	// write to. Set once at wiring time and read-only thereafter.
 	sharedRepo bool
 
+	// instance, leaseTimeout and pullInterval come from SetLease on a shared
+	// board. instance stays empty on a private one, and every ownership and
+	// epoch rule keys off that.
+	instance     string
+	leaseTimeout time.Duration
+	pullInterval time.Duration
+
+	// syncMu guards lastSync: the service clock's reading at the end of the
+	// last successful sync cycle. Foreign stalls need a recent pull.
+	// Declared here so the shared-board sync cycle can adopt it directly;
+	// not yet read or written on this branch.
+	//nolint:unused // wired by the shared-board sync cycle
+	syncMu sync.Mutex
+	//nolint:unused // wired by the shared-board sync cycle
+	lastSync time.Time
+
 	// writeMu serializes all card mutations (create, update, patch, delete,
 	// claim, release, heartbeat, log). This prevents races like two agents
 	// claiming the same card simultaneously. LockWrites / UnlockWrites expose
@@ -311,6 +327,41 @@ func (s *CardService) SetSharedRepo(shared bool) {
 	s.sharedRepo = shared
 }
 
+// SetLease names this instance and sets the timings the fence and the
+// foreign-stall pass use. Must be called before the server starts accepting
+// requests. Unset (empty instance) means a private board.
+func (s *CardService) SetLease(instance string, leaseTimeout, pullInterval time.Duration) {
+	s.instance = instance
+	s.leaseTimeout = leaseTimeout
+	s.pullInterval = pullInterval
+}
+
+// InstanceID returns this instance's ID, empty on a private board.
+func (s *CardService) InstanceID() string { return s.instance }
+
+// OwnsClaim reports whether agentID holds card's claim as seen from this
+// instance. Every ownership check goes through it.
+func (s *CardService) OwnsClaim(card *board.Card, agentID string) bool {
+	return card.ClaimHeldBy(agentID, s.instance)
+}
+
+func (s *CardService) sharedClaims() bool { return s.instance != "" }
+
+// overlayLiveness replaces each card's file heartbeat with the live beat when
+// that is newer. Every read path calls it so the UI, the health tool and the
+// dashboard see the same liveness the stall checker does. A no-op on a
+// private board: no live beat is ever recorded there, so the file value is
+// already authoritative.
+func (s *CardService) overlayLiveness(cards ...*board.Card) {
+	if !s.sharedClaims() {
+		return
+	}
+
+	for _, c := range cards {
+		c.LastHeartbeat = s.lock.LastBeat(c)
+	}
+}
+
 // LockWrites acquires the write mutex, preventing all card mutations.
 // Exposed for the gitsync layer, which must suspend writes across the
 // repository operation it is about to run: a rebase on a private board
@@ -484,7 +535,7 @@ func (s *CardService) transitionStep(
 	// State-change invariants: release claim on not_planned, clear
 	// worker_status on terminal states. Each step in the path is a state
 	// change, so pass stateChanged=true.
-	enforceTerminalStateInvariants(card, true)
+	enforceTerminalStateInvariants(card, true, s.sharedClaims())
 
 	if err := s.validator.ValidateCard(cfg, card); err != nil {
 		return nil, fmt.Errorf("validate card: %w", err)
