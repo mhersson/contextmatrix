@@ -30,18 +30,17 @@ import (
 	"github.com/mhersson/contextmatrix/internal/authstore"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/chat"
+	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/events"
 	ghimport "github.com/mhersson/contextmatrix/internal/github"
 	"github.com/mhersson/contextmatrix/internal/gitops"
 	"github.com/mhersson/contextmatrix/internal/images"
-	"github.com/mhersson/contextmatrix/internal/lock"
 	mcpserver "github.com/mhersson/contextmatrix/internal/mcp"
 	"github.com/mhersson/contextmatrix/internal/metrics"
 	"github.com/mhersson/contextmatrix/internal/modelcatalog"
 	opsqlite "github.com/mhersson/contextmatrix/internal/opstore/sqlite"
 	"github.com/mhersson/contextmatrix/internal/service"
-	"github.com/mhersson/contextmatrix/internal/storage"
 	"github.com/mhersson/contextmatrix/web"
 )
 
@@ -158,30 +157,23 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Initialize git manager (boards directory IS the git repo).
-	// Must run before storage so clone-on-empty can populate the directory.
-	boardsCloneURL := ""
-	if cfg.Boards.GitCloneOnEmpty {
-		boardsCloneURL = cfg.Boards.GitRemoteURL
-	}
+	// Every boards repository: git manager (clone-on-empty first, so the
+	// store sees the clone), store, commit queue and playbook store; then
+	// the composite that routes by project name and one lock manager per
+	// repo on the composite's view of it. Every manager shares one clock:
+	// stall detection, the timeout-checker ticker and the lease rules
+	// compare timestamps against the same monotonic reading.
+	clk := clock.Real()
 
-	git, err := gitops.NewManager(cfg.Boards.Dir, boardsCloneURL, "boards", tokenProvider)
+	boards, err := buildBoards(cfg, tokenProvider, heartbeatTimeout, clk)
 	if err != nil {
-		slog.Error("failed to create boards git manager", "error", err)
+		slog.Error("failed to initialize boards repositories", "error", err)
 		os.Exit(1)
 	}
 
-	// Peers reading the shared history need to see which instance authored a
-	// commit. Set before any commit this process makes, the startup pull's
-	// leftover commit included.
-	if cfg.Boards.Shared {
-		git.SetAuthor("ContextMatrix", "contextmatrix@"+cfg.Instance.ID)
+	for _, b := range boards.repos {
+		slog.Info("boards repository initialized", "repo", b.cfg.Name, "repo_path", b.cfg.Dir, "shared", b.cfg.Shared)
 	}
-
-	slog.Info("boards git manager initialized",
-		"repo_path", cfg.Boards.Dir,
-		"shared", cfg.Boards.Shared,
-	)
 
 	// Initialize task-skills git manager.
 	taskSkillsCloneURL := ""
@@ -208,30 +200,12 @@ func main() {
 
 	startupPullTaskSkills(taskSkillsHadGit, cfg.TaskSkills.GitRemoteURL, taskSkillsGit)
 
-	// Initialize storage
-	store, err := storage.NewFilesystemStore(cfg.Boards.Dir)
-	if err != nil {
-		slog.Error("failed to create storage", "error", err)
-		os.Exit(1)
-	}
-
-	slog.Info("storage initialized", "boards_dir", cfg.Boards.Dir)
+	slog.Info("storage initialized", "repos", cfg.Boards.Names())
 
 	// Initialize event bus
 	bus := events.NewBus()
 
 	slog.Info("event bus initialized")
-
-	// Initialize lock manager
-	lockMgr := lock.NewManager(store, heartbeatTimeout)
-
-	if cfg.Boards.Shared {
-		leaseInterval, _ := cfg.LeaseIntervalDuration()
-		leaseTimeout, _ := cfg.LeaseTimeoutDuration()
-		lockMgr.SetShared(cfg.Instance.ID, leaseInterval, leaseTimeout)
-	}
-
-	slog.Info("lock manager initialized", "timeout", heartbeatTimeout)
 
 	// Convert token costs from config to service types
 	var tokenCosts map[string]service.ModelRate
@@ -247,47 +221,31 @@ func main() {
 		}
 	}
 
-	// Initialize card service
-	svc := service.NewCardService(store, git, lockMgr, bus, cfg.Boards.Dir, tokenCosts, cfg.Boards.GitAutoCommit, cfg.Boards.GitDeferredCommit)
-	// Must precede the syncer's startup cycle, which is the first sync to
-	// integrate a peer's writes.
-	svc.SetSharedRepo(cfg.Boards.Shared)
-
-	if cfg.Boards.Shared {
-		leaseTimeout, _ := cfg.LeaseTimeoutDuration()
-		pullInterval, _ := cfg.PullIntervalDuration()
-		svc.SetLease(cfg.Instance.ID, leaseTimeout, pullInterval)
+	svc, err := service.NewCardServiceRepos(boards.composite, bus, tokenCosts, boards.svcRepos...)
+	if err != nil {
+		slog.Error("failed to create card service", "error", err)
+		os.Exit(1)
 	}
 
-	slog.Info("card service initialized", "shared_repo", cfg.Boards.Shared)
+	slog.Info("card service initialized", "shared_boards", cfg.Boards.AnyShared(), "instance", cfg.Instance.ID)
 
-	// Initialize the per-project commit queue so writes do not serialize on
-	// the blocking go-git call under writeMu. A 30-minute idle timeout
-	// tears down workers for quiet projects so long-running servers with
-	// ephemeral projects do not accumulate goroutines; the next Enqueue
-	// for that project spawns a fresh worker transparently.
-	commitQueue := gitops.NewCommitQueue(git, 0, gitops.WithIdleTimeout(30*time.Minute))
-	svc.SetCommitQueue(commitQueue)
-	slog.Info("commit queue initialized")
-
-	// Initialize the playbook store and service. A pre-existing project
-	// named "playbooks" in the boards repo collides with the playbooks
-	// directory, so the subsystem is disabled (pbSvc stays nil) rather than
-	// failing startup - renaming that project is an operator decision.
+	// A pre-existing project named "playbooks" in any boards repo collides
+	// with that repo's playbooks directory, so the subsystem is disabled
+	// (pbSvc stays nil) rather than failing startup - renaming that project
+	// is an operator decision.
 	var pbSvc *service.PlaybookService
 
-	pbStore, err := storage.NewFilesystemPlaybookStore(cfg.Boards.Dir)
+	if boards.playbooksDisabledBy != "" {
+		slog.Error("playbooks disabled: a project named \"playbooks\" exists in a boards repo; rename that project to enable playbooks",
+			"repo", boards.playbooksDisabledBy)
+	} else {
+		pbSvc, err = service.NewPlaybookServiceRepos(boards.playbooks, boards.composite, bus, clk, boards.pbRepos...)
+		if err != nil {
+			slog.Error("failed to create playbook service", "error", err)
+			os.Exit(1)
+		}
 
-	switch {
-	case errors.Is(err, storage.ErrPlaybooksDirIsProject):
-		slog.Error("playbooks disabled: a project named \"playbooks\" exists in the boards repo; rename that project to enable playbooks")
-	case err != nil:
-		slog.Error("failed to create playbook store", "error", err)
-		os.Exit(1)
-	default:
-		pbSvc = service.NewPlaybookService(pbStore, store, bus, lockMgr.Clock(), cfg.Boards.GitAutoCommit)
-		pbSvc.SetCommitQueue(commitQueue)
-		svc.SetPlaybookLister(pbStore)
+		svc.SetPlaybookLister(boards.playbooks)
 
 		slog.Info("playbook service initialized")
 	}
@@ -313,7 +271,7 @@ func main() {
 	}
 
 	// Initialize git sync
-	syncer := wireGitSync(ctx, cfg, git, store, svc, pbSvc, bus)
+	syncGroup := wireGitSync(ctx, cfg, boards, svc, pbSvc, bus)
 
 	// After the sync wiring: on a shared board the checker's stall writes are
 	// push-verified, so the sync runner must be in place before the first
@@ -442,7 +400,7 @@ func main() {
 	if cfg.GitHub.IssueImporting.Enabled {
 		syncInterval, _ := cfg.GitHub.IssueImporting.SyncIntervalDuration()
 		ghClient := ghimport.NewClientWithBaseURL(tokenProvider, ghAPIBase)
-		ghSyncer = ghimport.NewSyncer(svc, store, ghClient, cfg.Boards.Dir, syncInterval, cfg.GitHub.AllowedHosts())
+		ghSyncer = ghimport.NewSyncer(svc, boards.composite, ghClient, syncInterval, cfg.GitHub.AllowedHosts())
 
 		// Credential bindings only exist when auth is enabled - .board.yaml
 		// bindings are validated against authSvc's credential pool, which is
@@ -626,11 +584,6 @@ func main() {
 	// Create router with all API routes. MCP is registered on the inner mux
 	// so it shares the same middleware chain as every other route - no
 	// separate wrapping needed here.
-	var apiSyncer api.Syncer
-	if syncer != nil {
-		apiSyncer = syncer
-	}
-
 	// Build RouterConfig with fields that are always present. Catalog is set
 	// conditionally below to avoid boxing a nil *modelcatalog.Builder into the
 	// catalogProvider interface - a typed nil defeats the h.catalog != nil guard
@@ -644,7 +597,7 @@ func main() {
 		Service:                svc,
 		Bus:                    bus,
 		CORSOrigin:             cfg.CORSOrigin,
-		Syncer:                 apiSyncer,
+		Syncer:                 syncGroup,
 		Backend:                taskBackend,
 		AgentBackendCfg:        agentCfg,
 		MCPAPIKey:              cfg.MCPAPIKey,
@@ -656,7 +609,8 @@ func main() {
 		ProviderForProject:     providerForProject,
 		SessionManager:         sessionMgr,
 		InstanceID:             cfg.Instance.ID,
-		SharedBoards:           cfg.Boards.Shared,
+		SharedBoards:           cfg.Boards.AnyShared(),
+		BoardsRepos:            boardsRepoInfos(cfg.Boards),
 		Theme:                  cfg.Theme,
 		Version:                buildVersion(),
 		MCPHandler:             mcpHandler,
@@ -805,14 +759,14 @@ func main() {
 	defer shutdownCancel()
 
 	if err := runShutdownSequence(shutdownCtx, shutdownComponents{
-		HTTPServer:  server,
-		AdminServer: adminServer,
-		SessionLog:  sessionMgr,
-		CommitQueue: commitQueue,
-		Syncer:      syncer,
-		GHSyncer:    ghSyncer,
-		HTTPCancel:  httpCancel,
-		AppCancel:   cancel,
+		HTTPServer:   server,
+		AdminServer:  adminServer,
+		SessionLog:   sessionMgr,
+		CommitQueues: boards.queues(),
+		Syncer:       syncGroup,
+		GHSyncer:     ghSyncer,
+		HTTPCancel:   httpCancel,
+		AppCancel:    cancel,
 	}); err != nil {
 		slog.Error("server shutdown error", "error", err)
 		os.Exit(1)

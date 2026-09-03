@@ -28,13 +28,13 @@ type shutdownComponents struct {
 	// so subscribers receive a terminal event instead of a mid-stream EOF.
 	SessionLog *sessionlog.Manager
 
-	// CommitQueue must be drained after ctx cancel so buffered writes still
-	// reach disk before exit.
-	CommitQueue *gitops.CommitQueue
+	// CommitQueues, one per boards repo, must be drained after ctx cancel so
+	// buffered writes still reach disk before exit.
+	CommitQueues []*gitops.CommitQueue
 
-	// Syncer is the board-repo background syncer. May be nil when the boards
-	// repo has no remote.
-	Syncer *gitsync.Syncer
+	// Syncer fronts every boards repo's background syncer. May be nil when
+	// no repo has a remote.
+	Syncer *gitsync.Group
 
 	// GHSyncer is the GitHub-issue background syncer. May be nil when issue
 	// importing is disabled.
@@ -109,8 +109,10 @@ func runShutdownSequence(ctx context.Context, c shutdownComponents) error {
 	// be pushed by a final push iteration.
 	slog.Info("shutdown: phase=commit_queue_close")
 
-	if err := c.CommitQueue.Close(ctx); err != nil {
-		slog.Error("commit queue shutdown error", "error", err)
+	for _, q := range c.CommitQueues {
+		if err := q.Close(ctx); err != nil {
+			slog.Error("commit queue shutdown error", "error", err)
+		}
 	}
 
 	// Phase 5: let the git syncers finish any late commit/push triggered by
