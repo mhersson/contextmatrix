@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useId, useRef } from 'react';
 import { api, isAPIError } from '../../api/client';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { useTheme } from '../../hooks/useTheme';
 import type { ProjectConfig, CreateProjectInput } from '../../types';
 
 const DEFAULT_STATES = ['todo', 'in_progress', 'blocked', 'review', 'done', 'stalled', 'not_planned'];
@@ -44,6 +45,11 @@ export function NewProjectWizard({ onClose, onCreated }: NewProjectWizardProps) 
   const repoId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
   const displayNameInputRef = useRef<HTMLInputElement>(null);
+  const { boardsRepos = [] } = useTheme();
+  const multiRepo = boardsRepos.length > 1;
+  const [boardsRepoChoice, setBoardsRepoChoice] = useState('');
+  const boardsRepo = boardsRepoChoice || boardsRepos[0]?.name || '';
+  const repoGroupId = useId();
 
   useFocusTrap(dialogRef, true, displayNameInputRef);
 
@@ -91,6 +97,7 @@ export function NewProjectWizard({ onClose, onCreated }: NewProjectWizardProps) 
         transitions: DEFAULT_TRANSITIONS,
       };
       if (repo.trim()) input.repo = repo.trim();
+      if (multiRepo && boardsRepo) input.boards_repo = boardsRepo;
       const config = await api.createProject(input);
       onCreated(config);
     } catch (err) {
@@ -107,7 +114,7 @@ export function NewProjectWizard({ onClose, onCreated }: NewProjectWizardProps) 
     } finally {
       setIsSubmitting(false);
     }
-  }, [displayName, name, prefix, repo, isSubmitting, onCreated]);
+  }, [displayName, name, prefix, repo, isSubmitting, onCreated, multiRepo, boardsRepo]);
 
   const isValid = displayName.trim().length > 0 && name.trim().length > 0 && prefix.trim().length > 0;
 
@@ -152,6 +159,30 @@ export function NewProjectWizard({ onClose, onCreated }: NewProjectWizardProps) 
           {error && (
             <div className="p-3 rounded text-sm" style={{ backgroundColor: 'var(--bg-red)', color: 'var(--red)' }}>
               {error}
+            </div>
+          )}
+
+          {multiRepo && (
+            <div>
+              <span id={repoGroupId} className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Boards repo</span>
+              <div className="flex flex-wrap gap-3" role="radiogroup" aria-labelledby={repoGroupId}>
+                {boardsRepos.map((r) => (
+                  <label key={r.name} className="flex items-center gap-1.5 text-sm" style={{ color: 'var(--fg)' }}>
+                    <input
+                      type="radio"
+                      name="boards-repo"
+                      value={r.name}
+                      checked={boardsRepo === r.name}
+                      onChange={() => setBoardsRepoChoice(r.name)}
+                    />
+                    {r.name}
+                    {r.shared && <span className="sb-repo-tag">shared</span>}
+                  </label>
+                ))}
+              </div>
+              <p className="text-xs mt-1" style={{ color: 'var(--grey0)' }}>
+                Where the project's cards live. Cannot be changed later.
+              </p>
             </div>
           )}
 

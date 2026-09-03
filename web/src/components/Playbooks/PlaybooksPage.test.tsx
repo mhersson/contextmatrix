@@ -30,6 +30,12 @@ vi.mock('../../context/MobileSidebarContext', () => ({
   useMobileSidebar: () => ({ isOpen: false, toggle: () => {}, close: () => {} }),
 }));
 
+const themeState = vi.hoisted(() => ({ boardsRepos: [] as { name: string; shared: boolean }[] }));
+
+vi.mock('../../hooks/useTheme', () => ({
+  useTheme: () => ({ boardsRepos: themeState.boardsRepos }),
+}));
+
 describe('PlaybooksPage', () => {
   it('folds fully-complete playbooks behind the Completed toggle', async () => {
     render(<MemoryRouter><PlaybooksPage /></MemoryRouter>);
@@ -100,5 +106,23 @@ describe('PlaybooksPage', () => {
 
     expect(screen.queryByLabelText('Playbook title')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /new playbook/i })).toBeInTheDocument();
+  });
+});
+
+describe('PlaybooksPage - boards repo', () => {
+  it('offers a repo select and sends the choice', async () => {
+    themeState.boardsRepos = [{ name: 'team', shared: true }, { name: 'private', shared: false }];
+    vi.mocked(api.listPlaybooks).mockResolvedValue([]);
+    vi.mocked(api.createPlaybook).mockResolvedValue({ id: 'x', title: 'X', entries: [], created_at: '', updated_at: '' } as never);
+    render(<MemoryRouter><PlaybooksPage /></MemoryRouter>);
+    await screen.findByText('No playbooks yet');
+    fireEvent.click(screen.getByRole('button', { name: /new playbook/i }));
+    const select = screen.getByRole('combobox', { name: 'Boards repo' });
+    expect((select as HTMLSelectElement).value).toBe('team');
+    fireEvent.change(select, { target: { value: 'private' } });
+    fireEvent.change(screen.getByLabelText('Playbook title'), { target: { value: 'X' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+    await waitFor(() => expect(vi.mocked(api.createPlaybook)).toHaveBeenCalledWith({ title: 'X', boards_repo: 'private' }));
+    themeState.boardsRepos = [];
   });
 });

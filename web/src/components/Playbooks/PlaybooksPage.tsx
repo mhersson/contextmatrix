@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { api } from '../../api/client';
 import { useSSEBus } from '../../hooks/useSSEBus';
+import { useTheme } from '../../hooks/useTheme';
 import { useToast } from '../../hooks/useToast';
 import type { PlaybookSummary } from '../../types';
 import { isFullyComplete } from './playbookUtils';
@@ -17,6 +18,9 @@ export function PlaybooksPage() {
   const [newTitle, setNewTitle] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const { subscribe, reconnectEpoch } = useSSEBus();
+  const { boardsRepos = [] } = useTheme();
+  const multiRepo = boardsRepos.length > 1;
+  const [newRepo, setNewRepo] = useState('');
   const { showToast } = useToast();
   const navigate = useNavigate();
 
@@ -39,7 +43,9 @@ export function PlaybooksPage() {
     if (!title) return;
     setSubmitting(true);
     try {
-      const detail = await api.createPlaybook({ title });
+      const detail = await api.createPlaybook(
+        multiRepo ? { title, boards_repo: newRepo || boardsRepos[0].name } : { title },
+      );
       navigate(`/playbooks/${detail.id}`);
     } catch {
       showToast('Failed to create playbook', 'error');
@@ -51,6 +57,7 @@ export function PlaybooksPage() {
   const cancelCreate = () => {
     setCreating(false);
     setNewTitle('');
+    setNewRepo('');
   };
 
   const isEmpty = playbooks !== null && active.length === 0 && completed.length === 0;
@@ -67,6 +74,9 @@ export function PlaybooksPage() {
           onCreate={handleCreate}
           onCancel={cancelCreate}
           submitting={submitting}
+          repos={boardsRepos}
+          repo={newRepo || boardsRepos[0]?.name}
+          onRepoChange={setNewRepo}
         />
       </div>
     );
@@ -99,6 +109,9 @@ export function PlaybooksPage() {
               onCreate={handleCreate}
               onCancel={cancelCreate}
               submitting={submitting}
+              repos={boardsRepos}
+              repo={newRepo || boardsRepos[0]?.name}
+              onRepoChange={setNewRepo}
             />
           ) : (
             <button
