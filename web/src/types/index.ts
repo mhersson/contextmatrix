@@ -191,11 +191,27 @@ export type EventType =
   | 'playbook.updated'
   | 'playbook.deleted';
 
+export interface SyncResolution {
+  path: string;
+  card_id?: string;
+  rule: string;
+  detail?: string;
+  old_id?: string;
+  new_id?: string;
+  at: string;
+  trigger: string;
+}
+
 export interface SyncStatus {
   last_sync_time: string | null;
   last_sync_error?: string;
   syncing: boolean;
   enabled: boolean;
+  shared?: boolean;
+  remote_reachable?: boolean;
+  last_remote_error?: string;
+  unpushed_commits?: number;
+  resolutions?: SyncResolution[];
 }
 
 export interface BoardEvent {

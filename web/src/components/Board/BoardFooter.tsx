@@ -46,36 +46,60 @@ export function BoardFooter({
     ? syncStatus.last_sync_error
     : null;
 
+  // Shared-repo states: offline (remote unreachable) and unpushed local
+  // commits waiting to go out. Both are absent (undefined) for non-shared
+  // repos, so they never engage there.
+  const offline = syncStatus?.shared === true && syncStatus.remote_reachable === false;
+  const unpushed = syncStatus?.unpushed_commits ?? 0;
+  const resolutions = syncStatus?.resolutions?.length ?? 0;
+
   // Compute the label from syncStatus. When no status is supplied (rare -
   // tests / detached usage), fall back to a static idle label.
   let computedLabel: string;
   if (syncing) {
     computedLabel = 'Syncing…';
+  } else if (offline) {
+    computedLabel = 'git sync · offline';
   } else if (syncStatus) {
     computedLabel = lastSyncTime
       ? `git sync · ${relativeTime(lastSyncTime, now)}`
       : 'git sync · idle';
+    if (unpushed > 0) {
+      computedLabel += ` · ${unpushed} unpushed`;
+    }
   } else {
     computedLabel = 'git sync · idle';
   }
 
-  const labelStyle: React.CSSProperties = syncError
+  const labelStyle: React.CSSProperties = offline || syncError
     ? { color: 'var(--red)' }
     : {};
 
-  const labelTitle = syncError
-    ? `${syncError}\nClick to retry`
-    : 'Click to sync now';
+  const titleLines: string[] = [];
+  if (offline && syncStatus?.last_remote_error) {
+    titleLines.push(syncStatus.last_remote_error);
+  }
+  if (syncError) {
+    titleLines.push(syncError);
+  }
+  if (resolutions > 0) {
+    titleLines.push(`${resolutions} merge resolution${resolutions === 1 ? '' : 's'} in the last syncs`);
+  }
+  titleLines.push(offline || syncError ? 'Click to retry' : 'Click to sync now');
+  const labelTitle = titleLines.join('\n');
 
-  // Dot rendered to the left of the label when syncing or in error.
-  const dot = syncing ? (
+  // Dot rendered to the left of the label when syncing, offline, in error,
+  // or waiting to push local commits.
+  const dotClass = syncing
+    ? 'board-footer__sync-dot--aqua'
+    : offline || syncError
+      ? 'board-footer__sync-dot--red'
+      : unpushed > 0
+        ? 'board-footer__sync-dot--amber'
+        : null;
+  const dot = dotClass ? (
     <span
-      className="board-footer__sync-dot board-footer__sync-dot--aqua"
-      aria-hidden="true"
-    />
-  ) : syncError ? (
-    <span
-      className="board-footer__sync-dot board-footer__sync-dot--red"
+      className={`board-footer__sync-dot ${dotClass}`}
       aria-hidden="true"
     />
   ) : null;
@@ -111,7 +135,7 @@ export function BoardFooter({
       );
     }
     return (
-      <span style={labelStyle}>
+      <span title={labelTitle} style={labelStyle}>
         {dot}
         {computedLabel}
       </span>

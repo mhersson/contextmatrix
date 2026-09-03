@@ -7,23 +7,39 @@ interface FootStripProps {
   syncStatus: SyncStatus | null;
 }
 
+function isOffline(status: SyncStatus | null): boolean {
+  return status?.shared === true && status.remote_reachable === false;
+}
+
 function syncLine(status: SyncStatus | null): string {
   if (!status) return 'sync unknown';
   if (!status.enabled) return 'sync disabled';
+  if (isOffline(status)) return 'sync offline';
   if (status.last_sync_error) return 'sync error';
   if (status.syncing) return 'syncing…';
-  if (status.last_sync_time) {
-    return `synced ${formatRelativeTime(status.last_sync_time)}`;
+  let line = status.last_sync_time
+    ? `synced ${formatRelativeTime(status.last_sync_time)}`
+    : 'not yet synced';
+  const unpushed = status.unpushed_commits ?? 0;
+  if (unpushed > 0) {
+    line += ` · ${unpushed} unpushed`;
   }
-  return 'not yet synced';
+  return line;
 }
 
 function systemsLabel(status: SyncStatus | null): { label: string; color: string } {
+  if (isOffline(status)) {
+    return { label: 'Sync offline', color: 'var(--red)' };
+  }
   if (status?.last_sync_error) {
     return { label: 'Sync degraded', color: 'var(--red)' };
   }
   if (!status?.enabled) {
     return { label: 'Sync disabled', color: 'var(--grey1)' };
+  }
+  const unpushed = status?.unpushed_commits ?? 0;
+  if (unpushed > 0) {
+    return { label: `${unpushed} unpushed`, color: 'var(--yellow)' };
   }
   return { label: 'All systems operational', color: 'var(--green)' };
 }
@@ -43,7 +59,7 @@ export function FootStrip({ version, syncStatus }: FootStripProps) {
         gap: 12,
       }}
     >
-      <span title={syncStatus?.last_sync_error || undefined}>
+      <span title={(isOffline(syncStatus) ? syncStatus?.last_remote_error : syncStatus?.last_sync_error) || undefined}>
         <span style={{ color: 'var(--grey2)', fontWeight: 500 }}>ContextMatrix</span>{' '}
         {version ? `v${formatVersionWithLocalTime(version)}` : 'dev'} · {syncLine(syncStatus)}
       </span>

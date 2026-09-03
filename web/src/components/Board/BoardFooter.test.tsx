@@ -13,6 +13,10 @@ function makeStatus(overrides: Partial<SyncStatus> = {}): SyncStatus {
   };
 }
 
+function renderFooter({ syncStatus }: { syncStatus: SyncStatus }) {
+  return render(<BoardFooter cardCount={0} columnCount={0} syncStatus={syncStatus} />);
+}
+
 describe('BoardFooter', () => {
   it('renders sync label as a button and invokes onSyncClick', () => {
     const onSyncClick = vi.fn();
@@ -148,5 +152,22 @@ describe('BoardFooter', () => {
       />,
     );
     expect(screen.getByText('git sync · idle')).toBeInTheDocument();
+  });
+
+  it('shows offline when the remote is unreachable', () => {
+    renderFooter({ syncStatus: { last_sync_time: null, syncing: false, enabled: true, shared: true, remote_reachable: false, last_remote_error: 'fetch: timeout' } });
+    expect(screen.getByText(/git sync · offline/)).toBeInTheDocument();
+    expect(screen.getByTitle(/fetch: timeout/)).toBeInTheDocument();
+  });
+
+  it('shows the unpushed count', () => {
+    renderFooter({ syncStatus: { last_sync_time: new Date().toISOString(), syncing: false, enabled: true, shared: true, remote_reachable: true, unpushed_commits: 3 } });
+    expect(screen.getByText(/3 unpushed/)).toBeInTheDocument();
+  });
+
+  it('mentions resolved conflicts in the tooltip', () => {
+    renderFooter({ syncStatus: { last_sync_time: new Date().toISOString(), syncing: false, enabled: true, shared: true, remote_reachable: true, unpushed_commits: 0,
+      resolutions: [{ path: 'p/tasks/P-1.md', rule: 'scalar.later_updated', at: new Date().toISOString(), trigger: 'periodic' }] } });
+    expect(screen.getByTitle(/1 merge resolution/)).toBeInTheDocument();
   });
 });
