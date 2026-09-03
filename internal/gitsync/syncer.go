@@ -133,8 +133,14 @@ type Syncer struct {
 	pushHook func(ctx context.Context) error
 
 	// resolveHook resolves the unmerged paths left by a conflicted merge.
-	// Nil falls back to noResolver, which refuses and lets the merge abort.
+	// Nil uses resolveConflicts; tests set it to inject controlled errors.
 	resolveHook func(ctx context.Context, branch string, oursChanged []string) ([]boardmerge.Resolution, error)
+
+	// extraWritten holds the files resolveConflicts wrote for re-minted cards
+	// while the current merge is unresolved, so a merge that fails after they
+	// were written can delete them. Written and read only inside one integrate
+	// call, under the write locks Synced holds.
+	extraWritten []string
 
 	// prePushHook runs immediately before each push attempt inside Synced.
 	// Tests use it to advance the remote so the push is rejected as a
@@ -867,8 +873,10 @@ func (s *Syncer) integrate(ctx context.Context, trigger, branch string) (bool, [
 
 	resolve := s.resolveHook
 	if resolve == nil {
-		resolve = s.noResolver
+		resolve = s.resolveConflicts
 	}
+
+	s.extraWritten = nil
 
 	res, err := resolve(ctx, branch, oursChanged)
 	if err != nil {
@@ -879,6 +887,10 @@ func (s *Syncer) integrate(ctx context.Context, trigger, branch string) (bool, [
 	if err := s.git.CommitMerge(ctx, msg); err != nil {
 		return false, nil, s.abortAndWrap(ctx, err)
 	}
+
+	// The re-minted files are part of the merge commit now, so a later abort
+	// must not treat them as leftovers to delete.
+	s.extraWritten = nil
 
 	left, err := s.git.UnmergedPaths(ctx)
 	if err != nil {
@@ -898,20 +910,21 @@ func (s *Syncer) integrate(ctx context.Context, trigger, branch string) (bool, [
 	return true, res, s.reloadAfterPull(ctx)
 }
 
-// noResolver is the default resolveHook: it refuses, so a conflicted merge is
-// aborted instead of half-resolved.
-func (s *Syncer) noResolver(context.Context, string, []string) ([]boardmerge.Resolution, error) {
-	return nil, errors.New("conflict resolution not available")
-}
-
 // abortAndWrap returns the worktree to HEAD and hands back cause. When the
 // abort itself fails, the returned error also says the repository is still
 // merging, so the sync.error event and the status field tell an operator that
 // manual intervention is needed rather than reporting a routine conflict.
+//
+// Files written for re-minted cards are deleted here as well. Git's abort
+// removes the ones it had staged, so this is the backstop for any it does not:
+// left behind, the next cycle commits one as an external edit and the merge
+// after that re-mints the same card a second time.
 func (s *Syncer) abortAndWrap(ctx context.Context, cause error) error {
 	if err := s.abortMerge(ctx); err != nil {
 		return fmt.Errorf("%w; repository still merging: %w", cause, err)
 	}
+
+	s.removeExtras()
 
 	return cause
 }
