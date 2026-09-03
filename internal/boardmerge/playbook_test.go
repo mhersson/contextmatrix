@@ -1,7 +1,9 @@
 package boardmerge
 
 import (
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/stretchr/testify/assert"
@@ -196,6 +198,108 @@ func TestResolvePlaybook_Unparseable(t *testing.T) {
 			assert.Equal(t, tt.wantContent, out.Content)
 			require.Len(t, out.Resolutions, 1)
 			assert.Equal(t, RuleUnparseable, out.Resolutions[0].Rule)
+		})
+	}
+}
+
+func TestResolvePlaybook_EntryRemovedByOursDropped(t *testing.T) {
+	base, ours, theirs := pb(), pb(), pb()
+	ours.Entries = ours.Entries[:1] // ours drops e2
+	theirs.Entries[1].Text = "sign off (theirs edit)"
+
+	out, err := Resolve(Input{
+		Path: "playbooks/release.yaml", Base: serializePb(t, base),
+		Ours: serializePb(t, ours), Theirs: serializePb(t, theirs),
+	}, testCtx())
+	require.NoError(t, err)
+
+	got, err := board.ParsePlaybook(out.Content)
+	require.NoError(t, err)
+	require.NoError(t, got.Validate())
+
+	ids := []string{}
+	for _, e := range got.Entries {
+		ids = append(ids, e.ID)
+	}
+
+	assert.Equal(t, []string{"e1"}, ids) // e2 stays gone even though theirs edited it
+}
+
+func TestResolvePlaybook_EntryRemovedByTheirsDropped(t *testing.T) {
+	base, ours, theirs := pb(), pb(), pb()
+	theirs.Entries = theirs.Entries[:1] // theirs drops e2
+	ours.Entries[1].Done = true
+
+	out, err := Resolve(Input{
+		Path: "playbooks/release.yaml", Base: serializePb(t, base),
+		Ours: serializePb(t, ours), Theirs: serializePb(t, theirs),
+	}, testCtx())
+	require.NoError(t, err)
+
+	got, err := board.ParsePlaybook(out.Content)
+	require.NoError(t, err)
+	require.NoError(t, got.Validate())
+
+	ids := []string{}
+	for _, e := range got.Entries {
+		ids = append(ids, e.ID)
+	}
+
+	assert.Equal(t, []string{"e1"}, ids) // e2 stays gone even though ours edited it
+}
+
+func TestResolvePlaybook_EntryOursOnlyEditKept(t *testing.T) {
+	base, ours, theirs := pb(), pb(), pb()
+	ours.Entries[1].Text = "sign off (ours edit)" // theirs matches base, unchanged
+
+	out, err := Resolve(Input{
+		Path: "playbooks/release.yaml", Base: serializePb(t, base),
+		Ours: serializePb(t, ours), Theirs: serializePb(t, theirs),
+	}, testCtx())
+	require.NoError(t, err)
+
+	got, err := board.ParsePlaybook(out.Content)
+	require.NoError(t, err)
+	require.NoError(t, got.Validate())
+	assert.Equal(t, "sign off (ours edit)", got.Entries[1].Text)
+}
+
+func TestResolvePlaybook_EntryConflictPicksLaterUpdated(t *testing.T) {
+	tests := []struct {
+		name          string
+		oursUpdated   time.Time
+		theirsUpdated time.Time
+		wantText      string
+	}{
+		{"theirs later wins", ts(1), ts(5), "theirs edit"},
+		{"ours later wins", ts(5), ts(1), "ours edit"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			base, ours, theirs := pb(), pb(), pb()
+			ours.Entries[1].Text, ours.Updated = "ours edit", tt.oursUpdated
+			theirs.Entries[1].Text, theirs.Updated = "theirs edit", tt.theirsUpdated
+
+			out, err := Resolve(Input{
+				Path: "playbooks/release.yaml", Base: serializePb(t, base),
+				Ours: serializePb(t, ours), Theirs: serializePb(t, theirs),
+			}, testCtx())
+			require.NoError(t, err)
+
+			got, err := board.ParsePlaybook(out.Content)
+			require.NoError(t, err)
+			require.NoError(t, got.Validate())
+			assert.Equal(t, tt.wantText, got.Entries[1].Text)
+
+			var found bool
+
+			for _, r := range out.Resolutions {
+				if r.Rule == RuleLaterUpdated && strings.Contains(r.Detail, "e2") {
+					found = true
+				}
+			}
+
+			assert.True(t, found, "expected a RuleLaterUpdated resolution naming entry e2")
 		})
 	}
 }
