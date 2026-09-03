@@ -294,7 +294,7 @@ func (s *CardService) HeartbeatCard(ctx context.Context, project, id, agentID st
 	s.writeMu.Lock()
 
 	// Heartbeat via lock manager (returns modified card)
-	card, err := s.lock.Heartbeat(ctx, project, id, agentID)
+	card, _, err := s.lock.Heartbeat(ctx, project, id, agentID)
 	if err != nil {
 		s.writeMu.Unlock()
 
