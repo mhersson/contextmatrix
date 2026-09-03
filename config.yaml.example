@@ -173,10 +173,12 @@ mcp_api_key: ""
 #
 # boards is one repository (the mapping below, named "boards") or a list of
 # named repositories. With a list, every entry takes the same fields plus a
-# required name; the first entry is the default for creation, an earlier
-# entry wins when two repos hold a project of the same name, and dirs may not
-# nest. The CONTEXTMATRIX_BOARDS_* overrides apply to the single-repo mapping
-# only; setting one with a list is a startup error.
+# required name; the first entry is the default for creation, project names
+# must be unique across repos and the server refuses to start if two hold the
+# same name (a duplicate that arrives later through a pull is hidden behind
+# the earlier entry), and dirs may not nest. The CONTEXTMATRIX_BOARDS_*
+# overrides apply to the single-repo mapping only; setting one with a list is
+# a startup error.
 #
 # boards:
 #   - name: team

@@ -1528,7 +1528,7 @@ Returns one status per configured boards repository, in config order.
     "unpushed_commits": 0,
     "claims_at_risk": false
   },
-  { "repo": "private", "last_sync_time": null, "syncing": false, "enabled": false }
+  { "repo": "private", "last_sync_time": null, "syncing": false, "enabled": false, "shared": false, "unpushed_commits": 0, "claims_at_risk": false }
 ]
 ```
 
