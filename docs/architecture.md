@@ -680,15 +680,25 @@ derives its agent ID from the card ID, so two laptops running one card
 present the same agent. `claimed_via` is the `instance.id` that granted the
 claim; the epoch is bumped on every claim, release, stall, force-release and
 terminal transition, and the side with the higher epoch supplies the whole
-claim tuple in a merge. Live heartbeats stay in memory (`lock.Manager`); the
-file's `last_heartbeat` is the lease and is rewritten only when older than
-`lease_interval`. Background loops act only on this instance's claims. A
-peer's claim is stalled only after its pushed lease has stayed unchanged for
-`lease_timeout` on the local clock, after a recent pull, through a
-push-verified cycle. A claim the remote has not confirmed for `lease_timeout`
-is fenced: release, transition and worker-status writes fail closed until a
-cycle succeeds. `done` keeps the claim until the holder releases it, on
-shared and private boards alike.
+claim tuple in a merge. At equal epochs raised from the same base, an active
+claim beats a bare stall or a release, so an instance running the card never
+loses it to another instance's guess about liveness. Live heartbeats stay in
+memory (`lock.Manager`); the file's `last_heartbeat` is the lease and is
+rewritten only when older than `lease_interval`. Background loops act only on
+this instance's claims. A peer's claim is stalled only after its pushed lease
+has stayed unchanged for `lease_timeout` on the local clock, after a recent
+pull, through a push-verified cycle. A claim the remote has not confirmed
+for `lease_timeout` is fenced: release, transition and worker-status writes
+fail closed until a cycle succeeds, and the stall checker leaves the card for
+the next cycle to settle. Nothing about the fence is persisted, so after a
+restart own claims stay fenced until the first sync cycle succeeds. `done`
+keeps the claim until the holder releases it, on shared and private boards
+alike.
+
+Every instance on a shared boards repo must run a version with shared-board
+support. An older version does not know the ownership fields and drops them
+whenever it rewrites a card, which hands the claim back to the agent ID alone
+and loses the epoch a merge decides by.
 
 ## File layout
 

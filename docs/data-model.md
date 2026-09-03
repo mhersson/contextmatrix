@@ -73,8 +73,9 @@
    `merge`, message `<rule>: <detail> (instance <id>)`, for a field the merge
    overrode, a card re-minted on an add/add conflict, a dangling reference an
    invariant repair dropped, and an invalid merged card that fell back to the
-   remote version. `claim.epoch_wins`, `claim.terminal_over_stall` and
-   `claim.double_claim` record which side's claim tuple a merge kept.
+   remote version. `claim.epoch_wins`, `claim.terminal_over_stall`,
+   `claim.double_claim` and `claim.active_over_release` record which side's
+   claim tuple a merge kept.
 
 7. **Heartbeat timeout.** If `last_heartbeat` exceeds configured timeout
    (default 30min), the service layer (`CardService.StartTimeoutChecker` in
@@ -100,14 +101,21 @@
    On a shared board a heartbeat is recorded in memory and the file's
    `last_heartbeat` (the lease) is rewritten only when older than
    `boards.lease_interval`; `lock.Manager.LastBeat` returns the newer of the
-   two and every read path, the stall checker and the dashboard use it. The
-   stall checker acts only on claims this instance granted. A claim another
-   instance granted is stalled only after its pushed lease has stayed
-   unchanged for `boards.lease_timeout` on the local clock, following a
-   recent pull, through a push-verified sync cycle; the stall bumps
-   `claim_epoch`. A claim the remote has not confirmed for `lease_timeout` is
-   fenced: release, transition, state patch and worker-status writes return
-   403 `AGENT_MISMATCH` until a sync cycle succeeds; heartbeats pass.
+   two, and every read path, the stall checker and the dashboard use it. The
+   live beat counts only while the card still carries this instance's claim;
+   a card a peer took over, an unclaimed card and a claim that predates
+   shared boards all read the value on file. The stall checker acts on claims
+   this instance granted and on claims that predate shared boards (no
+   `claimed_via`). A claim another instance granted is stalled only after its
+   pushed lease has stayed unchanged for `boards.lease_timeout` on the local
+   clock, following a recent pull, through a push-verified sync cycle; the
+   stall bumps `claim_epoch`. A claim the remote has not confirmed for
+   `lease_timeout` is fenced: release, transition, state patch and
+   worker-status writes return 403 `AGENT_MISMATCH` until a sync cycle
+   succeeds; heartbeats pass, and the stall checker skips the card so the
+   next cycle settles it first. The fence is held in memory only, so after a
+   restart every own claim is fenced until the startup sync cycle succeeds -
+   with the remote down that is what an operator sees behind those 403s.
 
 8. **External source tracking.** Cards imported from external systems (Jira,
    GitHub Issues, etc.) use the `source` field to record origin. The
