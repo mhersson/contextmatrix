@@ -87,6 +87,9 @@ const (
 	RulePlaybookRemint    = "playbook.entry_remint"
 	RulePlaybookReslug    = "playbook.reslug"
 	RulePlaybookDedupe    = "playbook.entry_dedupe"
+	RuleEpochWins         = "claim.epoch_wins"          // the higher claim_epoch supplied the claim tuple
+	RuleTerminalOverStall = "claim.terminal_over_stall" // a bare stall at a higher epoch lost to a completion
+	RuleDoubleClaim       = "claim.double_claim"        // both sides claimed from empty; earlier claimed_at won
 )
 
 // cardPath matches what the index loader accepts as a card: any .md file

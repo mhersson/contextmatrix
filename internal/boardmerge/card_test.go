@@ -12,6 +12,12 @@ import (
 
 func ts(sec int) time.Time { return time.Date(2026, 9, 3, 12, 0, sec, 0, time.UTC) }
 
+func hb(sec int) *time.Time {
+	t := ts(sec)
+
+	return &t
+}
+
 func baseCard() *board.Card {
 	return &board.Card{
 		ID: "ALPHA-001", Project: "alpha", Title: "t", Type: "task", State: "todo",
@@ -262,6 +268,89 @@ func TestMergeCards(t *testing.T) {
 				require.Len(t, res, 1)
 				assert.Equal(t, RuleBodyLaterUpdated, res[0].Rule)
 				assert.Equal(t, board.MergeAction, got.ActivityLog[len(got.ActivityLog)-1].Action)
+			},
+		},
+		{
+			"higher epoch supplies the whole claim tuple",
+			func(c *board.Card) {
+				c.State, c.AssignedAgent, c.ClaimEpoch, c.Updated = "stalled", "", 1, ts(9)
+			},
+			func(c *board.Card) {
+				c.State, c.AssignedAgent, c.ClaimedVia, c.ClaimedAt = "in_progress", "agent-ALPHA-001", "lap-b", hb(2)
+				c.ClaimEpoch, c.WorkerStatus, c.Phase, c.LastHeartbeat, c.Updated = 2, "running", "execute", hb(3), ts(3)
+			},
+			func(t *testing.T, got *board.Card, res []Resolution) {
+				assert.Equal(t, "in_progress", got.State, "the takeover at the higher epoch wins even though the stall is newer")
+				assert.Equal(t, "agent-ALPHA-001", got.AssignedAgent)
+				assert.Equal(t, "lap-b", got.ClaimedVia)
+				assert.Equal(t, 2, got.ClaimEpoch)
+				assert.Equal(t, "running", got.WorkerStatus)
+				assert.Equal(t, "execute", got.Phase)
+				require.NotEmpty(t, res)
+				assert.Equal(t, RuleEpochWins, res[0].Rule)
+				assert.Contains(t, lastAudit(t, got).Message, "from local")
+			},
+		},
+		{
+			"bare stall at the higher epoch loses to a terminal state",
+			func(c *board.Card) {
+				c.State, c.AssignedAgent, c.ClaimEpoch, c.Updated = "stalled", "", 3, ts(9)
+			},
+			func(c *board.Card) {
+				c.State, c.AssignedAgent, c.ClaimedVia, c.ClaimEpoch, c.Updated = "done", "x", "lap-b", 2, ts(2)
+			},
+			func(t *testing.T, got *board.Card, res []Resolution) {
+				assert.Equal(t, "done", got.State)
+				assert.Equal(t, "x", got.AssignedAgent, "done keeps its claim until release")
+				assert.Equal(t, 2, got.ClaimEpoch)
+				require.NotEmpty(t, res)
+				assert.Equal(t, RuleTerminalOverStall, res[0].Rule)
+			},
+		},
+		{
+			"double claim goes to the earlier claimed_at",
+			func(c *board.Card) {
+				c.AssignedAgent, c.ClaimedVia, c.ClaimedAt, c.ClaimEpoch, c.LastHeartbeat, c.Updated = "agent-ALPHA-001", "lap-a", hb(5), 1, hb(5), ts(5)
+			},
+			func(c *board.Card) {
+				c.AssignedAgent, c.ClaimedVia, c.ClaimedAt, c.ClaimEpoch, c.LastHeartbeat, c.Updated = "agent-ALPHA-001", "lap-b", hb(3), 1, hb(3), ts(3)
+			},
+			func(t *testing.T, got *board.Card, res []Resolution) {
+				assert.Equal(t, "lap-b", got.ClaimedVia)
+				assert.Equal(t, hb(3), got.ClaimedAt)
+				assert.Equal(t, 1, got.ClaimEpoch)
+				require.NotEmpty(t, res)
+				assert.Equal(t, RuleDoubleClaim, res[0].Rule)
+				assert.Contains(t, lastAudit(t, got).Message, "from local")
+			},
+		},
+		{
+			"same claim on both sides keeps the newest heartbeat without an audit",
+			func(c *board.Card) {
+				c.AssignedAgent, c.ClaimedVia, c.ClaimedAt, c.ClaimEpoch, c.LastHeartbeat = "a", "lap-a", hb(1), 1, hb(5)
+			},
+			func(c *board.Card) {
+				c.AssignedAgent, c.ClaimedVia, c.ClaimedAt, c.ClaimEpoch, c.LastHeartbeat = "a", "lap-a", hb(1), 1, hb(3)
+			},
+			func(t *testing.T, got *board.Card, res []Resolution) {
+				assert.Equal(t, hb(5), got.LastHeartbeat)
+				assert.Equal(t, 1, got.ClaimEpoch)
+				assert.Empty(t, res)
+			},
+		},
+		{
+			"release at a higher epoch beats a stale heartbeat",
+			func(c *board.Card) {
+				c.AssignedAgent, c.ClaimedVia, c.ClaimEpoch, c.LastHeartbeat, c.Updated = "a", "lap-a", 1, hb(8), ts(8)
+			},
+			func(c *board.Card) {
+				c.State, c.ClaimEpoch, c.Updated = "done", 3, ts(6)
+			},
+			func(t *testing.T, got *board.Card, res []Resolution) {
+				assert.Empty(t, got.AssignedAgent)
+				assert.Equal(t, "done", got.State)
+				assert.Equal(t, 3, got.ClaimEpoch)
+				assert.Equal(t, RuleEpochWins, res[0].Rule)
 			},
 		},
 	}

@@ -25,12 +25,18 @@ func TestApplyInvariants(t *testing.T) {
 			k.AssignedAgent = "x"
 			now := ts(1)
 			k.LastHeartbeat = &now
+			k.ClaimedVia = "lap-a"
+			k.ClaimedAt = &now
+			k.ClaimEpoch = 2
 
 			return k
 		}, func(t *testing.T, got *board.Card, res []Resolution) {
 			assert.Empty(t, got.AssignedAgent)
 			assert.Nil(t, got.LastHeartbeat)
 			assert.Equal(t, RuleInvariantRepair, res[0].Rule)
+			assert.Empty(t, got.ClaimedVia)
+			assert.Nil(t, got.ClaimedAt)
+			assert.Equal(t, 2, got.ClaimEpoch, "the invariant pass repairs, it does not fence")
 		}},
 		{"done retains claim", func() *board.Card {
 			// enforceTerminalStateInvariants (internal/service/service_transitions.go)
