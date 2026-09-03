@@ -3692,6 +3692,7 @@ func TestBoards_ListForm(t *testing.T) {
 	dir := t.TempDir()
 	team := filepath.Join(dir, "team")
 	private := filepath.Join(dir, "private")
+
 	require.NoError(t, os.MkdirAll(team, 0o755))
 	require.NoError(t, os.MkdirAll(private, 0o755))
 
@@ -3780,6 +3781,7 @@ func TestValidate_BoardsNamesAndDirs(t *testing.T) {
 			c := defaults()
 			c.GitHub.AuthMode = "pat"
 			c.GitHub.PAT.Token = "x"
+
 			c.Boards = tt.boards
 			for i := range c.Boards {
 				c.Boards[i].GitAutoCommit = true
@@ -3828,6 +3830,7 @@ func TestLoad_EnvOverridesRejectedWithAList(t *testing.T) {
 	dir := t.TempDir()
 	a := filepath.Join(dir, "a")
 	b := filepath.Join(dir, "b")
+
 	require.NoError(t, os.MkdirAll(a, 0o755))
 	require.NoError(t, os.MkdirAll(b, 0o755))
 	t.Setenv("CONTEXTMATRIX_BOARDS_GIT_AUTO_PULL", "true")
@@ -3851,6 +3854,7 @@ func TestLoad_InstanceIDGeneratedWhenAnyEntryIsShared(t *testing.T) {
 	dir := t.TempDir()
 	a := filepath.Join(dir, "a")
 	b := filepath.Join(dir, "b")
+
 	require.NoError(t, os.MkdirAll(a, 0o755))
 	require.NoError(t, os.MkdirAll(b, 0o755))
 	t.Setenv("XDG_STATE_HOME", filepath.Join(dir, "state"))

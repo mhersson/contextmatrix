@@ -2,7 +2,6 @@ package storage
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -74,10 +73,11 @@ func TestComposite_RoutesByProjectInConfigOrder(t *testing.T) {
 	assert.Equal(t, "t", got.Title)
 
 	_, err = c.GetCard(ctx, "gamma", "G-001")
-	assert.ErrorIs(t, err, ErrProjectNotFound)
+	require.ErrorIs(t, err, ErrProjectNotFound)
 
 	// BoardsRepo never reaches the file: the stamp is a read-side annotation.
 	require.NoError(t, c.SaveProject(ctx, cfg))
+
 	data, err := os.ReadFile(filepath.Join(two, "beta", ".board.yaml"))
 	require.NoError(t, err)
 	assert.NotContains(t, string(data), "boards_repo")
@@ -100,10 +100,12 @@ func TestComposite_DuplicateProjectIsHiddenBehindTheEarlierRepo(t *testing.T) {
 
 	projects, err := c.ListProjects(ctx)
 	require.NoError(t, err)
+
 	names := map[string]string{}
 	for _, p := range projects {
 		names[p.Name] = p.BoardsRepo
 	}
+
 	assert.Equal(t, map[string]string{"alpha": "one", "beta": "two"}, names)
 
 	viewTwo, err := c.View("two")
@@ -152,10 +154,10 @@ func TestComposite_SaveProjectInTargetsTheNamedRepo(t *testing.T) {
 	assert.Equal(t, "two", repo)
 
 	err := c.SaveProjectIn(ctx, "one", validProjectConfig("delta", "DELTA"))
-	assert.ErrorIs(t, err, ErrProjectExists)
+	require.ErrorIs(t, err, ErrProjectExists)
 
 	err = c.SaveProjectIn(ctx, "three", validProjectConfig("eps", "EPS"))
-	assert.ErrorIs(t, err, ErrUnknownRepo)
+	require.ErrorIs(t, err, ErrUnknownRepo)
 
 	err = c.SaveProject(ctx, validProjectConfig("zeta", "ZETA"))
 	assert.ErrorIs(t, err, ErrProjectNotFound, "a new project needs SaveProjectIn")
@@ -236,6 +238,6 @@ func TestNewComposite_RejectsBadInput(t *testing.T) {
 	_, err = NewComposite(NamedStore{Name: "a", Store: nil})
 	require.Error(t, err)
 
-	var notFound error = ErrUnknownRepo
-	assert.True(t, errors.Is(notFound, ErrUnknownRepo))
+	notFound := ErrUnknownRepo
+	assert.ErrorIs(t, notFound, ErrUnknownRepo)
 }
