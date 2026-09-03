@@ -78,6 +78,11 @@ type CardService struct {
 	// write to. Set once at wiring time and read-only thereafter.
 	sharedRepo bool
 
+	// syncRunner runs a mutation inside one sync cycle on a shared board.
+	// Nil on a private one, and every push-verified path then reduces to the
+	// ordinary local write. Set once at wiring time.
+	syncRunner SyncRunner
+
 	// instance, leaseTimeout and pullInterval come from SetLease on a shared
 	// board. instance stays empty on a private one, and every ownership and
 	// epoch rule keys off that.

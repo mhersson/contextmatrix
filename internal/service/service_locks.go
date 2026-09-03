@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime/debug"
 	"strings"
@@ -28,43 +29,29 @@ var ErrForceReleaseRequiresHuman = fmt.Errorf("force-release requires human agen
 // handle; heartbeats are exempt because a successful sync clears the fence.
 var ErrClaimFenced = fmt.Errorf("claim lease not confirmed on the remote: %w", lock.ErrAgentMismatch)
 
-// ClaimCard assigns a card to an agent.
-// Flow: lock claim → store update → git commit → publish event.
-func (s *CardService) ClaimCard(ctx context.Context, project, id, agentID string) (*board.Card, error) {
-	id = strings.ToUpper(id)
-
-	if err := validateAgentIDFormat(agentID); err != nil {
-		return nil, err
+// claimPreconditions loads the card and applies the checks that precede a
+// claim: an unvetted import is off limits to agents, and a terminal card is
+// only re-claimable by its holder. Returns the pre-claim snapshot.
+//
+// Caller must hold writeMu, so a concurrent transition cannot slip past the
+// terminal-state check.
+func (s *CardService) claimPreconditions(ctx context.Context, project, id, agentID string) (*board.Card, error) {
+	// Snapshot for rollback on commit failure.
+	snapshot, err := s.store.GetCard(ctx, project, id)
+	if err != nil {
+		return nil, fmt.Errorf("get card snapshot: %w", err)
 	}
 
 	// Block non-human agents from claiming cards that have an external source
 	// but have not been vetted. This prevents prompt-injection attacks where a
 	// malicious issue body could instruct an agent to perform unintended actions.
-	if !board.IsHumanAgentID(agentID) {
-		card, err := s.store.GetCard(ctx, project, id)
-		if err != nil {
-			return nil, fmt.Errorf("get card for vetting check: %w", err)
-		}
-
-		if card.Source != nil && !card.Vetted {
-			return nil, fmt.Errorf("claim card: %w", ErrCardNotVetted)
-		}
-	}
-
-	s.writeMu.Lock()
-
-	// Snapshot for rollback on commit failure.
-	snapshot, err := s.store.GetCard(ctx, project, id)
-	if err != nil {
-		s.writeMu.Unlock()
-
-		return nil, fmt.Errorf("get card snapshot: %w", err)
+	if !board.IsHumanAgentID(agentID) && snapshot.Source != nil && !snapshot.Vetted {
+		return nil, fmt.Errorf("claim card: %w", ErrCardNotVetted)
 	}
 
 	// A terminal card is finished work - done, or a human's deliberate
 	// not_planned. Claiming one is how a cancelled card gets picked up and
-	// reimplemented, so refuse: it must be moved back to todo first. Checked
-	// under writeMu so a concurrent transition cannot slip past it.
+	// reimplemented, so refuse: it must be moved back to todo first.
 	//
 	// The holder is exempt: an agent keeps its claim through done until
 	// ReleaseCard flushes deferred commits, and a re-claim there is a heartbeat
@@ -73,11 +60,35 @@ func (s *CardService) ClaimCard(ctx context.Context, project, id, agentID string
 	// requires a claim that actually exists - agent_id is only length-checked,
 	// so an empty one would otherwise match an unclaimed card's empty
 	// assigned_agent.
-	heldByCaller := snapshot.ClaimHeldBy(agentID, s.instance)
-	if board.IsTerminalState(snapshot.State) && !heldByCaller {
+	if board.IsTerminalState(snapshot.State) && !snapshot.ClaimHeldBy(agentID, s.instance) {
+		return nil, fmt.Errorf("claim card %s in state %s: %w", id, snapshot.State, ErrCardTerminal)
+	}
+
+	return snapshot, nil
+}
+
+// ClaimCard assigns a card to an agent.
+// Flow: lock claim → store update → git commit → publish event.
+// On a shared board the claim runs inside a sync cycle so the remote holds it
+// before the agent is told it may start work.
+func (s *CardService) ClaimCard(ctx context.Context, project, id, agentID string) (*board.Card, error) {
+	id = strings.ToUpper(id)
+
+	if err := validateAgentIDFormat(agentID); err != nil {
+		return nil, err
+	}
+
+	if s.pushVerified() {
+		return s.claimCardVerified(ctx, project, id, agentID)
+	}
+
+	s.writeMu.Lock()
+
+	snapshot, err := s.claimPreconditions(ctx, project, id, agentID)
+	if err != nil {
 		s.writeMu.Unlock()
 
-		return nil, fmt.Errorf("claim card %s in state %s: %w", id, snapshot.State, ErrCardTerminal)
+		return nil, err
 	}
 
 	// Claim via lock manager (returns modified card)
@@ -124,6 +135,114 @@ func (s *CardService) ClaimCard(ctx context.Context, project, id, agentID string
 	})
 
 	return card, nil
+}
+
+// claimCardVerified takes the claim inside a sync cycle, so the merge has run
+// before the epoch is bumped and the remote holds the result before the caller
+// is told it owns the card.
+func (s *CardService) claimCardVerified(ctx context.Context, project, id, agentID string) (*board.Card, error) {
+	var snapshot, written *board.Card
+
+	_, err := s.runVerified(ctx, "claim card",
+		func(ctx context.Context) error {
+			snap, err := s.claimPreconditions(ctx, project, id, agentID)
+			if err != nil {
+				return err
+			}
+
+			card, err := s.lock.Claim(ctx, project, id, agentID)
+			if err != nil {
+				return fmt.Errorf("claim card: %w", err)
+			}
+
+			if err := s.store.UpdateCard(ctx, project, card); err != nil {
+				return fmt.Errorf("update card: %w", err)
+			}
+
+			if err := s.commitNow(ctx, []string{s.cardPath(project, id)}, commitMessage(agentID, id, "claimed")); err != nil {
+				return s.rollbackCardOnCommitFailure(ctx, project, snap, err)
+			}
+
+			snapshot, written = snap, card
+
+			return nil
+		},
+		func(ctx context.Context) error {
+			return s.undoClaimWrite(ctx, project, id, written, snapshot, "claim undone: remote unreachable")
+		})
+	if err != nil {
+		return nil, err
+	}
+
+	card, err := s.store.GetCard(ctx, project, id)
+	if err != nil {
+		return nil, fmt.Errorf("get card after claim: %w", err)
+	}
+
+	// The merge may have handed a double claim to the instance that claimed
+	// first, or a peer's takeover may have outranked ours.
+	if !s.OwnsClaim(card, agentID) {
+		s.lock.ClearBeat(project, id)
+
+		return nil, fmt.Errorf("claim card %s: %w: taken by %s via %s during sync",
+			id, lock.ErrAlreadyClaimed, card.AssignedAgent, card.ClaimedVia)
+	}
+
+	// Fresh claims on parent/standalone cards start the run timer;
+	// same-card re-claims by a resuming agent keep the original start.
+	if snapshot.AssignedAgent == "" && snapshot.Parent == "" {
+		s.recordRunStart(project, id)
+	}
+
+	s.bus.Publish(events.Event{
+		Type:      events.CardClaimed,
+		Project:   project,
+		CardID:    id,
+		Agent:     agentID,
+		Timestamp: s.clk.Now(),
+	})
+	s.overlayLiveness(card)
+
+	return card, nil
+}
+
+// undoClaimWrite restores the claim tuple a verified write changed, when the
+// card still carries exactly that write. A card the merge has moved on is
+// left alone: the resolver already decided it. The pre-write epoch is
+// restored, not bumped, so a peer's claim made meanwhile outranks the undone
+// state in the next merge.
+func (s *CardService) undoClaimWrite(ctx context.Context, project, id string, written, snapshot *board.Card, reason string) error {
+	if written == nil {
+		return nil
+	}
+
+	cur, err := s.store.GetCard(ctx, project, id)
+	if errors.Is(err, storage.ErrCardNotFound) {
+		return nil
+	}
+
+	if err != nil {
+		return fmt.Errorf("get card: %w", err)
+	}
+
+	if cur.ClaimEpoch != written.ClaimEpoch || cur.AssignedAgent != written.AssignedAgent ||
+		cur.ClaimedVia != written.ClaimedVia || cur.State != written.State {
+		return nil
+	}
+
+	cur.AssignedAgent, cur.ClaimedVia, cur.ClaimedAt, cur.LastHeartbeat = snapshot.AssignedAgent, snapshot.ClaimedVia, snapshot.ClaimedAt, snapshot.LastHeartbeat
+	cur.State, cur.WorkerStatus, cur.Phase, cur.ClaimEpoch = snapshot.State, snapshot.WorkerStatus, snapshot.Phase, snapshot.ClaimEpoch
+	cur.Updated = s.clk.Now()
+	cur.ActivityLog = board.TrimActivityLog(append(cur.ActivityLog,
+		board.ActivityEntry{Agent: "system", Action: "sync", Timestamp: cur.Updated, Message: reason}))
+
+	if err := s.store.UpdateCard(ctx, project, cur); err != nil {
+		return fmt.Errorf("update card: %w", err)
+	}
+
+	s.lock.ClearBeat(project, id)
+
+	return s.commitNow(ctx, []string{s.cardPath(project, id)}, commitMessage("", id, reason))
 }
 
 // ReleaseCard removes an agent's claim on a card.
@@ -206,44 +325,17 @@ func (s *CardService) ForceReleaseCard(ctx context.Context, project, id, humanID
 		return nil, fmt.Errorf("force-release card %s: %w", id, ErrForceReleaseRequiresHuman)
 	}
 
+	if s.pushVerified() {
+		return s.forceReleaseVerified(ctx, project, id, humanID)
+	}
+
 	s.writeMu.Lock()
 
-	// Snapshot for rollback on commit failure.
-	snapshot, err := s.store.GetCard(ctx, project, id)
+	snapshot, card, prevAgent, err := s.forceReleaseLocked(ctx, project, id, humanID)
 	if err != nil {
 		s.writeMu.Unlock()
 
-		return nil, fmt.Errorf("get card snapshot: %w", err)
-	}
-
-	card, prevAgent, err := s.lock.ForceRelease(ctx, project, id)
-	if err != nil {
-		s.writeMu.Unlock()
-
-		return nil, fmt.Errorf("force-release card: %w", err)
-	}
-
-	// The worker is presumed dead - same normalization as the stall path.
-	// Leaving queued/running would 409 every future run trigger, and with
-	// the claim gone the stall sweep would never correct it.
-	if card.WorkerStatus == "queued" || card.WorkerStatus == "running" {
-		card.WorkerStatus = "failed"
-	}
-
-	// Appended before the store write so the audit entry and the claim-clear
-	// land in a single commit.
-	card.ActivityLog = append(card.ActivityLog, board.ActivityEntry{
-		Agent:     humanID,
-		Timestamp: card.Updated,
-		Action:    "force_released",
-		Message:   fmt.Sprintf("Force-released claim held by %s", prevAgent),
-	})
-	card.ActivityLog = board.TrimActivityLog(card.ActivityLog)
-
-	if err := s.store.UpdateCard(ctx, project, card); err != nil {
-		s.writeMu.Unlock()
-
-		return nil, fmt.Errorf("update card: %w", err)
+		return nil, err
 	}
 
 	commitDone, notify := s.enqueueCardCommit(ctx, project, id, humanID, "force-released")
@@ -284,6 +376,95 @@ func (s *CardService) ForceReleaseCard(ctx context.Context, project, id, humanID
 	})
 
 	return card, nil
+}
+
+// forceReleaseLocked clears the claim and appends the audit entry, returning
+// the pre-release snapshot, the written card and the agent that held it.
+// Caller must hold writeMu and owns the commit.
+func (s *CardService) forceReleaseLocked(
+	ctx context.Context, project, id, humanID string,
+) (snapshot, written *board.Card, prevAgent string, err error) {
+	// Snapshot for rollback on commit failure.
+	snapshot, err = s.store.GetCard(ctx, project, id)
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("get card snapshot: %w", err)
+	}
+
+	card, prevAgent, err := s.lock.ForceRelease(ctx, project, id)
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("force-release card: %w", err)
+	}
+
+	// The worker is presumed dead - same normalization as the stall path.
+	// Leaving queued/running would 409 every future run trigger, and with
+	// the claim gone the stall sweep would never correct it.
+	if card.WorkerStatus == "queued" || card.WorkerStatus == "running" {
+		card.WorkerStatus = "failed"
+	}
+
+	// Appended before the store write so the audit entry and the claim-clear
+	// land in a single commit.
+	card.ActivityLog = append(card.ActivityLog, board.ActivityEntry{
+		Agent:     humanID,
+		Timestamp: card.Updated,
+		Action:    "force_released",
+		Message:   fmt.Sprintf("Force-released claim held by %s", prevAgent),
+	})
+	card.ActivityLog = board.TrimActivityLog(card.ActivityLog)
+
+	if err := s.store.UpdateCard(ctx, project, card); err != nil {
+		return nil, nil, "", fmt.Errorf("update card: %w", err)
+	}
+
+	return snapshot, card, prevAgent, nil
+}
+
+// forceReleaseVerified clears the claim inside a sync cycle so the remote
+// holds the release before the operator is told the card is free. A shared
+// board never defers commits, so there is nothing to flush here.
+func (s *CardService) forceReleaseVerified(ctx context.Context, project, id, humanID string) (*board.Card, error) {
+	var (
+		snapshot, written *board.Card
+		prevAgent         string
+	)
+
+	_, err := s.runVerified(ctx, "force-release",
+		func(ctx context.Context) error {
+			snap, card, prev, err := s.forceReleaseLocked(ctx, project, id, humanID)
+			if err != nil {
+				return err
+			}
+
+			if err := s.commitNow(ctx, []string{s.cardPath(project, id)}, commitMessage(humanID, id, "force-released")); err != nil {
+				return s.rollbackCardOnCommitFailure(ctx, project, snap, err)
+			}
+
+			snapshot, written, prevAgent = snap, card, prev
+
+			return nil
+		},
+		func(ctx context.Context) error {
+			return s.undoClaimWrite(ctx, project, id, written, snapshot, "force-release undone: remote unreachable")
+		})
+	if err != nil {
+		return nil, err
+	}
+
+	s.observeRunEnd(project, written, "force_released")
+
+	s.bus.Publish(events.Event{
+		Type:      events.CardReleased,
+		Project:   project,
+		CardID:    id,
+		Agent:     humanID,
+		Timestamp: s.clk.Now(),
+		Data: map[string]any{
+			"previous_agent": prevAgent,
+			"forced":         true,
+		},
+	})
+
+	return written, nil
 }
 
 // HeartbeatCard updates the heartbeat timestamp for a claimed card.
