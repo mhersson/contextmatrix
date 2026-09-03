@@ -1133,7 +1133,7 @@ func TestParentAutoTransition_AppendsStateChangeLog(t *testing.T) {
 	// sparkline can reconstruct the parent's history.
 	require.Len(t, updatedParent.ActivityLog, 1)
 	entry := updatedParent.ActivityLog[0]
-	assert.Equal(t, stateChangedAction, entry.Action)
+	assert.Equal(t, board.StateChangedAction, entry.Action)
 	assert.Equal(t, "todo -> in_progress", entry.Message)
 	assert.Equal(t, "system", entry.Agent)
 }

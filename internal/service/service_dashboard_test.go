@@ -83,7 +83,7 @@ func TestGetDashboard_InFlightSparkline_FromStateChanged(t *testing.T) {
 		{
 			Agent:     "human:test",
 			Timestamp: now.Add(-5 * 24 * time.Hour),
-			Action:    stateChangedAction,
+			Action:    board.StateChangedAction,
 			Message:   "todo -> in_progress",
 		},
 	}
@@ -106,13 +106,13 @@ func TestGetDashboard_InFlightSparkline_FromStateChanged(t *testing.T) {
 		{
 			Agent:     "human:test",
 			Timestamp: now.Add(-2 * 24 * time.Hour),
-			Action:    stateChangedAction,
+			Action:    board.StateChangedAction,
 			Message:   "todo -> in_progress",
 		},
 		{
 			Agent:     "human:test",
 			Timestamp: now.Add(-1 * 24 * time.Hour),
-			Action:    stateChangedAction,
+			Action:    board.StateChangedAction,
 			Message:   "in_progress -> done",
 		},
 	}
@@ -857,9 +857,9 @@ func TestExtractStateChanges_SortsAscendingAndSetsBaseline(t *testing.T) {
 		State: board.StateReview,
 		ActivityLog: []board.ActivityEntry{
 			// Out-of-order entries to verify sort.
-			{Action: stateChangedAction, Timestamp: t0.Add(2 * time.Hour), Message: "in_progress -> review"},
-			{Action: stateChangedAction, Timestamp: t0, Message: "todo -> in_progress"},
-			{Action: stateChangedAction, Timestamp: t0.Add(time.Hour), Message: "in_progress -> stalled"},
+			{Action: board.StateChangedAction, Timestamp: t0.Add(2 * time.Hour), Message: "in_progress -> review"},
+			{Action: board.StateChangedAction, Timestamp: t0, Message: "todo -> in_progress"},
+			{Action: board.StateChangedAction, Timestamp: t0.Add(time.Hour), Message: "in_progress -> stalled"},
 		},
 	}
 	changes, baseline := extractStateChanges(card)
@@ -878,8 +878,8 @@ func TestExtractStateChanges_SortsAscendingAndSetsBaseline(t *testing.T) {
 func TestExtractStateChanges_SkipsMalformedMessages(t *testing.T) {
 	card := &board.Card{
 		ActivityLog: []board.ActivityEntry{
-			{Action: stateChangedAction, Message: "no arrow here"},
-			{Action: stateChangedAction, Message: "todo -> in_progress"},
+			{Action: board.StateChangedAction, Message: "no arrow here"},
+			{Action: board.StateChangedAction, Message: "todo -> in_progress"},
 		},
 	}
 	changes, baseline := extractStateChanges(card)
@@ -1115,8 +1115,8 @@ func TestStateAtTimeFromChanges_IdenticalTimestampPicksLastInsertedDeterministic
 	// of the two - wins. Verify the result is deterministic across runs.
 	card := &board.Card{
 		ActivityLog: []board.ActivityEntry{
-			{Action: stateChangedAction, Timestamp: t0, Message: "todo -> in_progress"},
-			{Action: stateChangedAction, Timestamp: t0, Message: "in_progress -> review"},
+			{Action: board.StateChangedAction, Timestamp: t0, Message: "todo -> in_progress"},
+			{Action: board.StateChangedAction, Timestamp: t0, Message: "in_progress -> review"},
 		},
 	}
 

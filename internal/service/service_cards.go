@@ -177,17 +177,11 @@ type CardContext struct {
 	Template string // Template body for the card's type
 }
 
-// stateChangedAction is the activity-log Action value emitted whenever a
-// card transitions to a new state. Message format is "oldState -> newState";
-// the dashboard sparkline reconstruction parses this to compute end-of-day
-// state per card without needing a separate time-series store.
-const stateChangedAction = "state_changed"
-
 // appendStateChangeLog records a state transition on card.ActivityLog. The
 // caller must have already validated that oldState != newState. An empty
 // agent string is normalised to "system" for transitions driven by the
 // stall checker, parent auto-transition, or other server-side machinery.
-// The activity log is then trimmed via trimActivityLog (state_changed
+// The activity log is then trimmed via board.TrimActivityLog (state_changed
 // entries are preserved preferentially so the dashboard sparkline can
 // reconstruct historical state on high-activity cards).
 func appendStateChangeLog(card *board.Card, oldState, newState, agent string, ts time.Time) {
@@ -198,11 +192,11 @@ func appendStateChangeLog(card *board.Card, oldState, newState, agent string, ts
 	card.ActivityLog = append(card.ActivityLog, board.ActivityEntry{
 		Agent:     agent,
 		Timestamp: ts,
-		Action:    stateChangedAction,
+		Action:    board.StateChangedAction,
 		Message:   fmt.Sprintf("%s -> %s", oldState, newState),
 	})
 
-	card.ActivityLog = trimActivityLog(card.ActivityLog)
+	card.ActivityLog = board.TrimActivityLog(card.ActivityLog)
 }
 
 // assignedAction is the activity-log Action value emitted whenever a card's
@@ -229,7 +223,7 @@ func appendAssigneeChangeLog(card *board.Card, oldAssignee, agent string, ts tim
 		Message:   message,
 	})
 
-	card.ActivityLog = trimActivityLog(card.ActivityLog)
+	card.ActivityLog = board.TrimActivityLog(card.ActivityLog)
 }
 
 // dependsOnAction is the activity-log Action value emitted whenever a card's
@@ -259,7 +253,7 @@ func appendDependsOnChangeLog(card *board.Card, agent string, ts time.Time) {
 		Message:   message,
 	})
 
-	card.ActivityLog = trimActivityLog(card.ActivityLog)
+	card.ActivityLog = board.TrimActivityLog(card.ActivityLog)
 }
 
 // dependsOnEqual reports whether two depends_on lists contain the same IDs,
@@ -275,42 +269,6 @@ func dependsOnEqual(a, b []string) bool {
 	slices.Sort(sortedB)
 
 	return slices.Equal(sortedA, sortedB)
-}
-
-// trimActivityLog enforces the activity-log cap while preserving
-// state_changed entries preferentially. The dashboard's 7-day sparkline
-// reconstructs end-of-day state by walking these entries (see
-// stateAtTimeFromChanges in service_dashboard.go); dropping them silently makes
-// the sparkline paint the wrong history for high-activity cards.
-//
-// Strategy: drop non-state-changed entries oldest-first until under the
-// cap; only then fall back to dropping oldest state_changed entries
-// (which is still correct because the latest transition wins).
-func trimActivityLog(log []board.ActivityEntry) []board.ActivityEntry {
-	if len(log) <= maxActivityLogEntries {
-		return log
-	}
-
-	excess := len(log) - maxActivityLogEntries
-	out := make([]board.ActivityEntry, 0, len(log))
-
-	for _, e := range log {
-		if excess > 0 && e.Action != stateChangedAction {
-			excess--
-
-			continue
-		}
-
-		out = append(out, e)
-	}
-
-	// If even after dropping every non-state-changed we still over-cap
-	// (a card with 50+ transitions), drop oldest state_changed entries.
-	if len(out) > maxActivityLogEntries {
-		out = out[len(out)-maxActivityLogEntries:]
-	}
-
-	return out
 }
 
 // ErrFieldTooLong is returned when a user-supplied field exceeds its length limit.
@@ -1423,7 +1381,7 @@ func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry
 	}
 
 	card.ActivityLog = append(card.ActivityLog, entry)
-	card.ActivityLog = trimActivityLog(card.ActivityLog)
+	card.ActivityLog = board.TrimActivityLog(card.ActivityLog)
 
 	card.Updated = s.clk.Now()
 

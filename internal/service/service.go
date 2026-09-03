@@ -39,10 +39,6 @@ import (
 )
 
 const (
-	// maxActivityLogEntries is the maximum number of entries kept in a card's activity log.
-	// Older entries are dropped but preserved in git history.
-	maxActivityLogEntries = 50
-
 	// maxReviewAttempts caps the review_attempts counter as defense-in-depth.
 	// The autonomous skill halts at 2 cycles (initial review + 1 rejection).
 	// This server-side cap is higher to allow manual overrides while still

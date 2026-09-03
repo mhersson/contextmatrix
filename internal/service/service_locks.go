@@ -225,7 +225,7 @@ func (s *CardService) ForceReleaseCard(ctx context.Context, project, id, humanID
 		Action:    "force_released",
 		Message:   fmt.Sprintf("Force-released claim held by %s", prevAgent),
 	})
-	card.ActivityLog = trimActivityLog(card.ActivityLog)
+	card.ActivityLog = board.TrimActivityLog(card.ActivityLog)
 
 	if err := s.store.UpdateCard(ctx, project, card); err != nil {
 		s.writeMu.Unlock()

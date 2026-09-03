@@ -1,6 +1,7 @@
 package board
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -1099,4 +1100,34 @@ func TestSerializeCardOmitsSubtaskCost(t *testing.T) {
 	data, err := SerializeCard(card)
 	require.NoError(t, err)
 	assert.NotContains(t, string(data), "subtask_cost_usd")
+}
+
+func TestTrimActivityLog(t *testing.T) {
+	mk := func(n int, action string) []ActivityEntry {
+		out := make([]ActivityEntry, n)
+		for i := range out {
+			out[i] = ActivityEntry{Agent: "a", Action: action, Message: fmt.Sprint(i), Timestamp: time.Unix(int64(i), 0)}
+		}
+
+		return out
+	}
+
+	t.Run("under cap unchanged", func(t *testing.T) {
+		in := mk(10, "log")
+		assert.Equal(t, in, TrimActivityLog(in))
+	})
+	t.Run("drops oldest non-state first", func(t *testing.T) {
+		in := append(mk(60, "log"), ActivityEntry{Action: StateChangedAction, Message: "keep"})
+		out := TrimActivityLog(in)
+		require.Len(t, out, MaxActivityLogEntries)
+		assert.Equal(t, "keep", out[len(out)-1].Message)
+		assert.Equal(t, "11", out[0].Message)
+	})
+	t.Run("falls back to dropping oldest state entries when all are state changes", func(t *testing.T) {
+		in := mk(60, StateChangedAction)
+		out := TrimActivityLog(in)
+		require.Len(t, out, MaxActivityLogEntries)
+		assert.Equal(t, "10", out[0].Message)
+		assert.Equal(t, "59", out[len(out)-1].Message)
+	})
 }
