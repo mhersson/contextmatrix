@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -13,20 +15,24 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/mhersson/contextmatrix/internal/gitsync"
+	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
 // mockSyncer implements Syncer for testing.
 type mockSyncer struct {
 	triggerErr error
-	status     gitsync.SyncStatus
+	statuses   []gitsync.SyncStatus
+	lastRepo   string
 }
 
-func (m *mockSyncer) TriggerSync(_ context.Context) error {
+func (m *mockSyncer) TriggerSync(_ context.Context, repo string) error {
+	m.lastRepo = repo
+
 	return m.triggerErr
 }
 
-func (m *mockSyncer) Status() gitsync.SyncStatus {
-	return m.status
+func (m *mockSyncer) Statuses() []gitsync.SyncStatus {
+	return m.statuses
 }
 
 // --- POST /api/sync ---
@@ -36,7 +42,7 @@ func TestTriggerSync_Enabled(t *testing.T) {
 	defer cleanup()
 
 	syncer := &mockSyncer{
-		status: gitsync.SyncStatus{Enabled: true},
+		statuses: []gitsync.SyncStatus{{Repo: "boards", Enabled: true}},
 	}
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Syncer: syncer})
@@ -53,9 +59,10 @@ func TestTriggerSync_Enabled(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var status gitsync.SyncStatus
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&status))
-	assert.True(t, status.Enabled)
+	var statuses []gitsync.SyncStatus
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&statuses))
+	require.Len(t, statuses, 1)
+	assert.True(t, statuses[0].Enabled)
 }
 
 func TestTriggerSync_Disabled(t *testing.T) {
@@ -88,7 +95,7 @@ func TestTriggerSync_Error(t *testing.T) {
 
 	syncer := &mockSyncer{
 		triggerErr: errors.New("rebase conflict"),
-		status:     gitsync.SyncStatus{Enabled: true, LastSyncError: "rebase conflict"},
+		statuses:   []gitsync.SyncStatus{{Repo: "boards", Enabled: true, LastSyncError: "rebase conflict"}},
 	}
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Syncer: syncer})
@@ -111,6 +118,80 @@ func TestTriggerSync_Error(t *testing.T) {
 	assert.Contains(t, apiErr.Details, "rebase conflict")
 }
 
+func TestTriggerSync_RepoQuery(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	syncer := &mockSyncer{statuses: []gitsync.SyncStatus{{Repo: "team", Enabled: true}, {Repo: "private"}}}
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Syncer: syncer})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	req, _ := http.NewRequest("POST", server.URL+"/api/sync?repo=team", nil)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, "team", syncer.lastRepo)
+
+	var statuses []gitsync.SyncStatus
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&statuses))
+	require.Len(t, statuses, 2)
+	assert.Equal(t, "private", statuses[1].Repo)
+}
+
+func TestTriggerSync_UnknownRepoIsBadRequest(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	syncer := &mockSyncer{triggerErr: fmt.Errorf("%w: %q", storage.ErrUnknownRepo, "nope")}
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Syncer: syncer})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	req, _ := http.NewRequest("POST", server.URL+"/api/sync?repo=nope", nil)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodeBadRequest, apiErr.Code)
+}
+
+func TestTriggerSync_DisabledRepoIs503(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	syncer := &mockSyncer{triggerErr: fmt.Errorf("private: %w", gitsync.ErrSyncDisabled)}
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Syncer: syncer})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	req, _ := http.NewRequest("POST", server.URL+"/api/sync?repo=private", nil)
+
+	resp, err := http.DefaultClient.Do(req)
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodeSyncDisabled, apiErr.Code)
+}
+
 // --- GET /api/sync ---
 
 func TestGetSyncStatus_Enabled(t *testing.T) {
@@ -118,7 +199,7 @@ func TestGetSyncStatus_Enabled(t *testing.T) {
 	defer cleanup()
 
 	syncer := &mockSyncer{
-		status: gitsync.SyncStatus{Enabled: true, Syncing: false},
+		statuses: []gitsync.SyncStatus{{Repo: "boards", Enabled: true, Syncing: false}},
 	}
 
 	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Syncer: syncer})
@@ -133,10 +214,11 @@ func TestGetSyncStatus_Enabled(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var status gitsync.SyncStatus
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&status))
-	assert.True(t, status.Enabled)
-	assert.False(t, status.Syncing)
+	var statuses []gitsync.SyncStatus
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&statuses))
+	require.Len(t, statuses, 1)
+	assert.True(t, statuses[0].Enabled)
+	assert.False(t, statuses[0].Syncing)
 }
 
 func TestGetSyncStatus_Disabled(t *testing.T) {
@@ -156,9 +238,30 @@ func TestGetSyncStatus_Disabled(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var status gitsync.SyncStatus
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&status))
-	assert.False(t, status.Enabled)
+	var statuses []gitsync.SyncStatus
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&statuses))
+	assert.Empty(t, statuses)
+}
+
+func TestGetSyncStatus_NoSyncerIsAnEmptyList(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	resp, err := http.Get(server.URL + "/api/sync")
+
+	require.NoError(t, err)
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.JSONEq(t, "[]", string(body))
 }
 
 // --- POST /api/projects/{project}/recalculate-costs ---

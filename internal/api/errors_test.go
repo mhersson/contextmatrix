@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	encodingjson "encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/gitsync"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/internal/storage"
 	"github.com/stretchr/testify/assert"
@@ -310,4 +312,21 @@ func TestHandleServiceError_ClaimFencedIsAgentMismatch(t *testing.T) {
 	var apiErr APIError
 	require.NoError(t, encodingjson.NewDecoder(rec.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodeAgentMismatch, apiErr.Code)
+}
+
+func TestRemoteUnreachableDetails(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"contended", fmt.Errorf("create card: %w: %w", service.ErrRemoteUnreachable, gitsync.ErrSyncContended), "push rejected repeatedly by the remote; retry"},
+		{"deadline", fmt.Errorf("create card: %w: %w", service.ErrRemoteUnreachable, context.DeadlineExceeded), "network call to the boards remote timed out"},
+		{"go-git path", fmt.Errorf("create card: %w: open /home/a/boards/.git/index: permission denied", service.ErrRemoteUnreachable), "boards remote unreachable"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, remoteUnreachableDetails(tt.err))
+		})
+	}
 }

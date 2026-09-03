@@ -151,11 +151,15 @@ type RouterConfig struct {
 	// false on a private board.
 	InstanceID   string
 	SharedBoards bool
-	Theme        string        // active color palette ("everforest" or "radix")
-	Version      string        // build version string for display
-	MCPHandler   http.Handler  // optional; registered at POST/GET/DELETE /mcp when set
-	ChatManager  *chat.Manager // optional; enables /api/chats routes
-	ChatHub      *chat.SSEHub  // optional; required when ChatManager is set
+	// BoardsRepos lists every configured boards repository in config order
+	// for the app-config payload, so the UI can group projects and offer
+	// the repo at creation time.
+	BoardsRepos []BoardsRepoInfo
+	Theme       string        // active color palette ("everforest" or "radix")
+	Version     string        // build version string for display
+	MCPHandler  http.Handler  // optional; registered at POST/GET/DELETE /mcp when set
+	ChatManager *chat.Manager // optional; enables /api/chats routes
+	ChatHub     *chat.SSEHub  // optional; required when ChatManager is set
 	// ChatBackendCfg is the dedicated "chat" backend entry. Its HMAC key
 	// authenticates GET /api/chat/task-skills-source (the chat service's
 	// pointer fetch). nil when no dedicated chat backend is configured.
@@ -324,6 +328,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		chatEnabled:            chatBackendConfigured,
 		instanceID:             cfg.InstanceID,
 		sharedBoards:           cfg.SharedBoards,
+		boardsRepos:            cfg.BoardsRepos,
 	}
 	bh := &branchHandlers{
 		svc:                cfg.Service,
@@ -1128,7 +1133,7 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	// --- Remote unavailable (503) - shared boards only ---
 	case errors.Is(err, service.ErrRemoteUnreachable):
 		writeError(w, http.StatusServiceUnavailable, ErrCodeRemoteUnreachable,
-			"boards remote unreachable; retry shortly", sanitizeErrorDetails(err))
+			"boards remote unreachable; retry shortly", remoteUnreachableDetails(err))
 
 	// --- Bad-request sentinels (400) ---
 	case errors.Is(err, storage.ErrInvalidPath):

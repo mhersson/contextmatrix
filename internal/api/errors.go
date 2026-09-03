@@ -1,12 +1,15 @@
 package api
 
 import (
+	"context"
 	encodingjson "encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"regexp"
 	"strings"
+
+	"github.com/mhersson/contextmatrix/internal/gitsync"
 )
 
 // sanitizeErrorDetails converts an error into a short, sanitized detail
@@ -101,3 +104,17 @@ var gitDirPathRe = regexp.MustCompile(`/[A-Za-z0-9_.\-/]+/\.git(?:/|$| )`)
 // catches leaks like "open /data/boards/project/tasks/CARD-001.md: ..."
 // without false-positiving on short ids.
 var absPathRe = regexp.MustCompile(`/[A-Za-z0-9_.\-/]+/[A-Za-z0-9_.\-]+`)
+
+// remoteUnreachableDetails classifies a failed push-verified cycle for the
+// client. The raw error names remote URLs, paths and go-git internals;
+// only the class travels.
+func remoteUnreachableDetails(err error) string {
+	switch {
+	case errors.Is(err, gitsync.ErrSyncContended):
+		return "push rejected repeatedly by the remote; retry"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "network call to the boards remote timed out"
+	default:
+		return "boards remote unreachable"
+	}
+}
