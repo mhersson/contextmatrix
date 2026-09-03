@@ -35,9 +35,10 @@ vi.mock('../../hooks/useBoard', () => ({
 
 vi.mock('../../hooks/useSync', () => ({
   useSync: vi.fn(() => ({
+    syncStatuses: [],
     syncStatus: null,
+    statusFor: vi.fn(() => null),
     triggerSync: vi.fn(),
-    handleSyncEvent: vi.fn(),
   })),
 }));
 
@@ -218,6 +219,7 @@ vi.mock('../../hooks/useTheme', () => ({
     taskBackend: 'agent',
     instanceId: '',
     sharedBoards: false,
+    boardsRepos: [],
   }),
 }));
 

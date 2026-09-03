@@ -4,9 +4,9 @@ import { useOncePerKeyToast } from '../../hooks/useOncePerKeyToast';
 import { useOptionalAuth } from '../../hooks/useAuth';
 import { useProjects } from '../../hooks/useProjects';
 import { useProjectSummariesContext } from '../../hooks/ProjectSummariesProvider';
-import { useSSEBus } from '../../hooks/useSSEBus';
+import { useSync } from '../../hooks/useSync';
 import { useToast } from '../../hooks/useToast';
-import type { AppConfig, SyncStatus } from '../../types';
+import type { AppConfig } from '../../types';
 import { CommandStrip } from './CommandStrip';
 import { KpiRow } from './KpiRow';
 import { ProjectsTable } from './ProjectsTable';
@@ -27,7 +27,7 @@ interface AllProjectsDashboardProps {
 export function AllProjectsDashboard({ onNewProject }: AllProjectsDashboardProps) {
   const { projects, refreshProjects } = useProjects();
   const { summaries, errors, loading, refresh } = useProjectSummariesContext();
-  const { subscribe } = useSSEBus();
+  const { syncStatuses } = useSync();
   const { showToast } = useToast();
 
   // UX honesty, not a security boundary - the API 403s a non-admin project
@@ -36,7 +36,6 @@ export function AllProjectsDashboard({ onNewProject }: AllProjectsDashboardProps
   const canCreateProject = !(auth?.mode === 'multi' && !auth?.user?.is_admin);
 
   const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
-  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   // Each failure type toasts at most once per dashboard mount so a recurring
@@ -56,26 +55,6 @@ export function AllProjectsDashboard({ onNewProject }: AllProjectsDashboardProps
         showOnce('appConfig', 'Could not load app config');
       });
   }, [showOnce]);
-
-  const fetchSync = useCallback(() => {
-    api
-      .getSyncStatus()
-      .then((s) => {
-        setSyncStatus(s);
-      })
-      .catch((err) => {
-        console.warn('getSyncStatus failed:', err);
-        showOnce('sync', 'Sync status unavailable');
-      });
-  }, [showOnce]);
-
-  useEffect(() => {
-    fetchSync();
-  }, [fetchSync]);
-
-  useEffect(() => {
-    return subscribe('sync.*', () => fetchSync());
-  }, [subscribe, fetchSync]);
 
   // Surface partial-failure toasts when the set of failed project fetches
   // grows. Shrinking (recovery) is silent.
@@ -111,16 +90,7 @@ export function AllProjectsDashboard({ onNewProject }: AllProjectsDashboardProps
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await Promise.allSettled([
-        refreshProjects(),
-        refresh(),
-        api
-          .getSyncStatus()
-          .then(setSyncStatus)
-          .catch((err) => {
-            console.warn('getSyncStatus failed:', err);
-          }),
-      ]);
+      await Promise.allSettled([refreshProjects(), refresh()]);
     } finally {
       setRefreshing(false);
     }
@@ -158,7 +128,7 @@ export function AllProjectsDashboard({ onNewProject }: AllProjectsDashboardProps
         >
           Loading dashboard…
         </div>
-        <FootStrip version={appConfig?.version ?? null} syncStatus={syncStatus} />
+        <FootStrip version={appConfig?.version ?? null} syncStatuses={syncStatuses} />
       </div>
     );
   }
@@ -196,7 +166,7 @@ export function AllProjectsDashboard({ onNewProject }: AllProjectsDashboardProps
           <ActivityFeed prefixMap={prefixMap} />
         </div>
       </div>
-      <FootStrip version={appConfig?.version ?? null} syncStatus={syncStatus} />
+      <FootStrip version={appConfig?.version ?? null} syncStatuses={syncStatuses} />
     </div>
   );
 }

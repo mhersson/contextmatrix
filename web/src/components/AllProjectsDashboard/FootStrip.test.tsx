@@ -13,7 +13,7 @@ function makeStatus(overrides: Partial<SyncStatus> = {}): SyncStatus {
 }
 
 function renderStrip(syncStatus: SyncStatus | null) {
-  return render(<FootStrip version={null} syncStatus={syncStatus} />);
+  return render(<FootStrip version={null} syncStatuses={syncStatus ? [syncStatus] : []} />);
 }
 
 describe('FootStrip - claims at risk', () => {
@@ -37,5 +37,35 @@ describe('FootStrip - claims at risk', () => {
       makeStatus({ shared: true, remote_reachable: true, claims_at_risk: false }),
     );
     expect(container.textContent).not.toMatch(/claims at risk/i);
+  });
+});
+
+describe('FootStrip - several repos', () => {
+  const healthy = makeStatus({ repo: 'team', shared: true, remote_reachable: true });
+  const offline = makeStatus({ repo: 'lab', shared: true, remote_reachable: false, last_remote_error: 'dial tcp: timeout' });
+  const disabled = makeStatus({ repo: 'private', enabled: false, last_sync_time: null });
+
+  it('shows the worst repo and names it', () => {
+    const { container } = render(<FootStrip version={null} syncStatuses={[healthy, offline, disabled]} />);
+    expect(container.textContent).toContain('lab · sync offline');
+    expect(container.textContent).toContain('Sync offline');
+  });
+
+  it('never lets a private repo without a remote mask a healthy shared one', () => {
+    const { container } = render(<FootStrip version={null} syncStatuses={[healthy, disabled]} />);
+    expect(container.textContent).toContain('All systems operational');
+    expect(container.textContent).not.toContain('Sync disabled');
+  });
+
+  it('reports hidden projects', () => {
+    const hidden = makeStatus({ repo: 'lab', shared: true, remote_reachable: true, hidden_projects: ['alpha'] });
+    const { container } = render(<FootStrip version={null} syncStatuses={[healthy, hidden]} />);
+    expect(container.textContent).toContain('1 hidden project');
+  });
+
+  it('keeps the single-repo wording with one status', () => {
+    const { container } = render(<FootStrip version={null} syncStatuses={[healthy]} />);
+    expect(container.textContent).not.toContain('team ·');
+    expect(container.textContent).toContain('All systems operational');
   });
 });

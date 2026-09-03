@@ -185,3 +185,18 @@ describe('BoardFooter', () => {
     expect(screen.getByTitle(/1 merge resolution/)).toBeInTheDocument();
   });
 });
+
+describe('BoardFooter - repo name', () => {
+  it('names the repo in the sync label when given', () => {
+    render(<BoardFooter cardCount={0} columnCount={0} syncStatus={makeStatus()} repoName="team" />);
+    expect(screen.getByText('git sync · team · idle')).toBeInTheDocument();
+  });
+
+  it('lists hidden projects in the tooltip', () => {
+    render(
+      <BoardFooter cardCount={0} columnCount={0} onSyncClick={() => {}}
+        syncStatus={makeStatus({ shared: true, remote_reachable: true, hidden_projects: ['alpha'] })} repoName="team" />,
+    );
+    expect(screen.getByRole('button', { name: /git sync · team/ }).getAttribute('title')).toContain('hidden: alpha');
+  });
+});

@@ -52,7 +52,7 @@ export function ProjectShell() {
   const { projects } = useProjects();
   const { showToast } = useToast();
   const { identity } = useIdentity();
-  const { taskBackend, instanceId } = useTheme();
+  const { taskBackend, instanceId, boardsRepos } = useTheme();
 
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
   const [createPanelOpen, setCreatePanelOpen] = useState(false);
@@ -67,7 +67,7 @@ export function ProjectShell() {
     enabled: consoleOpen,
   });
 
-  const { syncStatus, triggerSync, handleSyncEvent } = useSync();
+  const { statusFor, triggerSync } = useSync();
 
   const dashboard = useDashboardPolling(project, REFRESH_INTERVAL);
   const activity = useActivityFeed(project);
@@ -91,7 +91,10 @@ export function ProjectShell() {
     }
   }, [showToast]);
 
-  const { config, cards, loading, error, connected, refreshCard, listEpoch, updateCardLocally, removeCardLocally, suppressSSE, unsuppressSSE } = useBoard(project || '', undefined, handleSyncEvent, handleCardCreated);
+  const { config, cards, loading, error, connected, refreshCard, listEpoch, updateCardLocally, removeCardLocally, suppressSSE, unsuppressSSE } = useBoard(project || '', undefined, undefined, handleCardCreated);
+
+  const syncStatus = statusFor(config?.boards_repo);
+  const syncRepoName = boardsRepos.length > 1 ? (config?.boards_repo ?? boardsRepos[0]?.name) : undefined;
 
   // Deep-link handling for ?card=ID - see useDeepLinkCard for full rationale.
   // Click-driven panel opens deliberately do NOT write to the URL.
@@ -280,6 +283,7 @@ export function ProjectShell() {
                       maxWorkers={maxWorkers}
                       runningContainers={runningContainers}
                       syncStatus={syncStatus}
+                      syncRepoName={syncRepoName}
                       connected={connected}
                       activityEntries={activity.entries}
                       activityBackfillLoaded={activity.backfillLoaded}

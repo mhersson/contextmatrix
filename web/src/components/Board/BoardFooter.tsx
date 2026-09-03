@@ -9,6 +9,8 @@ interface BoardFooterProps {
   nowRailOpen?: boolean;
   onToggleNowRail?: () => void;
   onSyncClick?: () => void;
+  /** Boards repo syncStatus describes; shown in the sync label with two or more repos. */
+  repoName?: string;
 }
 
 function relativeTime(iso: string, nowMs: number): string {
@@ -29,6 +31,7 @@ export function BoardFooter({
   nowRailOpen,
   onToggleNowRail,
   onSyncClick,
+  repoName,
 }: BoardFooterProps) {
   // Local 30s tick so the "Xs ago" portion of the sync label refreshes even
   // when the parent doesn't re-render. Only runs while we have a sync time
@@ -56,24 +59,26 @@ export function BoardFooter({
   const unpushed = syncStatus?.unpushed_commits ?? 0;
   const resolutions = syncStatus?.resolutions?.length ?? 0;
 
+  const prefix = repoName ? `git sync · ${repoName}` : 'git sync';
+
   // Compute the label from syncStatus. When no status is supplied (rare -
   // tests / detached usage), fall back to a static idle label.
   let computedLabel: string;
   if (syncing) {
     computedLabel = 'Syncing…';
   } else if (offline) {
-    computedLabel = 'git sync · offline';
+    computedLabel = `${prefix} · offline`;
   } else if (atRisk) {
-    computedLabel = 'git sync · pushes failing · claims at risk';
+    computedLabel = `${prefix} · pushes failing · claims at risk`;
   } else if (syncStatus) {
     computedLabel = lastSyncTime
-      ? `git sync · ${relativeTime(lastSyncTime, now)}`
-      : 'git sync · idle';
+      ? `${prefix} · ${relativeTime(lastSyncTime, now)}`
+      : `${prefix} · idle`;
     if (unpushed > 0) {
       computedLabel += ` · ${unpushed} unpushed`;
     }
   } else {
-    computedLabel = 'git sync · idle';
+    computedLabel = `${prefix} · idle`;
   }
 
   const labelStyle: React.CSSProperties = offline || syncError || atRisk
@@ -94,6 +99,10 @@ export function BoardFooter({
   }
   if (resolutions > 0) {
     titleLines.push(`${resolutions} merge resolution${resolutions === 1 ? '' : 's'} in the last syncs`);
+  }
+  const hidden = syncStatus?.hidden_projects ?? [];
+  if (hidden.length > 0) {
+    titleLines.push(`hidden: ${hidden.join(', ')} (name owned by an earlier boards repo)`);
   }
   titleLines.push(offline || syncError || atRisk ? 'Click to retry' : 'Click to sync now');
   const labelTitle = titleLines.join('\n');
