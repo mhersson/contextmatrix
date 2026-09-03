@@ -597,7 +597,17 @@ func (s *CardService) processStalled(ctx context.Context) error {
 		ctxlog.Logger(ctx).Error("process abandoned parents", "error", err)
 	}
 
+	if s.pushVerified() {
+		s.processForeignStalls(ctx)
+	}
+
 	return nil
+}
+
+// SweepStalled runs one stall pass now: heartbeat timeouts on this instance's
+// claims, abandoned parents, and expired leases of other instances' claims.
+func (s *CardService) SweepStalled(ctx context.Context) error {
+	return s.processStalled(ctx)
 }
 
 // processAbandonedParents reaps parent cards left in_progress + unclaimed after
