@@ -61,6 +61,9 @@ type CreatePlaybookInput struct {
 	Description string
 	AgentID     string
 	Entries     []PlaybookEntryInput
+	// BoardsRepo names the boards repository to create the playbook in;
+	// empty means the first configured one.
+	BoardsRepo string
 }
 
 // UpdatePlaybookInput patches a playbook's metadata. Nil fields are left
@@ -84,10 +87,13 @@ type UpdateEntryInput struct {
 // render the board's playbook list page without fetching every entry's
 // full detail.
 type PlaybookSummary struct {
-	ID       string `json:"id"`
-	Title    string `json:"title"`
-	Complete int    `json:"complete"`
-	Total    int    `json:"total"`
+	ID string `json:"id"`
+	// BoardsRepo names the boards repository the playbook lives in. Empty
+	// on a response built before the repo was resolved.
+	BoardsRepo string `json:"boards_repo,omitempty"`
+	Title      string `json:"title"`
+	Complete   int    `json:"complete"`
+	Total      int    `json:"total"`
 	// Segments is the per-entry status in playbook order:
 	// "complete" | "active" | "missing" | "pending". The list page's
 	// segmented meter renders real entry states, never a counts-derived
@@ -115,7 +121,9 @@ type PlaybookEntryDetail struct {
 // PlaybookDetail is the full playbook view: metadata plus every entry
 // resolved against the card store.
 type PlaybookDetail struct {
-	ID          string                `json:"id"`
+	ID string `json:"id"`
+	// BoardsRepo names the boards repository the playbook lives in.
+	BoardsRepo  string                `json:"boards_repo,omitempty"`
 	Title       string                `json:"title"`
 	Description string                `json:"description,omitempty"`
 	CreatedBy   string                `json:"created_by,omitempty"`
@@ -126,64 +134,179 @@ type PlaybookDetail struct {
 	Entries     []PlaybookEntryDetail `json:"entries"`
 }
 
-// PlaybookService orchestrates playbook CRUD, mirroring CardService's
-// store/git/events/clock composition but scoped to the global playbooks
-// partition rather than a per-project board.
+// PlaybookRepo is one boards repository's playbook write path: its commit
+// queue and, on a shared repo, the sync runner and direct commit the
+// verified create uses.
+type PlaybookRepo struct {
+	Name          string
+	Queue         *gitops.CommitQueue
+	GitAutoCommit bool
+
+	runner       SyncRunner
+	directCommit DirectCommit
+	onCommit     func()
+}
+
+func (r *PlaybookRepo) notifyCommit() {
+	if r.onCommit != nil {
+		r.onCommit()
+	}
+}
+
+// PlaybookService owns playbook CRUD across every boards repository. It
+// mirrors CardService's store/git/events/clock composition but scoped to
+// the global playbooks partition of each repo rather than a per-project
+// board. One write mutex covers every repo: the syncer of any repo takes it
+// before CardService.LockWrites, and a mutation of repo B under it awaits
+// queue B, which a cycle of repo A never pauses.
 type PlaybookService struct {
 	store PlaybookStore
 	cards storage.Store
 	bus   *events.Bus
 	clk   clock.Clock
 
-	gitAutoCommit bool
-	queue         *gitops.CommitQueue
-	onCommit      func()
-
-	syncRunner   SyncRunner   // set on a shared board; Create runs inside a sync cycle
-	directCommit DirectCommit // the commit path inside that cycle
+	repos     []*PlaybookRepo
+	repoIndex map[string]*PlaybookRepo
 
 	// writeMu serializes all playbook mutations (the store's RWMutex
 	// protects the index, not a read-modify-write cycle). Unlike
-	// CardService.LockWrites, this never touches the commit queue - see
+	// CardService.LockWrites, this never touches a commit queue - see
 	// LockWrites for the ordering constraint this implies for the syncer.
 	writeMu sync.Mutex
 }
 
-// NewPlaybookService creates a new PlaybookService. A nil clk defaults to
-// clock.Real().
-func NewPlaybookService(store PlaybookStore, cards storage.Store, bus *events.Bus, clk clock.Clock, gitAutoCommit bool) *PlaybookService {
+// NewPlaybookServiceRepos creates a PlaybookService over several boards
+// repositories. store routes by playbook ID; each repo carries its own
+// commit queue. A nil clk defaults to clock.Real().
+func NewPlaybookServiceRepos(
+	store PlaybookStore, cards storage.Store, bus *events.Bus, clk clock.Clock, repos ...*PlaybookRepo,
+) (*PlaybookService, error) {
+	if len(repos) == 0 {
+		return nil, errors.New("playbook service: at least one boards repo is required")
+	}
+
 	if clk == nil {
 		clk = clock.Real()
 	}
 
-	return &PlaybookService{
-		store:         store,
-		cards:         cards,
-		bus:           bus,
-		clk:           clk,
-		gitAutoCommit: gitAutoCommit,
+	index := make(map[string]*PlaybookRepo, len(repos))
+
+	for _, r := range repos {
+		if r == nil || r.Name == "" {
+			return nil, errors.New("playbook service: every boards repo needs a name")
+		}
+
+		if _, dup := index[r.Name]; dup {
+			return nil, fmt.Errorf("playbook service: duplicate boards repo name %q", r.Name)
+		}
+
+		index[r.Name] = r
 	}
+
+	return &PlaybookService{store: store, cards: cards, bus: bus, clk: clk, repos: repos, repoIndex: index}, nil
 }
 
-// SetCommitQueue registers a commit queue. Passing nil disables git commits
-// (mutations still apply to the store; see enqueueCommit).
+// NewPlaybookService creates a PlaybookService over one boards repository
+// named boards. A nil clk defaults to clock.Real().
+func NewPlaybookService(store PlaybookStore, cards storage.Store, bus *events.Bus, clk clock.Clock, gitAutoCommit bool) *PlaybookService {
+	s, err := NewPlaybookServiceRepos(store, cards, bus, clk, &PlaybookRepo{Name: DefaultRepoName, GitAutoCommit: gitAutoCommit})
+	if err != nil {
+		panic(err) // one named repo cannot fail validation
+	}
+
+	return s
+}
+
+// SetCommitQueue registers the commit queue of the first configured repo.
+// Passing nil disables git commits there (mutations still apply to the
+// store; see enqueueCommit).
 func (s *PlaybookService) SetCommitQueue(q *gitops.CommitQueue) {
-	s.queue = q
+	s.repos[0].Queue = q
 }
 
-// SetOnCommit registers a callback invoked after each successful git commit.
+// SetOnCommit registers the callback invoked after each successful git
+// commit in the first configured repo.
 func (s *PlaybookService) SetOnCommit(fn func()) {
-	s.onCommit = fn
+	s.repos[0].onCommit = fn
 }
 
-func (s *PlaybookService) notifyCommit() {
-	if s.onCommit != nil {
-		s.onCommit()
+// SetOnCommitFor registers the callback for one repo.
+func (s *PlaybookService) SetOnCommitFor(repo string, fn func()) error {
+	r, err := s.repoNamed(repo)
+	if err != nil {
+		return err
 	}
+
+	r.onCommit = fn
+
+	return nil
 }
 
-// LockWrites acquires the write mutex, preventing all playbook mutations.
-// Exposed for the gitsync layer (Task 6).
+func (s *PlaybookService) repoNamed(name string) (*PlaybookRepo, error) {
+	if name == "" {
+		return s.repos[0], nil
+	}
+
+	if r, ok := s.repoIndex[name]; ok {
+		return r, nil
+	}
+
+	return nil, fmt.Errorf("%w: %q", ErrUnknownBoardsRepo, name)
+}
+
+// playbookRouter is what the composite store offers; a plain store owns
+// every playbook in the first repo.
+type playbookRouter interface {
+	RepoOf(id string) (string, bool)
+}
+
+// playbookCreator creates a playbook in a named repo.
+type playbookCreator interface {
+	CreateIn(ctx context.Context, repo string, p *board.Playbook) error
+}
+
+// playbookReloader reloads one repo of the composite.
+type playbookReloader interface {
+	ReloadRepo(ctx context.Context, repo string) error
+}
+
+// The playbook composite is the only store that routes by repo; pin that it
+// still answers every question the resolver asks of it.
+var (
+	_ playbookRouter   = (*storage.PlaybookComposite)(nil)
+	_ playbookCreator  = (*storage.PlaybookComposite)(nil)
+	_ playbookReloader = (*storage.PlaybookComposite)(nil)
+)
+
+// repoOfPlaybook resolves the repo that owns id. An unknown ID resolves to
+// the first repo; the store call that follows reports the real error.
+func (s *PlaybookService) repoOfPlaybook(id string) *PlaybookRepo {
+	if len(s.repos) == 1 {
+		return s.repos[0]
+	}
+
+	if pr, ok := s.store.(playbookRouter); ok {
+		if name, ok := pr.RepoOf(id); ok {
+			if r, ok := s.repoIndex[name]; ok {
+				return r
+			}
+		}
+	}
+
+	return s.repos[0]
+}
+
+// createIn writes a new playbook into r's repo.
+func (s *PlaybookService) createIn(ctx context.Context, r *PlaybookRepo, p *board.Playbook) error {
+	if pc, ok := s.store.(playbookCreator); ok {
+		return pc.CreateIn(ctx, r.Name, p)
+	}
+
+	return s.store.Create(ctx, p)
+}
+
+// LockWrites acquires the write mutex, preventing all playbook mutations
+// in every boards repository. Exposed for the gitsync layer.
 //
 // Unlike CardService.LockWrites, this never pauses the commit queue - it is
 // a plain mutex lock. Ordering constraint owed to the caller: the syncer
@@ -202,32 +325,80 @@ func (s *PlaybookService) UnlockWrites() {
 	s.writeMu.Unlock()
 }
 
-// Reload rebuilds the store's in-memory index from disk. Used by the syncer
-// (Task 6) after a git pull brings new/changed playbook files.
+// Reload rebuilds every repo's in-memory index from disk. Used by the
+// syncer after a git pull brings new/changed playbook files.
 func (s *PlaybookService) Reload(ctx context.Context) error {
 	return s.store.ReloadIndex(ctx)
 }
 
-// SetSyncRunner routes playbook creation through the syncer so the slug is
-// allocated against the merged playbooks directory. commit is the direct
-// commit path used inside the cycle. Must be called before the server starts
-// accepting requests.
+// ReloadRepo rebuilds one repo's index from disk. Used by that repo's
+// syncer after a pull.
+func (s *PlaybookService) ReloadRepo(ctx context.Context, repo string) error {
+	if pr, ok := s.store.(playbookReloader); ok {
+		return pr.ReloadRepo(ctx, repo)
+	}
+
+	return s.store.ReloadIndex(ctx)
+}
+
+// RepoPlaybooks is the syncer's handle on the playbooks of one repo: the
+// global write lock plus a reload of that repo alone.
+type RepoPlaybooks struct {
+	svc  *PlaybookService
+	repo string
+}
+
+// ForRepo returns the syncer handle for repo.
+func (s *PlaybookService) ForRepo(repo string) *RepoPlaybooks {
+	return &RepoPlaybooks{svc: s, repo: repo}
+}
+
+func (p *RepoPlaybooks) LockWrites()   { p.svc.LockWrites() }
+func (p *RepoPlaybooks) UnlockWrites() { p.svc.UnlockWrites() }
+
+func (p *RepoPlaybooks) Reload(ctx context.Context) error {
+	return p.svc.ReloadRepo(ctx, p.repo)
+}
+
+// SetSyncRunner routes playbook creation in the first configured repo
+// through the syncer so the slug is allocated against the merged playbooks
+// directory. commit is the direct commit path used inside the cycle. Must be
+// called before the server starts accepting requests.
 func (s *PlaybookService) SetSyncRunner(run SyncRunner, commit DirectCommit) {
-	s.syncRunner, s.directCommit = run, commit
+	s.repos[0].runner, s.repos[0].directCommit = run, commit
+}
+
+// SetSyncRunnerFor is SetSyncRunner for one repo.
+func (s *PlaybookService) SetSyncRunnerFor(repo string, run SyncRunner, commit DirectCommit) error {
+	r, err := s.repoNamed(repo)
+	if err != nil {
+		return err
+	}
+
+	r.runner, r.directCommit = run, commit
+
+	return nil
 }
 
 // Create builds a new playbook from input, validating and resolving every
 // entry before the first store write so a bad entry never leaves a partial
 // playbook behind.
 func (s *PlaybookService) Create(ctx context.Context, input CreatePlaybookInput) (*PlaybookDetail, error) {
-	if s.syncRunner != nil {
-		return s.createVerified(ctx, input)
+	r, err := s.repoNamed(input.BoardsRepo)
+	if err != nil {
+		return nil, err
+	}
+
+	if r.runner != nil {
+		return s.createVerified(ctx, r, input)
 	}
 
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
-	detail, err := s.createLocked(ctx, input, s.enqueueCommit)
+	detail, err := s.createLocked(ctx, r, input, func(ctx context.Context, id, action string) error {
+		return s.enqueueCommitIn(ctx, r, id, action)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -241,7 +412,7 @@ func (s *PlaybookService) Create(ctx context.Context, input CreatePlaybookInput)
 // chosen by it. The caller publishes playbook.created: inside a sync cycle
 // the create is not final until the push has landed.
 func (s *PlaybookService) createLocked(
-	ctx context.Context, input CreatePlaybookInput, commit func(ctx context.Context, id, action string) error,
+	ctx context.Context, r *PlaybookRepo, input CreatePlaybookInput, commit func(ctx context.Context, id, action string) error,
 ) (*PlaybookDetail, error) {
 	now := s.clk.Now().UTC().Truncate(time.Second)
 
@@ -274,7 +445,7 @@ func (s *PlaybookService) createLocked(
 	for n := 2; ; n++ {
 		p.ID = id
 
-		err := s.store.Create(ctx, p)
+		err := s.createIn(ctx, r, p)
 		if err == nil {
 			break
 		}
@@ -302,15 +473,15 @@ func (s *PlaybookService) createLocked(
 // createVerified allocates the slug and writes the playbook inside a sync
 // cycle, so the ID is unique against the merged playbooks directory. Playbook
 // creation is rare, so it makes one attempt rather than the card paths' three.
-func (s *PlaybookService) createVerified(ctx context.Context, input CreatePlaybookInput) (*PlaybookDetail, error) {
+func (s *PlaybookService) createVerified(ctx context.Context, r *PlaybookRepo, input CreatePlaybookInput) (*PlaybookDetail, error) {
 	var created *board.Playbook
 
 	commit := func(ctx context.Context, id, action string) error {
-		if !s.gitAutoCommit {
+		if !r.GitAutoCommit {
 			return nil
 		}
 
-		return s.directCommit(ctx, []string{playbooksDirName + "/" + id + ".yaml"},
+		return r.directCommit(ctx, []string{playbooksDirName + "/" + id + ".yaml"},
 			fmt.Sprintf("playbook(%s): %s", id, action))
 	}
 
@@ -319,9 +490,9 @@ func (s *PlaybookService) createVerified(ctx context.Context, input CreatePlaybo
 		applyErr error
 	)
 
-	_, err := s.syncRunner(ctx, "create playbook", SyncMutation{
+	_, err := r.runner(ctx, "create playbook", SyncMutation{
 		Apply: func(ctx context.Context) error {
-			d, err := s.createLocked(ctx, input, commit)
+			d, err := s.createLocked(ctx, r, input, commit)
 			if err != nil {
 				applyErr = err
 
@@ -437,14 +608,19 @@ func (s *PlaybookService) Delete(ctx context.Context, id, agentID string) error 
 		return fmt.Errorf("get playbook: %w", err)
 	}
 
+	// Resolve the owning repo before the store delete: afterwards the id is
+	// gone from the router and would fall back to the first repo, so both
+	// the commit and the rollback would target the wrong repository.
+	r := s.repoOfPlaybook(id)
+
 	if err := s.store.Delete(ctx, id); err != nil {
 		return fmt.Errorf("delete playbook: %w", err)
 	}
 
 	now := s.clk.Now().UTC().Truncate(time.Second)
 
-	if err := s.enqueueCommit(ctx, id, "deleted"); err != nil {
-		if rbErr := s.store.Create(ctx, snapshot); rbErr != nil {
+	if err := s.enqueueCommitIn(ctx, r, id, "deleted"); err != nil {
+		if rbErr := s.createIn(ctx, r, snapshot); rbErr != nil {
 			ctxlog.Logger(ctx).Error("playbook rollback after commit failure failed", "playbook", id, "error", rbErr)
 
 			return errors.Join(err, fmt.Errorf("rollback failed: %w", rbErr))
@@ -505,16 +681,22 @@ func (s *PlaybookService) mutate(ctx context.Context, id, action, agentID string
 	return s.resolve(ctx, p)
 }
 
-// enqueueCommit enqueues a playbook-file commit and awaits its result.
-// gitAutoCommit == false or no queue configured skips the commit entirely
+// enqueueCommit enqueues a playbook-file commit in the repo that owns id
+// and awaits its result.
+func (s *PlaybookService) enqueueCommit(ctx context.Context, id, action string) error {
+	return s.enqueueCommitIn(ctx, s.repoOfPlaybook(id), id, action)
+}
+
+// enqueueCommitIn is enqueueCommit with the repo already resolved.
+// GitAutoCommit == false or no queue configured skips the commit entirely
 // (still treated as success by the caller). FilesShell handles create,
 // update, and delete uniformly and is immune to stale go-git state.
-func (s *PlaybookService) enqueueCommit(ctx context.Context, id, action string) error {
-	if !s.gitAutoCommit || s.queue == nil {
+func (s *PlaybookService) enqueueCommitIn(ctx context.Context, r *PlaybookRepo, id, action string) error {
+	if !r.GitAutoCommit || r.Queue == nil {
 		return nil
 	}
 
-	done := s.queue.Enqueue(gitops.CommitJob{
+	done := r.Queue.Enqueue(gitops.CommitJob{
 		Project: playbooksCommitPartition,
 		Kind:    gitops.CommitKindFilesShell,
 		Paths:   []string{playbooksDirName + "/" + id + ".yaml"},
@@ -529,7 +711,7 @@ func (s *PlaybookService) enqueueCommit(ctx context.Context, id, action string) 
 		return fmt.Errorf("git commit: %w", err)
 	}
 
-	s.notifyCommit()
+	r.notifyCommit()
 
 	return nil
 }
@@ -684,6 +866,7 @@ func (s *PlaybookService) UpdateEntry(ctx context.Context, id, entryID string, i
 func (s *PlaybookService) resolve(ctx context.Context, p *board.Playbook) (*PlaybookDetail, error) {
 	detail := &PlaybookDetail{
 		ID:          p.ID,
+		BoardsRepo:  s.repoOfPlaybook(p.ID).Name,
 		Title:       p.Title,
 		Description: p.Description,
 		CreatedBy:   p.CreatedBy,
@@ -767,12 +950,13 @@ func SummarizeDetail(d *PlaybookDetail) PlaybookSummary {
 	}
 
 	return PlaybookSummary{
-		ID:       d.ID,
-		Title:    d.Title,
-		Complete: d.Complete,
-		Total:    d.Total,
-		Segments: segments,
-		Projects: len(projects),
-		Updated:  d.Updated,
+		ID:         d.ID,
+		BoardsRepo: d.BoardsRepo,
+		Title:      d.Title,
+		Complete:   d.Complete,
+		Total:      d.Total,
+		Segments:   segments,
+		Projects:   len(projects),
+		Updated:    d.Updated,
 	}
 }
