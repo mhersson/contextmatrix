@@ -112,6 +112,10 @@ type CommitQueue struct {
 	paused   bool
 	pauseCh  chan struct{} // closed when unpaused; non-nil only while paused
 	inflight int           // workers currently executing a commit
+	// pending counts jobs Enqueue has accepted and processJob has not yet
+	// finished. Unlike inflight it includes jobs still sitting in a
+	// per-project channel, which is what Drain has to wait out.
+	pending int
 	// idleCh is closed when inflight transitions from >0 to 0. A fresh
 	// channel is installed (still closed) while idle; when inflight first
 	// transitions from 0 to >0 the channel is replaced with a new open one
@@ -239,6 +243,10 @@ func (q *CommitQueue) Enqueue(job CommitJob) <-chan error {
 
 			go q.run(job.Project, pw)
 		}
+		// Count the job before releasing the lock: from here on it either
+		// reaches a worker (processJob decrements) or the retry path below
+		// gives the count back.
+		q.pending++
 		q.mu.Unlock()
 
 		// Take the per-project lock so the worker cannot exit between our
@@ -250,6 +258,10 @@ func (q *CommitQueue) Enqueue(job CommitJob) <-chan error {
 			// Worker exited while we were not holding pw.mu. Drop the lock
 			// and loop back to spawn a fresh worker.
 			pw.mu.Unlock()
+
+			q.mu.Lock()
+			q.pending--
+			q.mu.Unlock()
 
 			continue
 		}
@@ -342,6 +354,14 @@ func (q *CommitQueue) run(project string, pw *projectWorker) {
 // pipeline and signals the caller via job.Done. Extracted so both run-loop
 // branches (legacy and idle-aware) share identical semantics.
 func (q *CommitQueue) processJob(job CommitJob) {
+	// Every path out of this function - commit, failure, or a context
+	// cancelled before pickup - retires the job Enqueue counted.
+	defer func() {
+		q.mu.Lock()
+		q.pending--
+		q.mu.Unlock()
+	}()
+
 	// Depth drops when the job is taken off the channel.
 	metrics.CommitQueueDepth.Dec()
 
@@ -548,6 +568,39 @@ func (q *CommitQueue) AwaitIdle(ctx context.Context) error {
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
+	}
+}
+
+// Drain lets every buffered job run to completion and leaves the queue
+// paused. Unlike AwaitIdle, which only waits out the commits already
+// executing, Drain also waits for jobs still sitting in a per-project
+// channel - required before a shell merge, which needs every card change
+// already committed.
+//
+// Callers hold the service write lock, so no new job can arrive while the
+// queue is briefly resumed. On a cancelled context the queue is still left
+// paused and the context error is returned.
+func (q *CommitQueue) Drain(ctx context.Context) error {
+	q.Resume()
+
+	for {
+		q.mu.Lock()
+		pending := q.pending
+		q.mu.Unlock()
+
+		if pending == 0 {
+			q.Pause()
+
+			return nil
+		}
+
+		select {
+		case <-time.After(5 * time.Millisecond):
+		case <-ctx.Done():
+			q.Pause()
+
+			return ctx.Err()
+		}
 	}
 }
 

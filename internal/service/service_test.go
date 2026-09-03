@@ -6889,3 +6889,98 @@ func gitopsTestProvider(t testing.TB) githubauth.TokenGenerator {
 
 	return p
 }
+
+// enqueueBufferedCardCommit mutates a card on disk and enqueues its commit
+// through the real write path without awaiting it, leaving exactly the state
+// a concurrent writer produces: a card change that is on disk but not yet
+// committed, sitting in the commit queue. Returns the commit's done channel.
+func enqueueBufferedCardCommit(t *testing.T, svc *CardService, project, cardID string) <-chan error {
+	t.Helper()
+
+	ctx := context.Background()
+
+	svc.writeMu.Lock()
+	defer svc.writeMu.Unlock()
+
+	stored, err := svc.store.GetCard(ctx, project, cardID)
+	require.NoError(t, err)
+
+	stored.Title = "Drained"
+	require.NoError(t, svc.store.UpdateCard(ctx, project, stored))
+
+	done, _ := svc.enqueueCardCommit(ctx, project, cardID, "human:test", "updated")
+
+	return done
+}
+
+// TestLockWrites_SharedRepoDrainsBufferedCommits pins the shared-repo
+// contract: LockWrites returns only once every queued card commit has landed,
+// so a shell merge taken under the lock sees a fully committed tree.
+func TestLockWrites_SharedRepoDrainsBufferedCommits(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Drain me", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	before, err := svc.git.CommitCount()
+	require.NoError(t, err)
+
+	// Pause before enqueueing so the commit is buffered rather than run.
+	svc.commitQueue.Pause()
+	done := enqueueBufferedCardCommit(t, svc, "test-project", card.ID)
+
+	svc.SetSharedRepo(true)
+	svc.LockWrites()
+
+	after, err := svc.git.CommitCount()
+	require.NoError(t, err)
+	assert.Equal(t, before+1, after, "shared-repo LockWrites must drain the buffered commit")
+
+	svc.UnlockWrites()
+	require.NoError(t, <-done)
+
+	// UnlockWrites must leave the queue usable again.
+	svc.writeMu.Lock()
+	resumed, _ := svc.enqueueCardCommit(ctx, "test-project", card.ID, "human:test", "after unlock")
+	svc.writeMu.Unlock()
+	require.NoError(t, <-resumed)
+}
+
+// TestLockWrites_NonSharedRepoLeavesBufferedCommits pins that the default
+// path is unchanged: it pauses and waits only for commits already executing,
+// so a buffered one still runs after UnlockWrites.
+func TestLockWrites_NonSharedRepoLeavesBufferedCommits(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Leave me", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	before, err := svc.git.CommitCount()
+	require.NoError(t, err)
+
+	svc.commitQueue.Pause()
+	done := enqueueBufferedCardCommit(t, svc, "test-project", card.ID)
+
+	svc.LockWrites()
+
+	during, err := svc.git.CommitCount()
+	require.NoError(t, err)
+	assert.Equal(t, before, during, "non-shared LockWrites must not wait for buffered commits")
+
+	svc.UnlockWrites()
+	require.NoError(t, <-done)
+
+	after, err := svc.git.CommitCount()
+	require.NoError(t, err)
+	assert.Equal(t, before+1, after)
+}

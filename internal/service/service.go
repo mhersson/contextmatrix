@@ -74,6 +74,10 @@ type CardService struct {
 	gitAutoCommit     bool
 	gitDeferredCommit bool
 
+	// sharedRepo marks the board repository as one other instances also
+	// write to. Set once at wiring time and read-only thereafter.
+	sharedRepo bool
+
 	// writeMu serializes all card mutations (create, update, patch, delete,
 	// claim, release, heartbeat, log). This prevents races like two agents
 	// claiming the same card simultaneously. LockWrites / UnlockWrites expose
@@ -300,25 +304,47 @@ func (s *CardService) ClearCaches() {
 	s.templates = make(map[string]map[string]string)
 }
 
+// SetSharedRepo switches LockWrites to a full queue drain, required before
+// a shell merge on a repository other instances also write to. Must be called
+// before the server starts accepting requests.
+func (s *CardService) SetSharedRepo(shared bool) {
+	s.sharedRepo = shared
+}
+
 // LockWrites acquires the write mutex, preventing all card mutations.
 // Exposed for the gitsync layer, which must suspend all writes during
 // pull+rebuild to avoid interleaving with a rebase. If a commit queue is
 // configured, it is also paused and drained so no async commit subprocess
 // races against an external shell rebase/push.
+//
+// On a shared repository the drain is total: every queued card commit runs
+// before this returns, because the merge that follows has to see a fully
+// committed tree. Otherwise only the commits already executing are waited
+// out, and buffered ones resume after UnlockWrites.
 func (s *CardService) LockWrites() {
 	s.writeMu.Lock()
 
-	if s.commitQueue != nil {
-		s.commitQueue.Pause()
-		// Best-effort drain: give in-flight commits a short window to
-		// finish so the subsequent shell rebase/push does not collide
-		// on .git/index.lock. The lock is already held so new writes
-		// cannot enqueue fresh jobs while we wait.
-		drainCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		_ = s.commitQueue.AwaitIdle(drainCtx)
-
-		cancel()
+	if s.commitQueue == nil {
+		return
 	}
+
+	// The lock is already held so new writes cannot enqueue fresh jobs
+	// while we wait; the budget bounds a wedged commit.
+	drainCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if s.sharedRepo {
+		if err := s.commitQueue.Drain(drainCtx); err != nil {
+			slog.Warn("lock writes: commit queue drain incomplete", "error", err)
+		}
+
+		return
+	}
+
+	s.commitQueue.Pause()
+	// Best-effort drain: give in-flight commits a short window to finish
+	// so the subsequent shell rebase/push does not collide on .git/index.lock.
+	_ = s.commitQueue.AwaitIdle(drainCtx)
 }
 
 // UnlockWrites releases the write mutex and resumes the commit queue.
