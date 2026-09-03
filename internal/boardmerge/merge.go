@@ -143,11 +143,7 @@ func resolveOther(in Input) Output {
 	return Output{Content: in.Theirs, Resolutions: []Resolution{res}}
 }
 
-// Temporary stubs until a later change fills in the remaining per-kind resolvers.
-
-func resolveProject(in Input, _ string, _ Context) (Output, error) {
-	return resolveOther(in), nil
-}
+// Temporary stub until a later change fills in the remaining resolver.
 
 func resolvePlaybook(in Input, _ string, _ Context) (Output, error) {
 	return resolveOther(in), nil
