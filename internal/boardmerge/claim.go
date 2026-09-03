@@ -36,11 +36,46 @@ func bareStall(t claimTuple) bool {
 	return t.state == board.StateStalled && t.assignedAgent == ""
 }
 
+// releasedInto reports a tuple emptied while the card stayed workable: a
+// stall or a release. A terminal state is not covered - the terminal rules
+// decide those.
+func releasedInto(t claimTuple) bool {
+	return t.assignedAgent == "" && !board.IsTerminalState(t.state)
+}
+
+// auditOverride records an override only when the losing tuple actually moved
+// away from the ancestor. A side that never touched the claim lost nothing,
+// and an audit for it is noise on the card and in the sync log.
+func auditOverride(audit func(rule, field, losing string), rule, losing string, loser, base claimTuple) {
+	if sameTuple(loser, base) {
+		return
+	}
+
+	audit(rule, "claim", losing)
+}
+
+func sameTuple(a, b claimTuple) bool {
+	return a.assignedAgent == b.assignedAgent && a.claimedVia == b.claimedVia &&
+		a.workerStatus == b.workerStatus && a.state == b.state && a.phase == b.phase &&
+		a.epoch == b.epoch && sameTime(a.claimedAt, b.claimedAt) && sameTime(a.lastHeartbeat, b.lastHeartbeat)
+}
+
+func sameTime(a, b *time.Time) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+
+	return a.Equal(*b)
+}
+
 // mergeClaim resolves the claim tuple. The side with the higher epoch
 // supplies the whole tuple, except that a bare stall never overrides a
-// terminal state. At equal epochs a double claim from an unclaimed base goes
-// to the earlier claimed_at; otherwise every field merges on its own, with
-// the terminal-absorbs rule for state.
+// terminal state. At equal epochs raised from the same base, a side still
+// holding the claim beats one that emptied the tuple into a non-terminal
+// state, so a stall or a release never strips a run another instance took
+// over. Otherwise a double claim from an unclaimed base goes to the earlier
+// claimed_at, and every remaining field merges on its own, with the
+// terminal-absorbs rule for state.
 func mergeClaim(base, ours, theirs *board.Card, oursLater bool, audit func(rule, field, losing string)) claimTuple {
 	b, o, t := tupleOf(base), tupleOf(ours), tupleOf(theirs)
 
@@ -52,7 +87,7 @@ func mergeClaim(base, ours, theirs *board.Card, oursLater bool, audit func(rule,
 			return t
 		}
 
-		audit(RuleEpochWins, "claim", sideRemote)
+		auditOverride(audit, RuleEpochWins, sideRemote, t, b)
 
 		return o
 	case t.epoch > o.epoch:
@@ -62,9 +97,27 @@ func mergeClaim(base, ours, theirs *board.Card, oursLater bool, audit func(rule,
 			return o
 		}
 
-		audit(RuleEpochWins, "claim", sideLocal)
+		auditOverride(audit, RuleEpochWins, sideLocal, o, b)
 
 		return t
+	}
+
+	// Both sides raised the epoch from the same base (the epochs are equal
+	// here). One of them is still running the card and the other emptied the
+	// tuple on a guess about liveness: a heartbeat-timeout stall or a
+	// release. The run wins, or the instance holding it would lose its claim
+	// without ever being told.
+	if o.epoch > b.epoch {
+		switch {
+		case releasedInto(o) && t.assignedAgent != "":
+			auditOverride(audit, RuleActiveOverRelease, sideLocal, o, b)
+
+			return t
+		case releasedInto(t) && o.assignedAgent != "":
+			auditOverride(audit, RuleActiveOverRelease, sideRemote, t, b)
+
+			return o
+		}
 	}
 
 	doubleClaim := b.assignedAgent == "" && o.assignedAgent != "" && t.assignedAgent != "" &&

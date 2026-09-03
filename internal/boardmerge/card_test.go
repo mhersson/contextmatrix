@@ -339,6 +339,21 @@ func TestMergeCards(t *testing.T) {
 			},
 		},
 		{
+			"epoch wins without an audit when the losing side never touched the claim",
+			func(c *board.Card) {
+				c.State, c.AssignedAgent, c.ClaimedVia = "in_progress", "agent-ALPHA-001", "lap-a"
+				c.ClaimedAt, c.LastHeartbeat, c.ClaimEpoch, c.Updated = hb(5), hb(5), 1, ts(5)
+			},
+			func(c *board.Card) { c.Labels = []string{"a", "hot"}; c.Updated = ts(3) },
+			func(t *testing.T, got *board.Card, res []Resolution) {
+				assert.Equal(t, "agent-ALPHA-001", got.AssignedAgent)
+				assert.Equal(t, "lap-a", got.ClaimedVia)
+				assert.Equal(t, 1, got.ClaimEpoch)
+				assert.ElementsMatch(t, []string{"a", "hot"}, got.Labels)
+				assert.Empty(t, res, "the remote left the claim alone, so it was overridden in nothing")
+			},
+		},
+		{
 			"release at a higher epoch beats a stale heartbeat",
 			func(c *board.Card) {
 				c.AssignedAgent, c.ClaimedVia, c.ClaimEpoch, c.LastHeartbeat, c.Updated = "a", "lap-a", 1, hb(8), ts(8)
@@ -367,6 +382,114 @@ func TestMergeCards(t *testing.T) {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+// TestMergeCards_EqualEpochClaims covers the region where both sides raised
+// the epoch from the same claimed base. An active claim beats a tuple emptied
+// into a non-terminal state; two emptied tuples converge on the empty one.
+func TestMergeCards_EqualEpochClaims(t *testing.T) {
+	claimed := func(c *board.Card) {
+		c.State, c.AssignedAgent, c.ClaimedVia = "in_progress", "agent-ALPHA-001", "lap-a"
+		c.ClaimedAt, c.LastHeartbeat, c.ClaimEpoch = hb(1), hb(1), 1
+	}
+	// A heartbeat timeout writes a bare stall and bumps the epoch.
+	stall := func(updated int) func(*board.Card) {
+		return func(c *board.Card) { c.State, c.ClaimEpoch, c.Updated = "stalled", 2, ts(updated) }
+	}
+	// A force-release empties the tuple and leaves the state alone.
+	release := func(c *board.Card) { c.State, c.ClaimEpoch, c.Updated = "todo", 2, ts(9) }
+	// A takeover claims through another instance at the same epoch.
+	takeover := func(via string, updated int) func(*board.Card) {
+		return func(c *board.Card) {
+			c.State, c.AssignedAgent, c.ClaimedVia = "in_progress", "agent-ALPHA-001", via
+			c.ClaimedAt, c.LastHeartbeat, c.ClaimEpoch, c.Updated = hb(4), hb(4), 2, ts(updated)
+		}
+	}
+
+	tests := []struct {
+		name   string
+		ours   func(c *board.Card)
+		theirs func(c *board.Card)
+		check  func(t *testing.T, got *board.Card, res []Resolution)
+	}{
+		{
+			"a remote takeover survives our bare stall",
+			stall(9),
+			takeover("lap-b", 4),
+			func(t *testing.T, got *board.Card, res []Resolution) {
+				assert.Equal(t, "in_progress", got.State, "the running takeover wins although our stall is newer")
+				assert.Equal(t, "agent-ALPHA-001", got.AssignedAgent)
+				assert.Equal(t, "lap-b", got.ClaimedVia)
+				assert.Equal(t, hb(4), got.ClaimedAt)
+				assert.Equal(t, 2, got.ClaimEpoch)
+				require.NotEmpty(t, res)
+				assert.Equal(t, RuleActiveOverRelease, res[0].Rule)
+				assert.Contains(t, lastAudit(t, got).Message, "from local")
+			},
+		},
+		{
+			"our takeover survives a remote bare stall",
+			takeover("lap-a", 4),
+			stall(9),
+			func(t *testing.T, got *board.Card, res []Resolution) {
+				assert.Equal(t, "in_progress", got.State)
+				assert.Equal(t, "lap-a", got.ClaimedVia)
+				assert.Equal(t, hb(4), got.ClaimedAt)
+				assert.Equal(t, 2, got.ClaimEpoch)
+				require.NotEmpty(t, res)
+				assert.Equal(t, RuleActiveOverRelease, res[0].Rule)
+				assert.Contains(t, lastAudit(t, got).Message, "from remote")
+			},
+		},
+		{
+			"a remote takeover survives our force-release",
+			release,
+			takeover("lap-b", 4),
+			func(t *testing.T, got *board.Card, res []Resolution) {
+				assert.Equal(t, "in_progress", got.State)
+				assert.Equal(t, "agent-ALPHA-001", got.AssignedAgent)
+				assert.Equal(t, "lap-b", got.ClaimedVia)
+				assert.Equal(t, 2, got.ClaimEpoch)
+				require.NotEmpty(t, res)
+				assert.Equal(t, RuleActiveOverRelease, res[0].Rule)
+			},
+		},
+		{
+			"two bare stalls converge on the empty tuple",
+			stall(9),
+			stall(4),
+			func(t *testing.T, got *board.Card, res []Resolution) {
+				assert.Equal(t, "stalled", got.State)
+				assert.Empty(t, got.AssignedAgent)
+				assert.Empty(t, got.ClaimedVia)
+				assert.Nil(t, got.ClaimedAt)
+				assert.Nil(t, got.LastHeartbeat)
+				assert.Equal(t, 2, got.ClaimEpoch)
+				assert.NotContains(t, ruleNames(res), RuleActiveOverRelease)
+				assert.Empty(t, res)
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b, o, th := baseCard(), baseCard(), baseCard()
+			claimed(b)
+			tt.ours(o)
+			tt.theirs(th)
+
+			got, res := mergeCards(b, o, th, "alpha", testCtx())
+			tt.check(t, got, res)
+		})
+	}
+}
+
+func ruleNames(res []Resolution) []string {
+	out := make([]string, 0, len(res))
+	for _, r := range res {
+		out = append(out, r.Rule)
+	}
+
+	return out
+}
 
 func TestMergeCards_TerminalWinsOverOneSidedReopen(t *testing.T) {
 	b, o, th := baseCard(), baseCard(), baseCard()
