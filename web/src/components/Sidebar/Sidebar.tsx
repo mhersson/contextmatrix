@@ -5,14 +5,17 @@ import { useProjects } from '../../hooks/useProjects';
 import { useProjectSummariesContext } from '../../hooks/ProjectSummariesProvider';
 import { useSSEBus } from '../../hooks/useSSEBus';
 import { useTheme } from '../../hooks/useTheme';
+import { useSync } from '../../hooks/useSync';
 import { useOptionalAuth } from '../../hooks/useAuth';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { useRepoSectionsCollapsed } from '../../hooks/useRepoSectionsCollapsed';
 import { formatVersionWithLocalTime } from '../../utils/formatVersion';
-import type { PlaybookSummary } from '../../types';
+import type { PlaybookSummary, ProjectConfig } from '../../types';
 import { ProjectCard } from './ProjectCard';
 import { ChatSection } from './ChatSection';
 import { UserMenu } from './UserMenu';
 import { AppearanceMenu } from './AppearanceMenu';
+import { RepoSection } from './RepoSection';
 
 interface SidebarProps {
   onNewProject: () => void;
@@ -91,7 +94,10 @@ function WorkspaceNavLink({ to, activeBase, label, icon, onNavigate }: Workspace
 
 export function Sidebar({ onNewProject, onNewChat, mobileOpen = false, onMobileClose }: SidebarProps) {
   const { projects } = useProjects();
-  const { version } = useTheme();
+  const { version, boardsRepos = [] } = useTheme();
+  const { statusFor } = useSync();
+  const [isCollapsed, toggleCollapsed] = useRepoSectionsCollapsed();
+  const multiRepo = boardsRepos.length > 1;
   const auth = useOptionalAuth();
   const isAdmin = Boolean(auth?.user?.is_admin);
   // UX honesty, not a security boundary - the API 403s a non-admin project
@@ -106,6 +112,22 @@ export function Sidebar({ onNewProject, onNewChat, mobileOpen = false, onMobileC
   );
   const { summaries } = useProjectSummariesContext();
   const playbooksTarget = usePlaybooksLinkTarget();
+
+  const renderProject = (p: ProjectConfig) => (
+    <NavLink
+      key={p.name}
+      to={`/projects/${p.name}`}
+      end={false}
+      className="block"
+      onClick={mobileOpen ? onMobileClose : undefined}
+    >
+      {({ isActive }) => (
+        <div aria-current={isActive ? 'page' : undefined}>
+          <ProjectCard name={p.name} displayName={p.display_name} summary={summaries.get(p.name)} isActive={isActive} />
+        </div>
+      )}
+    </NavLink>
+  );
 
   // Mobile drawer: trap focus and close on Escape.
   useFocusTrap(drawerRef, mobileOpen);
@@ -209,27 +231,37 @@ export function Sidebar({ onNewProject, onNewChat, mobileOpen = false, onMobileC
         <ChatSection onNewChat={onNewChat} />
 
         <div className="px-2">
-          <div className="sb-eyebrow px-3 pt-2 pb-1">Projects</div>
-          {sortedProjects.map((p) => (
-            <NavLink
-              key={p.name}
-              to={`/projects/${p.name}`}
-              end={false}
-              className="block"
-              onClick={mobileOpen ? onMobileClose : undefined}
-            >
-              {({ isActive }) => (
-                <div aria-current={isActive ? 'page' : undefined}>
-                  <ProjectCard name={p.name} displayName={p.display_name} summary={summaries.get(p.name)} isActive={isActive} />
+          {multiRepo ? (
+            boardsRepos.map((repo) => {
+              const items = sortedProjects.filter((p) => (p.boards_repo ?? boardsRepos[0].name) === repo.name);
+              return (
+                <RepoSection
+                  key={repo.name}
+                  name={repo.name}
+                  shared={repo.shared}
+                  status={statusFor(repo.name)}
+                  collapsed={isCollapsed(repo.name)}
+                  onToggle={() => toggleCollapsed(repo.name)}
+                >
+                  {items.map(renderProject)}
+                  {items.length === 0 && (
+                    <div className="px-3 py-2 text-xs text-center" style={{ color: 'var(--grey0)' }}>
+                      No projects
+                    </div>
+                  )}
+                </RepoSection>
+              );
+            })
+          ) : (
+            <>
+              <div className="sb-eyebrow px-3 pt-2 pb-1">Projects</div>
+              {sortedProjects.map(renderProject)}
+              {sortedProjects.length === 0 && (
+                <div className="px-3 py-4 text-sm text-center" style={{ color: 'var(--grey0)' }}>
+                  No projects
                 </div>
               )}
-            </NavLink>
-          ))}
-
-          {sortedProjects.length === 0 && (
-            <div className="px-3 py-4 text-sm text-center" style={{ color: 'var(--grey0)' }}>
-              No projects
-            </div>
+            </>
           )}
         </div>
       </nav>

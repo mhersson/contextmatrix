@@ -155,7 +155,7 @@ export function AllProjectsDashboard({ onNewProject }: AllProjectsDashboardProps
           chatCostSeries30d={aggregated.chat_cost_series_30d}
         />
         <div className="apd-deck">
-          <ProjectsTable projects={projects} summaries={summaries} />
+          <ProjectsTable projects={projects} summaries={summaries} boardsRepos={appConfig?.boards_repos ?? []} />
           <AgentsOnDuty
             activeAgents={aggregated.active_agents}
             stalledCount={stalled}
