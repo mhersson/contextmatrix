@@ -59,14 +59,12 @@ func TestResolve_DuplicateIDsRemintedAndRefsRewritten(t *testing.T) {
 	a.sync(t)
 	b.sync(t)
 
-	ca := a.create(t, "from a")
-	cb := b.create(t, "from b")
+	ca := a.createUnpushed(t, "from a")
+	cb := b.createUnpushed(t, "from b")
 	require.Equal(t, ca.ID, cb.ID, "both clones mint the same first id")
 
 	// b also references its own card from a second, non-conflicting card.
-	dep, err := b.svc.CreateCard(context.Background(), "test-project",
-		service.CreateCardInput{Title: "b dep", Type: "task", Priority: "low", DependsOn: []string{cb.ID}})
-	require.NoError(t, err)
+	dep := b.dependentUnpushed(t, "b dep", cb.ID)
 
 	a.sync(t)
 
@@ -175,8 +173,8 @@ func TestResolve_FailureAfterRemintRemovesTheExtraFile(t *testing.T) {
 	a.sync(t)
 	b.sync(t)
 
-	ca := a.create(t, "from a")
-	cb := b.create(t, "from b")
+	ca := a.createUnpushed(t, "from a")
+	cb := b.createUnpushed(t, "from b")
 	require.Equal(t, ca.ID, cb.ID)
 
 	a.sync(t)
@@ -235,8 +233,8 @@ func TestResolve_StagingFailureRemovesTheExtraFile(t *testing.T) {
 	a.sync(t)
 	b.sync(t)
 
-	a.create(t, "from a")
-	b.create(t, "from b")
+	a.createUnpushed(t, "from a")
+	b.createUnpushed(t, "from b")
 
 	// Both sides minted one card, so the merged next_id is b's own and the
 	// re-mint takes the id b would hand out next.
@@ -272,10 +270,10 @@ func TestResolve_RemintedCardFollowsItsOwnRenames(t *testing.T) {
 	b.sync(t)
 
 	// Both sides build the same two-card chain over the same two ids.
-	a1 := a.create(t, "a one")
-	a2 := a.dependent(t, "a two", a1.ID)
-	b1 := b.create(t, "b one")
-	b2 := b.dependent(t, "b two", b1.ID)
+	a1 := a.createUnpushed(t, "a one")
+	a2 := a.dependentUnpushed(t, "a two", a1.ID)
+	b1 := b.createUnpushed(t, "b one")
+	b2 := b.dependentUnpushed(t, "b two", b1.ID)
 
 	require.Equal(t, a1.ID, b1.ID)
 	require.Equal(t, a2.ID, b2.ID)
@@ -311,8 +309,8 @@ func TestResolve_PlaybookEntryFollowsRemint(t *testing.T) {
 	a.sync(t)
 	b.sync(t)
 
-	a.create(t, "from a")
-	cb := b.create(t, "from b")
+	a.createUnpushed(t, "from a")
+	cb := b.createUnpushed(t, "from b")
 
 	gate := board.PlaybookEntry{ID: "e2", Type: board.EntryTypeManual, Text: "ship it"}
 	b.writePlaybook(t, "release", board.PlaybookEntry{

@@ -29,8 +29,8 @@ func TestSharedConvergence(t *testing.T) {
 	// Round 1: both create two cards without syncing in between, so both mint
 	// the same two ids and every card is an add/add against the other side.
 	for i := range 2 {
-		a.create(t, fmt.Sprintf("a%d", i))
-		b.create(t, fmt.Sprintf("b%d", i))
+		a.createUnpushed(t, fmt.Sprintf("a%d", i))
+		b.createUnpushed(t, fmt.Sprintf("b%d", i))
 	}
 
 	a.sync(t)
