@@ -3,6 +3,7 @@ package gitsync
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -116,6 +117,36 @@ func (n *sharedNode) create(t *testing.T, title string) *board.Card {
 	return c
 }
 
+// diverge gives the node a local commit the remote does not have, by editing
+// its own copy of the project's first card. Returns that card's ID.
+func (n *sharedNode) diverge(t *testing.T, priority string) string {
+	t.Helper()
+
+	cards, err := n.store.ListCards(context.Background(), "test-project", storage.CardFilter{})
+	require.NoError(t, err)
+	require.NotEmpty(t, cards)
+
+	_, err = n.svc.UpdateCard(context.Background(), "test-project", cards[0].ID,
+		service.UpdateCardInput{Title: cards[0].Title, Type: "task", State: "todo", Priority: priority})
+	require.NoError(t, err)
+
+	return cards[0].ID
+}
+
+// runExpectFail runs a command that is expected to exit non-zero, e.g. a
+// conflicting git merge, and returns its combined output.
+func runExpectFail(t *testing.T, dir, name string, args ...string) string {
+	t.Helper()
+
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+
+	out, err := cmd.CombinedOutput()
+	require.Error(t, err, "expected %s %v to fail, output: %s", name, args, string(out))
+
+	return string(out)
+}
+
 func (n *sharedNode) sync(t *testing.T) SyncReport {
 	t.Helper()
 
@@ -178,7 +209,11 @@ func TestSynced_DirtyTreeIsCommittedNotStashed(t *testing.T) {
 	assert.Contains(t, got.Body, "hand edit")
 }
 
-func TestSynced_NonFastForwardRetriesThenPushes(t *testing.T) {
+// TestSynced_DivergentBranchMergesThenPushes covers the clean-merge path: b
+// diverges from the remote on a different file, so the merge needs no
+// resolution and the push that follows it is an ordinary fast-forward. The
+// rejected-push path is covered by TestSynced_PushRejectedThenRetriesAndPushes.
+func TestSynced_DivergentBranchMergesThenPushes(t *testing.T) {
 	a, b, _ := setupSharedPair(t)
 
 	a.create(t, "a1")
@@ -188,8 +223,7 @@ func TestSynced_NonFastForwardRetriesThenPushes(t *testing.T) {
 	a.create(t, "a2") // a is ahead of the remote after this push
 	a.sync(t)
 
-	// b edits a different file (its own copy of the first card) while behind,
-	// so the merge is clean and the first push is rejected as non-fast-forward.
+	// b edits a different file, its own copy of the first card, while behind.
 	first, err := b.store.ListCards(context.Background(), "test-project", storage.CardFilter{})
 	require.NoError(t, err)
 	require.Len(t, first, 1)
@@ -262,6 +296,203 @@ func TestSynced_ConflictAbortsCleanlyWithoutResolver(t *testing.T) {
 	assert.False(t, b.git.MergeInProgress())
 
 	clean, _, err := b.git.IsClean(context.Background())
+	require.NoError(t, err)
+	assert.True(t, clean)
+}
+
+func TestSynced_RequiresSharedSyncer(t *testing.T) {
+	syncer, _, _, _ := setupSyncTest(t)
+
+	_, err := syncer.Synced(context.Background(), "test", nil)
+	require.Error(t, err)
+}
+
+// TestSynced_AbortsMergeLeftByAnEarlierCycle covers the crash window between
+// Merge and CommitMerge. Without the guard, git status reports the unmerged
+// paths as ordinary dirty files, commitLeftovers stages the conflict markers,
+// and because MERGE_HEAD is present the commit concludes the merge and pushes
+// marker-laden files to every peer.
+func TestSynced_AbortsMergeLeftByAnEarlierCycle(t *testing.T) {
+	a, b, _ := setupSharedPair(t)
+
+	c := a.create(t, "x")
+	a.sync(t)
+	b.sync(t)
+
+	_, err := a.svc.UpdateCard(context.Background(), "test-project", c.ID,
+		service.UpdateCardInput{Title: "A", Type: "task", State: "todo", Priority: "high"})
+	require.NoError(t, err)
+
+	a.sync(t)
+
+	_, err = b.svc.UpdateCard(context.Background(), "test-project", c.ID,
+		service.UpdateCardInput{Title: "B", Type: "task", State: "todo", Priority: "low"})
+	require.NoError(t, err)
+
+	// Leave a conflicted merge on disk by hand.
+	run(t, b.dir, "git", "fetch", "origin")
+	runExpectFail(t, b.dir, "git", "-c", "user.name=t", "-c", "user.email=t@t",
+		"merge", "--no-edit", "--no-ff", "origin/main")
+	require.True(t, b.git.MergeInProgress())
+
+	cardPath := filepath.Join(b.dir, "test-project", "tasks", c.ID+".md")
+
+	conflicted, err := os.ReadFile(cardPath)
+	require.NoError(t, err)
+	require.Contains(t, string(conflicted), "<<<<<<<", "the hand merge must leave conflict markers")
+
+	errNoResolver := errors.New("no resolver yet")
+	b.syncer.resolveHook = func(context.Context, string, []string) ([]boardmerge.Resolution, error) {
+		return nil, errNoResolver
+	}
+
+	// The cycle clears the stale merge, then conflicts on its own merge and
+	// aborts that too, so it fails on the resolver rather than on the wreckage.
+	_, err = b.syncer.Synced(context.Background(), "test", nil)
+	require.ErrorIs(t, err, errNoResolver)
+
+	assert.False(t, b.git.MergeInProgress())
+
+	clean, _, err := b.git.IsClean(context.Background())
+	require.NoError(t, err)
+	assert.True(t, clean)
+
+	log := run(t, b.dir, "git", "log", "--oneline", "-10")
+	assert.NotContains(t, log, "external edit", "the conflict markers must not be committed")
+
+	restored, err := os.ReadFile(cardPath)
+	require.NoError(t, err)
+	assert.NotContains(t, string(restored), "<<<<<<<")
+	assert.Contains(t, string(restored), "title: B", "the abort restores this instance's own commit")
+}
+
+func TestSynced_PushRejectedThenRetriesAndPushes(t *testing.T) {
+	a, b, _ := setupSharedPair(t)
+
+	a.create(t, "a1")
+	a.sync(t)
+	b.sync(t)
+
+	cardID := b.diverge(t, "high")
+
+	attempts := 0
+	bodyRuns := 0
+
+	b.syncer.retryBackoff = 10 * time.Millisecond
+	b.syncer.prePushHook = func(attempt int) {
+		attempts++
+
+		// Advance the remote once, so b's first push is rejected as a
+		// non-fast-forward and the cycle has to re-integrate.
+		if attempt == 0 {
+			a.create(t, "a2")
+			require.True(t, a.sync(t).Pushed)
+		}
+	}
+
+	r, err := b.syncer.Synced(context.Background(), "test", func(context.Context) error {
+		bodyRuns++
+
+		return nil
+	})
+	require.NoError(t, err)
+
+	assert.True(t, r.Pushed)
+	assert.True(t, r.ChangesPulled, "the rejected push forces a re-integration")
+	assert.Equal(t, 2, attempts, "the first push is rejected, the second succeeds")
+	assert.Equal(t, 1, bodyRuns, "the body runs once per cycle, not once per attempt")
+
+	// Both sides survive the merge the retry performed.
+	cards, err := b.store.ListCards(context.Background(), "test-project", storage.CardFilter{})
+	require.NoError(t, err)
+	assert.Len(t, cards, 2)
+
+	edited, err := b.store.GetCard(context.Background(), "test-project", cardID)
+	require.NoError(t, err)
+	assert.Equal(t, "high", edited.Priority)
+}
+
+func TestSynced_ContendedRemoteExhaustsRetries(t *testing.T) {
+	a, b, _ := setupSharedPair(t)
+
+	a.create(t, "a1")
+	a.sync(t)
+	b.sync(t)
+
+	b.diverge(t, "high")
+
+	attempts := 0
+
+	b.syncer.retryBackoff = 10 * time.Millisecond
+	b.syncer.prePushHook = func(int) {
+		attempts++
+
+		// Every attempt loses the race: the remote always moves first.
+		a.create(t, fmt.Sprintf("a%d", attempts+1))
+		require.True(t, a.sync(t).Pushed)
+	}
+
+	_, err := b.syncer.Synced(context.Background(), "test", nil)
+	require.ErrorIs(t, err, ErrSyncContended)
+	assert.Equal(t, defaultMaxAttempts, attempts)
+
+	assert.False(t, b.git.MergeInProgress())
+
+	clean, _, err := b.git.IsClean(context.Background())
+	require.NoError(t, err)
+	assert.True(t, clean)
+}
+
+func TestSynced_BodyRunsAfterIntegrationAndIsPushed(t *testing.T) {
+	a, b, _ := setupSharedPair(t)
+
+	a.create(t, "seed")
+	a.sync(t)
+	b.sync(t)
+
+	// b advances the remote, so a's cycle has to integrate before the body runs.
+	fromB := b.create(t, "from b")
+	require.True(t, b.sync(t).Pushed)
+
+	rel := filepath.Join("test-project", "notes.md")
+	sawPulledCard := false
+
+	r, err := a.syncer.Synced(context.Background(), "test", func(ctx context.Context) error {
+		_, statErr := os.Stat(filepath.Join(a.dir, "test-project", "tasks", fromB.ID+".md"))
+		sawPulledCard = statErr == nil
+
+		if err := os.WriteFile(filepath.Join(a.dir, rel), []byte("written by the body\n"), 0o644); err != nil {
+			return err
+		}
+
+		return a.git.CommitFilesShell(ctx, []string{rel}, "body commit")
+	})
+	require.NoError(t, err)
+
+	assert.True(t, sawPulledCard, "the body must see what the integration pulled")
+	assert.True(t, r.ChangesPulled)
+	assert.True(t, r.Pushed)
+
+	b.sync(t)
+
+	got, err := os.ReadFile(filepath.Join(b.dir, rel))
+	require.NoError(t, err)
+	assert.Equal(t, "written by the body\n", string(got))
+}
+
+func TestSynced_BodyErrorFailsCleanly(t *testing.T) {
+	a, _, _ := setupSharedPair(t)
+
+	errBody := errors.New("body failed")
+
+	_, err := a.syncer.Synced(context.Background(), "test", func(context.Context) error {
+		return errBody
+	})
+	require.ErrorIs(t, err, errBody)
+
+	assert.False(t, a.git.MergeInProgress())
+
+	clean, _, err := a.git.IsClean(context.Background())
 	require.NoError(t, err)
 	assert.True(t, clean)
 }

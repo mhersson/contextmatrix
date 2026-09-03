@@ -39,6 +39,10 @@ const (
 
 	// defaultMaxAttempts bounds the fetch-integrate-push loop in Synced.
 	defaultMaxAttempts = 5
+
+	// defaultRetryBackoff is the base delay after a rejected push; the
+	// delay grows with the attempt number and carries +-25% jitter.
+	defaultRetryBackoff = 250 * time.Millisecond
 )
 
 // ErrRemoteUnreachable reports that a network git call inside Synced failed.
@@ -104,9 +108,11 @@ type Syncer struct {
 	instance string
 
 	// syncTimeout bounds each network call inside Synced; maxAttempts
-	// bounds its fetch-integrate-push loop.
-	syncTimeout time.Duration
-	maxAttempts int
+	// bounds its fetch-integrate-push loop and retryBackoff scales the
+	// delay between its attempts.
+	syncTimeout  time.Duration
+	maxAttempts  int
+	retryBackoff time.Duration
 
 	mu            sync.RWMutex
 	lastSyncTime  time.Time
@@ -129,6 +135,11 @@ type Syncer struct {
 	// resolveHook resolves the unmerged paths left by a conflicted merge.
 	// Nil falls back to noResolver, which refuses and lets the merge abort.
 	resolveHook func(ctx context.Context, branch string, oursChanged []string) ([]boardmerge.Resolution, error)
+
+	// prePushHook runs immediately before each push attempt inside Synced.
+	// Tests use it to advance the remote so the push is rejected as a
+	// non-fast-forward. Never set in production.
+	prePushHook func(attempt int)
 
 	// playbooks quiesces playbook writes during pull+rebase and reloads the
 	// playbook index afterwards. Nil when the playbooks subsystem is
@@ -202,6 +213,7 @@ func NewSyncer(
 		networkTimeout: gitops.NetworkGitTimeout,
 		syncTimeout:    defaultSyncTimeout,
 		maxAttempts:    defaultMaxAttempts,
+		retryBackoff:   defaultRetryBackoff,
 		pushCh:         make(chan struct{}, 1),
 	}
 
@@ -564,14 +576,25 @@ func (s *Syncer) pushWithRetry(ctx context.Context) error {
 
 // Synced runs one shared-repo cycle: quiesce writes, commit anything dirty,
 // fetch, integrate the remote by fast-forward or merge, run body, and push
-// what the cycle produced. body, when non-nil, runs after the merge under the
-// write locks and must commit synchronously; it never touches the network and
-// runs at most once, before the first push attempt. Only valid on a syncer
-// built WithShared.
+// what the cycle produced. Only valid on a syncer built WithShared.
+//
+// body, when non-nil, runs under the write locks after the first integration
+// and before the first push attempt, at most once per cycle: a push rejected
+// as non-fast-forward re-integrates but does not re-run it. It must never
+// touch the network.
+//
+// What body may do is narrower than it looks. Both write locks are held, and
+// on a shared repository LockWrites drains the commit queue and leaves it
+// paused for the whole cycle. A body that enqueues a commit and waits for it,
+// or that calls any CardService write method, therefore blocks until
+// UnlockWrites resumes the queue, which only happens after body returns. That
+// is an unrecoverable deadlock with no timeout. Write files directly and
+// commit them with gitops.Manager.CommitFilesShell instead.
 //
 // The repository is never left mid-merge: every failure after a merge started
-// aborts it and returns an error, and the next cycle retries from a clean
-// tree.
+// aborts it and returns an error, a merge left behind by an earlier cycle is
+// aborted before this one touches the tree, and the next cycle retries from a
+// clean tree.
 func (s *Syncer) Synced(ctx context.Context, trigger string, body func(ctx context.Context) error) (SyncReport, error) {
 	if !s.shared {
 		return SyncReport{}, errors.New("shared sync requires a syncer built with WithShared")
@@ -619,6 +642,12 @@ func (s *Syncer) Synced(ctx context.Context, trigger string, body func(ctx conte
 func (s *Syncer) synced(ctx context.Context, trigger string, body func(ctx context.Context) error) (SyncReport, error) {
 	var report SyncReport
 
+	// Must precede commitLeftovers: in a conflicted worktree the leftovers
+	// are the conflict markers, and staging them concludes the merge.
+	if err := s.clearStaleMerge(ctx); err != nil {
+		return report, err
+	}
+
 	if err := s.commitLeftovers(ctx); err != nil {
 		return report, err
 	}
@@ -635,7 +664,7 @@ func (s *Syncer) synced(ctx context.Context, trigger string, body func(ctx conte
 			return report, err
 		}
 
-		pulled, res, err := s.integrate(ctx, branch)
+		pulled, res, err := s.integrate(ctx, trigger, branch)
 		if err != nil {
 			return report, err
 		}
@@ -662,6 +691,10 @@ func (s *Syncer) synced(ctx context.Context, trigger string, body func(ctx conte
 			return report, nil
 		}
 
+		if s.prePushHook != nil {
+			s.prePushHook(attempt)
+		}
+
 		pushCtx, cancel := context.WithTimeout(ctx, s.syncTimeout)
 		pushErr := s.git.Push(pushCtx)
 
@@ -682,11 +715,11 @@ func (s *Syncer) synced(ctx context.Context, trigger string, body func(ctx conte
 		if !reNonFastForward.MatchString(pushErr.Error()) {
 			s.setRemote(false, pushErr)
 
-			return report, fmt.Errorf("%w: push: %v", ErrRemoteUnreachable, pushErr)
+			return report, fmt.Errorf("%w: push: %w", ErrRemoteUnreachable, pushErr)
 		}
 
 		slog.Info("git sync: push rejected, re-integrating", "attempt", attempt+1, "trigger", trigger)
-		s.sleepJitter(ctx, time.Duration(attempt+1)*250*time.Millisecond)
+		s.sleepJitter(ctx, time.Duration(attempt+1)*s.retryBackoff)
 
 		// sleepJitter also returns on cancellation; report that as such
 		// rather than letting the next fetch fail as an unreachable remote.
@@ -712,10 +745,44 @@ func (s *Syncer) fetch(ctx context.Context) error {
 	if _, err := runGit(fetchCtx, s.repoPath, authEnv, "fetch", "origin"); err != nil {
 		s.setRemote(false, err)
 
-		return fmt.Errorf("%w: fetch: %v", ErrRemoteUnreachable, err)
+		return fmt.Errorf("%w: fetch: %w", ErrRemoteUnreachable, err)
 	}
 
 	s.setRemote(true, nil)
+
+	return nil
+}
+
+// clearStaleMerge undoes a merge an earlier cycle left in progress, which a
+// crash or a container restart between Merge and CommitMerge produces. It has
+// to run before anything else touches the tree: in a conflicted worktree
+// git status reports the unmerged paths as ordinary dirty files, so
+// commitLeftovers would stage the conflict markers, and because MERGE_HEAD is
+// present the commit would conclude the merge and push marker-laden files to
+// every other instance.
+//
+// Residual dirtiness after the abort is left to commitLeftovers, which exists
+// for exactly that. What must not survive is merge state, so that is what is
+// verified.
+func (s *Syncer) clearStaleMerge(ctx context.Context) error {
+	if !s.git.MergeInProgress() {
+		return nil
+	}
+
+	slog.Warn("git sync: merge left in progress by an earlier cycle, aborting it")
+
+	if err := s.git.MergeAbort(ctx); err != nil {
+		return fmt.Errorf("abort stale merge: %w", err)
+	}
+
+	left, err := s.git.UnmergedPaths(ctx)
+	if err != nil {
+		return fmt.Errorf("verify stale merge abort: %w", err)
+	}
+
+	if len(left) > 0 || s.git.MergeInProgress() {
+		return fmt.Errorf("stale merge still in progress after abort, %d unmerged paths", len(left))
+	}
 
 	return nil
 }
@@ -744,7 +811,7 @@ func (s *Syncer) commitLeftovers(ctx context.Context) error {
 // integrate brings the remote branch into HEAD, by fast-forward when the local
 // branch has not diverged and by a merge commit when it has. It reports
 // whether anything was pulled and which conflicts were resolved.
-func (s *Syncer) integrate(ctx context.Context, branch string) (bool, []boardmerge.Resolution, error) {
+func (s *Syncer) integrate(ctx context.Context, trigger, branch string) (bool, []boardmerge.Resolution, error) {
 	remote := "origin/" + branch
 
 	behind, err := s.isBehind(ctx, branch, remote)
@@ -795,9 +862,7 @@ func (s *Syncer) integrate(ctx context.Context, branch string) (bool, []boardmer
 	}
 
 	if !errors.Is(mergeErr, gitops.ErrMergeConflict) {
-		s.abortMerge(ctx)
-
-		return false, nil, fmt.Errorf("merge: %w", mergeErr)
+		return false, nil, s.abortAndWrap(ctx, fmt.Errorf("merge: %w", mergeErr))
 	}
 
 	resolve := s.resolveHook
@@ -807,28 +872,27 @@ func (s *Syncer) integrate(ctx context.Context, branch string) (bool, []boardmer
 
 	res, err := resolve(ctx, branch, oursChanged)
 	if err != nil {
-		s.abortMerge(ctx)
-
-		return false, nil, fmt.Errorf("resolve conflicts: %w", err)
+		return false, nil, s.abortAndWrap(ctx, fmt.Errorf("resolve conflicts: %w", err))
 	}
 
 	msg := fmt.Sprintf("merge: %s (%d conflicts resolved)", remote, len(res))
 	if err := s.git.CommitMerge(ctx, msg); err != nil {
-		s.abortMerge(ctx)
-
-		return false, nil, err
+		return false, nil, s.abortAndWrap(ctx, err)
 	}
 
-	if left, _ := s.git.UnmergedPaths(ctx); len(left) > 0 || s.git.MergeInProgress() {
-		s.abortMerge(ctx)
+	left, err := s.git.UnmergedPaths(ctx)
+	if err != nil {
+		return false, nil, s.abortAndWrap(ctx, fmt.Errorf("verify merge result: %w", err))
+	}
 
-		return false, nil, errors.New("merge left unmerged paths")
+	if len(left) > 0 || s.git.MergeInProgress() {
+		return false, nil, s.abortAndWrap(ctx, errors.New("merge left unmerged paths"))
 	}
 
 	s.bus.Publish(events.Event{
 		Type:      events.SyncConflict,
 		Timestamp: time.Now(),
-		Data:      map[string]any{"resolved": len(res), "trigger": "merge"},
+		Data:      map[string]any{"resolved": len(res), "trigger": trigger},
 	})
 
 	return true, res, s.reloadAfterPull(ctx)
@@ -840,15 +904,31 @@ func (s *Syncer) noResolver(context.Context, string, []string) ([]boardmerge.Res
 	return nil, errors.New("conflict resolution not available")
 }
 
+// abortAndWrap returns the worktree to HEAD and hands back cause. When the
+// abort itself fails, the returned error also says the repository is still
+// merging, so the sync.error event and the status field tell an operator that
+// manual intervention is needed rather than reporting a routine conflict.
+func (s *Syncer) abortAndWrap(ctx context.Context, cause error) error {
+	if err := s.abortMerge(ctx); err != nil {
+		return fmt.Errorf("%w; repository still merging: %w", cause, err)
+	}
+
+	return cause
+}
+
 // abortMerge returns the worktree to HEAD when a merge is in progress.
-func (s *Syncer) abortMerge(ctx context.Context) {
+func (s *Syncer) abortMerge(ctx context.Context) error {
 	if !s.git.MergeInProgress() {
-		return
+		return nil
 	}
 
 	if err := s.git.MergeAbort(ctx); err != nil {
 		slog.Error("git sync: merge --abort failed", "error", err)
+
+		return err
 	}
+
+	return nil
 }
 
 // reloadAfterPull refreshes every in-memory view of the worktree that the
@@ -886,8 +966,11 @@ func (s *Syncer) hasRef(ctx context.Context, ref string) bool {
 func (s *Syncer) sleepJitter(ctx context.Context, base time.Duration) {
 	d := time.Duration(float64(base) * (0.75 + 0.5*rand.Float64())) //nolint:gosec // non-security jitter
 
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+
 	select {
-	case <-time.After(d):
+	case <-timer.C:
 	case <-ctx.Done():
 	}
 }
