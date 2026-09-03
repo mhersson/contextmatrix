@@ -34,8 +34,9 @@ func endsSession(state string) bool {
 
 // StartEndSessionSubscriber wires an event-bus subscriber that calls
 // /end-session on the backend whenever a card reaches a terminal state and
-// has been released. Blocks only until initial subscription is set up; the
-// goroutine runs until ctx is canceled.
+// has been released, or when a shared-board pull shows a peer now holds a
+// card this instance was running (events.ClaimLost). Blocks only until
+// initial subscription is set up; the goroutine runs until ctx is canceled.
 //
 // Each candidate event is handled in a short-lived goroutine so a slow
 // webhook call never blocks the bus pump (events.Bus drops events for slow
@@ -74,11 +75,12 @@ func StartEndSessionSubscriber(ctx context.Context, bus *events.Bus, svc CardGet
 					return
 				}
 
-				if e.Type != events.CardReleased && e.Type != events.CardStateChanged {
-					continue
+				switch e.Type {
+				case events.CardReleased, events.CardStateChanged:
+					go handleEndSessionEvent(ctx, svc, client, logger, guard, e.Project, e.CardID)
+				case events.ClaimLost:
+					go handleClaimLost(ctx, client, logger, guard, e.Project, e.CardID)
 				}
-
-				go handleEndSessionEvent(ctx, svc, client, logger, guard, e.Project, e.CardID)
 			}
 		}
 	}()
@@ -90,6 +92,7 @@ func StartEndSessionSubscriber(ctx context.Context, bus *events.Bus, svc CardGet
 const (
 	sourceSubscriber = "subscriber"
 	sourceSweep      = "sweep"
+	sourceClaimLost  = "claim-lost"
 )
 
 func handleEndSessionEvent(ctx context.Context, svc CardGetter, client EndSessionClient, logger *slog.Logger, guard *cleanupGuard, project, cardID string) {
@@ -118,6 +121,22 @@ func handleEndSessionEvent(ctx context.Context, svc CardGetter, client EndSessio
 	}
 
 	endSessionAndKill(ctx, client, logger, project, cardID, card.State, card.WorkerStatus, sourceSubscriber)
+}
+
+// handleClaimLost ends the local run of a card another instance now holds.
+// The card is not terminal, so the terminal-state check does not apply: the
+// peer owns the work from here, and this instance's container must not keep
+// writing to a claim it has lost. The backend reports the kill through its
+// status callback, which the service ignores for a card claimed elsewhere.
+func handleClaimLost(ctx context.Context, client EndSessionClient, logger *slog.Logger, guard *cleanupGuard, project, cardID string) {
+	if !guard.claim(project, cardID) {
+		logger.Debug("claim-lost: duplicate cleanup round suppressed",
+			"source", sourceClaimLost, "project", project, "card_id", cardID)
+
+		return
+	}
+
+	endSessionAndKill(ctx, client, logger, project, cardID, "", "", sourceClaimLost)
 }
 
 // endSessionAndKill runs the /end-session → /kill sequence against the backend
