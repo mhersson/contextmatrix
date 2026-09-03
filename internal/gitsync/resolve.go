@@ -25,28 +25,31 @@ import (
 // references our side added since the fork point are rewritten last.
 //
 // A failure leaves nothing of its own behind: the files written for re-minted
-// cards are removed before returning and the caller aborts the merge.
+// cards are removed before returning and the caller aborts the merge. The list
+// of those files lives on the syncer, because a merge that fails after this
+// function returned has to delete them too; integrate owns clearing it.
 func (s *Syncer) resolveConflicts(
 	ctx context.Context, branch string, oursChanged []string,
 ) ([]boardmerge.Resolution, error) {
 	unmerged, err := s.git.UnmergedPaths(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("list unmerged paths: %w", err)
 	}
 
 	sort.SliceStable(unmerged, func(i, j int) bool { return resolveRank(unmerged[i]) < resolveRank(unmerged[j]) })
 
 	mctx, err := s.mergeContext(ctx, branch)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("build merge context: %w", err)
 	}
-
-	s.extraWritten = nil
 
 	renames := map[string]string{}
 	conflicted := map[string]bool{}
 
-	var all []boardmerge.Resolution
+	var (
+		all    []boardmerge.Resolution
+		extras []string
+	)
 
 	for _, u := range unmerged {
 		conflicted[u.Path] = true
@@ -58,7 +61,7 @@ func (s *Syncer) resolveConflicts(
 			if stageErr != nil {
 				s.removeExtras()
 
-				return nil, stageErr
+				return nil, fmt.Errorf("read merge stages of %s: %w", u.Path, stageErr)
 			}
 
 			*dst = data
@@ -75,11 +78,14 @@ func (s *Syncer) resolveConflicts(
 			return nil, fmt.Errorf("resolve %s: %w", u.Path, resErr)
 		}
 
-		if err := s.applyOutput(ctx, u.Path, out); err != nil {
+		written, err := s.applyOutput(ctx, u.Path, out)
+		if err != nil {
 			s.removeExtras()
 
 			return nil, err
 		}
+
+		extras = append(extras, written...)
 
 		maps.Copy(renames, out.Renames)
 
@@ -87,7 +93,7 @@ func (s *Syncer) resolveConflicts(
 	}
 
 	if len(renames) > 0 {
-		if err := s.rewriteLocalRefs(ctx, renames, oursChanged, conflicted); err != nil {
+		if err := s.rewriteLocalRefs(ctx, renames, extras, oursChanged, conflicted); err != nil {
 			s.removeExtras()
 
 			return nil, err
@@ -97,31 +103,38 @@ func (s *Syncer) resolveConflicts(
 	return all, nil
 }
 
-// applyOutput writes and stages what the resolver produced for one path.
-func (s *Syncer) applyOutput(ctx context.Context, path string, out boardmerge.Output) error {
+// applyOutput writes and stages what the resolver produced for one path and
+// returns the extra files it wrote, whose references the caller rewrites once
+// every rename is known.
+func (s *Syncer) applyOutput(ctx context.Context, path string, out boardmerge.Output) ([]string, error) {
 	if out.Deleted {
 		if err := s.git.RemovePaths(ctx, []string{path}); err != nil {
-			return err
+			return nil, fmt.Errorf("apply deletion of %s: %w", path, err)
 		}
 	} else if err := s.writeAndStage(ctx, path, out.Content); err != nil {
-		return err
+		return nil, err
 	}
 
+	written := make([]string, 0, len(out.Extra))
+
 	for _, f := range out.Extra {
-		// Recorded before the write, so a file that lands but fails to stage
-		// is still cleaned up. Only a path we create is recorded: a path that
-		// already exists is one the merge abort restores, and deleting that
-		// would dirty the tree the cleanup is meant to leave clean.
+		// Recorded for cleanup before the write, so a file that lands but
+		// fails to stage is still removed. Only a path we create is recorded:
+		// a path that already exists is one the merge abort restores, and
+		// deleting that would dirty the tree the cleanup is meant to leave
+		// clean.
 		if _, err := os.Stat(filepath.Join(s.repoPath, f.Path)); errors.Is(err, os.ErrNotExist) {
 			s.extraWritten = append(s.extraWritten, f.Path)
 		}
 
 		if err := s.writeAndStage(ctx, f.Path, f.Content); err != nil {
-			return err
+			return nil, err
 		}
+
+		written = append(written, f.Path)
 	}
 
-	return nil
+	return written, nil
 }
 
 // removeExtras deletes the files written for re-minted cards and forgets them.
@@ -167,7 +180,11 @@ func (s *Syncer) writeAndStage(ctx context.Context, path string, content []byte)
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 
-	return s.git.StagePaths(ctx, []string{path})
+	if err := s.git.StagePaths(ctx, []string{path}); err != nil {
+		return fmt.Errorf("stage %s: %w", path, err)
+	}
+
+	return nil
 }
 
 // mergeContext binds the pure resolver to this worktree: the project configs
@@ -176,12 +193,14 @@ func (s *Syncer) writeAndStage(ctx context.Context, path string, content []byte)
 func (s *Syncer) mergeContext(ctx context.Context, branch string) (boardmerge.Context, error) {
 	ours, err := s.git.RevParseShort(ctx, "HEAD")
 	if err != nil {
-		return boardmerge.Context{}, err
+		return boardmerge.Context{}, fmt.Errorf("resolve HEAD: %w", err)
 	}
 
-	theirs, err := s.git.RevParseShort(ctx, "origin/"+branch)
+	remote := "origin/" + branch
+
+	theirs, err := s.git.RevParseShort(ctx, remote)
 	if err != nil {
-		return boardmerge.Context{}, err
+		return boardmerge.Context{}, fmt.Errorf("resolve %s: %w", remote, err)
 	}
 
 	loadProject := func(project string) (*board.ProjectConfig, error) {
@@ -221,7 +240,7 @@ func (s *Syncer) mergeContext(ctx context.Context, branch string) (boardmerge.Co
 			}
 
 			if err := s.git.StagePaths(ctx, []string{project + "/.board.yaml"}); err != nil {
-				return "", err
+				return "", fmt.Errorf("stage project config after mint: %w", err)
 			}
 
 			return id, nil
@@ -239,44 +258,69 @@ func (s *Syncer) mergeContext(ctx context.Context, branch string) (boardmerge.Co
 	}, nil
 }
 
-// rewriteLocalRefs maps references to re-minted ids in the files only our side
-// changed since the merge base. A reference to an old id in such a file was
-// added locally, so it means the local card. Files both sides touched were
-// conflicted and the resolver already followed the renames for them; a file
-// only the remote changed refers to the remote card and must stay.
+// rewriteLocalRefs maps references to re-minted ids onto their new ids, in the
+// files whose references were all added on our side.
+//
+// Two sets qualify. The re-minted cards and playbooks the resolver just wrote
+// are copies of our own files, so every reference in them is ours and every
+// rename applies. Beyond those, a file our side changed since the merge base
+// that the merge did not conflict on holds references we added, so a reference
+// to an old id there means the local card.
+//
+// Limitation: "changed by us and not conflicted" is wider than "changed only by
+// us". A file both sides edited in overlapping regions conflicted, and the
+// resolver already followed the renames for it. A file both sides edited in
+// non-overlapping regions auto-merges instead, so it reaches here too, and a
+// reference the remote added to a colliding id in such a file is rewritten to
+// our re-minted card when it should have kept pointing at the remote one.
+// Narrowing this needs the set of paths the remote changed since the merge
+// base, which this slice does not compute.
 func (s *Syncer) rewriteLocalRefs(
-	ctx context.Context, renames map[string]string, oursChanged []string, conflicted map[string]bool,
+	ctx context.Context, renames map[string]string, extras, oursChanged []string, conflicted map[string]bool,
 ) error {
+	for _, path := range extras {
+		if err := s.rewriteOne(ctx, path, renames); err != nil {
+			return err
+		}
+	}
+
 	for _, path := range oursChanged {
 		if conflicted[path] {
 			continue
 		}
 
-		kind, project, _ := boardmerge.Classify(path)
-		if kind != boardmerge.KindCard && kind != boardmerge.KindPlaybook {
-			continue
-		}
-
-		data, err := os.ReadFile(filepath.Join(s.repoPath, path))
-		if err != nil {
-			continue // deleted by the merge
-		}
-
-		out, err := rewriteRefs(kind, project, data, renames)
-		if err != nil {
-			return err
-		}
-
-		if out == nil {
-			continue // nothing to rewrite, or the file does not parse
-		}
-
-		if err := s.writeAndStage(ctx, path, out); err != nil {
+		if err := s.rewriteOne(ctx, path, renames); err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+// rewriteOne applies renames to one card or playbook in the worktree and stages
+// it. A path of any other kind, one the merge deleted, one that does not parse,
+// and one holding no reference to a re-minted id are all left alone.
+func (s *Syncer) rewriteOne(ctx context.Context, path string, renames map[string]string) error {
+	kind, project, _ := boardmerge.Classify(path)
+	if kind != boardmerge.KindCard && kind != boardmerge.KindPlaybook {
+		return nil
+	}
+
+	data, err := os.ReadFile(filepath.Join(s.repoPath, path))
+	if err != nil {
+		return nil
+	}
+
+	out, err := rewriteRefs(kind, project, data, renames)
+	if err != nil {
+		return err
+	}
+
+	if out == nil {
+		return nil
+	}
+
+	return s.writeAndStage(ctx, path, out)
 }
 
 // rewriteRefs applies renames to one card or playbook file, returning nil when

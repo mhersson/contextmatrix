@@ -6,7 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/boardmerge"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/internal/storage"
@@ -235,15 +237,21 @@ func TestResolve_StagingFailureRemovesTheExtraFile(t *testing.T) {
 
 	a.create(t, "from a")
 	b.create(t, "from b")
+
+	// Both sides minted one card, so the merged next_id is b's own and the
+	// re-mint takes the id b would hand out next.
+	remintPath := "test-project/tasks/" + b.nextCardID(t) + ".md"
+
 	a.sync(t)
 
-	// b's re-mint takes the next id after the merged next_id of 2.
-	remintPath := filepath.Join("test-project", "tasks", "TEST-002.md")
 	require.NoError(t, os.WriteFile(filepath.Join(b.dir, ".git", "info", "exclude"),
 		[]byte(remintPath+"\n"), 0o644))
 
 	_, err := b.syncer.Synced(context.Background(), "test", nil)
-	require.Error(t, err)
+
+	// Naming the path proves the cycle failed on staging that file, not on
+	// something unrelated that would make the assertions below vacuous.
+	require.ErrorContains(t, err, "stage "+remintPath)
 
 	assert.False(t, b.git.MergeInProgress())
 	assert.NoFileExists(t, filepath.Join(b.dir, remintPath), "a re-mint that failed to stage must not survive")
@@ -251,6 +259,151 @@ func TestResolve_StagingFailureRemovesTheExtraFile(t *testing.T) {
 	clean, dirty, err := b.git.IsClean(context.Background())
 	require.NoError(t, err)
 	assert.True(t, clean, dirty)
+}
+
+// TestResolve_RemintedCardFollowsItsOwnRenames covers a re-minted card whose
+// own references point at another card re-minted in the same merge. boardmerge
+// copies our card verbatim apart from its id, so the syncer has to rewrite the
+// references inside the files it wrote as well.
+func TestResolve_RemintedCardFollowsItsOwnRenames(t *testing.T) {
+	a, b, _ := setupSharedPair(t)
+
+	a.sync(t)
+	b.sync(t)
+
+	// Both sides build the same two-card chain over the same two ids.
+	a1 := a.create(t, "a one")
+	a2 := a.dependent(t, "a two", a1.ID)
+	b1 := b.create(t, "b one")
+	b2 := b.dependent(t, "b two", b1.ID)
+
+	require.Equal(t, a1.ID, b1.ID)
+	require.Equal(t, a2.ID, b2.ID)
+
+	a.sync(t)
+	b.sync(t)
+	a.sync(t)
+
+	for _, n := range []*sharedNode{a, b} {
+		byTitle := cardsByTitle(t, n)
+		require.Len(t, byTitle, 4, "every card survives on %s", n.dir)
+
+		assert.Equal(t, []string{byTitle["a one"].ID}, byTitle["a two"].DependsOn,
+			"the remote chain is untouched on %s", n.dir)
+		assert.Equal(t, []string{byTitle["b one"].ID}, byTitle["b two"].DependsOn,
+			"the re-minted card follows the re-mint it depends on, on %s", n.dir)
+
+		ids := map[string]bool{}
+		for _, c := range byTitle {
+			ids[c.ID] = true
+		}
+
+		assert.Len(t, ids, 4, "all four ids are distinct on %s", n.dir)
+	}
+}
+
+// TestResolve_PlaybookEntryFollowsRemint covers the playbook half of the
+// reference rewrite: a local playbook pointing at a card that gets re-minted
+// follows it, while a manual gate step carries no card and is left alone.
+func TestResolve_PlaybookEntryFollowsRemint(t *testing.T) {
+	a, b, _ := setupSharedPair(t)
+
+	a.sync(t)
+	b.sync(t)
+
+	a.create(t, "from a")
+	cb := b.create(t, "from b")
+
+	gate := board.PlaybookEntry{ID: "e2", Type: board.EntryTypeManual, Text: "ship it"}
+	b.writePlaybook(t, "release", board.PlaybookEntry{
+		ID: "e1", Type: board.EntryTypeCard, Project: "test-project", Card: cb.ID,
+	}, gate)
+
+	a.sync(t)
+
+	r := b.sync(t)
+
+	remint := findRemint(r.Resolutions)
+	require.NotNil(t, remint)
+
+	a.sync(t)
+
+	for _, n := range []*sharedNode{a, b} {
+		pb := n.readPlaybook(t, "release")
+		require.Len(t, pb.Entries, 2, "on %s", n.dir)
+
+		assert.Equal(t, remint.NewID, pb.Entries[0].Card, "the card entry follows the re-mint on %s", n.dir)
+		assert.Equal(t, gate, pb.Entries[1], "the manual gate step is untouched on %s", n.dir)
+	}
+}
+
+// dependent creates a card in the node's test project that depends on dependsOn.
+func (n *sharedNode) dependent(t *testing.T, title, dependsOn string) *board.Card {
+	t.Helper()
+
+	c, err := n.svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
+		Title: title, Type: "task", Priority: "medium", DependsOn: []string{dependsOn},
+	})
+	require.NoError(t, err)
+
+	return c
+}
+
+// nextCardID returns the id the node's test project would mint next, without
+// consuming it.
+func (n *sharedNode) nextCardID(t *testing.T) string {
+	t.Helper()
+
+	cfg, err := n.store.GetProject(context.Background(), "test-project")
+	require.NoError(t, err)
+
+	next := *cfg
+
+	return board.GenerateCardID(&next)
+}
+
+// writePlaybook commits a playbook with the given entries into the node's clone.
+func (n *sharedNode) writePlaybook(t *testing.T, id string, entries ...board.PlaybookEntry) {
+	t.Helper()
+
+	now := time.Now().UTC().Truncate(time.Second)
+	data, err := board.SerializePlaybook(&board.Playbook{
+		ID: id, Title: id, Created: now, Updated: now,
+		NextEntryID: len(entries) + 1, Entries: entries,
+	})
+	require.NoError(t, err)
+
+	rel := filepath.Join("playbooks", id+".yaml")
+	require.NoError(t, os.MkdirAll(filepath.Join(n.dir, "playbooks"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(n.dir, rel), data, 0o644))
+	require.NoError(t, n.git.CommitFilesShell(context.Background(), []string{rel}, "add playbook "+id))
+}
+
+func (n *sharedNode) readPlaybook(t *testing.T, id string) *board.Playbook {
+	t.Helper()
+
+	data, err := os.ReadFile(filepath.Join(n.dir, "playbooks", id+".yaml"))
+	require.NoError(t, err)
+
+	pb, err := board.ParsePlaybook(data)
+	require.NoError(t, err)
+
+	return pb
+}
+
+func cardsByTitle(t *testing.T, n *sharedNode) map[string]*board.Card {
+	t.Helper()
+
+	cards, err := n.store.ListCards(context.Background(), "test-project", storage.CardFilter{})
+	require.NoError(t, err)
+
+	byTitle := map[string]*board.Card{}
+
+	for _, c := range cards {
+		byTitle[c.Title] = c
+	}
+
+	return byTitle
 }
 
 func findRemint(res []boardmerge.Resolution) *boardmerge.Resolution {
