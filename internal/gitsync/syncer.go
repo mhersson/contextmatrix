@@ -6,6 +6,7 @@ package gitsync
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
@@ -18,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mhersson/contextmatrix/internal/boardmerge"
 	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/gitops"
@@ -25,12 +27,55 @@ import (
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
+const (
+	// maxResolutionRecords bounds the in-memory conflict-resolution log the
+	// status endpoint exposes.
+	maxResolutionRecords = 100
+
+	// defaultSyncTimeout bounds every single network call made inside
+	// Synced, so one unreachable remote cannot hold the write locks for the
+	// full gitops.NetworkGitTimeout.
+	defaultSyncTimeout = 10 * time.Second
+
+	// defaultMaxAttempts bounds the fetch-integrate-push loop in Synced.
+	defaultMaxAttempts = 5
+)
+
+// ErrRemoteUnreachable reports that a network git call inside Synced failed.
+// The board is left consistent; the next tick retries.
+var ErrRemoteUnreachable = errors.New("remote unreachable")
+
+// ErrSyncContended reports that every push attempt was rejected because
+// another instance pushed first. The local commits remain unpushed.
+var ErrSyncContended = errors.New("sync contended")
+
+// ResolutionRecord is one merge resolution with the time and trigger that
+// produced it, kept for the status endpoint.
+type ResolutionRecord struct {
+	boardmerge.Resolution
+
+	At      time.Time `json:"at"`
+	Trigger string    `json:"trigger"`
+}
+
 // SyncStatus reports the current state of the git sync system.
 type SyncStatus struct {
-	LastSyncTime  *time.Time `json:"last_sync_time"`
-	LastSyncError string     `json:"last_sync_error,omitempty"`
-	Syncing       bool       `json:"syncing"`
-	Enabled       bool       `json:"enabled"`
+	LastSyncTime    *time.Time         `json:"last_sync_time"`
+	LastSyncError   string             `json:"last_sync_error,omitempty"`
+	Syncing         bool               `json:"syncing"`
+	Enabled         bool               `json:"enabled"`
+	Shared          bool               `json:"shared"`
+	RemoteReachable *bool              `json:"remote_reachable,omitempty"`
+	LastRemoteError string             `json:"last_remote_error,omitempty"`
+	UnpushedCommits int                `json:"unpushed_commits"`
+	Resolutions     []ResolutionRecord `json:"resolutions,omitempty"`
+}
+
+// SyncReport summarizes one shared sync cycle.
+type SyncReport struct {
+	ChangesPulled bool
+	Pushed        bool
+	Resolutions   []boardmerge.Resolution
 }
 
 // Syncer manages automatic git pull/push for the boards repository.
@@ -53,10 +98,25 @@ type Syncer struct {
 	// value via SetNetworkTimeout.
 	networkTimeout time.Duration
 
+	// shared switches the syncer to the merge-based cycle other instances
+	// can write against; instance names this instance in merge audits.
+	shared   bool
+	instance string
+
+	// syncTimeout bounds each network call inside Synced; maxAttempts
+	// bounds its fetch-integrate-push loop.
+	syncTimeout time.Duration
+	maxAttempts int
+
 	mu            sync.RWMutex
 	lastSyncTime  time.Time
 	lastSyncError string
 	syncing       bool
+
+	remoteReachable *bool
+	lastRemoteError string
+	unpushed        int
+	resolutions     []ResolutionRecord // ring of the last maxResolutionRecords
 
 	pushCh chan struct{} // buffered(1), coalesces rapid commits
 	wg     sync.WaitGroup
@@ -65,6 +125,10 @@ type Syncer struct {
 	// when set. Used in tests to inject panics or controlled errors.
 	pullHook func(ctx context.Context, trigger string) error
 	pushHook func(ctx context.Context) error
+
+	// resolveHook resolves the unmerged paths left by a conflicted merge.
+	// Nil falls back to noResolver, which refuses and lets the merge abort.
+	resolveHook func(ctx context.Context, branch string, oursChanged []string) ([]boardmerge.Resolution, error)
 
 	// playbooks quiesces playbook writes during pull+rebase and reloads the
 	// playbook index afterwards. Nil when the playbooks subsystem is
@@ -80,6 +144,25 @@ type playbookSync interface {
 	Reload(ctx context.Context) error
 }
 
+// Option configures a Syncer at construction time.
+type Option func(*Syncer)
+
+// WithShared marks the board repository as shared with other ContextMatrix
+// instances and names this one. Only a syncer built with it may call Synced.
+func WithShared(instanceID string) Option {
+	return func(s *Syncer) {
+		s.shared = true
+		s.instance = instanceID
+	}
+}
+
+// WithSyncTimeout overrides the per-network-call timeout used inside Synced.
+func WithSyncTimeout(d time.Duration) Option {
+	return func(s *Syncer) {
+		s.syncTimeout = d
+	}
+}
+
 // NewSyncer creates a new Syncer. Returns nil if the repository has no remote
 // configured or the git binary is not found - sync is silently disabled.
 // Auth credentials are obtained at call time via the Manager's AuthEnv method.
@@ -92,6 +175,7 @@ func NewSyncer(
 	autoPull bool,
 	autoPush bool,
 	interval time.Duration,
+	opts ...Option,
 ) *Syncer {
 	if !git.HasRemote() {
 		slog.Info("git sync disabled: no remote configured")
@@ -105,7 +189,7 @@ func NewSyncer(
 		return nil
 	}
 
-	return &Syncer{
+	s := &Syncer{
 		git:            git,
 		store:          store,
 		svc:            svc,
@@ -116,8 +200,16 @@ func NewSyncer(
 		autoPush:       autoPush,
 		clk:            clock.Real(),
 		networkTimeout: gitops.NetworkGitTimeout,
+		syncTimeout:    defaultSyncTimeout,
+		maxAttempts:    defaultMaxAttempts,
 		pushCh:         make(chan struct{}, 1),
 	}
+
+	for _, opt := range opts {
+		opt(s)
+	}
+
+	return s
 }
 
 // SetClock overrides the clock used to drive the periodic-pull ticker.
@@ -204,17 +296,71 @@ func (s *Syncer) Status() SyncStatus {
 	defer s.mu.RUnlock()
 
 	status := SyncStatus{
-		Syncing: s.syncing,
-		Enabled: true,
+		Syncing:         s.syncing,
+		Enabled:         true,
+		Shared:          s.shared,
+		LastRemoteError: s.lastRemoteError,
+		UnpushedCommits: s.unpushed,
 	}
 	if !s.lastSyncTime.IsZero() {
 		t := s.lastSyncTime
 		status.LastSyncTime = &t
 	}
 
+	if s.remoteReachable != nil {
+		reachable := *s.remoteReachable
+		status.RemoteReachable = &reachable
+	}
+
+	if len(s.resolutions) > 0 {
+		status.Resolutions = append([]ResolutionRecord(nil), s.resolutions...)
+	}
+
 	status.LastSyncError = s.lastSyncError
 
 	return status
+}
+
+// setRemote records the outcome of a network call. A nil err marks the remote
+// reachable and clears the last error.
+func (s *Syncer) setRemote(reachable bool, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	v := reachable
+	s.remoteReachable = &v
+
+	if err != nil {
+		s.lastRemoteError = err.Error()
+	} else {
+		s.lastRemoteError = ""
+	}
+}
+
+func (s *Syncer) setUnpushed(n int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.unpushed = n
+}
+
+// recordResolutions appends to the bounded resolution log.
+func (s *Syncer) recordResolutions(trigger string, rs []boardmerge.Resolution) {
+	if len(rs) == 0 {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now()
+	for _, r := range rs {
+		s.resolutions = append(s.resolutions, ResolutionRecord{Resolution: r, At: now, Trigger: trigger})
+	}
+
+	if len(s.resolutions) > maxResolutionRecords {
+		s.resolutions = s.resolutions[len(s.resolutions)-maxResolutionRecords:]
+	}
 }
 
 // pullRebase fetches from origin and rebases local commits on top.
@@ -414,6 +560,336 @@ func (s *Syncer) pushWithRetry(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// Synced runs one shared-repo cycle: quiesce writes, commit anything dirty,
+// fetch, integrate the remote by fast-forward or merge, run body, and push
+// what the cycle produced. body, when non-nil, runs after the merge under the
+// write locks and must commit synchronously; it never touches the network and
+// runs at most once, before the first push attempt. Only valid on a syncer
+// built WithShared.
+//
+// The repository is never left mid-merge: every failure after a merge started
+// aborts it and returns an error, and the next cycle retries from a clean
+// tree.
+func (s *Syncer) Synced(ctx context.Context, trigger string, body func(ctx context.Context) error) (SyncReport, error) {
+	if !s.shared {
+		return SyncReport{}, errors.New("shared sync requires a syncer built with WithShared")
+	}
+
+	s.setSyncing(true)
+	defer s.setSyncing(false)
+
+	start := time.Now()
+
+	s.bus.Publish(events.Event{
+		Type:      events.SyncStarted,
+		Timestamp: start,
+		Data:      map[string]any{"trigger": trigger},
+	})
+
+	// The playbook lock MUST be acquired before the card lock; see the same
+	// comment in pullRebase for why the reverse order deadlocks.
+	if s.playbooks != nil {
+		s.playbooks.LockWrites()
+		defer s.playbooks.UnlockWrites()
+	}
+
+	// Held across the whole cycle, body included, so no mutation lands
+	// between the merge and the push it is meant to be part of.
+	s.svc.LockWrites()
+	defer s.svc.UnlockWrites()
+
+	report, err := s.synced(ctx, trigger, body)
+	if err != nil {
+		s.setError(err)
+		s.publishError(trigger, err)
+
+		return report, err
+	}
+
+	s.recordResolutions(trigger, report.Resolutions)
+	s.setSuccess()
+	s.publishCompleted(trigger, report.ChangesPulled, time.Since(start))
+
+	return report, nil
+}
+
+// synced is the body of Synced, run with both write locks held.
+func (s *Syncer) synced(ctx context.Context, trigger string, body func(ctx context.Context) error) (SyncReport, error) {
+	var report SyncReport
+
+	if err := s.commitLeftovers(ctx); err != nil {
+		return report, err
+	}
+
+	branch, err := s.git.CurrentBranch()
+	if err != nil {
+		return report, fmt.Errorf("current branch: %w", err)
+	}
+
+	bodyRan := false
+
+	for attempt := range s.maxAttempts {
+		if err := s.fetch(ctx); err != nil {
+			return report, err
+		}
+
+		pulled, res, err := s.integrate(ctx, branch)
+		if err != nil {
+			return report, err
+		}
+
+		report.ChangesPulled = report.ChangesPulled || pulled
+		report.Resolutions = append(report.Resolutions, res...)
+
+		if body != nil && !bodyRan {
+			bodyRan = true
+
+			if err := body(ctx); err != nil {
+				return report, fmt.Errorf("sync body: %w", err)
+			}
+		}
+
+		ahead, err := s.git.AheadCount(ctx, branch)
+		if err != nil {
+			return report, err
+		}
+
+		s.setUnpushed(ahead)
+
+		if ahead == 0 {
+			return report, nil
+		}
+
+		pushCtx, cancel := context.WithTimeout(ctx, s.syncTimeout)
+		pushErr := s.git.Push(pushCtx)
+
+		cancel()
+
+		if pushErr == nil {
+			report.Pushed = true
+
+			s.setUnpushed(0)
+			s.setRemote(true, nil)
+
+			return report, nil
+		}
+
+		// Anything but a non-fast-forward rejection is a network or auth
+		// failure: the local history is fine, so report and let the next
+		// cycle retry.
+		if !reNonFastForward.MatchString(pushErr.Error()) {
+			s.setRemote(false, pushErr)
+
+			return report, fmt.Errorf("%w: push: %v", ErrRemoteUnreachable, pushErr)
+		}
+
+		slog.Info("git sync: push rejected, re-integrating", "attempt", attempt+1, "trigger", trigger)
+		s.sleepJitter(ctx, time.Duration(attempt+1)*250*time.Millisecond)
+
+		// sleepJitter also returns on cancellation; report that as such
+		// rather than letting the next fetch fail as an unreachable remote.
+		if err := ctx.Err(); err != nil {
+			return report, err
+		}
+	}
+
+	return report, fmt.Errorf("%w: push rejected %d times", ErrSyncContended, s.maxAttempts)
+}
+
+// fetch updates the remote tracking refs under the per-call timeout.
+func (s *Syncer) fetch(ctx context.Context) error {
+	fetchCtx, cancel := context.WithTimeout(ctx, s.syncTimeout)
+	defer cancel()
+
+	// A nil-provider error means SSH mode - proceed without injecting env.
+	authEnv, authErr := s.git.AuthEnv(fetchCtx)
+	if authErr != nil {
+		slog.Debug("git sync: no auth env", "error", authErr)
+	}
+
+	if _, err := runGit(fetchCtx, s.repoPath, authEnv, "fetch", "origin"); err != nil {
+		s.setRemote(false, err)
+
+		return fmt.Errorf("%w: fetch: %v", ErrRemoteUnreachable, err)
+	}
+
+	s.setRemote(true, nil)
+
+	return nil
+}
+
+// commitLeftovers commits anything dirty so nothing is ever stashed. A shared
+// repository is merged, not rebased, and a merge needs a clean tree.
+func (s *Syncer) commitLeftovers(ctx context.Context) error {
+	clean, paths, err := s.git.IsClean(ctx)
+	if err != nil {
+		return fmt.Errorf("status before sync: %w", err)
+	}
+
+	if clean {
+		return nil
+	}
+
+	slog.Warn("git sync: committing uncommitted changes before sync", "paths", paths)
+
+	if err := s.git.CommitFilesShell(ctx, paths, "external edit"); err != nil {
+		return fmt.Errorf("commit leftovers: %w", err)
+	}
+
+	return nil
+}
+
+// integrate brings the remote branch into HEAD, by fast-forward when the local
+// branch has not diverged and by a merge commit when it has. It reports
+// whether anything was pulled and which conflicts were resolved.
+func (s *Syncer) integrate(ctx context.Context, branch string) (bool, []boardmerge.Resolution, error) {
+	remote := "origin/" + branch
+
+	behind, err := s.isBehind(ctx, branch, remote)
+	if err != nil {
+		// isBehind shells out to rev-list, which fails both when a ref is
+		// missing and when the object store is broken. A branch that has
+		// never been pushed is the one benign case - nothing to pull - so
+		// only that one is swallowed.
+		if s.hasRef(ctx, remote) {
+			return false, nil, fmt.Errorf("compare with %s: %w", remote, err)
+		}
+
+		slog.Debug("git sync: no remote tracking ref yet", "remote", remote)
+
+		return false, nil, nil
+	}
+
+	if !behind {
+		return false, nil, nil
+	}
+
+	ffErr := s.git.MergeFastForward(ctx, remote)
+	if ffErr == nil {
+		return true, nil, s.reloadAfterPull(ctx)
+	}
+
+	// A refused fast-forward is the ordinary divergent case, so it is not an
+	// error here - but log it, because a dirty tree or a broken ref reaches
+	// this line the same way and the merge below reports it far less
+	// specifically.
+	slog.Debug("git sync: fast-forward refused, merging", "remote", remote, "error", ffErr)
+
+	// Capture what our side changed since the fork point before the merge
+	// overwrites the worktree.
+	mergeBase, err := s.git.MergeBase(ctx, remote)
+	if err != nil {
+		return false, nil, err
+	}
+
+	oursChanged, err := s.git.DiffNames(ctx, mergeBase, "HEAD")
+	if err != nil {
+		return false, nil, err
+	}
+
+	mergeErr := s.git.Merge(ctx, remote)
+	if mergeErr == nil {
+		return true, nil, s.reloadAfterPull(ctx)
+	}
+
+	if !errors.Is(mergeErr, gitops.ErrMergeConflict) {
+		s.abortMerge(ctx)
+
+		return false, nil, fmt.Errorf("merge: %w", mergeErr)
+	}
+
+	resolve := s.resolveHook
+	if resolve == nil {
+		resolve = s.noResolver
+	}
+
+	res, err := resolve(ctx, branch, oursChanged)
+	if err != nil {
+		s.abortMerge(ctx)
+
+		return false, nil, fmt.Errorf("resolve conflicts: %w", err)
+	}
+
+	msg := fmt.Sprintf("merge: %s (%d conflicts resolved)", remote, len(res))
+	if err := s.git.CommitMerge(ctx, msg); err != nil {
+		s.abortMerge(ctx)
+
+		return false, nil, err
+	}
+
+	if left, _ := s.git.UnmergedPaths(ctx); len(left) > 0 || s.git.MergeInProgress() {
+		s.abortMerge(ctx)
+
+		return false, nil, errors.New("merge left unmerged paths")
+	}
+
+	s.bus.Publish(events.Event{
+		Type:      events.SyncConflict,
+		Timestamp: time.Now(),
+		Data:      map[string]any{"resolved": len(res), "trigger": "merge"},
+	})
+
+	return true, res, s.reloadAfterPull(ctx)
+}
+
+// noResolver is the default resolveHook: it refuses, so a conflicted merge is
+// aborted instead of half-resolved.
+func (s *Syncer) noResolver(context.Context, string, []string) ([]boardmerge.Resolution, error) {
+	return nil, errors.New("conflict resolution not available")
+}
+
+// abortMerge returns the worktree to HEAD when a merge is in progress.
+func (s *Syncer) abortMerge(ctx context.Context) {
+	if !s.git.MergeInProgress() {
+		return
+	}
+
+	if err := s.git.MergeAbort(ctx); err != nil {
+		slog.Error("git sync: merge --abort failed", "error", err)
+	}
+}
+
+// reloadAfterPull refreshes every in-memory view of the worktree that the
+// integration just changed. Order matters: go-git first, then the card index
+// and the playbook index, then the service caches.
+func (s *Syncer) reloadAfterPull(ctx context.Context) error {
+	if err := s.git.ReloadRepo(ctx); err != nil {
+		slog.Warn("git sync: reload go-git repo", "error", err)
+	}
+
+	if err := s.store.ReloadIndex(ctx); err != nil {
+		return fmt.Errorf("reload index: %w", err)
+	}
+
+	if s.playbooks != nil {
+		if err := s.playbooks.Reload(ctx); err != nil {
+			return fmt.Errorf("reload playbooks: %w", err)
+		}
+	}
+
+	s.svc.ClearCaches()
+
+	return nil
+}
+
+// hasRef reports whether ref resolves to a commit in the local object store.
+func (s *Syncer) hasRef(ctx context.Context, ref string) bool {
+	_, err := runGit(ctx, s.repoPath, nil, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
+
+	return err == nil
+}
+
+// sleepJitter waits base with +-25% jitter so concurrent instances do not
+// retry in lock-step.
+func (s *Syncer) sleepJitter(ctx context.Context, base time.Duration) {
+	d := time.Duration(float64(base) * (0.75 + 0.5*rand.Float64())) //nolint:gosec // non-security jitter
+
+	select {
+	case <-time.After(d):
+	case <-ctx.Done():
+	}
 }
 
 // periodicPull runs fetch+rebase at the configured interval.
