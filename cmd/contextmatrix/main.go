@@ -302,9 +302,9 @@ func main() {
 	httpCtx, httpCancel := context.WithCancel(ctx)
 	defer httpCancel()
 
-	// Start timeout checker. Interval is configurable so test harnesses
-	// can shrink it for fast heartbeat-timeout scenarios; production
-	// default is 1m. Validate ensures the duration parses and is positive.
+	// The timeout checker's interval is configurable so test harnesses can
+	// shrink it for fast heartbeat-timeout scenarios; production default is
+	// 1m. Validate ensures the duration parses and is positive.
 	stalledTick, err := cfg.StalledCheckIntervalDuration()
 	if err != nil {
 		slog.Error("invalid stalled_check_interval; falling back to 1m", "error", err)
@@ -312,10 +312,13 @@ func main() {
 		stalledTick = time.Minute
 	}
 
-	svc.StartTimeoutChecker(ctx, stalledTick)
-
 	// Initialize git sync
 	syncer := wireGitSync(ctx, cfg, git, store, svc, pbSvc, bus)
+
+	// After the sync wiring: on a shared board the checker's stall writes are
+	// push-verified, so the sync runner must be in place before the first
+	// tick can read it.
+	svc.StartTimeoutChecker(ctx, stalledTick)
 
 	// Multi-user auth: master key, auth.db, service, bootstrap link, janitor.
 	// In auth.mode "none" every one of these stays nil/off and the router
