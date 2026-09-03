@@ -299,7 +299,7 @@ func (s *CardService) ReportUsage(ctx context.Context, project, id string, input
 
 	unlocked = true
 
-	if err := s.awaitCommit(commitDone, notify); err != nil {
+	if err := s.awaitCommit(s.repoOf(project), commitDone, notify); err != nil {
 		s.writeMu.Lock()
 		rollbackErr := s.rollbackCardOnCommitFailure(ctx, project, snapshot, err)
 		s.writeMu.Unlock()
@@ -555,9 +555,10 @@ func (s *CardService) RecalculateCosts(ctx context.Context, project, defaultMode
 	}
 
 	// Batch-commit all recalculated cards in a single git commit.
-	if s.gitAutoCommit && len(updatedPaths) > 0 {
+	r := s.repoOf(project)
+	if r.GitAutoCommit && len(updatedPaths) > 0 {
 		msg := fmt.Sprintf("[contextmatrix] %s: recalculated costs for %d cards", project, result.CardsUpdated)
-		if err := s.git.CommitFiles(ctx, updatedPaths, msg); err != nil {
+		if err := r.Git.CommitFiles(ctx, updatedPaths, msg); err != nil {
 			// Batch commit failed: roll each mutated card back to its
 			// pre-mutation snapshot so cache + disk stay consistent
 			// with git. A partial-rollback failure leaves the cache
@@ -587,7 +588,7 @@ func (s *CardService) RecalculateCosts(ctx context.Context, project, defaultMode
 			return nil, fmt.Errorf("git commit recalculated costs: %w", err)
 		}
 
-		s.notifyCommit()
+		r.notifyCommit()
 	}
 
 	return result, nil

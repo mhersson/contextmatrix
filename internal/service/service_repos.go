@@ -189,10 +189,7 @@ func NewCardServiceRepos(store storage.Store, bus *events.Bus, tokenCosts map[st
 // fields the older call sites still read.
 func (s *CardService) mirrorLegacyFields() {
 	r := s.repos[0]
-	s.git, s.commitQueue, s.lock, s.boardsDir = r.Git, r.Queue, r.Lock, r.Dir
-	s.gitAutoCommit, s.gitDeferredCommit, s.sharedRepo = r.GitAutoCommit, r.GitDeferredCommit, r.Shared
-	s.syncRunner, s.instance, s.leaseTimeout, s.pullInterval = r.runner, r.Instance, r.LeaseTimeout, r.PullInterval
-	s.onCommit = r.onCommit
+	s.lock, s.instance, s.leaseTimeout, s.pullInterval = r.Lock, r.Instance, r.LeaseTimeout, r.PullInterval
 }
 
 // Repos returns the boards repositories in config order.
@@ -268,8 +265,6 @@ func (s *CardService) SetSyncRunnerFor(repo string, run SyncRunner) error {
 
 	r.runner = run
 
-	s.mirrorLegacyFields()
-
 	return nil
 }
 
@@ -282,8 +277,6 @@ func (s *CardService) SetOnCommitFor(repo string, fn func()) error {
 	}
 
 	r.onCommit = fn
-
-	s.mirrorLegacyFields()
 
 	return nil
 }

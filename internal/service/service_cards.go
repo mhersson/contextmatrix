@@ -500,10 +500,13 @@ func (s *CardService) GetCard(ctx context.Context, project, id string) (*board.C
 // queue; a push-verified write commits directly because the queue is paused.
 type commitFn func(ctx context.Context, paths []string, message string) error
 
-// commitQueued is the ordinary multi-file commit.
+// commitQueued is the ordinary multi-file commit, in the repo the first
+// path belongs to.
 func (s *CardService) commitQueued(ctx context.Context, paths []string, message string) error {
-	if s.commitQueue != nil {
-		return <-s.commitQueue.Enqueue(gitops.CommitJob{
+	r := s.repoOf(firstPathProject(paths[0]))
+
+	if r.Queue != nil {
+		return <-r.Queue.Enqueue(gitops.CommitJob{
 			Project: firstPathProject(paths[0]),
 			Kind:    gitops.CommitKindFiles,
 			Paths:   paths,
@@ -512,7 +515,7 @@ func (s *CardService) commitQueued(ctx context.Context, paths []string, message 
 		})
 	}
 
-	return s.git.CommitFiles(ctx, paths, message)
+	return r.Git.CommitFiles(ctx, paths, message)
 }
 
 // CreateCard creates a new card in the project.
@@ -521,7 +524,7 @@ func (s *CardService) commitQueued(ctx context.Context, paths []string, message 
 // allocated against the merged next_id and the response carries the ID the
 // merge settled on.
 func (s *CardService) CreateCard(ctx context.Context, project string, input CreateCardInput) (*board.Card, error) {
-	if s.pushVerified() {
+	if s.repoOf(project).pushVerified() {
 		return s.createCardVerified(ctx, project, input)
 	}
 
@@ -617,7 +620,7 @@ func (s *CardService) createCardVerified(ctx context.Context, project string, in
 		fresh   bool
 	)
 
-	out, err := s.runVerified(ctx, "create card",
+	out, err := s.runVerified(ctx, s.repoOf(project), "create card",
 		func(ctx context.Context) error {
 			c, isNew, err := s.createCardLocked(ctx, project, input, s.commitNow)
 			created, fresh = c, isNew
@@ -857,11 +860,13 @@ func (s *CardService) applyDedupGuard(
 func (s *CardService) commitNewCardWithNextID(
 	ctx context.Context, project string, card *board.Card, commit commitFn,
 ) (*board.Card, error) {
+	r := s.repoOf(project)
+
 	if err := s.store.CreateCard(ctx, project, card); err != nil {
 		return nil, fmt.Errorf("create card: %w", err)
 	}
 
-	if s.gitAutoCommit {
+	if r.GitAutoCommit {
 		cardPath := s.cardPath(project, card.ID)
 		configPath := filepath.Join(project, ".board.yaml")
 		msg := commitMessage("", card.ID, "created")
@@ -870,7 +875,7 @@ func (s *CardService) commitNewCardWithNextID(
 			return nil, fmt.Errorf("git commit: %w", gitErr)
 		}
 
-		s.notifyCommit()
+		r.notifyCommit()
 	}
 
 	return card, nil
@@ -1358,6 +1363,7 @@ func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput)
 // inconsistent state for the caller.
 func (s *CardService) DeleteCard(ctx context.Context, project, id string) error {
 	id = strings.ToUpper(id)
+	r := s.repoOf(project)
 
 	s.writeMu.Lock()
 
@@ -1409,12 +1415,12 @@ func (s *CardService) DeleteCard(ctx context.Context, project, id string) error 
 		notify     bool
 	)
 
-	if s.gitAutoCommit {
+	if r.GitAutoCommit {
 		path := s.cardPath(project, id)
 		msg := commitMessage("", id, "deleted")
 
-		if s.commitQueue != nil {
-			commitDone = s.commitQueue.Enqueue(gitops.CommitJob{
+		if r.Queue != nil {
+			commitDone = r.Queue.Enqueue(gitops.CommitJob{
 				Project: project,
 				Kind:    gitops.CommitKindFile,
 				Path:    path,
@@ -1423,7 +1429,7 @@ func (s *CardService) DeleteCard(ctx context.Context, project, id string) error 
 			})
 			notify = true
 		} else {
-			err := s.git.CommitFile(ctx, path, msg)
+			err := r.Git.CommitFile(ctx, path, msg)
 
 			done := make(chan error, 1)
 			done <- err
@@ -1439,7 +1445,7 @@ func (s *CardService) DeleteCard(ctx context.Context, project, id string) error 
 
 	s.writeMu.Unlock()
 
-	if err := s.awaitCommit(commitDone, notify); err != nil {
+	if err := s.awaitCommit(r, commitDone, notify); err != nil {
 		// Commit failed: re-create the card so the store matches git.
 		s.writeMu.Lock()
 
@@ -1483,6 +1489,7 @@ func (s *CardService) DeleteCard(ctx context.Context, project, id string) error 
 // The activity log is capped at 50 entries (oldest dropped).
 func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry board.ActivityEntry) (*board.Card, error) {
 	id = strings.ToUpper(id)
+	r := s.repoOf(project)
 
 	if len(entry.Message) > maxLogMessage {
 		return nil, fmt.Errorf("message length %d exceeds limit of %d: %w", len(entry.Message), maxLogMessage, ErrFieldTooLong)
@@ -1543,7 +1550,7 @@ func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry
 
 	s.writeMu.Unlock()
 
-	if err := s.awaitCommit(commitDone, notify); err != nil {
+	if err := s.awaitCommit(r, commitDone, notify); err != nil {
 		s.writeMu.Lock()
 		rollbackErr := s.rollbackCardOnCommitFailure(ctx, project, snapshot, err)
 		s.writeMu.Unlock()
@@ -1817,6 +1824,8 @@ func (s *CardService) commitAndRollbackOrReturn(
 	opts mutationOpts,
 	stateChanged bool,
 ) (*board.Card, error) {
+	r := s.repoOf(project)
+
 	if err := s.store.UpdateCard(ctx, project, card); err != nil {
 		s.writeMu.Unlock()
 
@@ -1831,12 +1840,12 @@ func (s *CardService) commitAndRollbackOrReturn(
 		notify     bool
 	)
 
-	if opts.immediateCommit && s.gitAutoCommit {
+	if opts.immediateCommit && r.GitAutoCommit {
 		cardPath := s.cardPath(project, id)
 		msg := commitMessage(opts.commitAgentID, id, opts.commitAction)
 
-		if s.commitQueue != nil {
-			commitDone = s.commitQueue.Enqueue(gitops.CommitJob{
+		if r.Queue != nil {
+			commitDone = r.Queue.Enqueue(gitops.CommitJob{
 				Project: project,
 				Kind:    gitops.CommitKindFile,
 				Path:    cardPath,
@@ -1849,7 +1858,7 @@ func (s *CardService) commitAndRollbackOrReturn(
 			// Preserves the pre-queue ordering guarantee that the
 			// commit lands before subsequent in-process work (e.g.
 			// parent auto-transitions) runs its own commits.
-			err := s.git.CommitFile(ctx, cardPath, msg)
+			err := r.Git.CommitFile(ctx, cardPath, msg)
 
 			done := make(chan error, 1)
 			done <- err
@@ -1877,7 +1886,7 @@ func (s *CardService) commitAndRollbackOrReturn(
 
 	s.writeMu.Unlock()
 
-	if err := s.awaitCommit(commitDone, notify); err != nil {
+	if err := s.awaitCommit(r, commitDone, notify); err != nil {
 		// Commit failed after the store was already updated. Roll back
 		// cache + disk to the snapshot so the three substrates (cache,
 		// disk, git) stay consistent. Take writeMu again so the rollback

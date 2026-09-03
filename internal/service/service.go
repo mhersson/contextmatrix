@@ -79,21 +79,7 @@ type CardService struct {
 	heartbeatTimeout time.Duration
 
 	// Transitional mirrors of repos[0]; no new code reads them.
-	git               *gitops.Manager
-	commitQueue       *gitops.CommitQueue
-	lock              *lock.Manager
-	boardsDir         string
-	gitAutoCommit     bool
-	gitDeferredCommit bool
-
-	// sharedRepo marks the board repository as one other instances also
-	// write to. Set once at wiring time and read-only thereafter.
-	sharedRepo bool
-
-	// syncRunner runs a mutation inside one sync cycle on a shared board.
-	// Nil on a private one, and every push-verified path then reduces to the
-	// ordinary local write. Set once at wiring time.
-	syncRunner SyncRunner
+	lock *lock.Manager
 
 	// instance, leaseTimeout and pullInterval come from SetLease on a shared
 	// board. instance stays empty on a private one, and every ownership and
@@ -106,10 +92,6 @@ type CardService struct {
 	// last successful sync cycle. Foreign stalls need a recent pull.
 	syncMu   sync.Mutex
 	lastSync time.Time
-
-	// onCommit is called after each successful git commit.
-	// Used by the sync layer to trigger push-after-commit.
-	onCommit func()
 
 	// writeMu serializes all card mutations (create, update, patch, delete,
 	// claim, release, heartbeat, log). This prevents races like two agents
@@ -296,21 +278,12 @@ func (s *CardService) backendAuthor() string {
 // uses the For variant.
 func (s *CardService) SetCommitQueue(q *gitops.CommitQueue) {
 	s.repos[0].Queue = q
-	s.mirrorLegacyFields()
 }
 
 // SetOnCommit registers a callback invoked after each successful git commit.
 // Acts on the first configured repo; multi-repo wiring uses the For variant.
 func (s *CardService) SetOnCommit(fn func()) {
 	s.repos[0].onCommit = fn
-	s.mirrorLegacyFields()
-}
-
-// notifyCommit calls the onCommit callback if set.
-func (s *CardService) notifyCommit() {
-	if s.onCommit != nil {
-		s.onCommit()
-	}
 }
 
 // ClearCaches resets all per-project caches (validators, configs, templates).
@@ -329,7 +302,6 @@ func (s *CardService) ClearCaches() {
 // repo; multi-repo wiring uses the For variant.
 func (s *CardService) SetSharedRepo(shared bool) {
 	s.repos[0].Shared = shared
-	s.mirrorLegacyFields()
 }
 
 // SetLease names this instance and sets the timings the fence and the
@@ -579,7 +551,7 @@ func (s *CardService) transitionStep(
 	// commit lands in enqueue order.
 	s.writeMu.Unlock()
 
-	if err := s.awaitCommit(commitDone, notify); err != nil {
+	if err := s.awaitCommit(s.repoOf(project), commitDone, notify); err != nil {
 		s.writeMu.Lock()
 		rollbackErr := s.rollbackCardOnCommitFailure(ctx, project, stepSnapshot, err)
 

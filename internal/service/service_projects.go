@@ -31,6 +31,8 @@ type CreateProjectInput struct {
 	Types       []string
 	Priorities  []string
 	Transitions map[string][]string
+	// BoardsRepo names the boards repository to create the project in; empty means the first configured one.
+	BoardsRepo string
 }
 
 // UpdateProjectInput contains the mutable fields for updating a project.
@@ -111,15 +113,20 @@ func (s *CardService) GetProject(ctx context.Context, name string) (*board.Proje
 // On a shared board it runs inside a sync cycle so a name a peer took first is
 // seen before the directory is written.
 func (s *CardService) CreateProject(ctx context.Context, input CreateProjectInput) (*board.ProjectConfig, error) {
-	if s.pushVerified() {
-		return s.createProjectVerified(ctx, input)
+	r, err := s.repoNamed(input.BoardsRepo)
+	if err != nil {
+		return nil, err
+	}
+
+	if r.pushVerified() {
+		return s.createProjectVerified(ctx, r, input)
 	}
 
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
-	cfg, err := s.createProjectLocked(ctx, input, func(ctx context.Context, name string) error {
-		return s.git.CommitAll(ctx, projectCommitMessage(name, "created"))
+	cfg, err := s.createProjectLocked(ctx, r, input, func(ctx context.Context, name string) error {
+		return r.Git.CommitAll(ctx, projectCommitMessage(name, "created"))
 	})
 	if err != nil {
 		return nil, err
@@ -144,7 +151,7 @@ func projectCommitMessage(name, action string) string {
 // the slug derivation above may have filled in. It does not publish; the
 // caller does.
 func (s *CardService) createProjectLocked(
-	ctx context.Context, input CreateProjectInput, commit func(ctx context.Context, name string) error,
+	ctx context.Context, r *BoardsRepo, input CreateProjectInput, commit func(ctx context.Context, name string) error,
 ) (*board.ProjectConfig, error) {
 	// Auto-derive slug from DisplayName when Name is not provided.
 	if input.Name == "" && input.DisplayName != "" {
@@ -179,11 +186,15 @@ func (s *CardService) createProjectLocked(
 	}
 
 	// SaveProject validates config and creates directory + .board.yaml
-	if err := s.store.SaveProject(ctx, cfg); err != nil {
+	if err := s.saveNewProject(ctx, r, cfg); err != nil {
 		return nil, fmt.Errorf("save project: %w", err)
 	}
 
-	tasksDir := filepath.Join(s.boardsDir, input.Name, "tasks")
+	// A plain store does not stamp the repo, so set it here: the returned
+	// config carries its boards repo whichever store is underneath.
+	cfg.BoardsRepo = r.Name
+
+	tasksDir := filepath.Join(r.Dir, input.Name, "tasks")
 	if err := os.MkdirAll(tasksDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create tasks directory: %w", err)
 	}
@@ -192,12 +203,12 @@ func (s *CardService) createProjectLocked(
 	// its path is "." (stage everything), which the queue would have to
 	// special-case; for project-level events that fire at most once per
 	// project-lifecycle, serializing via the manager's own mutex is fine.
-	if s.gitAutoCommit {
+	if r.GitAutoCommit {
 		if err := commit(ctx, input.Name); err != nil {
 			return nil, fmt.Errorf("git commit: %w", err)
 		}
 
-		s.notifyCommit()
+		r.notifyCommit()
 	}
 
 	s.mu.Lock()
@@ -211,23 +222,25 @@ func (s *CardService) createProjectLocked(
 // fires when the .board.yaml on disk is still byte-for-byte what the write
 // produced, so a merge that adopted a peer's project of the same name is left
 // alone.
-func (s *CardService) createProjectVerified(ctx context.Context, input CreateProjectInput) (*board.ProjectConfig, error) {
+func (s *CardService) createProjectVerified(
+	ctx context.Context, r *BoardsRepo, input CreateProjectInput,
+) (*board.ProjectConfig, error) {
 	var (
 		cfg     *board.ProjectConfig
 		written []byte
 	)
 
-	_, err := s.runVerified(ctx, "create project",
+	_, err := s.runVerified(ctx, r, "create project",
 		func(ctx context.Context) error {
-			c, err := s.createProjectLocked(ctx, input, func(ctx context.Context, name string) error {
-				return s.commitAllReloaded(projectCommitMessage(name, "created"))(ctx)
+			c, err := s.createProjectLocked(ctx, r, input, func(ctx context.Context, name string) error {
+				return s.commitAllReloaded(r, projectCommitMessage(name, "created"))(ctx)
 			})
 			if err != nil {
 				return err
 			}
 
 			cfg = c
-			written, _ = os.ReadFile(filepath.Join(s.boardsDir, c.Name, ".board.yaml"))
+			written, _ = os.ReadFile(filepath.Join(r.Dir, c.Name, ".board.yaml"))
 
 			return nil
 		},
@@ -236,7 +249,7 @@ func (s *CardService) createProjectVerified(ctx context.Context, input CreatePro
 				return nil
 			}
 
-			cur, err := os.ReadFile(filepath.Join(s.boardsDir, cfg.Name, ".board.yaml"))
+			cur, err := os.ReadFile(filepath.Join(r.Dir, cfg.Name, ".board.yaml"))
 			if err != nil || !bytes.Equal(cur, written) {
 				return nil // gone, or no longer what we wrote
 			}
@@ -249,7 +262,7 @@ func (s *CardService) createProjectVerified(ctx context.Context, input CreatePro
 			delete(s.configs, cfg.Name)
 			s.mu.Unlock()
 
-			return s.commitAllReloaded(projectCommitMessage(cfg.Name, "create undone: remote unreachable"))(ctx)
+			return s.commitAllReloaded(r, projectCommitMessage(cfg.Name, "create undone: remote unreachable"))(ctx)
 		})
 	if err != nil {
 		return nil, err
@@ -269,14 +282,16 @@ func (s *CardService) createProjectVerified(ctx context.Context, input CreatePro
 // On a shared board it runs inside a sync cycle so the config the caller edits
 // is the merged one.
 func (s *CardService) UpdateProject(ctx context.Context, name string, input UpdateProjectInput) (*board.ProjectConfig, error) {
-	if s.pushVerified() {
-		return s.updateProjectVerified(ctx, name, input)
+	r := s.repoOf(name)
+
+	if r.pushVerified() {
+		return s.updateProjectVerified(ctx, r, name, input)
 	}
 
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
-	cfg, _, err := s.updateProjectLocked(ctx, name, input, func(ctx context.Context) error {
+	cfg, _, err := s.updateProjectLocked(ctx, r, name, input, func(ctx context.Context) error {
 		return s.commitQueuedProjectConfig(ctx, name)
 	})
 	if err != nil {
@@ -296,11 +311,12 @@ func (s *CardService) UpdateProject(ctx context.Context, name string, input Upda
 // queue when configured, so ordering is preserved with concurrent card
 // commits; otherwise it commits inline.
 func (s *CardService) commitQueuedProjectConfig(ctx context.Context, name string) error {
+	r := s.repoOf(name)
 	path := filepath.Join(name, ".board.yaml")
 	msg := projectCommitMessage(name, "updated")
 
-	if s.commitQueue != nil {
-		return <-s.commitQueue.Enqueue(gitops.CommitJob{
+	if r.Queue != nil {
+		return <-r.Queue.Enqueue(gitops.CommitJob{
 			Project: name,
 			Kind:    gitops.CommitKindFile,
 			Path:    path,
@@ -309,14 +325,14 @@ func (s *CardService) commitQueuedProjectConfig(ctx context.Context, name string
 		})
 	}
 
-	return s.git.CommitFile(ctx, path, msg)
+	return r.Git.CommitFile(ctx, path, msg)
 }
 
 // updateProjectLocked is UpdateProject with writeMu held by the caller and the
 // commit path chosen by it. It returns the pre-update snapshot alongside the
 // new config, and does not publish; the caller does.
 func (s *CardService) updateProjectLocked(
-	ctx context.Context, name string, input UpdateProjectInput, commit func(ctx context.Context) error,
+	ctx context.Context, r *BoardsRepo, name string, input UpdateProjectInput, commit func(ctx context.Context) error,
 ) (updated, snapshot *board.ProjectConfig, err error) {
 	cfg, err := s.store.GetProject(ctx, name)
 	if err != nil {
@@ -444,12 +460,12 @@ func (s *CardService) updateProjectLocked(
 		return nil, nil, fmt.Errorf("save project: %w", err)
 	}
 
-	if s.gitAutoCommit {
+	if r.GitAutoCommit {
 		if commitErr := commit(ctx); commitErr != nil {
 			return nil, nil, s.rollbackProjectUpdateOnCommitFailure(ctx, name, snapshot, commitErr)
 		}
 
-		s.notifyCommit()
+		r.notifyCommit()
 	}
 
 	// Invalidate caches so they rebuild with new config
@@ -464,7 +480,7 @@ func (s *CardService) updateProjectLocked(
 // fires when the .board.yaml on disk is still byte-for-byte what the write
 // produced, so an edit the merge has already reconciled is left alone.
 func (s *CardService) updateProjectVerified(
-	ctx context.Context, name string, input UpdateProjectInput,
+	ctx context.Context, r *BoardsRepo, name string, input UpdateProjectInput,
 ) (*board.ProjectConfig, error) {
 	var (
 		cfg      *board.ProjectConfig
@@ -474,9 +490,9 @@ func (s *CardService) updateProjectVerified(
 
 	configPath := filepath.Join(name, ".board.yaml")
 
-	_, err := s.runVerified(ctx, "update project",
+	_, err := s.runVerified(ctx, r, "update project",
 		func(ctx context.Context) error {
-			c, snap, err := s.updateProjectLocked(ctx, name, input, func(ctx context.Context) error {
+			c, snap, err := s.updateProjectLocked(ctx, r, name, input, func(ctx context.Context) error {
 				return s.commitNow(ctx, []string{configPath}, projectCommitMessage(name, "updated"))
 			})
 			if err != nil {
@@ -484,7 +500,7 @@ func (s *CardService) updateProjectVerified(
 			}
 
 			cfg, snapshot = c, snap
-			written, _ = os.ReadFile(filepath.Join(s.boardsDir, configPath))
+			written, _ = os.ReadFile(filepath.Join(r.Dir, configPath))
 
 			return nil
 		},
@@ -493,7 +509,7 @@ func (s *CardService) updateProjectVerified(
 				return nil
 			}
 
-			cur, err := os.ReadFile(filepath.Join(s.boardsDir, configPath))
+			cur, err := os.ReadFile(filepath.Join(r.Dir, configPath))
 			if err != nil || !bytes.Equal(cur, written) {
 				return nil // gone, or no longer what we wrote
 			}
@@ -580,15 +596,17 @@ func (s *CardService) rollbackProjectUpdateOnCommitFailure(
 // On a shared board it runs inside a sync cycle, so a card a peer added is
 // seen before the zero-card invariant is trusted.
 func (s *CardService) DeleteProject(ctx context.Context, name string) error {
-	if s.pushVerified() {
-		return s.deleteProjectVerified(ctx, name)
+	r := s.repoOf(name)
+
+	if r.pushVerified() {
+		return s.deleteProjectVerified(ctx, r, name)
 	}
 
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
-	if _, err := s.deleteProjectLocked(ctx, name, func(ctx context.Context) error {
-		return s.commitQueuedProjectDelete(ctx, name)
+	if _, err := s.deleteProjectLocked(ctx, r, name, func(ctx context.Context) error {
+		return s.commitQueuedProjectDelete(ctx, r, name)
 	}); err != nil {
 		return err
 	}
@@ -602,14 +620,16 @@ func (s *CardService) DeleteProject(ctx context.Context, name string) error {
 	return nil
 }
 
-// commitQueuedProjectDelete stages the project's removal through the commit
+// commitQueuedProjectDelete stages the project's removal through r's commit
 // queue when configured so a failing committer injected by tests exercises the
-// rollback path; otherwise it commits inline.
-func (s *CardService) commitQueuedProjectDelete(ctx context.Context, name string) error {
+// rollback path; otherwise it commits inline. The repo is passed in because
+// the project is already off the index by the time this runs, so it can no
+// longer be resolved from the name.
+func (s *CardService) commitQueuedProjectDelete(ctx context.Context, r *BoardsRepo, name string) error {
 	msg := projectCommitMessage(name, "deleted")
 
-	if s.commitQueue != nil {
-		return <-s.commitQueue.Enqueue(gitops.CommitJob{
+	if r.Queue != nil {
+		return <-r.Queue.Enqueue(gitops.CommitJob{
 			Project: name,
 			Kind:    gitops.CommitKindAll,
 			Message: msg,
@@ -617,14 +637,14 @@ func (s *CardService) commitQueuedProjectDelete(ctx context.Context, name string
 		})
 	}
 
-	return s.git.CommitAll(ctx, msg)
+	return r.Git.CommitAll(ctx, msg)
 }
 
 // deleteProjectLocked is DeleteProject with writeMu held by the caller and the
 // commit path chosen by it. It returns the pre-delete directory snapshot and
 // does not publish; the caller does.
 func (s *CardService) deleteProjectLocked(
-	ctx context.Context, name string, commit func(ctx context.Context) error,
+	ctx context.Context, r *BoardsRepo, name string, commit func(ctx context.Context) error,
 ) (*projectDirSnapshot, error) {
 	// Check exists
 	if _, err := s.store.GetProject(ctx, name); err != nil {
@@ -644,7 +664,7 @@ func (s *CardService) deleteProjectLocked(
 	// Snapshot the project directory tree before deletion so we can restore
 	// it if the git commit fails. Must run before store.DeleteProject, which
 	// is the destructive step.
-	snapshot, snapErr := snapshotProjectDir(filepath.Join(s.boardsDir, name))
+	snapshot, snapErr := snapshotProjectDir(filepath.Join(r.Dir, name))
 	if snapErr != nil {
 		return nil, fmt.Errorf("snapshot project dir for rollback: %w", snapErr)
 	}
@@ -656,12 +676,12 @@ func (s *CardService) deleteProjectLocked(
 
 	// Git commit. CommitAll stages everything - the now-absent project dir
 	// is recorded as deletions.
-	if s.gitAutoCommit {
+	if r.GitAutoCommit {
 		if commitErr := commit(ctx); commitErr != nil {
-			return nil, s.rollbackProjectDeleteOnCommitFailure(ctx, name, snapshot, commitErr)
+			return nil, s.rollbackProjectDeleteOnCommitFailure(ctx, r, name, snapshot, commitErr)
 		}
 
-		s.notifyCommit()
+		r.notifyCommit()
 	}
 
 	// Purge all caches
@@ -676,14 +696,14 @@ func (s *CardService) deleteProjectLocked(
 // deleteProjectVerified removes the project inside a sync cycle. The undo only
 // restores the tree when the directory is still absent, so a peer's project
 // the merge brought back is left alone.
-func (s *CardService) deleteProjectVerified(ctx context.Context, name string) error {
+func (s *CardService) deleteProjectVerified(ctx context.Context, r *BoardsRepo, name string) error {
 	var snapshot *projectDirSnapshot
 
-	projectDir := filepath.Join(s.boardsDir, name)
+	projectDir := filepath.Join(r.Dir, name)
 
-	_, err := s.runVerified(ctx, "delete project",
+	_, err := s.runVerified(ctx, r, "delete project",
 		func(ctx context.Context) error {
-			snap, err := s.deleteProjectLocked(ctx, name, s.commitAllReloaded(projectCommitMessage(name, "deleted")))
+			snap, err := s.deleteProjectLocked(ctx, r, name, s.commitAllReloaded(r, projectCommitMessage(name, "deleted")))
 			if err != nil {
 				return err
 			}
@@ -705,11 +725,11 @@ func (s *CardService) deleteProjectVerified(ctx context.Context, name string) er
 				return fmt.Errorf("restore project dir: %w", err)
 			}
 
-			if err := s.reloadStoreIndex(ctx); err != nil {
+			if err := s.reloadStoreIndex(ctx, r); err != nil {
 				return fmt.Errorf("reload store index: %w", err)
 			}
 
-			return s.commitAllReloaded(projectCommitMessage(name, "delete undone: remote unreachable"))(ctx)
+			return s.commitAllReloaded(r, projectCommitMessage(name, "delete undone: remote unreachable"))(ctx)
 		})
 	if err != nil {
 		return err
@@ -731,7 +751,7 @@ func (s *CardService) deleteProjectVerified(ctx context.Context, name string) er
 //
 // Caller must hold writeMu.
 func (s *CardService) rollbackProjectDeleteOnCommitFailure(
-	ctx context.Context, name string, snapshot *projectDirSnapshot, commitErr error,
+	ctx context.Context, r *BoardsRepo, name string, snapshot *projectDirSnapshot, commitErr error,
 ) error {
 	if snapshot == nil {
 		ctxlog.Logger(ctx).Error("project delete commit failed without snapshot; cache/disk state unknown",
@@ -740,7 +760,7 @@ func (s *CardService) rollbackProjectDeleteOnCommitFailure(
 		return fmt.Errorf("git commit (no snapshot for rollback): %w", commitErr)
 	}
 
-	projectDir := filepath.Join(s.boardsDir, name)
+	projectDir := filepath.Join(r.Dir, name)
 
 	if restoreErr := snapshot.restore(projectDir); restoreErr != nil {
 		metrics.RollbackFailuresTotal.Inc()
@@ -760,7 +780,7 @@ func (s *CardService) rollbackProjectDeleteOnCommitFailure(
 
 	// Ask the store to re-pick up the restored project. ReloadIndex rebuilds
 	// the full cache; acceptable here because delete-then-reload is rare.
-	if reloadErr := s.reloadStoreIndex(ctx); reloadErr != nil {
+	if reloadErr := s.reloadStoreIndex(ctx, r); reloadErr != nil {
 		metrics.RollbackFailuresTotal.Inc()
 		ctxlog.Logger(ctx).Error("project delete commit failed and store reload failed after disk restore",
 			"project", name,
@@ -783,12 +803,17 @@ func (s *CardService) rollbackProjectDeleteOnCommitFailure(
 	return fmt.Errorf("git commit delete: %w", commitErr)
 }
 
-// reloadStoreIndex invokes the store's ReloadIndex method when available.
-// Used by the project-delete rollback to re-pick up a restored project. The
-// storage.Store interface does not declare ReloadIndex, but the concrete
-// FilesystemStore does - and that's the only implementation in production
-// use. Tests using alternative Store fakes simply skip this step.
-func (s *CardService) reloadStoreIndex(ctx context.Context) error {
+// reloadStoreIndex re-reads r from disk. The composite reloads that one repo;
+// a plain store reloads everything it has. Used by the project-delete
+// rollback to re-pick up a restored project, which is why it takes the repo
+// rather than the project: the project is off the index at that point and no
+// longer resolves. The storage.Store interface declares neither method, so a
+// Store fake that implements neither simply skips this step.
+func (s *CardService) reloadStoreIndex(ctx context.Context, r *BoardsRepo) error {
+	if rr, ok := s.store.(repoReloader); ok {
+		return rr.ReloadRepo(ctx, r.Name)
+	}
+
 	type reloader interface {
 		ReloadIndex(ctx context.Context) error
 	}
@@ -1063,7 +1088,7 @@ func (s *CardService) getTemplates(project string) (map[string]string, error) {
 	}
 
 	// Load from filesystem
-	projectDir := filepath.Join(s.boardsDir, project)
+	projectDir := filepath.Join(s.repoOf(project).Dir, project)
 
 	templates, err := board.LoadTemplates(projectDir)
 	if err != nil {

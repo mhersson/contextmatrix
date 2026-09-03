@@ -64,7 +64,7 @@ func (s *CardService) stallForeignVerified(ctx context.Context, project, id stri
 		prevAgent, via    string
 	)
 
-	_, err := s.runVerified(ctx, "foreign stall",
+	_, err := s.runVerified(ctx, s.repoOf(project), "foreign stall",
 		func(ctx context.Context) error {
 			card, err := s.store.GetCard(ctx, project, id)
 			if err != nil {

@@ -193,7 +193,7 @@ func (s *CardService) transitionParentDirect(
 		// commit does not stall other concurrent writers. Re-acquire
 		// before continuing so the caller's lock-held invariant holds.
 		s.writeMu.Unlock()
-		commitErr := s.awaitCommit(commitDone, notify)
+		commitErr := s.awaitCommit(s.repoOf(parent.Project), commitDone, notify)
 		s.writeMu.Lock()
 
 		if commitErr != nil {

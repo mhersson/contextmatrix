@@ -76,7 +76,7 @@ func waitForCommits(t *testing.T, svc *CardService, wantCommits int, timeout tim
 	t.Helper()
 
 	require.Eventually(t, func() bool {
-		count, err := svc.git.CommitCount()
+		count, err := svc.Repos()[0].Git.CommitCount()
 
 		return err == nil && count >= wantCommits
 	}, timeout, 10*time.Millisecond, "timed out waiting for %d commits", wantCommits)
@@ -109,7 +109,7 @@ func TestAsyncCommit_HeartbeatFanoutAcrossCards(t *testing.T) {
 	}
 
 	// Record baseline commit count: numCards (create) + numCards (claim).
-	baseline, err := svc.git.CommitCount()
+	baseline, err := svc.Repos()[0].Git.CommitCount()
 	require.NoError(t, err)
 
 	var (
@@ -167,7 +167,7 @@ func TestAsyncCommit_ShutdownDrainsPendingHeartbeat(t *testing.T) {
 	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-1")
 	require.NoError(t, err)
 
-	baseline, err := svc.git.CommitCount()
+	baseline, err := svc.Repos()[0].Git.CommitCount()
 	require.NoError(t, err)
 
 	_, err = svc.HeartbeatCard(ctx, "test-project", card.ID, "agent-1")
@@ -178,7 +178,7 @@ func TestAsyncCommit_ShutdownDrainsPendingHeartbeat(t *testing.T) {
 
 	require.NoError(t, q.Close(closeCtx))
 
-	count, err := svc.git.CommitCount()
+	count, err := svc.Repos()[0].Git.CommitCount()
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, count, baseline+1,
 		"expected commit to land before queue close; count=%d baseline=%d", count, baseline)

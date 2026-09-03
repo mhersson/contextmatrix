@@ -318,3 +318,122 @@ func TestSaveNewProject_CreatesInTheNamedRepo(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "two", owner)
 }
+
+func TestTwoRepos_CardCommitsLandInTheirOwnRepo(t *testing.T) {
+	tr, cleanup := newTwoRepoService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	a, err := tr.svc.CreateCard(ctx, "alpha", CreateCardInput{Title: "in one", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+
+	b, err := tr.svc.CreateCard(ctx, "beta", CreateCardInput{Title: "in two", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+
+	assert.Equal(t, "ALPHA-001", a.ID)
+	assert.Equal(t, "BETA-001", b.ID)
+
+	msgOne, err := tr.one.Git.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Contains(t, msgOne, "ALPHA-001")
+
+	msgTwo, err := tr.two.Git.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Contains(t, msgTwo, "BETA-001")
+
+	for _, r := range tr.svc.Repos() {
+		dirty, err := r.Git.HasUncommittedChanges()
+		require.NoError(t, err)
+		assert.False(t, dirty, r.Name)
+	}
+
+	assert.FileExists(t, filepath.Join(tr.two.Dir, "beta", "tasks", "BETA-001.md"))
+	assert.NoFileExists(t, filepath.Join(tr.one.Dir, "beta", "tasks", "BETA-001.md"))
+}
+
+func TestTwoRepos_DeferredFlushCommitsInTheCardsRepo(t *testing.T) {
+	tr, cleanup := newTwoRepoService(t)
+	defer cleanup()
+
+	tr.two.GitDeferredCommit = true
+	ctx := context.Background()
+
+	_, err := tr.svc.CreateCard(ctx, "alpha", CreateCardInput{Title: "untouched", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+
+	before, err := tr.one.Git.GetLastCommitMessage()
+	require.NoError(t, err)
+
+	card, err := tr.svc.CreateCard(ctx, "beta", CreateCardInput{Title: "deferred", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+
+	_, err = tr.svc.ClaimCard(ctx, "beta", card.ID, "agent-1")
+	require.NoError(t, err)
+
+	_, err = tr.svc.AddLogEntry(ctx, "beta", card.ID, board.ActivityEntry{Agent: "agent-1", Action: "progress", Message: "working"})
+	require.NoError(t, err)
+
+	_, err = tr.svc.ReleaseCard(ctx, "beta", card.ID, "agent-1")
+	require.NoError(t, err)
+
+	after, err := tr.two.Git.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Contains(t, after, "deferred commit")
+
+	unchanged, err := tr.one.Git.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Equal(t, before, unchanged, "repo one saw none of repo two's deferred work")
+}
+
+func TestTwoRepos_ProjectCreateTargetsTheNamedRepo(t *testing.T) {
+	tr, cleanup := newTwoRepoService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	input := CreateProjectInput{
+		Name: "gamma", Prefix: "GAMMA", BoardsRepo: "two",
+		States: repoProject("gamma", "GAMMA").States, Types: []string{"task"}, Priorities: []string{"low"},
+		Transitions: repoProject("gamma", "GAMMA").Transitions,
+	}
+
+	cfg, err := tr.svc.CreateProject(ctx, input)
+	require.NoError(t, err)
+	assert.Equal(t, "two", cfg.BoardsRepo)
+	assert.DirExists(t, filepath.Join(tr.two.Dir, "gamma", "tasks"))
+	assert.NoDirExists(t, filepath.Join(tr.one.Dir, "gamma"))
+	assert.Same(t, tr.two, tr.svc.repoOf("gamma"))
+
+	msg, err := tr.two.Git.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Contains(t, msg, "project created")
+
+	input.Name, input.Prefix, input.BoardsRepo = "delta", "DELTA", "three"
+	_, err = tr.svc.CreateProject(ctx, input)
+	require.ErrorIs(t, err, ErrUnknownBoardsRepo)
+
+	input.Name, input.Prefix, input.BoardsRepo = "eps", "EPS", ""
+	cfg, err = tr.svc.CreateProject(ctx, input)
+	require.NoError(t, err)
+	assert.Equal(t, "one", cfg.BoardsRepo, "empty boards_repo means the first configured repo")
+
+	input.Name, input.Prefix, input.BoardsRepo = "alpha", "ALPHA", "two"
+	_, err = tr.svc.CreateProject(ctx, input)
+	require.ErrorIs(t, err, storage.ErrProjectExists, "names are unique across repos")
+}
+
+func TestTwoRepos_DeleteProjectCommitsInItsRepo(t *testing.T) {
+	tr, cleanup := newTwoRepoService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	require.NoError(t, tr.svc.DeleteProject(ctx, "beta"))
+	assert.NoDirExists(t, filepath.Join(tr.two.Dir, "beta"))
+
+	msg, err := tr.two.Git.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Contains(t, msg, "project deleted")
+
+	_, ok := tr.composite.RepoOf("beta")
+	assert.False(t, ok)
+}

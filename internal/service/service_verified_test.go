@@ -87,11 +87,11 @@ func TestCreateCardVerified_RunsInsideTheCycle(t *testing.T) {
 	assert.Equal(t, 1, runner.calls)
 	assert.Equal(t, "create card", runner.lastTrigger)
 
-	msg, err := svc.git.GetLastCommitMessage()
+	msg, err := svc.Repos()[0].Git.GetLastCommitMessage()
 	require.NoError(t, err)
 	assert.Contains(t, msg, card.ID)
 
-	dirty, err := svc.git.HasUncommittedChanges()
+	dirty, err := svc.Repos()[0].Git.HasUncommittedChanges()
 	require.NoError(t, err)
 	assert.False(t, dirty)
 }
@@ -102,14 +102,14 @@ func TestCreateCardVerified_MapsARemintedID(t *testing.T) {
 
 	// The merge kept the remote's TEST-001 and re-minted ours as TEST-002.
 	runner.afterApply = func(ctx context.Context) {
-		src := filepath.Join(svc.boardsDir, "test-project", "tasks", "TEST-001.md")
-		dst := filepath.Join(svc.boardsDir, "test-project", "tasks", "TEST-002.md")
+		src := filepath.Join(svc.Repos()[0].Dir, "test-project", "tasks", "TEST-001.md")
+		dst := filepath.Join(svc.Repos()[0].Dir, "test-project", "tasks", "TEST-002.md")
 
 		data, err := os.ReadFile(src)
 		require.NoError(t, err)
 		require.NoError(t, os.WriteFile(dst, []byte(strings.Replace(string(data), "id: TEST-001", "id: TEST-002", 1)), 0o644))
 		require.NoError(t, os.WriteFile(src, []byte(strings.Replace(string(data), "title: t", "title: remote", 1)), 0o644))
-		require.NoError(t, svc.reloadStoreIndex(ctx))
+		require.NoError(t, svc.reloadStoreIndex(ctx, svc.Repos()[0]))
 	}
 	runner.resolutions = []boardmerge.Resolution{{
 		Path: "test-project/tasks/TEST-001.md", CardID: "TEST-001", Rule: boardmerge.RuleAddAddRemint,
@@ -162,11 +162,11 @@ func TestCreateCardVerified_UndoneWhenThePushNeverLands(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, cards)
 
-	dirty, err := svc.git.HasUncommittedChanges()
+	dirty, err := svc.Repos()[0].Git.HasUncommittedChanges()
 	require.NoError(t, err)
 	assert.False(t, dirty)
 
-	msg, err := svc.git.GetLastCommitMessage()
+	msg, err := svc.Repos()[0].Git.GetLastCommitMessage()
 	require.NoError(t, err)
 	assert.Contains(t, msg, "undone")
 }
@@ -291,7 +291,7 @@ func TestProjectCreateVerified_UndoneWhenThePushNeverLands(t *testing.T) {
 	_, err = svc.store.GetProject(context.Background(), "beta")
 	require.ErrorIs(t, err, storage.ErrProjectNotFound)
 
-	dirty, err := svc.git.HasUncommittedChanges()
+	dirty, err := svc.Repos()[0].Git.HasUncommittedChanges()
 	require.NoError(t, err)
 	assert.False(t, dirty)
 }

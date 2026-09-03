@@ -148,7 +148,7 @@ func TestSharedHeartbeat_RenewsTheFileOncePerLeaseInterval(t *testing.T) {
 	_, err := svc.ClaimCard(ctx, "test-project", card.ID, "a")
 	require.NoError(t, err)
 
-	claimMsg, err := svc.git.GetLastCommitMessage()
+	claimMsg, err := svc.Repos()[0].Git.GetLastCommitMessage()
 	require.NoError(t, err)
 
 	fake.Advance(time.Minute)
@@ -157,7 +157,7 @@ func TestSharedHeartbeat_RenewsTheFileOncePerLeaseInterval(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, fake.Now(), *beat.LastHeartbeat, "the ack reports the live beat")
 
-	msg, err := svc.git.GetLastCommitMessage()
+	msg, err := svc.Repos()[0].Git.GetLastCommitMessage()
 	require.NoError(t, err)
 	assert.Equal(t, claimMsg, msg, "no commit within the lease interval")
 
@@ -170,7 +170,7 @@ func TestSharedHeartbeat_RenewsTheFileOncePerLeaseInterval(t *testing.T) {
 	_, err = svc.HeartbeatCard(ctx, "test-project", card.ID, "a")
 	require.NoError(t, err)
 
-	msg, err = svc.git.GetLastCommitMessage()
+	msg, err = svc.Repos()[0].Git.GetLastCommitMessage()
 	require.NoError(t, err)
 	assert.Contains(t, msg, "heartbeat")
 

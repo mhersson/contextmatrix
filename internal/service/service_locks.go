@@ -78,7 +78,9 @@ func (s *CardService) ClaimCard(ctx context.Context, project, id, agentID string
 		return nil, err
 	}
 
-	if s.pushVerified() {
+	r := s.repoOf(project)
+
+	if r.pushVerified() {
 		return s.claimCardVerified(ctx, project, id, agentID)
 	}
 
@@ -112,7 +114,7 @@ func (s *CardService) ClaimCard(ctx context.Context, project, id, agentID string
 
 	s.writeMu.Unlock()
 
-	if err := s.awaitCommit(commitDone, notify); err != nil {
+	if err := s.awaitCommit(r, commitDone, notify); err != nil {
 		s.writeMu.Lock()
 		rollbackErr := s.rollbackCardOnCommitFailure(ctx, project, snapshot, err)
 		s.writeMu.Unlock()
@@ -143,7 +145,7 @@ func (s *CardService) ClaimCard(ctx context.Context, project, id, agentID string
 func (s *CardService) claimCardVerified(ctx context.Context, project, id, agentID string) (*board.Card, error) {
 	var snapshot, written *board.Card
 
-	_, err := s.runVerified(ctx, "claim card",
+	_, err := s.runVerified(ctx, s.repoOf(project), "claim card",
 		func(ctx context.Context) error {
 			snap, err := s.claimPreconditions(ctx, project, id, agentID)
 			if err != nil {
@@ -248,6 +250,7 @@ func (s *CardService) undoClaimWrite(ctx context.Context, project, id string, wr
 // ReleaseCard removes an agent's claim on a card.
 func (s *CardService) ReleaseCard(ctx context.Context, project, id, agentID string) (*board.Card, error) {
 	id = strings.ToUpper(id)
+	r := s.repoOf(project)
 
 	s.writeMu.Lock()
 
@@ -294,7 +297,7 @@ func (s *CardService) ReleaseCard(ctx context.Context, project, id, agentID stri
 		ctxlog.Logger(ctx).Error("flush deferred commit on release", "card_id", id, "error", flushErr)
 	}
 
-	if err := s.awaitCommit(commitDone, notify); err != nil {
+	if err := s.awaitCommit(r, commitDone, notify); err != nil {
 		s.writeMu.Lock()
 		rollbackErr := s.rollbackCardOnCommitFailure(ctx, project, snapshot, err)
 		s.writeMu.Unlock()
@@ -325,7 +328,9 @@ func (s *CardService) ForceReleaseCard(ctx context.Context, project, id, humanID
 		return nil, fmt.Errorf("force-release card %s: %w", id, ErrForceReleaseRequiresHuman)
 	}
 
-	if s.pushVerified() {
+	r := s.repoOf(project)
+
+	if r.pushVerified() {
 		return s.forceReleaseVerified(ctx, project, id, humanID)
 	}
 
@@ -345,7 +350,7 @@ func (s *CardService) ForceReleaseCard(ctx context.Context, project, id, humanID
 	// Await the force-release commit before flushing the dead agent's
 	// deferred commits - same ordering as stallCardLocked: flushing first
 	// means a rollback on commit failure diverges from git permanently.
-	if err := s.awaitCommit(commitDone, notify); err != nil {
+	if err := s.awaitCommit(r, commitDone, notify); err != nil {
 		s.writeMu.Lock()
 		rollbackErr := s.rollbackCardOnCommitFailure(ctx, project, snapshot, err)
 		s.writeMu.Unlock()
@@ -428,7 +433,7 @@ func (s *CardService) forceReleaseVerified(ctx context.Context, project, id, hum
 		prevAgent         string
 	)
 
-	_, err := s.runVerified(ctx, "force-release",
+	_, err := s.runVerified(ctx, s.repoOf(project), "force-release",
 		func(ctx context.Context) error {
 			snap, card, prev, err := s.forceReleaseLocked(ctx, project, id, humanID)
 			if err != nil {
@@ -484,6 +489,7 @@ func (s *CardService) forceReleaseVerified(ctx context.Context, project, id, hum
 // re-expose a stale timestamp that the next scan could act on.
 func (s *CardService) HeartbeatCard(ctx context.Context, project, id, agentID string) (*board.Card, error) {
 	id = strings.ToUpper(id)
+	r := s.repoOf(project)
 
 	s.writeMu.Lock()
 
@@ -515,7 +521,7 @@ func (s *CardService) HeartbeatCard(ctx context.Context, project, id, agentID st
 
 	s.writeMu.Unlock()
 
-	if err := s.awaitCommit(commitDone, notify); err != nil {
+	if err := s.awaitCommit(r, commitDone, notify); err != nil {
 		return nil, fmt.Errorf("git commit: %w", err)
 	}
 
@@ -597,7 +603,7 @@ func (s *CardService) processStalled(ctx context.Context) error {
 		ctxlog.Logger(ctx).Error("process abandoned parents", "error", err)
 	}
 
-	if s.pushVerified() {
+	if s.repos[0].pushVerified() {
 		s.processForeignStalls(ctx)
 	}
 
@@ -775,6 +781,8 @@ func (s *CardService) markCardStalled(ctx context.Context, sc lock.StalledCard) 
 // re-read. reason is the commit/audit message for the stall (each caller passes
 // its own so the git history distinguishes a heartbeat timeout from a reap).
 func (s *CardService) stallCardLocked(ctx context.Context, project string, card *board.Card, reason string) error {
+	r := s.repoOf(project)
+
 	// Defense-in-depth: never re-stall a card that has already reached a
 	// terminal state. Per the design tension noted in
 	// enforceTerminalStateInvariants, a card may legitimately retain a live
@@ -857,7 +865,7 @@ func (s *CardService) stallCardLocked(ctx context.Context, project string, card 
 	// permanent state divergence. Defer the flush until the stall commit
 	// succeeds; on commit failure, the deferred paths remain queued and will
 	// be picked up by the next mutation/release.
-	if err := s.awaitCommit(commitDone, notify); err != nil {
+	if err := s.awaitCommit(r, commitDone, notify); err != nil {
 		s.writeMu.Lock()
 		rollbackErr := s.rollbackCardOnCommitFailure(ctx, project, snapshot, err)
 		s.writeMu.Unlock()
