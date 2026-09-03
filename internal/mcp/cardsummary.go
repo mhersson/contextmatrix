@@ -24,6 +24,9 @@ type CardSummary struct {
 	Priority                string              `json:"priority"`
 	AssignedAgent           string              `json:"assigned_agent,omitempty"`
 	LastHeartbeat           *time.Time          `json:"last_heartbeat,omitempty"`
+	ClaimedVia              string              `json:"claimed_via,omitempty"`
+	ClaimedAt               *time.Time          `json:"claimed_at,omitempty"`
+	ClaimEpoch              int                 `json:"claim_epoch,omitempty"`
 	Parent                  string              `json:"parent,omitempty"`
 	Subtasks                []string            `json:"subtasks,omitempty"`
 	DependsOn               []string            `json:"depends_on,omitempty"`
@@ -79,6 +82,9 @@ func summarizeCard(c *board.Card) *CardSummary {
 		Priority:                c.Priority,
 		AssignedAgent:           c.AssignedAgent,
 		LastHeartbeat:           c.LastHeartbeat,
+		ClaimedVia:              c.ClaimedVia,
+		ClaimedAt:               c.ClaimedAt,
+		ClaimEpoch:              c.ClaimEpoch,
 		Parent:                  c.Parent,
 		Subtasks:                c.Subtasks,
 		DependsOn:               c.DependsOn,

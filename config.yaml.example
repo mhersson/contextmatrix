@@ -232,6 +232,14 @@ boards:
   # Env: CONTEXTMATRIX_BOARDS_SHARED (true/false/1/0)
   shared: false
 
+  # Shared-only. How often a live claim's lease is rewritten on the remote,
+  # and how long a peer's pushed lease may stay unchanged before another
+  # instance may stall the card. lease_timeout must exceed
+  # heartbeat_timeout + 2 * git_pull_interval + lease_interval.
+  # Env: CONTEXTMATRIX_BOARDS_LEASE_INTERVAL, CONTEXTMATRIX_BOARDS_LEASE_TIMEOUT
+  lease_interval: 5m
+  lease_timeout: 1h
+
 # Task-skills repository configuration. An operator-provided repo of specialist
 # filesystem skills (one SKILL.md per directory) that the active task backend
 # mounts into worker containers, engaged by sub-agents via the Skill tool. CM

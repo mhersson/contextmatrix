@@ -12,14 +12,22 @@ import (
 
 // Card represents a task card with YAML frontmatter and markdown body.
 type Card struct {
-	ID              string         `yaml:"id"              json:"id"`
-	Title           string         `yaml:"title"           json:"title"`
-	Project         string         `yaml:"project"         json:"project"`
-	Type            string         `yaml:"type"            json:"type"`
-	State           string         `yaml:"state"           json:"state"`
-	Priority        string         `yaml:"priority"        json:"priority"`
-	AssignedAgent   string         `yaml:"assigned_agent,omitempty"  json:"assigned_agent,omitempty"`
-	LastHeartbeat   *time.Time     `yaml:"last_heartbeat,omitempty" json:"last_heartbeat,omitempty"`
+	ID            string     `yaml:"id"              json:"id"`
+	Title         string     `yaml:"title"           json:"title"`
+	Project       string     `yaml:"project"         json:"project"`
+	Type          string     `yaml:"type"            json:"type"`
+	State         string     `yaml:"state"           json:"state"`
+	Priority      string     `yaml:"priority"        json:"priority"`
+	AssignedAgent string     `yaml:"assigned_agent,omitempty"  json:"assigned_agent,omitempty"`
+	LastHeartbeat *time.Time `yaml:"last_heartbeat,omitempty" json:"last_heartbeat,omitempty"`
+	// ClaimedVia is the instance that granted the current claim. Empty on a
+	// private board and on a claim written before shared boards existed.
+	ClaimedVia string     `yaml:"claimed_via,omitempty"    json:"claimed_via,omitempty"`
+	ClaimedAt  *time.Time `yaml:"claimed_at,omitempty"     json:"claimed_at,omitempty"`
+	// ClaimEpoch fences the claim tuple across instances. It is bumped on
+	// every claim, release, stall, force-release and terminal transition, and
+	// the side with the higher value supplies the whole tuple in a merge.
+	ClaimEpoch      int            `yaml:"claim_epoch,omitempty"    json:"claim_epoch,omitempty"`
 	Parent          string         `yaml:"parent,omitempty"         json:"parent,omitempty"`
 	Subtasks        []string       `yaml:"subtasks,omitempty"       json:"subtasks,omitempty"`
 	DependsOn       []string       `yaml:"depends_on,omitempty"     json:"depends_on,omitempty"`

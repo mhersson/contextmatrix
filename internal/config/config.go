@@ -321,6 +321,11 @@ type BoardsConfig struct {
 	// through its remote. Forces auto commit, auto pull and auto push, and
 	// switches the syncer to the merge-and-resolve path.
 	Shared bool `yaml:"shared"`
+	// LeaseInterval (shared only) is how often a live claim's lease is
+	// rewritten on the remote. LeaseTimeout is how long a peer's pushed lease
+	// may stay unchanged before another instance may stall the card.
+	LeaseInterval string `yaml:"lease_interval"`
+	LeaseTimeout  string `yaml:"lease_timeout"`
 }
 
 // InstanceConfig identifies this server among the instances sharing a boards
@@ -498,6 +503,8 @@ func defaults() *Config {
 			GitAutoPush:     false,
 			GitAutoPull:     false,
 			GitPullInterval: "60s",
+			LeaseInterval:   "5m",
+			LeaseTimeout:    "1h",
 		},
 		HeartbeatTimeout:     "30m",
 		AwaitMax:             "8m",
@@ -616,6 +623,31 @@ func (c *Config) Validate() error {
 
 		if !instanceIDPattern.MatchString(c.Instance.ID) {
 			return fmt.Errorf("instance.id %q is invalid: must match %s", c.Instance.ID, instanceIDPattern)
+		}
+
+		if c.Boards.LeaseInterval == "" {
+			c.Boards.LeaseInterval = "5m"
+		}
+
+		if c.Boards.LeaseTimeout == "" {
+			c.Boards.LeaseTimeout = "1h"
+		}
+
+		leaseInterval, err := time.ParseDuration(c.Boards.LeaseInterval)
+		if err != nil {
+			return fmt.Errorf("invalid boards.lease_interval %q: %w", c.Boards.LeaseInterval, err)
+		}
+
+		leaseTimeout, err := time.ParseDuration(c.Boards.LeaseTimeout)
+		if err != nil {
+			return fmt.Errorf("invalid boards.lease_timeout %q: %w", c.Boards.LeaseTimeout, err)
+		}
+
+		heartbeat, _ := time.ParseDuration(c.HeartbeatTimeout)
+		pull, _ := time.ParseDuration(c.Boards.GitPullInterval)
+
+		if floor := heartbeat + 2*pull + leaseInterval; leaseTimeout <= floor {
+			return fmt.Errorf("boards.lease_timeout must exceed heartbeat_timeout + 2 * git_pull_interval + lease_interval (%s), got %s", floor, leaseTimeout)
 		}
 	}
 
@@ -1245,6 +1277,14 @@ func applyEnvOverrides(cfg *Config) error {
 
 	cfg.Boards.Shared = parseBoolEnv("CONTEXTMATRIX_BOARDS_SHARED", cfg.Boards.Shared)
 
+	if v := os.Getenv("CONTEXTMATRIX_BOARDS_LEASE_INTERVAL"); v != "" {
+		cfg.Boards.LeaseInterval = v
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_BOARDS_LEASE_TIMEOUT"); v != "" {
+		cfg.Boards.LeaseTimeout = v
+	}
+
 	if v := os.Getenv("CONTEXTMATRIX_INSTANCE_ID"); v != "" {
 		cfg.Instance.ID = v
 	}
@@ -1686,6 +1726,16 @@ func (c *Config) StalledCheckIntervalDuration() (time.Duration, error) {
 // PullIntervalDuration parses Boards.GitPullInterval as a time.Duration.
 func (c *Config) PullIntervalDuration() (time.Duration, error) {
 	return time.ParseDuration(c.Boards.GitPullInterval)
+}
+
+// LeaseIntervalDuration parses Boards.LeaseInterval as a time.Duration.
+func (c *Config) LeaseIntervalDuration() (time.Duration, error) {
+	return time.ParseDuration(c.Boards.LeaseInterval)
+}
+
+// LeaseTimeoutDuration parses Boards.LeaseTimeout as a time.Duration.
+func (c *Config) LeaseTimeoutDuration() (time.Duration, error) {
+	return time.ParseDuration(c.Boards.LeaseTimeout)
 }
 
 // BuildSlogHandler constructs a slog.Handler from the LogFormat and LogLevel fields.
