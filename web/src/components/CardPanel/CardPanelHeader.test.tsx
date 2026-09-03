@@ -208,3 +208,27 @@ describe('CardPanelHeader - Open dependency helper', () => {
     expect(onOpenDependency).toHaveBeenCalledWith('TEST-999');
   });
 });
+
+describe('CardPanelHeader - foreign claim', () => {
+  const foreign: Card = {
+    ...baseCard,
+    state: 'in_progress',
+    assigned_agent: 'agent-TEST-001',
+    claimed_via: 'lap-b',
+    last_heartbeat: new Date(Date.now() - 90_000).toISOString(),
+    worker_status: 'running',
+  };
+
+  it('shows where the card runs and hides Stop', () => {
+    render(<CardPanelHeader {...defaultProps} card={foreign} editedCard={foreign} instanceId="lap-a" />);
+    expect(screen.getByRole('status')).toHaveTextContent('Running on lap-b');
+    expect(screen.getByRole('status')).toHaveTextContent('lease');
+    expect(screen.queryByRole('button', { name: 'Stop worker' })).toBeNull();
+  });
+
+  it('keeps Stop for a card this instance runs', () => {
+    const own = { ...foreign, claimed_via: 'lap-a' };
+    render(<CardPanelHeader {...defaultProps} card={own} editedCard={own} instanceId="lap-a" />);
+    expect(screen.getByRole('button', { name: 'Stop worker' })).toBeInTheDocument();
+  });
+});

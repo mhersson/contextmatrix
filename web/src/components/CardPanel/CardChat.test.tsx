@@ -381,3 +381,12 @@ describe('CardChat - error state lifecycle', () => {
     expect(screen.queryByText('network down')).not.toBeInTheDocument();
   });
 });
+
+describe('CardChat - foreign claim', () => {
+  it('is read-only for a card another instance runs', () => {
+    const card = { ...runningCard, claimed_via: 'lap-b', assigned_agent: 'agent-x' };
+    render(<CardChat card={card} cardLogs={noLogs} instanceId="lap-a" />);
+    expect(screen.getByText(/Running on lap-b/)).toBeInTheDocument();
+    expect(screen.queryByRole('textbox')).toBeNull();
+  });
+});

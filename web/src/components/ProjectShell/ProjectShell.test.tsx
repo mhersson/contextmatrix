@@ -216,6 +216,8 @@ vi.mock('../../hooks/useTheme', () => ({
     setTheme: () => {},
     setPalette: () => {},
     taskBackend: 'agent',
+    instanceId: '',
+    sharedBoards: false,
   }),
 }));
 

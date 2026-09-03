@@ -75,7 +75,7 @@ export function CardPanel(props: CardPanelProps) {
   // dismiss the panel.
   useFocusTrap(panelRef, true, panelRef);
 
-  const { taskBackend } = useTheme();
+  const { taskBackend, instanceId } = useTheme();
 
   const isMobile = useMediaQuery('(max-width: 768px)');
   // Chat is "live" (transcript streaming, tab shown with a pulse) whenever a
@@ -238,6 +238,7 @@ export function CardPanel(props: CardPanelProps) {
     automationLockedReason,
     excludeStateFromPicker,
     onDependsOnChange: handleDependsOnChange,
+    instanceId,
   });
 
   // If the active tab disappears (e.g. live session ended, chat tab removed),
@@ -285,6 +286,7 @@ export function CardPanel(props: CardPanelProps) {
           onStopCard={onStopCard}
           onOpenDependency={onSubtaskClick}
           firstUnfinishedDep={firstUnfinishedDep}
+          instanceId={instanceId}
         />
 
         <CardPanelBody

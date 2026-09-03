@@ -90,6 +90,9 @@ interface ThemeContextValue {
    * pre-login payload and on older servers.
    */
   mobExecuteCheckpoints: boolean;
+  /** This server's instance id on a shared boards repo ('' on a private board). */
+  instanceId: string;
+  sharedBoards: boolean;
   setTheme: (theme: Theme) => void;
   setPalette: (palette: Palette) => void;
 }
@@ -122,6 +125,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [mobDefaultParticipants, setMobDefaultParticipants] = useState<number | undefined>(undefined);
   const [mobGuestNames, setMobGuestNames] = useState<string[] | undefined>(undefined);
   const [mobExecuteCheckpoints, setMobExecuteCheckpoints] = useState(false);
+  const [instanceId, setInstanceId] = useState('');
+  const [sharedBoards, setSharedBoards] = useState(false);
 
   // Optional: AuthProvider does not yet sit above ThemeProvider in App.tsx
   // (wired in a later task), and pre-existing tests render ThemeProvider
@@ -174,6 +179,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       if (config.mob_execute_checkpoints !== undefined) {
         setMobExecuteCheckpoints(config.mob_execute_checkpoints);
       }
+      if (config.instance_id !== undefined) {
+        setInstanceId(config.instance_id);
+      }
+      if (config.shared_boards !== undefined) {
+        setSharedBoards(config.shared_boards);
+      }
     }).catch(() => {
       // swallow errors - leave default everforest palette
     });
@@ -196,10 +207,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     () => ({
       theme, palette, version, taskBackend, chatEnabled, favorites, bestOfNMax, bestOfNDefault,
       mobMaxParticipants, mobDefaultParticipants, mobGuestNames, mobExecuteCheckpoints,
+      instanceId, sharedBoards,
       setTheme, setPalette,
     }),
     [theme, palette, version, taskBackend, chatEnabled, favorites, bestOfNMax, bestOfNDefault,
       mobMaxParticipants, mobDefaultParticipants, mobGuestNames, mobExecuteCheckpoints,
+      instanceId, sharedBoards,
       setTheme, setPalette],
   );
 

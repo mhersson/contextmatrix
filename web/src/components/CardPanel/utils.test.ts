@@ -4,6 +4,7 @@ import {
   buildCardPatch,
   groupBucketsByAgent,
   isCardDirty,
+  isForeignClaim,
   isWorkerAttached,
   isSafeHttpUrl,
   primaryAction,
@@ -353,5 +354,21 @@ describe('groupBucketsByAgent', () => {
       { agent: 'agent-1', buckets: [a1m1, a1m2] },
       { agent: 'agent-2', buckets: [a2m1] },
     ]);
+  });
+});
+
+const card = (over: Partial<Card>): Card => ({
+  id: 'T-1', title: 't', project: 'p', type: 'task', state: 'in_progress', priority: 'low',
+  created: '2026-01-01T00:00:00Z', updated: '2026-01-01T00:00:00Z', body: '', ...over,
+});
+
+describe('isForeignClaim', () => {
+  it('is true only for a claim granted by another instance', () => {
+    expect(isForeignClaim(card({ assigned_agent: 'a', claimed_via: 'lap-b' }), 'lap-a')).toBe(true);
+    expect(isForeignClaim(card({ assigned_agent: 'a', claimed_via: 'lap-a' }), 'lap-a')).toBe(false);
+    expect(isForeignClaim(card({ assigned_agent: 'a' }), 'lap-a')).toBe(false);
+    expect(isForeignClaim(card({ claimed_via: 'lap-b' }), 'lap-a')).toBe(false);
+    expect(isForeignClaim(card({ assigned_agent: 'a', claimed_via: 'lap-b' }), '')).toBe(false);
+    expect(isForeignClaim(card({ assigned_agent: 'a', claimed_via: 'lap-b' }), null)).toBe(false);
   });
 });

@@ -50,6 +50,9 @@ export function BoardFooter({
   // commits waiting to go out. Both are absent (undefined) for non-shared
   // repos, so they never engage there.
   const offline = syncStatus?.shared === true && syncStatus.remote_reachable === false;
+  // Pushes have been failing longer than lease_interval: peers can no longer
+  // see this instance's lease renewals and will stall its cards.
+  const atRisk = syncStatus?.shared === true && syncStatus.claims_at_risk === true;
   const unpushed = syncStatus?.unpushed_commits ?? 0;
   const resolutions = syncStatus?.resolutions?.length ?? 0;
 
@@ -60,6 +63,8 @@ export function BoardFooter({
     computedLabel = 'Syncing…';
   } else if (offline) {
     computedLabel = 'git sync · offline';
+  } else if (atRisk) {
+    computedLabel = 'git sync · pushes failing · claims at risk';
   } else if (syncStatus) {
     computedLabel = lastSyncTime
       ? `git sync · ${relativeTime(lastSyncTime, now)}`
@@ -71,7 +76,7 @@ export function BoardFooter({
     computedLabel = 'git sync · idle';
   }
 
-  const labelStyle: React.CSSProperties = offline || syncError
+  const labelStyle: React.CSSProperties = offline || syncError || atRisk
     ? { color: 'var(--red)' }
     : {};
 
@@ -82,17 +87,22 @@ export function BoardFooter({
   if (syncError) {
     titleLines.push(syncError);
   }
+  if (atRisk) {
+    titleLines.push(
+      `Pushes have been failing since ${new Date(syncStatus?.push_failing_since ?? '').toLocaleTimeString()}; peers stall this instance's cards after the lease timeout`,
+    );
+  }
   if (resolutions > 0) {
     titleLines.push(`${resolutions} merge resolution${resolutions === 1 ? '' : 's'} in the last syncs`);
   }
-  titleLines.push(offline || syncError ? 'Click to retry' : 'Click to sync now');
+  titleLines.push(offline || syncError || atRisk ? 'Click to retry' : 'Click to sync now');
   const labelTitle = titleLines.join('\n');
 
   // Dot rendered to the left of the label when syncing, offline, in error,
   // or waiting to push local commits.
   const dotClass = syncing
     ? 'board-footer__sync-dot--aqua'
-    : offline || syncError
+    : offline || syncError || atRisk
       ? 'board-footer__sync-dot--red'
       : unpushed > 0
         ? 'board-footer__sync-dot--amber'

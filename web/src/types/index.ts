@@ -21,6 +21,10 @@ export interface Card {
   assigned_agent?: string;
   assignee?: string;
   last_heartbeat?: string;
+  /** Instance that granted the claim (shared boards). Absent on private boards and legacy claims. */
+  claimed_via?: string;
+  claimed_at?: string;
+  claim_epoch?: number;
   parent?: string;
   subtasks?: string[];
   depends_on?: string[];
@@ -175,6 +179,7 @@ export type EventType =
   | 'card.stalled'
   | 'card.log_added'
   | 'card.usage_reported'
+  | 'claim.lost'
   | 'project.created'
   | 'project.updated'
   | 'project.deleted'
@@ -212,6 +217,9 @@ export interface SyncStatus {
   last_remote_error?: string;
   unpushed_commits?: number;
   resolutions?: SyncResolution[];
+  /** Shared boards only: pushes have failed for longer than the lease interval. */
+  claims_at_risk?: boolean;
+  push_failing_since?: string;
 }
 
 export interface BoardEvent {
@@ -519,6 +527,9 @@ export interface AppConfig {
   mob_default_participants?: number;
   mob_guest_names?: string[];
   mob_execute_checkpoints?: boolean;
+  /** This server's instance id on a shared boards repo; absent on private boards. */
+  instance_id?: string;
+  shared_boards?: boolean;
 }
 
 export interface SessionUser {

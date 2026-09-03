@@ -15,6 +15,7 @@ function syncLine(status: SyncStatus | null): string {
   if (!status) return 'sync unknown';
   if (!status.enabled) return 'sync disabled';
   if (isOffline(status)) return 'sync offline';
+  if (status.claims_at_risk) return 'pushes failing · claims at risk';
   if (status.last_sync_error) return 'sync error';
   if (status.syncing) return 'syncing…';
   let line = status.last_sync_time
@@ -30,6 +31,9 @@ function syncLine(status: SyncStatus | null): string {
 function systemsLabel(status: SyncStatus | null): { label: string; color: string } {
   if (isOffline(status)) {
     return { label: 'Sync offline', color: 'var(--red)' };
+  }
+  if (status?.claims_at_risk) {
+    return { label: 'Claims at risk', color: 'var(--red)' };
   }
   if (status?.last_sync_error) {
     return { label: 'Sync degraded', color: 'var(--red)' };

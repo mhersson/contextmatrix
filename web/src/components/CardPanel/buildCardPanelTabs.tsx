@@ -34,6 +34,7 @@ interface BuildCardPanelTabsOptions {
   automationLockedReason: string;
   excludeStateFromPicker: string | null;
   onDependsOnChange: (ids: string[]) => Promise<void>;
+  instanceId?: string | null;
 }
 
 /**
@@ -68,7 +69,7 @@ export function buildCardPanelTabs(opts: BuildCardPanelTabsOptions): {
           aria-hidden="true"
         />
       ) : undefined,
-      content: <ChatTab card={opts.card} cardLogs={opts.cardLogs} />,
+      content: <ChatTab card={opts.card} cardLogs={opts.cardLogs} instanceId={opts.instanceId} />,
     });
   }
 
