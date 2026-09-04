@@ -375,6 +375,10 @@ func (s *PlaybookService) SetSyncRunnerFor(repo string, run SyncRunner, commit D
 		return err
 	}
 
+	if (run == nil) != (commit == nil) {
+		return fmt.Errorf("%w: repo %q", ErrSyncRunnerPair, r.Name)
+	}
+
 	r.runner, r.directCommit = run, commit
 
 	return nil

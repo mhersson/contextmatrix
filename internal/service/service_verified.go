@@ -17,6 +17,12 @@ import (
 // budget. The board is unchanged; the caller may retry.
 var ErrRemoteUnreachable = errors.New("remote unreachable")
 
+// ErrSyncRunnerPair is returned by a setter handed a sync runner without a
+// direct commit or the other way around: the verified paths commit only
+// through the bundle's direct commit, so a half-wired bundle would dereference
+// nil on the first mutation.
+var ErrSyncRunnerPair = errors.New("sync runner and direct commit must be set together")
+
 const (
 	// verifyAttempts bounds how many sync cycles one mutation may start
 	// when a cycle fails before its write ran.

@@ -200,6 +200,56 @@ func TestPlaybooks_ForRepoReloadsOneRepo(t *testing.T) {
 	assert.Equal(t, "two", repo)
 }
 
+func TestPlaybooks_SetSyncRunnerForValidatesPair(t *testing.T) {
+	run := SyncRunner(func(ctx context.Context, trigger string, m SyncMutation) (SyncOutcome, error) {
+		if err := m.Apply(ctx); err != nil {
+			return SyncOutcome{BodyRan: true}, err
+		}
+
+		return SyncOutcome{BodyRan: true, Pushed: true}, nil
+	})
+	commit := DirectCommit(func(context.Context, []string, string) error { return nil })
+
+	tests := []struct {
+		name     string
+		run      SyncRunner
+		commit   DirectCommit
+		wantPair bool
+	}{
+		{name: "runner without direct commit", run: run, commit: nil},
+		{name: "direct commit without runner", run: nil, commit: commit},
+		{name: "valid pair", run: run, commit: commit, wantPair: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pb, tr, _, cleanup := newTwoRepoPlaybooks(t)
+			defer cleanup()
+
+			err := pb.SetSyncRunnerFor("two", tt.run, tt.commit)
+			if !tt.wantPair {
+				require.Error(t, err)
+				require.ErrorIs(t, err, ErrSyncRunnerPair)
+				assert.Contains(t, err.Error(), `"two"`)
+
+				// The rejected bundle is untouched: wiring the valid pair
+				// afterwards still succeeds.
+				require.NoError(t, pb.SetSyncRunnerFor("two", run, commit))
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			detail, err := pb.Create(context.Background(),
+				CreatePlaybookInput{Title: "Release train", AgentID: "human:a", BoardsRepo: "two"})
+			require.NoError(t, err)
+			assert.Equal(t, "two", detail.BoardsRepo)
+			assert.FileExists(t, filepath.Join(tr.two.Dir, "playbooks", "release-train.yaml"))
+		})
+	}
+}
+
 func boardPlaybook(id string) *board.Playbook {
 	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
 
