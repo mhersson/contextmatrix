@@ -32,6 +32,26 @@ func twoPlaybookRepos(t *testing.T) (*PlaybookComposite, *FilesystemPlaybookStor
 	return c, one, two
 }
 
+func TestPlaybookComposite_ListIgnoresEntriesTheOwnerTableDoesNotKnow(t *testing.T) {
+	c, one, _ := twoPlaybookRepos(t)
+	ctx := context.Background()
+
+	require.NoError(t, c.CreateIn(ctx, "two", playbook("beta")))
+
+	// "hand" lands in repo "one" (index 0) without the composite indexing
+	// it: a missing owner key reads as 0 under the single-value form, so
+	// this is the collision the two-value read must reject.
+	require.NoError(t, one.Create(ctx, playbook("hand")))
+
+	list, err := c.List(ctx)
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.Equal(t, "beta", list[0].ID)
+
+	_, ok := c.RepoOf("hand")
+	assert.False(t, ok)
+}
+
 func TestPlaybookComposite_RoutesByIDAndKeepsIDsUnique(t *testing.T) {
 	c, one, two := twoPlaybookRepos(t)
 	ctx := context.Background()
