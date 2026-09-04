@@ -37,6 +37,7 @@ type multiNode struct {
 	private   *service.BoardsRepo
 	teamDir   string
 	privDir   string
+	upstream  string
 	clk       *clock.FakeClock
 	bus       *events.Bus
 }
@@ -149,11 +150,16 @@ func newMultiNode(t *testing.T, upstream, instance string) *multiNode {
 	syncer.SetPlaybooks(pb.ForRepo("team"))
 	svc.SetPlaybookLister(pbc)
 
+	// Matches production wiring (cmd/contextmatrix/wire_gitsync.go): only
+	// the repo with a remote gets the hook; private has none.
+	require.NoError(t, svc.SetOnCommitFor("team", syncer.NotifyCommit))
+	require.NoError(t, pb.SetOnCommitFor("team", syncer.NotifyCommit))
+
 	group := NewGroup(composite.Hidden, GroupEntry{Name: "private"}, GroupEntry{Name: "team", Syncer: syncer})
 
 	return &multiNode{
 		id: instance, svc: svc, pb: pb, composite: composite, group: group, syncer: syncer,
-		team: team, private: private, teamDir: teamDir, privDir: privDir, clk: clk, bus: bus,
+		team: team, private: private, teamDir: teamDir, privDir: privDir, upstream: upstream, clk: clk, bus: bus,
 	}
 }
 
@@ -423,4 +429,34 @@ func TestMultiRepo_NoDeadlockAcrossReposAndPlaybooks(t *testing.T) {
 	list, err := a.pb.List(ctx)
 	require.NoError(t, err)
 	assert.Len(t, list, 6)
+}
+
+// TestMultiRepo_OnCommitNotifiesOnlyTheTeamSyncer checks the on-commit hook
+// wiring: a team commit notifies the team syncer, a private commit (repo
+// without a remote, so no hook in production) does not, and nothing from the
+// private commit reaches the upstream. The harness never calls syncer.Start,
+// so nothing consumes pushCh, and notifyCommit runs synchronously inside the
+// mutation path before CreateCard returns - the channel state is settled
+// deterministically after each create.
+func TestMultiRepo_OnCommitNotifiesOnlyTheTeamSyncer(t *testing.T) {
+	a, b := setupMultiPair(t)
+
+	a.create(t, "test-project", "shared")
+	assert.Len(t, a.syncer.pushCh, 1, "team commit notified the team syncer")
+
+	a.sync(t)
+	before := strings.TrimSpace(run(t, a.upstream, "git", "log", "--oneline"))
+	require.NotEmpty(t, before)
+
+	<-a.syncer.pushCh
+
+	a.create(t, "private-project", "mine")
+	assert.Empty(t, a.syncer.pushCh, "private commit must not notify the team syncer")
+	assert.Empty(t, b.syncer.pushCh, "b's team syncer must not be notified either")
+
+	a.sync(t)
+	b.sync(t)
+
+	after := strings.TrimSpace(run(t, a.upstream, "git", "log", "--oneline"))
+	assert.Equal(t, before, after, "private commit must not push to the upstream")
 }
