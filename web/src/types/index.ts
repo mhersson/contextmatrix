@@ -115,7 +115,7 @@ export interface ProjectConfig {
   prefix: string;
   next_id: number;
   repo?: string;
-  /** Boards repo the server stamps this project with on every read (boards on a single-repo instance); optional only for compatibility with older servers. */
+  /** Boards repo the server stamps this project with on every read (the entry's configured name, boards for the map form); optional only for compatibility with older servers. */
   boards_repo?: string;
   states: string[];
   types: string[];
@@ -753,7 +753,7 @@ export interface PlaybookSummary {
   segments: PlaybookSegment[];
   projects: number;
   updated_at: string;
-  /** Boards repo the server stamps this playbook with on every read (boards on a single-repo instance); optional only for compatibility with older servers. */
+  /** Boards repo the server stamps this playbook with on every read (the entry's configured name, boards for the map form); optional only for compatibility with older servers. */
   boards_repo?: string;
 }
 
@@ -767,7 +767,7 @@ export interface PlaybookDetail {
   complete: number;
   total: number;
   entries: PlaybookEntry[];
-  /** Boards repo the server stamps this playbook with on every read (boards on a single-repo instance); optional only for compatibility with older servers. */
+  /** Boards repo the server stamps this playbook with on every read (the entry's configured name, boards for the map form); optional only for compatibility with older servers. */
   boards_repo?: string;
 }
 
