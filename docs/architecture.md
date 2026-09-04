@@ -508,16 +508,26 @@ and commit completion. The service layer closes that gap on failure:
 - **chat.IdleReaper** (`chat.IdleReaper`): scans `warm-idle` sessions older than
   `IdleTTL` and ends them. `Stop()` is `sync.Once`-guarded so repeated shutdown
   calls don't panic.
-- **images.Store** (`internal/images`): content-hashed image blob store backing
-  the paste / drag-drop screenshot upload flow. SQLite-backed (`images.db`,
-  separate from the board and chat DBs). IDs are
-  `sha256(processed_bytes)[:16]` so identical uploads dedup naturally and URLs
-  are stable. The processor enforces a 10 MB cap, resizes to fit 1024x768
-  preserving aspect ratio (CatmullRom from `golang.org/x/image/draw`),
-  re-encodes in the same format (strips EXIF naturally), and rejects animated
-  GIFs / non-image MIME types. Wired into `api.NewRouter` for `POST /api/images`
-  + `GET /api/images/{id}` and into `mcp.NewServer` for the inline image
-  attachments on `get_card` / `get_task_context`.
+- **images.Store** (`internal/images`): content-hashed image store backing
+  the paste / drag-drop screenshot upload flow. IDs are
+  `sha256(processed_bytes)[:16]` so identical uploads dedup naturally and
+  URLs are stable. The processor enforces a 10 MB cap, resizes to fit
+  1024x768 preserving aspect ratio (CatmullRom from
+  `golang.org/x/image/draw`), re-encodes as PNG or JPEG (strips EXIF
+  naturally), and rejects animated GIFs / non-image MIME types. Two tiers sit
+  behind one `images.Store`: `images.Layered` serves reads from the
+  `images.RepoIndex` of every shared boards repo first (files at
+  `<project>/images/<id>.png|.jpg`, MIME from the extension, bytes verified
+  against the id on every read) and from SQLite (`images.db`, separate from
+  the board and chat DBs) second. An upload that names a project whose repo
+  is shared is written into that repo through `CardService.WriteRepoImages`
+  (under the service write lock, one commit per upload on the repo's queue,
+  pushed by the next sync); every other upload goes to `images.db`. Each
+  shared repo's index is rebuilt after every pull (`Syncer.SetImages`), so
+  a peer's screenshots are served as soon as they land. Wired into
+  `api.NewRouter` for `POST /api/images` + `GET /api/images/{id}` and into
+  `mcp.NewServer` for the inline image attachments on `get_card` /
+  `get_task_context`.
 - **Model Catalog** (`modelcatalog.Builder`): fetches and rates model
   candidates for the agent backend's selector - Artificial Analysis quality
   indices joined against the served catalog (OpenRouter or an
@@ -694,6 +704,17 @@ every resolution - including a delete-wins, an unparseable side kept
 verbatim, and a same-import dedupe - appears in `GET /api/sync` under
 `resolutions`.
 
+Images pasted into a card of a shared repo are files in that repo
+(`<project>/images/<id>.png|.jpg`, `boardmerge` takes theirs on the rare
+add/add, which is identical bytes by construction). On every start, after the
+startup pull, each shared repo receives every image its card bodies reference
+that this instance still holds only in `images.db`, one commit per project,
+so screenshots pasted before the repo turned shared work on every laptop. An
+image pasted into a private card and later copied by hand into a shared card
+is a dead link on the other instances until the instance holding it restarts.
+Deleting a project deletes its images with it; nothing else collects
+orphans.
+
 A claim on a shared board is owned by the pair `(assigned_agent, claimed_via)`
 plus a `claim_epoch` fence, never by the agent ID alone: the agent backend
 derives its agent ID from the card ID, so two laptops running one card
@@ -771,6 +792,8 @@ project-alpha/
   tasks/
     ALPHA-001.md
     ALPHA-002.md
+  images/                       # shared repos only: <id>.png / <id>.jpg
+    aabbccddeeff0011.png
 project-beta/
   .board.yaml
   templates/
