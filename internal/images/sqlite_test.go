@@ -42,6 +42,20 @@ func makeTinyPNG(t *testing.T) []byte {
 	return buf.Bytes()
 }
 
+// makeTinyPNGColor produces a 4x4 PNG filled with the given red value, so
+// tests that need several distinct images get distinct ids.
+func makeTinyPNGColor(t *testing.T, red uint8) []byte {
+	t.Helper()
+
+	img := image.NewRGBA(image.Rect(0, 0, 4, 4))
+	draw.Draw(img, img.Bounds(), &image.Uniform{color.RGBA{R: red, B: 255, A: 255}}, image.Point{}, draw.Src)
+
+	var buf bytes.Buffer
+	require.NoError(t, png.Encode(&buf, img))
+
+	return buf.Bytes()
+}
+
 func TestSQLiteStore_PutGet(t *testing.T) {
 	t.Parallel()
 
