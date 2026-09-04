@@ -1,13 +1,16 @@
 package gitsync
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -875,4 +878,56 @@ func gitopsTestProvider(t testing.TB) githubauth.TokenGenerator {
 	require.NoError(t, err)
 
 	return p
+}
+
+// TestSyncer_PullRebaseLogsHiddenProject drives the non-shared pullRebase
+// path over a multirepo fixture (the plain setupSyncTest store cannot report
+// hidden projects) and asserts the warning is emitted once when a duplicate
+// project name arrives on a pull.
+func TestSyncer_PullRebaseLogsHiddenProject(t *testing.T) {
+	a, _ := setupMultiPair(t)
+	ctx := t.Context()
+
+	// A peer pushes a shared project named like a's private one, so a's
+	// team clone hides it after the pull (see the multirepo duplicate test
+	// for why pushing to the upstream is the only way this name arrives).
+	origin := strings.TrimSpace(run(t, a.teamDir, "git", "remote", "get-url", "origin"))
+	seed := filepath.Join(t.TempDir(), "dup-seed")
+	run(t, "", "git", "clone", origin, seed)
+	run(t, seed, "git", "config", "user.email", "t@t")
+	run(t, seed, "git", "config", "user.name", "t")
+
+	dup := privateProjectConfig()
+	dup.Prefix = "DUP"
+
+	require.NoError(t, os.MkdirAll(filepath.Join(seed, "private-project", "tasks"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(seed, "private-project", "tasks", ".gitkeep"), nil, 0o644))
+	require.NoError(t, board.SaveProjectConfig(filepath.Join(seed, "private-project"), dup))
+
+	run(t, seed, "git", "add", "-A")
+	run(t, seed, "git", "commit", "-m", "duplicate project")
+	run(t, seed, "git", "push", "origin", "HEAD:main")
+
+	var buf bytes.Buffer
+
+	origLogger := slog.Default()
+
+	t.Cleanup(func() { slog.SetDefault(origLogger) })
+
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+
+	// The non-shared path: pullRebase runs its own inline reload sequence
+	// and never reaches reloadAfterPull.
+	require.NoError(t, a.syncer.pullRebase(ctx, "test"))
+
+	warns := strings.Count(buf.String(), "project hidden, an earlier boards repo owns the name")
+	assert.Equal(t, 1, warns, "expected exactly one hidden-project warning, got: %s", buf.String())
+
+	assert.Contains(t, buf.String(), `project=private-project`)
+	assert.Contains(t, buf.String(), `repo=team`)
+	assert.Contains(t, buf.String(), `visible_in=private`)
+
+	hidden := a.composite.Hidden()
+	require.Len(t, hidden, 1)
+	assert.Equal(t, storage.HiddenProject{Name: "private-project", Repo: "team", VisibleIn: "private"}, hidden[0])
 }
