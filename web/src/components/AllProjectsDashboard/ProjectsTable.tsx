@@ -128,12 +128,15 @@ export function ProjectsTable({ projects, summaries, boardsRepos = [] }: Project
     );
   };
 
+  const meta =
+    boardsRepos.length > 1 ? `${projects.length} · by repo` : `${projects.length} · A→Z`;
+
   return (
     <DeckPanel
       area="projects"
       accent="var(--blue)"
       title="Projects"
-      meta={`${projects.length} · A→Z`}
+      meta={meta}
     >
       {rows.length === 0 ? (
         <div className="apd-panel-empty">No projects yet</div>

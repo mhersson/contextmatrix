@@ -94,6 +94,19 @@ describe('ProjectsTable - repo groups', () => {
     expect(text.indexOf('private')).toBeLessThan(text.indexOf('zebra'));
   });
 
+  it('renders "by repo" meta when rows are grouped', () => {
+    const projects = [
+      { ...project('zebra', 'Z'), boards_repo: 'private' },
+      { ...project('alpha', 'A'), boards_repo: 'team' },
+    ];
+    const { container } = render(
+      <MemoryRouter>
+        <ProjectsTable projects={projects} summaries={new Map()} boardsRepos={[{ name: 'team', shared: true }, { name: 'private', shared: false }]} />
+      </MemoryRouter>,
+    );
+    expect(container.querySelector('.apd-panel-meta')?.textContent).toBe('2 · by repo');
+  });
+
   it('renders no headings with one repo', () => {
     const { container } = render(
       <MemoryRouter>
@@ -101,5 +114,6 @@ describe('ProjectsTable - repo groups', () => {
       </MemoryRouter>,
     );
     expect(container.querySelector('.apd-group-row')).toBeNull();
+    expect(container.querySelector('.apd-panel-meta')?.textContent).toBe('1 · A→Z');
   });
 });
