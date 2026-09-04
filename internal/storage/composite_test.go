@@ -160,6 +160,54 @@ func TestComposite_ReloadRepoRegistersAProjectThatArrivedOnDisk(t *testing.T) {
 	assert.Equal(t, "two", repo)
 }
 
+func TestComposite_ReloadRepoDoesNotBlockReadsOnAnotherRepo(t *testing.T) {
+	c, _, _ := twoRepoComposite(t)
+	ctx := context.Background()
+
+	// Reload repo "one" repeatedly while reading repo "two": the walk of
+	// one repo must not starve routing reads against another.
+	const reloads = 8
+
+	done := make(chan error, 1)
+
+	go func() {
+		var reloadErr error
+
+		for range reloads {
+			if err := c.ReloadRepo(ctx, "one"); err != nil {
+				reloadErr = err
+
+				break
+			}
+		}
+
+		done <- reloadErr
+	}()
+
+	for {
+		select {
+		case err := <-done:
+			require.NoError(t, err)
+
+			return
+		default:
+			// This loop pins race safety, not read latency: it exercises
+			// the walk-vs-read interleaving under -race and asserts every
+			// read returns the right repo and config. It cannot prove the
+			// walk no longer blocks reads - keep it sleep-free so the
+			// interleaving stays real.
+			repo, ok := c.RepoOf("beta")
+			require.True(t, ok)
+			assert.Equal(t, "two", repo)
+
+			cfg, err := c.GetProject(ctx, "beta")
+			require.NoError(t, err)
+			require.NotNil(t, cfg)
+			assert.Equal(t, "two", cfg.BoardsRepo)
+		}
+	}
+}
+
 func TestComposite_SaveProjectInTargetsTheNamedRepo(t *testing.T) {
 	c, one, two := twoRepoComposite(t)
 	ctx := context.Background()
