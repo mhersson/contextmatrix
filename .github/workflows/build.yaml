@@ -27,8 +27,14 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Skipped on push and on a pull request that changes no Go code (see the
+  # changes job); a skipped job satisfies the required check.
   go-checks:
-    if: github.event_name != 'push'
+    needs: [changes]
+    if: |
+      !cancelled() &&
+      github.event_name != 'push' &&
+      needs.changes.outputs.go != 'false'
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v7
@@ -62,8 +68,49 @@ jobs:
         with:
           version: v2.12.2
 
+  # Answers two questions for pull requests against the base sha: did
+  # anything under web/ change, and did any Go code change (a file outside
+  # web/, or a .go file anywhere, which covers the embed file under web/)?
+  # Nothing outside web/ feeds the frontend job and nothing but Go code and
+  # go.mod feeds the Go jobs, so a pull request skips the jobs it cannot
+  # affect. Any fetch or diff failure, or an empty diff, answers true to
+  # both, so a job runs whenever there is doubt.
+  changes:
+    if: github.event_name == 'pull_request'
+    runs-on: self-hosted
+    outputs:
+      web: ${{ steps.detect.outputs.web }}
+      go: ${{ steps.detect.outputs.go }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Detect changed areas
+        id: detect
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          web=true; go=true
+          if git fetch --no-tags --depth=1 origin "$BASE_SHA" \
+            && files=$(git diff --name-only "$BASE_SHA" HEAD) && [ -n "$files" ]; then
+            web=false; go=false
+            echo "$files" | grep -q '^web/' && web=true
+            echo "$files" | grep -qv '^web/' && go=true
+            echo "$files" | grep -q '\.go$' && go=true
+          fi
+          echo "web=$web" >> "$GITHUB_OUTPUT"
+          echo "go=$go" >> "$GITHUB_OUTPUT"
+          echo "web=$web go=$go"
+
+  # Skipped on push (the build job runs its own frontend build) and on a
+  # pull request that changes nothing under web/. A skipped job satisfies
+  # the required check; a changes job that never ran or failed leaves the
+  # output empty, which runs this job.
   frontend-checks:
-    if: github.event_name != 'push'
+    needs: [changes]
+    if: |
+      !cancelled() &&
+      github.event_name != 'push' &&
+      needs.changes.outputs.web != 'false'
     runs-on: self-hosted
     defaults:
       run:
@@ -94,7 +141,11 @@ jobs:
         run: npm audit --audit-level=high
 
   govulncheck:
-    if: github.event_name != 'push'
+    needs: [changes]
+    if: |
+      !cancelled() &&
+      github.event_name != 'push' &&
+      needs.changes.outputs.go != 'false'
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v7
