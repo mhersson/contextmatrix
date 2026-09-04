@@ -145,7 +145,7 @@ github:
 	assert.False(t, cfg.Boards[0].GitDeferredCommit)
 	assert.Equal(t, "30m", cfg.HeartbeatTimeout)
 	assert.Equal(t, "8m", cfg.AwaitMax)
-	assert.Equal(t, "http://localhost:5173", cfg.CORSOrigin)
+	assert.Empty(t, cfg.CORSOrigin)
 }
 
 func TestLoad_MissingFile_NoBoardsDir_ReturnsError(t *testing.T) {
@@ -745,7 +745,7 @@ github:
 	assert.True(t, cfg.Boards[0].GitAutoCommit)
 	assert.False(t, cfg.Boards[0].GitAutoPush)
 	assert.Equal(t, "30m", cfg.HeartbeatTimeout)
-	assert.Equal(t, "http://localhost:5173", cfg.CORSOrigin)
+	assert.Empty(t, cfg.CORSOrigin)
 	assert.Equal(t, filepath.Join(dir, "workflow-skills"), cfg.WorkflowSkillsDir)
 }
 
@@ -829,7 +829,7 @@ func TestDefaults(t *testing.T) {
 	assert.Empty(t, cfg.Boards[0].GitRemoteURL)
 	assert.Equal(t, "30m", cfg.HeartbeatTimeout)
 	assert.Equal(t, "8m", cfg.AwaitMax)
-	assert.Equal(t, "http://localhost:5173", cfg.CORSOrigin)
+	assert.Empty(t, cfg.CORSOrigin)
 	assert.Empty(t, cfg.WorkflowSkillsDir)
 	assert.Empty(t, cfg.MCPAPIKey)
 }
