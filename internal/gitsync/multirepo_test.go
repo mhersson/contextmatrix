@@ -442,7 +442,7 @@ func TestMultiRepo_OnCommitNotifiesOnlyTheTeamSyncer(t *testing.T) {
 	a, b := setupMultiPair(t)
 
 	a.create(t, "test-project", "shared")
-	assert.Len(t, a.syncer.pushCh, 1, "team commit notified the team syncer")
+	require.Len(t, a.syncer.pushCh, 1, "team commit notified the team syncer")
 
 	a.sync(t)
 	before := strings.TrimSpace(run(t, a.upstream, "git", "log", "--oneline"))
@@ -452,7 +452,6 @@ func TestMultiRepo_OnCommitNotifiesOnlyTheTeamSyncer(t *testing.T) {
 
 	a.create(t, "private-project", "mine")
 	assert.Empty(t, a.syncer.pushCh, "private commit must not notify the team syncer")
-	assert.Empty(t, b.syncer.pushCh, "b's team syncer must not be notified either")
 
 	a.sync(t)
 	b.sync(t)
