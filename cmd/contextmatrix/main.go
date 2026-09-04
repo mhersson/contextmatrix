@@ -35,7 +35,6 @@ import (
 	"github.com/mhersson/contextmatrix/internal/events"
 	ghimport "github.com/mhersson/contextmatrix/internal/github"
 	"github.com/mhersson/contextmatrix/internal/gitops"
-	"github.com/mhersson/contextmatrix/internal/images"
 	mcpserver "github.com/mhersson/contextmatrix/internal/mcp"
 	"github.com/mhersson/contextmatrix/internal/metrics"
 	"github.com/mhersson/contextmatrix/internal/modelcatalog"
@@ -426,16 +425,18 @@ func main() {
 		slog.Info("github issue sync enabled", "interval", syncInterval)
 	}
 
-	// Images: SQLite blob store for paste/drop screenshot uploads.
-	imageStore, err := images.Open(cfg.Images.DBPath)
+	// Images: images.db for private repos and project-less uploads, plus
+	// the files of every shared boards repo layered in front of it. Runs
+	// after the git sync wiring so the startup export sees the pulled cards.
+	imageStore, err := wireImages(ctx, cfg, boards, svc)
 	if err != nil {
-		slog.Error("failed to open image store", "path", cfg.Images.DBPath, "error", err)
+		slog.Error("failed to initialize image store", "path", cfg.Images.DBPath, "error", err)
 		cancel()
 		os.Exit(1) //nolint:gocritic // cancel called explicitly above
 	}
 	defer imageStore.Close()
 
-	slog.Info("image store opened", "path", cfg.Images.DBPath)
+	slog.Info("image store opened", "path", cfg.Images.DBPath, "repo_indexes", len(boards.imageIndexes()))
 
 	// Op store: shared operational SQLite DB. Holds the chat schema (sessions,
 	// messages, cost archive) and the model blacklist in one ops.db - the chat

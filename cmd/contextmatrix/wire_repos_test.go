@@ -126,3 +126,42 @@ func TestBuildBoards_PlaybooksDisabledByAProjectNamedPlaybooks(t *testing.T) {
 	assert.Nil(t, boards.playbooks)
 	assert.Equal(t, "two", boards.playbooksDisabledBy)
 }
+
+func TestBuildBoards_SharedRepoGetsAnImageIndexPrivateDoesNot(t *testing.T) {
+	shared := wireGitSyncUpstream(t)
+	private := t.TempDir()
+	wireProject(t, private, "beta", "BETA")
+
+	// One image already on disk in the shared clone, so the startup reload
+	// has something to find.
+	imagesDir := filepath.Join(shared, "alpha", "images")
+	require.NoError(t, os.MkdirAll(imagesDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(imagesDir, "aabbccddeeff0011.png"), []byte("x"), 0o644))
+
+	sharedEntry := wireEntry("team", shared)
+	sharedEntry.Shared = true
+	sharedEntry.GitAutoPull, sharedEntry.GitAutoPush = true, true
+
+	cfg := &config.Config{
+		Boards:   config.Boards{wireEntry("private", private), sharedEntry},
+		Instance: config.InstanceConfig{ID: "lap-a"},
+	}
+
+	boards, err := buildBoards(cfg, wireProvider(t), 30*time.Minute, clock.Real())
+	require.NoError(t, err)
+
+	defer func() {
+		for _, q := range boards.queues() {
+			_ = q.Close(t.Context())
+		}
+	}()
+
+	assert.Nil(t, boards.repos[0].images, "a private repo has no image index")
+	require.NotNil(t, boards.repos[1].images)
+	assert.Equal(t, "team", boards.repos[1].images.Name())
+	assert.True(t, boards.repos[1].images.Has("alpha", "aabbccddeeff0011"), "the index is loaded from disk at startup")
+
+	idxs := boards.imageIndexes()
+	require.Len(t, idxs, 1)
+	assert.Same(t, boards.repos[1].images, idxs[0])
+}
