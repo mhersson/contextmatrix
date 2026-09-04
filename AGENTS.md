@@ -56,7 +56,8 @@ before any auth review - the security properties fork on it.
   `internal/api/auth.go`); passwords are argon2id-hashed, session tokens stored
   only as SHA-256. The session-derived `human:<username>` **always wins** over
   any `X-Agent-ID` header, upgrading the card-ownership check into real
-  enforcement. `requireAdmin` gates user/credential/project management only.
+  enforcement. `requireAdmin` gates user, credential, project, admin-chat, and
+  model-outcome/blacklist management only; card work needs just a session.
 
 **Both modes:** MCP is Bearer-token auth (`mcp_api_key`); backend webhooks are
 HMAC-signed; `/healthz` + `/readyz` are open; the admin listener (pprof +
@@ -83,7 +84,7 @@ enforces a workflow contract, not a security boundary, in both modes.
 cmd/contextmatrix/main.go  → entrypoint; wires dependencies, starts server
 internal/board/            → domain types: Card, ProjectConfig, StateMachine
 internal/storage/          → Store interface + FilesystemStore
-internal/gitops/           → GitManager (commit/pull/push via go-git) + async CommitQueue
+internal/gitops/           → GitManager (commit/pull/push via go-git, merges via shell git) + async CommitQueue
 internal/gitsync/          → background board-repo sync
 internal/boardmerge/       → pure three-way merge rules for a shared boards repo
 internal/lock/             → claim/release/heartbeat + timeout checker
@@ -196,7 +197,10 @@ Full detail and examples: `docs/data-model.md`.
    `not_planned`) cannot be claimed (409), except by the agent already holding
    the claim.
 4. **Human identity** - agent IDs prefixed `human:` (e.g. `human:alice`).
-5. **Every mutation auto-commits** via `GitManager.CommitFile()`.
+5. **Every mutation auto-commits** via `GitManager.CommitFile()`. With
+   `git_deferred_commit`, a claimed card's commits batch until release or
+   completion, entry into `review` or `not_planned`, a stall, or a terminal
+   worker status.
 6. **Activity log** - append-only, capped at 50 entries per card.
 7. **Heartbeat timeout** - default 30 min; the service sets the card to
    `stalled` and clears the agent. `stalled` is system-managed.
