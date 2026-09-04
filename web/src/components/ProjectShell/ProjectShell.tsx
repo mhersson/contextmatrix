@@ -296,7 +296,7 @@ export function ProjectShell() {
                       onCardClick={handleCardClick} onCardMove={handleCardMove}
                       onCreateCard={handleOpenCreate} flashCardId={flashCardId}
                       onParentClick={handleSubtaskClick}
-                      onSyncClick={triggerSync}
+                      onSyncClick={() => { void triggerSync(config?.boards_repo); }}
                     />
                   ) : (
                     <div className="flex flex-col h-full">
