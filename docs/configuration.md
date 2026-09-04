@@ -19,12 +19,20 @@ manage the whole stack. Workflow skills default to `<config-dir>/workflow-skills
 | Command                              | Effect                                                                                                                        |
 | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
 | `contextmatrix config defaults`      | Print the complete default configuration as YAML: every key the loader accepts. Backends are present and disabled; host-dependent paths are empty. Reads nothing. |
-| `contextmatrix config validate FILE` | Load `FILE` exactly as the server would (env overrides included). Exit 0 when the server would start, else print the first error and exit 1. |
+| `contextmatrix config validate FILE` | Load `FILE` exactly as the server would (env overrides included). Exit 0 when the server would start, else print the first error and exit 1. A missing `FILE` is an error here, unlike `-config`, which falls back to defaults plus env overrides. |
 
 `contextmatrix-setup` uses both: `defaults` is its schema, so it adds keys you
 are missing and removes keys that no longer exist. Renaming a key upstream
 therefore drops the user's old value at the next update; prefer adding the new
 key and reading the old one for a release when a rename is unavoidable.
+
+Two keys are exceptions to that merge rule. `backends.agent.enabled` and
+`backends.chat.enabled` print as `false` so the backend key sets are visible,
+but an omitted `enabled` means the backend is enabled, so a merge must never
+add `enabled: false` on the schema's word alone. And `boards` prints only the
+single mapping form, while the loader also accepts a list of named repos, so a
+user file holding a list must have each entry merged against the mapping form
+rather than the whole list replaced by it.
 
 ## Config file discovery
 

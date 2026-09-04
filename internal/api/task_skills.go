@@ -68,9 +68,9 @@ var taskSkillNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
 // caches the result by directory mtime. Safe for concurrent use.
 //
 // Caching by mtime is good enough for the boards-side workflow: editors
-// drop SKILL.md files in via scripts/install.sh or git pull and the
-// directory mtime updates accordingly. The cache is invalidated as soon
-// as the directory is touched.
+// drop SKILL.md files in by hand or via git pull and the directory mtime
+// updates accordingly. The cache is invalidated as soon as the directory
+// is touched.
 type taskSkillsLister struct {
 	dir string
 

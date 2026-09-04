@@ -46,12 +46,17 @@ func TestConfigCLI_DefaultsPrintsStrictYAML(t *testing.T) {
 }
 
 func TestConfigCLI_ValidateAcceptsLoadableFile(t *testing.T) {
-	cfgPath, _, _ := writeAuthConfig(t, "none")
+	cfgPath, dbPath, keyPath := writeAuthConfig(t, "none")
 
 	var stdout, stderr bytes.Buffer
 
 	assert.Equal(t, 0, configCLI([]string{"validate", cfgPath}, &stdout, &stderr), stderr.String())
 	assert.Contains(t, stdout.String(), "ok")
+
+	// validate creates no state: the auth store and master key the config
+	// names must still be absent afterwards.
+	assert.NoFileExists(t, dbPath)
+	assert.NoFileExists(t, keyPath)
 }
 
 func TestConfigCLI_ValidateReportsLoaderError(t *testing.T) {

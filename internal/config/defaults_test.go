@@ -34,10 +34,14 @@ func TestDefaultsRoundTrip(t *testing.T) {
 	assert.False(t, back.Backends.Chat.IsEnabled())
 	assert.Equal(t, "60s", back.Backends.Agent.ReconcileInterval)
 
-	// Boards print in the single mapping form. Indent width follows yaml.v3's
-	// default encoder (4 spaces), not the brief's illustrative 2.
-	assert.Contains(t, text, "boards:\n    name: boards\n")
-	assert.NotContains(t, text, "boards:\n- ")
+	// Boards print in the single mapping form, not the list form. Decoding
+	// into a generic tree says that without pinning the encoder's indent.
+	var tree map[string]any
+	require.NoError(t, yaml.Unmarshal(out, &tree))
+
+	boards, ok := tree["boards"].(map[string]any)
+	require.True(t, ok, "boards must print as a mapping, got %T", tree["boards"])
+	assert.Equal(t, "boards", boards["name"])
 
 	// Free-form maps print empty, not null.
 	assert.Contains(t, text, "token_costs: {}")
