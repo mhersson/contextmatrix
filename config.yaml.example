@@ -4,6 +4,10 @@
 #   ~/.config/contextmatrix/config.yaml           (XDG default)
 # Any other location works via the -config flag.
 #
+# Before the first start, set boards.dir and fill in the github block
+# (auth_mode "app" or "pat" plus its credentials): the server refuses to start
+# without a usable GitHub auth mode.
+#
 # Environment variable overrides are available for most fields - see the
 # CONTEXTMATRIX_* variables documented below.
 
