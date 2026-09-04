@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -205,4 +206,92 @@ func TestStallSweep_CoversEveryRepo(t *testing.T) {
 	got, err := sp.composite.GetCard(ctx, "beta", priv.ID)
 	require.NoError(t, err)
 	assert.Equal(t, 0, got.ClaimEpoch, "a private stall never bumps the epoch")
+}
+
+// stallScanFailStore fronts a repo's storage.Store view but makes ListProjects
+// fail with a synthetic error, so that repo's lock manager scan fails without
+// touching the filesystem. FilesystemStore.ListProjects serves an in-memory
+// index, so removing the repo directory does not produce a scan error, and
+// Composite.ListProjects fails wholesale - the failure must be scoped to the
+// one repo's lock manager.
+type stallScanFailStore struct {
+	storage.Store
+	err error
+}
+
+func (f *stallScanFailStore) ListProjects(context.Context) ([]board.ProjectConfig, error) {
+	return nil, f.err
+}
+
+func TestStallSweep_ContinuesPastFailingRepoScan(t *testing.T) {
+	sp, cleanup := newSharedAndPrivateService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	priv, err := sp.svc.CreateCard(ctx, "beta", CreateCardInput{Title: "p", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+	_, err = sp.svc.ClaimCard(ctx, "beta", priv.ID, "agent-p")
+	require.NoError(t, err)
+
+	team, err := sp.svc.CreateCard(ctx, "alpha", CreateCardInput{Title: "t", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+	_, err = sp.svc.ClaimCard(ctx, "alpha", team.ID, "agent-t")
+	require.NoError(t, err)
+
+	// The team repo's scan fails; the private repo's beta card must still be
+	// swept. The swapped manager drops the fixture's SetShared("lap-a", ...)
+	// lease state - intentionally not re-applied, because FindStalled errors
+	// on the very first store call and never reads the shared-lease config.
+	// The team card's stall is skipped along with the scan, so alpha stays
+	// untouched.
+	sp.team.Lock = lock.NewManagerWithClock(
+		&stallScanFailStore{Store: sp.team.Store, err: errors.New("boom")},
+		30*time.Minute, sp.clk)
+
+	sp.clk.Advance(31 * time.Minute)
+
+	require.NoError(t, sp.svc.SweepStalled(ctx), "one repo's scan failure must not fail the sweep")
+
+	got, err := sp.composite.GetCard(ctx, "beta", priv.ID)
+	require.NoError(t, err)
+	assert.Equal(t, board.StateStalled, got.State, "the clean repo still stalls its card")
+	assert.Empty(t, got.AssignedAgent)
+	assert.Equal(t, 0, got.ClaimEpoch, "a private stall never bumps the epoch")
+
+	teamGot, err := sp.composite.GetCard(ctx, "alpha", team.ID)
+	require.NoError(t, err)
+	assert.Equal(t, board.StateTodo, teamGot.State, "alpha stays untouched when its repo's scan fails")
+	assert.Equal(t, "agent-t", teamGot.AssignedAgent)
+}
+
+func TestStallSweep_AllReposFailingReturnsError(t *testing.T) {
+	sp, cleanup := newSharedAndPrivateService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	priv, err := sp.svc.CreateCard(ctx, "beta", CreateCardInput{Title: "p", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+	_, err = sp.svc.ClaimCard(ctx, "beta", priv.ID, "agent-p")
+	require.NoError(t, err)
+
+	sp.team.Lock = lock.NewManagerWithClock(
+		&stallScanFailStore{Store: sp.team.Store, err: errors.New("boom")},
+		30*time.Minute, sp.clk)
+	sp.private.Lock = lock.NewManagerWithClock(
+		&stallScanFailStore{Store: sp.private.Store, err: errors.New("boom")},
+		30*time.Minute, sp.clk)
+
+	sp.clk.Advance(31 * time.Minute)
+
+	err = sp.svc.SweepStalled(ctx)
+	require.Error(t, err, "every repo failed - the caller logging keeps a signal")
+	assert.Contains(t, err.Error(), "find stalled")
+	assert.Contains(t, err.Error(), "team")
+	assert.Contains(t, err.Error(), "private")
+
+	got, err := sp.composite.GetCard(ctx, "beta", priv.ID)
+	require.NoError(t, err)
+	assert.NotEqual(t, board.StateStalled, got.State, "nothing was stalled when every scan failed")
 }
