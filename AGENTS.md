@@ -31,6 +31,15 @@ Read the relevant one before working in its area:
 | `docs/gotchas.md`              | YAML, go-git, SSE, MCP, Vite, stdlib quirks. Skim before your first commit each session.                                                          |
 | `docs/remote-execution.md`     | Agent and chat backends, webhook protocol, worker lifecycle, MCP auth.                                                                            |
 | `docs/model-selection.md`      | Model catalog pipeline, AA rating, tier bars, pins/favorites/blacklist, Best-of-N outcomes.                                                       |
+| `docs/configuration.md`        | Config discovery, `CONTEXTMATRIX_*` override rules, CLI subcommands, state-dir stores, troubleshooting.                                           |
+| `docs/authentication.md`       | `auth.mode` on the wire: bootstrap, invites, admin gate, credential pool, escape hatches, security posture.                                       |
+| `docs/boards.md`               | Project creation, every `.board.yaml` field, body templates, the six built-in states, custom workflow skills.                                     |
+| `docs/web-ui.md`               | Routes, board and sorting behaviour, dashboard, console, chat panes, images, appearance, shortcuts.                                               |
+| `docs/playbooks.md`            | Entry kinds, storage and the reserved name, REST and MCP surface.                                                                                 |
+| `docs/mcp.md`                  | Every MCP tool with its caller gate, slash commands, phase skills, payload rules.                                                                 |
+| `docs/running-cards.md`        | Run Auto / Run HITL, fast path, guardrails, execution fields, Best-of-N, mob, PR gates, parking, stop.                                            |
+| `docs/shared-boards.md`        | Shared-repo sync cycle, merge rules, per-instance claims and leases, several boards repos.                                                        |
+| `docs/github-issue-import.md`  | Importer config, owner/repo resolution, vetting gate, `source` field, Enterprise hosts.                                                           |
 | `web/AGENTS.md`                | Frontend. Auto-loaded when working in `web/`.                                                                                                     |
 
 ## Trust model (summary - canonical detail in `docs/architecture.md`)

@@ -1,18 +1,18 @@
 # Model Selection
 
-This document explains how ContextMatrix decides which LLM runs each part of a
-card: how the candidate catalog is built from Artificial Analysis and the
-served-model list, what the trigger payload carries, how the agent backend
-turns task complexity into tiers, and the exact order in which pins, favorites,
-quality bars, and price decide a pick. Read it to configure selection, to
-predict what it will choose, and to answer "why did it pick that model".
+How ContextMatrix decides which LLM runs each part of a card: how the
+candidate catalog is built from Artificial Analysis (AA) and the served-model
+list, what the trigger payload carries, how the agent backend turns task
+complexity into tiers, and the order in which pins, favorites, quality bars,
+and price decide a pick. Read it to configure selection, to predict a pick,
+and to answer "why did it pick that model".
 
 Two components share the work. ContextMatrix is the **data plane**: it rates
 models and ships the inputs. The agent backend (the `contextmatrix-agent`
 repository) is the **algorithm**: it makes every pick. Nothing in this
 repository selects a model for a card run.
 
-Chat sessions are out of scope here: a chat receives a single model choice
+Chat sessions are out of scope: a chat receives a single model choice
 validated against the served catalog, never a selection payload.
 
 ## Steering the selector
@@ -73,10 +73,9 @@ flowchart TB
 
 The agent is a pure consumer: it fetches nothing itself and holds no embedded
 model knowledge. Everything it knows about models arrives in the trigger
-payload. The split means the Artificial Analysis API key lives only in
-ContextMatrix, and every pick is explainable from three inputs: the payload,
-the agent's serve config (default model, price headroom), and the tier the
-planner assigned.
+payload. The AA API key therefore lives only in ContextMatrix, and every pick
+is explainable from three inputs: the payload, the agent's serve config
+(default model, price headroom), and the tier the planner assigned.
 
 ## The candidate catalog (CM side)
 
@@ -88,21 +87,21 @@ and the served-model list of the configured gateway.
 
 **Artificial Analysis** supplies quality. The Builder fetches
 `https://artificialanalysis.ai/api/v2/language/models/free` with the
-`x-api-key` header (`backends.agent.aa_api_key`), paginated at roughly 200
-models per page, capped at 10 pages and 60 seconds per refresh. Four fields
-are consumed per model: the AA slug, the creator name, the coding index, and
-the intelligence index. AA supplies no pricing. The free tier's 100
-requests/day is ample: a refresh spends one request per page (the catalog is
-about 3 pages), and the 6-hour cache holds normal operation to about 4
-refreshes - roughly 12 requests - per day. Failed refreshes retry on a
-60-second cooldown, so a broken AA response spends more.
+`x-api-key` header (`backends.agent.aa_api_key`), paginated at 200 models
+per page, capped at 10 pages and 60 seconds per refresh. Four fields are
+consumed per model: the AA slug, the creator name, the coding index, and the
+intelligence index. AA supplies no pricing. The free tier's 100 requests per
+day is ample: a refresh spends one request per page (the catalog is about 3
+pages), and the 6-hour cache holds normal operation to about 4 refreshes per
+day. Failed refreshes retry on a 60-second cooldown, so a broken AA response
+spends more.
 
 **The served catalog** supplies availability, pricing, context windows, and
 tool capability. With `llm_endpoint.type: openrouter` (the default) it comes
-from `https://openrouter.ai/api/v1/models`, unauthenticated. With
+from `https://openrouter.ai/api/v1/models`, unauthenticated, and a model is
+tool-capable when `supported_parameters` lists `tools`. With
 `llm_endpoint.type: openai` it comes from `GET {base_url}/models` with a
-Bearer token, and tool capability is read from each model's
-`capabilities.features`.
+Bearer token, and tool capability is read from `capabilities.features`.
 
 ### Quality priors
 
@@ -142,13 +141,12 @@ documents the same caveat inline.
 
 ### The quality floor
 
-A model is dropped when **both** priors fall below the floor - clearing the floor
-for either role keeps it as a candidate for that role's picks. The floor defaults to
-0.65 and is configured via `backends.agent.catalog_quality_floor`
+A model is dropped when **both** priors fall below the floor; clearing the
+floor for either role keeps it as a candidate for that role's picks. The floor
+defaults to 0.65 and is configured via `backends.agent.catalog_quality_floor`
 (env `CONTEXTMATRIX_BACKEND_AGENT_CATALOG_QUALITY_FLOOR`). 0 means unset, and
-the Builder's fallback keeps the effective floor at 0.65 (which corresponds to
-"within 65% of current best"); values outside [0, 1) are rejected at config
-load.
+the Builder's fallback keeps the effective floor at 0.65 ("within 65% of the
+current best"); values outside [0, 1) are rejected at config load.
 
 ### Slug mapping (OpenRouter leg)
 
@@ -210,19 +208,26 @@ configurable. A restart forces a fresh fetch.
 
 The Builder also serves three adjacent read paths from the same cache: token
 pricing for cost tracking (every served model, including below-floor ones),
-the model pickers in the UI, and card-pin validation. Pin validation fails
-open - a catalog outage never blocks card writes.
+the model pickers in the UI, and card-pin validation. On the OpenRouter leg
+the picker and validation set is vendor-screened by the allowlist, with two
+exceptions that stay pickable: `openrouter/auto` and every operator favorite,
+even one outside the allowlist. A favorite outside the allowlist is still not
+a selection candidate. Pin validation fails open: a catalog outage never
+blocks card writes.
 
 ### Builder modes
 
 What the Builder produces depends on configuration
 (`cmd/contextmatrix/main.go`):
 
-| Condition                                                | Mode                     | Result                                                             |
-| -------------------------------------------------------- | ------------------------ | ------------------------------------------------------------------ |
-| agent backend configured and `aa_api_key` set            | `aa+candidates`          | full catalog: candidates, pricing, pickers, validation             |
-| no AA key, `llm_endpoint.type: openai`                   | `endpoint-pricing-only`  | pricing and pickers only, no candidates                            |
-| no AA key, agent or chat backend present                 | `openrouter-catalog-only`| served set and pricing only, no candidates                         |
+| Condition                                                  | Mode                      | Result                                                             |
+| ---------------------------------------------------------- | ------------------------- | ------------------------------------------------------------------ |
+| agent backend enabled and `aa_api_key` set                 | `aa+candidates`           | full catalog: candidates, pricing, pickers, validation             |
+| no AA key, `llm_endpoint.type: openai`                     | `endpoint-pricing-only`   | pricing and pickers only, no candidates                            |
+| no AA key, agent enabled or chat enabled with an `api_key` | `openrouter-catalog-only` | served set and pricing only, no candidates                         |
+| none of the above                                          | no Builder                | no pricing beyond `token_costs`, no pickers, no pin validation     |
+
+The startup log line `model catalog builder initialized` names the mode.
 
 **Without an AA key there is no `selection` block in the trigger payload at
 all.** The agent then falls back to defaults for every phase - the trigger's
@@ -269,8 +274,8 @@ Assembly rules:
   always carries the full candidate set; the card's `best_of_n` value is
   clamped to `best_of_n.max_candidates` at trigger time.
 - **Mob execute wins over Best-of-N**: when a trigger carries both, mob coding
-  takes priority and `best_of_n` is zeroed with a warning
-  (see `docs/remote-execution.md`).
+  takes priority and `best_of_n` is zeroed with a warning (see
+  [remote execution](remote-execution.md#mob-sessions)).
 - The payload `model` field is `backends.agent.default_model`; card pins are
   resolved agent-side, not here.
 
@@ -518,16 +523,19 @@ a solo completion is not evidence of anything comparative.
 
 ### The blacklist
 
-`report_incapable_model` records a slug with a reason and sample card.
-Blacklisted slugs ship in every subsequent trigger's `selection.blacklist`,
-and the agent's selector filters them out of every non-pinned pick.
+`report_incapable_model` records a slug with a reason, an optional sample
+card, and the reporting agent id, and increments
+`contextmatrix_model_blacklists_total{model}`. Blacklisted slugs ship in
+every subsequent trigger's `selection.blacklist`, and the agent's selector
+filters them out of every non-pinned pick.
 
 No MCP tool removes an entry - agents cannot delist. Operators delist via
 `DELETE /api/admin/model-blacklist/{slug}` or the delist button on the admin
 model-selection page; a card pin also beats the blacklist for one card,
 provided the slug is still a candidate. Re-reporting an already-blacklisted
-slug updates the reason and timestamp, never duplicates - including a slug
-that was delisted and fails again.
+slug is an upsert: reason, sample card, reporter, and `last_seen` update,
+`first_seen` is preserved, and nothing is duplicated - including a slug that
+was delisted and fails again.
 
 The model pickers in the UI carry the flag too: `GET /api/models` and
 `GET /api/chats/models` mark blacklisted entries, and every picker surfaces
@@ -543,8 +551,9 @@ After a Best-of-N race, the judge phase reports one row per candidate via
 `report_model_outcome`: `win`, `loss`, or `failed` (dropped before judging),
 with verify status, cost, and field size. A card that never races
 (`n_candidates: 1`) still reports its own result - `win` or `failed`, no
-judge model. The tool requires an active claim on the card; field size
-(`n_candidates`) must be at least 1.
+judge model. The tool requires an active claim on the card; `n_candidates`
+must be at least 1, and a solo row cannot be a `loss`. Each row increments
+`contextmatrix_model_outcomes_total{model,result}`.
 
 The rows aggregate into per-model stats served by the admin endpoint and UI,
 split by kind so the two are never conflated:
@@ -564,12 +573,15 @@ are the only evidence that exists about that choice.
 ### Observability
 
 - `GET /api/admin/model-outcomes` - the per-model ledger: race samples, race
-  wins, race win rate, solo runs, solo failures, and cost;
-  `DELETE` on the same path clears it (the blacklist is untouched).
-  Full schema in `docs/api-reference.md`.
+  wins, race win rate, solo runs, solo failures, and cost; `DELETE` on the
+  same path clears it and returns the deleted row count (the blacklist is
+  untouched). Full schema in the
+  [API reference](api-reference.md#get-apiadminmodel-outcomes).
 - `GET /api/admin/model-blacklist` - every blacklisted model with reason,
   sample card, reporter, and timestamps;
-  `DELETE /api/admin/model-blacklist/{slug}` delists one model.
+  `DELETE /api/admin/model-blacklist/{slug}` delists one model (`404
+  MODEL_NOT_BLACKLISTED` when it is not listed). Both are admin-gated in
+  multi mode and open in none mode.
 - The admin UI's model-selection page shows both tables: outcome stats with a
   reset button, and the blacklist with a per-row delist button.
 - Metrics: `contextmatrix_model_outcomes_total{model,result}` and
@@ -590,16 +602,16 @@ overrides; this table maps the knobs to their effect on selection.
 | `backends.agent.model_priors`        | none                 | Verbatim 0..1 priors for slugs AA does not rate (`openai` leg only)     |
 | `backends.agent.favorites`           | none                 | Per-tier preferred models, optionally per role                          |
 | `backends.agent.catalog_quality_floor` | 0.65               | Minimum quality prior on at least one role to keep a model as a selection candidate; applies to both catalog legs. Env `CONTEXTMATRIX_BACKEND_AGENT_CATALOG_QUALITY_FLOOR` |
-| `favorites` in a project `.board.yaml` | none               | Per-project override; replaces the global entry per tier; hand-edited only (see `docs/data-model.md`) |
+| `favorites` in a project `.board.yaml` | none               | Per-project override; replaces the global entry per tier; hand-edited only (see the [data model](data-model.md#project-board-config-format)) |
 | `llm_endpoint.type`                  | `openrouter`         | Selects the catalog leg and the wire dialect                            |
 | `best_of_n.max_candidates`           | 5                    | Hard cap on a card's race size                                          |
 | `best_of_n.default_candidates`       | 3                    | UI-suggested race size                                                  |
 | `selector_price_headroom` (agent `serve.yaml`) | 1.5        | Width of the price band; env `CMX_SELECTOR_PRICE_HEADROOM`              |
 | `selector_tier_bars` (agent `serve.yaml`) | built-in ladder (0.65 / 0.76 / 0.82 / 0.90) | Per-tier quality bars; merges over the defaults per tier, must stay non-decreasing; env `CMX_SELECTOR_TIER_BARS` (JSON) |
 
-**Not configurable** (compile-time constants): the 6-hour catalog TTL and 60-second failure
-cooldown, the AA pagination cap and fetch budget, the API endpoints, and the
-equal prompt+completion price weighting.
+**Not configurable** (compile-time constants): the 6-hour catalog TTL and
+60-second failure cooldown, the AA pagination cap and fetch budget, the API
+endpoints, and the equal prompt+completion price weighting.
 
 ## Failure modes
 
@@ -618,11 +630,17 @@ equal prompt+completion price weighting.
 
 ## See Also
 
-- `docs/remote-execution.md` - the trigger payload around the `selection`
-  block, Best-of-N and mob run modes.
-- `docs/agent-workflow.md` § Model Allocation - which phase runs which role.
-- `docs/api-reference.md` - the admin model-outcomes endpoints.
-- `docs/data-model.md` - project-level `favorites` in `.board.yaml`.
-- `config.yaml.example` - every key above with full comments and env names.
+- [Remote execution](remote-execution.md#post-agent_urltrigger) - the trigger
+  payload around the `selection` block, Best-of-N and mob run modes.
+- [Running cards](running-cards.md) - the user-facing view of pins,
+  favorites, Best-of-N and mob on a card.
+- [Agent workflow](agent-workflow.md#model-allocation) - which phase runs
+  which role.
+- [API reference](api-reference.md#get-apiadminmodel-outcomes) - the admin
+  model-outcomes and model-blacklist endpoints.
+- [Data model](data-model.md#project-board-config-format) - project-level
+  `favorites` in `.board.yaml`.
+- [Configuration](configuration.md) and `config.yaml.example` - every key
+  above with full comments and env names.
 - The `contextmatrix-agent` repository - the selection algorithm's source
   (`internal/registry`) and its `serve.yaml.example`.
