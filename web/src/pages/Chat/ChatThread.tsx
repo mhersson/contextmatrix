@@ -71,7 +71,7 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true }: Ch
   const { working, armOptimistic } = useWorkingState(sessionID, merged);
 
   // Reset local state synchronously when the sessionID prop changes - see
-  // web/CLAUDE.md § CardPanel for why this lives in render, not useEffect.
+  // web/AGENTS.md § CardPanel for why this lives in render, not useEffect.
   const [prevSessionID, setPrevSessionID] = useState(sessionID);
   if (sessionID !== prevSessionID) {
     setPrevSessionID(sessionID);

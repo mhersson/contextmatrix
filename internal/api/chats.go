@@ -472,7 +472,7 @@ func (h *chatHandlers) endChat(w http.ResponseWriter, r *http.Request) {
 // Request body is intentionally ignored - the operation has no per-user
 // parameters and matches the empty-body convention used by endChat.
 // agentIDForChat is intentionally not invoked here - ClearContext has no
-// per-user effect on the no-auth trust model (see CLAUDE.md §Trust model).
+// per-user effect on the no-auth trust model (see AGENTS.md §Trust model).
 //
 // Errors are routed:
 //   - chat.ErrSessionNotFound   → 404 (via handleChatError)

@@ -158,7 +158,7 @@ present - intentional, because the UI is the only legitimate caller. In
 `multi` mode these fallbacks are unreachable dead code on session-gated
 routes: the session guard has already rejected any request with no session
 before the fallback would run.
-See § Trust model in `CLAUDE.md` and in `docs/architecture.md`.
+See § Trust model in `AGENTS.md` and in `docs/architecture.md`.
 
 **CSRF protection:** every state-changing request on the main listener must
 carry `X-Requested-With: contextmatrix`. The web UI sets this header on every
@@ -2165,7 +2165,7 @@ protection above); no separate path exemption was needed.
 Project-agnostic chat sessions that run the same worker image as card runs but
 use long-lived containers instead of card-scoped one-shots. Identity follows the
 same `X-Agent-ID` tagging convention as the rest of the API (see § Trust model
-in `CLAUDE.md`); the web UI defaults to `human:web` when the header is absent.
+in `AGENTS.md`); the web UI defaults to `human:web` when the header is absent.
 
 **Ownership (multi mode):** every chat session is owned by the identity
 that created it (`created_by`, `human:<username>`). The list is

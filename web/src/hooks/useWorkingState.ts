@@ -51,7 +51,7 @@ export function useWorkingState(
 ): { working: WorkingState | null; armOptimistic: () => void } {
   const [working, setWorking] = useState<WorkingState | null>(null);
 
-  // Reset synchronously on session switch - see web/CLAUDE.md § CardPanel
+  // Reset synchronously on session switch - see web/AGENTS.md § CardPanel
   // for why this lives in render, not useEffect.
   const [prevSessionID, setPrevSessionID] = useState(sessionID);
   if (sessionID !== prevSessionID) {

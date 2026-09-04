@@ -22,7 +22,7 @@ interface PlaybookEntryListProps {
   onRemove: (entryId: string) => void;
 }
 
-/** Draggable entry list - sensors copied from Board.tsx per web/CLAUDE.md. */
+/** Draggable entry list - sensors copied from Board.tsx per web/AGENTS.md. */
 export function PlaybookEntryList({
   entries, onDragEnd, onToggleDone, onSaveNote, onSaveText, onRemove,
 }: PlaybookEntryListProps) {

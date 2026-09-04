@@ -206,7 +206,7 @@ another user's password.
   credential.
 - **Single-user opt-out** - set `auth.mode: none` in `config.yaml` (env:
   `CONTEXTMATRIX_AUTH_MODE=none`) for the zero-login behavior - the right choice
-  for a laptop install. The trust model section in `CLAUDE.md` describes how the
+  for a laptop install. The trust model section in `AGENTS.md` describes how the
   two modes differ.
 
 Two operator escape hatches run on the host against the configured `auth.db`:

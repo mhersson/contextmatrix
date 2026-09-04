@@ -50,4 +50,4 @@ group in the sidebar footer menu (persisted to `localStorage` under the key
 ## Conventions
 
 Frontend conventions, palette tokens, and UI semantic mappings live in
-`web/CLAUDE.md`.
+`web/AGENTS.md`.

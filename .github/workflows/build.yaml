@@ -5,7 +5,7 @@ on:
     branches: [main]
     paths-ignore:
       - "README.md"
-      - "CLAUDE.md"
+      - "AGENTS.md"
       - "config.yaml.example"
       - "docs/**"
       - "LICENSE"
@@ -13,7 +13,7 @@ on:
     branches: [main]
     paths-ignore:
       - "README.md"
-      - "CLAUDE.md"
+      - "AGENTS.md"
       - "config.yaml.example"
       - "docs/**"
       - "LICENSE"

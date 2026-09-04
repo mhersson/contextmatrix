@@ -35,7 +35,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
  * fields for create mode, or the read-only name + secret-only input for
  * rotate mode. Purely presentational and fully controlled - CredentialModal
  * owns all state and the submit call. Split out to keep both files under
- * the ~150-line component guideline (web/CLAUDE.md).
+ * the ~150-line component guideline (web/AGENTS.md).
  */
 export function CredentialFields({
   mode,

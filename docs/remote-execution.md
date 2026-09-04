@@ -653,7 +653,7 @@ webhooks, enforce card-state and per-project checks, and update CM bookkeeping
 (`worker_status`, `autonomous`). All five gate on
 `isNonHumanAgent` - an agent hitting them with a non-`human:*` `X-Agent-ID`
 gets `403 HUMAN_ONLY_FIELD`; an absent header counts as human (UI = human, per
-the CLAUDE.md trust model).
+the AGENTS.md trust model).
 
 | Endpoint                                          | Behavior                                                                                                                                                                    |
 | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

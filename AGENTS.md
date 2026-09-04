@@ -1,4 +1,4 @@
-# CLAUDE.md - ContextMatrix
+# AGENTS.md - ContextMatrix
 
 ## What is this project?
 
@@ -31,7 +31,7 @@ Read the relevant one before working in its area:
 | `docs/gotchas.md`              | YAML, go-git, SSE, MCP, Vite, stdlib quirks. Skim before your first commit each session.                                                          |
 | `docs/remote-execution.md`     | Agent and chat backends, webhook protocol, worker lifecycle, MCP auth.                                                                            |
 | `docs/model-selection.md`      | Model catalog pipeline, AA rating, tier bars, pins/favorites/blacklist, Best-of-N outcomes.                                                       |
-| `web/CLAUDE.md`                | Frontend. Auto-loaded when working in `web/`.                                                                                                     |
+| `web/AGENTS.md`                | Frontend. Auto-loaded when working in `web/`.                                                                                                     |
 
 ## Trust model (summary - canonical detail in `docs/architecture.md`)
 
@@ -143,7 +143,7 @@ workflow-skills/           → agent lifecycle skills (markdown, served via MCP 
 
 ### Frontend
 
-See `web/CLAUDE.md` (auto-loaded in `web/`). Components reference CSS custom
+See `web/AGENTS.md` (auto-loaded in `web/`). Components reference CSS custom
 properties only - no palette-specific code, no hardcoded hex.
 
 ### Skills - two systems, don't conflate

@@ -1,7 +1,7 @@
 # web/ - Frontend Conventions
 
 Auto-loaded when working in `web/`. Backend conventions live in the root
-`CLAUDE.md`.
+`AGENTS.md`.
 
 ## Conventions
 

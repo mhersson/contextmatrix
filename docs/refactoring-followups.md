@@ -51,6 +51,6 @@ Each needs its own brainstorm and plan before it is picked up.
 
 ## File-size targets
 
-`web/CLAUDE.md` documents a ~150-line component limit; the Go side carries an
+`web/AGENTS.md` documents a ~150-line component limit; the Go side carries an
 implicit ~100-line function limit. Handle smaller infractions (200-line files,
 110-line functions) opportunistically when touching the surrounding code.

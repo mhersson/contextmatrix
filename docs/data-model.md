@@ -203,7 +203,7 @@
     `assigned_agent` (403 on mismatch). The web UI enforces a softer gate: the
     Delete button is enabled only when the card is in `todo` or `not_planned`
     state **and** has no `assigned_agent`. A custom `ConfirmModal` React
-    component (see `web/CLAUDE.md` → "ConfirmModal") warns the user that the
+    component (see `web/AGENTS.md` → "ConfirmModal") warns the user that the
     action is irreversible and commits the removal to git.
 
 ## Card file format
@@ -294,7 +294,7 @@ The `parent` field is displayed in the web UI wherever a subtask card appears:
   "Subtasks" with a clickable button for the parent ID. Uses the same navigation
   handler as subtask links.
 
-See `web/CLAUDE.md` → "Subtask parent navigation" for styling details.
+See `web/AGENTS.md` → "Subtask parent navigation" for styling details.
 
 The frontmatter is delimited by `---` lines. The body is freeform markdown. When
 parsing, split on `---` - first element is empty (before opening delimiter),

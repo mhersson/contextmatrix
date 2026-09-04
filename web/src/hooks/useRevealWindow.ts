@@ -40,7 +40,7 @@ export function useRevealWindow<T>(
   const [extraRevealed, setExtraRevealed] = useState(0);
 
   // Adjust synchronously in render when the list identity changes - same
-  // pattern as the sessionID reset in ChatThread (see web/CLAUDE.md on
+  // pattern as the sessionID reset in ChatThread (see web/AGENTS.md on
   // render-time resets). The whole previous array is the baseline (not just
   // its length): at ring capacity an append changes items[0] with the length
   // unchanged, and a length-gated baseline would go stale and misclassify

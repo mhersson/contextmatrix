@@ -69,7 +69,7 @@ export function NewChatDialog({ open, onClose }: NewChatDialogProps) {
   }, []);
 
   // Reset form state when the dialog opens. Uses the in-render reset
-  // pattern (web/CLAUDE.md § CardPanel) so the reset is synchronous with
+  // pattern (web/AGENTS.md § CardPanel) so the reset is synchronous with
   // the prop change and the React 19 lint rule (no setState in effects)
   // stays happy. We intentionally DO NOT reset `model` here - the user's
   // last selection persists across dialog open/close cycles, and the
