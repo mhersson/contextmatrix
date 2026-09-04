@@ -3840,6 +3840,37 @@ textarea {
 .sb-eyebrow-btn:hover {
   background-color: var(--bg1);
 }
+.sb-repo-header {
+  cursor: pointer;
+  text-align: left;
+  background: none;
+  border: 0;
+}
+.sb-repo-header:hover {
+  color: var(--grey2);
+}
+.sb-repo-tag {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--aqua);
+  border: 1px solid var(--bg3);
+  border-radius: 3px;
+  padding: 0 3px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.sb-sync-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 99px;
+  flex-shrink: 0;
+}
+.apd-group-row td {
+  padding-top: 8px;
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--bg2);
+}
 .sb-chat-dock {
   background-color: var(--bg-dim);
   border-top: 1px solid var(--bg2);

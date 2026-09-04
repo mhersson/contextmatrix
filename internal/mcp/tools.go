@@ -122,7 +122,7 @@ func requireActiveClaim(ctx context.Context, svc *service.CardService, project, 
 	}
 
 	if !svc.OwnsClaim(card, agentID) {
-		if card.ClaimedElsewhere(svc.InstanceID()) {
+		if svc.ClaimedElsewhere(card) {
 			return fmt.Errorf("%s: card %s is claimed by %s via instance %s, not through this instance",
 				toolName, cardID, card.AssignedAgent, card.ClaimedVia)
 		}

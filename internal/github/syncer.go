@@ -18,9 +18,8 @@ import (
 // Syncer periodically fetches open GitHub issues and creates cards for them.
 type Syncer struct {
 	svc          *service.CardService
-	store        *storage.FilesystemStore
+	store        storage.Store
 	client       *Client
-	boardsDir    string
 	interval     time.Duration
 	allowedHosts []string
 	clk          clock.Clock
@@ -34,9 +33,8 @@ type Syncer struct {
 // NewSyncer creates a new GitHub issue syncer.
 func NewSyncer(
 	svc *service.CardService,
-	store *storage.FilesystemStore,
+	store storage.Store,
 	client *Client,
-	boardsDir string,
 	interval time.Duration,
 	allowedHosts []string,
 ) *Syncer {
@@ -44,7 +42,6 @@ func NewSyncer(
 		svc:          svc,
 		store:        store,
 		client:       client,
-		boardsDir:    boardsDir,
 		interval:     interval,
 		allowedHosts: allowedHosts,
 		clk:          clock.Real(),
@@ -105,14 +102,18 @@ func (s *Syncer) safeSyncAll(ctx context.Context) {
 }
 
 func (s *Syncer) syncAll(ctx context.Context) {
-	projects, err := board.DiscoverProjects(s.boardsDir)
+	// The store lists only the projects it serves: a project hidden behind
+	// another boards repo of the same name is never imported into.
+	projects, err := s.store.ListProjects(ctx)
 	if err != nil {
-		slog.Error("github sync: discover projects", "error", err)
+		slog.Error("github sync: list projects", "error", err)
 
 		return
 	}
 
-	for _, cfg := range projects {
+	for i := range projects {
+		cfg := &projects[i]
+
 		if ctx.Err() != nil {
 			return
 		}
@@ -121,7 +122,7 @@ func (s *Syncer) syncAll(ctx context.Context) {
 			continue
 		}
 
-		owner, repo := resolveOwnerRepo(&cfg, s.allowedHosts)
+		owner, repo := resolveOwnerRepo(cfg, s.allowedHosts)
 		if owner == "" || repo == "" {
 			slog.Debug("github sync: skipping project, no GitHub repo resolved",
 				"project", cfg.Name)
@@ -132,7 +133,7 @@ func (s *Syncer) syncAll(ctx context.Context) {
 		client := s.client
 
 		if s.clientFor != nil {
-			resolved, err := s.clientFor(ctx, &cfg)
+			resolved, err := s.clientFor(ctx, cfg)
 			if err != nil {
 				// Fail closed: a broken per-project credential binding must
 				// never fall back to the syncer's static client. Log the
@@ -147,7 +148,7 @@ func (s *Syncer) syncAll(ctx context.Context) {
 			client = resolved
 		}
 
-		imported, err := s.syncProject(ctx, &cfg, client, owner, repo)
+		imported, err := s.syncProject(ctx, cfg, client, owner, repo)
 		if err != nil {
 			if errors.Is(err, ErrRateLimited) {
 				// Rate-limit is per-host (or per-installation token) so a

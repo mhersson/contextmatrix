@@ -33,11 +33,14 @@ vi.mock('../../hooks/useBoard', () => ({
   })),
 }));
 
+const mockTriggerSync = vi.hoisted(() => vi.fn());
 vi.mock('../../hooks/useSync', () => ({
   useSync: vi.fn(() => ({
+    syncStatuses: [],
     syncStatus: null,
-    triggerSync: vi.fn(),
-    handleSyncEvent: vi.fn(),
+    statusFor: vi.fn(() => null),
+    triggerSync: mockTriggerSync,
+    refresh: vi.fn(),
   })),
 }));
 
@@ -123,12 +126,13 @@ vi.mock('../../hooks/useSSEBus', () => ({
 let capturedOnCreate: ((input: CreateCardInput, opts?: { run?: boolean; interactive?: boolean }) => Promise<void>) | null = null;
 
 vi.mock('../Board', () => ({
-  Board: ({ onCreateCard, headerCollapsed, onToggleHeaderCollapsed, headerActions, onOpenSidebar }: {
+  Board: ({ onCreateCard, headerCollapsed, onToggleHeaderCollapsed, headerActions, onOpenSidebar, onSyncClick }: {
     onCreateCard?: () => void;
     headerCollapsed?: boolean;
     onToggleHeaderCollapsed?: () => void;
     headerActions?: React.ReactNode;
     onOpenSidebar?: () => void;
+    onSyncClick?: () => void;
   }) => {
     return (
       <div data-testid="board" data-header-collapsed={String(!!headerCollapsed)}>
@@ -138,6 +142,9 @@ vi.mock('../Board', () => ({
         )}
         {onOpenSidebar && (
           <button data-testid="open-sidebar-btn" onClick={onOpenSidebar}>Open Sidebar</button>
+        )}
+        {onSyncClick && (
+          <button data-testid="sync-btn" onClick={onSyncClick}>Sync</button>
         )}
         <div data-testid="header-actions">{headerActions}</div>
       </div>
@@ -218,6 +225,7 @@ vi.mock('../../hooks/useTheme', () => ({
     taskBackend: 'agent',
     instanceId: '',
     sharedBoards: false,
+    boardsRepos: [],
   }),
 }));
 
@@ -884,5 +892,53 @@ describe('ProjectShell header chrome', () => {
     expect(await screen.findByTestId('project-settings')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'test' })).toHaveAttribute('href', '/projects/test');
     expect(screen.getByText('Settings')).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Footer sync button: onSyncClick must never receive the DOM click event.
+// ---------------------------------------------------------------------------
+describe('ProjectShell - footer sync button', () => {
+  it('triggers the open project\'s repo, not the click event, when it has no boards_repo', () => {
+    renderProjectShell();
+    act(() => screen.getByTestId('sync-btn').click());
+    expect(mockTriggerSync).toHaveBeenCalledTimes(1);
+    expect(mockTriggerSync).toHaveBeenCalledWith(undefined);
+  });
+
+  it('triggers the project\'s boards_repo, not the click event, on a multi-repo instance', async () => {
+    const { useBoard } = await import('../../hooks/useBoard');
+    const previous = vi.mocked(useBoard).getMockImplementation();
+    vi.mocked(useBoard).mockReturnValue({
+      config: {
+        name: 'test',
+        prefix: 'TEST',
+        next_id: 1,
+        states: ['todo', 'done'],
+        types: ['task'],
+        priorities: ['medium'],
+        transitions: { todo: ['done'], done: [] },
+        boards_repo: 'products',
+      } as ProjectConfig,
+      cards: [] as Card[],
+      loading: false,
+      error: null,
+      connected: true,
+      refresh: vi.fn(),
+      listEpoch: 1,
+      refreshCard: vi.fn(),
+      updateCardLocally: vi.fn(),
+      removeCardLocally: vi.fn(),
+      suppressSSE: vi.fn(),
+      unsuppressSSE: vi.fn(),
+    } as unknown as ReturnType<typeof useBoard>);
+    try {
+      renderProjectShell();
+      act(() => screen.getByTestId('sync-btn').click());
+      expect(mockTriggerSync).toHaveBeenCalledTimes(1);
+      expect(mockTriggerSync).toHaveBeenCalledWith('products');
+    } finally {
+      vi.mocked(useBoard).mockImplementation(previous!);
+    }
   });
 });

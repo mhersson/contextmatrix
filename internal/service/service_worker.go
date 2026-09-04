@@ -39,6 +39,7 @@ func isProtectedBranch(branch string) bool {
 // Returns ErrProtectedBranch if the branch is main/master.
 func (s *CardService) RecordPush(ctx context.Context, project, id, agentID, branch, prURL string) (*board.Card, error) {
 	id = strings.ToUpper(id)
+	r := s.repoOf(project)
 
 	// Service-layer branch protection - defense in depth.
 	if isProtectedBranch(branch) {
@@ -107,7 +108,7 @@ func (s *CardService) RecordPush(ctx context.Context, project, id, agentID, bran
 
 	s.writeMu.Unlock()
 
-	if err := s.awaitCommit(commitDone, notify); err != nil {
+	if err := s.awaitCommit(r, commitDone, notify); err != nil {
 		s.writeMu.Lock()
 		rollbackErr := s.rollbackCardOnCommitFailure(ctx, project, snapshot, err)
 		s.writeMu.Unlock()
@@ -139,6 +140,7 @@ func (s *CardService) RecordPush(ctx context.Context, project, id, agentID, bran
 // lock.ErrAgentMismatch when the caller does not hold the claim.
 func (s *CardService) ReportParked(ctx context.Context, project, id, agentID, reason string) (*board.Card, error) {
 	id = strings.ToUpper(id)
+	r := s.repoOf(project)
 
 	s.writeMu.Lock()
 
@@ -186,7 +188,7 @@ func (s *CardService) ReportParked(ctx context.Context, project, id, agentID, re
 
 	s.writeMu.Unlock()
 
-	if err := s.awaitCommit(commitDone, notify); err != nil {
+	if err := s.awaitCommit(r, commitDone, notify); err != nil {
 		s.writeMu.Lock()
 		rollbackErr := s.rollbackCardOnCommitFailure(ctx, project, snapshot, err)
 		s.writeMu.Unlock()
@@ -211,6 +213,7 @@ func (s *CardService) ReportParked(ctx context.Context, project, id, agentID, re
 // ErrReviewAttemptsCapped if the counter has reached maxReviewAttempts.
 func (s *CardService) IncrementReviewAttempts(ctx context.Context, project, id, agentID string) (*board.Card, error) {
 	id = strings.ToUpper(id)
+	r := s.repoOf(project)
 
 	s.writeMu.Lock()
 
@@ -255,7 +258,7 @@ func (s *CardService) IncrementReviewAttempts(ctx context.Context, project, id, 
 
 	s.writeMu.Unlock()
 
-	if err := s.awaitCommit(commitDone, notify); err != nil {
+	if err := s.awaitCommit(r, commitDone, notify); err != nil {
 		s.writeMu.Lock()
 		rollbackErr := s.rollbackCardOnCommitFailure(ctx, project, snapshot, err)
 		s.writeMu.Unlock()
@@ -281,6 +284,7 @@ func (s *CardService) IncrementReviewAttempts(ctx context.Context, project, id, 
 // UpdateWorkerStatus sets the worker_status field on a card.
 func (s *CardService) UpdateWorkerStatus(ctx context.Context, project, cardID, status, message string) (*board.Card, error) {
 	cardID = strings.ToUpper(cardID)
+	r := s.repoOf(project)
 
 	s.writeMu.Lock()
 
@@ -309,7 +313,7 @@ func (s *CardService) UpdateWorkerStatus(ctx context.Context, project, cardID, s
 	// for such a card (a stop-all, a stale backend tracker) must not land
 	// here: the tuple it would write competes with the peer's at an equal
 	// epoch and could overwrite a running state with killed.
-	if card.ClaimedElsewhere(s.instance) {
+	if s.ClaimedElsewhere(card) {
 		s.writeMu.Unlock()
 
 		ctxlog.Logger(ctx).Info("worker status ignored: card claimed via another instance",
@@ -368,11 +372,11 @@ func (s *CardService) UpdateWorkerStatus(ctx context.Context, project, cardID, s
 	if status == "failed" || status == "killed" || status == "completed" {
 		card.ClearClaim()
 
-		if hadAgent && s.sharedClaims() {
+		if hadAgent && r.sharedClaims() {
 			card.ClaimEpoch++
 		}
 
-		s.lock.ClearBeat(project, cardID)
+		r.Lock.ClearBeat(project, cardID)
 	}
 	// On completed, also clear worker_status since the run is over.
 	if status == "completed" {
@@ -408,7 +412,7 @@ func (s *CardService) UpdateWorkerStatus(ctx context.Context, project, cardID, s
 		ctxlog.Logger(ctx).Error("flush deferred commit on worker status update", "card_id", cardID, "error", flushErr)
 	}
 
-	if err := s.awaitCommit(commitDone, notify); err != nil {
+	if err := s.awaitCommit(r, commitDone, notify); err != nil {
 		s.writeMu.Lock()
 		rollbackErr := s.rollbackCardOnCommitFailure(ctx, project, snapshot, err)
 		s.writeMu.Unlock()
@@ -501,6 +505,7 @@ func (s *CardService) runSessionManagerLifecycleHooks(ctx context.Context, cardI
 // Returns ErrCardTerminal if the card is in a terminal state (done/not_planned).
 func (s *CardService) PromoteToAutonomous(ctx context.Context, project, cardID, agentID string) (*board.Card, error) {
 	cardID = strings.ToUpper(cardID)
+	r := s.repoOf(project)
 
 	s.writeMu.Lock()
 
@@ -569,7 +574,7 @@ func (s *CardService) PromoteToAutonomous(ctx context.Context, project, cardID, 
 
 	s.writeMu.Unlock()
 
-	if err := s.awaitCommit(commitDone, notify); err != nil {
+	if err := s.awaitCommit(r, commitDone, notify); err != nil {
 		s.writeMu.Lock()
 		rollbackErr := s.rollbackCardOnCommitFailure(ctx, project, snapshot, err)
 		s.writeMu.Unlock()

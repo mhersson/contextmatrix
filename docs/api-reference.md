@@ -1027,7 +1027,8 @@ mode:**
   "mob_execute_checkpoints": true,
   "chat_enabled": true,
   "instance_id": "laptop-3f9a2c",
-  "shared_boards": true
+  "shared_boards": true,
+  "boards_repos": [{ "name": "team", "shared": true }, { "name": "private", "shared": false }]
 }
 ```
 
@@ -1070,6 +1071,9 @@ payload below.
 board leaves it empty) and `shared_boards` mirrors `boards.shared`. Both drop
 out of the payload on a private board, where `instance_id` is normally empty.
 Full payload only, like the other fields above.
+`boards_repos` lists every configured boards repository in config order; the
+UI groups projects by it and offers it at creation time. `shared_boards` is
+true when any entry is shared. Full payload only.
 
 **Response - unauthenticated caller in `multi` mode:** `task_backend`,
 `favorites`, `best_of_n_max`, `best_of_n_default`, `mob_max_participants`,
@@ -1130,6 +1134,7 @@ provided together.
   "name": "my-project",
   "display_name": "My Project",
   "prefix": "MYPRO",
+  "boards_repo": "team",
   "repo": "https://github.com/org/my-project.git",
   "states": ["todo", "in_progress", "review", "done", "stalled", "not_planned"],
   "types": ["task", "bug"],
@@ -1152,6 +1157,7 @@ provided together.
 | `name`         | conditional | Slug - filesystem directory name, URL path segment, API identifier. Must match `^[a-zA-Z0-9][a-zA-Z0-9_-]*$`. Auto-derived from `display_name` when omitted. |
 | `display_name` | conditional | Human-readable project name. May contain spaces and any printable characters. Stored in `.board.yaml`; shown in the UI sidebar.                              |
 | `prefix`       | required    | Card ID prefix (e.g. `MYPRO` → `MYPRO-001`).                                                                                                                   |
+| `boards_repo`  | optional    | The boards repository to create the project in, by its config name. Defaults to the first configured repo. Unknown name: 400 BAD_REQUEST.                    |
 
 At least one of `name` or `display_name` is required (400 if both are absent).
 
@@ -1181,6 +1187,8 @@ List all projects or get a single project by slug. Both responses include
 
 Existing projects without `display_name` omit the field; clients should fall
 back to displaying `name`.
+
+Every project carries `boards_repo`, the boards repository it lives in.
 
 ### PUT /api/projects/{project}
 
@@ -1498,36 +1506,53 @@ Returns:
 
 ### POST /api/sync
 
-Trigger a git pull on the boards repository. Returns 503 if sync is disabled (no
-remote configured).
+Trigger a sync. With `?repo=<name>` only that boards repository syncs;
+without it every repo that has a remote syncs. Returns the same list as
+`GET /api/sync`. 503 `SYNC_DISABLED` when no repo (or the named repo) has a
+remote; 400 `BAD_REQUEST` for an unknown repo name; 500 `SYNC_ERROR` when a
+cycle failed.
 
 ### GET /api/sync
 
-Returns current sync status.
+Returns one status per configured boards repository, in config order.
 
 ```json
-{
-  "last_sync_time": "2026-04-05T12:00:00Z",
-  "last_sync_error": "",
-  "syncing": false,
-  "enabled": true,
-  "claims_at_risk": false
-}
+[
+  {
+    "repo": "team",
+    "last_sync_time": "2026-04-05T12:00:00Z",
+    "syncing": false,
+    "enabled": true,
+    "shared": true,
+    "remote_reachable": true,
+    "unpushed_commits": 0,
+    "claims_at_risk": false
+  },
+  { "repo": "private", "last_sync_time": null, "syncing": false, "enabled": false, "shared": false, "unpushed_commits": 0, "claims_at_risk": false }
+]
 ```
 
-| Field                | Type                | Description                                                   |
-| -------------------- | ------------------- | --------------------------------------------------------------|
-| `last_sync_time`     | RFC 3339 / `null`   | Timestamp of the last completed sync attempt; `null` if none. |
-| `last_sync_error`    | string (omitempty)  | Error message from the most recent failed sync.               |
-| `syncing`            | bool                | `true` while a sync is in flight.                              |
-| `enabled`            | bool                | Whether automatic sync is enabled in config.                   |
-| `claims_at_risk`     | bool                | Shared boards: `true` once pushes have been failing longer than `lease_interval` - peers cannot see this instance's lease renewals and will stall its cards after `lease_timeout`. |
-| `push_failing_since` | RFC 3339 (omitempty)| When the current push failure streak began; absent while pushes are succeeding. |
+| Field                | Type                  | Description                                                   |
+| --------------------- | --------------------- | --------------------------------------------------------------|
+| `repo`               | string                | The boards repository this status describes (`boards` on a single-repo instance). |
+| `last_sync_time`     | RFC 3339 / `null`     | Timestamp of the last completed sync attempt; `null` if none. |
+| `last_sync_error`    | string (omitempty)    | Error message from the most recent failed sync.               |
+| `syncing`            | bool                  | `true` while a sync is in flight.                              |
+| `enabled`            | bool                  | Whether the repo has a remote to sync with.                    |
+| `shared`             | bool                  | `boards[].shared` for this repo.                               |
+| `remote_reachable`   | bool (omitempty)      | Shared repos: whether the last network call reached the remote. Absent until the first call. |
+| `last_remote_error`  | string (omitempty)    | Shared repos: the last network failure, sanitized.             |
+| `unpushed_commits`   | int                   | Commits on the local branch the remote does not have yet.      |
+| `resolutions`        | array (omitempty)     | Shared repos: the last 100 resolver actions (`at`, `trigger`, plus the resolution fields: rule, path, card, what was overridden). |
+| `claims_at_risk`     | bool                  | Shared repos: `true` once pushes have been failing longer than `lease_interval`; peers will stall this instance's cards after `lease_timeout`. |
+| `push_failing_since` | RFC 3339 (omitempty)  | When the current push failure streak began.                    |
+| `hidden_projects`    | string[] (omitempty)  | Projects this repo holds under a name an earlier repo owns; on disk and syncing but not served. |
 
-A shared-board pull that moves a claim to another instance publishes
-`claim.lost` on `GET /api/events`. Its `data` carries `previous_agent` (the
-agent ID that lost the claim), `claimed_via` (the instance that now holds
-it), `claim_epoch` (the epoch the takeover landed at), and `source: "sync"`.
+Every `sync.*` event on `GET /api/events` carries `data.repo`. A shared-board
+pull that moves a claim to another instance publishes `claim.lost` on
+`GET /api/events`. Its `data` carries `previous_agent` (the agent ID that
+lost the claim), `claimed_via` (the instance that now holds it),
+`claim_epoch` (the epoch the takeover landed at), and `source: "sync"`.
 
 ## Playbook Endpoints
 
@@ -1569,6 +1594,7 @@ whole call and nothing is written or committed.
 {
   "title": "Alpha feature rollout",
   "description": "optional free text",
+  "boards_repo": "team",
   "entries": [
     { "type": "card", "project": "project-alpha", "card": "ALPHA-101", "note": "merge this one first" },
     { "type": "manual", "text": "Rebuild worker image and redeploy" }
@@ -1577,7 +1603,9 @@ whole call and nothing is written or committed.
 ```
 
 The id is derived from `title` and returned in the response; it never
-changes. `entries` is optional (an empty playbook is valid). Response **201**
+changes. `entries` is optional (an empty playbook is valid). `boards_repo`
+(optional) picks the boards repository; the id is unique across every repo.
+The response and every list entry carry `boards_repo`. Response **201**
 with the full detail (same shape as `GET /api/playbooks/{id}`).
 
 **Errors:**

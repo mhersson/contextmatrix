@@ -57,6 +57,29 @@
   follows is ignored by `UpdateWorkerStatus` because the card is now claimed
   via another instance. A card a peer deleted under a running container is
   left to the reconcile sweep's missing-card rule.
+- **One `writeMu`, one queue per boards repo.** `CardService.LockWrites(repo)`
+  takes the single write mutex and quiesces only that repo's commit queue. A
+  cycle of repo A therefore blocks writes to repo B for its duration, which
+  is bounded by the 10 s network timeouts, and never touches B's queue. Do
+  not add a per-repo mutex without re-proving the lock order (playbooks,
+  then `writeMu`, then the one queue); do not drain every queue, or a cycle
+  of A waits on B's commits.
+- **`repoOf(project)` never returns nil.** An unknown project resolves to
+  the first configured repo so the store call that follows fails with
+  `ErrProjectNotFound`, the error the caller should see. A write path that
+  needs a repo *name* (project or playbook creation) goes through
+  `repoNamed`, which is the only place `ErrUnknownBoardsRepo` comes from.
+- **A new project must be saved with `SaveProjectIn`.** `Composite.SaveProject`
+  only updates a project some repo already owns; a create that calls it
+  lands in `ErrProjectNotFound`. `CardService.saveNewProject` picks the
+  right call for the store it has.
+- **`boards_repo` is a read-side stamp.** `ProjectConfig.BoardsRepo` has
+  `yaml:"-"`; the composite sets it on every read and it never reaches
+  `.board.yaml`. A test that compares a config read through the composite
+  with one read from disk must ignore it.
+- **`CONTEXTMATRIX_BOARDS_*` and the list form do not mix.** With two or
+  more entries any of those variables is a load error, on purpose: an
+  override that silently landed on one entry of many would be invisible.
 - **`gitops.CommitQueue` per-project ordering, idle teardown:** the queue spawns
   one goroutine per `Project` value and serializes that project's commits in
   enqueue order; different projects commit in parallel. Production wires

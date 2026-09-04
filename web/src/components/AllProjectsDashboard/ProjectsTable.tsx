@@ -7,12 +7,13 @@ import {
   formatUsd,
   projectRow,
 } from './utils';
-import type { DashboardData } from '../../types';
+import type { BoardsRepoInfo, DashboardData } from '../../types';
 import { DeckPanel } from './DeckPanel';
 
 interface ProjectsTableProps {
   projects: ProjectConfig[];
   summaries: Map<string, DashboardData>;
+  boardsRepos?: BoardsRepoInfo[];
 }
 
 function DistributionBar({
@@ -43,7 +44,7 @@ function DistributionBar({
   );
 }
 
-export function ProjectsTable({ projects, summaries }: ProjectsTableProps) {
+export function ProjectsTable({ projects, summaries, boardsRepos = [] }: ProjectsTableProps) {
   const navigate = useNavigate();
   const rows = useMemo(() => {
     const out = projects.map((p) => projectRow(p, summaries.get(p.name)));
@@ -54,6 +55,78 @@ export function ProjectsTable({ projects, summaries }: ProjectsTableProps) {
     );
     return out;
   }, [projects, summaries]);
+
+  const renderRow = (row: ReturnType<typeof projectRow>) => {
+    const name = row.config.name;
+    const display = row.config.display_name ?? name;
+    const repo = row.config.repo ?? '';
+    return (
+      <tr
+        key={name}
+        className="apd-project-row"
+        style={{ cursor: 'pointer' }}
+        onClick={() => navigate(`/projects/${name}`)}
+      >
+        <td>
+          <Link
+            to={`/projects/${name}`}
+            className="apd-project-link"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <span
+                className="truncate min-w-0"
+                style={{
+                  color: 'var(--fg)',
+                  fontWeight: 500,
+                  fontSize: 13,
+                  letterSpacing: '-0.01em',
+                }}
+                title={repo || undefined}
+              >
+                {display}
+              </span>
+              {row.config.prefix && (
+                <span
+                  className="chip-pill flex-shrink-0"
+                  style={chipTint('var(--grey1)')}
+                >
+                  {row.config.prefix}
+                </span>
+              )}
+            </div>
+          </Link>
+        </td>
+        <td
+          className="apd-num"
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 11.5,
+            color: 'var(--fg)',
+          }}
+        >
+          {row.total}
+        </td>
+        <td>
+          {row.data ? (
+            <DistributionBar counts={row.data.state_counts} total={row.total} />
+          ) : (
+            <span style={{ color: 'var(--grey0)' }}> - </span>
+          )}
+        </td>
+        <td
+          className="apd-num"
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 11.5,
+            color: row.cost > 0 ? 'var(--yellow)' : 'var(--grey0)',
+          }}
+        >
+          {formatUsd(row.cost)}
+        </td>
+      </tr>
+    );
+  };
 
   return (
     <DeckPanel
@@ -80,77 +153,20 @@ export function ProjectsTable({ projects, summaries }: ProjectsTableProps) {
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => {
-                const name = row.config.name;
-                const display = row.config.display_name ?? name;
-                const repo = row.config.repo ?? '';
-                return (
-                  <tr
-                    key={name}
-                    className="apd-project-row"
-                    style={{ cursor: 'pointer' }}
-                    onClick={() => navigate(`/projects/${name}`)}
-                  >
-                    <td>
-                      <Link
-                        to={`/projects/${name}`}
-                        className="apd-project-link"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <span
-                            className="truncate min-w-0"
-                            style={{
-                              color: 'var(--fg)',
-                              fontWeight: 500,
-                              fontSize: 13,
-                              letterSpacing: '-0.01em',
-                            }}
-                            title={repo || undefined}
-                          >
-                            {display}
-                          </span>
-                          {row.config.prefix && (
-                            <span
-                              className="chip-pill flex-shrink-0"
-                              style={chipTint('var(--grey1)')}
-                            >
-                              {row.config.prefix}
-                            </span>
-                          )}
-                        </div>
-                      </Link>
-                    </td>
-                    <td
-                      className="apd-num"
-                      style={{
-                        fontFamily: 'var(--font-mono)',
-                        fontSize: 11.5,
-                        color: 'var(--fg)',
-                      }}
-                    >
-                      {row.total}
-                    </td>
-                    <td>
-                      {row.data ? (
-                        <DistributionBar counts={row.data.state_counts} total={row.total} />
-                      ) : (
-                        <span style={{ color: 'var(--grey0)' }}> - </span>
-                      )}
-                    </td>
-                    <td
-                      className="apd-num"
-                      style={{
-                        fontFamily: 'var(--font-mono)',
-                        fontSize: 11.5,
-                        color: row.cost > 0 ? 'var(--yellow)' : 'var(--grey0)',
-                      }}
-                    >
-                      {formatUsd(row.cost)}
-                    </td>
-                  </tr>
-                );
-              })}
+              {boardsRepos.length > 1
+                ? boardsRepos.flatMap((repo) => {
+                    const group = rows.filter((row) => (row.config.boards_repo ?? boardsRepos[0].name) === repo.name);
+                    if (group.length === 0) return [];
+                    return [
+                      <tr key={`repo-${repo.name}`} className="apd-group-row">
+                        <td colSpan={4}>
+                          <span className="sb-eyebrow">{repo.name}{repo.shared ? ' · shared' : ''}</span>
+                        </td>
+                      </tr>,
+                      ...group.map(renderRow),
+                    ];
+                  })
+                : rows.map(renderRow)}
             </tbody>
           </table>
         </div>

@@ -1,3 +1,5 @@
+import type { BoardsRepoInfo } from '../../types';
+
 // eslint-disable-next-line react-refresh/only-export-components
 export const createButtonStyle = {
   backgroundColor: 'var(--bg-green)',
@@ -11,11 +13,27 @@ interface CreatePlaybookFormProps {
   onCreate: () => void;
   onCancel: () => void;
   submitting: boolean;
+  repos?: BoardsRepoInfo[];
+  repo?: string;
+  onRepoChange?: (repo: string) => void;
 }
 
-export function CreatePlaybookForm({ title, onTitleChange, onCreate, onCancel, submitting }: CreatePlaybookFormProps) {
+export function CreatePlaybookForm({ title, onTitleChange, onCreate, onCancel, submitting, repos, repo, onRepoChange }: CreatePlaybookFormProps) {
   return (
     <div className="flex items-center justify-center gap-2 flex-wrap">
+      {repos && repos.length > 1 && (
+        <select
+          aria-label="Boards repo"
+          value={repo ?? repos[0].name}
+          onChange={(e) => onRepoChange?.(e.target.value)}
+          className="px-2 py-1.5 rounded text-sm"
+          style={{ backgroundColor: 'var(--bg2)', border: '1px solid var(--bg3)', color: 'var(--fg)' }}
+        >
+          {repos.map((r) => (
+            <option key={r.name} value={r.name}>{r.name}{r.shared ? ' (shared)' : ''}</option>
+          ))}
+        </select>
+      )}
       <input
         autoFocus
         value={title}

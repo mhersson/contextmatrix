@@ -825,6 +825,10 @@ order; no other ordering state exists. Playbooks are not runnable -
 ContextMatrix never executes anything itself; a playbook is coordination
 state for humans and planning sessions.
 
+Each boards repo has its own `playbooks/` directory; IDs are unique across
+repos (a create checks every repo before choosing a suffix), `boards_repo` on
+create picks the repo, and every summary and detail carries `boards_repo`.
+
 ```yaml
 id: alpha-rollout            # server-generated slug, immutable
 title: Alpha feature rollout
@@ -858,7 +862,7 @@ entries:
   title edit never renames the file. Collisions are uniquified with a
   numeric suffix (`alpha-rollout-2`, `alpha-rollout-3`, ...) under the
   service's write lock, so creation never surfaces a collision error to the
-  caller.
+  caller. Uniqueness spans every configured boards repo.
 - **Order is array order.** No other ordering state exists.
 - **Entry IDs** are `e<N>`, allocated from the persisted `next_entry_id`
   counter. Stable under reorder and never reused after deletion - deleting an
@@ -895,7 +899,8 @@ entries:
   present, the playbook subsystem is disabled (REST routes and MCP tools are
   not registered) with a logged error naming the rename migration, and the
   rest of the server starts normally. The store loads only non-dotfile
-  `*.yaml` files.
+  `*.yaml` files. The check runs per repo: a project named `playbooks` in
+  any repo disables the subsystem, and the startup log names that repo.
 
 ### Go type definitions
 
@@ -1021,6 +1026,11 @@ stored value, an explicit empty string clears it. See
 `docs/remote-execution.md` § Worker image split for the full wire-level
 contract (the `/trigger` and `/chat/start` payloads each carry only their own
 field).
+
+### `boards_repo` (API responses only)
+
+Appears in API responses only, never in the file: the boards repository the
+project lives in, the first configured one on a single-repo instance.
 
 ## Server-side field-length limits
 

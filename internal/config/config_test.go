@@ -83,10 +83,10 @@ github:
 	require.NoError(t, err)
 
 	assert.Equal(t, 9090, cfg.Port)
-	assert.Equal(t, boardsDir, cfg.Boards.Dir)
-	assert.False(t, cfg.Boards.GitAutoCommit)
-	assert.True(t, cfg.Boards.GitAutoPush)
-	assert.True(t, cfg.Boards.GitDeferredCommit)
+	assert.Equal(t, boardsDir, cfg.Boards[0].Dir)
+	assert.False(t, cfg.Boards[0].GitAutoCommit)
+	assert.True(t, cfg.Boards[0].GitAutoPush)
+	assert.True(t, cfg.Boards[0].GitDeferredCommit)
 	assert.Equal(t, "15m", cfg.HeartbeatTimeout)
 	assert.Equal(t, "https://example.com", cfg.CORSOrigin)
 }
@@ -110,10 +110,10 @@ github:
 	cfg, err := Load(path)
 	require.NoError(t, err)
 
-	assert.True(t, cfg.Boards.GitAutoPull)
-	assert.Equal(t, "30s", cfg.Boards.GitPullInterval)
+	assert.True(t, cfg.Boards[0].GitAutoPull)
+	assert.Equal(t, "30s", cfg.Boards[0].GitPullInterval)
 
-	d, err := cfg.PullIntervalDuration()
+	d, err := cfg.Boards[0].PullIntervalDuration()
 	require.NoError(t, err)
 	assert.Equal(t, 30*time.Second, d)
 }
@@ -137,12 +137,12 @@ github:
 	require.NoError(t, err)
 
 	assert.Equal(t, 8080, cfg.Port)
-	assert.Equal(t, boardsDir, cfg.Boards.Dir)
-	assert.True(t, cfg.Boards.GitAutoCommit)
-	assert.False(t, cfg.Boards.GitAutoPush)
-	assert.False(t, cfg.Boards.GitAutoPull)
-	assert.Equal(t, "60s", cfg.Boards.GitPullInterval)
-	assert.False(t, cfg.Boards.GitDeferredCommit)
+	assert.Equal(t, boardsDir, cfg.Boards[0].Dir)
+	assert.True(t, cfg.Boards[0].GitAutoCommit)
+	assert.False(t, cfg.Boards[0].GitAutoPush)
+	assert.False(t, cfg.Boards[0].GitAutoPull)
+	assert.Equal(t, "60s", cfg.Boards[0].GitPullInterval)
+	assert.False(t, cfg.Boards[0].GitDeferredCommit)
 	assert.Equal(t, "30m", cfg.HeartbeatTimeout)
 	assert.Equal(t, "8m", cfg.AwaitMax)
 	assert.Equal(t, "http://localhost:5173", cfg.CORSOrigin)
@@ -198,7 +198,7 @@ github:
 			envValue: boardsDir,
 			check: func(t *testing.T, cfg *Config) {
 				t.Helper()
-				assert.Equal(t, boardsDir, cfg.Boards.Dir)
+				assert.Equal(t, boardsDir, cfg.Boards[0].Dir)
 			},
 		},
 		{
@@ -207,7 +207,7 @@ github:
 			envValue: "true",
 			check: func(t *testing.T, cfg *Config) {
 				t.Helper()
-				assert.True(t, cfg.Boards.GitAutoCommit)
+				assert.True(t, cfg.Boards[0].GitAutoCommit)
 			},
 		},
 		{
@@ -216,7 +216,7 @@ github:
 			envValue: "false",
 			check: func(t *testing.T, cfg *Config) {
 				t.Helper()
-				assert.False(t, cfg.Boards.GitAutoCommit)
+				assert.False(t, cfg.Boards[0].GitAutoCommit)
 			},
 		},
 		{
@@ -225,7 +225,7 @@ github:
 			envValue: "true",
 			check: func(t *testing.T, cfg *Config) {
 				t.Helper()
-				assert.True(t, cfg.Boards.GitAutoPush)
+				assert.True(t, cfg.Boards[0].GitAutoPush)
 			},
 		},
 		{
@@ -234,7 +234,7 @@ github:
 			envValue: "false",
 			check: func(t *testing.T, cfg *Config) {
 				t.Helper()
-				assert.False(t, cfg.Boards.GitAutoPush)
+				assert.False(t, cfg.Boards[0].GitAutoPush)
 			},
 		},
 		{
@@ -243,7 +243,7 @@ github:
 			envValue: "true",
 			check: func(t *testing.T, cfg *Config) {
 				t.Helper()
-				assert.True(t, cfg.Boards.GitAutoPull)
+				assert.True(t, cfg.Boards[0].GitAutoPull)
 			},
 		},
 		{
@@ -252,7 +252,7 @@ github:
 			envValue: "false",
 			check: func(t *testing.T, cfg *Config) {
 				t.Helper()
-				assert.False(t, cfg.Boards.GitAutoPull)
+				assert.False(t, cfg.Boards[0].GitAutoPull)
 			},
 		},
 		{
@@ -261,7 +261,7 @@ github:
 			envValue: "120s",
 			check: func(t *testing.T, cfg *Config) {
 				t.Helper()
-				assert.Equal(t, "120s", cfg.Boards.GitPullInterval)
+				assert.Equal(t, "120s", cfg.Boards[0].GitPullInterval)
 			},
 		},
 		{
@@ -270,7 +270,7 @@ github:
 			envValue: "true",
 			check: func(t *testing.T, cfg *Config) {
 				t.Helper()
-				assert.True(t, cfg.Boards.GitDeferredCommit)
+				assert.True(t, cfg.Boards[0].GitDeferredCommit)
 			},
 		},
 		{
@@ -279,7 +279,7 @@ github:
 			envValue: "false",
 			check: func(t *testing.T, cfg *Config) {
 				t.Helper()
-				assert.False(t, cfg.Boards.GitDeferredCommit)
+				assert.False(t, cfg.Boards[0].GitDeferredCommit)
 			},
 		},
 		{
@@ -288,7 +288,7 @@ github:
 			envValue: "false",
 			check: func(t *testing.T, cfg *Config) {
 				t.Helper()
-				assert.False(t, cfg.Boards.GitCloneOnEmpty)
+				assert.False(t, cfg.Boards[0].GitCloneOnEmpty)
 			},
 		},
 		{
@@ -297,7 +297,7 @@ github:
 			envValue: "https://github.com/user/boards.git",
 			check: func(t *testing.T, cfg *Config) {
 				t.Helper()
-				assert.Equal(t, "https://github.com/user/boards.git", cfg.Boards.GitRemoteURL)
+				assert.Equal(t, "https://github.com/user/boards.git", cfg.Boards[0].GitRemoteURL)
 			},
 		},
 		{
@@ -392,14 +392,14 @@ github:
 	require.NoError(t, err)
 
 	assert.Equal(t, 4000, cfg.Port)
-	assert.Equal(t, envBoardsDir, cfg.Boards.Dir)
+	assert.Equal(t, envBoardsDir, cfg.Boards[0].Dir)
 	assert.Equal(t, "45m", cfg.HeartbeatTimeout)
 	assert.Equal(t, "https://override.example.com", cfg.CORSOrigin)
 }
 
 func TestValidate_MissingBoardsDir(t *testing.T) {
 	cfg := &Config{
-		Boards:           BoardsConfig{Dir: ""},
+		Boards:           Boards{{Dir: ""}},
 		HeartbeatTimeout: "30m",
 		AwaitMax:         "8m",
 	}
@@ -421,7 +421,7 @@ func TestValidate_InvalidHeartbeatTimeout(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := &Config{
-				Boards:           BoardsConfig{Dir: "/some/path"},
+				Boards:           Boards{{Dir: "/some/path"}},
 				HeartbeatTimeout: tt.timeout,
 				GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
 			}
@@ -448,7 +448,7 @@ func TestValidate_InvalidAwaitMax(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := &Config{
-				Boards:           BoardsConfig{Dir: "/some/path"},
+				Boards:           Boards{{Dir: "/some/path"}},
 				HeartbeatTimeout: "30m",
 				AwaitMax:         tt.timeout,
 				GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
@@ -462,7 +462,7 @@ func TestValidate_InvalidAwaitMax(t *testing.T) {
 
 func TestValidate_RejectsNegativeChatIdleTTL(t *testing.T) {
 	cfg := &Config{
-		Boards:           BoardsConfig{Dir: "/some/path"},
+		Boards:           Boards{{Dir: "/some/path"}},
 		HeartbeatTimeout: "30m",
 		AwaitMax:         "8m",
 		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
@@ -477,7 +477,7 @@ func TestValidate_AcceptsZeroChatIdleTTL(t *testing.T) {
 	// Zero IdleTTL means "use the default" - applyChatDefaults bumps it
 	// inside Validate so callers that bypass Load still get the default.
 	cfg := &Config{
-		Boards:           BoardsConfig{Dir: "/some/path"},
+		Boards:           Boards{{Dir: "/some/path"}},
 		HeartbeatTimeout: "30m",
 		AwaitMax:         "8m",
 		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
@@ -489,7 +489,7 @@ func TestValidate_AcceptsZeroChatIdleTTL(t *testing.T) {
 
 func TestValidate_RejectsNegativeChatMaxConcurrent(t *testing.T) {
 	cfg := &Config{
-		Boards:           BoardsConfig{Dir: "/some/path"},
+		Boards:           Boards{{Dir: "/some/path"}},
 		HeartbeatTimeout: "30m",
 		AwaitMax:         "8m",
 		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
@@ -504,7 +504,7 @@ func TestValidate_AcceptsZeroChatMaxConcurrent(t *testing.T) {
 	// MaxConcurrent=0 means "unlimited" per the existing applyChatDefaults
 	// semantics; only negative values are rejected.
 	cfg := &Config{
-		Boards:           BoardsConfig{Dir: "/some/path"},
+		Boards:           Boards{{Dir: "/some/path"}},
 		HeartbeatTimeout: "30m",
 		AwaitMax:         "8m",
 		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
@@ -515,7 +515,7 @@ func TestValidate_AcceptsZeroChatMaxConcurrent(t *testing.T) {
 
 func TestValidate_ValidConfig(t *testing.T) {
 	cfg := &Config{
-		Boards:           BoardsConfig{Dir: "/some/path"},
+		Boards:           Boards{{Dir: "/some/path"}},
 		HeartbeatTimeout: "30m",
 		AwaitMax:         "8m",
 		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
@@ -590,7 +590,7 @@ github:
 
 	cfg, err := Load(path)
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(home, "test-boards"), cfg.Boards.Dir)
+	assert.Equal(t, filepath.Join(home, "test-boards"), cfg.Boards[0].Dir)
 }
 
 func TestLoad_TildeExpansion_MissingFile(t *testing.T) {
@@ -609,7 +609,7 @@ github:
 
 	cfg, err := Load(path)
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(home, "env-boards"), cfg.Boards.Dir)
+	assert.Equal(t, filepath.Join(home, "env-boards"), cfg.Boards[0].Dir)
 }
 
 func TestHeartbeatDuration(t *testing.T) {
@@ -741,9 +741,9 @@ github:
 	require.NoError(t, err)
 
 	assert.Equal(t, 8080, cfg.Port)
-	assert.Equal(t, boardsDir, cfg.Boards.Dir)
-	assert.True(t, cfg.Boards.GitAutoCommit)
-	assert.False(t, cfg.Boards.GitAutoPush)
+	assert.Equal(t, boardsDir, cfg.Boards[0].Dir)
+	assert.True(t, cfg.Boards[0].GitAutoCommit)
+	assert.False(t, cfg.Boards[0].GitAutoPush)
 	assert.Equal(t, "30m", cfg.HeartbeatTimeout)
 	assert.Equal(t, "http://localhost:5173", cfg.CORSOrigin)
 	assert.Equal(t, filepath.Join(dir, "workflow-skills"), cfg.WorkflowSkillsDir)
@@ -770,27 +770,27 @@ github:
 }
 
 func TestPullIntervalDuration(t *testing.T) {
-	cfg := &Config{Boards: BoardsConfig{GitPullInterval: "90s"}}
-	d, err := cfg.PullIntervalDuration()
+	cfg := &Config{Boards: Boards{{GitPullInterval: "90s"}}}
+	d, err := cfg.Boards[0].PullIntervalDuration()
 	require.NoError(t, err)
 	assert.Equal(t, 90*time.Second, d)
 }
 
 func TestValidate_EmptyPullInterval_CoercedToDefault(t *testing.T) {
 	cfg := &Config{
-		Boards: BoardsConfig{
+		Boards: Boards{{
 			Dir:             "/some/path",
 			GitPullInterval: "",
-		},
+		}},
 		HeartbeatTimeout: "30m",
 		AwaitMax:         "8m",
 		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
 	}
 
 	require.NoError(t, cfg.Validate())
-	assert.Equal(t, "60s", cfg.Boards.GitPullInterval)
+	assert.Equal(t, "60s", cfg.Boards[0].GitPullInterval)
 
-	d, err := cfg.PullIntervalDuration()
+	d, err := cfg.Boards[0].PullIntervalDuration()
 	require.NoError(t, err)
 	assert.NotZero(t, d)
 }
@@ -819,14 +819,14 @@ func TestDefaults(t *testing.T) {
 	cfg := defaults()
 
 	assert.Equal(t, 8080, cfg.Port)
-	assert.Empty(t, cfg.Boards.Dir)
-	assert.True(t, cfg.Boards.GitAutoCommit)
-	assert.False(t, cfg.Boards.GitAutoPush)
-	assert.False(t, cfg.Boards.GitAutoPull)
-	assert.Equal(t, "60s", cfg.Boards.GitPullInterval)
-	assert.False(t, cfg.Boards.GitDeferredCommit)
-	assert.False(t, cfg.Boards.GitCloneOnEmpty)
-	assert.Empty(t, cfg.Boards.GitRemoteURL)
+	assert.Empty(t, cfg.Boards[0].Dir)
+	assert.True(t, cfg.Boards[0].GitAutoCommit)
+	assert.False(t, cfg.Boards[0].GitAutoPush)
+	assert.False(t, cfg.Boards[0].GitAutoPull)
+	assert.Equal(t, "60s", cfg.Boards[0].GitPullInterval)
+	assert.False(t, cfg.Boards[0].GitDeferredCommit)
+	assert.False(t, cfg.Boards[0].GitCloneOnEmpty)
+	assert.Empty(t, cfg.Boards[0].GitRemoteURL)
 	assert.Equal(t, "30m", cfg.HeartbeatTimeout)
 	assert.Equal(t, "8m", cfg.AwaitMax)
 	assert.Equal(t, "http://localhost:5173", cfg.CORSOrigin)
@@ -975,8 +975,8 @@ github:
 	cfg, err := Load(path)
 	require.NoError(t, err)
 
-	assert.True(t, cfg.Boards.GitCloneOnEmpty)
-	assert.Equal(t, "https://github.com/user/boards.git", cfg.Boards.GitRemoteURL)
+	assert.True(t, cfg.Boards[0].GitCloneOnEmpty)
+	assert.Equal(t, "https://github.com/user/boards.git", cfg.Boards[0].GitRemoteURL)
 }
 
 func TestLoad_CloneOnEmptyDefaults(t *testing.T) {
@@ -989,8 +989,8 @@ func TestLoad_CloneOnEmptyDefaults(t *testing.T) {
 	cfg, err := Load(path)
 	require.NoError(t, err)
 
-	assert.False(t, cfg.Boards.GitCloneOnEmpty)
-	assert.Empty(t, cfg.Boards.GitRemoteURL)
+	assert.False(t, cfg.Boards[0].GitCloneOnEmpty)
+	assert.Empty(t, cfg.Boards[0].GitRemoteURL)
 }
 
 func TestLoad_CloneOnEmptyEnvOverrides(t *testing.T) {
@@ -1006,17 +1006,17 @@ func TestLoad_CloneOnEmptyEnvOverrides(t *testing.T) {
 	cfg, err := Load(path)
 	require.NoError(t, err)
 
-	assert.True(t, cfg.Boards.GitCloneOnEmpty)
-	assert.Equal(t, "https://github.com/user/boards.git", cfg.Boards.GitRemoteURL)
+	assert.True(t, cfg.Boards[0].GitCloneOnEmpty)
+	assert.Equal(t, "https://github.com/user/boards.git", cfg.Boards[0].GitRemoteURL)
 }
 
 func TestValidate_CloneOnEmptyWithoutRemoteURL(t *testing.T) {
 	cfg := &Config{
-		Boards: BoardsConfig{
+		Boards: Boards{{
 			Dir:             "/some/path",
 			GitCloneOnEmpty: true,
 			GitRemoteURL:    "",
-		},
+		}},
 		HeartbeatTimeout: "30m",
 		AwaitMax:         "8m",
 		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
@@ -1028,11 +1028,11 @@ func TestValidate_CloneOnEmptyWithoutRemoteURL(t *testing.T) {
 
 func TestValidate_CloneOnEmptyWithRemoteURL(t *testing.T) {
 	cfg := &Config{
-		Boards: BoardsConfig{
+		Boards: Boards{{
 			Dir:             "/some/path",
 			GitCloneOnEmpty: true,
 			GitRemoteURL:    "https://github.com/user/boards.git",
-		},
+		}},
 		HeartbeatTimeout: "30m",
 		AwaitMax:         "8m",
 		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
@@ -1043,11 +1043,11 @@ func TestValidate_CloneOnEmptyWithRemoteURL(t *testing.T) {
 
 func TestValidate_RemoteURLWithoutCloneOnEmpty(t *testing.T) {
 	cfg := &Config{
-		Boards: BoardsConfig{
+		Boards: Boards{{
 			Dir:             "/some/path",
 			GitCloneOnEmpty: false,
 			GitRemoteURL:    "https://github.com/user/boards.git",
-		},
+		}},
 		HeartbeatTimeout: "30m",
 		AwaitMax:         "8m",
 		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
@@ -1349,7 +1349,7 @@ func TestLoad_Theme_EnvOverride(t *testing.T) {
 
 func TestValidate_Theme_InvalidValue(t *testing.T) {
 	cfg := &Config{
-		Boards:           BoardsConfig{Dir: "/some/path"},
+		Boards:           Boards{{Dir: "/some/path"}},
 		HeartbeatTimeout: "30m",
 		AwaitMax:         "8m",
 		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
@@ -1364,7 +1364,7 @@ func TestValidate_Theme_ValidValues(t *testing.T) {
 	for _, theme := range []string{"everforest", "radix", "catppuccin"} {
 		t.Run(theme, func(t *testing.T) {
 			cfg := &Config{
-				Boards:           BoardsConfig{Dir: "/some/path"},
+				Boards:           Boards{{Dir: "/some/path"}},
 				HeartbeatTimeout: "30m",
 				AwaitMax:         "8m",
 				GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
@@ -1378,7 +1378,7 @@ func TestValidate_Theme_ValidValues(t *testing.T) {
 
 func TestValidate_LogFormat_InvalidValue(t *testing.T) {
 	cfg := &Config{
-		Boards:           BoardsConfig{Dir: "/some/path"},
+		Boards:           Boards{{Dir: "/some/path"}},
 		HeartbeatTimeout: "30m",
 		AwaitMax:         "8m",
 		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
@@ -1391,7 +1391,7 @@ func TestValidate_LogFormat_InvalidValue(t *testing.T) {
 
 func TestValidate_LogLevel_InvalidValue(t *testing.T) {
 	cfg := &Config{
-		Boards:           BoardsConfig{Dir: "/some/path"},
+		Boards:           Boards{{Dir: "/some/path"}},
 		HeartbeatTimeout: "30m",
 		AwaitMax:         "8m",
 		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
@@ -1406,7 +1406,7 @@ func TestValidate_AdminPort_OutOfRange(t *testing.T) {
 	for _, p := range []int{-1, 65536, 99999} {
 		t.Run(strconv.Itoa(p), func(t *testing.T) {
 			cfg := &Config{
-				Boards:           BoardsConfig{Dir: "/some/path"},
+				Boards:           Boards{{Dir: "/some/path"}},
 				HeartbeatTimeout: "30m",
 				AwaitMax:         "8m",
 				GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
@@ -1421,7 +1421,7 @@ func TestValidate_AdminPort_OutOfRange(t *testing.T) {
 
 func TestValidate_AdminPort_CollisionWithPort(t *testing.T) {
 	cfg := &Config{
-		Boards:           BoardsConfig{Dir: "/some/path"},
+		Boards:           Boards{{Dir: "/some/path"}},
 		HeartbeatTimeout: "30m",
 		AwaitMax:         "8m",
 		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
@@ -1435,7 +1435,7 @@ func TestValidate_AdminPort_CollisionWithPort(t *testing.T) {
 
 func TestValidate_AdminBindAddr_DefaultsToLoopback(t *testing.T) {
 	cfg := &Config{
-		Boards:           BoardsConfig{Dir: "/some/path"},
+		Boards:           Boards{{Dir: "/some/path"}},
 		HeartbeatTimeout: "30m",
 		AwaitMax:         "8m",
 		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
@@ -1760,7 +1760,7 @@ func TestBuildSlogHandler_JSONEmitsValidStructure(t *testing.T) {
 
 func TestValidate_AuthModeMissing(t *testing.T) {
 	cfg := &Config{
-		Boards: BoardsConfig{Dir: "/tmp/x"},
+		Boards: Boards{{Dir: "/tmp/x"}},
 	}
 	err := cfg.Validate()
 	require.Error(t, err)
@@ -1769,7 +1769,7 @@ func TestValidate_AuthModeMissing(t *testing.T) {
 
 func TestValidate_AuthModeInvalid(t *testing.T) {
 	cfg := &Config{
-		Boards: BoardsConfig{Dir: "/tmp/x"},
+		Boards: Boards{{Dir: "/tmp/x"}},
 		GitHub: GitHubConfig{AuthMode: "bogus"},
 	}
 	err := cfg.Validate()
@@ -1790,7 +1790,7 @@ func TestValidate_AppMissingFields(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := &Config{
-				Boards: BoardsConfig{Dir: "/tmp/x"},
+				Boards: Boards{{Dir: "/tmp/x"}},
 				GitHub: GitHubConfig{AuthMode: "app", App: tc.app},
 			}
 			err := cfg.Validate()
@@ -1802,7 +1802,7 @@ func TestValidate_AppMissingFields(t *testing.T) {
 
 func TestValidate_PATMissingToken(t *testing.T) {
 	cfg := &Config{
-		Boards: BoardsConfig{Dir: "/tmp/x"},
+		Boards: Boards{{Dir: "/tmp/x"}},
 		GitHub: GitHubConfig{AuthMode: "pat"},
 	}
 	err := cfg.Validate()
@@ -1828,7 +1828,7 @@ func TestLoad_ExampleFile_HasLogFields(t *testing.T) {
 
 func TestValidate_AppMode_RejectsPATToken(t *testing.T) {
 	cfg := &Config{
-		Boards: BoardsConfig{Dir: "/tmp/x"},
+		Boards: Boards{{Dir: "/tmp/x"}},
 		GitHub: GitHubConfig{
 			AuthMode: "app",
 			App: GitHubAppConfig{
@@ -1844,7 +1844,7 @@ func TestValidate_AppMode_RejectsPATToken(t *testing.T) {
 
 func TestValidate_PATMode_RejectsAppFields(t *testing.T) {
 	cfg := &Config{
-		Boards: BoardsConfig{Dir: "/tmp/x"},
+		Boards: Boards{{Dir: "/tmp/x"}},
 		GitHub: GitHubConfig{
 			AuthMode: "pat",
 			PAT:      GitHubPATConfig{Token: "x"},
@@ -1893,7 +1893,7 @@ func validBaseConfig(t *testing.T) *Config {
 	t.Helper()
 
 	return &Config{
-		Boards:           BoardsConfig{Dir: "/tmp/boards"},
+		Boards:           Boards{{Dir: "/tmp/boards"}},
 		HeartbeatTimeout: "30m",
 		AwaitMax:         "8m",
 		GitHub: GitHubConfig{
@@ -1905,7 +1905,7 @@ func validBaseConfig(t *testing.T) *Config {
 
 func TestValidate_BoardsRemoteURLNotHTTPS(t *testing.T) {
 	cfg := validBaseConfig(t)
-	cfg.Boards.GitRemoteURL = "ssh://git@github.com/foo/bar.git"
+	cfg.Boards[0].GitRemoteURL = "ssh://git@github.com/foo/bar.git"
 	err := cfg.Validate()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "boards.git_remote_url must start with https://")
@@ -1913,13 +1913,13 @@ func TestValidate_BoardsRemoteURLNotHTTPS(t *testing.T) {
 
 func TestValidate_BoardsRemoteURL_HTTPS_OK(t *testing.T) {
 	cfg := validBaseConfig(t)
-	cfg.Boards.GitRemoteURL = "https://github.com/foo/bar.git"
+	cfg.Boards[0].GitRemoteURL = "https://github.com/foo/bar.git"
 	require.NoError(t, cfg.Validate())
 }
 
 func TestValidate_BoardsCloneOnEmptyRequiresURL(t *testing.T) {
 	cfg := validBaseConfig(t)
-	cfg.Boards.GitCloneOnEmpty = true
+	cfg.Boards[0].GitCloneOnEmpty = true
 	err := cfg.Validate()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "boards.git_remote_url is required when boards.git_clone_on_empty")
@@ -2821,7 +2821,7 @@ backends:
 func TestValidate_Auth(t *testing.T) {
 	base := func() *Config {
 		c := defaults()
-		c.Boards.Dir = "/tmp/boards"
+		c.Boards[0].Dir = "/tmp/boards"
 		c.GitHub.AuthMode = "pat"
 		c.GitHub.PAT.Token = "x"
 		applyAuthDefaults(c)
@@ -3579,28 +3579,28 @@ func TestValidate_SharedBoards(t *testing.T) {
 		mutate  func(c *Config)
 		wantErr string
 	}{
-		{"requires remote", func(c *Config) { c.Boards.Shared = true; c.Boards.GitRemoteURL = "" }, "git_remote_url is required"},
+		{"requires remote", func(c *Config) { c.Boards[0].Shared = true; c.Boards[0].GitRemoteURL = "" }, "git_remote_url is required"},
 		{"rejects deferred", func(c *Config) {
-			c.Boards.Shared = true
-			c.Boards.GitRemoteURL = "https://x/y"
-			c.Boards.GitDeferredCommit = true
+			c.Boards[0].Shared = true
+			c.Boards[0].GitRemoteURL = "https://x/y"
+			c.Boards[0].GitDeferredCommit = true
 		}, "git_deferred_commit"},
 		{"rejects auto_commit off", func(c *Config) {
-			c.Boards.Shared = true
-			c.Boards.GitRemoteURL = "https://x/y"
-			c.Boards.GitAutoCommit = false
+			c.Boards[0].Shared = true
+			c.Boards[0].GitRemoteURL = "https://x/y"
+			c.Boards[0].GitAutoCommit = false
 		}, "git_auto_commit"},
-		{"forces pull and push", func(c *Config) { c.Boards.Shared = true; c.Boards.GitRemoteURL = "https://x/y" }, ""},
+		{"forces pull and push", func(c *Config) { c.Boards[0].Shared = true; c.Boards[0].GitRemoteURL = "https://x/y" }, ""},
 		{"bad instance id", func(c *Config) {
-			c.Boards.Shared = true
-			c.Boards.GitRemoteURL = "https://x/y"
+			c.Boards[0].Shared = true
+			c.Boards[0].GitRemoteURL = "https://x/y"
 			c.Instance.ID = "Bad Name!"
 		}, "instance.id"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := defaults()
-			c.Boards.Dir = t.TempDir()
+			c.Boards[0].Dir = t.TempDir()
 			c.GitHub.AuthMode = "pat"
 			c.GitHub.PAT.Token = "x"
 			c.Instance.ID = "laptop-a1b2c3"
@@ -3609,8 +3609,8 @@ func TestValidate_SharedBoards(t *testing.T) {
 			err := c.Validate()
 			if tt.wantErr == "" {
 				require.NoError(t, err)
-				assert.True(t, c.Boards.GitAutoPull)
-				assert.True(t, c.Boards.GitAutoPush)
+				assert.True(t, c.Boards[0].GitAutoPull)
+				assert.True(t, c.Boards[0].GitAutoPush)
 
 				return
 			}
@@ -3639,19 +3639,19 @@ func TestValidate_LeaseFields(t *testing.T) {
 		wantErr string
 	}{
 		{"defaults pass", func(c *Config) {}, ""},
-		{"bad interval", func(c *Config) { c.Boards.LeaseInterval = "soon" }, "lease_interval"},
-		{"bad timeout", func(c *Config) { c.Boards.LeaseTimeout = "later" }, "lease_timeout"},
-		{"timeout too short", func(c *Config) { c.Boards.LeaseTimeout = "30m" }, "lease_timeout must exceed"},
-		{"not checked when private", func(c *Config) { c.Boards.Shared = false; c.Boards.LeaseTimeout = "1m" }, ""},
+		{"bad interval", func(c *Config) { c.Boards[0].LeaseInterval = "soon" }, "lease_interval"},
+		{"bad timeout", func(c *Config) { c.Boards[0].LeaseTimeout = "later" }, "lease_timeout"},
+		{"timeout too short", func(c *Config) { c.Boards[0].LeaseTimeout = "30m" }, "lease_timeout must exceed"},
+		{"not checked when private", func(c *Config) { c.Boards[0].Shared = false; c.Boards[0].LeaseTimeout = "1m" }, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := defaults()
-			c.Boards.Dir = t.TempDir()
+			c.Boards[0].Dir = t.TempDir()
 			c.GitHub.AuthMode = "pat"
 			c.GitHub.PAT.Token = "x"
-			c.Boards.Shared = true
-			c.Boards.GitRemoteURL = "https://x/y"
+			c.Boards[0].Shared = true
+			c.Boards[0].GitRemoteURL = "https://x/y"
 			c.Instance.ID = "laptop-a1b2c3"
 			tt.mutate(c)
 
@@ -3670,11 +3670,196 @@ func TestValidate_LeaseFields(t *testing.T) {
 func TestLeaseDurations(t *testing.T) {
 	c := defaults()
 
-	i, err := c.LeaseIntervalDuration()
+	i, err := c.Boards[0].LeaseIntervalDuration()
 	require.NoError(t, err)
 	assert.Equal(t, 5*time.Minute, i)
 
-	to, err := c.LeaseTimeoutDuration()
+	to, err := c.Boards[0].LeaseTimeoutDuration()
 	require.NoError(t, err)
 	assert.Equal(t, time.Hour, to)
+}
+
+func TestBoards_MapFormDecodesAsOneEntryNamedBoards(t *testing.T) {
+	cfg := loadConfigFromYAML(t, "")
+
+	require.Len(t, cfg.Boards, 1)
+	assert.Equal(t, DefaultBoardsName, cfg.Boards[0].Name)
+	assert.True(t, cfg.Boards[0].GitAutoCommit)
+	assert.Equal(t, "60s", cfg.Boards[0].GitPullInterval)
+}
+
+func TestBoards_ListForm(t *testing.T) {
+	dir := t.TempDir()
+	team := filepath.Join(dir, "team")
+	private := filepath.Join(dir, "private")
+
+	require.NoError(t, os.MkdirAll(team, 0o755))
+	require.NoError(t, os.MkdirAll(private, 0o755))
+
+	cfg, err := loadFromYAML(t, `
+boards:
+  - name: team
+    dir: `+team+`
+    git_remote_url: https://github.com/org/boards.git
+    shared: true
+  - name: private
+    dir: `+private+`
+    git_deferred_commit: true
+github:
+  auth_mode: "pat"
+  pat:
+    token: "ghp_test"
+instance:
+  id: laptop-a1b2c3
+`)
+	require.NoError(t, err)
+	require.Len(t, cfg.Boards, 2)
+
+	assert.Equal(t, []string{"team", "private"}, cfg.Boards.Names())
+	assert.True(t, cfg.Boards.AnyShared())
+	assert.True(t, cfg.Boards[0].Shared)
+	assert.True(t, cfg.Boards[0].GitAutoPull, "shared forces pull")
+	assert.True(t, cfg.Boards[0].GitAutoPush, "shared forces push")
+	assert.Equal(t, "5m", cfg.Boards[0].LeaseInterval, "shared defaults fill per entry")
+	assert.True(t, cfg.Boards[1].GitAutoCommit, "per-entry default survives the list form")
+	assert.True(t, cfg.Boards[1].GitDeferredCommit)
+	assert.False(t, cfg.Boards[1].Shared)
+}
+
+func TestBoards_ListFormIsStrictAndNamed(t *testing.T) {
+	dir := t.TempDir()
+
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr string
+	}{
+		{"unknown field", "boards:\n  - name: a\n    dir: " + dir + "\n    git_pul_interval: 1m\n", "boards[0]"},
+		{"missing name", "boards:\n  - dir: " + dir + "\n", "boards[0]: name is required"},
+		{"scalar", "boards: nope\n", "boards must be a mapping or a list"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := loadFromYAML(t, tt.yaml+"github:\n  auth_mode: \"pat\"\n  pat:\n    token: \"x\"\n")
+			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
+func TestBoards_MapAndOneElementListAreEquivalent(t *testing.T) {
+	dir := t.TempDir()
+	base := "github:\n  auth_mode: \"pat\"\n  pat:\n    token: \"x\"\n"
+
+	fromMap, err := loadFromYAML(t, "boards:\n  dir: "+dir+"\n  git_auto_pull: true\n  git_pull_interval: 30s\n"+base)
+	require.NoError(t, err)
+
+	fromList, err := loadFromYAML(t, "boards:\n  - name: boards\n    dir: "+dir+"\n    git_auto_pull: true\n    git_pull_interval: 30s\n"+base)
+	require.NoError(t, err)
+
+	assert.Equal(t, fromMap.Boards, fromList.Boards)
+}
+
+func TestValidate_BoardsNamesAndDirs(t *testing.T) {
+	root := t.TempDir()
+	a := filepath.Join(root, "a")
+	b := filepath.Join(root, "b")
+
+	tests := []struct {
+		name    string
+		boards  Boards
+		wantErr string
+	}{
+		{"duplicate name", Boards{{Name: "x", Dir: a}, {Name: "x", Dir: b}}, "boards: duplicate name \"x\""},
+		{"bad name", Boards{{Name: "Team Repo", Dir: a}}, "boards[Team Repo].name"},
+		{"same dir", Boards{{Name: "x", Dir: a}, {Name: "y", Dir: a}}, "boards[y].dir"},
+		{"nested dir", Boards{{Name: "x", Dir: a}, {Name: "y", Dir: filepath.Join(a, "inner")}}, "nests"},
+		{"nested the other way", Boards{{Name: "x", Dir: filepath.Join(b, "inner")}, {Name: "y", Dir: b}}, "nests"},
+		{"disjoint", Boards{{Name: "x", Dir: a}, {Name: "y", Dir: b}}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := defaults()
+			c.GitHub.AuthMode = "pat"
+			c.GitHub.PAT.Token = "x"
+
+			c.Boards = tt.boards
+			for i := range c.Boards {
+				c.Boards[i].GitAutoCommit = true
+			}
+
+			err := c.Validate()
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+
+				return
+			}
+
+			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
+func TestValidate_LeaseIntervalMustBeShorterThanHeartbeat(t *testing.T) {
+	c := defaults()
+	c.Boards[0].Dir = t.TempDir()
+	c.GitHub.AuthMode = "pat"
+	c.GitHub.PAT.Token = "x"
+	c.Instance.ID = "laptop-a1b2c3"
+	c.Boards[0].Shared = true
+	c.Boards[0].GitRemoteURL = "https://x/y"
+	c.HeartbeatTimeout = "5m"
+	c.Boards[0].LeaseInterval = "5m"
+	c.Boards[0].LeaseTimeout = "1h"
+
+	require.ErrorContains(t, c.Validate(), "boards.lease_interval")
+}
+
+func TestValidate_ListFormErrorsNameTheEntry(t *testing.T) {
+	c := defaults()
+	c.GitHub.AuthMode = "pat"
+	c.GitHub.PAT.Token = "x"
+	c.Boards = Boards{
+		{Name: "team", Dir: t.TempDir(), GitAutoCommit: true, Shared: true},
+		{Name: "private", Dir: t.TempDir(), GitAutoCommit: true},
+	}
+
+	require.ErrorContains(t, c.Validate(), "boards[team].git_remote_url is required when boards[team].shared is true")
+}
+
+func TestLoad_EnvOverridesRejectedWithAList(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a")
+	b := filepath.Join(dir, "b")
+
+	require.NoError(t, os.MkdirAll(a, 0o755))
+	require.NoError(t, os.MkdirAll(b, 0o755))
+	t.Setenv("CONTEXTMATRIX_BOARDS_GIT_AUTO_PULL", "true")
+
+	_, err := loadFromYAML(t, "boards:\n  - name: a\n    dir: "+a+"\n  - name: b\n    dir: "+b+"\ngithub:\n  auth_mode: \"pat\"\n  pat:\n    token: \"x\"\n")
+	require.ErrorContains(t, err, "CONTEXTMATRIX_BOARDS_GIT_AUTO_PULL")
+	require.ErrorContains(t, err, "single-repo")
+}
+
+func TestLoad_EnvOverridesApplyToAOneElementList(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CONTEXTMATRIX_BOARDS_GIT_PULL_INTERVAL", "45s")
+
+	cfg, err := loadFromYAML(t, "boards:\n  - name: solo\n    dir: "+dir+"\ngithub:\n  auth_mode: \"pat\"\n  pat:\n    token: \"x\"\n")
+	require.NoError(t, err)
+	assert.Equal(t, "solo", cfg.Boards[0].Name)
+	assert.Equal(t, "45s", cfg.Boards[0].GitPullInterval)
+}
+
+func TestLoad_InstanceIDGeneratedWhenAnyEntryIsShared(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a")
+	b := filepath.Join(dir, "b")
+
+	require.NoError(t, os.MkdirAll(a, 0o755))
+	require.NoError(t, os.MkdirAll(b, 0o755))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(dir, "state"))
+
+	cfg, err := loadFromYAML(t, "boards:\n  - name: a\n    dir: "+a+"\n  - name: b\n    dir: "+b+"\n    git_remote_url: https://x/y\n    shared: true\ngithub:\n  auth_mode: \"pat\"\n  pat:\n    token: \"x\"\n")
+	require.NoError(t, err)
+	assert.Regexp(t, `^[a-z0-9][a-z0-9._-]{0,63}$`, cfg.Instance.ID)
 }

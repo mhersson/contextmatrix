@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { Sidebar } from './Sidebar';
 import { api } from '../../api/client';
@@ -28,8 +28,20 @@ vi.mock('../../hooks/ProjectSummariesProvider', () => ({
   })),
 }));
 
+const themeState = vi.hoisted(() => ({ boardsRepos: [] as { name: string; shared: boolean }[] }));
+const syncState = vi.hoisted(() => ({ current: [] as import('../../types').SyncStatus[] }));
+
 vi.mock('../../hooks/useTheme', () => ({
-  useTheme: vi.fn(() => ({ theme: 'dark', palette: 'everforest', version: '', setTheme: () => {}, setPalette: () => {} })),
+  useTheme: vi.fn(() => ({ theme: 'dark', palette: 'everforest', version: '', boardsRepos: themeState.boardsRepos, setTheme: () => {}, setPalette: () => {} })),
+}));
+
+vi.mock('../../hooks/useSync', () => ({
+  useSync: () => ({
+    syncStatuses: syncState.current,
+    syncStatus: syncState.current[0] ?? null,
+    statusFor: (repo?: string) => (repo ? syncState.current.find((s) => s.repo === repo) ?? null : syncState.current[0] ?? null),
+    triggerSync: async () => {},
+  }),
 }));
 
 const authState = vi.hoisted(() => ({ current: null as unknown }));
@@ -275,5 +287,58 @@ describe('Sidebar footer appearance slot', () => {
     expect(screen.getByTitle(/^signed in as alice/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Alice/ }));
     expect(screen.getByRole('menuitemradio', { name: 'Dark' })).toBeInTheDocument();
+  });
+});
+
+describe('boards repo sections', () => {
+  const projectsByRepo = [
+    { name: 'zebra', prefix: 'Z', next_id: 1, states: [], types: [], priorities: [], transitions: {}, boards_repo: 'private' },
+    { name: 'alpha', prefix: 'A', next_id: 1, states: [], types: [], priorities: [], transitions: {}, boards_repo: 'team' },
+  ];
+
+  beforeEach(() => {
+    localStorage.clear();
+    themeState.boardsRepos = [{ name: 'team', shared: true }, { name: 'private', shared: false }];
+    syncState.current = [
+      { repo: 'team', enabled: true, shared: true, syncing: false, last_sync_time: null, remote_reachable: false },
+      { repo: 'private', enabled: false, syncing: false, last_sync_time: null },
+    ];
+    mockUseProjects.mockReturnValue({ projects: projectsByRepo, loading: false, error: null, connected: true, refreshProjects: async () => {} });
+  });
+
+  afterEach(() => {
+    themeState.boardsRepos = [];
+    syncState.current = [];
+  });
+
+  it('renders one section per repo holding its projects, with a sync dot', () => {
+    renderSidebar();
+    const team = screen.getByRole('region', { name: 'Boards repo team' });
+    const priv = screen.getByRole('region', { name: 'Boards repo private' });
+    expect(within(team).getByRole('link', { name: /alpha/ })).toBeInTheDocument();
+    expect(within(team).queryByRole('link', { name: /zebra/ })).toBeNull();
+    expect(within(priv).getByRole('link', { name: /zebra/ })).toBeInTheDocument();
+    expect(within(team).getByRole('img', { name: /team sync: offline/ })).toBeInTheDocument();
+    expect(within(priv).getByRole('img', { name: /private sync: sync disabled/ })).toBeInTheDocument();
+    expect(screen.queryByText('Projects')).toBeNull();
+  });
+
+  it('collapses a section and remembers it across renders', () => {
+    const first = renderSidebar();
+    fireEvent.click(screen.getByRole('button', { name: /team/ }));
+    expect(screen.queryByRole('link', { name: /alpha/ })).toBeNull();
+    expect(localStorage.getItem('contextmatrix-sidebar-repo-collapsed')).toContain('"team":true');
+    first.unmount();
+
+    renderSidebar();
+    expect(screen.queryByRole('link', { name: /alpha/ })).toBeNull();
+    expect(screen.getByRole('link', { name: /zebra/ })).toBeInTheDocument();
+  });
+
+  it('keeps the single Projects eyebrow with one repo', () => {
+    themeState.boardsRepos = [{ name: 'boards', shared: false }];
+    renderSidebar();
+    expect(screen.getByText('Projects')).toBeInTheDocument();
+    expect(screen.queryByRole('region')).toBeNull();
   });
 });

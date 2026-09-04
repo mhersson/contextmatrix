@@ -41,18 +41,21 @@ func commitMessage(agentID, cardID, action string) string {
 
 // enqueueCardCommit enqueues a card-change commit without waiting for it to
 // complete, returning a channel that yields the commit result plus a bool
-// telling the caller whether notifyCommit should fire on success (true only
-// when a real commit was actually scheduled - not for no-ops or deferred).
+// telling the caller whether the repo's on-commit hook should fire on
+// success (true only when a real commit was actually scheduled - not for
+// no-ops or deferred).
 // Caller must hold writeMu while invoking this (so the enqueue itself is
 // serialized); the caller may then release writeMu before awaiting the
 // returned channel, which is the whole point of the async path.
 func (s *CardService) enqueueCardCommit(ctx context.Context, project, cardID, agentID, action string) (<-chan error, bool) {
-	if !s.gitAutoCommit {
+	r := s.repoOf(project)
+
+	if !r.GitAutoCommit {
 		return noopCommitChan(), false
 	}
 
 	path := s.cardPath(project, cardID)
-	if s.gitDeferredCommit {
+	if r.GitDeferredCommit {
 		s.deferredPaths[cardID] = append(s.deferredPaths[cardID], path)
 
 		return noopCommitChan(), false
@@ -60,8 +63,8 @@ func (s *CardService) enqueueCardCommit(ctx context.Context, project, cardID, ag
 
 	msg := commitMessage(agentID, cardID, action)
 
-	if s.commitQueue != nil {
-		return s.commitQueue.Enqueue(gitops.CommitJob{
+	if r.Queue != nil {
+		return r.Queue.Enqueue(gitops.CommitJob{
 			Project: project,
 			Kind:    gitops.CommitKindFile,
 			Path:    path,
@@ -74,7 +77,7 @@ func (s *CardService) enqueueCardCommit(ctx context.Context, project, cardID, ag
 	// return a pre-resolved channel. This preserves the original
 	// ordering semantics (commit happens before the caller continues)
 	// for tests/callers that never wire a queue.
-	err := s.git.CommitFile(ctx, path, msg)
+	err := r.Git.CommitFile(ctx, path, msg)
 
 	done := make(chan error, 1)
 	done <- err
@@ -84,15 +87,16 @@ func (s *CardService) enqueueCardCommit(ctx context.Context, project, cardID, ag
 	return done, true
 }
 
-// awaitCommit reads a commit result and invokes notifyCommit on success
-// when shouldNotify is true. A small helper to keep caller sites tight.
-func (s *CardService) awaitCommit(done <-chan error, shouldNotify bool) error {
+// awaitCommit reads a commit result and invokes the repo's on-commit hook
+// on success when shouldNotify is true. r is the repo the commit was
+// scheduled in, resolved by the caller from the project it wrote.
+func (s *CardService) awaitCommit(r *BoardsRepo, done <-chan error, shouldNotify bool) error {
 	if err := <-done; err != nil {
 		return err
 	}
 
 	if shouldNotify {
-		s.notifyCommit()
+		r.notifyCommit()
 	}
 
 	return nil
@@ -117,7 +121,9 @@ func (s *CardService) flushDeferredCommit(ctx context.Context, cardID, agentID s
 // flushDeferredCommitForProject is the implementation. Separated so callers
 // that already know the project can pass it in directly.
 func (s *CardService) flushDeferredCommitForProject(ctx context.Context, project, cardID, agentID string) error {
-	if !s.gitAutoCommit || !s.gitDeferredCommit {
+	r := s.repoOf(project)
+
+	if !r.GitAutoCommit || !r.GitDeferredCommit {
 		return nil
 	}
 
@@ -138,8 +144,8 @@ func (s *CardService) flushDeferredCommitForProject(ctx context.Context, project
 
 	msg := commitMessage(agentID, cardID, "completed (deferred commit)")
 
-	if s.commitQueue != nil {
-		done := s.commitQueue.Enqueue(gitops.CommitJob{
+	if r.Queue != nil {
+		done := r.Queue.Enqueue(gitops.CommitJob{
 			Project:     project,
 			Kind:        gitops.CommitKindFilesShell,
 			Paths:       unique,
@@ -153,14 +159,14 @@ func (s *CardService) flushDeferredCommitForProject(ctx context.Context, project
 		// Delete paths only after a successful commit.
 		delete(s.deferredPaths, cardID)
 
-		s.notifyCommit()
+		r.notifyCommit()
 
 		return nil
 	}
 
 	// Use shell git instead of go-git to avoid stale in-memory state after
 	// shell-based push/rebase operations by the gitsync layer.
-	if err := s.git.CommitFilesShell(ctx, unique, msg); err != nil {
+	if err := r.Git.CommitFilesShell(ctx, unique, msg); err != nil {
 		return err
 	}
 	// Delete paths only after a successful commit - prevents data loss if
@@ -168,11 +174,11 @@ func (s *CardService) flushDeferredCommitForProject(ctx context.Context, project
 	delete(s.deferredPaths, cardID)
 	// Refresh go-git's in-memory repo state so subsequent read operations
 	// (e.g. GetLastCommitMessage) see the shell-git commit.
-	if err := s.git.ReloadRepo(ctx); err != nil {
+	if err := r.Git.ReloadRepo(ctx); err != nil {
 		ctxlog.Logger(ctx).Warn("reload repo after deferred flush", "card_id", cardID, "error", err)
 	}
 
-	s.notifyCommit()
+	r.notifyCommit()
 
 	return nil
 }

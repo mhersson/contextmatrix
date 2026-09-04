@@ -2999,3 +2999,31 @@ func TestServerInstructionsPresent(t *testing.T) {
 	require.NotNil(t, initResult)
 	assert.NotEmpty(t, initResult.Instructions, "server instructions should be non-empty")
 }
+
+func TestCreateProject_MCP_BoardsRepo(t *testing.T) {
+	env := setupMCP(t)
+
+	args := func(name, repo string) map[string]any {
+		return map[string]any{
+			"name": name, "prefix": name, "boards_repo": repo,
+			"states":     []string{"todo", "in_progress", "done", "stalled", "not_planned"},
+			"types":      []string{"task"},
+			"priorities": []string{"low"},
+			"transitions": map[string][]string{
+				"todo": {"in_progress"}, "in_progress": {"done", "todo"}, "done": {"todo"},
+				"stalled": {"todo", "in_progress"}, "not_planned": {"todo"},
+			},
+		}
+	}
+
+	result := callTool(t, env, "create_project", args("gamma", "boards"))
+	require.False(t, result.IsError)
+
+	var cfg board.ProjectConfig
+	unmarshalResult(t, result, &cfg)
+	assert.Equal(t, "boards", cfg.BoardsRepo)
+
+	result = callTool(t, env, "create_project", args("delta", "nope"))
+	require.True(t, result.IsError)
+	assert.Contains(t, result.Content[0].(*mcp.TextContent).Text, "unknown boards_repo")
+}

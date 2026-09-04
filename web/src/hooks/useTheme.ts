@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useContext, createContext } 
 import type { ReactNode } from 'react';
 import { createElement } from 'react';
 import { api } from '../api/client';
+import type { BoardsRepoInfo } from '../types';
 import { useOptionalAuth } from './useAuth';
 import { safeGetString, safeSetString } from '../utils/safeStorage';
 
@@ -93,6 +94,8 @@ interface ThemeContextValue {
   /** This server's instance id on a shared boards repo ('' on a private board). */
   instanceId: string;
   sharedBoards: boolean;
+  /** Configured boards repositories in config order; [] until app config loads. */
+  boardsRepos: BoardsRepoInfo[];
   setTheme: (theme: Theme) => void;
   setPalette: (palette: Palette) => void;
 }
@@ -127,6 +130,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [mobExecuteCheckpoints, setMobExecuteCheckpoints] = useState(false);
   const [instanceId, setInstanceId] = useState('');
   const [sharedBoards, setSharedBoards] = useState(false);
+  const [boardsRepos, setBoardsRepos] = useState<BoardsRepoInfo[]>([]);
 
   // Optional: AuthProvider does not yet sit above ThemeProvider in App.tsx
   // (wired in a later task), and pre-existing tests render ThemeProvider
@@ -185,6 +189,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       if (config.shared_boards !== undefined) {
         setSharedBoards(config.shared_boards);
       }
+      setBoardsRepos(config.boards_repos ?? []);
     }).catch(() => {
       // swallow errors - leave default everforest palette
     });
@@ -207,12 +212,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     () => ({
       theme, palette, version, taskBackend, chatEnabled, favorites, bestOfNMax, bestOfNDefault,
       mobMaxParticipants, mobDefaultParticipants, mobGuestNames, mobExecuteCheckpoints,
-      instanceId, sharedBoards,
+      instanceId, sharedBoards, boardsRepos,
       setTheme, setPalette,
     }),
     [theme, palette, version, taskBackend, chatEnabled, favorites, bestOfNMax, bestOfNDefault,
       mobMaxParticipants, mobDefaultParticipants, mobGuestNames, mobExecuteCheckpoints,
-      instanceId, sharedBoards,
+      instanceId, sharedBoards, boardsRepos,
       setTheme, setPalette],
   );
 

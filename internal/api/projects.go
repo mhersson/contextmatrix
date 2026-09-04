@@ -14,6 +14,7 @@ type createProjectRequest struct {
 	DisplayName string              `json:"display_name,omitempty"`
 	Prefix      string              `json:"prefix"`
 	Repo        string              `json:"repo,omitempty"`
+	BoardsRepo  string              `json:"boards_repo,omitempty"`
 	States      []string            `json:"states"`
 	Types       []string            `json:"types"`
 	Priorities  []string            `json:"priorities"`
@@ -158,6 +159,7 @@ func (h *projectHandlers) createProject(w http.ResponseWriter, r *http.Request) 
 		DisplayName: req.DisplayName,
 		Prefix:      req.Prefix,
 		Repo:        req.Repo,
+		BoardsRepo:  req.BoardsRepo,
 		States:      req.States,
 		Types:       req.Types,
 		Priorities:  req.Priorities,

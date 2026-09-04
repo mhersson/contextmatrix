@@ -606,6 +606,14 @@ and commit completion. The service layer closes that gap on failure:
   instances' leases and reports the loss as `claim.lost` - a takeover
   (another instance now in `claimed_via`) at any epoch, an emptied claim
   tuple only at a higher epoch and outside a terminal state.
+  One syncer runs per boards repository that has a remote (`gitsync.Group`
+  fronts them for `/api/sync`). A cycle takes the global playbook lock, then
+  the service's global write mutex, then drains or pauses only its own
+  repo's commit queue; a cycle of one repo never waits on another repo's
+  commits, and a playbook write in another repo completes meanwhile because
+  its queue is untouched. `SyncSucceeded` and `ObserveLeases` are called
+  with the repo name, so a fresh pull of one repo never confirms or judges
+  another repo's leases.
 - **GitHub integration** (`github`): three pieces - `client.go` (HTTP client for
   GitHub REST API used during issue import / branch listing), `parse.go` (issue
   → card mapping rules), `syncer.go` (per-project import loop driven by
@@ -659,8 +667,20 @@ passed to `CommitFile()` / `CommitFiles()` are relative to that directory (e.g.,
 If the boards directory does not exist or is not a git repo on startup, the
 server creates it and runs `git init`.
 
-`boards.dir` in `config.yaml` should point outside the source tree - an absolute
-path or a path like `~/boards/contextmatrix`, not `./boards`.
+`boards` in `config.yaml` is a mapping (one repo, named `boards`) or a list of
+named entries, each with its own `dir`, remote, sync flags and `shared`
+setting. Every `dir` should point outside the source tree and outside every
+other boards dir; nested or equal dirs refuse startup. `storage.Composite`
+presents every repo as one `storage.Store` and routes by project name:
+project names are unique across repos, the earliest configured repo that
+holds a name owns it, a duplicate at startup is fatal, and a duplicate that
+arrives through a pull is hidden (on disk, syncing, not served) and reported
+in that repo's sync status. Each repo has its own `gitops.Manager`, commit
+queue, `lock.Manager` (private repos carry an empty instance, so they keep
+agent-ID ownership next to a shared repo), playbook store and syncer;
+`CardService` resolves the repo of every write from the project. `boards_repo`
+on project and playbook creation picks the repo, defaulting to the first
+entry.
 
 Several instances may share one boards repo through its remote
 (`boards.shared: true`). Each instance commits as
@@ -708,7 +728,7 @@ and loses the epoch a merge decides by.
 cmd/contextmatrix/main.go
 internal/
   board/             # domain types + Validator + state machine
-  storage/           # FilesystemStore + Store interface
+  storage/           # FilesystemStore + Composite (routes by project across boards repos) + Store interface
   gitops/            # gitops.Manager + CommitQueue (per-project workers)
   lock/              # claim/release/heartbeat + stall scan
   service/           # CardService orchestration (split across service_*.go)

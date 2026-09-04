@@ -176,7 +176,7 @@ func TestSyncProject_ImportsNewIssues(t *testing.T) {
 	require.NoError(t, err)
 
 	client := NewClientWithBaseURL(p, srv.URL)
-	syncer := NewSyncer(svc, store, client, boardsDir, 5*time.Minute, []string{"github.com"})
+	syncer := NewSyncer(svc, store, client, 5*time.Minute, []string{"github.com"})
 
 	ctx := context.Background()
 	cfg, err := board.LoadProjectConfig(filepath.Join(boardsDir, "test-project"))
@@ -233,7 +233,7 @@ func TestSyncProject_SkipsDuplicates(t *testing.T) {
 	require.NoError(t, err)
 
 	client := NewClientWithBaseURL(p, srv.URL)
-	syncer := NewSyncer(svc, store, client, boardsDir, 5*time.Minute, []string{"github.com"})
+	syncer := NewSyncer(svc, store, client, 5*time.Minute, []string{"github.com"})
 
 	ctx := context.Background()
 	cfg, err := board.LoadProjectConfig(filepath.Join(boardsDir, "test-project"))
@@ -269,10 +269,10 @@ func TestSafeSyncAll_DoesNotPropagateSync(t *testing.T) {
 		Owner:        "testorg",
 		Repo:         "testrepo",
 	}
-	boardsDir, svc, store := setupTestProject(t, "test-project", ghCfg)
+	_, svc, store := setupTestProject(t, "test-project", ghCfg)
 
 	// nil client will panic inside syncProject → FetchOpenIssues.
-	syncer := NewSyncer(svc, store, nil, boardsDir, 5*time.Minute, []string{"github.com"})
+	syncer := NewSyncer(svc, store, nil, 5*time.Minute, []string{"github.com"})
 
 	ctx := context.Background()
 
@@ -304,7 +304,7 @@ func TestSyncProject_CustomTypeAndPriority(t *testing.T) {
 	require.NoError(t, err)
 
 	client := NewClientWithBaseURL(p, srv.URL)
-	syncer := NewSyncer(svc, store, client, boardsDir, 5*time.Minute, []string{"github.com"})
+	syncer := NewSyncer(svc, store, client, 5*time.Minute, []string{"github.com"})
 
 	ctx := context.Background()
 	cfg, err := board.LoadProjectConfig(filepath.Join(boardsDir, "test-project"))
@@ -390,7 +390,7 @@ func TestSyncAll_SetClientFor_SkipsProjectOnResolveError(t *testing.T) {
 	// Constructor-injected static client is deliberately nil: it must never
 	// be used as a fallback for a broken binding, and a working SetClientFor
 	// resolution for proj-b must not depend on it either.
-	syncer := NewSyncer(svc, store, nil, boardsDir, 5*time.Minute, []string{"github.com"})
+	syncer := NewSyncer(svc, store, nil, 5*time.Minute, []string{"github.com"})
 
 	var resolvedFor []string
 
@@ -420,4 +420,46 @@ func TestSyncAll_SetClientFor_SkipsProjectOnResolveError(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, cardsB, 1, "proj-b must still sync normally despite proj-a's failure")
 	assert.Equal(t, "Issue for proj-b", cardsB[0].Title)
+}
+
+func TestSyncAll_SkipsAProjectHiddenBehindAnotherRepo(t *testing.T) {
+	issues := []Issue{{Number: 1, Title: "Only once", HTMLURL: "https://github.com/testorg/testrepo/issues/1"}}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-RateLimit-Remaining", "100")
+		_ = json.NewEncoder(w).Encode(issues)
+	}))
+	defer srv.Close()
+
+	ghCfg := &board.GitHubImportConfig{ImportIssues: true}
+	dirOne, _, storeOne := setupTestProject(t, "test-project", ghCfg)
+	dirTwo, _, storeTwo := setupTestProject(t, "test-project", ghCfg)
+
+	composite, err := storage.NewComposite(
+		storage.NamedStore{Name: "one", Store: storeOne},
+		storage.NamedStore{Name: "two", Store: storeTwo},
+	)
+	require.NoError(t, err)
+	require.Len(t, composite.Hidden(), 1)
+
+	git, err := gitops.NewManager(dirOne, "", "ssh", nil)
+	require.NoError(t, err)
+
+	svc := service.NewCardService(composite, git, lock.NewManager(composite, 30*time.Minute), events.NewBus(), dirOne, nil, true, false)
+
+	p, err := githubauth.NewPATProvider("t")
+	require.NoError(t, err)
+
+	syncer := NewSyncer(svc, composite, NewClientWithBaseURL(p, srv.URL), 5*time.Minute, []string{"github.com"})
+	syncer.syncAll(context.Background())
+
+	one, err := storeOne.ListCards(context.Background(), "test-project", storage.CardFilter{})
+	require.NoError(t, err)
+	assert.Len(t, one, 1, "the visible copy imports")
+
+	two, err := storeTwo.ListCards(context.Background(), "test-project", storage.CardFilter{})
+	require.NoError(t, err)
+	assert.Empty(t, two, "the hidden copy is never walked")
+
+	_ = dirTwo
 }

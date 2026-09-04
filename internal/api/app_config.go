@@ -42,6 +42,14 @@ type appConfigHandlers struct {
 	// on a private board, where both fields drop out of the payload.
 	instanceID   string
 	sharedBoards bool
+	// boardsRepos lists the configured repos in config order; full payload only.
+	boardsRepos []BoardsRepoInfo
+}
+
+// BoardsRepoInfo is one boards repository as the UI sees it.
+type BoardsRepoInfo struct {
+	Name   string `json:"name"`
+	Shared bool   `json:"shared"`
 }
 
 type appConfigResponse struct {
@@ -59,6 +67,7 @@ type appConfigResponse struct {
 	ChatEnabled            bool                `json:"chat_enabled"`
 	InstanceID             string              `json:"instance_id,omitempty"`
 	SharedBoards           bool                `json:"shared_boards,omitempty"`
+	BoardsRepos            []BoardsRepoInfo    `json:"boards_repos,omitempty"`
 }
 
 // appConfigSlimResponse is served to unauthenticated callers in multi mode:
@@ -127,6 +136,7 @@ func (h *appConfigHandlers) getAppConfig(w http.ResponseWriter, r *http.Request)
 		ChatEnabled:            h.chatEnabled,
 		InstanceID:             h.instanceID,
 		SharedBoards:           h.sharedBoards,
+		BoardsRepos:            h.boardsRepos,
 	})
 }
 

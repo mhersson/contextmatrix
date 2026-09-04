@@ -139,7 +139,7 @@ func TestCreateCard(t *testing.T) {
 	}
 
 	// Verify git commit
-	msg, err := svc.git.GetLastCommitMessage()
+	msg, err := svc.Repos()[0].Git.GetLastCommitMessage()
 	require.NoError(t, err)
 	assert.Contains(t, msg, "TEST-001")
 	assert.Contains(t, msg, "created")
@@ -508,7 +508,7 @@ func TestClaimCard(t *testing.T) {
 	}
 
 	// Verify git commit
-	msg, err := svc.git.GetLastCommitMessage()
+	msg, err := svc.Repos()[0].Git.GetLastCommitMessage()
 	require.NoError(t, err)
 	assert.Contains(t, msg, "[agent:agent-1]")
 	assert.Contains(t, msg, "claimed")
@@ -1232,7 +1232,7 @@ func TestParentAutoTransition_GitCommitForParent(t *testing.T) {
 	require.NoError(t, err)
 
 	// The last git commit should reference the parent card
-	msg, err := svc.git.GetLastCommitMessage()
+	msg, err := svc.Repos()[0].Git.GetLastCommitMessage()
 	require.NoError(t, err)
 	assert.Contains(t, msg, parent.ID)
 }
@@ -2919,7 +2919,7 @@ func TestDeferredCommitNonDeferredUnchanged(t *testing.T) {
 	require.NoError(t, err)
 
 	// Should have committed immediately.
-	msg, err := svc.git.GetLastCommitMessage()
+	msg, err := svc.Repos()[0].Git.GetLastCommitMessage()
 	require.NoError(t, err)
 	assert.Contains(t, msg, card.ID)
 	assert.Contains(t, msg, "created")
@@ -2930,7 +2930,7 @@ func TestDeferredCommitNonDeferredUnchanged(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	msg, err = svc.git.GetLastCommitMessage()
+	msg, err = svc.Repos()[0].Git.GetLastCommitMessage()
 	require.NoError(t, err)
 	assert.Contains(t, msg, card.ID)
 	assert.Contains(t, msg, "updated")
@@ -6493,7 +6493,7 @@ func TestHealthCheck_GitNil(t *testing.T) {
 	ctx := context.Background()
 
 	// Remove the git manager to simulate an unconfigured git dependency.
-	svc.git = nil
+	svc.repos[0].Git = nil
 
 	results := svc.HealthCheck(ctx)
 
@@ -6927,21 +6927,21 @@ func TestLockWrites_SharedRepoDrainsBufferedCommits(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	before, err := svc.git.CommitCount()
+	before, err := svc.Repos()[0].Git.CommitCount()
 	require.NoError(t, err)
 
 	// Pause before enqueueing so the commit is buffered rather than run.
-	svc.commitQueue.Pause()
+	svc.Repos()[0].Queue.Pause()
 	done := enqueueBufferedCardCommit(t, svc, "test-project", card.ID)
 
 	svc.SetSharedRepo(true)
-	svc.LockWrites()
+	svc.LockWrites("")
 
-	after, err := svc.git.CommitCount()
+	after, err := svc.Repos()[0].Git.CommitCount()
 	require.NoError(t, err)
 	assert.Equal(t, before+1, after, "shared-repo LockWrites must drain the buffered commit")
 
-	svc.UnlockWrites()
+	svc.UnlockWrites("")
 	require.NoError(t, <-done)
 
 	// UnlockWrites must leave the queue usable again.
@@ -6965,22 +6965,22 @@ func TestLockWrites_NonSharedRepoLeavesBufferedCommits(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	before, err := svc.git.CommitCount()
+	before, err := svc.Repos()[0].Git.CommitCount()
 	require.NoError(t, err)
 
-	svc.commitQueue.Pause()
+	svc.Repos()[0].Queue.Pause()
 	done := enqueueBufferedCardCommit(t, svc, "test-project", card.ID)
 
-	svc.LockWrites()
+	svc.LockWrites("")
 
-	during, err := svc.git.CommitCount()
+	during, err := svc.Repos()[0].Git.CommitCount()
 	require.NoError(t, err)
 	assert.Equal(t, before, during, "non-shared LockWrites must not wait for buffered commits")
 
-	svc.UnlockWrites()
+	svc.UnlockWrites("")
 	require.NoError(t, <-done)
 
-	after, err := svc.git.CommitCount()
+	after, err := svc.Repos()[0].Git.CommitCount()
 	require.NoError(t, err)
 	assert.Equal(t, before+1, after)
 }

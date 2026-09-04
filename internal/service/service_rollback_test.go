@@ -169,7 +169,7 @@ func TestApplyCardMutation_RollbackOnCommitFailure_CancelledContext(t *testing.T
 
 	// Card on disk must also be rolled back. Open a fresh store to bypass
 	// the cache.
-	fresh, err := storage.NewFilesystemStore(svc.boardsDir)
+	fresh, err := storage.NewFilesystemStore(svc.Repos()[0].Dir)
 	require.NoError(t, err)
 
 	onDisk, err := fresh.GetCard(ctx, "test-project", card.ID)
@@ -281,7 +281,7 @@ func TestApplyCardMutation_RollbackOnCommitFailure_DiskConsistent(t *testing.T) 
 
 	// Re-open the filesystem store from scratch so we verify disk
 	// content rather than any cached state.
-	fresh, err := storage.NewFilesystemStore(svc.boardsDir)
+	fresh, err := storage.NewFilesystemStore(svc.Repos()[0].Dir)
 	require.NoError(t, err)
 
 	onDisk, err := fresh.GetCard(ctx, "test-project", card.ID)
@@ -384,7 +384,7 @@ func TestParentAutoTransition_FailedCommitIncrementsCounter(t *testing.T) {
 	selective := &selectiveFailingCommitter{
 		pattern: "auto-transitioned",
 		err:     errors.New("parent commit boom"),
-		inner:   newRealCommitter(svc.git),
+		inner:   newRealCommitter(svc.Repos()[0].Git),
 	}
 	selQueue := gitops.NewCommitQueueWithCommitter(selective, 0)
 
@@ -538,7 +538,7 @@ func TestUpdateProject_RollbackOnCommitFailure(t *testing.T) {
 
 	// On-disk config must match the rolled-back state. Open a fresh store
 	// so we bypass any cache and read straight from disk.
-	fresh, err := storage.NewFilesystemStore(svc.boardsDir)
+	fresh, err := storage.NewFilesystemStore(svc.Repos()[0].Dir)
 	require.NoError(t, err)
 
 	onDisk, err := fresh.GetProject(ctx, "test-project")
@@ -582,7 +582,7 @@ func TestUpdateProject_HappyPathNoRollback(t *testing.T) {
 	assert.Equal(t, "git@example.com:updated.git", cfg.Repo)
 
 	// On-disk must reflect the update.
-	fresh, err := storage.NewFilesystemStore(svc.boardsDir)
+	fresh, err := storage.NewFilesystemStore(svc.Repos()[0].Dir)
 	require.NoError(t, err)
 
 	onDisk, err := fresh.GetProject(ctx, "test-project")
@@ -602,7 +602,7 @@ func TestDeleteProject_RollbackOnCommitFailure(t *testing.T) {
 
 	// Create a template file so the snapshot-and-restore path exercises
 	// more than just .board.yaml.
-	tmplDir := filepath.Join(svc.boardsDir, "test-project", "templates")
+	tmplDir := filepath.Join(svc.Repos()[0].Dir, "test-project", "templates")
 	require.NoError(t, os.MkdirAll(tmplDir, 0o755))
 
 	tmplPath := filepath.Join(tmplDir, "task.md")
@@ -634,7 +634,7 @@ func TestDeleteProject_RollbackOnCommitFailure(t *testing.T) {
 	assert.Equal(t, preCfg.States, reloaded.States)
 
 	// On-disk .board.yaml must be back.
-	boardPath := filepath.Join(svc.boardsDir, "test-project", ".board.yaml")
+	boardPath := filepath.Join(svc.Repos()[0].Dir, "test-project", ".board.yaml")
 
 	info, err := os.Stat(boardPath)
 	require.NoError(t, err, ".board.yaml should be restored on disk")
@@ -647,7 +647,7 @@ func TestDeleteProject_RollbackOnCommitFailure(t *testing.T) {
 
 	// A fresh store opened on the same dir must still see the project
 	// (confirms on-disk layout is a valid project).
-	fresh, err := storage.NewFilesystemStore(svc.boardsDir)
+	fresh, err := storage.NewFilesystemStore(svc.Repos()[0].Dir)
 	require.NoError(t, err)
 
 	onDisk, err := fresh.GetProject(ctx, "test-project")
@@ -669,7 +669,7 @@ func TestDeleteProject_HappyPathNoRollback(t *testing.T) {
 
 	// Wire a real commit queue so the DeleteProject routes through it on
 	// the happy path (matching production setup).
-	gitMgr := svc.git
+	gitMgr := svc.Repos()[0].Git
 	queue := gitops.NewCommitQueue(gitMgr, 0)
 
 	t.Cleanup(func() { _ = queue.Close(context.Background()) })

@@ -75,3 +75,31 @@ describe('ProjectsTable', () => {
     expect(screen.queryByText(/active agents/i)).toBeNull();
   });
 });
+
+describe('ProjectsTable - repo groups', () => {
+  it('groups rows under repo headings in config order', () => {
+    const projects = [
+      { ...project('zebra', 'Z'), boards_repo: 'private' },
+      { ...project('alpha', 'A'), boards_repo: 'team' },
+    ];
+    const { container } = render(
+      <MemoryRouter>
+        <ProjectsTable projects={projects} summaries={new Map()} boardsRepos={[{ name: 'team', shared: true }, { name: 'private', shared: false }]} />
+      </MemoryRouter>,
+    );
+    const text = container.textContent ?? '';
+    expect(text.indexOf('team')).toBeGreaterThan(-1);
+    expect(text.indexOf('team')).toBeLessThan(text.indexOf('alpha'));
+    expect(text.indexOf('alpha')).toBeLessThan(text.indexOf('private'));
+    expect(text.indexOf('private')).toBeLessThan(text.indexOf('zebra'));
+  });
+
+  it('renders no headings with one repo', () => {
+    const { container } = render(
+      <MemoryRouter>
+        <ProjectsTable projects={[project('alpha', 'A')]} summaries={new Map()} boardsRepos={[{ name: 'boards', shared: false }]} />
+      </MemoryRouter>,
+    );
+    expect(container.querySelector('.apd-group-row')).toBeNull();
+  });
+});

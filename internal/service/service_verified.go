@@ -66,39 +66,37 @@ func DirectCommitter(git *gitops.Manager) DirectCommit {
 }
 
 // SetSyncRunner routes push-verified mutations through the syncer. Must be
-// called before the server starts accepting requests.
+// called before the server starts accepting requests. Acts on the first
+// configured repo; multi-repo wiring uses the For variant.
 func (s *CardService) SetSyncRunner(run SyncRunner) {
-	s.syncRunner = run
+	s.repos[0].runner = run
 }
 
-// pushVerified reports whether mutations that depend on a global decision
-// must be verified against the remote before they are acknowledged.
-func (s *CardService) pushVerified() bool {
-	return s.sharedRepo && s.syncRunner != nil
-}
-
-// commitNow commits synchronously with shell git. It is the only commit path
-// allowed inside a sync cycle: the queue is paused there, and a queued job
-// would wait for a resume that only comes after the cycle returns.
+// commitNow commits synchronously with shell git in the repo the first path
+// belongs to. It is the only commit path allowed inside a sync cycle: the
+// queue is paused there, and a queued job would wait for a resume that only
+// comes after the cycle returns.
 func (s *CardService) commitNow(ctx context.Context, paths []string, message string) error {
-	if !s.gitAutoCommit {
+	r := s.repoOf(firstPathProject(paths[0]))
+
+	if !r.GitAutoCommit {
 		return nil
 	}
 
-	return DirectCommitter(s.git)(ctx, paths, message)
+	return DirectCommitter(r.Git)(ctx, paths, message)
 }
 
-// commitAllReloaded stages everything and commits, then refreshes go-git.
-// The project paths stage as a tree, which the path-scoped commitNow cannot
-// express.
-func (s *CardService) commitAllReloaded(msg string) func(ctx context.Context) error {
+// commitAllReloaded stages everything in r and commits, then refreshes
+// go-git. The project paths stage as a tree, which the path-scoped commitNow
+// cannot express.
+func (s *CardService) commitAllReloaded(r *BoardsRepo, msg string) func(ctx context.Context) error {
 	return func(ctx context.Context) error {
-		if err := s.git.CommitAll(ctx, msg); err != nil {
+		if err := r.Git.CommitAll(ctx, msg); err != nil {
 			return fmt.Errorf("commit all: %w", err)
 		}
 
-		if err := s.git.ReloadRepo(ctx); err != nil {
-			ctxlog.Logger(ctx).Warn("reload repo after direct commit", "error", err)
+		if err := r.Git.ReloadRepo(ctx); err != nil {
+			ctxlog.Logger(ctx).Warn("reload repo after direct commit", "repo", r.Name, "error", err)
 		}
 
 		return nil
@@ -112,8 +110,10 @@ func (s *CardService) commitAllReloaded(msg string) func(ctx context.Context) er
 // maps to ErrRemoteUnreachable.
 //
 // The caller must not hold writeMu or the playbook lock: the cycle takes
-// both.
-func (s *CardService) runVerified(ctx context.Context, trigger string, apply, undo func(context.Context) error) (SyncOutcome, error) {
+// both. r is the repo of the project being written, resolved by the caller.
+func (s *CardService) runVerified(
+	ctx context.Context, r *BoardsRepo, trigger string, apply, undo func(context.Context) error,
+) (SyncOutcome, error) {
 	var (
 		applyErr error
 		applied  bool
@@ -132,7 +132,7 @@ func (s *CardService) runVerified(ctx context.Context, trigger string, apply, un
 	var lastErr error
 
 	for attempt := range verifyAttempts {
-		out, err := s.syncRunner(ctx, trigger, m)
+		out, err := r.runner(ctx, trigger, m)
 		if applyErr != nil {
 			return out, applyErr
 		}

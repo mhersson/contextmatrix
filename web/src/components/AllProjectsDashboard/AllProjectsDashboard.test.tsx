@@ -13,11 +13,16 @@ import type { ReactNode } from 'react';
 vi.mock('../../api/client', () => ({
   api: {
     getAppConfig: vi.fn(),
-    getSyncStatus: vi.fn(),
     getProjects: vi.fn(),
     getDashboard: vi.fn(),
   },
   isAPIError: () => false,
+}));
+
+vi.mock('../../hooks/useSync', () => ({
+  useSync: () => ({
+    syncStatuses: [], syncStatus: null, statusFor: () => null, triggerSync: async () => {}, refresh: async () => {},
+  }),
 }));
 
 class FakeEventSource {
@@ -54,11 +59,6 @@ describe('AllProjectsDashboard - mount fetch count', () => {
     // @ts-expect-error stub for tests
     globalThis.EventSource = FakeEventSource;
     vi.mocked(api.getAppConfig).mockResolvedValue({ theme: 'everforest', version: 'v1.0.0' });
-    vi.mocked(api.getSyncStatus).mockResolvedValue({
-      enabled: false,
-      syncing: false,
-      last_sync_time: null,
-    });
     vi.mocked(api.getProjects).mockResolvedValue([]);
     vi.mocked(api.getDashboard).mockResolvedValue({
       state_counts: {},
@@ -91,7 +91,7 @@ describe('AllProjectsDashboard - mount fetch count', () => {
     vi.clearAllMocks();
   });
 
-  it('fetches app config and sync status exactly once on mount (no render loop)', async () => {
+  it('fetches app config exactly once on mount (no render loop)', async () => {
     render(
       <MemoryRouter>
         <ToastWrap>
@@ -111,7 +111,6 @@ describe('AllProjectsDashboard - mount fetch count', () => {
     // Let effects + promise resolution settle.
     await waitFor(() => {
       expect(vi.mocked(api.getAppConfig)).toHaveBeenCalled();
-      expect(vi.mocked(api.getSyncStatus)).toHaveBeenCalled();
     });
 
     // Allow several render-flush cycles to pass.
@@ -122,6 +121,5 @@ describe('AllProjectsDashboard - mount fetch count', () => {
     }
 
     expect(vi.mocked(api.getAppConfig)).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(api.getSyncStatus)).toHaveBeenCalledTimes(1);
   });
 });

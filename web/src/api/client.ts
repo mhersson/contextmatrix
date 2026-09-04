@@ -417,12 +417,13 @@ class APIClient {
   }
 
   // Sync
-  async triggerSync(): Promise<SyncStatus> {
-    return this.request<SyncStatus>('/sync', { method: 'POST' });
+  async triggerSync(repo?: string): Promise<SyncStatus[]> {
+    const query = repo ? `?repo=${encodeURIComponent(repo)}` : '';
+    return this.request<SyncStatus[]>(`/sync${query}`, { method: 'POST' });
   }
 
-  async getSyncStatus(): Promise<SyncStatus> {
-    return this.request<SyncStatus>('/sync');
+  async getSyncStatuses(): Promise<SyncStatus[]> {
+    return this.request<SyncStatus[]>('/sync');
   }
 
   // Worker runs

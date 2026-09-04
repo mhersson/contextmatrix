@@ -236,7 +236,7 @@ func (h *backendHandlers) stopCard(w http.ResponseWriter, r *http.Request) {
 
 	// A worker another instance started reports to that instance. Killing it
 	// from here would leave the two boards disagreeing about the run.
-	if card.ClaimedElsewhere(h.svc.InstanceID()) {
+	if h.svc.ClaimedElsewhere(card) {
 		writeError(w, http.StatusForbidden, ErrCodeAgentMismatch,
 			"card is running on another instance", "claimed via instance "+card.ClaimedVia)
 
@@ -322,7 +322,7 @@ func (h *backendHandlers) stopAll(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		if card.ClaimedElsewhere(h.svc.InstanceID()) {
+		if h.svc.ClaimedElsewhere(card) {
 			continue // another instance's worker; its stop-all is its own
 		}
 

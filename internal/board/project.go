@@ -46,8 +46,11 @@ type ProjectConfig struct {
 	DisplayName string `yaml:"display_name,omitempty" json:"display_name,omitempty"`
 	Prefix      string `yaml:"prefix" json:"prefix"`
 	NextID      int    `yaml:"next_id" json:"next_id"`
-	Repo        string `yaml:"repo,omitempty" json:"repo,omitempty"`
-	Repos       []Repo `yaml:"repos,omitempty" json:"repos,omitempty"`
+	// BoardsRepo names the boards repository the project lives in. Stamped
+	// on reads by the composite store; never written to .board.yaml.
+	BoardsRepo string `yaml:"-" json:"boards_repo,omitempty"`
+	Repo       string `yaml:"repo,omitempty" json:"repo,omitempty"`
+	Repos      []Repo `yaml:"repos,omitempty" json:"repos,omitempty"`
 	// GitHubCredential names an instance credential-pool entry that all
 	// GitHub operations for this project use (multi-user mode). Empty means
 	// the instance github.* credential - the pre-multi-user behavior. A

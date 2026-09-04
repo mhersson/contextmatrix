@@ -148,7 +148,7 @@ func TestSharedHeartbeat_RenewsTheFileOncePerLeaseInterval(t *testing.T) {
 	_, err := svc.ClaimCard(ctx, "test-project", card.ID, "a")
 	require.NoError(t, err)
 
-	claimMsg, err := svc.git.GetLastCommitMessage()
+	claimMsg, err := svc.Repos()[0].Git.GetLastCommitMessage()
 	require.NoError(t, err)
 
 	fake.Advance(time.Minute)
@@ -157,7 +157,7 @@ func TestSharedHeartbeat_RenewsTheFileOncePerLeaseInterval(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, fake.Now(), *beat.LastHeartbeat, "the ack reports the live beat")
 
-	msg, err := svc.git.GetLastCommitMessage()
+	msg, err := svc.Repos()[0].Git.GetLastCommitMessage()
 	require.NoError(t, err)
 	assert.Equal(t, claimMsg, msg, "no commit within the lease interval")
 
@@ -170,7 +170,7 @@ func TestSharedHeartbeat_RenewsTheFileOncePerLeaseInterval(t *testing.T) {
 	_, err = svc.HeartbeatCard(ctx, "test-project", card.ID, "a")
 	require.NoError(t, err)
 
-	msg, err = svc.git.GetLastCommitMessage()
+	msg, err = svc.Repos()[0].Git.GetLastCommitMessage()
 	require.NoError(t, err)
 	assert.Contains(t, msg, "heartbeat")
 
@@ -228,7 +228,7 @@ func TestSharedStall_SkipsAFencedOwnClaim(t *testing.T) {
 	assert.Equal(t, 1, got.ClaimEpoch)
 
 	// Once a cycle has confirmed the lease, the heartbeat rule applies again.
-	svc.SyncSucceeded(ctx)
+	svc.SyncSucceeded(ctx, DefaultRepoName)
 	fake.Advance(31 * time.Minute)
 	require.NoError(t, svc.SweepStalled(ctx))
 
@@ -338,7 +338,7 @@ func TestSharedFence_BlocksClaimWritesUntilConfirmed(t *testing.T) {
 	_, err = svc.HeartbeatCard(ctx, "test-project", card.ID, "a")
 	require.NoError(t, err, "heartbeats are how a fenced instance recovers, so they pass")
 
-	svc.SyncSucceeded(ctx)
+	svc.SyncSucceeded(ctx, DefaultRepoName)
 
 	_, err = svc.ReleaseCard(ctx, "test-project", card.ID, "a")
 	require.NoError(t, err)
@@ -399,11 +399,13 @@ func TestRecentlySynced(t *testing.T) {
 	svc, fake, cleanup := newSharedService(t, 30*time.Minute)
 	defer cleanup()
 
-	assert.False(t, svc.recentlySynced(), "never synced")
+	r := svc.Repos()[0]
 
-	svc.SyncSucceeded(context.Background())
-	assert.True(t, svc.recentlySynced())
+	assert.False(t, r.recentlySynced(svc.Now()), "never synced")
+
+	svc.SyncSucceeded(context.Background(), DefaultRepoName)
+	assert.True(t, r.recentlySynced(svc.Now()))
 
 	fake.Advance(3 * time.Minute)
-	assert.False(t, svc.recentlySynced(), "twice the pull interval has passed")
+	assert.False(t, r.recentlySynced(svc.Now()), "twice the pull interval has passed")
 }

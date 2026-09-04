@@ -104,7 +104,18 @@ func newSharedNode(t *testing.T, upstream, instance string) *sharedNode {
 	lockMgr := lock.NewManagerWithClock(store, 30*time.Minute, clk)
 	lockMgr.SetShared(instance, 5*time.Minute, time.Hour)
 
-	svc := service.NewCardService(store, gitMgr, lockMgr, bus, dir, nil, true, false)
+	// The service names this repo "team" so the syncer's WithRepo("team")
+	// resolves to it for the write lock, the sync stamp and the leases.
+	svc, err := service.NewCardServiceRepos(store, bus, nil, &service.BoardsRepo{
+		Name:          "team",
+		Store:         store,
+		Git:           gitMgr,
+		Dir:           dir,
+		GitAutoCommit: true,
+		Lock:          lockMgr,
+	})
+	require.NoError(t, err)
+
 	svc.SetSharedRepo(true)
 	svc.SetLease(instance, time.Hour, time.Minute)
 
@@ -113,7 +124,7 @@ func newSharedNode(t *testing.T, upstream, instance string) *sharedNode {
 	t.Cleanup(func() { _ = queue.Close(context.Background()) })
 
 	syncer := NewSyncer(gitMgr, store, svc, bus, dir, true, true, time.Minute,
-		WithShared(instance), WithSyncTimeout(5*time.Second), WithLeaseInterval(5*time.Minute))
+		WithRepo("team"), WithShared(instance), WithSyncTimeout(5*time.Second), WithLeaseInterval(5*time.Minute))
 	require.NotNil(t, syncer)
 
 	runner := func(ctx context.Context, trigger string, m service.SyncMutation) (service.SyncOutcome, error) {
@@ -972,4 +983,32 @@ func TestSynced_ClaimsAtRiskOncePushesFailPastTheLeaseInterval(t *testing.T) {
 	st := a.syncer.Status()
 	require.NotNil(t, st.PushFailingSince)
 	assert.True(t, st.ClaimsAtRisk)
+}
+
+func TestSynced_StatusAndEventsCarryTheRepoName(t *testing.T) {
+	a, _, _ := setupSharedPair(t)
+
+	ch, unsub := a.bus.Subscribe()
+	defer unsub()
+
+	a.sync(t)
+
+	assert.Equal(t, "team", a.syncer.Status().Repo)
+
+	seen := map[events.EventType]string{}
+	deadline := time.After(2 * time.Second)
+
+	for len(seen) < 2 {
+		select {
+		case ev := <-ch:
+			if ev.Type == events.SyncStarted || ev.Type == events.SyncCompleted {
+				repo, _ := ev.Data["repo"].(string)
+				seen[ev.Type] = repo
+			}
+		case <-deadline:
+			t.Fatalf("missing sync events, saw %v", seen)
+		}
+	}
+
+	assert.Equal(t, map[events.EventType]string{events.SyncStarted: "team", events.SyncCompleted: "team"}, seen)
 }

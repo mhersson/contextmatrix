@@ -293,3 +293,19 @@ func TestPlaybookTools_AbsentWhenDisabled(t *testing.T) {
 	result, err := callToolRaw(t, env, "list_playbooks", map[string]any{})
 	assert.True(t, resultIsError(result, err), "playbook tools must not register when the subsystem is disabled")
 }
+
+func TestPlaybookTools_CreateWithBoardsRepo(t *testing.T) {
+	env := setupMCPWithPlaybooks(t)
+
+	result := callTool(t, env, "create_playbook", map[string]any{"agent_id": "human:alice", "title": "Rollout", "boards_repo": "boards"})
+	require.False(t, result.IsError)
+
+	var summary service.PlaybookSummary
+	unmarshalResult(t, result, &summary)
+	assert.Equal(t, "rollout", summary.ID)
+	assert.Equal(t, "boards", summary.BoardsRepo)
+
+	result = callTool(t, env, "create_playbook", map[string]any{"agent_id": "human:alice", "title": "Elsewhere", "boards_repo": "nope"})
+	require.True(t, result.IsError)
+	assert.Contains(t, result.Content[0].(*mcp.TextContent).Text, "unknown boards_repo")
+}

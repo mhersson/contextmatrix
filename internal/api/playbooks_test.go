@@ -454,6 +454,46 @@ func TestPlaybooksAPI_SessionGuard(t *testing.T) {
 	})
 }
 
+func TestCreatePlaybook_BoardsRepo(t *testing.T) {
+	svc, pbSvc, bus, cleanup := playbookTestSetup(t)
+	defer cleanup()
+
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Playbooks: pbSvc})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	post := func(title, repo string) *http.Response {
+		t.Helper()
+
+		body, err := json.Marshal(map[string]any{"title": title, "boards_repo": repo})
+		require.NoError(t, err)
+
+		req, _ := http.NewRequest("POST", server.URL+"/api/playbooks", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+
+		return resp
+	}
+
+	resp := post("Rollout", "boards")
+	defer closeBody(t, resp.Body)
+
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var detail service.PlaybookDetail
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&detail))
+	assert.Equal(t, "rollout", detail.ID)
+	assert.Equal(t, "boards", detail.BoardsRepo)
+
+	bad := post("Elsewhere", "nope")
+	defer closeBody(t, bad.Body)
+
+	assert.Equal(t, http.StatusBadRequest, bad.StatusCode)
+}
+
 func TestPlaybooksAPI_NilServiceIs404(t *testing.T) {
 	svc, _, bus, cleanup := playbookTestSetup(t)
 	defer cleanup()

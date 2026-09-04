@@ -115,6 +115,8 @@ export interface ProjectConfig {
   prefix: string;
   next_id: number;
   repo?: string;
+  /** Boards repo this project lives in; absent on a single-repo instance. */
+  boards_repo?: string;
   states: string[];
   types: string[];
   priorities: string[];
@@ -212,6 +214,8 @@ export interface SyncStatus {
   last_sync_error?: string;
   syncing: boolean;
   enabled: boolean;
+  /** Boards repo this status describes; every server with multi-repo support sets it. */
+  repo?: string;
   shared?: boolean;
   remote_reachable?: boolean;
   last_remote_error?: string;
@@ -220,6 +224,14 @@ export interface SyncStatus {
   /** Shared boards only: pushes have failed for longer than the lease interval. */
   claims_at_risk?: boolean;
   push_failing_since?: string;
+  /** Projects this repo holds under a name an earlier repo owns; on disk, syncing, not served. */
+  hidden_projects?: string[];
+}
+
+/** One configured boards repository, in config order. */
+export interface BoardsRepoInfo {
+  name: string;
+  shared: boolean;
 }
 
 export interface BoardEvent {
@@ -392,6 +404,8 @@ export interface CreateProjectInput {
   display_name?: string;
   prefix: string;
   repo?: string;
+  /** Boards repo to create the project in; absent on a single-repo instance. */
+  boards_repo?: string;
   states: string[];
   types: string[];
   priorities: string[];
@@ -530,6 +544,8 @@ export interface AppConfig {
   /** This server's instance id on a shared boards repo; absent on private boards. */
   instance_id?: string;
   shared_boards?: boolean;
+  /** Configured boards repositories in config order. */
+  boards_repos?: BoardsRepoInfo[];
 }
 
 export interface SessionUser {
@@ -737,6 +753,8 @@ export interface PlaybookSummary {
   segments: PlaybookSegment[];
   projects: number;
   updated_at: string;
+  /** Boards repo this playbook lives in; absent on a single-repo instance. */
+  boards_repo?: string;
 }
 
 export interface PlaybookDetail {
@@ -749,6 +767,8 @@ export interface PlaybookDetail {
   complete: number;
   total: number;
   entries: PlaybookEntry[];
+  /** Boards repo this playbook lives in; absent on a single-repo instance. */
+  boards_repo?: string;
 }
 
 export interface NewPlaybookEntry {
@@ -763,6 +783,8 @@ export interface CreatePlaybookInput {
   title: string;
   description?: string;
   entries?: NewPlaybookEntry[];
+  /** Boards repo to create the playbook in; absent on a single-repo instance. */
+  boards_repo?: string;
 }
 
 export interface PatchPlaybookInput {

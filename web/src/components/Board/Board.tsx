@@ -75,6 +75,8 @@ interface BoardProps {
   maxWorkers?: number;
   runningContainers?: number;
   syncStatus?: SyncStatus | null;
+  /** Name of the boards repo syncStatus describes; shown in the footer label with two or more repos. */
+  syncRepoName?: string;
   connected?: boolean;
   activityEntries: ActivityEntry[];
   activityBackfillLoaded?: boolean;
@@ -117,6 +119,7 @@ export function Board({
   maxWorkers,
   runningContainers,
   syncStatus,
+  syncRepoName,
   connected,
   activityEntries,
   activityBackfillLoaded,
@@ -645,6 +648,7 @@ export function Board({
 
       <BoardFooter
         syncStatus={syncStatus}
+        repoName={syncRepoName}
         connected={connected}
         cardCount={cards.length}
         columnCount={config.states.filter((s) => s !== 'stalled').length}

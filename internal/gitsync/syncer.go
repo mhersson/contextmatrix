@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/boardmerge"
 	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/events"
@@ -54,6 +55,10 @@ var ErrRemoteUnreachable = errors.New("remote unreachable")
 // another instance pushed first. The local commits remain unpushed.
 var ErrSyncContended = errors.New("sync contended")
 
+// ErrSyncDisabled reports that the repo has no remote, so there is nothing
+// to sync.
+var ErrSyncDisabled = errors.New("sync is disabled")
+
 // ResolutionRecord is one merge resolution with the time and trigger that
 // produced it, kept for the status endpoint.
 type ResolutionRecord struct {
@@ -65,10 +70,15 @@ type ResolutionRecord struct {
 
 // SyncStatus reports the current state of the git sync system.
 type SyncStatus struct {
-	LastSyncTime    *time.Time         `json:"last_sync_time"`
-	LastSyncError   string             `json:"last_sync_error,omitempty"`
-	Syncing         bool               `json:"syncing"`
-	Enabled         bool               `json:"enabled"`
+	LastSyncTime  *time.Time `json:"last_sync_time"`
+	LastSyncError string     `json:"last_sync_error,omitempty"`
+	Syncing       bool       `json:"syncing"`
+	Enabled       bool       `json:"enabled"`
+	// Repo names the boards repository this status describes.
+	Repo string `json:"repo"`
+	// HiddenProjects are projects this repo holds under a name an earlier
+	// repo owns; they are on disk and syncing but not served.
+	HiddenProjects  []string           `json:"hidden_projects,omitempty"`
 	Shared          bool               `json:"shared"`
 	RemoteReachable *bool              `json:"remote_reachable,omitempty"`
 	LastRemoteError string             `json:"last_remote_error,omitempty"`
@@ -90,13 +100,34 @@ type SyncReport struct {
 	Resolutions   []boardmerge.Resolution
 }
 
+// syncStore is what the syncer needs from the board store: the projects
+// and cards of its own repo, and a reload of that repo after a pull. A
+// storage.RepoView provides it in production; a plain FilesystemStore does
+// in the single-repo tests.
+type syncStore interface {
+	ListProjects(ctx context.Context) ([]board.ProjectConfig, error)
+	ListCards(ctx context.Context, project string, filter storage.CardFilter) ([]*board.Card, error)
+	ReloadIndex(ctx context.Context) error
+}
+
+// hiddenLister is the optional view of projects a repo holds under a name
+// another repo owns.
+type hiddenLister interface {
+	Hidden() []storage.HiddenProject
+}
+
 // Syncer manages automatic git pull/push for the boards repository.
 type Syncer struct {
 	git      *gitops.Manager
-	store    *storage.FilesystemStore
+	store    syncStore
 	svc      *service.CardService
 	bus      *events.Bus
 	repoPath string
+
+	// repo is the boards repo this syncer drives, the name the service
+	// resolves its git manager, queue and lock manager by.
+	repo string
+
 	interval time.Duration
 	autoPull bool
 	autoPush bool
@@ -190,6 +221,14 @@ func WithShared(instanceID string) Option {
 	}
 }
 
+// WithRepo names the boards repository the syncer serves. The name keys the
+// service's write lock and sync hooks and rides on every status and event.
+func WithRepo(name string) Option {
+	return func(s *Syncer) {
+		s.repo = name
+	}
+}
+
 // WithSyncTimeout overrides the per-network-call timeout used inside Synced.
 func WithSyncTimeout(d time.Duration) Option {
 	return func(s *Syncer) {
@@ -210,7 +249,7 @@ func WithLeaseInterval(d time.Duration) Option {
 // Auth credentials are obtained at call time via the Manager's AuthEnv method.
 func NewSyncer(
 	git *gitops.Manager,
-	store *storage.FilesystemStore,
+	store syncStore,
 	svc *service.CardService,
 	bus *events.Bus,
 	repoPath string,
@@ -237,6 +276,7 @@ func NewSyncer(
 		svc:            svc,
 		bus:            bus,
 		repoPath:       repoPath,
+		repo:           service.DefaultRepoName,
 		interval:       interval,
 		autoPull:       autoPull,
 		autoPush:       autoPush,
@@ -356,6 +396,7 @@ func (s *Syncer) Status() SyncStatus {
 	status := SyncStatus{
 		Syncing:         s.syncing,
 		Enabled:         true,
+		Repo:            s.repo,
 		Shared:          s.shared,
 		LastRemoteError: s.lastRemoteError,
 		UnpushedCommits: s.unpushed,
@@ -460,7 +501,7 @@ func (s *Syncer) pullRebase(ctx context.Context, trigger string) error {
 	s.bus.Publish(events.Event{
 		Type:      events.SyncStarted,
 		Timestamp: start,
-		Data:      map[string]any{"trigger": trigger},
+		Data:      map[string]any{"trigger": trigger, "repo": s.repo},
 	})
 
 	// The playbook lock MUST be acquired before the card lock. Card
@@ -475,8 +516,8 @@ func (s *Syncer) pullRebase(ctx context.Context, trigger string) error {
 	}
 
 	// Lock writes to prevent mutations during pull+rebase+index rebuild.
-	s.svc.LockWrites()
-	defer s.svc.UnlockWrites()
+	s.svc.LockWrites(s.repo)
+	defer s.svc.UnlockWrites(s.repo)
 
 	branch, err := s.git.CurrentBranch()
 	if err != nil {
@@ -545,7 +586,7 @@ func (s *Syncer) pullRebase(ctx context.Context, trigger string) error {
 		s.bus.Publish(events.Event{
 			Type:      events.SyncConflict,
 			Timestamp: time.Now(),
-			Data:      map[string]any{"trigger": trigger, "error": conflictErr.Error()},
+			Data:      map[string]any{"trigger": trigger, "repo": s.repo, "error": conflictErr.Error()},
 		})
 
 		return conflictErr
@@ -598,9 +639,9 @@ var reNonFastForward = regexp.MustCompile(`(?i)(non-fast-forward|fetch first|can
 // .git/index.lock without this serialization. pullRebase acquires writeMu
 // itself, so the lock must be released before calling it to avoid a deadlock.
 func (s *Syncer) pushWithRetry(ctx context.Context) error {
-	s.svc.LockWrites()
+	s.svc.LockWrites(s.repo)
 	err := s.git.Push(ctx)
-	s.svc.UnlockWrites()
+	s.svc.UnlockWrites(s.repo)
 
 	if err == nil {
 		return nil
@@ -633,9 +674,9 @@ func (s *Syncer) pushWithRetry(ctx context.Context) error {
 		return fmt.Errorf("pull before push retry: %w", err)
 	}
 
-	s.svc.LockWrites()
+	s.svc.LockWrites(s.repo)
 	err = s.git.Push(ctx)
-	s.svc.UnlockWrites()
+	s.svc.UnlockWrites(s.repo)
 
 	if err != nil {
 		slog.Error("git sync: push failed after rebase", "error", err)
@@ -701,7 +742,7 @@ func (s *Syncer) SyncedMutation(ctx context.Context, trigger string, m service.S
 	s.bus.Publish(events.Event{
 		Type:      events.SyncStarted,
 		Timestamp: start,
-		Data:      map[string]any{"trigger": trigger},
+		Data:      map[string]any{"trigger": trigger, "repo": s.repo},
 	})
 
 	// The playbook lock MUST be acquired before the card lock; see the same
@@ -713,8 +754,8 @@ func (s *Syncer) SyncedMutation(ctx context.Context, trigger string, m service.S
 
 	// Held across the whole cycle, Apply included, so no mutation lands
 	// between the merge and the push it is meant to be part of.
-	s.svc.LockWrites()
-	defer s.svc.UnlockWrites()
+	s.svc.LockWrites(s.repo)
+	defer s.svc.UnlockWrites(s.repo)
 
 	report, err := s.synced(ctx, trigger, m)
 
@@ -734,7 +775,7 @@ func (s *Syncer) SyncedMutation(ctx context.Context, trigger string, m service.S
 
 	s.setSuccess()
 	s.clearPushFailure()
-	s.svc.SyncSucceeded(ctx)
+	s.svc.SyncSucceeded(ctx, s.repo)
 	s.publishCompleted(trigger, report.ChangesPulled, time.Since(start))
 
 	return report, nil
@@ -1013,7 +1054,7 @@ func (s *Syncer) integrate(ctx context.Context, trigger, branch string) (bool, [
 	s.bus.Publish(events.Event{
 		Type:      events.SyncConflict,
 		Timestamp: time.Now(),
-		Data:      map[string]any{"resolved": len(res), "trigger": trigger},
+		Data:      map[string]any{"resolved": len(res), "trigger": trigger, "repo": s.repo},
 	})
 
 	return true, res, s.reloadAfterPull(ctx)
@@ -1102,8 +1143,15 @@ func (s *Syncer) reloadAfterPull(ctx context.Context) error {
 	}
 
 	if s.shared {
-		if err := s.svc.ObserveLeases(ctx); err != nil {
+		if err := s.svc.ObserveLeases(ctx, s.repo); err != nil {
 			slog.Warn("git sync: observe leases after reload", "error", err)
+		}
+	}
+
+	if h, ok := s.store.(hiddenLister); ok {
+		for _, p := range h.Hidden() {
+			slog.Warn("git sync: project hidden, an earlier boards repo owns the name",
+				"repo", s.repo, "project", p.Name, "visible_in", p.VisibleIn)
 		}
 	}
 
@@ -1316,7 +1364,7 @@ func (s *Syncer) publishError(trigger string, err error) {
 	s.bus.Publish(events.Event{
 		Type:      events.SyncError,
 		Timestamp: time.Now(),
-		Data:      map[string]any{"trigger": trigger, "error": err.Error()},
+		Data:      map[string]any{"trigger": trigger, "repo": s.repo, "error": err.Error()},
 	})
 }
 
@@ -1327,6 +1375,7 @@ func (s *Syncer) publishCompleted(trigger string, changesPulled bool, duration t
 		Timestamp: time.Now(),
 		Data: map[string]any{
 			"trigger":        trigger,
+			"repo":           s.repo,
 			"changes_pulled": changesPulled,
 			"duration_ms":    duration.Milliseconds(),
 		},

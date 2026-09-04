@@ -325,3 +325,19 @@ func TestGetAppConfig_InstanceFields(t *testing.T) {
 	assert.Equal(t, "lap-a", got["instance_id"])
 	assert.Equal(t, true, got["shared_boards"])
 }
+
+func TestGetAppConfig_BoardsRepos(t *testing.T) {
+	h := &appConfigHandlers{
+		theme: "everforest", version: "v", sharedBoards: true,
+		boardsRepos: []BoardsRepoInfo{{Name: "team", Shared: true}, {Name: "private"}},
+	}
+
+	rec := httptest.NewRecorder()
+	h.getAppConfig(rec, httptest.NewRequest(http.MethodGet, "/api/app/config", nil))
+
+	var got struct {
+		BoardsRepos []BoardsRepoInfo `json:"boards_repos"`
+	}
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&got))
+	assert.Equal(t, []BoardsRepoInfo{{Name: "team", Shared: true}, {Name: "private", Shared: false}}, got.BoardsRepos)
+}
