@@ -107,6 +107,7 @@ func TestWireGitSync_SharedWiringFailureIsFatal(t *testing.T) {
 
 	group, err := wireGitSync(ctx, cfg, boards, svc, nil, events.NewBus())
 	require.ErrorContains(t, err, "team")
+	require.ErrorIs(t, err, service.ErrUnknownBoardsRepo)
 	assert.Nil(t, group)
 }
 
