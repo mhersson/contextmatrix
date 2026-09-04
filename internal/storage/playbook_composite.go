@@ -177,7 +177,7 @@ func (c *PlaybookComposite) List(ctx context.Context) ([]*board.Playbook, error)
 		}
 
 		for _, p := range list {
-			if c.owner[p.ID] == i {
+			if j, ok := c.owner[p.ID]; ok && j == i {
 				out = append(out, p)
 			}
 		}

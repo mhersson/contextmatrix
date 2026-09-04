@@ -245,8 +245,9 @@ func (c *Composite) ListProjects(ctx context.Context) ([]board.ProjectConfig, er
 		}
 
 		for _, p := range projects {
-			if c.owner[p.Name] != i {
-				continue // a hidden copy
+			j, ok := c.owner[p.Name]
+			if !ok || j != i {
+				continue // a hidden copy, or an entry the table does not know
 			}
 
 			p.BoardsRepo = r.Name

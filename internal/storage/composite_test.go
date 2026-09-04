@@ -34,6 +34,26 @@ func twoRepoComposite(t *testing.T) (*Composite, string, string) {
 	return c, one, two
 }
 
+func TestComposite_ListProjectsIgnoresEntriesTheOwnerTableDoesNotKnow(t *testing.T) {
+	c, _, _ := twoRepoComposite(t)
+	ctx := context.Background()
+
+	// alpha lives in repo "one" (index 0): a missing owner key reads as 0
+	// under the single-value form, so dropping it from the table is what
+	// exposes the zero-value trap the two-value read closes.
+	c.mu.Lock()
+	delete(c.owner, "alpha")
+	c.mu.Unlock()
+
+	projects, err := c.ListProjects(ctx)
+	require.NoError(t, err)
+	require.Len(t, projects, 1)
+	assert.Equal(t, "beta", projects[0].Name)
+
+	_, ok := c.RepoOf("alpha")
+	assert.False(t, ok)
+}
+
 func TestComposite_RoutesByProjectInConfigOrder(t *testing.T) {
 	c, one, two := twoRepoComposite(t)
 	ctx := context.Background()
