@@ -156,6 +156,23 @@ func (b *Backends) UnmarshalYAML(node *yaml.Node) error {
 	return nil
 }
 
+// MarshalYAML emits the closed mapping form: only the entries that are set,
+// under their wire names. It is the inverse of UnmarshalYAML and exists so
+// `contextmatrix config defaults` can print a complete backends block.
+func (b Backends) MarshalYAML() (any, error) {
+	out := map[string]any{}
+
+	if b.Agent != nil {
+		out[BackendNameAgent] = b.Agent
+	}
+
+	if b.Chat != nil {
+		out[BackendNameChat] = b.Chat
+	}
+
+	return out, nil
+}
+
 // decodeStrictEntry strictly decodes one mapping node into target; used by
 // every per-entry block whose top-level decoder cannot enforce KnownFields
 // on its own.
@@ -415,6 +432,26 @@ func (b *Boards) UnmarshalYAML(node *yaml.Node) error {
 	}
 
 	return nil
+}
+
+// boardsEntry is BoardsConfig without its methods, so marshalling a single
+// entry does not recurse into Boards.MarshalYAML.
+type boardsEntry BoardsConfig
+
+// MarshalYAML emits the single mapping form when there is exactly one entry
+// with the default name, and the list form otherwise - mirroring what
+// UnmarshalYAML accepts.
+func (b Boards) MarshalYAML() (any, error) {
+	if len(b) == 1 && b[0].Name == DefaultBoardsName {
+		return boardsEntry(b[0]), nil
+	}
+
+	out := make([]boardsEntry, len(b))
+	for i, entry := range b {
+		out[i] = boardsEntry(entry)
+	}
+
+	return out, nil
 }
 
 // AnyShared reports whether at least one repo is shared with other instances.

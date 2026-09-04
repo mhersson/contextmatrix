@@ -147,8 +147,14 @@ with).
 ```bash
 make install-frontend
 make build
-make install-config   # config.yaml + workflow skills into ~/.config/contextmatrix/
+mkdir -p ~/.config/contextmatrix
+cp config.yaml.example ~/.config/contextmatrix/config.yaml
+cp -r workflow-skills ~/.config/contextmatrix/
 ```
+
+For a managed local install of the whole stack (server, agent, chat, services,
+updates) use [contextmatrix-setup](https://github.com/mhersson/contextmatrix-setup)
+instead of the manual copy.
 
 Edit `~/.config/contextmatrix/config.yaml`. The boards directory is created
 and git-initialised on first start; a GitHub auth mode is required even if you

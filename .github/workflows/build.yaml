@@ -190,8 +190,8 @@ jobs:
 
           echo "No callable, fixable vulnerabilities. Remaining findings are uncalled by this code or have no upstream fix."
 
-  # Hadolint, ShellCheck and the install-script test each take under ten
-  # seconds. Run them as one job so they cost one runner slot instead of three.
+  # Hadolint takes under ten seconds; run it as its own job so it costs one
+  # runner slot.
   static-checks:
     if: github.event_name != 'push'
     runs-on: self-hosted
@@ -202,14 +202,6 @@ jobs:
         uses: hadolint/hadolint-action@v3.5.0
         with:
           dockerfile: Dockerfile
-
-      - name: ShellCheck
-        uses: ludeeus/action-shellcheck@2.0.0
-        with:
-          scandir: scripts
-
-      - name: make test-install
-        run: make test-install
 
   image-scan:
     if: github.event_name != 'push'

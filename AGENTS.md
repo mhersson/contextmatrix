@@ -249,7 +249,6 @@ make test-frontend      # vitest run in web/
 make lint-frontend      # eslint in web/
 make test-integration   # real-binary harness, stub LLM, requires Docker
 cd web && npm run dev   # frontend hot reload, proxies /api → :8080
-make install-config     # copy config.yaml.example + workflow skills into your XDG config dir
 ```
 
 Run `make test` **before any bare `go build ./...` or `go test ./...` in a fresh
@@ -263,9 +262,9 @@ and fail until `make install-frontend` has populated `web/node_modules`. Run it
 before the first build in any new checkout.
 
 `config.yaml.example` is a fully-commented template documenting every field, its
-default, and its `CONTEXTMATRIX_*` env override. `scripts/install.sh` copies it
-(and the workflow skills) into `$XDG_CONFIG_HOME/contextmatrix` (or
-`~/.config/contextmatrix`).
+default, and its `CONTEXTMATRIX_*` env override. `contextmatrix config defaults`
+prints the same key set as plain YAML; contextmatrix-setup uses it to keep an
+installed config in sync with this repo.
 
 **Before moving to the next task, verify:**
 

@@ -1,4 +1,4 @@
-.PHONY: build run test test-race fmt lint build-frontend test-frontend lint-frontend install-frontend install install-config docker-build clean test-integration test-install
+.PHONY: build run test test-race fmt lint build-frontend test-frontend lint-frontend install-frontend install docker-build clean test-integration
 
 VERSION ?= $(shell git describe --tags --exact-match 2>/dev/null)
 GIT_COMMIT ?= $(shell git rev-parse --short HEAD)
@@ -52,12 +52,6 @@ docker-build:
 		--build-arg GIT_COMMIT="$(GIT_COMMIT)" \
 		--build-arg BUILD_TIME="$(BUILD_TIME)" \
 		-t contextmatrix .
-
-install-config:
-	scripts/install.sh
-
-test-install:
-	scripts/install_test.sh
 
 clean:
 	rm -f contextmatrix

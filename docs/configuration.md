@@ -7,21 +7,32 @@ fully-commented reference for every field; this page covers the rules around it.
 
 ## Install the config directory
 
-`make install-config` runs `scripts/install.sh`, which creates the config
-directory and populates it from the repo.
-
-| Invocation                                    | Effect                                                                                  |
-| --------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `scripts/install.sh`                          | Create the dir, copy `config.yaml.example` to `config.yaml` (skipped if present), copy `workflow-skills/` |
-| `scripts/install.sh --update-workflow-skills` | Refresh `workflow-skills/` only; `config.yaml` is not touched                          |
-| `scripts/install.sh --force`                  | Overwrite an existing `config.yaml` as well                                             |
-
 The config directory is `$XDG_CONFIG_HOME/contextmatrix` when
-`XDG_CONFIG_HOME` is set, otherwise `~/.config/contextmatrix`. Workflow skills
-land in `<config-dir>/workflow-skills/` and are refreshed on every run.
+`XDG_CONFIG_HOME` is set, otherwise `~/.config/contextmatrix`. Copy
+`config.yaml.example` there as `config.yaml` and `workflow-skills/` next to it,
+or let [contextmatrix-setup](https://github.com/mhersson/contextmatrix-setup)
+manage the whole stack. Workflow skills default to `<config-dir>/workflow-skills/`
+(`workflow_skills_dir` overrides).
 
-The installed `config.yaml` does not start as copied: set `boards.dir` and
-fill in the `github` block first (see [Minimal config](#minimal-config)).
+## `contextmatrix config`
+
+| Command                              | Effect                                                                                                                        |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| `contextmatrix config defaults`      | Print the complete default configuration as YAML: every key the loader accepts. Backends are present and disabled; host-dependent paths are empty. Reads nothing. |
+| `contextmatrix config validate FILE` | Load `FILE` exactly as the server would (env overrides included). Exit 0 when the server would start, else print the first error and exit 1. A missing `FILE` is an error here, unlike `-config`, which falls back to defaults plus env overrides. |
+
+`contextmatrix-setup` uses both: `defaults` is its schema, so it adds keys you
+are missing and removes keys that no longer exist. Renaming a key upstream
+therefore drops the user's old value at the next update; prefer adding the new
+key and reading the old one for a release when a rename is unavoidable.
+
+Two keys are exceptions to that merge rule. `backends.agent.enabled` and
+`backends.chat.enabled` print as `false` so the backend key sets are visible,
+but an omitted `enabled` means the backend is enabled, so a merge must never
+add `enabled: false` on the schema's word alone. And `boards` prints only the
+single mapping form, while the loader also accepts a list of named repos, so a
+user file holding a list must have each entry merged against the mapping form
+rather than the whole list replaced by it.
 
 ## Config file discovery
 
@@ -145,8 +156,8 @@ unset, so a free cache rate cannot be expressed. Config file only.
 
 ## Troubleshooting
 
-- **`no config file found; use -config to specify a path`** - run
-  `make install-config`, or pass `-config`.
+- **`no config file found; use -config to specify a path`** - copy
+  `config.yaml.example` into the config directory, or pass `-config`.
 - **`github.auth_mode is required`** or
   **`github.app.app_id is required when github.auth_mode is "app"`** - the
   installed template ships an `app` block with zero ids. Fill it in, or switch

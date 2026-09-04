@@ -180,8 +180,8 @@ Workflow skills are the lifecycle prompts the MCP server hands to agents. If a
 custom state should be driven by them, copy `workflow-skills/` somewhere of
 your own, edit the relevant skills and point `workflow_skills_dir` in
 `config.yaml` (env `CONTEXTMATRIX_WORKFLOW_SKILLS_DIR`) at the copy.
-`scripts/install.sh --update-workflow-skills` refreshes only the default copy
-in the config directory. Task skills are a different system; see
+contextmatrix-setup refreshes the default copy in the config directory when
+the upstream skills change. Task skills are a different system; see
 [agent workflow](agent-workflow.md).
 
 ## See also
