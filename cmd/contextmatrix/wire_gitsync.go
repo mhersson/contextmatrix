@@ -103,24 +103,12 @@ func wireRepoSync(
 		}
 
 		if err := svc.SetSyncRunnerFor(b.cfg.Name, runner); err != nil {
-			if b.cfg.Shared {
-				return nil, fmt.Errorf("boards repo %q: sync runner: %w", b.cfg.Name, err)
-			}
-
-			slog.Error("git sync: sync runner", "repo", b.cfg.Name, "error", err)
-
-			return nil, nil
+			return nil, fmt.Errorf("boards repo %q: sync runner: %w", b.cfg.Name, err)
 		}
 
 		if pbSvc != nil {
 			if err := pbSvc.SetSyncRunnerFor(b.cfg.Name, runner, service.DirectCommitter(b.git)); err != nil {
-				if b.cfg.Shared {
-					return nil, fmt.Errorf("boards repo %q: playbook sync runner: %w", b.cfg.Name, err)
-				}
-
-				slog.Error("git sync: playbook sync runner", "repo", b.cfg.Name, "error", err)
-
-				return nil, nil
+				return nil, fmt.Errorf("boards repo %q: playbook sync runner: %w", b.cfg.Name, err)
 			}
 		}
 	}
