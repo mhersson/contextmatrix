@@ -28,6 +28,11 @@ Auto-loaded when working in `web/`. Backend conventions live in the root
   `contextmatrix-board-header-collapsed`,
   `contextmatrix-sidebar-repo-collapsed` (sidebar repo sections).
   Adding a key means adding it here.
+- Comments explain only non-obvious decisions, constraints, safety invariants,
+  or workarounds. Do not narrate what code does or record change history; git
+  holds history. Keep comments to one or two tight lines unless a longer
+  explanation is genuinely necessary. Rewrite or delete if you find comments
+  that don't follow this rule.
 
 ## Color palettes
 
