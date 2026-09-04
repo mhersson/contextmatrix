@@ -1,210 +1,176 @@
 # Data Model & Domain Rules
 
+Cards are markdown files with YAML frontmatter under
+`<project>/tasks/<ID>.md` in the boards repo; `.board.yaml` holds the project
+config. This document is the canonical reference for card parsing, the state
+machine, validation and the Go types. Component wiring and the trust model
+live in [architecture](architecture.md); the HTTP surface in the
+[API reference](api-reference.md).
+
 ## Key domain rules
 
-1. **Card IDs** are globally unique: `PREFIX-NNN`, zero-padded to 3 digits
-   minimum. `ALPHA-001`, `ALPHA-042`, `ALPHA-999`, `ALPHA-1000` (grows past 3
-   digits when needed). The server generates IDs by incrementing `next_id` in
-   `.board.yaml`. IDs are immutable once created.
+1. **Card IDs** are `PREFIX-NNN`, zero-padded to three digits and growing
+   past three when needed (`ALPHA-001`, `ALPHA-1000`). The server allocates
+   them from `next_id` in `.board.yaml`. Immutable.
 
-2. **State transitions are enforced.** Transitions defined in `.board.yaml`
-   under `transitions`. API returns 409 Conflict with descriptive error on
-   invalid transition. One state has a special built-in rule:
-   - **`stalled`** is system-managed - the lock manager can transition any state
-     → `stalled` (on heartbeat timeout), but agents/humans can only transition
-     `stalled` → states listed in `transitions.stalled`. Stalled cards release
-     the active agent claim.
+2. **State transitions are enforced.** Transitions come from `.board.yaml`
+   `transitions`; an invalid one returns 409 Conflict. `stalled` and
+   `not_planned` are required built-in states (config validation rejects a
+   project without them in `states` and `transitions`).
+   - `stalled` is system-managed: any state may go to `stalled` on heartbeat
+     timeout without listing it, but leaving `stalled` follows
+     `transitions.stalled`. Entering `stalled` clears the claim.
+   - `not_planned` follows normal rules: only states that list it can reach
+     it, and nothing automatic ever moves a card there. It is terminal:
+     entering it clears the claim, flushes deferred commits and removes the
+     card from active-agent and open-task counts.
+   - Terminal states (`done`, `not_planned`) are absorbing for the path
+     walker (`FindShortestPath`, used by `TransitionTo` and therefore by
+     `complete_task`): a card leaves `not_planned` only by a single explicit
+     transition, and no path routes through a terminal state. Without this,
+     completing a cancelled card would walk `not_planned` -> `todo` -> `done`.
+     `not_planned` -> `todo` stays the way a human resumes a card.
+   - `depends_on` gates `in_progress`: a transition, `PUT`, or `PATCH` into
+     `in_progress` fails with `ErrDependenciesNotMet` (409) while any
+     dependency is not `done`; `not_planned` does not satisfy a dependency.
+     `get_ready_tasks` and the `dependencies_met` read-time field use the
+     same rule. The claim itself is not gated: `claim_card` takes the claim
+     first and then runs the `todo` -> `in_progress` transition, so on a
+     blocked card the claim stands, the card stays in `todo`, and the
+     response carries `auto_transition_failed: true` with the reason. The
+     REST claim endpoint never auto-transitions.
 
-   Both `stalled` and `not_planned` are required built-in states (the server
-   validates their presence in every project config). Unlike `stalled`,
-   `not_planned` follows normal transition rules - only states that explicitly
-   list `not_planned` in their transitions can reach it. It is a terminal state:
-   transitioning to `not_planned` releases the agent claim, flushes deferred
-   commits, and excludes the card from active agent and open task counts. No
-   automatic mechanism ever transitions a card to `not_planned`.
-
-   Terminal states are also absorbing for the multi-step transition walker
-   (`FindShortestPath`, used by `TransitionTo` and so by `complete_task`): a
-   card in `not_planned` leaves it only by a single explicit transition, and no
-   path ever routes *through* `done` or `not_planned` on its way elsewhere.
-   Without this, completing a cancelled card walks it `not_planned` → `todo` →
-   `done` and silently undoes the cancellation. Direct transitions are
-   unaffected, so `not_planned` → `todo` remains the way a human resumes a
-   cancelled card - after which it is an ordinary `todo` card again.
-
-3. **One agent per card.** `POST /api/projects/{project}/cards/{id}/claim` fails
-   with 409 if card is already claimed. Only the assigned agent can mutate a
-   claimed card - API checks `X-Agent-ID` header against `assigned_agent` and
-   returns 403 on mismatch. Unclaimed cards can be mutated by anyone.
-
-   A card in a terminal state (`done` or `not_planned`) cannot be claimed at
-   all: `ClaimCard` returns `ErrCardTerminal` (409). The one exemption is the
-   agent that already holds the claim, because an agent keeps its claim through
-   `done` until `ReleaseCard` flushes its deferred commits - a re-claim there is
-   a heartbeat refresh, not a new agent picking up finished work.
+3. **One agent per card.** `POST .../cards/{id}/claim` returns 409 if the
+   card is claimed. Only the assigned agent may mutate a claimed card:
+   `X-Agent-ID` must match `assigned_agent` or the API returns 403. Unclaimed
+   cards can be mutated by anyone. A terminal card cannot be claimed
+   (`ErrCardTerminal`, 409) except by the agent already holding the claim: an
+   agent keeps its claim through `done` until `ReleaseCard` flushes its
+   deferred commits, so a re-claim there is a heartbeat refresh.
 
    On a shared board (`boards.shared: true`) ownership is the pair
-   `(assigned_agent, claimed_via)`: the same agent ID claiming through another
-   instance is refused with 409 while that instance's lease is live and takes
-   the card over with a higher `claim_epoch` once the lease has expired.
+   `(assigned_agent, claimed_via)`: the same agent ID claiming through
+   another instance is refused with 409 while that instance's lease is live,
+   and takes the card over with a higher `claim_epoch` once it has expired.
    `PUT`, `PATCH`, `DELETE`, `add_log` and `complete_task` check the pair. A
    claim with no `claimed_via` predates shared boards and is honoured by any
-   instance.
+   instance. See [shared boards](shared-boards.md).
 
-4. **Human identity.** Humans use agent IDs prefixed with `human:` (e.g.,
-   `human:alice`). The claim system treats them identically to AI agents. The
-   web UI stores the human's agent ID in localStorage and sends it via
-   `X-Agent-ID` header.
+4. **Human identity.** Humans use agent IDs prefixed `human:` (`human:alice`).
+   The claim system treats them like any agent. The web UI keeps its agent ID
+   in localStorage and sends it as `X-Agent-ID`.
 
-5. **Every mutation auto-commits (with optional deferral).** The service layer
-   writes the file, then commits via `GitManager`. Commit message format:
-   `[contextmatrix] CARD-ID: description` or
-   `[agent:AGENT-ID] CARD-ID: description`. When
-   `boards.git_deferred_commit: true` in `config.yaml`, agent mutations during a
-   work session are batched and flushed as a single commit at claim
-   release/completion. Card creation and human edits to unclaimed cards are
-   always committed immediately regardless of this setting.
+5. **Every mutation auto-commits**, with optional deferral. Commit messages
+   are `[contextmatrix] CARD-ID: description` for system commits and
+   `[agent:AGENT-ID] CARD-ID: description` for attributed ones. With
+   `boards.git_deferred_commit: true` a card's mutations are batched into one
+   commit flushed on release, force-release, stall, a terminal worker status
+   (`completed`, `failed`, `killed`), a `report_usage` on an unclaimed card,
+   or entry into `review` or `not_planned`. Card creation and deletion, and
+   REST `PUT` / `PATCH` on an unclaimed card, always commit immediately.
 
-6. **Activity log is append-only, capped at 50 entries.** Agents add entries via
-   the MCP `add_log` tool. Older entries beyond 50 are dropped from the card
-   file but preserved in git history. Entries are never edited or deleted. On
-   a shared boards repository (`boards.shared: true`), the sync resolver in
-   `internal/boardmerge` also writes entries with `agent: system` and action
-   `merge`, message `<rule>: <detail> (instance <id>)`, for a field the merge
-   overrode, a card re-minted on an add/add conflict, a dangling reference an
-   invariant repair dropped, and an invalid merged card that fell back to the
-   remote version. `claim.epoch_wins`, `claim.terminal_over_stall`,
-   `claim.double_claim` and `claim.active_over_release` record which side's
-   claim tuple a merge kept.
+6. **Activity log is append-only, capped at 50 entries.** Agents append via
+   the `add_log` MCP tool; entries past 50 drop from the file (oldest first)
+   but stay in git history. On a shared repo the merge resolver in
+   `internal/boardmerge` also writes entries with `agent: system`, action
+   `merge` and message `<rule>: <detail> (instance <id>)` for an overridden
+   field, a re-minted card, a dangling reference an invariant repair dropped,
+   and an invalid merge that fell back to the remote version. The rules
+   `claim.epoch_wins`, `claim.terminal_over_stall`, `claim.double_claim` and
+   `claim.active_over_release` record which side's claim tuple survived.
 
-7. **Heartbeat timeout.** If `last_heartbeat` exceeds configured timeout
-   (default 30min), the service layer (`CardService.StartTimeoutChecker` in
-   `internal/service/service_locks.go`) periodically scans for stalled cards,
-   sets each one's state to `stalled`, clears `assigned_agent`, commits to git,
-   and publishes a `CardStalled` event. The lock manager's role is limited to
-   enumeration: `Manager.FindStalled` returns the candidate list and never
-   mutates cards. The state change, persistence, commit, and event publication
-   are all owned by the service layer. `last_heartbeat` is refreshed not only
-   by the `heartbeat` MCP tool but by any owner-attributed card mutation -
-   `update_card` (MCP), `add_log`, `transition_card`, `report_usage`,
-   `start_review`, `complete_task` - as part of that mutation's existing
-   persist and commit, no extra write. The guard is
-   the mutation's attributed agent matching `assigned_agent`: a claimed card
-   edited by anyone else, or a mutation with no agent attribution (e.g. the
-   REST `PUT` card endpoint, which is system-attributed), never bumps it - only
-   the owning agent's own activity counts as liveness. The REST `PATCH`
-   endpoint routes through the same `PatchCard` path as MCP's `update_card`
-   and passes the `X-Agent-ID` header through as the attributed agent, so it
-   bumps `last_heartbeat` when that header names the card's current owner;
-   `PUT` never does, since it carries no agent attribution at all.
+7. **Heartbeat timeout.** When `last_heartbeat` is older than
+   `heartbeat_timeout` (default `30m`), `CardService.StartTimeoutChecker`
+   (`internal/service/service_locks.go`) sets the card to `stalled`, clears
+   the claim, commits and publishes `CardStalled`. `lock.Manager.FindStalled`
+   only enumerates candidates and never mutates. The same sweep reaps
+   abandoned parents: a parent in `in_progress`, unclaimed, untouched within
+   the timeout and with no active subtask is stalled as well, since a parent
+   is never itself claimed and would otherwise never time out.
+
+   `last_heartbeat` is refreshed by the `heartbeat` MCP tool and by any
+   owner-attributed mutation (`update_card`, `add_log`, `transition_card`,
+   `report_usage`, `start_review`, `complete_task`) as part of that write.
+   Only the owning agent's activity counts: a mutation by anyone else, or one
+   with no attribution (REST `PUT` is system-attributed), never bumps it.
+   REST `PATCH` passes `X-Agent-ID` through, so it bumps when the header names
+   the owner.
 
    On a shared board a heartbeat is recorded in memory and the file's
    `last_heartbeat` (the lease) is rewritten only when older than
-   `boards.lease_interval`; `lock.Manager.LastBeat` returns the newer of the
-   two, and every read path, the stall checker and the dashboard use it. The
-   live beat counts only while the card still carries this instance's claim;
-   a card a peer took over, an unclaimed card and a claim that predates
-   shared boards all read the value on file. The stall checker acts on claims
-   this instance granted and on claims that predate shared boards (no
-   `claimed_via`). A claim another instance granted is stalled only after its
-   pushed lease has stayed unchanged for `boards.lease_timeout` on the local
-   clock, following a recent pull, through a push-verified sync cycle; the
-   stall bumps `claim_epoch`. A claim the remote has not confirmed for
-   `lease_timeout` is fenced: release, transition, state patch and
-   worker-status writes return 403 `AGENT_MISMATCH` until a sync cycle
-   succeeds; heartbeats pass, and the stall checker skips the card so the
-   next cycle settles it first. The fence is held in memory only, so after a
-   restart every own claim is fenced until the startup sync cycle succeeds -
-   with the remote down that is what an operator sees behind those 403s.
+   `boards.lease_interval` (default `5m`); `lock.Manager.LastBeat` returns the
+   newer of the two and every read path, the stall checker and the dashboard
+   use it. The live beat counts only while the card carries this instance's
+   claim. The stall checker acts on claims this instance granted and on
+   claims with no `claimed_via`. A claim another instance granted is stalled
+   only after its pushed lease has stayed unchanged for `boards.lease_timeout`
+   (default `1h`) on the local clock, following a recent pull, through a
+   push-verified sync cycle; the stall bumps `claim_epoch`. A claim the
+   remote has not confirmed for `lease_timeout` is fenced: release,
+   transition, state patch and worker-status writes return 403
+   `AGENT_MISMATCH` until a sync cycle succeeds; heartbeats pass, and the
+   stall checker skips the card. The fence lives in memory, so after a
+   restart every own claim is fenced until the startup cycle succeeds.
 
-8. **External source tracking.** Cards imported from external systems (Jira,
-   GitHub Issues, etc.) use the `source` field to record origin. The
-   `source.external_id` field is indexed and queryable via
-   `GET /api/projects/{project}/cards?external_id=PROJ-1234`. This provides
-   idempotent imports - check if the external ID exists before creating, update
-   if it does. The `source` field is immutable after creation.
-   `source.external_url`, when present, must use an `http` or `https` scheme -
-   any other scheme (e.g. `javascript:`, `data:`, `vbscript:`) is rejected at
-   write time with a 422 validation error (`ErrInvalidExternalURL`).
+8. **External source tracking.** Imported cards (Jira, GitHub Issues) record
+   origin in `source`. `source.external_id` is indexed and queryable via
+   `GET .../cards?external_id=PROJ-1234`, which makes imports idempotent.
+   `source` is immutable after creation. `source.external_url` must use
+   `http` or `https`; any other scheme is rejected at write time with 422
+   (`ErrInvalidExternalURL`).
 
-9. **Human vetting gate for externally-imported cards.** Cards with a `source`
-   field (external origin) carry a `vetted` boolean that defaults to `false` on
-   creation. AI agents cannot claim an unvetted card - `ClaimCard` returns 403
-   `CARD_NOT_VETTED` if `card.Source != nil && !card.Vetted`. A human must
-   inspect the card content and toggle `vetted: true` via the web UI before any
-   agent can work on it.
-   - **Internal cards** (no `source` field) always have `vetted: true`; the
-     guard does not apply and the field is irrelevant for them.
-   - **`vetted` is a human-only field.** Agents receive 403 `HUMAN_ONLY_FIELD`
-     if they attempt to set it via the API or MCP. The MCP `update_card` tool
-     does not expose `vetted` at all - agents cannot self-vet cards.
-   - The `get_ready_tasks` MCP tool automatically excludes unvetted external
-     cards from its results so agents never see them as claimable work.
-   - The web UI shows an "unvetted" badge on board cards and a warning banner in
-     the card panel for cards with `source && !vetted`.
+9. **Human vetting gate for imported cards.** Cards with a `source` carry
+   `vetted`, `false` on creation. A non-human agent cannot claim an unvetted
+   card (`ClaimCard` returns 403 `CARD_NOT_VETTED`); a human toggles
+   `vetted: true` in the web UI first.
+   - Internal cards (no `source`) always have `vetted: true`.
+   - `vetted` is human-only: agents get 403 `HUMAN_ONLY_FIELD` via REST, and
+     the MCP `update_card` tool does not expose it.
+   - `get_ready_tasks` excludes unvetted external cards; `get_card` and
+     `get_task_context` redact an unvetted card's title and body for
+     non-human callers.
+   - The web UI shows an "unvetted" badge and a warning banner.
 
-10. **Parent card auto-transitions on child state changes.** When a subtask
-    actually transitions to `in_progress` (via `UpdateCard`, `PatchCard`, or a
-    transition through the state machine), the service layer automatically
-    transitions the parent from `todo` → `in_progress` if it is currently in
-    `todo`. The `claim` operation by itself does **not** trigger this -
-    `Manager.Claim` sets `assigned_agent` and `last_heartbeat` but never changes
-    `state`, so an agent that claims a `todo` subtask without moving it to
-    `in_progress` will not bump the parent. When all subtasks reach `done`, the
-    parent stays in `in_progress` - the orchestrator spawns a documentation
-    sub-agent first, then manually transitions the parent to `review`. The
-    `complete_task` MCP tool detects when all siblings are done and returns an
-    informational message so the calling agent knows documentation can proceed.
+10. **Parent auto-transitions.** When a subtask actually transitions to
+    `in_progress` (via `UpdateCard`, `PatchCard` or the state machine) and
+    its parent is in `todo`, the parent moves to `in_progress`. A claim alone
+    does not trigger this: `Manager.Claim` never changes `state`. When all
+    subtasks are `done` the parent stays `in_progress`; the orchestrator runs
+    documentation, then moves the parent to `review`. `complete_task`
+    reports when all siblings are done so the caller knows documentation can
+    proceed.
 
-11. **Subtask type is automatic and immutable.** The service layer enforces
-    subtask type invariants on both `CreateCard` and `UpdateCard` based on
-    parent field transitions:
+11. **Subtask type is automatic and immutable.** Enforced on `CreateCard` and
+    `UpdateCard` from the `parent` field:
 
-    | Scenario                                            | Behaviour                                                                                                        |
-    | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-    | Card is created with a non-empty `parent`           | `type` is auto-forced to `"subtask"` regardless of caller input                                                  |
-    | `UpdateCard` sets `parent` on a card that had none  | `type` is auto-forced to `"subtask"` regardless of caller input                                                  |
-    | `UpdateCard` clears `parent` on a card that had one | if `type` is still `"subtask"`, it is auto-reset to the first type in the project's `types` list (e.g. `"task"`) |
-    | `UpdateCard` keeps an existing `parent`             | `type` must remain `"subtask"`; any other value returns 422                                                      |
-    | Card has no `parent` (before or after)              | `type: "subtask"` is rejected with 422                                                                           |
+    | Scenario                                           | Behaviour                                                                   |
+    | -------------------------------------------------- | --------------------------------------------------------------------------- |
+    | Created with a non-empty `parent`                  | `type` forced to `subtask`                                                  |
+    | `UpdateCard` sets `parent` on a card that had none | `type` forced to `subtask`                                                  |
+    | `UpdateCard` clears `parent`                       | a `subtask` type resets to the first entry in the project's `types`         |
+    | `UpdateCard` keeps an existing `parent`            | `type` must stay `subtask`, else 422                                        |
+    | No `parent` before or after                        | `type: subtask` rejected with 422                                           |
 
-    The `subtask` type is built-in - it is always valid and does not need to
-    appear in the project's `types` list in `.board.yaml`. A card's type is
-    fully managed by the service layer whenever the `parent` field changes; do
-    not pass `type` when setting or clearing `parent`.
+    `subtask` is built in and never listed in `.board.yaml` `types`. Do not
+    pass `type` when setting or clearing `parent`.
 
-12. **Duplicate subtask guard.** When `CreateCard` is called with a `parent`
-    set, the service layer checks for an existing subtask under that parent
-    whose title matches (case-insensitive, whitespace-trimmed) and is in a
-    **non-terminal** state (anything other than `done` or `not_planned`). If a
-    match is found, the existing card is returned as-is - no new card is
-    created. The response is identical in shape to a normal create response (201
-    Created with the card body - the `createCard` handler unconditionally
-    returns 201 regardless of whether the card was newly created or matched an
-    existing duplicate), so callers do not need to handle this case specially.
+12. **Duplicate subtask guard.** `CreateCard` with a `parent` looks for an
+    existing subtask under that parent whose title matches (case-insensitive,
+    trimmed) in a non-terminal state. On a match the existing card is
+    returned; the handler still answers 201 with the card, so callers need no
+    special case. This keeps an agent that re-enters subtask creation after a
+    crash or context reset from orphaning duplicates.
+    - The check runs under `writeMu`; no TOCTOU race.
+    - `next_id` still increments; the gap is harmless.
+    - A matching subtask that is `done` or `not_planned` does not block:
+      re-doing finished work is intentional.
 
-    Rationale: LLM agents may re-enter Phase 2 (subtask creation) after a crash
-    or context reset, causing the same subtask to be created twice with
-    sequential IDs. The guard prevents orphaned duplicate cards without
-    requiring callers to check first.
-    - The check is under `writeMu`, so there is no TOCTOU race.
-    - The `next_id` counter is still incremented and the gap is harmless.
-    - If an identically-titled subtask exists but is already `done` or
-      `not_planned`, a new card **is** created - duplicates of completed work
-      are intentional (e.g., re-doing a failed step).
-
-13. **Card deletion requires no subtasks.**
-    `DELETE /api/projects/{project}/cards/{id}` (filesystem `os.Remove` of the
-    card file followed by an enqueued commit via `commitQueue.Enqueue` with
-    `CommitKindFile`; go-git records the deletion when the missing path is
-    staged - there is no `git rm` invocation) is rejected with 422
-    `VALIDATION_ERROR` if the card has any subtasks. Delete all subtasks first.
-    Deletion of a claimed card also requires the `X-Agent-ID` header to match
-    `assigned_agent` (403 on mismatch). The web UI enforces a softer gate: the
-    Delete button is enabled only when the card is in `todo` or `not_planned`
-    state **and** has no `assigned_agent`. A custom `ConfirmModal` React
-    component (see `web/AGENTS.md` → "ConfirmModal") warns the user that the
-    action is irreversible and commits the removal to git.
+13. **Card deletion requires no subtasks.** `DELETE .../cards/{id}` removes
+    the file (`os.Remove`) and enqueues a `CommitKindFile` commit; go-git
+    records the deletion when the missing path is staged. It returns 422
+    `VALIDATION_ERROR` if the card has subtasks, and 403 if the card is
+    claimed by another agent. The web UI enables Delete only for `todo` or
+    `not_planned` cards with no `assigned_agent`, behind a `ConfirmModal`.
 
 ## Card file format
 
@@ -218,11 +184,11 @@ state: in_progress
 priority: high
 assigned_agent: claude-7a3f
 last_heartbeat: 2026-03-30T14:30:00Z
-claimed_via: laptop-3f9a2c   # instance that granted the claim (shared boards only)
+claimed_via: laptop-3f9a2c   # granting instance (shared boards only)
 claimed_at: 2026-03-30T14:00:00Z
-claim_epoch: 4               # bumped on claim, release, stall, force-release, terminal transition
+claim_epoch: 4               # bumped on claim, release, stall, terminal move
 parent: ""
-subtasks: [ALPHA-003, ALPHA-004] # operator-maintained - set by callers via UpdateCard; not auto-populated when subtasks are created
+subtasks: [ALPHA-003, ALPHA-004] # set via UpdateCard; not auto-populated
 depends_on: []
 context:
   - src/auth/
@@ -247,8 +213,8 @@ token_usage:
   model: claude-sonnet-4-6
   prompt_tokens: 12340
   completion_tokens: 5670
-  cache_read_tokens: 80000     # optional, omitted when zero
-  cache_creation_tokens: 4000  # optional, omitted when zero
+  cache_read_tokens: 80000     # omitted when zero
+  cache_creation_tokens: 4000  # omitted when zero
   estimated_cost_usd: 0.122
 created: 2026-03-30T10:00:00Z
 updated: 2026-03-30T14:30:00Z
@@ -266,8 +232,8 @@ activity_log:
 ...
 ```
 
-A subtask card looks identical except `type` is always `subtask` and `parent` is
-set. The server enforces this automatically (see domain rule 11):
+A subtask looks the same except `type` is `subtask` and `parent` is set
+(rule 11); it carries no `branch_name`:
 
 ```yaml
 ---
@@ -285,114 +251,94 @@ updated: 2026-03-30T11:00:00Z
 ---
 ```
 
-The `parent` field is displayed in the web UI wherever a subtask card appears:
-
-- **Board (CardItem):** a clickable monospace badge showing the parent card ID
-  appears in both the expanded footer and the collapsed header row. Clicking
-  navigates to the parent card.
-- **Detail panel (CardPanelMetadata):** a "Parent" section appears above
-  "Subtasks" with a clickable button for the parent ID. Uses the same navigation
-  handler as subtask links.
-
-See `web/AGENTS.md` → "Subtask parent navigation" for styling details.
-
-The frontmatter is delimited by `---` lines. The body is freeform markdown. When
-parsing, split on `---` - first element is empty (before opening delimiter),
-second is YAML, third is body.
+The frontmatter is delimited by `---` lines; the body is free markdown.
+Parsing splits on `---`: the first element is empty, the second YAML, the
+third the body.
 
 ### `skills` (optional, `*[]string`)
 
-List of task-skill names mounted into the worker container's `~/.claude/skills/`
-directory. Three states:
+Task-skill names mounted into the worker container's `~/.claude/skills/`.
+Three states:
 
-- **field absent** (`nil`): inherit from project's `default_skills`, or mount
-  the full set from `task_skills.dir` if that's also unset.
-- **`skills: []`**: explicit "no specialist skills for this card." Container's
-  `~/.claude/skills/` is empty.
-- **`skills: [name1, name2]`**: constrain to this list. Only these are mounted.
+| Value                   | Meaning                                                                          |
+| ----------------------- | -------------------------------------------------------------------------------- |
+| absent (`nil`)          | inherit the project's `default_skills`, else the full set from `task_skills.dir` |
+| `skills: []`            | no specialist skills for this card                                               |
+| `skills: [name1, name2]` | only these are mounted                                                          |
 
-**Inheritance:** When a subtask is created with `parent` set and no `skills` of
-its own, the parent's `skills` value is copied onto the subtask at creation time
-(one-shot). Later edits to the parent do not propagate. Pass `skills` explicitly
-to `create_card` to override.
-
-**Override path:** The `skills` field can be set via `update_card` MCP tool, the
-REST `PATCH` endpoint, hand-editing the YAML, or the per-card multi-select in
-the CardPanel metadata (`MetadataSkills`). Project-wide defaults are managed via
-the `DefaultSkillsSelector` in Project Settings.
+A subtask created with `parent` set and no `skills` copies the parent's value
+once at creation; later parent edits do not propagate. Settable via
+`update_card`, REST `PATCH` (`skills_clear: true` resets to `nil`, since JSON
+cannot express "absent" on a patch), hand-editing, or the per-card selector in
+the card panel; project defaults via Project Settings. See
+[agent workflow](agent-workflow.md) for the task-skill channel.
 
 ## Go type definitions
 
-These are the authoritative struct definitions.
+These match `internal/board/card.go` field for field.
 
 ```go
 // internal/board/card.go
 
 type Card struct {
-    ID                  string          `yaml:"id"                              json:"id"`
-    Title               string          `yaml:"title"                           json:"title"`
-    Project             string          `yaml:"project"                         json:"project"`
-    Type                string          `yaml:"type"                            json:"type"`
-    State               string          `yaml:"state"                           json:"state"`
-    Priority            string          `yaml:"priority"                        json:"priority"`
-    AssignedAgent       string          `yaml:"assigned_agent,omitempty"        json:"assigned_agent,omitempty"`
-    LastHeartbeat       *time.Time      `yaml:"last_heartbeat,omitempty"        json:"last_heartbeat,omitempty"`
-    ClaimedVia          string          `yaml:"claimed_via,omitempty"           json:"claimed_via,omitempty"`
-    ClaimedAt           *time.Time      `yaml:"claimed_at,omitempty"            json:"claimed_at,omitempty"`
-    ClaimEpoch          int             `yaml:"claim_epoch,omitempty"           json:"claim_epoch,omitempty"`
-    Parent              string          `yaml:"parent,omitempty"                json:"parent,omitempty"`
-    Subtasks            []string        `yaml:"subtasks,omitempty"              json:"subtasks,omitempty"`
-    DependsOn           []string        `yaml:"depends_on,omitempty"            json:"depends_on,omitempty"`
-    DependenciesMet     *bool           `yaml:"-"                               json:"dependencies_met,omitempty"`
-    Context             []string        `yaml:"context,omitempty"               json:"context,omitempty"`
-    Labels              []string        `yaml:"labels,omitempty"                json:"labels,omitempty"`
-    Skills              *[]string       `yaml:"skills,omitempty"                json:"skills,omitempty"`
-    Source              *Source         `yaml:"source,omitempty"                json:"source,omitempty"`
-    Custom              map[string]any  `yaml:"custom,omitempty"                json:"custom,omitempty"`
-    Assignee            string          `yaml:"assignee,omitempty"              json:"assignee,omitempty"`
-    Autonomous          bool            `yaml:"autonomous,omitempty"            json:"autonomous"`
-    ModelOrchestrator   string          `yaml:"model_orchestrator,omitempty"    json:"model_orchestrator,omitempty"`
-    ModelCoder          string          `yaml:"model_coder,omitempty"           json:"model_coder,omitempty"`
-    ModelReviewer       string          `yaml:"model_reviewer,omitempty"        json:"model_reviewer,omitempty"`
-    BestOfN             int             `yaml:"best_of_n,omitempty"             json:"best_of_n,omitempty"`
-    MaxCapability       bool            `yaml:"max_capability,omitempty"        json:"max_capability,omitempty"`
-    MobParticipants     int             `yaml:"mob_participants,omitempty"      json:"mob_participants,omitempty"`
-    MobPhases           []string        `yaml:"mob_phases,omitempty"            json:"mob_phases,omitempty"`
-    MobGuests           []string        `yaml:"mob_guests,omitempty"            json:"mob_guests,omitempty"`
-    Verify              *VerifyConfig   `yaml:"verify,omitempty"                json:"verify,omitempty"`
-    Vetted              bool            `yaml:"vetted,omitempty"                json:"vetted"`
-    CreatePR            bool            `yaml:"create_pr,omitempty"             json:"create_pr,omitempty"`
-    AwaitCI             bool            `yaml:"await_ci,omitempty"              json:"await_ci,omitempty"`
-    AwaitCopilotReview  bool            `yaml:"await_copilot_review,omitempty"  json:"await_copilot_review,omitempty"`
-    BranchName          string          `yaml:"branch_name,omitempty"           json:"branch_name,omitempty"`
-    BaseBranch          string          `yaml:"base_branch,omitempty"           json:"base_branch,omitempty"`
-    PRUrl               string          `yaml:"pr_url,omitempty"                json:"pr_url,omitempty"`
-    ReviewAttempts      int             `yaml:"review_attempts,omitempty"       json:"review_attempts,omitempty"`
-    WorkerStatus        string          `yaml:"worker_status,omitempty"         json:"worker_status,omitempty"`
-    Phase               string          `yaml:"phase,omitempty"                 json:"phase,omitempty"`
-    TokenUsage          *TokenUsage     `yaml:"token_usage,omitempty"           json:"token_usage,omitempty"`
-    UsageBreakdown      []UsageBucket   `yaml:"usage_breakdown,omitempty"       json:"usage_breakdown,omitempty"`
-    SubtaskCostUSD      float64         `yaml:"-"                               json:"subtask_cost_usd,omitempty"`
-    InPlaybooks         []string        `yaml:"-"                               json:"in_playbooks,omitempty"`
-    Created             time.Time       `yaml:"created"                         json:"created"`
-    Updated             time.Time       `yaml:"updated"                         json:"updated"`
-    ActivityLog         []ActivityEntry `yaml:"activity_log,omitempty"          json:"activity_log,omitempty"`
-    Body                string          `yaml:"-"                               json:"body"`
+    ID                      string          `yaml:"id"                              json:"id"`
+    Title                   string          `yaml:"title"                           json:"title"`
+    Project                 string          `yaml:"project"                         json:"project"`
+    Type                    string          `yaml:"type"                            json:"type"`
+    State                   string          `yaml:"state"                           json:"state"`
+    Priority                string          `yaml:"priority"                        json:"priority"`
+    AssignedAgent           string          `yaml:"assigned_agent,omitempty"        json:"assigned_agent,omitempty"`
+    LastHeartbeat           *time.Time      `yaml:"last_heartbeat,omitempty"        json:"last_heartbeat,omitempty"`
+    ClaimedVia              string          `yaml:"claimed_via,omitempty"           json:"claimed_via,omitempty"`
+    ClaimedAt               *time.Time      `yaml:"claimed_at,omitempty"            json:"claimed_at,omitempty"`
+    ClaimEpoch              int             `yaml:"claim_epoch,omitempty"           json:"claim_epoch,omitempty"`
+    Parent                  string          `yaml:"parent,omitempty"                json:"parent,omitempty"`
+    Subtasks                []string        `yaml:"subtasks,omitempty"              json:"subtasks,omitempty"`
+    DependsOn               []string        `yaml:"depends_on,omitempty"            json:"depends_on,omitempty"`
+    DependenciesMet         *bool           `yaml:"-"                               json:"dependencies_met,omitempty"`
+    Context                 []string        `yaml:"context,omitempty"               json:"context,omitempty"`
+    Labels                  []string        `yaml:"labels,omitempty"                json:"labels,omitempty"`
+    Skills                  *[]string       `yaml:"skills,omitempty"                json:"skills,omitempty"`
+    Source                  *Source         `yaml:"source,omitempty"                json:"source,omitempty"`
+    Custom                  map[string]any  `yaml:"custom,omitempty"                json:"custom,omitempty"`
+    Assignee                string          `yaml:"assignee,omitempty"              json:"assignee,omitempty"`
+    Autonomous              bool            `yaml:"autonomous,omitempty"            json:"autonomous"`
+    ModelOrchestrator       string          `yaml:"model_orchestrator,omitempty"    json:"model_orchestrator,omitempty"`
+    ModelCoder              string          `yaml:"model_coder,omitempty"           json:"model_coder,omitempty"`
+    ModelReviewer           string          `yaml:"model_reviewer,omitempty"        json:"model_reviewer,omitempty"`
+    BestOfN                 int             `yaml:"best_of_n,omitempty"             json:"best_of_n,omitempty"`
+    MaxCapability           bool            `yaml:"max_capability,omitempty"        json:"max_capability,omitempty"`
+    MobParticipants         int             `yaml:"mob_participants,omitempty"      json:"mob_participants,omitempty"`
+    MobPhases               []string        `yaml:"mob_phases,omitempty"            json:"mob_phases,omitempty"`
+    MobGuests               []string        `yaml:"mob_guests,omitempty"            json:"mob_guests,omitempty"`
+    Verify                  *VerifyConfig   `yaml:"verify,omitempty"                json:"verify,omitempty"`
+    Vetted                  bool            `yaml:"vetted,omitempty"                json:"vetted"`
+    CreatePR                bool            `yaml:"create_pr,omitempty"             json:"create_pr,omitempty"`
+    AwaitCI                 bool            `yaml:"await_ci,omitempty"              json:"await_ci,omitempty"`
+    AwaitCopilotReview      bool            `yaml:"await_copilot_review,omitempty"  json:"await_copilot_review,omitempty"`
+    BranchName              string          `yaml:"branch_name,omitempty"           json:"branch_name,omitempty"`
+    BaseBranch              string          `yaml:"base_branch,omitempty"           json:"base_branch,omitempty"`
+    PRUrl                   string          `yaml:"pr_url,omitempty"                json:"pr_url,omitempty"`
+    ReviewAttempts          int             `yaml:"review_attempts,omitempty"       json:"review_attempts,omitempty"`
+    WorkerStatus            string          `yaml:"worker_status,omitempty"         json:"worker_status,omitempty"`
+    Phase                   string          `yaml:"phase,omitempty"                 json:"phase,omitempty"`
+    TokenUsage              *TokenUsage     `yaml:"token_usage,omitempty"           json:"token_usage,omitempty"`
+    UsageBreakdown          []UsageBucket   `yaml:"usage_breakdown,omitempty"       json:"usage_breakdown,omitempty"`
+    SubtaskCostUSD          float64         `yaml:"-"                               json:"subtask_cost_usd,omitempty"`
+    SubtaskCostHasEstimates bool            `yaml:"-"                               json:"subtask_cost_has_estimates,omitempty"`
+    InPlaybooks             []string        `yaml:"-"                               json:"in_playbooks,omitempty"`
+    Created                 time.Time       `yaml:"created"                         json:"created"`
+    Updated                 time.Time       `yaml:"updated"                         json:"updated"`
+    ActivityLog             []ActivityEntry `yaml:"activity_log,omitempty"          json:"activity_log,omitempty"`
+    Body                    string          `yaml:"-"                               json:"body"`
 }
-
-// Note: Autonomous and Vetted intentionally use `json:"autonomous"` /
-// `json:"vetted"` (no `omitempty`) so the boolean is always emitted in API
-// responses - clients can distinguish "explicitly false" from "field not
-// returned". CreatePR keeps `omitempty`: it defaults to true at create, so
-// an absent key in old card files simply reads as false and the create-time
-// default only applies to new cards.
 
 type ActivityEntry struct {
     Agent     string    `yaml:"agent"           json:"agent"`
     Timestamp time.Time `yaml:"ts"              json:"ts"`
     Action    string    `yaml:"action"          json:"action"`
     Message   string    `yaml:"message"         json:"message"`
-    Skill     string    `yaml:"skill,omitempty" json:"skill,omitempty"` // set on `skill_engaged` actions
+    Skill     string    `yaml:"skill,omitempty" json:"skill,omitempty"` // set on skill_engaged actions
 }
 
 type Source struct {
@@ -423,70 +369,53 @@ type UsageBucket struct {
 }
 ```
 
-`CacheReadTokens` and `CacheCreationTokens` are optional (`omitempty`); they are
-absent from the YAML/JSON when zero (cards whose agents do not pass cache
-fields). `RecalculateCosts` handles
-absent values correctly - missing fields default to 0 and do not affect the
-recalculated cost.
+`Autonomous` and `Vetted` deliberately lack JSON `omitempty` so clients can
+tell "explicitly false" from "not returned". `CreatePR` keeps `omitempty`: it
+defaults at create time, so an absent key in an old file reads as false.
 
-**Cost formula** (applied per `report_usage` call and by `RecalculateCosts`):
+`CacheReadTokens` and `CacheCreationTokens` are absent when zero;
+`RecalculateCosts` treats missing values as 0.
 
-```
+**Cost formula** (per `report_usage` call and in `RecalculateCosts`):
+
+```text
 estimated_cost_usd +=
     prompt_tokens         * rate.Prompt
-  + cache_read_tokens      * (rate.CacheRead  || rate.Prompt * 0.10)
-  + cache_creation_tokens  * (rate.CacheWrite || rate.Prompt * 1.25)
+  + cache_read_tokens     * (rate.CacheRead  || rate.Prompt * 0.10)
+  + cache_creation_tokens * (rate.CacheWrite || rate.Prompt * 1.25)
   + completion_tokens     * rate.Completion
 ```
 
-`rate.CacheRead` and `rate.CacheWrite` are per-token USD rates that a model's
-rate can set explicitly; zero (unset) falls back to the Prompt-derived
-multiplier. The catalog supplies cache rates when the gateway publishes
-`input_cache_read`/`input_cache_write` pricing (OpenRouter does; plain
-OpenAI-protocol gateways typically do not, in which case the multiplier
-fallback applies).
-
-`cache_creation_tokens` falls back to a single 1.25× multiplier when no
-explicit rate is set, collapsing the 5-minute and 1-hour cache-write tiers.
-Claude Code uses the 5-minute tier by default. Agents should pass the
-`cache_creation_input_tokens` field from Claude's stream-json `usage` frame
-directly - no tier distinction is required.
+`rate.CacheRead` and `rate.CacheWrite` are explicit per-token rates; zero
+falls back to the prompt-derived multiplier. The catalog supplies cache rates
+when the gateway publishes `input_cache_read` / `input_cache_write` pricing
+(OpenRouter does; plain OpenAI-protocol gateways usually do not). The single
+1.25x fallback collapses the 5-minute and 1-hour cache-write tiers; agents
+pass `cache_creation_input_tokens` from the stream-json `usage` frame as is.
 
 ### Usage breakdown
 
-`UsageBreakdown` holds one `UsageBucket` per `(agent, model)` pair, merging every
-`report_usage` call for that pair into a single row. It exists to attribute cost
-after a card is released (when `assigned_agent` is cleared) and across multiple
-agents or models on one card. Empty-agent buckets roll up to the dashboard's
-`unassigned` label.
+`UsageBreakdown` holds one `UsageBucket` per `(agent, model)` pair, merging
+every `report_usage` call for that pair. It attributes cost after release
+(when `assigned_agent` is cleared) and across several agents or models on
+one card. Empty-agent buckets roll up to the dashboard's `unassigned` label.
 
-`cost_source` is `actual` when the bucket's cost came from the provider (passed
-on `report_usage` as `actual_cost_usd`) or `estimated` when it was priced from
-the local rate table. **Actual is authoritative and is never re-priced** -
-`RecalculateCosts` re-prices only `estimated` buckets from the current rate
-table and leaves `actual` buckets untouched. A bucket that has ever received an
-actual-cost report stays `actual`.
-
-Token counts are caller-reported in every mode - ContextMatrix never measures
-tokens itself. `counts_source` marks buckets whose counts came from a trusted
-collector reading real usage frames (`source: "collector"` on `report_usage`);
-empty means self-reported (an agent's own estimate, `source: "self"` or
-omitted). Like `cost_source`, it is sticky: once a bucket has received a
-collector-sourced report it stays `collector` even if a later report to the
-same bucket omits `source`.
-
-The bucket's `agent` key is `on_behalf_of` when the `report_usage` call passes
-it, else `agent_id`. This lets a caller that holds the card's claim (the value
-`agent_id` must match for the ownership check) attribute usage to a different
-identity - e.g. an orchestrator reporting a sub-agent's token consumption
-under the sub-agent's own name instead of merging it into the orchestrator's
-bucket. `on_behalf_of` never affects authorization, only which bucket the
-tokens land in.
-
-The cumulative `TokenUsage` (counters and `estimated_cost_usd`) is kept equal to
-the bucket sum for breakdown cards: each report increments both the matching
-bucket and the cumulative total. Cards with no `usage_breakdown` buckets fall
-back to `assigned_agent` for their agent rollup.
+- `cost_source` is `actual` when the cost came from the provider
+  (`actual_cost_usd` on `report_usage`) or `estimated` when priced from the
+  rate table. Actual is authoritative: `RecalculateCosts` re-prices only
+  `estimated` buckets, and a bucket that ever received an actual cost stays
+  `actual`.
+- Token counts are caller-reported in every mode; CM never measures tokens.
+  `counts_source` is `collector` when the counts came from a trusted collector
+  reading real usage frames (`source: "collector"`), empty when
+  self-reported (`source: "self"` or omitted). Sticky once `collector`.
+- The bucket's `agent` key is `on_behalf_of` when passed, else `agent_id`.
+  This lets the claim holder (whose `agent_id` must pass the ownership check)
+  attribute a sub-agent's tokens under the sub-agent's name. `on_behalf_of`
+  never affects authorization.
+- The cumulative `TokenUsage` stays equal to the bucket sum: each report
+  increments both. Cards with no buckets fall back to `assigned_agent` for
+  their rollup.
 
 ```go
 // internal/board/project.go
@@ -500,12 +429,6 @@ type Repo struct {
 type RemoteExecutionConfig struct {
     WorkerImage     string `yaml:"worker_image,omitempty"      json:"worker_image,omitempty"`
     ChatWorkerImage string `yaml:"chat_worker_image,omitempty" json:"chat_worker_image,omitempty"`
-}
-
-type VerifyConfig struct {
-    Command        string   `yaml:"command,omitempty"         json:"command,omitempty"`
-    TimeoutSeconds int      `yaml:"timeout_seconds,omitempty" json:"timeout_seconds,omitempty"`
-    Env            []string `yaml:"env,omitempty"             json:"env,omitempty"`
 }
 
 type GitHubImportConfig struct {
@@ -522,310 +445,237 @@ type ProjectConfig struct {
     DisplayName      string                   `yaml:"display_name,omitempty"      json:"display_name,omitempty"`
     Prefix           string                   `yaml:"prefix"                      json:"prefix"`
     NextID           int                      `yaml:"next_id"                     json:"next_id"`
-    Repo             string                   `yaml:"repo,omitempty"              json:"repo,omitempty"`               // singular repo; Repos is the multi-repo form and takes precedence
-    Repos            []Repo                   `yaml:"repos,omitempty"             json:"repos,omitempty"`              // multi-repo projects; one entry may be Primary
-    GitHubCredential string                   `yaml:"github_credential,omitempty" json:"github_credential,omitempty"` // instance credential-pool entry name; empty = instance github.* credential
+    BoardsRepo       string                   `yaml:"-"                           json:"boards_repo,omitempty"`   // stamped on read by the composite store
+    Repo             string                   `yaml:"repo,omitempty"              json:"repo,omitempty"`          // singular form; Repos takes precedence
+    Repos            []Repo                   `yaml:"repos,omitempty"             json:"repos,omitempty"`         // multi-repo form; at most one Primary
+    GitHubCredential string                   `yaml:"github_credential,omitempty" json:"github_credential,omitempty"`
     States           []string                 `yaml:"states"                      json:"states"`
     Types            []string                 `yaml:"types"                       json:"types"`
     Priorities       []string                 `yaml:"priorities"                  json:"priorities"`
     Transitions      map[string][]string      `yaml:"transitions"                 json:"transitions"`
     RemoteExecution  *RemoteExecutionConfig   `yaml:"remote_execution,omitempty"  json:"remote_execution,omitempty"`
-    Verify           *VerifyConfig            `yaml:"verify,omitempty"            json:"verify,omitempty"`         // operator-declared verify gate; cards inherit it unless they override
     GitHub           *GitHubImportConfig      `yaml:"github,omitempty"            json:"github,omitempty"`
-    DefaultSkills    *[]string                `yaml:"default_skills,omitempty"    json:"default_skills,omitempty"` // nil=full set, []=none, [list]=constrain
-    Favorites        map[string]TierFavorites `yaml:"favorites,omitempty"         json:"-"`                        // per-project tier overrides for the agent-backend model selector; merged with global at trigger time
-    Templates        map[string]string        `yaml:"-"                           json:"templates,omitempty"`      // loaded from templates/ dir at runtime
+    DefaultSkills    *[]string                `yaml:"default_skills,omitempty"    json:"default_skills,omitempty"`
+    Verify           *VerifyConfig            `yaml:"verify,omitempty"            json:"verify,omitempty"`
+    Favorites        map[string]TierFavorites `yaml:"favorites,omitempty"         json:"-"`
+    Templates        map[string]string        `yaml:"-"                           json:"templates,omitempty"`     // loaded from templates/ at runtime
+}
+
+// internal/board/verify.go
+
+type VerifyConfig struct {
+    Command        string   `yaml:"command,omitempty"         json:"command,omitempty"`
+    TimeoutSeconds int      `yaml:"timeout_seconds,omitempty" json:"timeout_seconds,omitempty"`
+    Env            []string `yaml:"env,omitempty"             json:"env,omitempty"`
 }
 ```
 
-`ProjectConfig.EffectiveRepos()` normalises the two fields into a single
-`[]Repo`: when `Repos` is set the slice is returned with empty `Name` fields
-derived from `URL` and the first entry auto-promoted to `Primary` when no entry
-sets it; otherwise the singular `Repo` field is synthesised as
-`[]Repo{{URL: Repo, Primary: true}}`. Validation rejects duplicate names,
-missing URLs, or more than one `Primary: true` entry.
+`ProjectConfig.EffectiveRepos()` normalises `repo` and `repos` into one
+`[]Repo`: with `repos` set, empty names derive from the URL and the first
+entry becomes `Primary` when none is marked; otherwise the singular `repo`
+becomes `[]Repo{{URL: repo, Primary: true}}`. Validation rejects duplicate
+names, empty URLs and more than one `Primary`.
 
-`Favorites` holds per-project overrides for the agent-backend leaderboard
-model selector, keyed by complexity tier. Each `board.TierFavorites` value is
-either a bare list of preferred model slugs (applies to every role) or a
-`{coder: [...], reviewer: [...]}` map narrowing to one role - see the
-`favorites:` example in `config.yaml.example`'s `backends.agent` block, which
-documents the same shape for the instance-wide default. `mergeFavorites`
-(`internal/api/backend_run.go`) combines the backend's global
-`backends.agent.favorites` with a project's `Favorites` at trigger time, with
-project entries taking priority per tier. `json:"-"` - there is no REST
-create/update path for this field; set it by hand-editing `.board.yaml`. How
-favorites factor into the actual pick is documented in
-`docs/model-selection.md`.
+`Favorites` holds per-project overrides for the agent backend's model
+selector, keyed by complexity tier. Each `TierFavorites` is a bare list of
+model slugs (every role) or a `{coder: [...], reviewer: [...]}` map; the
+`favorites:` example under `backends.agent` in `config.yaml.example` shows
+the same shape. `mergeFavorites` (`internal/api/backend_run.go`) combines the
+global `backends.agent.favorites` with the project's at trigger time, project
+entries winning per tier. `json:"-"`: no REST path writes it; hand-edit
+`.board.yaml`. See [model selection](model-selection.md#the-decision-order).
 
-**Immutable fields** (set on creation, never changed): `id`, `project`,
-`created`, `source`. Additionally, `branch_name` is immutable after first
-generation.
+**Immutable fields**: `id`, `project`, `created`, `source`; `branch_name`
+after first generation.
 
-**Server-managed fields** (set by service layer, not by clients directly): `id`,
-`created`, `updated`, `assigned_agent`, `last_heartbeat`, `activity_log`,
+**Server-managed fields**: `id`, `created`, `updated`, `assigned_agent`,
+`last_heartbeat`, `claimed_via`, `claimed_at`, `claim_epoch`, `activity_log`,
 `worker_status`, `review_attempts`, `branch_name`, `token_usage`,
-`usage_breakdown`, `dependencies_met`, `subtask_cost_usd`, `in_playbooks`.
+`usage_breakdown`, `dependencies_met`, `subtask_cost_usd`,
+`subtask_cost_has_estimates`, `in_playbooks`.
 
-`dependencies_met`, `subtask_cost_usd` and `in_playbooks` are computed on read
-and never persisted to card frontmatter. `subtask_cost_usd` is the summed
-`estimated_cost_usd` of the card's direct subtasks (single-card GET only;
-list responses do not carry it); omitted when zero. `in_playbooks` lists the
-IDs of playbooks holding a card entry for the card (single-card GET and list
-responses); omitted when empty, and best-effort - a playbook-store failure
-leaves it empty rather than failing the read.
+`dependencies_met`, `subtask_cost_usd`, `subtask_cost_has_estimates` and
+`in_playbooks` are computed on read and never written to frontmatter.
+`subtask_cost_usd` sums the `estimated_cost_usd` of direct subtasks
+(single-card GET only; omitted when zero) and `subtask_cost_has_estimates`
+reports whether any of those costs include rate-table-estimated buckets.
+`in_playbooks` lists the playbooks holding a card entry for the card (GET and
+list); omitted when empty and best-effort, so a playbook-store failure leaves
+it empty rather than failing the read.
 
-**Agent-managed field** - `phase`: the agent-orchestrator's progress within a run
-(`plan` | `execute` | `judge` | `document` | `review` | `integrate` | `pr_gates` | `done`), orthogonal
-to `state`. `judge` is exercised only during a Best-of-N run (see `best_of_n`
-below) - the agent-backend orchestrator selects a winner among the racing
-candidates there before continuing to `document`; it is a no-op phase for
-normal runs. Enum-validated; the empty string clears it and means "not
-agent-driven". Settable via the `update_card` MCP tool and REST (PUT/PATCH).
-`pr_gates` is the post-integrate step that waits on the PR's CI and/or Copilot
-review when the card's `await_ci` / `await_copilot_review` flags are set (see
-`## PR gates` below).
+**Agent-managed field** `phase`: the orchestrator's position within a run,
+one of `plan`, `execute`, `judge`, `document`, `review`, `integrate`,
+`pr_gates`, `done`; orthogonal to `state`. `judge` is used only by a Best-of-N
+run to pick a winner before `document`. `pr_gates` waits on the PR's CI and
+Copilot review when `await_ci` / `await_copilot_review` are set. Enum
+validated; the empty string clears it. Settable via `update_card` and REST
+`PUT` / `PATCH`.
 
-**Section upsert** - the MCP `update_card` tool additionally accepts
-`upsert_section_heading` + `upsert_section_content` (both or neither; the
-handler rejects one without the other before touching the service). They
-replace-or-append one `## <heading>` block in the card body without the
-caller resending the rest: if a section whose heading exactly matches
-`upsert_section_heading` (flush-left `## `, case-sensitive) already exists,
-its body is replaced in place; otherwise the section is appended.
-Resubmitting the same heading and content leaves the resulting body
-unchanged; the card's `updated` timestamp still advances and a commit is
-still recorded, since PatchCard commits unconditionally on every call.
-Mutually exclusive with `body` in the same call (`ErrInvalidSectionPatch`); the
-heading must be a single non-empty line with no leading `#`. The resulting
-body is checked against the same 512 KB `maxBodyLen` cap as a direct `body`
-write (`ErrFieldTooLong`). REST has no equivalent - section upsert is MCP-only,
-mirrored by `service.PatchCardInput.UpsertSection`
-(`internal/service/service_cards.go`).
+**Section upsert**: the MCP `update_card` tool accepts
+`upsert_section_heading` plus `upsert_section_content` (both or neither).
+They replace-or-append one `## <heading>` block without resending the body: a
+flush-left, case-sensitive `## <heading>` line is replaced in place, else the
+section is appended. Resubmitting identical content leaves the body unchanged
+but still advances `updated` and commits. Mutually exclusive with `body`
+(`ErrInvalidSectionPatch`); the heading is one non-empty line with no leading
+`#`; the result is checked against the 512 KB `maxBodyLen`. MCP-only,
+mirrored by `service.PatchCardInput.UpsertSection`.
 
-**Human-only fields** (may only be set by agents whose `X-Agent-ID` starts with
-`human:`): `vetted`, `assignee`, `create_pr`, `await_ci`,
-`await_copilot_review`, the three model pins (`model_orchestrator`,
-`model_coder`, `model_reviewer`), `base_branch`, `best_of_n`, `max_capability`,
-the mob fields (`mob_participants`, `mob_phases`, `mob_guests`), and `verify`.
-`assignee` is exposed on POST, PUT, and PATCH and, independent of the human-only
-gate, is validated against the user roster - see `### assignee` below for the
-mode-forked rules. `verify` is exposed on POST (`createCardRequest`) and PATCH
-(`patchCardRequest`) only - there is no `verify` field on the full-update body -
-and an agent that sets it is rejected so it can never define its own verify
-gate. `create_pr` is nullable on POST: absent (or `null`) defaults to **true**
-in the service layer, so MCP `create_card` and importers inherit PRs-by-default;
-an explicit boolean from an agent is rejected. `base_branch` is exposed on POST
-and PATCH; PUT has no `base_branch` field and preserves the existing value. The
-model pins are gated on create, full-update, and PATCH. `best_of_n` is exposed
-on POST (`createCardRequest`), PUT, and PATCH - and, independent of the
-human-only gate, is range-validated to `0` (off) or
-`2..best_of_n.max_candidates`; a value outside that range is rejected with 400
-`BAD_REQUEST` regardless of caller. Like the model pins, it is sticky: there is
-no per-trigger override, so the card's stored value applies to every subsequent
-run until a human changes or clears it, and it has effect only on the agent
-backend (see `docs/remote-execution.md`). Ignored (zeroed at trigger, with a
-warning) when the card's mob session covers the `execute` phase and the server
-allows checkpoints. Agents that attempt to set any of these fields receive 403
-`HUMAN_ONLY_FIELD`. The MCP `update_card` tool does not expose them. `autonomous`
-is the exception: it remains human-only via REST (an agent that sends it on
-POST/PUT/PATCH receives 403 `HUMAN_ONLY_FIELD`), but the MCP `update_card` tool
-exposes an `autonomous` field so any MCP-connected agent can set or clear the
-flag before a card is run - see `### autonomous` below. `await_ci`
-and `await_copilot_review` are plain booleans on POST, PUT, and PATCH (no
-create-time defaulting); see `## PR gates` for semantics.
+**Human-only fields** (REST callers whose `X-Agent-ID` starts with `human:`;
+others get 403 `HUMAN_ONLY_FIELD`): `vetted`, `assignee`, `autonomous`,
+`create_pr`, `await_ci`, `await_copilot_review`, `base_branch`, the model
+pins (`model_orchestrator`, `model_coder`, `model_reviewer`), `best_of_n`,
+`max_capability`, the mob fields, and `verify`. Where each is exposed:
+
+| Field                             | POST | PUT | PATCH | MCP `update_card` |
+| --------------------------------- | ---- | --- | ----- | ----------------- |
+| `vetted`                          | yes  | yes | yes   | no                |
+| `assignee`                        | yes  | yes | yes   | no                |
+| `autonomous`                      | yes  | yes | yes   | yes (any agent)   |
+| `create_pr`                       | yes  | yes | yes   | no                |
+| `await_ci`, `await_copilot_review` | yes | yes | yes   | no                |
+| `base_branch`                     | yes  | no  | yes   | no                |
+| model pins                        | yes  | yes | yes   | no                |
+| `best_of_n`                       | yes  | yes | yes   | no                |
+| `max_capability`                  | yes  | yes | yes   | no                |
+| mob fields                        | yes  | yes | yes   | no                |
+| `verify`                          | yes  | no  | yes   | no                |
+
+`PUT` is a full replace: omitting a field clears it (`base_branch` and
+`verify`, absent from the PUT body, are preserved). `PATCH` leaves `nil`
+fields unchanged. `create_pr` is nullable on POST: absent defaults in the
+service layer (see [`create_pr`](#create_pr-semantics)), and an explicit
+boolean from an agent is rejected. `best_of_n` is range-validated for every
+caller to `0` (off) or `2..best_of_n.max_candidates`, else 400
+`BAD_REQUEST`; it is sticky (no per-trigger override), acts only on the agent
+backend, and is zeroed at trigger with a warning when the card's mob session
+covers `execute` and the server allows checkpoints.
 
 ### `max_capability` (optional, bool)
 
-A per-card flag telling the agent backend to ignore cost when auto-selecting
-models: the most capable candidate in the card's tier wins, and favorites are
-bypassed. `false`/absent (the default) selects normally. Human-set only, like
-the model pins - exposed on POST (`createCardRequest`), PUT, and PATCH, and
-excluded from the MCP `update_card`/`create_card` tools. A non-human caller
-that sets or changes it receives 403 `HUMAN_ONLY_FIELD`; a PUT that omits it
-clears it (full-replacement semantics), while a PATCH that omits it leaves the
-stored value unchanged (`nil` = don't change).
-
-The flag is copied into the run-trigger payload (`TriggerPayload.MaxCapability`,
-`protocol` v0.16.0) in `internal/api/backend_run.go`. ContextMatrix stores and
-ships the flag; the selection behavior it asks for lives in the
-`contextmatrix-agent` repository (see `docs/model-selection.md`
-§ The decision order).
-In the UI the "Maximum capability" checkbox appears in the card Automation
-rail and the create panel only while automatic model selection is on, and
-re-checking automatic selection clears pins but never this flag. How it narrows
-selection is documented in `docs/model-selection.md` § The decision order.
+Tells the agent backend to ignore cost when auto-selecting models: the most
+capable candidate in the card's tier wins and favorites are bypassed. Copied
+into the trigger payload (`TriggerPayload.MaxCapability`) in
+`internal/api/backend_run.go`; the selection behaviour lives in the agent
+repository. In the UI the "Maximum capability" checkbox appears only while
+automatic model selection is on, and re-enabling automatic selection clears
+pins but not this flag. See
+[model selection](model-selection.md#the-decision-order).
 
 ### `autonomous` (optional, bool)
 
-When `true`, the card runs the autonomous lifecycle: `start_workflow` routes it
-to `run-autonomous`, human approval gates are bypassed, and (for worker
-containers) the backend forces `interactive` off server-side. `false`/absent
-is the default. See `docs/agent-workflow.md` § Autonomous mode.
+When `true` the card runs the autonomous lifecycle: `start_workflow` routes
+to `run-autonomous`, human approval gates are bypassed, and the backend
+forces `interactive` off. Two write paths:
 
-The flag has two write paths with different caller gates:
+- **MCP `update_card`** exposes `autonomous` (`*bool`) to any MCP-connected
+  agent, so an agent harness can mark cards suitable for autonomous runs
+  before any of them execute. `nil` leaves the value unchanged.
+- **REST** keeps it human-only.
 
-- **MCP `update_card`** exposes an `autonomous` field (`*bool`) that any
-  MCP-connected agent can set or clear. This is the intended path for an agent
-  harness (e.g. Claude Code planning a set of tasks) to mark which cards are
-  suitable for autonomous execution before any of them are run. Omitting the
-  field leaves the stored value unchanged (`nil` = don't change).
-- **REST** (POST/PUT/PATCH) keeps `autonomous` human-only: an agent whose
-  `X-Agent-ID` lacks the `human:` prefix that sets or changes it receives 403
-  `HUMAN_ONLY_FIELD`. A PUT omits the field to clear it (full-replacement
-  semantics); a PATCH leaves it unchanged when `nil`.
-
-The `promote_to_autonomous` MCP tool and `POST /api/projects/{project}/cards/{id}/promote`
-remain the path for flipping an already-running HITL card to autonomous (they
-also drive the backend `/promote` webhook). Setting `autonomous` via
-`update_card` only writes the flag - it does not trigger a running worker.
+`promote_to_autonomous` (MCP, `agent_id` must start with `human:`) and
+`POST .../cards/{id}/promote` flip an already running HITL card: idempotent,
+409 on a terminal card, and the agent backend's `/promote` webhook calls this
+endpoint first, fail-closed. Setting the flag via `update_card` only writes
+it. See [agent workflow](agent-workflow.md) and
+[running cards](running-cards.md).
 
 ### Mob fields (optional)
 
-| Field              | Values                               | Default |
-| ------------------ | ------------------------------------- | ------- |
-| `mob_participants` | 0 (off) or 2..`mob.max_participants` | 0       |
-| `mob_phases`       | subset of `plan, review, execute` - `execute` is functional; mob coding takes priority over `best_of_n` at trigger | `[]` |
-| `mob_guests`       | names from the `mob.guests` registry | `[]`    |
+| Field              | Values                                 | Default |
+| ------------------ | -------------------------------------- | ------- |
+| `mob_participants` | 0 (off) or 2..`mob.max_participants`   | 0       |
+| `mob_phases`       | duplicate-free subset of `plan`, `review`, `execute` | `[]` |
+| `mob_guests`       | names from the `mob.guests` registry; requires `mob_participants >= 2` | `[]` |
 
-With `mob_participants >= 2`, agent-backend runs convene that many internal
-discussion seats in each phase listed in `mob_phases`; `mob_guests` adds
-operator-registered external participants on top. Like `best_of_n`, the
-fields are sticky (no per-trigger override), exposed on POST
-(`createCardRequest`), PUT, and PATCH, human-only, and excluded from the MCP
-`update_card` tool.
-
-Validation at write time runs against the config in effect then:
-participants must be 0 or `2..mob.max_participants`; phases must be a
-duplicate-free subset of `plan`/`review`/`execute` (`execute` is accepted
-even while `mob.execute_checkpoints_enabled` is off - the gate applies at
-trigger, not at write); guest names must exist in the registry and require
-`mob_participants >= 2`. PATCH validates the resulting state, so a patch
-that only adds a guest is checked against the card's stored participant
-count. At trigger time the values are re-clamped against the *current*
-config, and **the trigger clamp is authoritative** - see
-`docs/remote-execution.md` § Mob sessions.
+With `mob_participants >= 2` an agent-backend run convenes that many internal
+discussion seats in each listed phase; guests add operator-registered
+external participants. Sticky like `best_of_n`. `execute` is accepted at
+write time even while `mob.execute_checkpoints_enabled` is off; that gate
+applies at trigger. PATCH validates the resulting card, so adding a guest is
+checked against the stored participant count. Values are re-clamped against
+the current config at trigger, and the trigger clamp is authoritative. Mob
+coding takes priority over `best_of_n`. See
+[remote execution](remote-execution.md#mob-sessions).
 
 ### `verify` (optional, `*VerifyConfig`)
 
-An operator-declared verify gate. Declared on a project (`ProjectConfig.Verify`)
-as the default for its cards, and optionally overridden per card (`Card.Verify`).
-At trigger time CM resolves the two **field by field** - card over project:
+An operator-declared verify gate, set on the project (`ProjectConfig.Verify`)
+and optionally overridden per card. At trigger time CM resolves field by
+field, card over project: `command` when non-empty, `timeout_seconds` when
+`> 0`, `env` when non-nil.
 
-- `command`: the card's when non-empty, else the project's.
-- `timeout_seconds`: the card's when `> 0`, else the project's.
-- `env`: the card's when non-nil, else the project's.
+`command` is one shell line run via `bash -c`; `timeout_seconds` bounds the
+run (`0` = agent default) and applies to detected commands too; `env` lists
+container environment variable names (never values) passed to the verify
+subprocess and the model's bash tool. Values appear unredacted in transcripts
+sent to the LLM provider, so never name a variable whose value embeds a
+credential.
 
-`command` is a single shell line the agent runs via `bash -c`; `timeout_seconds`
-bounds the run (`0` = agent default) and applies to detected/proposed commands
-too; `env` lists container environment variable **names** passed through to the
-verify subprocess and the model's bash tool - names only, never values. The
-resolved values are readable by model-run commands and appear unredacted in
-session transcripts sent to the LLM provider, so never declare a name whose
-value embeds a credential (e.g. `PGPASSWORD`, a `DATABASE_URL` with userinfo).
-
-Both the project and card write paths validate the config (a failure returns 422
-`VALIDATION_ERROR`) and normalize a zero-value config to nil so it is omitted
-from storage. Limits: `command` ≤ 1024 bytes, single line, no NUL;
-`timeout_seconds` in `0..7200`; `env` ≤ 16 names, each matching
-`[A-Z_][A-Z0-9_]*`, with secret-shaped names rejected (prefixes `CM_`, `CMX_`,
-`LLM_`, `GITHUB_`; suffixes `_TOKEN`, `_KEY`, `_SECRET`, `_PASSWORD`). The
-resolved config reaches the agent backend in the `/trigger` payload; see
-`docs/remote-execution.md` and `docs/agent-workflow.md`.
+Both write paths validate (422 `VALIDATION_ERROR`) and normalise a zero-value
+config to nil. Limits (`internal/service/verify.go`): `command` at most 1024
+bytes, single line, no NUL; `timeout_seconds` in `0..7200`; `env` at most 16
+names matching `[A-Z_][A-Z0-9_]*`, rejecting the prefixes `CM_`, `CMX_`,
+`LLM_`, `GITHUB_` and the suffixes `_TOKEN`, `_KEY`, `_SECRET`, `_PASSWORD`.
 
 ### `assignee` (optional, string)
 
-A bare username (e.g. `alice`, not `human:alice`) naming the human responsible
-for the card. Purely informational - it is a responsibility label, never a
-permission boundary. It is fully independent of `assigned_agent`, the
-execution claim: claiming, releasing, heartbeat timeout, and terminal-state
-transitions never read or write `assignee`, and setting it neither requires
-nor implies a claim.
+A bare username (`alice`, not `human:alice`) naming the responsible human.
+Informational only: independent of `assigned_agent`, never read by claim,
+release, stall or terminal transitions, never a permission boundary. Absent
+from the MCP `create_card` / `update_card` tools (agents see it read-only on
+`get_card`). Normalised (`TrimSpace` + lowercase) at the API boundary, capped
+at 64 characters.
 
-Excluded from the MCP `create_card` and `update_card` tools (agents cannot set
-or change it); still visible read-only to agents on `get_card`. Via REST, only
-an agent whose `X-Agent-ID` starts with `human:` may change it - a non-human
-caller gets 403 `HUMAN_ONLY_FIELD`.
+Validation forks on `auth.mode`:
 
-**Validation forks on `auth.mode`:**
+- **`multi`:** a changed value must match a known, non-disabled username
+  (case-insensitive) or be empty, else 422 `VALIDATION_ERROR`. An unchanged
+  value always passes, so a user later removed from the roster, or a value
+  hand-edited into the file, round-trips on unrelated edits.
+- **`none`:** any change is rejected with 422 ("assignee requires multi-user
+  mode"); an unchanged value round-trips.
 
-- **`multi` mode:** a changed value must normalize to a known, non-disabled
-  username (case-insensitive) or the empty string - an unknown or disabled
-  username returns 422 `VALIDATION_ERROR`. Clearing to `""` always succeeds.
-  An **unchanged** value (normalized-compared against the card's stored
-  value) always passes, even if that username has since become unknown or
-  disabled - so a user later removed from the roster, or a value set by
-  hand-editing the card file, round-trips on unrelated edits instead of
-  blocking them.
-- **`none` mode:** there is no user roster to validate against, so any
-  *change* to `assignee` is rejected with 422 `VALIDATION_ERROR` ("assignee
-  requires multi-user mode"). An unchanged value still round-trips.
+Changing it (including clearing) appends an `assigned` activity entry
+("Assigned to <user>" or "Unassigned (was <user>)") attributed to the acting
+identity (empty normalises to `system`). `PATCH` on a card claimed by another
+agent is 403 `AGENT_MISMATCH` regardless of fields. On `PUT`, omitting
+`assignee` clears it.
 
-A stored value is normalized (`TrimSpace` + lowercase) at the API boundary.
-Length is capped at 64 characters (`maxAssigneeLen`) - see § Server-side
-field-length limits below.
-
-Changing `assignee` (including clearing it) appends an `assigned` activity-log
-entry - `"Assigned to <user>"` or `"Unassigned (was <user>)"` - attributed to
-the acting identity (empty agent ID normalizes to `"system"`).
-
-The self-containment lint on `create_card` and `update_card` (MCP only)
-appends a `self_containment_warning` activity-log entry naming the warning
-count when the mutated title or body matches a local-path or foreign-repo
-signal; attributed to the acting identity, best-effort (see
-`docs/agent-workflow.md` § Card self-containment).
-
-`PATCH` on a card currently claimed by a different agent is rejected 403
-`AGENT_MISMATCH` like any other patch, regardless of which fields are being
-changed - `assignee` gets no special exemption from the claim-ownership check.
-On `PUT` (full replace), omitting `assignee` clears it, the same
-value-field semantics as the rest of the full-update body; the web UI only
-ever calls `PATCH`, so this only matters for direct API callers.
+The self-containment lint on MCP `create_card` / `update_card` appends a
+`self_containment_warning` activity entry when the title or body matches a
+local-path or foreign-repo signal; best-effort. See
+[agent workflow](agent-workflow.md).
 
 ## Reserved labels
 
-Most labels are free-form, but the following have built-in meaning:
-
-| Label    | Effect                                                                                                                                                                                                                                                                                                                                                                             |
-| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `simple` | Autonomous fast path. When a card has this label **and** no existing subtasks, `run-autonomous` skips planning, subtask creation, review, and documentation - executing the work directly and transitioning to `done`. Claims, heartbeats, tests, branch protection, and release are still enforced. Classified server-side in `classifyComplexity()` (`internal/mcp/prompts.go`). |
+| Label    | Effect                                                                                                                                                                                                                                     |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `simple` | Autonomous fast path. With this label and no subtasks, `run-autonomous` skips planning, subtask creation, review and documentation, works directly and moves to `done`. Claims, heartbeats, tests and release still apply. Classified in `classifyComplexity()` (`internal/mcp/prompts.go`). |
 
 ## Card body templates
 
-Templates live in `<project>/templates/<type>.md` in the boards repo. The
-filename without `.md` must exactly match the card type (e.g. `task.md` for type
-`task`). Templates are plain markdown with no YAML frontmatter.
+Templates live at `<project>/templates/<type>.md`; the filename without
+`.md` must equal the card type. Plain markdown, no frontmatter. `LoadTemplates`
+reads every `.md` file at startup and on project reload into
+`ProjectConfig.Templates`, returned to agents via `get_task_context` and to
+the UI as part of the project config.
 
-The server loads all files in the `templates/` directory at startup (and on
-project reload) and stores them in `ProjectConfig.Templates` keyed by type name.
-They are returned to agents via `get_task_context` and surfaced in API responses
-as part of the project config.
-
-**Type-scoped loading in the web UI (`CreateCardPanel`):**
-
-| Condition                            | Behaviour                                                         |
-| ------------------------------------ | ----------------------------------------------------------------- |
-| Type has a template, body not dirty  | Template content is loaded into the body editor automatically     |
-| Type has a template, body IS dirty   | User is prompted to confirm before the template replaces the body |
-| Type has no template, body not dirty | Body editor is cleared                                            |
-| Type has no template, body IS dirty  | Body is left unchanged - user content is never silently discarded |
-
-The `bodyDirty` flag is set as soon as the user edits the body editor. It is
-cleared when a template is accepted (either automatically or after
-confirmation). This ensures template auto-loading is only applied to unedited
-content.
+In the create-card panel a template loads into the body when the type
+changes and the body is not dirty; a dirty body asks for confirmation before
+a template replaces it, and is left alone when the new type has no template.
+Accepting a template clears the dirty flag.
 
 ## Playbooks
 
 A playbook is a cross-project ordered list of steps: card references, manual
-gate steps, or both. Playbooks are global and shared team artifacts, stored
-one file per playbook at `<boards.dir>/playbooks/<id>.yaml`, at the top level
-of the boards repository (not inside any project directory). Order is array
-order; no other ordering state exists. Playbooks are not runnable -
-ContextMatrix never executes anything itself; a playbook is coordination
-state for humans and planning sessions.
+gate steps, or both. Playbooks are global team artifacts stored one file per
+playbook at `<boards.dir>/playbooks/<id>.yaml`, at the top level of the boards
+repo. Order is array order. Playbooks are not runnable: CM never executes
+anything; a playbook is coordination state for humans and planning sessions.
+See [playbooks](playbooks.md).
 
-Each boards repo has its own `playbooks/` directory; IDs are unique across
+Each boards repo has its own `playbooks/` directory. IDs are unique across
 repos (a create checks every repo before choosing a suffix), `boards_repo` on
 create picks the repo, and every summary and detail carries `boards_repo`.
 
@@ -857,50 +707,33 @@ entries:
 
 ### Rules
 
-- **ID**: server-generated kebab-case slug derived from `title` at creation
-  (matches `[a-z0-9][a-z0-9-]*`). Immutable - the title stays editable and a
-  title edit never renames the file. Collisions are uniquified with a
-  numeric suffix (`alpha-rollout-2`, `alpha-rollout-3`, ...) under the
-  service's write lock, so creation never surfaces a collision error to the
-  caller. Uniqueness spans every configured boards repo.
-- **Order is array order.** No other ordering state exists.
-- **Entry IDs** are `e<N>`, allocated from the persisted `next_entry_id`
-  counter. Stable under reorder and never reused after deletion - deleting an
-  entry never decrements the counter.
-- **Card entries** (`type: card`): `project` and `card` are both required and
-  must reference an existing card at add time. Duplicate `{project, card}`
-  pairs within one playbook are rejected with 409 `PLAYBOOK_ENTRY_EXISTS`.
-  Card status is never stored in the playbook; it is resolved live at read
-  time against the card store. If the referenced card (or its whole project)
-  is later deleted, the entry is kept, rendered as a broken reference
-  (`missing: true`), and counts as incomplete in progress.
-- **Manual entries** (`type: manual`): required `text`, plus `done` /
-  `done_by` / `done_at`. Text remains editable. Checking `done` stamps
-  `done_by`/`done_at` from the caller identity and the server clock;
-  unchecking clears both, and a later re-check restamps them from the new
-  caller and clock.
-- **`note`** is optional on both entry types. It is a human-only
-  channel - writable from the UI and MCP, but contractually excluded from
-  any future agent-facing context (see `docs/agent-workflow.md`).
-- **Progress is derived, never stored**: a card entry counts complete when
-  its card is in a terminal state (`done` or `not_planned`), a manual entry
-  when `done`. Broken references count in the total but never in complete.
-  Progress is `complete/total`.
-- **Empty `entries` is valid** (a playbook mid-planning).
-- **Parsing is lenient two ways**, matching the card store: unknown YAML
-  fields are ignored rather than rejected, so older binaries tolerate files
-  written by newer ones; and a file that fails to parse or validate at load
-  or reload is skipped with a warning rather than aborting startup or a
-  sync.
-- **Reserved name**: `playbooks` is a reserved top-level directory in the
-  boards repo. `CreateProject` rejects a project named `playbooks`
-  (case-insensitive). Because that name was legal before playbooks existed,
-  startup guards the collision: if `<boards.dir>/playbooks/.board.yaml` is
-  present, the playbook subsystem is disabled (REST routes and MCP tools are
-  not registered) with a logged error naming the rename migration, and the
-  rest of the server starts normally. The store loads only non-dotfile
-  `*.yaml` files. The check runs per repo: a project named `playbooks` in
-  any repo disables the subsystem, and the startup log names that repo.
+- **ID**: kebab-case slug derived from `title` at creation
+  (`^[a-z0-9][a-z0-9-]*$`). Immutable: a title edit never renames the file.
+  Collisions get a numeric suffix (`alpha-rollout-2`, ...) under the service
+  write lock, so creation never surfaces a collision.
+- **Entry IDs** are `e<N>` from the persisted `next_entry_id`; stable under
+  reorder, never reused after deletion.
+- **Card entries** (`type: card`) require `project` and `card` naming an
+  existing card at add time. Duplicate `{project, card}` pairs in one
+  playbook are 409 `PLAYBOOK_ENTRY_EXISTS`. Status is never stored; it is
+  resolved live at read time. A deleted card or project leaves the entry as a
+  broken reference (`missing: true`) that counts as incomplete.
+- **Manual entries** (`type: manual`) require `text`, plus `done` / `done_by`
+  / `done_at`. Checking `done` stamps `done_by` and `done_at` from the caller
+  and the server clock; unchecking clears both; a re-check restamps.
+- **`note`** is optional on both types and is a human-only channel: writable
+  from the UI and MCP, excluded from agent-facing context.
+- **Progress is derived**: a card entry is complete when its card is
+  terminal (`done` or `not_planned`), a manual entry when `done`. Broken
+  references count in the total, never in complete.
+- **Empty `entries` is valid.**
+- **Parsing is lenient**: unknown YAML fields are ignored, and a file that
+  fails to parse or validate is skipped with a warning at load or reload. The
+  store loads only non-dotfile `*.yaml` files.
+- **Reserved name**: `playbooks` is a reserved top-level directory;
+  `CreateProject` rejects it (case-insensitive). A project literally named
+  `playbooks` in any repo disables the subsystem at startup (see
+  [architecture](architecture.md#file-layout)).
 
 ### Go type definitions
 
@@ -931,23 +764,22 @@ type PlaybookEntry struct {
 }
 ```
 
-`Type` is one of `card` or `manual`. The service layer additionally exposes a
-resolved view (`PlaybookDetail` / `PlaybookEntryDetail` in
-`internal/service/playbooks.go`) that joins each card entry against the live
-card store - see `docs/api-reference.md` § Playbook Endpoints for the
-resolved JSON shape.
+`Type` is `card` or `manual`. The service layer exposes a resolved view
+(`PlaybookDetail` / `PlaybookEntryDetail` in `internal/service/playbooks.go`)
+that joins card entries against the live card store; see the
+[API reference](api-reference.md) for the JSON shape.
 
 ## Project board config format
 
 ```yaml
 # boards/project-alpha/.board.yaml
 name: project-alpha
-display_name: "Project Alpha" # optional - human-readable name shown in the UI
+display_name: "Project Alpha" # optional, shown in the UI
 prefix: ALPHA
 next_id: 1
 repo: https://github.com/org/project-alpha.git
 states: [todo, in_progress, blocked, review, done, stalled, not_planned]
-types: [task, bug, feature] # "subtask" is built-in - do not add it here
+types: [task, bug, feature] # "subtask" is built in; do not add it
 priorities: [low, medium, high, critical]
 transitions:
   todo: [in_progress, not_planned]
@@ -957,245 +789,223 @@ transitions:
   done: [todo]
   stalled: [todo, in_progress]
   not_planned: [todo]
-# default_skills: [go-development, documentation]  # optional - see below
+# default_skills: [go-development, documentation]  # optional
 ```
 
-Both `stalled` and `not_planned` must always be present in `states` and
-`transitions`. The server enforces this. All other states are optional in the
-`transitions` map - a state with no entry is a valid terminal state (no outgoing
-transitions). For example, omitting `done` from the transitions map makes it
-truly terminal, while including `done: [todo]` allows re-opening cards. Any
-state can transition to `stalled` without being listed in the source state's
-transitions - the server injects this automatically (needed for heartbeat
-timeout). `not_planned` follows normal transition rules: only states that
-explicitly list `not_planned` in their transitions can reach it (e.g.,
-`todo: [in_progress, not_planned]`).
+`stalled` and `not_planned` must be present in `states` and `transitions`.
+Any other state may be absent from `transitions`, which makes it terminal
+(omit `done` for a truly final state; `done: [todo]` allows reopening). The
+server injects `-> stalled` for every state. See [boards](boards.md) for
+creating a board and templates.
 
-**State names are part of the contract.** In addition to the validator's
-`stalled` / `not_planned` requirement, the strings `todo`, `in_progress`,
-`review`, and `done` are hardcoded into MCP tools and service-layer behaviour
-(`claim_card` auto-transitions `todo → in_progress`; `complete_task` moves
-subtasks to `done` and parents to `review`; parent auto-transitions key off
-`todo` and `in_progress`; dashboard metrics filter on `done`/`stalled`/
-`not_planned`). The validator does not enforce these four, but renaming them
-will silently break the lifecycle. Add new states freely; do not rename the
-built-in six. See the README's "States, Transitions, and Skills" section for
-the full list and rationale.
+**State names are part of the contract.** Besides the validator's
+`stalled` / `not_planned` requirement, `todo`, `in_progress`, `review` and
+`done` are hardcoded in MCP tools and service behaviour (`claim_card`
+auto-transitions `todo -> in_progress`; `complete_task` moves subtasks to
+`done` and parents to `review`; parent auto-transitions key off `todo` and
+`in_progress`; dashboard metrics filter on `done`, `stalled`, `not_planned`).
+Add states freely; do not rename the built-in six. See
+[boards](boards.md#built-in-states) for each state's role.
+
+Top-level `.board.yaml` fields (full reference in
+[boards](boards.md#boardyaml-reference)):
+
+| Field               | Meaning                                                                          |
+| ------------------- | -------------------------------------------------------------------------------- |
+| `name`              | Project slug; directory name and API key.                                        |
+| `display_name`      | Optional UI label.                                                               |
+| `prefix`            | Card ID prefix (`ALPHA` -> `ALPHA-001`).                                         |
+| `next_id`           | Server-managed ID counter.                                                       |
+| `repo`              | Code repository URL (single-repo form).                                          |
+| `repos`             | Multi-repo list of `{name, url, primary}`; takes precedence over `repo`.         |
+| `github_credential` | Credential-pool entry name (multi mode); see below.                              |
+| `states`            | Workflow states; must include `stalled` and `not_planned`.                       |
+| `types`             | Card types; `subtask` is built in.                                               |
+| `priorities`        | Priority values.                                                                 |
+| `transitions`       | State -> allowed target states; `stalled` is injected for every state.           |
+| `remote_execution`  | `worker_image` / `chat_worker_image` overrides; see below.                       |
+| `github`            | Issue import config; see below.                                                  |
+| `default_skills`    | Project task-skill fallback; see below.                                          |
+| `verify`            | Project verify gate; see the card-level `verify` field.                          |
+| `favorites`         | Per-tier model preferences, hand-edited only; see the `Favorites` note.          |
 
 ### `default_skills` (optional, `*[]string`)
 
-Project-wide fallback when a card has no `skills` field of its own. Same
-three-state semantics. A card's explicit `skills` (including explicit empty)
-overrides this.
+Project-wide fallback when a card has no `skills`; same three-state
+semantics. A card's explicit `skills` (including `[]`) overrides it.
 
 ### `github_credential` (optional, `string`)
 
-Name of an instance credential-pool entry used for all of this project's
-GitHub operations (branch listing, issue import sync). Reference only - never
-secret material; the token itself lives in the credential pool and is
-resolved server-side through `TokenProviderFor`. Empty or omitted means the
-project uses the instance-wide `github.*` credential - the only option in
-`auth.mode: none` (there is no credential pool there), and the default for
-unbound projects in `auth.mode: multi` too. Admin-only to set - see
-`PUT /api/projects/{project}` in `docs/api-reference.md`. Validated against
-the credential pool on write in `auth.mode: multi` (unknown name → 422
-`VALIDATION_ERROR`); in `auth.mode: none` a non-empty binding is rejected
-outright (422) rather than silently falling back to the instance credential.
+Name of an instance credential-pool entry used for the project's GitHub
+operations: issue import, branch listing and the git token minted for a run's
+worker. Boards-repo git always uses the instance credential. A reference
+only; the token lives in the pool and is resolved server-side through
+`TokenProviderFor`.
+Empty means the instance-wide `github.*` credential, the only option in
+`auth.mode: none` and the default for unbound projects in `multi`. Admin-only
+to set. In `multi` an unknown name is 422 `VALIDATION_ERROR`; in `none` a
+non-empty binding is rejected with 422 rather than silently falling back.
 
 ### `remote_execution` (optional, `*RemoteExecutionConfig`)
 
-Whether cards may be run remotely at all is instance-global - a configured
-task backend (see `docs/remote-execution.md`) - never per-project.
+Whether cards may run remotely is instance-global (a configured task
+backend), never per-project. `worker_image` feeds the task backend's card
+runs only and `chat_worker_image` the chat backend only; neither falls back
+to the other, since the two images bake different entrypoints. Empty means
+that backend's own `base_image`. Both are validated against
+`^[a-zA-Z0-9][a-zA-Z0-9._:/@-]*$` with a 512-byte cap after trimming (422
+`VALIDATION_ERROR` naming the field). On `PUT /api/projects/{project}` each
+is merged by pointer: omitted preserves, empty string clears. See
+[remote execution](remote-execution.md#worker-image-split).
 
-`worker_image` and `chat_worker_image` are a clean-cut pair of per-project
-toolchain-image overrides, one per backend:
+### `github` (optional, `*GitHubImportConfig`)
 
-- `worker_image` feeds the task backend's card runs only.
-- `chat_worker_image` feeds the chat backend's chat sessions only.
-- Neither field falls back to the other: the two backends bake different
-  entrypoints into their images, so a task image cannot serve a chat session or
-  vice versa. Empty (the default) means "use that backend's own configured
-  `base_image`".
+Enables the per-project issue import loop when `import_issues` is true;
+`owner` / `repo` name the source, `card_type`, `default_priority` and
+`labels` shape the created cards. See
+[GitHub issue import](github-issue-import.md).
 
-Both fields share the same hygiene validation and write semantics: a
-charset-restricted screen (`^[a-zA-Z0-9][a-zA-Z0-9._:/@-]*$`), a 512-byte cap,
-and leading/trailing whitespace trimmed before validation - violations return
-422 `VALIDATION_ERROR` naming the field. On `PUT /api/projects/{project}` each
-field is merged independently by pointer semantics: omitted preserves the
-stored value, an explicit empty string clears it. See
-`docs/remote-execution.md` § Worker image split for the full wire-level
-contract (the `/trigger` and `/chat/start` payloads each carry only their own
-field).
+### `verify` (optional) and `favorites` (optional)
+
+Described under the card-level [`verify`](#verify-optional-verifyconfig)
+field and the `Favorites` note above.
 
 ### `boards_repo` (API responses only)
 
-Appears in API responses only, never in the file: the boards repository the
-project lives in, the first configured one on a single-repo instance.
+Never in the file: the boards repository the project lives in, stamped on
+read by the composite store (the first configured repo on a single-repo
+instance).
 
 ## Server-side field-length limits
 
-The service layer enforces conservative size caps on user-supplied string and
-slice fields to prevent abuse and runaway growth. Violations are returned as 422
-`VALIDATION_ERROR` with `field` set to the offending key. Values are defined as
-constants in `internal/service/service.go`:
+Enforced in the service layer; violations are 422 `VALIDATION_ERROR` with
+`field` set. Constants live in `internal/service/service.go`.
 
-| Field / dimension         | Limit      | Notes                             |
-| ------------------------- | ---------- | --------------------------------- |
-| `title`                   | 500 chars  | `maxTitleLen`                     |
-| `body`                    | 512 KB     | `maxBodyLen` (`512 * 1024` bytes); applies to the body resulting from a section upsert too |
-| individual label          | 100 chars  | `maxLabelLen`                     |
-| `labels` slice length     | 50 entries | `maxLabels`                       |
-| `depends_on` slice length | 50 entries | `maxDependsOn`                    |
-| `agent_id` / `X-Agent-ID` | 256 chars  | `maxAgentIDLen`                   |
-| `assignee`                | 64 chars   | `maxAssigneeLen`                  |
-| `activity_log[].message`  | 2000 chars | `maxLogMessage`                   |
-| `activity_log[].action`   | 200 chars  | `maxLogAction`                    |
+| Field                     | Limit      | Constant                                                   |
+| ------------------------- | ---------- | ---------------------------------------------------------- |
+| `title`                   | 500 chars  | `maxTitleLen`                                              |
+| `body`                    | 512 KB     | `maxBodyLen`; applies to the result of a section upsert too |
+| individual label          | 100 chars  | `maxLabelLen`                                              |
+| `labels` length           | 50 entries | `maxLabels`                                                |
+| `depends_on` length       | 50 entries | `maxDependsOn`                                             |
+| `agent_id` / `X-Agent-ID` | 256 chars  | `maxAgentIDLen`                                            |
+| `assignee`                | 64 chars   | `maxAssigneeLen`                                           |
+| `activity_log[].message`  | 2000 chars | `maxLogMessage`                                            |
+| `activity_log[].action`   | 200 chars  | `maxLogAction`                                             |
 
-Activity log entries beyond the per-card cap of 50 are dropped (oldest first)
-when a new entry is appended - they are not rejected at write time. See domain
-rule 6.
+Activity entries past the per-card cap of 50 (`MaxActivityLogEntries`) are
+dropped oldest-first on append, not rejected.
 
 ## `worker_status` enum
 
-`Card.WorkerStatus` is a small enum tracking the card's worker independently of
-its workflow state. The full set of valid values lives in
-`internal/board/validation.go`'s `validWorkerStatuses`:
+`Card.WorkerStatus` tracks the worker independently of the workflow state.
+Valid values (`validWorkerStatuses` in `internal/board/validation.go`):
 
-| Value        | Set by                  | Meaning                                                                       |
-| ------------ | ----------------------- | ----------------------------------------------------------------------------- |
-| `""` (empty) | service layer / human   | No worker attached. Default on newly-created cards and after terminal states. |
-| `queued`     | service layer           | A run has been requested but the container has not yet started.               |
-| `running`    | backend status callback | The worker container is actively executing the task.                          |
-| `failed`     | backend status callback | The worker exited with an error, or the trigger webhook failed.               |
-| `killed`     | service layer           | The worker was forcibly stopped by a server-initiated `stop` / `stop-all`.    |
-| `completed`  | backend status callback | The worker finished successfully.                                             |
-| `parked`     | MCP `report_parked`     | The run parked the card (review / PR gates left for a human); reason in the activity log. |
+| Value        | Set by                  | Meaning                                                                   |
+| ------------ | ----------------------- | ------------------------------------------------------------------------- |
+| `""`         | service layer / human   | No worker attached. Default on new cards; only a `completed` callback clears the stored value back to it. Card state transitions never touch it. |
+| `queued`     | run trigger             | A run was requested; the container has not started.                       |
+| `running`    | backend status callback | The worker is executing.                                                  |
+| `failed`     | backend status callback | The worker exited with an error, or the trigger webhook failed.           |
+| `killed`     | stop / stop-all         | The worker was stopped by a server-initiated stop.                        |
+| `completed`  | backend status callback | The worker finished.                                                      |
+| `parked`     | MCP `report_parked`     | The run parked the card for a human (review or PR gates); reason in the activity log. |
 
-The backend reports through the `POST /api/agent/status` callback, whose
-accepted subset (`validWorkerCallbackStatuses`) is `running`, `failed`, and
-`completed` - the backend cannot self-report `queued`, `killed`, or `parked`
-because they are server-managed lifecycle states. Setting an invalid value
-returns 422 `VALIDATION_ERROR`.
-
-`parked` is set by the claiming agent via the MCP `report_parked` tool right
-before its container exits. The `completed` callback that follows preserves it
-(the run ended, but the card is waiting on a human, not finished) while still
-clearing the claim; the next trigger's `queued` replaces it like any other
-stale terminal status.
+The backend reports through `POST /api/agent/status`, whose accepted subset
+(`validWorkerCallbackStatuses`) is `running`, `failed`, `completed`; it
+cannot set `queued`, `killed` or `parked`. An invalid value is 422
+`VALIDATION_ERROR`. `parked` is set by the claiming agent right before its
+container exits; the `completed` callback that follows preserves it while
+clearing the claim, and the next trigger's `queued` replaces it.
 
 ## `depends_on` cycle detection
 
-`UpdateCard` and `PatchCard` reject changes that would introduce a circular
-dependency between cards. After applying the requested `depends_on` set,
-`detectDependencyCycle` walks the dependency graph from the card and reports any
-back-edge. On a hit, the service returns a `ValidationError` wrapping
+`UpdateCard` and `PatchCard` reject a change that would introduce a cycle.
+After applying the requested `depends_on`, `detectDependencyCycle` walks the
+graph from the card and reports any back-edge as a `ValidationError` wrapping
 `ErrDependenciesNotMet` with `field: "depends_on"` and a message of the form
-`"circular dependency detected: ALPHA-001 and ALPHA-007 depend on each other"`.
-The check runs under `writeMu` to prevent two concurrent edits from racing into
-a cycle.
+`circular dependency detected: ALPHA-001 and ALPHA-007 depend on each other`.
+The check runs under `writeMu`.
 
-`depends_on` is directly settable on `PATCH` and MCP `update_card` (previously
-only `POST`, `PUT`, and `create_card` could set it): omitting the field leaves
-the stored list unchanged, an explicit `[]` clears it - the same nil/empty
-convention as `labels`. The reference and cycle checks above always run
-against the resulting card state, not just the fields a given call changed, so
-an existing `depends_on` is re-validated even when a patch touches unrelated
-fields.
+`depends_on` is settable on `POST`, `PUT`, `PATCH`, `create_card` and
+`update_card`. On `PATCH` and `update_card`, omitting it leaves the list
+unchanged and `[]` clears it, the same nil/empty convention as `labels`.
+Reference and cycle checks run against the resulting card, so an existing
+`depends_on` is re-validated even when a patch touches other fields.
 
 ## `create_pr` semantics
 
-Every card gets a feature branch: `branch_name` is generated at create
-(`<lowercase-id>/<title-slug>`) and is immutable after first generation.
-`create_pr` decides only whether the run opens a pull request after the
-branch is pushed. It defaults to true when absent on create; an explicit
-`create_pr: false` pushes the branch without opening a PR. Run and promote
-triggers never modify the stored value.
+Standalone and parent cards get a feature branch: `branch_name` is generated
+at create as `<lowercase-id>/<title-slug>` and is immutable afterward.
+Subtasks work on their parent's branch and get no `branch_name`. `create_pr`
+decides only whether the run opens a pull request after pushing. When absent
+on create it defaults to `true` for standalone and parent cards and `false`
+for subtasks (the PR decision belongs to the parent). An explicit
+`create_pr: false` pushes without a PR. Run and promote triggers never modify
+the stored value.
 
 ## PR gates (`await_ci`, `await_copilot_review`)
 
-Both flags are human-only booleans, meaningful only when the run opens a PR
-(`create_pr`). They gate the agent's review -> done transition inside the
-`pr_gates` phase:
-
-- `await_ci` - after the PR is opened the card stays in `review` until the
-  PR's checks pass. The agent polls the checks, fixes failures, and pushes,
-  up to 3 rounds; a repo with no checks passes the gate after a short grace
-  window. On exhaustion or timeout the card parks in `review` with a
-  `## PR Gates` note and a human re-triggers.
-- `await_copilot_review` - the agent ensures a Copilot code review is
-  requested on the PR, waits for it, triages findings, fixes the valid ones,
-  and re-requests, up to 3 rounds. If Copilot review is unavailable (request
-  rejected, no plan) the gate logs the reason on the card and is skipped -
-  it never parks on unavailability. When both flags are set the Copilot gate
-  runs first and CI must be green over its fixes.
-
-The flags are independent stored values with no server-side coupling to
-`create_pr`; the agent ignores them when no PR exists, except that a failed
-PR creation on a gated card parks in `review` instead of completing
-(fail-closed), inverting the ungated non-fatal behavior.
+Both are human-only booleans (no create-time defaulting) that matter only
+when the run opens a PR. They gate the agent's `review -> done` transition
+inside the `pr_gates` phase: `await_ci` keeps the card in `review` until the
+PR's checks pass, and `await_copilot_review` has the agent request a Copilot
+review and address valid findings first. The flags have no server-side
+coupling to `create_pr`. Round limits, parking and unavailability handling
+are agent behaviour, described in [running cards](running-cards.md).
 
 ## `chat_sessions` SQLite schema
 
-Chat session state is persisted in the shared `ops.db` operational store
-(separate from the boards git repo and the images store; the same `ops.db` also
-holds the model blacklist). The schema is created by `ensureSchema` in
-`internal/opstore/sqlite/schema.go`, which runs `CREATE TABLE IF NOT EXISTS` DDL
-for every table in its final shape. This is a clean-cut create: there is **no
-migration ledger** (`schema_migrations`) and no backward-compat path - to change
-the schema, edit the `ensureSchema` DDL. **Existing `chats.db` files from
-earlier installs are not migrated; delete the obsolete file before upgrading.**
-The `chat_messages` table additionally carries a `kind TEXT NOT NULL DEFAULT ''`
-column (used for the Clear-Context divider).
+Chat state lives in the operational store `ops.db`, separate from the boards
+repo and `images.db`; the same file holds `model_blacklist` and
+`model_outcomes`. `ensureSchema` in `internal/opstore/sqlite/schema.go` runs
+`CREATE TABLE IF NOT EXISTS` for every table in its final shape: no
+migration ledger and no compatibility path, so schema changes are edits to
+that DDL. `chat_messages` carries `kind TEXT NOT NULL DEFAULT ''` (used for
+the clear-context divider) and a unique index on `(session_id, seq)`.
 
-**`chat_sessions` table:**
+**`chat_sessions`:**
 
-| Column                       | Type    | Default | Meaning                                                             |
-| ---------------------------- | ------- | ------- | ------------------------------------------------------------------- |
-| `id`                         | TEXT PK | -       | ULID-shaped session identifier.                                     |
-| `title`                      | TEXT    | -       | Human-readable session name (auto-filled from first user message).  |
-| `project`                    | TEXT    | -       | Associated project slug; empty for cross-project sessions.          |
-| `status`                     | TEXT    | -       | Lifecycle state (`cold`, `active`, `warm-idle`, `ending`).          |
-| `created_at`                 | INTEGER | -       | Unix epoch of session creation.                                     |
-| `last_active`                | INTEGER | -       | Unix epoch of last activity; indexed for dashboard range queries.   |
-| `created_by`                 | TEXT    | -       | Agent ID of the session creator.                                    |
-| `container_id`               | TEXT    | NULL    | Worker container ID; cleared when the session goes cold.            |
-| `workspace`                  | TEXT    | NULL    | JSON-encoded workspace directory list.                              |
-| `model`                      | TEXT    | `''`    | Orchestrator model ID.                                              |
-| `context_tokens`             | INTEGER | `0`     | Last context-window token count.                                    |
-| `context_tokens_updated_at`  | INTEGER | NULL    | Unix epoch of last context-token update.                            |
-| `rehydration_active`         | INTEGER | `0`     | Boolean flag for rehydration phase.                                 |
-| `rehydration_started_at`     | INTEGER | NULL    | Unix epoch when rehydration started.                                |
-| `prompt_tokens`              | INTEGER | `0`     | Cumulative input tokens from all usage frames.                      |
-| `completion_tokens`          | INTEGER | `0`     | Cumulative output tokens.                                           |
-| `cache_read_tokens`          | INTEGER | `0`     | Cumulative cache-read tokens.                                       |
-| `cache_creation_tokens`      | INTEGER | `0`     | Cumulative cache-creation tokens.                                   |
-| `estimated_cost_usd`         | REAL    | `0`     | Running USD cost total accumulated via `IncrementSessionCost`.      |
+| Column                      | Type    | Default | Meaning                                                        |
+| --------------------------- | ------- | ------- | -------------------------------------------------------------- |
+| `id`                        | TEXT PK | -       | ULID-shaped session identifier.                                |
+| `title`                     | TEXT    | -       | Session name (auto-filled from the first user message).        |
+| `project`                   | TEXT    | -       | Associated project; empty for cross-project sessions.          |
+| `status`                    | TEXT    | -       | `cold`, `active`, `warm-idle` or `ending`; indexed.            |
+| `created_at`                | INTEGER | -       | Unix epoch of creation.                                        |
+| `last_active`               | INTEGER | -       | Unix epoch of last activity; indexed for range queries.        |
+| `created_by`                | TEXT    | -       | Agent ID of the creator (owner in multi mode).                 |
+| `container_id`              | TEXT    | NULL    | Worker container ID; cleared when the session goes cold.       |
+| `workspace`                 | TEXT    | NULL    | JSON-encoded workspace directory list.                         |
+| `model`                     | TEXT    | `''`    | Orchestrator model ID.                                         |
+| `context_tokens`            | INTEGER | `0`     | Last context-window token count.                               |
+| `context_tokens_updated_at` | INTEGER | NULL    | Unix epoch of the last context-token update.                   |
+| `rehydration_active`        | INTEGER | `0`     | Boolean flag for the rehydration phase.                        |
+| `rehydration_started_at`    | INTEGER | NULL    | Unix epoch when rehydration started.                           |
+| `prompt_tokens`             | INTEGER | `0`     | Cumulative input tokens.                                       |
+| `completion_tokens`         | INTEGER | `0`     | Cumulative output tokens.                                      |
+| `cache_read_tokens`         | INTEGER | `0`     | Cumulative cache-read tokens.                                  |
+| `cache_creation_tokens`     | INTEGER | `0`     | Cumulative cache-creation tokens.                              |
+| `estimated_cost_usd`        | REAL    | `0`     | Running USD total, accumulated via `IncrementSessionCost`.     |
 
-**`chat_cost_archive` table:**
+**`chat_cost_archive`:** `DeleteSession` copies the cost columns here before
+removing the session row; transcript and title are not kept. `AggregateCost`
+unions both tables so deleted sessions still count in the 30-day dashboard
+rollup. Rows are retained indefinitely; there is no purge.
 
-When a session is deleted, `DeleteSession` archives its cost columns into this
-table before removing the `chat_sessions` row. The transcript and title are NOT
-preserved. `AggregateCost` queries `UNION ALL` over both `chat_sessions` and
-`chat_cost_archive` so deleted sessions continue to contribute to the 30-day
-dashboard chat-cost rollup.
+| Column                  | Type    | Default | Meaning                                    |
+| ----------------------- | ------- | ------- | ------------------------------------------ |
+| `id`                    | TEXT PK | -       | The deleted session's ID.                  |
+| `project`               | TEXT    | -       | Project at deletion time.                  |
+| `model`                 | TEXT    | `''`    | Model ID at deletion time.                 |
+| `last_active`           | INTEGER | -       | Unix epoch of last activity; indexed.      |
+| `prompt_tokens`         | INTEGER | `0`     | Cumulative input tokens.                   |
+| `completion_tokens`     | INTEGER | `0`     | Cumulative output tokens.                  |
+| `cache_read_tokens`     | INTEGER | `0`     | Cumulative cache-read tokens.              |
+| `cache_creation_tokens` | INTEGER | `0`     | Cumulative cache-creation tokens.          |
+| `estimated_cost_usd`    | REAL    | `0`     | Accumulated USD cost.                      |
+| `deleted_at`            | INTEGER | -       | Unix epoch of deletion.                    |
 
-| Column                | Type    | Default | Meaning                                       |
-| --------------------- | ------- | ------- | --------------------------------------------- |
-| `id`                  | TEXT PK | -       | Same session ID as the deleted `chat_sessions` row. |
-| `project`             | TEXT    | -       | Project slug at deletion time.                |
-| `model`               | TEXT    | `''`    | Model ID at deletion time.                    |
-| `last_active`         | INTEGER | -       | Unix epoch of last activity; indexed for range queries. |
-| `prompt_tokens`       | INTEGER | `0`     | Cumulative input tokens.                      |
-| `completion_tokens`   | INTEGER | `0`     | Cumulative output tokens.                     |
-| `cache_read_tokens`   | INTEGER | `0`     | Cumulative cache-read tokens.                 |
-| `cache_creation_tokens` | INTEGER | `0`  | Cumulative cache-creation tokens.             |
-| `estimated_cost_usd`  | REAL    | `0`     | Accumulated USD cost.                         |
-| `deleted_at`          | INTEGER | -       | Unix epoch when the session was deleted.      |
-
-Archive rows are retained indefinitely (each is ~80 bytes). There is no purge
-mechanism.
-
-**`estimated_cost_usd` precision:** stored as SQLite `REAL` (IEEE 754
-double). The precision floor is approximately $0.0001 per frame; rounding
-drift accumulates over long sessions. Dashboards round to two decimal places
-for display. Exact sub-cent billing requires integer cents rather than `REAL`.
+`estimated_cost_usd` is a SQLite `REAL` (IEEE 754 double); rounding drift
+accumulates over long sessions and dashboards round to two decimals. Exact
+sub-cent billing would need integer cents.

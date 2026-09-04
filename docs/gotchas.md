@@ -1,359 +1,306 @@
 # Gotchas
 
-- **YAML frontmatter parsing:** use `bytes.SplitN(content, []byte("---"), 3)` to
-  split. Element 0 is empty (before first `---`), element 1 is YAML, element 2
-  is body. Handle `\r\n` line endings.
-- **Shared repos never rebase.** `Synced` uses `merge --ff-only` then
-  `merge --no-ff`. A rebase after a self-healed merge would drop the merge
-  commit and re-conflict. Do not "simplify" the shared path back to rebase.
-- **`LockWrites` drains the queue fully on shared repos** (`CommitQueue.Drain`),
-  not merely to idle. A buffered job that has not run yet is a dirty worktree,
-  and a dirty worktree at merge time means autostash, which the shared path
-  refuses to use. `commitLeftovers` is the backstop, not the design. Before it
-  runs, the cycle first aborts a merge a crash or a container restart left in
-  progress (`clearStaleMerge`) - staging that merge's conflict markers as
-  `external edit` would silently conclude it.
-- **Resolver order is load-bearing:** `.board.yaml` first (so `MintID` sees the
-  merged `next_id`), add/add cards next (so renames exist), then cards, then
-  playbooks, then everything else. `resolveRank` encodes it.
-- **Reference rewrite after a re-mint only touches the re-minted files plus
-  files our side changed since the merge base that the merge did not conflict
-  on.** A reference to the old ID in a file only the remote changed refers to
-  the remote card and must stay. That scope is wider than "changed only by
-  us": a file both sides edited in non-overlapping regions auto-merges and
-  reaches the rewrite too, so a reference the remote added there to a
-  colliding ID can be rewritten to the local re-mint when it should have kept
-  pointing at the remote card (`rewriteLocalRefs` in
-  `internal/gitsync/resolve.go`).
+Developer traps in this codebase. Each entry names the code it describes.
+
+## Boards, git, and sync
+
+- **Card frontmatter parsing** (`board.ParseCard`): the file must start with
+  `---\n`; the closing delimiter is the first `\n---` after it (`bytes.Cut`),
+  so a literal `---` inside a quoted YAML value or the body does not split the
+  document. `\r\n` is normalised to `\n` first and files over `maxCardSize`
+  are rejected before parsing. Do not replace this with a naive split on
+  `---`.
+- **Shared repos never rebase.** `Syncer.Synced` uses `merge --ff-only` then
+  `merge --no-ff` (`internal/gitops/merge.go`). A rebase after a self-healed
+  merge would drop the merge commit and re-conflict. Do not "simplify" the
+  shared path back to rebase.
+- **`CardService.LockWrites(repo)` takes `writeMu`, then quiesces that repo's
+  commit queue.** On a shared repo it calls `CommitQueue.Drain` (30 s budget),
+  not merely `Pause` + `AwaitIdle`: a buffered job that has not run yet is a
+  dirty worktree, and a dirty worktree at merge time means autostash, which
+  the shared path refuses. `commitLeftovers` is the backstop, not the design.
+  Before it runs, the cycle aborts a merge a crash left in progress
+  (`clearStaleMerge`); staging that merge's conflict markers as
+  `external edit` would silently conclude it. On a private repo the pause
+  plus `AwaitIdle` keeps an in-flight go-git commit from colliding with the
+  shell-git rebase on `.git/index.lock`. `UnlockWrites` must `Resume()` before
+  releasing `writeMu`; the reverse order leaves the queue paused under a fresh
+  write.
+- **One `writeMu`, one queue per boards repo.** `LockWrites(repo)` takes the
+  single write mutex and quiesces only that repo's queue. A cycle of repo A
+  blocks writes to repo B for its duration (bounded by the 10 s sync
+  timeouts) and never touches B's queue. Do not add a per-repo mutex without
+  re-proving the lock order (playbooks, then `writeMu`, then the one queue);
+  do not drain every queue, or a cycle of A waits on B's commits.
+- **Resolver order is load-bearing:** `.board.yaml` first (so `MintID` sees
+  the merged `next_id`), add/add cards next (so renames exist), then cards,
+  then playbooks, then everything else. `resolveRank` in
+  `internal/gitsync/resolve.go` encodes it.
+- **Reference rewrite after a re-mint** (`rewriteLocalRefs`) touches only the
+  re-minted files plus files our side changed since the merge base that the
+  merge did not conflict on. A reference to the old ID in a file only the
+  remote changed refers to the remote card and must stay. A file both sides
+  edited in non-overlapping regions auto-merges and reaches the rewrite too,
+  so a reference the remote added there to a colliding ID can be rewritten
+  to the local re-mint when it should have kept pointing at the remote card.
 - **A `Synced` body runs with the commit queue paused.** It must commit
   through its `DirectCommit` path (`CardService.commitNow` for cards,
-  `PlaybookService.directCommit` for playbooks - both built by
+  `PlaybookService.directCommit` for playbooks, both built by
   `DirectCommitter`, shell git), never `enqueueCardCommit`: a queued job
   waits for a resume that only comes after the cycle returns. It must not
   take `writeMu` or the playbook lock (the cycle holds both) and must not
-  touch the network. `runVerified` wraps every push-verified card, project
-  and stall mutation; `PlaybookService.createVerified` is the one other body
-  and follows the same rules.
-- **Undo never bumps the epoch.** A verified write whose push never lands is
-  reverted by restoring the pre-write tuple, epoch included, so a peer's claim
-  made in the meantime outranks the reverted state in the next merge. An undo
-  that raised the epoch would win that merge and silently evict the peer.
+  touch the network. `runVerified` wraps every push-verified card, project,
+  and stall mutation; `PlaybookService.createVerified` is the one other body.
+- **Undo never bumps the epoch** (`undoClaimWrite`). A verified write whose
+  push never lands is reverted by restoring the pre-write tuple, epoch
+  included, so a peer's claim made in the meantime outranks the reverted
+  state in the next merge. An undo that raised the epoch would win that merge
+  and evict the peer.
 - **Two instances running one card present the same agent ID.** The agent
   backend derives the ID from the card ID. Every ownership check must go
   through `CardService.OwnsClaim` or `board.Card.ClaimHeldBy`; a bare
   `AssignedAgent == agentID` comparison is a bug on a shared board.
 - **Heartbeats are not on disk.** `lock.Manager.LastBeat` is the liveness
-  accessor; `FindStalled`, the dashboard, `check_agent_health` and every card
-  read go through it. A code path that reads `card.LastHeartbeat` straight
-  from the store sees a value up to `lease_interval` old and will misjudge a
-  live claim.
+  accessor; `FindStalled`, the dashboard, `check_agent_health`, and every card
+  read go through it. Reading `card.LastHeartbeat` from the store sees a
+  value up to `lease_interval` old and misjudges a live claim.
 - **Foreign stall compares local time with local time.** `ObserveLeases`
   records when a peer's lease value was first seen on this clock; expiry is
-  measured from that, never from the peer's timestamp. Clock skew between
-  laptops therefore cannot stall a live card, and a laptop that cannot push
-  loses its claims after `lease_timeout` even while its agent is alive.
+  measured from that, never from the peer's timestamp. Clock skew cannot
+  stall a live card, and a laptop that cannot push loses its claims after
+  `lease_timeout` even while its agent is alive.
 - **`claim.lost` is not a terminal state.** The end-session subscriber kills
   the local container on it directly; the backend's kill callback that
   follows is ignored by `UpdateWorkerStatus` because the card is now claimed
   via another instance. A card a peer deleted under a running container is
   left to the reconcile sweep's missing-card rule.
-- **One `writeMu`, one queue per boards repo.** `CardService.LockWrites(repo)`
-  takes the single write mutex and quiesces only that repo's commit queue. A
-  cycle of repo A therefore blocks writes to repo B for its duration, which
-  is bounded by the 10 s network timeouts, and never touches B's queue. Do
-  not add a per-repo mutex without re-proving the lock order (playbooks,
-  then `writeMu`, then the one queue); do not drain every queue, or a cycle
-  of A waits on B's commits.
-- **`repoOf(project)` never returns nil.** An unknown project resolves to
-  the first configured repo so the store call that follows fails with
-  `ErrProjectNotFound`, the error the caller should see. A write path that
-  needs a repo *name* (project or playbook creation) goes through
-  `repoNamed`, which is the only place `ErrUnknownBoardsRepo` comes from.
+- **`repoOf(project)` never returns nil.** An unknown project resolves to the
+  first configured repo so the store call that follows fails with
+  `ErrProjectNotFound`. A write path that needs a repo name (project or
+  playbook creation) goes through `repoNamed`, the only source of
+  `ErrUnknownBoardsRepo`.
 - **A new project must be saved with `SaveProjectIn`.** `Composite.SaveProject`
-  only updates a project some repo already owns; a create that calls it
-  lands in `ErrProjectNotFound`. `CardService.saveNewProject` picks the
-  right call for the store it has.
+  only updates a project some repo already owns; a create that calls it lands
+  in `ErrProjectNotFound`. `CardService.saveNewProject` picks the right call.
 - **`boards_repo` is a read-side stamp.** `ProjectConfig.BoardsRepo` has
   `yaml:"-"`; the composite sets it on every read and it never reaches
-  `.board.yaml`. A test that compares a config read through the composite
-  with one read from disk must ignore it.
-- **`CONTEXTMATRIX_BOARDS_*` and the list form do not mix.** With two or
-  more entries any of those variables is a load error, on purpose: an
-  override that silently landed on one entry of many would be invisible.
-- **`gitops.CommitQueue` per-project ordering, idle teardown:** the queue spawns
-  one goroutine per `Project` value and serializes that project's commits in
-  enqueue order; different projects commit in parallel. Production wires
-  `gitops.NewCommitQueue(git, 0, gitops.WithIdleTimeout(30*time.Minute))` in
-  `main.go`, so a worker that goes idle for 30 minutes exits and the next
-  `Enqueue` for that project spawns a fresh one - `projectWorker.closed` plus
-  the per-worker mutex stop an Enqueue from sending into a channel the worker is
-  about to abandon. Do not assume worker identity across an idle gap when
-  reasoning about cached state.
-- **`CardService.LockWrites` is paired with queue pause + drain:** the gitsync
-  layer holds `LockWrites` across a pull+rebase so no card mutation interleaves
-  with the rebase. The same function also calls `commitQueue.Pause()` and
-  `AwaitIdle(ctx)` with a 30-second budget so an in-flight go-git commit cannot
-  collide with the shell-git rebase on `.git/index.lock`. `UnlockWrites` must
-  call `Resume()` before releasing `writeMu`; reversing the order leaves the
-  queue paused under a fresh write.
-- **Network git calls are bounded by `gitops.NetworkGitTimeout` (120 s), and
-  both `runGit`s set `cmd.WaitDelay`:** the gitsync `fetch`, and `Manager`
-  `pull --rebase`, `pull --ff-only`, and `push` each run under
-  `context.WithTimeout(ctx, gitops.NetworkGitTimeout)`, so a hung or
-  black-holed remote cannot wedge the board while `pullRebase` / `pushWithRetry`
-  hold `LockWrites`. Clone shares the same 120 s value at `cloneRepo`. Local
-  git calls (`rebase`, `isBehind`, `status`) are deliberately unwrapped - do not
-  add a timeout to them. A `context.WithTimeout` alone is not enough to release
-  the lock: both `runGit` implementations assign a `bytes.Buffer` to
-  `cmd.Stdout`/`cmd.Stderr`, so `os/exec` wires up OS pipes and `cmd.Run()`
-  blocks until every holder of the write end exits. Over HTTPS, `git fetch` /
-  `git push` spawn a `git-remote-https` child that inherits those pipes, and
-  `exec.CommandContext` kills only the direct `git` process on deadline - the
-  orphaned helper keeps the pipe open and `cmd.Run()` keeps blocking. Both
-  implementations set `cmd.WaitDelay = 3 * time.Second` so `Wait` returns even
-  with that grandchild alive. Do not remove the `WaitDelay`; a deadline without
-  it does not reliably release `writeMu`. Keep any new network git call inside
-  the `WithTimeout` wrapper and keep the `WaitDelay` set.
-- **Deferred git commits (`boards.git_deferred_commit`):** When
-  `boards.git_deferred_commit: true` in `config.yaml`, agent mutations
-  (heartbeats, log entries, intermediate updates) are batched and committed in a
-  single flush at release/complete time instead of per-operation. This reduces
-  git churn during long agent work sessions. However, two categories of mutation
-  **always commit immediately**, even when deferred mode is on: (1) card
-  creation - both the card file and `.board.yaml` are committed together so the
-  new card survives a `git pull` on another machine; (2) human edits to
-  unclaimed cards via the REST API - the PUT/PATCH handlers set
-  `ImmediateCommit: true` when `card.AssignedAgent == ""`, triggering an
-  immediate commit. MCP tool callers (agents) never set this flag, so their
-  commits continue to defer normally.
-- **MCP card results are summaries by design:** mutation and list tools return
-  `CardSummary` (no `body`, no `activity_log`); `heartbeat` returns a 3-field
-  ack. Do not "fix" a tool by returning the full `board.Card` - the echo
-  multiplies agent context cost (bodies grow during a run and every result is
-  re-read on each subsequent model call), and the summary shape is also what
-  guarantees unvetted external bodies cannot leak through mutation results.
-  Field parity with `board.Card` is enforced by
-  `TestCardSummaryMirrorsBoardCard`; the wire contract the agent backend
-  parses is pinned by `TestSlimToolResultsOmitBodyAndActivityLog`. Full-card
-  fetches stay on `get_card` / `get_task_context` only, and within
-  `get_task_context` the siblings array is summaries too
-  (`TestGetTaskContextSiblingsAreSummaries`) - only the primary card and
-  parent carry bodies. Skill prompts are filtered the same way: review-task,
-  document-task, and the execute-task parent inject only intro + allowlisted
-  sections (`filterBodySections`) - the review-task and document-task keep
-  lists include `## Decisions` alongside `## Plan` - pinned by
-  `TestStartReview_BodyFilteredToPlanAndFindings` and friends. Do not "fix"
-  a skill surface by passing a nil section list - the early-run builders
-  (create-plan, plan-draft, run-autonomous, systematic-debugging) are the only
-  deliberate full-body injections (`TestGetSkill_CreatePlan_FullBodyPinned`).
+  `.board.yaml`. A test comparing a config read through the composite with one
+  read from disk must ignore it.
+- **`CONTEXTMATRIX_BOARDS_*` and the list form do not mix.** With two or more
+  entries any of those variables is a load error, on purpose: an override
+  that silently landed on one entry of many would be invisible.
+- **`gitops.CommitQueue` per-project ordering, idle teardown:** one goroutine
+  per project serialises that project's commits in enqueue order; different
+  projects commit in parallel. `cmd/contextmatrix/wire_repos.go` wires
+  `WithIdleTimeout(30*time.Minute)`, so an idle worker exits and the next
+  `Enqueue` spawns a fresh one; `projectWorker.closed` plus the per-worker
+  mutex stop an `Enqueue` from sending into a channel the worker is about to
+  abandon. Do not assume worker identity across an idle gap.
+- **Network git calls are bounded by `gitops.NetworkGitTimeout` (120 s) and
+  every `runGit` sets `cmd.WaitDelay = 3 * time.Second`.** Fetch, `pull
+  --rebase`, `pull --ff-only`, push, and clone run under that timeout so a
+  black-holed remote cannot wedge the board while `pullRebase` /
+  `pushWithRetry` hold `LockWrites`. Local calls (`rebase`, `isBehind`,
+  `status`) are deliberately unwrapped. The timeout alone is not enough:
+  `runGit` gives `cmd.Stdout`/`cmd.Stderr` a `bytes.Buffer`, so `os/exec`
+  wires OS pipes and `cmd.Run()` blocks until every holder of the write end
+  exits. Over HTTPS, git spawns a `git-remote-https` child that inherits the
+  pipes, and `exec.CommandContext` kills only the direct `git` process, so
+  without `WaitDelay` the orphaned helper keeps `cmd.Run()` blocked and
+  `writeMu` held. Keep new network calls inside the wrapper and keep the
+  `WaitDelay`.
+- **Deferred git commits (`boards.git_deferred_commit`):** agent mutations
+  (heartbeats, log entries, intermediate updates) are batched and committed
+  in one flush at release or completion. Two mutations always commit
+  immediately regardless: card creation (card file and `.board.yaml`
+  together, so the card survives a pull elsewhere), and human edits to
+  unclaimed cards via REST (the PUT/PATCH handlers set `ImmediateCommit` when
+  `AssignedAgent == ""`). MCP tool callers never set that flag.
+
+## MCP and HTTP server
+
+- **MCP card results are summaries by design:** mutation and list tools
+  return `CardSummary` (no `body`, no `activity_log`); `heartbeat` returns a
+  three-field ack. Returning the full `board.Card` multiplies agent context
+  cost (bodies grow during a run and every result is re-read on each model
+  call) and the summary shape is what keeps unvetted external bodies out of
+  mutation results. Field parity is enforced by
+  `TestCardSummaryMirrorsBoardCard`; the wire contract the agent parses is
+  pinned by `TestSlimToolResultsOmitBodyAndActivityLog`. Full cards come
+  only from `get_card` / `get_task_context`, and even there the siblings
+  array is summaries (`TestGetTaskContextSiblingsAreSummaries`). Skill
+  prompts are filtered the same way: review-task, document-task, and the
+  execute-task parent inject only the intro plus allowlisted sections
+  (`filterBodySections`, `internal/mcp/bodysections.go`; both keep lists
+  include `## Decisions`), pinned by
+  `TestStartReview_BodyFilteredToPlanAndFindings` and friends. Do not pass a
+  nil section list: the early-run builders (create-plan, plan-draft,
+  run-autonomous, systematic-debugging) are the only deliberate full-body
+  injections (`TestGetSkill_CreatePlan_FullBodyPinned`).
 - **MCP middleware chain and body limit:** `/mcp` is registered on the same
-  inner `http.ServeMux` as the REST API, so it automatically inherits the shared
-  middleware chain (recovery, security headers, CORS when enabled, request ID,
-  observe/metrics+logging, body limit, csrfGuard). The body-size cap is **5 MB**
-  (`maxRequestBodySize`) - sized to the largest legitimate MCP card payload and
-  applied to every route without a per-route override (`POST /api/images` raises
-  it to 11 MB via `bodyLimitOverrides`). Requests with a `Content-Length`
-  exceeding 5 MB are rejected with `413 Payload Too Large` before the body is
-  read; requests
-  without `Content-Length` are capped during reads via `http.MaxBytesReader`.
-- **SSE and MCP streaming vs. `WriteTimeout`:** Go's `http.Server.WriteTimeout`
-  is an absolute deadline measured from when request headers are read - it is
-  NOT reset by intermediate writes (keepalive comments, partial event data,
-  etc.). Long-lived SSE connections will always hit it, causing the client to
-  see an abrupt disconnect every `WriteTimeout` seconds regardless of keepalive
-  activity. The fix is
-  `http.NewResponseController(w).SetWriteDeadline(time.Time{})` called before
-  entering the streaming loop. This clears the deadline for that one connection
-  only; all other endpoints keep the server-wide timeout. Applied in
-  `internal/api/events.go` (SSE event stream), `internal/api/worker_logs.go`
-  (worker SSE log stream), and as the `clearWriteDeadlineForStreaming`
-  middleware in `internal/mcp/server.go` (MCP GET stream). The MCP middleware
-  scopes the clear to `GET` requests; `DELETE` and every `POST` except one keep
-  the normal `WriteTimeout`. The exception is the `await_subtasks` tool call,
-  which blocks for minutes by design - `mcpRequestInfoMiddleware` clears the
-  deadline for it after sniffing the tool name out of the JSON-RPC body, so the
-  exemption is that one tool and not POST as a class. **Critical:**
-  `ResponseController`
-  finds the underlying connection by calling `Unwrap()` on the `ResponseWriter`.
-  Any middleware that wraps the writer (e.g., the logging middleware's
-  `responseWriter`) must implement `Unwrap() http.ResponseWriter` or
-  `SetWriteDeadline` silently fails - the error is non-fatal, so the handler
-  continues but the timeout stays active.
-- **Proxy idle timeouts cut `await_subtasks` before `await_max` does:** clearing
-  the server's write deadline only fixes CM's own timeout. Anything in front of
-  it - Cloudflare (~100s), an nginx `proxy_read_timeout`, an ingress, a tunnel -
-  applies its own idle-response timeout, and a blocking wait sends nothing until
-  it resolves. The symptom is a transport error rather than a `timed_out: true`
-  result, which is the useful signal: a timeout is supposed to come back as a
-  normal result. Fix by setting `await_max` below the shortest idle timeout on
-  the path (e.g. `"55s"` behind Cloudflare); callers re-call on timeout, so a
-  short cap costs an extra round trip, not correctness. The tool also emits MCP
-  progress notifications every 30s when the client supplies a progress token,
-  which keeps bytes flowing for proxies that reset on write - but a client that
-  sends no token gets no keep-alive, so never rely on it in place of the cap.
-- **Tailwind v4 preflight strips `list-style` from `ul`/`ol`:** `@import "tailwindcss"` injects `@layer base { ol, ul { list-style: none } }`, which overrides browser UA defaults. Third-party markdown libraries (e.g. `@uiw/react-markdown-preview`) set `list-style-type` only on nested levels and rely on UA defaults for the top level - so bullets and numbers silently disappear. Restore them with explicit `!important` rules scoped to the library's wrapper class (e.g. `.wmde-markdown ul { list-style: disc !important }`). Also re-assert the nested cascade (`lower-roman`, `lower-alpha`) because your `!important` on the base rule wins over the library's non-`!important` nested rules.
-- **Frontend embed:** `//go:embed all:dist` in `web/embed.go` (package `web`).
-  The `all:` prefix is required so dotfiles under `dist/` are included; a plain
-  `web/dist/*` glob would silently miss them. Must build frontend _before_
-  building Go binary. SPA routing requires a fallback to `index.html` for all
-  non-API, non-file routes.
-- **404 handling is React Router's job:** `newSPAHandler` returns `index.html`
-  for every path that isn't an `/api/` prefix, `/healthz`, `/readyz`, `/mcp`, or
-  a real static file. The Go layer never returns a 404 for UI paths. Unknown
-  routes are caught by `<Route path="*" element={<NotFound />} />` placed as the
-  last route in both `App.tsx` (top-level) and `ProjectShell.tsx` (nested
-  project routes). If you add a new `Routes` subtree, add its own catch-all or
-  users will see a blank screen instead of the 404 page.
-- **stdlib URL params:** use `r.PathValue("project")` (Go 1.22+). Route patterns
-  use `{project}` syntax:
-  `mux.HandleFunc("GET /api/projects/{project}", handler)`.
-- **`time.Duration` in YAML:** `time.Duration` doesn't unmarshal from strings
-  like `"30m"` with `gopkg.in/yaml.v3`. Either use a custom type with
-  `UnmarshalYAML`, or store as string in config and parse with
-  `time.ParseDuration()` at load time.
-- **`/healthz` and `/readyz` requests are not logged:** the HTTP logging
-  middleware skips `slog.Info` for `GET /healthz` and `GET /readyz` to prevent
-  k8s liveness/readiness probe traffic from spamming logs. Both endpoints still
-  respond normally - only the log line is suppressed. If you expect to see probe
-  traffic in logs for debugging, hit any other path or check the endpoints
-  directly with `curl`.
-- **Firefox per-origin SSE connection limit:** Firefox's connection manager
-  cancels in-flight requests to the same origin with `NS_BINDING_ABORTED` /
-  "connection interrupted while the page was loading" when a new navigation-
-  adjacent fetch pushes the total past its limit. Practically: if the app opens
-  ≥ 3 `EventSource('/api/events')` connections and then a 4th SSE stream opens
-  at the same origin (e.g. `/api/worker/logs` on HITL start), Firefox aborts the
-  earlier three simultaneously. Chrome does not exhibit this behaviour. The fix
-  is to share a single `EventSource` for the whole app via `SSEProvider` and fan
-  events out to subscribers in-process - see `web/src/hooks/useSSEBus.tsx`.
-  Never open more than one `EventSource` per distinct URL; use the subscriber
-  API for additional consumers of the same stream. For worker logs specifically,
-  `ProjectShell` owns a single card-scoped `useWorkerLogs` call (enabled while
-  the selected card's chat is live - any running worker session, HITL or
-  autonomous; autonomous renders read-only) and passes the resulting
-  `LogEntry[]` array down to `CardChat` as a prop - `CardChat` does not open
-  its own `EventSource`.
-- **`sessionlog.Manager` fan-out invariants:** `readUpstream` (card-scoped) and
-  `readProjectUpstream` (project-scoped) both append to the ring buffer and fan
-  out to subscribers under a single `m.mu` lock. These two operations must stay
-  under the same lock - separating them reintroduces the duplicate-delivery race
-  where an event lands in the snapshot AND in `sub.pending` for the same
-  subscriber. The primed-flag protocol (`sub.primed`, `sub.pending`) is what
-  enforces snapshot-before-live ordering: the pump stages live events in
-  `sub.pending` while `sub.primed` is false; the snapshot goroutine in
-  `Subscribe`/`SubscribeProject` flips `primed = true` (under `m.mu`) only after
-  draining both the snapshot slice and `sub.pending` into the subscriber's
-  channel. Do not bypass this gate. Two additional channels on `subscriber`
-  enforce lifecycle safety: `done` (closed by `unsub` or `Stop`/terminal-error)
-  signals the snapshot goroutine to exit early; `snapDone` (closed by the
-  snapshot goroutine via `defer`) signals that it has exited. `Stop` and the
-  terminal-error path in both pumps call `closeSubscriber`, which closes `done`,
-  waits on `snapDone` (up to 1 s), then sends the terminal event and calls
-  `close(ch)`. This ordering is mandatory: closing `ch` while the snapshot
-  goroutine is still sending on it panics. `close(done)` is guarded by
-  `sync.Once` (`doneOnce`) so both `unsub` and `Stop` can call it safely. The
-  snapshot goroutine blocks on each channel send
-  (`select { case ch <- evt: case <-sub.done: return }`) rather than dropping -
-  slow subscribers receive the full snapshot; they are never silently truncated.
-  Project-scoped sessions use the key `"project:<name>"` in the shared
-  `activeSessions`, `pendingSubs`, and `sessions` maps; this prefix prevents
-  collisions with card IDs. The only difference from the card-scoped pump is
-  that `readProjectUpstream` does not filter by card ID - it accepts every event
-  and preserves the originating `CardID` field on `sessionlog.Event`.
-- **`request_id` log correlation:** every HTTP request gets a `request_id` UUID
-  injected into its context by the `requestID` middleware via
-  `ctxlog.WithRequestID(ctx, id)`. All log sites must use `ctxlog.Logger(ctx)` -
-  not `slog.Default()` or a package-level logger - otherwise the log line will
-  not carry the correlation ID. Background goroutines (stall scanner, git-pull
-  ticker) do not go through the middleware; `ctxlog.Logger(ctx)` falls back to
-  `slog.Default()` safely in those paths.
-- **MCP tool name in the request log line:** for `POST /mcp` requests the
-  `observe` middleware emits two extra fields alongside the standard `method`,
-  `path`, `status`, `duration_ms`, and `request_id` fields: `mcp_method`
-  (JSON-RPC method, e.g. `tools/call`) and `mcp_tool` (tool name, e.g.
-  `claim_card` or `report_usage`). Both fields are omitted for non-MCP routes
-  and for MCP methods other than `tools/call` (e.g. `initialize`) where there is
-  no tool name. The extraction is best-effort - a body-peeking middleware
-  (`mcpRequestInfoMiddleware` in `internal/mcp/server.go`) reads the request
-  body, parses the JSON-RPC envelope, restores the body, and writes the results
-  into a `*ctxlog.MCPCall` stashed in the context by `observe`. Errors during
-  extraction are swallowed; the log line is still emitted with whatever fields
-  were successfully extracted.
-- **`/metrics` and pprof live on the admin port:** Prometheus scraping
-  (`GET /metrics`) and `/debug/pprof/*` are served only on the admin listener
-  (`admin_port`), which defaults to `127.0.0.1` (`admin_bind_addr`). The main
-  listener never exposes them. There is no authentication on the admin listener -
-  keep it loopback-only, or gate with firewall / NetworkPolicy / service-mesh
-  rules if your scrape setup requires a non-loopback bind. A non-loopback bind
-  logs a warning at startup.
-- **PAT mode requires specific permissions:** when `github.auth_mode: pat`, the
-  fine-grained PAT must have `Contents: Read and write` on the boards repo
-  **and** `Issues: Read-only` on each project repo referenced in `.board.yaml`
-  that has `github.import_issues: true`. PAT mode only works with GitHub
-  (github.com or GHEC/GHES); for non-GitHub hosts, use a different auth mode.
+  inner mux as the REST API, so it inherits the shared chain: recovery,
+  security headers, CORS (when configured), request ID, observe, body limit,
+  `csrfGuard`. The cap is 5 MB (`maxRequestBodySize`) on every route unless
+  registered through `bodyLimitOverrides`, which may only raise it
+  (`POST /api/images` gets 11 MiB). A `Content-Length` over the cap is
+  rejected with `413` before the body is read; bodies without one are capped
+  via `http.MaxBytesReader`.
+- **SSE and MCP streaming vs `WriteTimeout`:** `http.Server.WriteTimeout`
+  (60 s) is an absolute deadline from when headers are read; intermediate
+  writes do not reset it, so every long-lived stream would hit it. The fix is
+  `http.NewResponseController(w).SetWriteDeadline(time.Time{})` before the
+  streaming loop, applied in `internal/api/events.go`,
+  `internal/api/worker_logs.go`, `internal/api/chats.go` (chat stream), and
+  the `clearWriteDeadlineForStreaming` middleware in
+  `internal/mcp/server.go` for the MCP `GET` stream. `DELETE` and `POST` keep
+  the timeout, except the `await_subtasks` tool call, which blocks for
+  minutes by design: `mcpRequestInfoMiddleware` clears the deadline for it
+  after sniffing the tool name out of the JSON-RPC body. **Critical:**
+  `ResponseController` reaches the connection by calling `Unwrap()` on the
+  writer. Any middleware that wraps the writer must implement
+  `Unwrap() http.ResponseWriter` or `SetWriteDeadline` fails silently and the
+  timeout stays active.
+- **Proxy idle timeouts cut `await_subtasks` before `await_max` does.**
+  Anything in front of CM (Cloudflare at about 100 s, nginx
+  `proxy_read_timeout`, an ingress, a tunnel) applies its own idle timeout,
+  and a blocking wait sends nothing until it resolves. The symptom is a
+  transport error instead of a `timed_out: true` result. Set `await_max`
+  below the shortest idle timeout on the path (`"55s"` behind Cloudflare);
+  callers re-call on timeout, so a short cap costs a round trip, not
+  correctness. The tool emits MCP progress notifications every 30 s when the
+  client supplies a progress token; a client without one gets no keepalive,
+  so never rely on that in place of the cap.
+- **stdlib URL params:** use `r.PathValue("project")`; route patterns use
+  `{project}` syntax (`mux.HandleFunc("GET /api/projects/{project}", h)`).
+- **`time.Duration` in YAML:** `gopkg.in/yaml.v3` does not unmarshal
+  `"30m"` into `time.Duration`. Config stores durations as strings and parses
+  them with `time.ParseDuration` at load.
+- **`/healthz` and `/readyz` are not logged:** the request-logging middleware
+  skips them so probe traffic does not spam logs. Both still respond
+  normally.
+- **`request_id` log correlation:** the `requestID` middleware stores a UUID
+  in the context via `ctxlog.WithRequestID`. Every log site must use
+  `ctxlog.Logger(ctx)`, not `slog.Default()` or a package logger, or the line
+  loses the ID. Background goroutines (stall scanner, git-pull ticker) fall
+  back to `slog.Default()` safely.
+- **MCP tool name in the request log line:** for `POST /mcp` the `observe`
+  middleware adds `mcp_method` (JSON-RPC method) and `mcp_tool` (tool name
+  for `tools/call`). `mcpRequestInfoMiddleware` reads the body, parses the
+  envelope, restores the body, and writes into a `*ctxlog.MCPCall` stashed
+  by `observe`; extraction errors are swallowed and the line is still
+  emitted.
+- **`/metrics` and pprof live on the admin port:** served only on the admin
+  listener (`admin_port`, bound to `admin_bind_addr`, default `127.0.0.1`),
+  never on the main listener, with no authentication. Keep it loopback-only
+  or gate it with a firewall or NetworkPolicy; a non-loopback bind logs a
+  warning at startup.
+
+## GitHub
+
+- **Both auth modes are GitHub-only.** `github.auth_mode` is `app` or `pat`;
+  there is no other transport. A fine-grained PAT needs
+  `Contents: Read and write` on the boards repo and `Issues: Read` on each
+  project repo whose `.board.yaml` sets `github.import_issues: true`. See
+  [github-auth-setup.md](github-auth-setup.md).
 - **All git remote URLs must be HTTPS:** `boards.git_remote_url` and
   `task_skills.git_remote_url` are validated at startup and must start with
-  `https://` regardless of `github.auth_mode`. SSH URLs are rejected
-  unconditionally - there is no SSH transport fallback.
-- **Chat SQLite: WAL + MaxOpenConns + manager-level writer mutex:** the chat
-  store sets `MaxOpenConns=5` so concurrent readers (`ListMessages`, `MaxSeq`,
-  `GetSession`) do not queue behind a writer. SQLite remains a single-writer
-  engine regardless of pool size; the single-writer gate is `chat.Manager.mu`,
-  held across the entire seq-assignment + store insert in `AppendMessage`. Do
-  not move the store write outside the lock - disk insertion order must match
-  seq order, and the in-memory seq cache must stay consistent with the on-disk
-  `(session_id, seq)` UNIQUE index. The pool size is a reader-concurrency knob;
-  raising the writer concurrency requires changing the manager's locking model,
-  not the pool.
-- **SQLite driver is `modernc.org/sqlite`, pragmas live in the DSN:** the chat
-  store opens
-  `sql.Open("sqlite", path+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")`.
-  The driver name is `"sqlite"` (not `"sqlite3"` - that registration belongs to
-  `mattn/go-sqlite3`, which we do **not** import to keep the binary CGO-free).
-  The `_pragma=...` query-string parameters are a `modernc.org` extension;
-  switching drivers means rewriting these as `PRAGMA` statements executed on the
-  open connection.
-- **Chat SSE per-session subscriber cap:** `SSEHub.Subscribe` returns an error
-  if a session already has 32 live subscribers (`maxSubscribersPerSession` in
-  `internal/chat/sse.go`). A normal browser tab is one subscriber; the cap
-  blocks runaway clients from exhausting goroutines and channel memory. The
-  128-entry ring buffer per session is also a hard cap - events older than the
-  ring window are gone, and reconnects past the window depend on the REST
-  bootstrap in `useChatStream` to backfill. Session-update events
-  (`session_updated`) are NOT stored in the ring; only `message` events are,
-  since session metadata is meant to be re-fetched on reconnect.
-- **Op-store schema is a clean-cut create - existing `chats.db` must be deleted
-  on upgrade:** `ensureSchema` in `internal/opstore/sqlite/schema.go` runs plain
-  `CREATE TABLE IF NOT EXISTS` DDL for every table (`model_blacklist`,
-  `chat_sessions`, `chat_messages`, `chat_cost_archive`, `model_outcomes`) in
-  the shared `ops.db`.
-  There is **no migration ledger** - no `schema_migrations(version, applied_at)`
-  table, no stepwise history, no `addColumnIfMissing` helper. The DB is not
-  migrated: an obsolete one is deleted and recreated by the operator. To change
-  the schema, edit the `ensureSchema` DDL directly - it is all idempotent
-  `CREATE ... IF NOT EXISTS`. A `chats.db` from a previous install is not
-  forward-compatible; operators must delete it before starting the server.
-- **`useChatStream` ring buffer + REST bootstrap seam:** the hook uses
-  `useRingBuffer(2000)` and pairs the SSE subscription with a REST bootstrap via
-  `GET /api/chats/{id}/messages?since_seq=0`. On mount / sessionID change, the
-  hook fetches the persisted transcript first, records the highest `seq`, then
-  subscribes to the SSE stream with `since_seq=<last>`. SSE events whose seq
-  falls inside the bootstrap window are deduped on the client. Reverting to
-  SSE-only (no bootstrap) loses everything older than the server-side 128-entry
-  ring on refresh.
-- **Chat rehydration seeds in-process from `resume.jsonl`:** CM's chat-start
-  payload carries the resume context (`Resume *ResumeContext`); the chat backend
-  writes it to `resume.jsonl` in the per-session run dir and sets
-  `CM_CHAT_RESUME=1` before starting the container. A failed write fails the
-  chat-start with 500 - no container is created. Inside the container, the
-  worker reads the file and seeds its own history in-process; a failed read
-  logs a warning and starts fresh. There is no stdin priming envelope - stdin
-  carries only user messages and end/clear frames.
+  `https://`. SSH URLs are rejected unconditionally.
+
+## Frontend
+
+- **Tailwind v4 preflight strips `list-style` from `ul`/`ol`:**
+  `@import "tailwindcss"` injects `@layer base { ol, ul { list-style: none } }`.
+  `@uiw/react-markdown-preview` sets `list-style-type` only on nested levels
+  and relies on UA defaults for the top level, so bullets vanish.
+  `web/src/index.css` restores them with `!important` rules scoped to
+  `.wmde-markdown` and re-asserts the nested cascade (`circle`, `square`,
+  `lower-roman`, `lower-alpha`), because the base `!important` would
+  otherwise beat the library's non-`!important` nested rules.
+- **Frontend embed:** `//go:embed all:dist` in `web/embed.go`. The `all:`
+  prefix includes dotfiles under `dist/`; a plain glob would miss them. Build
+  the frontend before the Go binary (`make test` stubs `web/dist` for test
+  builds).
+- **404 handling is React Router's job:** `newSPAHandler` returns
+  `index.html` for every path that is not `/api/`, `/healthz`, `/readyz`,
+  `/mcp`, or a real static file. Unknown routes are caught by
+  `<Route path="*" element={<NotFound />} />` as the last route in both
+  `App.tsx` and `ProjectShell.tsx`. A new `Routes` subtree needs its own
+  catch-all or users see a blank screen.
+- **Firefox per-origin SSE connection limit:** Firefox aborts in-flight
+  requests to the same origin (`NS_BINDING_ABORTED`) when a new stream pushes
+  the total past its limit; Chrome does not. The app therefore shares one
+  `EventSource('/api/events')` through `SSEProvider`
+  (`web/src/hooks/useSSEBus.tsx`) and fans events out in-process. Never open
+  more than one `EventSource` per distinct URL. For worker logs,
+  `ProjectShell` owns both `useWorkerLogs` calls: a project-scoped one for
+  the console and a card-scoped one enabled while the selected card's
+  `worker_status` is `running`, whose entries it passes down as a prop.
+  `CardChat` opens no `EventSource` of its own.
+- **`useChatStream` ring buffer + REST bootstrap seam:** the hook keeps a
+  2000-entry `useRingBuffer` and pairs the SSE subscription with
+  `GET /api/chats/{id}/messages?since_seq=0`. On mount or session change it
+  fetches the persisted transcript, records the highest `seq`, then
+  subscribes with `since_seq=<last>`; SSE events inside the bootstrap window
+  are deduped. SSE-only would lose everything older than the server-side
+  128-entry ring on refresh.
+
+## Session logs and chat
+
+- **`sessionlog.Manager` fan-out invariants:** one pump,
+  `readUpstreamStream`, serves both card-scoped (`Subscribe`) and
+  project-scoped (`SubscribeProject`) sessions; project sessions use the key
+  `"project:<name>"` in the shared maps so they cannot collide with card IDs,
+  and their pump keeps every event's `CardID`. Appending to the ring buffer
+  and fanning out happen under one `m.mu` lock; separating them reintroduces
+  duplicate delivery (an event in the snapshot and in `sub.pending`). The
+  primed-flag protocol enforces snapshot-before-live: the pump stages live
+  events in `sub.pending` while `sub.primed` is false, and the snapshot
+  goroutine flips `primed` under `m.mu` only after draining both the snapshot
+  and `sub.pending` into the channel. Two channels enforce lifecycle safety:
+  `done` (closed by `unsub` or `Stop`, guarded by `doneOnce`) tells the
+  snapshot goroutine to exit; `snapDone` (closed by that goroutine on exit)
+  lets `closeSubscriber` wait up to 1 s before sending the terminal event and
+  closing the channel. Closing the channel while the snapshot goroutine may
+  still send panics. The snapshot goroutine blocks on each send
+  (`select { case ch <- evt: case <-sub.done: return }`) rather than
+  dropping, so slow subscribers get the full snapshot.
+- **SQLite driver is `modernc.org/sqlite`; pragmas live in the DSN.**
+  `internal/sqliteutil.Open` opens every store with
+  `file:<path>?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(5000)`
+  (plus `foreign_keys(1)` when requested), `MaxOpenConns=5`, `MaxIdleConns=2`.
+  The driver name is `"sqlite"`, not `"sqlite3"` (that is `mattn/go-sqlite3`,
+  which is not imported so the binary stays CGO-free). `_pragma=` is a
+  `modernc.org` extension; switching drivers means `PRAGMA` statements on the
+  open connection instead.
+- **Chat writes are serialised by `chat.Manager.mu`, not the pool.** SQLite is
+  single-writer regardless of `MaxOpenConns`; the pool only lets readers
+  (`ListMessages`, `MaxSeq`, `GetSession`) avoid queuing behind a writer.
+  `AppendMessage` holds the manager lock across seq assignment and the store
+  insert so disk order matches seq order and the in-memory seq cache stays
+  consistent with the `(session_id, seq)` UNIQUE index. Raising writer
+  concurrency means changing the locking model, not the pool.
+- **Chat SSE per-session subscriber cap:** `SSEHub.Subscribe` errors once a
+  session has 32 live subscribers (`maxSubscribersPerSession` in
+  `internal/chat/sse.go`). The replay ring is 128 events per session
+  (`chat.NewSSEHub(128)` in `cmd/contextmatrix/wire_chat.go`); reconnects past
+  the window rely on the REST bootstrap in `useChatStream`. Only `message`
+  events enter the ring; `session_updated` events are not stored because
+  session metadata is re-fetched on reconnect.
+- **Op-store schema has no migration ledger.** `ensureSchema` in
+  `internal/opstore/sqlite/schema.go` runs idempotent
+  `CREATE TABLE IF NOT EXISTS` DDL for `model_blacklist`, `chat_sessions`,
+  `chat_messages`, `chat_cost_archive`, and `model_outcomes` in `ops.db`.
+  There is no `schema_migrations` table and no column-add helper. A schema
+  change is an edit to that DDL; an incompatible `ops.db` is deleted and
+  recreated by the operator.
+- **Chat rehydration seeds from `resume.jsonl`:** the chat-start payload
+  carries `resume` (`ChatResumeContext`), which the chat backend writes to
+  the session run dir and the worker reads in-process from
+  `/run/cm-chat/resume.jsonl` before its first turn. The transcript is never
+  replayed through the container's stdin.
 - **`rehydration_phase` stamping prevents reopen pollution:** every message
-  appended while `Session.RehydrationActive=TRUE` gets stamped with
-  `rehydration_phase=TRUE` in `chat_messages`. `chat.transcript.Build` drops
-  those rows when assembling the next resume payload, so the resumed agent never
-  sees prior agents' `ls`/`Read`/`Bash` chatter - only real conversation turns
-  plus the prior `chat_rehydration_complete` summaries. Without this filter,
-  each reopen would compound the previous reopen's rehydration noise into the
-  next transcript.
+  appended while `Session.RehydrationActive` is true is stored with
+  `rehydration_phase=TRUE` in `chat_messages`. `transcript.Build` drops those
+  rows when assembling the next resume payload, so a resumed agent sees only
+  real conversation turns plus the prior `chat_rehydration_complete`
+  summaries, never earlier agents' tool chatter.
