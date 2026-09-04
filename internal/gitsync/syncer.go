@@ -606,6 +606,8 @@ func (s *Syncer) pullRebase(ctx context.Context, trigger string) error {
 		return fmt.Errorf("reload index after pull: %w", err)
 	}
 
+	s.warnHiddenProjects()
+
 	if s.playbooks != nil {
 		if err := s.playbooks.Reload(ctx); err != nil {
 			wrapped := fmt.Errorf("reload playbooks after pull: %w", err)
@@ -1148,14 +1150,24 @@ func (s *Syncer) reloadAfterPull(ctx context.Context) error {
 		}
 	}
 
-	if h, ok := s.store.(hiddenLister); ok {
-		for _, p := range h.Hidden() {
-			slog.Warn("git sync: project hidden, an earlier boards repo owns the name",
-				"repo", s.repo, "project", p.Name, "visible_in", p.VisibleIn)
-		}
-	}
+	s.warnHiddenProjects()
 
 	return nil
+}
+
+// warnHiddenProjects logs each project the store view holds under a name an
+// earlier repo owns, so a duplicate arriving on a pull is visible in the logs
+// and not only in the group's hidden_projects status.
+func (s *Syncer) warnHiddenProjects() {
+	h, ok := s.store.(hiddenLister)
+	if !ok {
+		return
+	}
+
+	for _, p := range h.Hidden() {
+		slog.Warn("git sync: project hidden, an earlier boards repo owns the name",
+			"repo", s.repo, "project", p.Name, "visible_in", p.VisibleIn)
+	}
 }
 
 // hasRef reports whether ref resolves to a commit in the local object store.
