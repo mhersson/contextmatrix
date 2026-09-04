@@ -28,6 +28,7 @@ import { NotFound } from '../NotFound';
 import { WorkerConsole } from '../WorkerConsole';
 import { api, isAPIError } from '../../api/client';
 import type { BoardEvent, Card, CreateCardInput } from '../../types';
+import { boardsRepoName } from '../../types';
 import { useDeepLinkCard } from './useDeepLinkCard';
 import { gateCardLogs } from './gateCardLogs';
 
@@ -93,8 +94,8 @@ export function ProjectShell() {
 
   const { config, cards, loading, error, connected, refreshCard, listEpoch, updateCardLocally, removeCardLocally, suppressSSE, unsuppressSSE } = useBoard(project || '', undefined, undefined, handleCardCreated);
 
-  const syncStatus = statusFor(config?.boards_repo);
-  const syncRepoName = boardsRepos.length > 1 ? (config?.boards_repo ?? boardsRepos[0]?.name) : undefined;
+  const syncRepoName = boardsRepos.length > 1 ? boardsRepoName(config?.boards_repo, boardsRepos) : undefined;
+  const syncStatus = statusFor(syncRepoName ?? config?.boards_repo);
 
   // Deep-link handling for ?card=ID - see useDeepLinkCard for full rationale.
   // Click-driven panel opens deliberately do NOT write to the URL.

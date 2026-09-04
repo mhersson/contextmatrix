@@ -116,4 +116,21 @@ describe('ProjectsTable - repo groups', () => {
     expect(container.querySelector('.apd-group-row')).toBeNull();
     expect(container.querySelector('.apd-panel-meta')?.textContent).toBe('1 · A→Z');
   });
+
+  it('renders a row with an unknown boards_repo under the first repo heading', () => {
+    const projects = [
+      { ...project('zebra', 'Z'), boards_repo: 'private' },
+      { ...project('ghost', 'G'), boards_repo: 'ghost' },
+    ];
+    const { container } = render(
+      <MemoryRouter>
+        <ProjectsTable projects={projects} summaries={new Map()} boardsRepos={[{ name: 'team', shared: true }, { name: 'private', shared: false }]} />
+      </MemoryRouter>,
+    );
+    const text = container.textContent ?? '';
+    expect(text.indexOf('team')).toBeGreaterThan(-1);
+    expect(text.indexOf('team')).toBeLessThan(text.indexOf('ghost'));
+    expect(text.indexOf('ghost')).toBeLessThan(text.indexOf('private'));
+    expect(text.indexOf('private')).toBeLessThan(text.indexOf('zebra'));
+  });
 });
