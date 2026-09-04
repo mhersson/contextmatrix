@@ -63,6 +63,31 @@ func TestExtensionFor(t *testing.T) {
 	}
 }
 
+func TestIsRepoFileName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		want bool
+	}{
+		{"aabbccddeeff0011.png", true},
+		{"0123456789abcdef.jpg", true},
+		{"aabbccddeeff0011.PNG", false},
+		{"aabbccddeeff0011.gif", false},
+		{"notahash0011.png", false},
+		{"../aabbccddeeff0011.png", false},
+		{"sub/aabbccddeeff0011.png", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, IsRepoFileName(tt.name))
+		})
+	}
+}
+
 func TestRepoIndex_ReloadIndexesOnlyListedProjectsAndWellFormedNames(t *testing.T) {
 	t.Parallel()
 

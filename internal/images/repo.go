@@ -20,6 +20,11 @@ const ImagesDir = "images"
 // the extensions the processor's output formats map to.
 var repoFileName = regexp.MustCompile(`^(` + IDPatternFragment + `)\.(png|jpg)$`)
 
+// IsRepoFileName reports whether name has the shape of a repo-stored image
+// file, an id with one of the extensions the processor emits. The index
+// serves only such files and the service writes only such files.
+func IsRepoFileName(name string) bool { return repoFileName.MatchString(name) }
+
 // ExtensionFor maps a processed content type to the file extension a
 // repo-stored image carries. The processor only ever emits image/png and
 // image/jpeg; anything else has no repo form.
