@@ -23,6 +23,18 @@ land in `<config-dir>/workflow-skills/` and are refreshed on every run.
 The installed `config.yaml` does not start as copied: set `boards.dir` and
 fill in the `github` block first (see [Minimal config](#minimal-config)).
 
+## `contextmatrix config`
+
+| Command                              | Effect                                                                                                                        |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| `contextmatrix config defaults`      | Print the complete default configuration as YAML: every key the loader accepts. Backends are present and disabled; host-dependent paths are empty. Reads nothing. |
+| `contextmatrix config validate FILE` | Load `FILE` exactly as the server would (env overrides included). Exit 0 when the server would start, else print the first error and exit 1. |
+
+`contextmatrix-setup` uses both: `defaults` is its schema, so it adds keys you
+are missing and removes keys that no longer exist. Renaming a key upstream
+therefore drops the user's old value at the next update; prefer adding the new
+key and reading the old one for a release when a rename is unavoidable.
+
 ## Config file discovery
 
 | Order | Source                                        | Rule                                                                                   |

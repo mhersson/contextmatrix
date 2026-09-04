@@ -91,6 +91,12 @@ func main() {
 		os.Exit(runAuthCLI(os.Args[2:]))
 	}
 
+	// `contextmatrix config <subcommand>` prints defaults or validates a file
+	// for contextmatrix-setup. Like auth it runs to completion and exits.
+	if len(os.Args) > 1 && os.Args[1] == "config" {
+		os.Exit(runConfigCLI(os.Args[2:]))
+	}
+
 	configPath := flag.String("config", "", "path to config file")
 
 	flag.Parse()
