@@ -358,17 +358,15 @@ func TestMultiRepo_NoDeadlockAcrossReposAndPlaybooks(t *testing.T) {
 	start := make(chan struct{})
 
 	spawn := func(fn func() error) {
-		wg.Add(1)
 
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 
 			<-start
 
 			if err := fn(); err != nil {
 				errs <- err
 			}
-		}()
+		})
 	}
 
 	for range 3 {

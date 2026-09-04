@@ -370,8 +370,8 @@ func projectRenames(project string, renames map[string]string) map[string]string
 	out := map[string]string{}
 
 	for k, v := range renames {
-		if strings.HasPrefix(k, project+"/") {
-			out[strings.TrimPrefix(k, project+"/")] = v
+		if after, ok := strings.CutPrefix(k, project+"/"); ok {
+			out[after] = v
 		}
 	}
 

@@ -102,8 +102,7 @@ func TestWireGitSync_SharedWiringFailureIsFatal(t *testing.T) {
 	// entry's config name, so SetSyncRunnerFor cannot resolve it.
 	svc := wireSvcNamed(t, boards, "mismatch")
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	group, err := wireGitSync(ctx, cfg, boards, svc, nil, events.NewBus())
 	require.ErrorContains(t, err, "team")
@@ -123,8 +122,7 @@ func TestWireGitSync_PrivateWiringFailureContinues(t *testing.T) {
 	// that is only logged: wiring continues and the group starts.
 	svc := wireSvcNamed(t, boards, "mismatch")
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	group, err := wireGitSync(ctx, cfg, boards, svc, nil, events.NewBus())
 	require.NoError(t, err)

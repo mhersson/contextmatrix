@@ -186,7 +186,7 @@ func (m *Manager) UnmergedPaths(ctx context.Context) ([]UnmergedPath, error) {
 
 	var order []string
 
-	for _, rec := range strings.Split(out, "\x00") {
+	for rec := range strings.SplitSeq(out, "\x00") {
 		if rec == "" {
 			continue
 		}

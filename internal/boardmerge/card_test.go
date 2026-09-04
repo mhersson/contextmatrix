@@ -172,8 +172,8 @@ func TestMergeCards(t *testing.T) {
 		},
 		{
 			"newest heartbeat wins",
-			func(c *board.Card) { c.LastHeartbeat = ptr(ts(3)) },
-			func(c *board.Card) { c.LastHeartbeat = ptr(ts(7)) },
+			func(c *board.Card) { c.LastHeartbeat = new(ts(3)) },
+			func(c *board.Card) { c.LastHeartbeat = new(ts(7)) },
 			func(t *testing.T, got *board.Card, _ []Resolution) {
 				require.NotNil(t, got.LastHeartbeat)
 				assert.Equal(t, ts(7), *got.LastHeartbeat)
@@ -241,7 +241,7 @@ func TestMergeCards(t *testing.T) {
 		},
 		{
 			"computed fields are not carried across",
-			func(c *board.Card) { c.DependenciesMet = ptr(true); c.SubtaskCostUSD = 4 },
+			func(c *board.Card) { c.DependenciesMet = new(true); c.SubtaskCostUSD = 4 },
 			func(c *board.Card) { c.InPlaybooks = []string{"release"}; c.SubtaskCostHasEstimates = true },
 			func(t *testing.T, got *board.Card, _ []Resolution) {
 				assert.Nil(t, got.DependenciesMet)
@@ -381,7 +381,8 @@ func TestMergeCards(t *testing.T) {
 	}
 }
 
-func ptr[T any](v T) *T { return &v }
+//go:fix inline
+func ptr[T any](v T) *T { return new(v) }
 
 // TestMergeCards_EqualEpochClaims covers the region where both sides raised
 // the epoch from the same claimed base. An active claim beats a tuple emptied
