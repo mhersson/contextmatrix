@@ -61,6 +61,11 @@ const (
 
 // CardService orchestrates all card operations by coordinating
 // storage, git, lock management, events, and validation.
+//
+// A CardService must be built through NewCardService or NewCardServiceRepos:
+// the repo resolver (repoOf/repoNamed in service_repos.go) assumes at least
+// one repository and indexes s.repos[0] unguarded, so a zero-value struct
+// literal panics on the first read or write that resolves a repo.
 type CardService struct {
 	store          storage.Store
 	bus            *events.Bus
