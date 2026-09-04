@@ -2,6 +2,8 @@ package images
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 )
@@ -35,6 +37,15 @@ const IDLen = 16
 // Built from IDLen so changing the ID shape (e.g. width, alphabet) is one
 // edit, not several.
 var IDPatternFragment = fmt.Sprintf(`[a-f0-9]{%d}`, IDLen)
+
+// IDOf derives the canonical id of processed image bytes: the first IDLen
+// hex characters of their SHA-256. Every store keys images by it, and a
+// repo-stored image carries it as its file stem.
+func IDOf(processed []byte) string {
+	sum := sha256.Sum256(processed)
+
+	return hex.EncodeToString(sum[:])[:IDLen]
+}
 
 // Store persists processed images keyed by content hash. Implementations must
 // be safe for concurrent use.

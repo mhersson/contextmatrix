@@ -119,6 +119,13 @@ func wireRepoSync(
 		syncer.SetPlaybooks(pbSvc.ForRepo(b.cfg.Name))
 	}
 
+	// The image index is set before the startup pull for the same reason:
+	// files a peer pushed while this instance was down are indexed by the
+	// reload that pull triggers.
+	if b.images != nil {
+		syncer.SetImages(b.images)
+	}
+
 	if err := syncer.PullOnStartup(ctx); err != nil {
 		slog.Warn("initial pull failed", "repo", b.cfg.Name, "error", err)
 	}

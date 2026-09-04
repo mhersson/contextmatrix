@@ -20,6 +20,8 @@ const MAX_CONCURRENT = 3;
  * Each upload is sent through `api.uploadImage` and the resulting `![](url)`
  * markdown is handed back to `onInsert`, which the caller is responsible for
  * splicing into its controlled body at the appropriate cursor position.
+ * `project` names the board the image belongs to and rides along with the
+ * upload.
  *
  * The hook is intentionally framework-pure: it owns nothing visual, only the
  * upload protocol and minimal status. Components decide how to render the
@@ -34,7 +36,7 @@ export interface UseImageUpload {
   handleFileSelect: (e: React.ChangeEvent<HTMLInputElement>) => void;
 }
 
-export function useImageUpload(onInsert: (url: string) => void): UseImageUpload {
+export function useImageUpload(onInsert: (url: string) => void, project?: string): UseImageUpload {
   // AbortController shared across the lifetime of the hook. Aborting it on
   // unmount cancels every fetch still in flight so onInsert / setState
   // never fire against a torn-down consumer. The bail-out branch in
@@ -86,7 +88,7 @@ export function useImageUpload(onInsert: (url: string) => void): UseImageUpload 
       inflightRef.current += 1;
       setInflight((n) => n + 1);
       try {
-        const result = await api.uploadImage(file, controller.signal);
+        const result = await api.uploadImage(file, { project, signal: controller.signal });
         if (controller.signal.aborted) return;
         onInsert(result.url);
         // Clear stale error only on a successful upload - failures from
@@ -112,7 +114,7 @@ export function useImageUpload(onInsert: (url: string) => void): UseImageUpload 
         }
       }
     },
-    [onInsert],
+    [onInsert, project],
   );
 
   const uploading = inflight > 0;

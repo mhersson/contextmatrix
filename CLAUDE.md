@@ -87,7 +87,7 @@ internal/opstore/          → ops.db (SQLite): chat sessions/messages, model ou
 internal/modelcatalog/     → cached model catalog + candidate rating (Artificial Analysis + OpenRouter or OpenAI-compatible endpoint)
 internal/auth/             → sessions, users, one-time tokens, credential-pool crypto, master key
 internal/authstore/        → auth.db (SQLite): users, sessions, tokens, credentials
-internal/images/           → content-hashed image blob store (pasted/dropped screenshots)
+internal/images/           → content-hashed image store: images.db plus <project>/images/ files in shared boards repos
 internal/github/           → GitHub auth helpers shared across services
 internal/clock/            → injectable clock for service-layer time invariants
 internal/events/           → in-process pub/sub event bus

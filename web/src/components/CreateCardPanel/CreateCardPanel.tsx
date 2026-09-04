@@ -112,6 +112,7 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
       />
       <CardPanelEditor
         body={form.body}
+        project={config.name}
         editable
         editing
         onChange={(v) => { form.setBody(v); form.setBodyDirty(true); }}

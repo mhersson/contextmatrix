@@ -88,13 +88,23 @@ shared by the agent and chat backends).
   card's live state; manual steps are human check-offs with per-entry human-only
   notes. The detail view threads a route rail through the entries, spotlights
   the next step, and supports drag-to-reorder.
+- **Shared boards** - several ContextMatrix instances (one clone per developer
+  laptop, or a laptop next to a cluster deployment) work one boards repo
+  through its remote. The syncer merges instead of rebasing, resolves every
+  conflict itself with card-aware rules and lists what it decided in the sync
+  status, so nobody touches git by hand. Claims are owned per instance with
+  leases, so a card a colleague's agent is running is never stalled or taken
+  over by guesswork, and screenshots pasted into shared cards are stored in
+  the repo so they render on every instance.
 - **Several boards repositories** - a shared team repo next to a private one on
   one instance; projects stay unique across repos, the sidebar and dashboard
   group by repo, and the repo is chosen at creation time.
 - **Image attachments** - paste from the clipboard or drag-and-drop screenshots
   into a card description. Uploads are resized server-side, content-hashed for
   deduplication, and surfaced to agents as base64 via MCP (`get_card`,
-  `get_task_context`).
+  `get_task_context`). Images of a project in a shared boards repo are files
+  in that repo, so every instance serves them; everything else lives in a
+  local SQLite store.
 - **AI agent coordination** - exclusive card claims, heartbeat monitoring,
   automatic stall detection, and `depends_on` enforcement keep parallel agents
   from stepping on each other.
@@ -647,6 +657,7 @@ mcp_api_key: "" # Bearer token for the MCP endpoint (set for non-localhost)
 
 boards:
   dir: ~/contextmatrix-boards # path to the boards git repo (required)
+  # shared: true and the list form for several repos: see "Shared Boards" below
 
 # Optional: enable a remote-execution backend (see "Remote Execution & Backends")
 backends:
@@ -663,6 +674,79 @@ Most fields have a `CONTEXTMATRIX_*` environment override - see
 (`token_costs`), GitHub auth, chat limits, image storage, and the operational
 store (`op_store.db_path`, which holds chat transcripts and the model blacklist)
 are all documented in `config.yaml.example`.
+
+## Shared Boards
+
+One boards repo can be worked by several ContextMatrix instances at once - one
+clone per developer laptop, or a laptop next to a cluster deployment. Point
+every instance at the same remote and mark the entry `shared`:
+
+```yaml
+instance:
+  id: "" # default: <hostname>-<6 hex>, generated once and persisted; names this instance in commits and claims
+
+boards:
+  dir: ~/boards/team
+  git_remote_url: https://github.com/org/boards.git
+  git_clone_on_empty: true # clone on first start when the directory is empty
+  shared: true # merge-only sync, self-healing conflicts, per-instance claims
+  git_pull_interval: 60s
+```
+
+Every instance needs GitHub credentials with `Contents: Read and write` on the
+boards repo (see [GitHub Authentication](#github-authentication)), and every
+instance on the repo must run a ContextMatrix version with shared-board
+support - an older one drops the claim ownership fields whenever it rewrites a
+card.
+
+What `shared: true` changes:
+
+- **Sync never rebases and never stashes.** Each cycle commits anything dirty,
+  fetches, merges, resolves every conflicting card, project or playbook file
+  with card-aware three-way rules (a terminal state wins, the later `updated`
+  wins scalar ties, activity logs union, the remote wins an ID collision and
+  the local card is re-minted), pushes, and lists each resolution in
+  `GET /api/sync` and the sync banner. A human never touches git.
+- **Claims belong to an instance.** A claim records the instance that granted
+  it and a `claim_epoch` fence, so two laptops running the same card cannot
+  both believe they hold it. Live heartbeats stay in memory; the card file
+  carries a lease that a peer may only stall after `lease_timeout`. Mutations
+  that depend on a global decision - a new card ID, a claim, a terminal
+  transition - are push-verified: the remote holds the decision before the
+  caller is told it landed. The board marks cards held through another
+  instance, and a `claim.lost` event tells an agent that a peer won.
+- **Images live in the repo.** A screenshot pasted into a card of a shared
+  project is stored at `<project>/images/<id>.<ext>` and committed like a
+  card, so it renders on every instance. On startup, images of shared cards
+  that this instance still holds only in its local `images.db` are exported
+  into the repo.
+
+### Several boards repositories
+
+`boards` also accepts a list, so a shared team repo can sit next to a private
+one on the same instance. Every entry takes the same fields plus a `name`; the
+first entry is the default for creation.
+
+```yaml
+boards:
+  - name: team
+    dir: ~/boards/team
+    git_remote_url: https://github.com/org/boards.git
+    git_clone_on_empty: true
+    shared: true
+  - name: private
+    dir: ~/boards/private
+```
+
+Project names are unique across repos: two repos holding the same name refuse
+startup, and a duplicate that arrives later through a pull is hidden and
+reported in that repo's sync status. The sidebar and the dashboard group
+projects by repo, each repo shows its own sync state, and the New Project
+wizard and playbook creation ask which repo to create in. Everything else -
+URLs, the API, the MCP tools - is unchanged; `boards_repo` on
+`POST /api/projects` and `create_project` picks the repo. The
+`CONTEXTMATRIX_BOARDS_*` environment overrides apply to the single-repo form
+only.
 
 ## GitHub Authentication
 

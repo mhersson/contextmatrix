@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
-	"regexp"
 	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -38,57 +37,12 @@ const defaultMaxAttachedImageBytes = 20 << 20
 // while still cutting wall time for screenshot-heavy cards.
 const imageFetchConcurrency = 4
 
-// mdImage matches a markdown image reference: `![alt](url)`. The URL portion
-// is captured for downstream filtering. Square brackets in alt text are
-// allowed except for the literal `]` that closes the alt.
-var mdImage = regexp.MustCompile(`!\[[^\]]*\]\(([^)]+)\)`)
-
-// cmImageURL matches both relative (`/api/images/<hex>`) and absolute
-// (`https://host/api/images/<hex>`) URLs hosted by this server. The id capture
-// group enforces the canonical ID shape produced by images.Store; the
-// pattern fragment is sourced from the images package so any future change
-// to the ID alphabet/length propagates here automatically. An optional query
-// string suffix (`?param=val`) is allowed and ignored - the query is stripped
-// before the ID is looked up.
-var cmImageURL = regexp.MustCompile(`^(?:https?://[^/]+)?/api/images/(` + images.IDPatternFragment + `)(\?[^)]*)?$`)
-
 // extractCMImageIDs returns up to maxAttachedImages unique cm-server image
 // IDs referenced in body, in order of first appearance.
 func extractCMImageIDs(body string) []string {
-	matches := mdImage.FindAllStringSubmatch(body, -1)
-	if len(matches) == 0 {
-		return nil
-	}
-
-	seen := make(map[string]struct{}, len(matches))
-	ids := make([]string, 0, len(matches))
-
-	for _, m := range matches {
-		if len(m) < 2 {
-			continue
-		}
-
-		sub := cmImageURL.FindStringSubmatch(m[1])
-		if len(sub) < 2 {
-			continue
-		}
-
-		id := sub[1]
-		if _, ok := seen[id]; ok {
-			continue
-		}
-
-		seen[id] = struct{}{}
-
-		ids = append(ids, id)
-
-		if len(ids) >= maxAttachedImages {
-			break
-		}
-	}
-
-	if len(ids) == 0 {
-		return nil
+	ids := images.ReferencedIDs(body)
+	if len(ids) > maxAttachedImages {
+		ids = ids[:maxAttachedImages]
 	}
 
 	return ids

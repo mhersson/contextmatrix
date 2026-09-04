@@ -44,6 +44,7 @@ export function CardPanelLeft({
       />
       <CardPanelEditor
         body={editedCard.body}
+        project={editedCard.project}
         editable={!workerAttached}
         editing={editing}
         onToggleEditing={canToggleEditor ? () => setEditing((v) => !v) : undefined}

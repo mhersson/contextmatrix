@@ -246,6 +246,9 @@ boards:
   # git_auto_commit, rejects git_deferred_commit, and forces git_auto_pull
   # and git_auto_push on. The syncer merges instead of rebasing and resolves
   # conflicts itself; every pull tick is jittered by 25%.
+  # Images pasted into cards of a shared repository are stored as files in
+  # the repository (<project>/images/), one commit per upload regardless of
+  # git_deferred_commit, so every instance serves them.
   # Every instance on the repository must run a ContextMatrix version with
   # shared-board support: an older one does not know the claim ownership
   # fields and drops them whenever it rewrites a card.
@@ -460,7 +463,11 @@ chat:
 # Image upload + retrieval (paste / drag-drop screenshots into cards).
 images:
   # SQLite database for stored images. Content-hashed IDs make this
-  # cache-friendly and naturally deduplicate identical uploads.
+  # cache-friendly and naturally deduplicate identical uploads. Holds every
+  # image of a private boards repo and every project-less upload; images of a
+  # project in a shared boards repo are files in that repo instead
+  # (<project>/images/<id>.png|.jpg), and any image a shared card references
+  # from this database is exported into the repo at startup.
   # CONTEXTMATRIX_IMAGES_DB_PATH overrides this.
   # Default: $XDG_STATE_HOME/contextmatrix/images.db
   # db_path: /var/lib/contextmatrix/images.db

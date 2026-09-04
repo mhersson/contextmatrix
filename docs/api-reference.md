@@ -2501,15 +2501,21 @@ the hub).
 
 Backs the paste / drag-drop image upload flow in `CardPanelEditor` and the
 inline image attachments on the MCP `get_card` / `get_task_context` tools.
-Images live in a separate SQLite DB (`images.db`, configurable via
-`images.db_path` / `CONTEXTMATRIX_IMAGES_DB_PATH`). IDs are the first 16 hex
-chars of `sha256(processed_bytes)` - identical uploads dedup naturally and
-URLs are stable.
+IDs are the first 16 hex chars of `sha256(processed_bytes)` - identical
+uploads dedup naturally and URLs are stable. Where the bytes live depends
+on the board: an upload that names a project in a shared boards repo is a
+file at `<project>/images/<id>.<ext>` in that repo, committed and pushed
+like a card; every other upload (no `project`, an unknown project, a
+project in a private repo) goes to a SQLite DB (`images.db`, configurable
+via `images.db_path` / `CONTEXTMATRIX_IMAGES_DB_PATH`). Reads consult the
+repos first and the database second, so the URL shape is the same for both.
 
 ### POST /api/images
 
-Multipart form upload. Single field `file`. Returns the content-hashed id and
-the canonical URL for embedding in markdown via `![](...)`.
+Multipart form upload. Field `file` (required) and `project` (optional, the
+board the image belongs to; the web client always sends it). Returns the
+content-hashed id and the canonical URL for embedding in markdown via
+`![](...)`.
 
 Body size cap: 10 MB (the global 5 MB `bodyLimit` is overridden to 11 MB on
 this route alone - 1 MB headroom for the multipart envelope).
@@ -2533,7 +2539,8 @@ Server-side processing (`internal/images/processor.go`):
 curl -X POST http://localhost:8080/api/images \
   -H 'X-Requested-With: contextmatrix' \
   -H 'X-Agent-ID: human:alice' \
-  -F 'file=@screenshot.png'
+  -F 'file=@screenshot.png' \
+  -F 'project=alpha'
 ```
 
 Response 201:

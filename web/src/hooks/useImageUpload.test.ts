@@ -164,8 +164,8 @@ describe('useImageUpload', () => {
   it('unmount mid-upload cancels the fetch and does not invoke onInsert', async () => {
     let resolveUpload: (v: { id: string; url: string }) => void = () => {};
     let receivedSignal: AbortSignal | undefined;
-    uploadMock.mockImplementationOnce((_file, signal) => {
-      receivedSignal = signal;
+    uploadMock.mockImplementationOnce((_file, opts) => {
+      receivedSignal = opts?.signal;
       return new Promise<{ id: string; url: string }>((r) => {
         resolveUpload = r;
       });
@@ -195,6 +195,26 @@ describe('useImageUpload', () => {
       await Promise.resolve();
     });
     expect(onInsert).not.toHaveBeenCalled();
+  });
+
+  it('sends the project with the upload', async () => {
+    uploadMock.mockResolvedValueOnce({ id: 'abc0123456789def', url: '/api/images/abc0123456789def' });
+    const onInsert = vi.fn();
+    const { result } = renderHook(() => useImageUpload(onInsert, 'alpha'));
+
+    const file = pngFile();
+    await act(async () => {
+      result.current.handleFileSelect({
+        target: { files: [file], value: '' },
+      } as unknown as React.ChangeEvent<HTMLInputElement>);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(uploadMock).toHaveBeenCalledWith(
+      file,
+      expect.objectContaining({ project: 'alpha', signal: expect.any(AbortSignal) }),
+    );
   });
 
   it('handlePaste does not call preventDefault when the clipboard has no image files', () => {

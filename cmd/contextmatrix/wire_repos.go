@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/gitops"
+	"github.com/mhersson/contextmatrix/internal/images"
 	"github.com/mhersson/contextmatrix/internal/lock"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/internal/storage"
@@ -24,6 +26,9 @@ type repoBundle struct {
 	store   *storage.FilesystemStore
 	queue   *gitops.CommitQueue
 	pbStore *storage.FilesystemPlaybookStore // nil when playbooks are disabled
+	// images is the index of the images stored as files in this repo.
+	// Nil on a private repo, which keeps images.db.
+	images *images.RepoIndex
 }
 
 // boardsBundles is every boards repository plus the composites that join
@@ -46,6 +51,40 @@ func (b *boardsBundles) queues() []*gitops.CommitQueue {
 	}
 
 	return out
+}
+
+// imageIndexes returns the image index of every shared repo in config order.
+func (b *boardsBundles) imageIndexes() []*images.RepoIndex {
+	out := make([]*images.RepoIndex, 0, len(b.repos))
+
+	for _, r := range b.repos {
+		if r.images != nil {
+			out = append(out, r.images)
+		}
+	}
+
+	return out
+}
+
+// loadImageIndex builds the image index of one shared repo from the
+// projects its view serves, so hidden copies are never indexed.
+func loadImageIndex(name, dir string, view *storage.RepoView) (*images.RepoIndex, error) {
+	projects, err := view.ListProjects(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("list projects: %w", err)
+	}
+
+	names := make([]string, 0, len(projects))
+	for _, p := range projects {
+		names = append(names, p.Name)
+	}
+
+	idx := images.NewRepoIndex(name, dir)
+	if err := idx.Reload(context.Background(), names); err != nil {
+		return nil, err
+	}
+
+	return idx, nil
 }
 
 // buildBoards initializes every configured boards repository in config
@@ -131,6 +170,15 @@ func buildBoards(cfg *config.Config, provider githubauth.TokenGenerator, heartbe
 		}
 
 		lockMgr := lock.NewManagerWithClock(view, heartbeat, clk)
+
+		if r.cfg.Shared {
+			idx, err := loadImageIndex(r.cfg.Name, r.cfg.Dir, view)
+			if err != nil {
+				return nil, fmt.Errorf("boards[%s]: image index: %w", r.cfg.Name, err)
+			}
+
+			r.images = idx
+		}
 
 		svcRepo := &service.BoardsRepo{
 			Name:              r.cfg.Name,

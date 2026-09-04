@@ -199,6 +199,10 @@ type Syncer struct {
 	// playbook index afterwards. Nil when the playbooks subsystem is
 	// disabled.
 	playbooks playbookSync
+
+	// images reloads the repo image index after every pull, so files a peer
+	// pushed are served here. Nil on a private repo.
+	images imageSync
 }
 
 // playbookSync is the slice of PlaybookService the syncer needs: quiesce
@@ -207,6 +211,12 @@ type playbookSync interface {
 	LockWrites()
 	UnlockWrites()
 	Reload(ctx context.Context) error
+}
+
+// imageSync is the slice of the repo image index the syncer needs: a
+// rebuild from the projects this repo serves, after every pull.
+type imageSync interface {
+	Reload(ctx context.Context, projects []string) error
 }
 
 // Option configures a Syncer at construction time.
@@ -317,6 +327,36 @@ func (s *Syncer) SetNetworkTimeout(d time.Duration) {
 // Nil (subsystem disabled) leaves sync behavior unchanged.
 func (s *Syncer) SetPlaybooks(p playbookSync) {
 	s.playbooks = p
+}
+
+// SetImages registers the repo image index to rebuild after every pull.
+func (s *Syncer) SetImages(i imageSync) {
+	s.images = i
+}
+
+// reloadImages rebuilds the repo image index from the projects the store
+// serves for this repo. A failure is logged, not returned: images are
+// served best-effort and the next pull rebuilds again.
+func (s *Syncer) reloadImages(ctx context.Context) {
+	if s.images == nil {
+		return
+	}
+
+	projects, err := s.store.ListProjects(ctx)
+	if err != nil {
+		slog.Warn("git sync: list projects for image index", "repo", s.repo, "error", err)
+
+		return
+	}
+
+	names := make([]string, 0, len(projects))
+	for _, p := range projects {
+		names = append(names, p.Name)
+	}
+
+	if err := s.images.Reload(ctx, names); err != nil {
+		slog.Warn("git sync: reload image index", "repo", s.repo, "error", err)
+	}
 }
 
 // PullOnStartup performs an initial pull. Errors are returned but should not
@@ -1097,8 +1137,8 @@ func (s *Syncer) abortMerge(ctx context.Context) error {
 }
 
 // reloadAfterPull refreshes every in-memory view of the worktree that the
-// integration just changed. Order matters: go-git first, then the card index
-// and the playbook index, then the service caches.
+// integration just changed. Order matters: go-git first, then the card
+// index, the playbook index and the image index, then the service caches.
 func (s *Syncer) reloadAfterPull(ctx context.Context) error {
 	if err := s.git.ReloadRepo(ctx); err != nil {
 		slog.Warn("git sync: reload go-git repo", "error", err)
@@ -1128,6 +1168,8 @@ func (s *Syncer) reloadAfterPull(ctx context.Context) error {
 			return fmt.Errorf("reload playbooks: %w", err)
 		}
 	}
+
+	s.reloadImages(ctx)
 
 	s.svc.ClearCaches()
 

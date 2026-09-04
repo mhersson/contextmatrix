@@ -2,9 +2,7 @@ package images
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
@@ -120,8 +118,7 @@ func (s *SQLiteStore) Put(ctx context.Context, raw []byte) (string, string, erro
 		return "", "", err
 	}
 
-	sum := sha256.Sum256(processed)
-	id := hex.EncodeToString(sum[:])[:IDLen]
+	id := IDOf(processed)
 
 	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO images (id, content_type, bytes, created_at)
