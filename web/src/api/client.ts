@@ -577,9 +577,14 @@ class APIClient {
   // Images - POST /api/images with multipart/form-data. The request() helper
   // hard-codes Content-Type: application/json, so this method talks to fetch
   // directly and threads the same X-Agent-ID / X-Requested-With headers used
-  // by mutation endpoints. `signal` lets callers (e.g. useImageUpload) cancel
-  // an in-flight upload when the editor unmounts.
-  async uploadImage(file: File, signal?: AbortSignal): Promise<{ id: string; url: string }> {
+  // by mutation endpoints. `project` tells the server which board the image
+  // belongs to, so a project in a shared boards repo stores it as a file in
+  // that repo; `signal` lets callers (e.g. useImageUpload) cancel an in-flight
+  // upload when the editor unmounts.
+  async uploadImage(
+    file: File,
+    opts: { project?: string; signal?: AbortSignal } = {},
+  ): Promise<{ id: string; url: string }> {
     const headers: Record<string, string> = {
       'X-Requested-With': 'contextmatrix',
     };
@@ -589,12 +594,15 @@ class APIClient {
 
     const body = new FormData();
     body.append('file', file);
+    if (opts.project) {
+      body.append('project', opts.project);
+    }
 
     const response = await fetch(`${BASE_URL}/images`, {
       method: 'POST',
       headers,
       body,
-      signal,
+      signal: opts.signal,
     });
 
     if (!response.ok) {

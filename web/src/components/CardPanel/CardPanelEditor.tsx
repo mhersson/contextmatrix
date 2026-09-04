@@ -34,6 +34,7 @@ const CardBodyPreview = memo(function CardBodyPreview({ body }: { body: string }
 
 interface CardPanelEditorProps {
   body: string;
+  project: string;
   onChange: (body: string) => void;
   editable: boolean;
   editing: boolean;
@@ -62,7 +63,7 @@ interface CardPanelEditorProps {
  * `role="group"` element - MDEditor does not expose a way to set an `id` on
  * its internal textarea.
  */
-export function CardPanelEditor({ body, onChange, editable, editing, onToggleEditing }: CardPanelEditorProps) {
+export function CardPanelEditor({ body, project, onChange, editable, editing, onToggleEditing }: CardPanelEditorProps) {
   const { theme } = useTheme();
   const editorContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -116,7 +117,7 @@ export function CardPanelEditor({ body, onChange, editable, editing, onToggleEdi
     [onChange],
   );
 
-  const upload = useImageUpload(insertImageRef);
+  const upload = useImageUpload(insertImageRef, project);
 
   return (
     <section ref={editorContainerRef} data-color-mode={theme}>
