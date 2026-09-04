@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"sync"
 )
 
 // RepoImage is one file to write into a boards repo, named <id>.<ext>.
@@ -33,12 +34,17 @@ var _ Store = (*Layered)(nil)
 // Layered serves images from the boards repos first and images.db second.
 // Uploads that name a project whose repo is shared are written into that
 // repo; every other upload goes to images.db. With no repo index it is a
-// transparent wrapper over db.
+// transparent wrapper over db. Writes into one project are serialized, so
+// two concurrent uploads can never both pass the index check and reach the
+// repo.
 type Layered struct {
 	db     Store
 	writer RepoWriter
 	repos  []*RepoIndex // config order
 	byName map[string]*RepoIndex
+
+	mu       sync.Mutex
+	projects map[string]*sync.Mutex
 }
 
 // NewLayered layers repos, in config order, over db. writer may be nil
@@ -49,7 +55,24 @@ func NewLayered(db Store, writer RepoWriter, repos ...*RepoIndex) *Layered {
 		byName[r.Name()] = r
 	}
 
-	return &Layered{db: db, writer: writer, repos: repos, byName: byName}
+	return &Layered{db: db, writer: writer, repos: repos, byName: byName, projects: make(map[string]*sync.Mutex)}
+}
+
+// projectLock returns the mutex that serializes writes into one project,
+// so two identical uploads never both pass the index check and reach the
+// repo, and a failed commit can never remove a file a concurrent upload
+// already committed.
+func (l *Layered) projectLock(project string) *sync.Mutex {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	m, ok := l.projects[project]
+	if !ok {
+		m = &sync.Mutex{}
+		l.projects[project] = m
+	}
+
+	return m
 }
 
 // Put stores a project-less upload in images.db.
@@ -77,6 +100,10 @@ func (l *Layered) PutIn(ctx context.Context, project string, raw []byte) (string
 	if !ok {
 		return "", "", fmt.Errorf("images: no repo file extension for %s", contentType)
 	}
+
+	pl := l.projectLock(project)
+	pl.Lock()
+	defer pl.Unlock()
 
 	if idx.Has(project, id) {
 		return id, contentType, nil
@@ -148,28 +175,43 @@ func (l *Layered) Export(ctx context.Context, repo string, refs map[string][]str
 	written := 0
 
 	for _, project := range projects {
-		files, err := l.missingFromRepo(ctx, idx, project, refs[project])
+		n, err := l.exportProject(ctx, idx, repo, project, refs[project])
+		written += n
+
 		if err != nil {
 			return written, err
 		}
-
-		if len(files) == 0 {
-			continue
-		}
-
-		if err := l.writer.WriteRepoImages(ctx, project, files); err != nil {
-			return written, fmt.Errorf("images: export %d images into %s/%s: %w", len(files), repo, project, err)
-		}
-
-		for _, f := range files {
-			ext := f.Name[len(f.Name)-4:]
-			idx.Add(project, f.Name[:len(f.Name)-4], contentTypeOf(ext[1:]))
-		}
-
-		written += len(files)
 	}
 
 	return written, nil
+}
+
+// exportProject writes into repo the images project is missing, under the
+// project's lock so a concurrent PutIn can never race the index check.
+func (l *Layered) exportProject(ctx context.Context, idx *RepoIndex, repo, project string, ids []string) (int, error) {
+	pl := l.projectLock(project)
+	pl.Lock()
+	defer pl.Unlock()
+
+	files, err := l.missingFromRepo(ctx, idx, project, ids)
+	if err != nil {
+		return 0, err
+	}
+
+	if len(files) == 0 {
+		return 0, nil
+	}
+
+	if err := l.writer.WriteRepoImages(ctx, project, files); err != nil {
+		return 0, fmt.Errorf("images: export %d images into %s/%s: %w", len(files), repo, project, err)
+	}
+
+	for _, f := range files {
+		ext := f.Name[len(f.Name)-4:]
+		idx.Add(project, f.Name[:len(f.Name)-4], contentTypeOf(ext[1:]))
+	}
+
+	return len(files), nil
 }
 
 // missingFromRepo collects, from images.db, the referenced ids project

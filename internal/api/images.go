@@ -45,6 +45,11 @@ type projectUploader interface {
 	PutIn(ctx context.Context, project string, raw []byte) (string, string, error)
 }
 
+// The layered image store is the only production uploader that routes by
+// project; pin the seam so a rename cannot silently demote every upload
+// to images.db.
+var _ projectUploader = (*images.Layered)(nil)
+
 func newImageHandlers(store images.Store) *imageHandlers {
 	return &imageHandlers{store: store}
 }

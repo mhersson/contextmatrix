@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -19,6 +20,7 @@ type fakeWriter struct {
 	shared map[string]string // project -> repo
 	dirs   map[string]string // repo -> dir
 	fail   error
+	delay  time.Duration
 
 	mu    sync.Mutex
 	calls []writeCall
@@ -36,6 +38,10 @@ func (w *fakeWriter) ImagesInRepo(_ context.Context, project string) (string, bo
 }
 
 func (w *fakeWriter) WriteRepoImages(_ context.Context, project string, files []RepoImage) error {
+	if w.delay > 0 {
+		time.Sleep(w.delay)
+	}
+
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -357,6 +363,37 @@ func TestLayered_ExportUnknownRepo(t *testing.T) {
 
 	_, err := env.layered.Export(context.Background(), "nope", nil)
 	require.Error(t, err)
+}
+
+func TestLayered_ConcurrentIdenticalUploadsWriteOnce(t *testing.T) {
+	t.Parallel()
+
+	env := newLayeredEnv(t)
+	env.writer.delay = 50 * time.Millisecond
+	ctx := context.Background()
+	raw := makeTinyPNG(t)
+
+	var wg sync.WaitGroup
+
+	ids := make([]string, 5)
+
+	for i := range ids {
+		wg.Go(func() {
+			id, _, err := env.layered.PutIn(ctx, "alpha", raw)
+			assert.NoError(t, err)
+
+			ids[i] = id
+		})
+	}
+
+	wg.Wait()
+
+	for _, id := range ids[1:] {
+		assert.Equal(t, ids[0], id)
+	}
+
+	assert.Len(t, env.writer.writes(), 1, "the same image uploaded concurrently into one project is written once")
+	assert.True(t, env.team.Has("alpha", ids[0]))
 }
 
 func TestLayered_ExportStopsOnWriterFailure(t *testing.T) {
