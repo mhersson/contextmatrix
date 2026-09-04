@@ -115,7 +115,7 @@ export interface ProjectConfig {
   prefix: string;
   next_id: number;
   repo?: string;
-  /** Boards repo this project lives in; absent on a single-repo instance. */
+  /** Boards repo the server stamps this project with on every read (boards on a single-repo instance); optional only for compatibility with older servers. */
   boards_repo?: string;
   states: string[];
   types: string[];
@@ -404,7 +404,7 @@ export interface CreateProjectInput {
   display_name?: string;
   prefix: string;
   repo?: string;
-  /** Boards repo to create the project in; absent on a single-repo instance. */
+  /** Boards repo to create the project in; sent when the instance has more than one boards repo, otherwise the server uses the only one. */
   boards_repo?: string;
   states: string[];
   types: string[];
@@ -753,7 +753,7 @@ export interface PlaybookSummary {
   segments: PlaybookSegment[];
   projects: number;
   updated_at: string;
-  /** Boards repo this playbook lives in; absent on a single-repo instance. */
+  /** Boards repo the server stamps this playbook with on every read (boards on a single-repo instance); optional only for compatibility with older servers. */
   boards_repo?: string;
 }
 
@@ -767,7 +767,7 @@ export interface PlaybookDetail {
   complete: number;
   total: number;
   entries: PlaybookEntry[];
-  /** Boards repo this playbook lives in; absent on a single-repo instance. */
+  /** Boards repo the server stamps this playbook with on every read (boards on a single-repo instance); optional only for compatibility with older servers. */
   boards_repo?: string;
 }
 
@@ -783,7 +783,7 @@ export interface CreatePlaybookInput {
   title: string;
   description?: string;
   entries?: NewPlaybookEntry[];
-  /** Boards repo to create the playbook in; absent on a single-repo instance. */
+  /** Boards repo to create the playbook in; sent when the instance has more than one boards repo, otherwise the server uses the only one. */
   boards_repo?: string;
 }
 
