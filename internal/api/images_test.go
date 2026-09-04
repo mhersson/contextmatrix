@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"image"
 	"image/color"
@@ -13,6 +14,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -213,4 +215,117 @@ func TestImageGet_NotFound(t *testing.T) {
 	var ae APIError
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&ae))
 	assert.Equal(t, ErrCodeImageNotFound, ae.Code)
+}
+
+// routingStore wraps a Store and records which project each PutIn names,
+// so the handler test can prove the field reaches the store.
+type routingStore struct {
+	images.Store
+
+	mu       sync.Mutex
+	projects []string
+}
+
+func (r *routingStore) PutIn(ctx context.Context, project string, raw []byte) (string, string, error) {
+	r.mu.Lock()
+	r.projects = append(r.projects, project)
+	r.mu.Unlock()
+
+	return r.Put(ctx, raw)
+}
+
+func (r *routingStore) routed() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return append([]string(nil), r.projects...)
+}
+
+// postImageForProject uploads a PNG under field "file" with an extra
+// "project" form field when project is non-empty.
+func postImageForProject(t *testing.T, url, project string, data []byte) *http.Response {
+	t.Helper()
+
+	var body bytes.Buffer
+
+	writer := multipart.NewWriter(&body)
+
+	if project != "" {
+		require.NoError(t, writer.WriteField("project", project))
+	}
+
+	part, err := writer.CreateFormFile("file", "shot.png")
+	require.NoError(t, err)
+
+	_, err = part.Write(data)
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+
+	req, err := http.NewRequest(http.MethodPost, url+"/api/images", &body)
+	require.NoError(t, err)
+
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("X-Requested-With", "contextmatrix")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	return resp
+}
+
+func TestImageUpload_ProjectFieldRoutesThroughPutIn(t *testing.T) {
+	inner, err := images.Open(filepath.Join(t.TempDir(), "images.db"))
+	require.NoError(t, err)
+
+	t.Cleanup(func() { _ = inner.Close() })
+
+	store := &routingStore{Store: inner}
+	srv := httptest.NewServer(NewRouter(RouterConfig{ImageStore: store}))
+	t.Cleanup(srv.Close)
+
+	resp := postImageForProject(t, srv.URL, "alpha", makePNG(t, 8, 8))
+	defer resp.Body.Close()
+
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var out imageUploadResponse
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	assert.Equal(t, "/api/images/"+out.ID, out.URL)
+
+	resp = postImageForProject(t, srv.URL, "", makePNG(t, 8, 8))
+	defer resp.Body.Close()
+
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	assert.Equal(t, []string{"alpha"}, store.routed(), "only the upload that named a project went through PutIn")
+}
+
+func TestImageUpload_ProjectFieldIsIgnoredByAPlainStore(t *testing.T) {
+	url, store := imageTestServer(t)
+
+	resp := postImageForProject(t, url, "alpha", makePNG(t, 8, 8))
+	defer resp.Body.Close()
+
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var out imageUploadResponse
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+
+	_, _, err := store.Get(context.Background(), out.ID)
+	require.NoError(t, err, "a store without PutIn keeps the blob in images.db")
+}
+
+func TestImageUpload_ProjectFieldKeepsTheErrorMapping(t *testing.T) {
+	inner, err := images.Open(filepath.Join(t.TempDir(), "images.db"))
+	require.NoError(t, err)
+
+	t.Cleanup(func() { _ = inner.Close() })
+
+	srv := httptest.NewServer(NewRouter(RouterConfig{ImageStore: &routingStore{Store: inner}}))
+	t.Cleanup(srv.Close)
+
+	resp := postImageForProject(t, srv.URL, "alpha", []byte("not an image"))
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusUnsupportedMediaType, resp.StatusCode)
 }

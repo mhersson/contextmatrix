@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -35,6 +36,13 @@ var imageIDPattern = regexp.MustCompile(`^` + images.IDPatternFragment + `$`)
 
 type imageHandlers struct {
 	store images.Store
+}
+
+// projectUploader is the optional upload path that routes by project.
+// images.Layered implements it; a plain images.Store does not, and every
+// upload then goes to images.db as before.
+type projectUploader interface {
+	PutIn(ctx context.Context, project string, raw []byte) (string, string, error)
 }
 
 func newImageHandlers(store images.Store) *imageHandlers {
@@ -112,7 +120,19 @@ func (h *imageHandlers) upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id, _, err := h.store.Put(r.Context(), raw)
+	// An upload that names a project may be stored as a file in that
+	// project's boards repo; the store decides. Without the field, or on a
+	// store that cannot route, the blob goes to images.db as before.
+	put := h.store.Put
+	if pu, ok := h.store.(projectUploader); ok {
+		if project := r.FormValue("project"); project != "" {
+			put = func(ctx context.Context, raw []byte) (string, string, error) {
+				return pu.PutIn(ctx, project, raw)
+			}
+		}
+	}
+
+	id, _, err := put(r.Context(), raw)
 	if err != nil {
 		switch {
 		case errors.Is(err, images.ErrTooLarge):
