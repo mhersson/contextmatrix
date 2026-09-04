@@ -1,0 +1,133 @@
+package main
+
+import (
+	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/mhersson/contextmatrix/internal/clock"
+	"github.com/mhersson/contextmatrix/internal/config"
+	"github.com/mhersson/contextmatrix/internal/events"
+	"github.com/mhersson/contextmatrix/internal/service"
+)
+
+// wireGitRun runs a git command in dir and fails the test on error.
+func wireGitRun(t *testing.T, dir string, args ...string) {
+	t.Helper()
+
+	env := append(os.Environ(),
+		"GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=test@test.com",
+		"GIT_COMMITTER_NAME=Test", "GIT_COMMITTER_EMAIL=test@test.com")
+
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = env
+
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+// wireGitSyncUpstream creates an upstream bare repo and a clone of it with
+// one project, so a boards entry passes the HasRemote gate.
+func wireGitSyncUpstream(t *testing.T) (dir string) {
+	t.Helper()
+
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not found")
+	}
+
+	upstream := filepath.Join(t.TempDir(), "upstream.git")
+	wireGitRun(t, "", "init", "--bare", upstream)
+
+	dir = filepath.Join(t.TempDir(), "clone")
+	wireGitRun(t, "", "clone", upstream, dir)
+
+	wireProject(t, dir, "alpha", "ALPHA")
+
+	wireGitRun(t, dir, "add", "-A")
+	wireGitRun(t, dir, "commit", "-m", "initial")
+	wireGitRun(t, dir, "push", "origin", "HEAD")
+
+	return dir
+}
+
+// wireSvcNamed builds a CardService over the bundle's repo but renames it,
+// so lookups by the config name fail.
+func wireSvcNamed(t *testing.T, boards *boardsBundles, name string) *service.CardService {
+	t.Helper()
+
+	boards.svcRepos[0].Name = name
+
+	svc, err := service.NewCardServiceRepos(boards.composite, events.NewBus(), nil, boards.svcRepos...)
+	require.NoError(t, err)
+
+	return svc
+}
+
+func wireGitSyncTest(t *testing.T, entry config.BoardsConfig) (*boardsBundles, *config.Config) {
+	t.Helper()
+
+	cfg := &config.Config{Boards: config.Boards{entry}, Instance: config.InstanceConfig{ID: "lap-a"}}
+
+	boards, err := buildBoards(cfg, wireProvider(t), 30*time.Minute, clock.Real())
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		for _, q := range boards.queues() {
+			_ = q.Close(context.Background())
+		}
+	})
+
+	return boards, cfg
+}
+
+func TestWireGitSync_SharedWiringFailureIsFatal(t *testing.T) {
+	dir := wireGitSyncUpstream(t)
+
+	entry := wireEntry("team", dir)
+	entry.Shared = true
+	entry.GitRemoteURL = "https://example.com/org/boards.git"
+	entry.GitAutoPull, entry.GitAutoPush = true, true
+
+	boards, cfg := wireGitSyncTest(t, entry)
+
+	// The service holds the repo under a different name than the shared
+	// entry's config name, so SetSyncRunnerFor cannot resolve it.
+	svc := wireSvcNamed(t, boards, "mismatch")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	group, err := wireGitSync(ctx, cfg, boards, svc, nil, events.NewBus())
+	require.ErrorContains(t, err, "team")
+	require.ErrorIs(t, err, service.ErrUnknownBoardsRepo)
+	assert.Nil(t, group)
+}
+
+func TestWireGitSync_PrivateWiringFailureContinues(t *testing.T) {
+	dir := wireGitSyncUpstream(t)
+
+	entry := wireEntry("solo", dir)
+	entry.GitAutoPull, entry.GitAutoPush = true, true
+
+	boards, cfg := wireGitSyncTest(t, entry)
+
+	// The same name mismatch fails SetOnCommitFor on a private repo, but
+	// that is only logged: wiring continues and the group starts.
+	svc := wireSvcNamed(t, boards, "mismatch")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	group, err := wireGitSync(ctx, cfg, boards, svc, nil, events.NewBus())
+	require.NoError(t, err)
+	require.NotNil(t, group)
+	assert.True(t, group.Enabled())
+}

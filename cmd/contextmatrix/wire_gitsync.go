@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	"github.com/mhersson/contextmatrix/internal/config"
@@ -15,6 +16,11 @@ import (
 // starts the loops. Repos without a remote get a group entry with no
 // syncer, so /api/sync still lists them. The caller waits on Group.Wait
 // during shutdown, after context cancellation.
+//
+// A wiring failure on a shared repo is returned as an error and no group
+// is started: a shared repo without its sync runner degrades every
+// push-verified mutation to an unverified local write. Private repos log
+// and continue.
 func wireGitSync(
 	ctx context.Context,
 	cfg *config.Config,
@@ -22,21 +28,29 @@ func wireGitSync(
 	svc *service.CardService,
 	pbSvc *service.PlaybookService,
 	bus *events.Bus,
-) *gitsync.Group {
+) (*gitsync.Group, error) {
 	entries := make([]gitsync.GroupEntry, 0, len(boards.repos))
 
 	for _, b := range boards.repos {
-		entries = append(entries, gitsync.GroupEntry{Name: b.cfg.Name, Syncer: wireRepoSync(ctx, cfg, b, boards, svc, pbSvc, bus)})
+		syncer, err := wireRepoSync(ctx, cfg, b, boards, svc, pbSvc, bus)
+		if err != nil {
+			return nil, fmt.Errorf("wire git sync: %w", err)
+		}
+
+		entries = append(entries, gitsync.GroupEntry{Name: b.cfg.Name, Syncer: syncer})
 	}
 
 	group := gitsync.NewGroup(boards.composite.Hidden, entries...)
 	group.Start(ctx)
 
-	return group
+	return group, nil
 }
 
-// wireRepoSync builds and primes the syncer of one repo. Returns nil when
-// the repo has no remote.
+// wireRepoSync builds and primes the syncer of one repo. Returns a nil
+// syncer when the repo has no remote or a wiring step fails; for shared
+// repos every wiring failure is also returned as an error so startup can
+// abort, because a shared repo without its runner silently degrades to
+// unverified local writes.
 func wireRepoSync(
 	ctx context.Context,
 	cfg *config.Config,
@@ -45,18 +59,22 @@ func wireRepoSync(
 	svc *service.CardService,
 	pbSvc *service.PlaybookService,
 	bus *events.Bus,
-) *gitsync.Syncer {
+) (*gitsync.Syncer, error) {
 	if !b.git.HasRemote() {
 		slog.Info("git sync disabled: no remote configured", "repo", b.cfg.Name)
 
-		return nil
+		return nil, nil
 	}
 
 	view, err := boards.composite.View(b.cfg.Name)
 	if err != nil {
+		if b.cfg.Shared {
+			return nil, fmt.Errorf("boards repo %q: repo view: %w", b.cfg.Name, err)
+		}
+
 		slog.Error("git sync: repo view", "repo", b.cfg.Name, "error", err)
 
-		return nil
+		return nil, nil
 	}
 
 	pullInterval, _ := b.cfg.PullIntervalDuration()
@@ -71,7 +89,7 @@ func wireRepoSync(
 	syncer := gitsync.NewSyncer(b.git, view, svc, bus, b.cfg.Dir,
 		b.cfg.GitAutoPull, b.cfg.GitAutoPush, pullInterval, opts...)
 	if syncer == nil {
-		return nil
+		return nil, nil
 	}
 
 	// Mutations that depend on a global decision (an ID, a slug, a claim)
@@ -85,16 +103,12 @@ func wireRepoSync(
 		}
 
 		if err := svc.SetSyncRunnerFor(b.cfg.Name, runner); err != nil {
-			slog.Error("git sync: sync runner", "repo", b.cfg.Name, "error", err)
-
-			return nil
+			return nil, fmt.Errorf("boards repo %q: sync runner: %w", b.cfg.Name, err)
 		}
 
 		if pbSvc != nil {
 			if err := pbSvc.SetSyncRunnerFor(b.cfg.Name, runner, service.DirectCommitter(b.git)); err != nil {
-				slog.Error("git sync: playbook sync runner", "repo", b.cfg.Name, "error", err)
-
-				return nil
+				return nil, fmt.Errorf("boards repo %q: playbook sync runner: %w", b.cfg.Name, err)
 			}
 		}
 	}
@@ -111,11 +125,19 @@ func wireRepoSync(
 
 	if b.cfg.GitAutoPush {
 		if err := svc.SetOnCommitFor(b.cfg.Name, syncer.NotifyCommit); err != nil {
+			if b.cfg.Shared {
+				return nil, fmt.Errorf("boards repo %q: on-commit hook: %w", b.cfg.Name, err)
+			}
+
 			slog.Error("git sync: on-commit hook", "repo", b.cfg.Name, "error", err)
 		}
 
 		if pbSvc != nil {
 			if err := pbSvc.SetOnCommitFor(b.cfg.Name, syncer.NotifyCommit); err != nil {
+				if b.cfg.Shared {
+					return nil, fmt.Errorf("boards repo %q: playbook on-commit hook: %w", b.cfg.Name, err)
+				}
+
 				slog.Error("git sync: playbook on-commit hook", "repo", b.cfg.Name, "error", err)
 			}
 		}
@@ -130,5 +152,5 @@ func wireRepoSync(
 		"instance", cfg.Instance.ID,
 	)
 
-	return syncer
+	return syncer, nil
 }

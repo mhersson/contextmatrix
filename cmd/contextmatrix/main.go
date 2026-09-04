@@ -271,7 +271,12 @@ func main() {
 	}
 
 	// Initialize git sync
-	syncGroup := wireGitSync(ctx, cfg, boards, svc, pbSvc, bus)
+	syncGroup, err := wireGitSync(ctx, cfg, boards, svc, pbSvc, bus)
+	if err != nil {
+		slog.Error("failed to wire git sync", "error", err)
+		cancel()
+		os.Exit(1) //nolint:gocritic // cancel called explicitly above
+	}
 
 	// After the sync wiring: on a shared board the checker's stall writes are
 	// push-verified, so the sync runner must be in place before the first
