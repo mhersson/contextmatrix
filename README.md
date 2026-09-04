@@ -15,7 +15,7 @@ and report progress back through the board. It is the hub of a small ecosystem:
 ContextMatrix holds the board and dispatches work to pluggable execution
 backends that do the actual coding inside sandboxed containers.
 
-![contextmatrix-kanban-console](assets/contextmatrix-dogfooding-demo.png)
+![contextmatrix-kanban-console](assets/contextmatrix-in-action.png)
 
 ## The ContextMatrix ecosystem
 
@@ -24,11 +24,11 @@ HMAC-signed webhooks, and every backend reports back through the same MCP
 interface. You only need this repo to get started - add a backend when you want
 remote, unattended, or chat execution.
 
-| Repository                                                                   | Role                                                                                                                                                                                                             |
-| ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **[contextmatrix](https://github.com/mhersson/contextmatrix)** (this repo)   | Coordination server, web UI, REST API, and MCP hub. Tracks tasks; never touches your code repos.                                                                                                                 |
-| **[contextmatrix-agent](https://github.com/mhersson/contextmatrix-agent)**   | Task backend - a custom Go harness with per-role model selection over **OpenRouter** or any OpenAI-compatible gateway. Executes cards only; pair with contextmatrix-chat for the chat surface.           |
-| **[contextmatrix-chat](https://github.com/mhersson/contextmatrix-chat)**     | Chat backend for the global `/chat` surface - long-lived, board-aware interactive sessions. Pairs with the agent and uses the same OpenRouter / OpenAI-compatible `llm_endpoint`.                                |
+| Repository                                                                 | Role                                                                                                                                                                                           |
+| -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **[contextmatrix](https://github.com/mhersson/contextmatrix)** (this repo) | Coordination server, web UI, REST API, and MCP hub. Tracks tasks; never touches your code repos.                                                                                               |
+| **[contextmatrix-agent](https://github.com/mhersson/contextmatrix-agent)** | Task backend - a custom Go harness with per-role model selection over **OpenRouter** or any OpenAI-compatible gateway. Executes cards only; pair with contextmatrix-chat for the chat surface. |
+| **[contextmatrix-chat](https://github.com/mhersson/contextmatrix-chat)**   | Chat backend for the global `/chat` surface - long-lived, board-aware interactive sessions. Pairs with the agent and uses the same OpenRouter / OpenAI-compatible `llm_endpoint`.              |
 
 The backend topology is the **agent + chat** pair: the agent runs cards and chat
 serves the `/chat` surface. Each is an independent `backends` entry with its own
@@ -66,32 +66,31 @@ shared by the agent and chat backends).
 - **Autonomous & HITL execution** - `autonomous: true` cards run the full plan →
   execute → document → review lifecycle with no gates; Human-in-the-Loop mode
   opens a per-card chat pane to approve or redirect the agent, with one-click
-  promotion to autonomous. Every run streams its live transcript into the
-  card's Chat tab - interactive for HITL, read-only for autonomous. The
-  `simple` label triggers a fast path that skips planning and review.
+  promotion to autonomous. Every run streams its live transcript into the card's
+  Chat tab - interactive for HITL, read-only for autonomous. The `simple` label
+  triggers a fast path that skips planning and review.
 - **Best-of-N execution** - set `best_of_n` on a card and the agent backend
-  races N candidate implementations in parallel git worktrees, each with its
-  own budget and an auto-selected coder model (distinct models where the
-  eligible pool allows; see [model selection](docs/model-selection.md)); a
-  judge phase picks the winner, which is the only branch pushed.
-- **Mob sessions (A2A)** - set `mob_participants` and the selected phases
-  become moderated multi-agent discussions over the A2A protocol - internal
-  seats plus optional registered guest agents - with the live transcript
-  streamed to the card's chat tab. Review is on by default; plan and execute
-  are per-phase opt-in choices. Discussions degrade to the solo path rather
-  than failing the run, and a mob session composes freely with a Best-of-N
-  execute race.
+  races N candidate implementations in parallel git worktrees, each with its own
+  budget and an auto-selected coder model (distinct models where the eligible
+  pool allows; see [model selection](docs/model-selection.md)); a judge phase
+  picks the winner, which is the only branch pushed.
+- **Mob sessions (A2A)** - set `mob_participants` and the selected phases become
+  moderated multi-agent discussions over the A2A protocol - internal seats plus
+  optional registered guest agents - with the live transcript streamed to the
+  card's chat tab. Review is on by default; plan and execute are per-phase
+  opt-in choices. Discussions degrade to the solo path rather than failing the
+  run, and a mob session composes freely with a Best-of-N execute race.
 - **Global chat surface** - a `/chat` route hosts long-lived, board-aware chat
   sessions independent of any card. Up to 4 are tiled in a resizable layout,
   persisted across reloads.
 - **Playbooks** - cross-project runbooks that mix live card references with
-  manual gate steps, stored as YAML in the boards repo. Card entries track
-  their card's live state; manual steps are human check-offs with per-entry
-  human-only notes. The detail view threads a route rail through the entries,
-  spotlights the next step, and supports drag-to-reorder.
-- **Several boards repositories** - a shared team repo next to a private one
-  on one instance; projects stay unique across repos, the sidebar and
-  dashboard group by repo, and the repo is chosen at creation time.
+  manual gate steps, stored as YAML in the boards repo. Card entries track their
+  card's live state; manual steps are human check-offs with per-entry human-only
+  notes. The detail view threads a route rail through the entries, spotlights
+  the next step, and supports drag-to-reorder.
+- **Several boards repositories** - a shared team repo next to a private one on
+  one instance; projects stay unique across repos, the sidebar and dashboard
+  group by repo, and the repo is chosen at creation time.
 - **Image attachments** - paste from the clipboard or drag-and-drop screenshots
   into a card description. Uploads are resized server-side, content-hashed for
   deduplication, and surfaced to agents as base64 via MCP (`get_card`,
@@ -128,10 +127,10 @@ cd ~/boards/contextmatrix && git init
 
 Open `http://localhost:8080` for the web UI.
 
-On first start the log prints a one-time bootstrap link (`/auth/token/<token>`) -
-open it to create the admin account (multi-user login is the default). For a
-zero-login local setup, set `auth.mode: none` in `config.yaml` before starting.
-See [Multi-User Mode](#multi-user-mode).
+On first start the log prints a one-time bootstrap link
+(`/auth/token/<token>`) - open it to create the admin account (multi-user login
+is the default). For a zero-login local setup, set `auth.mode: none` in
+`config.yaml` before starting. See [Multi-User Mode](#multi-user-mode).
 
 ## Web UI
 
@@ -150,13 +149,12 @@ See [Multi-User Mode](#multi-user-mode).
   independent of the others.
 - **Drag-to-reorder** - dropping a card onto another card in the same column
   reorders it in place and switches that column's sort to **Manual**; dropping
-  it on empty column space or the column header does nothing. Dragging a card
-  to a different column still moves it through the board's transitions and
-  leaves the target column's sort mode untouched. Cards outside the hand-made
-  order (new arrivals, or cards returning from a terminal state) sort to the
-  bottom, most recently updated first. The order is per user, stored in
-  `localStorage` alongside the sort choice - there's no shared or cross-device
-  ordering.
+  it on empty column space or the column header does nothing. Dragging a card to
+  a different column still moves it through the board's transitions and leaves
+  the target column's sort mode untouched. Cards outside the hand-made order
+  (new arrivals, or cards returning from a terminal state) sort to the bottom,
+  most recently updated first. The order is per user, stored in `localStorage`
+  alongside the sort choice - there's no shared or cross-device ordering.
 - **Dashboard** - per-project or all-state counts, active agents, and token cost
   breakdown.
 - **Chat** - global multi-pane chat surface (`/chat`). Up to 4 simultaneous chat
@@ -165,12 +163,12 @@ See [Multi-User Mode](#multi-user-mode).
 - **Execution console** - when a task backend is enabled, a toggleable console
   (`>_` button in the header, keyboard `c`) streams live container logs below
   the board with a resizable divider.
-- **Appearance** - the sidebar footer menu (the user chip in multi-user mode,
-  an Appearance chip otherwise) picks Light/Dark and the palette: **Everforest**
+- **Appearance** - the sidebar footer menu (the user chip in multi-user mode, an
+  Appearance chip otherwise) picks Light/Dark and the palette: **Everforest**
   (default), **Radix**, or **Catppuccin**. Dark/light persists in
-  `localStorage`; the palette's server default is set via the `theme` config
-  key and each browser's choice is stored under the `palette` key and
-  overrides it on subsequent loads.
+  `localStorage`; the palette's server default is set via the `theme` config key
+  and each browser's choice is stored under the `palette` key and overrides it
+  on subsequent loads.
 
 ## Multi-User Mode
 
@@ -306,8 +304,8 @@ After a fresh install, edit `boards.dir` in
 ## MCP Integration
 
 ContextMatrix exposes an MCP server on `POST /mcp` (Streamable HTTP transport).
-Connect Claude Code by adding this to your MCP config (`~/.claude.json` for
-user scope, or `.mcp.json` in the project root):
+Connect Claude Code by adding this to your MCP config (`~/.claude.json` for user
+scope, or `.mcp.json` in the project root):
 
 ```json
 {
@@ -327,38 +325,38 @@ block if `mcp_api_key` is empty.
 
 ### MCP Tools
 
-| Tool                        | Description                                                                          |
-| --------------------------- | ------------------------------------------------------------------------------------ |
-| `add_log`                   | Append an activity log entry                                                         |
-| `await_subtasks`            | Block until a parent's subtasks finish or one stalls (replaces polling)              |
-| `chat_rehydration_complete` | Signal that a resumed chat session has finished rehydrating                          |
-| `check_agent_health`        | Check health of subtask agents for a parent card                                     |
-| `claim_card`                | Claim exclusive ownership of a card                                                  |
-| `complete_task`             | Atomically log + transition to done + release                                        |
-| `create_card`               | Create a card (returns generated ID)                                                 |
-| `create_project`            | Create a new project board                                                           |
-| `delete_project`            | Delete a project (must have zero cards)                                              |
-| `get_card`                  | Get a single card                                                                    |
-| `get_ready_tasks`           | Get unclaimed todo cards with all dependencies met                                   |
-| `get_skill`                 | Get a skill prompt with injected card/project context                                |
-| `get_subtask_summary`       | Get subtask counts by state for a parent card                                        |
-| `get_task_context`          | Get card + parent + siblings + project config in one call                            |
-| `heartbeat`                 | Update heartbeat timestamp (prevents stalling)                                       |
-| `increment_review_attempts` | Increment the review attempt counter on a card                                       |
-| `list_cards`                | List cards with filters (state, type, label, agent, parent)                          |
-| `list_projects`             | List all projects with configs                                                       |
-| `promote_to_autonomous`     | Promote a card to autonomous mode (human-only)                                       |
-| `recalculate_costs`         | Recalculate token costs for cards with missing cost data                             |
-| `release_card`              | Release a claim                                                                      |
-| `report_incapable_model`    | Record that a model could not drive the tool loop so it is never auto-selected again |
+| Tool                        | Description                                                                           |
+| --------------------------- | ------------------------------------------------------------------------------------- |
+| `add_log`                   | Append an activity log entry                                                          |
+| `await_subtasks`            | Block until a parent's subtasks finish or one stalls (replaces polling)               |
+| `chat_rehydration_complete` | Signal that a resumed chat session has finished rehydrating                           |
+| `check_agent_health`        | Check health of subtask agents for a parent card                                      |
+| `claim_card`                | Claim exclusive ownership of a card                                                   |
+| `complete_task`             | Atomically log + transition to done + release                                         |
+| `create_card`               | Create a card (returns generated ID)                                                  |
+| `create_project`            | Create a new project board                                                            |
+| `delete_project`            | Delete a project (must have zero cards)                                               |
+| `get_card`                  | Get a single card                                                                     |
+| `get_ready_tasks`           | Get unclaimed todo cards with all dependencies met                                    |
+| `get_skill`                 | Get a skill prompt with injected card/project context                                 |
+| `get_subtask_summary`       | Get subtask counts by state for a parent card                                         |
+| `get_task_context`          | Get card + parent + siblings + project config in one call                             |
+| `heartbeat`                 | Update heartbeat timestamp (prevents stalling)                                        |
+| `increment_review_attempts` | Increment the review attempt counter on a card                                        |
+| `list_cards`                | List cards with filters (state, type, label, agent, parent)                           |
+| `list_projects`             | List all projects with configs                                                        |
+| `promote_to_autonomous`     | Promote a card to autonomous mode (human-only)                                        |
+| `recalculate_costs`         | Recalculate token costs for cards with missing cost data                              |
+| `release_card`              | Release a claim                                                                       |
+| `report_incapable_model`    | Record that a model could not drive the tool loop so it is never auto-selected again  |
 | `report_model_outcome`      | Record model outcomes (win/loss/failed): Best-of-N candidate rows or a solo run's own |
-| `report_push`               | Report a git push for a card                                                         |
-| `report_usage`              | Report token usage and estimated cost                                                |
-| `start_review`              | Atomically transition a card to review and return the review-task skill              |
-| `start_workflow`            | Return the workflow skill for a card (routes by autonomous flag)                     |
-| `transition_card`           | Change card state (validated against state machine)                                  |
-| `update_card`               | Update card fields                                                                   |
-| `update_project`            | Update project configuration                                                         |
+| `report_push`               | Report a git push for a card                                                          |
+| `report_usage`              | Report token usage and estimated cost                                                 |
+| `start_review`              | Atomically transition a card to review and return the review-task skill               |
+| `start_workflow`            | Return the workflow skill for a card (routes by autonomous flag)                      |
+| `transition_card`           | Change card state (validated against state machine)                                   |
+| `update_card`               | Update card fields                                                                    |
+| `update_project`            | Update project configuration                                                          |
 
 ### Slash Commands
 
@@ -374,8 +372,8 @@ Code slash commands:
 Phase-specific skills (`create-plan`, `plan-draft`, `execute-task`,
 `review-task`, `document-task`, `run-autonomous`, `brainstorming`,
 `systematic-debugging`) are loaded internally by the orchestrator via
-`get_skill` (or, for the review-entry transition, via `start_review`). Invoke `start-workflow` and the orchestrator
-drives the phases.
+`get_skill` (or, for the review-entry transition, via `start_review`). Invoke
+`start-workflow` and the orchestrator drives the phases.
 
 ## Agent Workflow
 
@@ -390,8 +388,7 @@ tool. The typical workflow:
    HITL flow (`create-plan`, with human approval gates) or the autonomous flow
    (`run-autonomous`, no gates). Run this in a fresh session seeded with just
    the card ID; board survey (`list_cards` / `get_ready_tasks`) belongs in a
-   separate session so its output is not re-billed as context for the whole
-   run.
+   separate session so its output is not re-billed as context for the whole run.
 
 Internally the orchestrator chains:
 
@@ -496,8 +493,8 @@ finishes or fails, so remote execution is safe to run unattended.
 
 Task execution runs through the agent backend, configured in `config.yaml`:
 
-- **[contextmatrix-agent](https://github.com/mhersson/contextmatrix-agent)** -
-  a custom Go harness with per-role model selection over **OpenRouter** or any
+- **[contextmatrix-agent](https://github.com/mhersson/contextmatrix-agent)** - a
+  custom Go harness with per-role model selection over **OpenRouter** or any
   OpenAI-compatible gateway (set via the `llm_endpoint` config). Executes cards
   only; pair it with
   **[contextmatrix-chat](https://github.com/mhersson/contextmatrix-chat)** to
@@ -552,12 +549,11 @@ remote_execution:
   worker_image: "ghcr.io/org/custom-worker:latest"
 ```
 
-Every card carries a server-generated branch name, so the container always
-works on a dedicated branch; it opens a pull request when the card's
-`create_pr` is enabled (the default). Cards track execution state via
-`worker_status`: `queued` → `running` → `completed`/`failed`/`killed`, surfaced
-as status badges in the UI. See
-[`docs/remote-execution.md`](docs/remote-execution.md) for the full
+Every card carries a server-generated branch name, so the container always works
+on a dedicated branch; it opens a pull request when the card's `create_pr` is
+enabled (the default). Cards track execution state via `worker_status`: `queued`
+→ `running` → `completed`/`failed`/`killed`, surfaced as status badges in the
+UI. See [`docs/remote-execution.md`](docs/remote-execution.md) for the full
 architecture, webhook protocol, and security model.
 
 ## GitHub Issue Import
@@ -640,9 +636,10 @@ complete endpoint reference, request/response shapes, and error format.
 ContextMatrix finds `config.yaml` via the `-config` flag, else
 `$XDG_CONFIG_HOME/contextmatrix/config.yaml` (when `XDG_CONFIG_HOME` is set),
 else `~/.config/contextmatrix/config.yaml`; with no flag and no file in either
-XDG location the server exits. [`config.yaml.example`](config.yaml.example) is the fully-commented
-canonical reference - it documents every field, its default, and the matching
-`CONTEXTMATRIX_*` environment-variable override. A minimal config:
+XDG location the server exits. [`config.yaml.example`](config.yaml.example) is
+the fully-commented canonical reference - it documents every field, its default,
+and the matching `CONTEXTMATRIX_*` environment-variable override. A minimal
+config:
 
 ```yaml
 port: 8080
@@ -661,12 +658,11 @@ backends:
 ```
 
 Most fields have a `CONTEXTMATRIX_*` environment override - see
-`config.yaml.example` for which (e.g.
-`CONTEXTMATRIX_PORT`, `CONTEXTMATRIX_BOARDS_DIR`,
-`CONTEXTMATRIX_BACKEND_AGENT_URL`). Token cost rates (`token_costs`), GitHub
-auth, chat limits, image storage, and the operational store (`op_store.db_path`,
-which holds chat transcripts and the model blacklist) are all documented in
-`config.yaml.example`.
+`config.yaml.example` for which (e.g. `CONTEXTMATRIX_PORT`,
+`CONTEXTMATRIX_BOARDS_DIR`, `CONTEXTMATRIX_BACKEND_AGENT_URL`). Token cost rates
+(`token_costs`), GitHub auth, chat limits, image storage, and the operational
+store (`op_store.db_path`, which holds chat transcripts and the model blacklist)
+are all documented in `config.yaml.example`.
 
 ## GitHub Authentication
 
@@ -741,8 +737,8 @@ self-hosted runner and read the Go toolchain version from `go.mod`.
 
 - **Config file not found** - ContextMatrix uses the `-config` flag if given,
   else `$XDG_CONFIG_HOME/contextmatrix/config.yaml`, else
-  `~/.config/contextmatrix/config.yaml`. Run `make install-config` to create
-  the default config.
+  `~/.config/contextmatrix/config.yaml`. Run `make install-config` to create the
+  default config.
 - **Boards directory errors** - `boards.dir` must point to an initialized git
   repository
   (`mkdir -p ~/boards/contextmatrix && cd ~/boards/contextmatrix && git init`).
