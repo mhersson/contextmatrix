@@ -578,15 +578,26 @@ func (s *CardService) StartTimeoutChecker(ctx context.Context, interval time.Dur
 // markCardStalled re-reads and re-validates before acting. This is an accepted
 // trade-off - holding writeMu across the entire loop would block all mutations
 // during stalled-card processing, which is worse for throughput.
+//
+// A repo whose scan fails never short-circuits the sweep: its error is logged
+// and the remaining repos still get their stalls applied, as do the
+// abandoned-parent reap and the foreign-stall pass. The joined scan error is
+// returned only when every repo failed, so the timeout checker's caller
+// logging keeps a signal that the whole sweep is broken.
 func (s *CardService) processStalled(ctx context.Context) error {
 	start := time.Now()
 
 	defer func() { metrics.StallScanDuration.Observe(time.Since(start).Seconds()) }()
 
+	var scanErrs []error
+
 	for _, r := range s.repos {
 		stalled, err := r.Lock.FindStalled(ctx)
 		if err != nil {
-			return fmt.Errorf("find stalled in %s: %w", r.Name, err)
+			scanErrs = append(scanErrs, fmt.Errorf("find stalled in %s: %w", r.Name, err))
+			ctxlog.Logger(ctx).Error("stall scan failed", "repo", r.Name, "error", err)
+
+			continue
 		}
 
 		for _, sc := range stalled {
@@ -610,6 +621,12 @@ func (s *CardService) processStalled(ctx context.Context) error {
 	}
 
 	s.processForeignStalls(ctx)
+
+	// Every repo failed - surface the joined scan errors so the caller's
+	// logging keeps a signal that the whole sweep is broken.
+	if len(s.repos) > 0 && len(scanErrs) == len(s.repos) {
+		return errors.Join(scanErrs...)
+	}
 
 	return nil
 }
