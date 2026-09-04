@@ -73,6 +73,12 @@ func NewComposite(repos ...NamedStore) (*Composite, error) {
 }
 
 // rebuildLocked recomputes ownership from the children. Caller holds c.mu.
+//
+// Because it runs under the composite write lock, it can indirectly wait on
+// a foreign walk: children's ListProjects takes each child's s.mu.RLock, so
+// if another reload holds that child's write lock across its walk this
+// blocks while still holding c.mu. That wait is bounded by one
+// repository's directory walk.
 func (c *Composite) rebuildLocked(ctx context.Context) error {
 	owner := make(map[string]int)
 
@@ -184,26 +190,31 @@ func (c *Composite) ReloadRepo(ctx context.Context, repo string) error {
 		return err
 	}
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
+	// Reload outside the lock: the walk can take a while and must not
+	// block reads against other repos. During this unlocked window the
+	// child's own s.mu (not c.mu) is what serializes the walk against
+	// child mutations through the composite. rebuildLocked still runs
+	// under the write lock so readers never see a half-built owner table.
 	if err := c.repos[i].Store.ReloadIndex(ctx); err != nil {
 		return fmt.Errorf("reload %s: %w", repo, err)
 	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	return c.rebuildLocked(ctx)
 }
 
 // ReloadIndex rebuilds every repo's index and the ownership table.
 func (c *Composite) ReloadIndex(ctx context.Context) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	for _, r := range c.repos {
 		if err := r.Store.ReloadIndex(ctx); err != nil {
 			return fmt.Errorf("reload %s: %w", r.Name, err)
 		}
 	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	return c.rebuildLocked(ctx)
 }

@@ -154,12 +154,14 @@ func (c *PlaybookComposite) ReloadRepo(ctx context.Context, repo string) error {
 		return err
 	}
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
+	// Reload outside the lock: the walk must not block reads against
+	// other repos. rebuildLocked still runs under the write lock.
 	if err := c.repos[i].Store.ReloadIndex(ctx); err != nil {
 		return fmt.Errorf("reload playbooks in %s: %w", repo, err)
 	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	return c.rebuildLocked(ctx)
 }
@@ -230,14 +232,14 @@ func (c *PlaybookComposite) Delete(ctx context.Context, id string) error {
 }
 
 func (c *PlaybookComposite) ReloadIndex(ctx context.Context) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	for _, r := range c.repos {
 		if err := r.Store.ReloadIndex(ctx); err != nil {
 			return fmt.Errorf("reload playbooks in %s: %w", r.Name, err)
 		}
 	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	return c.rebuildLocked(ctx)
 }
