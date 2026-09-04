@@ -138,8 +138,8 @@ type Config struct {
 
 	// LLMEndpoint is the CM-provisioned inference endpoint configuration
 	// attached to every chat-start payload. Nil when llm_endpoint is
-	// unconfigured - the chat backend then falls back to its own local
-	// config (pre-multi-user behavior). Production wires this from
+	// unconfigured; the wire field is then omitted and the chat backend fails
+	// closed rather than using a local key. Production wires this from
 	// config.LLMEndpoint in cmd/contextmatrix/main.go's wireChat.
 	LLMEndpoint *protocol.LLMEndpoint
 
@@ -1353,7 +1353,7 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, er
 
 	// Mint the worker git-credentials bearer for this cold open. nil
 	// workerCredentialsToken (no chat-backend api_key configured) leaves the
-	// token empty - the worker then falls back to its own local git config.
+	// token empty, and the chat backend rejects the start fail-closed.
 	var gitCredentialsToken string
 	if m.workerCredentialsToken != nil {
 		gitCredentialsToken = m.workerCredentialsToken(sess.ID)

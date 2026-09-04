@@ -62,8 +62,8 @@ type backendHandlers struct {
 	taskSkillsGitRemoteURL string
 
 	// catalog and blacklist supply model-selection inputs for agent-backend
-	// triggers. Both are nil until T8 wires the real implementations in main.go;
-	// runCard guards on catalog != nil before attaching Selection.
+	// triggers. Both are nil when no model catalog is configured; runCard
+	// guards on catalog != nil before attaching Selection.
 	catalog   catalogProvider
 	blacklist blacklistReader
 
@@ -94,8 +94,8 @@ type backendHandlers struct {
 	providerForProject func(ctx context.Context, project string) (githubauth.TokenGenerator, string, error)
 
 	// llmEndpoint is the CM-provisioned inference endpoint attached to every
-	// trigger payload. nil when llm_endpoint is unconfigured - backends then
-	// fall back to their own local config.
+	// trigger payload. nil when llm_endpoint is unconfigured; the wire field is
+	// then omitted and the backends fail closed rather than using a local key.
 	llmEndpoint *protocol.LLMEndpoint
 
 	// instanceTokenProvider mints the instance-scoped git credential attached

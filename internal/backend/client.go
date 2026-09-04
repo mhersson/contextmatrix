@@ -48,16 +48,11 @@ type (
 	StopAllPayload    = protocol.StopAllPayload
 )
 
-// ContainerInfo is a decoded entry from GET /containers. The backend sources
-// these from Docker directly (filtered to the worker containers it manages),
-// so a populated slice is the authoritative answer to "what containers are
-// actually running right now" - independent of the backend's in-memory tracker
-// or of CM's worker_status field. The Docker-authoritative reconcile sweep
-// uses this list as its decision input.
-//
-// Tracked reflects the backend's tracker state at response time: Tracked=false
-// combined with State="running" is the tracker/Docker divergence signature
-// that the older in-process cleanup paths could not detect.
+// ContainerInfo is a decoded entry from GET /containers. The agent backend
+// builds the list from its in-memory tracker, so Tracked is always true and
+// State is always "running"; both stay on the wire for compatibility. The
+// reconcile sweep uses the list, independent of CM's worker_status field, as
+// its decision input and StartedAt to age-cap runaway containers.
 type ContainerInfo struct {
 	ContainerID string
 	CardID      string

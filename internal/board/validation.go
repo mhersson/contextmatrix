@@ -258,7 +258,7 @@ func (v *Validator) ValidateWorkerStatus(status string) error {
 }
 
 // ValidateWorkerCallbackStatus checks if the status is valid for a backend callback.
-// Only "running" and "failed" are accepted from the backend - other statuses are server-managed.
+// Only "running", "failed" and "completed" are accepted from the backend - other statuses are server-managed.
 func (v *Validator) ValidateWorkerCallbackStatus(status string) error {
 	if !slices.Contains(validWorkerCallbackStatuses, status) {
 		return &ValidationError{
