@@ -7,7 +7,7 @@ import {
   formatUsd,
   projectRow,
 } from './utils';
-import type { BoardsRepoInfo, DashboardData } from '../../types';
+import { boardsRepoName, type BoardsRepoInfo, type DashboardData } from '../../types';
 import { DeckPanel } from './DeckPanel';
 
 interface ProjectsTableProps {
@@ -158,7 +158,7 @@ export function ProjectsTable({ projects, summaries, boardsRepos = [] }: Project
             <tbody>
               {boardsRepos.length > 1
                 ? boardsRepos.flatMap((repo) => {
-                    const group = rows.filter((row) => (row.config.boards_repo ?? boardsRepos[0].name) === repo.name);
+                    const group = rows.filter((row) => boardsRepoName(row.config.boards_repo, boardsRepos) === repo.name);
                     if (group.length === 0) return [];
                     return [
                       <tr key={`repo-${repo.name}`} className="apd-group-row">

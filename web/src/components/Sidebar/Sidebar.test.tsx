@@ -294,6 +294,7 @@ describe('boards repo sections', () => {
   const projectsByRepo = [
     { name: 'zebra', prefix: 'Z', next_id: 1, states: [], types: [], priorities: [], transitions: {}, boards_repo: 'private' },
     { name: 'alpha', prefix: 'A', next_id: 1, states: [], types: [], priorities: [], transitions: {}, boards_repo: 'team' },
+    { name: 'ghost', prefix: 'G', next_id: 1, states: [], types: [], priorities: [], transitions: {}, boards_repo: 'ghost' },
   ];
 
   beforeEach(() => {
@@ -340,5 +341,13 @@ describe('boards repo sections', () => {
     renderSidebar();
     expect(screen.getByText('Projects')).toBeInTheDocument();
     expect(screen.queryByRole('region')).toBeNull();
+  });
+
+  it('renders a project with an unknown boards_repo under the first repo', () => {
+    renderSidebar();
+    const team = screen.getByRole('region', { name: 'Boards repo team' });
+    const priv = screen.getByRole('region', { name: 'Boards repo private' });
+    expect(within(team).getByRole('link', { name: /ghost/ })).toBeInTheDocument();
+    expect(within(priv).queryByRole('link', { name: /ghost/ })).toBeNull();
   });
 });

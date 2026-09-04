@@ -10,7 +10,7 @@ import { useOptionalAuth } from '../../hooks/useAuth';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useRepoSectionsCollapsed } from '../../hooks/useRepoSectionsCollapsed';
 import { formatVersionWithLocalTime } from '../../utils/formatVersion';
-import type { PlaybookSummary, ProjectConfig } from '../../types';
+import { boardsRepoName, type PlaybookSummary, type ProjectConfig } from '../../types';
 import { ProjectCard } from './ProjectCard';
 import { ChatSection } from './ChatSection';
 import { UserMenu } from './UserMenu';
@@ -233,7 +233,7 @@ export function Sidebar({ onNewProject, onNewChat, mobileOpen = false, onMobileC
         <div className="px-2">
           {multiRepo ? (
             boardsRepos.map((repo) => {
-              const items = sortedProjects.filter((p) => (p.boards_repo ?? boardsRepos[0].name) === repo.name);
+              const items = sortedProjects.filter((p) => boardsRepoName(p.boards_repo, boardsRepos) === repo.name);
               return (
                 <RepoSection
                   key={repo.name}

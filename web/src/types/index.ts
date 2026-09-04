@@ -234,6 +234,21 @@ export interface BoardsRepoInfo {
   shared: boolean;
 }
 
+/**
+ * Resolve a project's boards_repo for grouping: unknown or absent names fall
+ * back to the first configured repo so the project stays visible.
+ */
+export function boardsRepoName(
+  boardsRepo: string | undefined,
+  boardsRepos: BoardsRepoInfo[],
+): string | undefined {
+  if (boardsRepos.length === 0) return boardsRepo;
+  if (boardsRepo !== undefined && boardsRepos.some((r) => r.name === boardsRepo)) {
+    return boardsRepo;
+  }
+  return boardsRepos[0].name;
+}
+
 export interface BoardEvent {
   type: EventType;
   project: string;
