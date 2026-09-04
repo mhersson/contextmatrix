@@ -914,9 +914,8 @@ func (c *Config) boardsLabel(i int) string {
 
 // validateBoards checks every repo entry, then the names and directories
 // against each other. Runs after resolvePaths, so dirs are tilde-expanded.
-// The instance.id check runs last, after every entry has otherwise validated -
-// mirroring the single-repo form, where a bad remote or lease field was
-// always reported before a bad instance id.
+// The instance.id check runs last, after every entry has otherwise validated,
+// so that per-entry errors are reported first.
 func (c *Config) validateBoards() error {
 	heartbeat, _ := time.ParseDuration(c.HeartbeatTimeout)
 
