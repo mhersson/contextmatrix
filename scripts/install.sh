@@ -120,6 +120,9 @@ if [[ -f "${CONFIG_DST}" && "${FORCE}" == false ]]; then
 else
     cp "${CONFIG_EXAMPLE}" "${CONFIG_DST}"
     copied "config.yaml.example → ${CONFIG_DST}"
+    info "Before the first start, edit ${CONFIG_DST}:"
+    info "  - boards.dir: where the boards git repository lives"
+    info "  - github: auth_mode \"app\" or \"pat\" plus its credentials (required)"
 fi
 
 info "Done. Config directory: ${CONFIG_DIR}"

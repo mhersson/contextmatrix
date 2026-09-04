@@ -40,9 +40,9 @@ import (
 
 const (
 	// maxReviewAttempts caps the review_attempts counter as defense-in-depth.
-	// The autonomous skill halts at 2 cycles (initial review + 1 rejection).
-	// This server-side cap is higher to allow manual overrides while still
-	// preventing runaway agents.
+	// The shipped workflow skills halt at 3 review cycles. This server-side
+	// cap is higher to allow manual overrides while still preventing runaway
+	// agents.
 	maxReviewAttempts = 7
 
 	// Field length limits to prevent abuse.

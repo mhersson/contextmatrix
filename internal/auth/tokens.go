@@ -89,9 +89,10 @@ func (s *Service) InspectToken(ctx context.Context, rawToken string) (*TokenInfo
 }
 
 // RedeemBootstrap consumes a bootstrap token and creates the FIRST account,
-// as admin, logging it in. Validation (password length, username shape,
-// zero-users) runs before the token is consumed, so a rejected form does not
-// burn the link.
+// as admin, logging it in. Password length and username shape are validated
+// before the token is consumed, so a rejected form does not burn the link.
+// The zero-users check is the store's atomic CreateFirstAdmin guard and runs
+// after consumption; burning a link once an admin exists is harmless.
 func (s *Service) RedeemBootstrap(ctx context.Context, rawToken, username, displayName, password string) (*authstore.User, string, error) {
 	if len(password) < MinPasswordLength {
 		return nil, "", ErrPasswordTooShort

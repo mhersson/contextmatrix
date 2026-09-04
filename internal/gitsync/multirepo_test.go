@@ -358,9 +358,7 @@ func TestMultiRepo_NoDeadlockAcrossReposAndPlaybooks(t *testing.T) {
 	start := make(chan struct{})
 
 	spawn := func(fn func() error) {
-
 		wg.Go(func() {
-
 			<-start
 
 			if err := fn(); err != nil {

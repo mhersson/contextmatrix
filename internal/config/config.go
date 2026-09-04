@@ -611,7 +611,6 @@ func defaults() *Config {
 		HeartbeatTimeout:     "30m",
 		AwaitMax:             "8m",
 		StalledCheckInterval: "1m",
-		CORSOrigin:           "http://localhost:5173",
 		WorkflowSkillsDir:    "",
 		TaskSkills:           TaskSkillsConfig{},
 		Theme:                "everforest",

@@ -381,9 +381,6 @@ func TestMergeCards(t *testing.T) {
 	}
 }
 
-//go:fix inline
-func ptr[T any](v T) *T { return new(v) }
-
 // TestMergeCards_EqualEpochClaims covers the region where both sides raised
 // the epoch from the same claimed base. An active claim beats a tuple emptied
 // into a non-terminal state; two emptied tuples converge on the empty one.

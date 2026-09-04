@@ -323,6 +323,31 @@ func TestStreamChat_ConnectedBeforeAnyEvent(t *testing.T) {
 	}
 }
 
+// TestStreamChat_XAccelBufferingHeader asserts that the chat SSE response
+// carries X-Accel-Buffering: no, like /api/events and /api/worker/logs, so a
+// buffering reverse proxy passes events through immediately.
+func TestStreamChat_XAccelBufferingHeader(t *testing.T) {
+	mux, mgr := newChatFixture(t, defaultFixtureOpts())
+	sess, err := mgr.CreateSession(context.Background(),
+		chat.CreateInput{Title: "", CreatedBy: "human:web-x"})
+	require.NoError(t, err)
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet,
+		srv.URL+"/api/chats/"+sess.ID+"/stream", nil)
+	require.NoError(t, err)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	defer resp.Body.Close()
+
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, "no", resp.Header.Get("X-Accel-Buffering"))
+}
+
 // TestStreamChat_UnknownSession_404 verifies that GET .../stream against a
 // session that does not exist returns 404 without creating a hub entry.
 // Without the existence check, subscribing would lazily create a per-session

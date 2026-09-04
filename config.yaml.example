@@ -4,6 +4,10 @@
 #   ~/.config/contextmatrix/config.yaml           (XDG default)
 # Any other location works via the -config flag.
 #
+# Before the first start, set boards.dir and fill in the github block
+# (auth_mode "app" or "pat" plus its credentials): the server refuses to start
+# without a usable GitHub auth mode.
+#
 # Environment variable overrides are available for most fields - see the
 # CONTEXTMATRIX_* variables documented below.
 
@@ -81,11 +85,12 @@ await_max: "8m"
 # Default: 1m
 stalled_check_interval: "1m"
 
-# Allowed origin for CORS requests. Set to the URL of your web UI in
-# production. In development with Vite the default matches the dev server.
-# Default: http://localhost:5173
+# Allowed origin for CORS requests. Leave empty to send no CORS headers: the
+# embedded UI is same-origin and the Vite dev server proxies /api, so neither
+# needs it. Set it only when the UI is served from another origin.
+# Default: "" (CORS disabled)
 # Env: CONTEXTMATRIX_CORS_ORIGIN
-cors_origin: "http://localhost:5173"
+cors_origin: ""
 
 # UI color palette theme (server-side default).
 # Allowed values: "everforest" | "radix" | "catppuccin"
@@ -106,10 +111,9 @@ theme: "everforest"
 #
 # type selects the catalog dialect:
 #   "openrouter" (default) - fetches the public OpenRouter catalog; no auth
-#                            required for catalog reads. api_key is unused for
-#                            this type: the public OpenRouter catalog needs no
-#                            credentials, and the agent's model key is
-#                            configured on the agent backend, not here.
+#                            required for catalog reads. api_key is not used
+#                            for the catalog, but it is still forwarded to the
+#                            backends as their inference key (see below).
 #   "openai"               - fetches /v1/models from a private OpenAI-compatible
 #                            endpoint. api_key is sent as Bearer auth on every
 #                            catalog fetch and is a new secret surface - treat

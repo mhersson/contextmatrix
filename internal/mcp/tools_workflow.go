@@ -200,7 +200,7 @@ func registerIncrementReviewAttempts(server *mcp.Server, svc *service.CardServic
 		Name: "increment_review_attempts",
 		Description: "Increment the review_attempts counter on a card. Used during autonomous review cycles " +
 			"to track how many times a card has been reviewed. The counter determines when to halt " +
-			"autonomous processing and escalate to a human (typically at 2 attempts).",
+			"autonomous processing and escalate to a human (the shipped skills halt at 3).",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in input) (*mcp.CallToolResult, output, error) {
 		project, err := resolveProject(ctx, svc, in.Project, in.CardID)
 		if err != nil {
