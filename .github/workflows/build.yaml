@@ -62,8 +62,40 @@ jobs:
         with:
           version: v2.12.2
 
+  # Answers one question for pull requests: did anything under web/ change
+  # against the base? Nothing outside web/ feeds the frontend job, so a
+  # pull request without such a change skips it. Any fetch or diff failure
+  # answers true, so the job runs whenever there is doubt.
+  changes:
+    if: github.event_name == 'pull_request'
+    runs-on: self-hosted
+    outputs:
+      web: ${{ steps.web.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Detect frontend changes
+        id: web
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if git fetch --no-tags --depth=1 origin "$BASE_SHA" \
+            && git diff --quiet "$BASE_SHA" HEAD -- web/; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  # Skipped on push (the build job runs its own frontend build) and on a
+  # pull request that changes nothing under web/. A skipped job satisfies
+  # the required check; a changes job that never ran or failed leaves the
+  # output empty, which runs this job.
   frontend-checks:
-    if: github.event_name != 'push'
+    needs: [changes]
+    if: |
+      !cancelled() &&
+      github.event_name != 'push' &&
+      needs.changes.outputs.web != 'false'
     runs-on: self-hosted
     defaults:
       run:
