@@ -77,8 +77,8 @@ func NewComposite(repos ...NamedStore) (*Composite, error) {
 // Because it runs under the composite write lock, it can indirectly wait on
 // a foreign walk: children's ListProjects takes each child's s.mu.RLock, so
 // if another reload holds that child's write lock across its walk this
-// blocks while still holding c.mu. Accepted cost of the decided split -
-// the card forbids changing this method.
+// blocks while still holding c.mu. That wait is bounded by one
+// repository's directory walk.
 func (c *Composite) rebuildLocked(ctx context.Context) error {
 	owner := make(map[string]int)
 
