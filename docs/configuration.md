@@ -7,21 +7,12 @@ fully-commented reference for every field; this page covers the rules around it.
 
 ## Install the config directory
 
-`make install-config` runs `scripts/install.sh`, which creates the config
-directory and populates it from the repo.
-
-| Invocation                                    | Effect                                                                                  |
-| --------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `scripts/install.sh`                          | Create the dir, copy `config.yaml.example` to `config.yaml` (skipped if present), copy `workflow-skills/` |
-| `scripts/install.sh --update-workflow-skills` | Refresh `workflow-skills/` only; `config.yaml` is not touched                          |
-| `scripts/install.sh --force`                  | Overwrite an existing `config.yaml` as well                                             |
-
 The config directory is `$XDG_CONFIG_HOME/contextmatrix` when
-`XDG_CONFIG_HOME` is set, otherwise `~/.config/contextmatrix`. Workflow skills
-land in `<config-dir>/workflow-skills/` and are refreshed on every run.
-
-The installed `config.yaml` does not start as copied: set `boards.dir` and
-fill in the `github` block first (see [Minimal config](#minimal-config)).
+`XDG_CONFIG_HOME` is set, otherwise `~/.config/contextmatrix`. Copy
+`config.yaml.example` there as `config.yaml` and `workflow-skills/` next to it,
+or let [contextmatrix-setup](https://github.com/mhersson/contextmatrix-setup)
+manage the whole stack. Workflow skills default to `<config-dir>/workflow-skills/`
+(`workflow_skills_dir` overrides).
 
 ## `contextmatrix config`
 
@@ -157,8 +148,8 @@ unset, so a free cache rate cannot be expressed. Config file only.
 
 ## Troubleshooting
 
-- **`no config file found; use -config to specify a path`** - run
-  `make install-config`, or pass `-config`.
+- **`no config file found; use -config to specify a path`** - copy
+  `config.yaml.example` into the config directory, or pass `-config`.
 - **`github.auth_mode is required`** or
   **`github.app.app_id is required when github.auth_mode is "app"`** - the
   installed template ships an `app` block with zero ids. Fill it in, or switch
