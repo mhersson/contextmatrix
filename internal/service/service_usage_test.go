@@ -8,6 +8,9 @@ import (
 	"time"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/clock"
+	"github.com/mhersson/contextmatrix/internal/events"
+	"github.com/mhersson/contextmatrix/internal/gitops"
 	"github.com/mhersson/contextmatrix/internal/lock"
 	"github.com/mhersson/contextmatrix/internal/metrics"
 	"github.com/mhersson/contextmatrix/internal/storage"
@@ -1385,10 +1388,28 @@ func TestGetCard_SubtaskCostListFailureDoesNotFailRead(t *testing.T) {
 		ID: "CMX-001", Title: "t", Project: "p", Type: "task",
 		State: "todo", Priority: "medium",
 	}
-	svc := &CardService{
-		store: failingListStore{card: card},
-		repos: []*BoardsRepo{{Name: DefaultRepoName}},
+
+	f := newRepoFixture(t, DefaultRepoName, "p", "P")
+
+	composite, err := storage.NewComposite(storage.NamedStore{Name: DefaultRepoName, Store: f.store})
+	require.NoError(t, err)
+
+	view, err := composite.View(DefaultRepoName)
+	require.NoError(t, err)
+
+	clk := clock.Fake(time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC))
+
+	repo := &BoardsRepo{
+		Name: DefaultRepoName, Store: view, Git: f.git, Dir: f.dir, GitAutoCommit: true,
+		Lock:  lock.NewManagerWithClock(view, 30*time.Minute, clk),
+		Queue: gitops.NewCommitQueue(f.git, 0),
 	}
+
+	svc, err := NewCardServiceRepos(composite, events.NewBus(), nil, repo)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = repo.Queue.Close(context.Background()) })
+
+	svc.store = failingListStore{card: card}
 
 	got, err := svc.GetCard(context.Background(), "p", "CMX-001")
 
