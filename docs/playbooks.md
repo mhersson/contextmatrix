@@ -26,10 +26,16 @@ never executes one.
 
 ## Detail view
 
-`/playbooks` lists every playbook with a segmented progress meter (one segment
-per entry: complete, active, missing or pending) and an entry and project
-count. The sidebar link jumps straight to the detail page when exactly one
-playbook exists.
+`/playbooks` lists playbooks still in progress as rows, each with a miniature
+of the detail rail: one node per entry (manual steps as gates), solid green
+where a step is complete, an aqua pulse on an `in_progress` card, a purple
+ring on the first incomplete entry, a dashed red node for a broken reference.
+Longer playbooks (over 20 entries) fall back to the segmented meter. Each row
+also names its next entry. Completed playbooks sit under a "Completed" rule as
+one-line receipts, open by default. "New playbook" opens a ghost row at the
+top of the list: name it, optionally describe it, pick the boards repo on a
+multi-repo instance, and Enter creates. The sidebar link jumps straight to the
+detail page when exactly one playbook exists.
 
 `/playbooks/:id` shows the entries as a route: a rail threads through the
 nodes, solid where the previous step is complete and dashed where it is not.

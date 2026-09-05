@@ -2386,6 +2386,466 @@ textarea {
   margin: 0 0 10px;
 }
 
+.pb-seg-frontier {
+  background: color-mix(in srgb, var(--purple) 55%, var(--bg2));
+}
+
+/* Playbook list - header, route rows, receipts, ghost row, empty state.
+   The route track reuses the detail rail's colour grammar at node scale;
+   node and rail sizes couple, so they live here rather than in utilities. */
+.pbl-page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 28px 24px 40px;
+}
+
+.pbl-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  margin-bottom: 18px;
+}
+
+.pbl-title {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 26px;
+  letter-spacing: -0.015em;
+  line-height: 1.15;
+  color: var(--fg);
+}
+
+.pbl-summary {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--grey1);
+}
+.pbl-summary b {
+  font-weight: 500;
+  color: var(--fg);
+}
+
+.pbl-btn-new {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--green);
+  background: var(--bg-green);
+  border: 1px solid color-mix(in srgb, var(--green) 55%, transparent);
+  cursor: pointer;
+  transition: border-color 0.12s;
+}
+.pbl-btn-new:hover:not(:disabled) {
+  border-color: var(--green);
+}
+.pbl-btn-new:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.pbl-btn-new svg {
+  width: 12px;
+  height: 12px;
+}
+
+.pbl-btn-quiet {
+  padding: 6px 10px;
+  border-radius: 7px;
+  font-size: 13px;
+  color: var(--grey1);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition:
+    color 0.12s,
+    border-color 0.12s;
+}
+.pbl-btn-quiet:hover {
+  color: var(--fg);
+  border-color: var(--bg3);
+}
+
+.pbl-btn-new:focus-visible,
+.pbl-btn-quiet:focus-visible,
+.pbl-row:focus-visible,
+.pbl-receipt:focus-visible,
+.pbl-section:focus-visible,
+.pbl-ghost-title:focus-visible,
+.pbl-ghost-desc:focus-visible {
+  outline: 2px solid var(--aqua);
+  outline-offset: 2px;
+}
+
+.pbl-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pbl-row {
+  display: block;
+  padding: 12px 16px 14px;
+  border-radius: 10px;
+  background: var(--bg0);
+  border: 1px solid var(--bg2);
+  color: inherit;
+  text-decoration: none;
+  transition:
+    background 0.15s,
+    transform 0.15s,
+    box-shadow 0.15s;
+}
+.pbl-row:hover {
+  background: var(--bg1);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px -8px rgba(0, 0, 0, 0.35);
+}
+
+.pbl-row-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.pbl-row-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pbl-row-frac {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--grey1);
+  white-space: nowrap;
+}
+.pbl-row-frac b {
+  font-weight: 500;
+  color: var(--fg);
+}
+.pbl-row-time {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--grey0);
+  white-space: nowrap;
+}
+
+/* Route track: the frontier ring only marks a pending node - an active
+   node keeps its aqua pulse, a missing one its red dash. */
+.pbl-track {
+  display: flex;
+  align-items: center;
+  height: 14px;
+  margin-top: 10px;
+}
+.pbl-node {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--bg1);
+  border: 2px solid var(--bg3);
+}
+.pbl-node-gate {
+  border-radius: 2px;
+  transform: rotate(45deg) scale(0.85);
+}
+.pbl-node-complete {
+  background: var(--green);
+  border-color: var(--green);
+}
+.pbl-node-active {
+  background: var(--bg-aqua);
+  border-color: var(--aqua);
+  animation: pb-pulse-kf 2.2s ease-in-out infinite;
+}
+.pbl-node-frontier {
+  background: var(--bg-purple);
+  border-color: var(--purple);
+}
+.pbl-node-missing {
+  background: var(--bg-red);
+  border-color: var(--red);
+  border-style: dashed;
+}
+.pbl-rail {
+  flex: 1;
+  height: 0;
+  border-top: 2px solid var(--bg3);
+}
+.pbl-rail-on {
+  border-top-color: var(--green);
+}
+.pbl-rail-dash {
+  border-top-style: dashed;
+}
+.pbl-track-placeholder {
+  opacity: 0.55;
+}
+
+.pbl-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--grey1);
+}
+.pbl-pill {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+.pbl-pill-active {
+  background: var(--bg-aqua);
+  color: var(--aqua);
+}
+.pbl-pill-missing {
+  background: var(--bg-red);
+  color: var(--red);
+}
+
+.pbl-row-next {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  margin-top: 8px;
+  font-size: 12.5px;
+}
+.pbl-next-id {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--purple);
+}
+.pbl-next-title {
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pbl-section {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 22px 0 6px;
+  padding: 4px 0;
+  font-size: 12.5px;
+  color: var(--grey1);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  user-select: none;
+}
+.pbl-section-chev {
+  font-size: 10px;
+  transition: transform 0.15s;
+}
+.pbl-section-open .pbl-section-chev {
+  transform: rotate(90deg);
+}
+.pbl-section-count {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--grey0);
+}
+.pbl-section-line {
+  flex: 1;
+  border-top: 1px solid var(--bg3);
+}
+
+.pbl-receipt {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 6px;
+  border-radius: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--bg3) 60%, transparent);
+  color: inherit;
+  text-decoration: none;
+}
+.pbl-receipt:hover {
+  background: var(--bg0);
+}
+.pbl-receipt-tick {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  font-size: 10px;
+  color: var(--green);
+  background: var(--bg-green);
+}
+.pbl-receipt-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--grey2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pbl-receipt-meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--grey0);
+  white-space: nowrap;
+}
+
+/* Ghost row: the playbook drawn as the row it is about to become. */
+@keyframes pbl-ghost-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.pbl-ghost {
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: var(--bg0);
+  border: 1px dashed var(--bg3);
+  animation: pbl-ghost-in 0.16s ease-out;
+}
+.pbl-ghost-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.pbl-repo-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--grey1);
+  background: var(--bg1);
+  border: 1px solid var(--bg3);
+}
+.pbl-repo-chip select {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+.pbl-ghost-hint {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--grey0);
+}
+.pbl-ghost-title,
+.pbl-ghost-desc {
+  display: block;
+  width: 100%;
+  padding: 2px 0;
+  color: var(--fg);
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+}
+.pbl-ghost-title {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 22px;
+  letter-spacing: -0.015em;
+}
+.pbl-ghost-title::placeholder {
+  color: var(--grey0);
+  font-style: italic;
+}
+.pbl-ghost-desc {
+  margin-top: 2px;
+  font-size: 13px;
+}
+.pbl-ghost-desc::placeholder {
+  color: var(--grey0);
+}
+.pbl-ghost-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+.pbl-ghost-keys {
+  flex: 1;
+  font-size: 12px;
+  color: var(--grey1);
+}
+.pbl-kbd {
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--grey0);
+  border: 1px solid var(--bg3);
+}
+
+.pbl-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 24px;
+  text-align: center;
+}
+.pbl-empty > .pbl-track {
+  width: 220px;
+  margin: 0 0 14px;
+}
+.pbl-empty-title {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 22px;
+  letter-spacing: -0.015em;
+  color: var(--fg);
+}
+.pbl-empty-sub {
+  max-width: 46ch;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--grey1);
+}
+.pbl-empty-cta {
+  margin-top: 14px;
+}
+.pbl-empty-ghost {
+  width: min(560px, 100%);
+  margin-top: 18px;
+  text-align: left;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pbl-node-active,
+  .pbl-ghost {
+    animation: none;
+  }
+}
+
 .apd-projects-table {
   width: 100%;
   table-layout: fixed;
