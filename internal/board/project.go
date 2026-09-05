@@ -65,9 +65,13 @@ type ProjectConfig struct {
 	DefaultSkills    *[]string              `yaml:"default_skills,omitempty"   json:"default_skills,omitempty"`
 	// Verify is the operator-declared verify gate every card in this project
 	// inherits unless the card overrides it. See VerifyConfig / ResolveVerify.
-	Verify    *VerifyConfig            `yaml:"verify,omitempty"           json:"verify,omitempty"`
-	Favorites map[string]TierFavorites `yaml:"favorites,omitempty"        json:"-"` // per-project tier overrides; merged with global at trigger time
-	Templates map[string]string        `yaml:"-" json:"templates,omitempty"`        // loaded from templates/ dir at runtime
+	Verify *VerifyConfig `yaml:"verify,omitempty"           json:"verify,omitempty"`
+	// CardDefaults are the create-time defaults for a card's human-set
+	// automation fields (autonomous, mob, PR gates). nil = built-in defaults.
+	// See CardDefaults / ResolveCardDefaults.
+	CardDefaults *CardDefaults            `yaml:"card_defaults,omitempty" json:"card_defaults,omitempty"`
+	Favorites    map[string]TierFavorites `yaml:"favorites,omitempty"        json:"-"` // per-project tier overrides; merged with global at trigger time
+	Templates    map[string]string        `yaml:"-" json:"templates,omitempty"`        // loaded from templates/ dir at runtime
 }
 
 var (
