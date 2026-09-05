@@ -221,6 +221,9 @@ func TestBuildBoards_CommitsLeftoverChangesAtStartup(t *testing.T) {
 	msg, err := git.GetLastCommitMessage()
 	require.NoError(t, err)
 	assert.Equal(t, "[contextmatrix] recover uncommitted changes", strings.TrimSpace(msg))
+
+	committed := wireGitOut(t, dir, "show", "HEAD:alpha/tasks/ALPHA-1.md")
+	assert.Contains(t, committed, "renamed but never committed", "the swept commit must carry the edit")
 }
 
 func TestBuildBoards_LeavesLeftoversWhenAutoCommitOff(t *testing.T) {

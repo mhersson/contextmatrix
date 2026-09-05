@@ -139,6 +139,13 @@ func wireRepoSync(
 			slog.Error("git sync: on-commit hook", "repo", b.cfg.Name, "error", err)
 		}
 
+		// The startup sweep's commit was made before this syncer existed, so
+		// no on-commit hook fired for it. The push channel is buffered, so a
+		// notification queued here is delivered once the group starts.
+		if b.recovered {
+			syncer.NotifyCommit()
+		}
+
 		if pbSvc != nil {
 			if err := pbSvc.SetOnCommitFor(b.cfg.Name, syncer.NotifyCommit); err != nil {
 				if b.cfg.Shared {

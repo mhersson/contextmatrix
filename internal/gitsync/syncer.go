@@ -988,19 +988,13 @@ func (s *Syncer) clearStaleMerge(ctx context.Context) error {
 // commitLeftovers commits anything dirty so nothing is ever stashed. A shared
 // repository is merged, not rebased, and a merge needs a clean tree.
 func (s *Syncer) commitLeftovers(ctx context.Context) error {
-	clean, paths, err := s.git.IsClean(ctx)
+	paths, err := s.git.CommitDirty(ctx, "external edit")
 	if err != nil {
-		return fmt.Errorf("status before sync: %w", err)
-	}
-
-	if clean {
-		return nil
-	}
-
-	slog.Warn("git sync: committing uncommitted changes before sync", "paths", paths)
-
-	if err := s.git.CommitFilesShell(ctx, paths, "external edit"); err != nil {
 		return fmt.Errorf("commit leftovers: %w", err)
+	}
+
+	if len(paths) > 0 {
+		slog.Warn("git sync: committed uncommitted changes before sync", "paths", paths)
 	}
 
 	return nil
