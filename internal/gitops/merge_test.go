@@ -266,3 +266,29 @@ func TestMergeFileText(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, clean)
 }
+
+// TestIsClean_QuotedAndRenamedPaths pins the two porcelain shapes that broke
+// the line-based parser: a path git quotes (a space) and a staged rename,
+// which carries the original path as a second record. Both must come back
+// as bare pathspecs that git add accepts.
+func TestIsClean_QuotedAndRenamedPaths(t *testing.T) {
+	mgr, _, clone := initClonePair(t)
+	ctx := context.Background()
+
+	require.NoError(t, os.MkdirAll(filepath.Join(clone, "proj", "tasks"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(clone, "proj", "tasks", "with space.md"), []byte("x\n"), 0o644))
+	require.NoError(t, mgr.runGit(ctx, "mv", "a.txt", "renamed.txt"))
+
+	clean, dirty, err := mgr.IsClean(ctx)
+	require.NoError(t, err)
+	assert.False(t, clean)
+	assert.ElementsMatch(t, []string{"proj/tasks/with space.md", "renamed.txt"}, dirty)
+
+	swept, err := mgr.CommitDirty(ctx, "sweep")
+	require.NoError(t, err)
+	assert.ElementsMatch(t, dirty, swept)
+
+	clean, dirty, err = mgr.IsClean(ctx)
+	require.NoError(t, err)
+	assert.True(t, clean, "tree must be clean after sweep: %v", dirty)
+}

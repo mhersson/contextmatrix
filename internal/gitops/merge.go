@@ -63,26 +63,61 @@ func (m *Manager) runGitOutput(ctx context.Context, args ...string) (string, err
 }
 
 // IsClean reports whether the worktree and index match HEAD. The second
-// return value lists the paths that make it dirty, for logging.
+// return value lists the paths that make it dirty, as bare pathspecs that
+// git add accepts.
 func (m *Manager) IsClean(ctx context.Context) (bool, []string, error) {
 	m.worktreeMu.Lock()
 	defer m.worktreeMu.Unlock()
 
-	out, err := m.runGitOutput(ctx, "status", "--porcelain", "--untracked-files=all")
+	// -z terminates records with NUL and disables path quoting, so a path
+	// with a space (or any byte core.quotePath would escape) comes back
+	// verbatim instead of wrapped in quotes that git add then rejects.
+	out, err := m.runGitOutput(ctx, "status", "--porcelain", "-z", "--untracked-files=all")
 	if err != nil {
 		return false, nil, fmt.Errorf("status: %w", err)
 	}
 
 	var paths []string
 
-	for _, line := range splitLines(out) {
-		// Porcelain v1 lines are "XY <path>"; anything shorter carries no path.
-		if len(line) > 3 {
-			paths = append(paths, strings.TrimSpace(line[3:]))
+	records := strings.Split(out, "\x00")
+	for i := 0; i < len(records); i++ {
+		rec := records[i]
+		// Porcelain v1 records are "XY <path>"; anything shorter carries no path.
+		if len(rec) <= 3 {
+			continue
+		}
+
+		paths = append(paths, rec[3:])
+
+		// A rename or copy is followed by a second record holding the
+		// original path, which is not a pathspec to stage.
+		if rec[0] == 'R' || rec[0] == 'C' || rec[1] == 'R' || rec[1] == 'C' {
+			i++
 		}
 	}
 
 	return len(paths) == 0, paths, nil
+}
+
+// CommitDirty commits every modified and untracked path in the worktree as a
+// single commit and returns the paths it swept. A clean tree returns nil, nil
+// with no commit. Used at startup to recover card edits that a previous
+// process wrote to disk but never committed.
+func (m *Manager) CommitDirty(ctx context.Context, message string) ([]string, error) {
+	clean, paths, err := m.IsClean(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if clean {
+		return nil, nil
+	}
+
+	if err := m.CommitFilesShell(ctx, paths, message); err != nil {
+		return nil, err
+	}
+
+	return paths, nil
 }
 
 func (m *Manager) MergeBase(ctx context.Context, ref string) (string, error) {

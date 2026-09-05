@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	githubauth "github.com/mhersson/contextmatrix-githubauth"
@@ -26,6 +27,10 @@ type repoBundle struct {
 	store   *storage.FilesystemStore
 	queue   *gitops.CommitQueue
 	pbStore *storage.FilesystemPlaybookStore // nil when playbooks are disabled
+	// recovered is set when the startup sweep committed leftover changes.
+	// That commit predates the syncer, so nothing fires the on-commit hook
+	// for it; wireRepoSync queues the push itself.
+	recovered bool
 	// images is the index of the images stored as files in this repo.
 	// Nil on a private repo, which keeps images.db.
 	images *images.RepoIndex
@@ -116,6 +121,34 @@ func buildBoards(cfg *config.Config, provider githubauth.TokenGenerator, heartbe
 			}
 		}
 
+		// A previous process may have written card edits to disk that never
+		// reached a commit (a deferred batch that was never flushed, or a
+		// crash between write and commit). Sweep them into one commit now
+		// so the repo describes what the store is about to serve. Shared
+		// repos are excluded: their sync cycle already commits leftovers,
+		// and a dirty tree there can be a half-merged conflict that
+		// clearStaleMerge has to inspect first.
+		recovered := false
+
+		if e.GitAutoCommit && !e.Shared {
+			sweepCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+
+			swept, err := git.CommitDirty(sweepCtx, "[contextmatrix] recover uncommitted changes")
+
+			cancel()
+
+			switch {
+			case err != nil:
+				slog.Error("boards repository has uncommitted changes that could not be committed at startup",
+					"repo", e.Name, "repo_path", e.Dir, "error", err)
+			case len(swept) > 0:
+				recovered = true
+
+				slog.Warn("boards repository had uncommitted changes at startup; committed them",
+					"repo", e.Name, "repo_path", e.Dir, "count", len(swept), "paths", swept)
+			}
+		}
+
 		store, err := storage.NewFilesystemStore(e.Dir)
 		if err != nil {
 			return nil, fmt.Errorf("boards[%s]: storage: %w", e.Name, err)
@@ -126,7 +159,7 @@ func buildBoards(cfg *config.Config, provider githubauth.TokenGenerator, heartbe
 		// goroutines; the next Enqueue for that project spawns a fresh one.
 		queue := gitops.NewCommitQueue(git, 0, gitops.WithIdleTimeout(30*time.Minute))
 
-		bundle := &repoBundle{cfg: e, git: git, store: store, queue: queue}
+		bundle := &repoBundle{cfg: e, git: git, store: store, queue: queue, recovered: recovered}
 
 		pbStore, err := storage.NewFilesystemPlaybookStore(e.Dir)
 

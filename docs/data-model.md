@@ -63,11 +63,15 @@ live in [architecture](architecture.md); the HTTP surface in the
 5. **Every mutation auto-commits**, with optional deferral. Commit messages
    are `[contextmatrix] CARD-ID: description` for system commits and
    `[agent:AGENT-ID] CARD-ID: description` for attributed ones. With
-   `boards.git_deferred_commit: true` a card's mutations are batched into one
-   commit flushed on release, force-release, stall, a terminal worker status
-   (`completed`, `failed`, `killed`), a `report_usage` on an unclaimed card,
-   or entry into `review` or `not_planned`. Card creation and deletion, and
-   REST `PUT` / `PATCH` on an unclaimed card, always commit immediately.
+   `boards.git_deferred_commit: true` a claimed card's mutations are batched
+   into one commit flushed on release, force-release, stall, a terminal
+   worker status (`completed`, `failed`, `killed`), a `report_usage` on an
+   unclaimed card, or entry into `review` or `not_planned`. Card creation and
+   deletion, and any update, state change, log entry or parent
+   auto-transition on a card that was unclaimed when the mutation started
+   (REST or MCP alike), always commit immediately. At startup a non-shared
+   auto-commit repo commits any leftover dirty paths as
+   `[contextmatrix] recover uncommitted changes`.
 
 6. **Activity log is append-only, capped at 50 entries.** Agents append via
    the `add_log` MCP tool; entries past 50 drop from the file (oldest first)

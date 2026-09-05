@@ -109,13 +109,21 @@ Developer traps in this codebase. Each entry names the code it describes.
   without `WaitDelay` the orphaned helper keeps `cmd.Run()` blocked and
   `writeMu` held. Keep new network calls inside the wrapper and keep the
   `WaitDelay`.
-- **Deferred git commits (`boards.git_deferred_commit`):** agent mutations
-  (heartbeats, log entries, intermediate updates) are batched and committed
-  in one flush at release or completion. Two mutations always commit
+- **Deferred git commits (`boards.git_deferred_commit`):** a claimed card's
+  mutations (heartbeats, log entries, intermediate updates) are batched and
+  committed in one flush at release or completion. Two things always commit
   immediately regardless: card creation (card file and `.board.yaml`
-  together, so the card survives a pull elsewhere), and human edits to
-  unclaimed cards via REST (the PUT/PATCH handlers set `ImmediateCommit` when
-  `AssignedAgent == ""`). MCP tool callers never set that flag.
+  together, so the card survives a pull elsewhere), and any `UpdateCard`,
+  `PatchCard`, `AddLogEntry` or parent auto-transition on a card that was
+  unclaimed when the mutation started - an unclaimed card has no release to
+  flush it, so a deferred entry would leave the file dirty forever. The
+  decision lives in `enqueueCardCommitFor` and uses the pre-mutation
+  snapshot; `ImmediateCommit` on the input only matters for a claimed card.
+  `promote_to_autonomous` and a `queued` worker status still defer on an
+  unclaimed card, but the run they start flushes them at its terminal
+  status. As a backstop, startup sweeps any dirty path in a non-shared
+  auto-commit repo into one `[contextmatrix] recover uncommitted changes`
+  commit.
 
 ## MCP and HTTP server
 
