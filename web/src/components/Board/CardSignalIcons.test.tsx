@@ -70,7 +70,19 @@ describe('CardSignalIcons', () => {
     expect(screen.getByRole('img', { name: 'All dependencies met' })).toBeInTheDocument();
 
     // Go omitempty drops false, so the field may be absent entirely.
-    rerender(<CardSignalIcons card={{ ...baseCard, depends_on: ['TEST-009'] }} />);
+    rerender(<CardSignalIcons card={{ ...baseCard, depends_on: ['TEST-009'], blocked_by: ['TEST-009'] }} />);
+    expect(screen.getByRole('img', { name: 'Blocked by TEST-009' })).toBeInTheDocument();
+
+    rerender(
+      <CardSignalIcons
+        card={{ ...baseCard, depends_on: ['TEST-008', 'TEST-009'], blocked_by: ['TEST-008', 'TEST-009'] }}
+      />,
+    );
+    expect(screen.getByRole('img', { name: 'Blocked by TEST-008, TEST-009' })).toBeInTheDocument();
+  });
+
+  it('falls back to the generic label when blocked_by is absent', () => {
+    render(<CardSignalIcons card={{ ...baseCard, depends_on: ['TEST-009'] }} />);
     expect(screen.getByRole('img', { name: 'Blocked by dependencies' })).toBeInTheDocument();
   });
 

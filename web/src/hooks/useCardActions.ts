@@ -10,8 +10,9 @@ import type { Card, PatchCardInput, CreateCardInput } from '../types';
  * lacks, leaving the stale value in place until an unrelated SSE update
  * happens to touch it. Every clearable key gets its zero value spread in
  * first so `...updated` overrides it when the server actually sent one;
- * `dependencies_met` and `skills` are named explicitly afterward since their
- * cleared values (`undefined` and `null`) aren't the spread's zero value.
+ * `dependencies_met`, `blocked_by` and `skills` are named explicitly
+ * afterward since their cleared values (`undefined` and `null`) aren't the
+ * spread's zero value.
  * GET-only hydrated fields (e.g. `subtask_cost_usd`) are deliberately absent
  * from this list - they're computed on read, never part of a PATCH round trip.
  */
@@ -37,6 +38,7 @@ function clearSafeCardUpdate(updated: Card): Partial<Card> {
     last_heartbeat: undefined,
     ...updated,
     dependencies_met: updated.dependencies_met,
+    blocked_by: updated.blocked_by,
     skills: updated.skills ?? null,
   };
 }

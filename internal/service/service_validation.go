@@ -160,8 +160,13 @@ func (s *CardService) enrichDependenciesMet(ctx context.Context, card *board.Car
 		return
 	}
 
-	met, _ := s.checkDependencies(ctx, card.Project, card.DependsOn)
+	met, blockers := s.checkDependencies(ctx, card.Project, card.DependsOn)
 	card.DependenciesMet = &met
+	card.BlockedBy = nil
+
+	for _, b := range blockers {
+		card.BlockedBy = append(card.BlockedBy, b.ID)
+	}
 }
 
 // taskSkillNamePattern restricts skill names to a safe charset that cannot

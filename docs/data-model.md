@@ -34,7 +34,7 @@ live in [architecture](architecture.md); the HTTP surface in the
      `in_progress` fails with `ErrDependenciesNotMet` (409) while any
      dependency is not `done`; `not_planned` does not satisfy a dependency.
      `get_ready_tasks` and the `dependencies_met` read-time field use the
-     same rule. The claim itself is not gated: `claim_card` takes the claim
+     same rule; `blocked_by` lists the ids that fail it. The claim itself is not gated: `claim_card` takes the claim
      first and then runs the `todo` -> `in_progress` transition, so on a
      blocked card the claim stands, the card stays in `todo`, and the
      response carries `auto_transition_failed: true` with the reason. The
@@ -296,6 +296,7 @@ type Card struct {
     Subtasks                []string        `yaml:"subtasks,omitempty"              json:"subtasks,omitempty"`
     DependsOn               []string        `yaml:"depends_on,omitempty"            json:"depends_on,omitempty"`
     DependenciesMet         *bool           `yaml:"-"                               json:"dependencies_met,omitempty"`
+    BlockedBy               []string        `yaml:"-"                               json:"blocked_by,omitempty"`
     Context                 []string        `yaml:"context,omitempty"               json:"context,omitempty"`
     Labels                  []string        `yaml:"labels,omitempty"                json:"labels,omitempty"`
     Skills                  *[]string       `yaml:"skills,omitempty"                json:"skills,omitempty"`
@@ -491,11 +492,14 @@ after first generation.
 **Server-managed fields**: `id`, `created`, `updated`, `assigned_agent`,
 `last_heartbeat`, `claimed_via`, `claimed_at`, `claim_epoch`, `activity_log`,
 `worker_status`, `review_attempts`, `branch_name`, `token_usage`,
-`usage_breakdown`, `dependencies_met`, `subtask_cost_usd`,
+`usage_breakdown`, `dependencies_met`, `blocked_by`, `subtask_cost_usd`,
 `subtask_cost_has_estimates`, `in_playbooks`.
 
-`dependencies_met`, `subtask_cost_usd`, `subtask_cost_has_estimates` and
-`in_playbooks` are computed on read and never written to frontmatter.
+`dependencies_met`, `blocked_by`, `subtask_cost_usd`,
+`subtask_cost_has_estimates` and `in_playbooks` are computed on read and
+never written to frontmatter. `blocked_by` is the subset of `depends_on`
+that is not `done`, in `depends_on` order; absent when every dependency is
+met.
 `subtask_cost_usd` sums the `estimated_cost_usd` of direct subtasks
 (single-card GET only; omitted when zero) and `subtask_cost_has_estimates`
 reports whether any of those costs include rate-table-estimated buckets.

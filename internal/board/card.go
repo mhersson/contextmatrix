@@ -32,6 +32,7 @@ type Card struct {
 	Subtasks        []string       `yaml:"subtasks,omitempty"       json:"subtasks,omitempty"`
 	DependsOn       []string       `yaml:"depends_on,omitempty"     json:"depends_on,omitempty"`
 	DependenciesMet *bool          `yaml:"-"                        json:"dependencies_met,omitempty"`
+	BlockedBy       []string       `yaml:"-"                        json:"blocked_by,omitempty"`
 	Context         []string       `yaml:"context,omitempty"        json:"context,omitempty"`
 	Labels          []string       `yaml:"labels,omitempty"         json:"labels,omitempty"`
 	Skills          *[]string      `yaml:"skills,omitempty"         json:"skills,omitempty"`

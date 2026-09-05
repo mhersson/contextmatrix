@@ -29,6 +29,8 @@ export interface Card {
   subtasks?: string[];
   depends_on?: string[];
   dependencies_met?: boolean;
+  /** depends_on ids that are not done; server-computed, absent when met. */
+  blocked_by?: string[];
   context?: string[];
   labels?: string[];
   source?: Source;
