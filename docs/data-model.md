@@ -997,7 +997,8 @@ the stored value.
 
 ## PR gates (`await_ci`, `await_copilot_review`)
 
-Both are human-only booleans (no create-time defaulting) that matter only
+Both are human-only booleans, defaulted at create from the project's
+`card_defaults` (off unless the project says otherwise), that matter only
 when the run opens a PR. They gate the agent's `review -> done` transition
 inside the `pr_gates` phase: `await_ci` keeps the card in `review` until the
 PR's checks pass, and `await_copilot_review` has the agent request a Copilot
