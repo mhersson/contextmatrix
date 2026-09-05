@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
+import { resolveCardDefaults } from '../../lib/cardDefaults';
 import type { CreateCardInput, ProjectConfig } from '../../types';
 
 export interface PendingTemplate {
@@ -87,20 +88,25 @@ export function useCreateCardForm(
   const [parent, setParent] = useState('');
   const [body, setBody] = useState(() => config.templates?.[config.types[0]] ?? '');
   const [bodyDirty, setBodyDirty] = useState(false);
-  const [autonomous, setAutonomous] = useState(false);
+  // Seed the Automation rail from the project's card_defaults (built-ins when
+  // it has none). Every value is still sent explicitly on create, so what the
+  // user sees is exactly what the server stores - the server-side fallback
+  // only matters for callers that omit fields (MCP, GitHub import).
+  const seed = resolveCardDefaults(config.card_defaults);
+  const [autonomous, setAutonomous] = useState(seed.autonomous);
   const [modelOrchestrator, setModelOrchestrator] = useState('');
   const [modelCoder, setModelCoder] = useState('');
   const [modelReviewer, setModelReviewer] = useState('');
-  const [createPR, setCreatePR] = useState(true);
-  const [awaitCI, setAwaitCI] = useState(false);
-  const [awaitCopilotReview, setAwaitCopilotReview] = useState(false);
+  const [createPR, setCreatePR] = useState(seed.create_pr);
+  const [awaitCI, setAwaitCI] = useState(seed.await_ci);
+  const [awaitCopilotReview, setAwaitCopilotReview] = useState(seed.await_copilot_review);
   const [baseBranch, setBaseBranch] = useState('');
   // 0 = off / unset; the AutomationCheckboxes selector (create mode, agent
   // backend only) writes here, and buildInput forwards non-zero values.
   const [bestOfN, setBestOfN] = useState(0);
-  const [maxCapability, setMaxCapability] = useState(false);
-  const [mobParticipants, setMobParticipants] = useState(0);
-  const [mobPhases, setMobPhases] = useState<string[]>([]);
+  const [maxCapability, setMaxCapability] = useState(seed.max_capability);
+  const [mobParticipants, setMobParticipants] = useState(seed.mob_participants);
+  const [mobPhases, setMobPhases] = useState<string[]>(seed.mob_phases);
   const [mobGuests, setMobGuests] = useState<string[]>([]);
   // null = inherit project default, [] = mount none, [...] = specific list.
   const [skills, setSkills] = useState<string[] | null>(null);
@@ -159,24 +165,25 @@ export function useCreateCardForm(
       labels: labels.length > 0 ? labels : undefined,
       parent: parent || undefined,
       body: body || undefined,
-      autonomous: autonomous || undefined,
+      autonomous,
       // Per-role model pins for the agent backend. Empty = "selector decides";
       // only forward a non-empty override.
       model_orchestrator: modelOrchestrator || undefined,
       model_coder: modelCoder || undefined,
       model_reviewer: modelReviewer || undefined,
-      // Best-of-N and mob session - only forwarded when the user picked a value
-      // (0 / [] mean "off / unset" and are omitted to keep the input clean).
+      // Best-of-N - only forwarded when the user picked a value (0 means
+      // "off / unset" and is omitted to keep the input clean).
       best_of_n: bestOfN || undefined,
-      max_capability: maxCapability || undefined,
-      mob_participants: mobParticipants || undefined,
-      mob_phases: mobPhases.length ? mobPhases : undefined,
+      max_capability: maxCapability,
+      mob_participants: mobParticipants,
+      mob_phases: mobParticipants >= 2 && mobPhases.length ? mobPhases : undefined,
       mob_guests: mobGuests.length ? mobGuests : undefined,
-      // Always an explicit boolean: the server defaults an absent create_pr
-      // to true at create, so omitting an unchecked box would flip it on.
+      // Always explicit booleans/counts: the server fills absent fields from
+      // the project's card_defaults, so an unticked box must arrive as false,
+      // never as an omission.
       create_pr: createPR,
-      await_ci: awaitCI || undefined,
-      await_copilot_review: awaitCopilotReview || undefined,
+      await_ci: awaitCI,
+      await_copilot_review: awaitCopilotReview,
       base_branch: baseBranch || undefined,
       // null = inherit project default; only forward an explicit override.
       skills: skills === null ? undefined : skills,
