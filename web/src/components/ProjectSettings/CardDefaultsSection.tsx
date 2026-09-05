@@ -1,4 +1,3 @@
-import { useId } from 'react';
 import type { ResolvedCardDefaults } from '../../lib/cardDefaults';
 
 const MOB_PHASES = ['plan', 'review', 'execute'] as const;
@@ -28,7 +27,6 @@ export function CardDefaultsSection({
   mobDefaultParticipants,
   mobExecuteCheckpoints,
 }: CardDefaultsSectionProps) {
-  const headingId = useId();
   const agentBackend = taskBackend === 'agent';
   const mobMax = mobMaxParticipants ?? 5;
   const mobDefault = mobDefaultParticipants ?? 3;
@@ -48,17 +46,13 @@ export function CardDefaultsSection({
   };
 
   return (
-    <div>
-      <div id={headingId} className="block text-xs mb-2" style={{ color: 'var(--grey1)' }}>
-        Card defaults
-      </div>
-      <div className="p-3 rounded space-y-3" style={{ backgroundColor: 'var(--bg1)' }} aria-labelledby={headingId}>
-        <p className="text-xs" style={{ color: 'var(--grey1)' }}>
-          Pre-filled on every new card in this project. Each card can still override them at creation;
-          subtasks always start with everything off.
-        </p>
+    <>
+      <p className="ps-lead">
+        Pre-filled on every new card in this project. Each card can still override them at creation;
+        subtasks always start with everything off.
+      </p>
 
-        <div className="bf-auto-stack">
+      <div className="bf-auto-stack">
           <div className="bf-spread">
             <label className="bf-switch">
               <input
@@ -161,7 +155,7 @@ export function CardDefaultsSection({
 
           {value.create_pr && (
             <>
-              <div className="bf-spread">
+              <div className="bf-spread" style={{ paddingLeft: '24px' }}>
                 <label className="bf-switch">
                   <input
                     type="checkbox"
@@ -174,7 +168,7 @@ export function CardDefaultsSection({
                 <span className="bf-hint">stays in review until checks pass</span>
               </div>
 
-              <div className="bf-spread">
+              <div className="bf-spread" style={{ paddingLeft: '24px' }}>
                 <label className="bf-switch">
                   <input
                     type="checkbox"
@@ -188,8 +182,7 @@ export function CardDefaultsSection({
               </div>
             </>
           )}
-        </div>
       </div>
-    </div>
+    </>
   );
 }

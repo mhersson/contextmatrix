@@ -17,8 +17,6 @@ vi.mock('../../api/client', async (importOriginal) => {
   };
 });
 
-const inputStyle = {};
-
 beforeEach(() => {
   vi.resetAllMocks();
 });
@@ -31,7 +29,6 @@ function renderSelect(overrides: Partial<Parameters<typeof WorkerImageSelect>[0]
       value=""
       onChange={vi.fn()}
       readOnly={false}
-      inputStyle={inputStyle}
       {...overrides}
     />,
   );

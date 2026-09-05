@@ -10,10 +10,15 @@ import {
   toWireCardDefaults,
   type ResolvedCardDefaults,
 } from '../../lib/cardDefaults';
+import { DangerSection } from './DangerSection';
 import { DefaultSkillsSelector } from './DefaultSkillsSelector';
 import { GitHubCredentialSection } from './GitHubCredentialSection';
 import { GitHubImportSection } from './GitHubImportSection';
 import { RepoListSection } from './RepoListSection';
+import { SettingsHeader } from './SettingsHeader';
+import { SettingsSection } from './SettingsSection';
+import { SettingsTabs, type SettingsTab } from './SettingsTabs';
+import { settingsPanelId, settingsTabId, type SettingsTabKey } from './settingsTabIds';
 import { StateTransitionEditor } from './StateTransitionEditor';
 import { RemoteExecutionSection } from './RemoteExecutionSection';
 import type { RemoteExecutionConfig } from './RemoteExecutionSection';
@@ -47,10 +52,27 @@ function verifyToString(v: VerifyConfig | undefined): string {
   });
 }
 
+/**
+ * Serialise a `Record<string, string[]>` with sorted keys so that the
+ * comparison is deterministic regardless of insertion order. Without
+ * sorting, `removeItem` rebuilds the map from `Object.keys(...)` which
+ * may reorder keys and produce a false-positive dirty signal.
+ */
+function serializeTransitions(t: Record<string, string[]>): string {
+  return JSON.stringify(
+    Object.fromEntries(
+      Object.keys(t)
+        .sort()
+        .map((k) => [k, [...t[k]].sort()]),
+    ),
+  );
+}
+
 export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: ProjectSettingsProps) {
   const [config, setConfig] = useState<ProjectConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<SettingsTabKey>('source');
 
   // Mirrors UserMenu/Sidebar's useOptionalAuth pattern - mode defaults to
   // 'none' and isAdmin to false when rendered without an AuthProvider (e.g.
@@ -60,7 +82,12 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
   const isAdmin = Boolean(auth?.user?.is_admin);
   const readOnly = mode === 'multi' && !isAdmin;
 
-  const { chatEnabled, taskBackend, mobMaxParticipants, mobDefaultParticipants, mobExecuteCheckpoints } = useTheme();
+  const {
+    chatEnabled, taskBackend, mobMaxParticipants, mobDefaultParticipants, mobExecuteCheckpoints, boardsRepos = [],
+  } = useTheme();
+  // Mirrors the sidebar: the boards repo only means something when the
+  // instance serves more than one.
+  const multiRepo = boardsRepos.length > 1;
 
   const repoId = useId();
 
@@ -84,7 +111,6 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
   const [githubCredential, setGithubCredential] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const [cardCount, setCardCount] = useState(0);
 
   // Reset loading/error on project change (render-time pattern).
@@ -93,7 +119,28 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
     setPrevProject(project);
     setLoading(true);
     setError(null);
+    setActiveTab('source');
   }
+
+  // applyConfig seeds every form field from a (transition-normalized) config.
+  // Used on load and by Discard, so both land on the identical baseline.
+  const applyConfig = useCallback((cfg: ProjectConfig) => {
+    setRepo(cfg.repo || '');
+    setStates(cfg.states);
+    setTypes(cfg.types);
+    setPriorities(cfg.priorities);
+    setTransitions(cfg.transitions);
+    setNewState('');
+    setNewType('');
+    setNewPriority('');
+    setGitHub(cfg.github ?? emptyGitHub);
+    setRemoteExecution(cfg.remote_execution ?? emptyRemoteExecution);
+    setRemoteExecutionTouched(false);
+    setVerify(cfg.verify ?? emptyVerify);
+    setCardDefaults(resolveCardDefaults(cfg.card_defaults));
+    setDefaultSkills(cfg.default_skills ?? null);
+    setGithubCredential(cfg.github_credential ?? '');
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -111,18 +158,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
         });
         const normalizedConfig = { ...cfg, transitions: normalizedTransitions };
         setConfig(normalizedConfig);
-        setRepo(cfg.repo || '');
-        setStates(cfg.states);
-        setTypes(cfg.types);
-        setPriorities(cfg.priorities);
-        setTransitions(normalizedTransitions);
-        setGitHub(cfg.github ?? emptyGitHub);
-        setRemoteExecution(cfg.remote_execution ?? emptyRemoteExecution);
-        setRemoteExecutionTouched(false);
-        setVerify(cfg.verify ?? emptyVerify);
-        setCardDefaults(resolveCardDefaults(cfg.card_defaults));
-        setDefaultSkills(cfg.default_skills ?? null);
-        setGithubCredential(cfg.github_credential ?? '');
+        applyConfig(normalizedConfig);
         setCardCount(count);
         setLoading(false);
       })
@@ -134,42 +170,28 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
     return () => {
       cancelled = true;
     };
-  }, [project]);
+  }, [project, applyConfig]);
 
-  /**
-   * Serialise a `Record<string, string[]>` with sorted keys so that the
-   * comparison is deterministic regardless of insertion order. Without
-   * sorting, `removeItem` rebuilds the map from `Object.keys(...)` which
-   * may reorder keys and produce a false-positive dirty signal.
-   */
-  const serializeTransitions = useCallback(
-    (t: Record<string, string[]>): string =>
-      JSON.stringify(
-        Object.fromEntries(
-          Object.keys(t)
-            .sort()
-            .map((k) => [k, [...t[k]].sort()]),
-        ),
-      ),
-    [],
-  );
-
-  const isDirty = useMemo(() => {
-    if (!config) return false;
-    const configDefaultSkills = config.default_skills ?? null;
-    return (
-      repo !== (config.repo || '') ||
-      JSON.stringify(states) !== JSON.stringify(config.states) ||
-      JSON.stringify(types) !== JSON.stringify(config.types) ||
-      JSON.stringify(priorities) !== JSON.stringify(config.priorities) ||
-      serializeTransitions(transitions) !== serializeTransitions(config.transitions) ||
-      ghToString(github) !== ghToString(config.github) ||
-      remoteExecutionTouched ||
-      verifyToString(verify) !== verifyToString(config.verify) ||
-      JSON.stringify(defaultSkills) !== JSON.stringify(configDefaultSkills) ||
-      githubCredential !== (config.github_credential ?? '') ||
-      cardDefaultsKey(cardDefaults) !== cardDefaultsKey(resolveCardDefaults(config.card_defaults))
-    );
+  // Per-section dirty flags feed both the tab dots and the Save button. The
+  // comparisons are the same ones handleSave uses to decide which keys to
+  // send, so a dotted tab always means "this save will carry that section".
+  const dirty = useMemo(() => {
+    if (!config) return null;
+    return {
+      repo: repo !== (config.repo || ''),
+      credential: githubCredential !== (config.github_credential ?? ''),
+      import: ghToString(github) !== ghToString(config.github),
+      lists:
+        JSON.stringify(states) !== JSON.stringify(config.states) ||
+        JSON.stringify(types) !== JSON.stringify(config.types) ||
+        JSON.stringify(priorities) !== JSON.stringify(config.priorities),
+      transitions: serializeTransitions(transitions) !== serializeTransitions(config.transitions),
+      cardDefaults:
+        cardDefaultsKey(cardDefaults) !== cardDefaultsKey(resolveCardDefaults(config.card_defaults)),
+      skills: JSON.stringify(defaultSkills) !== JSON.stringify(config.default_skills ?? null),
+      images: remoteExecutionTouched,
+      verify: verifyToString(verify) !== verifyToString(config.verify),
+    };
   }, [
     config,
     repo,
@@ -183,8 +205,17 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
     defaultSkills,
     githubCredential,
     cardDefaults,
-    serializeTransitions,
   ]);
+
+  const isDirty = dirty !== null && Object.values(dirty).some(Boolean);
+
+  const tabs: SettingsTab[] = [
+    { key: 'source', label: 'Source', dirty: !!dirty && (dirty.repo || dirty.credential || dirty.import) },
+    { key: 'workflow', label: 'Workflow', dirty: !!dirty && (dirty.lists || dirty.transitions) },
+    { key: 'automation', label: 'Automation', dirty: !!dirty && (dirty.cardDefaults || dirty.skills) },
+    { key: 'execution', label: 'Execution', dirty: !!dirty && (dirty.images || dirty.verify) },
+    { key: 'danger', label: 'Danger', danger: true, dirty: false },
+  ];
 
   const handleSave = useCallback(async () => {
     if (!isDirty || isSaving) return;
@@ -287,6 +318,10 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
     showToast,
   ]);
 
+  const handleDiscard = useCallback(() => {
+    if (config) applyConfig(config);
+  }, [config, applyConfig]);
+
   const handleDelete = useCallback(async () => {
     if (isDeleting) return;
     setIsDeleting(true);
@@ -298,7 +333,6 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
       showToast(isAPIError(err) ? err.error : 'Failed to delete', 'error');
     } finally {
       setIsDeleting(false);
-      setConfirmDelete(false);
     }
   }, [isDeleting, project, onDeleted, showToast]);
 
@@ -330,216 +364,180 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
     );
   }
 
-  const inputStyle = {
-    backgroundColor: 'var(--bg2)',
-    borderColor: 'var(--bg3)',
-    color: 'var(--fg)',
+  const renderTab = (key: SettingsTabKey) => {
+    switch (key) {
+      case 'source':
+        return (
+          <>
+            <SettingsSection title="Repository">
+              <div className="ps-field">
+                <label htmlFor={repoId} className="ps-label">Repository URL</label>
+                <input
+                  id={repoId}
+                  type="text"
+                  value={repo}
+                  onChange={(e) => setRepo(e.target.value)}
+                  placeholder="https://github.com/org/repo.git"
+                  className="ps-input"
+                />
+              </div>
+            </SettingsSection>
+
+            {/*
+              GitHub credential binding - multi-user mode only. Bindings are a
+              multi-mode feature (the API rejects a non-empty binding in none
+              mode), so the section is not rendered at all in none mode; that
+              keeps none-mode settings byte-identical to pre-binding behavior.
+            */}
+            {mode === 'multi' && (
+              <SettingsSection title="GitHub credential">
+                <GitHubCredentialSection value={githubCredential} onChange={setGithubCredential} readOnly={readOnly} />
+              </SettingsSection>
+            )}
+
+            <SettingsSection title="GitHub issue import">
+              <GitHubImportSection github={github} onChange={setGitHub} types={types} priorities={priorities} />
+            </SettingsSection>
+          </>
+        );
+      case 'workflow':
+        return (
+          <>
+            <SettingsSection title="States, types, priorities">
+              <RepoListSection
+                states={states}
+                newState={newState}
+                setNewState={setNewState}
+                onAddState={() => {
+                  const trimmed = newState.trim();
+                  if (trimmed && !states.includes(trimmed)) {
+                    setStates(prev => [...prev, trimmed]);
+                    setTransitions(prev => (trimmed in prev ? prev : { ...prev, [trimmed]: [] }));
+                    setNewState('');
+                  }
+                }}
+                onRemoveState={removeState}
+                types={types}
+                newType={newType}
+                setNewType={setNewType}
+                onAddType={() => {
+                  const trimmed = newType.trim();
+                  if (trimmed && !types.includes(trimmed)) {
+                    setTypes(prev => [...prev, trimmed]);
+                    setNewType('');
+                  }
+                }}
+                onRemoveType={(v) => setTypes(prev => prev.filter(x => x !== v))}
+                priorities={priorities}
+                newPriority={newPriority}
+                setNewPriority={setNewPriority}
+                onAddPriority={() => {
+                  const trimmed = newPriority.trim();
+                  if (trimmed && !priorities.includes(trimmed)) {
+                    setPriorities(prev => [...prev, trimmed]);
+                    setNewPriority('');
+                  }
+                }}
+                onRemovePriority={(v) => setPriorities(prev => prev.filter(x => x !== v))}
+              />
+            </SettingsSection>
+
+            <SettingsSection
+              title="Transitions"
+              lead="Which states a card may move to. Rows are where a card is, columns are where it can go."
+            >
+              <StateTransitionEditor states={states} transitions={transitions} onChange={setTransitions} />
+            </SettingsSection>
+          </>
+        );
+      case 'automation':
+        return (
+          <>
+            {/* Card defaults - what a new card's Automation rail starts with */}
+            <SettingsSection title="Card defaults">
+              <CardDefaultsSection
+                value={cardDefaults}
+                onChange={setCardDefaults}
+                taskBackend={taskBackend}
+                mobMaxParticipants={mobMaxParticipants}
+                mobDefaultParticipants={mobDefaultParticipants}
+                mobExecuteCheckpoints={mobExecuteCheckpoints}
+              />
+            </SettingsSection>
+
+            <SettingsSection title="Default task skills">
+              <DefaultSkillsSelector value={defaultSkills} onChange={setDefaultSkills} />
+            </SettingsSection>
+          </>
+        );
+      case 'execution':
+        return (
+          <>
+            <SettingsSection title="Remote execution">
+              <RemoteExecutionSection
+                value={remoteExecution}
+                onChange={(next) => {
+                  setRemoteExecution(next);
+                  setRemoteExecutionTouched(true);
+                }}
+                readOnly={readOnly}
+                taskBackendConfigured={!!taskBackend}
+                chatEnabled={chatEnabled}
+              />
+            </SettingsSection>
+
+            <SettingsSection title="Verify">
+              <VerifySection value={verify} onChange={setVerify} />
+            </SettingsSection>
+          </>
+        );
+      case 'danger':
+        return (
+          <DangerSection
+            project={project}
+            cardCount={cardCount}
+            isDeleting={isDeleting}
+            onDelete={handleDelete}
+          />
+        );
+    }
   };
 
   return (
-    <div className="p-6 overflow-y-auto h-full max-w-3xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
-        <h2
-          style={{
-            color: 'var(--fg)',
-            fontFamily: 'var(--font-display)',
-            fontWeight: 500,
-            fontSize: '24px',
-            letterSpacing: '-0.015em',
-            lineHeight: 1.2,
-          }}
-        >
-          Project Settings
-        </h2>
-        {!readOnly && (
-          <button
-            onClick={handleSave}
-            disabled={!isDirty || isSaving}
-            className={`px-4 py-1.5 rounded text-sm font-medium transition-colors ${
-              isDirty
-                ? 'bg-[var(--green)] text-[var(--bg-dim)] hover:opacity-90'
-                : 'bg-[var(--bg3)] text-[var(--grey1)] cursor-not-allowed'
-            }`}
-          >
-            {isSaving ? 'Saving...' : 'Save'}
-          </button>
-        )}
-      </div>
+    <div className="ps-page">
+      <div className="ps-col">
+        <SettingsHeader
+          config={config}
+          cardCount={cardCount}
+          boardsRepo={multiRepo ? config.boards_repo : undefined}
+          readOnly={readOnly}
+          isDirty={isDirty}
+          isSaving={isSaving}
+          onSave={handleSave}
+          onDiscard={handleDiscard}
+        />
 
-      {/* Read-only fields */}
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <div className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Name</div>
-          <div className="px-3 py-2 rounded text-sm" style={{ backgroundColor: 'var(--bg1)', color: 'var(--grey2)' }}>
-            {config.name}
-          </div>
-        </div>
-        <div>
-          <div className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Prefix</div>
-          <div className="px-3 py-2 rounded text-sm" style={{ backgroundColor: 'var(--bg1)', color: 'var(--grey2)' }}>
-            {config.prefix}
-          </div>
-        </div>
-      </div>
-
-      {/*
-        readOnly (non-admin, multi mode) freezes every control below via
-        native fieldset[disabled] propagation to descendant form elements
-        (input/select/button/textarea) - every editable control here is a
-        native form element, so this covers them without per-section changes.
-        `contents` removes the fieldset's own box so it doesn't affect layout.
-      */}
-      <fieldset disabled={readOnly} className="contents">
-        {/* Repo */}
-        <div>
-          <label htmlFor={repoId} className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>Repository URL</label>
-          <input
-            id={repoId}
-            type="text"
-            value={repo}
-            onChange={(e) => setRepo(e.target.value)}
-            placeholder="https://github.com/org/repo.git"
-            className="w-full px-3 py-2 rounded text-sm border focus:outline-none"
-            style={inputStyle}
-          />
-        </div>
+        <SettingsTabs tabs={tabs} active={activeTab} onChange={setActiveTab} />
 
         {/*
-          GitHub credential binding - multi-user mode only. Bindings are a
-          multi-mode feature (the API rejects a non-empty binding in none
-          mode), so the section is not rendered at all in none mode; that
-          keeps none-mode settings byte-identical to pre-binding behavior.
+          readOnly (non-admin, multi mode) freezes every control below via
+          native fieldset[disabled] propagation to descendant form elements
+          (input/select/button/textarea) - every editable control here is a
+          native form element, so this covers them without per-section changes.
+          `contents` removes the fieldset's own box so it doesn't affect layout.
+          The tab strip sits outside the fieldset so read-only viewers can
+          still move between tabs.
         */}
-        {mode === 'multi' && (
-          <GitHubCredentialSection value={githubCredential} onChange={setGithubCredential} readOnly={readOnly} />
-        )}
-
-        {/* States / Types / Priorities */}
-        <RepoListSection
-          states={states}
-          newState={newState}
-          setNewState={setNewState}
-          onAddState={() => {
-            const trimmed = newState.trim();
-            if (trimmed && !states.includes(trimmed)) {
-              setStates(prev => [...prev, trimmed]);
-              setTransitions(prev => (trimmed in prev ? prev : { ...prev, [trimmed]: [] }));
-              setNewState('');
-            }
-          }}
-          onRemoveState={removeState}
-          types={types}
-          newType={newType}
-          setNewType={setNewType}
-          onAddType={() => {
-            const trimmed = newType.trim();
-            if (trimmed && !types.includes(trimmed)) {
-              setTypes(prev => [...prev, trimmed]);
-              setNewType('');
-            }
-          }}
-          onRemoveType={(v) => setTypes(prev => prev.filter(x => x !== v))}
-          priorities={priorities}
-          newPriority={newPriority}
-          setNewPriority={setNewPriority}
-          onAddPriority={() => {
-            const trimmed = newPriority.trim();
-            if (trimmed && !priorities.includes(trimmed)) {
-              setPriorities(prev => [...prev, trimmed]);
-              setNewPriority('');
-            }
-          }}
-          onRemovePriority={(v) => setPriorities(prev => prev.filter(x => x !== v))}
-          inputStyle={inputStyle}
-        />
-
-        {/* State transition matrix */}
-        <StateTransitionEditor
-          states={states}
-          transitions={transitions}
-          onChange={setTransitions}
-          inputStyle={inputStyle}
-        />
-
-        {/* Card defaults - what a new card's Automation rail starts with */}
-        <CardDefaultsSection
-          value={cardDefaults}
-          onChange={setCardDefaults}
-          taskBackend={taskBackend}
-          mobMaxParticipants={mobMaxParticipants}
-          mobDefaultParticipants={mobDefaultParticipants}
-          mobExecuteCheckpoints={mobExecuteCheckpoints}
-        />
-
-        {/* Default task skills */}
-        <DefaultSkillsSelector value={defaultSkills} onChange={setDefaultSkills} />
-
-        {/* Remote Execution */}
-        <RemoteExecutionSection
-          value={remoteExecution}
-          onChange={(next) => {
-            setRemoteExecution(next);
-            setRemoteExecutionTouched(true);
-          }}
-          inputStyle={inputStyle}
-          readOnly={readOnly}
-          taskBackendConfigured={!!taskBackend}
-          chatEnabled={chatEnabled}
-        />
-
-        {/* Verify gate */}
-        <VerifySection value={verify} onChange={setVerify} inputStyle={inputStyle} />
-
-        {/* GitHub Issue Import */}
-        <GitHubImportSection
-          github={github}
-          onChange={setGitHub}
-          types={types}
-          priorities={priorities}
-          inputStyle={inputStyle}
-        />
-
-        {/* Danger zone */}
-        <div className="pt-4 border-t" style={{ borderColor: 'var(--bg3)' }}>
-          <h3 className="section-eyebrow mb-2" style={{ color: 'var(--red)' }}>Danger Zone</h3>
-          {cardCount > 0 ? (
-            <p className="text-xs mb-2" style={{ color: 'var(--grey1)' }}>
-              Cannot delete this project - it has {cardCount} card{cardCount !== 1 ? 's' : ''}. Delete all cards first.
-            </p>
-          ) : null}
-          {confirmDelete ? (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={handleDelete}
-                disabled={isDeleting || cardCount > 0}
-                className="px-3 py-1.5 rounded text-sm font-medium transition-colors"
-                style={{ backgroundColor: 'var(--red)', color: 'var(--bg-dim)' }}
-              >
-                {isDeleting ? 'Deleting...' : 'Confirm Delete'}
-              </button>
-              <button
-                onClick={() => setConfirmDelete(false)}
-                className="px-3 py-1.5 rounded text-sm text-[var(--grey1)] hover:text-[var(--fg)] transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => setConfirmDelete(true)}
-              disabled={cardCount > 0}
-              className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
-                cardCount > 0
-                  ? 'bg-[var(--bg3)] text-[var(--grey1)] cursor-not-allowed'
-                  : 'bg-[var(--bg-red)] text-[var(--red)] hover:opacity-90'
-              }`}
-            >
-              Delete Project
-            </button>
-          )}
+        <div
+          id={settingsPanelId(activeTab)}
+          role="tabpanel"
+          aria-labelledby={settingsTabId(activeTab)}
+        >
+          <fieldset disabled={readOnly} className="contents">
+            {renderTab(activeTab)}
+          </fieldset>
         </div>
-      </fieldset>
+      </div>
     </div>
   );
 }
-

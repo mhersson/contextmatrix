@@ -20,7 +20,6 @@ export function DefaultSkillsSelector({ value, onChange }: Props) {
   const [skills, setSkills] = useState<TaskSkillSummary[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const headingId = useId();
   const radioName = useId();
 
   // Track previous value to detect external resets during render (derived-state pattern).
@@ -60,12 +59,8 @@ export function DefaultSkillsSelector({ value, onChange }: Props) {
   };
 
   return (
-    <div>
-      <div id={headingId} className="block text-xs mb-2" style={{ color: 'var(--grey1)' }}>
-        Default task skills
-      </div>
-      <div className="p-3 rounded space-y-3" style={{ backgroundColor: 'var(--bg1)' }} aria-labelledby={headingId}>
-        <ModeRadio
+    <>
+      <ModeRadio
           name={radioName}
           mode={localMode}
           value="inherit"
@@ -80,7 +75,7 @@ export function DefaultSkillsSelector({ value, onChange }: Props) {
           onChange={setMode}
         />
         {localMode === 'specific' && (
-          <div className="pl-6">
+          <div className="pl-6 py-1">
             {loading && <div className="text-xs" style={{ color: 'var(--grey1)' }}>Loading…</div>}
             {error && <div className="text-xs" style={{ color: 'var(--red)' }}>{error}</div>}
             {!loading && !error && skills && skills.length === 0 && (
@@ -91,12 +86,11 @@ export function DefaultSkillsSelector({ value, onChange }: Props) {
             {!loading && !error && skills && skills.length > 0 && (
               <div className="space-y-1.5 max-h-64 overflow-y-auto pr-2">
                 {skills.map(s => (
-                  <label key={s.name} className="flex items-start gap-2 cursor-pointer">
+                  <label key={s.name} className="ps-check">
                     <input
                       type="checkbox"
                       checked={selected.has(s.name)}
                       onChange={() => toggle(s.name)}
-                      className="mt-0.5 accent-[var(--green)]"
                     />
                     <span className="text-sm leading-tight" style={{ color: 'var(--fg)' }}>
                       <span className="font-mono">{s.name}</span>
@@ -115,8 +109,7 @@ export function DefaultSkillsSelector({ value, onChange }: Props) {
           label="Mount no skills"
           onChange={setMode}
         />
-      </div>
-    </div>
+    </>
   );
 }
 
@@ -130,13 +123,12 @@ interface ModeRadioProps {
 
 function ModeRadio({ name, mode, value, label, onChange }: ModeRadioProps) {
   return (
-    <label className="flex items-center gap-2 cursor-pointer">
+    <label className="ps-radio">
       <input
         type="radio"
         name={name}
         checked={mode === value}
         onChange={() => onChange(value)}
-        className="accent-[var(--green)]"
       />
       <span className="text-sm" style={{ color: 'var(--fg)' }}>{label}</span>
     </label>

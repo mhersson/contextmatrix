@@ -1,57 +1,52 @@
 import { useId } from 'react';
-import type { CSSProperties } from 'react';
 
 // ---------- ListEditor (private helper) ----------
 
 interface ListEditorProps {
   label: string;
+  /** Singular noun for the add-row placeholder. */
+  itemName: string;
   items: string[];
   newValue: string;
   setNewValue: (v: string) => void;
   onAdd: () => void;
   onRemove: (v: string) => void;
   protectedItems?: string[];
-  inputStyle: CSSProperties;
 }
 
 function ListEditor({
   label,
+  itemName,
   items,
   newValue,
   setNewValue,
   onAdd,
   onRemove,
   protectedItems,
-  inputStyle,
 }: ListEditorProps) {
   const inputId = useId();
   return (
-    <div>
-      <label htmlFor={inputId} className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>
+    <div className="ps-field">
+      <label htmlFor={inputId} className="ps-label">
         {label}
       </label>
-      <div className="flex flex-wrap gap-1.5 mb-2">
-        {items.map((item) => (
-          <span
-            key={item}
-            className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded"
-            style={{ backgroundColor: 'var(--bg2)', color: 'var(--fg)' }}
-          >
-            {item}
-            {!(protectedItems || []).includes(item) && (
-              <button
-                onClick={() => onRemove(item)}
-                className="hover:text-[var(--red)] transition-colors"
-                style={{ color: 'var(--grey1)' }}
-                aria-label={`Remove ${item}`}
-              >
+      <div className="ps-chips">
+        {items.map((item) =>
+          (protectedItems || []).includes(item) ? (
+            <span key={item} className="ps-chip ps-chip--locked" title="Built-in state">
+              {item}
+            </span>
+          ) : (
+            <span key={item} className="ps-chip">
+              {item}
+              <button type="button" onClick={() => onRemove(item)} aria-label={`Remove ${item}`}>
                 &times;
               </button>
-            )}
-          </span>
-        ))}
+            </span>
+          ),
+        )}
       </div>
-      <div className="flex gap-2">
+      <div className="ps-addrow">
         <input
           id={inputId}
           type="text"
@@ -60,19 +55,10 @@ function ListEditor({
           onKeyDown={(e) => {
             if (e.key === 'Enter') onAdd();
           }}
-          placeholder={`Add ${label.toLowerCase().slice(0, -1)}...`}
-          className="flex-1 px-3 py-1.5 rounded text-xs border focus:outline-none"
-          style={inputStyle}
+          placeholder={`Add ${itemName}...`}
+          className="ps-input"
         />
-        <button
-          onClick={onAdd}
-          disabled={!newValue.trim()}
-          className="px-2 py-1.5 rounded text-xs transition-colors"
-          style={{
-            backgroundColor: newValue.trim() ? 'var(--bg3)' : 'var(--bg2)',
-            color: newValue.trim() ? 'var(--fg)' : 'var(--grey1)',
-          }}
-        >
+        <button type="button" onClick={onAdd} disabled={!newValue.trim()} className="bf-btn-ghost bf-btn-sm">
           Add
         </button>
       </div>
@@ -100,8 +86,6 @@ export interface RepoListSectionProps {
   setNewPriority: (v: string) => void;
   onAddPriority: () => void;
   onRemovePriority: (v: string) => void;
-
-  inputStyle: CSSProperties;
 }
 
 export function RepoListSection({
@@ -120,40 +104,41 @@ export function RepoListSection({
   setNewPriority,
   onAddPriority,
   onRemovePriority,
-  inputStyle,
 }: RepoListSectionProps) {
   return (
     <>
       <ListEditor
         label="States"
+        itemName="state"
         items={states}
         newValue={newState}
         setNewValue={setNewState}
         onAdd={onAddState}
         onRemove={onRemoveState}
         protectedItems={['stalled', 'not_planned']}
-        inputStyle={inputStyle}
       />
 
-      <ListEditor
-        label="Types"
-        items={types}
-        newValue={newType}
-        setNewValue={setNewType}
-        onAdd={onAddType}
-        onRemove={onRemoveType}
-        inputStyle={inputStyle}
-      />
+      <div className="ps-two" style={{ marginTop: '14px' }}>
+        <ListEditor
+          label="Types"
+          itemName="type"
+          items={types}
+          newValue={newType}
+          setNewValue={setNewType}
+          onAdd={onAddType}
+          onRemove={onRemoveType}
+        />
 
-      <ListEditor
-        label="Priorities"
-        items={priorities}
-        newValue={newPriority}
-        setNewValue={setNewPriority}
-        onAdd={onAddPriority}
-        onRemove={onRemovePriority}
-        inputStyle={inputStyle}
-      />
+        <ListEditor
+          label="Priorities"
+          itemName="priority"
+          items={priorities}
+          newValue={newPriority}
+          setNewValue={setNewPriority}
+          onAdd={onAddPriority}
+          onRemove={onRemovePriority}
+        />
+      </div>
     </>
   );
 }

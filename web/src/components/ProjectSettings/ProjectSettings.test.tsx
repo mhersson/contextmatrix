@@ -99,6 +99,10 @@ async function renderSettings() {
   await screen.findByLabelText(/repository url/i);
 }
 
+function openTab(name: RegExp) {
+  fireEvent.click(screen.getByRole('tab', { name }));
+}
+
 describe('ProjectSettings - handleSave payload construction for github_credential', () => {
   it('untouched stale binding: saving an unrelated field omits github_credential from the PUT body', async () => {
     mocks.getProject.mockResolvedValue(baseConfig({ github_credential: 'ghost' }));
@@ -180,6 +184,7 @@ describe('ProjectSettings - handleSave payload construction for remote_execution
     );
 
     await renderSettings();
+    openTab(/execution/i);
 
     const imageSelect = await screen.findByLabelText(/agent worker image/i);
     fireEvent.change(imageSelect, { target: { value: 'ghcr.io/org/worker:latest' } });
@@ -212,6 +217,7 @@ describe('ProjectSettings - handleSave payload construction for remote_execution
     );
 
     await renderSettings();
+    openTab(/execution/i);
 
     const chatSelect = await screen.findByLabelText(/chat worker image/i);
     await screen.findByRole('option', { name: 'contextmatrix-chat-worker:go-node' });
@@ -234,6 +240,7 @@ describe('ProjectSettings - handleSave payload construction for remote_execution
     mocks.getProject.mockResolvedValue(baseConfig());
 
     await renderSettings();
+    openTab(/execution/i);
     expect(screen.getByLabelText(/agent worker image/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/chat worker image/i)).toBeInTheDocument();
     expect(
@@ -246,6 +253,7 @@ describe('ProjectSettings - handleSave payload construction for remote_execution
     mocks.getProject.mockResolvedValue(baseConfig());
 
     await renderSettings();
+    openTab(/execution/i);
     expect(screen.queryByLabelText(/agent worker image/i)).not.toBeInTheDocument();
   });
 
@@ -254,6 +262,7 @@ describe('ProjectSettings - handleSave payload construction for remote_execution
     mocks.getProject.mockResolvedValue(baseConfig());
 
     await renderSettings();
+    openTab(/execution/i);
     expect(screen.queryByLabelText(/chat worker image/i)).not.toBeInTheDocument();
   });
 
@@ -320,6 +329,7 @@ describe('ProjectSettings - handleSave payload construction for verify', () => {
     );
 
     await renderSettings();
+    openTab(/execution/i);
 
     fireEvent.change(screen.getByLabelText(/verify command/i), {
       target: { value: 'make test' },
@@ -351,6 +361,7 @@ describe('ProjectSettings - handleSave payload construction for verify', () => {
     mocks.updateProject.mockResolvedValue(baseConfig());
 
     await renderSettings();
+    openTab(/execution/i);
 
     fireEvent.change(screen.getByLabelText(/verify command/i), { target: { value: '' } });
     fireEvent.change(screen.getByLabelText(/timeout \(seconds\)/i), { target: { value: '' } });
@@ -372,6 +383,7 @@ describe('ProjectSettings - handleSave payload construction for verify', () => {
     mocks.updateProject.mockResolvedValue(baseConfig({ verify: { command: 'make test' } }));
 
     await renderSettings();
+    openTab(/execution/i);
 
     fireEvent.change(screen.getByLabelText(/verify command/i), {
       target: { value: 'make test' },
@@ -394,8 +406,10 @@ describe('ProjectSettings - handleSave payload construction for card_defaults', 
     mocks.updateProject.mockResolvedValue(baseConfig({ card_defaults: { autonomous: true }, repo: 'x' }));
 
     await renderSettings();
+    openTab(/automation/i);
     expect(screen.getByLabelText('Default autonomous mode')).toBeChecked();
 
+    openTab(/source/i);
     fireEvent.change(screen.getByLabelText(/repository url/i), { target: { value: 'x' } });
     const saveButton = screen.getByRole('button', { name: /save/i });
     await waitFor(() => expect(saveButton).not.toBeDisabled());
@@ -413,6 +427,7 @@ describe('ProjectSettings - handleSave payload construction for card_defaults', 
     );
 
     await renderSettings();
+    openTab(/automation/i);
     fireEvent.click(screen.getByLabelText('Default autonomous mode'));
     fireEvent.change(screen.getByLabelText('Default mob seats'), { target: { value: '3' } });
 
@@ -438,6 +453,7 @@ describe('ProjectSettings - handleSave payload construction for card_defaults', 
     mocks.updateProject.mockResolvedValue(baseConfig());
 
     await renderSettings();
+    openTab(/automation/i);
     fireEvent.click(screen.getByLabelText('Default autonomous mode'));
 
     const saveButton = screen.getByRole('button', { name: /save/i });
@@ -456,16 +472,144 @@ describe('ProjectSettings - handleSave payload construction for card_defaults', 
     });
   });
 
-  it('sits between the transition matrix and default task skills', async () => {
+  it('Automation tab lists card defaults before task skills', async () => {
+    mocks.getProject.mockResolvedValue(baseConfig());
+    await renderSettings();
+    openTab(/automation/i);
+
+    const defaults = screen.getByRole('heading', { name: /card defaults/i });
+    const skills = screen.getByRole('heading', { name: /task skills/i });
+    expect(defaults.compareDocumentPosition(skills) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
+
+describe('ProjectSettings - rail tabs, header and dirty state', () => {
+  it('renders five tabs with Source active and only its sections mounted', async () => {
     mocks.getProject.mockResolvedValue(baseConfig());
     await renderSettings();
 
-    const headings = Array.from(document.querySelectorAll('div.block.text-xs')).map((el) => el.textContent?.trim());
-    const transitions = headings.findIndex((h) => /transition/i.test(h ?? ''));
-    const defaults = headings.indexOf('Card defaults');
-    const skills = headings.findIndex((h) => /default task skills/i.test(h ?? ''));
-    expect(transitions).toBeGreaterThanOrEqual(0);
-    expect(defaults).toBeGreaterThan(transitions);
-    expect(skills).toBeGreaterThan(defaults);
+    const tabs = screen.getAllByRole('tab');
+    expect(tabs).toHaveLength(5);
+    ['Source', 'Workflow', 'Automation', 'Execution', 'Danger'].forEach((name, i) =>
+      expect(tabs[i]).toHaveAccessibleName(name),
+    );
+    expect(screen.getByRole('tab', { name: 'Source' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByLabelText(/repository url/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Remove todo' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/verify command/i)).not.toBeInTheDocument();
+  });
+
+  it('switching to Workflow mounts the state chips and unmounts the repository field', async () => {
+    mocks.getProject.mockResolvedValue(baseConfig({ states: ['todo', 'stalled', 'not_planned'] }));
+    await renderSettings();
+    openTab(/workflow/i);
+
+    expect(screen.getByRole('tab', { name: 'Workflow' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('button', { name: 'Remove todo' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Remove stalled' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Remove not_planned' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'todo → stalled' })).toBeInTheDocument();
+    expect(screen.queryByLabelText(/repository url/i)).not.toBeInTheDocument();
+  });
+
+  it('marks only the edited tab as unsaved and clears the mark after saving', async () => {
+    mocks.getProject.mockResolvedValue(baseConfig());
+    mocks.updateProject.mockResolvedValue(baseConfig({ repo: 'git@github.com:org/new.git' }));
+    await renderSettings();
+
+    expect(screen.queryByRole('tab', { name: /unsaved changes/i })).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/repository url/i), {
+      target: { value: 'git@github.com:org/new.git' },
+    });
+
+    expect(screen.getByRole('tab', { name: /source.*unsaved changes/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Workflow' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Execution' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+    await waitFor(() => expect(mocks.updateProject).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(screen.queryByRole('tab', { name: /unsaved changes/i })).not.toBeInTheDocument(),
+    );
+  });
+
+  it('keeps the unsaved mark on a tab while another tab is open', async () => {
+    mocks.getProject.mockResolvedValue(baseConfig());
+    await renderSettings();
+    openTab(/execution/i);
+    fireEvent.change(screen.getByLabelText(/verify command/i), { target: { value: 'make test' } });
+    openTab(/workflow/i);
+
+    expect(screen.getByRole('tab', { name: /execution.*unsaved changes/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Workflow' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('Discard restores the loaded config and disables Save', async () => {
+    mocks.getProject.mockResolvedValue(baseConfig());
+    await renderSettings();
+
+    expect(screen.queryByRole('button', { name: /discard/i })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/repository url/i), {
+      target: { value: 'git@github.com:org/new.git' },
+    });
+    await waitFor(() => expect(screen.getByRole('button', { name: /save/i })).not.toBeDisabled());
+
+    fireEvent.click(screen.getByRole('button', { name: /discard/i }));
+
+    expect(screen.getByLabelText(/repository url/i)).toHaveValue('git@github.com:org/alpha.git');
+    expect(screen.getByRole('button', { name: /save/i })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /discard/i })).not.toBeInTheDocument();
+    expect(mocks.updateProject).not.toHaveBeenCalled();
+  });
+
+  it('header carries the display name, prefix chip and card count', async () => {
+    mocks.getProject.mockResolvedValue(baseConfig({ boards_repo: 'alpha-boards' }));
+    mocks.getCards.mockResolvedValue([{ id: 'ALPHA-1' }, { id: 'ALPHA-2' }]);
+    await renderSettings();
+
+    expect(screen.getByRole('heading', { name: 'Alpha' })).toBeInTheDocument();
+    expect(screen.getByText('ALPHA')).toBeInTheDocument();
+    expect(screen.getByText(/2 cards/)).toBeInTheDocument();
+    // A single-repo instance has nothing to distinguish, so the repo stays out.
+    expect(screen.queryByText('alpha-boards')).not.toBeInTheDocument();
+  });
+
+  it('header names the boards repo on a multi-repo instance', async () => {
+    mocks.useTheme.mockReturnValue({
+      chatEnabled: true,
+      taskBackend: 'agent',
+      boardsRepos: [{ name: 'alpha-boards' }, { name: 'team-boards' }],
+    });
+    mocks.getProject.mockResolvedValue(baseConfig({ boards_repo: 'alpha-boards' }));
+    await renderSettings();
+
+    expect(screen.getByText('alpha-boards')).toBeInTheDocument();
+  });
+
+  it('Danger tab explains why delete is blocked while cards exist', async () => {
+    mocks.getProject.mockResolvedValue(baseConfig());
+    mocks.getCards.mockResolvedValue([{ id: 'ALPHA-1' }]);
+    await renderSettings();
+    openTab(/danger/i);
+
+    expect(screen.getByRole('button', { name: /delete project/i })).toBeDisabled();
+    expect(screen.getByText(/this project has 1 card\. delete every card first/i)).toBeInTheDocument();
+  });
+
+  it('read-only: swaps the buttons for the lock note, disables fields, tabs still switch', async () => {
+    mocks.useOptionalAuth.mockReturnValue({
+      mode: 'multi',
+      user: { username: 'viewer', display_name: 'Viewer', is_admin: false },
+    });
+    mocks.getProject.mockResolvedValue(baseConfig());
+    await renderSettings();
+
+    expect(screen.queryByRole('button', { name: /save/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/only admins/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/repository url/i)).toBeDisabled();
+
+    openTab(/workflow/i);
+    expect(screen.getByRole('button', { name: 'todo → in_progress' })).toBeDisabled();
   });
 });

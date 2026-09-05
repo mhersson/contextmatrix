@@ -4955,3 +4955,404 @@ textarea {
   gap: 4px;
   min-width: 0;
 }
+
+/* ── Project settings page ───────────────────────────────────────────── */
+/* Single centred column under the project crumb: a board-band style header,
+   the card panel's rail tab strip (sticky), then the active tab's sections.
+   Fields sit on bg-dim (the page) rather than bg0 (the card panel), so they
+   use bg0 instead of .bf-input's bg-dim - in the light palettes bg2 and
+   bg-dim share a colour and a bg-dim field would vanish into the page. */
+.ps-page {
+  height: 100%;
+  overflow-y: auto;
+}
+.ps-col {
+  max-width: 768px;
+  margin: 0 auto;
+  padding: 0 24px 48px;
+}
+.ps-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 14px 20px;
+  padding: 18px 0 16px;
+}
+.ps-head__main {
+  flex: 1 1 340px;
+  min-width: 0;
+}
+.ps-head__title {
+  font-family: var(--font-display);
+  font-weight: 460;
+  font-size: 30px;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  color: var(--fg);
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-variation-settings:
+    "opsz" 32,
+    "SOFT" 30;
+}
+.ps-head__sub {
+  margin-top: 8px;
+  font-size: 12.5px;
+  color: var(--grey1);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.ps-head__sub .sep {
+  color: var(--bg5);
+}
+.ps-head__sub .mono {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+.ps-prefix {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 9999px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  background: var(--bg2);
+  border: 1px solid var(--bg4);
+  color: var(--grey2);
+}
+.ps-head__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.ps-unsaved {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--yellow);
+  margin-right: 4px;
+}
+.ps-readonly {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--yellow);
+}
+
+/* Tab strip - .bf-rail-tab supplies the tab look; the strip pins to the
+   top of the page scroller so the tabs stay reachable in a long tab. */
+.ps-tabs {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--bg3);
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--bg-dim);
+  overflow-x: auto;
+}
+.ps-tab-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 99px;
+  background: var(--yellow);
+  flex-shrink: 0;
+}
+
+/* Sections - hairline separated, mono eyebrow, optional grey lead. */
+.ps-section {
+  padding: 20px 0 22px;
+  border-bottom: 1px solid color-mix(in oklab, var(--bg3) 60%, transparent);
+}
+.ps-section:last-child {
+  border-bottom: 0;
+}
+.ps-section > .section-eyebrow {
+  display: block;
+  margin: 0 0 10px;
+}
+.ps-lead {
+  font-size: 12.5px;
+  color: var(--grey1);
+  line-height: 1.55;
+  margin: -4px 0 12px;
+  max-width: 62ch;
+}
+.ps-field {
+  margin-bottom: 12px;
+}
+.ps-field:last-child {
+  margin-bottom: 0;
+}
+.ps-label {
+  display: block;
+  font-size: 12px;
+  color: var(--grey1);
+  margin-bottom: 5px;
+}
+.ps-input {
+  width: 100%;
+  background: var(--bg0);
+  border: 1px solid var(--bg3);
+  border-radius: 4px;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--fg);
+  outline: none;
+  transition: border-color 0.12s;
+}
+.ps-input:focus {
+  border-color: var(--aqua);
+}
+.ps-input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.ps-input--static {
+  color: var(--grey2);
+}
+.ps-select {
+  width: 100%;
+  padding: 8px 34px 8px 12px;
+  background-color: var(--bg0);
+  border: 1px solid var(--bg3);
+  border-radius: 8px;
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  transition:
+    border-color 0.12s,
+    background-color 0.12s;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><path d='M3 4.5l3 3 3-3' fill='none' stroke='%239da9a0' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 12px;
+}
+.ps-select:hover:not(:disabled) {
+  border-color: var(--bg5);
+}
+.ps-select:focus {
+  border-color: var(--aqua);
+  outline: none;
+}
+.ps-select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.ps-hint {
+  margin-top: 5px;
+  font-size: 12px;
+  color: var(--grey1);
+  line-height: 1.5;
+  max-width: 62ch;
+}
+.ps-hint--alert {
+  color: var(--red);
+}
+.ps-two {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.ps-two--command {
+  grid-template-columns: 1fr 140px;
+}
+.ps-radio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 4px 0;
+  color: var(--fg);
+}
+.ps-radio input,
+.ps-check input {
+  accent-color: var(--aqua);
+  margin: 0;
+}
+.ps-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+}
+.ps-check input {
+  margin-top: 3px;
+}
+
+/* List editors (states / types / priorities). */
+.ps-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.ps-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 9px;
+  border-radius: 9999px;
+  background: var(--bg1);
+  border: 1px solid color-mix(in oklab, var(--bg5) 60%, transparent);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1;
+}
+.ps-chip--locked {
+  padding-right: 9px;
+  color: var(--grey2);
+}
+.ps-chip button {
+  color: var(--grey1);
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 2px;
+  border-radius: 99px;
+  transition: color 0.12s;
+}
+.ps-chip button:hover:not(:disabled) {
+  color: var(--red);
+}
+.ps-addrow {
+  display: flex;
+  gap: 8px;
+}
+.ps-addrow .ps-input {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+/* Transition matrix - rows are the source state, columns the target. */
+.ps-matrix-wrap {
+  overflow-x: auto;
+}
+.ps-matrix {
+  border-collapse: separate;
+  border-spacing: 3px;
+  margin: 4px 0 0 -3px;
+}
+.ps-matrix th {
+  font-family: var(--font-mono);
+  font-weight: 400;
+  padding: 0;
+}
+.ps-matrix thead th {
+  vertical-align: bottom;
+  text-align: center;
+  height: 88px;
+}
+.ps-matrix__col {
+  display: inline-block;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: 10.5px;
+  color: var(--grey1);
+  white-space: nowrap;
+}
+.ps-matrix__corner {
+  font-size: 10px;
+  color: var(--grey0);
+  text-align: right;
+  line-height: 1.2;
+  white-space: nowrap;
+  padding: 0 6px 4px 0 !important;
+}
+.ps-matrix tbody th {
+  font-size: 11.5px;
+  color: var(--fg);
+  text-align: right;
+  padding-right: 10px !important;
+  white-space: nowrap;
+}
+.ps-matrix td {
+  padding: 0;
+  line-height: 0;
+}
+.ps-cell {
+  display: block;
+  width: 28px;
+  height: 28px;
+  border-radius: 5px;
+  background: var(--bg1);
+  border: 1px solid color-mix(in oklab, var(--bg5) 35%, transparent);
+  position: relative;
+  transition:
+    background 0.1s,
+    border-color 0.1s;
+}
+.ps-cell:hover:not(:disabled) {
+  border-color: var(--bg5);
+}
+.ps-cell[aria-pressed="true"] {
+  background: var(--bg-aqua);
+  border-color: color-mix(in oklab, var(--aqua) 45%, transparent);
+}
+.ps-cell[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 99px;
+  background: var(--aqua);
+}
+.ps-cell:disabled {
+  cursor: not-allowed;
+}
+.ps-cell--self {
+  display: block;
+  width: 28px;
+  height: 28px;
+  border-radius: 5px;
+  border: 1px dashed color-mix(in oklab, var(--bg3) 70%, transparent);
+}
+.ps-matrix-legend {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--grey1);
+  margin-top: 10px;
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+.ps-matrix-legend i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--bg-aqua);
+  border: 1px solid color-mix(in oklab, var(--aqua) 45%, transparent);
+  vertical-align: -1px;
+  margin-right: 5px;
+}
+
+.ps-danger-intro {
+  margin-bottom: 14px;
+}
+
+@media (max-width: 768px) {
+  .ps-col {
+    padding: 0 14px 40px;
+  }
+  .ps-head__title {
+    font-size: 22px;
+    letter-spacing: -0.015em;
+  }
+  .ps-two,
+  .ps-two--command {
+    grid-template-columns: 1fr;
+  }
+}

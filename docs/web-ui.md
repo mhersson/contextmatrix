@@ -139,12 +139,17 @@ Catppuccin.
   display name), card prefix (derived, uppercase) and code repo URL. It creates
   the board with the default states, types, priorities and transitions from
   [boards](boards.md).
-- **Project Settings** (`s`) edits everything in `.board.yaml`: repos, states,
-  types and priorities (`stalled` and `not_planned` cannot be removed), the
-  transition matrix, card defaults (what a new card's Automation rail starts
-  with), remote-execution worker images, the verify gate, GitHub issue import,
-  default skills and, in `multi` mode, the GitHub credential binding. Deleting
-  the project sits in the Danger Zone. Both are admin-only in `multi` mode.
+- **Project Settings** (`s`) edits everything in `.board.yaml`, grouped into
+  five tabs under a header that carries the project's name, prefix and card
+  count. **Source** holds the code repo URL, GitHub issue import and, in
+  `multi` mode, the GitHub credential binding. **Workflow** holds states,
+  types and priorities (`stalled` and `not_planned` cannot be removed) and the
+  transition matrix: rows are where a card is, columns where it may go.
+  **Automation** holds card defaults (what a new card's Automation rail starts
+  with) and default skills. **Execution** holds the remote-execution worker
+  images and the verify gate. **Danger** deletes the project. A tab with
+  unsaved edits shows a dot until Save changes or Discard. Both the wizard and
+  the settings are admin-only in `multi` mode.
 
 ## Keyboard shortcuts
 
