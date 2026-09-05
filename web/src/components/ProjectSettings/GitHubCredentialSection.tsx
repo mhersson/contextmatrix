@@ -61,13 +61,9 @@ export function GitHubCredentialSection({ value, onChange, readOnly }: GitHubCre
 
   if (readOnly) {
     return (
-      <div>
-        <div className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>
-          GitHub credential
-        </div>
-        <div className="px-3 py-2 rounded text-sm" style={{ backgroundColor: 'var(--bg1)', color: 'var(--grey2)' }}>
-          {value || 'Instance default'}
-        </div>
+      <div className="ps-field">
+        <div className="ps-label">GitHub credential</div>
+        <div className="bf-input ps-static">{value || 'Instance default'}</div>
       </div>
     );
   }
@@ -75,17 +71,11 @@ export function GitHubCredentialSection({ value, onChange, readOnly }: GitHubCre
   const isMissing = !loading && !error && value !== '' && !credentials.some((c) => c.name === value);
 
   return (
-    <div>
-      <label htmlFor={selectId} className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>
+    <div className="ps-field">
+      <label htmlFor={selectId} className="ps-label">
         GitHub credential
       </label>
-      <select
-        id={selectId}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full px-3 py-2 rounded text-sm border focus:outline-none"
-        style={{ backgroundColor: 'var(--bg2)', borderColor: 'var(--bg3)', color: 'var(--fg)' }}
-      >
+      <select id={selectId} value={value} onChange={(e) => onChange(e.target.value)} className="bf-state-select">
         <option value="">{INSTANCE_DEFAULT_LABEL}</option>
         {credentials.map((c) => (
           <option key={c.name} value={c.name}>
@@ -94,13 +84,9 @@ export function GitHubCredentialSection({ value, onChange, readOnly }: GitHubCre
         ))}
         {isMissing && <option value={value}>{`${value} (credential missing)`}</option>}
       </select>
-      {error && (
-        <div className="text-xs mt-1" style={{ color: 'var(--red)' }}>
-          {error}
-        </div>
-      )}
+      {error && <div className="ps-hint ps-hint--alert">{error}</div>}
       {isMissing && (
-        <div className="text-xs mt-1" role="alert" style={{ color: 'var(--red)' }}>
+        <div className="ps-hint ps-hint--alert" role="alert" style={{ color: 'var(--red)' }}>
           credential no longer exists - operations on this project will fail
         </div>
       )}

@@ -1,5 +1,4 @@
 import { useEffect, useId, useState } from 'react';
-import type { CSSProperties } from 'react';
 import { api, isAPIError } from '../../api/client';
 
 export interface WorkerImageSelectProps {
@@ -11,7 +10,6 @@ export interface WorkerImageSelectProps {
   onChange: (next: string) => void;
   /** Non-admins in multi mode: render plain text, skip the fetch (403). */
   readOnly: boolean;
-  inputStyle: CSSProperties;
   /** Optional caption rendered under the select. */
   hint?: string;
 }
@@ -41,7 +39,6 @@ export function WorkerImageSelect({
   value,
   onChange,
   readOnly,
-  inputStyle,
   hint,
 }: WorkerImageSelectProps) {
   const [tags, setTags] = useState<string[]>([]);
@@ -73,16 +70,9 @@ export function WorkerImageSelect({
 
   if (readOnly) {
     return (
-      <div>
-        <div className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>
-          {label}
-        </div>
-        <div
-          className="px-3 py-2 rounded text-sm"
-          style={{ backgroundColor: 'var(--bg1)', color: 'var(--grey2)' }}
-        >
-          {value || BACKEND_DEFAULT_LABEL}
-        </div>
+      <div className="ps-field">
+        <div className="ps-label">{label}</div>
+        <div className="bf-input ps-static">{value || BACKEND_DEFAULT_LABEL}</div>
       </div>
     );
   }
@@ -98,16 +88,15 @@ export function WorkerImageSelect({
   const needsPlainValueOption = value !== '' && !valueInTags && !isMissing;
 
   return (
-    <div>
-      <label htmlFor={selectId} className="block text-xs mb-1" style={{ color: 'var(--grey1)' }}>
+    <div className="ps-field">
+      <label htmlFor={selectId} className="ps-label">
         {label}
       </label>
       <select
         id={selectId}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full px-3 py-2 rounded text-sm border focus:outline-none"
-        style={inputStyle}
+        className="bf-state-select"
       >
         <option value="">{BACKEND_DEFAULT_LABEL}</option>
         {tags.map((tag) => (
@@ -118,22 +107,14 @@ export function WorkerImageSelect({
         {needsPlainValueOption && <option value={value}>{value}</option>}
         {isMissing && <option value={value}>{`${value} (not on worker node)`}</option>}
       </select>
-      {error && (
-        <div className="text-xs mt-1" style={{ color: 'var(--grey1)' }}>
-          could not load the image list - {error}
-        </div>
-      )}
+      {error && <div className="ps-hint">could not load the image list - {error}</div>}
       {isMissing && (
-        <div className="text-xs mt-1" role="alert" style={{ color: 'var(--red)' }}>
+        <div className="ps-hint ps-hint--alert" role="alert">
           image not present on the worker node - runs will fail until it is
           rebuilt or a listed image is selected
         </div>
       )}
-      {hint && (
-        <p className="mt-1 text-xs" style={{ color: 'var(--grey1)' }}>
-          {hint}
-        </p>
-      )}
+      {hint && <p className="ps-hint">{hint}</p>}
     </div>
   );
 }

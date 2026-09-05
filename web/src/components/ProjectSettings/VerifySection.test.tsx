@@ -11,7 +11,7 @@ function Harness({ initial = {} }: { initial?: VerifyConfig }) {
   const [value, setValue] = useState<VerifyConfig>(initial);
   return (
     <>
-      <VerifySection value={value} onChange={setValue} inputStyle={{}} />
+      <VerifySection value={value} onChange={setValue} />
       <output data-testid="env-json">{JSON.stringify(value.env ?? null)}</output>
     </>
   );
@@ -43,7 +43,7 @@ describe('VerifySection env input', () => {
       const [value, setValue] = useState<VerifyConfig>({ env: ['A'] });
       return (
         <>
-          <VerifySection value={value} onChange={setValue} inputStyle={{}} />
+          <VerifySection value={value} onChange={setValue} />
           <button onClick={() => setValue({ env: ['X', 'Y'] })}>load</button>
         </>
       );
