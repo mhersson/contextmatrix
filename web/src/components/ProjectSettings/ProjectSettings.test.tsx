@@ -387,3 +387,85 @@ describe('ProjectSettings - handleSave payload construction for verify', () => {
     expect(body.verify).not.toHaveProperty('env');
   });
 });
+
+describe('ProjectSettings - handleSave payload construction for card_defaults', () => {
+  it('untouched: saving an unrelated field omits card_defaults from the PUT body', async () => {
+    mocks.getProject.mockResolvedValue(baseConfig({ card_defaults: { autonomous: true } }));
+    mocks.updateProject.mockResolvedValue(baseConfig({ card_defaults: { autonomous: true }, repo: 'x' }));
+
+    await renderSettings();
+    expect(screen.getByLabelText('Default autonomous mode')).toBeChecked();
+
+    fireEvent.change(screen.getByLabelText(/repository url/i), { target: { value: 'x' } });
+    const saveButton = screen.getByRole('button', { name: /save/i });
+    await waitFor(() => expect(saveButton).not.toBeDisabled());
+    fireEvent.click(saveButton);
+
+    await waitFor(() => expect(mocks.updateProject).toHaveBeenCalled());
+    const [, body] = mocks.updateProject.mock.calls[0];
+    expect(body).not.toHaveProperty('card_defaults');
+  });
+
+  it('changed: enabling autonomous and mob seats sends the full explicit block', async () => {
+    mocks.getProject.mockResolvedValue(baseConfig());
+    mocks.updateProject.mockResolvedValue(
+      baseConfig({ card_defaults: { autonomous: true, mob_participants: 3, mob_phases: ['review'] } }),
+    );
+
+    await renderSettings();
+    fireEvent.click(screen.getByLabelText('Default autonomous mode'));
+    fireEvent.change(screen.getByLabelText('Default mob seats'), { target: { value: '3' } });
+
+    const saveButton = screen.getByRole('button', { name: /save/i });
+    await waitFor(() => expect(saveButton).not.toBeDisabled());
+    fireEvent.click(saveButton);
+
+    await waitFor(() => expect(mocks.updateProject).toHaveBeenCalled());
+    const [, body] = mocks.updateProject.mock.calls[0];
+    expect(body.card_defaults).toEqual({
+      autonomous: true,
+      max_capability: false,
+      mob_participants: 3,
+      mob_phases: ['review'],
+      create_pr: true,
+      await_ci: false,
+      await_copilot_review: false,
+    });
+  });
+
+  it('reset: turning a stored default back off sends the built-in block so the server clears it', async () => {
+    mocks.getProject.mockResolvedValue(baseConfig({ card_defaults: { autonomous: true } }));
+    mocks.updateProject.mockResolvedValue(baseConfig());
+
+    await renderSettings();
+    fireEvent.click(screen.getByLabelText('Default autonomous mode'));
+
+    const saveButton = screen.getByRole('button', { name: /save/i });
+    await waitFor(() => expect(saveButton).not.toBeDisabled());
+    fireEvent.click(saveButton);
+
+    await waitFor(() => expect(mocks.updateProject).toHaveBeenCalled());
+    const [, body] = mocks.updateProject.mock.calls[0];
+    expect(body.card_defaults).toEqual({
+      autonomous: false,
+      max_capability: false,
+      mob_participants: 0,
+      create_pr: true,
+      await_ci: false,
+      await_copilot_review: false,
+    });
+  });
+
+  it('sits between the transition matrix and default task skills', async () => {
+    mocks.getProject.mockResolvedValue(baseConfig());
+    await renderSettings();
+
+    const headings = Array.from(document.querySelectorAll('div.block.text-xs')).map((el) => el.textContent?.trim());
+    const transitions = headings.findIndex((h) => /transition/i.test(h ?? ''));
+    const defaults = headings.indexOf('Card defaults');
+    const skills = headings.findIndex((h) => /default task skills/i.test(h ?? ''));
+    expect(transitions).toBeGreaterThanOrEqual(0);
+    expect(defaults).toBeGreaterThan(transitions);
+    expect(skills).toBeGreaterThan(defaults);
+  });
+});
