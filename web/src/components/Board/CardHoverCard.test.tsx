@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import { CardHoverCard } from './CardHoverCard';
 import type { Card } from '../../types';
@@ -19,7 +19,23 @@ function renderHover(card: Card) {
   return render(<CardHoverCard card={card} anchorRef={{ current: null }} id="hover-TEST-001" />);
 }
 
+/** Anchors the panel to a fake card rect inside a fake viewport. */
+function renderAnchored(rect: Partial<DOMRect>, viewport: { width: number; height: number }, panelHeight = 100) {
+  const anchor = document.createElement('div');
+  anchor.getBoundingClientRect = () =>
+    ({ top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}), ...rect }) as DOMRect;
+  vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(viewport.width);
+  vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(viewport.height);
+  vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(panelHeight);
+  render(<CardHoverCard card={baseCard} anchorRef={{ current: anchor }} id="hover-TEST-001" />);
+  return screen.getByRole('tooltip');
+}
+
 describe('CardHoverCard', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('is a tooltip headed by id, type and priority', () => {
     renderHover(baseCard);
     const tip = screen.getByRole('tooltip');
@@ -84,5 +100,23 @@ describe('CardHoverCard', () => {
   it('omits the labels row when the card has none', () => {
     renderHover(baseCard);
     expect(screen.queryByTestId('hover-labels')).not.toBeInTheDocument();
+  });
+
+  it('floats to the right of the anchor when it fits', () => {
+    const tip = renderAnchored({ top: 100, left: 300, right: 560 }, { width: 1600, height: 900 });
+    expect(tip.style.left).toBe('568px');
+    expect(tip.style.top).toBe('100px');
+  });
+
+  it('flips to the left of the anchor at the viewport edge', () => {
+    const tip = renderAnchored({ top: 100, left: 1300, right: 1560 }, { width: 1600, height: 900 });
+    // left - gap - width: 1300 - 8 - 240
+    expect(tip.style.left).toBe('1052px');
+  });
+
+  it('clamps so the panel bottom stays inside the viewport', () => {
+    const tip = renderAnchored({ top: 850, left: 300, right: 560 }, { width: 1600, height: 900 }, 100);
+    // innerHeight - height - gap: 900 - 100 - 8
+    expect(tip.style.top).toBe('792px');
   });
 });

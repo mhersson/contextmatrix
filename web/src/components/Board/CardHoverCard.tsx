@@ -4,7 +4,7 @@ import type { Card } from '../../types';
 import { chipTint, priorityColors, typeColors } from '../../lib/chip';
 import { cardSignals, signalSvgProps } from '../../lib/cardSignals';
 
-export const HOVER_CARD_WIDTH = 240;
+const HOVER_CARD_WIDTH = 240;
 const GAP = 8;
 
 const userIcon = (
@@ -39,12 +39,11 @@ interface CardHoverCardProps {
 export function CardHoverCard({ card, anchorRef, id }: CardHoverCardProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
-  const [anchored, setAnchored] = useState(false);
 
+  // Layout effect: the (0,0) first render is measured and moved before paint.
   useLayoutEffect(() => {
     const anchor = anchorRef.current;
     if (!anchor || !panelRef.current) return;
-    setAnchored(true);
     const rect = anchor.getBoundingClientRect();
     const height = panelRef.current.offsetHeight;
     const fitsRight = rect.right + GAP + HOVER_CARD_WIDTH <= window.innerWidth;
@@ -53,8 +52,6 @@ export function CardHoverCard({ card, anchorRef, id }: CardHoverCardProps) {
     setPos({ top, left });
   }, [anchorRef]);
 
-  // Hidden only for the layout pass between mount and measurement.
-  const measuring = anchored && pos === null;
   const signals = cardSignals(card);
   const labels = card.labels ?? [];
   const mobPhases = card.mob_phases ?? [];
@@ -69,7 +66,6 @@ export function CardHoverCard({ card, anchorRef, id }: CardHoverCardProps) {
         width: HOVER_CARD_WIDTH,
         top: pos?.top ?? 0,
         left: pos?.left ?? 0,
-        visibility: measuring ? 'hidden' : 'visible',
       }}
     >
       <div className="card-hover__head" data-testid="hover-head">

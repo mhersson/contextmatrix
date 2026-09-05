@@ -4397,10 +4397,11 @@ textarea {
 /* Floating summary beside a hovered/focused card: id/type/priority head,
    one row per signal, HITL, labels. Portaled and fixed so column scroll
    clipping never applies; pointer-events none so it never steals the hover
-   from the card that owns it. */
+   from the card that owns it. Sits under the card panel drawer and the now
+   rail (z 50) so an open drawer covers it instead of the reverse. */
 .card-hover {
   position: fixed;
-  z-index: 60;
+  z-index: 45;
   pointer-events: none;
   padding: 10px 12px;
   border-radius: 10px;
