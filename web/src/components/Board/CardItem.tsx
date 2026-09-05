@@ -8,6 +8,7 @@ import { gitHubIcon } from '../icons';
 import { CardChipRow } from './CardChipRow';
 import { CardSignalIcons } from './CardSignalIcons';
 import { SubtaskStrip, SubtaskPeekList } from './SubtaskStrip';
+import { CardHoverCard } from './CardHoverCard';
 import { hasUnmetDeps } from '../../lib/chip';
 
 interface CardItemProps {
@@ -56,6 +57,48 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
   const subtaskFlash = !!flashCardId && (subtasks ?? []).some((s) => s.id === flashCardId);
   const isFlashing = card.id === flashCardId || subtaskFlash;
   const peekOpen = peekChoice ?? subtaskFlash;
+
+  // Hovercard: expanded, non-overlay cards only. Opens from the header's
+  // right-hand group (type pill + icons - present on every card, so a card
+  // with labels but no icons still has a target), never from the card body.
+  // Closes on leave, on any press (click or drag pickup, so no drag effect is
+  // needed), on scroll, on blur and on Escape while the card has focus.
+  // Focus opens it for keyboard users; a press sets the flag until mouseup
+  // so the focus a click confers does not pop the summary, and the mouseup
+  // reset keeps a press that focused a nested button (or nothing) from
+  // swallowing a later keyboard focus. onMouseDown is spread after
+  // {...listeners}: PointerSensor uses onPointerDown, but a MouseSensor's
+  // activator would be silently discarded, same trap as onKeyDown below.
+  const [hoverOpen, setHoverOpen] = useState(false);
+  const openHover = useCallback(() => setHoverOpen(true), []);
+  const closeHover = useCallback(() => setHoverOpen(false), []);
+  const hoverEnabled = !isCollapsed && !dragOverlay;
+  const hoverId = `card-hover-${card.id}`;
+  const pressed = useRef(false);
+  useEffect(() => {
+    if (!hoverOpen) return;
+    window.addEventListener('scroll', closeHover, true);
+    return () => window.removeEventListener('scroll', closeHover, true);
+  }, [hoverOpen, closeHover]);
+  const dndDescribedBy = (attributes as { 'aria-describedby'?: string })['aria-describedby'];
+  const describedBy = [dndDescribedBy, hoverOpen ? hoverId : undefined].filter(Boolean).join(' ');
+  const hoverRootProps = hoverEnabled
+    ? {
+        onMouseDown: () => {
+          pressed.current = true;
+          closeHover();
+          window.addEventListener('mouseup', () => { pressed.current = false; }, { once: true, capture: true });
+        },
+        onFocus: (e: React.FocusEvent<HTMLDivElement>) => {
+          if (e.target !== e.currentTarget || pressed.current) return;
+          openHover();
+        },
+        onBlur: (e: React.FocusEvent<HTMLDivElement>) => {
+          if (e.target === e.currentTarget) closeHover();
+        },
+        'aria-describedby': describedBy || undefined,
+      }
+    : {};
 
   const setRefs = useCallback((node: HTMLDivElement | null) => {
     setNodeRef(node);
@@ -126,7 +169,6 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
     <span
       className="rounded-full flex-shrink-0"
       style={{ width: size, height: size, backgroundColor: priorityColors[card.priority] || 'var(--grey1)' }}
-      title={`Priority: ${card.priority}`}
       role="img"
       aria-label={`Priority: ${card.priority}`}
     />
@@ -155,6 +197,7 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
   // Ignore events bubbling from nested buttons (chevron, badges, strip, rows).
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.target !== e.currentTarget) return;
+    if (e.key === 'Escape') closeHover();
     if (e.key === 'Enter') {
       e.preventDefault();
       onClick?.();
@@ -202,6 +245,7 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
       style={{ ...style, ...(statusBg ?? activeBg) }}
       {...listeners}
       {...attributes}
+      {...hoverRootProps}
       onClick={onClick}
       onKeyDown={handleKeyDown}
       aria-label={`Card ${card.id}: ${card.title}`}
@@ -224,27 +268,32 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
           <span style={cardIdStyle}>{card.id}</span>
         </span>
         <div className="flex items-center gap-1.5">
-          {cardSignals(card).length >= HEADER_SIGNAL_CAP ? (
-            <span
-              className="chip-pill"
-              style={chipTint(typeColors[card.type] || 'var(--grey1)')}
-              title={card.type}
-              aria-label={`Type: ${card.type}`}
-            >
-              {card.type.charAt(0)}
-            </span>
-          ) : (
-            <span className="chip-pill" style={chipTint(typeColors[card.type] || 'var(--grey1)')}>
-              {card.type}
-            </span>
-          )}
-          <CardSignalIcons card={card} />
-          {card.source?.system === 'github' && gitHubIcon}
-          {card.source && !card.vetted && (
-            <span className="chip-pill flex-shrink-0" style={chipTint('var(--yellow)')}>
-              unvetted
-            </span>
-          )}
+          <div
+            className="flex items-center gap-1.5 cursor-pointer"
+            onMouseEnter={hoverEnabled ? openHover : undefined}
+            onMouseLeave={closeHover}
+          >
+            {cardSignals(card).length >= HEADER_SIGNAL_CAP ? (
+              <span
+                className="chip-pill"
+                style={chipTint(typeColors[card.type] || 'var(--grey1)')}
+                aria-label={`Type: ${card.type}`}
+              >
+                {card.type.charAt(0)}
+              </span>
+            ) : (
+              <span className="chip-pill" style={chipTint(typeColors[card.type] || 'var(--grey1)')}>
+                {card.type}
+              </span>
+            )}
+            <CardSignalIcons card={card} />
+            {card.source?.system === 'github' && gitHubIcon}
+            {card.source && !card.vetted && (
+              <span className="chip-pill flex-shrink-0" style={chipTint('var(--yellow)')}>
+                unvetted
+              </span>
+            )}
+          </div>
           {collapseButton}
         </div>
       </div>
@@ -270,6 +319,10 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
       <CardChipRow card={card} />
 
       {peekList}
+
+      {hoverEnabled && hoverOpen && (
+        <CardHoverCard card={card} anchorRef={cardRef} id={hoverId} />
+      )}
     </div>
   );
 }

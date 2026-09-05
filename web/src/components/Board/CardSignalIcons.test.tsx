@@ -168,3 +168,23 @@ describe('CardSignalIcons', () => {
     });
   });
 });
+
+describe('CardSignalIcons - hovercard handoff', () => {
+  it('carries no native title on icons or the overflow chip', () => {
+    render(
+      <CardSignalIcons
+        card={{
+          ...baseCard,
+          autonomous: true,
+          depends_on: ['TEST-000'],
+          mob_participants: 2,
+          worker_status: 'queued',
+          in_playbooks: ['rollout'],
+        }}
+      />,
+    );
+    for (const img of screen.getAllByRole('img')) {
+      expect(img).not.toHaveAttribute('title');
+    }
+  });
+});

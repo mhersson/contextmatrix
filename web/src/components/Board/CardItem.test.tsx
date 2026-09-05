@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { CardItem } from './CardItem';
 import type { Card } from '../../types';
 
@@ -21,6 +21,8 @@ vi.mock('@dnd-kit/sortable', async (importOriginal) => {
         role: options?.attributes?.role ?? 'button',
         tabIndex: options?.attributes?.tabIndex ?? 0,
         'aria-roledescription': options?.attributes?.roleDescription ?? 'sortable',
+        // dnd-kit points every draggable at its screen-reader instructions.
+        'aria-describedby': 'DndDescribedBy-0',
       },
       listeners: {},
       setNodeRef: () => {},
@@ -245,5 +247,171 @@ describe('CardItem - orphan subtask tint', () => {
     render(<CardItem card={card} />);
     const root = screen.getByLabelText(`Card ${card.id}: ${card.title}`);
     expect(root.className).toContain('animate-pulse-border');
+  });
+});
+
+describe('CardItem - hovercard', () => {
+  const signalCard: Card = { ...baseCard, autonomous: true, labels: ['backend'] };
+  const cardRoot = () => screen.getByRole('button', { name: 'Card TEST-001: Test card title' });
+  // The type pill is in every expanded header, so it anchors the hover zone
+  // even on cards with labels but no signal icons.
+  const headerGroup = () => screen.getByText('task').parentElement!;
+
+  it('does not open from the card body, however long the pointer rests', () => {
+    vi.useFakeTimers();
+    try {
+      render(<CardItem card={signalCard} />);
+      fireEvent.mouseEnter(cardRoot());
+      act(() => { vi.advanceTimersByTime(2000); });
+      expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('opens immediately when the header group is hovered', () => {
+    render(<CardItem card={{ ...baseCard, labels: ['backend'] }} />);
+    fireEvent.mouseEnter(headerGroup());
+    expect(screen.getByRole('tooltip')).toHaveTextContent('backend');
+  });
+
+  it('opens when a header signal icon is hovered', () => {
+    render(<CardItem card={signalCard} />);
+    fireEvent.mouseEnter(screen.getByRole('img', { name: 'Autonomous' }));
+    expect(screen.getByRole('tooltip')).toBeInTheDocument();
+  });
+
+  it('shows a pointer cursor over the header group', () => {
+    render(<CardItem card={baseCard} />);
+    expect(headerGroup()).toHaveClass('cursor-pointer');
+  });
+
+  it('adds the open hovercard to aria-describedby without dropping the drag instructions', () => {
+    render(<CardItem card={signalCard} />);
+    expect(cardRoot()).toHaveAttribute('aria-describedby', 'DndDescribedBy-0');
+    const group = headerGroup();
+    fireEvent.mouseEnter(group);
+    expect(cardRoot()).toHaveAttribute(
+      'aria-describedby',
+      `DndDescribedBy-0 ${screen.getByRole('tooltip').id}`,
+    );
+    fireEvent.mouseLeave(group);
+    expect(cardRoot()).toHaveAttribute('aria-describedby', 'DndDescribedBy-0');
+  });
+
+  it('closes when the pointer leaves the header group', () => {
+    render(<CardItem card={signalCard} />);
+    const group = headerGroup();
+    fireEvent.mouseEnter(group);
+    fireEvent.mouseLeave(group);
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  });
+
+  it('closes on mouse down so a click or drag starts clean', () => {
+    render(<CardItem card={signalCard} />);
+    fireEvent.mouseEnter(headerGroup());
+    fireEvent.mouseDown(cardRoot());
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  });
+
+  it('opens on keyboard focus of the card itself and closes on blur', () => {
+    render(<CardItem card={signalCard} />);
+    fireEvent.focus(cardRoot());
+    expect(screen.getByRole('tooltip')).toBeInTheDocument();
+    fireEvent.blur(cardRoot());
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  });
+
+  it('does not open from the focus a mouse press confers', () => {
+    render(<CardItem card={signalCard} />);
+    fireEvent.mouseDown(cardRoot());
+    fireEvent.focus(cardRoot());
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  });
+
+  it('still opens on keyboard focus after a press that focused a nested button', () => {
+    render(<CardItem card={signalCard} onToggleCollapse={() => {}} />);
+    const collapse = screen.getByRole('button', { name: 'Collapse card' });
+    fireEvent.mouseDown(collapse);
+    fireEvent.focus(collapse);
+    fireEvent.mouseUp(collapse);
+    fireEvent.focus(cardRoot());
+    expect(screen.getByRole('tooltip')).toBeInTheDocument();
+  });
+
+  it('closes on Escape while the card has focus', () => {
+    render(<CardItem card={signalCard} />);
+    fireEvent.focus(cardRoot());
+    fireEvent.keyDown(cardRoot(), { key: 'Escape' });
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  });
+
+  it('closes when any scroll container scrolls', () => {
+    render(<CardItem card={signalCard} />);
+    fireEvent.mouseEnter(headerGroup());
+    fireEvent.scroll(document.body);
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  });
+
+  it('closes when focus moves from the card into a nested button', () => {
+    render(<CardItem card={signalCard} onToggleCollapse={() => {}} />);
+    fireEvent.focus(cardRoot());
+    fireEvent.blur(cardRoot());
+    fireEvent.focus(screen.getByRole('button', { name: 'Collapse card' }));
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  });
+
+  it('opens from the crowded-header type initial too', () => {
+    render(
+      <CardItem
+        card={{
+          ...signalCard,
+          depends_on: ['TEST-000'],
+          mob_participants: 2,
+          worker_status: 'queued',
+          in_playbooks: ['rollout'],
+        }}
+      />,
+    );
+    fireEvent.mouseEnter(screen.getByLabelText('Type: task'));
+    expect(screen.getByRole('tooltip')).toBeInTheDocument();
+  });
+
+  it('keeps the collapse button outside the hover zone so its own tooltip stands alone', () => {
+    render(<CardItem card={signalCard} onToggleCollapse={() => {}} />);
+    const collapse = screen.getByRole('button', { name: 'Collapse card' });
+    expect(collapse).toHaveAttribute('title', 'Collapse card');
+    fireEvent.mouseEnter(collapse);
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  });
+
+  it('never shows a hovercard on a collapsed row', () => {
+    render(<CardItem card={signalCard} isCollapsed onToggleCollapse={() => {}} />);
+    fireEvent.mouseEnter(screen.getByLabelText('Type: task'));
+    fireEvent.focus(cardRoot());
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  });
+
+  it('never shows a hovercard on the drag overlay copy', () => {
+    render(<CardItem card={signalCard} dragOverlay />);
+    fireEvent.mouseEnter(headerGroup());
+    fireEvent.focus(cardRoot());
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  });
+
+  it('drops the slow native title from the priority dot and crowded type pill', () => {
+    render(
+      <CardItem
+        card={{
+          ...signalCard,
+          depends_on: ['TEST-000'],
+          mob_participants: 2,
+          worker_status: 'queued',
+          in_playbooks: ['rollout'],
+        }}
+      />,
+    );
+    expect(screen.getByRole('img', { name: 'Priority: medium' })).not.toHaveAttribute('title');
+    expect(screen.getByLabelText('Type: task')).not.toHaveAttribute('title');
   });
 });
