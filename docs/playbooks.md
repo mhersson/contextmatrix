@@ -66,7 +66,7 @@ required on mutations for `created_by` and `done_by` attribution.
 
 | MCP tool                | REST                                              | Does                                                          |
 | ----------------------- | ------------------------------------------------- | ------------------------------------------------------------- |
-| `list_playbooks`        | `GET /api/playbooks`                              | Summaries: progress, segments, project count                  |
+| `list_playbooks`        | `GET /api/playbooks`                              | Summaries: progress, segments, project count, gates, next entry |
 | `get_playbook`          | `GET /api/playbooks/{id}`                         | Full detail with every entry resolved against the card store  |
 | `create_playbook`       | `POST /api/playbooks`                             | `title`, `description`, `boards_repo`, initial `entries`; all-or-nothing |
 | `update_playbook`       | `PATCH /api/playbooks/{id}`                       | Title and description; the id never changes                   |
