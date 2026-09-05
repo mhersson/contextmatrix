@@ -200,7 +200,8 @@ Full detail and examples: `docs/data-model.md`.
 5. **Every mutation auto-commits** via `GitManager.CommitFile()`. With
    `git_deferred_commit`, a claimed card's commits batch until release or
    completion, entry into `review` or `not_planned`, a stall, or a terminal
-   worker status. Mutations on an unclaimed card commit immediately; startup
+   worker status. Updates, state changes and log entries on an unclaimed
+   card commit immediately; on a non-shared auto-commit repo, startup
    commits any dirty paths a previous process left behind.
 6. **Activity log** - append-only, capped at 50 entries per card.
 7. **Heartbeat timeout** - default 30 min; the service sets the card to
