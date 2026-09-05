@@ -132,11 +132,15 @@ const workerSignals: Record<WorkerStatus, Omit<CardSignal, 'key' | 'importance'>
 export function cardSignals(card: Card): CardSignal[] {
   const signals: CardSignal[] = [];
 
-  if ((card.depends_on?.length ?? 0) > 0) {
+  const dependsOn = card.depends_on ?? [];
+  if (dependsOn.length > 0) {
+    // blocked_by is server-computed; an absent list (older server) falls
+    // back to naming every dependency rather than none.
+    const blockers = card.blocked_by?.length ? card.blocked_by : dependsOn;
     signals.push(
       card.dependencies_met
         ? { key: 'deps', label: 'All dependencies met', color: 'var(--green)', icon: linkIcon, importance: 1 }
-        : { key: 'deps', label: 'Blocked by dependencies', color: 'var(--red)', icon: linkIcon, importance: 1 },
+        : { key: 'deps', label: `Blocked by ${blockers.join(', ')}`, color: 'var(--red)', icon: linkIcon, importance: 1 },
     );
   }
   if (card.autonomous) {

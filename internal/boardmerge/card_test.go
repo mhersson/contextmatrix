@@ -242,9 +242,14 @@ func TestMergeCards(t *testing.T) {
 		{
 			"computed fields are not carried across",
 			func(c *board.Card) { c.DependenciesMet = new(true); c.SubtaskCostUSD = 4 },
-			func(c *board.Card) { c.InPlaybooks = []string{"release"}; c.SubtaskCostHasEstimates = true },
+			func(c *board.Card) {
+				c.InPlaybooks = []string{"release"}
+				c.BlockedBy = []string{"X-1"}
+				c.SubtaskCostHasEstimates = true
+			},
 			func(t *testing.T, got *board.Card, _ []Resolution) {
 				assert.Nil(t, got.DependenciesMet)
+				assert.Nil(t, got.BlockedBy)
 				assert.Nil(t, got.InPlaybooks)
 				assert.Zero(t, got.SubtaskCostUSD)
 				assert.False(t, got.SubtaskCostHasEstimates)

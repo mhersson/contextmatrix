@@ -176,6 +176,10 @@ func copyCard(c *board.Card) *board.Card {
 		cp.DependenciesMet = &v
 	}
 
+	if c.BlockedBy != nil {
+		cp.BlockedBy = slices.Clone(c.BlockedBy)
+	}
+
 	if c.Context != nil {
 		cp.Context = slices.Clone(c.Context)
 	}

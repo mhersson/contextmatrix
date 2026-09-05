@@ -943,6 +943,65 @@ func TestGetCard_DependenciesMetField(t *testing.T) {
 	assert.True(t, *fetched.DependenciesMet)
 }
 
+func TestGetCard_BlockedByField(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	depA, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Dep A", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+	depB, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Dep B", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Dependent Card", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
+		Title: "Dependent Card", Type: "task", State: "todo", Priority: "medium",
+		DependsOn: []string{depA.ID, depB.ID},
+	})
+	require.NoError(t, err)
+
+	// Every unmet dependency is listed, in depends_on order.
+	fetched, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	require.NotNil(t, fetched.DependenciesMet)
+	assert.False(t, *fetched.DependenciesMet)
+	assert.Equal(t, []string{depA.ID, depB.ID}, fetched.BlockedBy)
+
+	// Completing one dependency drops it from the list.
+	for _, state := range []string{"in_progress", "done"} {
+		_, err = svc.UpdateCard(ctx, "test-project", depA.ID, UpdateCardInput{
+			Title: "Dep A", Type: "task", State: state, Priority: "medium",
+		})
+		require.NoError(t, err)
+	}
+
+	fetched, err = svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{depB.ID}, fetched.BlockedBy)
+
+	// A card with all dependencies met carries no blocked_by at all.
+	_, err = svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
+		Title: "Dependent Card", Type: "task", State: "todo", Priority: "medium",
+		DependsOn: []string{depA.ID},
+	})
+	require.NoError(t, err)
+
+	fetched, err = svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	require.NotNil(t, fetched.DependenciesMet)
+	assert.True(t, *fetched.DependenciesMet)
+	assert.Nil(t, fetched.BlockedBy)
+}
+
 func TestListCards_DependenciesMetField(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
 	defer cleanup()

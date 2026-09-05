@@ -31,6 +31,7 @@ type CardSummary struct {
 	Subtasks                []string            `json:"subtasks,omitempty"`
 	DependsOn               []string            `json:"depends_on,omitempty"`
 	DependenciesMet         *bool               `json:"dependencies_met,omitempty"`
+	BlockedBy               []string            `json:"blocked_by,omitempty"`
 	Context                 []string            `json:"context,omitempty"`
 	Labels                  []string            `json:"labels,omitempty"`
 	Skills                  *[]string           `json:"skills,omitempty"`
@@ -89,6 +90,7 @@ func summarizeCard(c *board.Card) *CardSummary {
 		Subtasks:                c.Subtasks,
 		DependsOn:               c.DependsOn,
 		DependenciesMet:         c.DependenciesMet,
+		BlockedBy:               c.BlockedBy,
 		Context:                 c.Context,
 		Labels:                  c.Labels,
 		Skills:                  c.Skills,

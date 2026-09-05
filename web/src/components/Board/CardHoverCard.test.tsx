@@ -73,6 +73,16 @@ describe('CardHoverCard', () => {
     }
   });
 
+  it('names the blocking cards on the dependency row', () => {
+    renderHover({
+      ...baseCard,
+      depends_on: ['TEST-000', 'TEST-002'],
+      blocked_by: ['TEST-002'],
+    });
+    const tip = screen.getByRole('tooltip');
+    expect(within(tip).getByText('Blocked by TEST-002')).toBeInTheDocument();
+  });
+
   it('names the mob phases', () => {
     renderHover({ ...baseCard, mob_participants: 2, mob_phases: ['plan', 'review'] });
     expect(screen.getByText('plan, review')).toBeInTheDocument();

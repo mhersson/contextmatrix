@@ -224,7 +224,7 @@ func mergeCards(base, ours, theirs *board.Card, project string, c Context) (*boa
 	out.UsageBreakdown = mergeBuckets(base.UsageBreakdown, ours.UsageBreakdown, theirs.UsageBreakdown)
 
 	// Computed on read, never persisted: recomputed by whoever loads the card.
-	out.DependenciesMet, out.InPlaybooks = nil, nil
+	out.DependenciesMet, out.BlockedBy, out.InPlaybooks = nil, nil, nil
 	out.SubtaskCostUSD, out.SubtaskCostHasEstimates = 0, false
 
 	body, bodyRes, bodyAudit := mergeBody(base, ours, theirs, path, oursLater, c)
