@@ -12,8 +12,6 @@ interface RouteTrackProps {
  * segments strip instead. */
 export const ROUTE_NODE_CAP = 20;
 
-/** Miniature of the detail page's rail: one node per entry joined by rail
- * segments, the frontier (first incomplete entry) ringed in purple. */
 export function RouteTrack({ segments, gates = [], className }: RouteTrackProps) {
   if (segments.length > ROUTE_NODE_CAP) {
     return <SegmentedProgress segments={segments} className={className} />;
@@ -29,6 +27,8 @@ export function RouteTrack({ segments, gates = [], className }: RouteTrackProps)
       aria-label={`${complete} of ${segments.length} complete`}
     >
       {segments.map((seg, i) => {
+        // The ring marks a pending frontier only: an active or missing
+        // frontier already carries its own state colour.
         const cls = [
           'pbl-node',
           `pbl-node-${seg}`,

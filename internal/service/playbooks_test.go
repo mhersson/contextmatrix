@@ -489,6 +489,24 @@ func TestSummarizeDetail_NextAndGates(t *testing.T) {
 		assert.Equal(t, []int{0}, s.Gates)
 	})
 
+	t.Run("names a missing card frontier with an empty title", func(t *testing.T) {
+		missing := entry(board.EntryTypeCard, "alpha", "ALPHA-9", "", "", false)
+		missing.Missing = true
+		s := SummarizeDetail(&PlaybookDetail{Entries: []PlaybookEntryDetail{
+			entry(board.EntryTypeCard, "alpha", "ALPHA-1", "First", "", true),
+			missing,
+			entry(board.EntryTypeCard, "alpha", "ALPHA-2", "Second", "", false),
+		}})
+		assert.Equal(t, &PlaybookNext{Type: board.EntryTypeCard, Project: "alpha", Card: "ALPHA-9"}, s.Next)
+	})
+
+	t.Run("summarizes an empty playbook without next, gates or segments", func(t *testing.T) {
+		s := SummarizeDetail(&PlaybookDetail{})
+		assert.Nil(t, s.Next)
+		assert.Nil(t, s.Gates)
+		assert.Empty(t, s.Segments)
+	})
+
 	t.Run("omits next when every entry is complete and gates when none are manual", func(t *testing.T) {
 		s := SummarizeDetail(&PlaybookDetail{Entries: []PlaybookEntryDetail{
 			entry(board.EntryTypeCard, "alpha", "ALPHA-1", "First", "", true),

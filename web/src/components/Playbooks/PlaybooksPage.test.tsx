@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { PlaybooksPage } from './PlaybooksPage';
 import { api } from '../../api/client';
-import type { PlaybookDetail } from '../../types';
+import type { PlaybookDetail, PlaybookSummary } from '../../types';
 
 vi.mock('../../api/client', () => ({
   api: {
@@ -36,13 +36,42 @@ vi.mock('../../hooks/useTheme', () => ({
   useTheme: () => ({ boardsRepos: themeState.boardsRepos }),
 }));
 
+const summaryLine = (text: string) => (_: string, el: Element | null) => el?.tagName === 'P' && el.textContent === text;
+
 describe('PlaybooksPage', () => {
   it('drops the crumb above the title and summarizes progress under it', async () => {
-    const { container } = render(<MemoryRouter><PlaybooksPage /></MemoryRouter>);
+    render(<MemoryRouter><PlaybooksPage /></MemoryRouter>);
     await screen.findByText('Active one');
     expect(screen.getByRole('heading', { name: 'Playbooks' })).toBeInTheDocument();
     expect(screen.queryByText('playbooks')).not.toBeInTheDocument();
-    expect(container.querySelector('.pbl-summary')?.textContent).toBe('1 in progress, 1 completed');
+    expect(screen.getByText(summaryLine('1 in progress, 1 completed'))).toBeInTheDocument();
+  });
+
+  it('does not state counts before the list has loaded', async () => {
+    let resolveList: (value: PlaybookSummary[]) => void = () => {};
+    vi.mocked(api.listPlaybooks).mockReturnValueOnce(new Promise((resolve) => { resolveList = resolve; }));
+    render(<MemoryRouter><PlaybooksPage /></MemoryRouter>);
+    expect(screen.getByText('Loading...')).toBeInTheDocument();
+    expect(screen.queryByText(/in progress/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /new playbook/i }));
+    expect(screen.getByLabelText('Playbook title')).toBeInTheDocument();
+
+    resolveList([]);
+    await screen.findByText('No playbooks yet');
+  });
+
+  it('cancels the ghost row on Escape and clears the draft', async () => {
+    render(<MemoryRouter><PlaybooksPage /></MemoryRouter>);
+    await screen.findByText('Active one');
+
+    fireEvent.click(screen.getByRole('button', { name: /new playbook/i }));
+    fireEvent.change(screen.getByLabelText('Playbook title'), { target: { value: 'Draft' } });
+    fireEvent.keyDown(screen.getByLabelText('Playbook title'), { key: 'Escape' });
+    expect(screen.queryByLabelText('Playbook title')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /new playbook/i }));
+    expect(screen.getByLabelText('Playbook title')).toHaveValue('');
   });
 
   it('shows completed playbooks as receipts under an open section and folds them on click', async () => {

@@ -120,7 +120,7 @@ func registerPlaybookTools(server *mcp.Server, pb *service.PlaybookService) {
 func registerListPlaybooks(server *mcp.Server, pb *service.PlaybookService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_playbooks",
-		Description: "List all playbooks with their slim list-view summary (per-entry status segments, project count, completion). Playbooks are not runnable; they coordinate order for humans and planning sessions.",
+		Description: "List all playbooks with their slim list-view summary (per-entry status segments, project count, completion, manual gate indexes, next entry). Playbooks are not runnable; they coordinate order for humans and planning sessions.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ listPlaybooksInput) (*mcp.CallToolResult, listPlaybooksOutput, error) {
 		summaries, err := pb.List(ctx)
 		if err != nil {

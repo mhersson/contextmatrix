@@ -29,7 +29,7 @@ never executes one.
 `/playbooks` lists playbooks still in progress as rows, each with a miniature
 of the detail rail: one node per entry (manual steps as gates), solid green
 where a step is complete, an aqua pulse on an `in_progress` card, a purple
-ring on the first incomplete entry, a dashed red node for a broken reference.
+ring on the first pending entry, a dashed red node for a broken reference.
 Longer playbooks (over 20 entries) fall back to the segmented meter. Each row
 also names its next entry. Completed playbooks sit under a "Completed" rule as
 one-line receipts, open by default. "New playbook" opens a ghost row at the

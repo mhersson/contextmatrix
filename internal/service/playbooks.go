@@ -943,8 +943,8 @@ func (s *PlaybookService) summarize(ctx context.Context, p *board.Playbook) (Pla
 
 // SummarizeDetail reduces a resolved detail to its list-view projection:
 // one status segment per entry ("complete" | "active" | "missing" |
-// "pending") plus the count of distinct projects referenced by card
-// entries. Exported so callers that already hold a *PlaybookDetail (e.g.
+// "pending"), the count of distinct projects referenced by card entries,
+// the manual-entry indexes and the frontier entry. Exported so callers that already hold a *PlaybookDetail (e.g.
 // the MCP layer's mutation responses) can derive the same slim summary
 // without a second resolve against the card store.
 func SummarizeDetail(d *PlaybookDetail) PlaybookSummary {

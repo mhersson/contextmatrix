@@ -26,6 +26,27 @@ describe('PlaybookRow', () => {
     expect(screen.queryByText(/·/)).not.toBeInTheDocument();
   });
 
+  it('drops the project clause when only manual steps are listed', () => {
+    render(<MemoryRouter><PlaybookRow playbook={summary({ projects: 0 })} /></MemoryRouter>);
+    expect(screen.getByText('3 entries')).toBeInTheDocument();
+  });
+
+  it('uses singular wording for one entry in one project', () => {
+    render(<MemoryRouter><PlaybookRow playbook={summary({ total: 1, complete: 0, segments: ['pending'], projects: 1 })} /></MemoryRouter>);
+    expect(screen.getByText('1 entry across 1 project')).toBeInTheDocument();
+  });
+
+  it('falls back to an unknown-card label when the frontier card is missing', () => {
+    render(<MemoryRouter><PlaybookRow playbook={summary({ segments: ['complete', 'missing', 'pending'], next: { type: 'card', project: 'alpha', card: 'ALPHA-9', title: '' } })} /></MemoryRouter>);
+    expect(screen.getByText('ALPHA-9')).toBeInTheDocument();
+    expect(screen.getByText('(unknown card)')).toBeInTheDocument();
+  });
+
+  it('never labels a manual frontier as an unknown card', () => {
+    render(<MemoryRouter><PlaybookRow playbook={summary({ next: { type: 'manual', title: '' } })} /></MemoryRouter>);
+    expect(screen.queryByText('(unknown card)')).not.toBeInTheDocument();
+  });
+
   it('shows pills only when an agent is active or a card is missing', () => {
     const { rerender } = render(<MemoryRouter><PlaybookRow playbook={summary()} /></MemoryRouter>);
     expect(screen.queryByText('agent active')).not.toBeInTheDocument();

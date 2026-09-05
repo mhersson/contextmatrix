@@ -11,7 +11,6 @@ function count(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
 }
 
-/** Active playbook: title, fraction, a route track and the frontier entry. */
 export function PlaybookRow({ playbook: p }: PlaybookRowProps) {
   const agentActive = p.segments.includes('active');
   const missing = p.segments.includes('missing');
@@ -23,7 +22,7 @@ export function PlaybookRow({ playbook: p }: PlaybookRowProps) {
     <Link to={`/playbooks/${p.id}`} className="pbl-row">
       <div className="pbl-row-head">
         <span className="pbl-row-title">{p.title}</span>
-        <span className="pbl-row-frac"><b>{p.complete}</b> of {p.total}</span>
+        <span className="pbl-row-frac" aria-hidden="true"><b>{p.complete}</b> of {p.total}</span>
         <span className="pbl-row-time">{formatRelativeTime(p.updated_at)}</span>
       </div>
 
@@ -39,14 +38,15 @@ export function PlaybookRow({ playbook: p }: PlaybookRowProps) {
         <div className="pbl-row-next">
           <span className="pb-nextup-chip">next up</span>
           {p.next.type === 'card' && <span className="pbl-next-id">{p.next.card}</span>}
-          <span className="pbl-next-title">{p.next.title || '(unknown card)'}</span>
+          <span className="pbl-next-title">
+            {p.next.type === 'card' ? p.next.title || '(unknown card)' : p.next.title}
+          </span>
         </div>
       )}
     </Link>
   );
 }
 
-/** Completed playbook: one quiet line, no card chrome. */
 export function PlaybookReceipt({ playbook: p }: PlaybookRowProps) {
   return (
     <Link to={`/playbooks/${p.id}`} className="pbl-receipt">

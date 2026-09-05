@@ -127,6 +127,9 @@ func TestPlaybookTools_CreateListGet(t *testing.T) {
 	var list listPlaybooksOutput
 	unmarshalResult(t, result, &list)
 	require.Len(t, list.Playbooks, 1)
+	assert.Equal(t, []int{1}, list.Playbooks[0].Gates)
+	require.NotNil(t, list.Playbooks[0].Next)
+	assert.Equal(t, card.ID, list.Playbooks[0].Next.Card)
 
 	result = callTool(t, env, "get_playbook", map[string]any{"agent_id": "human:alice", "id": "mcp-rollout"})
 

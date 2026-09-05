@@ -8,7 +8,8 @@ import type { CreatePlaybookInput, PlaybookSummary } from '../../types';
 import { isFullyComplete } from './playbookUtils';
 import { PlaybookReceipt, PlaybookRow } from './PlaybookRow';
 import { PlaybooksBar } from './PlaybooksBar';
-import { NewPlaybookButton, PlaybookGhostRow, PlaybooksEmptyHero } from './PlaybooksEmptyHero';
+import { NewPlaybookButton, PlaybookGhostRow } from './PlaybookGhostRow';
+import { PlaybooksEmptyHero } from './PlaybooksEmptyHero';
 
 export function PlaybooksPage() {
   const [playbooks, setPlaybooks] = useState<PlaybookSummary[] | null>(null);
@@ -82,7 +83,7 @@ export function PlaybooksPage() {
 
   if (isEmpty) {
     return (
-      <div className="h-full flex flex-col">
+      <div className="h-full flex flex-col overflow-y-auto">
         <PlaybooksBar />
         <PlaybooksEmptyHero creating={creating} onStartCreate={() => setCreating(true)} {...ghostProps} />
       </div>
@@ -96,39 +97,37 @@ export function PlaybooksPage() {
         <div className="pbl-header">
           <div>
             <h1 className="pbl-title">Playbooks</h1>
-            <p className="pbl-summary"><b>{active.length}</b> in progress, <b>{completed.length}</b> completed</p>
+            {playbooks === null ? (
+              <p className="pbl-summary">Loading...</p>
+            ) : (
+              <p className="pbl-summary"><b>{active.length}</b> in progress, <b>{completed.length}</b> completed</p>
+            )}
           </div>
-          <NewPlaybookButton onClick={() => setCreating(true)} />
+          <NewPlaybookButton onClick={() => setCreating(true)} disabled={creating} />
         </div>
 
-        {playbooks === null ? (
-          <p className="pbl-summary">Loading...</p>
-        ) : (
-          <>
-            <div className="pbl-list">
-              {creating && <PlaybookGhostRow {...ghostProps} />}
-              {active.map((p) => <PlaybookRow key={p.id} playbook={p} />)}
-            </div>
+        <div className="pbl-list">
+          {creating && <PlaybookGhostRow {...ghostProps} />}
+          {active.map((p) => <PlaybookRow key={p.id} playbook={p} />)}
+        </div>
 
-            {completed.length > 0 && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setCompletedOpen((v) => !v)}
-                  aria-expanded={completedOpen}
-                  className={`pbl-section${completedOpen ? ' pbl-section-open' : ''}`}
-                >
-                  <span className="pbl-section-chev" aria-hidden="true">▶</span>
-                  <span>Completed</span>
-                  <span className="pbl-section-count">{completed.length}</span>
-                  <span className="pbl-section-line" aria-hidden="true" />
-                </button>
-                {completedOpen && (
-                  <div className="pbl-receipts">
-                    {completed.map((p) => <PlaybookReceipt key={p.id} playbook={p} />)}
-                  </div>
-                )}
-              </>
+        {completed.length > 0 && (
+          <>
+            <button
+              type="button"
+              onClick={() => setCompletedOpen((v) => !v)}
+              aria-expanded={completedOpen}
+              className={`pbl-section${completedOpen ? ' pbl-section-open' : ''}`}
+            >
+              <span className="pbl-section-chev" aria-hidden="true">▶</span>
+              <span>Completed</span>
+              <span className="pbl-section-count">{completed.length}</span>
+              <span className="pbl-section-line" aria-hidden="true" />
+            </button>
+            {completedOpen && (
+              <div className="pbl-receipts">
+                {completed.map((p) => <PlaybookReceipt key={p.id} playbook={p} />)}
+              </div>
             )}
           </>
         )}
