@@ -153,6 +153,7 @@ export interface ProjectConfig {
     timeout_seconds?: number;
     env?: string[];
   };
+  card_defaults?: CardDefaults;
   github?: GitHubImportConfig;
   templates?: Record<string, string>;
   // default_skills uses three-state semantics:
@@ -165,7 +166,6 @@ export interface ProjectConfig {
    * Empty/absent means the instance `github.*` config default applies.
    */
   github_credential?: string;
-  card_defaults?: CardDefaults;
 }
 
 export type SortMode = 'recent' | 'id-asc' | 'id-desc' | 'priority' | 'type' | 'manual';
