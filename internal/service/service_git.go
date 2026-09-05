@@ -54,13 +54,46 @@ func (s *CardService) enqueueCardCommit(ctx context.Context, project, cardID, ag
 		return noopCommitChan(), false
 	}
 
-	path := s.cardPath(project, cardID)
 	if r.GitDeferredCommit {
-		s.deferredPaths[cardID] = append(s.deferredPaths[cardID], path)
+		s.deferredPaths[cardID] = append(s.deferredPaths[cardID], s.cardPath(project, cardID))
 
 		return noopCommitChan(), false
 	}
 
+	return s.commitCardNow(ctx, project, cardID, agentID, action)
+}
+
+// enqueueCardCommitFor is enqueueCardCommit with the deferral decision made
+// from the card as it was before the mutation. Deferral batches a claimed
+// agent's work until release or completion flushes it; a card that was
+// unclaimed has no flush point - its deferred entry would leave the file
+// dirty on disk forever and vanish from deferredPaths on restart - so it
+// commits now regardless of the repo setting. The pre-mutation view matters
+// for the one mutation on this path that clears a claim, the not_planned
+// transition: it is the tail of the claimed batch and stays deferred so the
+// flush that follows it lands as one commit.
+// Caller must hold writeMu, as for enqueueCardCommit.
+func (s *CardService) enqueueCardCommitFor(
+	ctx context.Context, before *board.Card, project, cardID, agentID, action string,
+) (<-chan error, bool) {
+	if before.AssignedAgent == "" {
+		return s.commitCardNow(ctx, project, cardID, agentID, action)
+	}
+
+	return s.enqueueCardCommit(ctx, project, cardID, agentID, action)
+}
+
+// commitCardNow schedules a single-file commit for the card, bypassing
+// deferral. Returns a no-op channel when auto-commit is off for the repo.
+// Caller must hold writeMu, as for enqueueCardCommit.
+func (s *CardService) commitCardNow(ctx context.Context, project, cardID, agentID, action string) (<-chan error, bool) {
+	r := s.repoOf(project)
+
+	if !r.GitAutoCommit {
+		return noopCommitChan(), false
+	}
+
+	path := s.cardPath(project, cardID)
 	msg := commitMessage(agentID, cardID, action)
 
 	if r.Queue != nil {

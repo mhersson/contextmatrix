@@ -664,6 +664,9 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ImmediateCommit mirrors the service's own rule (enqueueCardCommitFor
+	// decides from its pre-mutation snapshot, so an unclaimed card commits
+	// at once either way); kept as the explicit-intent signal for PUT.
 	input := service.UpdateCardInput{
 		Title:              req.Title,
 		Type:               req.Type,
@@ -804,6 +807,7 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ImmediateCommit mirrors the service's own rule (see the PUT handler).
 	input := service.PatchCardInput{
 		Title:              req.Title,
 		Type:               req.Type,

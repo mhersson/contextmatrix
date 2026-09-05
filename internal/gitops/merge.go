@@ -85,6 +85,27 @@ func (m *Manager) IsClean(ctx context.Context) (bool, []string, error) {
 	return len(paths) == 0, paths, nil
 }
 
+// CommitDirty commits every modified and untracked path in the worktree as a
+// single commit and returns the paths it swept. A clean tree returns nil, nil
+// with no commit. Used at startup to recover card edits that a previous
+// process wrote to disk but never committed.
+func (m *Manager) CommitDirty(ctx context.Context, message string) ([]string, error) {
+	clean, paths, err := m.IsClean(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if clean {
+		return nil, nil
+	}
+
+	if err := m.CommitFilesShell(ctx, paths, message); err != nil {
+		return nil, err
+	}
+
+	return paths, nil
+}
+
 func (m *Manager) MergeBase(ctx context.Context, ref string) (string, error) {
 	m.worktreeMu.Lock()
 	defer m.worktreeMu.Unlock()

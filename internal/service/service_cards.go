@@ -81,7 +81,7 @@ type UpdateCardInput struct {
 	Custom             map[string]any
 	Body               string
 	Assignee           string // Informational responsibility label; PUT full-replace, like other value fields
-	ImmediateCommit    bool   // If true, commit immediately even when gitDeferredCommit is on.
+	ImmediateCommit    bool   // If true, commit immediately even when gitDeferredCommit is on. Unclaimed cards always do.
 	Autonomous         bool
 	CreatePR           bool
 	AwaitCI            bool
@@ -117,7 +117,7 @@ type PatchCardInput struct {
 	Labels             []string // nil = don't change, empty slice = clear
 	DependsOn          []string // nil = don't change, empty slice = clear
 	Body               *string
-	ImmediateCommit    bool // If true, commit immediately even when gitDeferredCommit is on.
+	ImmediateCommit    bool // If true, commit immediately even when gitDeferredCommit is on. Unclaimed cards always do.
 	Autonomous         *bool
 	CreatePR           *bool
 	AwaitCI            *bool
@@ -1545,8 +1545,8 @@ func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry
 		return nil, fmt.Errorf("update card: %w", err)
 	}
 
-	// Git commit (or defer)
-	commitDone, notify := s.enqueueCardCommit(ctx, project, id, entry.Agent, "log: "+entry.Action)
+	// Git commit, deferred only for a claimed card (see enqueueCardCommitFor).
+	commitDone, notify := s.enqueueCardCommitFor(ctx, snapshot, project, id, entry.Agent, "log: "+entry.Action)
 
 	s.writeMu.Unlock()
 
@@ -1608,7 +1608,8 @@ type mutationOpts struct {
 	// internal callers (e.g. transitions) that know the references are stable.
 	skipValidators bool
 	// immediateCommit forces an immediate git commit even when gitDeferredCommit
-	// is enabled. Used for human-initiated edits.
+	// is enabled. Mutations on an unclaimed card always commit immediately
+	// regardless of this flag; it only matters for a claimed card.
 	immediateCommit bool
 	// commitAgentID is the agent attributed in the commit message; empty means
 	// a system ([contextmatrix]) commit.
@@ -1631,7 +1632,8 @@ type mutationOpts struct {
 //  6. Validate the card; if opts.skipValidators is false, also validate
 //     cross-card references and detect dependency cycles.
 //  7. Persist via store.UpdateCard.
-//  8. Commit (immediate or deferred, per opts.immediateCommit).
+//  8. Commit: immediate when opts.immediateCommit is set or the card was
+//     unclaimed before the mutation; otherwise deferred.
 //  9. Post-commit state-change side effects (deferred flush on
 //     not_planned/review).
 //  10. Publish the CardUpdated or CardStateChanged event.
@@ -1840,36 +1842,13 @@ func (s *CardService) commitAndRollbackOrReturn(
 		notify     bool
 	)
 
-	if opts.immediateCommit && r.GitAutoCommit {
-		cardPath := s.cardPath(project, id)
-		msg := commitMessage(opts.commitAgentID, id, opts.commitAction)
-
-		if r.Queue != nil {
-			commitDone = r.Queue.Enqueue(gitops.CommitJob{
-				Project: project,
-				Kind:    gitops.CommitKindFile,
-				Path:    cardPath,
-				Message: msg,
-				Ctx:     ctx,
-			})
-			notify = true
-		} else {
-			// Synchronous inline commit for callers without a queue.
-			// Preserves the pre-queue ordering guarantee that the
-			// commit lands before subsequent in-process work (e.g.
-			// parent auto-transitions) runs its own commits.
-			err := r.Git.CommitFile(ctx, cardPath, msg)
-
-			done := make(chan error, 1)
-			done <- err
-
-			close(done)
-
-			commitDone = done
-			notify = true
-		}
+	// An explicit immediateCommit bypasses deferral; otherwise the
+	// pre-mutation snapshot decides (unclaimed cards always commit now, see
+	// enqueueCardCommitFor).
+	if opts.immediateCommit {
+		commitDone, notify = s.commitCardNow(ctx, project, id, opts.commitAgentID, opts.commitAction)
 	} else {
-		commitDone, notify = s.enqueueCardCommit(ctx, project, id, opts.commitAgentID, opts.commitAction)
+		commitDone, notify = s.enqueueCardCommitFor(ctx, snapshot, project, id, opts.commitAgentID, opts.commitAction)
 	}
 
 	// Post-commit state-change side effects (flush deferred on not_planned/review).

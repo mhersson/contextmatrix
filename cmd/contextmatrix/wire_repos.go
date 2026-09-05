@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	githubauth "github.com/mhersson/contextmatrix-githubauth"
@@ -113,6 +114,24 @@ func buildBoards(cfg *config.Config, provider githubauth.TokenGenerator, heartbe
 			if !git.HasRemote() {
 				return nil, fmt.Errorf("boards[%s]: shared is set but the clone at %s has no origin remote; "+
 					"clone it with git_clone_on_empty on an empty directory or add the remote by hand", e.Name, e.Dir)
+			}
+		}
+
+		// A previous process may have written card edits to disk that never
+		// reached a commit (a deferred batch that was never flushed, or a
+		// crash between write and commit). Sweep them into one commit now
+		// so the repo describes what the store is about to serve. Shared
+		// repos are excluded: their sync cycle already commits leftovers,
+		// and a dirty tree there can be a half-merged conflict that
+		// clearStaleMerge has to inspect first.
+		if e.GitAutoCommit && !e.Shared {
+			swept, err := git.CommitDirty(context.Background(), "[contextmatrix] recover uncommitted changes")
+			if err != nil {
+				slog.Error("boards repository has uncommitted changes that could not be committed at startup",
+					"repo", e.Name, "repo_path", e.Dir, "error", err)
+			} else if len(swept) > 0 {
+				slog.Warn("boards repository had uncommitted changes at startup; committed them",
+					"repo", e.Name, "repo_path", e.Dir, "paths", swept)
 			}
 		}
 

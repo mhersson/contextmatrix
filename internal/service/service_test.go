@@ -2808,6 +2808,13 @@ func TestDeferredCommitAccumulates(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, msg, card.ID, "creation commit must reference the card ID")
 
+	// Claim the card: deferral only applies to a claimed card's batch (an
+	// unclaimed mutation commits immediately - see
+	// TestDeferredCommitUnclaimedMutationCommitsImmediately). The claim
+	// itself is deferred too, so the creation commit stays HEAD.
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-1")
+	require.NoError(t, err)
+
 	// Remember the creation commit message before further mutations.
 	creationMsg := msg
 
@@ -2832,6 +2839,146 @@ func TestDeferredCommitAccumulates(t *testing.T) {
 	pathCount := len(svc.deferredPaths[card.ID])
 	svc.writeMu.Unlock()
 	assert.Positive(t, pathCount, "deferredPaths should have entries after updates")
+}
+
+// TestDeferredCommitUnclaimedMutationCommitsImmediately verifies that a
+// mutation on an UNCLAIMED card commits immediately in deferred mode even when
+// the caller never sets ImmediateCommit. Deferral batches a claimed agent's
+// work until release or completion; an unclaimed card has no such flush point,
+// so parking its change in deferredPaths would leave the card file dirty on
+// disk forever. The MCP update_card / transition_card handlers never set the
+// flag, which is exactly the path this covers.
+func TestDeferredCommitUnclaimedMutationCommitsImmediately(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(ctx context.Context, svc *CardService, id string) error
+	}{
+		{
+			name: "patch title",
+			mutate: func(ctx context.Context, svc *CardService, id string) error {
+				title := "Renamed over MCP"
+				_, err := svc.PatchCard(ctx, "test-project", id, PatchCardInput{Title: &title})
+
+				return err
+			},
+		},
+		{
+			name: "patch state",
+			mutate: func(ctx context.Context, svc *CardService, id string) error {
+				state := "in_progress"
+				_, err := svc.PatchCard(ctx, "test-project", id, PatchCardInput{State: &state})
+
+				return err
+			},
+		},
+		{
+			name: "update card",
+			mutate: func(ctx context.Context, svc *CardService, id string) error {
+				_, err := svc.UpdateCard(ctx, "test-project", id, UpdateCardInput{
+					Title: "Replaced", Type: "task", State: "todo", Priority: "high",
+				})
+
+				return err
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, gitMgr := setupDeferredTest(t)
+			ctx := context.Background()
+
+			card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+				Title: "Unclaimed", Type: "task", Priority: "medium",
+			})
+			require.NoError(t, err)
+			require.Empty(t, card.AssignedAgent)
+
+			require.NoError(t, tc.mutate(ctx, svc, card.ID))
+
+			msg, err := gitMgr.GetLastCommitMessage()
+			require.NoError(t, err)
+			assert.Equal(t, "[contextmatrix] "+card.ID+": updated", strings.TrimSpace(msg))
+
+			clean, dirty, err := gitMgr.IsClean(ctx)
+			require.NoError(t, err)
+			assert.True(t, clean, "card file must not be left dirty: %v", dirty)
+
+			svc.writeMu.Lock()
+			_, deferred := svc.deferredPaths[card.ID]
+			svc.writeMu.Unlock()
+			assert.False(t, deferred, "unclaimed mutation must not be parked in deferredPaths")
+		})
+	}
+}
+
+// TestDeferredCommitUnclaimedAddLogCommitsImmediately covers the MCP lint
+// path: update_card / create_card append an advisory note to a card nobody
+// has claimed. That log entry must not be parked in deferredPaths either.
+func TestDeferredCommitUnclaimedAddLogCommitsImmediately(t *testing.T) {
+	svc, gitMgr := setupDeferredTest(t)
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Unclaimed", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.AddLogEntry(ctx, "test-project", card.ID, board.ActivityEntry{
+		Action: "note", Message: "self-containment warning",
+	})
+	require.NoError(t, err)
+
+	msg, err := gitMgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Equal(t, "[contextmatrix] "+card.ID+": log: note", strings.TrimSpace(msg))
+
+	clean, dirty, err := gitMgr.IsClean(ctx)
+	require.NoError(t, err)
+	assert.True(t, clean, "card file must not be left dirty: %v", dirty)
+
+	svc.writeMu.Lock()
+	_, deferred := svc.deferredPaths[card.ID]
+	svc.writeMu.Unlock()
+	assert.False(t, deferred, "unclaimed log entry must not be parked in deferredPaths")
+}
+
+// TestDeferredCommitUnclaimedParentAutoTransitionCommitsImmediately covers the
+// parent auto-transition: a claimed child moving to in_progress drags an
+// unclaimed parent along. The parent's only auto target is in_progress, which
+// never flushes, so its change must commit at once while the child's own
+// change stays in the claimed batch.
+func TestDeferredCommitUnclaimedParentAutoTransitionCommitsImmediately(t *testing.T) {
+	svc, gitMgr := setupDeferredTestWithReview(t)
+	ctx := context.Background()
+
+	parent, subtasks := createParentWithSubtasks(t, svc, "test-project", 1)
+	child := subtasks[0]
+
+	_, err := svc.ClaimCard(ctx, "test-project", child.ID, "agent-1")
+	require.NoError(t, err)
+
+	inProgress := "in_progress"
+	_, err = svc.PatchCard(ctx, "test-project", child.ID, PatchCardInput{AgentID: "agent-1", State: &inProgress})
+	require.NoError(t, err)
+
+	got, err := svc.GetCard(ctx, "test-project", parent.ID)
+	require.NoError(t, err)
+	require.Equal(t, "in_progress", got.State, "precondition: parent auto-transitioned")
+	require.Empty(t, got.AssignedAgent, "precondition: parent is unclaimed")
+
+	msg, err := gitMgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Equal(t, "[contextmatrix] "+parent.ID+": auto-transitioned to in_progress", strings.TrimSpace(msg))
+
+	_, dirty, err := gitMgr.IsClean(ctx)
+	require.NoError(t, err)
+	assert.NotContains(t, dirty, svc.cardPath("test-project", parent.ID), "parent file must be committed")
+
+	svc.writeMu.Lock()
+	_, deferred := svc.deferredPaths[parent.ID]
+	svc.writeMu.Unlock()
+	assert.False(t, deferred, "unclaimed parent must not be parked in deferredPaths")
 }
 
 // TestDeferredCommitFlushOnDone verifies that transitioning to "done" does NOT
@@ -3789,7 +3936,12 @@ func TestCreateCard_CommitsImmediatelyWithDeferredMode(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, msg, card.ID, "immediate creation commit should include the card ID")
 
-	// Subsequent mutation (add log entry) must still defer.
+	// Subsequent mutation by the claiming agent must still defer. Only a
+	// claimed card's mutations defer (the claim itself is deferred too);
+	// an unclaimed card commits at once.
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "test-agent")
+	require.NoError(t, err)
+
 	_, err = svc.AddLogEntry(ctx, "test-project", card.ID, board.ActivityEntry{
 		Agent:  "test-agent",
 		Action: "tested",
@@ -4137,7 +4289,8 @@ func TestImmediateCommitPatchCard_WhenDeferredOn(t *testing.T) {
 }
 
 // TestDeferredCommitPatchCard_WhenImmediateCommitFalse verifies that PatchCard
-// with ImmediateCommit=false still defers when gitDeferredCommit=true.
+// with ImmediateCommit=false still defers when gitDeferredCommit=true and the
+// card is claimed (an unclaimed card commits immediately regardless).
 func TestDeferredCommitPatchCard_WhenImmediateCommitFalse(t *testing.T) {
 	svc, gitMgr := setupDeferredTest(t)
 	ctx := context.Background()
@@ -4153,9 +4306,14 @@ func TestDeferredCommitPatchCard_WhenImmediateCommitFalse(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, creationMsg, card.ID)
 
+	// Claim: only a claimed card's mutations defer (the claim is deferred too).
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-1")
+	require.NoError(t, err)
+
 	// Patch with ImmediateCommit=false (default) - should defer.
 	newTitle := "Agent Updated Title"
 	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+		AgentID:         "agent-1",
 		Title:           &newTitle,
 		ImmediateCommit: false,
 	})
@@ -4224,9 +4382,13 @@ func TestDeferredCommitFlushOnNotPlanned(t *testing.T) {
 	creationMsg, err := gitMgr.GetLastCommitMessage()
 	require.NoError(t, err)
 
+	// Claim: only a claimed card's mutations defer (the claim is deferred too).
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-1")
+	require.NoError(t, err)
+
 	// Accumulate a deferred mutation (body update, no commit yet).
 	body := "## Notes\nDecided not to pursue this."
-	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{Body: &body})
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{AgentID: "agent-1", Body: &body})
 	require.NoError(t, err)
 
 	// No new commit should have been produced yet (deferred mode).
@@ -4236,7 +4398,7 @@ func TestDeferredCommitFlushOnNotPlanned(t *testing.T) {
 
 	// Transition todo → not_planned (direct transition is allowed for all states).
 	notPlanned := "not_planned"
-	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{State: &notPlanned})
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{AgentID: "agent-1", State: &notPlanned})
 	require.NoError(t, err)
 
 	// A deferred flush commit should now exist.

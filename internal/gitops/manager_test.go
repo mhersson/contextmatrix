@@ -1312,3 +1312,47 @@ func TestNetworkTimeout(t *testing.T) {
 		}
 	})
 }
+
+// TestCommitDirty verifies that CommitDirty commits every modified and
+// untracked path in one commit and reports what it swept, and that a clean
+// tree produces no commit.
+func TestCommitDirty(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not found")
+	}
+
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	mgr, err := NewManager(tmpDir, "", "test", staticTestProvider(t))
+	require.NoError(t, err)
+	mgr.SetAuthor("Sweep User", "sweep@example.com")
+
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "tracked.md"), []byte("v1"), 0o644))
+	require.NoError(t, mgr.CommitFile(ctx, "tracked.md", "initial commit"))
+
+	// Clean tree: nothing swept, HEAD unchanged.
+	swept, err := mgr.CommitDirty(ctx, "sweep")
+	require.NoError(t, err)
+	assert.Empty(t, swept)
+
+	msg, err := mgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Equal(t, "initial commit", strings.TrimSpace(msg))
+
+	// Dirty tree: one modified tracked file and one untracked file.
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "tracked.md"), []byte("v2"), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "proj", "tasks"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "proj", "tasks", "NEW-1.md"), []byte("new"), 0o644))
+
+	swept, err = mgr.CommitDirty(ctx, "sweep")
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"tracked.md", "proj/tasks/NEW-1.md"}, swept)
+
+	msg, err = mgr.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Equal(t, "sweep", strings.TrimSpace(msg))
+
+	clean, dirty, err := mgr.IsClean(ctx)
+	require.NoError(t, err)
+	assert.True(t, clean, "tree must be clean after sweep: %v", dirty)
+}

@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +14,8 @@ import (
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/config"
+	"github.com/mhersson/contextmatrix/internal/gitops"
+	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
 func wireProject(t *testing.T, dir, name, prefix string) {
@@ -164,4 +167,83 @@ func TestBuildBoards_SharedRepoGetsAnImageIndexPrivateDoesNot(t *testing.T) {
 	idxs := boards.imageIndexes()
 	require.Len(t, idxs, 1)
 	assert.Same(t, boards.repos[1].images, idxs[0])
+}
+
+// wireDirtyRepo builds a boards repo with one committed card, then rewrites
+// the card on disk without committing - the footprint a previous process
+// leaves when it parked a mutation in a deferred batch that never flushed.
+func wireDirtyRepo(t *testing.T) (string, *gitops.Manager) {
+	t.Helper()
+
+	dir := t.TempDir()
+	wireProject(t, dir, "alpha", "ALPHA")
+
+	ctx := t.Context()
+
+	git, err := gitops.NewManager(dir, "", "x", wireProvider(t))
+	require.NoError(t, err)
+
+	store, err := storage.NewFilesystemStore(dir)
+	require.NoError(t, err)
+
+	card := &board.Card{ID: "ALPHA-1", Project: "alpha", Title: "one", Type: "task", State: "todo", Priority: "low"}
+	require.NoError(t, store.CreateCard(ctx, "alpha", card))
+	require.NoError(t, git.CommitAll(ctx, "seed"))
+
+	card.Title = "renamed but never committed"
+	require.NoError(t, store.UpdateCard(ctx, "alpha", card))
+
+	clean, _, err := git.IsClean(ctx)
+	require.NoError(t, err)
+	require.False(t, clean, "precondition: the rewrite must leave the tree dirty")
+
+	return dir, git
+}
+
+func TestBuildBoards_CommitsLeftoverChangesAtStartup(t *testing.T) {
+	dir, git := wireDirtyRepo(t)
+
+	cfg := &config.Config{Boards: config.Boards{wireEntry("one", dir)}}
+
+	boards, err := buildBoards(cfg, wireProvider(t), 30*time.Minute, clock.Real())
+	require.NoError(t, err)
+
+	defer func() {
+		for _, q := range boards.queues() {
+			_ = q.Close(t.Context())
+		}
+	}()
+
+	clean, dirty, err := git.IsClean(t.Context())
+	require.NoError(t, err)
+	assert.True(t, clean, "startup must commit leftovers: %v", dirty)
+
+	msg, err := git.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Equal(t, "[contextmatrix] recover uncommitted changes", strings.TrimSpace(msg))
+}
+
+func TestBuildBoards_LeavesLeftoversWhenAutoCommitOff(t *testing.T) {
+	dir, git := wireDirtyRepo(t)
+
+	entry := wireEntry("one", dir)
+	entry.GitAutoCommit = false
+	cfg := &config.Config{Boards: config.Boards{entry}}
+
+	boards, err := buildBoards(cfg, wireProvider(t), 30*time.Minute, clock.Real())
+	require.NoError(t, err)
+
+	defer func() {
+		for _, q := range boards.queues() {
+			_ = q.Close(t.Context())
+		}
+	}()
+
+	clean, _, err := git.IsClean(t.Context())
+	require.NoError(t, err)
+	assert.False(t, clean, "no auto-commit means the tree is not ours to commit")
+
+	msg, err := git.GetLastCommitMessage()
+	require.NoError(t, err)
+	assert.Equal(t, "seed", strings.TrimSpace(msg))
 }

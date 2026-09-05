@@ -165,6 +165,11 @@ func (s *CardService) transitionParentDirect(
 			parent = refreshed
 		}
 
+		// Shallow copy of the pre-mutation parent for the deferral decision
+		// (see enqueueCardCommitFor); applyTerminalInvariants below may
+		// clear the claim in place.
+		before := *parent
+
 		oldState := parent.State
 		parent.State = state
 		parent.Updated = s.clk.Now()
@@ -184,7 +189,7 @@ func (s *CardService) transitionParentDirect(
 
 		// Enqueue under writeMu so per-project ordering is preserved
 		// relative to the child's commit and any other in-flight writes.
-		commitDone, notify := s.enqueueCardCommit(ctx, parent.Project, parent.ID, "", "auto-transitioned to "+state)
+		commitDone, notify := s.enqueueCardCommitFor(ctx, &before, parent.Project, parent.ID, "", "auto-transitioned to "+state)
 
 		// Flush deferred commits on not_planned/review under writeMu so
 		// deferredPaths stays serialized; the flush itself routes through
