@@ -4392,3 +4392,95 @@ textarea {
     position: static;
   }
 }
+
+/* ── Card hovercard (board CardItem) ─────────────────────────────────── */
+/* Floating summary beside a hovered/focused card: id/type/priority head,
+   one row per signal, HITL, labels. Portaled and fixed so column scroll
+   clipping never applies; pointer-events none so it never steals the hover
+   from the card that owns it. */
+.card-hover {
+  position: fixed;
+  z-index: 60;
+  pointer-events: none;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--bg2);
+  border: 1px solid var(--bg3);
+  box-shadow: 0 12px 32px -12px rgba(0, 0, 0, 0.55);
+  color: var(--fg);
+  animation: card-hover-in 120ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .card-hover { animation: none; }
+}
+@keyframes card-hover-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: none; }
+}
+.card-hover__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--bg3);
+}
+.card-hover__id {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--grey1);
+}
+.card-hover__priority {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--grey2);
+}
+.card-hover__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  flex-shrink: 0;
+}
+.card-hover__rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.card-hover__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+.card-hover__icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.card-hover__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  color: var(--fg);
+}
+.card-hover__sub {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--grey1);
+}
+.card-hover__labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}

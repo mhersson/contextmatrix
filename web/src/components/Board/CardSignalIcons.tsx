@@ -5,7 +5,9 @@ import { cardSignals, splitCardSignals } from '../../lib/cardSignals';
 /**
  * Header signal cluster: worker status, deps, autonomous, mob, best-of-n,
  * playbook membership and the "simple" label as tinted stroke icons with
- * tooltip + aria labels. At most four show; the rest fold into a "+N" chip.
+ * aria labels. At most four show; the rest fold into a "+N" chip. No native
+ * title: the browser holds those for ~1s, so the card's hovercard (opened
+ * from the header group this cluster sits in) explains the icons instead.
  */
 export function CardSignalIcons({ card }: { card: Card }) {
   const signals = cardSignals(card);
@@ -20,7 +22,6 @@ export function CardSignalIcons({ card }: { card: Card }) {
           key={s.key}
           className={`flex items-center flex-shrink-0${s.pulse ? ' animate-pulse motion-reduce:animate-none' : ''}`}
           style={{ color: s.color }}
-          title={s.label}
           role="img"
           aria-label={s.label}
         >
@@ -31,7 +32,6 @@ export function CardSignalIcons({ card }: { card: Card }) {
         <span
           className="chip-pill flex-shrink-0"
           style={chipTint('var(--grey1)')}
-          title={hidden.map((s) => s.label).join('\n')}
           role="img"
           aria-label={`${hidden.length} more signals: ${hidden.map((s) => s.label).join(', ')}`}
         >

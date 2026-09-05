@@ -19,7 +19,8 @@ export interface CardSignal {
 /** Signals at or above this count switch the header into crowded mode. */
 export const HEADER_SIGNAL_CAP = 4;
 
-const signalSvgProps = {
+/** Shared stroke-icon attributes so the hovercard's rows match the header cluster. */
+export const signalSvgProps = {
   width: 14,
   height: 14,
   viewBox: '0 0 24 24',
