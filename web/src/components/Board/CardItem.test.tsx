@@ -316,6 +316,7 @@ describe('CardItem - hovercard', () => {
 
   it('opens on keyboard focus of the card itself and closes on blur', () => {
     render(<CardItem card={signalCard} />);
+    fireEvent.keyDown(document.body, { key: 'Tab' });
     fireEvent.focus(cardRoot());
     expect(screen.getByRole('tooltip')).toBeInTheDocument();
     fireEvent.blur(cardRoot());
@@ -329,21 +330,63 @@ describe('CardItem - hovercard', () => {
     expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
   });
 
+  it('does not open from focus restored after a mouse interaction (panel close)', () => {
+    render(<CardItem card={signalCard} />);
+    // Click opens the panel; the focus trap moves focus away and later
+    // hands it back programmatically. Only a pointer was ever used.
+    fireEvent.mouseDown(cardRoot());
+    fireEvent.mouseUp(cardRoot());
+    fireEvent.click(cardRoot());
+    fireEvent.blur(cardRoot());
+    fireEvent.focus(cardRoot());
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  });
+
+  it('opens from focus restored after a keyboard interaction', () => {
+    render(<CardItem card={signalCard} />);
+    fireEvent.mouseDown(cardRoot());
+    fireEvent.mouseUp(cardRoot());
+    fireEvent.blur(cardRoot());
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    fireEvent.focus(cardRoot());
+    expect(screen.getByRole('tooltip')).toBeInTheDocument();
+  });
+
   it('still opens on keyboard focus after a press that focused a nested button', () => {
     render(<CardItem card={signalCard} onToggleCollapse={() => {}} />);
     const collapse = screen.getByRole('button', { name: 'Collapse card' });
     fireEvent.mouseDown(collapse);
     fireEvent.focus(collapse);
     fireEvent.mouseUp(collapse);
+    fireEvent.keyDown(collapse, { key: 'Tab', shiftKey: true });
     fireEvent.focus(cardRoot());
     expect(screen.getByRole('tooltip')).toBeInTheDocument();
   });
 
   it('closes on Escape while the card has focus', () => {
     render(<CardItem card={signalCard} />);
+    fireEvent.keyDown(document.body, { key: 'Tab' });
     fireEvent.focus(cardRoot());
     fireEvent.keyDown(cardRoot(), { key: 'Escape' });
     expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  });
+
+  it('keeps the Escape that closed the hovercard from reaching the board shortcuts', () => {
+    const documentKeyDown = vi.fn();
+    document.addEventListener('keydown', documentKeyDown);
+    try {
+      render(<CardItem card={signalCard} />);
+      fireEvent.keyDown(document.body, { key: 'Tab' });
+      fireEvent.focus(cardRoot());
+      fireEvent.keyDown(cardRoot(), { key: 'Escape' });
+      expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+      // Tab + the Escape while open: the second must not have bubbled.
+      expect(documentKeyDown).toHaveBeenCalledTimes(1);
+      fireEvent.keyDown(cardRoot(), { key: 'Escape' });
+      expect(documentKeyDown).toHaveBeenCalledTimes(2);
+    } finally {
+      document.removeEventListener('keydown', documentKeyDown);
+    }
   });
 
   it('closes when any scroll container scrolls', () => {
@@ -353,8 +396,16 @@ describe('CardItem - hovercard', () => {
     expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
   });
 
+  it('closes when the window resizes', () => {
+    render(<CardItem card={signalCard} />);
+    fireEvent.mouseEnter(headerGroup());
+    fireEvent(window, new Event('resize'));
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  });
+
   it('closes when focus moves from the card into a nested button', () => {
     render(<CardItem card={signalCard} onToggleCollapse={() => {}} />);
+    fireEvent.keyDown(document.body, { key: 'Tab' });
     fireEvent.focus(cardRoot());
     fireEvent.blur(cardRoot());
     fireEvent.focus(screen.getByRole('button', { name: 'Collapse card' }));

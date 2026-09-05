@@ -165,6 +165,94 @@ describe('useBoard - SSE reconnect resync', () => {
   });
 });
 
+describe('useBoard - dependency state changes', () => {
+  beforeEach(() => {
+    instances = [];
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.mocked(api.getProject).mockResolvedValue(projectConfig);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  const base: Card = {
+    id: 'ALPHA-1',
+    title: 'Dependency',
+    project: 'alpha',
+    type: 'task',
+    state: 'review',
+    priority: 'medium',
+    created: '2026-01-01T00:00:00Z',
+    updated: '2026-01-01T00:00:00Z',
+    body: '',
+  };
+  const dependent: Card = {
+    ...base,
+    id: 'ALPHA-2',
+    title: 'Dependent',
+    state: 'todo',
+    depends_on: ['ALPHA-1'],
+    blocked_by: ['ALPHA-1'],
+  };
+  const bystander: Card = { ...base, id: 'ALPHA-3', title: 'Bystander', state: 'todo' };
+
+  async function mount() {
+    vi.mocked(api.getCards).mockResolvedValueOnce([base, dependent, bystander]);
+    const { result } = renderHook(() => useBoard('alpha'), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => {
+      latestInstance()._triggerOpen();
+    });
+    return result;
+  }
+
+  function stateChanged(oldState: string, newState: string) {
+    act(() => {
+      latestInstance().onmessage?.({
+        data: JSON.stringify({
+          type: 'card.state_changed',
+          card_id: 'ALPHA-1',
+          project: 'alpha',
+          data: { old_state: oldState, new_state: newState },
+        }),
+      } as MessageEvent);
+    });
+  }
+
+  it('refetches dependents when a dependency reaches done so blocked_by stays true', async () => {
+    const result = await mount();
+    vi.mocked(api.getCard).mockImplementation(async (_project, id) => {
+      if (id === 'ALPHA-1') return { ...base, state: 'done' };
+      if (id === 'ALPHA-2') return { ...dependent, dependencies_met: true, blocked_by: undefined };
+      throw new Error(`unexpected refetch of ${id}`);
+    });
+
+    stateChanged('review', 'done');
+
+    await waitFor(() =>
+      expect(result.current.cards.find((c) => c.id === 'ALPHA-2')?.dependencies_met).toBe(true),
+    );
+    expect(result.current.cards.find((c) => c.id === 'ALPHA-2')?.blocked_by).toBeUndefined();
+    const ids = vi.mocked(api.getCard).mock.calls.map(([, id]) => id).sort();
+    expect(ids).toEqual(['ALPHA-1', 'ALPHA-2']);
+  });
+
+  it('leaves dependents alone when the transition does not cross done', async () => {
+    await mount();
+    vi.mocked(api.getCard).mockImplementation(async (_project, id) => {
+      if (id === 'ALPHA-1') return { ...base, state: 'in_progress' };
+      throw new Error(`unexpected refetch of ${id}`);
+    });
+
+    stateChanged('todo', 'in_progress');
+
+    await waitFor(() => expect(vi.mocked(api.getCard)).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(api.getCard).mock.calls.map(([, id]) => id)).toEqual(['ALPHA-1']);
+  });
+});
+
 describe('useBoard - playbook events', () => {
   beforeEach(() => {
     instances = [];

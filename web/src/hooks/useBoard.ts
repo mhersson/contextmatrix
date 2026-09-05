@@ -203,6 +203,13 @@ export function useBoard(
     onCardCreatedRef.current = onCardCreated;
   }, [onCardCreated]);
 
+  // Read by handleEvent so the dependents fan-out below sees the current
+  // list without re-subscribing to SSE on every cards change.
+  const cardsRef = useRef(cards);
+  useEffect(() => {
+    cardsRef.current = cards;
+  }, [cards]);
+
   const handleEvent = useCallback(
     (event: BoardEvent) => {
       // Forward sync events to the sync handler.
@@ -239,6 +246,26 @@ export function useBoard(
       if (event.type === 'card.deleted') {
         setCards((prev) => prev.filter((c) => c.id !== event.card_id));
         return;
+      }
+
+      // A dependency crossing done flips dependencies_met / blocked_by on
+      // its dependents, but the server emits no event for them. Refetch the
+      // loaded dependents (usually none or a few) so a "Blocked by X" label
+      // never names a card sitting in the Done column. Runs ahead of the
+      // in-flight guard, which protects only the event card's own update.
+      if (event.type === 'card.state_changed') {
+        const oldState = event.data?.old_state;
+        const newState = event.data?.new_state;
+        const crossesDone = oldState === 'done' || newState === 'done' || event.data == null;
+        if (crossesDone) {
+          for (const dependent of cardsRef.current) {
+            if (!dependent.depends_on?.includes(event.card_id)) continue;
+            if (inFlightRef.current.has(dependent.id)) continue;
+            api.getCard(project, dependent.id).then(mergeCard).catch((err) => {
+              console.error('Failed to refresh dependent after SSE event:', dependent.id, err);
+            });
+          }
+        }
       }
 
       // Suppress refresh-style SSE events while a patchCard is in flight to

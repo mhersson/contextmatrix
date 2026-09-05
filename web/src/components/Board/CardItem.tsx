@@ -10,6 +10,7 @@ import { CardSignalIcons } from './CardSignalIcons';
 import { SubtaskStrip, SubtaskPeekList } from './SubtaskStrip';
 import { CardHoverCard } from './CardHoverCard';
 import { hasUnmetDeps } from '../../lib/chip';
+import { lastInputWasKeyboard } from '../../lib/inputModality';
 
 interface CardItemProps {
   card: Card;
@@ -62,35 +63,35 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
   // right-hand group (type pill + icons - present on every card, so a card
   // with labels but no icons still has a target), never from the card body.
   // Closes on leave, on any press (click or drag pickup, so no drag effect is
-  // needed), on scroll, on blur and on Escape while the card has focus.
-  // Focus opens it for keyboard users; a press sets the flag until mouseup
-  // so the focus a click confers does not pop the summary, and the mouseup
-  // reset keeps a press that focused a nested button (or nothing) from
-  // swallowing a later keyboard focus. onMouseDown is spread after
-  // {...listeners}: PointerSensor uses onPointerDown, but a MouseSensor's
-  // activator would be silently discarded, same trap as onKeyDown below.
+  // needed), on scroll, on resize, on blur and on Escape while the card has
+  // focus. Focus opens it only when the last input was the keyboard (the
+  // :focus-visible rule): neither the focus a click confers nor the focus
+  // the panel's trap hands back after a mouse click pops the summary.
+  // onMouseDown is spread after {...listeners}: PointerSensor uses
+  // onPointerDown, but a MouseSensor's activator would be silently
+  // discarded, same trap as onKeyDown below.
   const [hoverOpen, setHoverOpen] = useState(false);
   const openHover = useCallback(() => setHoverOpen(true), []);
   const closeHover = useCallback(() => setHoverOpen(false), []);
   const hoverEnabled = !isCollapsed && !dragOverlay;
   const hoverId = `card-hover-${card.id}`;
-  const pressed = useRef(false);
   useEffect(() => {
     if (!hoverOpen) return;
     window.addEventListener('scroll', closeHover, true);
-    return () => window.removeEventListener('scroll', closeHover, true);
+    window.addEventListener('resize', closeHover);
+    return () => {
+      window.removeEventListener('scroll', closeHover, true);
+      window.removeEventListener('resize', closeHover);
+    };
   }, [hoverOpen, closeHover]);
-  const dndDescribedBy = (attributes as { 'aria-describedby'?: string })['aria-describedby'];
-  const describedBy = [dndDescribedBy, hoverOpen ? hoverId : undefined].filter(Boolean).join(' ');
+  const describedBy = [attributes['aria-describedby'], hoverOpen ? hoverId : undefined]
+    .filter(Boolean)
+    .join(' ');
   const hoverRootProps = hoverEnabled
     ? {
-        onMouseDown: () => {
-          pressed.current = true;
-          closeHover();
-          window.addEventListener('mouseup', () => { pressed.current = false; }, { once: true, capture: true });
-        },
+        onMouseDown: closeHover,
         onFocus: (e: React.FocusEvent<HTMLDivElement>) => {
-          if (e.target !== e.currentTarget || pressed.current) return;
+          if (e.target !== e.currentTarget || !lastInputWasKeyboard()) return;
           openHover();
         },
         onBlur: (e: React.FocusEvent<HTMLDivElement>) => {
@@ -195,9 +196,14 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
   // so React keeps this later prop and the sensor's activator would be
   // silently discarded.
   // Ignore events bubbling from nested buttons (chevron, badges, strip, rows).
+  // An Escape that dismissed the hovercard stops there, so the board's
+  // document-level Escape does not also clear the filter or search.
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.target !== e.currentTarget) return;
-    if (e.key === 'Escape') closeHover();
+    if (e.key === 'Escape' && hoverOpen) {
+      e.stopPropagation();
+      closeHover();
+    }
     if (e.key === 'Enter') {
       e.preventDefault();
       onClick?.();

@@ -81,9 +81,9 @@ describe('CardSignalIcons', () => {
     expect(screen.getByRole('img', { name: 'Blocked by TEST-008, TEST-009' })).toBeInTheDocument();
   });
 
-  it('falls back to depends_on when blocked_by is absent', () => {
+  it('falls back to the generic label when blocked_by is absent', () => {
     render(<CardSignalIcons card={{ ...baseCard, depends_on: ['TEST-009'] }} />);
-    expect(screen.getByRole('img', { name: 'Blocked by TEST-009' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Blocked by dependencies' })).toBeInTheDocument();
   });
 
   it('hides the dependency icon without depends_on', () => {
