@@ -51,7 +51,11 @@ type cardHandlers struct {
 	users UserLister
 }
 
-// createCardRequest is the JSON body for creating a card.
+// createCardRequest is the JSON body for POST .../cards. The automation
+// fields autonomous, create_pr, await_ci, await_copilot_review,
+// max_capability and mob_participants are nullable: absent inherits the
+// project's card_defaults (built-ins when unset), any present value - false
+// and 0 included - is explicit and counts as "set" for the human-only gate.
 type createCardRequest struct {
 	Title              string              `json:"title"`
 	Type               string              `json:"type"`
@@ -61,10 +65,10 @@ type createCardRequest struct {
 	Body               string              `json:"body"`
 	Assignee           string              `json:"assignee"`
 	Source             *board.Source       `json:"source"`
-	Autonomous         bool                `json:"autonomous"`
+	Autonomous         *bool               `json:"autonomous"`
 	CreatePR           *bool               `json:"create_pr"`
-	AwaitCI            bool                `json:"await_ci"`
-	AwaitCopilotReview bool                `json:"await_copilot_review"`
+	AwaitCI            *bool               `json:"await_ci"`
+	AwaitCopilotReview *bool               `json:"await_copilot_review"`
 	BaseBranch         string              `json:"base_branch"`
 	Vetted             bool                `json:"vetted"`
 	Skills             *[]string           `json:"skills,omitempty"`
@@ -72,8 +76,8 @@ type createCardRequest struct {
 	ModelCoder         string              `json:"model_coder,omitempty"`
 	ModelReviewer      string              `json:"model_reviewer,omitempty"`
 	BestOfN            int                 `json:"best_of_n"`
-	MaxCapability      bool                `json:"max_capability"`
-	MobParticipants    int                 `json:"mob_participants"`
+	MaxCapability      *bool               `json:"max_capability"`
+	MobParticipants    *int                `json:"mob_participants"`
 	MobPhases          []string            `json:"mob_phases"`
 	MobGuests          []string            `json:"mob_guests"`
 	Verify             *board.VerifyConfig `json:"verify,omitempty"`
@@ -493,10 +497,10 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 	// Autonomous and model-pin fields can only be set by human users (UI),
 	// never by agents - mirrors the update and patch guards. Pins set at
 	// create time flow onto the card and reach the agent via get_task_context.
-	if isNonHumanAgent(r) && (req.Autonomous || req.CreatePR != nil || req.AwaitCI || req.AwaitCopilotReview ||
+	if isNonHumanAgent(r) && (req.Autonomous != nil || req.CreatePR != nil || req.AwaitCI != nil || req.AwaitCopilotReview != nil ||
 		req.BaseBranch != "" || req.Vetted ||
 		req.ModelOrchestrator != "" || req.ModelCoder != "" || req.ModelReviewer != "" ||
-		req.BestOfN != 0 || req.MaxCapability || req.MobParticipants != 0 || len(req.MobPhases) > 0 || len(req.MobGuests) > 0 ||
+		req.BestOfN != 0 || req.MaxCapability != nil || req.MobParticipants != nil || len(req.MobPhases) > 0 || len(req.MobGuests) > 0 ||
 		req.Verify != nil || req.Assignee != "") {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
 			"forbidden",
@@ -518,7 +522,12 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := validMob(h.mob, req.MobParticipants, req.MobPhases, req.MobGuests); err != nil {
+	mobParticipants := 0
+	if req.MobParticipants != nil {
+		mobParticipants = *req.MobParticipants
+	}
+
+	if err := validMob(h.mob, mobParticipants, req.MobPhases, req.MobGuests); err != nil {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid mob fields", err.Error())
 
 		return
@@ -537,10 +546,10 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 		Body:               req.Body,
 		Assignee:           req.Assignee,
 		Source:             req.Source,
-		Autonomous:         new(req.Autonomous),
+		Autonomous:         req.Autonomous,
 		CreatePR:           req.CreatePR,
-		AwaitCI:            new(req.AwaitCI),
-		AwaitCopilotReview: new(req.AwaitCopilotReview),
+		AwaitCI:            req.AwaitCI,
+		AwaitCopilotReview: req.AwaitCopilotReview,
 		BaseBranch:         req.BaseBranch,
 		Vetted:             req.Vetted,
 		Skills:             req.Skills,
@@ -548,8 +557,8 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 		ModelCoder:         req.ModelCoder,
 		ModelReviewer:      req.ModelReviewer,
 		BestOfN:            req.BestOfN,
-		MaxCapability:      new(req.MaxCapability),
-		MobParticipants:    new(req.MobParticipants),
+		MaxCapability:      req.MaxCapability,
+		MobParticipants:    req.MobParticipants,
 		MobPhases:          req.MobPhases,
 		MobGuests:          req.MobGuests,
 		Verify:             req.Verify,

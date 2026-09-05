@@ -73,7 +73,7 @@ func TestCreateCardBestOfNAndMob(t *testing.T) {
 			Title:           "Mob create",
 			Type:            "task",
 			Priority:        "medium",
-			MobParticipants: 3,
+			MobParticipants: new(3),
 			MobPhases:       []string{"plan", "review"},
 			MobGuests:       []string{"laptop"},
 		})
@@ -113,7 +113,7 @@ func TestCreateCardBestOfNAndMob(t *testing.T) {
 			Title:           "Bad mob",
 			Type:            "task",
 			Priority:        "medium",
-			MobParticipants: 6, // mobTestConfig max is 5
+			MobParticipants: new(6), // mobTestConfig max is 5
 		})
 
 		resp := postAs(t, string(body), "")
@@ -150,7 +150,7 @@ func TestCreateCardBestOfNAndMob(t *testing.T) {
 			Title:           "Agent mob",
 			Type:            "task",
 			Priority:        "medium",
-			MobParticipants: 3,
+			MobParticipants: new(3),
 		})
 
 		resp := postAs(t, string(body), "agent:x")
@@ -190,7 +190,7 @@ func TestCreateCardBestOfNAndMob(t *testing.T) {
 			Title:         "MaxCap create",
 			Type:          "task",
 			Priority:      "medium",
-			MaxCapability: true,
+			MaxCapability: new(true),
 		})
 
 		resp := postAs(t, string(body), "")
@@ -208,7 +208,7 @@ func TestCreateCardBestOfNAndMob(t *testing.T) {
 			Title:         "Agent max_cap",
 			Type:          "task",
 			Priority:      "medium",
-			MaxCapability: true,
+			MaxCapability: new(true),
 		})
 
 		resp := postAs(t, string(body), "agent:x")
