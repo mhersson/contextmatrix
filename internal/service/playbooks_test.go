@@ -460,6 +460,62 @@ func TestPlaybookService_ListSegments(t *testing.T) {
 	assert.Equal(t, 1, summary.Projects, "distinct projects among card entries")
 }
 
+func TestSummarizeDetail_NextAndGates(t *testing.T) {
+	entry := func(typ, project, card, title, text string, complete bool) PlaybookEntryDetail {
+		return PlaybookEntryDetail{
+			PlaybookEntry: board.PlaybookEntry{Type: typ, Project: project, Card: card, Text: text},
+			CardTitle:     title,
+			Complete:      complete,
+		}
+	}
+
+	t.Run("names the first incomplete card entry", func(t *testing.T) {
+		s := SummarizeDetail(&PlaybookDetail{Entries: []PlaybookEntryDetail{
+			entry(board.EntryTypeCard, "alpha", "ALPHA-1", "First", "", true),
+			entry(board.EntryTypeCard, "beta", "BETA-2", "Second", "", false),
+			entry(board.EntryTypeManual, "", "", "", "ship it", false),
+		}})
+		require.NotNil(t, s.Next)
+		assert.Equal(t, &PlaybookNext{Type: board.EntryTypeCard, Project: "beta", Card: "BETA-2", Title: "Second"}, s.Next)
+		assert.Equal(t, []int{2}, s.Gates, "indexes of manual entries")
+	})
+
+	t.Run("names a manual frontier by its text", func(t *testing.T) {
+		s := SummarizeDetail(&PlaybookDetail{Entries: []PlaybookEntryDetail{
+			entry(board.EntryTypeManual, "", "", "", "ship it", false),
+			entry(board.EntryTypeCard, "alpha", "ALPHA-1", "First", "", false),
+		}})
+		assert.Equal(t, &PlaybookNext{Type: board.EntryTypeManual, Title: "ship it"}, s.Next)
+		assert.Equal(t, []int{0}, s.Gates)
+	})
+
+	t.Run("names a missing card frontier with an empty title", func(t *testing.T) {
+		missing := entry(board.EntryTypeCard, "alpha", "ALPHA-9", "", "", false)
+		missing.Missing = true
+		s := SummarizeDetail(&PlaybookDetail{Entries: []PlaybookEntryDetail{
+			entry(board.EntryTypeCard, "alpha", "ALPHA-1", "First", "", true),
+			missing,
+			entry(board.EntryTypeCard, "alpha", "ALPHA-2", "Second", "", false),
+		}})
+		assert.Equal(t, &PlaybookNext{Type: board.EntryTypeCard, Project: "alpha", Card: "ALPHA-9"}, s.Next)
+	})
+
+	t.Run("summarizes an empty playbook without next, gates or segments", func(t *testing.T) {
+		s := SummarizeDetail(&PlaybookDetail{})
+		assert.Nil(t, s.Next)
+		assert.Nil(t, s.Gates)
+		assert.Empty(t, s.Segments)
+	})
+
+	t.Run("omits next when every entry is complete and gates when none are manual", func(t *testing.T) {
+		s := SummarizeDetail(&PlaybookDetail{Entries: []PlaybookEntryDetail{
+			entry(board.EntryTypeCard, "alpha", "ALPHA-1", "First", "", true),
+		}})
+		assert.Nil(t, s.Next)
+		assert.Nil(t, s.Gates)
+	})
+}
+
 func TestPlaybookCreateVerified_PublishesNothingWhenThePushNeverLands(t *testing.T) {
 	env := newPlaybookTestEnv(t)
 

@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { PlaybooksPage } from './PlaybooksPage';
 import { api } from '../../api/client';
-import type { PlaybookDetail } from '../../types';
+import type { PlaybookDetail, PlaybookSummary } from '../../types';
 
 vi.mock('../../api/client', () => ({
   api: {
@@ -36,14 +36,55 @@ vi.mock('../../hooks/useTheme', () => ({
   useTheme: () => ({ boardsRepos: themeState.boardsRepos }),
 }));
 
+const summaryLine = (text: string) => (_: string, el: Element | null) => el?.tagName === 'P' && el.textContent === text;
+
 describe('PlaybooksPage', () => {
-  it('folds fully-complete playbooks behind the Completed toggle', async () => {
+  it('drops the crumb above the title and summarizes progress under it', async () => {
+    render(<MemoryRouter><PlaybooksPage /></MemoryRouter>);
+    await screen.findByText('Active one');
+    expect(screen.getByRole('heading', { name: 'Playbooks' })).toBeInTheDocument();
+    expect(screen.queryByText('playbooks')).not.toBeInTheDocument();
+    expect(screen.getByText(summaryLine('1 in progress, 1 completed'))).toBeInTheDocument();
+  });
+
+  it('does not state counts before the list has loaded', async () => {
+    let resolveList: (value: PlaybookSummary[]) => void = () => {};
+    vi.mocked(api.listPlaybooks).mockReturnValueOnce(new Promise((resolve) => { resolveList = resolve; }));
+    render(<MemoryRouter><PlaybooksPage /></MemoryRouter>);
+    expect(screen.getByText('Loading...')).toBeInTheDocument();
+    expect(screen.queryByText(/in progress/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /new playbook/i }));
+    expect(screen.getByLabelText('Playbook title')).toBeInTheDocument();
+
+    resolveList([]);
+    await screen.findByText('No playbooks yet');
+  });
+
+  it('cancels the ghost row on Escape and clears the draft', async () => {
+    render(<MemoryRouter><PlaybooksPage /></MemoryRouter>);
+    await screen.findByText('Active one');
+
+    fireEvent.click(screen.getByRole('button', { name: /new playbook/i }));
+    fireEvent.change(screen.getByLabelText('Playbook title'), { target: { value: 'Draft' } });
+    fireEvent.keyDown(screen.getByLabelText('Playbook title'), { key: 'Escape' });
+    expect(screen.queryByLabelText('Playbook title')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /new playbook/i }));
+    expect(screen.getByLabelText('Playbook title')).toHaveValue('');
+  });
+
+  it('shows completed playbooks as receipts under an open section and folds them on click', async () => {
     render(<MemoryRouter><PlaybooksPage /></MemoryRouter>);
     expect(await screen.findByText('Active one')).toBeInTheDocument();
-    expect(screen.queryByText('Done one')).not.toBeInTheDocument();
+    const done = screen.getByRole('link', { name: /done one/i });
+    expect(done).toHaveClass('pbl-receipt');
 
-    fireEvent.click(screen.getByRole('button', { name: /completed \(1\)/i }));
-    expect(screen.getByText('Done one')).toBeInTheDocument();
+    const toggle = screen.getByRole('button', { name: /completed/i });
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.click(toggle);
+    expect(screen.queryByText('Done one')).not.toBeInTheDocument();
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('links rows to the playbook detail page', async () => {
@@ -52,7 +93,7 @@ describe('PlaybooksPage', () => {
     expect(row.getAttribute('href')).toBe('/playbooks/active-one');
   });
 
-  it('disables Create while the request is in flight and labels the title input', async () => {
+  it('opens a ghost row above the list and disables Create playbook while the request is in flight', async () => {
     let resolveCreate: (value: PlaybookDetail) => void = () => {};
     vi.mocked(api.createPlaybook).mockReturnValue(new Promise((resolve) => { resolveCreate = resolve; }));
     render(<MemoryRouter><PlaybooksPage /></MemoryRouter>);
@@ -60,8 +101,13 @@ describe('PlaybooksPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /new playbook/i }));
     const titleInput = screen.getByLabelText('Playbook title');
+    const ghost = titleInput.closest('.pbl-ghost');
+    expect(ghost).not.toBeNull();
+    const firstRow = screen.getByRole('link', { name: /active one/i });
+    expect(ghost!.compareDocumentPosition(firstRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
     fireEvent.change(titleInput, { target: { value: 'New rollout' } });
-    const createButton = screen.getByRole('button', { name: /^create$/i });
+    const createButton = screen.getByRole('button', { name: 'Create playbook' });
     fireEvent.click(createButton);
     expect(createButton).toBeDisabled();
 
@@ -72,16 +118,29 @@ describe('PlaybooksPage', () => {
     await waitFor(() => expect(createButton).not.toBeDisabled());
   });
 
-  it('replaces the header layout with a centered hero when there are no playbooks', async () => {
+  it('sends the description only when one is typed', async () => {
+    vi.mocked(api.createPlaybook).mockResolvedValue({ id: 'x', title: 'X', created_at: '', updated_at: '', complete: 0, total: 0, entries: [] });
+    render(<MemoryRouter><PlaybooksPage /></MemoryRouter>);
+    await screen.findByText('Active one');
+
+    fireEvent.click(screen.getByRole('button', { name: /new playbook/i }));
+    fireEvent.change(screen.getByLabelText('Playbook title'), { target: { value: 'With notes' } });
+    fireEvent.change(screen.getByLabelText('Description'), { target: { value: '  Why this route exists  ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create playbook' }));
+    await waitFor(() => expect(api.createPlaybook).toHaveBeenCalledWith({ title: 'With notes', description: 'Why this route exists' }));
+  });
+
+  it('replaces the header with a centered empty state when there are no playbooks', async () => {
     vi.mocked(api.listPlaybooks).mockResolvedValueOnce([]);
     render(<MemoryRouter><PlaybooksPage /></MemoryRouter>);
 
     expect(await screen.findByText('No playbooks yet')).toBeInTheDocument();
+    expect(screen.getByText(/ordered route of cards and manual steps/)).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Playbooks' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /new playbook/i })).toBeInTheDocument();
   });
 
-  it('creates a playbook from the hero via Enter', async () => {
+  it('creates a playbook from the empty state via Enter', async () => {
     vi.mocked(api.listPlaybooks).mockResolvedValueOnce([]);
     vi.mocked(api.createPlaybook).mockResolvedValueOnce({ id: 'first-one', title: 'First one', created_at: '', updated_at: '', complete: 0, total: 0, entries: [] });
     render(<MemoryRouter><PlaybooksPage /></MemoryRouter>);
@@ -89,13 +148,14 @@ describe('PlaybooksPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /new playbook/i }));
     const titleInput = screen.getByLabelText('Playbook title');
+    expect(titleInput.closest('.pbl-ghost')).not.toBeNull();
     fireEvent.change(titleInput, { target: { value: 'First one' } });
     fireEvent.keyDown(titleInput, { key: 'Enter' });
 
     await waitFor(() => expect(api.createPlaybook).toHaveBeenCalledWith({ title: 'First one' }));
   });
 
-  it('cancels the hero create flow on Escape', async () => {
+  it('cancels the empty-state create flow on Escape', async () => {
     vi.mocked(api.listPlaybooks).mockResolvedValueOnce([]);
     render(<MemoryRouter><PlaybooksPage /></MemoryRouter>);
     await screen.findByText('No playbooks yet');
@@ -121,7 +181,7 @@ describe('PlaybooksPage - boards repo', () => {
     expect((select as HTMLSelectElement).value).toBe('team');
     fireEvent.change(select, { target: { value: 'private' } });
     fireEvent.change(screen.getByLabelText('Playbook title'), { target: { value: 'X' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create playbook' }));
     await waitFor(() => expect(vi.mocked(api.createPlaybook)).toHaveBeenCalledWith({ title: 'X', boards_repo: 'private' }));
     themeState.boardsRepos = [];
   });

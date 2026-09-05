@@ -101,9 +101,24 @@ type PlaybookSummary struct {
 	// in_progress).
 	Segments []string `json:"segments"`
 	// Projects is the count of distinct projects referenced by card
-	// entries (the list row shows "N entries · M projects").
-	Projects int       `json:"projects"`
-	Updated  time.Time `json:"updated_at"`
+	// entries (the list row shows "N entries across M projects").
+	Projects int `json:"projects"`
+	// Gates lists the indexes of manual entries so the list page's route
+	// track can draw them as gates without fetching the detail.
+	Gates []int `json:"gates,omitempty"`
+	// Next is the frontier entry (the first incomplete one), nil once every
+	// entry is complete.
+	Next    *PlaybookNext `json:"next,omitempty"`
+	Updated time.Time     `json:"updated_at"`
+}
+
+// PlaybookNext names a playbook's frontier entry for the list page. Title
+// is the card title for card entries and the step text for manual ones.
+type PlaybookNext struct {
+	Type    string `json:"type"`
+	Project string `json:"project,omitempty"`
+	Card    string `json:"card,omitempty"`
+	Title   string `json:"title"`
 }
 
 // PlaybookEntryDetail is one entry enriched with the current state of the
@@ -928,15 +943,31 @@ func (s *PlaybookService) summarize(ctx context.Context, p *board.Playbook) (Pla
 
 // SummarizeDetail reduces a resolved detail to its list-view projection:
 // one status segment per entry ("complete" | "active" | "missing" |
-// "pending") plus the count of distinct projects referenced by card
-// entries. Exported so callers that already hold a *PlaybookDetail (e.g.
+// "pending"), the count of distinct projects referenced by card entries,
+// the manual-entry indexes and the frontier entry. Exported so callers that already hold a *PlaybookDetail (e.g.
 // the MCP layer's mutation responses) can derive the same slim summary
 // without a second resolve against the card store.
 func SummarizeDetail(d *PlaybookDetail) PlaybookSummary {
 	segments := make([]string, len(d.Entries))
 	projects := make(map[string]struct{}, len(d.Entries))
 
+	var (
+		gates []int
+		next  *PlaybookNext
+	)
+
 	for i, ed := range d.Entries {
+		if ed.Type == board.EntryTypeManual {
+			gates = append(gates, i)
+		}
+
+		if next == nil && !ed.Complete {
+			next = &PlaybookNext{Type: ed.Type, Project: ed.Project, Card: ed.Card, Title: ed.CardTitle}
+			if ed.Type == board.EntryTypeManual {
+				next.Title = ed.Text
+			}
+		}
+
 		switch {
 		case ed.Complete:
 			segments[i] = "complete"
@@ -961,6 +992,8 @@ func SummarizeDetail(d *PlaybookDetail) PlaybookSummary {
 		Total:      d.Total,
 		Segments:   segments,
 		Projects:   len(projects),
+		Gates:      gates,
+		Next:       next,
 		Updated:    d.Updated,
 	}
 }

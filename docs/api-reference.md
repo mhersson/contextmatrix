@@ -1598,6 +1598,8 @@ List-view summary of every playbook, sorted by id.
     "total": 3,
     "segments": ["complete", "active", "pending"],
     "projects": 2,
+    "gates": [2],
+    "next": { "type": "card", "project": "alpha", "card": "ALPHA-002", "title": "Wire the flag" },
     "updated_at": "2026-08-20T10:30:00Z"
   }
 ]
@@ -1606,6 +1608,10 @@ List-view summary of every playbook, sorted by id.
 `segments` is one status per entry in playbook order (`complete` | `active`
 | `missing` | `pending`; `active` means the card is `in_progress`);
 `projects` counts the distinct projects referenced by card entries.
+`gates` lists the indexes of manual entries (omitted when there are none).
+`next` is the first incomplete entry - `title` is the card title (empty when
+the card is missing), or the step text for a manual entry - and is omitted
+once every entry is complete.
 `boards_repo` is omitted on a single-repo instance.
 
 ### POST /api/playbooks

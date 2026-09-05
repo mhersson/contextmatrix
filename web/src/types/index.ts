@@ -762,6 +762,15 @@ export interface PlaybookEntry {
   complete: boolean;
 }
 
+/** The frontier entry of a playbook: the first one not yet complete. */
+export interface PlaybookNext {
+  type: 'card' | 'manual';
+  project?: string;
+  card?: string;
+  /** Card title, or the step text for a manual entry. */
+  title: string;
+}
+
 export interface PlaybookSummary {
   id: string;
   title: string;
@@ -769,6 +778,10 @@ export interface PlaybookSummary {
   total: number;
   segments: PlaybookSegment[];
   projects: number;
+  /** Indexes of manual entries, omitted when there are none. */
+  gates?: number[];
+  /** Omitted once every entry is complete. */
+  next?: PlaybookNext;
   updated_at: string;
   /** Boards repo the server stamps this playbook with on every read (the entry's configured name, boards for the map form); optional only for compatibility with older servers. */
   boards_repo?: string;
