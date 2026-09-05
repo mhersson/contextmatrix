@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, act, within } from '@testing-library/react';
+import { render, screen, fireEvent, act, within, waitFor } from '@testing-library/react';
 import { CreateCardPanel } from './CreateCardPanel';
 import { api } from '../../api/client';
 import type { Card, ProjectConfig } from '../../types';
@@ -350,7 +350,7 @@ describe('CreateCardPanel - Best-of-N and Mob at create time', () => {
     expect(input).toMatchObject({ title: 'Mob card', mob_participants: 3, mob_phases: ['review'] });
   });
 
-  it('omits best_of_n and mob_participants when left at Off', async () => {
+  it('omits best_of_n but sends an explicit mob_participants: 0 when left at Off', async () => {
     const onCreate = vi.fn().mockResolvedValue(undefined);
     render(<CreateCardPanel {...makeProps({ onCreate })} />);
 
@@ -362,7 +362,7 @@ describe('CreateCardPanel - Best-of-N and Mob at create time', () => {
 
     const [input] = onCreate.mock.calls[0];
     expect(input.best_of_n).toBeUndefined();
-    expect(input.mob_participants).toBeUndefined();
+    expect(input.mob_participants).toBe(0);
   });
 });
 
@@ -391,7 +391,7 @@ describe('CreateCardPanel - maximum capability', () => {
     expect(input).toMatchObject({ title: 'Max cap card', max_capability: true });
   });
 
-  it('omits max_capability from the create payload when left unchecked (default)', async () => {
+  it('sends an explicit max_capability: false when left unchecked (default)', async () => {
     const onCreate = vi.fn().mockResolvedValue(undefined);
     render(<CreateCardPanel {...makeProps({ onCreate })} />);
 
@@ -402,7 +402,7 @@ describe('CreateCardPanel - maximum capability', () => {
     });
 
     const [input] = onCreate.mock.calls[0];
-    expect(input.max_capability).toBeUndefined();
+    expect(input.max_capability).toBe(false);
   });
 
   it('hides the Maximum capability checkbox when model pins are revealed', () => {
@@ -610,5 +610,54 @@ describe('CreateCardPanel - base branch dropdown', () => {
     const select = screen.getByLabelText('Base branch');
     expect(await within(select).findByRole('option', { name: 'develop' })).toBeInTheDocument();
     expect(within(select).getByRole('option', { name: 'release/1.0' })).toBeInTheDocument();
+  });
+});
+
+describe('CreateCardPanel - project card defaults', () => {
+  const withDefaults: ProjectConfig = {
+    ...config,
+    card_defaults: {
+      autonomous: true,
+      max_capability: true,
+      mob_participants: 3,
+      mob_phases: ['review'],
+      create_pr: false,
+      await_ci: true,
+    },
+  };
+
+  it('pre-fills the Automation rail from the project defaults', () => {
+    render(<CreateCardPanel {...makeProps({ config: withDefaults })} />);
+
+    expect(screen.getByLabelText('Autonomous mode')).toBeChecked();
+    expect(screen.getByLabelText('Maximum capability')).toBeChecked();
+    expect(screen.getByLabelText('Mob seats')).toHaveValue('3');
+    expect(screen.getByLabelText('Mob phase review')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByLabelText('Create PR')).not.toBeChecked();
+  });
+
+  it('sends the pre-filled values explicitly on create', async () => {
+    const props = makeProps({ config: withDefaults });
+    render(<CreateCardPanel {...props} />);
+
+    fireEvent.change(screen.getByPlaceholderText(/Card title/), { target: { value: 'Seeded' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Just create' }));
+
+    await waitFor(() => expect(props.onCreate).toHaveBeenCalled());
+    const [input] = vi.mocked(props.onCreate).mock.calls[0];
+    expect(input.autonomous).toBe(true);
+    expect(input.max_capability).toBe(true);
+    expect(input.mob_participants).toBe(3);
+    expect(input.mob_phases).toEqual(['review']);
+    expect(input.create_pr).toBe(false);
+    expect(input.await_ci).toBe(true);
+  });
+
+  it('starts from the built-ins when the project has no defaults', () => {
+    render(<CreateCardPanel {...makeProps()} />);
+
+    expect(screen.getByLabelText('Autonomous mode')).not.toBeChecked();
+    expect(screen.getByLabelText('Create PR')).toBeChecked();
+    expect(screen.getByLabelText('Mob seats')).toHaveValue('0');
   });
 });

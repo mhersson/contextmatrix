@@ -969,9 +969,14 @@ Creates a card in the project's first state. Only `title` is required.
 }
 ```
 
-`create_pr` defaults to `true` when omitted. `skills` omitted means the
-project default; `[]` mounts no skills. `depends_on`, `subtasks`, `context`,
-and `custom` are not accepted on create - set them with PUT or PATCH.
+`autonomous`, `create_pr`, `await_ci`, `await_copilot_review`, `max_capability`
+and `mob_participants` are nullable: omitted falls back to the project's
+`card_defaults` (built-ins when unset: everything off, `create_pr` on) for
+top-level cards and to off for subtasks; any present value, `false` and `0`
+included, is explicit. `mob_phases` is read only alongside an explicit
+`mob_participants`. `skills` omitted means the project default; `[]` mounts no
+skills. `depends_on`, `subtasks`, `context`, and `custom` are not accepted on
+create - set them with PUT or PATCH.
 
 **Human-only fields** (403 `HUMAN_ONLY_FIELD` when a non-`human:` caller sets
 any of them, on create, PUT, and PATCH alike): `autonomous`, `create_pr`,
@@ -980,7 +985,9 @@ any of them, on create, PUT, and PATCH alike): `autonomous`, `create_pr`,
 `max_capability`, `mob_participants`, `mob_phases`, `mob_guests`, `verify`.
 On create and PATCH the check runs before the card is loaded. PUT compares
 against the stored values, so clearing a human-only field is also gated; PUT
-does not accept `base_branch` or `verify` at all.
+does not accept `base_branch` or `verify` at all. For the nullable fields,
+presence counts as setting - an agent sending `"autonomous": false` is
+rejected, omitting it is not.
 
 **Response:** 201 with the full card.
 
@@ -1278,6 +1285,7 @@ them.
   "default_skills": ["go-development", "documentation"],
   "github_credential": "org-app",
   "verify": { "command": "make test", "timeout_seconds": 600, "env": ["JAVA_HOME"] },
+  "card_defaults": { "autonomous": true, "mob_participants": 3, "mob_phases": ["review"], "await_ci": true },
   "remote_execution": {
     "worker_image": "my-org/go-worker:latest",
     "chat_worker_image": "my-org/go-chat-worker:latest"
@@ -1285,13 +1293,14 @@ them.
 }
 ```
 
-| Field               | Semantics                                                                                                                                                                                      |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `github`            | GitHub import configuration ([github-issue-import.md](github-issue-import.md))                                                                                                                 |
-| `github_credential` | Binds the project's GitHub operations to a credential-pool entry (`GET /api/admin/credentials`). 422 `VALIDATION_ERROR` for an unknown name, or any non-empty value in `none` mode.            |
-| `default_skills`    | Omitted or `null` clears (the backend mounts the full task-skills set); `[]` mounts none; a list constrains cards without their own `skills`. Unknown names: 400 `VALIDATION_ERROR`.           |
-| `verify`            | Replace-whole-struct: omitted preserves, a present object replaces, a zero-value object clears. Invalid: 422 `VALIDATION_ERROR`. The card-level `verify` overrides it field by field.          |
-| `remote_execution`  | Per-field merge: each of `worker_image` and `chat_worker_image` is independently omittable (preserves) or set; `""` clears back to the backend's default image. Charset and 512-byte cap: 422. |
+| Field               | Semantics                                                                                                                                                                                                                                                             |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `github`            | GitHub import configuration ([github-issue-import.md](github-issue-import.md))                                                                                                                                                                                        |
+| `github_credential` | Binds the project's GitHub operations to a credential-pool entry (`GET /api/admin/credentials`). 422 `VALIDATION_ERROR` for an unknown name, or any non-empty value in `none` mode.                                                                                   |
+| `default_skills`    | Omitted or `null` clears (the backend mounts the full task-skills set); `[]` mounts none; a list constrains cards without their own `skills`. Unknown names: 400 `VALIDATION_ERROR`.                                                                                  |
+| `verify`            | Replace-whole-struct: omitted preserves, a present object replaces, a zero-value object clears. Invalid: 422 `VALIDATION_ERROR`. The card-level `verify` overrides it field by field.                                                                                 |
+| `card_defaults`     | Replace-whole-struct like `verify`: omitted preserves, a present object replaces, a block equal to the built-ins clears. `mob_participants` / `mob_phases` outside the server's mob bounds: 422 `VALIDATION_ERROR`. `create_pr` absent inside the block means `true`. |
+| `remote_execution`  | Per-field merge: each of `worker_image` and `chat_worker_image` is independently omittable (preserves) or set; `""` clears back to the backend's default image. Charset and 512-byte cap: 422.                                                                        |
 
 Returns 200 with the updated `ProjectConfig`.
 

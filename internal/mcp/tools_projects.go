@@ -87,7 +87,7 @@ func registerCreateProject(server *mcp.Server, svc *service.CardService) {
 func registerUpdateProject(server *mcp.Server, svc *service.CardService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "update_project",
-		Description: "Update a project's configuration. Cannot change name or prefix. Cannot remove states, types, or priorities that are currently in use by cards. Operator-managed fields (default_skills, remote_execution) are preserved and cannot be set through this tool; repo can only be cleared via the REST API or web UI.",
+		Description: "Update a project's configuration. Cannot change name or prefix. Cannot remove states, types, or priorities that are currently in use by cards. Operator-managed fields (default_skills, remote_execution, verify, card_defaults) are preserved and cannot be set through this tool; repo can only be cleared via the REST API or web UI.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input updateProjectToolInput) (*mcp.CallToolResult, *board.ProjectConfig, error) {
 		// The tool input carries no default_skills/repo-clear channel, but the
 		// service applies both wholesale (nil default_skills clears; empty repo

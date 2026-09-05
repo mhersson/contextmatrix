@@ -772,7 +772,7 @@ func TestCreateUpdatePatchCard_MaxCapability(t *testing.T) {
 		Title:         "max cap test",
 		Type:          "task",
 		Priority:      "medium",
-		MaxCapability: true,
+		MaxCapability: new(true),
 	})
 	require.NoError(t, err)
 	assert.True(t, card.MaxCapability)

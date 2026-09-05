@@ -67,7 +67,9 @@ skipped. A card that already has subtasks is `standard` regardless of label.
 ## Execution fields
 
 All fields except `autonomous` and `skills` are human-only; the MCP
-`update_card` tool does not expose them.
+`update_card` tool does not expose them. Project Settings → Card defaults
+pre-fills autonomous, maximum capability, mob seats/phases and the PR gates
+for new cards; Best-of-N stays per card.
 
 | Field                  | Effect                                                          |
 | ---------------------- | --------------------------------------------------------------- |
@@ -78,7 +80,7 @@ All fields except `autonomous` and `skills` are human-only; the MCP
 | `mob_phases`           | Subset of `plan`, `review`, `execute`; execute checkpoints drop `best_of_n`. |
 | `mob_guests`           | Names from the `mob.guests` registry joining the discussion.    |
 | `verify`               | Command, timeout and env names for the verify gate; card over project, field by field. |
-| `create_pr`            | Open a pull request after the push (default true for top-level cards, false for subtasks). |
+| `create_pr`            | Open a pull request after the push (default from the project's card_defaults; built-in true for top-level cards, always false for subtasks). |
 | `await_ci`             | Stay in `review` until PR checks pass, up to 3 fix rounds, else park. |
 | `await_copilot_review` | Request a Copilot review, triage, fix, up to 3 rounds; skipped when unavailable. |
 | `model_orchestrator`, `model_coder`, `model_reviewer` | Pin a model per role; a pin beats every selector rule. |

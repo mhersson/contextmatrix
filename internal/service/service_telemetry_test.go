@@ -252,7 +252,7 @@ func TestRunLifecycleMetricsRunModeAndAgents(t *testing.T) {
 
 	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
 		Title: "Mob run", Type: "task", Priority: "medium",
-		MobParticipants: 3, MobGuests: []string{"guest-a"},
+		MobParticipants: new(3), MobGuests: []string{"guest-a"},
 	})
 	require.NoError(t, err)
 

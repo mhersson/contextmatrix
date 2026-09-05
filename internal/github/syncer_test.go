@@ -463,3 +463,48 @@ func TestSyncAll_SkipsAProjectHiddenBehindAnotherRepo(t *testing.T) {
 
 	_ = dirTwo
 }
+
+func TestSyncer_ImportedCardsInheritProjectCardDefaults(t *testing.T) {
+	issues := []Issue{{Number: 7, Title: "Inherit me", Body: "b", HTMLURL: "https://github.com/testorg/testrepo/issues/7"}}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-RateLimit-Remaining", "100")
+		_ = json.NewEncoder(w).Encode(issues)
+	}))
+	defer srv.Close()
+
+	ghCfg := &board.GitHubImportConfig{ImportIssues: true}
+	boardsDir, svc, store := setupTestProject(t, "test-project", ghCfg)
+
+	ctx := context.Background()
+	cur, err := svc.GetProject(ctx, "test-project")
+	require.NoError(t, err)
+
+	_, err = svc.UpdateProject(ctx, "test-project", service.UpdateProjectInput{
+		Repo: cur.Repo, States: cur.States, Types: cur.Types, Priorities: cur.Priorities, Transitions: cur.Transitions,
+		GitHub:       cur.GitHub,
+		CardDefaults: &board.CardDefaults{Autonomous: true, AwaitCI: true, CreatePR: new(false)},
+	})
+	require.NoError(t, err)
+
+	p, err := githubauth.NewPATProvider("t")
+	require.NoError(t, err)
+
+	client := NewClientWithBaseURL(p, srv.URL)
+	syncer := NewSyncer(svc, store, client, 5*time.Minute, []string{"github.com"})
+
+	cfg, err := board.LoadProjectConfig(filepath.Join(boardsDir, "test-project"))
+	require.NoError(t, err)
+
+	imported, err := syncer.syncProject(ctx, cfg, client, "testorg", "testrepo")
+	require.NoError(t, err)
+	require.Equal(t, 1, imported)
+
+	cards, err := store.ListCards(ctx, "test-project", storage.CardFilter{})
+	require.NoError(t, err)
+	require.Len(t, cards, 1)
+
+	assert.True(t, cards[0].Autonomous, "imported cards inherit the project's autonomous default")
+	assert.True(t, cards[0].AwaitCI)
+	assert.False(t, cards[0].CreatePR)
+}

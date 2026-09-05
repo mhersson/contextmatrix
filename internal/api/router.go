@@ -293,6 +293,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		taskSkills:       taskSkillsLister,
 		authEnabled:      cfg.AuthService != nil,
 		credentialExists: cfg.CredentialExists,
+		mob:              cfg.Mob,
 	}
 	ch := &cardHandlers{svc: cfg.Service, taskSkills: taskSkillsLister, bestOfNMax: cfg.BestOfN.MaxCandidates, mob: cfg.Mob}
 	ah := &agentHandlers{svc: cfg.Service}

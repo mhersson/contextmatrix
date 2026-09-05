@@ -87,9 +87,11 @@ func TestResolveProject_ScalarAndDeepConflictsKeepRemote(t *testing.T) {
 	ours := projCfg()
 	ours.Repo = "https://github.com/local/fork"
 	ours.RemoteExecution = &board.RemoteExecutionConfig{WorkerImage: "local-image"}
+	ours.CardDefaults = &board.CardDefaults{Autonomous: true}
 	theirs := projCfg()
 	theirs.Repo = "https://github.com/remote/canonical"
 	theirs.RemoteExecution = &board.RemoteExecutionConfig{WorkerImage: "remote-image"}
+	theirs.CardDefaults = &board.CardDefaults{MobParticipants: 3, MobPhases: []string{"review"}}
 
 	out, err := Resolve(Input{
 		Path: "alpha/.board.yaml", Base: serializeProj(t, base),
@@ -101,13 +103,39 @@ func TestResolveProject_ScalarAndDeepConflictsKeepRemote(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "https://github.com/remote/canonical", got.Repo)
 	assert.Equal(t, "remote-image", got.RemoteExecution.WorkerImage)
+	require.NotNil(t, got.CardDefaults)
+	assert.False(t, got.CardDefaults.Autonomous)
+	assert.Equal(t, 3, got.CardDefaults.MobParticipants)
 
 	rules := make([]string, len(out.Resolutions))
 	for i, r := range out.Resolutions {
 		rules[i] = r.Rule
 	}
 
-	assert.ElementsMatch(t, []string{RuleLaterUpdated, RuleLaterUpdated}, rules)
+	assert.ElementsMatch(t, []string{RuleLaterUpdated, RuleLaterUpdated, RuleLaterUpdated}, rules)
+}
+
+func TestResolveProject_CardDefaultsLocalOnlyChangeKept(t *testing.T) {
+	base := projCfg()
+	ours := projCfg()
+	ours.CardDefaults = &board.CardDefaults{Autonomous: true, CreatePR: new(false)}
+	theirs := projCfg()
+	theirs.NextID = base.NextID + 1
+
+	out, err := Resolve(Input{
+		Path: "alpha/.board.yaml", Base: serializeProj(t, base),
+		Ours: serializeProj(t, ours), Theirs: serializeProj(t, theirs),
+	}, testCtx())
+	require.NoError(t, err)
+
+	got, err := board.ParseProjectConfig(out.Content)
+	require.NoError(t, err)
+	require.NotNil(t, got.CardDefaults)
+	assert.True(t, got.CardDefaults.Autonomous)
+	require.NotNil(t, got.CardDefaults.CreatePR)
+	assert.False(t, *got.CardDefaults.CreatePR)
+	assert.Equal(t, theirs.NextID, got.NextID)
+	assert.Empty(t, out.Resolutions)
 }
 
 func TestResolveProject_Unparseable(t *testing.T) {

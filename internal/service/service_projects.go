@@ -63,6 +63,10 @@ type UpdateProjectInput struct {
 	//   nil pointer   - preserve the existing verify config
 	//   non-nil       - replace it wholesale, then normalize (zero value → nil)
 	Verify *board.VerifyConfig
+	// CardDefaults uses replace-whole-struct semantics like Verify:
+	//   nil pointer   - preserve the existing card_defaults block
+	//   non-nil       - replace it wholesale, then normalize (built-ins → nil)
+	CardDefaults *board.CardDefaults
 }
 
 // RemoteExecutionUpdate carries per-field edits to a project's remote-execution
@@ -453,6 +457,13 @@ func (s *CardService) updateProjectLocked(
 		}
 
 		cfg.Verify = normalizeVerify(input.Verify)
+	}
+
+	// CardDefaults replaces the whole block (nil preserves). Bounds against the
+	// server's mob config are the API layer's job (validMob), mirroring cards;
+	// here we only drop built-in values so .board.yaml stays clean.
+	if input.CardDefaults != nil {
+		cfg.CardDefaults = input.CardDefaults.Normalize()
 	}
 
 	// SaveProject validates and persists
@@ -998,6 +1009,17 @@ func copyProjectConfig(cfg *board.ProjectConfig) *board.ProjectConfig {
 	if cfg.DefaultSkills != nil {
 		clone := slices.Clone(*cfg.DefaultSkills)
 		cp.DefaultSkills = &clone
+	}
+
+	if cfg.CardDefaults != nil {
+		cd := *cfg.CardDefaults
+		cd.MobPhases = slices.Clone(cfg.CardDefaults.MobPhases)
+
+		if cfg.CardDefaults.CreatePR != nil {
+			cd.CreatePR = new(*cfg.CardDefaults.CreatePR)
+		}
+
+		cp.CardDefaults = &cd
 	}
 
 	return &cp

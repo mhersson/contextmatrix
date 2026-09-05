@@ -87,3 +87,36 @@ func TestUpdateProject_MCP_PreservesVerify(t *testing.T) {
 	assert.Equal(t, "make test", cur.Verify.Command)
 	assert.Equal(t, 600, cur.Verify.TimeoutSeconds)
 }
+
+// TestUpdateProject_MCP_PreservesCardDefaults pins that an MCP-driven
+// update_project leaves the operator's card_defaults block intact. The tool
+// input has no card_defaults channel and UpdateProjectInput.CardDefaults
+// defaults to nil (preserve).
+func TestUpdateProject_MCP_PreservesCardDefaults(t *testing.T) {
+	env := setupMCP(t)
+	ctx := context.Background()
+
+	_, err := env.svc.UpdateProject(ctx, "test-project", service.UpdateProjectInput{
+		States:       []string{"todo", "in_progress", "blocked", "review", "done", "stalled", "not_planned"},
+		Types:        []string{"task", "bug", "feature"},
+		Priorities:   []string{"low", "medium", "high", "critical"},
+		Transitions:  testProjectConfig().Transitions,
+		CardDefaults: &board.CardDefaults{Autonomous: true, MobParticipants: 3, MobPhases: []string{"review"}},
+	})
+	require.NoError(t, err)
+
+	result := callTool(t, env, "update_project", map[string]any{
+		"project":     "test-project",
+		"states":      []string{"todo", "in_progress", "blocked", "review", "done", "stalled", "not_planned"},
+		"types":       []string{"task", "bug", "feature"},
+		"priorities":  []string{"low", "medium", "high", "critical"},
+		"transitions": testProjectConfig().Transitions,
+	})
+	require.False(t, result.IsError, "update_project should not error")
+
+	cur, err := env.svc.GetProject(ctx, "test-project")
+	require.NoError(t, err)
+	require.NotNil(t, cur.CardDefaults, "card_defaults must not be wiped by an MCP update")
+	assert.True(t, cur.CardDefaults.Autonomous)
+	assert.Equal(t, 3, cur.CardDefaults.MobParticipants)
+}

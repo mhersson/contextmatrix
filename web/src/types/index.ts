@@ -111,6 +111,22 @@ export interface GitHubImportConfig {
   labels?: string[];
 }
 
+/**
+ * Project-level create-time defaults for a card's automation fields
+ * (`.board.yaml` `card_defaults`). Every field is optional on the wire;
+ * `create_pr` absent means the built-in `true`. Absent block = built-ins.
+ * Best-of-N is deliberately not a project default.
+ */
+export interface CardDefaults {
+  autonomous?: boolean;
+  max_capability?: boolean;
+  mob_participants?: number;
+  mob_phases?: string[];
+  create_pr?: boolean;
+  await_ci?: boolean;
+  await_copilot_review?: boolean;
+}
+
 export interface ProjectConfig {
   name: string;
   display_name?: string;
@@ -137,6 +153,7 @@ export interface ProjectConfig {
     timeout_seconds?: number;
     env?: string[];
   };
+  card_defaults?: CardDefaults;
   github?: GitHubImportConfig;
   templates?: Record<string, string>;
   // default_skills uses three-state semantics:
@@ -463,6 +480,12 @@ export interface UpdateProjectInput {
     timeout_seconds?: number;
     env?: string[];
   };
+  /**
+   * Replace-whole-struct on the server like verify: omitted preserves, a
+   * present object replaces (built-in values clear it). Send only when the
+   * value changed from the loaded config.
+   */
+  card_defaults?: CardDefaults;
 }
 
 export interface StopAllResponse {

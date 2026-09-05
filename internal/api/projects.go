@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
@@ -35,6 +36,9 @@ type updateProjectRequest struct {
 	// Verify replaces the whole struct: omitting it preserves the current
 	// config; a present object replaces it (zero value clears it on the server).
 	Verify *board.VerifyConfig `json:"verify,omitempty"`
+	// CardDefaults replaces the whole block like Verify: omitted preserves,
+	// a present object replaces (built-in values normalize it away).
+	CardDefaults *board.CardDefaults `json:"card_defaults,omitempty"`
 }
 
 // remoteExecutionUpdate is the field-level merge shape for remote_execution on
@@ -58,6 +62,9 @@ type projectHandlers struct {
 	// credentialExists looks up a name in the instance credential pool; nil
 	// in none mode (authEnabled is false, so it is never called).
 	credentialExists func(ctx context.Context, name string) (bool, error)
+	// mob supplies the seat bound card_defaults.mob_participants is checked
+	// against - the same config cardHandlers uses for per-card values.
+	mob config.MobConfig
 }
 
 // listProjects handles GET /api/projects.
@@ -239,6 +246,17 @@ func (h *projectHandlers) updateProject(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
+	// card_defaults shares the per-card mob validator so a project can never
+	// hand out a seat count or phase a card could not carry itself. Guests
+	// are not a project default.
+	if req.CardDefaults != nil {
+		if err := validMob(h.mob, req.CardDefaults.MobParticipants, req.CardDefaults.MobPhases, nil); err != nil {
+			writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "invalid card_defaults", err.Error())
+
+			return
+		}
+	}
+
 	var remoteExecution *service.RemoteExecutionUpdate
 	if req.RemoteExecution != nil {
 		remoteExecution = &service.RemoteExecutionUpdate{
@@ -258,6 +276,7 @@ func (h *projectHandlers) updateProject(w http.ResponseWriter, r *http.Request) 
 		DefaultSkills:    req.DefaultSkills,
 		GitHubCredential: req.GitHubCredential,
 		RemoteExecution:  remoteExecution,
+		CardDefaults:     req.CardDefaults,
 	})
 	if err != nil {
 		handleServiceError(w, r, err)

@@ -141,10 +141,10 @@ Catppuccin.
   [boards](boards.md).
 - **Project Settings** (`s`) edits everything in `.board.yaml`: repos, states,
   types and priorities (`stalled` and `not_planned` cannot be removed), the
-  transition matrix, remote-execution worker images, the verify gate, GitHub
-  issue import, default skills and, in `multi` mode, the GitHub credential
-  binding. Deleting the project sits in the Danger Zone. Both are admin-only in
-  `multi` mode.
+  transition matrix, card defaults (what a new card's Automation rail starts
+  with), remote-execution worker images, the verify gate, GitHub issue import,
+  default skills and, in `multi` mode, the GitHub credential binding. Deleting
+  the project sits in the Danger Zone. Both are admin-only in `multi` mode.
 
 ## Keyboard shortcuts
 

@@ -3,6 +3,13 @@ import { api, isAPIError } from '../../api/client';
 import { useOptionalAuth } from '../../hooks/useAuth';
 import { useTheme } from '../../hooks/useTheme';
 import type { GitHubImportConfig, ProjectConfig, UpdateProjectInput } from '../../types';
+import { CardDefaultsSection } from './CardDefaultsSection';
+import {
+  cardDefaultsKey,
+  resolveCardDefaults,
+  toWireCardDefaults,
+  type ResolvedCardDefaults,
+} from '../../lib/cardDefaults';
 import { DefaultSkillsSelector } from './DefaultSkillsSelector';
 import { GitHubCredentialSection } from './GitHubCredentialSection';
 import { GitHubImportSection } from './GitHubImportSection';
@@ -53,7 +60,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
   const isAdmin = Boolean(auth?.user?.is_admin);
   const readOnly = mode === 'multi' && !isAdmin;
 
-  const { chatEnabled, taskBackend } = useTheme();
+  const { chatEnabled, taskBackend, mobMaxParticipants, mobDefaultParticipants, mobExecuteCheckpoints } = useTheme();
 
   const repoId = useId();
 
@@ -72,6 +79,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
   // omit the key so the server preserves the stored config.
   const [remoteExecutionTouched, setRemoteExecutionTouched] = useState(false);
   const [verify, setVerify] = useState<VerifyConfig>(emptyVerify);
+  const [cardDefaults, setCardDefaults] = useState<ResolvedCardDefaults>(() => resolveCardDefaults());
   const [defaultSkills, setDefaultSkills] = useState<string[] | null>(null);
   const [githubCredential, setGithubCredential] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -112,6 +120,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
         setRemoteExecution(cfg.remote_execution ?? emptyRemoteExecution);
         setRemoteExecutionTouched(false);
         setVerify(cfg.verify ?? emptyVerify);
+        setCardDefaults(resolveCardDefaults(cfg.card_defaults));
         setDefaultSkills(cfg.default_skills ?? null);
         setGithubCredential(cfg.github_credential ?? '');
         setCardCount(count);
@@ -158,7 +167,8 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
       remoteExecutionTouched ||
       verifyToString(verify) !== verifyToString(config.verify) ||
       JSON.stringify(defaultSkills) !== JSON.stringify(configDefaultSkills) ||
-      githubCredential !== (config.github_credential ?? '')
+      githubCredential !== (config.github_credential ?? '') ||
+      cardDefaultsKey(cardDefaults) !== cardDefaultsKey(resolveCardDefaults(config.card_defaults))
     );
   }, [
     config,
@@ -172,6 +182,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
     verify,
     defaultSkills,
     githubCredential,
+    cardDefaults,
     serializeTransitions,
   ]);
 
@@ -233,6 +244,12 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
               },
             }
           : {}),
+        // Send card_defaults only when it changed from the loaded config; the
+        // server replaces the whole block and normalizes built-ins to nil, so
+        // resetting every row to the built-ins clears it from .board.yaml.
+        ...(cardDefaultsKey(cardDefaults) !== cardDefaultsKey(resolveCardDefaults(config?.card_defaults))
+          ? { card_defaults: toWireCardDefaults(cardDefaults) }
+          : {}),
       };
       const updated = await api.updateProject(project, input);
       setConfig(updated);
@@ -262,6 +279,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
     verify,
     defaultSkills,
     githubCredential,
+    cardDefaults,
     mode,
     config,
     project,
@@ -441,6 +459,16 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
           transitions={transitions}
           onChange={setTransitions}
           inputStyle={inputStyle}
+        />
+
+        {/* Card defaults - what a new card's Automation rail starts with */}
+        <CardDefaultsSection
+          value={cardDefaults}
+          onChange={setCardDefaults}
+          taskBackend={taskBackend}
+          mobMaxParticipants={mobMaxParticipants}
+          mobDefaultParticipants={mobDefaultParticipants}
+          mobExecuteCheckpoints={mobExecuteCheckpoints}
         />
 
         {/* Default task skills */}
