@@ -88,6 +88,12 @@ verify:                            # verify gate every card inherits
   command: make test
   timeout_seconds: 900
   env: [GOFLAGS]
+card_defaults:                     # what a new card's Automation rail starts with
+  autonomous: true
+  mob_participants: 3
+  mob_phases: [review]
+  create_pr: false                 # omit to keep the built-in true
+  await_ci: true
 favorites:                         # per-tier model preferences, merged with config.yaml
   complex: [anthropic/claude-opus-4.8]
   critical:
@@ -102,6 +108,9 @@ Rules the validator applies on load and on every save:
 - `repos` entries need an `https://` URL, unique names and at most one
   `primary`; the first entry becomes primary when none is marked. A `repo`
   string is shorthand for one primary entry.
+- `card_defaults.mob_participants` must be 0 or 2..`mob.max_participants` and
+  `mob_phases` a subset of plan/review/execute when saved through the API;
+  hand-edited values are loaded as written.
 - The file is capped at 1 MiB.
 
 Two fields appear in API responses only and are never written to the file:

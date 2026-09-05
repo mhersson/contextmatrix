@@ -462,6 +462,7 @@ type ProjectConfig struct {
     GitHub           *GitHubImportConfig      `yaml:"github,omitempty"            json:"github,omitempty"`
     DefaultSkills    *[]string                `yaml:"default_skills,omitempty"    json:"default_skills,omitempty"`
     Verify           *VerifyConfig            `yaml:"verify,omitempty"            json:"verify,omitempty"`
+    CardDefaults     *CardDefaults            `yaml:"card_defaults,omitempty"     json:"card_defaults,omitempty"`
     Favorites        map[string]TierFavorites `yaml:"favorites,omitempty"         json:"-"`
     Templates        map[string]string        `yaml:"-"                           json:"templates,omitempty"`     // loaded from templates/ at runtime
 }
@@ -472,6 +473,18 @@ type VerifyConfig struct {
     Command        string   `yaml:"command,omitempty"         json:"command,omitempty"`
     TimeoutSeconds int      `yaml:"timeout_seconds,omitempty" json:"timeout_seconds,omitempty"`
     Env            []string `yaml:"env,omitempty"             json:"env,omitempty"`
+}
+
+// internal/board/card_defaults.go
+
+type CardDefaults struct {
+    Autonomous         bool     `yaml:"autonomous,omitempty"           json:"autonomous"`
+    MaxCapability      bool     `yaml:"max_capability,omitempty"       json:"max_capability"`
+    MobParticipants    int      `yaml:"mob_participants,omitempty"     json:"mob_participants"`
+    MobPhases          []string `yaml:"mob_phases,omitempty"           json:"mob_phases,omitempty"`
+    CreatePR           *bool    `yaml:"create_pr,omitempty"            json:"create_pr,omitempty"` // nil = built-in true
+    AwaitCI            bool     `yaml:"await_ci,omitempty"             json:"await_ci"`
+    AwaitCopilotReview bool     `yaml:"await_copilot_review,omitempty" json:"await_copilot_review"`
 }
 ```
 
@@ -551,9 +564,13 @@ pins (`model_orchestrator`, `model_coder`, `model_reviewer`), `best_of_n`,
 
 `PUT` is a full replace: omitting a field clears it (`base_branch` and
 `verify`, absent from the PUT body, are preserved). `PATCH` leaves `nil`
-fields unchanged. `create_pr` is nullable on POST: absent defaults in the
-service layer (see [`create_pr`](#create_pr-semantics)), and an explicit
-boolean from an agent is rejected. `best_of_n` is range-validated for every
+fields unchanged. `autonomous`, `create_pr`, `await_ci`,
+`await_copilot_review`, `max_capability` and `mob_participants` are nullable
+on POST: absent falls back to the project's
+[`card_defaults`](#card_defaults-optional-carddefaults) (see
+[`create_pr`](#create_pr-semantics) for the full resolution order), and an
+explicit value from an agent, including `false` or `0`, is rejected.
+`best_of_n` is range-validated for every
 caller to `0` (off) or `2..best_of_n.max_candidates`, else 400
 `BAD_REQUEST`; it is sticky (no per-trigger override), acts only on the agent
 backend, and is zeroed at trigger with a warning when the card's mob session
@@ -835,6 +852,7 @@ Top-level `.board.yaml` fields (full reference in
 | `github`            | Issue import config; see below.                                                  |
 | `default_skills`    | Project task-skill fallback; see below.                                          |
 | `verify`            | Project verify gate; see the card-level `verify` field.                          |
+| `card_defaults`     | Create-time defaults for the card automation fields; see below.                  |
 | `favorites`         | Per-tier model preferences, hand-edited only; see the `Favorites` note.          |
 
 ### `default_skills` (optional, `*[]string`)
@@ -872,6 +890,30 @@ Enables the per-project issue import loop when `import_issues` is true;
 `owner` / `repo` name the source, `card_type`, `default_priority` and
 `labels` shape the created cards. See
 [GitHub issue import](github-issue-import.md).
+
+### `card_defaults` (optional, `*CardDefaults`)
+
+What a new top-level card starts with for the human-set automation fields:
+`autonomous`, `max_capability`, `mob_participants` + `mob_phases`,
+`create_pr`, `await_ci`, `await_copilot_review`. Absent means the built-ins
+(everything off, `create_pr` on). Inside a present block every field is
+explicit except `create_pr`, whose absence still means `true` - only an
+explicit `false` is persisted, so a hand-written block cannot switch pull
+requests off by omission. `best_of_n` and `mob_guests` are never project
+defaults.
+
+Applied by the service at card create for every field the caller left unset:
+the web form pre-fills from it and sends explicit values; MCP `create_card`
+and the GitHub issue importer never set these fields and therefore inherit
+them. Subtasks (cards with a `parent`) never inherit - they start with
+everything off. An explicit value on create, including `false` or `0`,
+always wins; seats and phases resolve as one unit (an explicit
+`mob_participants` carries the caller's `mob_phases`, possibly none).
+
+`PUT /api/projects/{project}` replaces the whole block (omitted preserves) and
+normalizes built-in values away; `mob_participants` / `mob_phases` are checked
+against the server's mob bounds (422 `VALIDATION_ERROR`). Edited in Project
+Settings under "Card defaults".
 
 ### `verify` (optional) and `favorites` (optional)
 
@@ -947,8 +989,9 @@ Standalone and parent cards get a feature branch: `branch_name` is generated
 at create as `<lowercase-id>/<title-slug>` and is immutable afterward.
 Subtasks work on their parent's branch and get no `branch_name`. `create_pr`
 decides only whether the run opens a pull request after pushing. When absent
-on create it defaults to `true` for standalone and parent cards and `false`
-for subtasks (the PR decision belongs to the parent). An explicit
+on create it falls back to the project's `card_defaults`, whose built-in is
+`true` for standalone and parent cards; subtasks always get `false` (the PR
+decision belongs to the parent). An explicit
 `create_pr: false` pushes without a PR. Run and promote triggers never modify
 the stored value.
 
