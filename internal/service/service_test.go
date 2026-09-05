@@ -1000,6 +1000,16 @@ func TestGetCard_BlockedByField(t *testing.T) {
 	require.NotNil(t, fetched.DependenciesMet)
 	assert.True(t, *fetched.DependenciesMet)
 	assert.Nil(t, fetched.BlockedBy)
+
+	// Deleting a dependency does not strip it from dependents: the transition
+	// stays blocked by the unknown id, so blocked_by keeps naming it.
+	require.NoError(t, svc.DeleteCard(ctx, "test-project", depA.ID))
+
+	fetched, err = svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	require.NotNil(t, fetched.DependenciesMet)
+	assert.False(t, *fetched.DependenciesMet)
+	assert.Equal(t, []string{depA.ID}, fetched.BlockedBy)
 }
 
 func TestListCards_DependenciesMetField(t *testing.T) {
@@ -1040,11 +1050,13 @@ func TestListCards_DependenciesMetField(t *testing.T) {
 		if c.ID == card.ID {
 			require.NotNil(t, c.DependenciesMet)
 			assert.False(t, *c.DependenciesMet)
+			assert.Equal(t, []string{depCard.ID}, c.BlockedBy)
 		}
 
 		if c.ID == depCard.ID {
 			// No deps, should be nil
 			assert.Nil(t, c.DependenciesMet)
+			assert.Nil(t, c.BlockedBy)
 		}
 	}
 }

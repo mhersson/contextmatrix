@@ -76,6 +76,21 @@ describe('useCardActions - handleCardSave clear-safe merge', () => {
     expect('dependencies_met' in updates).toBe(true);
   });
 
+  it('drops a stale blocked_by when the PATCH response omits it (all deps met)', async () => {
+    patchCardMock.mockResolvedValueOnce(
+      withoutFields({ ...selectedCard, dependencies_met: true, blocked_by: ['TEST-002'] }, 'blocked_by'),
+    );
+    const { result, updateCardLocally } = setup();
+
+    await act(async () => {
+      await result.current.handleCardSave({ depends_on: ['TEST-002'] });
+    });
+
+    const [, updates] = updateCardLocally.mock.calls[0];
+    expect(updates).toMatchObject({ dependencies_met: true, blocked_by: undefined });
+    expect('blocked_by' in updates).toBe(true);
+  });
+
   it('passes through a populated depends_on and a true dependencies_met unchanged', async () => {
     patchCardMock.mockResolvedValueOnce({
       ...selectedCard,
