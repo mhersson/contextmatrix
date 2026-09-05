@@ -2521,7 +2521,7 @@ func TestHumanOnlyFields_PutClear(t *testing.T) {
 	// Create a card with autonomous mode enabled (via service, simulating human)
 	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
 		Title: "Auto card", Type: "task", Priority: "medium",
-		Autonomous: true,
+		Autonomous: new(true),
 	})
 	require.NoError(t, err)
 	assert.True(t, card.Autonomous)
@@ -2562,7 +2562,7 @@ func TestHumanOnlyFields_PutPassthrough(t *testing.T) {
 	// Create a card with autonomous mode enabled
 	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
 		Title: "Auto card", Type: "task", Priority: "medium",
-		Autonomous: true,
+		Autonomous: new(true),
 	})
 	require.NoError(t, err)
 
@@ -2635,7 +2635,7 @@ func TestHumanOnlyFields_PutPRGatesClear(t *testing.T) {
 	// Create a card with both PR-gate flags enabled (via service, simulating human)
 	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
 		Title: "Gated card", Type: "task", Priority: "medium",
-		AwaitCI: true, AwaitCopilotReview: true,
+		AwaitCI: new(true), AwaitCopilotReview: new(true),
 	})
 	require.NoError(t, err)
 	assert.True(t, card.AwaitCI)

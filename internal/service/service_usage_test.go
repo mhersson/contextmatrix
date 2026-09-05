@@ -1161,7 +1161,7 @@ func TestReportUsageLLMMetricsRunModeFromParent(t *testing.T) {
 	ctx := context.Background()
 
 	parent, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-		Title: "Mob parent", Type: "task", Priority: "medium", MobParticipants: 3,
+		Title: "Mob parent", Type: "task", Priority: "medium", MobParticipants: new(3),
 	})
 	require.NoError(t, err)
 

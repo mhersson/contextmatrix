@@ -25,23 +25,26 @@ import (
 // CreateCardInput contains the fields for creating a new card.
 // Server-managed fields (id, created, updated, activity_log) are not included.
 type CreateCardInput struct {
-	Title      string
-	Type       string
-	Priority   string
-	Labels     []string
-	Parent     string
-	DependsOn  []string
-	Body       string
-	Source     *board.Source // Optional, immutable after creation
-	Assignee   string        // Informational responsibility label; independent of claim ownership
-	Autonomous bool
-	// CreatePR: nil means default true - callers that never set it (MCP
-	// create_card, the GitHub syncer) get PRs; explicit false is respected.
-	CreatePR *bool
-	// AwaitCI / AwaitCopilotReview: PR-gate flags, human-only via REST like
-	// CreatePR. Plain bools - default false, no create-time resolution.
-	AwaitCI            bool
-	AwaitCopilotReview bool
+	Title     string
+	Type      string
+	Priority  string
+	Labels    []string
+	Parent    string
+	DependsOn []string
+	Body      string
+	Source    *board.Source // Optional, immutable after creation
+	Assignee  string        // Informational responsibility label; independent of claim ownership
+	// Autonomous, CreatePR, AwaitCI, AwaitCopilotReview, MaxCapability and
+	// MobParticipants are nullable: nil means "unset". At create, a top-level
+	// card fills unset fields from the project's card_defaults
+	// (board.ResolveCardDefaults; built-ins when the project has none) and a
+	// subtask resolves them to off. An explicit value - including false / 0 -
+	// always wins. Callers that never set them (MCP create_card, the GitHub
+	// syncer) therefore inherit the project's defaults.
+	Autonomous         *bool
+	CreatePR           *bool
+	AwaitCI            *bool
+	AwaitCopilotReview *bool
 	BaseBranch         string
 	Vetted             bool
 	Skills             *[]string
@@ -55,11 +58,14 @@ type CreateCardInput struct {
 	BestOfN int
 	// MaxCapability: human-set only, like the model pins. true = ignore cost,
 	// pick the most capable model in tier.
-	MaxCapability bool
+	MaxCapability *bool
 	// Mob session fields: human-set only, like the model pins. 0 / nil means off.
-	MobParticipants int
-	MobPhases       []string
-	MobGuests       []string
+	MobParticipants *int
+	// MobPhases is honoured only alongside an explicit MobParticipants; when
+	// MobParticipants is nil the project default supplies seats and phases as
+	// one unit.
+	MobPhases []string
+	MobGuests []string
 	// Verify overrides the project's verify gate for this card. Human-set only,
 	// like the model pins. Validated and normalized before it lands on the card.
 	Verify *board.VerifyConfig
@@ -724,6 +730,15 @@ func (s *CardService) buildNewCardFromInput(
 		return nil, err
 	}
 
+	defaults := resolveCreateDefaults(cfg, parentID)
+
+	// Seats and phases resolve as one unit: an explicit seat count carries the
+	// caller's phases (possibly none), a nil one takes both from the defaults.
+	mobParticipants, mobPhases := defaults.mobParticipants, defaults.mobPhases
+	if input.MobParticipants != nil {
+		mobParticipants, mobPhases = *input.MobParticipants, input.MobPhases
+	}
+
 	now := s.clk.Now()
 	card := &board.Card{
 		ID:                 cardID,
@@ -737,10 +752,10 @@ func (s *CardService) buildNewCardFromInput(
 		DependsOn:          dependsOn,
 		Source:             input.Source,
 		Assignee:           input.Assignee,
-		Autonomous:         input.Autonomous,
-		CreatePR:           resolveCreatePR(input.CreatePR, parentID),
-		AwaitCI:            input.AwaitCI,
-		AwaitCopilotReview: input.AwaitCopilotReview,
+		Autonomous:         valueOr(input.Autonomous, defaults.autonomous),
+		CreatePR:           valueOr(input.CreatePR, defaults.createPR),
+		AwaitCI:            valueOr(input.AwaitCI, defaults.awaitCI),
+		AwaitCopilotReview: valueOr(input.AwaitCopilotReview, defaults.awaitCopilotReview),
 		BaseBranch:         input.BaseBranch,
 		Vetted:             input.Vetted,
 		Skills:             input.Skills,
@@ -748,9 +763,9 @@ func (s *CardService) buildNewCardFromInput(
 		ModelCoder:         input.ModelCoder,
 		ModelReviewer:      input.ModelReviewer,
 		BestOfN:            input.BestOfN,
-		MaxCapability:      input.MaxCapability,
-		MobParticipants:    input.MobParticipants,
-		MobPhases:          input.MobPhases,
+		MaxCapability:      valueOr(input.MaxCapability, defaults.maxCapability),
+		MobParticipants:    mobParticipants,
+		MobPhases:          mobPhases,
 		MobGuests:          input.MobGuests,
 		Verify:             normalizeVerify(input.Verify),
 		Created:            now,
@@ -1998,16 +2013,44 @@ func (s *CardService) validateModelPins(ctx context.Context, pins ...pinChange) 
 	return nil
 }
 
-// resolveCreatePR resolves the create-time create_pr value. nil defaults to
-// true for standalone and parent cards so callers that never set it (MCP
-// create_card, the GitHub syncer) get PRs; subtasks default to false - the PR
-// decision belongs to the parent card whose branch carries the work.
-func resolveCreatePR(explicit *bool, parentID string) bool {
+// createDefaults is the resolved fallback for every nullable automation field
+// on CreateCardInput.
+type createDefaults struct {
+	autonomous, createPR, awaitCI, awaitCopilotReview, maxCapability bool
+	mobParticipants                                                  int
+	mobPhases                                                        []string
+}
+
+// resolveCreateDefaults picks what a new card falls back to for each
+// automation field its input left nil. Top-level cards inherit the project's
+// card_defaults (built-ins when unset); subtasks get everything off - the PR
+// decision and run configuration belong to the parent card whose branch
+// carries the work.
+func resolveCreateDefaults(cfg *board.ProjectConfig, parentID string) createDefaults {
+	if parentID != "" {
+		return createDefaults{}
+	}
+
+	d := board.ResolveCardDefaults(cfg.CardDefaults)
+
+	return createDefaults{
+		autonomous:         d.Autonomous,
+		createPR:           d.CreatePROn(),
+		awaitCI:            d.AwaitCI,
+		awaitCopilotReview: d.AwaitCopilotReview,
+		maxCapability:      d.MaxCapability,
+		mobParticipants:    d.MobParticipants,
+		mobPhases:          d.MobPhases,
+	}
+}
+
+// valueOr dereferences an optional input, falling back when it is nil.
+func valueOr[T any](explicit *T, fallback T) T {
 	if explicit != nil {
 		return *explicit
 	}
 
-	return parentID == ""
+	return fallback
 }
 
 // generateBranchName creates a git branch name from a card ID and title.

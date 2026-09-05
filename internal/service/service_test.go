@@ -4539,7 +4539,7 @@ func TestCreateCard_AutonomousFields(t *testing.T) {
 			Title:      "Auto task",
 			Type:       "task",
 			Priority:   "high",
-			Autonomous: true,
+			Autonomous: new(true),
 			CreatePR:   new(true),
 		})
 		require.NoError(t, err)
@@ -4555,7 +4555,7 @@ func TestCreateCard_AutonomousFields(t *testing.T) {
 			Title:      "Manual task",
 			Type:       "task",
 			Priority:   "medium",
-			Autonomous: true,
+			Autonomous: new(true),
 		})
 		require.NoError(t, err)
 		assert.True(t, card.Autonomous)
@@ -4740,7 +4740,7 @@ func TestIncrementReviewAttempts(t *testing.T) {
 
 	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
 		Title: "Review card", Type: "task", Priority: "medium",
-		Autonomous: true,
+		Autonomous: new(true),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, 0, card.ReviewAttempts)
@@ -6146,7 +6146,7 @@ func TestPromoteToAutonomous(t *testing.T) {
 			Title:      "Already autonomous",
 			Type:       "task",
 			Priority:   "medium",
-			Autonomous: true,
+			Autonomous: new(true),
 		})
 		require.NoError(t, err)
 
@@ -6296,7 +6296,7 @@ func TestPromoteToAutonomous(t *testing.T) {
 
 		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
 			Title: "Already autonomous idempotent", Type: "task", Priority: "medium",
-			Autonomous: true,
+			Autonomous: new(true),
 		})
 		require.NoError(t, err)
 

@@ -100,7 +100,7 @@ func TestRunCard_HumanOnly(t *testing.T) {
 	// Create an autonomous card in todo state.
 	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
 		Title: "Auto task", Type: "task", Priority: "medium",
-		Autonomous: true,
+		Autonomous: new(true),
 	})
 	require.NoError(t, err)
 
@@ -160,7 +160,7 @@ func TestRunCard_HumanOnly(t *testing.T) {
 		// Re-create a fresh card since the first may now have worker_status set.
 		freshCard, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
 			Title: "Auto task 2", Type: "task", Priority: "medium",
-			Autonomous: true,
+			Autonomous: new(true),
 		})
 		require.NoError(t, err)
 
@@ -184,7 +184,7 @@ func TestRunCard_BackendDisabled(t *testing.T) {
 
 	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
 		Title: "Auto task", Type: "task", Priority: "medium",
-		Autonomous: true,
+		Autonomous: new(true),
 	})
 	require.NoError(t, err)
 
@@ -267,7 +267,7 @@ func TestRunCard_CardNotInTodo(t *testing.T) {
 
 	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
 		Title: "Auto task", Type: "task", Priority: "medium",
-		Autonomous: true,
+		Autonomous: new(true),
 	})
 	require.NoError(t, err)
 
@@ -315,7 +315,7 @@ func TestRunCard_AlreadyQueued(t *testing.T) {
 
 	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
 		Title: "Auto task", Type: "task", Priority: "medium",
-		Autonomous: true,
+		Autonomous: new(true),
 	})
 	require.NoError(t, err)
 
@@ -394,7 +394,7 @@ func TestRunCard_WebhookFailure(t *testing.T) {
 
 	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
 		Title: "Auto task", Type: "task", Priority: "medium",
-		Autonomous: true,
+		Autonomous: new(true),
 	})
 	require.NoError(t, err)
 
@@ -446,7 +446,7 @@ func TestRunCard_ContextCancelledDuringWebhook(t *testing.T) {
 
 	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
 		Title: "Cancel-during-webhook task", Type: "task", Priority: "medium",
-		Autonomous: true,
+		Autonomous: new(true),
 	})
 	require.NoError(t, err)
 
@@ -558,7 +558,7 @@ remote_execution:
 
 	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
 		Title: "Auto task", Type: "task", Priority: "medium",
-		Autonomous: true,
+		Autonomous: new(true),
 	})
 	require.NoError(t, err)
 
@@ -1195,7 +1195,7 @@ func TestStopCard_HumanOnly(t *testing.T) {
 
 	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
 		Title: "Auto task", Type: "task", Priority: "medium",
-		Autonomous: true,
+		Autonomous: new(true),
 	})
 	require.NoError(t, err)
 
@@ -1865,7 +1865,7 @@ func newRunningCardSetup(t *testing.T) (*service.CardService, *events.Bus, func(
 	ctx := context.Background()
 	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
 		Title: "Running task", Type: "task", Priority: "medium",
-		Autonomous: true,
+		Autonomous: new(true),
 	})
 	require.NoError(t, err)
 	// Set worker_status to running.
@@ -2153,7 +2153,7 @@ func newInteractiveRunningCard(t *testing.T, svc *service.CardService) *board.Ca
 	ctx := context.Background()
 	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
 		Title: "Interactive task", Type: "task", Priority: "medium",
-		Autonomous: false,
+		Autonomous: new(false),
 	})
 	require.NoError(t, err)
 	card, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "running", "interactive session started")
@@ -2247,7 +2247,7 @@ func TestPromoteCard_AlreadyAutonomous(t *testing.T) {
 	// Card already autonomous and running.
 	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
 		Title: "Already autonomous", Type: "task", Priority: "medium",
-		Autonomous: true, CreatePR: new(true),
+		Autonomous: new(true), CreatePR: new(true),
 	})
 	require.NoError(t, err)
 	card, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "running", "running")
@@ -2498,7 +2498,7 @@ func TestRunCard_AutonomousForcesNonInteractive(t *testing.T) {
 	ctx := context.Background()
 
 	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
-		Title: "Auto task", Type: "task", Priority: "medium", Autonomous: true,
+		Title: "Auto task", Type: "task", Priority: "medium", Autonomous: new(true),
 	})
 	require.NoError(t, err)
 
@@ -2610,7 +2610,7 @@ func TestRunCard_Interactive(t *testing.T) {
 
 		card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
 			Title: "Autonomous task legacy", Type: "task", Priority: "medium",
-			Autonomous: true,
+			Autonomous: new(true),
 		})
 		require.NoError(t, err)
 
@@ -2654,7 +2654,7 @@ func TestRunCard_Interactive(t *testing.T) {
 
 		card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
 			Title: "Autonomous interactive task", Type: "task", Priority: "medium",
-			Autonomous: true,
+			Autonomous: new(true),
 		})
 		require.NoError(t, err)
 
@@ -2889,7 +2889,7 @@ func setupAutonomousEndpoint(t *testing.T, autonomous bool) (*httptest.Server, s
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 
 	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
-		Title: "Promote target", Type: "task", Priority: "medium", Autonomous: autonomous,
+		Title: "Promote target", Type: "task", Priority: "medium", Autonomous: new(autonomous),
 	})
 	require.NoError(t, err)
 
@@ -3052,7 +3052,7 @@ func TestGetCardAutonomous_BackendDisabled(t *testing.T) {
 	defer cleanup()
 
 	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
-		Title: "Promote target", Type: "task", Priority: "medium", Autonomous: true,
+		Title: "Promote target", Type: "task", Priority: "medium", Autonomous: new(true),
 	})
 	require.NoError(t, err)
 

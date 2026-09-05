@@ -2839,7 +2839,7 @@ func TestPromoteToAutonomous_MCP(t *testing.T) {
 			Title:      "Already autonomous",
 			Type:       "task",
 			Priority:   "medium",
-			Autonomous: true,
+			Autonomous: new(true),
 		})
 		require.NoError(t, err)
 

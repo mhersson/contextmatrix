@@ -55,7 +55,7 @@ func TestSkillFiles_AllBuildersResolve(t *testing.T) {
 		Title:      "Skill file resolution",
 		Type:       "task",
 		Priority:   "medium",
-		Autonomous: true,
+		Autonomous: new(true),
 	})
 	require.NoError(t, err)
 
