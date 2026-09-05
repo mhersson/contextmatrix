@@ -47,6 +47,7 @@ func setCardDefaults(t *testing.T, server *httptest.Server, d *board.CardDefault
 
 	resp := putProject(t, server.URL, nil, body)
 	defer closeBody(t, resp.Body)
+
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
@@ -59,6 +60,7 @@ func TestCreateCard_InheritsCardDefaultsWhenFieldsOmitted(t *testing.T) {
 
 	resp := postCardAs(t, server.URL, `{"title":"Inherit","type":"task","priority":"medium"}`, "")
 	defer closeBody(t, resp.Body)
+
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 
 	card := decodeCard(t, resp)
@@ -78,6 +80,7 @@ func TestCreateCard_ExplicitFalseBeatsCardDefaults(t *testing.T) {
 	resp := postCardAs(t, server.URL,
 		`{"title":"Explicit","type":"task","priority":"medium","autonomous":false,"await_ci":false,"mob_participants":0}`, "")
 	defer closeBody(t, resp.Body)
+
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 
 	card := decodeCard(t, resp)
@@ -99,6 +102,7 @@ func TestCreateCard_SubtaskIgnoresCardDefaults(t *testing.T) {
 	resp = postCardAs(t, server.URL,
 		`{"title":"Sub","type":"task","priority":"medium","parent":"`+parent.ID+`"}`, "")
 	defer closeBody(t, resp.Body)
+
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 
 	sub := decodeCard(t, resp)
@@ -129,5 +133,6 @@ func TestCreateCard_AgentPresenceOfNullableFieldIsHumanOnly(t *testing.T) {
 	// Omitting them entirely stays allowed for agents.
 	resp := postCardAs(t, server.URL, `{"title":"A","type":"task","priority":"medium"}`, "agent-1")
 	defer closeBody(t, resp.Body)
+
 	assert.Equal(t, http.StatusCreated, resp.StatusCode)
 }

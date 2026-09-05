@@ -76,6 +76,7 @@ func TestUpdateProject_CardDefaults_OmittedPreserves(t *testing.T) {
 
 	resp = putProject(t, server.URL, nil, validUpdateProjectBody(nil))
 	defer closeBody(t, resp.Body)
+
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	cfg := decodeProject(t, resp)
@@ -92,10 +93,12 @@ func TestUpdateProject_CardDefaults_BuiltinsClear(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	closeBody(t, resp.Body)
 
-	clear := validUpdateProjectBody(nil)
-	clear.CardDefaults = &board.CardDefaults{CreatePR: new(true)}
-	resp = putProject(t, server.URL, nil, clear)
+	reset := validUpdateProjectBody(nil)
+	reset.CardDefaults = &board.CardDefaults{CreatePR: new(true)}
+
+	resp = putProject(t, server.URL, nil, reset)
 	defer closeBody(t, resp.Body)
+
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	cfg := decodeProject(t, resp)
