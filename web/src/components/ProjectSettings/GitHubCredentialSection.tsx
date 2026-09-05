@@ -63,7 +63,7 @@ export function GitHubCredentialSection({ value, onChange, readOnly }: GitHubCre
     return (
       <div className="ps-field">
         <div className="ps-label">GitHub credential</div>
-        <div className="ps-input ps-input--static">{value || 'Instance default'}</div>
+        <div className="bf-input ps-static">{value || 'Instance default'}</div>
       </div>
     );
   }
@@ -75,7 +75,7 @@ export function GitHubCredentialSection({ value, onChange, readOnly }: GitHubCre
       <label htmlFor={selectId} className="ps-label">
         GitHub credential
       </label>
-      <select id={selectId} value={value} onChange={(e) => onChange(e.target.value)} className="ps-select">
+      <select id={selectId} value={value} onChange={(e) => onChange(e.target.value)} className="bf-state-select">
         <option value="">{INSTANCE_DEFAULT_LABEL}</option>
         {credentials.map((c) => (
           <option key={c.name} value={c.name}>

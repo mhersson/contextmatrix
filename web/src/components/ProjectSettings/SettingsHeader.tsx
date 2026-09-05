@@ -12,12 +12,16 @@ interface SettingsHeaderProps {
   onDiscard: () => void;
 }
 
+// Save keeps the card panel's exact button; Discard shares its box so the
+// pair reads as one cluster.
+const buttonBox = 'px-3 py-1.5 rounded text-sm font-medium transition-colors';
+
 /**
  * Board-band style header for the settings page: display name as the
- * Fraunces title, the read-only identity (prefix, card count, boards repo)
- * in the sub-line, and the Save / Discard cluster on the right - the same
- * spot the card panel keeps Save. Read-only viewers see the lock note
- * instead of buttons.
+ * Fraunces title, the read-only identity (prefix, slug when it differs,
+ * card count, boards repo) in the sub-line, and the Save / Discard cluster
+ * on the right - the same spot the card panel keeps Save. Read-only viewers
+ * see the lock note instead of buttons.
  */
 export function SettingsHeader({
   config,
@@ -29,19 +33,27 @@ export function SettingsHeader({
   onSave,
   onDiscard,
 }: SettingsHeaderProps) {
+  const title = config.display_name ?? config.name;
   return (
     <header className="ps-head">
       <div className="ps-head__main">
-        <h2 className="ps-head__title">{config.display_name ?? config.name}</h2>
+        <h2 className="ps-head__title">{title}</h2>
         <div className="ps-head__sub">
           <span className="ps-prefix">{config.prefix}</span>
+          {title !== config.name && (
+            <>
+              <span className="sep" aria-hidden="true">·</span>
+              <span className="mono">{config.name}</span>
+            </>
+          )}
           <span className="sep" aria-hidden="true">·</span>
           <span>{`${cardCount} ${cardCount === 1 ? 'card' : 'cards'}`}</span>
           {boardsRepo && (
             <>
               <span className="sep" aria-hidden="true">·</span>
-              <span>
-                boards <span className="mono">{boardsRepo}</span>
+              <span title="Boards repository">
+                <span className="sr-only">Boards repository </span>
+                <span className="mono">{boardsRepo}</span>
               </span>
             </>
           )}
@@ -49,13 +61,24 @@ export function SettingsHeader({
       </div>
       <div className="ps-head__actions">
         {readOnly ? (
-          <span className="ps-readonly">🔒 Read-only · only admins change project settings</span>
+          <span className="ps-readonly">
+            <span className="ps-readonly__glyph" aria-hidden="true">🔒 </span>
+            Read-only · only admins change project settings
+          </span>
         ) : (
           <>
             {isDirty && (
               <>
-                <span className="ps-unsaved">unsaved changes</span>
-                <button type="button" onClick={onDiscard} disabled={isSaving} className="bf-btn-ghost">
+                <span className="ps-unsaved">
+                  <span className="ps-tab-dot" aria-hidden="true" />
+                  unsaved changes
+                </span>
+                <button
+                  type="button"
+                  onClick={onDiscard}
+                  disabled={isSaving}
+                  className={`${buttonBox} border border-[var(--bg4)] text-[var(--fg)] hover:bg-[var(--bg2)] disabled:opacity-50`}
+                >
                   Discard
                 </button>
               </>
@@ -64,7 +87,7 @@ export function SettingsHeader({
               type="button"
               onClick={onSave}
               disabled={!isDirty || isSaving}
-              className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+              className={`${buttonBox} ${
                 isDirty && !isSaving
                   ? 'bg-[var(--green)] text-[var(--bg-dim)] hover:opacity-90'
                   : 'bg-[var(--bg3)] text-[var(--grey1)] cursor-not-allowed'

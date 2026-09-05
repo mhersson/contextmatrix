@@ -16,14 +16,14 @@ export function DangerSection({ project, cardCount, isDeleting, onDelete }: Dang
 
   return (
     <>
-      <section className="ps-section" aria-label="Danger zone">
-        <div className="ps-danger-intro">
-          <div className="section-eyebrow" style={{ color: 'var(--red)' }}>Danger zone</div>
+      <section className="ps-section">
+        <div className="bf-danger-intro">
+          <h3 className="section-eyebrow" style={{ color: 'var(--red)' }}>Danger zone</h3>
           <div
             className="font-mono"
             style={{ color: 'var(--grey1)', fontSize: '11.5px', lineHeight: 1.55, marginTop: '4px' }}
           >
-            Destructive and irreversible actions live here. Every item prompts for confirmation.
+            Destructive actions live here. Each one prompts for confirmation.
           </div>
         </div>
 
@@ -32,7 +32,8 @@ export function DangerSection({ project, cardCount, isDeleting, onDelete }: Dang
             <div>
               <div className="bf-danger-title">Delete project</div>
               <div className="bf-danger-desc">
-                Removes {project} and its board configuration from the boards repository.
+                Removes {project} and its board configuration from the boards repository. This cannot be
+                undone from the UI; git keeps the deletion commit.
               </div>
               {blocked && (
                 <div className="bf-danger-reason">
@@ -55,7 +56,7 @@ export function DangerSection({ project, cardCount, isDeleting, onDelete }: Dang
       <ConfirmModal
         open={confirmOpen}
         title={`Delete project ${project}?`}
-        message="This removes the project and its board configuration. The boards repository keeps the history in git."
+        message="This removes the project and its board configuration from the boards repository. It cannot be undone from the UI."
         confirmLabel="Delete"
         variant="danger"
         onConfirm={() => {

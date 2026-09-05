@@ -172,9 +172,9 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
     };
   }, [project, applyConfig]);
 
-  // Per-section dirty flags feed both the tab dots and the Save button. The
-  // comparisons are the same ones handleSave uses to decide which keys to
-  // send, so a dotted tab always means "this save will carry that section".
+  // Per-section dirty flags feed the tab dots, the Save button and the
+  // payload guards in handleSave, so a dotted tab always means "this save
+  // will carry that section".
   const dirty = useMemo(() => {
     if (!config) return null;
     return {
@@ -209,6 +209,12 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
 
   const isDirty = dirty !== null && Object.values(dirty).some(Boolean);
 
+  // Save disables itself and Discard unmounts once the edits are gone, so
+  // keyboard focus would otherwise drop to the body.
+  const focusActiveTab = useCallback(() => {
+    document.getElementById(settingsTabId(activeTab))?.focus();
+  }, [activeTab]);
+
   const tabs: SettingsTab[] = [
     { key: 'source', label: 'Source', dirty: !!dirty && (dirty.repo || dirty.credential || dirty.import) },
     { key: 'workflow', label: 'Workflow', dirty: !!dirty && (dirty.lists || dirty.transitions) },
@@ -218,7 +224,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
   ];
 
   const handleSave = useCallback(async () => {
-    if (!isDirty || isSaving) return;
+    if (!dirty || !isDirty || isSaving) return;
     setIsSaving(true);
     try {
       const input: UpdateProjectInput = {
@@ -243,14 +249,12 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
         // entry was deleted), exactly the scenario GitHubCredentialSection's
         // warning exists for. Comparing against the loaded config preserves
         // "save without touching it" even for a stale binding.
-        ...(mode === 'multi' && githubCredential !== (config?.github_credential ?? '')
-          ? { github_credential: githubCredential }
-          : {}),
+        ...(mode === 'multi' && dirty.credential ? { github_credential: githubCredential } : {}),
         // Send remote_execution only when the operator actually touched the
         // section this session; the server merges field-by-field and
         // preserves the stored config when the key is omitted. Both images
         // are always sent as strings ("" clears the override).
-        ...(remoteExecutionTouched
+        ...(dirty.images
           ? {
               remote_execution: {
                 worker_image: remoteExecution.worker_image ?? '',
@@ -266,7 +270,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
         // is "no env" - omitting the key keeps `env: []` out of .board.yaml
         // (the server preserves a non-nil empty env for the card-override path,
         // which this project-level form never sends).
-        ...(verifyToString(verify) !== verifyToString(config?.verify)
+        ...(dirty.verify
           ? {
               verify: {
                 command: verify.command ?? '',
@@ -278,9 +282,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
         // Send card_defaults only when it changed from the loaded config; the
         // server replaces the whole block and normalizes built-ins to nil, so
         // resetting every row to the built-ins clears it from .board.yaml.
-        ...(cardDefaultsKey(cardDefaults) !== cardDefaultsKey(resolveCardDefaults(config?.card_defaults))
-          ? { card_defaults: toWireCardDefaults(cardDefaults) }
-          : {}),
+        ...(dirty.cardDefaults ? { card_defaults: toWireCardDefaults(cardDefaults) } : {}),
       };
       const updated = await api.updateProject(project, input);
       setConfig(updated);
@@ -288,6 +290,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
       setRemoteExecutionTouched(false);
       onUpdated(updated);
       showToast('Project settings saved', 'success');
+      focusActiveTab();
     } catch (err) {
       const errMsg = isAPIError(err)
         ? (err.details ? `${err.error}: ${err.details}` : err.error)
@@ -297,6 +300,7 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
       setIsSaving(false);
     }
   }, [
+    dirty,
     isDirty,
     isSaving,
     repo,
@@ -306,21 +310,21 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
     transitions,
     github,
     remoteExecution,
-    remoteExecutionTouched,
     verify,
     defaultSkills,
     githubCredential,
     cardDefaults,
     mode,
-    config,
     project,
     onUpdated,
     showToast,
+    focusActiveTab,
   ]);
 
   const handleDiscard = useCallback(() => {
     if (config) applyConfig(config);
-  }, [config, applyConfig]);
+    focusActiveTab();
+  }, [config, applyConfig, focusActiveTab]);
 
   const handleDelete = useCallback(async () => {
     if (isDeleting) return;
@@ -364,6 +368,10 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
     );
   }
 
+  // Every panel stays mounted and inactive ones are hidden (the ARIA tabs
+  // pattern). Sections keep their local state across tab switches - the
+  // pending "Constrain to selected skills" choice, the raw env text - and
+  // their fetches run once per page load, as they did before the tabs.
   const renderTab = (key: SettingsTabKey) => {
     switch (key) {
       case 'source':
@@ -378,22 +386,23 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
                   value={repo}
                   onChange={(e) => setRepo(e.target.value)}
                   placeholder="https://github.com/org/repo.git"
-                  className="ps-input"
+                  className="bf-input"
                 />
               </div>
-            </SettingsSection>
 
-            {/*
-              GitHub credential binding - multi-user mode only. Bindings are a
-              multi-mode feature (the API rejects a non-empty binding in none
-              mode), so the section is not rendered at all in none mode; that
-              keeps none-mode settings byte-identical to pre-binding behavior.
-            */}
-            {mode === 'multi' && (
-              <SettingsSection title="GitHub credential">
-                <GitHubCredentialSection value={githubCredential} onChange={setGithubCredential} readOnly={readOnly} />
-              </SettingsSection>
-            )}
+              {/*
+                GitHub credential binding - multi-user mode only. Bindings are
+                a multi-mode feature (the API rejects a non-empty binding in
+                none mode), so the row is not rendered at all in none mode;
+                that keeps none-mode settings byte-identical to pre-binding
+                behavior.
+              */}
+              {mode === 'multi' && (
+                <div className="mt-3">
+                  <GitHubCredentialSection value={githubCredential} onChange={setGithubCredential} readOnly={readOnly} />
+                </div>
+              )}
+            </SettingsSection>
 
             <SettingsSection title="GitHub issue import">
               <GitHubImportSection github={github} onChange={setGitHub} types={types} priorities={priorities} />
@@ -528,15 +537,20 @@ export function ProjectSettings({ project, onUpdated, onDeleted, showToast }: Pr
           The tab strip sits outside the fieldset so read-only viewers can
           still move between tabs.
         */}
-        <div
-          id={settingsPanelId(activeTab)}
-          role="tabpanel"
-          aria-labelledby={settingsTabId(activeTab)}
-        >
-          <fieldset disabled={readOnly} className="contents">
-            {renderTab(activeTab)}
-          </fieldset>
-        </div>
+        <fieldset disabled={readOnly} className="contents">
+          {tabs.map((t) => (
+            <div
+              key={t.key}
+              id={settingsPanelId(t.key)}
+              role="tabpanel"
+              tabIndex={0}
+              aria-labelledby={settingsTabId(t.key)}
+              hidden={t.key !== activeTab}
+            >
+              {renderTab(t.key)}
+            </div>
+          ))}
+        </fieldset>
       </div>
     </div>
   );

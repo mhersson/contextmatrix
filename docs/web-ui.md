@@ -148,8 +148,8 @@ Catppuccin.
   **Automation** holds card defaults (what a new card's Automation rail starts
   with) and default skills. **Execution** holds the remote-execution worker
   images and the verify gate. **Danger** deletes the project. A tab with
-  unsaved edits shows a dot until Save changes or Discard. Both the wizard and
-  the settings are admin-only in `multi` mode.
+  unsaved edits shows a dot until Save changes or Discard. In `multi` mode the
+  wizard is admin-only and the settings page is read-only for non-admins.
 
 ## Keyboard shortcuts
 

@@ -44,7 +44,7 @@ export function GitHubImportSection({ github, onChange, types, priorities }: Git
                 value={github.owner ?? ''}
                 onChange={(e) => update({ owner: e.target.value || undefined })}
                 placeholder="auto-detected from repo URL"
-                className="ps-input"
+                className="bf-input"
               />
             </div>
             <div className="ps-field">
@@ -57,7 +57,7 @@ export function GitHubImportSection({ github, onChange, types, priorities }: Git
                 value={github.repo ?? ''}
                 onChange={(e) => update({ repo: e.target.value || undefined })}
                 placeholder="auto-detected from repo URL"
-                className="ps-input"
+                className="bf-input"
               />
             </div>
           </div>
@@ -70,7 +70,7 @@ export function GitHubImportSection({ github, onChange, types, priorities }: Git
                 id={cardTypeId}
                 value={github.card_type ?? ''}
                 onChange={(e) => update({ card_type: e.target.value || undefined })}
-                className="ps-select"
+                className="bf-state-select"
               >
                 <option value="">task (default)</option>
                 {types.map((t) => (
@@ -88,7 +88,7 @@ export function GitHubImportSection({ github, onChange, types, priorities }: Git
                 id={defaultPriorityId}
                 value={github.default_priority ?? ''}
                 onChange={(e) => update({ default_priority: e.target.value || undefined })}
-                className="ps-select"
+                className="bf-state-select"
               >
                 <option value="">medium (default)</option>
                 {priorities.map((p) => (
@@ -119,7 +119,7 @@ export function GitHubImportSection({ github, onChange, types, priorities }: Git
                 });
               }}
               placeholder="comma-separated, e.g. bug, help wanted (empty = all)"
-              className="ps-input"
+              className="bf-input"
             />
           </div>
         </div>

@@ -502,7 +502,7 @@ textarea {
 .bf-state-select {
   width: 100%;
   padding: 9px 34px 9px 12px;
-  background-color: var(--bg2);
+  background-color: var(--field-bg, var(--bg2));
   border: 1px solid var(--bg3);
   border-radius: 8px;
   color: var(--fg);
@@ -831,7 +831,7 @@ textarea {
 /* Generic input/textarea base - matches the mock's `.input`. */
 .bf-input {
   width: 100%;
-  background: var(--bg-dim);
+  background: var(--field-bg, var(--bg-dim));
   border: 1px solid var(--bg3);
   border-radius: 4px;
   padding: 8px 10px;
@@ -4959,12 +4959,15 @@ textarea {
 /* ── Project settings page ───────────────────────────────────────────── */
 /* Single centred column under the project crumb: a board-band style header,
    the card panel's rail tab strip (sticky), then the active tab's sections.
-   Fields sit on bg-dim (the page) rather than bg0 (the card panel), so they
-   use bg0 instead of .bf-input's bg-dim - in the light palettes bg2 and
-   bg-dim share a colour and a bg-dim field would vanish into the page. */
+   Fields sit on bg-dim (the page) rather than bg0 (the card panel), so
+   --field-bg lifts .bf-input / .bf-state-select to bg0 here - in the light
+   palettes bg2 and bg-dim share a colour and a page-coloured field would
+   vanish into the page. */
 .ps-page {
+  --field-bg: var(--bg0);
   height: 100%;
   overflow-y: auto;
+  font-size: 13px;
 }
 .ps-col {
   max-width: 768px;
@@ -5033,15 +5036,23 @@ textarea {
   flex-wrap: wrap;
   justify-content: flex-end;
 }
+/* Status notes stay grey for contrast on the light palettes; only the dot
+   and the lock glyph carry the yellow. */
 .ps-unsaved {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--yellow);
+  color: var(--grey1);
   margin-right: 4px;
 }
 .ps-readonly {
   font-family: var(--font-mono);
   font-size: 11.5px;
+  color: var(--grey1);
+}
+.ps-readonly__glyph {
   color: var(--yellow);
 }
 
@@ -5049,13 +5060,13 @@ textarea {
    top of the page scroller so the tabs stay reachable in a long tab. */
 .ps-tabs {
   display: flex;
+  flex-wrap: wrap;
   align-items: stretch;
   border-bottom: 1px solid var(--bg3);
   position: sticky;
   top: 0;
   z-index: 5;
   background: var(--bg-dim);
-  overflow-x: auto;
 }
 .ps-tab-dot {
   width: 6px;
@@ -5096,57 +5107,8 @@ textarea {
   color: var(--grey1);
   margin-bottom: 5px;
 }
-.ps-input {
-  width: 100%;
-  background: var(--bg0);
-  border: 1px solid var(--bg3);
-  border-radius: 4px;
-  padding: 8px 10px;
-  font-size: 13px;
-  color: var(--fg);
-  outline: none;
-  transition: border-color 0.12s;
-}
-.ps-input:focus {
-  border-color: var(--aqua);
-}
-.ps-input:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-.ps-input--static {
+.ps-static {
   color: var(--grey2);
-}
-.ps-select {
-  width: 100%;
-  padding: 8px 34px 8px 12px;
-  background-color: var(--bg0);
-  border: 1px solid var(--bg3);
-  border-radius: 8px;
-  color: var(--fg);
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-  appearance: none;
-  -webkit-appearance: none;
-  cursor: pointer;
-  transition:
-    border-color 0.12s,
-    background-color 0.12s;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><path d='M3 4.5l3 3 3-3' fill='none' stroke='%239da9a0' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
-  background-repeat: no-repeat;
-  background-position: right 10px center;
-  background-size: 12px;
-}
-.ps-select:hover:not(:disabled) {
-  border-color: var(--bg5);
-}
-.ps-select:focus {
-  border-color: var(--aqua);
-  outline: none;
-}
-.ps-select:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
 }
 .ps-hint {
   margin-top: 5px;
@@ -5160,11 +5122,11 @@ textarea {
 }
 .ps-two {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 12px;
 }
 .ps-two--command {
-  grid-template-columns: 1fr 140px;
+  grid-template-columns: minmax(0, 1fr) 140px;
 }
 .ps-radio {
   display: flex;
@@ -5214,21 +5176,30 @@ textarea {
   color: var(--grey2);
 }
 .ps-chip button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  min-height: 18px;
+  margin: -3px 0;
   color: var(--grey1);
   font-size: 13px;
   line-height: 1;
-  padding: 0 2px;
   border-radius: 99px;
   transition: color 0.12s;
 }
 .ps-chip button:hover:not(:disabled) {
   color: var(--red);
 }
+.ps-chip button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 .ps-addrow {
   display: flex;
   gap: 8px;
 }
-.ps-addrow .ps-input {
+.ps-addrow .bf-input {
   flex: 1;
   padding: 6px 10px;
   font-size: 12px;
@@ -5261,19 +5232,19 @@ textarea {
   color: var(--grey1);
   white-space: nowrap;
 }
-.ps-matrix__corner {
+.ps-matrix th.ps-matrix__corner {
   font-size: 10px;
   color: var(--grey0);
   text-align: right;
   line-height: 1.2;
   white-space: nowrap;
-  padding: 0 6px 4px 0 !important;
+  padding: 0 6px 4px 0;
 }
 .ps-matrix tbody th {
   font-size: 11.5px;
   color: var(--fg);
   text-align: right;
-  padding-right: 10px !important;
+  padding-right: 10px;
   white-space: nowrap;
 }
 .ps-matrix td {
@@ -5286,7 +5257,7 @@ textarea {
   height: 28px;
   border-radius: 5px;
   background: var(--bg1);
-  border: 1px solid color-mix(in oklab, var(--bg5) 35%, transparent);
+  border: 1px solid color-mix(in oklab, var(--bg5) 55%, transparent);
   position: relative;
   transition:
     background 0.1s,
@@ -5310,6 +5281,7 @@ textarea {
   background: var(--aqua);
 }
 .ps-cell:disabled {
+  opacity: 0.55;
   cursor: not-allowed;
 }
 .ps-cell--self {
@@ -5337,10 +5309,6 @@ textarea {
   border: 1px solid color-mix(in oklab, var(--aqua) 45%, transparent);
   vertical-align: -1px;
   margin-right: 5px;
-}
-
-.ps-danger-intro {
-  margin-bottom: 14px;
 }
 
 @media (max-width: 768px) {

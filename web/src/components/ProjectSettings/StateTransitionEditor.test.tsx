@@ -8,10 +8,10 @@ const transitions = { todo: ['in_progress'], in_progress: ['done', 'todo'], done
 describe('StateTransitionEditor matrix', () => {
   it('renders a from/to cell for every ordered pair of distinct states', () => {
     render(<StateTransitionEditor states={states} transitions={transitions} onChange={vi.fn()} />);
-    expect(screen.getByRole('button', { name: 'todo → in_progress' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: 'todo → done' })).toHaveAttribute('aria-pressed', 'false');
-    expect(screen.getByRole('button', { name: 'in_progress → todo' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.queryByRole('button', { name: 'todo → todo' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'todo to in_progress' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'todo to done' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: 'in_progress to todo' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByRole('button', { name: 'todo to todo' })).not.toBeInTheDocument();
     expect(screen.getAllByRole('button')).toHaveLength(states.length * (states.length - 1));
   });
 
@@ -24,14 +24,14 @@ describe('StateTransitionEditor matrix', () => {
   it('clicking an allowed cell removes the transition', () => {
     const onChange = vi.fn();
     render(<StateTransitionEditor states={states} transitions={transitions} onChange={onChange} />);
-    fireEvent.click(screen.getByRole('button', { name: 'in_progress → todo' }));
+    fireEvent.click(screen.getByRole('button', { name: 'in_progress to todo' }));
     expect(onChange).toHaveBeenCalledWith({ ...transitions, in_progress: ['done'] });
   });
 
   it('clicking a blocked cell adds the transition', () => {
     const onChange = vi.fn();
     render(<StateTransitionEditor states={states} transitions={transitions} onChange={onChange} />);
-    fireEvent.click(screen.getByRole('button', { name: 'done → todo' }));
+    fireEvent.click(screen.getByRole('button', { name: 'done to todo' }));
     expect(onChange).toHaveBeenCalledWith({ ...transitions, done: ['todo'] });
   });
 });

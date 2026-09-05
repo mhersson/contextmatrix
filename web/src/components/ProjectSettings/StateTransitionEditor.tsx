@@ -8,7 +8,7 @@ export interface StateTransitionEditorProps {
  * From/to matrix over the project's states. Rows are the state a card is
  * in, columns the state it may move to; each cell is a toggle, the diagonal
  * is inert. A table keeps the row/column headers in the accessibility tree,
- * so each cell also carries its "from → to" pair as its accessible name.
+ * so each cell also carries its "from to to" pair as its accessible name.
  */
 export function StateTransitionEditor({ states, transitions, onChange }: StateTransitionEditorProps) {
   const toggle = (from: string, to: string) => {
@@ -24,9 +24,12 @@ export function StateTransitionEditor({ states, transitions, onChange }: StateTr
           <thead>
             <tr>
               <th scope="col" className="ps-matrix__corner">
-                from ↓
-                <br />
-                to →
+                <span aria-hidden="true">
+                  from ↓
+                  <br />
+                  to →
+                </span>
+                <span className="sr-only">from / to</span>
               </th>
               {states.map((to) => (
                 <th key={to} scope="col">
@@ -48,7 +51,7 @@ export function StateTransitionEditor({ states, transitions, onChange }: StateTr
                         type="button"
                         className="ps-cell"
                         aria-pressed={(transitions[from] || []).includes(to)}
-                        aria-label={`${from} → ${to}`}
+                        aria-label={`${from} to ${to}`}
                         title={`${from} → ${to}`}
                         onClick={() => toggle(from, to)}
                       />
@@ -65,7 +68,7 @@ export function StateTransitionEditor({ states, transitions, onChange }: StateTr
           <i aria-hidden="true" />
           allowed
         </span>
-        <span>click a cell to toggle</span>
+        <span>toggle a cell to allow or block it</span>
       </div>
     </>
   );

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import type { CredentialInfo, ProjectConfig } from '../../types';
 import { ProjectSettings } from './ProjectSettings';
 
@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   getProject: vi.fn(),
   getCards: vi.fn(),
   updateProject: vi.fn(),
+  deleteProject: vi.fn(),
   adminListCredentials: vi.fn(),
   getTaskSkills: vi.fn(),
   getBackendImages: vi.fn(),
@@ -25,6 +26,7 @@ vi.mock('../../api/client', async (importOriginal) => {
       getProject: mocks.getProject,
       getCards: mocks.getCards,
       updateProject: mocks.updateProject,
+      deleteProject: mocks.deleteProject,
       adminListCredentials: mocks.adminListCredentials,
       // DefaultSkillsSelector (always mounted as a ProjectSettings child)
       // calls this on mount - not otherwise relevant to this test file.
@@ -89,18 +91,26 @@ beforeEach(() => {
   mocks.getTaskSkills.mockResolvedValue([]);
   mocks.getBackendImages.mockResolvedValue({ ok: true, images: [] });
   mocks.useTheme.mockReturnValue({ chatEnabled: true, taskBackend: 'agent' });
+  mocks.deleteProject.mockResolvedValue(undefined);
 });
 
-async function renderSettings() {
-  render(
-    <ProjectSettings project="alpha" onUpdated={vi.fn()} onDeleted={vi.fn()} showToast={vi.fn()} />,
+async function renderSettings(props: { onDeleted?: () => void } = {}) {
+  const onDeleted = props.onDeleted ?? vi.fn();
+  const view = render(
+    <ProjectSettings project="alpha" onUpdated={vi.fn()} onDeleted={onDeleted} showToast={vi.fn()} />,
   );
   await waitFor(() => expect(mocks.getProject).toHaveBeenCalled());
   await screen.findByLabelText(/repository url/i);
+  return { ...view, onDeleted };
 }
 
 function openTab(name: RegExp) {
   fireEvent.click(screen.getByRole('tab', { name }));
+}
+
+/** Accessible names of every tab currently carrying the unsaved dot. */
+function dirtyTabs(): string[] {
+  return screen.queryAllByRole('tab', { name: /unsaved changes/i }).map((t) => t.textContent ?? '');
 }
 
 describe('ProjectSettings - handleSave payload construction for github_credential', () => {
@@ -484,7 +494,7 @@ describe('ProjectSettings - handleSave payload construction for card_defaults', 
 });
 
 describe('ProjectSettings - rail tabs, header and dirty state', () => {
-  it('renders five tabs with Source active and only its sections mounted', async () => {
+  it('renders five tabs with Source active and only its panel visible', async () => {
     mocks.getProject.mockResolvedValue(baseConfig());
     await renderSettings();
 
@@ -494,22 +504,29 @@ describe('ProjectSettings - rail tabs, header and dirty state', () => {
       expect(tabs[i]).toHaveAccessibleName(name),
     );
     expect(screen.getByRole('tab', { name: 'Source' })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByLabelText(/repository url/i)).toBeInTheDocument();
+    expect(screen.getByRole('tabpanel', { name: 'Source' })).toBeVisible();
+    expect(screen.getByLabelText(/repository url/i)).toBeVisible();
+    // Other panels stay mounted (state and fetches survive tab switches) but hidden.
     expect(screen.queryByRole('button', { name: 'Remove todo' })).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(/verify command/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/verify command/i)).not.toBeVisible();
   });
 
-  it('switching to Workflow mounts the state chips and unmounts the repository field', async () => {
+  it('switching to Workflow shows the state chips and hides the repository field', async () => {
     mocks.getProject.mockResolvedValue(baseConfig({ states: ['todo', 'stalled', 'not_planned'] }));
     await renderSettings();
     openTab(/workflow/i);
 
     expect(screen.getByRole('tab', { name: 'Workflow' })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('button', { name: 'Remove todo' })).toBeInTheDocument();
+    expect(screen.getByRole('tabpanel', { name: 'Workflow' })).toBeVisible();
+    expect(screen.getByRole('tab', { name: 'Workflow' })).toHaveAttribute(
+      'aria-controls',
+      screen.getByRole('tabpanel').id,
+    );
+    expect(screen.getByRole('button', { name: 'Remove todo' })).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Remove stalled' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Remove not_planned' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'todo → stalled' })).toBeInTheDocument();
-    expect(screen.queryByLabelText(/repository url/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'todo to stalled' })).toBeVisible();
+    expect(screen.getByLabelText(/repository url/i)).not.toBeVisible();
   });
 
   it('marks only the edited tab as unsaved and clears the mark after saving', async () => {
@@ -570,7 +587,7 @@ describe('ProjectSettings - rail tabs, header and dirty state', () => {
 
     expect(screen.getByRole('heading', { name: 'Alpha' })).toBeInTheDocument();
     expect(screen.getByText('ALPHA')).toBeInTheDocument();
-    expect(screen.getByText(/2 cards/)).toBeInTheDocument();
+    expect(screen.getByText('2 cards')).toBeInTheDocument();
     // A single-repo instance has nothing to distinguish, so the repo stays out.
     expect(screen.queryByText('alpha-boards')).not.toBeInTheDocument();
   });
@@ -610,6 +627,207 @@ describe('ProjectSettings - rail tabs, header and dirty state', () => {
     expect(screen.getByLabelText(/repository url/i)).toBeDisabled();
 
     openTab(/workflow/i);
-    expect(screen.getByRole('button', { name: 'todo → in_progress' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'todo to in_progress' })).toBeDisabled();
+  });
+
+  it('"Constrain to selected skills" survives a tab switch before any skill is ticked', async () => {
+    mocks.getTaskSkills.mockResolvedValue([{ name: 'go-development', description: 'Go' }]);
+    mocks.getProject.mockResolvedValue(baseConfig());
+    await renderSettings();
+    openTab(/automation/i);
+    fireEvent.click(screen.getByLabelText('Constrain to selected skills'));
+    await screen.findByLabelText(/go-development/);
+    openTab(/source/i);
+    openTab(/automation/i);
+    expect(screen.getByLabelText('Constrain to selected skills')).toBeChecked();
+  });
+
+  it('section fetches run once per page load, not once per tab visit', async () => {
+    mocks.getProject.mockResolvedValue(baseConfig());
+    await renderSettings();
+    openTab(/execution/i);
+    openTab(/automation/i);
+    openTab(/execution/i);
+    openTab(/source/i);
+    expect(mocks.getBackendImages).toHaveBeenCalledTimes(2);
+    expect(mocks.getTaskSkills).toHaveBeenCalledTimes(1);
+    expect(mocks.adminListCredentials).toHaveBeenCalledTimes(1);
+  });
+
+  it('switching project resets the active tab to Source and reloads', async () => {
+    mocks.getProject.mockImplementation((p: string) =>
+      Promise.resolve(baseConfig({ name: p, display_name: p, repo: `git@github.com:org/${p}.git` })),
+    );
+    const { rerender } = await renderSettings();
+    openTab(/workflow/i);
+    expect(screen.getByRole('tab', { name: 'Workflow' })).toHaveAttribute('aria-selected', 'true');
+    rerender(<ProjectSettings project="beta" onUpdated={vi.fn()} onDeleted={vi.fn()} showToast={vi.fn()} />);
+    await waitFor(() => expect(mocks.getProject).toHaveBeenCalledWith('beta'));
+    expect(await screen.findByLabelText(/repository url/i)).toHaveValue('git@github.com:org/beta.git');
+    expect(screen.getByRole('tab', { name: 'Source' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('heading', { name: 'beta' })).toBeInTheDocument();
+  });
+
+  it('Discard is disabled and Save reads Saving… while a save is in flight', async () => {
+    mocks.getProject.mockResolvedValue(baseConfig());
+    let resolve!: (v: ProjectConfig) => void;
+    mocks.updateProject.mockReturnValue(new Promise<ProjectConfig>((r) => { resolve = r; }));
+    await renderSettings();
+    fireEvent.change(screen.getByLabelText(/repository url/i), { target: { value: 'x' } });
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+    expect(await screen.findByRole('button', { name: 'Saving…' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /discard/i })).toBeDisabled();
+    await act(async () => { resolve(baseConfig({ repo: 'x' })); });
+    expect(screen.queryByRole('button', { name: /discard/i })).not.toBeInTheDocument();
+  });
+});
+
+describe('ProjectSettings - unsaved dots per tab', () => {
+  beforeEach(() => {
+    mocks.getProject.mockResolvedValue(baseConfig());
+  });
+
+  it('Workflow dots when a type is added', async () => {
+    await renderSettings();
+    openTab(/workflow/i);
+    fireEvent.change(screen.getByLabelText('Types'), { target: { value: 'bug' } });
+    fireEvent.click(screen.getAllByRole('button', { name: 'Add' })[1]);
+    expect(dirtyTabs()).toEqual(['Workflow (unsaved changes)']);
+  });
+
+  it('Workflow dots when a transition is toggled', async () => {
+    await renderSettings();
+    openTab(/workflow/i);
+    fireEvent.click(screen.getByRole('button', { name: 'done to todo' }));
+    expect(dirtyTabs()).toEqual(['Workflow (unsaved changes)']);
+  });
+
+  it('Automation dots when a card default is toggled', async () => {
+    await renderSettings();
+    openTab(/automation/i);
+    fireEvent.click(screen.getByLabelText('Default autonomous mode'));
+    expect(dirtyTabs()).toEqual(['Automation (unsaved changes)']);
+  });
+
+  it('Automation dots when default skills change', async () => {
+    await renderSettings();
+    openTab(/automation/i);
+    fireEvent.click(screen.getByLabelText('Mount no skills'));
+    expect(dirtyTabs()).toEqual(['Automation (unsaved changes)']);
+  });
+
+  it('Source dots when issue import is switched on, and the save carries the fields', async () => {
+    mocks.updateProject.mockResolvedValue(
+      baseConfig({ github: { import_issues: true, labels: ['bug', 'help wanted'] } }),
+    );
+    await renderSettings();
+    expect(screen.queryByLabelText(/filter by github labels/i)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText(/import open issues from github/i));
+    fireEvent.change(screen.getByLabelText(/filter by github labels/i), {
+      target: { value: 'bug, help wanted' },
+    });
+    expect(dirtyTabs()).toEqual(['Source (unsaved changes)']);
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+    await waitFor(() => expect(mocks.updateProject).toHaveBeenCalled());
+    expect(mocks.updateProject.mock.calls[0][1].github).toEqual({
+      import_issues: true,
+      labels: ['bug', 'help wanted'],
+    });
+  });
+});
+
+describe('ProjectSettings - Discard across tabs', () => {
+  it('Discard on a non-active tab resets that section and clears its dot', async () => {
+    mocks.getProject.mockResolvedValue(baseConfig({ verify: { command: 'make test' } }));
+    await renderSettings();
+    openTab(/execution/i);
+    fireEvent.change(screen.getByLabelText(/verify command/i), { target: { value: 'go test ./...' } });
+    openTab(/source/i);
+    expect(dirtyTabs()).toEqual(['Execution (unsaved changes)']);
+    fireEvent.click(screen.getByRole('button', { name: /discard/i }));
+    expect(dirtyTabs()).toHaveLength(0);
+    openTab(/execution/i);
+    expect(screen.getByLabelText(/verify command/i)).toHaveValue('make test');
+  });
+
+  it('Discard clears the remote_execution touched flag so a later save omits the key', async () => {
+    mocks.getProject.mockResolvedValue(baseConfig());
+    mocks.getBackendImages.mockResolvedValue({ ok: true, images: [{ tags: ['ghcr.io/org/worker:latest'] }] });
+    mocks.updateProject.mockResolvedValue(baseConfig({ repo: 'x' }));
+    await renderSettings();
+    openTab(/execution/i);
+    const sel = await screen.findByLabelText(/agent worker image/i);
+    await screen.findAllByRole('option', { name: 'ghcr.io/org/worker:latest' });
+    fireEvent.change(sel, { target: { value: 'ghcr.io/org/worker:latest' } });
+    expect(dirtyTabs()).toEqual(['Execution (unsaved changes)']);
+    fireEvent.click(screen.getByRole('button', { name: /discard/i }));
+    expect(dirtyTabs()).toHaveLength(0);
+    expect(screen.getByRole('button', { name: /save/i })).toBeDisabled();
+    expect(screen.getByLabelText(/agent worker image/i)).toHaveValue('');
+    openTab(/source/i);
+    fireEvent.change(screen.getByLabelText(/repository url/i), { target: { value: 'x' } });
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+    await waitFor(() => expect(mocks.updateProject).toHaveBeenCalled());
+    expect(mocks.updateProject.mock.calls[0][1]).not.toHaveProperty('remote_execution');
+  });
+
+  it('visiting Execution without touching it keeps remote_execution out of the PUT body', async () => {
+    mocks.getProject.mockResolvedValue(
+      baseConfig({ remote_execution: { worker_image: 'ghcr.io/org/worker:latest' } }),
+    );
+    mocks.getBackendImages.mockResolvedValue({ ok: true, images: [{ tags: ['ghcr.io/org/worker:latest'] }] });
+    mocks.updateProject.mockResolvedValue(baseConfig({ repo: 'x' }));
+    await renderSettings();
+    openTab(/execution/i);
+    await screen.findAllByRole('option', { name: 'ghcr.io/org/worker:latest' });
+    expect(dirtyTabs()).toHaveLength(0);
+    openTab(/source/i);
+    openTab(/execution/i);
+    expect(dirtyTabs()).toHaveLength(0);
+    openTab(/source/i);
+    fireEvent.change(screen.getByLabelText(/repository url/i), { target: { value: 'x' } });
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+    await waitFor(() => expect(mocks.updateProject).toHaveBeenCalled());
+    expect(mocks.updateProject.mock.calls[0][1]).not.toHaveProperty('remote_execution');
+  });
+});
+
+describe('ProjectSettings - Danger tab delete flow', () => {
+  it('zero cards enables delete; confirming calls deleteProject and onDeleted', async () => {
+    mocks.getProject.mockResolvedValue(baseConfig());
+    const { onDeleted } = await renderSettings();
+    openTab(/danger/i);
+    const del = screen.getByRole('button', { name: 'Delete project' });
+    expect(del).toBeEnabled();
+    fireEvent.click(del);
+    expect(mocks.deleteProject).not.toHaveBeenCalled();
+    const dialog = screen.getByRole('dialog', { name: /delete project alpha\?/i });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    });
+    expect(dialog).not.toBeInTheDocument();
+    expect(mocks.deleteProject).toHaveBeenCalledWith('alpha');
+    expect(onDeleted).toHaveBeenCalledOnce();
+  });
+
+  it('Cancel closes the dialog without deleting', async () => {
+    mocks.getProject.mockResolvedValue(baseConfig());
+    await renderSettings();
+    openTab(/danger/i);
+    fireEvent.click(screen.getByRole('button', { name: 'Delete project' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(mocks.deleteProject).not.toHaveBeenCalled();
+  });
+
+  it('read-only viewer cannot open the confirm even with zero cards', async () => {
+    mocks.useOptionalAuth.mockReturnValue({
+      mode: 'multi',
+      user: { username: 'viewer', display_name: 'Viewer', is_admin: false },
+    });
+    mocks.getProject.mockResolvedValue(baseConfig());
+    await renderSettings();
+    openTab(/danger/i);
+    expect(screen.getByRole('button', { name: 'Delete project' })).toBeDisabled();
   });
 });

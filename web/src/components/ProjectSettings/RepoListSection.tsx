@@ -56,7 +56,7 @@ function ListEditor({
             if (e.key === 'Enter') onAdd();
           }}
           placeholder={`Add ${itemName}...`}
-          className="ps-input"
+          className="bf-input"
         />
         <button type="button" onClick={onAdd} disabled={!newValue.trim()} className="bf-btn-ghost bf-btn-sm">
           Add
@@ -118,7 +118,7 @@ export function RepoListSection({
         protectedItems={['stalled', 'not_planned']}
       />
 
-      <div className="ps-two" style={{ marginTop: '14px' }}>
+      <div className="ps-two mt-3.5">
         <ListEditor
           label="Types"
           itemName="type"

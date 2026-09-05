@@ -89,7 +89,7 @@ export function CardDefaultsSection({
                   aria-label="Default mob seats"
                   value={value.mob_participants}
                   onChange={(e) => handleSeats(Number(e.target.value))}
-                  className="bf-input"
+                  className="bf-state-select"
                   style={{ width: 'auto', minWidth: '160px' }}
                   title={`Off, or 2–${mobMax} agents discussing plan/review/execute (default ${mobDefault})`}
                 >

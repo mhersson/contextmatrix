@@ -72,7 +72,7 @@ export function WorkerImageSelect({
     return (
       <div className="ps-field">
         <div className="ps-label">{label}</div>
-        <div className="ps-input ps-input--static">{value || BACKEND_DEFAULT_LABEL}</div>
+        <div className="bf-input ps-static">{value || BACKEND_DEFAULT_LABEL}</div>
       </div>
     );
   }
@@ -96,7 +96,7 @@ export function WorkerImageSelect({
         id={selectId}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="ps-select"
+        className="bf-state-select"
       >
         <option value="">{BACKEND_DEFAULT_LABEL}</option>
         {tags.map((tag) => (
