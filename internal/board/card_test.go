@@ -970,6 +970,46 @@ updated: 2026-03-30T10:00:00Z
 	assert.False(t, parsedEmpty.AwaitCopilotReview)
 }
 
+func TestCard_MergePR_YAMLRoundTrip(t *testing.T) {
+	input := `---
+id: TEST-001
+title: Merge PR test
+project: test-project
+type: task
+state: todo
+priority: medium
+create_pr: true
+await_ci: true
+merge_pr: true
+created: 2026-03-30T10:00:00Z
+updated: 2026-03-30T10:00:00Z
+---
+`
+
+	card, err := ParseCard([]byte(input))
+	require.NoError(t, err)
+	assert.True(t, card.MergePR)
+
+	data, err := SerializeCard(card)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "merge_pr: true")
+
+	parsed, err := ParseCard(data)
+	require.NoError(t, err)
+	assert.True(t, parsed.MergePR)
+
+	created := time.Date(2026, 3, 30, 10, 0, 0, 0, time.UTC)
+	plain := &Card{
+		ID: "TEST-002", Title: "No merge", Project: "test-project",
+		Type: "task", State: "todo", Priority: "medium",
+		Created: created, Updated: created,
+	}
+
+	out, err := SerializeCard(plain)
+	require.NoError(t, err)
+	assert.NotContains(t, string(out), "merge_pr")
+}
+
 func TestCardMobYAMLRoundTrip(t *testing.T) {
 	input := `---
 id: TEST-001

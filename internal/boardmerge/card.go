@@ -188,6 +188,7 @@ func mergeCards(base, ours, theirs *board.Card, project string, c Context) (*boa
 	out.CreatePR = flag("create_pr", base.CreatePR, ours.CreatePR, theirs.CreatePR)
 	out.AwaitCI = flag("await_ci", base.AwaitCI, ours.AwaitCI, theirs.AwaitCI)
 	out.AwaitCopilotReview = flag("await_copilot_review", base.AwaitCopilotReview, ours.AwaitCopilotReview, theirs.AwaitCopilotReview)
+	out.MergePR = flag("merge_pr", base.MergePR, ours.MergePR, theirs.MergePR)
 	out.BestOfN = count("best_of_n", base.BestOfN, ours.BestOfN, theirs.BestOfN)
 	out.MobParticipants = count("mob_participants", base.MobParticipants, ours.MobParticipants, theirs.MobParticipants)
 	out.ReviewAttempts = max(ours.ReviewAttempts, theirs.ReviewAttempts)
