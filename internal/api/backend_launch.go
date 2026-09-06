@@ -210,9 +210,10 @@ func (h *backendHandlers) launch(ctx context.Context, project, id string, opts l
 	return card, nil
 }
 
-// rejectLaunchForCredentialFailure writes the fail-closed 409 refusal for a
+// rejectLaunchForCredentialFailure returns the fail-closed 409 refusal for a
 // broken or unresolvable project git-token provider (either providerForProject
-// itself failed, or the resolved provider's GenerateToken call did).
+// itself failed, or the resolved provider's GenerateToken call did) as a typed
+// launchFailure the handler writes and the playbook runner records.
 //
 // launch has already set worker_status to "queued" by this point, so the
 // rejection first reverts it to "failed" - mirroring the webhook-failure
@@ -222,8 +223,7 @@ func (h *backendHandlers) launch(ctx context.Context, project, id string, opts l
 // The revert runs before the activity append so the run-rejected trace stays
 // the most recent entry (UpdateWorkerStatus appends its own worker_status
 // entry). Both writes are best-effort: failures are logged but never change
-// the 409 response, since the caller has already been told the run was
-// rejected.
+// the refusal, which is returned regardless.
 //
 // err is only ever a credential-resolution error from internal/auth (embeds
 // the credential/project name, never secret material) or a githubauth

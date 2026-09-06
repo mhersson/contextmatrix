@@ -62,6 +62,7 @@ func (r *Runner) pass(ctx context.Context, id string) bool {
 			return false
 		}
 
+		// Re-checked on the fresh card: the detail marked this entry incomplete, but the card may have finished between the two reads.
 		if board.IsTerminalState(card.State) {
 			continue
 		}

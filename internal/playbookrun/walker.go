@@ -149,6 +149,7 @@ func (r *Runner) waitNudge(ctx context.Context, id string, ch <-chan events.Even
 		case <-ticker.C():
 			return true
 		case ev, ok := <-ch:
+			// Unreachable while the walker owns its subscription (unsubscribe runs after this loop returns); kept so a shared subscription closing under us exits instead of spinning on a closed channel.
 			if !ok {
 				return false
 			}
