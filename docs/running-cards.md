@@ -68,8 +68,9 @@ skipped. A card that already has subtasks is `standard` regardless of label.
 
 All fields except `autonomous` and `skills` are human-only; the MCP
 `update_card` tool does not expose them. Project Settings → Card defaults
-pre-fills autonomous, maximum capability, mob seats/phases and the PR gates
-for new cards; Best-of-N stays per card.
+pre-fills autonomous, maximum capability, mob seats/phases, and the CI /
+Copilot PR gates (`await_ci`, `await_copilot_review`) for new cards;
+`merge_pr` has no default. Best-of-N stays per card.
 
 | Field                                                 | Effect                                                                                                                                       |
 | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
