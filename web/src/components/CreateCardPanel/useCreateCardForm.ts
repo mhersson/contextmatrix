@@ -23,6 +23,7 @@ export interface CreateCardForm {
   createPR: boolean;
   awaitCI: boolean;
   awaitCopilotReview: boolean;
+  mergePR: boolean;
   baseBranch: string;
   // Best-of-N and mob session - surfaced at create time when the agent backend is
   // active (see AutomationCheckboxes). 0/[] = off / unset.
@@ -47,6 +48,7 @@ export interface CreateCardForm {
   setCreatePR: (v: boolean) => void;
   setAwaitCI: (v: boolean) => void;
   setAwaitCopilotReview: (v: boolean) => void;
+  setMergePR: (v: boolean) => void;
   setBaseBranch: (v: string) => void;
   setBestOfN: (v: number) => void;
   setMaxCapability: (v: boolean) => void;
@@ -100,6 +102,8 @@ export function useCreateCardForm(
   const [createPR, setCreatePR] = useState(seed.create_pr);
   const [awaitCI, setAwaitCI] = useState(seed.await_ci);
   const [awaitCopilotReview, setAwaitCopilotReview] = useState(seed.await_copilot_review);
+  // No card_defaults seed: merge_pr is human-only and always starts off at create.
+  const [mergePR, setMergePR] = useState(false);
   const [baseBranch, setBaseBranch] = useState('');
   // 0 = off / unset; the AutomationCheckboxes selector (create mode, agent
   // backend only) writes here, and buildInput forwards non-zero values.
@@ -184,12 +188,13 @@ export function useCreateCardForm(
       create_pr: createPR,
       await_ci: awaitCI,
       await_copilot_review: awaitCopilotReview,
+      merge_pr: mergePR,
       base_branch: baseBranch || undefined,
       // null = inherit project default; only forward an explicit override.
       skills: skills === null ? undefined : skills,
       assignee: assignee || undefined,
     }),
-    [title, type, priority, labels, parent, body, autonomous, modelOrchestrator, modelCoder, modelReviewer, bestOfN, maxCapability, mobParticipants, mobPhases, mobGuests, createPR, awaitCI, awaitCopilotReview, baseBranch, skills, assignee],
+    [title, type, priority, labels, parent, body, autonomous, modelOrchestrator, modelCoder, modelReviewer, bestOfN, maxCapability, mobParticipants, mobPhases, mobGuests, createPR, awaitCI, awaitCopilotReview, mergePR, baseBranch, skills, assignee],
   );
 
   const ensureTitle = useCallback((): boolean => {
@@ -240,6 +245,7 @@ export function useCreateCardForm(
       createPR,
       awaitCI,
       awaitCopilotReview,
+      mergePR,
       baseBranch,
       bestOfN,
       maxCapability,
@@ -260,6 +266,7 @@ export function useCreateCardForm(
       setCreatePR,
       setAwaitCI,
       setAwaitCopilotReview,
+      setMergePR,
       setBaseBranch,
       setBestOfN,
       setMaxCapability,

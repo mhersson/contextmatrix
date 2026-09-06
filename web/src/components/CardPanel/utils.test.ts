@@ -328,6 +328,20 @@ describe('isCardDirty / buildCardPatch - PR gate fields', () => {
       await_copilot_review: true,
     });
   });
+
+  it('flags a merge_pr change as dirty and patches it', () => {
+    const original = makeCard({ create_pr: true, await_ci: true });
+    const edited = { ...original, merge_pr: true };
+    expect(isCardDirty(edited, original)).toBe(true);
+    expect(buildCardPatch(edited, original)).toEqual({ merge_pr: true });
+  });
+
+  it('patches merge_pr back to false when unticked', () => {
+    const original = makeCard({ create_pr: true, await_ci: true, merge_pr: true });
+    const edited = { ...original, merge_pr: false };
+    expect(isCardDirty(edited, original)).toBe(true);
+    expect(buildCardPatch(edited, original)).toEqual({ merge_pr: false });
+  });
 });
 
 describe('groupBucketsByAgent', () => {

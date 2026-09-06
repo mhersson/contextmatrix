@@ -145,6 +145,8 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
             awaitCopilotReview={form.awaitCopilotReview}
             onAwaitCIChange={form.setAwaitCI}
             onAwaitCopilotReviewChange={form.setAwaitCopilotReview}
+            mergePR={form.mergePR}
+            onMergePRChange={form.setMergePR}
             bestOfN={form.bestOfN}
             bestOfNMax={bestOfNMax}
             bestOfNDefault={bestOfNDefault}

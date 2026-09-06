@@ -103,6 +103,8 @@ export function AutomationTab({
           onAwaitCopilotReviewChange={(v) =>
             setEditedCard((prev) => ({ ...prev, await_copilot_review: v }))
           }
+          mergePR={editedCard.merge_pr ?? false}
+          onMergePRChange={(v) => setEditedCard((prev) => ({ ...prev, merge_pr: v }))}
           branchName={card.branch_name}
           prUrl={card.pr_url}
           reviewAttempts={card.review_attempts}
