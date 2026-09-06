@@ -2616,6 +2616,22 @@ textarea {
   background: var(--bg-red);
   color: var(--red);
 }
+.pbl-pill-run-running {
+  background: var(--bg-aqua);
+  color: var(--aqua);
+}
+.pbl-pill-run-waiting {
+  background: var(--bg-yellow);
+  color: var(--yellow);
+}
+.pbl-pill-run-stopped {
+  background: var(--bg1);
+  color: var(--grey1);
+}
+.pbl-pill-run-completed {
+  background: var(--bg-green);
+  color: var(--green);
+}
 
 .pbl-row-next {
   display: flex;
