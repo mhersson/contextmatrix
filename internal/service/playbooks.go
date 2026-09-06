@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -14,6 +13,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/events"
+	"github.com/mhersson/contextmatrix/internal/githuburl"
 	"github.com/mhersson/contextmatrix/internal/gitops"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
@@ -747,7 +747,7 @@ func (s *PlaybookService) validateRunnableEntries(ctx context.Context, p *board.
 			return fmt.Errorf("get project %s: %w", e.Project, err)
 		}
 
-		if _, _, _, ok := parseGitHubRepo(cfg.Repo, s.githubHosts); !ok {
+		if _, _, _, ok := githuburl.Parse(cfg.Repo, s.githubHosts); !ok {
 			noRepo = append(noRepo, e.Project)
 		}
 
@@ -835,69 +835,6 @@ func (s *PlaybookService) SetRun(ctx context.Context, id string, run *board.Play
 
 		return nil
 	})
-}
-
-// parseGitHubRepo extracts owner, repo, and matched host from a GitHub
-// repository URL. Supported formats:
-//   - git@<host>:owner/repo.git
-//   - https://<host>/owner/repo.git
-//   - https://<host>/owner/repo
-//   - ssh://<host>/owner/repo.git
-//
-// allowedHosts is the list of permitted hostnames (e.g. github.com).
-// Returns empty strings and false if the URL matches no allowed host or
-// cannot be parsed.
-//
-// Duplicated from github.ParseGitHubRepo rather than imported: package
-// github's Syncer holds a *CardService, so internal/service already sits
-// downstream of internal/github and an import the other way would cycle.
-func parseGitHubRepo(rawURL string, allowedHosts []string) (owner, repo, host string, ok bool) {
-	// SSH SCP format: git@<host>:owner/repo.git
-	for _, h := range allowedHosts {
-		prefix := "git@" + h + ":"
-		if path, matched := strings.CutPrefix(rawURL, prefix); matched {
-			path = strings.TrimSuffix(path, ".git")
-
-			o, r, valid := splitGitHubOwnerRepo(path)
-			if valid {
-				return o, r, h, true
-			}
-
-			return "", "", "", false
-		}
-	}
-
-	// HTTPS / SSH URL format
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return "", "", "", false
-	}
-
-	hostname := u.Hostname()
-	for _, h := range allowedHosts {
-		if hostname == h {
-			path := strings.TrimPrefix(u.Path, "/")
-			path = strings.TrimSuffix(path, ".git")
-
-			o, r, valid := splitGitHubOwnerRepo(path)
-			if valid {
-				return o, r, h, true
-			}
-
-			return "", "", "", false
-		}
-	}
-
-	return "", "", "", false
-}
-
-func splitGitHubOwnerRepo(path string) (owner, repo string, ok bool) {
-	parts := strings.SplitN(path, "/", 3)
-	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
-		return "", "", false
-	}
-
-	return parts[0], parts[1], true
 }
 
 // Delete removes a playbook. On commit failure the deleted playbook is
