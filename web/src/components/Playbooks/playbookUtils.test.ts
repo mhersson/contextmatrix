@@ -116,6 +116,8 @@ describe('run helpers', () => {
     d.run = { status: 'waiting', started_at: 'x', updated_at: 'x', entry: 'e2', reason: 'awaiting check-off' };
     expect(describeRun(d)).toBe('Waiting for you: awaiting check-off');
     d.run = { status: 'stopped', started_at: 'x', updated_at: 'x', reason: 'stopped by human:alice' };
+    expect(describeRun(d)).toBe('Stopped: stopped by human:alice');
+    d.run = { status: 'stopped', started_at: 'x', updated_at: 'x' };
     expect(describeRun(d)).toBe('Stopped');
     d.run = { status: 'completed', started_at: 'x', updated_at: 'x' };
     expect(describeRun(d)).toBe('Completed');

@@ -139,7 +139,7 @@ export function describeRun(detail: PlaybookDetail): string {
     case 'waiting':
       return run.reason ? `Waiting for you: ${run.reason}` : 'Waiting for you';
     case 'stopped':
-      return 'Stopped';
+      return run.reason ? `Stopped: ${run.reason}` : 'Stopped';
     default:
       return 'Completed';
   }

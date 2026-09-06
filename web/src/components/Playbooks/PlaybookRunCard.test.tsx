@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { PlaybookRunCard } from './PlaybookRunCard';
 import type { PlaybookDetail } from '../../types';
 
@@ -14,11 +14,23 @@ function detail(overrides: Partial<PlaybookDetail> = {}): PlaybookDetail {
   };
 }
 
-function renderCard(d: PlaybookDetail, branches: string[] = ['develop', 'main']) {
+function renderCard(
+  d: PlaybookDetail,
+  branches: string[] = ['develop', 'main'],
+  state: { branchesLoading?: boolean; branchesError?: boolean } = {},
+) {
   const handlers = {
     onToggleRunnable: vi.fn(), onSaveBaseBranch: vi.fn(), onRun: vi.fn(), onStop: vi.fn(),
   };
-  render(<PlaybookRunCard detail={d} branches={branches} branchesLoading={false} branchesError={false} {...handlers} />);
+  render(
+    <PlaybookRunCard
+      detail={d}
+      branches={branches}
+      branchesLoading={state.branchesLoading ?? false}
+      branchesError={state.branchesError ?? false}
+      {...handlers}
+    />,
+  );
   return handlers;
 }
 
@@ -73,8 +85,36 @@ describe('PlaybookRunCard', () => {
       runnable: true, branch: 'playbook/roll',
       run: { status: 'stopped', started_at: 'x', updated_at: 'x', reason: 'stopped by human:alice' },
     }));
-    expect(screen.getByText('Stopped')).toBeInTheDocument();
+    expect(screen.getByText('Stopped: stopped by human:alice')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^run$/i })).toBeInTheDocument();
+  });
+
+  it('explains the disabled switch only while the run is active', () => {
+    renderCard(detail({
+      runnable: true, branch: 'playbook/roll',
+      run: { status: 'running', started_at: 'x', updated_at: 'x', entry: 'e1' },
+    }));
+    const activeLabel = screen.getByRole('checkbox', { name: /make runnable/i }).closest('label');
+    expect(activeLabel).toHaveAttribute('title', 'Stop the run to change this');
+    cleanup();
+
+    renderCard(detail({ runnable: true, branch: 'playbook/roll' }));
+    const idleLabel = screen.getByRole('checkbox', { name: /make runnable/i }).closest('label');
+    expect(idleLabel).not.toHaveAttribute('title');
+  });
+
+  it('disables the base-branch select while branches load', () => {
+    renderCard(detail(), [], { branchesLoading: true });
+    expect(screen.getByRole('combobox', { name: /base branch/i })).toBeDisabled();
+  });
+
+  it('says when the branches could not be loaded', () => {
+    renderCard(detail(), [], { branchesError: true });
+    expect(screen.getByText('Could not load branches')).toBeInTheDocument();
+    cleanup();
+
+    renderCard(detail());
+    expect(screen.queryByText('Could not load branches')).not.toBeInTheDocument();
   });
 
   it('shows one compare link per repository when completed', () => {
