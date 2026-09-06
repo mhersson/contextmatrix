@@ -125,17 +125,97 @@ func TestWalker_IgnoresUnrelatedEvents(t *testing.T) {
 	defer cancel()
 
 	e.runner.Start(ctx)
-	require.Eventually(t, e.walkerReady, time.Second, 5*time.Millisecond)
+	// The walker subscribes before its first pass, so wait for that pass's
+	// read too before counting.
+	require.Eventually(t, func() bool { return e.walkerReady() && e.pbs.getCount() >= 1 }, time.Second, 5*time.Millisecond)
 
-	before := e.pbs.runWrites()
+	writes := e.pbs.runWrites()
+	gets := e.pbs.getCount()
 
 	for range 10 {
 		e.runner.cfg.Bus.Publish(events.Event{Type: events.CardUpdated, Project: "beta", CardID: "BETA-9"})
 		e.runner.cfg.Bus.Publish(events.Event{Type: events.PlaybookUpdated, Data: map[string]any{"id": "other"}})
 	}
 
-	time.Sleep(50 * time.Millisecond)
-	assert.Equal(t, before, e.pbs.runWrites(), "unrelated events do not write")
+	// The bus delivers in order: once the pass this event triggers has read
+	// the playbook, every unrelated event before it was already filtered.
+	e.runner.cfg.Bus.Publish(events.Event{Type: events.PlaybookUpdated, Data: map[string]any{"id": "rollout"}})
+	require.Eventually(t, func() bool { return e.pbs.getCount() > gets }, time.Second, 5*time.Millisecond)
+
+	assert.Equal(t, gets+1, e.pbs.getCount(), "unrelated events are filtered without reading the playbook")
+	assert.Equal(t, writes, e.pbs.runWrites(), "unrelated events do not write")
+
+	cancel()
+	e.runner.Wait()
+}
+
+// TestWalker_WatchesEntriesAddedMidRun pins that the entry set the walker
+// filters on follows the playbook: an entry added while the run is active
+// is watched from the pass its playbook event triggers.
+func TestWalker_WatchesEntriesAddedMidRun(t *testing.T) {
+	e := newEnv(t)
+	c := todoCard("alpha", "ALPHA-1")
+	c.State = board.StateInProgress
+	c.WorkerStatus = "running"
+	e.cards.add(c)
+	e.cards.add(todoCard("alpha", "ALPHA-2"))
+
+	p := runnablePlaybook("rollout", cardEntry("e1", "alpha", "ALPHA-1"))
+	e.activeRun(p, "e1")
+	e.pbs.add(p)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	e.runner.Start(ctx)
+	require.Eventually(t, func() bool { return e.walkerReady() && e.pbs.getCount() >= 1 }, time.Second, 5*time.Millisecond)
+
+	// Before the add, a card event for ALPHA-2 is unrelated: no read.
+	gets := e.pbs.getCount()
+	e.runner.cfg.Bus.Publish(events.Event{Type: events.CardUpdated, Project: "alpha", CardID: "ALPHA-2"})
+	e.runner.cfg.Bus.Publish(events.Event{Type: events.PlaybookUpdated, Data: map[string]any{"id": "rollout"}})
+	require.Eventually(t, func() bool { return e.pbs.getCount() > gets }, time.Second, 5*time.Millisecond)
+	assert.Equal(t, gets+1, e.pbs.getCount())
+
+	// Add the entry the way the service does, then announce it.
+	e.pbs.mu.Lock()
+
+	p.Entries = append(p.Entries, cardEntry("e2", "alpha", "ALPHA-2"))
+	p.NextEntryID = 3
+	e.pbs.mu.Unlock()
+
+	gets = e.pbs.getCount()
+	e.runner.cfg.Bus.Publish(events.Event{Type: events.PlaybookUpdated, Data: map[string]any{"id": "rollout"}})
+	require.Eventually(t, func() bool { return e.pbs.getCount() > gets }, time.Second, 5*time.Millisecond)
+
+	// After it, a card event for ALPHA-2 triggers a pass.
+	gets = e.pbs.getCount()
+	e.runner.cfg.Bus.Publish(events.Event{Type: events.CardUpdated, Project: "alpha", CardID: "ALPHA-2"})
+	require.Eventually(t, func() bool { return e.pbs.getCount() > gets }, time.Second, 5*time.Millisecond)
+
+	cancel()
+	e.runner.Wait()
+}
+
+func TestEnsure_ReportsWhetherItSpawned(t *testing.T) {
+	e := newEnv(t)
+	c := todoCard("alpha", "ALPHA-1")
+	c.State = board.StateInProgress
+	c.WorkerStatus = "running"
+	e.cards.add(c)
+
+	p := runnablePlaybook("rollout", cardEntry("e1", "alpha", "ALPHA-1"))
+	e.activeRun(p, "e1")
+	e.pbs.add(p)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	e.runner.Start(ctx)
+	require.Eventually(t, e.walkerReady, time.Second, 5*time.Millisecond)
+
+	assert.False(t, e.runner.Ensure("rollout"), "a running walker is nudged, not spawned")
+	assert.True(t, e.runner.Ensure("unknown"), "no walker yet: one is spawned")
 
 	cancel()
 	e.runner.Wait()

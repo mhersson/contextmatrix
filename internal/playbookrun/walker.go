@@ -5,7 +5,6 @@ import (
 	"runtime/debug"
 	"strings"
 
-	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/events"
 )
@@ -114,11 +113,12 @@ func (r *Runner) cancelWalker(id string) <-chan struct{} {
 	return w.done
 }
 
-// dropLocked removes w's entry and cancels its context when w is still the
-// current walker for id. Callers hold r.mu.
+// dropLocked removes w's entry, its watched set, and cancels its context
+// when w is still the current walker for id. Callers hold r.mu.
 func (r *Runner) dropLocked(id string, w *walker) {
 	if r.walkers[id] == w {
 		delete(r.walkers, id)
+		delete(r.watched, id)
 		w.cancel()
 	}
 }
@@ -153,17 +153,24 @@ func (r *Runner) waitNudge(ctx context.Context, id string, ch <-chan events.Even
 				return false
 			}
 
-			if r.relevant(ctx, id, ev) {
+			if r.relevant(id, ev) {
 				return true
 			}
 		}
 	}
 }
 
+// entryKey is the watched-set key for one card entry.
+func entryKey(project, card string) string {
+	return project + "/" + card
+}
+
 // relevant reports whether ev concerns this playbook: a playbook event with
-// its id, or a card event for one of its card entries. The entry set is read
-// fresh so an entry added mid-run is watched too.
-func (r *Runner) relevant(ctx context.Context, id string, ev events.Event) bool {
+// its id, or a card event for one of the card entries the last pass read.
+// No playbook is resolved here; an entry added mid-run is watched from the
+// pass its playbook.updated event triggers. With no set recorded yet, every
+// card event counts.
+func (r *Runner) relevant(id string, ev events.Event) bool {
 	if strings.HasPrefix(string(ev.Type), "playbook.") {
 		evID, _ := ev.Data["id"].(string)
 
@@ -174,16 +181,15 @@ func (r *Runner) relevant(ctx context.Context, id string, ev events.Event) bool 
 		return false
 	}
 
-	d, err := r.cfg.Playbooks.Get(ctx, id)
-	if err != nil {
-		return true // let the pass decide; it handles a vanished playbook
+	r.mu.Lock()
+	set, ok := r.watched[id]
+	r.mu.Unlock()
+
+	if !ok {
+		return true
 	}
 
-	for _, e := range d.Entries {
-		if e.Type == board.EntryTypeCard && e.Project == ev.Project && e.Card == ev.CardID {
-			return true
-		}
-	}
+	_, watched := set[entryKey(ev.Project, ev.CardID)]
 
-	return false
+	return watched
 }

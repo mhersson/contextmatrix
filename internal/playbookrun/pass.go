@@ -27,6 +27,8 @@ func (r *Runner) pass(ctx context.Context, id string) bool {
 		return false
 	}
 
+	r.setWatched(id, d)
+
 	if !d.Runnable || !d.Run.Active() || d.Run.Instance != r.cfg.Instance {
 		return true
 	}

@@ -103,6 +103,10 @@ type fakePlaybooks struct {
 	// and before it is returned, then cleared. Tests use it to hold a pass
 	// mid-flight while they mutate the board underneath it.
 	afterGet func()
+
+	// gets counts Get calls, so a test can prove an event was filtered
+	// without a playbook read.
+	gets int
 }
 
 func newFakePlaybooks(cards *fakeCards) *fakePlaybooks {
@@ -134,6 +138,7 @@ func (f *fakePlaybooks) List(context.Context) ([]*board.Playbook, error) {
 // writing the same playbook.
 func (f *fakePlaybooks) Get(ctx context.Context, id string) (*service.PlaybookDetail, error) {
 	f.mu.Lock()
+	f.gets++
 
 	stored, ok := f.pbs[id]
 	if !ok {
@@ -246,6 +251,13 @@ func (f *fakePlaybooks) runWrites() int {
 	defer f.mu.Unlock()
 
 	return len(f.runs)
+}
+
+func (f *fakePlaybooks) getCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.gets
 }
 
 type launchCall struct {
