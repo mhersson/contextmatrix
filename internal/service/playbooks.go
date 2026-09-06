@@ -694,7 +694,11 @@ func (s *PlaybookService) UpdateMeta(ctx context.Context, id string, input Updat
 		case *input.Runnable && p.Runnable:
 			// Re-assert: a card added by hand-editing the file, or a card
 			// edited through an unguarded path, gets the settings again.
-			if err := s.forceEntries(ctx, p, p.Entries, agentID); err != nil {
+			// Goes through the same validate-then-force path as first make-
+			// runnable - a hand-added entry never passed AddEntry's
+			// ownership check, so it may already belong to another runnable
+			// playbook.
+			if err := s.makeRunnable(ctx, p, agentID); err != nil {
 				return err
 			}
 		case !*input.Runnable && p.Runnable:

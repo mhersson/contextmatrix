@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -820,4 +821,39 @@ func TestPlaybookService_MakeRunnableWithoutForcerFails(t *testing.T) {
 	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "forcer")
+}
+
+func TestPlaybookService_ReassertValidatesOwnership(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	env.createCard(t, "ALPHA-002", "todo")
+
+	// Two runnable playbooks that do not overlap.
+	for _, tc := range []struct{ title, card string }{{"First", "ALPHA-001"}, {"Second", "ALPHA-002"}} {
+		_, err := env.svc.Create(ctx, CreatePlaybookInput{
+			Title: tc.title, AgentID: "human:alice",
+			Entries: []PlaybookEntryInput{{Type: board.EntryTypeCard, Project: "project-alpha", Card: tc.card}},
+		})
+		require.NoError(t, err)
+		_, err = env.svc.UpdateMeta(ctx, strings.ToLower(tc.title), UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+		require.NoError(t, err)
+	}
+
+	// Simulate a hand-edited file: "second" now also lists ALPHA-001, owned by "first".
+	p, err := env.svc.store.Get(ctx, "second")
+	require.NoError(t, err)
+
+	p.Entries = append(p.Entries, board.PlaybookEntry{ID: "e2", Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"})
+	p.NextEntryID = 3
+	require.NoError(t, env.svc.store.Save(ctx, p))
+
+	// Re-asserting runnable on "second" must refuse rather than force ALPHA-001 into a second owner.
+	_, err = env.svc.UpdateMeta(ctx, "second", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+	require.ErrorIs(t, err, ErrPlaybookCardOwned)
+	assert.Contains(t, err.Error(), "ALPHA-001")
+
+	card, err := env.cardSvc.GetCard(ctx, "project-alpha", "ALPHA-001")
+	require.NoError(t, err)
+	assert.Equal(t, "playbook/first", card.BaseBranch, "still owned by first")
 }
