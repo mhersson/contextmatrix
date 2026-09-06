@@ -174,11 +174,18 @@ export function cardSignals(card: Card): CardSignal[] {
   if (card.worker_status && workerSignals[card.worker_status]) {
     signals.push({ key: 'worker', importance: 0, ...workerSignals[card.worker_status] });
   }
-  if (card.in_playbooks && card.in_playbooks.length > 0) {
-    const label =
-      card.in_playbooks.length === 1
-        ? `In playbook: ${card.in_playbooks[0]}`
-        : `In playbooks: ${card.in_playbooks.join(', ')}`;
+  const lock = card.playbook_lock;
+  const runActive = lock?.run_status === 'running' || lock?.run_status === 'waiting';
+
+  if (runActive && lock) {
+    // The run's claim supersedes plain membership: the card is started by the
+    // playbook, never by hand. run_status is the playbook's, not this card's
+    // position in it, so the label says queued, not running.
+    signals.push({ key: 'playbook-run', label: `Queued in playbook ${lock.title}`, color: 'var(--yellow)', icon: clockIcon, importance: 1 });
+  } else if (card.in_playbooks && card.in_playbooks.length > 0) {
+    const label = card.in_playbooks.length === 1
+      ? `In playbook: ${card.in_playbooks[0]}`
+      : `In playbooks: ${card.in_playbooks.join(', ')}`;
     signals.push({ key: 'playbook', label, color: 'var(--blue)', icon: bookOpenIcon, importance: 5 });
   }
   if (card.labels?.includes('simple')) {
