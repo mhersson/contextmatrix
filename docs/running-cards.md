@@ -89,6 +89,11 @@ Copilot PR gates (`await_ci`, `await_copilot_review`) for new cards;
 | `skills`                                              | Task skills mounted in the container; absent inherits, `[]` mounts none.                                                                     |
 | `branch_name`, `base_branch`                          | Generated feature branch (immutable); optional PR target.                                                                                    |
 
+A card that belongs to a runnable playbook has `autonomous`, `create_pr`,
+`await_ci`, `merge_pr` and `base_branch` set by that playbook and locked; the
+card panel shows them read-only as "Set by playbook <title>". See
+[playbooks](playbooks.md#running-a-playbook).
+
 ## Best-of-N
 
 One container. After the plan phase the agent cuts N worktrees from the

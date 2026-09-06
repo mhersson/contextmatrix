@@ -285,58 +285,59 @@ These match `internal/board/card.go` field for field.
 // internal/board/card.go
 
 type Card struct {
-    ID                      string          `yaml:"id"                              json:"id"`
-    Title                   string          `yaml:"title"                           json:"title"`
-    Project                 string          `yaml:"project"                         json:"project"`
-    Type                    string          `yaml:"type"                            json:"type"`
-    State                   string          `yaml:"state"                           json:"state"`
-    Priority                string          `yaml:"priority"                        json:"priority"`
-    AssignedAgent           string          `yaml:"assigned_agent,omitempty"        json:"assigned_agent,omitempty"`
-    LastHeartbeat           *time.Time      `yaml:"last_heartbeat,omitempty"        json:"last_heartbeat,omitempty"`
-    ClaimedVia              string          `yaml:"claimed_via,omitempty"           json:"claimed_via,omitempty"`
-    ClaimedAt               *time.Time      `yaml:"claimed_at,omitempty"            json:"claimed_at,omitempty"`
-    ClaimEpoch              int             `yaml:"claim_epoch,omitempty"           json:"claim_epoch,omitempty"`
-    Parent                  string          `yaml:"parent,omitempty"                json:"parent,omitempty"`
-    Subtasks                []string        `yaml:"subtasks,omitempty"              json:"subtasks,omitempty"`
-    DependsOn               []string        `yaml:"depends_on,omitempty"            json:"depends_on,omitempty"`
-    DependenciesMet         *bool           `yaml:"-"                               json:"dependencies_met,omitempty"`
-    BlockedBy               []string        `yaml:"-"                               json:"blocked_by,omitempty"`
-    Context                 []string        `yaml:"context,omitempty"               json:"context,omitempty"`
-    Labels                  []string        `yaml:"labels,omitempty"                json:"labels,omitempty"`
-    Skills                  *[]string       `yaml:"skills,omitempty"                json:"skills,omitempty"`
-    Source                  *Source         `yaml:"source,omitempty"                json:"source,omitempty"`
-    Custom                  map[string]any  `yaml:"custom,omitempty"                json:"custom,omitempty"`
-    Assignee                string          `yaml:"assignee,omitempty"              json:"assignee,omitempty"`
-    Autonomous              bool            `yaml:"autonomous,omitempty"            json:"autonomous"`
-    ModelOrchestrator       string          `yaml:"model_orchestrator,omitempty"    json:"model_orchestrator,omitempty"`
-    ModelCoder              string          `yaml:"model_coder,omitempty"           json:"model_coder,omitempty"`
-    ModelReviewer           string          `yaml:"model_reviewer,omitempty"        json:"model_reviewer,omitempty"`
-    BestOfN                 int             `yaml:"best_of_n,omitempty"             json:"best_of_n,omitempty"`
-    MaxCapability           bool            `yaml:"max_capability,omitempty"        json:"max_capability,omitempty"`
-    MobParticipants         int             `yaml:"mob_participants,omitempty"      json:"mob_participants,omitempty"`
-    MobPhases               []string        `yaml:"mob_phases,omitempty"            json:"mob_phases,omitempty"`
-    MobGuests               []string        `yaml:"mob_guests,omitempty"            json:"mob_guests,omitempty"`
-    Verify                  *VerifyConfig   `yaml:"verify,omitempty"                json:"verify,omitempty"`
-    Vetted                  bool            `yaml:"vetted,omitempty"                json:"vetted"`
-    CreatePR                bool            `yaml:"create_pr,omitempty"             json:"create_pr,omitempty"`
-    AwaitCI                 bool            `yaml:"await_ci,omitempty"              json:"await_ci,omitempty"`
-    AwaitCopilotReview      bool            `yaml:"await_copilot_review,omitempty"  json:"await_copilot_review,omitempty"`
-    MergePR                 bool            `yaml:"merge_pr,omitempty"              json:"merge_pr,omitempty"`
-    BranchName              string          `yaml:"branch_name,omitempty"           json:"branch_name,omitempty"`
-    BaseBranch              string          `yaml:"base_branch,omitempty"           json:"base_branch,omitempty"`
-    PRUrl                   string          `yaml:"pr_url,omitempty"                json:"pr_url,omitempty"`
-    ReviewAttempts          int             `yaml:"review_attempts,omitempty"       json:"review_attempts,omitempty"`
-    WorkerStatus            string          `yaml:"worker_status,omitempty"         json:"worker_status,omitempty"`
-    Phase                   string          `yaml:"phase,omitempty"                 json:"phase,omitempty"`
-    TokenUsage              *TokenUsage     `yaml:"token_usage,omitempty"           json:"token_usage,omitempty"`
-    UsageBreakdown          []UsageBucket   `yaml:"usage_breakdown,omitempty"       json:"usage_breakdown,omitempty"`
-    SubtaskCostUSD          float64         `yaml:"-"                               json:"subtask_cost_usd,omitempty"`
-    SubtaskCostHasEstimates bool            `yaml:"-"                               json:"subtask_cost_has_estimates,omitempty"`
-    InPlaybooks             []string        `yaml:"-"                               json:"in_playbooks,omitempty"`
-    Created                 time.Time       `yaml:"created"                         json:"created"`
-    Updated                 time.Time       `yaml:"updated"                         json:"updated"`
-    ActivityLog             []ActivityEntry `yaml:"activity_log,omitempty"          json:"activity_log,omitempty"`
-    Body                    string          `yaml:"-"                               json:"body"`
+    ID                      string            `yaml:"id"                              json:"id"`
+    Title                   string            `yaml:"title"                           json:"title"`
+    Project                 string            `yaml:"project"                         json:"project"`
+    Type                    string            `yaml:"type"                            json:"type"`
+    State                   string            `yaml:"state"                           json:"state"`
+    Priority                string            `yaml:"priority"                        json:"priority"`
+    AssignedAgent           string            `yaml:"assigned_agent,omitempty"        json:"assigned_agent,omitempty"`
+    LastHeartbeat           *time.Time        `yaml:"last_heartbeat,omitempty"        json:"last_heartbeat,omitempty"`
+    ClaimedVia              string            `yaml:"claimed_via,omitempty"           json:"claimed_via,omitempty"`
+    ClaimedAt               *time.Time        `yaml:"claimed_at,omitempty"            json:"claimed_at,omitempty"`
+    ClaimEpoch              int               `yaml:"claim_epoch,omitempty"           json:"claim_epoch,omitempty"`
+    Parent                  string            `yaml:"parent,omitempty"                json:"parent,omitempty"`
+    Subtasks                []string          `yaml:"subtasks,omitempty"              json:"subtasks,omitempty"`
+    DependsOn               []string          `yaml:"depends_on,omitempty"            json:"depends_on,omitempty"`
+    DependenciesMet         *bool             `yaml:"-"                               json:"dependencies_met,omitempty"`
+    BlockedBy               []string          `yaml:"-"                               json:"blocked_by,omitempty"`
+    Context                 []string          `yaml:"context,omitempty"               json:"context,omitempty"`
+    Labels                  []string          `yaml:"labels,omitempty"                json:"labels,omitempty"`
+    Skills                  *[]string         `yaml:"skills,omitempty"                json:"skills,omitempty"`
+    Source                  *Source           `yaml:"source,omitempty"                json:"source,omitempty"`
+    Custom                  map[string]any    `yaml:"custom,omitempty"                json:"custom,omitempty"`
+    Assignee                string            `yaml:"assignee,omitempty"              json:"assignee,omitempty"`
+    Autonomous              bool              `yaml:"autonomous,omitempty"            json:"autonomous"`
+    ModelOrchestrator       string            `yaml:"model_orchestrator,omitempty"    json:"model_orchestrator,omitempty"`
+    ModelCoder              string            `yaml:"model_coder,omitempty"           json:"model_coder,omitempty"`
+    ModelReviewer           string            `yaml:"model_reviewer,omitempty"        json:"model_reviewer,omitempty"`
+    BestOfN                 int               `yaml:"best_of_n,omitempty"             json:"best_of_n,omitempty"`
+    MaxCapability           bool              `yaml:"max_capability,omitempty"        json:"max_capability,omitempty"`
+    MobParticipants         int               `yaml:"mob_participants,omitempty"      json:"mob_participants,omitempty"`
+    MobPhases               []string          `yaml:"mob_phases,omitempty"            json:"mob_phases,omitempty"`
+    MobGuests               []string          `yaml:"mob_guests,omitempty"            json:"mob_guests,omitempty"`
+    Verify                  *VerifyConfig     `yaml:"verify,omitempty"                json:"verify,omitempty"`
+    Vetted                  bool              `yaml:"vetted,omitempty"                json:"vetted"`
+    CreatePR                bool              `yaml:"create_pr,omitempty"             json:"create_pr,omitempty"`
+    AwaitCI                 bool              `yaml:"await_ci,omitempty"              json:"await_ci,omitempty"`
+    AwaitCopilotReview      bool              `yaml:"await_copilot_review,omitempty"  json:"await_copilot_review,omitempty"`
+    MergePR                 bool              `yaml:"merge_pr,omitempty"              json:"merge_pr,omitempty"`
+    BranchName              string            `yaml:"branch_name,omitempty"           json:"branch_name,omitempty"`
+    BaseBranch              string            `yaml:"base_branch,omitempty"           json:"base_branch,omitempty"`
+    PRUrl                   string            `yaml:"pr_url,omitempty"                json:"pr_url,omitempty"`
+    ReviewAttempts          int               `yaml:"review_attempts,omitempty"       json:"review_attempts,omitempty"`
+    WorkerStatus            string            `yaml:"worker_status,omitempty"         json:"worker_status,omitempty"`
+    Phase                   string            `yaml:"phase,omitempty"                 json:"phase,omitempty"`
+    TokenUsage              *TokenUsage       `yaml:"token_usage,omitempty"           json:"token_usage,omitempty"`
+    UsageBreakdown          []UsageBucket     `yaml:"usage_breakdown,omitempty"       json:"usage_breakdown,omitempty"`
+    SubtaskCostUSD          float64           `yaml:"-"                               json:"subtask_cost_usd,omitempty"`
+    SubtaskCostHasEstimates bool              `yaml:"-"                               json:"subtask_cost_has_estimates,omitempty"`
+    InPlaybooks             []string          `yaml:"-"                             json:"in_playbooks,omitempty"`
+    PlaybookLock            *CardPlaybookLock `yaml:"-"                             json:"playbook_lock,omitempty"`
+    Created                 time.Time         `yaml:"created"                       json:"created"`
+    Updated                 time.Time         `yaml:"updated"                         json:"updated"`
+    ActivityLog             []ActivityEntry   `yaml:"activity_log,omitempty"          json:"activity_log,omitempty"`
+    Body                    string            `yaml:"-"                               json:"body"`
 }
 
 type ActivityEntry struct {
@@ -511,19 +512,23 @@ after first generation.
 `last_heartbeat`, `claimed_via`, `claimed_at`, `claim_epoch`, `activity_log`,
 `worker_status`, `review_attempts`, `branch_name`, `token_usage`,
 `usage_breakdown`, `dependencies_met`, `blocked_by`, `subtask_cost_usd`,
-`subtask_cost_has_estimates`, `in_playbooks`.
+`subtask_cost_has_estimates`, `in_playbooks`, `playbook_lock`.
 
 `dependencies_met`, `blocked_by`, `subtask_cost_usd`,
-`subtask_cost_has_estimates` and `in_playbooks` are computed on read and
-never written to frontmatter. `blocked_by` is the subset of `depends_on`
-that is not `done`, in `depends_on` order; absent when every dependency is
-met.
+`subtask_cost_has_estimates`, `in_playbooks` and `playbook_lock` are computed
+on read and never written to frontmatter. `blocked_by` is the subset of
+`depends_on` that is not `done`, in `depends_on` order; absent when every
+dependency is met.
 `subtask_cost_usd` sums the `estimated_cost_usd` of direct subtasks
 (single-card GET only; omitted when zero) and `subtask_cost_has_estimates`
 reports whether any of those costs include rate-table-estimated buckets.
 `in_playbooks` lists the playbooks holding a card entry for the card (GET and
 list); omitted when empty and best-effort, so a playbook-store failure leaves
 it empty rather than failing the read.
+`playbook_lock` - computed on read, never persisted; `{id, title,
+run_status}` of the runnable playbook that owns the card's `autonomous`,
+`create_pr`, `await_ci`, `merge_pr`, `base_branch`; `run_status` set only
+while that run is `running` or `waiting`.
 
 **Agent-managed field** `phase`: the orchestrator's position within a run,
 one of `plan`, `execute`, `judge`, `document`, `review`, `integrate`,
@@ -701,9 +706,9 @@ Accepting a template clears the dirty flag.
 A playbook is a cross-project ordered list of steps: card references, manual
 gate steps, or both. Playbooks are global team artifacts stored one file per
 playbook at `<boards.dir>/playbooks/<id>.yaml`, at the top level of the boards
-repo. Order is array order. Playbooks are not runnable: CM never executes
-anything; a playbook is coordination state for humans and planning sessions.
-See [playbooks](playbooks.md).
+repo. Order is array order. A playbook is coordination state until a human
+makes it runnable; then its cards carry forced execution settings and a run
+can be played (see [playbooks](playbooks.md#running-a-playbook)).
 
 Each boards repo has its own `playbooks/` directory. IDs are unique across
 repos (a create checks every repo before choosing a suffix), `boards_repo` on
@@ -717,6 +722,12 @@ created_by: human:alice      # informational attribution
 created_at: 2026-08-20T09:00:00Z
 updated_at: 2026-08-20T10:30:00Z
 next_entry_id: 4             # persisted counter; entry IDs are never reused
+runnable: true               # human-set; forces and locks five card settings
+base_branch: main            # optional; source of playbook/<id> on first run
+run:                         # present once a run has started; see playbooks.md
+  status: waiting
+  entry: e3
+  reason: awaiting check-off
 entries:
   - id: e1
     type: card
