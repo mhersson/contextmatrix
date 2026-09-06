@@ -416,6 +416,17 @@ func registerUpdateCard(server *mcp.Server, svc *service.CardService) {
 			return nil, nil, err
 		}
 
+		if input.Autonomous != nil {
+			current, err := svc.GetCard(ctx, project, input.CardID)
+			if err != nil {
+				return nil, nil, remoteErr(fmt.Errorf("get card %s: %w", input.CardID, err))
+			}
+
+			if current.PlaybookLock != nil && *input.Autonomous != current.Autonomous {
+				return nil, nil, fmt.Errorf("autonomous on %s is %w %s", input.CardID, service.ErrPlaybookLocked, current.PlaybookLock.ID)
+			}
+		}
+
 		patchInput := service.PatchCardInput{
 			AgentID:    input.AgentID,
 			Title:      input.Title,

@@ -32,7 +32,10 @@ func setupMCPWithPlaybooks(t *testing.T) *testEnv {
 
 	projectDir := filepath.Join(boardsDir, "test-project")
 	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0o755))
-	require.NoError(t, board.SaveProjectConfig(projectDir, testProjectConfig()))
+
+	cfg := testProjectConfig()
+	cfg.Repo = "https://github.com/example/project.git"
+	require.NoError(t, board.SaveProjectConfig(projectDir, cfg))
 
 	store, err := storage.NewFilesystemStore(boardsDir)
 	require.NoError(t, err)
@@ -49,6 +52,8 @@ func setupMCPWithPlaybooks(t *testing.T) *testEnv {
 	require.NoError(t, err)
 
 	pbSvc := service.NewPlaybookService(pbStore, store, bus, nil, false)
+	svc.SetPlaybookLister(pbStore)
+	pbSvc.SetCardForcer(svc)
 
 	workflowSkillsDir := filepath.Join(tmpDir, "workflow-skills")
 	require.NoError(t, os.MkdirAll(workflowSkillsDir, 0o755))
@@ -311,4 +316,78 @@ func TestPlaybookTools_CreateWithBoardsRepo(t *testing.T) {
 	result = callTool(t, env, "create_playbook", map[string]any{"agent_id": "human:alice", "title": "Elsewhere", "boards_repo": "nope"})
 	require.True(t, result.IsError)
 	assert.Contains(t, result.Content[0].(*mcp.TextContent).Text, "unknown boards_repo")
+}
+
+func TestUpdatePlaybook_MCP_PreservesRunnableFields(t *testing.T) {
+	env := setupMCPWithPlaybooks(t)
+	ctx := context.Background()
+
+	card, err := env.svc.CreateCard(ctx, "test-project", service.CreateCardInput{Title: "Seed", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+
+	_, err = env.pb.Create(ctx, service.CreatePlaybookInput{
+		Title: "Rollout", AgentID: "human:alice",
+		Entries: []service.PlaybookEntryInput{{Type: board.EntryTypeCard, Project: "test-project", Card: card.ID}},
+	})
+	require.NoError(t, err)
+
+	runnable := true
+	base := "main"
+	_, err = env.pb.UpdateMeta(ctx, "rollout", service.UpdatePlaybookInput{Runnable: &runnable, BaseBranch: &base}, "human:alice")
+	require.NoError(t, err)
+
+	now := time.Now().UTC()
+	_, err = env.pb.SetRun(ctx, "rollout", &board.PlaybookRun{Status: board.RunStatusStopped, StartedAt: now, UpdatedAt: now}, "human:alice")
+	require.NoError(t, err)
+
+	res, err := env.session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "update_playbook",
+		Arguments: map[string]any{"agent_id": "agent-1", "id": "rollout", "title": "Rollout renamed", "runnable": false, "base_branch": "develop"},
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError, "unknown fields are ignored, not errors")
+
+	got, err := env.pb.Get(ctx, "rollout")
+	require.NoError(t, err)
+	assert.Equal(t, "Rollout renamed", got.Title)
+	assert.True(t, got.Runnable, "runnable preserved")
+	assert.Equal(t, "main", got.BaseBranch, "base_branch preserved")
+	require.NotNil(t, got.Run, "run block preserved")
+	assert.Equal(t, board.RunStatusStopped, got.Run.Status)
+}
+
+func TestUpdateCard_MCP_RefusesAutonomousOnLockedCard(t *testing.T) {
+	env := setupMCPWithPlaybooks(t)
+	ctx := context.Background()
+
+	card, err := env.svc.CreateCard(ctx, "test-project", service.CreateCardInput{Title: "Seed", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+
+	_, err = env.pb.Create(ctx, service.CreatePlaybookInput{
+		Title: "Rollout", AgentID: "human:alice",
+		Entries: []service.PlaybookEntryInput{{Type: board.EntryTypeCard, Project: "test-project", Card: card.ID}},
+	})
+	require.NoError(t, err)
+
+	runnable := true
+	_, err = env.pb.UpdateMeta(ctx, "rollout", service.UpdatePlaybookInput{Runnable: &runnable}, "human:alice")
+	require.NoError(t, err)
+
+	res, err := env.session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "update_card",
+		Arguments: map[string]any{"agent_id": "agent-1", "project": "test-project", "card_id": card.ID, "autonomous": false},
+	})
+	require.NoError(t, err)
+	require.True(t, res.IsError)
+	text, ok := res.Content[0].(*mcp.TextContent)
+	require.True(t, ok)
+	assert.Contains(t, text.Text, "locked by a runnable playbook")
+
+	// Repeating the forced value, or touching another field, still works.
+	res, err = env.session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "update_card",
+		Arguments: map[string]any{"agent_id": "agent-1", "project": "test-project", "card_id": card.ID, "autonomous": true, "priority": "high"},
+	})
+	require.NoError(t, err)
+	assert.False(t, res.IsError)
 }
