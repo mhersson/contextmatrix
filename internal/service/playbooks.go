@@ -840,6 +840,19 @@ func (s *PlaybookService) forceEntries(ctx context.Context, p *board.Playbook, e
 // run state (the runner and the Play/Stop endpoints use it). A nil run
 // clears the block. Refused on a playbook that is not runnable.
 func (s *PlaybookService) SetRun(ctx context.Context, id string, run *board.PlaybookRun, agentID string) (*PlaybookDetail, error) {
+	return s.SetRunIf(ctx, id, nil, run, agentID)
+}
+
+// SetRunIf is SetRun with a compare-and-swap guard, so a caller that decided
+// what to write from an earlier read cannot overwrite a block someone else
+// changed in between. The guard runs under the service write lock on the
+// freshly loaded block, which makes the caller's decision and the write
+// atomic. Its argument is the current block and may be nil, so the guard
+// must be nil-safe; a nil guard is an unconditional write. A guard error is
+// returned unchanged and nothing is written.
+func (s *PlaybookService) SetRunIf(
+	ctx context.Context, id string, guard func(current *board.PlaybookRun) error, run *board.PlaybookRun, agentID string,
+) (*PlaybookDetail, error) {
 	action := "run cleared"
 	if run != nil {
 		action = "run " + run.Status
@@ -848,6 +861,12 @@ func (s *PlaybookService) SetRun(ctx context.Context, id string, run *board.Play
 	return s.mutate(ctx, id, action, agentID, func(p *board.Playbook) error {
 		if !p.Runnable {
 			return fmt.Errorf("%w: %s", ErrPlaybookNotRunnable, id)
+		}
+
+		if guard != nil {
+			if err := guard(p.Run); err != nil {
+				return err
+			}
 		}
 
 		if run == nil {
@@ -1072,6 +1091,15 @@ func (s *PlaybookService) RemoveEntry(ctx context.Context, id, entryID, agentID 
 		}
 
 		p.Entries = slices.Delete(p.Entries, i, i+1)
+
+		// A run parked on the removed entry loses its frontier, not its run:
+		// Validate rejects a run entry that names no entry, so clearing it
+		// (with the reason that described it) is what keeps the removal
+		// legal and lets the next pass pick a new frontier.
+		if p.Run != nil && p.Run.Entry == entryID {
+			p.Run.Entry = ""
+			p.Run.Reason = ""
+		}
 
 		return nil
 	})

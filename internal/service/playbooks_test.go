@@ -985,3 +985,90 @@ func TestPlaybookService_RunEventsCarryRunStatus(t *testing.T) {
 	_, has := ev.Data["run_status"]
 	assert.False(t, has)
 }
+
+func TestPlaybookService_SetRunIfGuardsTheWrite(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{
+		Title: "Rollout", AgentID: "human:alice",
+		Entries: []PlaybookEntryInput{{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"}},
+	})
+	require.NoError(t, err)
+
+	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+	require.NoError(t, err)
+
+	now := env.clk.Now()
+	stored, err := env.svc.SetRun(ctx, "rollout", &board.PlaybookRun{
+		Status: board.RunStatusRunning, StartedAt: now, UpdatedAt: now, Entry: "e1",
+	}, "human:alice")
+	require.NoError(t, err)
+	require.NotNil(t, stored.Run)
+
+	updatedAt := stored.Updated
+
+	// A guard that refuses returns its own error and writes nothing: neither
+	// the run block nor the playbook's updated_at moves.
+	refuse := errors.New("run moved underneath")
+
+	env.clk.Advance(time.Minute)
+
+	_, err = env.svc.SetRunIf(ctx, "rollout",
+		func(current *board.PlaybookRun) error {
+			require.NotNil(t, current, "the guard sees the freshly loaded block")
+			assert.Equal(t, board.RunStatusRunning, current.Status)
+
+			return refuse
+		},
+		&board.PlaybookRun{Status: board.RunStatusStopped, StartedAt: now, UpdatedAt: env.clk.Now()}, "human:alice")
+	require.ErrorIs(t, err, refuse)
+
+	got, err := env.svc.Get(ctx, "rollout")
+	require.NoError(t, err)
+	require.NotNil(t, got.Run)
+	assert.Equal(t, board.RunStatusRunning, got.Run.Status, "the refused write left the block alone")
+	assert.Equal(t, "e1", got.Run.Entry)
+	assert.Equal(t, updatedAt, got.Updated, "and never touched updated_at")
+
+	// A guard that passes writes.
+	got, err = env.svc.SetRunIf(ctx, "rollout",
+		func(*board.PlaybookRun) error { return nil },
+		&board.PlaybookRun{Status: board.RunStatusStopped, StartedAt: now, UpdatedAt: env.clk.Now()}, "human:alice")
+	require.NoError(t, err)
+	require.NotNil(t, got.Run)
+	assert.Equal(t, board.RunStatusStopped, got.Run.Status)
+}
+
+func TestPlaybookService_RemoveEntryClearsTheRunsEntry(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{
+		Title: "Rollout", AgentID: "human:alice",
+		Entries: []PlaybookEntryInput{
+			{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"},
+			{Type: board.EntryTypeManual, Text: "deploy"},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+	require.NoError(t, err)
+
+	now := env.clk.Now()
+	_, err = env.svc.SetRun(ctx, "rollout", &board.PlaybookRun{
+		Status: board.RunStatusWaiting, StartedAt: now, UpdatedAt: now, Entry: "e1", Reason: "ALPHA-001 parked",
+	}, "human:alice")
+	require.NoError(t, err)
+
+	// Removing the entry the run sits on is allowed: the run keeps its
+	// status and loses only the frontier, which the next pass re-derives.
+	got, err := env.svc.RemoveEntry(ctx, "rollout", "e1", "human:alice")
+	require.NoError(t, err)
+	require.NotNil(t, got.Run)
+	assert.Equal(t, board.RunStatusWaiting, got.Run.Status)
+	assert.Empty(t, got.Run.Entry)
+	assert.Empty(t, got.Run.Reason)
+	assert.Len(t, got.Entries, 1)
+}

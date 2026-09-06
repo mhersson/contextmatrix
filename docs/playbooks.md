@@ -105,6 +105,11 @@ and answer `409 PLAYBOOK_RUN_ACTIVE`, unchecking runnable is refused, and a
 second Play is refused. Cards carry a derived `playbook_lock` with the
 owning playbook's id, title and, while active, its run status.
 
+Removing the entry a run currently sits on is allowed. The run keeps its
+status, `entry` and `reason` are cleared, and the next pass picks a new
+frontier. A card that entry had already launched keeps running, no longer
+owned by the run.
+
 ### Play and Stop
 
 See [Playbook runs](running-cards.md#playbook-runs) for the runner's
