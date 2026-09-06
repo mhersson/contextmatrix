@@ -83,13 +83,17 @@ func (r *Runner) release(id string, w *walker) bool {
 }
 
 // forget drops the walker on any exit path release did not cover, which is
-// cancellation. It is generation-safe: a walker started later for the same
-// playbook keeps its entry.
+// cancellation. The walker entry is generation-safe: a walker started later
+// for the same playbook keeps its entry. The watched set is dropped
+// regardless, because a pass of this walker may have re-recorded it after
+// cancelWalker removed it; a newer walker lets every card event through
+// until its next pass rewrites the set.
 func (r *Runner) forget(id string, w *walker) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	r.dropLocked(id, w)
+	delete(r.watched, id)
 }
 
 // cancelWalker cancels and drops the current walker for id, if there is
@@ -149,7 +153,10 @@ func (r *Runner) waitNudge(ctx context.Context, id string, ch <-chan events.Even
 		case <-ticker.C():
 			return true
 		case ev, ok := <-ch:
-			// Unreachable while the walker owns its subscription (unsubscribe runs after this loop returns); kept so a shared subscription closing under us exits instead of spinning on a closed channel.
+			// Unreachable while the walker owns its subscription
+			// (unsubscribe runs after this loop returns); kept so a shared
+			// subscription closing under us exits instead of spinning on a
+			// closed channel.
 			if !ok {
 				return false
 			}
