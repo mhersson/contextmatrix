@@ -11,6 +11,7 @@ import (
 	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/backend"
 	"github.com/mhersson/contextmatrix/internal/config"
+	"github.com/mhersson/contextmatrix/internal/playbookrun"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -172,4 +173,41 @@ func TestStop_KillsThenMarksKilled(t *testing.T) {
 
 	require.Len(t, cb.kills, 1)
 	assert.Equal(t, card.ID, cb.kills[0].CardID)
+}
+
+// TestPlaybookLaunch_SanitizesServiceErrors pins the reason the playbook
+// runner persists: it is committed to the boards repo and rendered in the
+// UI, so a raw service error's text (absolute paths, .git paths, remote
+// URLs) must never reach it.
+func TestPlaybookLaunch_SanitizesServiceErrors(t *testing.T) {
+	svc, _, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
+	defer cleanup()
+
+	ctx := context.Background()
+	cb := newCaptureBackend(t)
+	h := newLaunchHandlers(t, svc, cb)
+
+	// launch's own error for an unknown card is a raw service error.
+	_, raw := h.launch(ctx, "test-project", "TEST-999", launchOptions{})
+	require.Error(t, raw)
+
+	var lf *launchFailure
+
+	require.NotErrorAs(t, raw, &lf)
+
+	err := h.playbookLaunch(ctx, "test-project", "TEST-999", playbookrun.LaunchOptions{})
+	require.Error(t, err)
+	assert.NotErrorAs(t, err, &lf)
+	assert.Equal(t, sanitizeErrorDetails(raw), err.Error(), "the reason is the sanitized class, never the raw text")
+	assert.NotContains(t, err.Error(), "/", "no filesystem path reaches the persisted reason")
+
+	// A typed refusal is already human and sanitized, so it passes through
+	// with its status and code intact.
+	card, cardErr := svc.CreateCard(ctx, "test-project", service.CreateCardInput{Title: "T", Type: "task", Priority: "medium"})
+	require.NoError(t, cardErr)
+	require.NoError(t, h.playbookLaunch(ctx, "test-project", card.ID, playbookrun.LaunchOptions{}))
+
+	err = h.playbookLaunch(ctx, "test-project", card.ID, playbookrun.LaunchOptions{})
+	require.ErrorAs(t, err, &lf)
+	assert.Equal(t, ErrCodeWorkerConflict, lf.code)
 }

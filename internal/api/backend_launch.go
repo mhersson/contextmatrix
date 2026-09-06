@@ -286,11 +286,26 @@ func (h *backendHandlers) stop(ctx context.Context, project, id string) (*board.
 }
 
 // playbookLaunch and playbookStop adapt launch and stop for the playbook
-// runner, which records the error text as the run's waiting reason.
+// runner, which records the error text as the run's waiting reason. That
+// reason is written into the playbook file, committed and pushed to the
+// shared boards remote, so a raw service error's text (absolute paths, .git
+// paths, remote URLs) must never reach it: playbookLaunch logs the error and
+// returns its sanitized class instead. A *launchFailure is already human and
+// sanitized and passes through unchanged.
 func (h *backendHandlers) playbookLaunch(ctx context.Context, project, id string, opts playbookrun.LaunchOptions) error {
 	_, err := h.launch(ctx, project, id, launchOptions{createBaseBranch: opts.CreateBaseBranch, baseBranchFrom: opts.BaseBranchFrom})
+	if err == nil {
+		return nil
+	}
 
-	return err
+	var lf *launchFailure
+	if errors.As(err, &lf) {
+		return err
+	}
+
+	ctxlog.Logger(ctx).Error("playbook launch failed", "card_id", id, "project", project, "error", err)
+
+	return errors.New(sanitizeErrorDetails(err))
 }
 
 func (h *backendHandlers) playbookStop(ctx context.Context, project, id string) error {
