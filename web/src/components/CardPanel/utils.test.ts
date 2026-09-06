@@ -135,6 +135,18 @@ describe('primaryAction', () => {
       .toEqual({ kind: 'run', autonomous: true });
   });
 
+  it('returns a disabled run action while the owning playbook run is active', () => {
+    const card = { ...makeCard(), playbook_lock: { id: 'roll', title: 'Roll', run_status: 'waiting' as const } };
+    expect(primaryAction(card, true, makeConfig(), true))
+      .toEqual({ kind: 'run', autonomous: true, disabledReason: 'Queued in playbook Roll' });
+  });
+
+  it('returns a live run action when the lock has no active run', () => {
+    const card = { ...makeCard(), playbook_lock: { id: 'roll', title: 'Roll' } };
+    expect(primaryAction(card, true, makeConfig(), true))
+      .toEqual({ kind: 'run', autonomous: true });
+  });
+
   it('returns null when no curated action matches', () => {
     // in_progress, no worker, canRun=false → no primary action
     expect(primaryAction(makeCard({ state: 'in_progress' }), false, makeConfig(), false))

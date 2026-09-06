@@ -1,6 +1,7 @@
 import { Link } from 'react-router';
 import type { PlaybookSummary } from '../../types';
 import { formatRelativeTime } from '../CardPanel/utils';
+import { runStatusChip } from './playbookUtils';
 import { RouteTrack } from './RouteTrack';
 
 interface PlaybookRowProps {
@@ -32,6 +33,9 @@ export function PlaybookRow({ playbook: p }: PlaybookRowProps) {
         <span>{meta}</span>
         {agentActive && <span className="pbl-pill pbl-pill-active">agent active</span>}
         {missing && <span className="pbl-pill pbl-pill-missing">missing card</span>}
+        {p.run_status && (
+          <span className={`pbl-pill pbl-pill-run-${p.run_status}`}>{runStatusChip(p.run_status).label}</span>
+        )}
       </div>
 
       {p.next && (

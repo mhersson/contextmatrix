@@ -228,7 +228,7 @@ export function isForeignClaim(card: Card, instanceId: string | null | undefined
  */
 export type PrimaryAction =
   | { kind: 'stop' }
-  | { kind: 'run'; autonomous: boolean }
+  | { kind: 'run'; autonomous: boolean; disabledReason?: string }
   | { kind: 'transition'; label: string; targetState: string }
   | null;
 
@@ -255,6 +255,10 @@ export function primaryAction(
     return { kind: 'transition', label: 'Re-open', targetState: 'todo' };
   }
   if (canRun) {
+    const lock = card.playbook_lock;
+    if (lock?.run_status === 'running' || lock?.run_status === 'waiting') {
+      return { kind: 'run', autonomous: editedAutonomous, disabledReason: `Queued in playbook ${lock.title}` };
+    }
     return { kind: 'run', autonomous: editedAutonomous };
   }
   return null;

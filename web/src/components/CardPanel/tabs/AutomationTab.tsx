@@ -117,6 +117,7 @@ export function AutomationTab({
           branchesError={branchesError}
           disabled={editingLocked}
           lockedReason={automationLockedReason}
+          playbookLock={card.playbook_lock ? { id: card.playbook_lock.id, title: card.playbook_lock.title } : undefined}
         />
       </div>
       <CardPanelActivity activityLog={card.activity_log} />

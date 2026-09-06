@@ -82,16 +82,23 @@ export function CardPanelHeader({
     // notice in the workerAttached branch below.
     if (primary.kind === 'stop') return null;
     if (primary.kind === 'run') {
-      return (
+      const button = (
         <button
           type="button"
           onClick={onPrimaryAction}
-          className="px-3 py-1.5 rounded bg-[var(--bg-green)] text-[var(--green)] hover:opacity-90 transition-opacity text-sm font-medium inline-flex items-center gap-2"
+          disabled={!!primary.disabledReason}
+          title={primary.disabledReason}
+          className={`px-3 py-1.5 rounded text-sm font-medium inline-flex items-center gap-2 transition-opacity ${
+            primary.disabledReason
+              ? 'bg-[var(--bg3)] text-[var(--grey1)] cursor-not-allowed'
+              : 'bg-[var(--bg-green)] text-[var(--green)] hover:opacity-90'
+          }`}
         >
           <span aria-hidden="true">▶</span>
           <span>{primary.autonomous ? 'Run Auto' : 'Run HITL'}</span>
         </button>
       );
+      return primary.disabledReason ? <span title={primary.disabledReason}>{button}</span> : button;
     }
     return (
       <button

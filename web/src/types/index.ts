@@ -70,6 +70,8 @@ export interface Card {
   subtask_cost_has_estimates?: boolean;
   /** IDs of playbooks holding a card entry for this card. Computed on read. */
   in_playbooks?: string[];
+  /** Computed on read: the runnable playbook that owns this card's settings. */
+  playbook_lock?: CardPlaybookLock;
   body: string;
   // skills uses three-state semantics (matching the backend):
   //   undefined / null - use project default (or full set if project default is null)
@@ -797,6 +799,38 @@ export interface PlaybookNext {
   title: string;
 }
 
+/** A playbook run's lifecycle. `running` and `waiting` are active. */
+export type PlaybookRunStatus = 'running' | 'waiting' | 'stopped' | 'completed';
+
+/** State of a playbook's current or last run; absent until it has run once. */
+export interface PlaybookRun {
+  status: PlaybookRunStatus;
+  /** Owning instance on a shared board; empty on a private one. */
+  instance?: string;
+  started_by?: string;
+  started_at: string;
+  updated_at: string;
+  /** Entry the run is on; empty once completed. */
+  entry?: string;
+  /** Explains a waiting status to a human. */
+  reason?: string;
+  ended_at?: string;
+}
+
+/** One repository a runnable playbook touches, with its GitHub compare URL. */
+export interface PlaybookRepoLink {
+  project: string;
+  compare_url: string;
+}
+
+/** The runnable playbook that owns a card's five execution settings. */
+export interface CardPlaybookLock {
+  id: string;
+  title: string;
+  /** The owning playbook's run status while a run is active; else absent. */
+  run_status?: PlaybookRunStatus;
+}
+
 export interface PlaybookSummary {
   id: string;
   title: string;
@@ -811,6 +845,8 @@ export interface PlaybookSummary {
   updated_at: string;
   /** Boards repo the server stamps this playbook with on every read (the entry's configured name, boards for the map form); optional only for compatibility with older servers. */
   boards_repo?: string;
+  runnable?: boolean;
+  run_status?: PlaybookRunStatus;
 }
 
 export interface PlaybookDetail {
@@ -825,6 +861,12 @@ export interface PlaybookDetail {
   entries: PlaybookEntry[];
   /** Boards repo the server stamps this playbook with on every read (the entry's configured name, boards for the map form); optional only for compatibility with older servers. */
   boards_repo?: string;
+  runnable?: boolean;
+  base_branch?: string;
+  /** Derived: playbook/<id>, only on a runnable playbook. */
+  branch?: string;
+  run?: PlaybookRun;
+  repos?: PlaybookRepoLink[];
 }
 
 export interface NewPlaybookEntry {
@@ -846,6 +888,8 @@ export interface CreatePlaybookInput {
 export interface PatchPlaybookInput {
   title?: string;
   description?: string;
+  runnable?: boolean;
+  base_branch?: string;
 }
 
 export interface PatchPlaybookEntryInput {

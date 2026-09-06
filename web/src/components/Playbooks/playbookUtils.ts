@@ -1,6 +1,6 @@
 import { api } from '../../api/client';
 import { displayState } from '../../lib/stateLabels';
-import type { PlaybookDetail, PlaybookEntry, PlaybookSummary } from '../../types';
+import type { PlaybookDetail, PlaybookEntry, PlaybookRun, PlaybookRunStatus, PlaybookSummary } from '../../types';
 
 // First incomplete entry - the frontier marker's target. -1 when all done.
 export function frontierIndex(entries: PlaybookEntry[]): number {
@@ -97,4 +97,50 @@ export async function persistReorder(
   const patch = computeReorderPatch(detail, activeId, overId);
   if (!patch) return null;
   return api.patchPlaybookEntry(playbookId, patch.entryId, { position: patch.position });
+}
+
+// Active runs lock the playbook's cards and refuse a second Play.
+export function isRunActive(run?: PlaybookRun | null): boolean {
+  return run?.status === 'running' || run?.status === 'waiting';
+}
+
+// Run status chip in the entryStateChip idiom: foreground on its bg token.
+export function runStatusChip(status: PlaybookRunStatus): EntryStateChip {
+  switch (status) {
+    case 'running':
+      return { label: 'running', bg: 'var(--bg-aqua)', color: 'var(--aqua)' };
+    case 'waiting':
+      return { label: 'waiting for you', bg: 'var(--bg-yellow)', color: 'var(--yellow)' };
+    case 'completed':
+      return { label: 'completed', bg: 'var(--bg-green)', color: 'var(--green)' };
+    default:
+      return { label: 'stopped', bg: 'var(--bg1)', color: 'var(--grey1)' };
+  }
+}
+
+// Index of the entry the run is on, -1 when the run has none.
+export function runEntryIndex(detail: PlaybookDetail): number {
+  const entry = detail.run?.entry;
+  if (!entry) return -1;
+  return detail.entries.findIndex((e) => e.id === entry);
+}
+
+// One-line status for the side panel. Only claims the run block makes.
+export function describeRun(detail: PlaybookDetail): string {
+  const run = detail.run;
+  if (!run) return 'Not started';
+  switch (run.status) {
+    case 'running': {
+      const i = runEntryIndex(detail);
+      const e = i >= 0 ? detail.entries[i] : undefined;
+      const name = e?.type === 'card' ? e.card : e?.text;
+      return name ? `Running ${name}, ${i + 1} of ${detail.entries.length}` : 'Running';
+    }
+    case 'waiting':
+      return run.reason ? `Waiting for you: ${run.reason}` : 'Waiting for you';
+    case 'stopped':
+      return 'Stopped';
+    default:
+      return 'Completed';
+  }
 }

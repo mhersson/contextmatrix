@@ -69,6 +69,16 @@ describe('PlaybookRow', () => {
     expect(screen.getByText('next up')).toBeInTheDocument();
     expect(screen.getByText('Confirm the push landed')).toBeInTheDocument();
   });
+
+  it('shows the run status pill from the summary', () => {
+    render(<MemoryRouter><PlaybookRow playbook={summary({ runnable: true, run_status: 'waiting' })} /></MemoryRouter>);
+    expect(screen.getByText('waiting for you')).toBeInTheDocument();
+  });
+
+  it('shows no run pill without a run', () => {
+    render(<MemoryRouter><PlaybookRow playbook={summary({ runnable: true })} /></MemoryRouter>);
+    expect(screen.queryByText(/running|waiting|stopped|completed/)).not.toBeInTheDocument();
+  });
 });
 
 describe('PlaybookReceipt', () => {

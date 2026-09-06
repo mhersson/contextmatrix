@@ -177,7 +177,7 @@ export function CardPanel(props: CardPanelProps) {
 
   const handlePrimary = useCallback(() => {
     if (!primary) return;
-    if (primary.kind === 'run') void handleRun();
+    if (primary.kind === 'run' && !primary.disabledReason) void handleRun();
     else if (primary.kind === 'transition') void handleTransitionPrimary(primary.targetState);
     // 'stop' is handled inline by the header (has its own confirm flow).
   }, [primary, handleRun, handleTransitionPrimary]);

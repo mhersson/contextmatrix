@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { AutomationCheckboxes } from './AutomationCheckboxes';
+import { MemoryRouter } from 'react-router';
+import { AutomationCheckboxes, type AutomationCheckboxesProps } from './AutomationCheckboxes';
 
 const baseProps = {
   autonomous: false,
@@ -17,6 +18,14 @@ const baseProps = {
   mergePR: false,
   onMergePRChange: vi.fn(),
 };
+
+function renderCheckboxes(overrides: Partial<AutomationCheckboxesProps> = {}) {
+  return render(
+    <MemoryRouter>
+      <AutomationCheckboxes {...baseProps} {...overrides} />
+    </MemoryRouter>,
+  );
+}
 
 describe('AutomationCheckboxes - model steering', () => {
   it('renders the automatic-selection toggle with pins hidden when taskBackend is agent', () => {
@@ -517,5 +526,23 @@ describe('AutomationCheckboxes - mob execute vs Best-of-N', () => {
       'title',
       'Execute checkpoints are disabled on this server',
     );
+  });
+});
+
+describe('AutomationCheckboxes - playbook lock', () => {
+  it('locks only the five playbook-owned fields', () => {
+    renderCheckboxes({
+      autonomous: true, createPR: true, awaitCI: true, mergePR: true, baseBranch: 'playbook/roll',
+      playbookLock: { id: 'roll', title: 'Roll' },
+    });
+    expect(screen.getByRole('checkbox', { name: 'Autonomous mode' })).toBeDisabled();
+    expect(screen.getByRole('checkbox', { name: 'Create PR' })).toBeDisabled();
+    expect(screen.getByRole('checkbox', { name: 'Wait for CI' })).toBeDisabled();
+    expect(screen.getByRole('checkbox', { name: 'Merge PR' })).toBeDisabled();
+    expect(screen.getByRole('checkbox', { name: /copilot/i })).not.toBeDisabled();
+    expect(screen.queryByRole('combobox', { name: 'Base branch' })).not.toBeInTheDocument();
+    expect(screen.getByText('playbook/roll')).toBeInTheDocument();
+    expect(screen.getByText(/set by playbook Roll/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /set by playbook Roll/i })).toHaveAttribute('href', '/playbooks/roll');
   });
 });

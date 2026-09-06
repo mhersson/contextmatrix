@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
-import { PlaybookEntryRowView } from './PlaybookEntryRow';
+import { PlaybookEntryRowView, type PlaybookEntryRowViewProps } from './PlaybookEntryRow';
 import type { PlaybookEntry } from '../../types';
 
 const noop = { onToggleDone: vi.fn(), onSaveNote: vi.fn(), onSaveText: vi.fn(), onRemove: vi.fn() };
@@ -11,6 +11,10 @@ function cardEntry(over: Partial<PlaybookEntry> = {}): PlaybookEntry {
     id: 'e1', type: 'card', project: 'alpha', card: 'ALPHA-101',
     card_title: 'Do the thing', card_state: 'in_progress', complete: false, ...over,
   };
+}
+
+function renderRow(entry: PlaybookEntry, extra: Partial<PlaybookEntryRowViewProps> = {}) {
+  render(<MemoryRouter><PlaybookEntryRowView entry={entry} index={0} isFrontier={false} {...noop} {...extra} /></MemoryRouter>);
 }
 
 describe('PlaybookEntryRowView', () => {
@@ -55,5 +59,24 @@ describe('PlaybookEntryRowView', () => {
       index={1} isFrontier={false} {...noop} /></MemoryRouter>);
     expect(screen.queryByText(doneAt)).not.toBeInTheDocument();
     expect(screen.getByText(/\d+d ago/)).toBeInTheDocument();
+  });
+
+  it('shows a queued chip on incomplete cards while a run is active', () => {
+    renderRow({ id: 'e2', type: 'card', project: 'alpha', card: 'ALPHA-2', card_title: 'Second', card_state: 'todo', complete: false },
+      { run: { status: 'running', started_at: 'x', updated_at: 'x', entry: 'e1' } });
+    expect(screen.getByText('queued')).toBeInTheDocument();
+  });
+
+  it('shows the waiting reason on the run entry', () => {
+    renderRow({ id: 'e1', type: 'card', project: 'alpha', card: 'ALPHA-1', card_title: 'First', card_state: 'review', complete: false },
+      { run: { status: 'waiting', started_at: 'x', updated_at: 'x', entry: 'e1', reason: 'ALPHA-1 parked: merge refused' } });
+    expect(screen.getByText('ALPHA-1 parked: merge refused')).toBeInTheDocument();
+    expect(screen.queryByText('queued')).not.toBeInTheDocument();
+  });
+
+  it('shows nothing extra when no run is active', () => {
+    renderRow({ id: 'e2', type: 'card', project: 'alpha', card: 'ALPHA-2', card_title: 'Second', card_state: 'todo', complete: false },
+      { run: { status: 'stopped', started_at: 'x', updated_at: 'x' } });
+    expect(screen.queryByText('queued')).not.toBeInTheDocument();
   });
 });

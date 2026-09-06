@@ -669,6 +669,14 @@ class APIClient {
       { method: 'DELETE' }
     );
   }
+
+  async runPlaybook(id: string): Promise<PlaybookDetail> {
+    return this.request<PlaybookDetail>(`/playbooks/${encodeURIComponent(id)}/run`, { method: 'POST' });
+  }
+
+  async stopPlaybook(id: string): Promise<PlaybookDetail> {
+    return this.request<PlaybookDetail>(`/playbooks/${encodeURIComponent(id)}/stop`, { method: 'POST' });
+  }
 }
 
 export const api = new APIClient();
