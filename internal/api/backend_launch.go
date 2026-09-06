@@ -11,6 +11,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/backend"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
+	"github.com/mhersson/contextmatrix/internal/playbookrun"
 )
 
 // launchOptions carries the per-launch inputs the HTTP handler and the
@@ -282,4 +283,18 @@ func (h *backendHandlers) stop(ctx context.Context, project, id string) (*board.
 	}
 
 	return h.svc.UpdateWorkerStatus(ctx, project, id, "killed", "task stopped by user")
+}
+
+// playbookLaunch and playbookStop adapt launch and stop for the playbook
+// runner, which records the error text as the run's waiting reason.
+func (h *backendHandlers) playbookLaunch(ctx context.Context, project, id string, opts playbookrun.LaunchOptions) error {
+	_, err := h.launch(ctx, project, id, launchOptions{createBaseBranch: opts.CreateBaseBranch, baseBranchFrom: opts.BaseBranchFrom})
+
+	return err
+}
+
+func (h *backendHandlers) playbookStop(ctx context.Context, project, id string) error {
+	_, err := h.stop(ctx, project, id)
+
+	return err
 }
