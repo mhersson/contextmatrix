@@ -71,6 +71,10 @@ page; the switch opens a warning that lists exactly what follows.
 - `base_branch` on the playbook is the branch the playbook branch is cut
   from on its first run. Empty means the repository default. It cannot
   change during a run.
+- Adding a card entry to a runnable playbook is human-only (REST
+  `403 HUMAN_ONLY_FIELD`, MCP `add_playbook_entry` refuses a non-human
+  `agent_id`), because the add forces human-only card settings. Manual
+  entries stay open to agents.
 
 ### The branch model
 
@@ -153,7 +157,7 @@ created_by: human:alice
 created_at: 2026-08-20T09:00:00Z
 updated_at: 2026-08-20T10:30:00Z
 next_entry_id: 4
-runnable: false
+# runnable is absent until a human makes the playbook runnable
 entries:
   - id: e1
     type: card

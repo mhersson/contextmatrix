@@ -6,6 +6,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
@@ -200,8 +201,21 @@ func registerDeletePlaybook(server *mcp.Server, pb *service.PlaybookService) {
 func registerAddPlaybookEntry(server *mcp.Server, pb *service.PlaybookService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "add_playbook_entry",
-		Description: "Append one new entry (card reference or manual gate step) to the end of a playbook. Card entries are validated against the card store; duplicate card references are rejected.",
+		Description: "Append one new entry (card reference or manual gate step) to the end of a playbook. Card entries are validated against the card store; duplicate card references are rejected. Adding a card entry to a runnable playbook is human-only.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input addPlaybookEntryInput) (*mcp.CallToolResult, service.PlaybookSummary, error) {
+		if input.Type == board.EntryTypeCard {
+			detail, err := pb.Get(ctx, input.Playbook)
+			if err != nil {
+				return nil, service.PlaybookSummary{}, fmt.Errorf("add playbook entry to %s: %w", input.Playbook, err)
+			}
+
+			if detail.Runnable {
+				if err := requireHumanAgent(input.AgentID, "add_playbook_entry on a runnable playbook"); err != nil {
+					return nil, service.PlaybookSummary{}, err
+				}
+			}
+		}
+
 		detail, err := pb.AddEntry(ctx, input.Playbook, service.PlaybookEntryInput{
 			Type: input.Type, Project: input.Project, Card: input.Card, Text: input.Text, Note: input.Note,
 		}, input.AgentID)

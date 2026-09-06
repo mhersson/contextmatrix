@@ -616,6 +616,63 @@ func TestPlaybooksAPI_MakeRunnable(t *testing.T) {
 	})
 }
 
+func TestPlaybooksAPI_AddCardEntryToRunnableIsHumanOnly(t *testing.T) {
+	svc, pbSvc, bus, cleanup := playbookTestSetup(t)
+	defer cleanup()
+
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Playbooks: pbSvc})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{Title: "Seed", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+
+	second, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{Title: "Second", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+
+	createResp := doJSON(t, http.MethodPost, server.URL+"/api/playbooks", map[string]any{
+		"title":   "Rollout",
+		"entries": []map[string]any{{"type": "card", "project": "test-project", "card": card.ID}},
+	}, "human:alice")
+	closeBody(t, createResp.Body)
+	require.Equal(t, http.StatusCreated, createResp.StatusCode)
+
+	runnableResp := doJSON(t, http.MethodPatch, server.URL+"/api/playbooks/rollout", map[string]any{"runnable": true}, "human:alice")
+	closeBody(t, runnableResp.Body)
+	require.Equal(t, http.StatusOK, runnableResp.StatusCode)
+
+	t.Run("agent adding a card entry is forbidden", func(t *testing.T) {
+		resp := doJSON(t, http.MethodPost, server.URL+"/api/playbooks/rollout/entries",
+			map[string]any{"type": "card", "project": "test-project", "card": second.ID}, "agent-1")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
+	})
+
+	t.Run("agent adding a manual entry is allowed", func(t *testing.T) {
+		resp := doJSON(t, http.MethodPost, server.URL+"/api/playbooks/rollout/entries",
+			map[string]any{"type": "manual", "text": "verify"}, "agent-1")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusCreated, resp.StatusCode)
+	})
+
+	t.Run("human adding the same card entry is allowed", func(t *testing.T) {
+		resp := doJSON(t, http.MethodPost, server.URL+"/api/playbooks/rollout/entries",
+			map[string]any{"type": "card", "project": "test-project", "card": second.ID}, "human:alice")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusCreated, resp.StatusCode)
+	})
+}
+
 func TestPlaybooksAPI_MakeRunnableNoRepo(t *testing.T) {
 	svc, pbSvc, bus, cleanup := playbookTestSetup(t)
 	defer cleanup()

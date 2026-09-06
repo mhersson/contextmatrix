@@ -371,6 +371,60 @@ func TestUpdatePlaybook_MCP_PreservesRunnableFields(t *testing.T) {
 	assert.Equal(t, "Rollout renamed", got.Title, "title unchanged by the rejected call")
 }
 
+func TestAddPlaybookEntry_MCP_RunnableIsHumanOnly(t *testing.T) {
+	env := setupMCPWithPlaybooks(t)
+	ctx := context.Background()
+
+	card, err := env.svc.CreateCard(ctx, "test-project", service.CreateCardInput{Title: "Seed", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+
+	second, err := env.svc.CreateCard(ctx, "test-project", service.CreateCardInput{Title: "Second", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+
+	_, err = env.pb.Create(ctx, service.CreatePlaybookInput{
+		Title: "Rollout", AgentID: "human:alice",
+		Entries: []service.PlaybookEntryInput{{Type: board.EntryTypeCard, Project: "test-project", Card: card.ID}},
+	})
+	require.NoError(t, err)
+
+	runnable := true
+	_, err = env.pb.UpdateMeta(ctx, "rollout", service.UpdatePlaybookInput{Runnable: &runnable}, "human:alice")
+	require.NoError(t, err)
+
+	t.Run("agent adding a card entry fails", func(t *testing.T) {
+		result, err := callToolRaw(t, env, "add_playbook_entry", map[string]any{
+			"agent_id": "agent-1",
+			"playbook": "rollout",
+			"type":     "card",
+			"project":  "test-project",
+			"card":     second.ID,
+		})
+		require.True(t, resultIsError(result, err))
+		assert.Contains(t, errorText(result, err), "human-only")
+	})
+
+	t.Run("agent adding a manual entry succeeds", func(t *testing.T) {
+		result, err := callToolRaw(t, env, "add_playbook_entry", map[string]any{
+			"agent_id": "agent-1",
+			"playbook": "rollout",
+			"type":     "manual",
+			"text":     "verify",
+		})
+		require.False(t, resultIsError(result, err))
+	})
+
+	t.Run("human adding the same card entry succeeds", func(t *testing.T) {
+		result, err := callToolRaw(t, env, "add_playbook_entry", map[string]any{
+			"agent_id": "human:alice",
+			"playbook": "rollout",
+			"type":     "card",
+			"project":  "test-project",
+			"card":     second.ID,
+		})
+		require.False(t, resultIsError(result, err))
+	})
+}
+
 func TestUpdateCard_MCP_RefusesAutonomousOnLockedCard(t *testing.T) {
 	env := setupMCPWithPlaybooks(t)
 	ctx := context.Background()
