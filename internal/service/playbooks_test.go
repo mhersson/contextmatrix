@@ -1260,3 +1260,37 @@ func TestPlaybookService_MakeRunnableCommitFailureWarnsAboutForcedCards(t *testi
 	assert.Contains(t, logs.String(), "the cards keep them")
 	assert.Contains(t, logs.String(), "project-alpha/ALPHA-001")
 }
+
+func TestPlaybookService_AddEntryCommitFailureWarnsAboutTheForcedCard(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	env.createCard(t, "ALPHA-002", "todo")
+
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{
+		Title: "Rollout", AgentID: "human:alice",
+		Entries: []PlaybookEntryInput{{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"}},
+	})
+	require.NoError(t, err)
+
+	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+	require.NoError(t, err)
+
+	logs := captureLogs(t)
+
+	// The playbook's own commit fails after the new card was forced.
+	env.committer.fail = errors.New("boom")
+
+	_, err = env.svc.AddEntry(ctx, "rollout", PlaybookEntryInput{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-002"}, "human:alice")
+	require.Error(t, err)
+
+	got, err := env.svc.Get(ctx, "rollout")
+	require.NoError(t, err)
+	assert.Len(t, got.Entries, 1, "the entry rolled back")
+
+	card, err := env.cardSvc.GetCard(ctx, "project-alpha", "ALPHA-002")
+	require.NoError(t, err)
+	assert.True(t, card.HasPlaybookSettings("playbook/rollout"), "the card write outlived the rollback")
+	assert.Contains(t, logs.String(), "the cards keep them")
+	assert.Contains(t, logs.String(), "project-alpha/ALPHA-002")
+}

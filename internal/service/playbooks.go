@@ -1167,7 +1167,11 @@ func (s *PlaybookService) buildEntry(ctx context.Context, p *board.Playbook, in 
 // AddEntry appends one new entry to the playbook. On a runnable playbook a
 // card entry must pass the runnable checks and gets the forced settings.
 func (s *PlaybookService) AddEntry(ctx context.Context, id string, in PlaybookEntryInput, agentID string) (*PlaybookDetail, error) {
-	return s.mutate(ctx, id, "add entry", agentID, func(p *board.Playbook) error {
+	// As in UpdateMeta: a card forced here keeps the settings when the
+	// playbook write after it fails, so the failure names it.
+	var forced []string
+
+	detail, err := s.mutate(ctx, id, "add entry", agentID, func(p *board.Playbook) error {
 		e, err := s.buildEntry(ctx, p, in)
 		if err != nil {
 			return err
@@ -1178,7 +1182,10 @@ func (s *PlaybookService) AddEntry(ctx context.Context, id string, in PlaybookEn
 				return err
 			}
 
-			if _, err := s.forceEntries(ctx, p, []board.PlaybookEntry{*e}, agentID); err != nil {
+			names, err := s.forceEntries(ctx, p, []board.PlaybookEntry{*e}, agentID)
+			forced = append(forced, names...)
+
+			if err != nil {
 				return err
 			}
 		}
@@ -1187,6 +1194,12 @@ func (s *PlaybookService) AddEntry(ctx context.Context, id string, in PlaybookEn
 
 		return nil
 	})
+	if err != nil && len(forced) > 0 {
+		ctxlog.Logger(ctx).Warn("playbook update failed after forcing card settings; the cards keep them",
+			"playbook", id, "cards", strings.Join(forced, ", "), "error", err)
+	}
+
+	return detail, err
 }
 
 // RemoveEntry deletes one entry from the playbook. The entry's ID is never
