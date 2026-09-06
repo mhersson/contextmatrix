@@ -39,6 +39,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/metrics"
 	"github.com/mhersson/contextmatrix/internal/modelcatalog"
 	opsqlite "github.com/mhersson/contextmatrix/internal/opstore/sqlite"
+	"github.com/mhersson/contextmatrix/internal/playbookrun"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/web"
 )
@@ -255,6 +256,14 @@ func main() {
 		pbSvc.SetGitHubHosts(cfg.GitHub.AllowedHosts())
 
 		slog.Info("playbook service initialized")
+	}
+
+	var pbRunner *playbookrun.Runner
+	if pbSvc != nil {
+		pbRunner = playbookrun.New(playbookrun.Config{
+			Playbooks: pbSvc, Lister: boards.playbooks, Cards: svc, Bus: bus,
+			Clock: clk, Instance: cfg.Instance.ID, Tick: 30 * time.Second,
+		})
 	}
 
 	// Create context for background tasks
@@ -645,6 +654,7 @@ func main() {
 		BestOfN:                cfg.BestOfN,
 		Mob:                    cfg.Mob,
 		Playbooks:              pbSvc,
+		PlaybookRunner:         pbRunner,
 	}
 	if catalogBuilder != nil && agentAA {
 		routerCfg.Catalog = catalogBuilder
@@ -687,6 +697,13 @@ func main() {
 	}
 
 	mux := api.NewRouter(routerCfg)
+
+	if pbRunner != nil {
+		// After NewRouter: the router wires the launcher and stopper the
+		// walkers need, and the sync wiring is already in place for the
+		// run-state commits.
+		pbRunner.Start(ctx)
+	}
 
 	slog.Info("MCP server registered", "endpoint", "/mcp")
 
