@@ -2412,6 +2412,7 @@ func TestHumanOnlyFields_MergePR(t *testing.T) {
 		req.Header.Set("X-Agent-ID", "agent-1")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -2429,6 +2430,7 @@ func TestHumanOnlyFields_MergePR(t *testing.T) {
 		req.Header.Set("X-Agent-ID", "human:alice")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -2446,6 +2448,7 @@ func TestHumanOnlyFields_MergePR(t *testing.T) {
 		req.Header.Set("X-Agent-ID", "claude-7a3f")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -2459,6 +2462,7 @@ func TestHumanOnlyFields_MergePR(t *testing.T) {
 		req.Header.Set("X-Agent-ID", "human:alice")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
@@ -2482,6 +2486,7 @@ func TestHumanOnlyFields_MergePR(t *testing.T) {
 		req.Header.Set("X-Agent-ID", "agent-1")
 
 		resp, err := http.DefaultClient.Do(req)
+
 		require.NoError(t, err)
 		defer closeBody(t, resp.Body)
 
