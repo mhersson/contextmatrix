@@ -49,6 +49,10 @@ var (
 	// ErrPlaybookLocked is returned when a card's playbook-owned settings
 	// are changed by hand.
 	ErrPlaybookLocked = errors.New("card settings are locked by a runnable playbook")
+	// ErrPlaybookCardForce is returned when the playbook settings could not
+	// be applied to one or more card entries; the message names them as
+	// project/card. Cards forced before the failure keep their settings.
+	ErrPlaybookCardForce = errors.New("could not apply playbook settings to cards")
 )
 
 // PlaybookStore is the persistence interface PlaybookService depends on.
@@ -752,7 +756,13 @@ func (s *PlaybookService) Get(ctx context.Context, id string) (*PlaybookDetail, 
 // branch are refused while a run is active; clearing drops the run block
 // and never reverts card settings.
 func (s *PlaybookService) UpdateMeta(ctx context.Context, id string, input UpdatePlaybookInput, agentID string) (*PlaybookDetail, error) {
-	return s.mutate(ctx, id, "meta updated", agentID, func(p *board.Playbook) error {
+	// Card writes made while forcing are not undone when the playbook write
+	// after them fails (a card that would not take the settings, validation,
+	// or a commit rolled back). forced collects them so the failure can name
+	// the cards left with settings on a playbook that is not runnable.
+	var forced []string
+
+	detail, err := s.mutate(ctx, id, "meta updated", agentID, func(p *board.Playbook) error {
 		if input.Title != nil {
 			title := strings.TrimSpace(*input.Title)
 			if title == "" {
@@ -780,7 +790,10 @@ func (s *PlaybookService) UpdateMeta(ctx context.Context, id string, input Updat
 
 		switch {
 		case *input.Runnable && !p.Runnable:
-			if err := s.makeRunnable(ctx, p, agentID); err != nil {
+			names, err := s.makeRunnable(ctx, p, agentID)
+			forced = append(forced, names...)
+
+			if err != nil {
 				return err
 			}
 
@@ -792,7 +805,10 @@ func (s *PlaybookService) UpdateMeta(ctx context.Context, id string, input Updat
 			// runnable - a hand-added entry never passed AddEntry's
 			// ownership check, so it may already belong to another runnable
 			// playbook.
-			if err := s.makeRunnable(ctx, p, agentID); err != nil {
+			names, err := s.makeRunnable(ctx, p, agentID)
+			forced = append(forced, names...)
+
+			if err != nil {
 				return err
 			}
 		case !*input.Runnable && p.Runnable:
@@ -806,14 +822,22 @@ func (s *PlaybookService) UpdateMeta(ctx context.Context, id string, input Updat
 
 		return nil
 	})
+	if err != nil && len(forced) > 0 {
+		ctxlog.Logger(ctx).Warn("playbook update failed after forcing card settings; the cards keep them",
+			"playbook", id, "cards", strings.Join(forced, ", "), "error", err)
+	}
+
+	return detail, err
 }
 
 // makeRunnable validates every card entry and forces settings on the cards.
 // Caller holds writeMu. The playbook flag is flipped by the caller only when
-// this returns nil.
-func (s *PlaybookService) makeRunnable(ctx context.Context, p *board.Playbook, agentID string) error {
+// this returns nil. The names (project/card) are the cards this call forced,
+// returned on failure too, so a caller whose write then fails can say which
+// cards keep settings the playbook never got to own.
+func (s *PlaybookService) makeRunnable(ctx context.Context, p *board.Playbook, agentID string) ([]string, error) {
 	if err := s.validateRunnableEntries(ctx, p, p.Entries); err != nil {
-		return err
+		return nil, err
 	}
 
 	return s.forceEntries(ctx, p, p.Entries, agentID)
@@ -870,17 +894,20 @@ func (s *PlaybookService) validateRunnableEntries(ctx context.Context, p *board.
 }
 
 // forceEntries applies the playbook's forced settings to every non-terminal
-// card among entries that does not already carry them. Caller holds writeMu;
-// the card service takes its own lock second, the order the syncer also
-// uses (playbook lock before card lock).
-func (s *PlaybookService) forceEntries(ctx context.Context, p *board.Playbook, entries []board.PlaybookEntry, agentID string) error {
+// card among entries that does not already carry them, and returns the
+// project/card names it forced. Caller holds writeMu; the card service takes
+// its own lock second, the order the syncer also uses (playbook lock before
+// card lock). A card that cannot be forced does not stop the others: the
+// error names every failed card so a human fixes them in one pass, and the
+// cause goes to the log, never to the client.
+func (s *PlaybookService) forceEntries(ctx context.Context, p *board.Playbook, entries []board.PlaybookEntry, agentID string) ([]string, error) {
 	if s.forcer == nil {
-		return errors.New("playbook service: no card forcer wired; cannot make runnable")
+		return nil, errors.New("playbook service: no card forcer wired; cannot make runnable")
 	}
 
 	branch := p.Branch()
 
-	var failed []error
+	var forced, failed []string
 
 	for _, e := range entries {
 		if e.Type != board.EntryTypeCard {
@@ -893,19 +920,32 @@ func (s *PlaybookService) forceEntries(ctx context.Context, p *board.Playbook, e
 				continue
 			}
 
-			return fmt.Errorf("get card %s/%s: %w", e.Project, e.Card, err)
+			return forced, fmt.Errorf("get card %s/%s: %w", e.Project, e.Card, err)
 		}
 
 		if board.IsTerminalState(card.State) || card.HasPlaybookSettings(branch) {
 			continue
 		}
 
+		name := e.Project + "/" + e.Card
+
 		if _, err := s.forcer.ForcePlaybookSettings(ctx, e.Project, e.Card, p.ID, branch, agentID); err != nil {
-			failed = append(failed, fmt.Errorf("force settings on %s/%s: %w", e.Project, e.Card, err))
+			ctxlog.Logger(ctx).Error("playbook: forcing card settings failed",
+				"playbook", p.ID, "project", e.Project, "card", e.Card, "error", err)
+
+			failed = append(failed, name)
+
+			continue
 		}
+
+		forced = append(forced, name)
 	}
 
-	return errors.Join(failed...)
+	if len(failed) > 0 {
+		return forced, fmt.Errorf("%w: %s", ErrPlaybookCardForce, strings.Join(failed, ", "))
+	}
+
+	return forced, nil
 }
 
 // SetRun replaces the playbook's run block. It is the single write path for
@@ -1142,7 +1182,7 @@ func (s *PlaybookService) AddEntry(ctx context.Context, id string, in PlaybookEn
 				return err
 			}
 
-			if err := s.forceEntries(ctx, p, []board.PlaybookEntry{*e}, agentID); err != nil {
+			if _, err := s.forceEntries(ctx, p, []board.PlaybookEntry{*e}, agentID); err != nil {
 				return err
 			}
 		}

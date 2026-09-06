@@ -1,8 +1,10 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"sync"
 	"testing"
@@ -1161,4 +1163,100 @@ func TestPlaybookService_RemoveEntryDuringRun(t *testing.T) {
 	assert.Equal(t, board.RunStatusStopped, got.Run.Status)
 	assert.Empty(t, got.Run.Entry)
 	assert.Empty(t, got.Run.Reason)
+}
+
+// failingForcer refuses one card and delegates every other card to the
+// real card service, so a make-runnable can fail part-way.
+type failingForcer struct {
+	inner PlaybookCardForcer
+	card  string
+}
+
+func (f failingForcer) ForcePlaybookSettings(ctx context.Context, project, id, playbookID, branch, agentID string) (*board.Card, error) {
+	if id == f.card {
+		return nil, errors.New("commit failed: disk full")
+	}
+
+	return f.inner.ForcePlaybookSettings(ctx, project, id, playbookID, branch, agentID)
+}
+
+// captureLogs routes slog's default logger into a buffer for one test.
+func captureLogs(t *testing.T) *bytes.Buffer {
+	t.Helper()
+
+	var buf bytes.Buffer
+
+	prev := slog.Default()
+
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	return &buf
+}
+
+func TestPlaybookService_MakeRunnableNamesTheCardsItCouldNotForce(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	env.createCard(t, "ALPHA-002", "todo")
+	env.svc.SetCardForcer(failingForcer{inner: env.cardSvc, card: "ALPHA-002"})
+
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{
+		Title: "Rollout", AgentID: "human:alice",
+		Entries: []PlaybookEntryInput{
+			{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"},
+			{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-002"},
+		},
+	})
+	require.NoError(t, err)
+
+	logs := captureLogs(t)
+
+	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+	require.ErrorIs(t, err, ErrPlaybookCardForce)
+	assert.Contains(t, err.Error(), "project-alpha/ALPHA-002")
+	assert.NotContains(t, err.Error(), "disk full", "the cause stays in the server log")
+
+	got, err := env.svc.Get(ctx, "rollout")
+	require.NoError(t, err)
+	assert.False(t, got.Runnable, "a failed force leaves the flag off")
+
+	first, err := env.cardSvc.GetCard(ctx, "project-alpha", "ALPHA-001")
+	require.NoError(t, err)
+	assert.True(t, first.HasPlaybookSettings("playbook/rollout"), "cards forced before the failure keep their settings")
+
+	assert.Contains(t, logs.String(), "disk full", "the raw cause is logged")
+	assert.Contains(t, logs.String(), "the cards keep them")
+	assert.Contains(t, logs.String(), "project-alpha/ALPHA-001")
+}
+
+func TestPlaybookService_MakeRunnableCommitFailureWarnsAboutForcedCards(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{
+		Title: "Rollout", AgentID: "human:alice",
+		Entries: []PlaybookEntryInput{{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"}},
+	})
+	require.NoError(t, err)
+
+	logs := captureLogs(t)
+
+	// The playbook's own commit fails after the card was forced; the card
+	// commit goes through the card service's git manager and succeeds.
+	env.committer.fail = errors.New("boom")
+
+	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+	require.Error(t, err)
+
+	got, err := env.svc.Get(ctx, "rollout")
+	require.NoError(t, err)
+	assert.False(t, got.Runnable, "the playbook rolled back")
+
+	card, err := env.cardSvc.GetCard(ctx, "project-alpha", "ALPHA-001")
+	require.NoError(t, err)
+	assert.True(t, card.HasPlaybookSettings("playbook/rollout"), "the card write outlived the rollback")
+
+	assert.Contains(t, logs.String(), "the cards keep them")
+	assert.Contains(t, logs.String(), "project-alpha/ALPHA-001")
 }
