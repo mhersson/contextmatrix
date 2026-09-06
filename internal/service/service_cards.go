@@ -317,9 +317,10 @@ func (s *CardService) ListCards(ctx context.Context, project string, filter stor
 }
 
 // enrichPlaybookMembership fills InPlaybooks on each card from the playbook
-// store. Best-effort: membership is presentation metadata, so a missing
-// lister or a listing failure leaves the field empty rather than failing
-// the read.
+// store, and sets PlaybookLock on cards owned by a runnable playbook (run
+// status carried only while that run is active). Best-effort: this is
+// presentation metadata, so a missing lister or a listing failure leaves the
+// fields empty rather than failing the read.
 func (s *CardService) enrichPlaybookMembership(ctx context.Context, project string, cards ...*board.Card) {
 	if s.playbooks == nil || len(cards) == 0 {
 		return
@@ -333,9 +334,19 @@ func (s *CardService) enrichPlaybookMembership(ctx context.Context, project stri
 	}
 
 	membership := make(map[string][]string)
+	locks := make(map[string]*board.CardPlaybookLock)
 
 	for _, p := range playbooks {
 		seen := make(map[string]bool)
+
+		var lock *board.CardPlaybookLock
+
+		if p.Runnable {
+			lock = &board.CardPlaybookLock{ID: p.ID, Title: p.Title}
+			if p.Run.Active() {
+				lock.RunStatus = p.Run.Status
+			}
+		}
 
 		for _, e := range p.Entries {
 			if e.Type != board.EntryTypeCard || e.Project != project || seen[e.Card] {
@@ -344,11 +355,22 @@ func (s *CardService) enrichPlaybookMembership(ctx context.Context, project stri
 
 			seen[e.Card] = true
 			membership[e.Card] = append(membership[e.Card], p.ID)
+
+			// One runnable playbook per card is enforced at make-runnable;
+			// should two ever meet here, the first listed wins.
+			if lock != nil && locks[e.Card] == nil {
+				locks[e.Card] = lock
+			}
 		}
 	}
 
 	for _, card := range cards {
 		card.InPlaybooks = membership[card.ID]
+
+		if lock := locks[card.ID]; lock != nil {
+			copied := *lock
+			card.PlaybookLock = &copied
+		}
 	}
 }
 
