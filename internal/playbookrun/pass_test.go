@@ -475,3 +475,36 @@ func TestPass_StopMidPassIsNotOverwritten(t *testing.T) {
 	require.NotNil(t, d.Run)
 	assert.Equal(t, board.RunStatusStopped, d.Run.Status, "the stop survives the pass")
 }
+
+func TestPass_SkipsForcingWhenTheCardAlreadyHasTheSettings(t *testing.T) {
+	e := newEnv(t)
+	c := todoCard("alpha", "ALPHA-1")
+	c.ApplyPlaybookSettings("playbook/rollout")
+	e.cards.add(c)
+
+	p := runnablePlaybook("rollout", cardEntry("e1", "alpha", "ALPHA-1"))
+	e.activeRun(p, "")
+	e.pbs.add(p)
+
+	require.False(t, e.runner.pass(context.Background(), "rollout"))
+	assert.Equal(t, 1, e.launcher.count())
+	assert.Empty(t, e.cards.forced, "no card write when the settings are already there")
+}
+
+func TestStop_DeclinesTheStopperWhenTheCardIsClaimedElsewhere(t *testing.T) {
+	e := newEnv(t)
+	c := todoCard("alpha", "ALPHA-1")
+	c.State = board.StateInProgress
+	c.WorkerStatus = "running"
+	e.cards.add(c)
+	e.cards.elsewhere[cardKey("alpha", "ALPHA-1")] = true
+
+	p := runnablePlaybook("rollout", cardEntry("e1", "alpha", "ALPHA-1"))
+	e.activeRun(p, "e1")
+	e.pbs.add(p)
+
+	d, err := e.runner.Stop(context.Background(), "rollout", "human:alice")
+	require.NoError(t, err)
+	assert.Equal(t, board.RunStatusStopped, d.Run.Status)
+	assert.Empty(t, e.stopper.calls, "another instance owns that container")
+}

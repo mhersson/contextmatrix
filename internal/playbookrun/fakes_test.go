@@ -125,8 +125,14 @@ func (f *fakePlaybooks) List(context.Context) ([]*board.Playbook, error) {
 	defer f.mu.Unlock()
 
 	out := make([]*board.Playbook, 0, len(f.pbs))
+
 	for _, p := range f.pbs {
 		copied := *p
+		if p.Run != nil {
+			run := *p.Run
+			copied.Run = &run
+		}
+
 		out = append(out, &copied)
 	}
 
@@ -301,6 +307,13 @@ func (l *recordingLauncher) count() int {
 	defer l.mu.Unlock()
 
 	return len(l.calls)
+}
+
+func (l *recordingLauncher) call(i int) launchCall {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return l.calls[i]
 }
 
 type recordingStopper struct {

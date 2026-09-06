@@ -51,7 +51,10 @@ func TestStart_ResumesOnlyOwnedActiveRuns(t *testing.T) {
 	e.runner.Start(ctx)
 
 	require.Eventually(t, func() bool { return e.launcher.count() == 1 }, time.Second, 5*time.Millisecond)
-	assert.Equal(t, "ALPHA-1", e.launcher.calls[0].card)
+	assert.Equal(t, "ALPHA-1", e.launcher.call(0).card)
+
+	require.Eventually(t, func() bool { return e.runner.walkerCount() == 1 }, time.Second, 5*time.Millisecond,
+		"the walkers for the run owned elsewhere and the idle playbook exit; only the owned run keeps one")
 
 	cancel()
 	e.runner.Wait()
@@ -96,7 +99,7 @@ func TestWalker_EventAndTickNudgeAPass(t *testing.T) {
 
 	e.runner.cfg.Bus.Publish(events.Event{Type: events.CardStateChanged, Project: "alpha", CardID: "ALPHA-1", Data: map[string]any{"new_state": "done"}})
 	require.Eventually(t, func() bool { return e.launcher.count() == 1 }, time.Second, 5*time.Millisecond)
-	assert.Equal(t, "ALPHA-2", e.launcher.calls[0].card)
+	assert.Equal(t, "ALPHA-2", e.launcher.call(0).card)
 
 	// The second card finishes with no event at all: the tick completes the run.
 	e.cards.mu.Lock()
@@ -392,13 +395,17 @@ func TestStop_WaitsForAnInFlightLaunch(t *testing.T) {
 		stopped <- err
 	}()
 
+	returnedEarly := false
+
 	select {
-	case err := <-stopped:
-		t.Fatalf("Stop returned while the launch was still in flight: %v", err)
+	case <-stopped:
+		returnedEarly = true
 	case <-time.After(50 * time.Millisecond):
 	}
 
 	close(release)
+
+	require.False(t, returnedEarly, "Stop returned while the launch was still in flight")
 
 	require.NoError(t, <-stopped)
 	assert.Equal(t, []string{"ALPHA-1"}, e.stopper.calls, "the worker the launch queued is killed")

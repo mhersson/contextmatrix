@@ -19,10 +19,11 @@ import (
 
 // captureBackend is a mock task backend that records every trigger payload.
 type captureBackend struct {
-	mu       sync.Mutex
-	triggers []protocol.TriggerPayload
-	kills    []protocol.KillPayload
-	server   *httptest.Server
+	mu        sync.Mutex
+	triggers  []protocol.TriggerPayload
+	kills     []protocol.KillPayload
+	failKills bool
+	server    *httptest.Server
 }
 
 func newCaptureBackend(t *testing.T) *captureBackend {
@@ -40,6 +41,12 @@ func newCaptureBackend(t *testing.T) *captureBackend {
 			_ = json.NewDecoder(r.Body).Decode(&p)
 			cb.triggers = append(cb.triggers, p)
 		case "/kill":
+			if cb.failKills {
+				writeJSON(w, http.StatusInternalServerError, protocol.ErrorResponse{Code: "internal", Message: "kill failed"})
+
+				return
+			}
+
 			var p protocol.KillPayload
 
 			_ = json.NewDecoder(r.Body).Decode(&p)
@@ -92,7 +99,7 @@ func TestLaunch_PlaybookOptionsReachTheTrigger(t *testing.T) {
 	cb := newCaptureBackend(t)
 	h := newLaunchHandlers(t, svc, cb)
 
-	got, err := h.launch(ctx, "test-project", card.ID, launchOptions{createBaseBranch: true, baseBranchFrom: "main"})
+	got, err := h.launch(ctx, "test-project", card.ID, launchOptions{interactive: true, createBaseBranch: true, baseBranchFrom: "main"})
 	require.NoError(t, err)
 	assert.Equal(t, "queued", got.WorkerStatus)
 
@@ -102,6 +109,25 @@ func TestLaunch_PlaybookOptionsReachTheTrigger(t *testing.T) {
 	assert.True(t, p.CreateBaseBranch)
 	assert.Equal(t, "main", p.BaseBranchFrom)
 	assert.False(t, p.Interactive, "autonomous cards never run interactive")
+}
+
+func TestLaunch_NormalRunNeverAsksForABaseBranch(t *testing.T) {
+	svc, _, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
+	defer cleanup()
+
+	ctx := context.Background()
+	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{Title: "T", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+
+	cb := newCaptureBackend(t)
+	h := newLaunchHandlers(t, svc, cb)
+
+	_, err = h.launch(ctx, "test-project", card.ID, launchOptions{})
+	require.NoError(t, err)
+
+	p := cb.lastTrigger(t)
+	assert.False(t, p.CreateBaseBranch, "only playbook runs ask the worker to create the base branch")
+	assert.Empty(t, p.BaseBranchFrom)
 }
 
 func TestLaunch_RefusalsAreTypedFailures(t *testing.T) {
