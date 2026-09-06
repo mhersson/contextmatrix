@@ -16,6 +16,9 @@ interface AutomationCheckboxesProps {
   awaitCopilotReview: boolean;
   onAwaitCIChange: (value: boolean) => void;
   onAwaitCopilotReviewChange: (value: boolean) => void;
+  /** PR gate follow-up: merge the PR into its base branch once CI is green. Only meaningful with awaitCI. */
+  mergePR: boolean;
+  onMergePRChange: (value: boolean) => void;
   /**
    * Active task backend ("agent" | ""). When `'agent'`, the three model-pin
    * inputs render as the model-steering row. When unset there is no
@@ -139,6 +142,7 @@ export function AutomationCheckboxes({
   onAutonomousChange, onCreatePRChange,
   awaitCI, awaitCopilotReview,
   onAwaitCIChange, onAwaitCopilotReviewChange,
+  mergePR, onMergePRChange,
   taskBackend,
   modelOrchestrator = '', modelCoder = '', modelReviewer = '',
   onModelPinChange, models = [], blacklistedSlugs, favorites,
@@ -412,6 +416,36 @@ export function AutomationCheckboxes({
             </label>
             <span className="bf-hint">stays in review until checks pass</span>
           </div>
+
+          {awaitCI && (
+            <>
+              <div className="bf-spread">
+                <label className="bf-switch">
+                  <input
+                    type="checkbox"
+                    aria-label="Merge PR"
+                    checked={mergePR}
+                    disabled={disabled}
+                    onChange={(e) => onMergePRChange(e.target.checked)}
+                  />
+                  <span>Merge PR when CI passes</span>
+                </label>
+                <span className="bf-hint">merge commit into the base branch</span>
+              </div>
+
+              {mergePR && (
+                <div
+                  role="alert"
+                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded bg-[var(--bg-yellow)] text-[var(--yellow)] text-xs w-fit -mt-1"
+                >
+                  <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                  <span>Merges into the base branch automatically once CI passes - no human review before merge</span>
+                </div>
+              )}
+            </>
+          )}
 
           <div className="bf-spread">
             <label className="bf-switch">
