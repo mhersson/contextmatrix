@@ -83,14 +83,20 @@ func (r *Runner) pass(ctx context.Context, id string) bool {
 			return false
 		}
 
+		// A run already waiting on this entry stays waiting: the launch failed,
+		// or a human is fixing the card, and only Play, which clears the entry,
+		// may trigger it again. A running run on a todo card with a matching
+		// entry is the crash between persist and trigger and does launch.
+		if d.Run.Entry == e.ID && d.Run.Status == board.RunStatusWaiting {
+			return false
+		}
+
 		r.launchEntry(ctx, d, e, card)
 
 		return false
 	}
 
-	r.setRun(ctx, d, board.RunStatusCompleted, "", "")
-
-	return true
+	return r.setRun(ctx, d, board.RunStatusCompleted, "", "")
 }
 
 // launchEntry brings the card back to todo when needed, re-asserts the

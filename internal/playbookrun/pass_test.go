@@ -229,6 +229,34 @@ func TestPass_LaunchErrorBecomesReason(t *testing.T) {
 	assert.Equal(t, board.RunStatusWaiting, run.Status)
 	assert.Equal(t, "e1", run.Entry)
 	assert.Contains(t, run.Reason, "failed to trigger backend task")
+
+	// A waiting entry is never relaunched on its own: only Play, which
+	// clears the entry, may trigger it again.
+	writes := e.pbs.runWrites()
+	require.False(t, e.runner.pass(context.Background(), "rollout"))
+	assert.Equal(t, 1, e.launcher.count())
+	assert.Equal(t, writes, e.pbs.runWrites())
+	run = e.pbs.lastRun()
+	assert.Equal(t, board.RunStatusWaiting, run.Status)
+	assert.Equal(t, "e1", run.Entry)
+}
+
+func TestPass_RunningOnTodoEntryRelaunches(t *testing.T) {
+	e := newEnv(t)
+	e.cards.add(todoCard("alpha", "ALPHA-1"))
+
+	p := runnablePlaybook("rollout", cardEntry("e1", "alpha", "ALPHA-1"))
+	e.activeRun(p, "e1") // the crash between persist and trigger: still running, no worker yet
+	e.pbs.add(p)
+
+	ctx := context.Background()
+
+	require.False(t, e.runner.pass(ctx, "rollout"))
+	assert.Equal(t, 1, e.launcher.count())
+
+	d, err := e.pbs.Get(ctx, "rollout")
+	require.NoError(t, err)
+	assert.Equal(t, board.RunStatusRunning, d.Run.Status)
 }
 
 func TestPass_CompletesWhenNothingIsLeft(t *testing.T) {
@@ -248,6 +276,30 @@ func TestPass_CompletesWhenNothingIsLeft(t *testing.T) {
 	assert.Empty(t, run.Entry)
 	require.NotNil(t, run.EndedAt)
 	assert.Equal(t, e.clk.Now(), *run.EndedAt)
+}
+
+func TestPass_CompletionWriteFailureRetries(t *testing.T) {
+	e := newEnv(t)
+	c := todoCard("alpha", "ALPHA-1")
+	c.State = board.StateDone
+	e.cards.add(c)
+
+	p := runnablePlaybook("rollout", cardEntry("e1", "alpha", "ALPHA-1"))
+	e.activeRun(p, "e1")
+	e.pbs.add(p)
+	e.pbs.failNextSetRun = errors.New("write failed")
+	ctx := context.Background()
+
+	require.False(t, e.runner.pass(ctx, "rollout"))
+	d, err := e.pbs.Get(ctx, "rollout")
+	require.NoError(t, err)
+	require.NotNil(t, d.Run)
+	assert.Equal(t, board.RunStatusRunning, d.Run.Status, "the failed write leaves the run as it was on disk")
+
+	require.True(t, e.runner.pass(ctx, "rollout"))
+	d, err = e.pbs.Get(ctx, "rollout")
+	require.NoError(t, err)
+	assert.Equal(t, board.RunStatusCompleted, d.Run.Status, "the retry succeeds once the write stops failing")
 }
 
 func TestPass_IgnoresRunsItDoesNotOwn(t *testing.T) {

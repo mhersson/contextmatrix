@@ -94,6 +94,10 @@ type fakePlaybooks struct {
 	cards *fakeCards
 	pbs   map[string]*board.Playbook
 	runs  []board.PlaybookRun
+
+	// failNextSetRun, when set, is returned by the next SetRun call instead
+	// of writing, then cleared.
+	failNextSetRun error
 }
 
 func newFakePlaybooks(cards *fakeCards) *fakePlaybooks {
@@ -163,6 +167,13 @@ func (f *fakePlaybooks) Get(ctx context.Context, id string) (*service.PlaybookDe
 
 func (f *fakePlaybooks) SetRun(ctx context.Context, id string, run *board.PlaybookRun, _ string) (*service.PlaybookDetail, error) {
 	f.mu.Lock()
+
+	if err := f.failNextSetRun; err != nil {
+		f.failNextSetRun = nil
+		f.mu.Unlock()
+
+		return nil, err
+	}
 
 	p, ok := f.pbs[id]
 	if !ok {
