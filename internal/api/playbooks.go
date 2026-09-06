@@ -5,11 +5,13 @@ import (
 	"strings"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/playbookrun"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
 type playbookHandlers struct {
-	svc *service.PlaybookService
+	svc    *service.PlaybookService
+	runner *playbookrun.Runner // nil when the runner is not wired
 }
 
 type playbookEntryRequest struct {
@@ -254,4 +256,55 @@ func (h *playbookHandlers) deleteEntry(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, detail)
+}
+
+// run handles POST /api/playbooks/{id}/run - Play, or resume after a stop or
+// a waiting run. Human-only, like every card run.
+func (h *playbookHandlers) run(w http.ResponseWriter, r *http.Request) {
+	if isNonHumanAgent(r) {
+		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField, "only humans can play a playbook", "")
+
+		return
+	}
+
+	if h.runner == nil {
+		writeError(w, http.StatusServiceUnavailable, ErrCodeBackendDisabled, "playbook runner is not configured", "")
+
+		return
+	}
+
+	detail, err := h.runner.Play(r.Context(), r.PathValue("id"), playbookAgentID(r))
+	if err != nil {
+		handleServiceError(w, r, err)
+
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, detail)
+}
+
+// stop handles POST /api/playbooks/{id}/stop. The run is marked stopped
+// before the kill, so a failed kill still leaves a stopped run (502 with the
+// reason) rather than a run that keeps walking.
+func (h *playbookHandlers) stop(w http.ResponseWriter, r *http.Request) {
+	if isNonHumanAgent(r) {
+		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField, "only humans can stop a playbook", "")
+
+		return
+	}
+
+	if h.runner == nil {
+		writeError(w, http.StatusServiceUnavailable, ErrCodeBackendDisabled, "playbook runner is not configured", "")
+
+		return
+	}
+
+	detail, err := h.runner.Stop(r.Context(), r.PathValue("id"), playbookAgentID(r))
+	if err != nil {
+		handleServiceError(w, r, err)
+
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, detail)
 }

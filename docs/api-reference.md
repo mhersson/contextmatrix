@@ -74,6 +74,8 @@ DELETE /api/playbooks/{id}                             # delete playbook
 POST   /api/playbooks/{id}/entries                     # append entry (card reference or manual step)
 PATCH  /api/playbooks/{id}/entries/{entryId}            # update entry (done/note/text/position)
 DELETE /api/playbooks/{id}/entries/{entryId}            # remove entry
+POST   /api/playbooks/{id}/run                         # play or resume a runnable playbook (human-only)
+POST   /api/playbooks/{id}/stop                        # stop the run and kill the current worker (human-only)
 
 GET    /api/task-skills                                # list available task skill names
 GET    /api/app/config                                 # server-side app config (slim pre-login payload in multi mode)
@@ -273,6 +275,7 @@ the request's `request_id`.
 | `PLAYBOOK_ENTRY_NOT_FOUND` | 404     | Unknown entry id                                                                                                                                                                |
 | `PLAYBOOK_ENTRY_EXISTS`    | 409     | Duplicate `{project, card}` entry                                                                                                                                               |
 | `PLAYBOOK_RUN_ACTIVE`      | 409     | `runnable: false` or `base_branch` while a run is `running` or `waiting`; a card's own run trigger while its owning playbook run is active                                     |
+| `PLAYBOOK_RUN_INACTIVE`    | 409     | `POST .../stop` when the playbook has no active run                                                                                                                             |
 | `PLAYBOOK_LOCKED`          | 409     | `PUT` or `PATCH` on a card changes one of the five fields a runnable playbook forces                                                                                            |
 | `PLAYBOOK_NOT_RUNNABLE`    | 409     | An operation that requires `runnable: true` is called on a playbook that is not runnable                                                                                        |
 | `PLAYBOOK_CARD_OWNED`      | 422     | `runnable: true` and a card entry already belongs to another runnable playbook                                                                                                  |
@@ -1789,6 +1792,22 @@ detail (the playbook still exists). **Errors:** 404 `PLAYBOOK_NOT_FOUND`,
 **Attribution** (`created_by`, `done_by`): the same resolved identity as
 cards - session in multi mode, else `X-Agent-ID`, falling back to
 `human:web`.
+
+### POST /api/playbooks/{id}/run
+
+Play, or resume a `waiting`/`stopped` run. Human-only. Writes the run block
+with `status: running`, `entry` and `reason` cleared, `started_at` kept
+across a resume, and starts the walker. `202` with the playbook detail.
+Errors: `403 HUMAN_ONLY_FIELD`, `404 PLAYBOOK_NOT_FOUND`,
+`409 PLAYBOOK_NOT_RUNNABLE`, `409 PLAYBOOK_RUN_ACTIVE`, `503 BACKEND_DISABLED`.
+
+### POST /api/playbooks/{id}/stop
+
+Marks the run `stopped` (with `ended_at`), then kills the current card's
+worker when it is queued or running on this instance. `202` with the
+detail. Errors: `403 HUMAN_ONLY_FIELD`, `404 PLAYBOOK_NOT_FOUND`,
+`409 PLAYBOOK_RUN_INACTIVE`, `502 BACKEND_UNAVAILABLE` (run stopped, kill
+failed).
 
 ## Worker & Backend Endpoints
 

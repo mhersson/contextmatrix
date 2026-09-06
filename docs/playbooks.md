@@ -105,7 +105,24 @@ and answer `409 PLAYBOOK_RUN_ACTIVE`, unchecking runnable is refused, and a
 second Play is refused. Cards carry a derived `playbook_lock` with the
 owning playbook's id, title and, while active, its run status.
 
-Play, Stop and the runner itself ship in a later change.
+Removing the entry a run currently sits on is allowed. The run keeps its
+status, `entry` and `reason` are cleared, and the next pass picks a new
+frontier. A card that entry had already launched keeps running, no longer
+owned by the run.
+
+### Play and Stop
+
+See [Playbook runs](running-cards.md#playbook-runs) for the runner's
+behavior. Both controls are human-only.
+
+- **Play** requires the playbook to be runnable and no run already active
+  (`409 PLAYBOOK_RUN_ACTIVE`), and a configured task backend
+  (`503 BACKEND_DISABLED`).
+- **Stop** requires an active run (`409 PLAYBOOK_RUN_INACTIVE`). If the kill
+  webhook fails after the run is marked `stopped`, it answers
+  `502 BACKEND_UNAVAILABLE`.
+- `playbook.updated` events carry `run_status` and `run_entry` so open
+  detail pages track a run live.
 
 ## Storage
 

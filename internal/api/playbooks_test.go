@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,6 +27,27 @@ import (
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
+
+// playbookStoresMu guards playbookStores. The package's chat tests run with
+// t.Parallel(); they never touch playbooks today, but the map is guarded
+// anyway rather than relying on that staying true.
+var playbookStoresMu sync.Mutex
+
+// playbookStores maps a playbook service to the raw store it was built on,
+// for tests that need a Lister.
+var playbookStores = map[*service.PlaybookService]*storage.FilesystemPlaybookStore{}
+
+func playbookStoreOf(t *testing.T, pbSvc *service.PlaybookService) *storage.FilesystemPlaybookStore {
+	t.Helper()
+
+	playbookStoresMu.Lock()
+	defer playbookStoresMu.Unlock()
+
+	store, ok := playbookStores[pbSvc]
+	require.True(t, ok, "playbook service not built by playbookTestSetup")
+
+	return store
+}
 
 // playbookTestSetup mirrors testSetup but also builds a playbook service
 // over the same boards dir, so card refs resolve against real cards.
@@ -76,6 +98,10 @@ transitions:
 
 	svc.SetPlaybookLister(pbStore)
 	pbSvc.SetCardForcer(svc)
+
+	playbookStoresMu.Lock()
+	playbookStores[pbSvc] = pbStore
+	playbookStoresMu.Unlock()
 
 	cleanup := func() {
 		// Temp directory is automatically cleaned up by t.TempDir()

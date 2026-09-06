@@ -11,6 +11,7 @@ import (
 	ghimport "github.com/mhersson/contextmatrix/internal/github"
 	"github.com/mhersson/contextmatrix/internal/gitops"
 	"github.com/mhersson/contextmatrix/internal/gitsync"
+	"github.com/mhersson/contextmatrix/internal/playbookrun"
 )
 
 // shutdownComponents groups the live objects touched during the multi-phase
@@ -32,6 +33,12 @@ type shutdownComponents struct {
 	// buffered writes still reach disk before exit.
 	CommitQueues []*gitops.CommitQueue
 
+	// PlaybookRunner drives the playbook walkers. Its walkers must be joined
+	// after ctx cancel and before the commit queues close, or a walker
+	// mid-write races the queue close and loses its run-state write. May be
+	// nil when no boards repo has playbooks enabled.
+	PlaybookRunner *playbookrun.Runner
+
 	// Syncer fronts every boards repo's background syncer. May be nil when
 	// no repo has a remote.
 	Syncer *gitsync.Group
@@ -50,12 +57,13 @@ type shutdownComponents struct {
 	AppCancel context.CancelFunc
 }
 
-// runShutdownSequence executes the five-phase ordered shutdown:
+// runShutdownSequence executes the six-phase ordered shutdown:
 //  1. http_drain      - cancel SSE contexts, drain in-flight HTTP requests.
 //  2. sessionlog_close - close backend SSE log sessions with terminal events.
 //  3. ctx_cancel      - cancel the long-lived application context.
-//  4. commit_queue_close - flush buffered commits to disk.
-//  5. syncers_drain   - wait for git syncers to finish any late push.
+//  4. playbook_runner_drain - join the playbook walkers.
+//  5. commit_queue_close - flush buffered commits to disk.
+//  6. syncers_drain   - wait for git syncers to finish any late push.
 //
 // Returns the main HTTP server's shutdown error, if any (caller should
 // os.Exit(1) on non-nil). All other phase errors are logged and swallowed
@@ -102,7 +110,29 @@ func runShutdownSequence(ctx context.Context, c shutdownComponents) error {
 	slog.Info("shutdown: phase=ctx_cancel")
 	c.AppCancel()
 
-	// Phase 4: drain the commit queue so any writes that landed on the
+	// Phase 4: join the playbook walkers. AppCancel above is what stops
+	// them; this waits so a walker mid-write finishes before the commit
+	// queues close underneath it, which would otherwise roll its run-state
+	// write back. Bounded so a wedged walker cannot hold shutdown open.
+	slog.Info("shutdown: phase=playbook_runner_drain")
+
+	const phase4Timeout = 10 * time.Second
+
+	if c.PlaybookRunner != nil {
+		phase4Ctx, phase4Cancel := context.WithTimeout(ctx, phase4Timeout)
+
+		if err := c.PlaybookRunner.Shutdown(phase4Ctx); err != nil {
+			slog.Warn("shutdown: playbook runner drain exceeded budget",
+				"phase", "playbook_runner_drain",
+				"timeout", phase4Timeout,
+				"error", err,
+			)
+		}
+
+		phase4Cancel()
+	}
+
+	// Phase 5: drain the commit queue so any writes that landed on the
 	// worker channel - but whose go-git commit had not yet started when
 	// ctx was cancelled - still make it to disk before we exit. Running
 	// this before the syncers' Wait ensures the on-disk commits exist to
@@ -115,7 +145,7 @@ func runShutdownSequence(ctx context.Context, c shutdownComponents) error {
 		}
 	}
 
-	// Phase 5: let the git syncers finish any late commit/push triggered by
+	// Phase 6: let the git syncers finish any late commit/push triggered by
 	// requests that were in flight when HTTP drain began. Running this after
 	// HTTP drain (not before) ensures those late mutations still get pushed
 	// to the remote before we exit.
@@ -126,26 +156,26 @@ func runShutdownSequence(ctx context.Context, c shutdownComponents) error {
 	// still the primary signal; this wait-timeout is the safety net.
 	slog.Info("shutdown: phase=syncers_drain")
 
-	const phase5Timeout = 10 * time.Second
+	const phase6Timeout = 10 * time.Second
 
-	phase5Ctx, phase5Cancel := context.WithTimeout(context.Background(), phase5Timeout)
-	defer phase5Cancel()
+	phase6Ctx, phase6Cancel := context.WithTimeout(context.Background(), phase6Timeout)
+	defer phase6Cancel()
 
 	if c.Syncer != nil {
-		if err := waitSyncer(phase5Ctx, c.Syncer.Wait); err != nil {
+		if err := waitSyncer(phase6Ctx, c.Syncer.Wait); err != nil {
 			slog.Error("shutdown: gitsync syncer drain exceeded budget",
 				"phase", "syncers_drain",
-				"timeout", phase5Timeout,
+				"timeout", phase6Timeout,
 				"error", err,
 			)
 		}
 	}
 
 	if c.GHSyncer != nil {
-		if err := waitSyncer(phase5Ctx, c.GHSyncer.Wait); err != nil {
+		if err := waitSyncer(phase6Ctx, c.GHSyncer.Wait); err != nil {
 			slog.Error("shutdown: github syncer drain exceeded budget",
 				"phase", "syncers_drain",
-				"timeout", phase5Timeout,
+				"timeout", phase6Timeout,
 				"error", err,
 			)
 		}

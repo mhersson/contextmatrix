@@ -149,11 +149,38 @@ deferred commits. A stalled or failed red badge outranks the parked yellow.
 | Control            | Where                     | Effect                                             |
 | ------------------ | ------------------------- | -------------------------------------------------- |
 | **Stop**           | card panel header         | Kill webhook; `worker_status: killed`; uncommitted work is lost. |
+| **Stop** (playbook) | playbook detail page, with confirm | Marks the run `stopped`, then kills the current card's worker. |
 | **Stop All**       | board header, with confirm | Kills every queued or running container in the project. |
 | Kill switch        | `config.yaml`             | Disable or remove the task backend: the run button disappears and triggers return `503 BACKEND_DISABLED`. Restart required. |
 
 A card claimed through another instance shows "Running on <instance>" instead
 of Stop, and Stop All skips it; that instance owns the container.
+
+## Playbook runs
+
+A runnable playbook (see [playbooks](playbooks.md#running-a-playbook)) is
+played from its detail page. The server then runs its card entries one after
+another: each card is launched exactly as **Run Auto** would launch it, with
+`create_base_branch` set so the worker creates the playbook branch on its
+first run in a repository.
+
+| Run status  | Meaning                                                                                   |
+| ----------- | ----------------------------------------------------------------------------------------- |
+| `running`   | The current card is queued or executing.                                                  |
+| `waiting`   | A human is needed: a manual step, or the current card parked, stalled, failed, was killed, or could not be launched. `reason` says which. |
+| `stopped`   | Stop was pressed. The current worker was killed.                                          |
+| `completed` | Every entry is complete. The compare links open the final pull requests.                 |
+
+- **Play** starts a run, or resumes a `waiting` or `stopped` one. A resume
+  re-launches the current card: a parked or stalled card is first moved back
+  to `todo`. A card that finished meanwhile is skipped; one that is running is
+  waited on.
+- The runner never retries on its own. After a failed card, fix the cause and
+  press Play.
+- While a run is `running` or `waiting`, the cards' own run buttons are
+  disabled and `POST .../run` answers `409 PLAYBOOK_RUN_ACTIVE`.
+- On a shared board the instance that pressed Play owns the run; other
+  instances show it and never walk it. A restart resumes owned runs.
 
 ## Cost tracking
 

@@ -30,6 +30,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/images"
 	"github.com/mhersson/contextmatrix/internal/lock"
 	"github.com/mhersson/contextmatrix/internal/metrics"
+	"github.com/mhersson/contextmatrix/internal/playbookrun"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
@@ -120,6 +121,7 @@ const (
 	// -> 409 (playbook-owned card setting changed by hand). CARD_OWNED and
 	// PROJECT_NO_REPO -> 422 (make-runnable validation). NOT_RUNNABLE ->
 	// 409 (run state on a playbook that is not runnable).
+	// RUN_INACTIVE -> 409 (stop with no active run).
 	ErrCodePlaybookNotFound      = "PLAYBOOK_NOT_FOUND"
 	ErrCodePlaybookEntryNotFound = "PLAYBOOK_ENTRY_NOT_FOUND"
 	ErrCodePlaybookEntryExists   = "PLAYBOOK_ENTRY_EXISTS"
@@ -128,6 +130,7 @@ const (
 	ErrCodePlaybookCardOwned     = "PLAYBOOK_CARD_OWNED"
 	ErrCodePlaybookProjectNoRepo = "PLAYBOOK_PROJECT_NO_REPO"
 	ErrCodePlaybookNotRunnable   = "PLAYBOOK_NOT_RUNNABLE"
+	ErrCodePlaybookRunInactive   = "PLAYBOOK_RUN_INACTIVE"
 )
 
 // APIError is the standard error response format.
@@ -259,6 +262,8 @@ type RouterConfig struct {
 	Mob config.MobConfig
 	// Playbooks is optional; playbook routes are registered only when set.
 	Playbooks *service.PlaybookService
+	// PlaybookRunner drives runnable playbooks; nil disables Play and Stop.
+	PlaybookRunner *playbookrun.Runner
 }
 
 // EndpointModelView is the api-package projection of modelcatalog.EndpointModel
@@ -391,7 +396,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	// (see RouterConfig.Playbooks; nil in single-binary configs where the
 	// boards dir cannot host a playbooks/ directory).
 	if cfg.Playbooks != nil {
-		pbh := &playbookHandlers{svc: cfg.Playbooks}
+		pbh := &playbookHandlers{svc: cfg.Playbooks, runner: cfg.PlaybookRunner}
 		mux.HandleFunc("GET /api/playbooks", pbh.list)
 		mux.HandleFunc("POST /api/playbooks", pbh.create)
 		mux.HandleFunc("GET /api/playbooks/{id}", pbh.get)
@@ -400,6 +405,8 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		mux.HandleFunc("POST /api/playbooks/{id}/entries", pbh.addEntry)
 		mux.HandleFunc("PATCH /api/playbooks/{id}/entries/{entryId}", pbh.patchEntry)
 		mux.HandleFunc("DELETE /api/playbooks/{id}/entries/{entryId}", pbh.deleteEntry)
+		mux.HandleFunc("POST /api/playbooks/{id}/run", pbh.run)
+		mux.HandleFunc("POST /api/playbooks/{id}/stop", pbh.stop)
 	}
 
 	// Agent routes
@@ -519,6 +526,12 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		llmEndpoint:            cfg.LLMEndpoint,
 		instanceTokenProvider:  cfg.GitHubTokenProvider,
 	}
+
+	if cfg.PlaybookRunner != nil && cfg.Backend != nil {
+		cfg.PlaybookRunner.SetLauncher(rh.playbookLaunch)
+		cfg.PlaybookRunner.SetStopper(rh.playbookStop)
+	}
+
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/run", rh.runCard)
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/stop", rh.stopCard)
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/message", rh.messageCard)
@@ -1130,6 +1143,8 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusConflict, ErrCodePlaybookNotRunnable, "playbook is not runnable", sanitizeErrorDetails(err))
 	case errors.Is(err, service.ErrPlaybookLocked):
 		writeError(w, http.StatusConflict, ErrCodePlaybookLocked, "card settings are locked by a runnable playbook", sanitizeErrorDetails(err))
+	case errors.Is(err, playbookrun.ErrRunInactive):
+		writeError(w, http.StatusConflict, ErrCodePlaybookRunInactive, "playbook run is not active", sanitizeErrorDetails(err))
 
 	// --- Forbidden sentinels (403) ---
 	case errors.Is(err, service.ErrProtectedBranch):
@@ -1150,6 +1165,13 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, service.ErrRemoteUnreachable):
 		writeError(w, http.StatusServiceUnavailable, ErrCodeRemoteUnreachable,
 			"boards remote unreachable; retry shortly", remoteUnreachableDetails(err))
+	case errors.Is(err, playbookrun.ErrNoBackend):
+		writeError(w, http.StatusServiceUnavailable, ErrCodeBackendDisabled, "no execution backend is configured", "")
+
+	// --- Bad gateway (502) - the backend rejected or could not complete a call ---
+	case errors.Is(err, playbookrun.ErrStopWorker):
+		writeError(w, http.StatusBadGateway, ErrCodeBackendUnavailable,
+			"playbook run stopped but the worker could not be killed", sanitizeErrorDetails(err))
 
 	// --- Bad-request sentinels (400) ---
 	case errors.Is(err, storage.ErrInvalidPath):
