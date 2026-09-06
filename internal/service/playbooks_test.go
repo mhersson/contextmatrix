@@ -857,3 +857,56 @@ func TestPlaybookService_ReassertValidatesOwnership(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "playbook/first", card.BaseBranch, "still owned by first")
 }
+
+func TestPlaybookService_DetailCarriesRunFieldsAndRepos(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	env.createProject(t, "project-beta", "BETA", "git@github.com:acme/beta.git")
+
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{
+		Title: "Rollout", AgentID: "human:alice",
+		Entries: []PlaybookEntryInput{
+			{Type: board.EntryTypeCard, Project: "project-beta", Card: "BETA-001"},
+			{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"},
+			{Type: board.EntryTypeManual, Text: "deploy"},
+		},
+	})
+	require.NoError(t, err)
+
+	plain, err := env.svc.Get(ctx, "rollout")
+	require.NoError(t, err)
+	assert.False(t, plain.Runnable)
+	assert.Empty(t, plain.Branch)
+	assert.Nil(t, plain.Repos)
+
+	got, err := env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+	require.NoError(t, err)
+	assert.True(t, got.Runnable)
+	assert.Equal(t, "playbook/rollout", got.Branch)
+	require.Len(t, got.Repos, 2, "one link per distinct project, in entry order")
+	assert.Equal(t, "project-beta", got.Repos[0].Project)
+	assert.Equal(t, "https://github.com/acme/beta/compare/playbook/rollout?expand=1", got.Repos[0].CompareURL)
+	assert.Equal(t, "project-alpha", got.Repos[1].Project)
+	assert.Equal(t, "https://github.com/acme/alpha/compare/playbook/rollout?expand=1", got.Repos[1].CompareURL)
+
+	got, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{BaseBranch: ptrStr("main")}, "human:alice")
+	require.NoError(t, err)
+	assert.Equal(t, "https://github.com/acme/beta/compare/main...playbook/rollout?expand=1", got.Repos[0].CompareURL)
+
+	now := env.clk.Now()
+	got, err = env.svc.SetRun(ctx, "rollout", &board.PlaybookRun{Status: board.RunStatusWaiting, StartedAt: now, UpdatedAt: now, Entry: "e3", Reason: "awaiting check-off"}, "human:alice")
+	require.NoError(t, err)
+	require.NotNil(t, got.Run)
+	assert.Equal(t, "e3", got.Run.Entry)
+
+	summaries, err := env.svc.List(ctx)
+	require.NoError(t, err)
+	require.Len(t, summaries, 1)
+	assert.True(t, summaries[0].Runnable)
+	assert.Equal(t, board.RunStatusWaiting, summaries[0].RunStatus)
+
+	slim := SummarizeDetail(got)
+	assert.True(t, slim.Runnable)
+	assert.Equal(t, board.RunStatusWaiting, slim.RunStatus)
+}

@@ -134,8 +134,12 @@ type PlaybookSummary struct {
 	Gates []int `json:"gates,omitempty"`
 	// Next is the frontier entry (the first incomplete one), nil once every
 	// entry is complete.
-	Next    *PlaybookNext `json:"next,omitempty"`
-	Updated time.Time     `json:"updated_at"`
+	Next *PlaybookNext `json:"next,omitempty"`
+	// Runnable and RunStatus let the list page badge a playbook without
+	// the detail. RunStatus is the run block's status whenever one exists.
+	Runnable  bool      `json:"runnable"`
+	RunStatus string    `json:"run_status,omitempty"`
+	Updated   time.Time `json:"updated_at"`
 }
 
 // PlaybookNext names a playbook's frontier entry for the list page. Title
@@ -145,6 +149,13 @@ type PlaybookNext struct {
 	Project string `json:"project,omitempty"`
 	Card    string `json:"card,omitempty"`
 	Title   string `json:"title"`
+}
+
+// PlaybookRepoLink is one project repository a runnable playbook touches and
+// the GitHub compare URL that opens the PR form from the playbook branch.
+type PlaybookRepoLink struct {
+	Project    string `json:"project"`
+	CompareURL string `json:"compare_url"`
 }
 
 // PlaybookEntryDetail is one entry enriched with the current state of the
@@ -178,6 +189,10 @@ type PlaybookDetail struct {
 	Runnable   bool               `json:"runnable"`
 	BaseBranch string             `json:"base_branch,omitempty"`
 	Run        *board.PlaybookRun `json:"run,omitempty"`
+	// Branch is the derived playbook branch and Repos the compare links,
+	// both present only on a runnable playbook.
+	Branch string             `json:"branch,omitempty"`
+	Repos  []PlaybookRepoLink `json:"repos,omitempty"`
 }
 
 // PlaybookRepo is one boards repository's playbook write path: its commit
@@ -1138,6 +1153,17 @@ func (s *PlaybookService) resolve(ctx context.Context, p *board.Playbook) (*Play
 		detail.Run = &run
 	}
 
+	if p.Runnable {
+		detail.Branch = p.Branch()
+
+		repos, err := s.repoLinks(ctx, p)
+		if err != nil {
+			return nil, err
+		}
+
+		detail.Repos = repos
+	}
+
 	for i := range p.Entries {
 		e := p.Entries[i]
 		ed := PlaybookEntryDetail{PlaybookEntry: e}
@@ -1169,6 +1195,52 @@ func (s *PlaybookService) resolve(ctx context.Context, p *board.Playbook) (*Play
 	}
 
 	return detail, nil
+}
+
+// repoLinks builds one compare link per distinct project among the card
+// entries, in first-appearance order. Projects that are missing or have no
+// recognisable GitHub URL are skipped; make-runnable already refused them,
+// so a skip here means the project changed afterwards.
+func (s *PlaybookService) repoLinks(ctx context.Context, p *board.Playbook) ([]PlaybookRepoLink, error) {
+	var links []PlaybookRepoLink
+
+	seen := make(map[string]bool)
+
+	for _, e := range p.Entries {
+		if e.Type != board.EntryTypeCard || seen[e.Project] {
+			continue
+		}
+
+		seen[e.Project] = true
+
+		cfg, err := s.cards.GetProject(ctx, e.Project)
+		if err != nil {
+			if errors.Is(err, storage.ErrProjectNotFound) {
+				continue
+			}
+
+			return nil, fmt.Errorf("get project %s: %w", e.Project, err)
+		}
+
+		owner, repo, host, ok := githuburl.Parse(cfg.Repo, s.githubHosts)
+		if !ok {
+			continue
+		}
+
+		links = append(links, PlaybookRepoLink{Project: e.Project, CompareURL: compareURL(host, owner, repo, p.BaseBranch, p.Branch())})
+	}
+
+	return links, nil
+}
+
+// compareURL is GitHub's compare page for branch against base, opening the
+// PR form. Without a base GitHub compares against the repository default.
+func compareURL(host, owner, repo, base, branch string) string {
+	if base == "" {
+		return fmt.Sprintf("https://%s/%s/%s/compare/%s?expand=1", host, owner, repo, branch)
+	}
+
+	return fmt.Sprintf("https://%s/%s/%s/compare/%s...%s?expand=1", host, owner, repo, base, branch)
 }
 
 // summarize derives the list-view projection of a playbook by resolving it
@@ -1227,6 +1299,11 @@ func SummarizeDetail(d *PlaybookDetail) PlaybookSummary {
 		}
 	}
 
+	runStatus := ""
+	if d.Run != nil {
+		runStatus = d.Run.Status
+	}
+
 	return PlaybookSummary{
 		ID:         d.ID,
 		BoardsRepo: d.BoardsRepo,
@@ -1237,6 +1314,8 @@ func SummarizeDetail(d *PlaybookDetail) PlaybookSummary {
 		Projects:   len(projects),
 		Gates:      gates,
 		Next:       next,
+		Runnable:   d.Runnable,
+		RunStatus:  runStatus,
 		Updated:    d.Updated,
 	}
 }
