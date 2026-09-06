@@ -66,6 +66,15 @@ export function PlaybookDetailPage() {
   const describeApiError = (err: unknown, fallback: string) =>
     isAPIError(err) ? (err.details ? `${err.error}: ${err.details}` : err.error) : fallback;
 
+  // Writes an active run can refuse (409 PLAYBOOK_RUN_ACTIVE) show the
+  // server's own text; applyPatch keeps its one-line fallback for the rest.
+  const applyGuarded = useCallback((promise: Promise<PlaybookDetail>, fallback: string) => {
+    return promise.then(setDetail).catch((err: unknown) => {
+      showToast(describeApiError(err, fallback), 'error');
+      fetchDetail();
+    });
+  }, [showToast, fetchDetail]);
+
   const patchRunnable = useCallback(async (runnable: boolean) => {
     if (!detail) return;
     try {
@@ -83,8 +92,8 @@ export function PlaybookDetailPage() {
 
   const handleSaveBaseBranch = useCallback((value: string) => {
     if (!detail) return;
-    applyPatch(api.patchPlaybook(detail.id, { base_branch: value }));
-  }, [detail, applyPatch]);
+    applyGuarded(api.patchPlaybook(detail.id, { base_branch: value }), 'Update failed');
+  }, [detail, applyGuarded]);
 
   const handleRun = useCallback(async () => {
     if (!detail) return;
@@ -124,8 +133,8 @@ export function PlaybookDetailPage() {
 
   const handleRemove = useCallback((entryId: string) => {
     if (!detail) return;
-    applyPatch(api.deletePlaybookEntry(detail.id, entryId));
-  }, [detail, applyPatch]);
+    applyGuarded(api.deletePlaybookEntry(detail.id, entryId), 'Update failed');
+  }, [detail, applyGuarded]);
 
   const handleAdd = useCallback(async (entry: NewPlaybookEntry) => {
     if (!detail) return;

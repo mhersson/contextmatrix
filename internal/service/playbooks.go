@@ -1090,12 +1090,18 @@ func (s *PlaybookService) RemoveEntry(ctx context.Context, id, entryID, agentID 
 			return fmt.Errorf("%w: %s", ErrPlaybookEntryNotFound, entryID)
 		}
 
+		// The run's current card would keep running unowned and still merge
+		// into the playbook branch, so the entry stays until the run stops.
+		// Queued entries remain removable; the next pass finds a new frontier.
+		if p.RunActive() && p.Run.Entry == entryID {
+			return fmt.Errorf("%w: entry is the run's current card; stop the run first", ErrPlaybookRunActive)
+		}
+
 		p.Entries = slices.Delete(p.Entries, i, i+1)
 
-		// A run parked on the removed entry loses its frontier, not its run:
+		// A stopped or completed run may still point at the removed entry.
 		// Validate rejects a run entry that names no entry, so clearing it
-		// (with the reason that described it) is what keeps the removal
-		// legal and lets the next pass pick a new frontier.
+		// (with the reason that described it) keeps the removal legal.
 		if p.Run != nil && p.Run.Entry == entryID {
 			p.Run.Entry = ""
 			p.Run.Reason = ""

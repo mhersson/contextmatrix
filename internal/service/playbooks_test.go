@@ -1040,7 +1040,7 @@ func TestPlaybookService_SetRunIfGuardsTheWrite(t *testing.T) {
 	assert.Equal(t, board.RunStatusStopped, got.Run.Status)
 }
 
-func TestPlaybookService_RemoveEntryClearsTheRunsEntry(t *testing.T) {
+func TestPlaybookService_RemoveEntryDuringRun(t *testing.T) {
 	env := newPlaybookTestEnv(t)
 	ctx := context.Background()
 
@@ -1049,6 +1049,7 @@ func TestPlaybookService_RemoveEntryClearsTheRunsEntry(t *testing.T) {
 		Entries: []PlaybookEntryInput{
 			{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"},
 			{Type: board.EntryTypeManual, Text: "deploy"},
+			{Type: board.EntryTypeManual, Text: "verify"},
 		},
 	})
 	require.NoError(t, err)
@@ -1062,13 +1063,45 @@ func TestPlaybookService_RemoveEntryClearsTheRunsEntry(t *testing.T) {
 	}, "human:alice")
 	require.NoError(t, err)
 
-	// Removing the entry the run sits on is allowed: the run keeps its
-	// status and loses only the frontier, which the next pass re-derives.
-	got, err := env.svc.RemoveEntry(ctx, "rollout", "e1", "human:alice")
+	// The run's current entry is refused while the run is active: its card
+	// would keep running unowned and still merge into the playbook branch.
+	_, err = env.svc.RemoveEntry(ctx, "rollout", "e1", "human:alice")
+	require.ErrorIs(t, err, ErrPlaybookRunActive)
+	assert.Contains(t, err.Error(), "stop the run first")
+
+	got, err := env.svc.Get(ctx, "rollout")
 	require.NoError(t, err)
+	require.Len(t, got.Entries, 3)
+	assert.Equal(t, "e1", got.Entries[0].ID)
+	require.NotNil(t, got.Run)
+	assert.Equal(t, "e1", got.Run.Entry)
+	assert.Equal(t, "ALPHA-001 parked", got.Run.Reason)
+
+	// A queued entry stays removable and the run block is untouched; the
+	// walker's next pass finds a new frontier.
+	got, err = env.svc.RemoveEntry(ctx, "rollout", "e2", "human:alice")
+	require.NoError(t, err)
+	require.Len(t, got.Entries, 2)
 	require.NotNil(t, got.Run)
 	assert.Equal(t, board.RunStatusWaiting, got.Run.Status)
+	assert.Equal(t, "e1", got.Run.Entry)
+	assert.Equal(t, "ALPHA-001 parked", got.Run.Reason)
+
+	// Once the run is stopped its former entry can go. Validate rejects a
+	// run entry that names no entry, so the dangling pointer clears.
+	ended := env.clk.Now()
+	_, err = env.svc.SetRun(ctx, "rollout", &board.PlaybookRun{
+		Status: board.RunStatusStopped, StartedAt: now, UpdatedAt: ended, EndedAt: &ended,
+		Entry: "e1", Reason: "stopped by human:alice",
+	}, "human:alice")
+	require.NoError(t, err)
+
+	got, err = env.svc.RemoveEntry(ctx, "rollout", "e1", "human:alice")
+	require.NoError(t, err)
+	require.Len(t, got.Entries, 1)
+	assert.Equal(t, "e3", got.Entries[0].ID)
+	require.NotNil(t, got.Run)
+	assert.Equal(t, board.RunStatusStopped, got.Run.Status)
 	assert.Empty(t, got.Run.Entry)
 	assert.Empty(t, got.Run.Reason)
-	assert.Len(t, got.Entries, 1)
 }

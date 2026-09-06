@@ -170,6 +170,61 @@ describe('PlaybookDetailPage', () => {
     await waitFor(() => expect(toast.showToast).toHaveBeenCalledWith('project has no GitHub repository: alpha', 'error'));
   });
 
+  it('surfaces the server reason when the base-branch change is refused', async () => {
+    vi.mocked(api.getPlaybook).mockResolvedValue(baseDetail());
+    vi.mocked(api.patchPlaybook).mockRejectedValueOnce({ error: 'run is active', code: 'PLAYBOOK_RUN_ACTIVE' });
+    renderPage();
+    await screen.findByText('Roll');
+    await screen.findByRole('option', { name: 'main' });
+
+    fireEvent.change(screen.getByRole('combobox', { name: /base branch/i }), { target: { value: 'main' } });
+    await waitFor(() => expect(api.patchPlaybook).toHaveBeenCalledWith('roll', { base_branch: 'main' }));
+    await waitFor(() => expect(toast.showToast).toHaveBeenCalledWith('run is active', 'error'));
+  });
+
+  it("surfaces the server reason when removing the run's current entry is refused", async () => {
+    const running = {
+      ...baseDetail(), runnable: true, branch: 'playbook/roll',
+      run: { status: 'running' as const, started_at: 'x', updated_at: 'x', entry: 'e2' },
+    };
+    vi.mocked(api.getPlaybook).mockResolvedValue(running);
+    vi.mocked(api.deletePlaybookEntry).mockRejectedValueOnce({
+      error: 'playbook run is active', code: 'PLAYBOOK_RUN_ACTIVE',
+      details: "entry is the run's current card; stop the run first",
+    });
+    renderPage();
+    await screen.findByText('Roll');
+
+    const removeButtons = screen.getAllByRole('button', { name: /remove entry/i });
+    fireEvent.click(removeButtons[removeButtons.length - 1]);
+    await waitFor(() => expect(api.deletePlaybookEntry).toHaveBeenCalledWith('roll', 'e2'));
+    await waitFor(() => expect(toast.showToast).toHaveBeenCalledWith(
+      "playbook run is active: entry is the run's current card; stop the run first", 'error',
+    ));
+    // Refusal is the server's; the page opens no confirm of its own.
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('mentions the active run in the delete confirm only while the run is active', async () => {
+    vi.mocked(api.getPlaybook).mockResolvedValue(baseDetail());
+    const { unmount } = renderPage();
+    await screen.findByText('Roll');
+    fireEvent.click(screen.getByRole('button', { name: /^delete$/i }));
+    let dialog = await screen.findByRole('dialog');
+    expect(within(dialog).queryByText(/run is active/i)).not.toBeInTheDocument();
+    unmount();
+
+    vi.mocked(api.getPlaybook).mockResolvedValue({
+      ...baseDetail(), runnable: true, branch: 'playbook/roll',
+      run: { status: 'waiting', started_at: 'x', updated_at: 'x', entry: 'e2', reason: 'parked' },
+    });
+    renderPage();
+    await screen.findByText('Roll');
+    fireEvent.click(screen.getByRole('button', { name: /^delete$/i }));
+    dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText(/run is active/i)).toBeInTheDocument();
+  });
+
   it('plays and stops through the run endpoints', async () => {
     const runnable = { ...baseDetail(), runnable: true, branch: 'playbook/roll' };
     vi.mocked(api.getPlaybook).mockResolvedValue(runnable);
