@@ -127,6 +127,50 @@ func mergePlaybooks(base, ours, theirs *board.Playbook, path string, c Context) 
 		out.Description = v
 	}
 
+	// Runnable, base_branch and the run block follow the title rule: a
+	// one-sided change wins, both-sided changes go to the later side. The
+	// run block is compared as a unit so a stale peer cannot splice fields
+	// of two different runs together.
+	switch {
+	case ours.Runnable == theirs.Runnable:
+		out.Runnable = ours.Runnable
+	case ours.Runnable == base.Runnable:
+		out.Runnable = theirs.Runnable
+	case theirs.Runnable == base.Runnable:
+		out.Runnable = later.Runnable
+	default:
+		out.Runnable = later.Runnable
+
+		conflict("runnable")
+	}
+
+	switch {
+	case ours.BaseBranch == theirs.BaseBranch:
+		out.BaseBranch = ours.BaseBranch
+	case ours.BaseBranch == base.BaseBranch:
+		out.BaseBranch = theirs.BaseBranch
+	case theirs.BaseBranch == base.BaseBranch:
+		out.BaseBranch = later.BaseBranch
+	default:
+		out.BaseBranch = later.BaseBranch
+
+		conflict("base_branch")
+	}
+
+	if v, cf := pickEq(base.Run, ours.Run, theirs.Run, func(a, b *board.PlaybookRun) bool { return reflect.DeepEqual(a, b) }); cf {
+		out.Run = later.Run
+
+		conflict("run")
+	} else {
+		out.Run = v
+	}
+
+	// A run block only makes sense on a runnable playbook; Validate rejects
+	// the combination, so repair it here rather than leave the file unusable.
+	if !out.Runnable {
+		out.Run = nil
+	}
+
 	out.NextEntryID = max(ours.NextEntryID, theirs.NextEntryID)
 	out.Updated = later.Updated
 

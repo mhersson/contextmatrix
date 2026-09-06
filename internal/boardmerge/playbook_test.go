@@ -303,3 +303,102 @@ func TestResolvePlaybook_EntryConflictPicksLaterUpdated(t *testing.T) {
 		})
 	}
 }
+
+func TestResolvePlaybook_RunFieldsPickLaterUpdated(t *testing.T) {
+	base, ours, theirs := pb(), pb(), pb()
+	base.Runnable = true
+
+	ours.Runnable = true
+	ours.BaseBranch = "main"
+	ours.Run = &board.PlaybookRun{Status: board.RunStatusRunning, Instance: "lap-a", StartedAt: ts(1), UpdatedAt: ts(5), Entry: "e1"}
+	ours.Updated = ts(5)
+
+	theirs.Runnable = true
+	theirs.BaseBranch = "develop"
+	theirs.Run = &board.PlaybookRun{Status: board.RunStatusWaiting, Instance: "lap-b", StartedAt: ts(1), UpdatedAt: ts(2), Entry: "e1", Reason: "gate"}
+	theirs.Updated = ts(2)
+
+	out, err := Resolve(Input{
+		Path: "playbooks/release.yaml", Base: serializePb(t, base),
+		Ours: serializePb(t, ours), Theirs: serializePb(t, theirs),
+	}, testCtx())
+	require.NoError(t, err)
+	got, err := board.ParsePlaybook(out.Content)
+	require.NoError(t, err)
+	require.NoError(t, got.Validate())
+
+	assert.True(t, got.Runnable)
+	assert.Equal(t, "main", got.BaseBranch)
+	require.NotNil(t, got.Run)
+	assert.Equal(t, board.RunStatusRunning, got.Run.Status)
+	assert.Equal(t, "lap-a", got.Run.Instance)
+
+	details := []string{}
+	for _, r := range out.Resolutions {
+		details = append(details, r.Detail)
+	}
+
+	assert.Contains(t, strings.Join(details, "\n"), "base_branch")
+	assert.Contains(t, strings.Join(details, "\n"), "run")
+}
+
+func TestResolvePlaybook_OneSideSetsRunnable(t *testing.T) {
+	base, ours, theirs := pb(), pb(), pb()
+	theirs.Runnable = true
+	theirs.BaseBranch = "main"
+	theirs.Updated = ts(3)
+
+	out, err := Resolve(Input{
+		Path: "playbooks/release.yaml", Base: serializePb(t, base),
+		Ours: serializePb(t, ours), Theirs: serializePb(t, theirs),
+	}, testCtx())
+	require.NoError(t, err)
+	got, err := board.ParsePlaybook(out.Content)
+	require.NoError(t, err)
+
+	assert.True(t, got.Runnable)
+	assert.Equal(t, "main", got.BaseBranch)
+	assert.Nil(t, got.Run)
+	assert.Empty(t, out.Resolutions)
+}
+
+func TestResolvePlaybook_RunDroppedWhenRunnableCleared(t *testing.T) {
+	base, ours, theirs := pb(), pb(), pb()
+	base.Runnable = true
+	base.Run = &board.PlaybookRun{Status: board.RunStatusCompleted, StartedAt: ts(1), UpdatedAt: ts(1)}
+
+	// Ours cleared runnable (and with it the run block); theirs touched the
+	// run block. Later-updated theirs wins the run pick, but a run without
+	// runnable is invalid, so the merge drops it.
+	ours.Runnable = false
+	ours.Run = nil
+	ours.Updated = ts(2)
+
+	theirs.Runnable = true
+	theirs.Run = &board.PlaybookRun{Status: board.RunStatusCompleted, StartedAt: ts(1), UpdatedAt: ts(4), Reason: "note"}
+	theirs.Updated = ts(4)
+
+	out, err := Resolve(Input{
+		Path: "playbooks/release.yaml", Base: serializePb(t, base),
+		Ours: serializePb(t, ours), Theirs: serializePb(t, theirs),
+	}, testCtx())
+	require.NoError(t, err)
+	got, err := board.ParsePlaybook(out.Content)
+	require.NoError(t, err)
+	require.NoError(t, got.Validate())
+	assert.True(t, got.Runnable, "later side kept runnable")
+
+	// Flip the scenario: ours is later, runnable ends up false, run must go.
+	ours.Updated = ts(9)
+
+	out, err = Resolve(Input{
+		Path: "playbooks/release.yaml", Base: serializePb(t, base),
+		Ours: serializePb(t, ours), Theirs: serializePb(t, theirs),
+	}, testCtx())
+	require.NoError(t, err)
+	got, err = board.ParsePlaybook(out.Content)
+	require.NoError(t, err)
+	require.NoError(t, got.Validate())
+	assert.False(t, got.Runnable)
+	assert.Nil(t, got.Run)
+}
