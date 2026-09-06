@@ -10,11 +10,14 @@ import (
 	"github.com/mhersson/contextmatrix/internal/events"
 )
 
-// walker is one goroutine's handle: its cancel and a one-slot nudge that
-// Ensure fills when a Play arrives while the walker may be about to exit.
+// walker is one goroutine's handle: its cancel, a one-slot nudge that
+// Ensure fills when a Play arrives while the walker may be about to exit,
+// and done, closed once the goroutine has exited, so Stop can wait for a
+// launch that was in flight when it cancelled the walker.
 type walker struct {
 	cancel context.CancelFunc
 	nudge  chan struct{}
+	done   chan struct{}
 }
 
 // walk is one playbook's loop: a pass, then wait for a nudge. Nudges are a
@@ -22,6 +25,7 @@ type walker struct {
 // Play, and the tick, which guarantees progress because the bus drops events
 // on a full buffer and replays nothing across a restart.
 func (r *Runner) walk(ctx context.Context, id string, w *walker) {
+	defer close(w.done)
 	defer r.wg.Done()
 	defer r.forget(id, w)
 
@@ -90,16 +94,24 @@ func (r *Runner) forget(id string, w *walker) {
 }
 
 // cancelWalker cancels and drops the current walker for id, if there is
-// one. Stop calls it so a pass already in flight unwinds instead of writing
-// over the stop. Nil-safe when no walker is running and generation-safe,
-// because dropLocked only touches the walker still registered for id.
-func (r *Runner) cancelWalker(id string) {
+// one, and returns its done channel so the caller can wait for the
+// goroutine to exit; nil when none was running. Stop calls it so a pass
+// already in flight unwinds instead of writing over the stop, then waits,
+// because the launch that pass may be inside is what queues the card Stop
+// has to kill. Generation-safe: dropLocked only touches the walker still
+// registered for id.
+func (r *Runner) cancelWalker(id string) <-chan struct{} {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if w, running := r.walkers[id]; running {
-		r.dropLocked(id, w)
+	w, running := r.walkers[id]
+	if !running {
+		return nil
 	}
+
+	r.dropLocked(id, w)
+
+	return w.done
 }
 
 // dropLocked removes w's entry and cancels its context when w is still the

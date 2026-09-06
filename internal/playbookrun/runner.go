@@ -234,9 +234,18 @@ func (r *Runner) Stop(ctx context.Context, id, agentID string) (*service.Playboo
 		return nil, err
 	}
 
-	// The stop is persisted: take the walker down so a pass already in
-	// flight unwinds on ctx.Err() instead of writing over it.
-	r.cancelWalker(id)
+	// The stop is persisted: take the walker down and wait for it. A launch
+	// in flight either finishes, so the card below reads queued and is
+	// killed, or fails on the cancelled context and the launcher reverts
+	// the card. Reading the card before the walker exits could see todo,
+	// kill nothing, and let the launch queue a worker that outlives the stop.
+	if done := r.cancelWalker(id); done != nil {
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return d, fmt.Errorf("%w: %v", ErrStopWorker, ctx.Err())
+		}
+	}
 
 	entry := findEntry(d, run.Entry)
 	if entry == nil || entry.Type != board.EntryTypeCard {
@@ -327,7 +336,7 @@ func (r *Runner) Ensure(id string) {
 	}
 
 	ctx, cancel := context.WithCancel(r.ctx)
-	w := &walker{cancel: cancel, nudge: make(chan struct{}, 1)}
+	w := &walker{cancel: cancel, nudge: make(chan struct{}, 1), done: make(chan struct{})}
 	r.walkers[id] = w
 
 	r.wg.Add(1)

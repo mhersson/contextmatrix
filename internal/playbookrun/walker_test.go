@@ -265,3 +265,66 @@ func TestShutdown_JoinsWalkersAndHonoursItsContext(t *testing.T) {
 	require.NoError(t, e.runner.Shutdown(context.Background()))
 	assert.Equal(t, 0, e.runner.walkerCount())
 }
+
+// TestStop_WaitsForAnInFlightLaunch pins the window between the run's
+// running write and the card's queued write. A Stop that reads the card
+// inside it sees todo, kills nothing, and the launch then queues a worker
+// that outlives the stop. Stop must wait for the walker, whose launch is
+// what queues the card, before deciding what to kill.
+func TestStop_WaitsForAnInFlightLaunch(t *testing.T) {
+	e := newEnv(t)
+
+	c := todoCard("alpha", "ALPHA-1")
+	c.ApplyPlaybookSettings("playbook/rollout") // already forced: no card writes in the way
+	e.cards.add(c)
+
+	p := runnablePlaybook("rollout", cardEntry("e1", "alpha", "ALPHA-1"))
+	e.activeRun(p, "")
+	e.pbs.add(p)
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+
+	// The launch blocks mid-call, then queues the card the way the trigger
+	// endpoint does.
+	e.launcher.onLaunch = func(project, card string) {
+		close(entered)
+		<-release
+
+		e.cards.mu.Lock()
+		defer e.cards.mu.Unlock()
+
+		queued := e.cards.cards[cardKey(project, card)]
+		queued.State = board.StateInProgress
+		queued.WorkerStatus = "queued"
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	e.runner.Start(ctx)
+	<-entered
+
+	stopped := make(chan error, 1)
+
+	go func() {
+		_, err := e.runner.Stop(context.Background(), "rollout", "human:alice")
+		stopped <- err
+	}()
+
+	select {
+	case err := <-stopped:
+		t.Fatalf("Stop returned while the launch was still in flight: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(release)
+
+	require.NoError(t, <-stopped)
+	assert.Equal(t, []string{"ALPHA-1"}, e.stopper.calls, "the worker the launch queued is killed")
+	assert.Equal(t, board.RunStatusStopped, e.pbs.lastRun().Status)
+	assert.Equal(t, 1, e.launcher.count())
+
+	cancel()
+	e.runner.Wait()
+}

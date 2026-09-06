@@ -267,16 +267,18 @@ type recordingLauncher struct {
 
 func (l *recordingLauncher) launch(_ context.Context, project, card string, opts LaunchOptions) error {
 	l.mu.Lock()
-	defer l.mu.Unlock()
-
 	l.calls = append(l.calls, launchCall{project: project, card: card, opts: opts})
+	err, hook := l.err, l.onLaunch
+	l.mu.Unlock()
 
-	if l.err != nil {
-		return l.err
+	if err != nil {
+		return err
 	}
 
-	if l.onLaunch != nil {
-		l.onLaunch(project, card)
+	// The hook runs outside the lock: a test may block inside it to hold a
+	// launch in flight while it reads counts or drives Stop.
+	if hook != nil {
+		hook(project, card)
 	}
 
 	return nil
