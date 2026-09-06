@@ -88,7 +88,10 @@ queued or running, otherwise a curated transition (Mark done, Unblock, Resume,
 Re-open) when the board allows it, otherwise Run Auto or Run HITL. Which run
 button appears follows the Autonomous mode switch in the Automation tab, which
 also holds Best of N and mob settings. What a run does is documented in
-[running cards](running-cards.md).
+[running cards](running-cards.md). A card queued in an active playbook run
+shows a yellow queued-in-playbook signal and a disabled run button; its five
+playbook-owned settings are locked on the Automation tab with a link to the
+playbook.
 
 The Chat tab is the run's live transcript: interactive for a HITL run, read-only
 for an autonomous run and for a card another instance claimed on a shared
@@ -150,6 +153,19 @@ Catppuccin.
   images and the verify gate. **Danger** deletes the project. A tab with
   unsaved edits shows a dot until Save changes or Discard. In `multi` mode the
   wizard is admin-only and the settings page is read-only for non-admins.
+
+## Playbooks
+
+`/playbooks/:id` carries a **Run** card in its side panel. **Make runnable**
+opens a confirm that lists what will change on the cards; the base-branch
+dropdown offers the branches present in every repository the playbook spans
+and names the branch the playbook branch is cut from ("Default branch" means
+the repository default). A runnable playbook shows its branch, a status line
+(`Running <card>, n of m`, `Waiting for you: <reason>`, `Stopped`,
+`Completed`), **Run** while idle and **Stop** while active. A completed run
+lists one "Open PR" compare link per repository. Entry rows read `queued`
+while a run is active and show the waiting reason on the run's entry; the
+list page shows a run pill. See [playbooks](playbooks.md#running-a-playbook).
 
 ## Keyboard shortcuts
 
