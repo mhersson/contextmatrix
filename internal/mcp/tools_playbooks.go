@@ -53,13 +53,6 @@ type updatePlaybookInput struct {
 	ID          string `json:"id" jsonschema:"required,playbook id"`
 	Title       string `json:"title,omitempty" jsonschema:"new title (empty = unchanged; the id never changes)"`
 	Description string `json:"description,omitempty" jsonschema:"new description (empty = unchanged)"`
-	// Runnable and BaseBranch are declared so a caller replaying the web UI's
-	// full playbook payload does not trip the strict (additionalProperties:
-	// false) schema, but neither is ever read here: runnable, base_branch and
-	// run state are human-only operator fields set from the web UI, not
-	// through this tool.
-	Runnable   *bool  `json:"runnable,omitempty" jsonschema:"ignored - runnable is set from the web UI, not this tool"`
-	BaseBranch string `json:"base_branch,omitempty" jsonschema:"ignored - base_branch is set from the web UI, not this tool"`
 }
 
 type deletePlaybookInput struct {

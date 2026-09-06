@@ -63,8 +63,11 @@ type CardSummary struct {
 	SubtaskCostUSD          float64             `json:"subtask_cost_usd,omitempty"`
 	SubtaskCostHasEstimates bool                `json:"subtask_cost_has_estimates,omitempty"`
 	InPlaybooks             []string            `json:"in_playbooks,omitempty"`
-	Created                 time.Time           `json:"created"`
-	Updated                 time.Time           `json:"updated"`
+	// PlaybookLock names the runnable playbook that owns this card's execution
+	// settings, with its run status while a run is active. Computed on read.
+	PlaybookLock *board.CardPlaybookLock `json:"playbook_lock,omitempty"`
+	Created      time.Time               `json:"created"`
+	Updated      time.Time               `json:"updated"`
 }
 
 // summarizeCard copies shallowly - slice and pointer fields share backing
@@ -123,6 +126,7 @@ func summarizeCard(c *board.Card) *CardSummary {
 		SubtaskCostUSD:          c.SubtaskCostUSD,
 		SubtaskCostHasEstimates: c.SubtaskCostHasEstimates,
 		InPlaybooks:             c.InPlaybooks,
+		PlaybookLock:            c.PlaybookLock,
 		Created:                 c.Created,
 		Updated:                 c.Updated,
 	}

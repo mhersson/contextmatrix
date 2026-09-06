@@ -342,10 +342,10 @@ func TestUpdatePlaybook_MCP_PreservesRunnableFields(t *testing.T) {
 
 	res, err := env.session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "update_playbook",
-		Arguments: map[string]any{"agent_id": "agent-1", "id": "rollout", "title": "Rollout renamed", "runnable": false, "base_branch": "develop"},
+		Arguments: map[string]any{"agent_id": "agent-1", "id": "rollout", "title": "Rollout renamed"},
 	})
 	require.NoError(t, err)
-	require.False(t, res.IsError, "unknown fields are ignored, not errors")
+	require.False(t, res.IsError)
 
 	got, err := env.pb.Get(ctx, "rollout")
 	require.NoError(t, err)
@@ -354,6 +354,21 @@ func TestUpdatePlaybook_MCP_PreservesRunnableFields(t *testing.T) {
 	assert.Equal(t, "main", got.BaseBranch, "base_branch preserved")
 	require.NotNil(t, got.Run, "run block preserved")
 	assert.Equal(t, board.RunStatusStopped, got.Run.Status)
+
+	// A call naming runnable is rejected outright, not silently dropped -
+	// the strict schema doesn't declare the field, so it never reaches
+	// UpdateMeta.
+	res, err = env.session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "update_playbook",
+		Arguments: map[string]any{"agent_id": "agent-1", "id": "rollout", "title": "Rollout renamed again", "runnable": false},
+	})
+	rejected := err != nil || res.IsError
+	assert.True(t, rejected, "update_playbook must reject an unknown runnable field rather than silently drop it")
+
+	got, err = env.pb.Get(ctx, "rollout")
+	require.NoError(t, err)
+	assert.True(t, got.Runnable, "runnable still preserved after the rejected call")
+	assert.Equal(t, "Rollout renamed", got.Title, "title unchanged by the rejected call")
 }
 
 func TestUpdateCard_MCP_RefusesAutonomousOnLockedCard(t *testing.T) {
