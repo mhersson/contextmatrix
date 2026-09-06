@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router';
 import { CardPanel } from './CardPanel';
 import type { Card, ProjectConfig } from '../../types';
 
@@ -484,15 +485,19 @@ describe('CardPanel - run gating on global task backend', () => {
 
 describe('CardPanel - playbook lock disables the run button', () => {
   it('disables the run button with the playbook reason while the run is active', async () => {
+    // Wrapped in a router: the default Automation tab renders the
+    // playbook-lock banner, which links to the owning playbook.
     render(
-      <CardPanel
-        {...makeProps()}
-        card={{
-          ...baseCard,
-          autonomous: true,
-          playbook_lock: { id: 'roll', title: 'Roll', run_status: 'running' },
-        }}
-      />,
+      <MemoryRouter>
+        <CardPanel
+          {...makeProps()}
+          card={{
+            ...baseCard,
+            autonomous: true,
+            playbook_lock: { id: 'roll', title: 'Roll', run_status: 'running' },
+          }}
+        />
+      </MemoryRouter>,
     );
     const run = await screen.findByRole('button', { name: /run auto/i });
     expect(run).toBeDisabled();

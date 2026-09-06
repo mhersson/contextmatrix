@@ -1,3 +1,4 @@
+import { Link } from 'react-router';
 import { isSafeHttpUrl } from './utils';
 import { ModelPinsSection, type ModelPinField } from './ModelPinsSection';
 
@@ -5,7 +6,7 @@ const REVIEW_ATTEMPTS_WARN_THRESHOLD = 4;
 const REVIEW_ATTEMPTS_HALT = 5;
 const MOB_PHASES = ['plan', 'review', 'execute'] as const;
 
-interface AutomationCheckboxesProps {
+export interface AutomationCheckboxesProps {
   autonomous: boolean;
   createPR: boolean;
   onAutonomousChange: (value: boolean) => void;
@@ -118,6 +119,13 @@ interface AutomationCheckboxesProps {
   maxCapability?: boolean;
   /** Called when the user toggles the maximum-capability checkbox. */
   onMaxCapabilityChange?: (value: boolean) => void;
+  /**
+   * Set when this card's automation is owned by a playbook run. Locks the
+   * autonomous, create-PR, wait-for-CI and merge-PR checkboxes plus the base
+   * branch (rendered read-only); every other control stays live. A banner
+   * links back to the owning playbook.
+   */
+  playbookLock?: { id: string; title: string };
 }
 
 /**
@@ -157,8 +165,10 @@ export function AutomationCheckboxes({
   lockedReason,
   maxCapability,
   onMaxCapabilityChange,
+  playbookLock,
 }: AutomationCheckboxesProps) {
   const creating = mode === 'create';
+  const playbookLocked = !!playbookLock;
   const prDisplay = formatPrLink(prUrl);
   const agentBackend = taskBackend === 'agent';
   const bestOfNMaxResolved = bestOfNMax ?? 5;
@@ -188,7 +198,7 @@ export function AutomationCheckboxes({
             type="checkbox"
             aria-label="Autonomous mode"
             checked={autonomous}
-            disabled={disabled}
+            disabled={disabled || playbookLocked}
             onChange={(e) => onAutonomousChange(e.target.checked)}
           />
           <span>Autonomous mode</span>
@@ -377,7 +387,7 @@ export function AutomationCheckboxes({
             type="checkbox"
             aria-label="Create PR"
             checked={createPR}
-            disabled={disabled}
+            disabled={disabled || playbookLocked}
             onChange={(e) => onCreatePRChange(e.target.checked)}
           />
           <span>Create pull request</span>
@@ -409,7 +419,7 @@ export function AutomationCheckboxes({
                 type="checkbox"
                 aria-label="Wait for CI"
                 checked={awaitCI}
-                disabled={disabled}
+                disabled={disabled || playbookLocked}
                 onChange={(e) => onAwaitCIChange(e.target.checked)}
               />
               <span>Wait for CI to pass</span>
@@ -425,7 +435,7 @@ export function AutomationCheckboxes({
                     type="checkbox"
                     aria-label="Merge PR"
                     checked={mergePR}
-                    disabled={disabled}
+                    disabled={disabled || playbookLocked}
                     onChange={(e) => onMergePRChange(e.target.checked)}
                   />
                   <span>Merge PR when CI passes</span>
@@ -466,19 +476,25 @@ export function AutomationCheckboxes({
       {/* Base branch */}
       <div className="bf-spread">
         <span className="bf-switch-label">Base branch</span>
-        <select
-          aria-label="Base branch"
-          value={baseBranch ?? ''}
-          onChange={(e) => onBaseBranchChange(e.target.value)}
-          disabled={branchesLoading || disabled}
-          className="bf-input"
-          style={{ width: 'auto', minWidth: '160px' }}
-        >
-          <option value="">Default branch</option>
-          {branches.map((b) => (
-            <option key={b} value={b}>{b}</option>
-          ))}
-        </select>
+        {playbookLock ? (
+          <span className="bf-hint">
+            <span style={{ color: 'var(--aqua)', fontFamily: 'var(--font-mono)' }}>{baseBranch}</span>
+          </span>
+        ) : (
+          <select
+            aria-label="Base branch"
+            value={baseBranch ?? ''}
+            onChange={(e) => onBaseBranchChange(e.target.value)}
+            disabled={branchesLoading || disabled}
+            className="bf-input"
+            style={{ width: 'auto', minWidth: '160px' }}
+          >
+            <option value="">Default branch</option>
+            {branches.map((b) => (
+              <option key={b} value={b}>{b}</option>
+            ))}
+          </select>
+        )}
       </div>
       {branchesError && (
         <div className="text-xs text-[var(--yellow)] -mt-1">Could not load branches</div>
@@ -504,6 +520,12 @@ export function AutomationCheckboxes({
       {disabled && !creating && (
         <div className="bf-locked-banner">
           🔒 {lockedReason ?? 'Automation locked during remote run'}
+        </div>
+      )}
+
+      {playbookLock && (
+        <div className="bf-locked-banner">
+          🔒 <Link to={`/playbooks/${playbookLock.id}`} style={{ color: 'inherit' }}>Set by playbook {playbookLock.title}</Link>
         </div>
       )}
     </div>
