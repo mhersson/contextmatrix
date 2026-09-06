@@ -131,30 +131,20 @@ func mergePlaybooks(base, ours, theirs *board.Playbook, path string, c Context) 
 	// one-sided change wins, both-sided changes go to the later side. The
 	// run block is compared as a unit so a stale peer cannot splice fields
 	// of two different runs together.
-	switch {
-	case ours.Runnable == theirs.Runnable:
-		out.Runnable = ours.Runnable
-	case ours.Runnable == base.Runnable:
-		out.Runnable = theirs.Runnable
-	case theirs.Runnable == base.Runnable:
-		out.Runnable = later.Runnable
-	default:
+	if v, cf := pick(base.Runnable, ours.Runnable, theirs.Runnable); cf {
 		out.Runnable = later.Runnable
 
 		conflict("runnable")
+	} else {
+		out.Runnable = v
 	}
 
-	switch {
-	case ours.BaseBranch == theirs.BaseBranch:
-		out.BaseBranch = ours.BaseBranch
-	case ours.BaseBranch == base.BaseBranch:
-		out.BaseBranch = theirs.BaseBranch
-	case theirs.BaseBranch == base.BaseBranch:
-		out.BaseBranch = later.BaseBranch
-	default:
+	if v, cf := pick(base.BaseBranch, ours.BaseBranch, theirs.BaseBranch); cf {
 		out.BaseBranch = later.BaseBranch
 
 		conflict("base_branch")
+	} else {
+		out.BaseBranch = v
 	}
 
 	if v, cf := pickEq(base.Run, ours.Run, theirs.Run, func(a, b *board.PlaybookRun) bool { return reflect.DeepEqual(a, b) }); cf {

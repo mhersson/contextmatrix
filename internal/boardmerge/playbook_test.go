@@ -363,20 +363,54 @@ func TestResolvePlaybook_OneSideSetsRunnable(t *testing.T) {
 }
 
 func TestResolvePlaybook_RunDroppedWhenRunnableCleared(t *testing.T) {
+	// Ours cleared runnable (a one-sided change, so it wins regardless of
+	// timestamps) while theirs touched the run block (a both-sided change
+	// that goes to the later side). Whichever side is later, the merged
+	// result must not carry a run block on a non-runnable playbook.
+	for _, tc := range []struct {
+		name          string
+		oursUpdated   time.Time
+		theirsUpdated time.Time
+	}{
+		{name: "theirs later", oursUpdated: ts(2), theirsUpdated: ts(4)},
+		{name: "ours later", oursUpdated: ts(9), theirsUpdated: ts(4)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			base, ours, theirs := pb(), pb(), pb()
+			base.Runnable = true
+			base.Run = &board.PlaybookRun{Status: board.RunStatusCompleted, StartedAt: ts(1), UpdatedAt: ts(1)}
+
+			ours.Runnable = false
+			ours.Run = nil
+			ours.Updated = tc.oursUpdated
+
+			theirs.Runnable = true
+			theirs.Run = &board.PlaybookRun{Status: board.RunStatusCompleted, StartedAt: ts(1), UpdatedAt: ts(4), Reason: "note"}
+			theirs.Updated = tc.theirsUpdated
+
+			out, err := Resolve(Input{
+				Path: "playbooks/release.yaml", Base: serializePb(t, base),
+				Ours: serializePb(t, ours), Theirs: serializePb(t, theirs),
+			}, testCtx())
+			require.NoError(t, err)
+			got, err := board.ParsePlaybook(out.Content)
+			require.NoError(t, err)
+			require.NoError(t, got.Validate())
+			assert.False(t, got.Runnable, "one-sided clear wins regardless of timestamps")
+			assert.Nil(t, got.Run)
+		})
+	}
+}
+
+func TestResolvePlaybook_OneSidedChangeSurvivesLaterPeer(t *testing.T) {
 	base, ours, theirs := pb(), pb(), pb()
-	base.Runnable = true
-	base.Run = &board.PlaybookRun{Status: board.RunStatusCompleted, StartedAt: ts(1), UpdatedAt: ts(1)}
+	ours.Runnable = true
+	ours.BaseBranch = "main"
+	ours.Updated = ts(1)
 
-	// Ours cleared runnable (and with it the run block); theirs touched the
-	// run block. Later-updated theirs wins the run pick, but a run without
-	// runnable is invalid, so the merge drops it.
-	ours.Runnable = false
-	ours.Run = nil
-	ours.Updated = ts(2)
-
-	theirs.Runnable = true
-	theirs.Run = &board.PlaybookRun{Status: board.RunStatusCompleted, StartedAt: ts(1), UpdatedAt: ts(4), Reason: "note"}
-	theirs.Updated = ts(4)
+	// Theirs touched neither field but is later overall from an unrelated edit.
+	theirs.Description = "touched"
+	theirs.Updated = ts(10)
 
 	out, err := Resolve(Input{
 		Path: "playbooks/release.yaml", Base: serializePb(t, base),
@@ -385,20 +419,9 @@ func TestResolvePlaybook_RunDroppedWhenRunnableCleared(t *testing.T) {
 	require.NoError(t, err)
 	got, err := board.ParsePlaybook(out.Content)
 	require.NoError(t, err)
-	require.NoError(t, got.Validate())
-	assert.True(t, got.Runnable, "later side kept runnable")
 
-	// Flip the scenario: ours is later, runnable ends up false, run must go.
-	ours.Updated = ts(9)
-
-	out, err = Resolve(Input{
-		Path: "playbooks/release.yaml", Base: serializePb(t, base),
-		Ours: serializePb(t, ours), Theirs: serializePb(t, theirs),
-	}, testCtx())
-	require.NoError(t, err)
-	got, err = board.ParsePlaybook(out.Content)
-	require.NoError(t, err)
-	require.NoError(t, got.Validate())
-	assert.False(t, got.Runnable)
-	assert.Nil(t, got.Run)
+	assert.True(t, got.Runnable)
+	assert.Equal(t, "main", got.BaseBranch)
+	assert.Equal(t, "touched", got.Description)
+	assert.Empty(t, out.Resolutions)
 }
