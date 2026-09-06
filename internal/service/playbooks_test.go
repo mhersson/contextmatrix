@@ -1180,18 +1180,38 @@ func (f failingForcer) ForcePlaybookSettings(ctx context.Context, project, id, p
 	return f.inner.ForcePlaybookSettings(ctx, project, id, playbookID, branch, agentID)
 }
 
+// syncBuffer is a bytes.Buffer safe for the logger's goroutines.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return b.buf.String()
+}
+
 // captureLogs routes slog's default logger into a buffer for one test.
-func captureLogs(t *testing.T) *bytes.Buffer {
+func captureLogs(t *testing.T) *syncBuffer {
 	t.Helper()
 
-	var buf bytes.Buffer
+	buf := &syncBuffer{}
 
 	prev := slog.Default()
 
-	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	slog.SetDefault(slog.New(slog.NewTextHandler(buf, nil)))
 	t.Cleanup(func() { slog.SetDefault(prev) })
 
-	return &buf
+	return buf
 }
 
 func TestPlaybookService_MakeRunnableNamesTheCardsItCouldNotForce(t *testing.T) {
