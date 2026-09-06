@@ -10,12 +10,51 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Playbook entry types. A future runnable version attaches semantics per
-// type: card entries dispatch to agents, manual entries pause for a human.
+// Playbook entry types. Card entries dispatch to agents when the playbook
+// runs; manual entries pause the run for a human.
 const (
 	EntryTypeCard   = "card"
 	EntryTypeManual = "manual"
 )
+
+// Playbook run statuses. running and waiting are "active": the playbook's
+// cards are locked against hand runs and a second Play is refused.
+const (
+	RunStatusRunning   = "running"
+	RunStatusWaiting   = "waiting"
+	RunStatusStopped   = "stopped"
+	RunStatusCompleted = "completed"
+)
+
+// ValidPlaybookRunStatus reports whether s is one of the run statuses.
+func ValidPlaybookRunStatus(s string) bool {
+	switch s {
+	case RunStatusRunning, RunStatusWaiting, RunStatusStopped, RunStatusCompleted:
+		return true
+	}
+
+	return false
+}
+
+// PlaybookRun is the state of a playbook's current or last run. It is
+// present once a run has started and is owned by the instance that started
+// it (Instance is empty on a private board). Entry names the entry the run
+// is on, empty once completed; Reason explains a waiting status to a human.
+type PlaybookRun struct {
+	Status    string     `yaml:"status"               json:"status"`
+	Instance  string     `yaml:"instance,omitempty"   json:"instance,omitempty"`
+	StartedBy string     `yaml:"started_by,omitempty" json:"started_by,omitempty"`
+	StartedAt time.Time  `yaml:"started_at"           json:"started_at"`
+	UpdatedAt time.Time  `yaml:"updated_at"           json:"updated_at"`
+	Entry     string     `yaml:"entry,omitempty"      json:"entry,omitempty"`
+	Reason    string     `yaml:"reason,omitempty"     json:"reason,omitempty"`
+	EndedAt   *time.Time `yaml:"ended_at,omitempty"   json:"ended_at,omitempty"`
+}
+
+// Active reports whether the run is running or waiting. Nil-safe.
+func (r *PlaybookRun) Active() bool {
+	return r != nil && (r.Status == RunStatusRunning || r.Status == RunStatusWaiting)
+}
 
 // ErrInvalidPlaybook is the sentinel wrapped by all playbook validation
 // failures.
@@ -37,6 +76,12 @@ type Playbook struct {
 	Updated     time.Time       `yaml:"updated_at"            json:"updated_at"`
 	NextEntryID int             `yaml:"next_entry_id"         json:"next_entry_id"`
 	Entries     []PlaybookEntry `yaml:"entries"               json:"entries"`
+	// Runnable marks a playbook whose cards carry the forced settings and
+	// which a human may Play. BaseBranch is the branch the playbook branch
+	// is cut from on its first run; empty means the repository default.
+	Runnable   bool         `yaml:"runnable,omitempty"    json:"runnable"`
+	BaseBranch string       `yaml:"base_branch,omitempty" json:"base_branch,omitempty"`
+	Run        *PlaybookRun `yaml:"run,omitempty"         json:"run,omitempty"`
 }
 
 // PlaybookEntry is one step: a reference to a card in some project, or a
@@ -126,7 +171,34 @@ func (p *Playbook) Validate() error {
 		}
 	}
 
+	if p.Run != nil {
+		if !p.Runnable {
+			return fmt.Errorf("%w: run state on a playbook that is not runnable", ErrInvalidPlaybook)
+		}
+
+		if !ValidPlaybookRunStatus(p.Run.Status) {
+			return fmt.Errorf("%w: unknown run status %q", ErrInvalidPlaybook, p.Run.Status)
+		}
+
+		if p.Run.Entry != "" {
+			if _, ok := seenIDs[p.Run.Entry]; !ok {
+				return fmt.Errorf("%w: run entry %q does not exist", ErrInvalidPlaybook, p.Run.Entry)
+			}
+		}
+	}
+
 	return nil
+}
+
+// Branch is the shared branch every card of a runnable playbook targets.
+// The id never changes, so the name is stable for the playbook's life.
+func (p *Playbook) Branch() string {
+	return "playbook/" + p.ID
+}
+
+// RunActive reports whether the playbook has a running or waiting run.
+func (p *Playbook) RunActive() bool {
+	return p.Run.Active()
 }
 
 // FindEntry returns the index of the entry with the given ID, or -1.

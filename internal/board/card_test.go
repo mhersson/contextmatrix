@@ -1171,3 +1171,29 @@ func TestTrimActivityLog(t *testing.T) {
 		assert.Equal(t, "59", out[len(out)-1].Message)
 	})
 }
+
+func TestCard_PlaybookSettings(t *testing.T) {
+	c := &Card{ID: "ALPHA-001", Autonomous: false, CreatePR: false, AwaitCI: false, MergePR: false, BaseBranch: ""}
+	assert.False(t, c.HasPlaybookSettings("playbook/rollout"))
+
+	c.ApplyPlaybookSettings("playbook/rollout")
+	assert.True(t, c.Autonomous)
+	assert.True(t, c.CreatePR)
+	assert.True(t, c.AwaitCI)
+	assert.True(t, c.MergePR)
+	assert.Equal(t, "playbook/rollout", c.BaseBranch)
+	assert.True(t, c.HasPlaybookSettings("playbook/rollout"))
+	assert.False(t, c.HasPlaybookSettings("playbook/other"))
+
+	c.MergePR = false
+	assert.False(t, c.HasPlaybookSettings("playbook/rollout"))
+}
+
+func TestCardPlaybookLock_Active(t *testing.T) {
+	var nilLock *CardPlaybookLock
+	assert.False(t, nilLock.Active())
+	assert.False(t, (&CardPlaybookLock{ID: "rollout"}).Active())
+	assert.True(t, (&CardPlaybookLock{ID: "rollout", RunStatus: RunStatusRunning}).Active())
+	assert.True(t, (&CardPlaybookLock{ID: "rollout", RunStatus: RunStatusWaiting}).Active())
+	assert.False(t, (&CardPlaybookLock{ID: "rollout", RunStatus: RunStatusCompleted}).Active())
+}

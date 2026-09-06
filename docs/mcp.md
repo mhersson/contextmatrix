@@ -148,11 +148,16 @@ Mutations require `agent_id` for attribution but have no permission gate.
 | `list_playbooks`        | Slim list view with per-entry status                 | any    |
 | `get_playbook`          | Full detail with entries resolved against cards      | any    |
 | `create_playbook`       | Create with entries; all-or-nothing; `boards_repo`   | any    |
-| `update_playbook`       | Title and description; the id never changes          | any    |
+| `update_playbook`       | Title and description; `runnable`, `base_branch` and run state are not accepted and are preserved | any    |
 | `delete_playbook`       | Delete; referenced cards are untouched               | any    |
-| `add_playbook_entry`    | Append a card reference or manual gate step          | any    |
+| `add_playbook_entry`    | Append a card reference or manual gate step; human-only on a runnable playbook for card entries | any    |
 | `update_playbook_entry` | Done state, note, text, or position                  | any    |
 | `remove_playbook_entry` | Remove one entry; its id is never reused             | any    |
+
+Making a playbook runnable, playing and stopping it are human-only web UI
+operations; no tool exposes them. Card summaries (`get_card`, `list_cards`,
+task context) carry `playbook_lock` mirrored from the card, naming the
+runnable playbook that owns its execution settings.
 
 ### Chat
 

@@ -114,3 +114,107 @@ func TestSlugifyPlaybookTitle(t *testing.T) {
 		assert.Regexp(t, playbookIDPattern, got, tt.in)
 	}
 }
+
+func TestPlaybook_BranchAndRunActive(t *testing.T) {
+	p := &Playbook{ID: "alpha-rollout", Title: "Alpha"}
+	assert.Equal(t, "playbook/alpha-rollout", p.Branch())
+	assert.False(t, p.RunActive())
+
+	p.Run = &PlaybookRun{Status: RunStatusRunning}
+	assert.True(t, p.RunActive())
+
+	p.Run.Status = RunStatusWaiting
+	assert.True(t, p.RunActive())
+
+	p.Run.Status = RunStatusStopped
+	assert.False(t, p.RunActive())
+
+	p.Run.Status = RunStatusCompleted
+	assert.False(t, p.RunActive())
+
+	var nilRun *PlaybookRun
+	assert.False(t, nilRun.Active())
+}
+
+func TestPlaybook_ValidateRun(t *testing.T) {
+	now := time.Date(2026, 9, 6, 10, 0, 0, 0, time.UTC)
+
+	base := func() *Playbook {
+		return &Playbook{
+			ID: "rollout", Title: "Rollout", Runnable: true, NextEntryID: 2,
+			Entries: []PlaybookEntry{{ID: "e1", Type: EntryTypeCard, Project: "alpha", Card: "ALPHA-001"}},
+		}
+	}
+
+	t.Run("valid run block", func(t *testing.T) {
+		p := base()
+		p.Run = &PlaybookRun{Status: RunStatusRunning, StartedAt: now, UpdatedAt: now, Entry: "e1"}
+		require.NoError(t, p.Validate())
+	})
+
+	t.Run("unknown status rejected", func(t *testing.T) {
+		p := base()
+		p.Run = &PlaybookRun{Status: "paused", StartedAt: now, UpdatedAt: now}
+		err := p.Validate()
+		require.ErrorIs(t, err, ErrInvalidPlaybook)
+		assert.Contains(t, err.Error(), "run status")
+	})
+
+	t.Run("run without runnable rejected", func(t *testing.T) {
+		p := base()
+		p.Runnable = false
+		p.Run = &PlaybookRun{Status: RunStatusCompleted, StartedAt: now, UpdatedAt: now}
+		err := p.Validate()
+		require.ErrorIs(t, err, ErrInvalidPlaybook)
+		assert.Contains(t, err.Error(), "runnable")
+	})
+
+	t.Run("entry must exist", func(t *testing.T) {
+		p := base()
+		p.Run = &PlaybookRun{Status: RunStatusWaiting, StartedAt: now, UpdatedAt: now, Entry: "e9"}
+		err := p.Validate()
+		require.ErrorIs(t, err, ErrInvalidPlaybook)
+		assert.Contains(t, err.Error(), "e9")
+	})
+
+	t.Run("empty entry allowed", func(t *testing.T) {
+		p := base()
+		p.Run = &PlaybookRun{Status: RunStatusCompleted, StartedAt: now, UpdatedAt: now}
+		require.NoError(t, p.Validate())
+	})
+}
+
+func TestPlaybook_RunFieldsRoundTrip(t *testing.T) {
+	now := time.Date(2026, 9, 6, 10, 0, 0, 0, time.UTC)
+	ended := now.Add(time.Hour)
+	p := &Playbook{
+		ID: "rollout", Title: "Rollout", Runnable: true, BaseBranch: "main", NextEntryID: 1,
+		Run: &PlaybookRun{
+			Status: RunStatusStopped, Instance: "lap-a", StartedBy: "human:alice",
+			StartedAt: now, UpdatedAt: now, Entry: "", Reason: "stopped by human", EndedAt: &ended,
+		},
+	}
+
+	data, err := SerializePlaybook(p)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "runnable: true")
+	assert.Contains(t, string(data), "base_branch: main")
+
+	got, err := ParsePlaybook(data)
+	require.NoError(t, err)
+	assert.True(t, got.Runnable)
+	assert.Equal(t, "main", got.BaseBranch)
+	require.NotNil(t, got.Run)
+	assert.Equal(t, RunStatusStopped, got.Run.Status)
+	assert.Equal(t, "lap-a", got.Run.Instance)
+	assert.Equal(t, ended, *got.Run.EndedAt)
+}
+
+func TestPlaybook_V1FileParsesWithoutRunFields(t *testing.T) {
+	got, err := ParsePlaybook([]byte("id: old\ntitle: Old\nnext_entry_id: 1\nentries: []\n"))
+	require.NoError(t, err)
+	assert.False(t, got.Runnable)
+	assert.Empty(t, got.BaseBranch)
+	assert.Nil(t, got.Run)
+	require.NoError(t, got.Validate())
+}

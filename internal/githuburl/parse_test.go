@@ -1,4 +1,4 @@
-package github
+package githuburl
 
 import (
 	"testing"
@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestParseGitHubRepo(t *testing.T) {
+func TestParse(t *testing.T) {
 	defaultHosts := []string{"github.com"}
 	enterpriseHosts := []string{"github.com", "acme.ghe.com"}
 
@@ -146,7 +146,7 @@ func TestParseGitHubRepo(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			owner, repo, host, ok := ParseGitHubRepo(tt.url, tt.allowedHosts)
+			owner, repo, host, ok := Parse(tt.url, tt.allowedHosts)
 			assert.Equal(t, tt.wantOK, ok)
 
 			if ok {

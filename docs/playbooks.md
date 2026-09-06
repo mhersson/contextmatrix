@@ -2,8 +2,9 @@
 
 A playbook is an ordered, cross-project runbook: card references whose status
 is read live from the board, mixed with manual gate steps a human checks off.
-Playbooks coordinate order for people and planning sessions; ContextMatrix
-never executes one.
+Playbooks coordinate order for people and planning sessions. A playbook made
+**runnable** can also be played: ContextMatrix then runs its cards in order on
+a shared branch (see [Running a playbook](#running-a-playbook)).
 
 ## Entries
 
@@ -46,6 +47,66 @@ Drag an entry to reorder; the composer in the side panel appends a card (picked
 from any project) or a manual step to the end. Notes edit inline. The page
 updates live over SSE.
 
+## Running a playbook
+
+Playbooks start not runnable. A human makes one runnable from the detail
+page; the switch opens a warning that lists exactly what follows.
+
+### Make runnable
+
+- Every card entry's project must have a GitHub repository URL, and no card
+  may already belong to another runnable playbook. Either fails the switch
+  with a message naming the offenders.
+- Every non-terminal card entry gets five settings, recorded in its activity
+  log: `autonomous`, `create_pr`, `await_ci`, `merge_pr` on and
+  `base_branch: playbook/<id>`. A card added later gets the same. A terminal
+  card is left alone.
+- Those five fields are locked on the cards from that moment: the web UI
+  shows them read-only with "Set by playbook <title>", REST returns
+  `409 PLAYBOOK_LOCKED` on a change, and the MCP `update_card` tool refuses
+  `autonomous`. Repeating the current value is not a change. Everything else
+  on the card stays editable.
+- Unchecking is refused while a run is active and never reverts the card
+  settings; it only removes the lock and the run state.
+- `base_branch` on the playbook is the branch the playbook branch is cut
+  from on its first run. Empty means the repository default. It cannot
+  change during a run.
+- Adding a card entry to a runnable playbook is human-only (REST
+  `403 HUMAN_ONLY_FIELD`, MCP `add_playbook_entry` refuses a non-human
+  `agent_id`), because the add forces human-only card settings. Manual
+  entries stay open to agents.
+
+### The branch model
+
+Every card keeps its own `cm/<card>` branch, opens a PR into
+`playbook/<id>`, waits for CI and merges. The playbook branch does not need
+to exist up front: the worker of the first card in each repository creates
+it from the playbook's `base_branch`. ContextMatrix itself never writes to a
+code repository. When the run completes, the detail page shows one GitHub
+compare link per repository so a human opens and merges the final PR.
+
+### Run state
+
+```yaml
+runnable: true
+base_branch: main
+run:
+  status: waiting          # running | waiting | stopped | completed
+  instance: cm-eu-1        # owning instance; empty on a private board
+  started_by: human:alice
+  started_at: 2026-09-06T10:00:00Z
+  updated_at: 2026-09-06T10:41:00Z
+  entry: e3                # current entry; empty once completed
+  reason: "awaiting check-off"
+```
+
+`running` and `waiting` are active: the cards' own run buttons are disabled
+and answer `409 PLAYBOOK_RUN_ACTIVE`, unchecking runnable is refused, and a
+second Play is refused. Cards carry a derived `playbook_lock` with the
+owning playbook's id, title and, while active, its run status.
+
+Play, Stop and the runner itself ship in a later change.
+
 ## Storage
 
 - One file per playbook at `playbooks/<id>.yaml` in the boards repository,
@@ -75,7 +136,7 @@ required on mutations for `created_by` and `done_by` attribution.
 | `list_playbooks`        | `GET /api/playbooks`                              | Summaries: progress, segments, project count, gates, next entry |
 | `get_playbook`          | `GET /api/playbooks/{id}`                         | Full detail with every entry resolved against the card store  |
 | `create_playbook`       | `POST /api/playbooks`                             | `title`, `description`, `boards_repo`, initial `entries`; all-or-nothing |
-| `update_playbook`       | `PATCH /api/playbooks/{id}`                       | Title and description; the id never changes                   |
+| `update_playbook`       | `PATCH /api/playbooks/{id}`                       | Title, description; humans also set runnable and base_branch  |
 | `delete_playbook`       | `DELETE /api/playbooks/{id}`                      | Removes the file; referenced cards are untouched              |
 | `add_playbook_entry`    | `POST /api/playbooks/{id}/entries`                | Appends one card or manual entry                              |
 | `update_playbook_entry` | `PATCH /api/playbooks/{id}/entries/{entryId}`     | `done` and `text` (manual only), `note` (both), `position`    |
@@ -96,6 +157,7 @@ created_by: human:alice
 created_at: 2026-08-20T09:00:00Z
 updated_at: 2026-08-20T10:30:00Z
 next_entry_id: 4
+# runnable is absent until a human makes the playbook runnable
 entries:
   - id: e1
     type: card

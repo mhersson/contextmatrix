@@ -7217,3 +7217,111 @@ func TestLockWrites_NonSharedRepoLeavesBufferedCommits(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, before+1, after)
 }
+
+func TestForcePlaybookSettings(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{Title: "Forced", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+	require.False(t, card.Autonomous)
+
+	got, err := svc.ForcePlaybookSettings(ctx, "test-project", card.ID, "rollout", "playbook/rollout", "human:alice")
+	require.NoError(t, err)
+	assert.True(t, got.Autonomous)
+	assert.True(t, got.CreatePR)
+	assert.True(t, got.AwaitCI)
+	assert.True(t, got.MergePR)
+	assert.Equal(t, "playbook/rollout", got.BaseBranch)
+
+	require.NotEmpty(t, got.ActivityLog)
+	last := got.ActivityLog[len(got.ActivityLog)-1]
+	assert.Equal(t, "playbook", last.Action)
+	assert.Equal(t, "human:alice", last.Agent)
+	assert.Contains(t, last.Message, "rollout")
+	assert.Contains(t, last.Message, "playbook/rollout")
+
+	// Persisted, not just returned.
+	reread, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.True(t, reread.MergePR)
+	assert.Equal(t, "playbook/rollout", reread.BaseBranch)
+
+	// A claimed card is forced too: the playbook, not the claimant, owns
+	// these settings.
+	claimed, err := svc.CreateCard(ctx, "test-project", CreateCardInput{Title: "Claimed", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+	_, err = svc.ClaimCard(ctx, "test-project", claimed.ID, "agent-1")
+	require.NoError(t, err)
+
+	got, err = svc.ForcePlaybookSettings(ctx, "test-project", claimed.ID, "rollout", "playbook/rollout", "human:alice")
+	require.NoError(t, err)
+	assert.True(t, got.Autonomous)
+}
+
+func TestEnrichPlaybookLock(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	a, err := svc.CreateCard(ctx, "test-project", CreateCardInput{Title: "A", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+	b, err := svc.CreateCard(ctx, "test-project", CreateCardInput{Title: "B", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+	c, err := svc.CreateCard(ctx, "test-project", CreateCardInput{Title: "C", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+
+	now := time.Now().UTC()
+	svc.SetPlaybookLister(&fakePlaybookLister{playbooks: []*board.Playbook{
+		{
+			ID: "idle", Title: "Idle", Runnable: true,
+			Entries: []board.PlaybookEntry{{ID: "e1", Type: board.EntryTypeCard, Project: "test-project", Card: a.ID}},
+		},
+		{
+			ID: "live", Title: "Live", Runnable: true,
+			Run:     &board.PlaybookRun{Status: board.RunStatusWaiting, StartedAt: now, UpdatedAt: now},
+			Entries: []board.PlaybookEntry{{ID: "e1", Type: board.EntryTypeCard, Project: "test-project", Card: b.ID}},
+		},
+		{
+			ID: "plain", Title: "Plain",
+			Entries: []board.PlaybookEntry{{ID: "e1", Type: board.EntryTypeCard, Project: "test-project", Card: c.ID}},
+		},
+	}})
+
+	gotA, err := svc.GetCard(ctx, "test-project", a.ID)
+	require.NoError(t, err)
+	require.NotNil(t, gotA.PlaybookLock)
+	assert.Equal(t, "idle", gotA.PlaybookLock.ID)
+	assert.Equal(t, "Idle", gotA.PlaybookLock.Title)
+	assert.Empty(t, gotA.PlaybookLock.RunStatus)
+	assert.False(t, gotA.PlaybookLock.Active())
+	assert.Equal(t, []string{"idle"}, gotA.InPlaybooks)
+
+	gotB, err := svc.GetCard(ctx, "test-project", b.ID)
+	require.NoError(t, err)
+	require.NotNil(t, gotB.PlaybookLock)
+	assert.Equal(t, board.RunStatusWaiting, gotB.PlaybookLock.RunStatus)
+	assert.True(t, gotB.PlaybookLock.Active())
+
+	gotC, err := svc.GetCard(ctx, "test-project", c.ID)
+	require.NoError(t, err)
+	assert.Nil(t, gotC.PlaybookLock, "a non-runnable playbook locks nothing")
+	assert.Equal(t, []string{"plain"}, gotC.InPlaybooks)
+
+	// The list path enriches too.
+	cards, err := svc.ListCards(ctx, "test-project", storage.CardFilter{})
+	require.NoError(t, err)
+
+	locked := 0
+
+	for _, card := range cards {
+		if card.PlaybookLock != nil {
+			locked++
+		}
+	}
+
+	assert.Equal(t, 2, locked)
+}

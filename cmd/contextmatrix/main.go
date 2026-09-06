@@ -251,6 +251,8 @@ func main() {
 		}
 
 		svc.SetPlaybookLister(boards.playbooks)
+		pbSvc.SetCardForcer(svc)
+		pbSvc.SetGitHubHosts(cfg.GitHub.AllowedHosts())
 
 		slog.Info("playbook service initialized")
 	}

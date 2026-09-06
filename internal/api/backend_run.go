@@ -38,6 +38,16 @@ func (h *backendHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A card queued in an active playbook run is started by the run, never
+	// by hand; resume from the playbook instead. Checked before the worker
+	// gate so the answer names the real reason.
+	if lock := card.PlaybookLock; lock.Active() {
+		writeError(w, http.StatusConflict, ErrCodePlaybookRunActive,
+			"card is queued in playbook "+lock.ID, "resume or stop the playbook run instead")
+
+		return
+	}
+
 	// Parse optional JSON body for interactive flag.
 	var runBody struct {
 		Interactive bool `json:"interactive"`

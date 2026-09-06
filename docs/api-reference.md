@@ -69,7 +69,7 @@ GET    /api/sync                                       # sync status per boards 
 GET    /api/playbooks                                  # list playbook summaries (optional subsystem; see below)
 POST   /api/playbooks                                  # create playbook (title, description?, entries?)
 GET    /api/playbooks/{id}                             # resolved detail
-PATCH  /api/playbooks/{id}                             # update title/description
+PATCH  /api/playbooks/{id}                             # update title/description; humans: runnable, base_branch
 DELETE /api/playbooks/{id}                             # delete playbook
 POST   /api/playbooks/{id}/entries                     # append entry (card reference or manual step)
 PATCH  /api/playbooks/{id}/entries/{entryId}            # update entry (done/note/text/position)
@@ -272,6 +272,11 @@ the request's `request_id`.
 | `PLAYBOOK_NOT_FOUND`       | 404     | Unknown playbook id                                                                                                                                                             |
 | `PLAYBOOK_ENTRY_NOT_FOUND` | 404     | Unknown entry id                                                                                                                                                                |
 | `PLAYBOOK_ENTRY_EXISTS`    | 409     | Duplicate `{project, card}` entry                                                                                                                                               |
+| `PLAYBOOK_RUN_ACTIVE`      | 409     | `runnable: false` or `base_branch` while a run is `running` or `waiting`; a card's own run trigger while its owning playbook run is active                                     |
+| `PLAYBOOK_LOCKED`          | 409     | `PUT` or `PATCH` on a card changes one of the five fields a runnable playbook forces                                                                                            |
+| `PLAYBOOK_NOT_RUNNABLE`    | 409     | An operation that requires `runnable: true` is called on a playbook that is not runnable                                                                                        |
+| `PLAYBOOK_CARD_OWNED`      | 422     | `runnable: true` and a card entry already belongs to another runnable playbook                                                                                                  |
+| `PLAYBOOK_PROJECT_NO_REPO` | 422     | `runnable: true` and a card entry's project has no GitHub repository URL                                                                                                        |
 | `IMAGE_NOT_FOUND`          | 404     | Unknown or malformed image id                                                                                                                                                   |
 | `IMAGE_UNSUPPORTED`        | 415     | Image format not png/jpeg/gif/webp (animated WebP lands here too)                                                                                                               |
 | `IMAGE_ANIMATED`           | 415     | Multi-frame GIF                                                                                                                                                                 |
@@ -1712,6 +1717,23 @@ Updates `title` and/or `description`; omitted fields are unchanged.
 
 Response **200** with the full detail. **Errors:** 404
 `PLAYBOOK_NOT_FOUND`, 422 `VALIDATION_ERROR` (empty title).
+
+`PATCH /api/playbooks/{id}` also accepts `runnable` (bool) and `base_branch`
+(string) from human callers; agents get `403 HUMAN_ONLY_FIELD`. Setting
+`runnable: true` forces `autonomous`, `create_pr`, `await_ci`, `merge_pr` and
+`base_branch: playbook/<id>` on every non-terminal card entry; it fails with
+`422 PLAYBOOK_PROJECT_NO_REPO` or `422 PLAYBOOK_CARD_OWNED` and leaves the
+flag off. `runnable: false` and `base_branch` return `409 PLAYBOOK_RUN_ACTIVE`
+while a run is running or waiting.
+
+Detail responses carry `runnable`, `base_branch`, `branch` (`playbook/<id>`),
+`run` and `repos` (`[{project, compare_url}]`); the last three only on a
+runnable playbook. Summaries carry `runnable` and `run_status`.
+
+Card responses carry `playbook_lock` (`{id, title, run_status}`) when a
+runnable playbook owns the card. `PUT` and `PATCH` on such a card return
+`409 PLAYBOOK_LOCKED` when they change one of the five locked fields, and
+`POST .../run` returns `409 PLAYBOOK_RUN_ACTIVE` while the run is active.
 
 ### DELETE /api/playbooks/{id}
 

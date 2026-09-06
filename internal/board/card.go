@@ -108,11 +108,16 @@ type Card struct {
 	SubtaskCostHasEstimates bool `yaml:"-" json:"subtask_cost_has_estimates,omitempty"`
 	// InPlaybooks lists the IDs of playbooks holding a card entry for this
 	// card. Computed on read, never persisted.
-	InPlaybooks []string        `yaml:"-" json:"in_playbooks,omitempty"`
-	Created     time.Time       `yaml:"created"                    json:"created"`
-	Updated     time.Time       `yaml:"updated"                    json:"updated"`
-	ActivityLog []ActivityEntry `yaml:"activity_log,omitempty"     json:"activity_log,omitempty"`
-	Body        string          `yaml:"-"                          json:"body"`
+	InPlaybooks []string `yaml:"-" json:"in_playbooks,omitempty"`
+	// PlaybookLock names the runnable playbook that owns this card's
+	// autonomous, create_pr, await_ci, merge_pr and base_branch settings.
+	// RunStatus is that playbook's run status while a run is active, else
+	// empty. Computed on read, never persisted.
+	PlaybookLock *CardPlaybookLock `yaml:"-" json:"playbook_lock,omitempty"`
+	Created      time.Time         `yaml:"created"                    json:"created"`
+	Updated      time.Time         `yaml:"updated"                    json:"updated"`
+	ActivityLog  []ActivityEntry   `yaml:"activity_log,omitempty"     json:"activity_log,omitempty"`
+	Body         string            `yaml:"-"                          json:"body"`
 }
 
 // ActivityEntry represents a log entry from an agent working on a card.
@@ -157,6 +162,36 @@ type UsageBucket struct {
 	// collector reading real usage frames ("collector") or from the agent's own
 	// estimate (empty = self-reported). Sticky once "collector".
 	CountsSource string `yaml:"counts_source,omitempty" json:"counts_source,omitempty"`
+}
+
+// CardPlaybookLock is the derived pointer from a card to the runnable
+// playbook that forces its execution settings.
+type CardPlaybookLock struct {
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+	RunStatus string `json:"run_status,omitempty"`
+}
+
+// Active reports whether the owning playbook's run is running or waiting,
+// which disables the card's own run button. Nil-safe.
+func (l *CardPlaybookLock) Active() bool {
+	return l != nil && (l.RunStatus == RunStatusRunning || l.RunStatus == RunStatusWaiting)
+}
+
+// HasPlaybookSettings reports whether the card already carries the settings
+// a runnable playbook forces: autonomous, create_pr, await_ci and merge_pr
+// on, and base_branch equal to branch.
+func (c *Card) HasPlaybookSettings(branch string) bool {
+	return c.Autonomous && c.CreatePR && c.AwaitCI && c.MergePR && c.BaseBranch == branch
+}
+
+// ApplyPlaybookSettings sets the five settings a runnable playbook forces.
+func (c *Card) ApplyPlaybookSettings(branch string) {
+	c.Autonomous = true
+	c.CreatePR = true
+	c.AwaitCI = true
+	c.MergePR = true
+	c.BaseBranch = branch
 }
 
 var (

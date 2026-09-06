@@ -6,6 +6,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
@@ -120,7 +121,7 @@ func registerPlaybookTools(server *mcp.Server, pb *service.PlaybookService) {
 func registerListPlaybooks(server *mcp.Server, pb *service.PlaybookService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_playbooks",
-		Description: "List all playbooks with their slim list-view summary (per-entry status segments, project count, completion, manual gate indexes, next entry). Playbooks are not runnable; they coordinate order for humans and planning sessions.",
+		Description: "List all playbooks with their slim list-view summary (per-entry status segments, project count, completion, manual gate indexes, next entry). A runnable playbook (runnable: true) can be played from the web UI, which runs its cards in order on a shared playbook branch; play, stop, runnable and base_branch are human-only and not exposed here.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ listPlaybooksInput) (*mcp.CallToolResult, listPlaybooksOutput, error) {
 		summaries, err := pb.List(ctx)
 		if err != nil {
@@ -148,7 +149,7 @@ func registerGetPlaybook(server *mcp.Server, pb *service.PlaybookService) {
 func registerCreatePlaybook(server *mcp.Server, pb *service.PlaybookService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "create_playbook",
-		Description: "Create a cross-project playbook: an ordered list of card references and manual gate steps. Entries are validated against existing cards; the call is all-or-nothing. The playbook id is derived from the title and never changes. Playbooks are not runnable; they coordinate order for humans and planning sessions. boards_repo picks the boards repository when several are configured.",
+		Description: "Create a cross-project playbook: an ordered list of card references and manual gate steps. Entries are validated against existing cards; the call is all-or-nothing. The playbook id is derived from the title and never changes. Playbooks are created not runnable; a human makes one runnable from the web UI. boards_repo picks the boards repository when several are configured.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input createPlaybookInput) (*mcp.CallToolResult, service.PlaybookSummary, error) {
 		entries := make([]service.PlaybookEntryInput, len(input.Entries))
 		for i, e := range input.Entries {
@@ -170,7 +171,7 @@ func registerCreatePlaybook(server *mcp.Server, pb *service.PlaybookService) {
 func registerUpdatePlaybook(server *mcp.Server, pb *service.PlaybookService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "update_playbook",
-		Description: "Update a playbook's title and/or description. Empty fields are left unchanged. The playbook id is immutable - a title edit never re-slugs it.",
+		Description: "Update a playbook's title and/or description. Empty fields are left unchanged. The playbook id is immutable - a title edit never re-slugs it. runnable, base_branch and run state are operator fields preserved by this tool; a human sets them from the web UI.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input updatePlaybookInput) (*mcp.CallToolResult, service.PlaybookSummary, error) {
 		detail, err := pb.UpdateMeta(ctx, input.ID, service.UpdatePlaybookInput{
 			Title:       nonEmptyPtr(input.Title),
@@ -200,8 +201,21 @@ func registerDeletePlaybook(server *mcp.Server, pb *service.PlaybookService) {
 func registerAddPlaybookEntry(server *mcp.Server, pb *service.PlaybookService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "add_playbook_entry",
-		Description: "Append one new entry (card reference or manual gate step) to the end of a playbook. Card entries are validated against the card store; duplicate card references are rejected.",
+		Description: "Append one new entry (card reference or manual gate step) to the end of a playbook. Card entries are validated against the card store; duplicate card references are rejected. Adding a card entry to a runnable playbook is human-only.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input addPlaybookEntryInput) (*mcp.CallToolResult, service.PlaybookSummary, error) {
+		if input.Type == board.EntryTypeCard {
+			detail, err := pb.Get(ctx, input.Playbook)
+			if err != nil {
+				return nil, service.PlaybookSummary{}, fmt.Errorf("add playbook entry to %s: %w", input.Playbook, err)
+			}
+
+			if detail.Runnable {
+				if err := requireHumanAgent(input.AgentID, "add_playbook_entry on a runnable playbook"); err != nil {
+					return nil, service.PlaybookSummary{}, err
+				}
+			}
+		}
+
 		detail, err := pb.AddEntry(ctx, input.Playbook, service.PlaybookEntryInput{
 			Type: input.Type, Project: input.Project, Card: input.Card, Text: input.Text, Note: input.Note,
 		}, input.AgentID)

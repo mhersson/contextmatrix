@@ -115,10 +115,19 @@ const (
 	ErrCodeImageInvalidPayload = "IMAGE_INVALID_PAYLOAD"
 
 	// Playbooks. NOT_FOUND -> 404 (unknown playbook / entry id).
-	// ENTRY_EXISTS -> 409 (duplicate card entry).
+	// ENTRY_EXISTS -> 409 (duplicate card entry). RUN_ACTIVE -> 409 (change
+	// refused during a run, or a hand run on a card the run owns). LOCKED
+	// -> 409 (playbook-owned card setting changed by hand). CARD_OWNED and
+	// PROJECT_NO_REPO -> 422 (make-runnable validation). NOT_RUNNABLE ->
+	// 409 (run state on a playbook that is not runnable).
 	ErrCodePlaybookNotFound      = "PLAYBOOK_NOT_FOUND"
 	ErrCodePlaybookEntryNotFound = "PLAYBOOK_ENTRY_NOT_FOUND"
 	ErrCodePlaybookEntryExists   = "PLAYBOOK_ENTRY_EXISTS"
+	ErrCodePlaybookRunActive     = "PLAYBOOK_RUN_ACTIVE"
+	ErrCodePlaybookLocked        = "PLAYBOOK_LOCKED"
+	ErrCodePlaybookCardOwned     = "PLAYBOOK_CARD_OWNED"
+	ErrCodePlaybookProjectNoRepo = "PLAYBOOK_PROJECT_NO_REPO"
+	ErrCodePlaybookNotRunnable   = "PLAYBOOK_NOT_RUNNABLE"
 )
 
 // APIError is the standard error response format.
@@ -1115,6 +1124,12 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusConflict, ErrCodeInvalidTransition, "card is in a terminal state", sanitizeErrorDetails(err))
 	case errors.Is(err, service.ErrDuplicateCardEntry):
 		writeError(w, http.StatusConflict, ErrCodePlaybookEntryExists, "card already in playbook", sanitizeErrorDetails(err))
+	case errors.Is(err, service.ErrPlaybookRunActive):
+		writeError(w, http.StatusConflict, ErrCodePlaybookRunActive, "playbook run is active", sanitizeErrorDetails(err))
+	case errors.Is(err, service.ErrPlaybookNotRunnable):
+		writeError(w, http.StatusConflict, ErrCodePlaybookNotRunnable, "playbook is not runnable", sanitizeErrorDetails(err))
+	case errors.Is(err, service.ErrPlaybookLocked):
+		writeError(w, http.StatusConflict, ErrCodePlaybookLocked, "card settings are locked by a runnable playbook", sanitizeErrorDetails(err))
 
 	// --- Forbidden sentinels (403) ---
 	case errors.Is(err, service.ErrProtectedBranch):
@@ -1143,6 +1158,10 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid input", sanitizeErrorDetails(err))
 
 	// --- Validation sentinels (422) - mutation body shape/semantics ---
+	case errors.Is(err, service.ErrPlaybookCardOwned):
+		writeError(w, http.StatusUnprocessableEntity, ErrCodePlaybookCardOwned, "card belongs to another runnable playbook", sanitizeErrorDetails(err))
+	case errors.Is(err, service.ErrPlaybookProjectNoRepo):
+		writeError(w, http.StatusUnprocessableEntity, ErrCodePlaybookProjectNoRepo, "project has no GitHub repository", sanitizeErrorDetails(err))
 	case errors.Is(err, service.ErrInvalidPlaybookEntry), errors.Is(err, board.ErrInvalidPlaybook):
 		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "invalid playbook input", sanitizeErrorDetails(err))
 	case errors.Is(err, board.ErrInvalidProjectConfig),

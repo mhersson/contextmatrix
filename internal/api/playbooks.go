@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
@@ -29,6 +30,8 @@ type createPlaybookRequest struct {
 type patchPlaybookRequest struct {
 	Title       *string `json:"title,omitempty"`
 	Description *string `json:"description,omitempty"`
+	Runnable    *bool   `json:"runnable,omitempty"`
+	BaseBranch  *string `json:"base_branch,omitempty"`
 }
 
 type patchPlaybookEntryRequest struct {
@@ -125,9 +128,20 @@ func (h *playbookHandlers) patch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Runnable and base_branch are operator fields: they force settings on
+	// cards and pick a branch, so only humans may set them.
+	if isNonHumanAgent(r) && (req.Runnable != nil || req.BaseBranch != nil) {
+		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
+			"forbidden", "runnable and base_branch can only be set via the UI")
+
+		return
+	}
+
 	input := service.UpdatePlaybookInput{
 		Title:       req.Title,
 		Description: req.Description,
+		Runnable:    req.Runnable,
+		BaseBranch:  req.BaseBranch,
 	}
 
 	detail, err := h.svc.UpdateMeta(r.Context(), id, input, playbookAgentID(r))
@@ -160,6 +174,26 @@ func (h *playbookHandlers) addEntry(w http.ResponseWriter, r *http.Request) {
 	var req playbookEntryRequest
 	if !decodeJSON(w, r, &req) {
 		return
+	}
+
+	// Adding a card entry to a runnable playbook forces human-only card
+	// settings (autonomous, create_pr, await_ci, merge_pr, base_branch) on
+	// that card, so only humans may do it. Manual entries and entries added
+	// to a non-runnable playbook stay open to agents.
+	if isNonHumanAgent(r) && req.Type == board.EntryTypeCard {
+		detail, err := h.svc.Get(r.Context(), id)
+		if err != nil {
+			handleServiceError(w, r, err)
+
+			return
+		}
+
+		if detail.Runnable {
+			writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
+				"forbidden", "adding a card entry to a runnable playbook sets human-only card settings; only humans can do it")
+
+			return
+		}
 	}
 
 	input := service.PlaybookEntryInput{
