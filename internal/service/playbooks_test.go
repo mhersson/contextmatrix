@@ -719,12 +719,45 @@ func TestPlaybookService_MakeRunnableRefusesCardOwnedElsewhere(t *testing.T) {
 	assert.Contains(t, err.Error(), "ALPHA-001")
 	assert.Contains(t, err.Error(), "first")
 
-	// Adding a card owned elsewhere to a runnable playbook is refused too.
+	// This add succeeds because "second" is not runnable at this point (its
+	// UpdateMeta call above failed), so ALPHA-002 is not owned by any
+	// runnable playbook yet.
 	_, err = env.svc.AddEntry(ctx, "first", PlaybookEntryInput{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-002"}, "human:alice")
 	require.NoError(t, err, "ALPHA-002 is only in the non-runnable second playbook")
 
 	_, err = env.svc.UpdateMeta(ctx, "second", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
 	require.ErrorIs(t, err, ErrPlaybookCardOwned)
+}
+
+// TestPlaybookService_AddEntryRefusesCardOwnedElsewhere verifies AddEntry
+// applies the same cross-playbook ownership check as MakeRunnable: a card
+// already owned by another runnable playbook cannot be added to a second
+// runnable playbook.
+func TestPlaybookService_AddEntryRefusesCardOwnedElsewhere(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	env.createCard(t, "ALPHA-002", "todo")
+
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{
+		Title: "First", AgentID: "human:alice",
+		Entries: []PlaybookEntryInput{{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"}},
+	})
+	require.NoError(t, err)
+	_, err = env.svc.UpdateMeta(ctx, "first", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+	require.NoError(t, err)
+
+	_, err = env.svc.Create(ctx, CreatePlaybookInput{
+		Title: "Second", AgentID: "human:alice",
+		Entries: []PlaybookEntryInput{{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-002"}},
+	})
+	require.NoError(t, err)
+	_, err = env.svc.UpdateMeta(ctx, "second", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+	require.NoError(t, err)
+
+	_, err = env.svc.AddEntry(ctx, "second", PlaybookEntryInput{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"}, "human:alice")
+	require.ErrorIs(t, err, ErrPlaybookCardOwned)
+	assert.Contains(t, err.Error(), "ALPHA-001")
 }
 
 func TestPlaybookService_AddEntryForcesOnRunnable(t *testing.T) {
