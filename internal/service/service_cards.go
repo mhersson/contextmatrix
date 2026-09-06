@@ -1104,6 +1104,45 @@ func (s *CardService) PatchCard(ctx context.Context, project, id string, input P
 	})
 }
 
+// playbookAction is the activity-log Action value written when a runnable
+// playbook forces a card's execution settings.
+const playbookAction = "playbook"
+
+// ForcePlaybookSettings sets the five settings a runnable playbook owns on
+// one card (autonomous, create_pr, await_ci, merge_pr on; base_branch =
+// branch) and records one activity entry naming the playbook. It skips no
+// ownership check: the playbook, not a claimant, owns these fields. The
+// commit is immediate so a make-runnable is durable before the playbook
+// file itself is saved.
+func (s *CardService) ForcePlaybookSettings(ctx context.Context, project, id, playbookID, branch, agentID string) (*board.Card, error) {
+	id = strings.ToUpper(id)
+
+	if agentID == "" {
+		agentID = "system"
+	}
+
+	apply := func(card *board.Card, _ *board.ProjectConfig) error {
+		card.ApplyPlaybookSettings(branch)
+
+		card.ActivityLog = append(card.ActivityLog, board.ActivityEntry{
+			Agent:     agentID,
+			Timestamp: s.clk.Now(),
+			Action:    playbookAction,
+			Message: fmt.Sprintf("playbook %s forced autonomous, create_pr, await_ci, merge_pr, base_branch=%s",
+				playbookID, branch),
+		})
+		card.ActivityLog = board.TrimActivityLog(card.ActivityLog)
+
+		return nil
+	}
+
+	return s.applyCardMutation(ctx, project, id, apply, mutationOpts{
+		immediateCommit: true,
+		commitAgentID:   agentID,
+		commitAction:    "playbook settings",
+	})
+}
+
 // validatePatchFieldLimits checks the length limits for PatchCard-supplied
 // optional fields.
 func validatePatchFieldLimits(input PatchCardInput) error {

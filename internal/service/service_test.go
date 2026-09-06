@@ -7217,3 +7217,46 @@ func TestLockWrites_NonSharedRepoLeavesBufferedCommits(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, before+1, after)
 }
+
+func TestForcePlaybookSettings(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{Title: "Forced", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+	require.False(t, card.Autonomous)
+
+	got, err := svc.ForcePlaybookSettings(ctx, "test-project", card.ID, "rollout", "playbook/rollout", "human:alice")
+	require.NoError(t, err)
+	assert.True(t, got.Autonomous)
+	assert.True(t, got.CreatePR)
+	assert.True(t, got.AwaitCI)
+	assert.True(t, got.MergePR)
+	assert.Equal(t, "playbook/rollout", got.BaseBranch)
+
+	require.NotEmpty(t, got.ActivityLog)
+	last := got.ActivityLog[len(got.ActivityLog)-1]
+	assert.Equal(t, "playbook", last.Action)
+	assert.Equal(t, "human:alice", last.Agent)
+	assert.Contains(t, last.Message, "rollout")
+	assert.Contains(t, last.Message, "playbook/rollout")
+
+	// Persisted, not just returned.
+	reread, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.True(t, reread.MergePR)
+	assert.Equal(t, "playbook/rollout", reread.BaseBranch)
+
+	// A claimed card is forced too: the playbook, not the claimant, owns
+	// these settings.
+	claimed, err := svc.CreateCard(ctx, "test-project", CreateCardInput{Title: "Claimed", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+	_, err = svc.ClaimCard(ctx, "test-project", claimed.ID, "agent-1")
+	require.NoError(t, err)
+
+	got, err = svc.ForcePlaybookSettings(ctx, "test-project", claimed.ID, "rollout", "playbook/rollout", "human:alice")
+	require.NoError(t, err)
+	assert.True(t, got.Autonomous)
+}
