@@ -36,7 +36,19 @@ func newEnv(t *testing.T) *env {
 	r.SetLauncher(launcher.launch)
 	r.SetStopper(stopper.stop)
 
-	return &env{cards: cards, pbs: pbs, launcher: launcher, stopper: stopper, clk: clk, runner: r}
+	// Start with an already-cancelled context: the fakes are still empty so
+	// nothing is resumed, and any walker a later Play spawns exits at once
+	// instead of racing the test's own writes. Tests that want live walkers
+	// call Start again with their own context.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	r.Start(ctx)
+
+	e := &env{cards: cards, pbs: pbs, launcher: launcher, stopper: stopper, clk: clk, runner: r}
+
+	t.Cleanup(func() { e.runner.Wait() })
+
+	return e
 }
 
 // activeRun seeds a running run owned by lap-a on entry.

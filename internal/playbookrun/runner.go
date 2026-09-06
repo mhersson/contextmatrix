@@ -9,9 +9,14 @@ import (
 
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/clock"
+	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
+
+// clockTicker keeps the walker's ticker the clock package's type, so tests
+// can drive passes with a fake clock.
+type clockTicker = clock.Ticker
 
 // RunnerAgent is the actor stamped on every run-state write the runner makes.
 const RunnerAgent = "system:playbook-runner"
@@ -76,8 +81,8 @@ type Runner struct {
 	launch  Launcher
 	stop    Stopper
 	ctx     context.Context //nolint:containedctx // the walkers' parent, set once by Start
-	walkers map[string]context.CancelFunc
-	wg      sync.WaitGroup //nolint:unused // wired by the walker goroutines added next
+	walkers map[string]*walker
+	wg      sync.WaitGroup
 }
 
 // New creates a runner. Clock nil defaults to the real clock; Tick zero
@@ -91,7 +96,7 @@ func New(cfg Config) *Runner {
 		cfg.Tick = 30 * time.Second
 	}
 
-	return &Runner{cfg: cfg, ctx: context.Background(), walkers: map[string]context.CancelFunc{}}
+	return &Runner{cfg: cfg, ctx: context.Background(), walkers: map[string]*walker{}}
 }
 
 // SetLauncher wires the trigger path; nil means no task backend.
@@ -229,6 +234,59 @@ func findEntry(d *service.PlaybookDetail, id string) *service.PlaybookEntryDetai
 	return nil
 }
 
-// Ensure starts the walker for id when none is running. Replaced by the
-// walker implementation.
-func (r *Runner) Ensure(_ string) {}
+// Start records the walkers' parent context and resumes every active run
+// this instance owns. Returns immediately; walkers stop when ctx ends.
+func (r *Runner) Start(ctx context.Context) {
+	r.mu.Lock()
+	r.ctx = ctx
+	r.mu.Unlock()
+
+	playbooks, err := r.cfg.Lister.List(ctx)
+	if err != nil {
+		ctxlog.Logger(ctx).Error("playbook runner: list failed; no runs resumed", "error", err)
+
+		return
+	}
+
+	resumed := 0
+
+	for _, p := range playbooks {
+		if p.Runnable && p.Run.Active() && p.Run.Instance == r.cfg.Instance {
+			r.Ensure(p.ID)
+
+			resumed++
+		}
+	}
+
+	ctxlog.Logger(ctx).Info("playbook runner started", "resumed_runs", resumed, "tick", r.cfg.Tick)
+}
+
+// Ensure starts a walker for id when none is running. When one is running it
+// is nudged instead: the nudge is what keeps a Play that lands while a
+// walker is mid-pass on a run Stop just ended from being lost.
+func (r *Runner) Ensure(id string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if w, running := r.walkers[id]; running {
+		select {
+		case w.nudge <- struct{}{}:
+		default: // one pending nudge is enough; the next pass sees the run
+		}
+
+		return
+	}
+
+	ctx, cancel := context.WithCancel(r.ctx)
+	w := &walker{cancel: cancel, nudge: make(chan struct{}, 1)}
+	r.walkers[id] = w
+
+	r.wg.Add(1)
+
+	go r.walk(ctx, id, w)
+}
+
+// Wait blocks until every walker has exited.
+func (r *Runner) Wait() {
+	r.wg.Wait()
+}

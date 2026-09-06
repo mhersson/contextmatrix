@@ -98,6 +98,11 @@ type fakePlaybooks struct {
 	// failNextSetRun, when set, is returned by the next SetRun call instead
 	// of writing, then cleared.
 	failNextSetRun error
+
+	// afterGet, when set, is called once by Get after the detail is built
+	// and before it is returned, then cleared. Tests use it to hold a pass
+	// mid-flight while they mutate the board underneath it.
+	afterGet func()
 }
 
 func newFakePlaybooks(cards *fakeCards) *fakePlaybooks {
@@ -124,24 +129,37 @@ func (f *fakePlaybooks) List(context.Context) ([]*board.Playbook, error) {
 	return out, nil
 }
 
+// Get snapshots the playbook under the lock and builds the detail from the
+// snapshot, so a walker reading a detail never races a test or a SetRun
+// writing the same playbook.
 func (f *fakePlaybooks) Get(ctx context.Context, id string) (*service.PlaybookDetail, error) {
 	f.mu.Lock()
-	p, ok := f.pbs[id]
-	f.mu.Unlock()
 
+	stored, ok := f.pbs[id]
 	if !ok {
+		f.mu.Unlock()
+
 		return nil, storage.ErrPlaybookNotFound
 	}
+
+	p := *stored
+	p.Entries = append([]board.PlaybookEntry(nil), stored.Entries...)
+
+	if stored.Run != nil {
+		run := *stored.Run
+		p.Run = &run
+	}
+
+	hook := f.afterGet
+	f.afterGet = nil
+	f.mu.Unlock()
 
 	d := &service.PlaybookDetail{ID: p.ID, Title: p.Title, Runnable: p.Runnable, BaseBranch: p.BaseBranch, Total: len(p.Entries)}
 	if p.Runnable {
 		d.Branch = p.Branch()
 	}
 
-	if p.Run != nil {
-		run := *p.Run
-		d.Run = &run
-	}
+	d.Run = p.Run
 
 	for _, e := range p.Entries {
 		ed := service.PlaybookEntryDetail{PlaybookEntry: e}
@@ -160,6 +178,10 @@ func (f *fakePlaybooks) Get(ctx context.Context, id string) (*service.PlaybookDe
 		}
 
 		d.Entries = append(d.Entries, ed)
+	}
+
+	if hook != nil {
+		hook()
 	}
 
 	return d, nil
@@ -223,6 +245,12 @@ type recordingLauncher struct {
 	mu    sync.Mutex
 	calls []launchCall
 	err   error
+
+	// onLaunch, when set, runs after a successful call is recorded. Tests
+	// with live walkers use it to do to the card what a real trigger does,
+	// so a pass that runs again before the worker starts does not see a
+	// bare todo card and launch it a second time.
+	onLaunch func(project, card string)
 }
 
 func (l *recordingLauncher) launch(_ context.Context, project, card string, opts LaunchOptions) error {
@@ -231,7 +259,15 @@ func (l *recordingLauncher) launch(_ context.Context, project, card string, opts
 
 	l.calls = append(l.calls, launchCall{project: project, card: card, opts: opts})
 
-	return l.err
+	if l.err != nil {
+		return l.err
+	}
+
+	if l.onLaunch != nil {
+		l.onLaunch(project, card)
+	}
+
+	return nil
 }
 
 func (l *recordingLauncher) count() int {
