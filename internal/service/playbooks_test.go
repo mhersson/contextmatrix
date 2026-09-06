@@ -1040,7 +1040,64 @@ func TestPlaybookService_SetRunIfGuardsTheWrite(t *testing.T) {
 	assert.Equal(t, board.RunStatusStopped, got.Run.Status)
 }
 
-func TestPlaybookService_RemoveEntryClearsTheRunsEntry(t *testing.T) {
+func TestPlaybookService_RepoLinksResolveTheDefaultBranch(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	env.createProject(t, "project-beta", "BETA", "git@github.com:acme/beta.git")
+
+	var calls []string
+
+	env.svc.SetDefaultBranchResolver(func(_ context.Context, project, owner, repo string) (string, error) {
+		calls = append(calls, project)
+
+		if owner == "acme" && repo == "alpha" {
+			return "trunk", nil
+		}
+
+		return "", errors.New("github down")
+	})
+
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{
+		Title: "Rollout", AgentID: "human:alice",
+		Entries: []PlaybookEntryInput{
+			{Type: board.EntryTypeCard, Project: "project-beta", Card: "BETA-001"},
+			{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"},
+		},
+	})
+	require.NoError(t, err)
+
+	got, err := env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+	require.NoError(t, err)
+	require.Len(t, got.Repos, 2)
+	// A failed lookup falls back to the branch-only form; a resolved default
+	// branch becomes the base so GitHub renders the compare page.
+	assert.Equal(t, "https://github.com/acme/beta/compare/playbook/rollout?expand=1", got.Repos[0].CompareURL)
+	assert.Equal(t, "https://github.com/acme/alpha/compare/trunk...playbook/rollout?expand=1", got.Repos[1].CompareURL)
+	assert.Equal(t, []string{"project-beta", "project-alpha"}, calls)
+
+	// A read within the retry window reuses the name and does not retry the
+	// failure, so SSE-driven refetches never hammer GitHub.
+	got, err = env.svc.Get(ctx, "rollout")
+	require.NoError(t, err)
+	assert.Equal(t, "https://github.com/acme/alpha/compare/trunk...playbook/rollout?expand=1", got.Repos[1].CompareURL)
+	assert.Equal(t, []string{"project-beta", "project-alpha"}, calls, "cached name and cached failure")
+
+	env.clk.Advance(2 * time.Minute)
+
+	_, err = env.svc.Get(ctx, "rollout")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"project-beta", "project-alpha", "project-beta"}, calls, "only the failure is retried")
+
+	// An explicit base branch never consults the resolver.
+	got, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{BaseBranch: ptrStr("main")}, "human:alice")
+	require.NoError(t, err)
+	assert.Equal(t, "https://github.com/acme/beta/compare/main...playbook/rollout?expand=1", got.Repos[0].CompareURL)
+	assert.Equal(t, "https://github.com/acme/alpha/compare/main...playbook/rollout?expand=1", got.Repos[1].CompareURL)
+	assert.Len(t, calls, 3)
+}
+
+func TestPlaybookService_RemoveEntryDuringRun(t *testing.T) {
 	env := newPlaybookTestEnv(t)
 	ctx := context.Background()
 
@@ -1049,6 +1106,7 @@ func TestPlaybookService_RemoveEntryClearsTheRunsEntry(t *testing.T) {
 		Entries: []PlaybookEntryInput{
 			{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"},
 			{Type: board.EntryTypeManual, Text: "deploy"},
+			{Type: board.EntryTypeManual, Text: "verify"},
 		},
 	})
 	require.NoError(t, err)
@@ -1062,13 +1120,45 @@ func TestPlaybookService_RemoveEntryClearsTheRunsEntry(t *testing.T) {
 	}, "human:alice")
 	require.NoError(t, err)
 
-	// Removing the entry the run sits on is allowed: the run keeps its
-	// status and loses only the frontier, which the next pass re-derives.
-	got, err := env.svc.RemoveEntry(ctx, "rollout", "e1", "human:alice")
+	// The run's current entry is refused while the run is active: its card
+	// would keep running unowned and still merge into the playbook branch.
+	_, err = env.svc.RemoveEntry(ctx, "rollout", "e1", "human:alice")
+	require.ErrorIs(t, err, ErrPlaybookRunActive)
+	assert.Contains(t, err.Error(), "stop the run first")
+
+	got, err := env.svc.Get(ctx, "rollout")
 	require.NoError(t, err)
+	require.Len(t, got.Entries, 3)
+	assert.Equal(t, "e1", got.Entries[0].ID)
+	require.NotNil(t, got.Run)
+	assert.Equal(t, "e1", got.Run.Entry)
+	assert.Equal(t, "ALPHA-001 parked", got.Run.Reason)
+
+	// A queued entry stays removable and the run block is untouched; the
+	// walker's next pass finds a new frontier.
+	got, err = env.svc.RemoveEntry(ctx, "rollout", "e2", "human:alice")
+	require.NoError(t, err)
+	require.Len(t, got.Entries, 2)
 	require.NotNil(t, got.Run)
 	assert.Equal(t, board.RunStatusWaiting, got.Run.Status)
+	assert.Equal(t, "e1", got.Run.Entry)
+	assert.Equal(t, "ALPHA-001 parked", got.Run.Reason)
+
+	// Once the run is stopped its former entry can go. Validate rejects a
+	// run entry that names no entry, so the dangling pointer clears.
+	ended := env.clk.Now()
+	_, err = env.svc.SetRun(ctx, "rollout", &board.PlaybookRun{
+		Status: board.RunStatusStopped, StartedAt: now, UpdatedAt: ended, EndedAt: &ended,
+		Entry: "e1", Reason: "stopped by human:alice",
+	}, "human:alice")
+	require.NoError(t, err)
+
+	got, err = env.svc.RemoveEntry(ctx, "rollout", "e1", "human:alice")
+	require.NoError(t, err)
+	require.Len(t, got.Entries, 1)
+	assert.Equal(t, "e3", got.Entries[0].ID)
+	require.NotNil(t, got.Run)
+	assert.Equal(t, board.RunStatusStopped, got.Run.Status)
 	assert.Empty(t, got.Run.Entry)
 	assert.Empty(t, got.Run.Reason)
-	assert.Len(t, got.Entries, 1)
 }

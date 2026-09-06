@@ -1731,7 +1731,10 @@ while a run is running or waiting.
 
 Detail responses carry `runnable`, `base_branch`, `branch` (`playbook/<id>`),
 `run` and `repos` (`[{project, compare_url}]`); the last three only on a
-runnable playbook. Summaries carry `runnable` and `run_status`.
+runnable playbook. `compare_url` compares the playbook branch against
+`base_branch`, or against the repository's default branch (looked up through
+the GitHub API and cached) when none is set; it names only the playbook
+branch while that lookup fails. Summaries carry `runnable` and `run_status`.
 
 Card responses carry `playbook_lock` (`{id, title, run_status}`) when a
 runnable playbook owns the card. `PUT` and `PATCH` on such a card return
@@ -1787,7 +1790,8 @@ Response **200** with the full detail.
 
 Removes one entry; its id is never reused. Response **200** with the full
 detail (the playbook still exists). **Errors:** 404 `PLAYBOOK_NOT_FOUND`,
-404 `PLAYBOOK_ENTRY_NOT_FOUND`.
+404 `PLAYBOOK_ENTRY_NOT_FOUND`, 409 `PLAYBOOK_RUN_ACTIVE` (the entry is the
+run's current card; stop the run first).
 
 **Attribution** (`created_by`, `done_by`): the same resolved identity as
 cards - session in multi mode, else `X-Agent-ID`, falling back to

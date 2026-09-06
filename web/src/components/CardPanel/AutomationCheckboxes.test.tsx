@@ -545,4 +545,11 @@ describe('AutomationCheckboxes - playbook lock', () => {
     expect(screen.getByText(/set by playbook Roll/i)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /set by playbook Roll/i })).toHaveAttribute('href', '/playbooks/roll');
   });
+
+  it('does not dim the stack for a playbook lock alone', () => {
+    const { container } = renderCheckboxes({ disabled: false, playbookLock: { id: 'roll', title: 'Roll' } });
+    const stack = container.querySelector('.bf-auto-stack');
+    expect(stack).not.toBeNull();
+    expect(stack).not.toHaveClass('opacity-60');
+  });
 });

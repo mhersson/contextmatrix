@@ -847,6 +847,37 @@ func TestCardsAPI_PlaybookLockGuards(t *testing.T) {
 	})
 }
 
+func TestPlaybooksAPI_RemoveEntryRefusedWhileRunActive(t *testing.T) {
+	server, _, pbSvc, _ := lockedCardSetup(t, nil)
+	entryURL := server.URL + "/api/playbooks/rollout/entries/e1"
+
+	now := time.Now().UTC()
+	_, err := pbSvc.SetRun(context.Background(), "rollout", &board.PlaybookRun{
+		Status: board.RunStatusWaiting, StartedAt: now, UpdatedAt: now, Entry: "e1", Reason: "parked",
+	}, "human:alice")
+	require.NoError(t, err)
+
+	resp := doJSON(t, http.MethodDelete, entryURL, nil, "human:alice")
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusConflict, resp.StatusCode)
+
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodePlaybookRunActive, apiErr.Code)
+	assert.Contains(t, apiErr.Details, "stop the run first")
+
+	getResp := doGet(t, server.URL+"/api/playbooks/rollout")
+	defer closeBody(t, getResp.Body)
+
+	var detail service.PlaybookDetail
+	require.NoError(t, json.NewDecoder(getResp.Body).Decode(&detail))
+	require.Len(t, detail.Entries, 1)
+	assert.Equal(t, "e1", detail.Entries[0].ID)
+	require.NotNil(t, detail.Run)
+	assert.Equal(t, "e1", detail.Run.Entry)
+}
+
 func TestRunCard_RefusedWhilePlaybookRunActive(t *testing.T) {
 	mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})

@@ -376,6 +376,30 @@ describe('CardPanel - autonomous toggle leaves base branch alone', () => {
   });
 });
 
+describe('CardPanel - run button disabled by an active playbook run', () => {
+  it('ignores the run action while the card is queued in a playbook', async () => {
+    const onRunCard = vi.fn().mockResolvedValue(undefined);
+    render(
+      <MemoryRouter>
+        <CardPanel {...makeProps({
+          onRunCard,
+          card: { ...baseCard, in_playbooks: ['roll'], playbook_lock: { id: 'roll', title: 'Roll', run_status: 'running' } },
+        })} />
+      </MemoryRouter>,
+    );
+
+    const button = screen.getByRole('button', { name: /Run HITL/ });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute('title', 'Queued in playbook Roll');
+
+    await act(async () => {
+      fireEvent.click(button);
+    });
+
+    expect(onRunCard).not.toHaveBeenCalled();
+  });
+});
+
 describe('CardPanel - Run handler (save-before-run)', () => {
   beforeEach(() => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);

@@ -27,6 +27,13 @@ describe('cardSignals', () => {
     expect(signals.find((s) => s.key === 'playbook')).toBeUndefined();
   });
 
+  it.each(['stopped', 'completed'] as const)('keeps the membership signal when the lock run is %s', (runStatus) => {
+    const card = baseCard({ in_playbooks: ['roll'], playbook_lock: { id: 'roll', title: 'Roll', run_status: runStatus } });
+    const signals = cardSignals(card);
+    expect(signals.find((s) => s.key === 'playbook')?.label).toBe('In playbook: roll');
+    expect(signals.find((s) => s.key === 'playbook-run')).toBeUndefined();
+  });
+
   it('keeps the membership signal when the lock has no active run', () => {
     const card = baseCard({ in_playbooks: ['roll'], playbook_lock: { id: 'roll', title: 'Roll' } });
     const signals = cardSignals(card);

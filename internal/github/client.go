@@ -197,6 +197,87 @@ func (c *Client) FetchBranches(ctx context.Context, owner, repo string) ([]strin
 	return allNames, nil
 }
 
+// get performs an authenticated GitHub API GET and returns the response for a
+// 200; the caller closes the body. Every other status becomes an error.
+func (c *Client) get(ctx context.Context, rawURL string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "contextmatrix")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+
+	token, _, err := c.provider.GenerateToken(req.Context())
+	if err != nil {
+		return nil, fmt.Errorf("get github token: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+
+	if resp.StatusCode == http.StatusOK {
+		return resp, nil
+	}
+
+	defer func() { _ = resp.Body.Close() }()
+
+	// 429 is unambiguously rate-limiting. 403 is overloaded - GitHub returns
+	// it for genuine rate-limit responses (primary or secondary) and for many
+	// non-rate-limit failures (revoked PAT, SAML SSO not authorised, missing
+	// repo permissions, IP allowlist denial). The syncer treats ErrRateLimited
+	// as transient, so misclassifying a permission failure as rate-limited
+	// silently abandons every cycle without surfacing the auth problem.
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return nil, ErrRateLimited
+	}
+
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+
+	if resp.StatusCode == http.StatusForbidden {
+		if isRateLimitForbidden(resp.Header, body) {
+			return nil, ErrRateLimited
+		}
+
+		return nil, fmt.Errorf("%w: status 403: %s", ErrPermissionDenied, sanitizeBody(body))
+	}
+
+	return nil, fmt.Errorf("github api: status %d: %s", resp.StatusCode, sanitizeBody(body))
+}
+
+// repoItem is the subset of a GitHub repository object FetchDefaultBranch uses.
+type repoItem struct {
+	DefaultBranch string `json:"default_branch"`
+}
+
+// FetchDefaultBranch returns the repository's default branch name.
+func (c *Client) FetchDefaultBranch(ctx context.Context, owner, repo string) (string, error) {
+	rawURL := fmt.Sprintf("%s/repos/%s/%s", c.baseURL, url.PathEscape(owner), url.PathEscape(repo))
+
+	resp, err := c.get(ctx, rawURL)
+	if err != nil {
+		return "", err
+	}
+
+	defer func() { _ = resp.Body.Close() }()
+
+	var item repoItem
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBody)).Decode(&item); err != nil {
+		return "", fmt.Errorf("decode response: %w", err)
+	}
+
+	if item.DefaultBranch == "" {
+		return "", errors.New("github api: repository object has no default_branch")
+	}
+
+	return item.DefaultBranch, nil
+}
+
 // pageDecoder is an interface satisfied by any type that can be JSON-decoded
 // from a GitHub API list response. The constraint exists only to bound the
 // type parameter; in practice any struct works.
@@ -209,55 +290,12 @@ type pageDecoder interface {
 // when exhausted), whether the rate limit is now exhausted after this page,
 // and any transport/HTTP/decode error.
 func doPage[T pageDecoder](ctx context.Context, c *Client, rawURL string) ([]T, string, bool, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	resp, err := c.get(ctx, rawURL)
 	if err != nil {
-		return nil, "", false, fmt.Errorf("create request: %w", err)
-	}
-
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "contextmatrix")
-	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-
-	token, _, err := c.provider.GenerateToken(req.Context())
-	if err != nil {
-		return nil, "", false, fmt.Errorf("get github token: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+token)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, "", false, fmt.Errorf("http request: %w", err)
+		return nil, "", false, err
 	}
 
 	defer func() { _ = resp.Body.Close() }()
-
-	// 429 is unambiguously rate-limiting. 403 is overloaded - GitHub returns
-	// it for genuine rate-limit responses (primary or secondary) and for many
-	// non-rate-limit failures (revoked PAT, SAML SSO not authorised, missing
-	// repo permissions, IP allowlist denial). The syncer treats ErrRateLimited
-	// as transient, so misclassifying a permission failure as rate-limited
-	// silently abandons every cycle without surfacing the auth problem.
-	if resp.StatusCode == http.StatusTooManyRequests {
-		return nil, "", false, ErrRateLimited
-	}
-
-	if resp.StatusCode == http.StatusForbidden {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-
-		if isRateLimitForbidden(resp.Header, body) {
-			return nil, "", false, ErrRateLimited
-		}
-
-		return nil, "", false, fmt.Errorf("%w: status 403: %s",
-			ErrPermissionDenied, sanitizeBody(body))
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-
-		return nil, "", false, fmt.Errorf("github api: status %d: %s", resp.StatusCode, sanitizeBody(body))
-	}
 
 	var items []T
 	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBody)).Decode(&items); err != nil {
