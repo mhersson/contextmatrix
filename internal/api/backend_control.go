@@ -221,47 +221,9 @@ func (h *backendHandlers) stopCard(w http.ResponseWriter, r *http.Request) {
 	project := r.PathValue("project")
 	id := strings.ToUpper(r.PathValue("id"))
 
-	if h.backend == nil {
-		writeError(w, http.StatusServiceUnavailable, ErrCodeBackendDisabled, "no execution backend is configured", "")
-
-		return
-	}
-
-	card, err := h.svc.GetCard(r.Context(), project, id)
+	card, err := h.stop(r.Context(), project, id)
 	if err != nil {
-		handleServiceError(w, r, err)
-
-		return
-	}
-
-	// A worker another instance started reports to that instance. Killing it
-	// from here would leave the two boards disagreeing about the run.
-	if h.svc.ClaimedElsewhere(card) {
-		writeError(w, http.StatusForbidden, ErrCodeAgentMismatch,
-			"card is running on another instance", "claimed via instance "+card.ClaimedVia)
-
-		return
-	}
-
-	if card.WorkerStatus != "queued" && card.WorkerStatus != "running" {
-		writeError(w, http.StatusConflict, ErrCodeWorkerNotRunning,
-			"card is not being executed by a worker",
-			fmt.Sprintf("worker_status: %q", card.WorkerStatus))
-
-		return
-	}
-
-	if err := h.backend.Kill(r.Context(), backend.KillPayload{CardID: id, Project: project}); err != nil {
-		ctxlog.Logger(r.Context()).Error("backend kill webhook failed", "card_id", id, "project", project, "error", err)
-		writeError(w, http.StatusBadGateway, ErrCodeBackendUnavailable,
-			"failed to stop backend task", "")
-
-		return
-	}
-
-	card, err = h.svc.UpdateWorkerStatus(r.Context(), project, id, "killed", "task stopped by user")
-	if err != nil {
-		handleServiceError(w, r, err)
+		writeLaunchError(w, r, err)
 
 		return
 	}
