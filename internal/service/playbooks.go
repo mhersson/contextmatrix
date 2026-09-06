@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -33,6 +34,21 @@ var (
 	ErrPlaybookEntryNotFound = errors.New("playbook entry not found")
 	ErrDuplicateCardEntry    = errors.New("duplicate card entry")
 	ErrInvalidPlaybookEntry  = errors.New("invalid playbook entry")
+	// ErrPlaybookRunActive is returned when a change is refused because the
+	// playbook has a running or waiting run.
+	ErrPlaybookRunActive = errors.New("playbook run is active")
+	// ErrPlaybookNotRunnable is returned when run state is set on, or a run
+	// is started for, a playbook that is not runnable.
+	ErrPlaybookNotRunnable = errors.New("playbook is not runnable")
+	// ErrPlaybookCardOwned is returned when a card entry already belongs to
+	// another runnable playbook.
+	ErrPlaybookCardOwned = errors.New("card belongs to another runnable playbook")
+	// ErrPlaybookProjectNoRepo is returned when a card entry's project has
+	// no GitHub repository, so no playbook branch could ever be created.
+	ErrPlaybookProjectNoRepo = errors.New("project has no GitHub repository")
+	// ErrPlaybookLocked is returned when a card's playbook-owned settings
+	// are changed by hand.
+	ErrPlaybookLocked = errors.New("card settings are locked by a runnable playbook")
 )
 
 // PlaybookStore is the persistence interface PlaybookService depends on.
@@ -44,6 +60,12 @@ type PlaybookStore interface {
 	Save(ctx context.Context, p *board.Playbook) error
 	Delete(ctx context.Context, id string) error
 	ReloadIndex(ctx context.Context) error
+}
+
+// PlaybookCardForcer applies the five playbook-forced settings to one card.
+// Implemented by *CardService.
+type PlaybookCardForcer interface {
+	ForcePlaybookSettings(ctx context.Context, project, id, playbookID, branch, agentID string) (*board.Card, error)
 }
 
 // PlaybookEntryInput is one entry as submitted by an API/MCP caller.
@@ -67,10 +89,14 @@ type CreatePlaybookInput struct {
 }
 
 // UpdatePlaybookInput patches a playbook's metadata. Nil fields are left
-// unchanged.
+// unchanged. Runnable true validates every card entry and forces the five
+// execution settings on their cards before flipping the flag; Runnable
+// false and BaseBranch are refused while a run is active.
 type UpdatePlaybookInput struct {
 	Title       *string
 	Description *string
+	Runnable    *bool
+	BaseBranch  *string
 }
 
 // UpdateEntryInput patches one playbook entry. Nil fields are left
@@ -147,6 +173,11 @@ type PlaybookDetail struct {
 	Complete    int                   `json:"complete"`
 	Total       int                   `json:"total"`
 	Entries     []PlaybookEntryDetail `json:"entries"`
+	// Runnable and BaseBranch mirror the stored fields; Run mirrors the
+	// current run block, nil when the playbook has never run.
+	Runnable   bool               `json:"runnable"`
+	BaseBranch string             `json:"base_branch,omitempty"`
+	Run        *board.PlaybookRun `json:"run,omitempty"`
 }
 
 // PlaybookRepo is one boards repository's playbook write path: its commit
@@ -188,6 +219,13 @@ type PlaybookService struct {
 	// CardService.LockWrites, this never touches a commit queue - see
 	// LockWrites for the ordering constraint this implies for the syncer.
 	writeMu sync.Mutex
+
+	// forcer applies forced settings to cards for make-runnable; nil until
+	// wired, which makes make-runnable fail rather than silently skip.
+	forcer PlaybookCardForcer
+	// githubHosts is the host allowlist used to recognise a project's
+	// GitHub repository URL. Defaults to github.com.
+	githubHosts []string
 }
 
 // NewPlaybookServiceRepos creates a PlaybookService over several boards
@@ -218,7 +256,10 @@ func NewPlaybookServiceRepos(
 		index[r.Name] = r
 	}
 
-	return &PlaybookService{store: store, cards: cards, bus: bus, clk: clk, repos: repos, repoIndex: index}, nil
+	return &PlaybookService{
+		store: store, cards: cards, bus: bus, clk: clk, repos: repos, repoIndex: index,
+		githubHosts: []string{"github.com"},
+	}, nil
 }
 
 // NewPlaybookService creates a PlaybookService over one boards repository
@@ -255,6 +296,19 @@ func (s *PlaybookService) SetOnCommitFor(repo string, fn func()) error {
 	r.onCommit = fn
 
 	return nil
+}
+
+// SetCardForcer wires the card mutation make-runnable uses to force settings.
+func (s *PlaybookService) SetCardForcer(f PlaybookCardForcer) {
+	s.forcer = f
+}
+
+// SetGitHubHosts sets the hostnames recognised as GitHub when validating a
+// project's repository URL. An empty list keeps the github.com default.
+func (s *PlaybookService) SetGitHubHosts(hosts []string) {
+	if len(hosts) > 0 {
+		s.githubHosts = hosts
+	}
 }
 
 func (s *PlaybookService) repoNamed(name string) (*PlaybookRepo, error) {
@@ -595,8 +649,14 @@ func (s *PlaybookService) Get(ctx context.Context, id string) (*PlaybookDetail, 
 	return s.resolve(ctx, p)
 }
 
-// UpdateMeta patches a playbook's title and/or description. The id is
-// immutable - a title edit never re-slugs it.
+// UpdateMeta patches a playbook's title, description, runnable flag and
+// base branch. The id is immutable - a title edit never re-slugs it.
+// Making a playbook runnable validates every card entry (GitHub repo on
+// the project, no other runnable playbook owning the card) and forces the
+// five execution settings on each non-terminal card before the flag flips;
+// a failure leaves the flag off. Clearing the flag and changing the base
+// branch are refused while a run is active; clearing drops the run block
+// and never reverts card settings.
 func (s *PlaybookService) UpdateMeta(ctx context.Context, id string, input UpdatePlaybookInput, agentID string) (*PlaybookDetail, error) {
 	return s.mutate(ctx, id, "meta updated", agentID, func(p *board.Playbook) error {
 		if input.Title != nil {
@@ -612,8 +672,232 @@ func (s *PlaybookService) UpdateMeta(ctx context.Context, id string, input Updat
 			p.Description = *input.Description
 		}
 
+		if input.BaseBranch != nil {
+			if p.RunActive() {
+				return fmt.Errorf("%w: base_branch cannot change during a run", ErrPlaybookRunActive)
+			}
+
+			p.BaseBranch = strings.TrimSpace(*input.BaseBranch)
+		}
+
+		if input.Runnable == nil {
+			return nil
+		}
+
+		switch {
+		case *input.Runnable && !p.Runnable:
+			if err := s.makeRunnable(ctx, p, agentID); err != nil {
+				return err
+			}
+
+			p.Runnable = true
+		case *input.Runnable && p.Runnable:
+			// Re-assert: a card added by hand-editing the file, or a card
+			// edited through an unguarded path, gets the settings again.
+			if err := s.forceEntries(ctx, p, p.Entries, agentID); err != nil {
+				return err
+			}
+		case !*input.Runnable && p.Runnable:
+			if p.RunActive() {
+				return fmt.Errorf("%w: stop the run before making the playbook not runnable", ErrPlaybookRunActive)
+			}
+
+			p.Runnable = false
+			p.Run = nil
+		}
+
 		return nil
 	})
+}
+
+// makeRunnable validates every card entry and forces settings on the cards.
+// Caller holds writeMu. The playbook flag is flipped by the caller only when
+// this returns nil.
+func (s *PlaybookService) makeRunnable(ctx context.Context, p *board.Playbook, agentID string) error {
+	if err := s.validateRunnableEntries(ctx, p, p.Entries); err != nil {
+		return err
+	}
+
+	return s.forceEntries(ctx, p, p.Entries, agentID)
+}
+
+// validateRunnableEntries checks that each card entry's project has a GitHub
+// repository and that no other runnable playbook holds the same card.
+// Missing cards and projects are skipped: they are already flagged on read.
+// Every offender is named so a human can fix them in one pass.
+func (s *PlaybookService) validateRunnableEntries(ctx context.Context, p *board.Playbook, entries []board.PlaybookEntry) error {
+	others, err := s.store.List(ctx)
+	if err != nil {
+		return fmt.Errorf("list playbooks: %w", err)
+	}
+
+	var noRepo, owned []string
+
+	for _, e := range entries {
+		if e.Type != board.EntryTypeCard {
+			continue
+		}
+
+		cfg, err := s.cards.GetProject(ctx, e.Project)
+		if err != nil {
+			if errors.Is(err, storage.ErrProjectNotFound) {
+				continue
+			}
+
+			return fmt.Errorf("get project %s: %w", e.Project, err)
+		}
+
+		if _, _, _, ok := parseGitHubRepo(cfg.Repo, s.githubHosts); !ok {
+			noRepo = append(noRepo, e.Project)
+		}
+
+		for _, o := range others {
+			if o.ID != p.ID && o.Runnable && o.HasCardEntry(e.Project, e.Card) {
+				owned = append(owned, fmt.Sprintf("%s/%s (playbook %s)", e.Project, e.Card, o.ID))
+			}
+		}
+	}
+
+	if len(noRepo) > 0 {
+		slices.Sort(noRepo)
+
+		return fmt.Errorf("%w: %s", ErrPlaybookProjectNoRepo, strings.Join(slices.Compact(noRepo), ", "))
+	}
+
+	if len(owned) > 0 {
+		return fmt.Errorf("%w: %s", ErrPlaybookCardOwned, strings.Join(owned, ", "))
+	}
+
+	return nil
+}
+
+// forceEntries applies the playbook's forced settings to every non-terminal
+// card among entries that does not already carry them. Caller holds writeMu;
+// the card service takes its own lock second, the order the syncer also
+// uses (playbook lock before card lock).
+func (s *PlaybookService) forceEntries(ctx context.Context, p *board.Playbook, entries []board.PlaybookEntry, agentID string) error {
+	if s.forcer == nil {
+		return errors.New("playbook service: no card forcer wired; cannot make runnable")
+	}
+
+	branch := p.Branch()
+
+	var failed []error
+
+	for _, e := range entries {
+		if e.Type != board.EntryTypeCard {
+			continue
+		}
+
+		card, err := s.cards.GetCard(ctx, e.Project, e.Card)
+		if err != nil {
+			if errors.Is(err, storage.ErrCardNotFound) || errors.Is(err, storage.ErrProjectNotFound) {
+				continue
+			}
+
+			return fmt.Errorf("get card %s/%s: %w", e.Project, e.Card, err)
+		}
+
+		if board.IsTerminalState(card.State) || card.HasPlaybookSettings(branch) {
+			continue
+		}
+
+		if _, err := s.forcer.ForcePlaybookSettings(ctx, e.Project, e.Card, p.ID, branch, agentID); err != nil {
+			failed = append(failed, fmt.Errorf("force settings on %s/%s: %w", e.Project, e.Card, err))
+		}
+	}
+
+	return errors.Join(failed...)
+}
+
+// SetRun replaces the playbook's run block. It is the single write path for
+// run state (the runner and the Play/Stop endpoints use it). A nil run
+// clears the block. Refused on a playbook that is not runnable.
+func (s *PlaybookService) SetRun(ctx context.Context, id string, run *board.PlaybookRun, agentID string) (*PlaybookDetail, error) {
+	action := "run cleared"
+	if run != nil {
+		action = "run " + run.Status
+	}
+
+	return s.mutate(ctx, id, action, agentID, func(p *board.Playbook) error {
+		if !p.Runnable {
+			return fmt.Errorf("%w: %s", ErrPlaybookNotRunnable, id)
+		}
+
+		if run == nil {
+			p.Run = nil
+
+			return nil
+		}
+
+		copied := *run
+		p.Run = &copied
+
+		return nil
+	})
+}
+
+// parseGitHubRepo extracts owner, repo, and matched host from a GitHub
+// repository URL. Supported formats:
+//   - git@<host>:owner/repo.git
+//   - https://<host>/owner/repo.git
+//   - https://<host>/owner/repo
+//   - ssh://<host>/owner/repo.git
+//
+// allowedHosts is the list of permitted hostnames (e.g. github.com).
+// Returns empty strings and false if the URL matches no allowed host or
+// cannot be parsed.
+//
+// Duplicated from github.ParseGitHubRepo rather than imported: package
+// github's Syncer holds a *CardService, so internal/service already sits
+// downstream of internal/github and an import the other way would cycle.
+func parseGitHubRepo(rawURL string, allowedHosts []string) (owner, repo, host string, ok bool) {
+	// SSH SCP format: git@<host>:owner/repo.git
+	for _, h := range allowedHosts {
+		prefix := "git@" + h + ":"
+		if path, matched := strings.CutPrefix(rawURL, prefix); matched {
+			path = strings.TrimSuffix(path, ".git")
+
+			o, r, valid := splitGitHubOwnerRepo(path)
+			if valid {
+				return o, r, h, true
+			}
+
+			return "", "", "", false
+		}
+	}
+
+	// HTTPS / SSH URL format
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", "", "", false
+	}
+
+	hostname := u.Hostname()
+	for _, h := range allowedHosts {
+		if hostname == h {
+			path := strings.TrimPrefix(u.Path, "/")
+			path = strings.TrimSuffix(path, ".git")
+
+			o, r, valid := splitGitHubOwnerRepo(path)
+			if valid {
+				return o, r, h, true
+			}
+
+			return "", "", "", false
+		}
+	}
+
+	return "", "", "", false
+}
+
+func splitGitHubOwnerRepo(path string) (owner, repo string, ok bool) {
+	parts := strings.SplitN(path, "/", 3)
+	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+		return "", "", false
+	}
+
+	return parts[0], parts[1], true
 }
 
 // Delete removes a playbook. On commit failure the deleted playbook is
@@ -784,12 +1068,23 @@ func (s *PlaybookService) buildEntry(ctx context.Context, p *board.Playbook, in 
 	return &e, nil
 }
 
-// AddEntry appends one new entry to the playbook.
+// AddEntry appends one new entry to the playbook. On a runnable playbook a
+// card entry must pass the runnable checks and gets the forced settings.
 func (s *PlaybookService) AddEntry(ctx context.Context, id string, in PlaybookEntryInput, agentID string) (*PlaybookDetail, error) {
 	return s.mutate(ctx, id, "add entry", agentID, func(p *board.Playbook) error {
 		e, err := s.buildEntry(ctx, p, in)
 		if err != nil {
 			return err
+		}
+
+		if p.Runnable && e.Type == board.EntryTypeCard {
+			if err := s.validateRunnableEntries(ctx, p, []board.PlaybookEntry{*e}); err != nil {
+				return err
+			}
+
+			if err := s.forceEntries(ctx, p, []board.PlaybookEntry{*e}, agentID); err != nil {
+				return err
+			}
 		}
 
 		p.Entries = append(p.Entries, *e)
@@ -893,6 +1188,13 @@ func (s *PlaybookService) resolve(ctx context.Context, p *board.Playbook) (*Play
 		Updated:     p.Updated,
 		Total:       len(p.Entries),
 		Entries:     make([]PlaybookEntryDetail, len(p.Entries)),
+		Runnable:    p.Runnable,
+		BaseBranch:  p.BaseBranch,
+	}
+
+	if p.Run != nil {
+		run := *p.Run
+		detail.Run = &run
 	}
 
 	for i := range p.Entries {

@@ -11,6 +11,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/gitops"
+	"github.com/mhersson/contextmatrix/internal/lock"
 	"github.com/mhersson/contextmatrix/internal/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -44,6 +45,7 @@ func (r *recordingCommitter) CommitFilesShell(_ context.Context, paths []string,
 
 type playbookTestEnv struct {
 	svc       *PlaybookService
+	cardSvc   *CardService
 	cards     storage.Store
 	committer *recordingCommitter
 	bus       *events.Bus
@@ -78,14 +80,38 @@ func newPlaybookTestEnv(t *testing.T) *playbookTestEnv {
 	fake := clock.Fake(time.Date(2026, 8, 20, 9, 0, 0, 0, time.UTC))
 	bus := events.NewBus()
 
+	gitMgr, err := gitops.NewManager(dir, "", "test", gitopsTestProvider(t))
+	require.NoError(t, err)
+
+	cardSvc := NewCardService(cards, gitMgr, lock.NewManager(cards, 30*time.Minute), bus, dir, nil, false, false)
+	cardSvc.SetPlaybookLister(pbStore)
+
 	svc := NewPlaybookService(pbStore, cards, bus, fake, true)
 	svc.SetCommitQueue(queue)
+	svc.SetCardForcer(cardSvc)
 
 	pushed := 0
 
 	svc.SetOnCommit(func() { pushed++ })
 
-	return &playbookTestEnv{svc: svc, cards: cards, committer: committer, bus: bus, clk: fake, pushed: &pushed}
+	return &playbookTestEnv{svc: svc, cardSvc: cardSvc, cards: cards, committer: committer, bus: bus, clk: fake, pushed: &pushed}
+}
+
+// createProject adds a project with one todo card <prefix>-001. repo may be
+// empty to model a project without a GitHub repository.
+func (env *playbookTestEnv) createProject(t *testing.T, name, prefix, repo string) {
+	t.Helper()
+
+	cfg := validProjectConfigForPlaybooks()
+	cfg.Name, cfg.Prefix, cfg.Repo = name, prefix, repo
+	require.NoError(t, env.cards.SaveProject(context.Background(), cfg))
+
+	card := &board.Card{
+		ID: prefix + "-001", Title: prefix + " first", Project: name,
+		Type: "task", State: "todo", Priority: "medium",
+		Created: time.Now().UTC(), Updated: time.Now().UTC(),
+	}
+	require.NoError(t, env.cards.CreateCard(context.Background(), name, card))
 }
 
 // createCard adds an extra card to project-alpha for tests that need more
@@ -104,6 +130,7 @@ func (env *playbookTestEnv) createCard(t *testing.T, id, state string) {
 func validProjectConfigForPlaybooks() *board.ProjectConfig {
 	return &board.ProjectConfig{
 		Name: "project-alpha", Prefix: "ALPHA", NextID: 2,
+		Repo:   "https://github.com/acme/alpha.git",
 		States: []string{"todo", "in_progress", "done", "stalled", "not_planned"},
 		Types:  []string{"task"}, Priorities: []string{"medium"},
 		Transitions: map[string][]string{
@@ -582,4 +609,215 @@ func TestPlaybookCreateVerified_RunsInsideTheCycle(t *testing.T) {
 	assert.Equal(t, 1, calls)
 	assert.Equal(t, 1, commits, "the cycle commits directly; the queue is paused inside it")
 	assert.Empty(t, env.committer.msgs, "nothing went through the queue")
+}
+
+func ptrBool(b bool) *bool { return &b }
+
+func ptrStr(s string) *string { return &s }
+
+func TestPlaybookService_MakeRunnableForcesSettings(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	env.createCard(t, "ALPHA-002", "todo")
+	env.createCard(t, "ALPHA-003", "done")
+
+	detail, err := env.svc.Create(ctx, CreatePlaybookInput{
+		Title: "Rollout", AgentID: "human:alice",
+		Entries: []PlaybookEntryInput{
+			{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"},
+			{Type: board.EntryTypeManual, Text: "deploy"},
+			{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-002"},
+			{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-003"},
+		},
+	})
+	require.NoError(t, err)
+	assert.False(t, detail.Runnable)
+
+	got, err := env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: ptrBool(true), BaseBranch: ptrStr("main")}, "human:alice")
+	require.NoError(t, err)
+	assert.True(t, got.Runnable)
+	assert.Equal(t, "main", got.BaseBranch)
+
+	for _, id := range []string{"ALPHA-001", "ALPHA-002"} {
+		card, err := env.cardSvc.GetCard(ctx, "project-alpha", id)
+		require.NoError(t, err)
+		assert.True(t, card.HasPlaybookSettings("playbook/rollout"), id)
+		require.NotNil(t, card.PlaybookLock, id)
+		assert.Equal(t, "rollout", card.PlaybookLock.ID)
+	}
+
+	done, err := env.cardSvc.GetCard(ctx, "project-alpha", "ALPHA-003")
+	require.NoError(t, err)
+	assert.False(t, done.Autonomous, "terminal cards are left alone")
+
+	// Idempotent: a second make-runnable is a no-op on the cards.
+	before, err := env.cardSvc.GetCard(ctx, "project-alpha", "ALPHA-001")
+	require.NoError(t, err)
+	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+	require.NoError(t, err)
+	after, err := env.cardSvc.GetCard(ctx, "project-alpha", "ALPHA-001")
+	require.NoError(t, err)
+	assert.Len(t, after.ActivityLog, len(before.ActivityLog))
+}
+
+func TestPlaybookService_MakeRunnableRefusesProjectWithoutRepo(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	env.createProject(t, "project-beta", "BETA", "")
+
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{
+		Title: "Mixed", AgentID: "human:alice",
+		Entries: []PlaybookEntryInput{
+			{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"},
+			{Type: board.EntryTypeCard, Project: "project-beta", Card: "BETA-001"},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = env.svc.UpdateMeta(ctx, "mixed", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+	require.ErrorIs(t, err, ErrPlaybookProjectNoRepo)
+	assert.Contains(t, err.Error(), "project-beta")
+
+	// Nothing was forced and the flag did not flip.
+	card, err := env.cardSvc.GetCard(ctx, "project-alpha", "ALPHA-001")
+	require.NoError(t, err)
+	assert.False(t, card.Autonomous)
+
+	got, err := env.svc.Get(ctx, "mixed")
+	require.NoError(t, err)
+	assert.False(t, got.Runnable)
+}
+
+func TestPlaybookService_MakeRunnableRefusesCardOwnedElsewhere(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	env.createCard(t, "ALPHA-002", "todo")
+
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{
+		Title: "First", AgentID: "human:alice",
+		Entries: []PlaybookEntryInput{{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"}},
+	})
+	require.NoError(t, err)
+	_, err = env.svc.UpdateMeta(ctx, "first", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+	require.NoError(t, err)
+
+	_, err = env.svc.Create(ctx, CreatePlaybookInput{
+		Title: "Second", AgentID: "human:alice",
+		Entries: []PlaybookEntryInput{
+			{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-002"},
+			{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = env.svc.UpdateMeta(ctx, "second", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+	require.ErrorIs(t, err, ErrPlaybookCardOwned)
+	assert.Contains(t, err.Error(), "ALPHA-001")
+	assert.Contains(t, err.Error(), "first")
+
+	// Adding a card owned elsewhere to a runnable playbook is refused too.
+	_, err = env.svc.AddEntry(ctx, "first", PlaybookEntryInput{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-002"}, "human:alice")
+	require.NoError(t, err, "ALPHA-002 is only in the non-runnable second playbook")
+
+	_, err = env.svc.UpdateMeta(ctx, "second", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+	require.ErrorIs(t, err, ErrPlaybookCardOwned)
+}
+
+func TestPlaybookService_AddEntryForcesOnRunnable(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	env.createCard(t, "ALPHA-002", "todo")
+
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{
+		Title: "Rollout", AgentID: "human:alice",
+		Entries: []PlaybookEntryInput{{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"}},
+	})
+	require.NoError(t, err)
+	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+	require.NoError(t, err)
+
+	_, err = env.svc.AddEntry(ctx, "rollout", PlaybookEntryInput{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-002"}, "human:alice")
+	require.NoError(t, err)
+
+	card, err := env.cardSvc.GetCard(ctx, "project-alpha", "ALPHA-002")
+	require.NoError(t, err)
+	assert.True(t, card.HasPlaybookSettings("playbook/rollout"))
+
+	// A manual entry needs no forcing and no repo.
+	_, err = env.svc.AddEntry(ctx, "rollout", PlaybookEntryInput{Type: board.EntryTypeManual, Text: "deploy"}, "human:alice")
+	require.NoError(t, err)
+
+	// A card in a project without a repo cannot join a runnable playbook.
+	env.createProject(t, "project-beta", "BETA", "")
+	_, err = env.svc.AddEntry(ctx, "rollout", PlaybookEntryInput{Type: board.EntryTypeCard, Project: "project-beta", Card: "BETA-001"}, "human:alice")
+	require.ErrorIs(t, err, ErrPlaybookProjectNoRepo)
+}
+
+func TestPlaybookService_RunnableFalseAndBaseBranchRules(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{
+		Title: "Rollout", AgentID: "human:alice",
+		Entries: []PlaybookEntryInput{{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"}},
+	})
+	require.NoError(t, err)
+
+	// SetRun on a non-runnable playbook is refused.
+	now := env.clk.Now()
+	_, err = env.svc.SetRun(ctx, "rollout", &board.PlaybookRun{Status: board.RunStatusRunning, StartedAt: now, UpdatedAt: now}, "human:alice")
+	require.ErrorIs(t, err, ErrPlaybookNotRunnable)
+
+	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: ptrBool(true), BaseBranch: ptrStr("main")}, "human:alice")
+	require.NoError(t, err)
+
+	got, err := env.svc.SetRun(ctx, "rollout", &board.PlaybookRun{Status: board.RunStatusRunning, StartedAt: now, UpdatedAt: now, Entry: "e1"}, "human:alice")
+	require.NoError(t, err)
+	require.NotNil(t, got.Run)
+	assert.Equal(t, board.RunStatusRunning, got.Run.Status)
+
+	// Active run: neither the flag nor the base branch may change.
+	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: ptrBool(false)}, "human:alice")
+	require.ErrorIs(t, err, ErrPlaybookRunActive)
+	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{BaseBranch: ptrStr("develop")}, "human:alice")
+	require.ErrorIs(t, err, ErrPlaybookRunActive)
+
+	// Title edits still work during a run.
+	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Title: ptrStr("Rollout v2")}, "human:alice")
+	require.NoError(t, err)
+
+	// Stopped run: unchecking is allowed, drops the run block, keeps cards.
+	_, err = env.svc.SetRun(ctx, "rollout", &board.PlaybookRun{Status: board.RunStatusStopped, StartedAt: now, UpdatedAt: now}, "human:alice")
+	require.NoError(t, err)
+
+	got, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: ptrBool(false)}, "human:alice")
+	require.NoError(t, err)
+	assert.False(t, got.Runnable)
+	assert.Nil(t, got.Run)
+
+	card, err := env.cardSvc.GetCard(ctx, "project-alpha", "ALPHA-001")
+	require.NoError(t, err)
+	assert.True(t, card.HasPlaybookSettings("playbook/rollout"), "settings are never reverted")
+	assert.Nil(t, card.PlaybookLock, "but the lock is gone")
+}
+
+func TestPlaybookService_MakeRunnableWithoutForcerFails(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	env.svc.SetCardForcer(nil)
+
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{
+		Title: "Rollout", AgentID: "human:alice",
+		Entries: []PlaybookEntryInput{{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"}},
+	})
+	require.NoError(t, err)
+
+	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "forcer")
 }
