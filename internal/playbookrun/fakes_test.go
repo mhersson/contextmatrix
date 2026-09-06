@@ -88,14 +88,14 @@ func (f *fakeCards) ForcePlaybookSettings(_ context.Context, project, id, _, bra
 
 // fakePlaybooks resolves details the way the service does: card entries
 // complete on a terminal state, manual entries on done, missing when the
-// card is unknown. Every SetRun is recorded.
+// card is unknown. Every run write is recorded.
 type fakePlaybooks struct {
 	mu    sync.Mutex
 	cards *fakeCards
 	pbs   map[string]*board.Playbook
 	runs  []board.PlaybookRun
 
-	// failNextSetRun, when set, is returned by the next SetRun call instead
+	// failNextSetRun, when set, is returned by the next run write instead
 	// of writing, then cleared.
 	failNextSetRun error
 
@@ -130,7 +130,7 @@ func (f *fakePlaybooks) List(context.Context) ([]*board.Playbook, error) {
 }
 
 // Get snapshots the playbook under the lock and builds the detail from the
-// snapshot, so a walker reading a detail never races a test or a SetRun
+// snapshot, so a walker reading a detail never races a test or a run
 // writing the same playbook.
 func (f *fakePlaybooks) Get(ctx context.Context, id string) (*service.PlaybookDetail, error) {
 	f.mu.Lock()
@@ -187,7 +187,11 @@ func (f *fakePlaybooks) Get(ctx context.Context, id string) (*service.PlaybookDe
 	return d, nil
 }
 
-func (f *fakePlaybooks) SetRun(ctx context.Context, id string, run *board.PlaybookRun, _ string) (*service.PlaybookDetail, error) {
+// SetRunIf runs the guard against the stored run block under the same lock
+// that applies the write, the way the real service runs it under writeMu.
+func (f *fakePlaybooks) SetRunIf(
+	ctx context.Context, id string, guard func(current *board.PlaybookRun) error, run *board.PlaybookRun, _ string,
+) (*service.PlaybookDetail, error) {
 	f.mu.Lock()
 
 	if err := f.failNextSetRun; err != nil {
@@ -208,6 +212,14 @@ func (f *fakePlaybooks) SetRun(ctx context.Context, id string, run *board.Playbo
 		f.mu.Unlock()
 
 		return nil, service.ErrPlaybookNotRunnable
+	}
+
+	if guard != nil {
+		if err := guard(p.Run); err != nil {
+			f.mu.Unlock()
+
+			return nil, err
+		}
 	}
 
 	if run == nil {

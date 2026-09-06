@@ -191,3 +191,77 @@ func TestEnsure_PlayDuringExitingPassKeepsAWalker(t *testing.T) {
 	cancel()
 	e.runner.Wait()
 }
+
+// TestStop_DropsTheWalker pins the second half of the Stop fix: the walker
+// goes down with the run, so a pass already in flight unwinds on ctx.Err()
+// instead of writing over the stop, and a later Play brings one back.
+func TestStop_DropsTheWalker(t *testing.T) {
+	e := newEnv(t)
+	c := todoCard("alpha", "ALPHA-1")
+	c.State = board.StateInProgress
+	c.WorkerStatus = "running"
+	e.cards.add(c)
+
+	p := runnablePlaybook("rollout", cardEntry("e1", "alpha", "ALPHA-1"))
+	e.activeRun(p, "e1")
+	e.pbs.add(p)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	e.runner.Start(ctx)
+	require.Eventually(t, e.walkerReady, time.Second, 5*time.Millisecond)
+
+	_, err := e.runner.Stop(ctx, "rollout", "human:alice")
+	require.NoError(t, err)
+	assert.Equal(t, 0, e.runner.walkerCount(), "Stop takes the walker down with the run")
+
+	_, err = e.runner.Play(ctx, "rollout", "human:alice")
+	require.NoError(t, err)
+	assert.Equal(t, 1, e.runner.walkerCount(), "Play brings one back")
+
+	cancel()
+	e.runner.Wait()
+}
+
+func TestShutdown_JoinsWalkersAndHonoursItsContext(t *testing.T) {
+	e := newEnv(t)
+	c := todoCard("alpha", "ALPHA-1")
+	c.State = board.StateInProgress
+	c.WorkerStatus = "running"
+	e.cards.add(c)
+
+	p := runnablePlaybook("rollout", cardEntry("e1", "alpha", "ALPHA-1"))
+	e.activeRun(p, "e1")
+	e.pbs.add(p)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Hold the walker inside its first pass, then ask an already-expired
+	// Shutdown to wait for it: it must give up rather than block.
+	inPass := make(chan struct{})
+	proceed := make(chan struct{})
+
+	e.pbs.mu.Lock()
+	e.pbs.afterGet = func() {
+		close(inPass)
+		<-proceed
+	}
+	e.pbs.mu.Unlock()
+
+	e.runner.Start(ctx)
+	<-inPass
+
+	expired, expiredCancel := context.WithCancel(context.Background())
+	expiredCancel()
+
+	require.ErrorIs(t, e.runner.Shutdown(expired), context.Canceled)
+
+	// Released and cancelled, the walker exits and Shutdown returns nil.
+	close(proceed)
+	cancel()
+
+	require.NoError(t, e.runner.Shutdown(context.Background()))
+	assert.Equal(t, 0, e.runner.walkerCount())
+}

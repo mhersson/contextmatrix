@@ -36,6 +36,15 @@ func (r *Runner) walk(ctx context.Context, id string, w *walker) {
 	defer ticker.Stop()
 
 	for {
+		// Re-checked every iteration, not only before the first: at
+		// cancellation waitNudge's ctx.Done() case and a ready tick or event
+		// are both live, and the select picks between them at random, so a
+		// cancelled walker could otherwise run another pass and reach the
+		// launcher with a dead context.
+		if ctx.Err() != nil {
+			return
+		}
+
 		if r.safePass(ctx, id) {
 			// A Play that landed during the pass keeps this walker alive.
 			if r.release(id, w) {
@@ -78,6 +87,19 @@ func (r *Runner) forget(id string, w *walker) {
 	defer r.mu.Unlock()
 
 	r.dropLocked(id, w)
+}
+
+// cancelWalker cancels and drops the current walker for id, if there is
+// one. Stop calls it so a pass already in flight unwinds instead of writing
+// over the stop. Nil-safe when no walker is running and generation-safe,
+// because dropLocked only touches the walker still registered for id.
+func (r *Runner) cancelWalker(id string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if w, running := r.walkers[id]; running {
+		r.dropLocked(id, w)
+	}
 }
 
 // dropLocked removes w's entry and cancels its context when w is still the

@@ -51,7 +51,11 @@ func (r *Runner) pass(ctx context.Context, id string) bool {
 
 		card, err := r.cfg.Cards.GetCard(ctx, e.Project, e.Card)
 		if err != nil {
-			r.setRun(ctx, d, board.RunStatusWaiting, e.ID, fmt.Sprintf("read %s/%s: %v", e.Project, e.Card, err))
+			// The reason is committed to the boards repo and rendered in the
+			// UI, so it stays a fixed phrase; the raw error is for operators.
+			ctxlog.Logger(ctx).Error("playbook run: card read failed",
+				"playbook", d.ID, "project", e.Project, "card", e.Card, "error", err)
+			r.setRun(ctx, d, board.RunStatusWaiting, e.ID, fmt.Sprintf("read %s/%s failed", e.Project, e.Card))
 
 			return false
 		}
@@ -106,7 +110,9 @@ func (r *Runner) pass(ctx context.Context, id string) bool {
 func (r *Runner) launchEntry(ctx context.Context, d *service.PlaybookDetail, e *service.PlaybookEntryDetail, card *board.Card) {
 	if card.State != board.StateTodo {
 		if _, err := r.cfg.Cards.TransitionTo(ctx, e.Project, e.Card, board.StateTodo); err != nil {
-			r.setRun(ctx, d, board.RunStatusWaiting, e.ID, fmt.Sprintf("move %s to todo: %v", card.ID, err))
+			ctxlog.Logger(ctx).Error("playbook run: transition to todo failed",
+				"playbook", d.ID, "project", e.Project, "card", card.ID, "error", err)
+			r.setRun(ctx, d, board.RunStatusWaiting, e.ID, "move "+card.ID+" to todo")
 
 			return
 		}
@@ -114,7 +120,9 @@ func (r *Runner) launchEntry(ctx context.Context, d *service.PlaybookDetail, e *
 
 	if !card.HasPlaybookSettings(d.Branch) {
 		if _, err := r.cfg.Cards.ForcePlaybookSettings(ctx, e.Project, e.Card, d.ID, d.Branch, RunnerAgent); err != nil {
-			r.setRun(ctx, d, board.RunStatusWaiting, e.ID, fmt.Sprintf("force settings on %s: %v", card.ID, err))
+			ctxlog.Logger(ctx).Error("playbook run: forcing playbook settings failed",
+				"playbook", d.ID, "project", e.Project, "card", card.ID, "error", err)
+			r.setRun(ctx, d, board.RunStatusWaiting, e.ID, fmt.Sprintf("force settings on %s failed", card.ID))
 
 			return
 		}
@@ -138,7 +146,9 @@ func (r *Runner) launchEntry(ctx context.Context, d *service.PlaybookDetail, e *
 }
 
 // setRun persists a status change and mirrors it into d.Run. A write that
-// would change nothing is skipped, which keeps passes idempotent. It reports
+// would change nothing is skipped, which keeps passes idempotent. The write
+// is a compare-and-swap against the snapshot the pass decided from, so a
+// Stop or a Play that landed mid-pass is never overwritten. It reports
 // whether the run block now carries the requested state.
 func (r *Runner) setRun(ctx context.Context, d *service.PlaybookDetail, status, entry, reason string) bool {
 	if d.Run.Status == status && d.Run.Entry == entry && d.Run.Reason == reason {
@@ -157,15 +167,40 @@ func (r *Runner) setRun(ctx context.Context, d *service.PlaybookDetail, status, 
 		run.EndedAt = &now
 	}
 
-	if _, err := r.cfg.Playbooks.SetRun(ctx, d.ID, &run, RunnerAgent); err != nil {
+	if _, err := r.cfg.Playbooks.SetRunIf(ctx, d.ID, unchangedSince(d.Run, d.ID), &run, RunnerAgent); err != nil {
+		if errors.Is(err, ErrRunChanged) {
+			ctxlog.Logger(ctx).Info("playbook run: changed underneath, pass abandoned",
+				"playbook", d.ID, "status", status, "entry", entry)
+
+			return false
+		}
+
 		ctxlog.Logger(ctx).Error("playbook run: persist failed", "playbook", d.ID, "status", status, "entry", entry, "error", err)
 
 		return false
 	}
 
+	// The mirror carries the new UpdatedAt, so a later write in the same
+	// pass compares against what this one stored rather than the stale read.
 	d.Run = &run
 
 	return true
+}
+
+// unchangedSince builds the compare-and-swap guard for a write decided from
+// snapshot: the stored block must still be active and identical in every
+// field a Play or a Stop would move.
+func unchangedSince(snapshot *board.PlaybookRun, id string) func(*board.PlaybookRun) error {
+	want := *snapshot
+
+	return func(cur *board.PlaybookRun) error {
+		if cur == nil || !cur.Active() || cur.Instance != want.Instance || cur.Status != want.Status ||
+			cur.Entry != want.Entry || cur.Reason != want.Reason || !cur.UpdatedAt.Equal(want.UpdatedAt) {
+			return fmt.Errorf("%w: %s", ErrRunChanged, id)
+		}
+
+		return nil
+	}
 }
 
 // humanReason names why the current card needs a human: the parked reason

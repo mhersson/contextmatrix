@@ -37,6 +37,13 @@ func runnablePlaybookServer(t *testing.T) (*httptest.Server, *captureBackend, *s
 	server := httptest.NewServer(router)
 	t.Cleanup(server.Close)
 
+	// Start after the router, which wires the launcher and stopper. Until it
+	// is called the runner's walker parent is already cancelled, so a walker
+	// a Play spawned would exit before launching anything. t.Context() is
+	// cancelled just before the cleanups, so the Shutdown below joins them.
+	runner.Start(t.Context())
+	t.Cleanup(func() { _ = runner.Shutdown(context.Background()) })
+
 	ctx := context.Background()
 	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{Title: "First", Type: "task", Priority: "medium"})
 	require.NoError(t, err)

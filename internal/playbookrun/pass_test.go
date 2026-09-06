@@ -36,14 +36,10 @@ func newEnv(t *testing.T) *env {
 	r.SetLauncher(launcher.launch)
 	r.SetStopper(stopper.stop)
 
-	// Start with an already-cancelled context: the fakes are still empty so
-	// nothing is resumed, and any walker a later Play spawns exits at once
+	// Start is deliberately not called: until it is, the runner's walker
+	// parent is already cancelled, so a walker a Play spawns exits at once
 	// instead of racing the test's own writes. Tests that want live walkers
-	// call Start again with their own context.
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	r.Start(ctx)
-
+	// call Start with their own context.
 	e := &env{cards: cards, pbs: pbs, launcher: launcher, stopper: stopper, clk: clk, runner: r}
 
 	t.Cleanup(func() { e.runner.Wait() })
@@ -442,4 +438,40 @@ func TestStop_KillsTheCurrentWorker(t *testing.T) {
 	_, err = e3.runner.Stop(context.Background(), "rollout", "human:alice")
 	require.NoError(t, err)
 	assert.Empty(t, e3.stopper.calls)
+}
+
+// TestPass_StopMidPassIsNotOverwritten pins the compare-and-swap. The pass
+// decides from a run it read as running; a human presses Stop before the
+// write lands. Without the guard the pass would restore running and trigger
+// an autonomous container after the human pressed the escape hatch.
+func TestPass_StopMidPassIsNotOverwritten(t *testing.T) {
+	e := newEnv(t)
+
+	c := todoCard("alpha", "ALPHA-1")
+	c.ApplyPlaybookSettings("playbook/rollout") // already forced: no card writes in the way
+	e.cards.add(c)
+
+	p := runnablePlaybook("rollout", cardEntry("e1", "alpha", "ALPHA-1"))
+	e.activeRun(p, "")
+	e.pbs.add(p)
+
+	// The Stop lands after the pass has its detail and before its write.
+	e.pbs.mu.Lock()
+	e.pbs.afterGet = func() {
+		e.pbs.mu.Lock()
+		defer e.pbs.mu.Unlock()
+
+		p.Run.Status = board.RunStatusStopped
+		p.Run.Reason = "stopped by human:alice"
+	}
+	e.pbs.mu.Unlock()
+
+	require.False(t, e.runner.pass(context.Background(), "rollout"))
+	assert.Equal(t, 0, e.launcher.count(), "a stopped run never triggers a card")
+	assert.Equal(t, 0, e.pbs.runWrites(), "the refused write never reached the store")
+
+	d, err := e.pbs.Get(context.Background(), "rollout")
+	require.NoError(t, err)
+	require.NotNil(t, d.Run)
+	assert.Equal(t, board.RunStatusStopped, d.Run.Status, "the stop survives the pass")
 }

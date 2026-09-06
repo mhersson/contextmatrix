@@ -29,6 +29,10 @@ var (
 	// ErrStopWorker is returned by Stop when the run was marked stopped but
 	// the current worker could not be killed.
 	ErrStopWorker = errors.New("playbook run stopped but the worker could not be killed")
+	// ErrRunChanged is the compare-and-swap refusal: the run block moved
+	// between the read a pass decided from and its write, so the write was
+	// dropped rather than allowed to overwrite the newer state.
+	ErrRunChanged = errors.New("playbook run changed underneath")
 )
 
 // Launcher triggers one card the way the run endpoint does. The error text
@@ -39,10 +43,15 @@ type Launcher func(ctx context.Context, project, cardID string, opts LaunchOptio
 // Stopper kills one card's worker the way the stop endpoint does.
 type Stopper func(ctx context.Context, project, cardID string) error
 
-// Playbooks is the slice of the playbook service the runner uses.
+// Playbooks is the slice of the playbook service the runner uses. Every run
+// write goes through the guarded SetRunIf: the runner decides from a detail
+// it read earlier, so an unguarded write could overwrite a Stop that landed
+// in between.
 type Playbooks interface {
 	Get(ctx context.Context, id string) (*service.PlaybookDetail, error)
-	SetRun(ctx context.Context, id string, run *board.PlaybookRun, agentID string) (*service.PlaybookDetail, error)
+	SetRunIf(
+		ctx context.Context, id string, guard func(current *board.PlaybookRun) error, run *board.PlaybookRun, agentID string,
+	) (*service.PlaybookDetail, error)
 }
 
 // Lister lists raw playbooks; Start uses it to find runs to resume.
@@ -96,7 +105,13 @@ func New(cfg Config) *Runner {
 		cfg.Tick = 30 * time.Second
 	}
 
-	return &Runner{cfg: cfg, ctx: context.Background(), walkers: map[string]*walker{}}
+	// The walkers' parent starts already cancelled, so an Ensure before
+	// Start spawns a walker that exits at once instead of one nothing can
+	// stop. Start replaces it with the real parent.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	return &Runner{cfg: cfg, ctx: ctx, walkers: map[string]*walker{}}
 }
 
 // SetLauncher wires the trigger path; nil means no task backend.
@@ -157,7 +172,18 @@ func (r *Runner) Play(ctx context.Context, id, agentID string) (*service.Playboo
 		run.StartedAt = d.Run.StartedAt
 	}
 
-	d, err = r.cfg.Playbooks.SetRun(ctx, id, &run, agentID)
+	// The pre-read checks above give the early answers; this guard is what
+	// makes "not already active" true at the moment of the write, so two
+	// Plays racing cannot both start a run.
+	guard := func(cur *board.PlaybookRun) error {
+		if cur.Active() {
+			return fmt.Errorf("%w: %s is %s", service.ErrPlaybookRunActive, id, cur.Status)
+		}
+
+		return nil
+	}
+
+	d, err = r.cfg.Playbooks.SetRunIf(ctx, id, guard, &run, agentID)
 	if err != nil {
 		return nil, err
 	}
@@ -187,10 +213,30 @@ func (r *Runner) Stop(ctx context.Context, id, agentID string) (*service.Playboo
 	run.UpdatedAt = now
 	run.EndedAt = &now
 
-	d, err = r.cfg.Playbooks.SetRun(ctx, id, &run, agentID)
+	// An entry that vanished under the run (a boards merge, a remove) would
+	// fail validation and make the run unstoppable, so carry it no further.
+	if findEntry(d, run.Entry) == nil {
+		run.Entry = ""
+	}
+
+	// The pre-read above answers the human quickly; this guard is what makes
+	// the refusal true at the moment of the write.
+	guard := func(cur *board.PlaybookRun) error {
+		if !cur.Active() {
+			return fmt.Errorf("%w: %s", ErrRunInactive, id)
+		}
+
+		return nil
+	}
+
+	d, err = r.cfg.Playbooks.SetRunIf(ctx, id, guard, &run, agentID)
 	if err != nil {
 		return nil, err
 	}
+
+	// The stop is persisted: take the walker down so a pass already in
+	// flight unwinds on ctx.Err() instead of writing over it.
+	r.cancelWalker(id)
 
 	entry := findEntry(d, run.Entry)
 	if entry == nil || entry.Type != board.EntryTypeCard {
@@ -236,6 +282,9 @@ func findEntry(d *service.PlaybookDetail, id string) *service.PlaybookEntryDetai
 
 // Start records the walkers' parent context and resumes every active run
 // this instance owns. Returns immediately; walkers stop when ctx ends.
+// Until it is called the parent is an already-cancelled context, so a Play
+// before Start spawns a walker that exits at once rather than one that
+// outlives the process's own context.
 func (r *Runner) Start(ctx context.Context) {
 	r.mu.Lock()
 	r.ctx = ctx
@@ -289,4 +338,25 @@ func (r *Runner) Ensure(id string) {
 // Wait blocks until every walker has exited.
 func (r *Runner) Wait() {
 	r.wg.Wait()
+}
+
+// Shutdown waits for every walker to exit, bounded by ctx: it returns
+// ctx.Err() when ctx ends first, leaving the walkers running. Cancelling the
+// context given to Start is what makes them stop; this only waits, so the
+// caller must cancel before calling it.
+func (r *Runner) Shutdown(ctx context.Context) error {
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		r.wg.Wait()
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
