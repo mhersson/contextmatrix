@@ -146,12 +146,12 @@ deferred commits. A stalled or failed red badge outranks the parked yellow.
 
 ## Stopping
 
-| Control            | Where                     | Effect                                             |
-| ------------------ | ------------------------- | -------------------------------------------------- |
-| **Stop**           | card panel header         | Kill webhook; `worker_status: killed`; uncommitted work is lost. |
-| **Stop** (playbook) | playbook detail page, with confirm | Marks the run `stopped`, then kills the current card's worker. |
-| **Stop All**       | board header, with confirm | Kills every queued or running container in the project. |
-| Kill switch        | `config.yaml`             | Disable or remove the task backend: the run button disappears and triggers return `503 BACKEND_DISABLED`. Restart required. |
+| Control             | Where                              | Effect                                                                                                                      |
+| ------------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| **Stop**            | card panel header                  | Kill webhook; `worker_status: killed`; uncommitted work is lost.                                                            |
+| **Stop** (playbook) | playbook detail page, with confirm | Marks the run `stopped`, then kills the current card's worker.                                                              |
+| **Stop All**        | board header, with confirm         | Kills every queued or running container in the project.                                                                     |
+| Kill switch         | `config.yaml`                      | Disable or remove the task backend: the run button disappears and triggers return `503 BACKEND_DISABLED`. Restart required. |
 
 A card claimed through another instance shows "Running on <instance>" instead
 of Stop, and Stop All skips it; that instance owns the container.

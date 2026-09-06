@@ -129,7 +129,7 @@ All POSTs carry `Content-Type: application/json` and go to
 #### POST {agent_url}/trigger
 
 Sent when a human clicks Run Auto or Run HITL on a `todo` card. CM builds the
-payload in `internal/api/backend_run.go`:
+payload in `internal/api/backend_launch.go` (`launch`, shared with the playbook runner):
 
 ```json
 {

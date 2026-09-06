@@ -103,6 +103,10 @@ type fakePlaybooks struct {
 	// and before it is returned, then cleared. Tests use it to hold a pass
 	// mid-flight while they mutate the board underneath it.
 	afterGet func()
+
+	// gets counts Get calls, so a test can prove an event was filtered
+	// without a playbook read.
+	gets int
 }
 
 func newFakePlaybooks(cards *fakeCards) *fakePlaybooks {
@@ -121,8 +125,14 @@ func (f *fakePlaybooks) List(context.Context) ([]*board.Playbook, error) {
 	defer f.mu.Unlock()
 
 	out := make([]*board.Playbook, 0, len(f.pbs))
+
 	for _, p := range f.pbs {
 		copied := *p
+		if p.Run != nil {
+			run := *p.Run
+			copied.Run = &run
+		}
+
 		out = append(out, &copied)
 	}
 
@@ -134,6 +144,7 @@ func (f *fakePlaybooks) List(context.Context) ([]*board.Playbook, error) {
 // writing the same playbook.
 func (f *fakePlaybooks) Get(ctx context.Context, id string) (*service.PlaybookDetail, error) {
 	f.mu.Lock()
+	f.gets++
 
 	stored, ok := f.pbs[id]
 	if !ok {
@@ -248,6 +259,13 @@ func (f *fakePlaybooks) runWrites() int {
 	return len(f.runs)
 }
 
+func (f *fakePlaybooks) getCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.gets
+}
+
 type launchCall struct {
 	project, card string
 	opts          LaunchOptions
@@ -267,16 +285,18 @@ type recordingLauncher struct {
 
 func (l *recordingLauncher) launch(_ context.Context, project, card string, opts LaunchOptions) error {
 	l.mu.Lock()
-	defer l.mu.Unlock()
-
 	l.calls = append(l.calls, launchCall{project: project, card: card, opts: opts})
+	err, hook := l.err, l.onLaunch
+	l.mu.Unlock()
 
-	if l.err != nil {
-		return l.err
+	if err != nil {
+		return err
 	}
 
-	if l.onLaunch != nil {
-		l.onLaunch(project, card)
+	// The hook runs outside the lock: a test may block inside it to hold a
+	// launch in flight while it reads counts or drives Stop.
+	if hook != nil {
+		hook(project, card)
 	}
 
 	return nil
@@ -287,6 +307,13 @@ func (l *recordingLauncher) count() int {
 	defer l.mu.Unlock()
 
 	return len(l.calls)
+}
+
+func (l *recordingLauncher) call(i int) launchCall {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return l.calls[i]
 }
 
 type recordingStopper struct {

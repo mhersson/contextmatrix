@@ -59,6 +59,9 @@ page; the switch opens a warning that lists exactly what follows.
 - Every card entry's project must have a GitHub repository URL, and no card
   may already belong to another runnable playbook. Either fails the switch
   with a message naming the offenders.
+- A card that will not take the five settings also fails the switch
+  (`PLAYBOOK_CARD_FORCE_FAILED`, naming the cards); cards forced before it
+  keep the settings while the playbook stays not runnable.
 - Every non-terminal card entry gets five settings, recorded in its activity
   log: `autonomous`, `create_pr`, `await_ci`, `merge_pr` on and
   `base_branch: playbook/<id>`. A card added later gets the same. A terminal

@@ -5,16 +5,18 @@ import (
 	"runtime/debug"
 	"strings"
 
-	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/events"
 )
 
-// walker is one goroutine's handle: its cancel and a one-slot nudge that
-// Ensure fills when a Play arrives while the walker may be about to exit.
+// walker is one goroutine's handle: its cancel, a one-slot nudge that
+// Ensure fills when a Play arrives while the walker may be about to exit,
+// and done, closed once the goroutine has exited, so Stop can wait for a
+// launch that was in flight when it cancelled the walker.
 type walker struct {
 	cancel context.CancelFunc
 	nudge  chan struct{}
+	done   chan struct{}
 }
 
 // walk is one playbook's loop: a pass, then wait for a nudge. Nudges are a
@@ -22,6 +24,7 @@ type walker struct {
 // Play, and the tick, which guarantees progress because the bus drops events
 // on a full buffer and replays nothing across a restart.
 func (r *Runner) walk(ctx context.Context, id string, w *walker) {
+	defer close(w.done)
 	defer r.wg.Done()
 	defer r.forget(id, w)
 
@@ -80,33 +83,46 @@ func (r *Runner) release(id string, w *walker) bool {
 }
 
 // forget drops the walker on any exit path release did not cover, which is
-// cancellation. It is generation-safe: a walker started later for the same
-// playbook keeps its entry.
+// cancellation. The walker entry is generation-safe: a walker started later
+// for the same playbook keeps its entry. The watched set is dropped
+// regardless, because a pass of this walker may have re-recorded it after
+// cancelWalker removed it; a newer walker lets every card event through
+// until its next pass rewrites the set.
 func (r *Runner) forget(id string, w *walker) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	r.dropLocked(id, w)
+	delete(r.watched, id)
 }
 
 // cancelWalker cancels and drops the current walker for id, if there is
-// one. Stop calls it so a pass already in flight unwinds instead of writing
-// over the stop. Nil-safe when no walker is running and generation-safe,
-// because dropLocked only touches the walker still registered for id.
-func (r *Runner) cancelWalker(id string) {
+// one, and returns its done channel so the caller can wait for the
+// goroutine to exit; nil when none was running. Stop calls it so a pass
+// already in flight unwinds instead of writing over the stop, then waits,
+// because the launch that pass may be inside is what queues the card Stop
+// has to kill. Generation-safe: dropLocked only touches the walker still
+// registered for id.
+func (r *Runner) cancelWalker(id string) <-chan struct{} {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if w, running := r.walkers[id]; running {
-		r.dropLocked(id, w)
+	w, running := r.walkers[id]
+	if !running {
+		return nil
 	}
+
+	r.dropLocked(id, w)
+
+	return w.done
 }
 
-// dropLocked removes w's entry and cancels its context when w is still the
-// current walker for id. Callers hold r.mu.
+// dropLocked removes w's entry, its watched set, and cancels its context
+// when w is still the current walker for id. Callers hold r.mu.
 func (r *Runner) dropLocked(id string, w *walker) {
 	if r.walkers[id] == w {
 		delete(r.walkers, id)
+		delete(r.watched, id)
 		w.cancel()
 	}
 }
@@ -137,21 +153,32 @@ func (r *Runner) waitNudge(ctx context.Context, id string, ch <-chan events.Even
 		case <-ticker.C():
 			return true
 		case ev, ok := <-ch:
+			// Unreachable while the walker owns its subscription
+			// (unsubscribe runs after this loop returns); kept so a shared
+			// subscription closing under us exits instead of spinning on a
+			// closed channel.
 			if !ok {
 				return false
 			}
 
-			if r.relevant(ctx, id, ev) {
+			if r.relevant(id, ev) {
 				return true
 			}
 		}
 	}
 }
 
+// entryKey is the watched-set key for one card entry.
+func entryKey(project, card string) string {
+	return project + "/" + card
+}
+
 // relevant reports whether ev concerns this playbook: a playbook event with
-// its id, or a card event for one of its card entries. The entry set is read
-// fresh so an entry added mid-run is watched too.
-func (r *Runner) relevant(ctx context.Context, id string, ev events.Event) bool {
+// its id, or a card event for one of the card entries the last pass read.
+// No playbook is resolved here; an entry added mid-run is watched from the
+// pass its playbook.updated event triggers. With no set recorded yet, every
+// card event counts.
+func (r *Runner) relevant(id string, ev events.Event) bool {
 	if strings.HasPrefix(string(ev.Type), "playbook.") {
 		evID, _ := ev.Data["id"].(string)
 
@@ -162,16 +189,15 @@ func (r *Runner) relevant(ctx context.Context, id string, ev events.Event) bool 
 		return false
 	}
 
-	d, err := r.cfg.Playbooks.Get(ctx, id)
-	if err != nil {
-		return true // let the pass decide; it handles a vanished playbook
+	r.mu.Lock()
+	set, ok := r.watched[id]
+	r.mu.Unlock()
+
+	if !ok {
+		return true
 	}
 
-	for _, e := range d.Entries {
-		if e.Type == board.EntryTypeCard && e.Project == ev.Project && e.Card == ev.CardID {
-			return true
-		}
-	}
+	_, watched := set[entryKey(ev.Project, ev.CardID)]
 
-	return false
+	return watched
 }

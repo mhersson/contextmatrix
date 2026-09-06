@@ -88,8 +88,12 @@ func TestPlaybooksAPI_PlayTriggersTheFirstCard(t *testing.T) {
 		cb.mu.Lock()
 		defer cb.mu.Unlock()
 
-		return len(cb.triggers) == 1
+		return len(cb.triggers) >= 1
 	}, 2*time.Second, 10*time.Millisecond)
+
+	cb.mu.Lock()
+	assert.Len(t, cb.triggers, 1, "the first card is triggered exactly once")
+	cb.mu.Unlock()
 
 	p := cb.lastTrigger(t)
 	assert.Equal(t, card.ID, p.CardID)
@@ -118,6 +122,10 @@ func TestPlaybooksAPI_PlayTriggersTheFirstCard(t *testing.T) {
 		defer closeBody(t, resp.Body)
 
 		assert.Equal(t, http.StatusConflict, resp.StatusCode)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodePlaybookRunActive, apiErr.Code, "the lock answers before the worker-conflict guard")
 	})
 
 	t.Run("stop kills the worker and stops the run", func(t *testing.T) {
@@ -150,6 +158,74 @@ func TestPlaybooksAPI_PlayTriggersTheFirstCard(t *testing.T) {
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 		assert.Equal(t, ErrCodePlaybookRunInactive, apiErr.Code)
 	})
+}
+
+func TestPlaybooksAPI_RunAndStopOnUnknownPlaybookAre404(t *testing.T) {
+	server, _, _, _, _ := runnablePlaybookServer(t)
+
+	for _, action := range []string{"run", "stop"} {
+		resp := doJSON(t, http.MethodPost, server.URL+"/api/playbooks/nope/"+action, nil, "human:alice")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusNotFound, resp.StatusCode, action)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodePlaybookNotFound, apiErr.Code, action)
+	}
+}
+
+func TestPlaybooksAPI_RunWithoutRunnerIs503(t *testing.T) {
+	svc, pbSvc, bus, cleanup := playbookTestSetup(t)
+	defer cleanup()
+
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Playbooks: pbSvc})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	for _, action := range []string{"run", "stop"} {
+		resp := doJSON(t, http.MethodPost, server.URL+"/api/playbooks/rollout/"+action, nil, "human:alice")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode, action)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeBackendDisabled, apiErr.Code, action)
+	}
+}
+
+func TestPlaybooksAPI_StopAnswers502WhenTheKillFails(t *testing.T) {
+	server, cb, _, pbSvc, _ := runnablePlaybookServer(t)
+
+	resp := doJSON(t, http.MethodPost, server.URL+"/api/playbooks/rollout/run", nil, "human:alice")
+	closeBody(t, resp.Body)
+	require.Equal(t, http.StatusAccepted, resp.StatusCode)
+
+	require.Eventually(t, func() bool {
+		cb.mu.Lock()
+		defer cb.mu.Unlock()
+
+		return len(cb.triggers) >= 1
+	}, 2*time.Second, 10*time.Millisecond)
+
+	cb.mu.Lock()
+	cb.failKills = true
+	cb.mu.Unlock()
+
+	resp = doJSON(t, http.MethodPost, server.URL+"/api/playbooks/rollout/stop", nil, "human:alice")
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusBadGateway, resp.StatusCode)
+
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodeBackendUnavailable, apiErr.Code)
+
+	detail, err := pbSvc.Get(context.Background(), "rollout")
+	require.NoError(t, err)
+	assert.Equal(t, board.RunStatusStopped, detail.Run.Status, "the run is stopped even though the kill failed")
 }
 
 func TestPlaybooksAPI_PlayWithoutBackendIs503(t *testing.T) {

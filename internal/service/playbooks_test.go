@@ -1,8 +1,10 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"sync"
 	"testing"
@@ -803,13 +805,13 @@ func TestPlaybookService_RunnableFalseAndBaseBranchRules(t *testing.T) {
 
 	// SetRun on a non-runnable playbook is refused.
 	now := env.clk.Now()
-	_, err = env.svc.SetRun(ctx, "rollout", &board.PlaybookRun{Status: board.RunStatusRunning, StartedAt: now, UpdatedAt: now}, "human:alice")
+	_, err = env.svc.SetRunIf(ctx, "rollout", nil, &board.PlaybookRun{Status: board.RunStatusRunning, StartedAt: now, UpdatedAt: now}, "human:alice")
 	require.ErrorIs(t, err, ErrPlaybookNotRunnable)
 
 	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: ptrBool(true), BaseBranch: ptrStr("main")}, "human:alice")
 	require.NoError(t, err)
 
-	got, err := env.svc.SetRun(ctx, "rollout", &board.PlaybookRun{Status: board.RunStatusRunning, StartedAt: now, UpdatedAt: now, Entry: "e1"}, "human:alice")
+	got, err := env.svc.SetRunIf(ctx, "rollout", nil, &board.PlaybookRun{Status: board.RunStatusRunning, StartedAt: now, UpdatedAt: now, Entry: "e1"}, "human:alice")
 	require.NoError(t, err)
 	require.NotNil(t, got.Run)
 	assert.Equal(t, board.RunStatusRunning, got.Run.Status)
@@ -825,7 +827,7 @@ func TestPlaybookService_RunnableFalseAndBaseBranchRules(t *testing.T) {
 	require.NoError(t, err)
 
 	// Stopped run: unchecking is allowed, drops the run block, keeps cards.
-	_, err = env.svc.SetRun(ctx, "rollout", &board.PlaybookRun{Status: board.RunStatusStopped, StartedAt: now, UpdatedAt: now}, "human:alice")
+	_, err = env.svc.SetRunIf(ctx, "rollout", nil, &board.PlaybookRun{Status: board.RunStatusStopped, StartedAt: now, UpdatedAt: now}, "human:alice")
 	require.NoError(t, err)
 
 	got, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: ptrBool(false)}, "human:alice")
@@ -928,7 +930,7 @@ func TestPlaybookService_DetailCarriesRunFieldsAndRepos(t *testing.T) {
 	assert.Equal(t, "https://github.com/acme/beta/compare/main...playbook/rollout?expand=1", got.Repos[0].CompareURL)
 
 	now := env.clk.Now()
-	got, err = env.svc.SetRun(ctx, "rollout", &board.PlaybookRun{Status: board.RunStatusWaiting, StartedAt: now, UpdatedAt: now, Entry: "e3", Reason: "awaiting check-off"}, "human:alice")
+	got, err = env.svc.SetRunIf(ctx, "rollout", nil, &board.PlaybookRun{Status: board.RunStatusWaiting, StartedAt: now, UpdatedAt: now, Entry: "e3", Reason: "awaiting check-off"}, "human:alice")
 	require.NoError(t, err)
 	require.NotNil(t, got.Run)
 	assert.Equal(t, "e3", got.Run.Entry)
@@ -960,7 +962,7 @@ func TestPlaybookService_RunEventsCarryRunStatus(t *testing.T) {
 	defer unsub()
 
 	now := env.clk.Now()
-	_, err = env.svc.SetRun(ctx, "rollout", &board.PlaybookRun{Status: board.RunStatusWaiting, StartedAt: now, UpdatedAt: now, Entry: "e1"}, "human:alice")
+	_, err = env.svc.SetRunIf(ctx, "rollout", nil, &board.PlaybookRun{Status: board.RunStatusWaiting, StartedAt: now, UpdatedAt: now, Entry: "e1"}, "human:alice")
 	require.NoError(t, err)
 
 	select {
@@ -974,7 +976,7 @@ func TestPlaybookService_RunEventsCarryRunStatus(t *testing.T) {
 	}
 
 	// A metadata edit on a playbook with no run carries no run keys.
-	_, err = env.svc.SetRun(ctx, "rollout", nil, "human:alice")
+	_, err = env.svc.SetRunIf(ctx, "rollout", nil, nil, "human:alice")
 	require.NoError(t, err)
 	<-ch
 
@@ -1000,7 +1002,7 @@ func TestPlaybookService_SetRunIfGuardsTheWrite(t *testing.T) {
 	require.NoError(t, err)
 
 	now := env.clk.Now()
-	stored, err := env.svc.SetRun(ctx, "rollout", &board.PlaybookRun{
+	stored, err := env.svc.SetRunIf(ctx, "rollout", nil, &board.PlaybookRun{
 		Status: board.RunStatusRunning, StartedAt: now, UpdatedAt: now, Entry: "e1",
 	}, "human:alice")
 	require.NoError(t, err)
@@ -1115,7 +1117,7 @@ func TestPlaybookService_RemoveEntryDuringRun(t *testing.T) {
 	require.NoError(t, err)
 
 	now := env.clk.Now()
-	_, err = env.svc.SetRun(ctx, "rollout", &board.PlaybookRun{
+	_, err = env.svc.SetRunIf(ctx, "rollout", nil, &board.PlaybookRun{
 		Status: board.RunStatusWaiting, StartedAt: now, UpdatedAt: now, Entry: "e1", Reason: "ALPHA-001 parked",
 	}, "human:alice")
 	require.NoError(t, err)
@@ -1147,7 +1149,7 @@ func TestPlaybookService_RemoveEntryDuringRun(t *testing.T) {
 	// Once the run is stopped its former entry can go. Validate rejects a
 	// run entry that names no entry, so the dangling pointer clears.
 	ended := env.clk.Now()
-	_, err = env.svc.SetRun(ctx, "rollout", &board.PlaybookRun{
+	_, err = env.svc.SetRunIf(ctx, "rollout", nil, &board.PlaybookRun{
 		Status: board.RunStatusStopped, StartedAt: now, UpdatedAt: ended, EndedAt: &ended,
 		Entry: "e1", Reason: "stopped by human:alice",
 	}, "human:alice")
@@ -1161,4 +1163,154 @@ func TestPlaybookService_RemoveEntryDuringRun(t *testing.T) {
 	assert.Equal(t, board.RunStatusStopped, got.Run.Status)
 	assert.Empty(t, got.Run.Entry)
 	assert.Empty(t, got.Run.Reason)
+}
+
+// failingForcer refuses one card and delegates every other card to the
+// real card service, so a make-runnable can fail part-way.
+type failingForcer struct {
+	inner PlaybookCardForcer
+	card  string
+}
+
+func (f failingForcer) ForcePlaybookSettings(ctx context.Context, project, id, playbookID, branch, agentID string) (*board.Card, error) {
+	if id == f.card {
+		return nil, errors.New("commit failed: disk full")
+	}
+
+	return f.inner.ForcePlaybookSettings(ctx, project, id, playbookID, branch, agentID)
+}
+
+// syncBuffer is a bytes.Buffer safe for the logger's goroutines.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return b.buf.String()
+}
+
+// captureLogs routes slog's default logger into a buffer for one test.
+func captureLogs(t *testing.T) *syncBuffer {
+	t.Helper()
+
+	buf := &syncBuffer{}
+
+	prev := slog.Default()
+
+	slog.SetDefault(slog.New(slog.NewTextHandler(buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	return buf
+}
+
+func TestPlaybookService_MakeRunnableNamesTheCardsItCouldNotForce(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	env.createCard(t, "ALPHA-002", "todo")
+	env.svc.SetCardForcer(failingForcer{inner: env.cardSvc, card: "ALPHA-002"})
+
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{
+		Title: "Rollout", AgentID: "human:alice",
+		Entries: []PlaybookEntryInput{
+			{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"},
+			{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-002"},
+		},
+	})
+	require.NoError(t, err)
+
+	logs := captureLogs(t)
+
+	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+	require.ErrorIs(t, err, ErrPlaybookCardForce)
+	assert.Contains(t, err.Error(), "project-alpha/ALPHA-002")
+	assert.NotContains(t, err.Error(), "disk full", "the cause stays in the server log")
+
+	got, err := env.svc.Get(ctx, "rollout")
+	require.NoError(t, err)
+	assert.False(t, got.Runnable, "a failed force leaves the flag off")
+
+	first, err := env.cardSvc.GetCard(ctx, "project-alpha", "ALPHA-001")
+	require.NoError(t, err)
+	assert.True(t, first.HasPlaybookSettings("playbook/rollout"), "cards forced before the failure keep their settings")
+
+	assert.Contains(t, logs.String(), "disk full", "the raw cause is logged")
+	assert.Contains(t, logs.String(), "the cards keep them")
+	assert.Contains(t, logs.String(), "project-alpha/ALPHA-001")
+}
+
+func TestPlaybookService_MakeRunnableCommitFailureWarnsAboutForcedCards(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{
+		Title: "Rollout", AgentID: "human:alice",
+		Entries: []PlaybookEntryInput{{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"}},
+	})
+	require.NoError(t, err)
+
+	logs := captureLogs(t)
+
+	// The playbook's own commit fails after the card was forced; the card
+	// commit goes through the card service's git manager and succeeds.
+	env.committer.fail = errors.New("boom")
+
+	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+	require.Error(t, err)
+
+	got, err := env.svc.Get(ctx, "rollout")
+	require.NoError(t, err)
+	assert.False(t, got.Runnable, "the playbook rolled back")
+
+	card, err := env.cardSvc.GetCard(ctx, "project-alpha", "ALPHA-001")
+	require.NoError(t, err)
+	assert.True(t, card.HasPlaybookSettings("playbook/rollout"), "the card write outlived the rollback")
+
+	assert.Contains(t, logs.String(), "the cards keep them")
+	assert.Contains(t, logs.String(), "project-alpha/ALPHA-001")
+}
+
+func TestPlaybookService_AddEntryCommitFailureWarnsAboutTheForcedCard(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	env.createCard(t, "ALPHA-002", "todo")
+
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{
+		Title: "Rollout", AgentID: "human:alice",
+		Entries: []PlaybookEntryInput{{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"}},
+	})
+	require.NoError(t, err)
+
+	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+	require.NoError(t, err)
+
+	logs := captureLogs(t)
+
+	// The playbook's own commit fails after the new card was forced.
+	env.committer.fail = errors.New("boom")
+
+	_, err = env.svc.AddEntry(ctx, "rollout", PlaybookEntryInput{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-002"}, "human:alice")
+	require.Error(t, err)
+
+	got, err := env.svc.Get(ctx, "rollout")
+	require.NoError(t, err)
+	assert.Len(t, got.Entries, 1, "the entry rolled back")
+
+	card, err := env.cardSvc.GetCard(ctx, "project-alpha", "ALPHA-002")
+	require.NoError(t, err)
+	assert.True(t, card.HasPlaybookSettings("playbook/rollout"), "the card write outlived the rollback")
+	assert.Contains(t, logs.String(), "the cards keep them")
+	assert.Contains(t, logs.String(), "project-alpha/ALPHA-002")
 }

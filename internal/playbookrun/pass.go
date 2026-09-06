@@ -27,6 +27,8 @@ func (r *Runner) pass(ctx context.Context, id string) bool {
 		return false
 	}
 
+	r.setWatched(id, d)
+
 	if !d.Runnable || !d.Run.Active() || d.Run.Instance != r.cfg.Instance {
 		return true
 	}
@@ -60,6 +62,8 @@ func (r *Runner) pass(ctx context.Context, id string) bool {
 			return false
 		}
 
+		// Re-checked on the fresh card: the detail marked this entry
+		// incomplete, but the card may have finished between the two reads.
 		if board.IsTerminalState(card.State) {
 			continue
 		}

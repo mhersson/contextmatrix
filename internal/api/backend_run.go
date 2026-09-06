@@ -25,6 +25,7 @@ func (h *backendHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 	project := r.PathValue("project")
 	id := strings.ToUpper(r.PathValue("id"))
 
+	// Checked here as well as inside launch: a disabled backend must answer 503 before the card lookup can answer 404 or 409.
 	if h.backend == nil {
 		writeError(w, http.StatusServiceUnavailable, ErrCodeBackendDisabled, "no execution backend is configured", "")
 
@@ -153,7 +154,7 @@ func (h *backendHandlers) attachMob(ctx context.Context, payload *backend.Trigge
 // recordMobWarning logs a trigger-time mob session degradation and appends a
 // best-effort activity entry so the drop is visible on the card - the same
 // slog + AddLogEntry mechanism as the run-rejected trace in
-// rejectRunForCredentialFailure. A failed append never blocks the trigger.
+// rejectLaunchForCredentialFailure. A failed append never blocks the trigger.
 func (h *backendHandlers) recordMobWarning(ctx context.Context, project, id, msg string) {
 	ctxlog.Logger(ctx).Warn(msg, "card_id", id, "project", project)
 

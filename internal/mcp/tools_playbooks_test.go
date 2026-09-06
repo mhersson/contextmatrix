@@ -337,7 +337,7 @@ func TestUpdatePlaybook_MCP_PreservesRunnableFields(t *testing.T) {
 	require.NoError(t, err)
 
 	now := time.Now().UTC()
-	_, err = env.pb.SetRun(ctx, "rollout", &board.PlaybookRun{Status: board.RunStatusStopped, StartedAt: now, UpdatedAt: now}, "human:alice")
+	_, err = env.pb.SetRunIf(ctx, "rollout", nil, &board.PlaybookRun{Status: board.RunStatusStopped, StartedAt: now, UpdatedAt: now}, "human:alice")
 	require.NoError(t, err)
 
 	res, err := env.session.CallTool(ctx, &mcp.CallToolParams{

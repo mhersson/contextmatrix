@@ -91,6 +91,11 @@ type Runner struct {
 	stop    Stopper
 	ctx     context.Context //nolint:containedctx // the walkers' parent, set once by Start
 	walkers map[string]*walker
+	// watched is, per playbook with a walker, the card entries its last
+	// pass read, keyed project/card. relevant filters card events against
+	// it instead of resolving the playbook for every card event on the
+	// board; the pass that a playbook's own event triggers refreshes it.
+	watched map[string]map[string]struct{}
 	wg      sync.WaitGroup
 }
 
@@ -111,7 +116,7 @@ func New(cfg Config) *Runner {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	return &Runner{cfg: cfg, ctx: ctx, walkers: map[string]*walker{}}
+	return &Runner{cfg: cfg, ctx: ctx, walkers: map[string]*walker{}, watched: map[string]map[string]struct{}{}}
 }
 
 // SetLauncher wires the trigger path; nil means no task backend.
@@ -234,9 +239,18 @@ func (r *Runner) Stop(ctx context.Context, id, agentID string) (*service.Playboo
 		return nil, err
 	}
 
-	// The stop is persisted: take the walker down so a pass already in
-	// flight unwinds on ctx.Err() instead of writing over it.
-	r.cancelWalker(id)
+	// The stop is persisted: take the walker down and wait for it. A launch
+	// in flight either finishes, so the card below reads queued and is
+	// killed, or fails on the cancelled context and the launcher reverts
+	// the card. Reading the card before the walker exits could see todo,
+	// kill nothing, and let the launch queue a worker that outlives the stop.
+	if done := r.cancelWalker(id); done != nil {
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return d, fmt.Errorf("%w: %v", ErrStopWorker, ctx.Err())
+		}
+	}
 
 	entry := findEntry(d, run.Entry)
 	if entry == nil || entry.Type != board.EntryTypeCard {
@@ -300,9 +314,7 @@ func (r *Runner) Start(ctx context.Context) {
 	resumed := 0
 
 	for _, p := range playbooks {
-		if p.Runnable && p.Run.Active() && p.Run.Instance == r.cfg.Instance {
-			r.Ensure(p.ID)
-
+		if p.Runnable && p.Run.Active() && p.Run.Instance == r.cfg.Instance && r.Ensure(p.ID) {
 			resumed++
 		}
 	}
@@ -310,10 +322,11 @@ func (r *Runner) Start(ctx context.Context) {
 	ctxlog.Logger(ctx).Info("playbook runner started", "resumed_runs", resumed, "tick", r.cfg.Tick)
 }
 
-// Ensure starts a walker for id when none is running. When one is running it
-// is nudged instead: the nudge is what keeps a Play that lands while a
-// walker is mid-pass on a run Stop just ended from being lost.
-func (r *Runner) Ensure(id string) {
+// Ensure starts a walker for id when none is running and reports whether
+// it did. When one is running it is nudged instead: the nudge is what keeps
+// a Play that lands while a walker is mid-pass on a run Stop just ended
+// from being lost.
+func (r *Runner) Ensure(id string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -323,16 +336,34 @@ func (r *Runner) Ensure(id string) {
 		default: // one pending nudge is enough; the next pass sees the run
 		}
 
-		return
+		return false
 	}
 
 	ctx, cancel := context.WithCancel(r.ctx)
-	w := &walker{cancel: cancel, nudge: make(chan struct{}, 1)}
+	w := &walker{cancel: cancel, nudge: make(chan struct{}, 1), done: make(chan struct{})}
 	r.walkers[id] = w
 
 	r.wg.Add(1)
 
 	go r.walk(ctx, id, w)
+
+	return true
+}
+
+// setWatched records the card entries of d for relevant.
+func (r *Runner) setWatched(id string, d *service.PlaybookDetail) {
+	set := make(map[string]struct{}, len(d.Entries))
+
+	for _, e := range d.Entries {
+		if e.Type == board.EntryTypeCard {
+			set[entryKey(e.Project, e.Card)] = struct{}{}
+		}
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.watched[id] = set
 }
 
 // Wait blocks until every walker has exited.

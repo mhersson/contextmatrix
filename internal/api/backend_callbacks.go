@@ -145,7 +145,7 @@ func tokenExpiryString(t time.Time) string {
 // App installation tokens, so the backend calls this mid-run to refresh.
 // HMAC-signed like every backend callback.
 //
-// Fail-closed on the project binding, mirroring rejectRunForCredentialFailure:
+// Fail-closed on the project binding, mirroring rejectLaunchForCredentialFailure:
 // a broken/unresolvable providerForProject NEVER falls back to the instance
 // credential - unlike task-skills-source (mintInstanceToken), which is
 // deliberately best-effort because it has no binding to be wrong about.

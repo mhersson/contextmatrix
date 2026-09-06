@@ -113,14 +113,16 @@ func runShutdownSequence(ctx context.Context, c shutdownComponents) error {
 	// Phase 4: join the playbook walkers. AppCancel above is what stops
 	// them; this waits so a walker mid-write finishes before the commit
 	// queues close underneath it, which would otherwise roll its run-state
-	// write back. Bounded so a wedged walker cannot hold shutdown open.
+	// write back. Bounded so a wedged walker cannot hold shutdown open, and
+	// on its own budget like phase 6: derived from the shutdown ctx it would
+	// shrink to whatever phase 1's HTTP drain left, and a slow drain could
+	// let the queues close under a walker still writing.
 	slog.Info("shutdown: phase=playbook_runner_drain")
 
 	const phase4Timeout = 10 * time.Second
 
 	if c.PlaybookRunner != nil {
-		phase4Ctx, phase4Cancel := context.WithTimeout(ctx, phase4Timeout)
-
+		phase4Ctx, phase4Cancel := context.WithTimeout(context.Background(), phase4Timeout)
 		if err := c.PlaybookRunner.Shutdown(phase4Ctx); err != nil {
 			slog.Warn("shutdown: playbook runner drain exceeded budget",
 				"phase", "playbook_runner_drain",

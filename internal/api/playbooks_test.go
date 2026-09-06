@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -620,7 +621,7 @@ func TestPlaybooksAPI_MakeRunnable(t *testing.T) {
 
 	t.Run("active run blocks unchecking", func(t *testing.T) {
 		now := time.Now().UTC()
-		_, err := pbSvc.SetRun(ctx, "rollout", &board.PlaybookRun{Status: board.RunStatusRunning, StartedAt: now, UpdatedAt: now}, "human:alice")
+		_, err := pbSvc.SetRunIf(ctx, "rollout", nil, &board.PlaybookRun{Status: board.RunStatusRunning, StartedAt: now, UpdatedAt: now}, "human:alice")
 		require.NoError(t, err)
 
 		resp := doJSON(t, http.MethodPatch, server.URL+"/api/playbooks/rollout", map[string]any{"runnable": false}, "human:alice")
@@ -852,7 +853,7 @@ func TestPlaybooksAPI_RemoveEntryRefusedWhileRunActive(t *testing.T) {
 	entryURL := server.URL + "/api/playbooks/rollout/entries/e1"
 
 	now := time.Now().UTC()
-	_, err := pbSvc.SetRun(context.Background(), "rollout", &board.PlaybookRun{
+	_, err := pbSvc.SetRunIf(context.Background(), "rollout", nil, &board.PlaybookRun{
 		Status: board.RunStatusWaiting, StartedAt: now, UpdatedAt: now, Entry: "e1", Reason: "parked",
 	}, "human:alice")
 	require.NoError(t, err)
@@ -896,7 +897,7 @@ func TestRunCard_RefusedWhilePlaybookRunActive(t *testing.T) {
 	})
 
 	now := time.Now().UTC()
-	_, err := pbSvc.SetRun(context.Background(), "rollout", &board.PlaybookRun{Status: board.RunStatusWaiting, StartedAt: now, UpdatedAt: now}, "human:alice")
+	_, err := pbSvc.SetRunIf(context.Background(), "rollout", nil, &board.PlaybookRun{Status: board.RunStatusWaiting, StartedAt: now, UpdatedAt: now}, "human:alice")
 	require.NoError(t, err)
 
 	t.Run("active playbook run refuses the hand run", func(t *testing.T) {
@@ -909,4 +910,51 @@ func TestRunCard_RefusedWhilePlaybookRunActive(t *testing.T) {
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 		assert.Equal(t, ErrCodePlaybookRunActive, apiErr.Code)
 	})
+}
+
+// failingForcer refuses one card and delegates the rest to the card service.
+type failingForcer struct {
+	inner service.PlaybookCardForcer
+	card  string
+}
+
+func (f failingForcer) ForcePlaybookSettings(ctx context.Context, project, id, playbookID, branch, agentID string) (*board.Card, error) {
+	if id == f.card {
+		return nil, errors.New("commit failed")
+	}
+
+	return f.inner.ForcePlaybookSettings(ctx, project, id, playbookID, branch, agentID)
+}
+
+func TestPlaybooksAPI_MakeRunnableCardForceFailureIs422(t *testing.T) {
+	svc, pbSvc, bus, cleanup := playbookTestSetup(t)
+	defer cleanup()
+
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Playbooks: pbSvc})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	ctx := context.Background()
+	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{Title: "First", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+
+	pbSvc.SetCardForcer(failingForcer{inner: svc, card: card.ID})
+
+	_, err = pbSvc.Create(ctx, service.CreatePlaybookInput{
+		Title: "Rollout", AgentID: "human:alice",
+		Entries: []service.PlaybookEntryInput{{Type: board.EntryTypeCard, Project: "test-project", Card: card.ID}},
+	})
+	require.NoError(t, err)
+
+	resp := doJSON(t, http.MethodPatch, server.URL+"/api/playbooks/rollout", map[string]any{"runnable": true}, "human:alice")
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode)
+
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodePlaybookCardForce, apiErr.Code)
+	assert.Contains(t, apiErr.Details, "test-project/"+card.ID)
+	assert.NotContains(t, apiErr.Details, "commit failed")
 }
