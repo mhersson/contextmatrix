@@ -790,14 +790,15 @@ func main() {
 	defer shutdownCancel()
 
 	if err := runShutdownSequence(shutdownCtx, shutdownComponents{
-		HTTPServer:   server,
-		AdminServer:  adminServer,
-		SessionLog:   sessionMgr,
-		CommitQueues: boards.queues(),
-		Syncer:       syncGroup,
-		GHSyncer:     ghSyncer,
-		HTTPCancel:   httpCancel,
-		AppCancel:    cancel,
+		HTTPServer:     server,
+		AdminServer:    adminServer,
+		SessionLog:     sessionMgr,
+		CommitQueues:   boards.queues(),
+		PlaybookRunner: pbRunner,
+		Syncer:         syncGroup,
+		GHSyncer:       ghSyncer,
+		HTTPCancel:     httpCancel,
+		AppCancel:      cancel,
 	}); err != nil {
 		slog.Error("server shutdown error", "error", err)
 		os.Exit(1)
