@@ -321,6 +321,7 @@ type Card struct {
     CreatePR                bool            `yaml:"create_pr,omitempty"             json:"create_pr,omitempty"`
     AwaitCI                 bool            `yaml:"await_ci,omitempty"              json:"await_ci,omitempty"`
     AwaitCopilotReview      bool            `yaml:"await_copilot_review,omitempty"  json:"await_copilot_review,omitempty"`
+    MergePR                 bool            `yaml:"merge_pr,omitempty"              json:"merge_pr,omitempty"`
     BranchName              string          `yaml:"branch_name,omitempty"           json:"branch_name,omitempty"`
     BaseBranch              string          `yaml:"base_branch,omitempty"           json:"base_branch,omitempty"`
     PRUrl                   string          `yaml:"pr_url,omitempty"                json:"pr_url,omitempty"`
@@ -544,9 +545,10 @@ mirrored by `service.PatchCardInput.UpsertSection`.
 
 **Human-only fields** (REST callers whose `X-Agent-ID` starts with `human:`;
 others get 403 `HUMAN_ONLY_FIELD`): `vetted`, `assignee`, `autonomous`,
-`create_pr`, `await_ci`, `await_copilot_review`, `base_branch`, the model
-pins (`model_orchestrator`, `model_coder`, `model_reviewer`), `best_of_n`,
-`max_capability`, the mob fields, and `verify`. Where each is exposed:
+`create_pr`, `await_ci`, `await_copilot_review`, `merge_pr`, `base_branch`,
+the model pins (`model_orchestrator`, `model_coder`, `model_reviewer`),
+`best_of_n`, `max_capability`, the mob fields, and `verify`. Where each is
+exposed:
 
 | Field                             | POST | PUT | PATCH | MCP `update_card` |
 | --------------------------------- | ---- | --- | ----- | ----------------- |
@@ -555,6 +557,7 @@ pins (`model_orchestrator`, `model_coder`, `model_reviewer`), `best_of_n`,
 | `autonomous`                      | yes  | yes | yes   | yes (any agent)   |
 | `create_pr`                       | yes  | yes | yes   | no                |
 | `await_ci`, `await_copilot_review` | yes | yes | yes   | no                |
+| `merge_pr`                        | yes  | yes | yes   | no                |
 | `base_branch`                     | yes  | no  | yes   | no                |
 | model pins                        | yes  | yes | yes   | no                |
 | `best_of_n`                       | yes  | yes | yes   | no                |
@@ -565,11 +568,13 @@ pins (`model_orchestrator`, `model_coder`, `model_reviewer`), `best_of_n`,
 `PUT` is a full replace: omitting a field clears it (`base_branch` and
 `verify`, absent from the PUT body, are preserved). `PATCH` leaves `nil`
 fields unchanged. `autonomous`, `create_pr`, `await_ci`,
-`await_copilot_review`, `max_capability` and `mob_participants` are nullable
-on POST: absent falls back to the project's
+`await_copilot_review`, `merge_pr`, `max_capability` and `mob_participants`
+are nullable on POST: absent falls back to the project's
 [`card_defaults`](#card_defaults-optional-carddefaults) (see
 [`create_pr`](#create_pr-semantics) for the full resolution order), and an
 explicit value from an agent, including `false` or `0`, is rejected.
+`merge_pr` has no `card_defaults` entry, so absent on POST always means off,
+not a project default.
 `best_of_n` is range-validated for every
 caller to `0` (off) or `2..best_of_n.max_candidates`, else 400
 `BAD_REQUEST`; it is sticky (no per-trigger override), acts only on the agent
@@ -995,16 +1000,25 @@ decision belongs to the parent). An explicit
 `create_pr: false` pushes without a PR. Run and promote triggers never modify
 the stored value.
 
-## PR gates (`await_ci`, `await_copilot_review`)
+## PR gates (`await_ci`, `await_copilot_review`, `merge_pr`)
 
-Both are human-only booleans, defaulted at create from the project's
-`card_defaults` (off unless the project says otherwise), that matter only
-when the run opens a PR. They gate the agent's `review -> done` transition
-inside the `pr_gates` phase: `await_ci` keeps the card in `review` until the
-PR's checks pass, and `await_copilot_review` has the agent request a Copilot
-review and address valid findings first. The flags have no server-side
-coupling to `create_pr`. Round limits, parking and unavailability handling
-are agent behaviour, described in [running cards](running-cards.md).
+`await_ci` and `await_copilot_review` are human-only booleans, defaulted at
+create from the project's `card_defaults` (off unless the project says
+otherwise), that matter only when the run opens a PR. They gate the agent's
+`review -> done` transition inside the `pr_gates` phase: `await_ci` keeps the
+card in `review` until the PR's checks pass, and `await_copilot_review` has
+the agent request a Copilot review and address valid findings first. The
+flags have no server-side coupling to `create_pr`. Round limits, parking and
+unavailability handling are agent behaviour, described in
+[running cards](running-cards.md).
+
+`merge_pr` is a human-only boolean with no project default. With `await_ci`
+on a card that opened a PR, the agent merges the PR into its base branch
+with a merge commit once the CI gate passes (a repo with no checks passes
+the gate after the grace window and is merged too), then completes the
+card. A refused merge (branch protection, required reviews, conflicts)
+parks the card in `review` with the refusal text on the card. The flag has
+no server-side coupling to `create_pr` or `await_ci`.
 
 ## `chat_sessions` SQLite schema
 

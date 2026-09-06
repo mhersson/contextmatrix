@@ -678,6 +678,10 @@ func formatCardContext(c *board.Card, project, verifyCommand string, keep []stri
 		fmt.Fprintf(&b, "- **Copilot review:** enabled\n")
 	}
 
+	if c.MergePR {
+		fmt.Fprintf(&b, "- **Merge PR:** enabled\n")
+	}
+
 	if c.PRUrl != "" {
 		fmt.Fprintf(&b, "- **PR URL:** %s\n", c.PRUrl)
 	}

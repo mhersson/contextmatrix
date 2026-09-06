@@ -403,7 +403,8 @@ remote HITL auto-commit, push, open the PR when `create_pr` is set (against
 `base_branch` when set) and call `report_push`; local HITL asks before
 committing and before pushing. PR gates run after `report_push` when
 `await_ci` or `await_copilot_review` is set and can park the card in
-`review`.
+`review`; with `merge_pr`, a passed `await_ci` gate also merges the PR
+before the card completes.
 
 **8. Finalization** (Phase 10) - reclaim, final `report_usage`,
 `transition_card` to `done`, `release_card` (mandatory).
