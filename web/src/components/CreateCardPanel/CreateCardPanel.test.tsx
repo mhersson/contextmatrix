@@ -651,6 +651,7 @@ describe('CreateCardPanel - project card defaults', () => {
     expect(input.mob_phases).toEqual(['review']);
     expect(input.create_pr).toBe(false);
     expect(input.await_ci).toBe(true);
+    expect(input.merge_pr).toBe(false);
   });
 
   it('starts from the built-ins when the project has no defaults', () => {

@@ -83,9 +83,9 @@ type Card struct {
 	// exists (create_pr).
 	AwaitCopilotReview bool `yaml:"await_copilot_review,omitempty" json:"await_copilot_review,omitempty"`
 	// MergePR, when true, has the pr_gates phase merge the PR into its base
-	// branch (merge commit) once the CI gate observed passing checks. Human-set
-	// only. Meaningful only with await_ci on a card that opens a PR; a merge
-	// failure parks the card instead of completing it.
+	// branch (merge commit) once the CI gate passes - a repo with no checks
+	// included. Human-set only. Meaningful only with await_ci on a card that
+	// opens a PR; a refused merge parks the card instead of completing it.
 	MergePR        bool   `yaml:"merge_pr,omitempty"           json:"merge_pr,omitempty"`
 	BranchName     string `yaml:"branch_name,omitempty"        json:"branch_name,omitempty"`
 	BaseBranch     string `yaml:"base_branch,omitempty"        json:"base_branch,omitempty"`

@@ -904,8 +904,8 @@ What a new top-level card starts with for the human-set automation fields:
 (everything off, `create_pr` on). Inside a present block every field is
 explicit except `create_pr`, whose absence still means `true` - only an
 explicit `false` is persisted, so a hand-written block cannot switch pull
-requests off by omission. `best_of_n` and `mob_guests` are never project
-defaults.
+requests off by omission. `best_of_n`, `mob_guests` and `merge_pr` are never
+project defaults.
 
 Applied by the service at card create for every field the caller left unset:
 the web form pre-fills from it and sends explicit values; MCP `create_card`

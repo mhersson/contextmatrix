@@ -1012,10 +1012,9 @@ Full replacement. Accepts `title`, `type`, `state`, `priority`, `labels`,
 `autonomous`, `create_pr`, `await_ci`, `await_copilot_review`, `merge_pr`,
 `vetted`, `skills`, `phase`, the three model pins, `best_of_n`,
 `max_capability`, and the three mob fields as plain values; every omitted
-field is written as its
-zero value (`skills` omitted resets to the project default). `phase` is the
-exception: omitted leaves it unchanged. A `state` change goes through
-transition validation.
+field is written as its zero value (`skills` omitted resets to the project
+default). `phase` is the exception: omitted leaves it unchanged. A `state`
+change goes through transition validation.
 
 **Response:** 200 with the full card.
 
@@ -1040,7 +1039,7 @@ Partial update - only keys present in the body are applied.
 | `skills_clear`                                                                                        | `true` resets `skills` to absent (project default) - JSON cannot distinguish an omitted key from `null`    |
 | `autonomous`, `create_pr`, `await_ci`, `await_copilot_review`, `merge_pr`, `vetted`, `max_capability` | bool                                                                                                       |
 | `model_orchestrator`, `model_coder`, `model_reviewer`, `best_of_n`, `mob_participants`                | Pins and counts; mob fields are validated against the resulting card                                       |
-| `verify`                                                                                  | Replaces the whole object; a zero-value object clears it                                                   |
+| `verify`                                                                                              | Replaces the whole object; a zero-value object clears it                                                   |
 
 The commit author, activity entry, and SSE event carry the resolved caller
 identity. **Response:** 200 with the full card. **Errors:** as PUT.
