@@ -82,7 +82,7 @@ export function CardPanelHeader({
     // notice in the workerAttached branch below.
     if (primary.kind === 'stop') return null;
     if (primary.kind === 'run') {
-      return (
+      const button = (
         <button
           type="button"
           onClick={onPrimaryAction}
@@ -98,6 +98,7 @@ export function CardPanelHeader({
           <span>{primary.autonomous ? 'Run Auto' : 'Run HITL'}</span>
         </button>
       );
+      return primary.disabledReason ? <span title={primary.disabledReason}>{button}</span> : button;
     }
     return (
       <button

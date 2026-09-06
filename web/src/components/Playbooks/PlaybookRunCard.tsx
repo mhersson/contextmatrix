@@ -37,13 +37,12 @@ export function PlaybookRunCard({
       <h2 className="pb-eyebrow">Run</h2>
 
       <div className="bf-spread">
-        <label className="bf-switch">
+        <label className="bf-switch" title={active ? 'Stop the run to change this' : undefined}>
           <input
             type="checkbox"
             aria-label="Make runnable"
             checked={runnable}
             disabled={active}
-            title={active ? 'Stop the run to change this' : undefined}
             onChange={(e) => onToggleRunnable(e.target.checked)}
           />
           <span>Make runnable</span>

@@ -193,7 +193,7 @@ export function PlaybookDetailPage() {
       <ul className="list-disc pl-5 flex flex-col gap-1">
         <li>Set <strong>autonomous</strong>, <strong>create PR</strong>, <strong>wait for CI</strong> and <strong>merge PR</strong> on {runnableCards.length} card{runnableCards.length === 1 ? '' : 's'}, with base branch <code>playbook/{detail.id}</code>.</li>
         <li>Create the branch <code>playbook/{detail.id}</code> from {detail.base_branch ? <code>{detail.base_branch}</code> : 'the repository default'} in: {runnableProjects.join(', ') || 'no projects yet'}. The first card that runs in each repository creates it.</li>
-        <li>Lock those five settings on the cards and disable their run buttons while the playbook runs.</li>
+        <li>Lock those five settings on the cards while the playbook is runnable, and disable their run buttons while it runs.</li>
         <li>Run every card autonomously; no human-in-the-loop.</li>
         <li>Unchecking later does not revert the card settings.</li>
       </ul>

@@ -88,10 +88,10 @@ queued or running, otherwise a curated transition (Mark done, Unblock, Resume,
 Re-open) when the board allows it, otherwise Run Auto or Run HITL. Which run
 button appears follows the Autonomous mode switch in the Automation tab, which
 also holds Best of N and mob settings. What a run does is documented in
-[running cards](running-cards.md). A card queued in an active playbook run
-shows a yellow queued-in-playbook signal and a disabled run button; its five
-playbook-owned settings are locked on the Automation tab with a link to the
-playbook.
+[running cards](running-cards.md). A card in a runnable playbook has its five
+playbook-owned settings locked on the Automation tab with a link to the
+playbook; while the run is active it also shows a yellow queued-in-playbook
+signal and a disabled run button.
 
 The Chat tab is the run's live transcript: interactive for a HITL run, read-only
 for an autonomous run and for a card another instance claimed on a shared

@@ -68,7 +68,7 @@ describe('PlaybookRunCard', () => {
     expect(screen.queryByRole('button', { name: /^run$/i })).not.toBeInTheDocument();
   });
 
-  it('offers Run again after a stop and shows the reason', () => {
+  it('offers Run again after a stop', () => {
     renderCard(detail({
       runnable: true, branch: 'playbook/roll',
       run: { status: 'stopped', started_at: 'x', updated_at: 'x', reason: 'stopped by human:alice' },
