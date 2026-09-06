@@ -41,10 +41,12 @@ type CreateCardInput struct {
 	// subtask resolves them to off. An explicit value - including false / 0 -
 	// always wins. Callers that never set them (MCP create_card, the GitHub
 	// syncer) therefore inherit the project's defaults.
+	// MergePR is nullable too, but has no card_defaults entry: nil means off.
 	Autonomous         *bool
 	CreatePR           *bool
 	AwaitCI            *bool
 	AwaitCopilotReview *bool
+	MergePR            *bool
 	BaseBranch         string
 	Vetted             bool
 	Skills             *[]string
@@ -92,6 +94,7 @@ type UpdateCardInput struct {
 	CreatePR           bool
 	AwaitCI            bool
 	AwaitCopilotReview bool
+	MergePR            bool
 	Vetted             bool
 	Skills             *[]string
 	Phase              *string
@@ -128,6 +131,7 @@ type PatchCardInput struct {
 	CreatePR           *bool
 	AwaitCI            *bool
 	AwaitCopilotReview *bool
+	MergePR            *bool
 	Vetted             *bool
 	// Assignee is the informational responsibility label. nil = don't change,
 	// pointer-to-empty-string = clear.
@@ -756,6 +760,7 @@ func (s *CardService) buildNewCardFromInput(
 		CreatePR:           valueOr(input.CreatePR, defaults.createPR),
 		AwaitCI:            valueOr(input.AwaitCI, defaults.awaitCI),
 		AwaitCopilotReview: valueOr(input.AwaitCopilotReview, defaults.awaitCopilotReview),
+		MergePR:            valueOr(input.MergePR, false),
 		BaseBranch:         input.BaseBranch,
 		Vetted:             input.Vetted,
 		Skills:             input.Skills,
@@ -1074,6 +1079,7 @@ func (s *CardService) buildUpdateApply(ctx context.Context, input UpdateCardInpu
 		card.CreatePR = input.CreatePR
 		card.AwaitCI = input.AwaitCI                       // PUT full-replace; zero/absent clears, like CreatePR
 		card.AwaitCopilotReview = input.AwaitCopilotReview // PUT full-replace; zero/absent clears, like CreatePR
+		card.MergePR = input.MergePR                       // PUT full-replace; zero/absent clears, like CreatePR
 
 		return nil
 	}
@@ -1290,6 +1296,10 @@ func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput)
 
 		if input.AwaitCopilotReview != nil {
 			card.AwaitCopilotReview = *input.AwaitCopilotReview
+		}
+
+		if input.MergePR != nil {
+			card.MergePR = *input.MergePR
 		}
 
 		if input.Vetted != nil {

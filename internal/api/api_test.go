@@ -2391,6 +2391,140 @@ func TestHumanOnlyFields_PRGates(t *testing.T) {
 	})
 }
 
+func TestHumanOnlyFields_MergePR(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
+		Title: "Test", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	t.Run("agent rejected on patch", func(t *testing.T) {
+		req, _ := http.NewRequest("PATCH", server.URL+"/api/projects/test-project/cards/"+card.ID,
+			strings.NewReader(`{"merge_pr": true}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Agent-ID", "agent-1")
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
+	})
+
+	t.Run("human patch allowed and persisted", func(t *testing.T) {
+		req, _ := http.NewRequest("PATCH", server.URL+"/api/projects/test-project/cards/"+card.ID,
+			strings.NewReader(`{"merge_pr": true}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Agent-ID", "human:alice")
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var got board.Card
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
+		assert.True(t, got.MergePR)
+	})
+
+	t.Run("agent rejected on create", func(t *testing.T) {
+		req, _ := http.NewRequest("POST", server.URL+"/api/projects/test-project/cards",
+			strings.NewReader(`{"title":"T","type":"task","priority":"medium","merge_pr":true}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Agent-ID", "claude-7a3f")
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	})
+
+	t.Run("human create persists the flag", func(t *testing.T) {
+		req, _ := http.NewRequest("POST", server.URL+"/api/projects/test-project/cards",
+			strings.NewReader(`{"title":"T2","type":"task","priority":"medium","merge_pr":true}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Agent-ID", "human:alice")
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusCreated, resp.StatusCode)
+
+		var got board.Card
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
+		assert.True(t, got.MergePR)
+	})
+
+	t.Run("agent PUT clearing the flag is rejected", func(t *testing.T) {
+		gated, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
+			Title: "Merged card", Type: "task", Priority: "medium", MergePR: new(true),
+		})
+		require.NoError(t, err)
+
+		putBody := fmt.Sprintf(`{"title":"%s","type":"task","state":"todo","priority":"medium","merge_pr":false}`, gated.Title)
+		req, _ := http.NewRequest("PUT", server.URL+"/api/projects/test-project/cards/"+gated.ID,
+			strings.NewReader(putBody))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Agent-ID", "agent-1")
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
+		reloaded, err := svc.GetCard(context.Background(), "test-project", gated.ID)
+		require.NoError(t, err)
+		assert.True(t, reloaded.MergePR, "merge_pr should still be true")
+	})
+
+	t.Run("human PUT sets and clears the flag", func(t *testing.T) {
+		putBody := fmt.Sprintf(`{"title":"%s","type":"task","state":"todo","priority":"medium","merge_pr":true}`, card.Title)
+		req, _ := http.NewRequest("PUT", server.URL+"/api/projects/test-project/cards/"+card.ID,
+			strings.NewReader(putBody))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Agent-ID", "human:alice")
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		closeBody(t, resp.Body)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		reloaded, err := svc.GetCard(context.Background(), "test-project", card.ID)
+		require.NoError(t, err)
+		assert.True(t, reloaded.MergePR)
+
+		putBody = fmt.Sprintf(`{"title":"%s","type":"task","state":"todo","priority":"medium"}`, card.Title)
+		req, _ = http.NewRequest("PUT", server.URL+"/api/projects/test-project/cards/"+card.ID,
+			strings.NewReader(putBody))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Agent-ID", "human:alice")
+
+		resp, err = http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		closeBody(t, resp.Body)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		reloaded, err = svc.GetCard(context.Background(), "test-project", card.ID)
+		require.NoError(t, err)
+		assert.False(t, reloaded.MergePR, "PUT full-replace clears an omitted merge_pr")
+	})
+}
+
 func TestHumanOnlyFields_CreateCard(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
