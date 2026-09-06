@@ -1040,6 +1040,63 @@ func TestPlaybookService_SetRunIfGuardsTheWrite(t *testing.T) {
 	assert.Equal(t, board.RunStatusStopped, got.Run.Status)
 }
 
+func TestPlaybookService_RepoLinksResolveTheDefaultBranch(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	env.createProject(t, "project-beta", "BETA", "git@github.com:acme/beta.git")
+
+	var calls []string
+
+	env.svc.SetDefaultBranchResolver(func(_ context.Context, project, owner, repo string) (string, error) {
+		calls = append(calls, project)
+
+		if owner == "acme" && repo == "alpha" {
+			return "trunk", nil
+		}
+
+		return "", errors.New("github down")
+	})
+
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{
+		Title: "Rollout", AgentID: "human:alice",
+		Entries: []PlaybookEntryInput{
+			{Type: board.EntryTypeCard, Project: "project-beta", Card: "BETA-001"},
+			{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"},
+		},
+	})
+	require.NoError(t, err)
+
+	got, err := env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+	require.NoError(t, err)
+	require.Len(t, got.Repos, 2)
+	// A failed lookup falls back to the branch-only form; a resolved default
+	// branch becomes the base so GitHub renders the compare page.
+	assert.Equal(t, "https://github.com/acme/beta/compare/playbook/rollout?expand=1", got.Repos[0].CompareURL)
+	assert.Equal(t, "https://github.com/acme/alpha/compare/trunk...playbook/rollout?expand=1", got.Repos[1].CompareURL)
+	assert.Equal(t, []string{"project-beta", "project-alpha"}, calls)
+
+	// A read within the retry window reuses the name and does not retry the
+	// failure, so SSE-driven refetches never hammer GitHub.
+	got, err = env.svc.Get(ctx, "rollout")
+	require.NoError(t, err)
+	assert.Equal(t, "https://github.com/acme/alpha/compare/trunk...playbook/rollout?expand=1", got.Repos[1].CompareURL)
+	assert.Equal(t, []string{"project-beta", "project-alpha"}, calls, "cached name and cached failure")
+
+	env.clk.Advance(2 * time.Minute)
+
+	_, err = env.svc.Get(ctx, "rollout")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"project-beta", "project-alpha", "project-beta"}, calls, "only the failure is retried")
+
+	// An explicit base branch never consults the resolver.
+	got, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{BaseBranch: ptrStr("main")}, "human:alice")
+	require.NoError(t, err)
+	assert.Equal(t, "https://github.com/acme/beta/compare/main...playbook/rollout?expand=1", got.Repos[0].CompareURL)
+	assert.Equal(t, "https://github.com/acme/alpha/compare/main...playbook/rollout?expand=1", got.Repos[1].CompareURL)
+	assert.Len(t, calls, 3)
+}
+
 func TestPlaybookService_RemoveEntryDuringRun(t *testing.T) {
 	env := newPlaybookTestEnv(t)
 	ctx := context.Background()

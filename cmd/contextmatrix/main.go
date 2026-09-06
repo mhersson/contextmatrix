@@ -415,6 +415,19 @@ func main() {
 	// direct test coverage.
 	providerForProject := newProviderForProject(svc, authSvc, tokenProvider, ghAPIBase)
 
+	// Compare links of a playbook without a base branch name the repository
+	// default, looked up with the project's own credentials.
+	if pbSvc != nil {
+		pbSvc.SetDefaultBranchResolver(func(ctx context.Context, project, owner, repo string) (string, error) {
+			provider, apiBase, err := providerForProject(ctx, project)
+			if err != nil {
+				return "", err
+			}
+
+			return ghimport.NewClientWithBaseURL(provider, apiBase).FetchDefaultBranch(ctx, owner, repo)
+		})
+	}
+
 	// Start GitHub issue syncer if configured
 	var ghSyncer *ghimport.Syncer
 

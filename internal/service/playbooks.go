@@ -238,6 +238,15 @@ type PlaybookService struct {
 	// forcer applies forced settings to cards for make-runnable; nil until
 	// wired, which makes make-runnable fail rather than silently skip.
 	forcer PlaybookCardForcer
+	// defaultBranch looks up a repository's default branch for the compare
+	// links of a playbook without a base branch. Nil leaves the links
+	// naming only the playbook branch. Results are cached in
+	// defaultBranches: names for the process lifetime, failures for
+	// defaultBranchRetry, so a detail read never hammers GitHub.
+	defaultBranch   DefaultBranchResolver
+	defaultBranchMu sync.Mutex
+	defaultBranches map[string]defaultBranchEntry
+
 	// githubHosts is the host allowlist used to recognise a project's
 	// GitHub repository URL. Defaults to github.com.
 	githubHosts []string
@@ -316,6 +325,69 @@ func (s *PlaybookService) SetOnCommitFor(repo string, fn func()) error {
 // SetCardForcer wires the card mutation make-runnable uses to force settings.
 func (s *PlaybookService) SetCardForcer(f PlaybookCardForcer) {
 	s.forcer = f
+}
+
+// DefaultBranchResolver returns the default branch of the GitHub repository
+// owner/repo that the CM project points at, with the project's credentials.
+type DefaultBranchResolver func(ctx context.Context, project, owner, repo string) (string, error)
+
+// defaultBranchEntry is one cached lookup: a name, or the time a lookup
+// failed.
+type defaultBranchEntry struct {
+	name     string
+	failedAt time.Time
+}
+
+// defaultBranchRetry is how long a failed default-branch lookup is remembered
+// before the next detail read tries GitHub again.
+const defaultBranchRetry = time.Minute
+
+// SetDefaultBranchResolver wires the lookup the compare links use when a
+// playbook has no base branch.
+func (s *PlaybookService) SetDefaultBranchResolver(r DefaultBranchResolver) {
+	s.defaultBranch = r
+}
+
+// resolveDefaultBranch returns the repository's default branch through the
+// resolver, or "" without a resolver or when the lookup failed. Lookups are
+// serialized; a name is cached for good, a failure for defaultBranchRetry.
+func (s *PlaybookService) resolveDefaultBranch(ctx context.Context, project, host, owner, repo string) string {
+	if s.defaultBranch == nil {
+		return ""
+	}
+
+	key := host + "/" + owner + "/" + repo
+
+	s.defaultBranchMu.Lock()
+	defer s.defaultBranchMu.Unlock()
+
+	if e, ok := s.defaultBranches[key]; ok {
+		if e.name != "" {
+			return e.name
+		}
+
+		if s.clk.Now().Sub(e.failedAt) < defaultBranchRetry {
+			return ""
+		}
+	}
+
+	if s.defaultBranches == nil {
+		s.defaultBranches = make(map[string]defaultBranchEntry)
+	}
+
+	name, err := s.defaultBranch(ctx, project, owner, repo)
+	if err != nil {
+		ctxlog.Logger(ctx).Warn("playbook: default branch lookup failed; the compare link names only the playbook branch",
+			"project", project, "repo", key, "error", err)
+
+		s.defaultBranches[key] = defaultBranchEntry{failedAt: s.clk.Now()}
+
+		return ""
+	}
+
+	s.defaultBranches[key] = defaultBranchEntry{name: name}
+
+	return name
 }
 
 // SetGitHubHosts sets the hostnames recognised as GitHub when validating a
@@ -1274,14 +1346,21 @@ func (s *PlaybookService) repoLinks(ctx context.Context, p *board.Playbook) ([]P
 			continue
 		}
 
-		links = append(links, PlaybookRepoLink{Project: e.Project, CompareURL: compareURL(host, owner, repo, p.BaseBranch, p.Branch())})
+		base := p.BaseBranch
+		if base == "" {
+			base = s.resolveDefaultBranch(ctx, e.Project, host, owner, repo)
+		}
+
+		links = append(links, PlaybookRepoLink{Project: e.Project, CompareURL: compareURL(host, owner, repo, base, p.Branch())})
 	}
 
 	return links, nil
 }
 
 // compareURL is GitHub's compare page for branch against base, opening the
-// PR form. Without a base GitHub compares against the repository default.
+// PR form. The branch-only form is the fallback for a base that could not be
+// resolved: GitHub does not render it for every repository, which is why
+// repoLinks resolves the default branch first.
 func compareURL(host, owner, repo, base, branch string) string {
 	if base == "" {
 		return fmt.Sprintf("https://%s/%s/%s/compare/%s?expand=1", host, owner, repo, branch)

@@ -223,6 +223,44 @@ func TestFetchBranches_BasicResponse(t *testing.T) {
 	assert.Equal(t, []string{"develop", "feature/foo", "main"}, result)
 }
 
+func TestFetchDefaultBranch(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
+		assert.Equal(t, "/repos/o/r", r.URL.Path)
+
+		_, _ = w.Write([]byte(`{"name":"r","default_branch":"trunk"}`))
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	got, err := client.FetchDefaultBranch(context.Background(), "o", "r")
+	require.NoError(t, err)
+	assert.Equal(t, "trunk", got)
+}
+
+func TestFetchDefaultBranch_Errors(t *testing.T) {
+	t.Run("not found", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, `{"message":"Not Found"}`, http.StatusNotFound)
+		}))
+		defer srv.Close()
+
+		_, err := newTestClient(t, srv).FetchDefaultBranch(context.Background(), "o", "r")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "status 404")
+	})
+
+	t.Run("missing field", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(`{"name":"r"}`))
+		}))
+		defer srv.Close()
+
+		_, err := newTestClient(t, srv).FetchDefaultBranch(context.Background(), "o", "r")
+		require.Error(t, err)
+	})
+}
+
 func TestFetchBranches_Pagination(t *testing.T) {
 	page1 := []branchItem{{Name: "main"}, {Name: "develop"}}
 	page2 := []branchItem{{Name: "feature/bar"}}

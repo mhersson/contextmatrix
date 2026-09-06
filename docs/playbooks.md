@@ -85,7 +85,12 @@ Every card keeps its own `cm/<card>` branch, opens a PR into
 to exist up front: the worker of the first card in each repository creates
 it from the playbook's `base_branch`. ContextMatrix itself never writes to a
 code repository. When the run completes, the detail page shows one GitHub
-compare link per repository so a human opens and merges the final PR.
+compare link per repository so a human opens and merges the final PR. The
+link compares the playbook branch against `base_branch`, or against the
+repository's default branch, looked up once through the GitHub API with the
+project's credentials, when no base branch is set. If that lookup fails the
+link names only the playbook branch, which GitHub does not render for every
+repository, and the lookup is retried a minute later.
 
 ### Run state
 
