@@ -36,6 +36,9 @@ for how this maps onto all-in-one, CM-plus-worker-VM, and Kubernetes layouts.
 | CI failure logs (`await_ci`)            | worker via `gh run view --log-failed`                                   | Actions: read               | Actions: read                                                               |
 | Status-API CI results (`await_ci`)      | worker via `gh api .../commits/{sha}/status`                            | Commit statuses: read       | Commit statuses: read                                                       |
 | Copilot review (`await_copilot_review`) | worker via `gh api .../pulls/{n}/requested_reviewers` and `.../reviews` | Pull requests: read & write | Pull requests: read and write                                               |
+| PR merge (`merge_pr`)                   | worker via `gh pr merge`                                                | Pull requests: read & write | Pull requests: read and write                                               |
+
+Merging needs no permission beyond PR creation and push.
 
 CM never calls GitHub's PR endpoints itself; the worker runs `gh` with the
 token CM provisioned for that run. CM's own GitHub traffic is boards sync,

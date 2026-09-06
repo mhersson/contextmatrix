@@ -26,6 +26,7 @@ function clearSafeCardUpdate(updated: Card): Partial<Card> {
     create_pr: false,
     await_ci: false,
     await_copilot_review: false,
+    merge_pr: false,
     max_capability: false,
     best_of_n: 0,
     mob_participants: 0,

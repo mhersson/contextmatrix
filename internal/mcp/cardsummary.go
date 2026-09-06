@@ -52,6 +52,7 @@ type CardSummary struct {
 	CreatePR                bool                `json:"create_pr,omitempty"`
 	AwaitCI                 bool                `json:"await_ci,omitempty"`
 	AwaitCopilotReview      bool                `json:"await_copilot_review,omitempty"`
+	MergePR                 bool                `json:"merge_pr,omitempty"`
 	BranchName              string              `json:"branch_name,omitempty"`
 	BaseBranch              string              `json:"base_branch,omitempty"`
 	PRUrl                   string              `json:"pr_url,omitempty"`
@@ -111,6 +112,7 @@ func summarizeCard(c *board.Card) *CardSummary {
 		CreatePR:                c.CreatePR,
 		AwaitCI:                 c.AwaitCI,
 		AwaitCopilotReview:      c.AwaitCopilotReview,
+		MergePR:                 c.MergePR,
 		BranchName:              c.BranchName,
 		BaseBranch:              c.BaseBranch,
 		PRUrl:                   c.PRUrl,

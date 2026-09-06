@@ -69,6 +69,7 @@ type createCardRequest struct {
 	CreatePR           *bool               `json:"create_pr"`
 	AwaitCI            *bool               `json:"await_ci"`
 	AwaitCopilotReview *bool               `json:"await_copilot_review"`
+	MergePR            *bool               `json:"merge_pr"`
 	BaseBranch         string              `json:"base_branch"`
 	Vetted             bool                `json:"vetted"`
 	Skills             *[]string           `json:"skills,omitempty"`
@@ -102,6 +103,7 @@ type updateCardRequest struct {
 	CreatePR           bool           `json:"create_pr"`
 	AwaitCI            bool           `json:"await_ci"`
 	AwaitCopilotReview bool           `json:"await_copilot_review"`
+	MergePR            bool           `json:"merge_pr"`
 	Vetted             bool           `json:"vetted"`
 	Skills             *[]string      `json:"skills,omitempty"`
 	Phase              *string        `json:"phase,omitempty"`
@@ -136,6 +138,7 @@ type patchCardRequest struct {
 	CreatePR           *bool     `json:"create_pr,omitempty"`
 	AwaitCI            *bool     `json:"await_ci,omitempty"`
 	AwaitCopilotReview *bool     `json:"await_copilot_review,omitempty"`
+	MergePR            *bool     `json:"merge_pr,omitempty"`
 	Vetted             *bool     `json:"vetted,omitempty"`
 	BaseBranch         *string   `json:"base_branch,omitempty"`
 	Skills             *[]string `json:"skills,omitempty"`
@@ -498,13 +501,14 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 	// never by agents - mirrors the update and patch guards. Pins set at
 	// create time flow onto the card and reach the agent via get_task_context.
 	if isNonHumanAgent(r) && (req.Autonomous != nil || req.CreatePR != nil || req.AwaitCI != nil || req.AwaitCopilotReview != nil ||
+		req.MergePR != nil ||
 		req.BaseBranch != "" || req.Vetted ||
 		req.ModelOrchestrator != "" || req.ModelCoder != "" || req.ModelReviewer != "" ||
 		req.BestOfN != 0 || req.MaxCapability != nil || req.MobParticipants != nil || len(req.MobPhases) > 0 || len(req.MobGuests) > 0 ||
 		req.Verify != nil || req.Assignee != "") {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
 			"forbidden",
-			"autonomous, create_pr, await_ci, await_copilot_review, base_branch, vetted, model pins, best_of_n, max_capability, mob fields, verify, and assignee can only be set via the UI")
+			"autonomous, create_pr, await_ci, await_copilot_review, merge_pr, base_branch, vetted, model pins, best_of_n, max_capability, mob fields, verify, and assignee can only be set via the UI")
 
 		return
 	}
@@ -550,6 +554,7 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 		CreatePR:           req.CreatePR,
 		AwaitCI:            req.AwaitCI,
 		AwaitCopilotReview: req.AwaitCopilotReview,
+		MergePR:            req.MergePR,
 		BaseBranch:         req.BaseBranch,
 		Vetted:             req.Vetted,
 		Skills:             req.Skills,
@@ -633,6 +638,7 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 		req.CreatePR != existingCard.CreatePR ||
 		req.AwaitCI != existingCard.AwaitCI ||
 		req.AwaitCopilotReview != existingCard.AwaitCopilotReview ||
+		req.MergePR != existingCard.MergePR ||
 		req.Vetted != existingCard.Vetted ||
 		req.ModelOrchestrator != existingCard.ModelOrchestrator ||
 		req.ModelCoder != existingCard.ModelCoder ||
@@ -645,7 +651,7 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 		req.Assignee != normalizeAssignee(existingCard.Assignee)) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
 			"forbidden",
-			"autonomous, create_pr, await_ci, await_copilot_review, vetted, model pins, best_of_n, max_capability, mob fields, and assignee can only be changed via the UI")
+			"autonomous, create_pr, await_ci, await_copilot_review, merge_pr, vetted, model pins, best_of_n, max_capability, mob fields, and assignee can only be changed via the UI")
 
 		return
 	}
@@ -694,6 +700,7 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 		CreatePR:           req.CreatePR,
 		AwaitCI:            req.AwaitCI,
 		AwaitCopilotReview: req.AwaitCopilotReview,
+		MergePR:            req.MergePR,
 		Vetted:             req.Vetted,
 		Skills:             req.Skills,
 		Phase:              req.Phase,
@@ -742,6 +749,7 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 		req.CreatePR != nil ||
 		req.AwaitCI != nil ||
 		req.AwaitCopilotReview != nil ||
+		req.MergePR != nil ||
 		req.Vetted != nil ||
 		req.BaseBranch != nil ||
 		req.ModelOrchestrator != nil ||
@@ -756,7 +764,7 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 		req.Assignee != nil) {
 		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
 			"forbidden",
-			"autonomous, create_pr, await_ci, await_copilot_review, vetted, base_branch, model pins, best_of_n, max_capability, mob fields, verify, and assignee can only be set via the UI")
+			"autonomous, create_pr, await_ci, await_copilot_review, merge_pr, vetted, base_branch, model pins, best_of_n, max_capability, mob fields, verify, and assignee can only be set via the UI")
 
 		return
 	}
@@ -830,6 +838,7 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 		CreatePR:           req.CreatePR,
 		AwaitCI:            req.AwaitCI,
 		AwaitCopilotReview: req.AwaitCopilotReview,
+		MergePR:            req.MergePR,
 		Vetted:             req.Vetted,
 		BaseBranch:         req.BaseBranch,
 		Skills:             req.Skills,

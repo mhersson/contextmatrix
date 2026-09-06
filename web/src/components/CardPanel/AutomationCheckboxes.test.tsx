@@ -14,6 +14,8 @@ const baseProps = {
   awaitCopilotReview: false,
   onAwaitCIChange: vi.fn(),
   onAwaitCopilotReviewChange: vi.fn(),
+  mergePR: false,
+  onMergePRChange: vi.fn(),
 };
 
 describe('AutomationCheckboxes - model steering', () => {
@@ -94,6 +96,45 @@ describe('PR gate checkboxes', () => {
     render(<AutomationCheckboxes {...baseProps} createPR={true} disabled />);
     expect(screen.getByLabelText('Wait for CI')).toBeDisabled();
     expect(screen.getByLabelText('Request Copilot review')).toBeDisabled();
+  });
+});
+
+describe('Merge PR checkbox', () => {
+  const warning = 'Merges into the base branch automatically once CI passes - no human review before merge';
+
+  it('is hidden unless Wait for CI is on', () => {
+    render(<AutomationCheckboxes {...baseProps} createPR={true} awaitCI={false} />);
+    expect(screen.queryByLabelText('Merge PR')).not.toBeInTheDocument();
+    expect(screen.queryByText(warning)).not.toBeInTheDocument();
+  });
+
+  it('shows under Wait for CI and toggles', () => {
+    const onMergePRChange = vi.fn();
+    render(
+      <AutomationCheckboxes
+        {...baseProps}
+        createPR={true}
+        awaitCI={true}
+        mergePR={false}
+        onMergePRChange={onMergePRChange}
+      />,
+    );
+    const merge = screen.getByLabelText('Merge PR');
+    expect(merge).not.toBeChecked();
+    expect(screen.queryByText(warning)).not.toBeInTheDocument();
+    fireEvent.click(merge);
+    expect(onMergePRChange).toHaveBeenCalledWith(true);
+  });
+
+  it('renders the warning banner while checked', () => {
+    render(<AutomationCheckboxes {...baseProps} createPR={true} awaitCI={true} mergePR={true} />);
+    expect(screen.getByLabelText('Merge PR')).toBeChecked();
+    expect(screen.getByRole('alert')).toHaveTextContent(warning);
+  });
+
+  it('disables the row when automation is locked', () => {
+    render(<AutomationCheckboxes {...baseProps} createPR={true} awaitCI={true} disabled />);
+    expect(screen.getByLabelText('Merge PR')).toBeDisabled();
   });
 });
 
@@ -419,6 +460,8 @@ describe('AutomationCheckboxes - mob execute vs Best-of-N', () => {
     awaitCopilotReview: false,
     onAwaitCIChange: noop,
     onAwaitCopilotReviewChange: noop,
+    mergePR: false,
+    onMergePRChange: noop,
     taskBackend: 'agent',
     mobParticipants: 3,
     mobExecuteCheckpoints: true,

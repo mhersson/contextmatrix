@@ -54,7 +54,7 @@ type createCardInput struct {
 	AgentID string `json:"agent_id,omitempty" jsonschema:"caller identity (attributed on the self_containment_warning activity entry when the lint flags the body)"`
 }
 
-// NOTE: vetted, create_pr, await_ci, await_copilot_review,
+// NOTE: vetted, create_pr, await_ci, await_copilot_review, merge_pr,
 // base_branch, best_of_n, max_capability, assignee, the mob session fields
 // (mob_participants, mob_phases, mob_guests), and
 // model pin fields (model_orchestrator, model_coder, model_reviewer) are

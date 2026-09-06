@@ -68,24 +68,26 @@ skipped. A card that already has subtasks is `standard` regardless of label.
 
 All fields except `autonomous` and `skills` are human-only; the MCP
 `update_card` tool does not expose them. Project Settings → Card defaults
-pre-fills autonomous, maximum capability, mob seats/phases and the PR gates
-for new cards; Best-of-N stays per card.
+pre-fills autonomous, maximum capability, mob seats/phases, and the CI /
+Copilot PR gates (`await_ci`, `await_copilot_review`) for new cards;
+`merge_pr` has no default. Best-of-N stays per card.
 
-| Field                  | Effect                                                          |
-| ---------------------- | --------------------------------------------------------------- |
-| `autonomous`           | Routes `start_workflow` to `run-autonomous`; forces HITL off.   |
-| `best_of_n`            | 2 or more races that many candidates; clamped to `best_of_n.max_candidates`. |
-| `max_capability`       | Ignore price inside the tier and bypass favorites ("Maximum capability" checkbox). |
-| `mob_participants`     | 2 or more convenes that many discussion seats; clamped to `mob.max_participants`. |
-| `mob_phases`           | Subset of `plan`, `review`, `execute`; execute checkpoints drop `best_of_n`. |
-| `mob_guests`           | Names from the `mob.guests` registry joining the discussion.    |
-| `verify`               | Command, timeout and env names for the verify gate; card over project, field by field. |
-| `create_pr`            | Open a pull request after the push (default from the project's card_defaults; built-in true for top-level cards, always false for subtasks). |
-| `await_ci`             | Stay in `review` until PR checks pass, up to 3 fix rounds, else park. |
-| `await_copilot_review` | Request a Copilot review, triage, fix, up to 3 rounds; skipped when unavailable. |
-| `model_orchestrator`, `model_coder`, `model_reviewer` | Pin a model per role; a pin beats every selector rule. |
-| `skills`               | Task skills mounted in the container; absent inherits, `[]` mounts none. |
-| `branch_name`, `base_branch` | Generated feature branch (immutable); optional PR target. |
+| Field                                                 | Effect                                                                                                                                       |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `autonomous`                                          | Routes `start_workflow` to `run-autonomous`; forces HITL off.                                                                                |
+| `best_of_n`                                           | 2 or more races that many candidates; clamped to `best_of_n.max_candidates`.                                                                 |
+| `max_capability`                                      | Ignore price inside the tier and bypass favorites ("Maximum capability" checkbox).                                                           |
+| `mob_participants`                                    | 2 or more convenes that many discussion seats; clamped to `mob.max_participants`.                                                            |
+| `mob_phases`                                          | Subset of `plan`, `review`, `execute`; execute checkpoints drop `best_of_n`.                                                                 |
+| `mob_guests`                                          | Names from the `mob.guests` registry joining the discussion.                                                                                 |
+| `verify`                                              | Command, timeout and env names for the verify gate; card over project, field by field.                                                       |
+| `create_pr`                                           | Open a pull request after the push (default from the project's card_defaults; built-in true for top-level cards, always false for subtasks). |
+| `await_ci`                                            | Stay in `review` until PR checks pass, up to 3 fix rounds, else park.                                                                        |
+| `await_copilot_review`                                | Request a Copilot review, triage, fix, up to 3 rounds; skipped when unavailable.                                                             |
+| `merge_pr`                                            | With `await_ci`: merge the PR (merge commit) into its base branch once the CI gate passes, else park.                                        |
+| `model_orchestrator`, `model_coder`, `model_reviewer` | Pin a model per role; a pin beats every selector rule.                                                                                       |
+| `skills`                                              | Task skills mounted in the container; absent inherits, `[]` mounts none.                                                                     |
+| `branch_name`, `base_branch`                          | Generated feature branch (immutable); optional PR target.                                                                                    |
 
 ## Best-of-N
 
@@ -109,7 +111,9 @@ tab.
 With `await_ci` or `await_copilot_review` set, the run enters `pr_gates`
 after `report_push` and stays in `review` until the gates pass. Exhausted
 rounds, a timeout, or a failed PR creation on a gated card park the card
-instead of completing it. See [data model](data-model.md) § PR gates.
+instead of completing it. With `merge_pr`, a passed CI gate is followed by
+the merge before the card completes; a merge that GitHub refuses parks the
+card. See [data model](data-model.md) § PR gates.
 
 ## Parked cards
 

@@ -81,12 +81,17 @@ type Card struct {
 	// Copilot code review on the PR, wait for it, and address valid findings
 	// before the CI gate / done. Human-set only. Meaningful only when a PR
 	// exists (create_pr).
-	AwaitCopilotReview bool   `yaml:"await_copilot_review,omitempty" json:"await_copilot_review,omitempty"`
-	BranchName         string `yaml:"branch_name,omitempty"        json:"branch_name,omitempty"`
-	BaseBranch         string `yaml:"base_branch,omitempty"        json:"base_branch,omitempty"`
-	PRUrl              string `yaml:"pr_url,omitempty"             json:"pr_url,omitempty"`
-	ReviewAttempts     int    `yaml:"review_attempts,omitempty"    json:"review_attempts,omitempty"`
-	WorkerStatus       string `yaml:"worker_status,omitempty"      json:"worker_status,omitempty"`
+	AwaitCopilotReview bool `yaml:"await_copilot_review,omitempty" json:"await_copilot_review,omitempty"`
+	// MergePR, when true, has the pr_gates phase merge the PR into its base
+	// branch (merge commit) once the CI gate passes - a repo with no checks
+	// included. Human-set only. Meaningful only with await_ci on a card that
+	// opens a PR; a refused merge parks the card instead of completing it.
+	MergePR        bool   `yaml:"merge_pr,omitempty"           json:"merge_pr,omitempty"`
+	BranchName     string `yaml:"branch_name,omitempty"        json:"branch_name,omitempty"`
+	BaseBranch     string `yaml:"base_branch,omitempty"        json:"base_branch,omitempty"`
+	PRUrl          string `yaml:"pr_url,omitempty"             json:"pr_url,omitempty"`
+	ReviewAttempts int    `yaml:"review_attempts,omitempty"    json:"review_attempts,omitempty"`
+	WorkerStatus   string `yaml:"worker_status,omitempty"      json:"worker_status,omitempty"`
 	// Phase is the autonomous orchestrator's position within the run
 	// (plan|execute|judge|document|review|integrate|pr_gates|done). Orthogonal to State: State is the
 	// board lifecycle, Phase is agent progress inside it. Empty for cards not

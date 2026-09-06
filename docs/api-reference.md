@@ -846,36 +846,36 @@ the wire shapes. The human side of running a card is in
 Every card-returning REST endpoint uses this shape. Fields marked `?` are
 omitted when zero or empty; the rest are always present.
 
-| Field                                                    | Type                    | Notes                                                                                                                                                               |
-| -------------------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`, `title`, `project`, `type`, `state`, `priority`    | string                  |                                                                                                                                                                     |
-| `body`                                                   | string                  | Markdown; always present (may be `""`)                                                                                                                              |
-| `assigned_agent?`, `last_heartbeat?`                     | string, RFC 3339        | Current claim                                                                                                                                                       |
-| `claimed_via?`, `claimed_at?`, `claim_epoch?`            | string, RFC 3339, int   | Shared boards only: granting instance, time, and the fence bumped on every claim, release, stall, force-release, and terminal transition                            |
-| `parent?`, `subtasks?`, `depends_on?`                    | string, string[]        |                                                                                                                                                                     |
-| `dependencies_met?`                                      | bool                    | Computed on read                                                                                                                                                    |
-| `blocked_by?`                                            | string[]                | Computed on read: the `depends_on` ids not yet `done`; absent when all are met                                                                                      |
-| `context?`, `labels?`                                    | string[]                |                                                                                                                                                                     |
-| `skills?`                                                | string[]                | `null`/absent = project default; `[]` = mount no skills                                                                                                             |
-| `source?`                                                | object                  | `{system, external_id, external_url}` for imported cards                                                                                                            |
-| `custom?`                                                | object                  | Free-form                                                                                                                                                           |
-| `assignee?`                                              | string                  | Multi mode username                                                                                                                                                 |
-| `autonomous`, `vetted`                                   | bool                    | Always present                                                                                                                                                      |
-| `model_orchestrator?`, `model_coder?`, `model_reviewer?` | string                  | Model pins                                                                                                                                                          |
-| `best_of_n?`, `max_capability?`                          | int, bool               |                                                                                                                                                                     |
-| `mob_participants?`, `mob_phases?`, `mob_guests?`        | int, string[], string[] |                                                                                                                                                                     |
-| `verify?`                                                | object                  | Card-level verify override                                                                                                                                          |
-| `create_pr?`, `await_ci?`, `await_copilot_review?`       | bool                    |                                                                                                                                                                     |
-| `branch_name?`, `base_branch?`, `pr_url?`                | string                  |                                                                                                                                                                     |
-| `review_attempts?`                                       | int                     |                                                                                                                                                                     |
-| `worker_status?`                                         | string                  | `queued`, `running`, `completed`, `failed`, `killed`, `parked`                                                                                                      |
-| `phase?`                                                 | string                  |                                                                                                                                                                     |
-| `token_usage?`                                           | object                  | `{model?, prompt_tokens, completion_tokens, cache_read_tokens?, cache_creation_tokens?, estimated_cost_usd}`                                                        |
-| `usage_breakdown?`                                       | object[]                | Per `(agent, model)` buckets: `{agent, model, prompt_tokens, completion_tokens, cache_read_tokens?, cache_creation_tokens?, cost_usd, cost_source, counts_source?}` |
-| `subtask_cost_usd?`, `subtask_cost_has_estimates?`       | float, bool             | Computed on `GET .../cards/{id}` only                                                                                                                               |
-| `in_playbooks?`                                          | string[]                | Computed on read                                                                                                                                                    |
-| `created`, `updated`                                     | RFC 3339                |                                                                                                                                                                     |
-| `activity_log?`                                          | object[]                | `{agent, ts, action, message, skill?}`                                                                                                                              |
+| Field                                                           | Type                    | Notes                                                                                                                                                               |
+| --------------------------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`, `title`, `project`, `type`, `state`, `priority`           | string                  |                                                                                                                                                                     |
+| `body`                                                          | string                  | Markdown; always present (may be `""`)                                                                                                                              |
+| `assigned_agent?`, `last_heartbeat?`                            | string, RFC 3339        | Current claim                                                                                                                                                       |
+| `claimed_via?`, `claimed_at?`, `claim_epoch?`                   | string, RFC 3339, int   | Shared boards only: granting instance, time, and the fence bumped on every claim, release, stall, force-release, and terminal transition                            |
+| `parent?`, `subtasks?`, `depends_on?`                           | string, string[]        |                                                                                                                                                                     |
+| `dependencies_met?`                                             | bool                    | Computed on read                                                                                                                                                    |
+| `blocked_by?`                                                   | string[]                | Computed on read: the `depends_on` ids not yet `done`; absent when all are met                                                                                      |
+| `context?`, `labels?`                                           | string[]                |                                                                                                                                                                     |
+| `skills?`                                                       | string[]                | `null`/absent = project default; `[]` = mount no skills                                                                                                             |
+| `source?`                                                       | object                  | `{system, external_id, external_url}` for imported cards                                                                                                            |
+| `custom?`                                                       | object                  | Free-form                                                                                                                                                           |
+| `assignee?`                                                     | string                  | Multi mode username                                                                                                                                                 |
+| `autonomous`, `vetted`                                          | bool                    | Always present                                                                                                                                                      |
+| `model_orchestrator?`, `model_coder?`, `model_reviewer?`        | string                  | Model pins                                                                                                                                                          |
+| `best_of_n?`, `max_capability?`                                 | int, bool               |                                                                                                                                                                     |
+| `mob_participants?`, `mob_phases?`, `mob_guests?`               | int, string[], string[] |                                                                                                                                                                     |
+| `verify?`                                                       | object                  | Card-level verify override                                                                                                                                          |
+| `create_pr?`, `await_ci?`, `await_copilot_review?`, `merge_pr?` | bool                    |                                                                                                                                                                     |
+| `branch_name?`, `base_branch?`, `pr_url?`                       | string                  |                                                                                                                                                                     |
+| `review_attempts?`                                              | int                     |                                                                                                                                                                     |
+| `worker_status?`                                                | string                  | `queued`, `running`, `completed`, `failed`, `killed`, `parked`                                                                                                      |
+| `phase?`                                                        | string                  |                                                                                                                                                                     |
+| `token_usage?`                                                  | object                  | `{model?, prompt_tokens, completion_tokens, cache_read_tokens?, cache_creation_tokens?, estimated_cost_usd}`                                                        |
+| `usage_breakdown?`                                              | object[]                | Per `(agent, model)` buckets: `{agent, model, prompt_tokens, completion_tokens, cache_read_tokens?, cache_creation_tokens?, cost_usd, cost_source, counts_source?}` |
+| `subtask_cost_usd?`, `subtask_cost_has_estimates?`              | float, bool             | Computed on `GET .../cards/{id}` only                                                                                                                               |
+| `in_playbooks?`                                                 | string[]                | Computed on read                                                                                                                                                    |
+| `created`, `updated`                                            | RFC 3339                |                                                                                                                                                                     |
+| `activity_log?`                                                 | object[]                | `{agent, ts, action, message, skill?}`                                                                                                                              |
 
 ### GET /api/projects/{project}/cards/{id}
 
@@ -954,6 +954,7 @@ Creates a card in the project's first state. Only `title` is required.
   "create_pr": true,
   "await_ci": false,
   "await_copilot_review": false,
+  "merge_pr": false,
   "base_branch": "main",
   "vetted": true,
   "skills": ["go-development"],
@@ -973,15 +974,16 @@ Creates a card in the project's first state. Only `title` is required.
 and `mob_participants` are nullable: omitted falls back to the project's
 `card_defaults` (built-ins when unset: everything off, `create_pr` on) for
 top-level cards and to off for subtasks; any present value, `false` and `0`
-included, is explicit. `mob_phases` is read only alongside an explicit
-`mob_participants`. `skills` omitted means the project default; `[]` mounts no
-skills. `depends_on`, `subtasks`, `context`, and `custom` are not accepted on
-create - set them with PUT or PATCH.
+included, is explicit. `merge_pr` is nullable too, but has no `card_defaults`
+entry: omitted always means off. `mob_phases` is read only alongside an
+explicit `mob_participants`. `skills` omitted means the project default; `[]`
+mounts no skills. `depends_on`, `subtasks`, `context`, and `custom` are not
+accepted on create - set them with PUT or PATCH.
 
 **Human-only fields** (403 `HUMAN_ONLY_FIELD` when a non-`human:` caller sets
 any of them, on create, PUT, and PATCH alike): `autonomous`, `create_pr`,
-`await_ci`, `await_copilot_review`, `vetted`, `assignee`, `base_branch`,
-`model_orchestrator`, `model_coder`, `model_reviewer`, `best_of_n`,
+`await_ci`, `await_copilot_review`, `merge_pr`, `vetted`, `assignee`,
+`base_branch`, `model_orchestrator`, `model_coder`, `model_reviewer`, `best_of_n`,
 `max_capability`, `mob_participants`, `mob_phases`, `mob_guests`, `verify`.
 On create and PATCH the check runs before the card is loaded. PUT compares
 against the stored values, so clearing a human-only field is also gated; PUT
@@ -1007,12 +1009,12 @@ rejected, omitting it is not.
 
 Full replacement. Accepts `title`, `type`, `state`, `priority`, `labels`,
 `parent`, `subtasks`, `depends_on`, `context`, `custom`, `body`, `assignee`,
-`autonomous`, `create_pr`, `await_ci`, `await_copilot_review`, `vetted`,
-`skills`, `phase`, the three model pins, `best_of_n`, `max_capability`, and
-the three mob fields as plain values; every omitted field is written as its
-zero value (`skills` omitted resets to the project default). `phase` is the
-exception: omitted leaves it unchanged. A `state` change goes through
-transition validation.
+`autonomous`, `create_pr`, `await_ci`, `await_copilot_review`, `merge_pr`,
+`vetted`, `skills`, `phase`, the three model pins, `best_of_n`,
+`max_capability`, and the three mob fields as plain values; every omitted
+field is written as its zero value (`skills` omitted resets to the project
+default). `phase` is the exception: omitted leaves it unchanged. A `state`
+change goes through transition validation.
 
 **Response:** 200 with the full card.
 
@@ -1028,16 +1030,16 @@ Partial update - only keys present in the body are applied.
 { "state": "in_progress", "labels": ["urgent"], "depends_on": ["PROJ-001"], "skills_clear": true }
 ```
 
-| Field                                                                                     | Semantics                                                                                                  |
-| ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `title`, `type`, `state`, `priority`, `body`, `assignee`, `base_branch`, `phase`          | string; `state` runs transition validation                                                                 |
-| `labels`, `mob_phases`, `mob_guests`                                                      | `[]` clears; omitted leaves unchanged                                                                      |
-| `depends_on`                                                                              | Replaces the list; `[]` clears; cycles, self, cross-project, or unknown IDs are 409 `DEPENDENCIES_NOT_MET` |
-| `skills`                                                                                  | Explicit list or `[]`                                                                                      |
-| `skills_clear`                                                                            | `true` resets `skills` to absent (project default) - JSON cannot distinguish an omitted key from `null`    |
-| `autonomous`, `create_pr`, `await_ci`, `await_copilot_review`, `vetted`, `max_capability` | bool                                                                                                       |
-| `model_orchestrator`, `model_coder`, `model_reviewer`, `best_of_n`, `mob_participants`    | Pins and counts; mob fields are validated against the resulting card                                       |
-| `verify`                                                                                  | Replaces the whole object; a zero-value object clears it                                                   |
+| Field                                                                                                 | Semantics                                                                                                  |
+| ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `title`, `type`, `state`, `priority`, `body`, `assignee`, `base_branch`, `phase`                      | string; `state` runs transition validation                                                                 |
+| `labels`, `mob_phases`, `mob_guests`                                                                  | `[]` clears; omitted leaves unchanged                                                                      |
+| `depends_on`                                                                                          | Replaces the list; `[]` clears; cycles, self, cross-project, or unknown IDs are 409 `DEPENDENCIES_NOT_MET` |
+| `skills`                                                                                              | Explicit list or `[]`                                                                                      |
+| `skills_clear`                                                                                        | `true` resets `skills` to absent (project default) - JSON cannot distinguish an omitted key from `null`    |
+| `autonomous`, `create_pr`, `await_ci`, `await_copilot_review`, `merge_pr`, `vetted`, `max_capability` | bool                                                                                                       |
+| `model_orchestrator`, `model_coder`, `model_reviewer`, `best_of_n`, `mob_participants`                | Pins and counts; mob fields are validated against the resulting card                                       |
+| `verify`                                                                                              | Replaces the whole object; a zero-value object clears it                                                   |
 
 The commit author, activity entry, and SSE event carry the resolved caller
 identity. **Response:** 200 with the full card. **Errors:** as PUT.

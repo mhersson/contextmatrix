@@ -53,6 +53,7 @@ export interface Card {
   create_pr?: boolean;
   await_ci?: boolean;
   await_copilot_review?: boolean;
+  merge_pr?: boolean;
   branch_name?: string;
   base_branch?: string;
   pr_url?: string;
@@ -297,6 +298,7 @@ export interface CreateCardInput {
   create_pr?: boolean;
   await_ci?: boolean;
   await_copilot_review?: boolean;
+  merge_pr?: boolean;
   base_branch?: string;
   skills?: string[] | null;
   assignee?: string;
@@ -321,6 +323,7 @@ export interface PatchCardInput {
   create_pr?: boolean;
   await_ci?: boolean;
   await_copilot_review?: boolean;
+  merge_pr?: boolean;
   base_branch?: string;
   vetted?: boolean;
   // skills: explicit list (or empty) goes here; pure JSON cannot

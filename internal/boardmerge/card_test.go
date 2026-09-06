@@ -152,6 +152,16 @@ func TestMergeCards(t *testing.T) {
 			},
 		},
 		{
+			"merge_pr set on one side survives",
+			func(c *board.Card) { c.MergePR = true; c.Updated = ts(1) },
+			func(c *board.Card) { c.Vetted = true; c.Updated = ts(4) },
+			func(t *testing.T, got *board.Card, res []Resolution) {
+				assert.True(t, got.MergePR)
+				assert.True(t, got.Vetted)
+				assert.Empty(t, res)
+			},
+		},
+		{
 			"counter changed on both later wins",
 			func(c *board.Card) { c.BestOfN = 2; c.Updated = ts(6) },
 			func(c *board.Card) { c.BestOfN = 3 },
