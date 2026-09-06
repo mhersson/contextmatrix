@@ -29,6 +29,8 @@ type createPlaybookRequest struct {
 type patchPlaybookRequest struct {
 	Title       *string `json:"title,omitempty"`
 	Description *string `json:"description,omitempty"`
+	Runnable    *bool   `json:"runnable,omitempty"`
+	BaseBranch  *string `json:"base_branch,omitempty"`
 }
 
 type patchPlaybookEntryRequest struct {
@@ -125,9 +127,20 @@ func (h *playbookHandlers) patch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Runnable and base_branch are operator fields: they force settings on
+	// cards and pick a branch, so only humans may set them.
+	if isNonHumanAgent(r) && (req.Runnable != nil || req.BaseBranch != nil) {
+		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
+			"forbidden", "runnable and base_branch can only be set via the UI")
+
+		return
+	}
+
 	input := service.UpdatePlaybookInput{
 		Title:       req.Title,
 		Description: req.Description,
+		Runnable:    req.Runnable,
+		BaseBranch:  req.BaseBranch,
 	}
 
 	detail, err := h.svc.UpdateMeta(r.Context(), id, input, playbookAgentID(r))
