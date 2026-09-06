@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router';
 import type { DragEndEvent } from '@dnd-kit/core';
-import { api } from '../../api/client';
+import { api, isAPIError } from '../../api/client';
 import { useSSEBus } from '../../hooks/useSSEBus';
 import { useToast } from '../../hooks/useToast';
+import { usePlaybookBranches } from '../../hooks/usePlaybookBranches';
 import { ConfirmModal } from '../ConfirmModal/ConfirmModal';
 import type { NewPlaybookEntry, PlaybookDetail, PlaybookSegment } from '../../types';
-import { arrayMoveLocal, persistReorder } from './playbookUtils';
+import { arrayMoveLocal, isRunActive, persistReorder } from './playbookUtils';
 import { PlaybookDetailHeader } from './PlaybookDetailHeader';
 import { PlaybookEntryList } from './PlaybookEntryList';
 import { PlaybookSidePanel } from './PlaybookSidePanel';
@@ -31,6 +32,14 @@ export function PlaybookDetailPage() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
   const [editingDescription, setEditingDescription] = useState(false);
+  const [runnableConfirmOpen, setRunnableConfirmOpen] = useState(false);
+  const [stopConfirmOpen, setStopConfirmOpen] = useState(false);
+
+  const playbookProjects = useMemo(
+    () => [...new Set((detail?.entries ?? []).flatMap((e) => (e.type === 'card' && e.project ? [e.project] : [])))],
+    [detail],
+  );
+  const { branches, loading: branchesLoading, error: branchesError } = usePlaybookBranches(playbookProjects, !!detail);
 
   const fetchDetail = useCallback(() => {
     api.getPlaybook(id)
@@ -53,6 +62,50 @@ export function PlaybookDetailPage() {
   const applyPatch = useCallback((promise: Promise<PlaybookDetail>) => {
     return promise.then(setDetail).catch(() => { showToast('Update failed', 'error'); fetchDetail(); });
   }, [showToast, fetchDetail]);
+
+  const describeApiError = (err: unknown, fallback: string) =>
+    isAPIError(err) ? (err.details ? `${err.error}: ${err.details}` : err.error) : fallback;
+
+  const patchRunnable = useCallback(async (runnable: boolean) => {
+    if (!detail) return;
+    try {
+      setDetail(await api.patchPlaybook(detail.id, { runnable }));
+    } catch (err) {
+      showToast(describeApiError(err, runnable ? 'Could not make the playbook runnable' : 'Update failed'), 'error');
+      fetchDetail();
+    }
+  }, [detail, showToast, fetchDetail]);
+
+  const handleToggleRunnable = useCallback((next: boolean) => {
+    if (next) setRunnableConfirmOpen(true);
+    else void patchRunnable(false);
+  }, [patchRunnable]);
+
+  const handleSaveBaseBranch = useCallback((value: string) => {
+    if (!detail) return;
+    applyPatch(api.patchPlaybook(detail.id, { base_branch: value }));
+  }, [detail, applyPatch]);
+
+  const handleRun = useCallback(async () => {
+    if (!detail) return;
+    try {
+      setDetail(await api.runPlaybook(detail.id));
+    } catch (err) {
+      showToast(describeApiError(err, 'Could not start the playbook'), 'error');
+      fetchDetail();
+    }
+  }, [detail, showToast, fetchDetail]);
+
+  const handleStopConfirm = useCallback(async () => {
+    setStopConfirmOpen(false);
+    if (!detail) return;
+    try {
+      setDetail(await api.stopPlaybook(detail.id));
+    } catch (err) {
+      showToast(describeApiError(err, 'Could not stop the playbook'), 'error');
+      fetchDetail();
+    }
+  }, [detail, showToast, fetchDetail]);
 
   const handleToggleDone = useCallback((entryId: string, done: boolean) => {
     if (!detail) return;
@@ -132,6 +185,25 @@ export function PlaybookDetailPage() {
     return <div className="p-6" style={{ color: 'var(--grey1)' }}>Loading...</div>;
   }
 
+  const runnableCards = detail.entries.filter((e) => e.type === 'card' && !e.complete && !e.missing);
+  const runnableProjects = [...new Set(runnableCards.map((e) => e.project ?? ''))];
+  const runnableMessage = (
+    <>
+      <p className="mb-2">Making this playbook runnable will:</p>
+      <ul className="list-disc pl-5 flex flex-col gap-1">
+        <li>Set <strong>autonomous</strong>, <strong>create PR</strong>, <strong>wait for CI</strong> and <strong>merge PR</strong> on {runnableCards.length} card{runnableCards.length === 1 ? '' : 's'}, with base branch <code>playbook/{detail.id}</code>.</li>
+        <li>Create the branch <code>playbook/{detail.id}</code> from {detail.base_branch ? <code>{detail.base_branch}</code> : 'the repository default'} in: {runnableProjects.join(', ') || 'no projects yet'}. The first card that runs in each repository creates it.</li>
+        <li>Lock those five settings on the cards and disable their run buttons while the playbook runs.</li>
+        <li>Run every card autonomously; no human-in-the-loop.</li>
+        <li>Unchecking later does not revert the card settings.</li>
+      </ul>
+    </>
+  );
+
+  const deleteMessage = isRunActive(detail.run)
+    ? 'This removes the playbook. Its run is active: the current card keeps running as an ordinary card. History is preserved in git.'
+    : 'This removes the playbook. Its history is preserved in git.';
+
   return (
     <div className="h-full overflow-y-auto">
       <PlaybooksBar />
@@ -159,18 +231,46 @@ export function PlaybookDetailPage() {
             />
           </div>
 
-          <PlaybookSidePanel detail={detail} segments={entrySegments(detail)} onAdd={handleAdd} />
+          <PlaybookSidePanel
+            detail={detail}
+            segments={entrySegments(detail)}
+            onAdd={handleAdd}
+            branches={branches}
+            branchesLoading={branchesLoading}
+            branchesError={branchesError}
+            onToggleRunnable={handleToggleRunnable}
+            onSaveBaseBranch={handleSaveBaseBranch}
+            onRun={() => void handleRun()}
+            onStop={() => setStopConfirmOpen(true)}
+          />
         </div>
       </div>
 
       <ConfirmModal
         open={deleteOpen}
         title={`Delete playbook ${detail.id}?`}
-        message="This removes the playbook. Its history is preserved in git."
+        message={deleteMessage}
         variant="danger"
         confirmLabel="Delete"
         onConfirm={handleDelete}
         onCancel={() => setDeleteOpen(false)}
+      />
+      <ConfirmModal
+        open={runnableConfirmOpen}
+        title={`Make ${detail.title} runnable?`}
+        message={runnableMessage}
+        confirmLabel="Make runnable"
+        onConfirm={() => { setRunnableConfirmOpen(false); void patchRunnable(true); }}
+        onCancel={() => setRunnableConfirmOpen(false)}
+      />
+      <ConfirmModal
+        open={stopConfirmOpen}
+        title="Stop the playbook run?"
+        message="The current card's worker will be killed. Uncommitted work in that container is lost. Play resumes from the current entry."
+        variant="danger"
+        confirmLabel="Stop run"
+        onConfirm={() => void handleStopConfirm()}
+        onCancel={() => setStopConfirmOpen(false)}
       />
     </div>
   );

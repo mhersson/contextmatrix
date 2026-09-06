@@ -86,13 +86,13 @@ export function ConfirmModal({
           {title}
         </h2>
 
-        <p
+        <div
           id={messageId}
           className="text-sm mb-5"
           style={{ color: 'var(--grey1)' }}
         >
           {message}
-        </p>
+        </div>
 
         <div className="flex justify-end gap-2">
           <button

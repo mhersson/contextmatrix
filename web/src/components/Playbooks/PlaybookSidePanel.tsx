@@ -3,16 +3,27 @@ import type { NewPlaybookEntry, PlaybookDetail, PlaybookSegment } from '../../ty
 import { frontierIndex } from './playbookUtils';
 import { SegmentedProgress } from './SegmentedProgress';
 import { AddEntryComposer } from './AddEntryComposer';
+import { PlaybookRunCard } from './PlaybookRunCard';
 
 interface PlaybookSidePanelProps {
   detail: PlaybookDetail;
   segments: PlaybookSegment[];
   onAdd: (entry: NewPlaybookEntry) => Promise<void>;
+  branches: string[];
+  branchesLoading: boolean;
+  branchesError: boolean;
+  onToggleRunnable: (next: boolean) => void;
+  onSaveBaseBranch: (value: string) => void;
+  onRun: () => void;
+  onStop: () => void;
 }
 
 /** Sticky workbench panel: a live overview of the playbook plus the
  * add-entry composer, keeping the entry track purely the route. */
-export function PlaybookSidePanel({ detail, segments, onAdd }: PlaybookSidePanelProps) {
+export function PlaybookSidePanel({
+  detail, segments, onAdd, branches, branchesLoading, branchesError,
+  onToggleRunnable, onSaveBaseBranch, onRun, onStop,
+}: PlaybookSidePanelProps) {
   const { entries } = detail;
   const projectCount = new Set(
     entries.flatMap((e) => (e.type === 'card' && e.project ? [e.project] : [])),
@@ -63,6 +74,17 @@ export function PlaybookSidePanel({ detail, segments, onAdd }: PlaybookSidePanel
           )}
         </div>
       </div>
+
+      <PlaybookRunCard
+        detail={detail}
+        branches={branches}
+        branchesLoading={branchesLoading}
+        branchesError={branchesError}
+        onToggleRunnable={onToggleRunnable}
+        onSaveBaseBranch={onSaveBaseBranch}
+        onRun={onRun}
+        onStop={onStop}
+      />
 
       <AddEntryComposer onAdd={onAdd} entries={entries} />
     </aside>

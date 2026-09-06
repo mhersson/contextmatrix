@@ -15,16 +15,20 @@ vi.mock('../../api/client', () => ({
     addPlaybookEntry: vi.fn(),
     deletePlaybook: vi.fn(),
     getCards: vi.fn().mockResolvedValue([]),
+    runPlaybook: vi.fn(),
+    stopPlaybook: vi.fn(),
+    fetchBranches: vi.fn().mockResolvedValue(['main']),
   },
+  isAPIError: (err: unknown): err is { error: string; code?: string; details?: string } =>
+    err != null && typeof err === 'object' && 'error' in err,
 }));
 
 vi.mock('../../hooks/useSSEBus', () => ({
   useSSEBus: () => ({ subscribe: () => () => {}, connected: true, error: null, reconnectEpoch: 0 }),
 }));
 
-vi.mock('../../hooks/useToast', () => ({
-  useToast: () => ({ showToast: () => {} }),
-}));
+const toast = vi.hoisted(() => ({ showToast: vi.fn() }));
+vi.mock('../../hooks/useToast', () => ({ useToast: () => toast }));
 
 vi.mock('../../hooks/useProjects', () => ({
   useProjects: () => ({
@@ -62,6 +66,9 @@ describe('PlaybookDetailPage', () => {
   beforeEach(() => {
     vi.mocked(api.getPlaybook).mockReset();
     vi.mocked(api.patchPlaybookEntry).mockReset();
+    vi.mocked(api.patchPlaybook).mockReset();
+    vi.mocked(api.runPlaybook).mockReset();
+    vi.mocked(api.stopPlaybook).mockReset();
   });
 
   it('renders header progress and both entries from the fetch', async () => {
@@ -143,5 +150,46 @@ describe('PlaybookDetailPage', () => {
     const results = await screen.findByRole('list', { name: 'Card results' });
     expect(within(results).getByText('ALPHA-102')).toBeInTheDocument();
     expect(within(results).queryByText('ALPHA-101')).not.toBeInTheDocument();
+  });
+
+  it('confirms before making a playbook runnable and surfaces the server reason on failure', async () => {
+    vi.mocked(api.getPlaybook).mockResolvedValue(baseDetail());
+    vi.mocked(api.patchPlaybook).mockRejectedValueOnce({
+      error: 'project has no GitHub repository', code: 'PLAYBOOK_PROJECT_NO_REPO', details: 'alpha',
+    });
+    renderPage();
+    await screen.findByText('Roll');
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /make runnable/i }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getAllByText(/playbook\/roll/).length).toBeGreaterThan(0);
+    expect(within(dialog).getByText(/does not revert/i)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: /make runnable/i }));
+
+    await waitFor(() => expect(api.patchPlaybook).toHaveBeenCalledWith('roll', { runnable: true }));
+    await waitFor(() => expect(toast.showToast).toHaveBeenCalledWith('project has no GitHub repository: alpha', 'error'));
+  });
+
+  it('plays and stops through the run endpoints', async () => {
+    const runnable = { ...baseDetail(), runnable: true, branch: 'playbook/roll' };
+    vi.mocked(api.getPlaybook).mockResolvedValue(runnable);
+    vi.mocked(api.runPlaybook).mockResolvedValue({
+      ...runnable, run: { status: 'running', started_at: 'x', updated_at: 'x', entry: 'e2' },
+    });
+    vi.mocked(api.stopPlaybook).mockResolvedValue({
+      ...runnable, run: { status: 'stopped', started_at: 'x', updated_at: 'x' },
+    });
+    renderPage();
+    await screen.findByText('Roll');
+
+    fireEvent.click(screen.getByRole('button', { name: /^run$/i }));
+    await waitFor(() => expect(api.runPlaybook).toHaveBeenCalledWith('roll'));
+    expect(await screen.findByText('Running ALPHA-101, 2 of 2')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /^stop$/i }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: /stop run/i }));
+    await waitFor(() => expect(api.stopPlaybook).toHaveBeenCalledWith('roll'));
+    expect(await screen.findByText('Stopped')).toBeInTheDocument();
   });
 });
