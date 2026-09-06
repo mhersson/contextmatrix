@@ -484,24 +484,26 @@ func (s *PlaybookService) Create(ctx context.Context, input CreatePlaybookInput)
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
-	detail, err := s.createLocked(ctx, r, input, func(ctx context.Context, id, action string) error {
+	detail, p, err := s.createLocked(ctx, r, input, func(ctx context.Context, id, action string) error {
 		return s.enqueueCommitIn(ctx, r, id, action)
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	s.publish(events.PlaybookCreated, detail.ID, input.AgentID, detail.Created)
+	s.publish(events.PlaybookCreated, p, input.AgentID, detail.Created)
 
 	return detail, nil
 }
 
 // createLocked is Create with writeMu held by the caller and the commit path
 // chosen by it. The caller publishes playbook.created: inside a sync cycle
-// the create is not final until the push has landed.
+// the create is not final until the push has landed. It returns the built
+// playbook alongside its detail so the caller can publish without a
+// re-fetch.
 func (s *PlaybookService) createLocked(
 	ctx context.Context, r *PlaybookRepo, input CreatePlaybookInput, commit func(ctx context.Context, id, action string) error,
-) (*PlaybookDetail, error) {
+) (*PlaybookDetail, *board.Playbook, error) {
 	now := s.clk.Now().UTC().Truncate(time.Second)
 
 	p := &board.Playbook{
@@ -516,7 +518,7 @@ func (s *PlaybookService) createLocked(
 	for i, in := range input.Entries {
 		e, err := s.buildEntry(ctx, p, in)
 		if err != nil {
-			return nil, fmt.Errorf("entry %d: %w", i, err)
+			return nil, nil, fmt.Errorf("entry %d: %w", i, err)
 		}
 
 		p.Entries = append(p.Entries, *e)
@@ -526,7 +528,7 @@ func (s *PlaybookService) createLocked(
 	p.ID = base
 
 	if err := p.Validate(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	id := base
@@ -539,7 +541,7 @@ func (s *PlaybookService) createLocked(
 		}
 
 		if !errors.Is(err, storage.ErrPlaybookExists) {
-			return nil, fmt.Errorf("create playbook: %w", err)
+			return nil, nil, fmt.Errorf("create playbook: %w", err)
 		}
 
 		id = fmt.Sprintf("%s-%d", base, n)
@@ -549,13 +551,18 @@ func (s *PlaybookService) createLocked(
 		if rbErr := s.store.Delete(ctx, p.ID); rbErr != nil {
 			ctxlog.Logger(ctx).Error("playbook rollback after commit failure failed", "playbook", p.ID, "error", rbErr)
 
-			return nil, errors.Join(err, fmt.Errorf("rollback failed: %w", rbErr))
+			return nil, nil, errors.Join(err, fmt.Errorf("rollback failed: %w", rbErr))
 		}
 
-		return nil, err
+		return nil, nil, err
 	}
 
-	return s.resolve(ctx, p)
+	detail, err := s.resolve(ctx, p)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return detail, p, nil
 }
 
 // createVerified allocates the slug and writes the playbook inside a sync
@@ -580,7 +587,7 @@ func (s *PlaybookService) createVerified(ctx context.Context, r *PlaybookRepo, i
 
 	_, err := r.runner(ctx, "create playbook", SyncMutation{
 		Apply: func(ctx context.Context) error {
-			d, err := s.createLocked(ctx, r, input, commit)
+			d, _, err := s.createLocked(ctx, r, input, commit)
 			if err != nil {
 				applyErr = err
 
@@ -628,7 +635,7 @@ func (s *PlaybookService) createVerified(ctx context.Context, r *PlaybookRepo, i
 		return nil, fmt.Errorf("create playbook: %w: %w", ErrRemoteUnreachable, err)
 	}
 
-	s.publish(events.PlaybookCreated, detail.ID, input.AgentID, detail.Created)
+	s.publish(events.PlaybookCreated, created, input.AgentID, detail.Created)
 
 	return detail, nil
 }
@@ -888,7 +895,7 @@ func (s *PlaybookService) Delete(ctx context.Context, id, agentID string) error 
 		return err
 	}
 
-	s.publish(events.PlaybookDeleted, id, agentID, now)
+	s.publish(events.PlaybookDeleted, snapshot, agentID, now)
 
 	return nil
 }
@@ -935,7 +942,7 @@ func (s *PlaybookService) mutate(ctx context.Context, id, action, agentID string
 		return nil, err
 	}
 
-	s.publish(events.PlaybookUpdated, id, agentID, now)
+	s.publish(events.PlaybookUpdated, p, agentID, now)
 
 	return s.resolve(ctx, p)
 }
@@ -976,12 +983,18 @@ func (s *PlaybookService) enqueueCommitIn(ctx context.Context, r *PlaybookRepo, 
 }
 
 // publish sends a playbook event on the bus. Project is always empty -
-// playbook events are global and must pass every SSE project filter.
-func (s *PlaybookService) publish(t events.EventType, id, agentID string, ts time.Time) {
-	s.bus.Publish(events.Event{
-		Type: t, Project: "", Agent: agentID, Timestamp: ts,
-		Data: map[string]any{"id": id},
-	})
+// playbook events are global and must pass every SSE project filter. A run
+// block adds run_status and run_entry so the list page and the runner can
+// react without a refetch.
+func (s *PlaybookService) publish(t events.EventType, p *board.Playbook, agentID string, ts time.Time) {
+	data := map[string]any{"id": p.ID}
+
+	if p.Run != nil {
+		data["run_status"] = p.Run.Status
+		data["run_entry"] = p.Run.Entry
+	}
+
+	s.bus.Publish(events.Event{Type: t, Project: "", Agent: agentID, Timestamp: ts, Data: data})
 }
 
 // buildEntry validates one input entry against the playbook and the card

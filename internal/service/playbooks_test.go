@@ -943,3 +943,45 @@ func TestPlaybookService_DetailCarriesRunFieldsAndRepos(t *testing.T) {
 	assert.True(t, slim.Runnable)
 	assert.Equal(t, board.RunStatusWaiting, slim.RunStatus)
 }
+
+func TestPlaybookService_RunEventsCarryRunStatus(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{
+		Title: "Rollout", AgentID: "human:alice",
+		Entries: []PlaybookEntryInput{{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"}},
+	})
+	require.NoError(t, err)
+	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+	require.NoError(t, err)
+
+	ch, unsub := env.bus.Subscribe()
+	defer unsub()
+
+	now := env.clk.Now()
+	_, err = env.svc.SetRun(ctx, "rollout", &board.PlaybookRun{Status: board.RunStatusWaiting, StartedAt: now, UpdatedAt: now, Entry: "e1"}, "human:alice")
+	require.NoError(t, err)
+
+	select {
+	case ev := <-ch:
+		assert.Equal(t, events.PlaybookUpdated, ev.Type)
+		assert.Equal(t, "rollout", ev.Data["id"])
+		assert.Equal(t, board.RunStatusWaiting, ev.Data["run_status"])
+		assert.Equal(t, "e1", ev.Data["run_entry"])
+	case <-time.After(time.Second):
+		t.Fatal("no playbook.updated event")
+	}
+
+	// A metadata edit on a playbook with no run carries no run keys.
+	_, err = env.svc.SetRun(ctx, "rollout", nil, "human:alice")
+	require.NoError(t, err)
+	<-ch
+
+	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Title: ptrStr("Renamed")}, "human:alice")
+	require.NoError(t, err)
+
+	ev := <-ch
+	_, has := ev.Data["run_status"]
+	assert.False(t, has)
+}
