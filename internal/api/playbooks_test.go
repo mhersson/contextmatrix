@@ -14,9 +14,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/auth"
 	"github.com/mhersson/contextmatrix/internal/authstore"
+	"github.com/mhersson/contextmatrix/internal/backend"
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/gitops"
 	"github.com/mhersson/contextmatrix/internal/lock"
@@ -655,4 +658,141 @@ func TestPlaybooksAPI_MakeRunnableNoRepo(t *testing.T) {
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodePlaybookProjectNoRepo, apiErr.Code)
 	assert.Contains(t, apiErr.Details, "no-repo")
+}
+
+// lockedCardSetup creates a runnable playbook owning one card and returns
+// the router server plus that card.
+func lockedCardSetup(t *testing.T, backendClient *backend.Client) (*httptest.Server, *service.CardService, *service.PlaybookService, *board.Card) {
+	t.Helper()
+
+	svc, pbSvc, bus, _ := playbookTestSetup(t)
+
+	cfg := RouterConfig{Service: svc, Bus: bus, Playbooks: pbSvc}
+	if backendClient != nil {
+		cfg.Backend = backendClient
+		cfg.AgentBackendCfg = &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"}
+		cfg.MCPAPIKey = "test-mcp-key"
+	}
+
+	server := httptest.NewServer(NewRouter(cfg))
+	t.Cleanup(server.Close)
+
+	ctx := context.Background()
+	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{Title: "Locked", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+
+	_, err = pbSvc.Create(ctx, service.CreatePlaybookInput{
+		Title: "Rollout", AgentID: "human:alice",
+		Entries: []service.PlaybookEntryInput{{Type: board.EntryTypeCard, Project: "test-project", Card: card.ID}},
+	})
+	require.NoError(t, err)
+
+	runnable := true
+	_, err = pbSvc.UpdateMeta(ctx, "rollout", service.UpdatePlaybookInput{Runnable: &runnable}, "human:alice")
+	require.NoError(t, err)
+
+	card, err = svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	require.NotNil(t, card.PlaybookLock)
+
+	return server, svc, pbSvc, card
+}
+
+func TestCardsAPI_PlaybookLockGuards(t *testing.T) {
+	server, _, _, card := lockedCardSetup(t, nil)
+	base := server.URL + "/api/projects/test-project/cards/" + card.ID
+
+	t.Run("PATCH changing a locked field is 409", func(t *testing.T) {
+		resp := doJSON(t, http.MethodPatch, base, map[string]any{"merge_pr": false}, "human:alice")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusConflict, resp.StatusCode)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodePlaybookLocked, apiErr.Code)
+		assert.Contains(t, apiErr.Error, "rollout")
+	})
+
+	t.Run("PATCH changing base_branch is 409", func(t *testing.T) {
+		resp := doJSON(t, http.MethodPatch, base, map[string]any{"base_branch": "main"}, "human:alice")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusConflict, resp.StatusCode)
+	})
+
+	t.Run("PATCH repeating the forced value is 200", func(t *testing.T) {
+		resp := doJSON(t, http.MethodPatch, base, map[string]any{"merge_pr": true, "base_branch": "playbook/rollout", "title": "Renamed"}, "human:alice")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+	})
+
+	t.Run("PATCH of an unlocked field is 200", func(t *testing.T) {
+		resp := doJSON(t, http.MethodPatch, base, map[string]any{"priority": "high"}, "human:alice")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+	})
+
+	t.Run("PUT changing a locked field is 409", func(t *testing.T) {
+		body := map[string]any{
+			"title": "Renamed", "type": "task", "state": "todo", "priority": "high",
+			"autonomous": false, "create_pr": true, "await_ci": true, "merge_pr": true,
+		}
+
+		resp := doJSON(t, http.MethodPut, base, body, "human:alice")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusConflict, resp.StatusCode)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodePlaybookLocked, apiErr.Code)
+	})
+
+	t.Run("PUT keeping the locked fields is 200", func(t *testing.T) {
+		body := map[string]any{
+			"title": "Renamed", "type": "task", "state": "todo", "priority": "high",
+			"autonomous": true, "create_pr": true, "await_ci": true, "merge_pr": true,
+		}
+
+		resp := doJSON(t, http.MethodPut, base, body, "human:alice")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+	})
+}
+
+func TestRunCard_RefusedWhilePlaybookRunActive(t *testing.T) {
+	mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
+	}))
+	defer mockBackend.Close()
+
+	backendClient := backend.NewClient(mockBackend.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	server, _, pbSvc, card := lockedCardSetup(t, backendClient)
+	runURL := server.URL + "/api/projects/test-project/cards/" + card.ID + "/run"
+
+	t.Run("idle runnable playbook still allows a hand run", func(t *testing.T) {
+		resp := doJSON(t, http.MethodPost, runURL, nil, "human:alice")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusAccepted, resp.StatusCode)
+	})
+
+	now := time.Now().UTC()
+	_, err := pbSvc.SetRun(context.Background(), "rollout", &board.PlaybookRun{Status: board.RunStatusWaiting, StartedAt: now, UpdatedAt: now}, "human:alice")
+	require.NoError(t, err)
+
+	t.Run("active playbook run refuses the hand run", func(t *testing.T) {
+		resp := doJSON(t, http.MethodPost, runURL, nil, "human:alice")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusConflict, resp.StatusCode)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodePlaybookRunActive, apiErr.Code)
+	})
 }

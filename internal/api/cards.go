@@ -656,6 +656,15 @@ func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if lock := existingCard.PlaybookLock; lock != nil && (req.Autonomous != existingCard.Autonomous ||
+		req.CreatePR != existingCard.CreatePR ||
+		req.AwaitCI != existingCard.AwaitCI ||
+		req.MergePR != existingCard.MergePR) {
+		writePlaybookLocked(w, lock)
+
+		return
+	}
+
 	if !validBestOfN(req.BestOfN, h.bestOfNMax) {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest,
 			"invalid best_of_n", fmt.Sprintf("must be 0 or 2..%d", h.bestOfNMax))
@@ -790,6 +799,12 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if lock := existingCard.PlaybookLock; lock != nil && patchTouchesLockedField(req, existingCard) {
+		writePlaybookLocked(w, lock)
+
+		return
+	}
+
 	if req.MobParticipants != nil || req.MobPhases != nil || req.MobGuests != nil {
 		// Validate the RESULTING state, not the patch in isolation.
 		effParticipants := existingCard.MobParticipants
@@ -908,4 +923,24 @@ func (h *cardHandlers) deleteCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// patchTouchesLockedField reports whether req changes one of the five
+// settings a runnable playbook owns. Repeating the current value is not a
+// change, so a UI that resubmits the whole form keeps working.
+func patchTouchesLockedField(req patchCardRequest, existing *board.Card) bool {
+	changed := func(v *bool, cur bool) bool { return v != nil && *v != cur }
+
+	return changed(req.Autonomous, existing.Autonomous) ||
+		changed(req.CreatePR, existing.CreatePR) ||
+		changed(req.AwaitCI, existing.AwaitCI) ||
+		changed(req.MergePR, existing.MergePR) ||
+		(req.BaseBranch != nil && *req.BaseBranch != existing.BaseBranch)
+}
+
+// writePlaybookLocked is the 409 for a hand edit of a playbook-owned setting.
+func writePlaybookLocked(w http.ResponseWriter, lock *board.CardPlaybookLock) {
+	writeError(w, http.StatusConflict, ErrCodePlaybookLocked,
+		"card settings are locked by playbook "+lock.ID,
+		"autonomous, create_pr, await_ci, merge_pr and base_branch are set by the runnable playbook; change them there")
 }
