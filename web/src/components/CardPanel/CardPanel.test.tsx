@@ -482,6 +482,24 @@ describe('CardPanel - run gating on global task backend', () => {
   );
 });
 
+describe('CardPanel - playbook lock disables the run button', () => {
+  it('disables the run button with the playbook reason while the run is active', async () => {
+    render(
+      <CardPanel
+        {...makeProps()}
+        card={{
+          ...baseCard,
+          autonomous: true,
+          playbook_lock: { id: 'roll', title: 'Roll', run_status: 'running' },
+        }}
+      />,
+    );
+    const run = await screen.findByRole('button', { name: /run auto/i });
+    expect(run).toBeDisabled();
+    expect(run).toHaveAttribute('title', 'Queued in playbook Roll');
+  });
+});
+
 describe('CardPanel - transition primary rollback', () => {
   it('reverts optimistic state transition when onSave rejects', async () => {
     const onSave = vi.fn().mockRejectedValue({ error: 'save failed' });
