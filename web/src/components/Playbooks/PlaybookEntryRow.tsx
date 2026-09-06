@@ -2,9 +2,9 @@ import { useState, type CSSProperties } from 'react';
 import { Link } from 'react-router';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import type { PlaybookEntry } from '../../types';
+import type { PlaybookEntry, PlaybookRun } from '../../types';
 import { formatRelativeTime } from '../CardPanel/utils';
-import { entryStateChip, projectColor } from './playbookUtils';
+import { entryStateChip, isRunActive, projectColor } from './playbookUtils';
 import { EntryNode } from './EntryNode';
 import { PlaybookEntryNote } from './PlaybookEntryNote';
 
@@ -16,6 +16,7 @@ export interface PlaybookEntryRowViewProps {
   prevComplete?: boolean;
   /** The last row renders no rail segment below its node. */
   isLast?: boolean;
+  run?: PlaybookRun;
   onToggleDone: (entryId: string, done: boolean) => void;
   onSaveNote: (entryId: string, note: string) => void;
   onSaveText: (entryId: string, text: string) => void;
@@ -32,12 +33,13 @@ const chipStyle: CSSProperties = {
 
 /** Pure row body - no dnd context required, so it renders directly in tests. */
 export function PlaybookEntryRowView({
-  entry, index, isFrontier, prevComplete, isLast = false,
+  entry, index, isFrontier, prevComplete, isLast = false, run,
   onToggleDone, onSaveNote, onSaveText, onRemove,
 }: PlaybookEntryRowViewProps) {
   const [editingText, setEditingText] = useState(false);
   const [textDraft, setTextDraft] = useState(entry.text ?? '');
   const chip = entryStateChip(entry);
+  const queued = isRunActive(run) && entry.type === 'card' && !entry.complete && !entry.missing && run?.entry !== entry.id;
 
   const rowmainClass = [
     'pb-rowmain flex-1 min-w-0 flex items-start gap-2',
@@ -120,6 +122,10 @@ export function PlaybookEntryRowView({
               </span>
             )}
 
+            {queued && (
+              <span style={{ ...chipStyle, backgroundColor: 'var(--bg-yellow)', color: 'var(--yellow)' }}>queued</span>
+            )}
+
             {entry.type === 'manual' && entry.complete && (entry.done_by || entry.done_at) && (
               <span className="text-[10px]" style={{ color: 'var(--grey0)' }}>
                 {entry.done_by}{entry.done_by && entry.done_at ? ' · ' : ''}
@@ -127,6 +133,10 @@ export function PlaybookEntryRowView({
               </span>
             )}
           </div>
+
+          {run?.status === 'waiting' && run.entry === entry.id && run.reason && (
+            <p className="text-xs mt-1" style={{ color: 'var(--yellow)' }}>{run.reason}</p>
+          )}
 
           <PlaybookEntryNote note={entry.note} onSave={(value) => onSaveNote(entry.id, value)} />
         </div>

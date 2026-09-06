@@ -223,6 +223,7 @@ export function PlaybookDetailPage() {
 
             <PlaybookEntryList
               entries={detail.entries}
+              run={detail.run}
               onDragEnd={handleDragEnd}
               onToggleDone={handleToggleDone}
               onSaveNote={handleSaveNote}
