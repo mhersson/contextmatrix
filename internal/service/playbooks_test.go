@@ -805,13 +805,13 @@ func TestPlaybookService_RunnableFalseAndBaseBranchRules(t *testing.T) {
 
 	// SetRun on a non-runnable playbook is refused.
 	now := env.clk.Now()
-	_, err = env.svc.SetRun(ctx, "rollout", &board.PlaybookRun{Status: board.RunStatusRunning, StartedAt: now, UpdatedAt: now}, "human:alice")
+	_, err = env.svc.SetRunIf(ctx, "rollout", nil, &board.PlaybookRun{Status: board.RunStatusRunning, StartedAt: now, UpdatedAt: now}, "human:alice")
 	require.ErrorIs(t, err, ErrPlaybookNotRunnable)
 
 	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: ptrBool(true), BaseBranch: ptrStr("main")}, "human:alice")
 	require.NoError(t, err)
 
-	got, err := env.svc.SetRun(ctx, "rollout", &board.PlaybookRun{Status: board.RunStatusRunning, StartedAt: now, UpdatedAt: now, Entry: "e1"}, "human:alice")
+	got, err := env.svc.SetRunIf(ctx, "rollout", nil, &board.PlaybookRun{Status: board.RunStatusRunning, StartedAt: now, UpdatedAt: now, Entry: "e1"}, "human:alice")
 	require.NoError(t, err)
 	require.NotNil(t, got.Run)
 	assert.Equal(t, board.RunStatusRunning, got.Run.Status)
@@ -827,7 +827,7 @@ func TestPlaybookService_RunnableFalseAndBaseBranchRules(t *testing.T) {
 	require.NoError(t, err)
 
 	// Stopped run: unchecking is allowed, drops the run block, keeps cards.
-	_, err = env.svc.SetRun(ctx, "rollout", &board.PlaybookRun{Status: board.RunStatusStopped, StartedAt: now, UpdatedAt: now}, "human:alice")
+	_, err = env.svc.SetRunIf(ctx, "rollout", nil, &board.PlaybookRun{Status: board.RunStatusStopped, StartedAt: now, UpdatedAt: now}, "human:alice")
 	require.NoError(t, err)
 
 	got, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: ptrBool(false)}, "human:alice")
@@ -930,7 +930,7 @@ func TestPlaybookService_DetailCarriesRunFieldsAndRepos(t *testing.T) {
 	assert.Equal(t, "https://github.com/acme/beta/compare/main...playbook/rollout?expand=1", got.Repos[0].CompareURL)
 
 	now := env.clk.Now()
-	got, err = env.svc.SetRun(ctx, "rollout", &board.PlaybookRun{Status: board.RunStatusWaiting, StartedAt: now, UpdatedAt: now, Entry: "e3", Reason: "awaiting check-off"}, "human:alice")
+	got, err = env.svc.SetRunIf(ctx, "rollout", nil, &board.PlaybookRun{Status: board.RunStatusWaiting, StartedAt: now, UpdatedAt: now, Entry: "e3", Reason: "awaiting check-off"}, "human:alice")
 	require.NoError(t, err)
 	require.NotNil(t, got.Run)
 	assert.Equal(t, "e3", got.Run.Entry)
@@ -962,7 +962,7 @@ func TestPlaybookService_RunEventsCarryRunStatus(t *testing.T) {
 	defer unsub()
 
 	now := env.clk.Now()
-	_, err = env.svc.SetRun(ctx, "rollout", &board.PlaybookRun{Status: board.RunStatusWaiting, StartedAt: now, UpdatedAt: now, Entry: "e1"}, "human:alice")
+	_, err = env.svc.SetRunIf(ctx, "rollout", nil, &board.PlaybookRun{Status: board.RunStatusWaiting, StartedAt: now, UpdatedAt: now, Entry: "e1"}, "human:alice")
 	require.NoError(t, err)
 
 	select {
@@ -976,7 +976,7 @@ func TestPlaybookService_RunEventsCarryRunStatus(t *testing.T) {
 	}
 
 	// A metadata edit on a playbook with no run carries no run keys.
-	_, err = env.svc.SetRun(ctx, "rollout", nil, "human:alice")
+	_, err = env.svc.SetRunIf(ctx, "rollout", nil, nil, "human:alice")
 	require.NoError(t, err)
 	<-ch
 
@@ -1002,7 +1002,7 @@ func TestPlaybookService_SetRunIfGuardsTheWrite(t *testing.T) {
 	require.NoError(t, err)
 
 	now := env.clk.Now()
-	stored, err := env.svc.SetRun(ctx, "rollout", &board.PlaybookRun{
+	stored, err := env.svc.SetRunIf(ctx, "rollout", nil, &board.PlaybookRun{
 		Status: board.RunStatusRunning, StartedAt: now, UpdatedAt: now, Entry: "e1",
 	}, "human:alice")
 	require.NoError(t, err)
@@ -1117,7 +1117,7 @@ func TestPlaybookService_RemoveEntryDuringRun(t *testing.T) {
 	require.NoError(t, err)
 
 	now := env.clk.Now()
-	_, err = env.svc.SetRun(ctx, "rollout", &board.PlaybookRun{
+	_, err = env.svc.SetRunIf(ctx, "rollout", nil, &board.PlaybookRun{
 		Status: board.RunStatusWaiting, StartedAt: now, UpdatedAt: now, Entry: "e1", Reason: "ALPHA-001 parked",
 	}, "human:alice")
 	require.NoError(t, err)
@@ -1149,7 +1149,7 @@ func TestPlaybookService_RemoveEntryDuringRun(t *testing.T) {
 	// Once the run is stopped its former entry can go. Validate rejects a
 	// run entry that names no entry, so the dangling pointer clears.
 	ended := env.clk.Now()
-	_, err = env.svc.SetRun(ctx, "rollout", &board.PlaybookRun{
+	_, err = env.svc.SetRunIf(ctx, "rollout", nil, &board.PlaybookRun{
 		Status: board.RunStatusStopped, StartedAt: now, UpdatedAt: ended, EndedAt: &ended,
 		Entry: "e1", Reason: "stopped by human:alice",
 	}, "human:alice")

@@ -948,20 +948,16 @@ func (s *PlaybookService) forceEntries(ctx context.Context, p *board.Playbook, e
 	return forced, nil
 }
 
-// SetRun replaces the playbook's run block. It is the single write path for
-// run state (the runner and the Play/Stop endpoints use it). A nil run
-// clears the block. Refused on a playbook that is not runnable.
-func (s *PlaybookService) SetRun(ctx context.Context, id string, run *board.PlaybookRun, agentID string) (*PlaybookDetail, error) {
-	return s.SetRunIf(ctx, id, nil, run, agentID)
-}
-
-// SetRunIf is SetRun with a compare-and-swap guard, so a caller that decided
-// what to write from an earlier read cannot overwrite a block someone else
-// changed in between. The guard runs under the service write lock on the
-// freshly loaded block, which makes the caller's decision and the write
-// atomic. Its argument is the current block and may be nil, so the guard
-// must be nil-safe; a nil guard is an unconditional write. A guard error is
-// returned unchanged and nothing is written.
+// SetRunIf replaces the playbook's run block under a compare-and-swap
+// guard. It is the single write path for run state: the runner and the
+// Play/Stop endpoints use it, and a caller that decided what to write from
+// an earlier read cannot overwrite a block someone else changed in between.
+// The guard runs under the service write lock on the freshly loaded block,
+// which makes the caller's decision and the write atomic. Its argument is
+// the current block and may be nil, so the guard must be nil-safe; a nil
+// guard is an unconditional write. A guard error is returned unchanged and
+// nothing is written. A nil run clears the block. Refused on a playbook
+// that is not runnable.
 func (s *PlaybookService) SetRunIf(
 	ctx context.Context, id string, guard func(current *board.PlaybookRun) error, run *board.PlaybookRun, agentID string,
 ) (*PlaybookDetail, error) {

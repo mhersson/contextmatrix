@@ -621,7 +621,7 @@ func TestPlaybooksAPI_MakeRunnable(t *testing.T) {
 
 	t.Run("active run blocks unchecking", func(t *testing.T) {
 		now := time.Now().UTC()
-		_, err := pbSvc.SetRun(ctx, "rollout", &board.PlaybookRun{Status: board.RunStatusRunning, StartedAt: now, UpdatedAt: now}, "human:alice")
+		_, err := pbSvc.SetRunIf(ctx, "rollout", nil, &board.PlaybookRun{Status: board.RunStatusRunning, StartedAt: now, UpdatedAt: now}, "human:alice")
 		require.NoError(t, err)
 
 		resp := doJSON(t, http.MethodPatch, server.URL+"/api/playbooks/rollout", map[string]any{"runnable": false}, "human:alice")
@@ -853,7 +853,7 @@ func TestPlaybooksAPI_RemoveEntryRefusedWhileRunActive(t *testing.T) {
 	entryURL := server.URL + "/api/playbooks/rollout/entries/e1"
 
 	now := time.Now().UTC()
-	_, err := pbSvc.SetRun(context.Background(), "rollout", &board.PlaybookRun{
+	_, err := pbSvc.SetRunIf(context.Background(), "rollout", nil, &board.PlaybookRun{
 		Status: board.RunStatusWaiting, StartedAt: now, UpdatedAt: now, Entry: "e1", Reason: "parked",
 	}, "human:alice")
 	require.NoError(t, err)
@@ -897,7 +897,7 @@ func TestRunCard_RefusedWhilePlaybookRunActive(t *testing.T) {
 	})
 
 	now := time.Now().UTC()
-	_, err := pbSvc.SetRun(context.Background(), "rollout", &board.PlaybookRun{Status: board.RunStatusWaiting, StartedAt: now, UpdatedAt: now}, "human:alice")
+	_, err := pbSvc.SetRunIf(context.Background(), "rollout", nil, &board.PlaybookRun{Status: board.RunStatusWaiting, StartedAt: now, UpdatedAt: now}, "human:alice")
 	require.NoError(t, err)
 
 	t.Run("active playbook run refuses the hand run", func(t *testing.T) {
