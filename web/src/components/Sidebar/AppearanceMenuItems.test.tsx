@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { AppearanceMenuItems } from './AppearanceMenuItems';
+import type { Palette } from '../../lib/palettes';
 
 const themeState = vi.hoisted(() => ({
   theme: 'dark' as 'dark' | 'light',
-  palette: 'everforest' as 'everforest' | 'radix' | 'catppuccin',
+  palette: 'everforest' as Palette,
   setTheme: vi.fn(),
   setPalette: vi.fn(),
 }));
@@ -22,12 +23,12 @@ beforeEach(() => {
 describe('AppearanceMenuItems', () => {
   it('marks the active theme and palette as checked', () => {
     themeState.theme = 'light';
-    themeState.palette = 'radix';
+    themeState.palette = 'github';
     render(<AppearanceMenuItems />);
 
     expect(screen.getByRole('menuitemradio', { name: 'Light' })).toHaveAttribute('aria-checked', 'true');
     expect(screen.getByRole('menuitemradio', { name: 'Dark' })).toHaveAttribute('aria-checked', 'false');
-    expect(screen.getByRole('menuitemradio', { name: 'Radix' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('menuitemradio', { name: 'GitHub' })).toHaveAttribute('aria-checked', 'true');
     expect(screen.getByRole('menuitemradio', { name: 'Everforest' })).toHaveAttribute('aria-checked', 'false');
     expect(screen.getByRole('menuitemradio', { name: 'Catppuccin' })).toHaveAttribute('aria-checked', 'false');
   });
@@ -37,6 +38,14 @@ describe('AppearanceMenuItems', () => {
     fireEvent.click(screen.getByRole('menuitemradio', { name: 'Light' }));
     expect(themeState.setTheme).toHaveBeenCalledWith('light');
     expect(themeState.setPalette).not.toHaveBeenCalled();
+  });
+
+  it('offers everforest, catppuccin, github and ayu, and no longer radix', () => {
+    render(<AppearanceMenuItems />);
+    const palette = screen.getByRole('group', { name: 'Palette' });
+    const names = within(palette).getAllByRole('menuitemradio').map((el) => el.textContent?.replace('✓', '').trim());
+    expect(names).toEqual(['Everforest', 'Catppuccin', 'GitHub', 'Ayu']);
+    expect(screen.queryByRole('menuitemradio', { name: 'Radix' })).toBeNull();
   });
 
   it('selecting a palette calls setPalette with that palette', () => {
@@ -51,7 +60,7 @@ describe('AppearanceMenuItems', () => {
     const theme = screen.getByRole('group', { name: 'Theme' });
     const palette = screen.getByRole('group', { name: 'Palette' });
     expect(theme).toContainElement(screen.getByRole('menuitemradio', { name: 'Dark' }));
-    expect(palette).toContainElement(screen.getByRole('menuitemradio', { name: 'Radix' }));
-    expect(theme).not.toContainElement(screen.getByRole('menuitemradio', { name: 'Radix' }));
+    expect(palette).toContainElement(screen.getByRole('menuitemradio', { name: 'GitHub' }));
+    expect(theme).not.toContainElement(screen.getByRole('menuitemradio', { name: 'GitHub' }));
   });
 });

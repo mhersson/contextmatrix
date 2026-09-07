@@ -111,80 +111,6 @@
   --purple: #df69ba;
 }
 
-/* Radix Colors Dark palette */
-[data-palette="radix"] {
-  /* Slate dark scale - Backgrounds */
-  --bg-dim: #111113; /* slate1 - deepest background */
-  --bg0: #18191b; /* slate2 - default background */
-  --bg1: #212225; /* slate3 - raised surfaces: cards, panels */
-  --bg2: #272a2d; /* slate4 - popups, modals, dropdowns */
-  --bg3: #363a3f; /* slate6 - borders, dividers */
-  --bg4: #43484e; /* slate7 - subtle UI elements, disabled states */
-  --bg5: #5a6169; /* slate8 - hover states on muted elements */
-
-  /* Semantic backgrounds - colored scales, step 3 */
-  --bg-red: #3e1f19; /* tomato3 */
-  --bg-yellow: #302008; /* amber3 */
-  --bg-green: #132819; /* grass3 */
-  --bg-blue: #0d2847; /* blue3 */
-  --bg-purple: #351a35; /* plum3 */
-  --bg-aqua: #112e25; /* teal3 - sits in the same step as the others */
-  --bg-orange: #331a0d; /* orange3 */
-  --bg-visual: #351a35; /* plum3 - selection/drag highlight */
-
-  /* Slate dark scale - Foreground */
-  --fg: #edeef0; /* slate12 - primary text */
-  --grey0: #777b84; /* slate10 - muted text, placeholders */
-  --grey1: #b0b4ba; /* slate11 - secondary text, timestamps */
-  --grey2: #b0b4ba; /* slate11 - tertiary text, labels */
-
-  /* Accent colors - step 11 from each dark scale (low-contrast text step) */
-  --red: #ff977d; /* tomato11 */
-  --orange: #ffa057; /* orange11 */
-  --yellow: #ffca16; /* amber11 */
-  --green: #71d083; /* grass11 */
-  --aqua: #0ac7b4; /* teal11 */
-  --blue: #70b8ff; /* blue11 */
-  --purple: #d864d8; /* plum11 */
-}
-
-/* Radix Colors Light palette */
-[data-palette="radix"][data-theme="light"] {
-  /* Slate light scale - Backgrounds */
-  --bg-dim: #f8f9fa; /* slate2 - deepest background */
-  --bg0: #fbfcfd; /* slate1 - default background */
-  --bg1: #f1f3f5; /* slate3 - raised surfaces: cards, panels */
-  --bg2: #eceef0; /* slate4 - popups, modals, dropdowns */
-  --bg3: #dfe3e6; /* slate6 - borders, dividers */
-  --bg4: #d7dbdf; /* slate7 - subtle UI elements, disabled states */
-  --bg5: #c1c8cd; /* slate8 - hover states on muted elements */
-
-  /* Semantic backgrounds - colored scales, step 3 */
-  --bg-red: #feebe7; /* tomato3 */
-  --bg-yellow: #fff4d5; /* amber3 */
-  --bg-green: #ebf9eb; /* grass3 */
-  --bg-blue: #e6f4fe; /* blue3 */
-  --bg-purple: #fbebff; /* plum3 */
-  --bg-aqua: #e0f8f3; /* teal3 */
-  --bg-orange: #ffefd6; /* orange3 */
-  --bg-visual: #fbebff; /* plum3 - selection/drag highlight */
-
-  /* Slate light scale - Foreground */
-  --fg: #11181c; /* slate12 - primary text */
-  --grey0: #7e868c; /* slate10 - muted text, placeholders */
-  --grey1: #687076; /* slate11 - secondary text, timestamps */
-  --grey2: #687076; /* slate11 - tertiary text, labels */
-
-  /* Accent colors - step 11 from each light scale (low-contrast text step) */
-  --red: #ca3214; /* tomato11 */
-  --orange: #bd4b00; /* orange11 */
-  --yellow: #ab6400; /* amber11 */
-  --green: #2a7e3b; /* grass11 */
-  --aqua: #008573; /* teal11 */
-  --blue: #0d74ce; /* blue11 */
-  --purple: #953ea3; /* plum11 */
-}
-
 /* Catppuccin Mocha - dark palette with high contrast pastels */
 [data-palette="catppuccin"] {
   /* Backgrounds - Mantle/Base/Surface/Overlay scale */
@@ -257,6 +183,154 @@
   --aqua: #179299; /* teal */
   --blue: #1e66f5; /* blue */
   --purple: #8839ef; /* mauve */
+}
+
+/* GitHub Dark - Primer dark default */
+[data-palette="github"] {
+  /* Backgrounds - Primer canvas and gray scale */
+  --bg-dim: #010409; /* canvas.inset - deepest background */
+  --bg0: #0d1117; /* canvas.default - default background */
+  --bg1: #161b22; /* canvas.subtle - raised surfaces: cards, panels */
+  --bg2: #21262d; /* gray.7 - popups, modals, dropdowns */
+  --bg3: #30363d; /* border.default - borders, dividers */
+  --bg4: #3d444d; /* gray.6 - subtle UI elements, disabled states */
+  --bg5: #484f58; /* gray.5 - hover states on muted elements */
+
+  /* Semantic backgrounds - Primer *.subtle: accents at 15% over canvas.default */
+  --bg-red: #312125;
+  --bg-yellow: #2b2519;
+  --bg-green: #142a20;
+  --bg-blue: #18273a;
+  --bg-purple: #27233a;
+  --bg-aqua: #142c33;
+  --bg-orange: #312721;
+  --bg-visual: #1a365c; /* accent.muted over canvas - selection/drag highlight */
+
+  /* Foreground - Primer fg scale */
+  --fg: #e6edf3; /* fg.default - primary text */
+  --grey0: #6e7681; /* fg.subtle - muted text, placeholders */
+  --grey1: #8b949e; /* fg.muted - secondary text, timestamps */
+  --grey2: #b1bac4; /* gray.2 - tertiary text, labels */
+
+  /* Accent colors - Primer semantic fg and terminal colors */
+  --red: #ff7b72; /* red.3 */
+  --orange: #ffa657; /* orange.2 */
+  --yellow: #d29922; /* attention.fg */
+  --green: #3fb950; /* success.fg */
+  --aqua: #39c5cf; /* terminal cyan */
+  --blue: #58a6ff; /* accent.fg */
+  --purple: #bc8cff; /* purple.3 */
+}
+
+/* GitHub Light - Primer light */
+[data-palette="github"][data-theme="light"] {
+  /* Backgrounds - Primer canvas and gray scale */
+  --bg-dim: #f6f8fa; /* canvas.subtle - deepest background */
+  --bg0: #ffffff; /* canvas.default - default background */
+  --bg1: #f6f8fa; /* canvas.subtle - raised surfaces: cards, panels */
+  --bg2: #eaeef2; /* gray.1 - popups, modals, dropdowns */
+  --bg3: #d0d7de; /* border.default - borders, dividers */
+  --bg4: #afb8c1; /* gray.3 - subtle UI elements, disabled states */
+  --bg5: #8c959f; /* gray.4 - hover states on muted elements */
+
+  /* Semantic backgrounds - Primer *.subtle: accents at 12% over canvas.default */
+  --bg-red: #f9e4e6;
+  --bg-yellow: #f3ede0;
+  --bg-green: #e4f0e7;
+  --bg-blue: #e1edfb;
+  --bg-purple: #f0eafb;
+  --bg-aqua: #e4eff0;
+  --bg-orange: #f7eae0;
+  --bg-visual: #b6e3ff; /* blue.1 - selection/drag highlight */
+
+  /* Foreground - Primer fg scale */
+  --fg: #1f2328; /* fg.default - primary text */
+  --grey0: #8c959f; /* gray.4 - muted text, placeholders */
+  --grey1: #6e7781; /* fg.subtle - secondary text, timestamps */
+  --grey2: #57606a; /* fg.muted - tertiary text, labels */
+
+  /* Accent colors - Primer semantic fg and terminal colors */
+  --red: #cf222e; /* danger.fg */
+  --orange: #bc4c00; /* severe.fg */
+  --yellow: #9a6700; /* attention.fg */
+  --green: #1a7f37; /* success.fg */
+  --aqua: #1b7c83; /* terminal cyan */
+  --blue: #0969da; /* accent.fg */
+  --purple: #8250df; /* done.fg */
+}
+
+/* Ayu Mirage - dark palette */
+[data-palette="ayu"] {
+  /* Backgrounds - ui.bg / editor.bg, lighter steps of the same hue above */
+  --bg-dim: #1c212b; /* ui.panel.bg - deepest background */
+  --bg0: #1f2430; /* ui.bg - default background */
+  --bg1: #242936; /* editor.bg - raised surfaces: cards, panels */
+  --bg2: #2c3444; /* popups, modals, dropdowns */
+  --bg3: #343d51; /* borders, dividers */
+  --bg4: #3c465e; /* subtle UI elements, disabled states */
+  --bg5: #48546f; /* hover states on muted elements */
+
+  /* Semantic backgrounds - accents at 15% over ui.bg */
+  --bg-red: #3f333b;
+  --bg-yellow: #413e3a;
+  --bg-green: #3a453c;
+  --bg-blue: #2c3e4f;
+  --bg-purple: #3c3b4f;
+  --bg-aqua: #314147;
+  --bg-orange: #413938;
+  --bg-visual: #274364; /* editor.selection.active over ui.bg - selection/drag highlight */
+
+  /* Foreground - editor.fg and ui.fg */
+  --fg: #cccac2; /* editor.fg - primary text */
+  --grey0: #707a8c; /* ui.fg - muted text, placeholders */
+  --grey1: #8a9199; /* editor.gutter.active - secondary text, timestamps */
+  --grey2: #a9b1bd; /* tertiary text, labels */
+
+  /* Accent colors - ayu syntax colors */
+  --red: #f28779; /* syntax.markup */
+  --orange: #ffad66; /* syntax.keyword */
+  --yellow: #ffd173; /* syntax.func */
+  --green: #d5ff80; /* syntax.string */
+  --aqua: #95e6cb; /* syntax.regexp */
+  --blue: #73d0ff; /* syntax.entity */
+  --purple: #dfbfff; /* syntax.constant */
+}
+
+/* Ayu Light - light palette */
+[data-palette="ayu"][data-theme="light"] {
+  /* Backgrounds - editor.bg / ui.bg, darker steps of the same hue above */
+  --bg-dim: #f3f4f5; /* ui.panel.bg - deepest background */
+  --bg0: #fcfcfc; /* editor.bg - default background */
+  --bg1: #f8f9fa; /* ui.bg - raised surfaces: cards, panels */
+  --bg2: #f3f4f5; /* ui.panel.bg - popups, modals, dropdowns */
+  --bg3: #e7e8ea; /* borders, dividers */
+  --bg4: #dcdee2; /* subtle UI elements, disabled states */
+  --bg5: #c9ccd2; /* hover states on muted elements */
+
+  /* Semantic backgrounds - accents at 15% over editor.bg */
+  --bg-red: #fae7e7;
+  --bg-yellow: #faf0e1;
+  --bg-green: #eaf1d6;
+  --bg-blue: #dfeef9;
+  --bg-purple: #efe8f5;
+  --bg-aqua: #e2f3ed;
+  --bg-orange: #fcebe0;
+  --bg-visual: #bed4f2; /* editor.selection.active over editor.bg - selection/drag highlight */
+
+  /* Foreground - editor.fg and ui.fg */
+  --fg: #5c6166; /* editor.fg - primary text */
+  --grey0: #a8aeb5; /* muted text, placeholders */
+  --grey1: #8a9199; /* ui.fg - secondary text, timestamps */
+  --grey2: #787b80; /* syntax.comment - tertiary text, labels */
+
+  /* Accent colors - ayu syntax colors */
+  --red: #f07171; /* syntax.markup */
+  --orange: #fa8d3e; /* syntax.keyword */
+  --yellow: #f2ae49; /* syntax.func */
+  --green: #86b300; /* syntax.string */
+  --aqua: #4cbf99; /* syntax.regexp */
+  --blue: #399ee6; /* syntax.entity */
+  --purple: #a37acc; /* syntax.constant */
 }
 
 @media (max-width: 1280px) {

@@ -1,19 +1,13 @@
 import { useId } from 'react';
 import { useTheme } from '../../hooks/useTheme';
+import { PALETTES } from '../../lib/palettes';
 
 type ThemeCtx = ReturnType<typeof useTheme>;
 type Theme = ThemeCtx['theme'];
-type Palette = ThemeCtx['palette'];
 
 const THEMES: { id: Theme; label: string }[] = [
   { id: 'light', label: 'Light' },
   { id: 'dark', label: 'Dark' },
-];
-
-const PALETTES: { id: Palette; label: string }[] = [
-  { id: 'everforest', label: 'Everforest' },
-  { id: 'radix', label: 'Radix' },
-  { id: 'catppuccin', label: 'Catppuccin' },
 ];
 
 function RadioItem({ label, checked, onSelect }: { label: string; checked: boolean; onSelect: () => void }) {

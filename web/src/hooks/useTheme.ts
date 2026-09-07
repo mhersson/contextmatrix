@@ -5,12 +5,10 @@ import { api } from '../api/client';
 import type { BoardsRepoInfo } from '../types';
 import { useOptionalAuth } from './useAuth';
 import { safeGetString, safeSetString } from '../utils/safeStorage';
+import { isPalette } from '../lib/palettes';
+import type { Palette } from '../lib/palettes';
 
 type Theme = 'dark' | 'light';
-type Palette = 'everforest' | 'radix' | 'catppuccin';
-
-const VALID_PALETTES: readonly Palette[] = ['everforest', 'radix', 'catppuccin'];
-
 const STORAGE_KEY = 'theme';
 const PALETTE_STORAGE_KEY = 'palette';
 
@@ -24,8 +22,8 @@ function getInitialTheme(): Theme {
 
 function getStoredPalette(): Palette | null {
   const stored = safeGetString(PALETTE_STORAGE_KEY);
-  if (stored !== null && VALID_PALETTES.includes(stored as Palette)) {
-    return stored as Palette;
+  if (stored !== null && isPalette(stored)) {
+    return stored;
   }
   return null;
 }
@@ -147,9 +145,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const stored = getStoredPalette();
     api.getAppConfig().then((config) => {
       if (stored === null) {
-        const p: Palette = VALID_PALETTES.includes(config.theme as Palette)
-          ? (config.theme as Palette)
-          : 'everforest';
+        const p: Palette = isPalette(config.theme) ? config.theme : 'everforest';
         setPaletteState(p);
         applyPalette(p);
       }

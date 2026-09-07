@@ -170,7 +170,7 @@ type RouterConfig struct {
 	// for the app-config payload, so the UI can group projects and offer
 	// the repo at creation time.
 	BoardsRepos []BoardsRepoInfo
-	Theme       string        // active color palette ("everforest" or "radix")
+	Theme       string        // active color palette ("everforest", "catppuccin", "github", or "ayu")
 	Version     string        // build version string for display
 	MCPHandler  http.Handler  // optional; registered at POST/GET/DELETE /mcp when set
 	ChatManager *chat.Manager // optional; enables /api/chats routes

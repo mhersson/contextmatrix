@@ -1,3 +1,5 @@
+import type { Palette } from '../lib/palettes';
+
 export interface Source {
   system: string;
   external_id: string;
@@ -543,7 +545,7 @@ export interface LogEntry {
 export type AuthMode = 'multi' | 'none';
 
 export interface AppConfig {
-  theme: 'everforest' | 'radix' | 'catppuccin';
+  theme: Palette;
   version: string;
   /**
    * Active auth mode: "multi" (login required) or "none" (single-tenant,

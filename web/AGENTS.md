@@ -86,10 +86,12 @@ keeps the hamburger and a way back to the board.
   display-name initials (fallback: username initial), tooltip/aria-label
   `Assignee: <label>`.
 
-Radix and Catppuccin map their scales onto these variables (Radix:
-Slate/Tomato/Amber/Grass/Teal/Blue/Plum, accents at step 11; Catppuccin: Mocha
-dark / Latte light). Hex is hardcoded in `index.css` - do not add
-`@radix-ui/colors` or a Catppuccin dependency.
+Catppuccin, GitHub, and Ayu map their scales onto these variables
+(Catppuccin: Mocha dark / Latte light; GitHub: Primer dark default / light;
+Ayu: Mirage dark / Light). Hex is hardcoded in `index.css` - do not add a
+palette dependency. The palette registry is `src/lib/palettes.ts`; a new
+palette needs an entry there, a dark and a light block in `index.css`, and
+the matching id in the server allow list in `internal/config/config.go`.
 
 ## Fonts
 

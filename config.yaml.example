@@ -93,10 +93,11 @@ stalled_check_interval: "1m"
 cors_origin: ""
 
 # UI color palette theme (server-side default).
-# Allowed values: "everforest" | "radix" | "catppuccin"
+# Allowed values: "everforest" | "catppuccin" | "github" | "ayu"
 #   everforest      - warm, muted, medium-contrast (default)
-#   radix           - cool slate-grey base with Radix accent scales (step 11)
 #   catppuccin      - pastel palette (Mocha in dark mode, Latte in light mode)
+#   github          - GitHub Primer colors (Dark default in dark mode, Light in light mode)
+#   ayu             - Ayu (Mirage in dark mode, Light in light mode)
 # This value is used as the default for all users. Individual users can
 # override it via the palette selector in the app header; their choice is
 # stored in browser localStorage and takes precedence on subsequent loads.
