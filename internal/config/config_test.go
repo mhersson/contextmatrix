@@ -1293,7 +1293,7 @@ func TestLoad_Theme_DefaultIsEverforest(t *testing.T) {
 	assert.Equal(t, "everforest", cfg.Theme)
 }
 
-func TestLoad_Theme_ValidRadix(t *testing.T) {
+func TestLoad_Theme_ValidGitHub(t *testing.T) {
 	dir := t.TempDir()
 	boardsDir := filepath.Join(dir, "boards")
 	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
@@ -1301,7 +1301,7 @@ func TestLoad_Theme_ValidRadix(t *testing.T) {
 	path := writeConfigFile(t, dir, `
 boards:
   dir: `+boardsDir+`
-theme: "radix"
+theme: "github"
 github:
   auth_mode: "pat"
   pat:
@@ -1310,7 +1310,7 @@ github:
 
 	cfg, err := Load(path)
 	require.NoError(t, err)
-	assert.Equal(t, "radix", cfg.Theme)
+	assert.Equal(t, "github", cfg.Theme)
 }
 
 func TestLoad_Theme_InvalidValueRejected(t *testing.T) {
@@ -1340,28 +1340,33 @@ func TestLoad_Theme_EnvOverride(t *testing.T) {
 
 	path := writeConfigFile(t, dir, "boards:\n  dir: "+boardsDir+"\ngithub:\n  auth_mode: \"pat\"\n  pat:\n    token: \"ghp_test\"\n")
 
-	t.Setenv("CONTEXTMATRIX_THEME", "radix")
+	t.Setenv("CONTEXTMATRIX_THEME", "github")
 
 	cfg, err := Load(path)
 	require.NoError(t, err)
-	assert.Equal(t, "radix", cfg.Theme)
+	assert.Equal(t, "github", cfg.Theme)
 }
 
 func TestValidate_Theme_InvalidValue(t *testing.T) {
-	cfg := &Config{
-		Boards:           Boards{{Dir: "/some/path"}},
-		HeartbeatTimeout: "30m",
-		AwaitMax:         "8m",
-		GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
-		Theme:            "monokai",
+	// radix was removed; a config still naming it must fail at startup.
+	for _, theme := range []string{"monokai", "radix"} {
+		t.Run(theme, func(t *testing.T) {
+			cfg := &Config{
+				Boards:           Boards{{Dir: "/some/path"}},
+				HeartbeatTimeout: "30m",
+				AwaitMax:         "8m",
+				GitHub:           GitHubConfig{AuthMode: "pat", PAT: GitHubPATConfig{Token: "x"}},
+				Theme:            theme,
+			}
+			err := cfg.Validate()
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "invalid theme")
+		})
 	}
-	err := cfg.Validate()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid theme")
 }
 
 func TestValidate_Theme_ValidValues(t *testing.T) {
-	for _, theme := range []string{"everforest", "radix", "catppuccin"} {
+	for _, theme := range []string{"everforest", "catppuccin", "github", "ayu"} {
 		t.Run(theme, func(t *testing.T) {
 			cfg := &Config{
 				Boards:           Boards{{Dir: "/some/path"}},

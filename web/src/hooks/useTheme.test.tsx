@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, act, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
 import { ThemeProvider, useTheme } from './useTheme';
+import type { Palette } from '../lib/palettes';
 
 const localStorageMock = (() => {
   let store: Record<string, string> = {};
@@ -63,7 +64,7 @@ afterEach(() => {
   document.documentElement.removeAttribute('data-theme');
 });
 
-function mockFetchAppConfig(theme: 'everforest' | 'radix' | 'catppuccin') {
+function mockFetchAppConfig(theme: Palette) {
   (fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
     ok: true,
     status: 200,
@@ -76,22 +77,22 @@ function mockFetchError() {
 }
 
 describe('ThemeProvider palette', () => {
-  it('sets data-palette="radix" on documentElement when server returns radix', async () => {
-    mockFetchAppConfig('radix');
+  it('sets data-palette="github" on documentElement when server returns github', async () => {
+    mockFetchAppConfig('github');
 
     await act(async () => {
       renderWithProvider();
     });
 
     await waitFor(() => {
-      expect(document.documentElement.getAttribute('data-palette')).toBe('radix');
+      expect(document.documentElement.getAttribute('data-palette')).toBe('github');
     });
 
-    expect(latest!.palette).toBe('radix');
+    expect(latest!.palette).toBe('github');
   });
 
   it('removes data-palette attribute when server returns everforest', async () => {
-    document.documentElement.setAttribute('data-palette', 'radix');
+    document.documentElement.setAttribute('data-palette', 'github');
     mockFetchAppConfig('everforest');
 
     await act(async () => {
@@ -132,14 +133,14 @@ describe('ThemeProvider palette', () => {
 
 describe('ThemeProvider dark/light selection', () => {
   it('setTheme applies the chosen mode without affecting palette', async () => {
-    mockFetchAppConfig('radix');
+    mockFetchAppConfig('github');
 
     await act(async () => {
       renderWithProvider();
     });
 
     await waitFor(() => {
-      expect(document.documentElement.getAttribute('data-palette')).toBe('radix');
+      expect(document.documentElement.getAttribute('data-palette')).toBe('github');
     });
 
     act(() => {
@@ -160,8 +161,8 @@ describe('ThemeProvider dark/light selection', () => {
     expect(document.documentElement.hasAttribute('data-theme')).toBe(false);
     expect(localStorageMock.getItem('theme')).toBe('dark');
 
-    expect(document.documentElement.getAttribute('data-palette')).toBe('radix');
-    expect(latest!.palette).toBe('radix');
+    expect(document.documentElement.getAttribute('data-palette')).toBe('github');
+    expect(latest!.palette).toBe('github');
   });
 
   it('setTheme with the current mode is a no-op', async () => {
@@ -180,7 +181,7 @@ describe('ThemeProvider dark/light selection', () => {
 describe('ThemeProvider localStorage palette persistence', () => {
   it('(a) stored palette wins over server default', async () => {
     localStorageMock.setItem('palette', 'catppuccin');
-    mockFetchAppConfig('radix');
+    mockFetchAppConfig('github');
 
     await act(async () => {
       renderWithProvider();
@@ -191,19 +192,19 @@ describe('ThemeProvider localStorage palette persistence', () => {
     expect(document.documentElement.getAttribute('data-palette')).toBe('catppuccin');
   });
 
-  it('(b) invalid stored value is ignored and server default is used', async () => {
-    localStorageMock.setItem('palette', 'invalid-palette');
-    mockFetchAppConfig('radix');
+  it('(b) a stored value that is no longer a palette (radix) is ignored and server default is used', async () => {
+    localStorageMock.setItem('palette', 'radix');
+    mockFetchAppConfig('github');
 
     await act(async () => {
       renderWithProvider();
     });
 
     await waitFor(() => {
-      expect(latest!.palette).toBe('radix');
+      expect(latest!.palette).toBe('github');
     });
 
-    expect(document.documentElement.getAttribute('data-palette')).toBe('radix');
+    expect(document.documentElement.getAttribute('data-palette')).toBe('github');
   });
 
   it('(c) setPalette updates DOM + localStorage + context state', async () => {
@@ -231,17 +232,17 @@ describe('ThemeProvider localStorage palette persistence', () => {
 
   it('(d) no stored palette → server response is used', async () => {
     // No palette in localStorage
-    mockFetchAppConfig('radix');
+    mockFetchAppConfig('github');
 
     await act(async () => {
       renderWithProvider();
     });
 
     await waitFor(() => {
-      expect(latest!.palette).toBe('radix');
+      expect(latest!.palette).toBe('github');
     });
 
-    expect(document.documentElement.getAttribute('data-palette')).toBe('radix');
+    expect(document.documentElement.getAttribute('data-palette')).toBe('github');
     // localStorage should NOT have been written by server-driven palette
     expect(localStorageMock.getItem('palette')).toBeNull();
   });

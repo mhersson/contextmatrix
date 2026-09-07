@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { UserMenu } from './UserMenu';
+import type { Palette } from '../../lib/palettes';
 
 const navMock = vi.hoisted(() => vi.fn());
 vi.mock('react-router', () => ({
@@ -16,7 +17,7 @@ vi.mock('../../hooks/useAuth', () => ({
 
 const themeState = vi.hoisted(() => ({
   theme: 'dark' as 'dark' | 'light',
-  palette: 'everforest' as 'everforest' | 'radix' | 'catppuccin',
+  palette: 'everforest' as Palette,
   setTheme: vi.fn(),
   setPalette: vi.fn(),
 }));
@@ -90,7 +91,7 @@ describe('UserMenu appearance section', () => {
 
     fireEvent.click(screen.getByRole('menuitemradio', { name: 'Light' }));
     expect(themeState.setTheme).toHaveBeenCalledWith('light');
-    expect(screen.getByRole('menuitemradio', { name: 'Radix' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitemradio', { name: 'GitHub' })).toBeInTheDocument();
   });
 
   it('returns focus to the user chip when Escape closes the menu from inside it', () => {
