@@ -35,6 +35,10 @@ type Builder struct {
 	endpointAPIKey  string
 	aaModelMap      map[string]string
 	priors          map[string]PriorOverride
+	// tokenCosts is the operator's token_costs rate table. On the endpoint leg
+	// it prices models the gateway serves without a pricing block; see
+	// applyTokenCosts.
+	tokenCosts map[string]ModelPrice
 
 	// favorites are operator-configured slugs (flattened across tiers/roles).
 	// They pass the Served() vendor screen even when their vendor is not
@@ -73,6 +77,14 @@ func WithEndpoint(baseURL, apiKey string, aaModelMap map[string]string, priors m
 // Served() vendor screen regardless of vendor.
 func WithFavorites(favs []string) BuilderOption {
 	return func(b *Builder) { b.favorites = favs }
+}
+
+// WithTokenCosts registers the operator's token_costs rate table. On the
+// endpoint leg it prices models the gateway publishes without pricing, so the
+// selector's price band has something to work with; the gateway's own prices
+// still win where it publishes them.
+func WithTokenCosts(costs map[string]ModelPrice) BuilderOption {
+	return func(b *Builder) { b.tokenCosts = costs }
 }
 
 // NewBuilder constructs a Builder. floor<=0 defaults to 0.65; ttl<=0 to 6h.
@@ -276,6 +288,20 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 		ep, err := fetchEndpointCatalog(ctx, b.endpointBaseURL, b.endpointAPIKey)
 		if err != nil {
 			return nil, err
+		}
+
+		// A gateway that publishes no pricing leaves every entry at 0, which
+		// makes the selector's price band vacuous. Fill those from token_costs
+		// before anything reads the catalog, and name what stays unpriced: a
+		// tool-capable model the selector prices at 0 competes as if free.
+		filled, unpriced := applyTokenCosts(ep, b.tokenCosts)
+		if filled > 0 {
+			slog.Info("endpoint models priced from token_costs", "count", filled)
+		}
+
+		for _, slug := range unpriced {
+			slog.Warn("endpoint model has no price; the selector will treat it as free",
+				"slug", slug, "hint", "add a token_costs entry for this slug, its vendor-stripped name, or one of its gateway aliases")
 		}
 
 		b.lastCatalog = ep

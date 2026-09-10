@@ -711,7 +711,10 @@ Every skill step and the orchestrator call `report_usage` with the model that
 served them, so cost accumulates on the parent card. Rates live in
 `config.yaml` under `token_costs` as USD per token. Models served through an
 `openai`-type `llm_endpoint` are priced from the endpoint catalog and listed
-entries act as overrides; see [configuration](configuration.md).
+entries act as overrides; where that catalog publishes no usable pricing, the
+listed entries are also what prices the models for
+[selection](model-selection.md#endpoint-pricing-gaps). See
+[configuration](configuration.md).
 
 ```yaml
 token_costs:

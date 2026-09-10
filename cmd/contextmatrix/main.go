@@ -847,7 +847,8 @@ func newCatalogBuilder(cfg *config.Config, agentCfg *config.AgentBackendConfig, 
 			}
 
 			opts = append(opts, modelcatalog.WithEndpoint(
-				cfg.LLMEndpoint.BaseURL, cfg.LLMEndpoint.APIKey, agentCfg.AAModelMap, priors))
+				cfg.LLMEndpoint.BaseURL, cfg.LLMEndpoint.APIKey, agentCfg.AAModelMap, priors),
+				modelcatalog.WithTokenCosts(catalogTokenCosts(cfg.TokenCosts)))
 		}
 
 		opts = append(opts, modelcatalog.WithFavorites(flattenFavorites(agentCfg.Favorites)))
@@ -861,7 +862,8 @@ func newCatalogBuilder(cfg *config.Config, agentCfg *config.AgentBackendConfig, 
 		}
 
 		return modelcatalog.NewBuilder("", floor, nil, 0,
-			modelcatalog.WithEndpoint(cfg.LLMEndpoint.BaseURL, cfg.LLMEndpoint.APIKey, nil, nil))
+			modelcatalog.WithEndpoint(cfg.LLMEndpoint.BaseURL, cfg.LLMEndpoint.APIKey, nil, nil),
+			modelcatalog.WithTokenCosts(catalogTokenCosts(cfg.TokenCosts)))
 
 	case hasAgent || chatOpenRouter:
 		var (
@@ -885,6 +887,27 @@ func newCatalogBuilder(cfg *config.Config, agentCfg *config.AgentBackendConfig, 
 	default:
 		return nil
 	}
+}
+
+// catalogTokenCosts projects the configured token_costs rate table for the
+// catalog Builder, which uses it to price endpoint models the gateway serves
+// without a pricing block.
+func catalogTokenCosts(costs map[string]config.ModelRate) map[string]modelcatalog.ModelPrice {
+	if len(costs) == 0 {
+		return nil
+	}
+
+	out := make(map[string]modelcatalog.ModelPrice, len(costs))
+	for model, c := range costs {
+		out[model] = modelcatalog.ModelPrice{
+			Prompt:     c.Prompt,
+			Completion: c.Completion,
+			CacheRead:  c.CacheRead,
+			CacheWrite: c.CacheWrite,
+		}
+	}
+
+	return out
 }
 
 // flattenFavorites de-duplicates every favorite slug across tiers and roles
