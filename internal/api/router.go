@@ -1203,6 +1203,8 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "validation error", validationDetails(err))
 	case errors.Is(err, service.ErrInvalidPRUrl):
 		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "invalid PR URL", sanitizeErrorDetails(err))
+	case errors.Is(err, service.ErrInvalidBranch):
+		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "invalid branch name", sanitizeErrorDetails(err))
 	case errors.Is(err, service.ErrInvalidModelPin):
 		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "model pin not in catalog", sanitizeErrorDetails(err))
 	case errors.Is(err, service.ErrFieldTooLong):
