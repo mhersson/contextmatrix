@@ -27,7 +27,7 @@ The operator-facing controls, most direct first:
 | Restrict which vendors are eligible   | `backends.agent.model_allowlist`            | `config.yaml`                                | Vendor prefixes (`qwen`, `z-ai`); replaces the built-in list; inert on the `openai` leg        |
 | Rate models AA does not know          | `backends.agent.model_priors`               | `config.yaml`                                | `openai` leg only; verbatim 0..1 priors                                                        |
 | Widen or narrow the price band        | `selector_price_headroom`                   | agent backend `serve.yaml`                   | Default 1.5; env `CMX_SELECTOR_PRICE_HEADROOM`                                                 |
-| Raise or lower a tier's quality bar   | `selector_tier_bars`                        | agent backend `serve.yaml`                   | Merges over the built-in ladder per tier; must stay non-decreasing; env `CMX_SELECTOR_TIER_BARS` (JSON) |
+| Raise or lower a tier's quality bar   | Tier ladders                                | Model selection admin page                   | One ladder per role (coder, reviewer), linked in the page by default; stored in `ops.db`, sent with every run as `selection.tier_bars`; never a config-file setting |
 | Set the orchestrator model            | `backends.agent.default_model`              | `config.yaml`                                | Card pins override it; the selector's empty-pool fallback resolves to the trigger's `default_model` when set, else the agent's serve default, else the compiled-in `deepseek/deepseek-v4-flash`
 | Clear the outcome ledger              | `DELETE /api/admin/model-outcomes`          | REST (admin)                                 | Observability data only - selection never reads it; does not touch the blacklist               |
 | Delist a blacklisted model            | `DELETE /api/admin/model-blacklist/{slug...}` | REST (admin) / model-selection admin page  | Makes the model selectable again; the list itself is `GET /api/admin/model-blacklist`          |
@@ -46,12 +46,12 @@ flowchart TB
 
     subgraph cm["ContextMatrix - the data plane"]
         builder["modelcatalog.Builder<br/>rate · screen · map · join · cache (6h TTL)"]
-        trigger["card-run trigger<br/>selection: candidates, favorites,<br/>blacklist"]
-        opsdb[("ops.db<br/>model_outcomes · model_blacklist")]
+        trigger["card-run trigger<br/>selection: candidates, favorites,<br/>blacklist, tier_bars"]
+        opsdb[("ops.db<br/>model_outcomes · model_blacklist<br/>selector_ladder")]
     end
 
     subgraph agent["agent backend - the algorithm"]
-        registry["selection registry<br/>tier bars · pins · favorites · price band<br/>vendor diversity"]
+        registry["shared selector (protocol/selection)<br/>per-role ladders · pins · favorites · price band<br/>vendor diversity"]
         picks["per-role picks<br/>orchestrator / coder / reviewer / judge / mob seats"]
     end
 
@@ -59,6 +59,7 @@ flowchart TB
     served --> builder
     builder -->|cached candidates| trigger
     opsdb -->|blacklist| trigger
+    opsdb -->|tier_bars| trigger
     trigger --> registry
     registry --> picks
     picks -->|"MCP: report_model_outcome,<br/>report_incapable_model"| opsdb
@@ -70,12 +71,15 @@ flowchart TB
 | Normalized quality priors per role (coder, reviewer)          | The pick per role and tier: pin, favorite, bar, price band  |
 | Favorites merge (global plus project)                         | Vendor diversity across multi-seat picks                    |
 | Blacklist from `ops.db`                                       | In-run incapable-model recovery and re-selection            |
+| Per-role tier ladders, edited on the admin page and stored in `ops.db` | Descent down the ladder when a rung is dry (the shared selector, also used by CM's preview) |
 
 The agent is a pure consumer: it fetches nothing itself and holds no embedded
 model knowledge. Everything it knows about models arrives in the trigger
 payload. The AA API key therefore lives only in ContextMatrix, and every pick
 is explainable from three inputs: the payload, the agent's serve config
-(default model, price headroom), and the tier the planner assigned.
+(default model, price headroom), and the tier the planner assigned. The
+selector itself is the protocol module's `selection` package, so CM's
+preview and the agent's pick are one rule.
 
 ## The candidate catalog (CM side)
 
@@ -300,6 +304,7 @@ is configured (see [Builder modes](#builder-modes)):
 | `candidates`    | the cached catalog, cloned per trigger                                                   |
 | `favorites`     | operator tier preferences, global merged with project                                    |
 | `blacklist`     | slugs reported incapable (from `ops.db`)                                                 |
+| `tier_bars`     | the per-role quality ladders saved on the admin page; absent when none is saved, which the agent reads as its built-in ladder |
 
 Each `CandidateModel` carries:
 
@@ -351,14 +356,44 @@ defaults:
 | `complex`  | 0.82                   |
 | `critical` | 0.90                   |
 
-`selector_tier_bars` (agent `serve.yaml`, env `CMX_SELECTOR_TIER_BARS`,
-JSON-encoded) lets an operator override any subset of this ladder. A partial
-map **merges over** the defaults - naming one tier raises or lowers only that
-rung, and the other three keep their built-in value, so a one-line override
-like `{"critical": 0.95}` can never silently zero out the rest of the ladder.
-The merged ladder must stay non-decreasing (`simple <= moderate <= complex <=
-critical`); a lower rung configured above a higher one fails validation at
-startup.
+The ladder is set per role on the Model selection admin page
+(`/admin/model-selection`), stored in CM's `ops.db`, and sent with every run
+as `selection.tier_bars`; it is not a config-file setting on either side.
+There is one ladder for coder picks and one for reviewer picks because the
+two priors come from different indices with different shapes: the coding
+index bunches near the top while the intelligence index spreads, so one bar
+gates the two roles very differently. The page links the two by default so
+a drag moves the same tier in both; unlinked, each moves alone.
+
+A ladder must be non-decreasing (`simple <= moderate <= complex <=
+critical`) with every bar in `[0, 1]`; the page clamps a drag between its
+neighbours and above the catalog quality floor, and the server rejects
+anything else with `422`. A saved ladder that still fails the agent's
+validation for one role (a mismatch between CM and agent versions) makes the
+agent fall back to the built-in ladder for that role, log it on the card,
+and carry on; the other role is unaffected.
+
+#### The ladders page
+
+The page shows every candidate as a pill at its prior, one column per role,
+with the tier bands and their model counts, and the bars as draggable
+handles (coder handles on the rail, reviewer handles at the reviewer
+column's edge). A filled pill is the pick at its rung, a dashed outline a
+panel seat, a struck-through pill a blacklisted model. Membership, bands and
+counts are computed in the browser from the candidates and both ladders;
+picks and the three-seat panel come from `POST /api/admin/selector/preview`,
+debounced while a bar moves, and the last good preview stays visible with an
+error line if a request fails. The KPI row shows the reviewers clearing
+`complex`, the cheapest `complex` reviewer, the `complex` panel's price per
+million tokens (orange when a seat walked), and the `moderate` coder pick.
+
+Nothing is sent until **Save ladders**; the status pill says whether the
+next run uses what is on screen. **Discard changes** returns to the saved
+ladders, **Reset to defaults** loads the built-in ladder into both roles
+(still unsaved). The preview applies the backend-level favorites and the
+blacklist and assumes the default price headroom of 1.5; project favorites,
+in-run exclusions and the agent's `selector_price_headroom` are not visible
+to it, so a run can pick differently at a tier where those apply.
 
 The same model serves every tier whose bar it clears. Cost never decides a
 tier - it only orders models within the eligible set. The bar is compared
@@ -453,8 +488,8 @@ plus a `state_change` warning event - a downgrade is never inferred from
 behavior alone.
 
 To keep the upper rungs served instead of walking down, pin or favorite a
-model at `complex`/`critical`, or lower the `selector_tier_bars` entry for
-whichever rung keeps emptying.
+model at `complex`/`critical`, or lower the relevant bar on the Model
+selection admin page's tier ladders for whichever rung keeps emptying.
 
 `max_capability` (a per-card, human-set flag) narrows this sequence when the
 card is configured for automatic selection. ContextMatrix stores the flag and
@@ -637,8 +672,10 @@ are the only evidence that exists about that choice.
   `DELETE /api/admin/model-blacklist/{slug}` delists one model (`404
   MODEL_NOT_BLACKLISTED` when it is not listed). Both are admin-gated in
   multi mode and open in none mode.
-- The admin UI's model-selection page shows both tables: outcome stats with a
-  reset button, and the blacklist with a per-row delist button.
+- The admin UI's model-selection page (`/admin/model-selection`) is the
+  ladders page: both ladders, the candidate catalog and the pick preview,
+  with the blacklist panel below (per-row delist). The outcome ledger has
+  no page; its endpoints remain.
 - Metrics: `contextmatrix_model_outcomes_total{model,result}` and
   `contextmatrix_model_blacklists_total{model}`. There are no catalog metrics
   (no refresh counter or candidate gauge); catalog health surfaces in logs.
@@ -662,7 +699,7 @@ overrides; this table maps the knobs to their effect on selection.
 | `best_of_n.max_candidates`           | 5                    | Hard cap on a card's race size                                          |
 | `best_of_n.default_candidates`       | 3                    | UI-suggested race size                                                  |
 | `selector_price_headroom` (agent `serve.yaml`) | 1.5        | Width of the price band; env `CMX_SELECTOR_PRICE_HEADROOM`              |
-| `selector_tier_bars` (agent `serve.yaml`) | built-in ladder (0.65 / 0.76 / 0.82 / 0.90) | Per-tier quality bars; merges over the defaults per tier, must stay non-decreasing; env `CMX_SELECTOR_TIER_BARS` (JSON) |
+| Tier ladders (admin page, stored in `ops.db`) | built-in ladder (0.65 / 0.76 / 0.82 / 0.90) for both roles | Per-role quality bars; edited on the Model selection admin page, never in a config file; travel as `selection.tier_bars` |
 
 **Not configurable** (compile-time constants): the 6-hour catalog TTL and
 60-second failure cooldown, the AA pagination cap and fetch budget, the API
@@ -679,6 +716,8 @@ endpoints, and the equal prompt+completion price weighting.
 | `model_allowlist` has no effect                | `llm_endpoint.type: openai`                                           | The allowlist only screens the OpenRouter leg; use `aa_model_map` / `model_priors` |
 | Endpoint models served but never selected      | Unmapped in `aa_model_map`, mapped to a nonexistent AA slug, mapped to an unscored AA row, no `model_priors` entry, or below floor | One WARN per excluded model at refresh time, naming the slug and the reason; unscored mappings also name the scored sibling rows |
 | A model keeps disappearing from selection      | It was reported incapable and blacklisted                             | Check the admin model-selection page; delist it there, or pin it for one card      |
+| A saved ladder has no effect on picks          | The agent predates protocol v0.19 and ignores `tier_bars`             | Upgrade the agent; until then it runs its built-in ladder                         |
+| `503 catalog not available yet` on the ladders page | No `aa_api_key`, or the first catalog refresh has not completed  | The ladders still load and save; candidates and preview appear after the first refresh |
 | Recorded outcomes visibly not affecting picks  | Selection is priors-only                                              | By design - the outcome ledger is observability, never a selection input           |
 | Priors dropped across the board overnight      | A new frontier model topped the AA leaderboard                        | Priors are normalized to the current best; expected drift                          |
 | A newly served model is missing                | Catalog is cached                                                     | Up to 6h staleness; restart CM to force a refresh                                  |
@@ -691,8 +730,8 @@ endpoints, and the equal prompt+completion price weighting.
   favorites, Best-of-N and mob on a card.
 - [Agent workflow](agent-workflow.md#model-allocation) - which phase runs
   which role.
-- [API reference](api-reference.md#get-apiadminmodel-outcomes) - the admin
-  model-outcomes and model-blacklist endpoints.
+- [API reference](api-reference.md#get-apiadminselectorladders) - the admin
+  selector, model-outcomes and model-blacklist endpoints.
 - [Data model](data-model.md#project-board-config-format) - project-level
   `favorites` in `.board.yaml`.
 - [Configuration](configuration.md) and `config.yaml.example` - every key
