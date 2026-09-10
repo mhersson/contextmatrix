@@ -4945,6 +4945,231 @@ func TestRecordPush_Atomic(t *testing.T) {
 	}
 
 	assert.True(t, hasEntry, "expected a 'pushed' activity log entry")
+
+	// Verify branch name was overwritten (standalone card).
+	assert.Equal(t, "feat/login", pushed.BranchName, "standalone card's branch_name should be overwritten by push branch")
+
+	// Verify persistence through GetCard.
+	reloaded, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "feat/login", reloaded.BranchName)
+}
+
+func TestRecordPush_BranchName_Standalone(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Branch overwrite", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, card.BranchName, "standalone card gets a generated branch name at create")
+	generatedBranch := card.BranchName
+
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-1")
+	require.NoError(t, err)
+
+	reportedBranch := "cm/" + strings.ToLower(card.ID)
+	pushed, err := svc.RecordPush(ctx, "test-project", card.ID, "agent-1", reportedBranch, "")
+	require.NoError(t, err)
+
+	assert.Equal(t, reportedBranch, pushed.BranchName,
+		"standalone card's branch_name should be overwritten by the reported push branch")
+	assert.NotEqual(t, generatedBranch, pushed.BranchName,
+		"branch_name should differ from the original generated value")
+
+	// Verify persistence through GetCard.
+	reloaded, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, reportedBranch, reloaded.BranchName,
+		"overwritten branch_name must persist through GetCard")
+}
+
+func TestRecordPush_BranchName_Subtask(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	parent, subtasks := createParentWithSubtasks(t, svc, "test-project", 1)
+	require.NotEmpty(t, parent.BranchName)
+	require.Empty(t, subtasks[0].BranchName, "subtask has no branch_name at create")
+
+	_, err := svc.ClaimCard(ctx, "test-project", subtasks[0].ID, "agent-1")
+	require.NoError(t, err)
+
+	reportedBranch := "cm/" + strings.ToLower(subtasks[0].ID)
+	pushed, err := svc.RecordPush(ctx, "test-project", subtasks[0].ID, "agent-1", reportedBranch, "")
+	require.NoError(t, err)
+
+	assert.Empty(t, pushed.BranchName,
+		"subtask must remain branchless after a successful push")
+}
+
+func TestRecordPush_BranchName_ProtectedBranchPreservesState(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Branch preserve", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, card.BranchName)
+
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-1")
+	require.NoError(t, err)
+
+	// First establish a good PR URL via a successful push.
+	_, err = svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "feature/login", "https://github.com/org/repo/pull/10")
+	require.NoError(t, err)
+
+	// Verify branch was updated.
+	reloaded, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "feature/login", reloaded.BranchName)
+	assert.Equal(t, "https://github.com/org/repo/pull/10", reloaded.PRUrl)
+
+	// Now try a protected-branch push - must reject.
+	_, err = svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "main", "")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrProtectedBranch)
+
+	// Verify branch and PR URL are untouched.
+	reloaded, err = svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "feature/login", reloaded.BranchName,
+		"branch_name must be preserved after protected-branch rejection")
+	assert.Equal(t, "https://github.com/org/repo/pull/10", reloaded.PRUrl,
+		"PR URL must be preserved after protected-branch rejection")
+
+	// Verify the pushed activity entry is still the only one.
+	pushCount := 0
+	for _, entry := range reloaded.ActivityLog {
+		if entry.Action == "pushed" {
+			pushCount++
+		}
+	}
+	assert.Equal(t, 1, pushCount, "no additional pushed entry should exist")
+}
+
+func TestRecordPush_BranchName_AgentMismatchPreservesState(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Agent mismatch preserve", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-owner")
+	require.NoError(t, err)
+
+	// First establish a good branch and PR URL.
+	_, err = svc.RecordPush(ctx, "test-project", card.ID, "agent-owner", "feature/login", "https://github.com/org/repo/pull/10")
+	require.NoError(t, err)
+
+	reloaded, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "feature/login", reloaded.BranchName)
+	assert.Equal(t, "https://github.com/org/repo/pull/10", reloaded.PRUrl)
+
+	// Try push with wrong agent.
+	_, err = svc.RecordPush(ctx, "test-project", card.ID, "agent-intruder", "cm/evil-001", "")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, lock.ErrAgentMismatch)
+
+	// Verify branch and PR URL are untouched.
+	reloaded, err = svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "feature/login", reloaded.BranchName,
+		"branch_name must be preserved after agent-mismatch rejection")
+	assert.Equal(t, "https://github.com/org/repo/pull/10", reloaded.PRUrl,
+		"PR URL must be preserved after agent-mismatch rejection")
+
+	// Verify the pushed activity entry count.
+	pushCount := 0
+	for _, entry := range reloaded.ActivityLog {
+		if entry.Action == "pushed" {
+			pushCount++
+		}
+	}
+	assert.Equal(t, 1, pushCount, "no additional pushed entry after agent mismatch")
+}
+
+func TestRecordPush_BranchName_CommitFailureRollback(t *testing.T) {
+	ctx := context.Background()
+
+	// Set up a service with a fake committer that fails on a known message.
+	tmpDir := t.TempDir()
+	boardsDir := filepath.Join(tmpDir, "boards")
+	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+
+	projectDir := filepath.Join(boardsDir, "test-project")
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0o755))
+	require.NoError(t, board.SaveProjectConfig(projectDir, testProject()))
+
+	realStore, err := storage.NewFilesystemStore(boardsDir)
+	require.NoError(t, err)
+
+	bus := events.NewBus()
+	lockMgr := lock.NewManager(realStore, 30*time.Minute)
+
+	// Create a real git manager so the initial commit (from CreateCard) works.
+	gitMgr, err := gitops.NewManager(boardsDir, "", "test", gitopsTestProvider(t))
+	require.NoError(t, err)
+
+	svc := NewCardService(realStore, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
+
+	// Create and claim a card using the real store + git.
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Rollback test", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, card.BranchName)
+	generatedBranch := card.BranchName
+
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-1")
+	require.NoError(t, err)
+
+	// Snapshot the card state before the push attempt.
+	before, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+
+	// Now swap in a failing queue by creating a new git manager (for the inner
+	// committer) then wrapping it with a fake that fails on the push commit.
+	gitMgr2, err := gitops.NewManager(boardsDir, "", "test", gitopsTestProvider(t))
+	require.NoError(t, err)
+
+	failOnCommit := &fakeCommitter{
+		inner:   gitMgr2,
+		// Match the commit message generated for RecordPush: "pushed to <branch>".
+		failMsg: "pushed to cm/rollback-test-001",
+	}
+
+	failingQueue := gitops.NewCommitQueueWithCommitter(failOnCommit, 0)
+	t.Cleanup(func() { _ = failingQueue.Close(ctx) })
+	svc.SetCommitQueue(failingQueue)
+
+	// Attempt push with the failing queue.
+	_, err = svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "cm/rollback-test-001", "https://github.com/org/repo/pull/99")
+	require.Error(t, err, "push should fail when git commit fails")
+
+	// Verify the card was rolled back to its pre-push state.
+	after, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+
+	assert.Equal(t, generatedBranch, after.BranchName,
+		"branch_name must be rolled back after commit failure")
+	assert.Equal(t, before.PRUrl, after.PRUrl,
+		"PR URL must be rolled back after commit failure")
+	assert.Equal(t, before.ActivityLog, after.ActivityLog,
+		"activity log must be rolled back to pre-push state after commit failure")
 }
 
 func TestUpdateWorkerStatus_Completed(t *testing.T) {
@@ -6717,6 +6942,46 @@ type failingStore struct {
 
 func (f *failingStore) ListProjects(ctx context.Context) ([]board.ProjectConfig, error) {
 	return nil, errors.New("store unavailable")
+}
+
+// fakeCommitter wraps a real gitops.Committer and fails all commits whose
+// message matches failMsg. Used to simulate a git commit failure and verify
+// that the service layer rolls back in-memory state.
+type fakeCommitter struct {
+	inner   gitops.Committer
+	failMsg string
+}
+
+func (f *fakeCommitter) CommitFile(ctx context.Context, path, message string) error {
+	if strings.Contains(message, f.failMsg) {
+		return errors.New("simulated commit failure")
+	}
+	return f.inner.CommitFile(ctx, path, message)
+}
+
+func (f *fakeCommitter) CommitFiles(ctx context.Context, paths []string, message string) error {
+	if strings.Contains(message, f.failMsg) {
+		return errors.New("simulated commit failure")
+	}
+	return f.inner.CommitFiles(ctx, paths, message)
+}
+
+func (f *fakeCommitter) CommitFilesShell(ctx context.Context, paths []string, message string) error {
+	if strings.Contains(message, f.failMsg) {
+		return errors.New("simulated commit failure")
+	}
+	return f.inner.CommitFilesShell(ctx, paths, message)
+}
+
+func (f *fakeCommitter) CommitAll(ctx context.Context, message string) error {
+	if strings.Contains(message, f.failMsg) {
+		return errors.New("simulated commit failure")
+	}
+	return f.inner.CommitAll(ctx, message)
+}
+
+func (f *fakeCommitter) ReloadRepo(ctx context.Context) error {
+	return f.inner.ReloadRepo(ctx)
 }
 
 func TestHealthCheck_GitNil(t *testing.T) {

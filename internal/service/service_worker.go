@@ -80,6 +80,12 @@ func (s *CardService) RecordPush(ctx context.Context, project, id, agentID, bran
 		card.PRUrl = prURL
 	}
 
+	// Record the reported branch on standalone and parent cards (not subtasks).
+	// Subtasks work on the parent's branch and carry no BranchName of their own.
+	if card.Parent == "" {
+		card.BranchName = branch
+	}
+
 	// Append activity log entry.
 	msg := "Pushed to branch " + branch
 	if prURL != "" {
