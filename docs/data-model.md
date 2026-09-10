@@ -505,8 +505,10 @@ global `backends.agent.favorites` with the project's at trigger time, project
 entries winning per tier. `json:"-"`: no REST path writes it; hand-edit
 `.board.yaml`. See [model selection](model-selection.md#the-decision-order).
 
-**Immutable fields**: `id`, `project`, `created`, `source`; `branch_name`
-after first generation.
+**Immutable fields**: `id`, `project`, `created`, `source`. `branch_name` is
+a prediction at create that the first push reconciles: `report_push`
+overwrites it on standalone and parent cards with the branch the executor
+actually pushed (see [`create_pr` semantics](#create_pr-semantics)).
 
 **Server-managed fields**: `id`, `created`, `updated`, `assigned_agent`,
 `last_heartbeat`, `claimed_via`, `claimed_at`, `claim_epoch`, `activity_log`,
@@ -1001,15 +1003,21 @@ Reference and cycle checks run against the resulting card, so an existing
 
 ## `create_pr` semantics
 
-Standalone and parent cards get a feature branch: `branch_name` is generated
-at create as `<lowercase-id>/<title-slug>` and is immutable afterward.
-Subtasks work on their parent's branch and get no `branch_name`. `create_pr`
-decides only whether the run opens a pull request after pushing. When absent
+Standalone and parent cards get a predicted feature branch: `branch_name` is
+generated at create as `<lowercase-id>/<title-slug>`. The executor never
+receives it: the worker derives its own branch from the card id and pushes
+`cm/<lowercase-card-id>`. The first `report_push` records the reported branch
+onto the card, so the stored value reflects the branch that actually exists;
+before that first push it is a prediction. Subtasks work on their parent's
+branch and get no `branch_name`; `report_push` on a subtask never adds one.
+`create_pr` decides only whether the run opens a pull request after pushing.
+When absent
 on create it falls back to the project's `card_defaults`, whose built-in is
 `true` for standalone and parent cards; subtasks always get `false` (the PR
 decision belongs to the parent). An explicit
 `create_pr: false` pushes without a PR. Run and promote triggers never modify
-the stored value.
+the stored value, and `report_push` rejects `main` / `master` before writing
+anything.
 
 ## PR gates (`await_ci`, `await_copilot_review`, `merge_pr`)
 

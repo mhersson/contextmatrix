@@ -1849,9 +1849,10 @@ built-in gates (plan approval, subtask execution decision, review) for input
 delivered through `/message`. CM forces `interactive` off for autonomous
 cards. Best-of-N and mob settings come from the stored card, not the body.
 
-The run never modifies the card's automation flags: every card carries a
-generated `branch_name`, and the stored `create_pr` value decides whether
-the worker opens a pull request. The trigger payload carries a project-scoped
+The run never modifies the card's automation flags: the stored `create_pr`
+value decides whether the worker opens a pull request. The worker pushes its
+own `cm/<card-id>` branch; `report_push` afterward reconciles the stored
+`branch_name` with it. The trigger payload carries a project-scoped
 git token (`git_token`, `git_token_expires_at`) and the `llm_endpoint`.
 
 Returns **202 Accepted** with the updated card (`worker_status: "queued"`) as

@@ -87,7 +87,7 @@ Copilot PR gates (`await_ci`, `await_copilot_review`) for new cards;
 | `merge_pr`                                            | With `await_ci`: merge the PR (merge commit) into its base branch once the CI gate passes, else park.                                        |
 | `model_orchestrator`, `model_coder`, `model_reviewer` | Pin a model per role; a pin beats every selector rule.                                                                                       |
 | `skills`                                              | Task skills mounted in the container; absent inherits, `[]` mounts none.                                                                     |
-| `branch_name`, `base_branch`                          | Generated feature branch (immutable); optional PR target.                                                                                    |
+| `branch_name`, `base_branch`                          | Predicted feature branch, reconciled by the first `report_push`; optional PR target.                                                          |
 
 A card that belongs to a runnable playbook has `autonomous`, `create_pr`,
 `await_ci`, `merge_pr` and `base_branch` set by that playbook and locked; the
