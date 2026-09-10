@@ -1,0 +1,56 @@
+import { describe, expect, it } from 'vitest';
+import { render, screen, within } from '@testing-library/react';
+import type { SelectorLadders } from '../../types';
+import { PickPreview } from './PickPreview';
+import { CANDIDATES, DEFAULT_BARS, pick, previewFixture } from './selector.fixtures';
+
+const LADDERS: SelectorLadders = { coder: { ...DEFAULT_BARS }, reviewer: { ...DEFAULT_BARS } };
+
+describe('PickPreview', () => {
+  it('renders picks, prices, the descended chip, walked seats and clearing counts', () => {
+    render(<PickPreview preview={previewFixture()} pending={false} error={null} ladders={LADDERS} candidates={CANDIDATES} headroom={1.5} />);
+
+    const complexTier = screen.getByTestId('tl-pv-complex');
+    expect(within(complexTier).getByText('bar c 0.82 · r 0.82 · 2 coders · 3 reviewers clear it')).toBeInTheDocument();
+    expect(within(complexTier).getAllByText('a/cheap')).toHaveLength(2);
+    expect(within(complexTier).getAllByText('at bar')).toHaveLength(2);
+    expect(within(complexTier).getAllByText('$2.0/M').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByTestId('tl-seat-complex-1')).toHaveClass('walk');
+    expect(screen.getByTestId('tl-seat-complex-1')).toHaveTextContent('walked');
+    expect(screen.getByTestId('tl-seat-complex-0')).not.toHaveClass('walk');
+    expect(within(complexTier).getByText('$26.0/M')).toBeInTheDocument();
+
+    const critical = screen.getByTestId('tl-pv-critical');
+    expect(within(critical).getByText('↓ complex')).toBeInTheDocument();
+    expect(within(critical).getByText('no seat can be filled')).toBeInTheDocument();
+    expect(screen.getByText('headroom 1.5× · favorites and blacklist applied')).toBeInTheDocument();
+  });
+
+  it('says so when nothing clears any rung', () => {
+    const p = previewFixture();
+    p.tiers.critical.coder = pick('', 'coder', 'critical', '', 0);
+    render(<PickPreview preview={p} pending={false} error={null} ladders={LADDERS} candidates={CANDIDATES} headroom={1.5} />);
+
+    expect(within(screen.getByTestId('tl-pv-critical')).getByText('nothing clears any rung')).toBeInTheDocument();
+  });
+
+  it('marks the body busy while a preview is pending', () => {
+    render(<PickPreview preview={previewFixture()} pending error={null} ladders={LADDERS} candidates={CANDIDATES} headroom={1.5} />);
+
+    expect(screen.getByTestId('tl-preview')).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByText('computing…')).toBeInTheDocument();
+  });
+
+  it('keeps the last good preview under an error line', () => {
+    render(<PickPreview preview={previewFixture()} pending={false} error="Preview failed." ladders={LADDERS} candidates={CANDIDATES} headroom={1.5} />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Preview failed.');
+    expect(screen.getByTestId('tl-seat-complex-0')).toBeInTheDocument();
+  });
+
+  it('shows an empty state before the first preview', () => {
+    render(<PickPreview preview={null} pending error={null} ladders={LADDERS} candidates={CANDIDATES} headroom={1.5} />);
+
+    expect(screen.getByText('Waiting for the first preview…')).toBeInTheDocument();
+  });
+});
