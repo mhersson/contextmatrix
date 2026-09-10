@@ -66,10 +66,76 @@ func (b *Builder) EndpointModels(ctx context.Context) []EndpointModel {
 	return out
 }
 
+// endpointPricing is the pricing block of an OpenAI-compatible /models entry.
+// Two dialects are in the wild and the key sets do not overlap, so both are
+// decoded and whichever one the gateway populated is used:
+//
+//   - OpenRouter's: USD per *token*, as decimal strings.
+//   - per-million: USD per 1M tokens, as JSON numbers.
+//
+// A gateway switching dialects (or dropping the block) silently zeroes every
+// price, which is why endpointPricing.rate falls back across both and
+// applyTokenCosts covers the remainder.
+//
+// Long-context step pricing (`tiers`) is deliberately not read: CM prices a
+// model with one rate pair, and the base tier is the honest choice for the
+// selector's price band. Cost accounting of a run that crosses a tier boundary
+// therefore understates it - `token_costs` is the lever if that matters.
+type endpointPricing struct {
+	// OpenRouter dialect: USD per token, as strings.
+	Prompt          string `json:"prompt"`
+	Completion      string `json:"completion"`
+	InputCacheRead  string `json:"input_cache_read"`
+	InputCacheWrite string `json:"input_cache_write"`
+	// Per-million dialect: USD per 1M tokens, as numbers.
+	InputPer1M      float64 `json:"input_per_1m"`
+	OutputPer1M     float64 `json:"output_per_1m"`
+	CacheReadPer1M  float64 `json:"cache_read_per_1m"`
+	CacheWritePer1M float64 `json:"cache_write_per_1m"`
+}
+
+// rate resolves the block to per-token USD. The per-token dialect wins when it
+// prices anything at all; otherwise the per-million numbers are scaled down.
+// Cache rates resolve independently of the prompt/completion pair, so a gateway
+// that omits them still yields usable input/output rates (0 leaves the
+// multiplier convention in PriceTokens to derive them).
+func (p endpointPricing) rate() ModelPrice {
+	perTok := func(s string) float64 {
+		v, _ := strconv.ParseFloat(s, 64)
+
+		return v
+	}
+
+	out := ModelPrice{
+		Prompt:     perTok(p.Prompt),
+		Completion: perTok(p.Completion),
+		CacheRead:  perTok(p.InputCacheRead),
+		CacheWrite: perTok(p.InputCacheWrite),
+	}
+
+	if out.Prompt == 0 && out.Completion == 0 {
+		out.Prompt = p.InputPer1M / 1e6
+		out.Completion = p.OutputPer1M / 1e6
+	}
+
+	if out.CacheRead == 0 {
+		out.CacheRead = p.CacheReadPer1M / 1e6
+	}
+
+	if out.CacheWrite == 0 {
+		out.CacheWrite = p.CacheWritePer1M / 1e6
+	}
+
+	return out
+}
+
 // fetchEndpointCatalog GETs an OpenAI-compatible /models listing (authenticated)
 // and flattens it to the same orEntry shape used by the OpenRouter leg, so the
 // fusion and cost code are leg-agnostic. Tool capability is read from
-// capabilities.features.
+// capabilities.features, pricing from either dialect endpointPricing supports.
+// A gateway that publishes no pricing at all yields zero-priced entries;
+// alias_names is carried so applyTokenCosts can resolve those against the
+// operator's rate table.
 func fetchEndpointCatalog(ctx context.Context, endpoint, apiKey string) (map[string]orEntry, error) {
 	url := strings.TrimRight(endpoint, "/") + "/models"
 
@@ -95,17 +161,13 @@ func fetchEndpointCatalog(ctx context.Context, endpoint, apiKey string) (map[str
 
 	var raw struct {
 		Data []struct {
-			ID            string `json:"id"`
-			ContextLength int    `json:"context_length"`
-			Pricing       struct {
-				Prompt          string `json:"prompt"`
-				Completion      string `json:"completion"`
-				InputCacheRead  string `json:"input_cache_read"`
-				InputCacheWrite string `json:"input_cache_write"`
-			} `json:"pricing"`
-			Capabilities struct {
+			ID            string          `json:"id"`
+			ContextLength int             `json:"context_length"`
+			Pricing       endpointPricing `json:"pricing"`
+			Capabilities  struct {
 				Features []string `json:"features"`
 			} `json:"capabilities"`
+			AliasNames []string `json:"alias_names"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
@@ -114,20 +176,16 @@ func fetchEndpointCatalog(ctx context.Context, endpoint, apiKey string) (map[str
 
 	out := make(map[string]orEntry, len(raw.Data))
 	for _, d := range raw.Data {
-		pp, _ := strconv.ParseFloat(d.Pricing.Prompt, 64)
-		cp, _ := strconv.ParseFloat(d.Pricing.Completion, 64)
-		crp, _ := strconv.ParseFloat(d.Pricing.InputCacheRead, 64)
-		cwp, _ := strconv.ParseFloat(d.Pricing.InputCacheWrite, 64)
-
-		tools := slices.Contains(d.Capabilities.Features, "tools")
+		p := d.Pricing.rate()
 
 		out[d.ID] = orEntry{
-			PromptPrice:     pp,
-			CompletionPrice: cp,
-			CacheReadPrice:  crp,
-			CacheWritePrice: cwp,
+			PromptPrice:     p.Prompt,
+			CompletionPrice: p.Completion,
+			CacheReadPrice:  p.CacheRead,
+			CacheWritePrice: p.CacheWrite,
 			ContextWindow:   d.ContextLength,
-			Tools:           tools,
+			Tools:           slices.Contains(d.Capabilities.Features, "tools"),
+			Aliases:         d.AliasNames,
 		}
 	}
 

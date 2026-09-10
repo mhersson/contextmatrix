@@ -14,6 +14,9 @@ import (
 const ORDefaultEndpoint = "https://openrouter.ai/api/v1/models"
 
 // orEntry is the OR catalog data the selector needs, keyed by OR slug.
+// Aliases is populated by the endpoint leg only (OpenRouter publishes no
+// aliases); it is the gateway's own alternate names for the model, used to
+// resolve a token_costs row when the endpoint publishes no pricing.
 type orEntry struct {
 	PromptPrice     float64
 	CompletionPrice float64
@@ -21,6 +24,7 @@ type orEntry struct {
 	CacheWritePrice float64
 	ContextWindow   int
 	Tools           bool
+	Aliases         []string
 }
 
 func fetchORCatalog(ctx context.Context, endpoint string) (map[string]orEntry, error) {

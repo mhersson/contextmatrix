@@ -173,7 +173,7 @@ instead:
 | Eligibility       | trusted-creator allowlist                     | membership in `aa_model_map` or `model_priors`                |
 | Quality source    | AA row joined by mapped slug                  | exact mapped AA row (`aa_model_map`) or verbatim `model_priors` |
 | Variant handling  | best combined-prior row per served slug       | none - only the mapped AA row's own scores      |
-| Pricing / window  | OpenRouter catalog                            | endpoint catalog                                              |
+| Pricing / window  | OpenRouter catalog                            | endpoint catalog (both dialects), gaps from `token_costs`      |
 
 `aa_model_map` maps an endpoint slug to the **exact AA slug** of the variant
 the gateway serves; the Builder looks up only that row and uses its coding and
@@ -195,6 +195,58 @@ below the quality floor for both roles. The refresh also logs the resolved
 candidate set: one line per served candidate with its coder prior, reviewer
 prior, and score source (`model_priors override` or the exact AA slug it was
 scored from).
+
+Note that `aa_model_map` and `model_priors` are keyed on the endpoint's model
+**id**, not on its aliases: a gateway that serves `anthropic/claude-sonnet-4-5`
+and lists `claude-sonnet-4-5-20250929` only as an alias is not matched by a map
+entry keyed on the dated name, and the model is excluded as unmapped.
+
+### Endpoint pricing gaps
+
+An unpriced catalog is quietly expensive: every candidate arrives at price 0,
+the price band (step 4 below) computes `0 * headroom = 0`, admits the whole
+pool, and the best-value rule degenerates into "highest prior wins" - the most
+expensive frontier model on every pick, on every card. Nothing errors, and cost
+reporting still looks right, because card costs are priced separately from
+`token_costs`.
+
+Two things guard against it.
+
+**Both pricing dialects are read.** `/models` pricing blocks come in two shapes
+in the wild, and the key sets do not overlap, so whichever the gateway
+populated is used:
+
+| Dialect      | Keys                                                                          | Unit         | Type    |
+| ------------ | ----------------------------------------------------------------------------- | ------------ | ------- |
+| OpenRouter   | `prompt`, `completion`, `input_cache_read`, `input_cache_write`                | per token    | strings |
+| per-million  | `input_per_1m`, `output_per_1m`, `cache_read_per_1m`, `cache_write_per_1m`     | per 1M tokens| numbers |
+
+The per-token dialect wins when it prices anything; otherwise the per-million
+numbers are scaled down. Cache rates resolve independently of the
+prompt/completion pair, so a gateway that omits them still yields usable
+input/output rates. Long-context step pricing (`tiers`) is not read - CM prices
+a model with one rate pair, and the base tier is the honest choice for the
+band; a run crossing a tier boundary is therefore under-costed, and
+`token_costs` is the lever if that matters.
+
+**`token_costs` fills what is left.** Any entry still at zero after parsing is
+priced from the operator's
+[`token_costs`](configuration.md#token-cost-rates) table, before candidates,
+`Rate()` or the pickers read the catalog. A price the gateway does publish is
+never overwritten. Each model resolves against the table in this order, first
+hit wins:
+
+1. the served slug (`anthropic/claude-opus-5`),
+2. the slug with its vendor prefix stripped (`claude-opus-5`),
+3. each `alias_names` entry the gateway lists (`claude-opus-5`,
+   `global-opus-5`, ...) - which is how a table keyed on dated model names
+   (`claude-sonnet-4-5-20250929`) prices a gateway serving the undated slug.
+
+A rate row that prices neither prompt nor completion tokens counts as absent.
+Every tool-capable model still unpriced after the fill is logged at WARN, once
+per refresh, naming the slug: the selector will treat it as free and it will
+win any price comparison it enters. That WARN is the tripwire for a gateway
+changing its pricing schema again.
 
 ### Caching and refresh
 
@@ -367,7 +419,10 @@ would have.
    a context window that fits the estimated prompt.
 4. **Price band.** Price is the sum of prompt and completion per-token rates.
    The band spans from the cheapest surviving candidate up to
-   `cheapest x headroom` (headroom defaults to 1.5).
+   `cheapest x headroom` (headroom defaults to 1.5). An unpriced catalog makes
+   this step a no-op (`0 x headroom = 0` admits everything) and step 5 then
+   picks on quality alone; see [endpoint pricing
+   gaps](#endpoint-pricing-gaps).
 5. **Best value.** Within the band, the highest-prior candidate wins; ties go
    to the cheaper model. Models outside the band never win on quality - the
    band is what keeps a frontier model from being picked for a `simple` task.
