@@ -7,14 +7,15 @@ import (
 )
 
 // schemaVersion is the current opstore schema revision. Bump it when adding
-// tables/columns and add the corresponding migration below.
-const schemaVersion = 2
+// tables/columns: every CREATE is IF NOT EXISTS, so an older database grows
+// the new table on open and is stamped; a newer database is refused.
+const schemaVersion = 3
 
 // ensureSchema creates every operational table if absent. Clean-cut: there is
 // no migration ledger and no backward-compat path - an obsolete DB is deleted
 // and recreated by the operator. Holds the chat schema (sessions, messages,
-// cost archive), the model blacklist, and Best-of-N model outcomes in a
-// single ops.db.
+// cost archive), the model blacklist, Best-of-N model outcomes, and the
+// selector tier ladders in a single ops.db.
 func ensureSchema(ctx context.Context, db *sql.DB) error {
 	var current int
 	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&current); err != nil {
@@ -98,6 +99,13 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			created_at   INTEGER NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_model_outcomes_model ON model_outcomes(model)`,
+		`CREATE TABLE IF NOT EXISTS selector_ladder (
+			role       TEXT NOT NULL,
+			tier       TEXT NOT NULL,
+			bar        REAL NOT NULL,
+			updated_at INTEGER NOT NULL,
+			PRIMARY KEY (role, tier)
+		)`,
 	}
 
 	for _, s := range stmts {

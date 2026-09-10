@@ -60,6 +60,13 @@ func TestEnsureSchema_CreatesChatAndBlacklistTables(t *testing.T) {
 		assert.True(t, columnExists(t, s.db, "chat_cost_archive", col), "chat_cost_archive.%s missing", col)
 	}
 
+	// selector_ladder table and columns.
+	assert.True(t, tableExists(t, s.db, "selector_ladder"))
+
+	for _, col := range []string{"role", "tier", "bar", "updated_at"} {
+		assert.True(t, columnExists(t, s.db, "selector_ladder", col), "selector_ladder.%s missing", col)
+	}
+
 	// Indexes.
 	for _, idx := range []string{
 		"idx_chat_cost_archive_last_active",
@@ -104,6 +111,34 @@ func TestEnsureSchema_FailsFastOnNewerDB(t *testing.T) {
 	_, err = Open(path)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "newer than this binary")
+}
+
+func TestEnsureSchema_AddsSelectorLadderToOlderDB(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ops.db")
+
+	s, err := Open(path)
+	require.NoError(t, err)
+	require.NoError(t, s.Close())
+
+	// A v2 database has every table but selector_ladder.
+	db, err := sql.Open("sqlite", sqliteutil.DSN(path, sqliteutil.WithForeignKeys()))
+	require.NoError(t, err)
+	_, err = db.Exec("DROP TABLE selector_ladder")
+	require.NoError(t, err)
+	_, err = db.Exec("PRAGMA user_version = 2")
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	s2, err := Open(path)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s2.Close() })
+
+	assert.True(t, tableExists(t, s2.db, "selector_ladder"))
+
+	var v int
+
+	require.NoError(t, s2.db.QueryRow("PRAGMA user_version").Scan(&v))
+	assert.Equal(t, schemaVersion, v)
 }
 
 func columnExists(t *testing.T, db *sql.DB, table, column string) bool {
