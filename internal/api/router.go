@@ -550,6 +550,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		replayCache:            backend.NewSignatureCache(),
 		catalog:                cfg.Catalog,
 		blacklist:              cfg.Blacklist,
+		ladders:                cfg.SelectorAdmin,
 		bestOfN:                cfg.BestOfN,
 		mob:                    cfg.Mob,
 		taskSkillsDir:          cfg.TaskSkillsDir,

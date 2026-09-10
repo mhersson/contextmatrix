@@ -67,6 +67,11 @@ type backendHandlers struct {
 	catalog   catalogProvider
 	blacklist blacklistReader
 
+	// ladders supplies the stored per-role tier ladders for the payload's
+	// SelectionContext.TierBars. nil when no op store is wired; an empty
+	// store sends no field, so the agent uses its built-in ladder.
+	ladders selectorLadderReader
+
 	// bestOfN bounds the card-level best_of_n value forwarded to the agent
 	// backend (payload.BestOfN = min(card.BestOfN, bestOfN.MaxCandidates)).
 	// Zero value (MaxCandidates 0) clamps every non-zero card value down to 0,
