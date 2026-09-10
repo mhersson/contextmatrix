@@ -672,6 +672,7 @@ func main() {
 	}
 	if catalogBuilder != nil && agentAA {
 		routerCfg.Catalog = catalogBuilder
+		routerCfg.SelectorCatalog = catalogBuilder
 	}
 
 	if authSvc != nil {

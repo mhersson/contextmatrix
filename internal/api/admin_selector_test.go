@@ -13,8 +13,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/auth"
 	"github.com/mhersson/contextmatrix/internal/authstore"
+	"github.com/mhersson/contextmatrix/internal/board"
 )
 
 // stubSelectorAdminStore is a minimal selectorAdminStore double. It records
@@ -282,4 +284,270 @@ func TestAdminSelectorLadders_MultiMode(t *testing.T) {
 	closeBody(t, resp.Body)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.NotNil(t, store.put)
+}
+
+type stubSelectorCatalog struct {
+	candidates  []protocol.CandidateModel
+	floor       float64
+	refreshedAt time.Time
+}
+
+func (s *stubSelectorCatalog) Candidates(context.Context) []protocol.CandidateModel {
+	return s.candidates
+}
+
+func (s *stubSelectorCatalog) Floor() float64 { return s.floor }
+
+func (s *stubSelectorCatalog) LastRefreshed(context.Context) time.Time { return s.refreshedAt }
+
+// previewCatalog is the fixture behind the preview tests. Blended prices
+// per token: a/cheap 2e-6, a/mid 4e-6, b/pricey 2e-5, c/weak 1e-6. Under
+// the built-in ladder the complex reviewer pool is a/cheap, a/mid, b/pricey
+// and the complex coder pool is a/cheap, b/pricey.
+func previewCatalog() *stubSelectorCatalog {
+	return &stubSelectorCatalog{
+		floor:       0.65,
+		refreshedAt: time.Date(2026, 9, 10, 6, 0, 0, 0, time.UTC),
+		candidates: []protocol.CandidateModel{
+			{Slug: "b/pricey", Creator: "b", CoderPrior: 0.83, ReviewerPrior: 0.84, PromptPricePerTok: 1e-5, CompletionPricePerTok: 1e-5, ContextWindow: 200000},
+			{Slug: "a/cheap", Creator: "a", CoderPrior: 0.90, ReviewerPrior: 0.85, PromptPricePerTok: 1e-6, CompletionPricePerTok: 1e-6, ContextWindow: 200000},
+			{Slug: "c/weak", Creator: "c", CoderPrior: 0.70, ReviewerPrior: 0.70, PromptPricePerTok: 5e-7, CompletionPricePerTok: 5e-7, ContextWindow: 100000},
+			{Slug: "a/mid", Creator: "a", CoderPrior: 0.80, ReviewerPrior: 0.86, PromptPricePerTok: 2e-6, CompletionPricePerTok: 2e-6, ContextWindow: 200000},
+		},
+	}
+}
+
+func defaultLadderBody() map[string]any {
+	return map[string]any{"ladders": map[string]map[string]float64{
+		"coder":    {"simple": 0.65, "moderate": 0.76, "complex": 0.82, "critical": 0.90},
+		"reviewer": {"simple": 0.65, "moderate": 0.76, "complex": 0.82, "critical": 0.90},
+	}}
+}
+
+func TestAdminSelectorCandidates_ReportsInputsSorted(t *testing.T) {
+	h := &selectorAdminHandlers{
+		store:     &stubSelectorAdminStore{},
+		catalog:   previewCatalog(),
+		blacklist: &stubBlacklist{slugs: []string{"c/weak"}},
+		favorites: map[string]board.TierFavorites{"critical": {ByRole: map[string][]string{"reviewer": {"b/pricey"}}}},
+	}
+
+	w := httptest.NewRecorder()
+	h.getCandidates(w, httptest.NewRequest(http.MethodGet, "/api/admin/selector/candidates", nil))
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var got selectorCandidatesResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	require.Len(t, got.Candidates, 4)
+	assert.Equal(t, "a/cheap", got.Candidates[0].Slug, "sorted by slug")
+	assert.Equal(t, "a", got.Candidates[0].Creator)
+	assert.InDelta(t, 0.85, got.Candidates[0].ReviewerPrior, 1e-9)
+	assert.InDelta(t, 1e-6, got.Candidates[0].PromptPricePerTok, 1e-15)
+	assert.Equal(t, 200000, got.Candidates[0].ContextWindow)
+	assert.Equal(t, []string{"c/weak"}, got.Blacklist)
+	require.Len(t, got.Favorites, 1)
+	assert.Equal(t, "reviewer", got.Favorites[0].Role)
+	assert.Equal(t, "critical", got.Favorites[0].Tier)
+	assert.InDelta(t, 1.5, got.Headroom, 1e-9)
+	assert.InDelta(t, 0.65, got.QualityFloor, 1e-9)
+	assert.Equal(t, "2026-09-10T06:00:00Z", got.CatalogRefreshedAt)
+}
+
+func TestAdminSelectorCandidates_EmptyInputsAreArrays(t *testing.T) {
+	cat := previewCatalog()
+	cat.candidates = nil
+	h := &selectorAdminHandlers{store: &stubSelectorAdminStore{}, catalog: cat}
+
+	w := httptest.NewRecorder()
+	h.getCandidates(w, httptest.NewRequest(http.MethodGet, "/api/admin/selector/candidates", nil))
+
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), `"candidates":[]`)
+	assert.Contains(t, w.Body.String(), `"favorites":[]`)
+	assert.Contains(t, w.Body.String(), `"blacklist":[]`)
+}
+
+func TestAdminSelectorCandidates_BlacklistReadFailureIs500(t *testing.T) {
+	h := &selectorAdminHandlers{store: &stubSelectorAdminStore{}, catalog: previewCatalog(), blacklist: &failingBlacklist{}}
+
+	w := httptest.NewRecorder()
+	h.getCandidates(w, httptest.NewRequest(http.MethodGet, "/api/admin/selector/candidates", nil))
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+type failingBlacklist struct{}
+
+func (failingBlacklist) BlacklistedSlugs(context.Context) ([]string, error) {
+	return nil, assert.AnError
+}
+
+func TestAdminSelectorCatalogUnavailable(t *testing.T) {
+	never := previewCatalog()
+	never.refreshedAt = time.Time{}
+
+	for name, cat := range map[string]selectorCatalog{"no catalog": nil, "never refreshed": never} {
+		t.Run(name, func(t *testing.T) {
+			h := &selectorAdminHandlers{store: &stubSelectorAdminStore{}, catalog: cat}
+
+			w := httptest.NewRecorder()
+			h.getCandidates(w, httptest.NewRequest(http.MethodGet, "/api/admin/selector/candidates", nil))
+			assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+
+			w = httptest.NewRecorder()
+			h.preview(w, httptest.NewRequest(http.MethodPost, "/api/admin/selector/preview", jsonBody(t, validLadderBody())))
+			assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+
+			var apiErr APIError
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &apiErr))
+			assert.Equal(t, ErrCodeCatalogUnavailable, apiErr.Code)
+			assert.Equal(t, "catalog not available yet", apiErr.Error)
+		})
+	}
+}
+
+func TestAdminSelectorPreview_PicksAndPanel(t *testing.T) {
+	h := &selectorAdminHandlers{store: &stubSelectorAdminStore{}, catalog: previewCatalog(), blacklist: &stubBlacklist{}}
+
+	w := httptest.NewRecorder()
+	h.preview(w, httptest.NewRequest(http.MethodPost, "/api/admin/selector/preview", jsonBody(t, defaultLadderBody())))
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var got selectorPreviewResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	require.Len(t, got.Tiers, 4)
+
+	complexTier := got.Tiers["complex"]
+
+	// Coder at complex: a/cheap (0.90) and b/pricey (0.83) clear 0.82; the
+	// band from 2e-6 is 3e-6, so a/cheap is the pick.
+	assert.Equal(t, "a/cheap", complexTier.Coder.Pick.Model)
+	assert.True(t, complexTier.Coder.Pick.OK)
+	assert.Equal(t, "coder", complexTier.Coder.Pick.Role)
+	assert.Equal(t, "complex", complexTier.Coder.Pick.MetTier)
+	assert.Equal(t, "auto", complexTier.Coder.Pick.Source)
+	assert.InDelta(t, 2e-6, complexTier.Coder.Pick.PricePerTok, 1e-15)
+	assert.Equal(t, "complex", complexTier.Coder.Report.Rung)
+	assert.InDelta(t, 0.82, complexTier.Coder.Report.Bar, 1e-9)
+	assert.Len(t, complexTier.Coder.Report.Pool, 2)
+	assert.NotEmpty(t, complexTier.Coder.Report.FilteredOut)
+
+	// Reviewer panel at complex: seat 1 a/cheap; seat 2 prefers an unseated
+	// vendor, so b/pricey re-anchors the band and is walked; seat 3 has only
+	// a/mid left at the rung, anchored above seat 1.
+	require.Len(t, complexTier.Panel, 3)
+	assert.Equal(t, "a/cheap", complexTier.Panel[0].Pick.Model)
+	assert.False(t, complexTier.Panel[0].Walked)
+	assert.Equal(t, "b/pricey", complexTier.Panel[1].Pick.Model)
+	assert.True(t, complexTier.Panel[1].Walked)
+	assert.Equal(t, "a/mid", complexTier.Panel[2].Pick.Model)
+	assert.True(t, complexTier.Panel[2].Walked)
+	assert.False(t, complexTier.Panel[2].Pick.Duplicate)
+
+	// Critical: no reviewer clears 0.90, so the pick descends to complex;
+	// a/cheap clears the coder critical bar exactly.
+	critical := got.Tiers["critical"]
+	assert.Equal(t, "a/cheap", critical.Reviewer.Pick.Model)
+	assert.Equal(t, "complex", critical.Reviewer.Pick.MetTier)
+	assert.Equal(t, "critical", critical.Reviewer.Pick.RequestedTier)
+	assert.Equal(t, "a/cheap", critical.Coder.Pick.Model)
+	assert.Equal(t, "critical", critical.Coder.Pick.MetTier)
+}
+
+func TestAdminSelectorPreview_AppliesBlacklistAndFavorites(t *testing.T) {
+	h := &selectorAdminHandlers{
+		store:     &stubSelectorAdminStore{},
+		catalog:   previewCatalog(),
+		blacklist: &stubBlacklist{slugs: []string{"a/cheap"}},
+		favorites: map[string]board.TierFavorites{"complex": {ByRole: map[string][]string{"reviewer": {"b/pricey"}}}},
+	}
+
+	w := httptest.NewRecorder()
+	h.preview(w, httptest.NewRequest(http.MethodPost, "/api/admin/selector/preview", jsonBody(t, defaultLadderBody())))
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var got selectorPreviewResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+
+	complexTier := got.Tiers["complex"]
+	assert.Equal(t, "b/pricey", complexTier.Coder.Pick.Model, "a/cheap is blacklisted")
+	assert.Equal(t, "auto", complexTier.Coder.Pick.Source)
+	assert.Equal(t, "b/pricey", complexTier.Reviewer.Pick.Model)
+	assert.Equal(t, "favorite", complexTier.Reviewer.Pick.Source)
+}
+
+func TestAdminSelectorPreview_NothingSelectableIsReported(t *testing.T) {
+	h := &selectorAdminHandlers{store: &stubSelectorAdminStore{}, catalog: previewCatalog()}
+
+	// Every rung at 0.99: the walk bottoms out for both roles.
+	body := map[string]any{"ladders": map[string]map[string]float64{
+		"coder":    {"simple": 0.99, "moderate": 0.99, "complex": 0.99, "critical": 0.99},
+		"reviewer": {"simple": 0.99, "moderate": 0.99, "complex": 0.99, "critical": 0.99},
+	}}
+
+	w := httptest.NewRecorder()
+	h.preview(w, httptest.NewRequest(http.MethodPost, "/api/admin/selector/preview", jsonBody(t, body)))
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var got selectorPreviewResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	assert.False(t, got.Tiers["complex"].Coder.Pick.OK)
+	assert.Empty(t, got.Tiers["complex"].Coder.Pick.Model)
+	assert.Empty(t, got.Tiers["complex"].Panel)
+	assert.Contains(t, w.Body.String(), `"panel":[]`)
+}
+
+func TestAdminSelectorPreview_HeadroomFromRequest(t *testing.T) {
+	h := &selectorAdminHandlers{store: &stubSelectorAdminStore{}, catalog: previewCatalog()}
+
+	// Headroom 3 admits a/mid (4e-6 <= 2e-6 x 3) into the complex reviewer
+	// band; its prior 0.86 beats a/cheap's 0.85.
+	body := defaultLadderBody()
+	body["headroom"] = 3.0
+
+	w := httptest.NewRecorder()
+	h.preview(w, httptest.NewRequest(http.MethodPost, "/api/admin/selector/preview", jsonBody(t, body)))
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var got selectorPreviewResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	assert.Equal(t, "a/mid", got.Tiers["complex"].Reviewer.Pick.Model)
+}
+
+func TestAdminSelectorPreview_InvalidLadderIs422(t *testing.T) {
+	h := &selectorAdminHandlers{store: &stubSelectorAdminStore{}, catalog: previewCatalog()}
+	body := map[string]any{"ladders": map[string]map[string]float64{"coder": {"complex": 0.5}, "reviewer": {"complex": 0.9}}}
+
+	w := httptest.NewRecorder()
+	h.preview(w, httptest.NewRequest(http.MethodPost, "/api/admin/selector/preview", jsonBody(t, body)))
+
+	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
+}
+
+func TestAdminSelectorCatalogRoutes_MultiMode(t *testing.T) {
+	server := newSelectorAdminServer(t, RouterConfig{SelectorAdmin: &stubSelectorAdminStore{}, SelectorCatalog: previewCatalog()}, true)
+
+	bob := login(t, server, "bob", "bob password1")
+
+	resp, err := http.DefaultClient.Do(selectorRequest(t, http.MethodGet, server.URL+"/api/admin/selector/candidates", nil, bob))
+	require.NoError(t, err)
+	closeBody(t, resp.Body)
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
+	resp, err = http.DefaultClient.Do(selectorRequest(t, http.MethodPost, server.URL+"/api/admin/selector/preview", defaultLadderBody(), bob))
+	require.NoError(t, err)
+	closeBody(t, resp.Body)
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
+	root := login(t, server, "root", "root password1")
+
+	resp, err = http.DefaultClient.Do(selectorRequest(t, http.MethodPost, server.URL+"/api/admin/selector/preview", defaultLadderBody(), root))
+	require.NoError(t, err)
+	closeBody(t, resp.Body)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }

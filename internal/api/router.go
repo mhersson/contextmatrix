@@ -217,6 +217,11 @@ type RouterConfig struct {
 	// selector endpoints. In main.go it is the same opstore handle as
 	// BlacklistAdmin.
 	SelectorAdmin selectorAdminStore
+	// SelectorCatalog backs the admin selector candidates and preview
+	// endpoints. Set with Catalog in main.go, under the same guard, so a
+	// typed-nil *modelcatalog.Builder is never boxed; nil makes both
+	// endpoints answer 503.
+	SelectorCatalog selectorCatalog
 
 	// ChatEndpointModels, when non-nil, is the raw (uncached) upstream fetch for
 	// the openai-endpoint model list. Set when llm_endpoint.type == "openai".
@@ -458,16 +463,22 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		mux.HandleFunc("DELETE /api/admin/model-blacklist/{slug...}", bh.delist)
 	}
 
-	// Admin selector ladders: same trust posture as model-blacklist. These
-	// two routes never touch the catalog, so a CM without an AA key still
-	// serves and stores its ladders.
+	// Admin selector: same trust posture as model-blacklist. The ladder
+	// routes never touch the catalog, so a CM without an AA key still serves
+	// and stores its ladders; candidates and preview answer 503 until the
+	// catalog has refreshed once.
 	if cfg.SelectorAdmin != nil {
 		selh := &selectorAdminHandlers{
 			store:       cfg.SelectorAdmin,
+			catalog:     cfg.SelectorCatalog,
+			blacklist:   cfg.Blacklist,
+			favorites:   agentCfg.Favorites,
 			authEnabled: cfg.AuthService != nil,
 		}
 		mux.HandleFunc("GET /api/admin/selector/ladders", selh.getLadders)
 		mux.HandleFunc("PUT /api/admin/selector/ladders", selh.putLadders)
+		mux.HandleFunc("GET /api/admin/selector/candidates", selh.getCandidates)
+		mux.HandleFunc("POST /api/admin/selector/preview", selh.preview)
 	}
 
 	// Auth routes - only in multi mode.
