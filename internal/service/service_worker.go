@@ -20,9 +20,12 @@ var ErrInvalidPRUrl = fmt.Errorf("pr_url must use http or https scheme")
 // ErrReviewAttemptsCapped is returned when the review_attempts counter has reached its limit.
 var ErrReviewAttemptsCapped = fmt.Errorf("review attempts limit reached")
 
-// ErrInvalidBranch is returned when a reported branch name fails validation
-// (empty, contains newlines or control characters).
-var ErrInvalidBranch = fmt.Errorf("branch name must be a single-line valid git branch name")
+// ErrInvalidBranch is returned when a reported branch name fails validation.
+// A valid branch must be a non-empty single line, no longer than 255 bytes,
+// and satisfy Git's ref-format rules (no spaces, `..`, `~`, `^`, `:`, `@{`,
+// `\`, `?`, `*`, `[`, `//`, leading/trailing `/` or `.`, trailing `.lock`,
+// or bare `.` / `..` components).
+var ErrInvalidBranch = fmt.Errorf("branch name must be a valid Git branch (non-empty single line, 255-byte max, no spaces, control chars, or Git-ref-invalid sequences)")
 
 // ErrCardTerminal is returned when an operation is not allowed on a card in a terminal state (done/not_planned).
 var ErrCardTerminal = fmt.Errorf("card is in a terminal state")
@@ -38,17 +41,69 @@ func isProtectedBranch(branch string) bool {
 	return normalized == "main" || normalized == "master"
 }
 
-// validBranchName rejects branches that are empty, contain newlines, or contain
-// control characters (ASCII 0x00-0x1F, 0x7F).
+// validBranchName rejects branches that violate Git's refname rules and
+// injectable-value constraints:
+//   - empty, or longer than 255 bytes (colloquial git check-ref-format limit);
+//   - contains newlines, control characters (ASCII 0x00-0x1F, 0x7F), or space;
+//   - contains Git-ref-rule characters:  ~ ^ : ? * [ \ ;
+//   - contains `..` or `@{` (ref-log injection / ancestor syntax);
+//   - contains `//` or starts/ends with `/` (no empty components);
+//   - contains a component that is `.` or `..` (relative-path traversal);
+//   - starts or ends with `.` (hidden component disguise);
+//   - ends with `.lock` (reserved suffix).
 func validBranchName(branch string) error {
 	if branch == "" {
 		return fmt.Errorf("%w: branch name is empty", ErrInvalidBranch)
+	}
+
+	if len(branch) > 255 {
+		return fmt.Errorf("%w: branch name length %d exceeds 255 byte limit", ErrInvalidBranch, len(branch))
 	}
 
 	for _, r := range branch {
 		if r == '\n' || r == '\r' || (r < 0x20) || r == 0x7f {
 			return fmt.Errorf("%w: contains control character U+%04X", ErrInvalidBranch, r)
 		}
+
+		if r == ' ' {
+			return fmt.Errorf("%w: contains space", ErrInvalidBranch)
+		}
+
+		if r == '~' || r == '^' || r == ':' || r == '?' || r == '*' || r == '[' || r == '\\' {
+			return fmt.Errorf("%w: contains invalid character %q", ErrInvalidBranch, r)
+		}
+	}
+
+	if strings.Contains(branch, "..") {
+		return fmt.Errorf("%w: contains '..'", ErrInvalidBranch)
+	}
+
+	if strings.Contains(branch, "@{") {
+		return fmt.Errorf("%w: contains '@{'", ErrInvalidBranch)
+	}
+
+	if strings.Contains(branch, "//") {
+		return fmt.Errorf("%w: contains '//'", ErrInvalidBranch)
+	}
+
+	if branch[0] == '/' {
+		return fmt.Errorf("%w: starts with '/'", ErrInvalidBranch)
+	}
+
+	if branch[len(branch)-1] == '/' {
+		return fmt.Errorf("%w: ends with '/'", ErrInvalidBranch)
+	}
+
+	if branch[0] == '.' {
+		return fmt.Errorf("%w: starts with '.'", ErrInvalidBranch)
+	}
+
+	if branch[len(branch)-1] == '.' {
+		return fmt.Errorf("%w: ends with '.'", ErrInvalidBranch)
+	}
+
+	if strings.HasSuffix(branch, ".lock") {
+		return fmt.Errorf("%w: ends with '.lock' (reserved suffix)", ErrInvalidBranch)
 	}
 
 	return nil

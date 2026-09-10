@@ -5036,7 +5036,7 @@ func TestRecordPush_BranchName_ProtectedBranchPreservesState(t *testing.T) {
 	// Now try a protected-branch push - must reject.
 	_, err = svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "main", "")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrProtectedBranch)
+	require.ErrorIs(t, err, ErrProtectedBranch)
 
 	// Verify branch and PR URL are untouched.
 	reloaded, err = svc.GetCard(ctx, "test-project", card.ID)
@@ -5048,11 +5048,13 @@ func TestRecordPush_BranchName_ProtectedBranchPreservesState(t *testing.T) {
 
 	// Verify the pushed activity entry is still the only one.
 	pushCount := 0
+
 	for _, entry := range reloaded.ActivityLog {
 		if entry.Action == "pushed" {
 			pushCount++
 		}
 	}
+
 	assert.Equal(t, 1, pushCount, "no additional pushed entry should exist")
 }
 
@@ -5082,7 +5084,7 @@ func TestRecordPush_BranchName_AgentMismatchPreservesState(t *testing.T) {
 	// Try push with wrong agent.
 	_, err = svc.RecordPush(ctx, "test-project", card.ID, "agent-intruder", "cm/evil-001", "")
 	require.Error(t, err)
-	assert.ErrorIs(t, err, lock.ErrAgentMismatch)
+	require.ErrorIs(t, err, lock.ErrAgentMismatch)
 
 	// Verify branch and PR URL are untouched.
 	reloaded, err = svc.GetCard(ctx, "test-project", card.ID)
@@ -5094,11 +5096,13 @@ func TestRecordPush_BranchName_AgentMismatchPreservesState(t *testing.T) {
 
 	// Verify the pushed activity entry count.
 	pushCount := 0
+
 	for _, entry := range reloaded.ActivityLog {
 		if entry.Action == "pushed" {
 			pushCount++
 		}
 	}
+
 	assert.Equal(t, 1, pushCount, "no additional pushed entry after agent mismatch")
 }
 
@@ -5239,6 +5243,95 @@ func TestRecordPush_BranchName_InvalidBranchRejected(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "feature/login", reloaded.BranchName,
 		"branch_name must be preserved after empty-branch rejection")
+
+	// Overlong branch.
+	_, err = svc.RecordPush(ctx, "test-project", card.ID, "agent-1", strings.Repeat("a", 256), "")
+	require.Error(t, err, "overlong branch should be rejected")
+	require.ErrorIs(t, err, ErrInvalidBranch)
+
+	// Branch with space.
+	_, err = svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "branch with space", "")
+	require.Error(t, err, "space in branch should be rejected")
+	require.ErrorIs(t, err, ErrInvalidBranch)
+
+	// Branch with '..' (ancestor traversal).
+	_, err = svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "feature..bad", "")
+	require.Error(t, err, "'..' in branch should be rejected")
+	require.ErrorIs(t, err, ErrInvalidBranch)
+
+	// Branch with '~'.
+	_, err = svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "feature~1", "")
+	require.Error(t, err, "'~' in branch should be rejected")
+	require.ErrorIs(t, err, ErrInvalidBranch)
+
+	// Branch with '^'.
+	_, err = svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "feature^1", "")
+	require.Error(t, err, "'^' in branch should be rejected")
+	require.ErrorIs(t, err, ErrInvalidBranch)
+
+	// Branch with ':'.
+	_, err = svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "feature:bad", "")
+	require.Error(t, err, "':' in branch should be rejected")
+	require.ErrorIs(t, err, ErrInvalidBranch)
+
+	// Branch with '?', '*', '[' or '\\'.
+	for _, char := range []string{"?", "*", "[", "\\"} {
+		_, err = svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "feature/"+char, "")
+		require.Error(t, err, "%q in branch should be rejected", char)
+		require.ErrorIs(t, err, ErrInvalidBranch)
+	}
+
+	// Branch with '@{'.
+	_, err = svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "feature@{1}", "")
+	require.Error(t, err, "'@{' in branch should be rejected")
+	require.ErrorIs(t, err, ErrInvalidBranch)
+
+	// Branch with '//'.
+	_, err = svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "feature//bad", "")
+	require.Error(t, err, "'//' in branch should be rejected")
+	require.ErrorIs(t, err, ErrInvalidBranch)
+
+	// Branch starting with '/'.
+	_, err = svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "/feature/bad", "")
+	require.Error(t, err, "branch starting with '/' should be rejected")
+	require.ErrorIs(t, err, ErrInvalidBranch)
+
+	// Branch ending with '/'.
+	_, err = svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "feature/bad/", "")
+	require.Error(t, err, "branch ending with '/' should be rejected")
+	require.ErrorIs(t, err, ErrInvalidBranch)
+
+	// Branch starting with '.'.
+	_, err = svc.RecordPush(ctx, "test-project", card.ID, "agent-1", ".hidden-branch", "")
+	require.Error(t, err, "branch starting with '.' should be rejected")
+	require.ErrorIs(t, err, ErrInvalidBranch)
+
+	// Branch ending with '.'.
+	_, err = svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "feature/bad.", "")
+	require.Error(t, err, "branch ending with '.' should be rejected")
+	require.ErrorIs(t, err, ErrInvalidBranch)
+
+	// Branch ending with '.lock'.
+	_, err = svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "feature/bad.lock", "")
+	require.Error(t, err, "branch ending with '.lock' should be rejected")
+	require.ErrorIs(t, err, ErrInvalidBranch)
+
+	// Final state still intact after all invalid-rejection checks.
+	reloaded, err = svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "feature/login", reloaded.BranchName,
+		"branch_name must be preserved after all invalid-branch rejections")
+	assert.Equal(t, "https://github.com/org/repo/pull/10", reloaded.PRUrl,
+		"PR URL must be preserved after all invalid-branch rejections")
+
+	// Verify no additional pushed entry was added.
+	pushCount = 0
+	for _, entry := range reloaded.ActivityLog {
+		if entry.Action == "pushed" {
+			pushCount++
+		}
+	}
+	assert.Equal(t, 1, pushCount, "no additional pushed entry after all invalid-branch rejections")
 }
 
 func TestUpdateWorkerStatus_Completed(t *testing.T) {

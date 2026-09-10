@@ -332,9 +332,10 @@ main session, creates the card and offers next steps.
 
 **3. Execution** (Phase 5) - the orchestrator runs the skills, which
 check out `branch_name` when set; before the first push `branch_name` is a
-prediction that the executor may work with directly. A remote worker pushes
-`cm/<lowercase-card-id>` and `report_push` afterward reconciles the stored
-`branch_name` with the value reported. Claims the parent, calls `get_ready_tasks`
+prediction the local workflow skill may use. A remote worker never receives
+this field; it derives `cm/<lowercase-card-id>` itself, and `report_push`
+afterward reconciles the stored `branch_name` with the value the worker reports.
+Claims the parent, calls `get_ready_tasks`
 and spawns one `execute-task`
 sub-agent per ready subtask via `Agent`, in parallel, sharing the working
 tree; never inline and never in a worktree. Each sub-agent:
@@ -419,9 +420,10 @@ Parent lifecycle with rejections:
 ## Autonomous mode
 
 Cards with `autonomous: true` skip the human gates. `start_workflow` routes
-them to `run-autonomous.md`, which claims the card, works on `branch_name`
-when set (a prediction before the first push), and resumes at the phase the
-card state implies:
+them to `run-autonomous.md`, which claims the card and (for a local workflow)
+checks out `branch_name` when set - a prediction before the first push. A
+remote worker never receives this field; it derives `cm/<lowercase-card-id>`
+itself. The card resumes at the phase the state implies:
 
 | Card state                                 | Starts at                                                             |
 | ------------------------------------------ | --------------------------------------------------------------------- |
