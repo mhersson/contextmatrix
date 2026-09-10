@@ -602,3 +602,19 @@ func TestBuilderRefreshFailureServesLastGood(t *testing.T) {
 	require.True(t, ok)
 	assert.EqualValues(t, 2, hits.Load(), "failed refresh must back off, not retry per call")
 }
+
+func TestBuilderLastRefreshed(t *testing.T) {
+	var nilB *Builder
+
+	assert.True(t, nilB.LastRefreshed(context.Background()).IsZero(), "nil receiver has no snapshot")
+
+	// Seeded with a fresh stamp so no network refresh runs, then moved back
+	// an hour: still inside the 6h TTL, so the stamp must come back as is.
+	b := NewBuilder("", 0.65, nil, 0)
+	seedServed(t, b, map[string]orEntry{"z-ai/glm-5.2": {ContextWindow: 131072}})
+
+	stamp := time.Now().Add(-time.Hour).Truncate(time.Second)
+	b.cachedAt = stamp
+
+	assert.Equal(t, stamp, b.LastRefreshed(context.Background()))
+}

@@ -160,6 +160,24 @@ func (b *Builder) Candidates(ctx context.Context) []protocol.CandidateModel {
 	return b.cached
 }
 
+// LastRefreshed is when the snapshot Candidates serves was built, refreshing
+// first if the cache is stale so it describes the snapshot a caller gets
+// now. Zero until the first successful refresh, which is how the admin
+// selector endpoints tell "no candidates" from "no catalog yet". A nil
+// receiver is zero for the same reason Candidates yields nil.
+func (b *Builder) LastRefreshed(ctx context.Context) time.Time {
+	if b == nil {
+		return time.Time{}
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.refreshIfStaleLocked(ctx)
+
+	return b.cachedAt
+}
+
 // ModelPrice is the per-token price set for one served model. CacheRead and
 // CacheWrite are zero when the gateway publishes no cache pricing; callers
 // fall back to multiplier-derived rates.
