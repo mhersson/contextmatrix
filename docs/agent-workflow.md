@@ -330,9 +330,11 @@ main session, creates the card and offers next steps.
 | Phase 3 | Execute any `## Split`, re-read `## Plan` via `get_card`, dedupe against existing non-terminal subtasks by title, `create_card` each subtask inline                                                                       |
 | Phase 4 | HITL asks whether to start execution; autonomous skips                                                                                                                                                                    |
 
-**3. Execution** (Phase 5) - the orchestrator checks out the executor's
-`cm/<card-id>` branch (advertising `branch_name` only after the first push
-reconciles it via `report_push`), claims the parent, calls `get_ready_tasks`
+**3. Execution** (Phase 5) - the orchestrator runs the skills, which
+check out `branch_name` when set; before the first push `branch_name` is a
+prediction that the executor may work with directly. A remote worker pushes
+`cm/<lowercase-card-id>` and `report_push` afterward reconciles the stored
+`branch_name` with the value reported. Claims the parent, calls `get_ready_tasks`
 and spawns one `execute-task`
 sub-agent per ready subtask via `Agent`, in parallel, sharing the working
 tree; never inline and never in a worktree. Each sub-agent:
@@ -417,8 +419,9 @@ Parent lifecycle with rejections:
 ## Autonomous mode
 
 Cards with `autonomous: true` skip the human gates. `start_workflow` routes
-them to `run-autonomous.md`, which claims the card, works on the executor's
-`cm/<card-id>` branch, and resumes at the phase the card state implies:
+them to `run-autonomous.md`, which claims the card, works on `branch_name`
+when set (a prediction before the first push), and resumes at the phase the
+card state implies:
 
 | Card state                                 | Starts at                                                             |
 | ------------------------------------------ | --------------------------------------------------------------------- |

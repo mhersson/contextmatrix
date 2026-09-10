@@ -20,6 +20,10 @@ var ErrInvalidPRUrl = fmt.Errorf("pr_url must use http or https scheme")
 // ErrReviewAttemptsCapped is returned when the review_attempts counter has reached its limit.
 var ErrReviewAttemptsCapped = fmt.Errorf("review attempts limit reached")
 
+// ErrInvalidBranch is returned when a reported branch name fails validation
+// (empty, contains newlines or control characters).
+var ErrInvalidBranch = fmt.Errorf("branch name must be a single-line valid git branch name")
+
 // ErrCardTerminal is returned when an operation is not allowed on a card in a terminal state (done/not_planned).
 var ErrCardTerminal = fmt.Errorf("card is in a terminal state")
 
@@ -34,6 +38,22 @@ func isProtectedBranch(branch string) bool {
 	return normalized == "main" || normalized == "master"
 }
 
+// validBranchName rejects branches that are empty, contain newlines, or contain
+// control characters (ASCII 0x00-0x1F, 0x7F).
+func validBranchName(branch string) error {
+	if branch == "" {
+		return fmt.Errorf("%w: branch name is empty", ErrInvalidBranch)
+	}
+
+	for _, r := range branch {
+		if r == '\n' || r == '\r' || (r < 0x20) || r == 0x7f {
+			return fmt.Errorf("%w: contains control character U+%04X", ErrInvalidBranch, r)
+		}
+	}
+
+	return nil
+}
+
 // RecordPush records a git push event on a card, updating PRUrl if provided and
 // adding an activity log entry. All mutations are atomic under a single lock.
 // Returns ErrProtectedBranch if the branch is main/master.
@@ -44,6 +64,13 @@ func (s *CardService) RecordPush(ctx context.Context, project, id, agentID, bran
 	// Service-layer branch protection - defense in depth.
 	if isProtectedBranch(branch) {
 		return nil, ErrProtectedBranch
+	}
+
+	// Validate the branch is a well-formed single-line value before any
+	// mutation. Empty, newline, and control-character branches are rejected
+	// so the value cannot inject into agent prompts.
+	if err := validBranchName(branch); err != nil {
+		return nil, err
 	}
 
 	// Validate PR URL scheme before acquiring the lock.

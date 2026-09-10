@@ -5148,8 +5148,8 @@ func TestRecordPush_BranchName_CommitFailureRollback(t *testing.T) {
 
 	failOnCommit := &fakeCommitter{
 		inner:   gitMgr2,
-		// Match the commit message generated for RecordPush: "pushed to <branch>".
-		failMsg: "pushed to cm/rollback-test-001",
+		failMsg: card.ID, // Match on the stable card ID so the test does not
+		// depend on surrounding commit-message prose.
 	}
 
 	failingQueue := gitops.NewCommitQueueWithCommitter(failOnCommit, 0)
@@ -5170,6 +5170,75 @@ func TestRecordPush_BranchName_CommitFailureRollback(t *testing.T) {
 		"PR URL must be rolled back after commit failure")
 	assert.Equal(t, before.ActivityLog, after.ActivityLog,
 		"activity log must be rolled back to pre-push state after commit failure")
+}
+
+func TestRecordPush_BranchName_InvalidBranchRejected(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Invalid branch reject", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, card.BranchName)
+
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-1")
+	require.NoError(t, err)
+
+	// First establish a known good state.
+	_, err = svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "feature/login", "https://github.com/org/repo/pull/10")
+	require.NoError(t, err)
+
+	// Branch with newline.
+	_, err = svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "feature/newline\nbad", "")
+	require.Error(t, err, "newline in branch should be rejected")
+	require.ErrorIs(t, err, ErrInvalidBranch)
+
+	// Branch with carriage return.
+	_, err = svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "feature/cr\rbad", "")
+	require.Error(t, err, "carriage return in branch should be rejected")
+	require.ErrorIs(t, err, ErrInvalidBranch)
+
+	// Branch with control character.
+	_, err = svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "feature/\x00null", "")
+	require.Error(t, err, "null byte in branch should be rejected")
+	require.ErrorIs(t, err, ErrInvalidBranch)
+
+	// Branch with tab.
+	_, err = svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "feature/\tbad", "")
+	require.Error(t, err, "tab in branch should be rejected")
+	require.ErrorIs(t, err, ErrInvalidBranch)
+
+	// Verify all prior state is untouched after all rejections.
+	reloaded, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "feature/login", reloaded.BranchName,
+		"branch_name must be preserved after invalid-branch rejection")
+	assert.Equal(t, "https://github.com/org/repo/pull/10", reloaded.PRUrl,
+		"PR URL must be preserved after invalid-branch rejection")
+
+	// Also verify no entry was added to activity log.
+	pushCount := 0
+	for _, entry := range reloaded.ActivityLog {
+		if entry.Action == "pushed" {
+			pushCount++
+		}
+	}
+	assert.Equal(t, 1, pushCount, "no additional pushed entry after invalid-branch rejection")
+
+	// Verify validation happens before any lock acquisition / mutation.
+	// Empty branch.
+	_, err = svc.RecordPush(ctx, "test-project", card.ID, "agent-1", "", "")
+	require.Error(t, err, "empty branch should be rejected")
+	require.ErrorIs(t, err, ErrInvalidBranch)
+
+	// Final state still intact.
+	reloaded, err = svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "feature/login", reloaded.BranchName,
+		"branch_name must be preserved after empty-branch rejection")
 }
 
 func TestUpdateWorkerStatus_Completed(t *testing.T) {

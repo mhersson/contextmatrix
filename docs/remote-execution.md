@@ -181,11 +181,12 @@ payload in `internal/api/backend_launch.go` (`launch`, shared with the playbook 
 | `git_token_expires_at` | RFC3339; absent for PAT-backed credentials, which need no refresh. App tokens live about an hour; see [GitHub token refresh](#github-token-refresh).                                                                                                                                                                       |
 | `llm_endpoint`         | CM's `llm_endpoint` block (`type`, `base_url`, `api_key`), sent whenever `type` is set, even with an empty key. Omitted only when the whole block is unset; the agent then rejects the run (fail closed, no local fallback).                                                                                                 |
 
-Every card carries a server-generated `branch_name`, so a feature branch
-exists even before the first push. The worker derives the branch it actually
-pushes from the card id (`cm/<card-id>`); the first `report_push` reconciles
-the stored `branch_name` with it. The card's `create_pr` (default `true` at
-create) decides whether a pull request is opened, whatever the launch mode.
+Standalone and parent cards carry a predicted `branch_name` at create; no
+git ref is created merely by generating the field. The worker derives the
+branch it actually pushes from the card id (`cm/<lowercase-card-id>`); the
+first `report_push` sets the stored `branch_name` to the worker-reported
+value. The card's `create_pr` (default `true` at create) decides whether a
+pull request is opened, whatever the launch mode.
 
 **Correlation id.** Every trigger attempt carries an `X-Correlation-ID`
 header: a fresh random 32-character hex id minted per attempt in
