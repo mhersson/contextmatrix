@@ -20,6 +20,11 @@ var ErrInvalidPRUrl = fmt.Errorf("pr_url must use http or https scheme")
 // ErrReviewAttemptsCapped is returned when the review_attempts counter has reached its limit.
 var ErrReviewAttemptsCapped = fmt.Errorf("review attempts limit reached")
 
+// ErrInvalidBranch is returned when a reported branch name fails
+// validBranchName: it must be a non-empty single line of at most 255 bytes
+// that git check-ref-format would accept.
+var ErrInvalidBranch = fmt.Errorf("branch name must be a valid git branch name (non-empty, single line, at most 255 bytes)")
+
 // ErrCardTerminal is returned when an operation is not allowed on a card in a terminal state (done/not_planned).
 var ErrCardTerminal = fmt.Errorf("card is in a terminal state")
 
@@ -34,6 +39,64 @@ func isProtectedBranch(branch string) bool {
 	return normalized == "main" || normalized == "master"
 }
 
+// validBranchName rejects a reported branch that is not a plausible Git
+// branch name. The value lands in frontmatter, activity-log text, commit
+// messages and agent prompts, so it must be a bounded single line; the rest
+// mirrors git check-ref-format so a stored branch is one git could hold:
+//   - empty, or longer than 255 bytes;
+//   - contains control characters, space, or any of ~ ^ : ? * [ \;
+//   - contains ".." or "@{", or ends with ".";
+//   - has an empty path component (leading or trailing "/", or "//");
+//   - has a component starting with "." or ending with ".lock".
+func validBranchName(branch string) error {
+	if branch == "" {
+		return fmt.Errorf("%w: branch name is empty", ErrInvalidBranch)
+	}
+
+	if len(branch) > 255 {
+		return fmt.Errorf("%w: branch name length %d exceeds 255 byte limit", ErrInvalidBranch, len(branch))
+	}
+
+	for _, r := range branch {
+		if r < 0x20 || r == 0x7f {
+			return fmt.Errorf("%w: contains control character U+%04X", ErrInvalidBranch, r)
+		}
+
+		if r == ' ' {
+			return fmt.Errorf("%w: contains space", ErrInvalidBranch)
+		}
+
+		if strings.ContainsRune("~^:?*[\\", r) {
+			return fmt.Errorf("%w: contains invalid character %q", ErrInvalidBranch, r)
+		}
+	}
+
+	if strings.Contains(branch, "..") {
+		return fmt.Errorf("%w: contains '..'", ErrInvalidBranch)
+	}
+
+	if strings.Contains(branch, "@{") {
+		return fmt.Errorf("%w: contains '@{'", ErrInvalidBranch)
+	}
+
+	if strings.HasSuffix(branch, ".") {
+		return fmt.Errorf("%w: ends with '.'", ErrInvalidBranch)
+	}
+
+	for _, component := range strings.Split(branch, "/") {
+		switch {
+		case component == "":
+			return fmt.Errorf("%w: empty path component", ErrInvalidBranch)
+		case component[0] == '.':
+			return fmt.Errorf("%w: path component starts with '.'", ErrInvalidBranch)
+		case strings.HasSuffix(component, ".lock"):
+			return fmt.Errorf("%w: path component ends with '.lock'", ErrInvalidBranch)
+		}
+	}
+
+	return nil
+}
+
 // RecordPush records a git push event on a card, updating PRUrl if provided and
 // adding an activity log entry. All mutations are atomic under a single lock.
 // Returns ErrProtectedBranch if the branch is main/master.
@@ -44,6 +107,13 @@ func (s *CardService) RecordPush(ctx context.Context, project, id, agentID, bran
 	// Service-layer branch protection - defense in depth.
 	if isProtectedBranch(branch) {
 		return nil, ErrProtectedBranch
+	}
+
+	// The reported branch is stored on the card and rendered into agent
+	// prompts, so reject anything that is not a bounded, single-line git
+	// branch name before any mutation.
+	if err := validBranchName(branch); err != nil {
+		return nil, err
 	}
 
 	// Validate PR URL scheme before acquiring the lock.
@@ -78,6 +148,12 @@ func (s *CardService) RecordPush(ctx context.Context, project, id, agentID, bran
 	// Update PR URL if provided.
 	if prURL != "" {
 		card.PRUrl = prURL
+	}
+
+	// Record the reported branch on standalone and parent cards (not subtasks).
+	// Subtasks work on the parent's branch and carry no BranchName of their own.
+	if card.Parent == "" {
+		card.BranchName = branch
 	}
 
 	// Append activity log entry.

@@ -1091,9 +1091,11 @@ func (s *CardService) buildUpdateApply(ctx context.Context, input UpdateCardInpu
 			card.Phase = *input.Phase
 		}
 
-		// BranchName is immutable after first generation - only backfilled on
-		// legacy non-subtask cards created before names were generated at
-		// create. Subtasks work on their parent's branch and never get one.
+		// BranchName is never taken from client input: it is generated once
+		// (backfilled here for legacy non-subtask cards created before names
+		// were generated at create) and later reconciled by RecordPush with
+		// the branch the worker actually pushed. Subtasks work on their
+		// parent's branch and never get one.
 		if card.BranchName == "" && card.Parent == "" {
 			card.BranchName = generateBranchName(card.ID, card.Title)
 		}
@@ -1340,9 +1342,11 @@ func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput)
 			card.Autonomous = *input.Autonomous
 		}
 
-		// BranchName is immutable after first generation - only backfilled on
-		// legacy non-subtask cards created before names were generated at
-		// create. Subtasks work on their parent's branch and never get one.
+		// BranchName is never taken from client input: it is generated once
+		// (backfilled here for legacy non-subtask cards created before names
+		// were generated at create) and later reconciled by RecordPush with
+		// the branch the worker actually pushed. Subtasks work on their
+		// parent's branch and never get one.
 		if card.BranchName == "" && card.Parent == "" {
 			card.BranchName = generateBranchName(card.ID, card.Title)
 		}

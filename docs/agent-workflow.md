@@ -330,10 +330,14 @@ main session, creates the card and offers next steps.
 | Phase 3 | Execute any `## Split`, re-read `## Plan` via `get_card`, dedupe against existing non-terminal subtasks by title, `create_card` each subtask inline                                                                       |
 | Phase 4 | HITL asks whether to start execution; autonomous skips                                                                                                                                                                    |
 
-**3. Execution** (Phase 5) - the orchestrator checks out `branch_name`,
-claims the parent, calls `get_ready_tasks` and spawns one `execute-task`
-sub-agent per ready subtask via `Agent`, in parallel, sharing the working
-tree; never inline and never in a worktree. Each sub-agent:
+**3. Execution** (Phase 5) - the orchestrator checks out `branch_name`
+(a local workflow uses the predicted name as-is; a remote worker never
+receives the field, pushes `cm/<lowercase-card-id>` instead, and `report_push`
+then stores the branch it reports - see
+[`create_pr` semantics](data-model.md#create_pr-semantics)), claims the
+parent, calls `get_ready_tasks` and spawns one `execute-task` sub-agent per
+ready subtask via `Agent`, in parallel, sharing the working tree; never
+inline and never in a worktree. Each sub-agent:
 
 1. reads the injected context (`get_task_context` only to re-verify);
 2. `claim_card`;
@@ -416,7 +420,9 @@ Parent lifecycle with rejections:
 
 Cards with `autonomous: true` skip the human gates. `start_workflow` routes
 them to `run-autonomous.md`, which claims the card, creates or checks out
-`branch_name`, and resumes at the phase the card state implies:
+`branch_name` (the predicted name; a remote worker works on
+`cm/<lowercase-card-id>` instead and `report_push` reconciles the field), and
+resumes at the phase the card state implies:
 
 | Card state                                 | Starts at                                                             |
 | ------------------------------------------ | --------------------------------------------------------------------- |
