@@ -30,6 +30,10 @@ import type {
   CreateCredentialInput,
   ModelBlacklist,
   ModelOutcomeStats,
+  SelectorLadders,
+  SelectorLaddersResponse,
+  SelectorCandidatesResponse,
+  SelectorPreview,
   PlaybookSummary,
   PlaybookDetail,
   CreatePlaybookInput,
@@ -408,6 +412,31 @@ class APIClient {
   // slash (z-ai/glm-5.2) and the backend route is a rest wildcard.
   async adminDelistModel(slug: string): Promise<{ deleted: string }> {
     return this.request<{ deleted: string }>(`/admin/model-blacklist/${slug}`, { method: 'DELETE' });
+  }
+
+  async adminSelectorLadders(): Promise<SelectorLaddersResponse> {
+    return this.request<SelectorLaddersResponse>('/admin/selector/ladders');
+  }
+
+  async adminSelectorPutLadders(ladders: SelectorLadders): Promise<SelectorLaddersResponse> {
+    return this.request<SelectorLaddersResponse>('/admin/selector/ladders', {
+      method: 'PUT',
+      body: JSON.stringify({ ladders }),
+    });
+  }
+
+  async adminSelectorCandidates(): Promise<SelectorCandidatesResponse> {
+    return this.request<SelectorCandidatesResponse>('/admin/selector/candidates');
+  }
+
+  // signal lets the ladders page drop a preview that a newer drag step has
+  // already superseded.
+  async adminSelectorPreview(ladders: SelectorLadders, signal?: AbortSignal): Promise<SelectorPreview> {
+    return this.request<SelectorPreview>('/admin/selector/preview', {
+      method: 'POST',
+      body: JSON.stringify({ ladders }),
+      signal,
+    });
   }
 
   // Task skills (project default + per-card selectors)

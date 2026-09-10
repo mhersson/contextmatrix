@@ -694,6 +694,101 @@ export interface ModelBlacklist {
   models: ModelBlacklistEntry[];
 }
 
+// Admin - selector tier ladders and the pick preview. Shapes mirror the
+// /api/admin/selector/* endpoints; every tier is always present.
+export type SelectorRole = 'coder' | 'reviewer';
+export type SelectorTier = 'simple' | 'moderate' | 'complex' | 'critical';
+export type TierBars = Record<SelectorTier, number>;
+export type SelectorLadders = Record<SelectorRole, TierBars>;
+
+export interface SelectorLaddersResponse {
+  ladders: SelectorLadders;
+  defaults: TierBars;
+  is_default: boolean;
+  updated_at?: string;
+}
+
+export interface SelectorCandidate {
+  slug: string;
+  creator: string;
+  coder_prior: number;
+  reviewer_prior: number;
+  prompt_price_per_tok: number;
+  completion_price_per_tok: number;
+  context_window: number;
+}
+
+export interface SelectorFavoriteRule {
+  tier: string;
+  role?: string;
+  models: string[];
+}
+
+export interface SelectorCandidatesResponse {
+  candidates: SelectorCandidate[];
+  favorites: SelectorFavoriteRule[];
+  blacklist: string[];
+  headroom: number;
+  quality_floor: number;
+  catalog_refreshed_at: string;
+}
+
+export type SelectorPickSource = 'auto' | 'favorite' | 'pinned' | 'capable-default';
+
+export interface SelectorPick {
+  model: string;
+  context_window: number;
+  role: SelectorRole;
+  requested_tier: SelectorTier;
+  /** Empty when the pick clears no rung (ok false). */
+  met_tier: SelectorTier | '';
+  requested_bar: number;
+  prior: number;
+  has_prior: boolean;
+  source: SelectorPickSource;
+  duplicate: boolean;
+  ok: boolean;
+  price_per_tok: number;
+}
+
+export interface SelectorPoolEntry {
+  model: string;
+  prior: number;
+  price_per_tok: number;
+  outcome: 'selected' | 'in-band' | 'out-of-band';
+}
+
+export interface SelectorFilteredOut {
+  reason: string;
+  models: string[];
+}
+
+export interface SelectorReport {
+  rung: SelectorTier | '';
+  bar: number;
+  pool: SelectorPoolEntry[];
+  filtered_out: SelectorFilteredOut[];
+}
+
+export interface SelectorPickReport {
+  pick: SelectorPick;
+  report: SelectorReport;
+}
+
+export interface SelectorSeat extends SelectorPickReport {
+  walked: boolean;
+}
+
+export interface SelectorTierPreview {
+  coder: SelectorPickReport;
+  reviewer: SelectorPickReport;
+  panel: SelectorSeat[];
+}
+
+export interface SelectorPreview {
+  tiers: Record<SelectorTier, SelectorTierPreview>;
+}
+
 export type ChatStatus = 'cold' | 'active' | 'warm-idle' | 'ending';
 
 export interface ChatSession {
