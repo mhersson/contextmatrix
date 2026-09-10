@@ -212,6 +212,12 @@ type RouterConfig struct {
 	// OutcomesAdmin; in main.go it is the same opstore handle.
 	BlacklistAdmin blacklistAdminStore
 
+	// SelectorAdmin supplies the stored per-role tier ladders: read on every
+	// agent trigger (SelectionContext.TierBars) and read+written by the admin
+	// selector endpoints. In main.go it is the same opstore handle as
+	// BlacklistAdmin.
+	SelectorAdmin selectorAdminStore
+
 	// ChatEndpointModels, when non-nil, is the raw (uncached) upstream fetch for
 	// the openai-endpoint model list. Set when llm_endpoint.type == "openai".
 	// NewRouter wraps it with a TTL cache via newCachedEndpointFetcher. The
@@ -450,6 +456,18 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		}
 		mux.HandleFunc("GET /api/admin/model-blacklist", bh.list)
 		mux.HandleFunc("DELETE /api/admin/model-blacklist/{slug...}", bh.delist)
+	}
+
+	// Admin selector ladders: same trust posture as model-blacklist. These
+	// two routes never touch the catalog, so a CM without an AA key still
+	// serves and stores its ladders.
+	if cfg.SelectorAdmin != nil {
+		selh := &selectorAdminHandlers{
+			store:       cfg.SelectorAdmin,
+			authEnabled: cfg.AuthService != nil,
+		}
+		mux.HandleFunc("GET /api/admin/selector/ladders", selh.getLadders)
+		mux.HandleFunc("PUT /api/admin/selector/ladders", selh.putLadders)
 	}
 
 	// Auth routes - only in multi mode.
