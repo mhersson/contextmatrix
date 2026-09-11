@@ -178,7 +178,7 @@ describe('AdminModelSelectionPage - loading', () => {
     mocks.adminSelectorCandidates.mockResolvedValue({ ...catalogRes(), reasoning_effort: 'medium' });
     await renderLoaded();
 
-    expect(screen.getByText(/4 candidates · priors normalised to the AA leader · gateway effort medium · refreshed 6 h ago/)).toBeInTheDocument();
+    expect(screen.getByText(/4 candidates · priors normalised to the AA leader · OpenAI effort medium · refreshed 6 h ago/)).toBeInTheDocument();
   });
 });
 

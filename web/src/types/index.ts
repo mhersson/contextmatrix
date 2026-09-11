@@ -739,7 +739,7 @@ export interface SelectorCandidatesResponse {
   blacklist: string[];
   quality_floor: number;
   catalog_refreshed_at: string;
-  /** llm_endpoint.reasoning_effort, the effort the gateway pins; empty when unset. */
+  /** llm_endpoint.reasoning_effort, the effort the gateway pins for its OpenAI models; empty when unset. */
   reasoning_effort: string;
 }
 

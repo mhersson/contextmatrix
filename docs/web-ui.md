@@ -188,8 +188,8 @@ the reviewer pick and the three-seat review panel with prices, `↓ <rung>` when
 pick descended and `walked` on a seat that re-anchored its price band. A price
 marked *list* is the Artificial Analysis list price for a model the gateway does
 not price. A pill's tooltip names the AA row the candidate was scored from; the
-panel meta line names the gateway's pinned reasoning effort when one is
-configured. The KPI row summarises the `complex` tier (reviewers clearing it,
+panel meta line names the reasoning effort the gateway pins for its OpenAI
+models when one is configured. The KPI row summarises the `complex` tier (reviewers clearing it,
 the cheapest reviewer, the three-seat panel cost) plus the coder pick at
 `moderate`. Nothing is sent until **Save**; the status pill in the header says
 whether the next run uses the values on screen. The blacklist panel below lists

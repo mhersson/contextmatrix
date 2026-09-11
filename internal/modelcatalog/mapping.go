@@ -66,6 +66,10 @@ func mapAASlug(aaSlug, aaCreator string) (string, bool) {
 	return aaCreator + "/" + name, true
 }
 
+// creatorOpenAI is the vendor prefix of the one creator whose families take
+// the gateway's pinned reasoning effort (llm_endpoint.reasoning_effort).
+const creatorOpenAI = "openai"
+
 // trustedCreators is the allowlist of creator vendor prefixes eligible for
 // auto-selection. Overridable via config (see Builder.Allowlist).
 var trustedCreators = []string{
@@ -368,6 +372,18 @@ func closer(a, b familyRow, effort string, maxCoding, maxIntel float64) bool {
 
 func combinedPrior(m aaModel, maxCoding, maxIntel float64) float64 {
 	return norm(m.CodingIndex, maxCoding) + norm(m.IntelIndex, maxIntel)
+}
+
+// creator is the vendor prefix of the family under a key, read from its
+// first row: every row that reduces to one key names one model, so they
+// share a creator. Empty when the key has no family.
+func (idx familyIndex) creator(key string) string {
+	rows := idx[key]
+	if len(rows) == 0 {
+		return ""
+	}
+
+	return rows[0].model.Creator
 }
 
 // slugs lists every AA slug under a family key, sorted, for the unscored

@@ -683,25 +683,68 @@ func TestBuildEndpointCandidatesAliasEffort(t *testing.T) {
 	assert.Equal(t, "high", scored[0].Effort)
 }
 
+// TestBuildEndpointCandidatesReasoningEffortOpenAIOnly pins that the
+// gateway's configured effort is an OpenAI setting: a served model whose AA
+// family belongs to another creator is scored by the base-row rule even
+// when the gateway pins an effort, while an effort its own id names still
+// picks that row.
+func TestBuildEndpointCandidatesReasoningEffortOpenAIOnly(t *testing.T) {
+	aa := []aaModel{
+		{Slug: "gpt-5-2", Creator: "openai", CodingIndex: new(60.0), IntelIndex: new(60.0)},
+		{Slug: "gpt-5-2-medium", Creator: "openai", CodingIndex: new(80.0), IntelIndex: new(80.0)},
+		{Slug: "claude-opus-5", Creator: "anthropic", CodingIndex: new(60.0), IntelIndex: new(60.0)},
+		{Slug: "claude-opus-5-medium", Creator: "anthropic", CodingIndex: new(80.0), IntelIndex: new(80.0)},
+	}
+	endpoint := map[string]orEntry{
+		"openai/gpt-5.2":                 {ContextWindow: 1000, Tools: true},
+		"anthropic/claude-opus-5":        {ContextWindow: 1000, Tools: true},
+		"anthropic/claude-opus-5-medium": {ContextWindow: 1000, Tools: true},
+		"vendor-alias-only":              {ContextWindow: 1000, Tools: true, Aliases: []string{"claude-opus-5-medium"}},
+	}
+
+	scored, exclusions := buildEndpointCandidates(aa, endpoint, nil, 0.3, nil, "medium")
+	require.Empty(t, exclusions)
+	require.Len(t, scored, 4)
+
+	bySlug := map[string]aaScored{}
+	for _, s := range scored {
+		bySlug[s.Candidate.Slug] = s
+	}
+
+	assert.Equal(t, "gpt-5-2-medium", bySlug["openai/gpt-5.2"].Source, "an OpenAI family takes the gateway's effort")
+	assert.Equal(t, "medium", bySlug["openai/gpt-5.2"].Effort)
+
+	assert.Equal(t, "claude-opus-5", bySlug["anthropic/claude-opus-5"].Source, "the gateway's effort never reaches another creator's family")
+	assert.Empty(t, bySlug["anthropic/claude-opus-5"].Effort)
+	assert.InDelta(t, 60.0/80, bySlug["anthropic/claude-opus-5"].Candidate.CoderPrior, 1e-9)
+
+	assert.Equal(t, "claude-opus-5-medium", bySlug["anthropic/claude-opus-5-medium"].Source, "the id's own suffix still names the row")
+	assert.Equal(t, "medium", bySlug["anthropic/claude-opus-5-medium"].Effort)
+
+	assert.Equal(t, "claude-opus-5-medium", bySlug["vendor-alias-only"].Source, "an alias's own suffix names the row for any creator")
+	assert.Equal(t, "medium", bySlug["vendor-alias-only"].Effort)
+}
+
 // TestBuilderReasoningEffortReachesTheJoin: the configured gateway effort
-// picks the family row through a full refresh.
+// picks the family row of an OpenAI model through a full refresh, with the
+// AA creator name resolved to its vendor prefix on the way.
 func TestBuilderReasoningEffortReachesTheJoin(t *testing.T) {
 	endpointSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"data":[{"id":"vendor/model-a","context_length":200000,"capabilities":{"features":["tools"]}}]}`))
+		_, _ = w.Write([]byte(`{"data":[{"id":"openai/model-a","context_length":200000,"capabilities":{"features":["tools"]}}]}`))
 	}))
 	defer endpointSrv.Close()
 
 	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"data":[
-			{"slug":"model-a","model_creator":{"name":"vendor"},
+			{"slug":"model-a","model_creator":{"name":"OpenAI"},
 			 "evaluations":{"artificial_analysis_coding_index":60,"artificial_analysis_intelligence_index":60}},
-			{"slug":"model-a-medium","model_creator":{"name":"vendor"},
+			{"slug":"model-a-medium","model_creator":{"name":"OpenAI"},
 			 "evaluations":{"artificial_analysis_coding_index":80,"artificial_analysis_intelligence_index":80}}
 		]}`))
 	}))
 	defer aaSrv.Close()
 
-	b := NewBuilder("aa-key", 0.5, []string{"vendor"}, time.Hour,
+	b := NewBuilder("aa-key", 0.5, []string{"openai"}, time.Hour,
 		WithEndpoint(endpointSrv.URL, "secret", nil),
 		WithReasoningEffort("medium"))
 	b.aaEndpoint = aaSrv.URL
@@ -709,7 +752,7 @@ func TestBuilderReasoningEffortReachesTheJoin(t *testing.T) {
 	cands := b.Candidates(context.Background())
 	require.Len(t, cands, 1)
 	assert.InDelta(t, 1.0, cands[0].CoderPrior, 1e-9, "scored from the medium row, the family leader")
-	assert.Equal(t, "model-a-medium", b.Provenance(context.Background())["vendor/model-a"].ScoredFrom)
+	assert.Equal(t, "model-a-medium", b.Provenance(context.Background())["openai/model-a"].ScoredFrom)
 }
 
 // TestBuilderProvenanceModelPriorsNamesNoRow: a model_priors entry joins no

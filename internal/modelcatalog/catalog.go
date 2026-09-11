@@ -44,9 +44,10 @@ type Builder struct {
 	endpointBaseURL string
 	endpointAPIKey  string
 	priors          map[string]PriorOverride
-	// reasoningEffort is the effort the gateway pins for the models it
-	// serves (llm_endpoint.reasoning_effort); the join prefers the AA row
-	// carrying it. Empty when unknown.
+	// reasoningEffort is the effort the gateway pins for the OpenAI models
+	// it serves (llm_endpoint.reasoning_effort); the join prefers the AA row
+	// carrying it for OpenAI families and ignores it for every other
+	// creator. Empty when unknown.
 	reasoningEffort string
 	// tokenCosts is the operator's token_costs rate table. On the endpoint leg
 	// it prices models the gateway serves without a pricing block; see
@@ -91,8 +92,9 @@ func WithEndpoint(baseURL, apiKey string, priors map[string]PriorOverride) Build
 }
 
 // WithReasoningEffort names the reasoning effort the openai endpoint pins for
-// the models it serves. A served model whose id does not name its own effort
-// is then scored from its family's row for this effort when AA has one.
+// the OpenAI models it serves. A served OpenAI model whose id does not name
+// its own effort is then scored from its family's row for this effort when
+// AA has one; models of other creators are scored as if no effort were set.
 func WithReasoningEffort(effort string) BuilderOption {
 	return func(b *Builder) {
 		b.reasoningEffort = effort
@@ -636,8 +638,8 @@ const (
 // aaScored pairs a resolved candidate with the provenance of its priors for
 // the refresh log - Join says how ("model_priors override" or the AA row it
 // was scored from in Source), Effort the reasoning effort the join looked
-// for (the served id's own suffix, else the gateway's; empty when neither) -
-// and of its price.
+// for (the served id's own suffix, else the gateway's for an OpenAI family;
+// empty when neither) - and of its price.
 type aaScored struct {
 	Candidate   protocol.CandidateModel
 	Join        string
@@ -652,9 +654,10 @@ type aaScored struct {
 // automatically: the served id and each gateway alias reduce to family keys,
 // the first key with rows wins, and the closest scored row in that family
 // supplies the priors, preferring the row for the wanted reasoning effort
-// (the served name's own suffix, else the gateway's `effort` argument); its
-// creator must pass the allowlist. Everything that yields no floor-clearing
-// candidate is returned as an exclusion with its reason and what was tried.
+// (the served name's own suffix, else the gateway's `effort` argument, which
+// reaches OpenAI families only); its creator must pass the allowlist.
+// Everything that yields no floor-clearing candidate is returned as an
+// exclusion with its reason and what was tried.
 func buildEndpointCandidates(aa []aaModel, endpoint map[string]orEntry, priors map[string]PriorOverride, floor float64, allow []string, effort string) ([]aaScored, []aaExclusion) {
 	maxCoding, maxIntel := maxIndices(aa)
 	idx := indexFamilies(aa)
@@ -710,7 +713,7 @@ func buildEndpointCandidates(aa []aaModel, endpoint map[string]orEntry, priors m
 		}
 
 		want := lk.effort
-		if want == "" {
+		if want == "" && idx.creator(lk.key) == creatorOpenAI {
 			want = effort
 		}
 
