@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -33,11 +34,30 @@ type LLMEndpointConfig struct {
 	Type    string `yaml:"type"`     // "openrouter" (default) | "openai"
 	BaseURL string `yaml:"base_url"` // required for "openai"; defaults to the OpenRouter models URL for "openrouter"
 	APIKey  string `yaml:"api_key"`
+	// ReasoningEffort is the reasoning effort the gateway pins for the models
+	// it serves when it does not let the caller choose ("openai" only). The
+	// selection catalog scores a served model from the Artificial Analysis
+	// row carrying this effort when the family has one. Empty means unknown:
+	// the family base row is used. One of LLMEndpointReasoningEfforts.
+	ReasoningEffort string `yaml:"reasoning_effort"`
+}
+
+// LLMEndpointReasoningEfforts are the values llm_endpoint.reasoning_effort
+// accepts: the reasoning-effort suffixes Artificial Analysis appends to a
+// model slug. modelcatalog strips the same set when it builds family keys,
+// and a test there pins the two lists together.
+var LLMEndpointReasoningEfforts = []string{
+	"low", "medium", "high", "xhigh", "minimal",
+	"reasoning", "non-reasoning", "thinking", "adaptive",
 }
 
 func (e LLMEndpointConfig) validate() error {
 	switch e.Type {
 	case "", LLMEndpointTypeOpenRouter:
+		if e.ReasoningEffort != "" {
+			return fmt.Errorf("llm_endpoint.reasoning_effort applies only when llm_endpoint.type is \"openai\"")
+		}
+
 		return nil
 	case LLMEndpointTypeOpenAI:
 		if e.BaseURL == "" {
@@ -46,6 +66,11 @@ func (e LLMEndpointConfig) validate() error {
 
 		if e.APIKey == "" {
 			return fmt.Errorf("llm_endpoint.api_key is required when llm_endpoint.type is \"openai\"")
+		}
+
+		if e.ReasoningEffort != "" && !slices.Contains(LLMEndpointReasoningEfforts, e.ReasoningEffort) {
+			return fmt.Errorf("llm_endpoint.reasoning_effort must be one of %s, got %q",
+				strings.Join(LLMEndpointReasoningEfforts, ", "), e.ReasoningEffort)
 		}
 
 		return nil
@@ -1684,6 +1709,10 @@ func applyEnvOverrides(cfg *Config) error {
 
 	if v := os.Getenv("CONTEXTMATRIX_LLM_ENDPOINT_API_KEY"); v != "" {
 		cfg.LLMEndpoint.APIKey = v
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_LLM_ENDPOINT_REASONING_EFFORT"); v != "" {
+		cfg.LLMEndpoint.ReasoningEffort = v
 	}
 
 	// The outcome-bias mechanism was retired. A stale YAML outcome_floor key
