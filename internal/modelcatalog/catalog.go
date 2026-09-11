@@ -35,6 +35,10 @@ type Builder struct {
 	endpointBaseURL string
 	endpointAPIKey  string
 	priors          map[string]PriorOverride
+	// reasoningEffort is the effort the gateway pins for the models it
+	// serves (llm_endpoint.reasoning_effort); the join prefers the AA row
+	// carrying it. Empty when unknown.
+	reasoningEffort string
 	// tokenCosts is the operator's token_costs rate table. On the endpoint leg
 	// it prices models the gateway serves without a pricing block; see
 	// applyTokenCosts.
@@ -74,6 +78,15 @@ func WithEndpoint(baseURL, apiKey string, priors map[string]PriorOverride) Build
 		b.endpointBaseURL = baseURL
 		b.endpointAPIKey = apiKey
 		b.priors = priors
+	}
+}
+
+// WithReasoningEffort names the reasoning effort the openai endpoint pins for
+// the models it serves. A served model whose id does not name its own effort
+// is then scored from its family's row for this effort when AA has one.
+func WithReasoningEffort(effort string) BuilderOption {
+	return func(b *Builder) {
+		b.reasoningEffort = effort
 	}
 }
 
@@ -359,7 +372,7 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 			return nil, err
 		}
 
-		built, exclusions := buildEndpointCandidates(aa, ep, b.priors, b.floor, b.allowlist)
+		built, exclusions := buildEndpointCandidates(aa, ep, b.priors, b.floor, b.allowlist, b.reasoningEffort)
 
 		// Deterministic audit trail: the build iterates the endpoint map, so
 		// both lists arrive in map order. Sort by slug so refresh-to-refresh
@@ -396,7 +409,7 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 			slog.Info("endpoint model scored",
 				"slug", s.Candidate.Slug, "coder_prior", s.Candidate.CoderPrior,
 				"reviewer_prior", s.Candidate.ReviewerPrior, "join", s.Join,
-				"source", s.Source, "price_source", s.PriceSource)
+				"source", s.Source, "effort", s.Effort, "price_source", s.PriceSource)
 
 			if s.PriceSource == priceSourceNone {
 				slog.Warn("candidate has no price from the gateway, Artificial Analysis or token_costs; the selector will treat it as free",
@@ -606,11 +619,14 @@ const (
 
 // aaScored pairs a resolved candidate with the provenance of its priors for
 // the refresh log - Join says how ("model_priors override" or the AA row it
-// was scored from in Source) - and of its price.
+// was scored from in Source), Effort the reasoning effort the join looked
+// for (the served id's own suffix, else the gateway's; empty when neither) -
+// and of its price.
 type aaScored struct {
 	Candidate   protocol.CandidateModel
 	Join        string
 	Source      string
+	Effort      string
 	PriceSource priceSource
 }
 
@@ -619,10 +635,11 @@ type aaScored struct {
 // allowlist screen, creator unknown. Every other slug joins its AA family
 // automatically: the served id and each gateway alias reduce to family keys,
 // the first key with rows wins, and the closest scored row in that family
-// supplies the priors; its creator must pass the allowlist. Everything that
-// yields no floor-clearing candidate is returned as an exclusion with its
-// reason and what was tried.
-func buildEndpointCandidates(aa []aaModel, endpoint map[string]orEntry, priors map[string]PriorOverride, floor float64, allow []string) ([]aaScored, []aaExclusion) {
+// supplies the priors, preferring the row for the wanted reasoning effort
+// (the served name's own suffix, else effort, the gateway's); its creator
+// must pass the allowlist. Everything that yields no floor-clearing
+// candidate is returned as an exclusion with its reason and what was tried.
+func buildEndpointCandidates(aa []aaModel, endpoint map[string]orEntry, priors map[string]PriorOverride, floor float64, allow []string, effort string) ([]aaScored, []aaExclusion) {
 	maxCoding, maxIntel := maxIndices(aa)
 	idx := indexFamilies(aa)
 
@@ -664,16 +681,26 @@ func buildEndpointCandidates(aa []aaModel, endpoint map[string]orEntry, priors m
 
 		keys := lookupKeys(slug, e.Aliases)
 
-		key, found := firstFamily(idx, keys)
+		lk, found := firstFamily(idx, keys)
 		if !found {
-			exclusions = append(exclusions, aaExclusion{Slug: slug, Reason: exclNoFamily, Keys: keys})
+			tried := make([]string, 0, len(keys))
+			for _, k := range keys {
+				tried = append(tried, k.key)
+			}
+
+			exclusions = append(exclusions, aaExclusion{Slug: slug, Reason: exclNoFamily, Keys: tried})
 
 			continue
 		}
 
-		m, ok := idx.closest(key, "", maxCoding, maxIntel)
+		want := lk.effort
+		if want == "" {
+			want = effort
+		}
+
+		m, ok := idx.closest(lk.key, want, maxCoding, maxIntel)
 		if !ok {
-			exclusions = append(exclusions, aaExclusion{Slug: slug, Reason: exclUnscored, Family: idx.slugs(key)})
+			exclusions = append(exclusions, aaExclusion{Slug: slug, Reason: exclUnscored, Family: idx.slugs(lk.key)})
 
 			continue
 		}
@@ -707,6 +734,7 @@ func buildEndpointCandidates(aa []aaModel, endpoint map[string]orEntry, priors m
 			},
 			Join:        joinAutomatic,
 			Source:      m.Slug,
+			Effort:      want,
 			PriceSource: priceSrc,
 		})
 	}
@@ -714,37 +742,51 @@ func buildEndpointCandidates(aa []aaModel, endpoint map[string]orEntry, priors m
 	return scored, exclusions
 }
 
+// lookupKey is one family key a served model is looked up under, with the
+// reasoning effort the name itself carried (gpt-5.2-high names high), empty
+// when it carried none.
+type lookupKey struct {
+	key    string
+	effort string
+}
+
 // lookupKeys is the ordered family keys a served model is looked up under:
 // its id (familyKey drops any vendor prefix, so the vendor-stripped id is
-// the same key), then each gateway alias, without duplicates or empties.
-func lookupKeys(slug string, aliases []string) []string {
+// the same key), then each gateway alias, without duplicate keys or empties.
+func lookupKeys(slug string, aliases []string) []lookupKey {
 	names := make([]string, 0, len(aliases)+1)
 	names = append(names, slug)
 	names = append(names, aliases...)
 
-	keys := make([]string, 0, len(names))
+	keys := make([]lookupKey, 0, len(names))
 	seen := map[string]bool{}
 
 	for _, n := range names {
-		k := familyKey(n)
+		k, efforts, _ := familyKeyParts(n)
 		if k == "" || seen[k] {
 			continue
 		}
 
 		seen[k] = true
-		keys = append(keys, k)
+
+		lk := lookupKey{key: k}
+		if len(efforts) > 0 {
+			lk.effort = efforts[0]
+		}
+
+		keys = append(keys, lk)
 	}
 
 	return keys
 }
 
 // firstFamily returns the first key that has AA rows.
-func firstFamily(idx familyIndex, keys []string) (string, bool) {
+func firstFamily(idx familyIndex, keys []lookupKey) (lookupKey, bool) {
 	for _, k := range keys {
-		if len(idx[k]) > 0 {
+		if len(idx[k.key]) > 0 {
 			return k, true
 		}
 	}
 
-	return "", false
+	return lookupKey{}, false
 }

@@ -850,6 +850,7 @@ func newCatalogBuilder(cfg *config.Config, agentCfg *config.AgentBackendConfig, 
 
 			opts = append(opts, modelcatalog.WithEndpoint(
 				cfg.LLMEndpoint.BaseURL, cfg.LLMEndpoint.APIKey, priors),
+				modelcatalog.WithReasoningEffort(cfg.LLMEndpoint.ReasoningEffort),
 				modelcatalog.WithTokenCosts(catalogTokenCosts(cfg.TokenCosts)))
 		}
 
