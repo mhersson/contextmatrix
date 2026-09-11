@@ -99,6 +99,31 @@ describe('TierLadder - rendering', () => {
   });
 });
 
+describe('TierLadder - context menu', () => {
+  it('right-clicking a pill reports the slug and pointer, and suppresses the browser menu', () => {
+    const onModelMenu = vi.fn();
+    renderLadder({ onModelMenu });
+
+    const pill = screen.getByTestId('tl-dot-reviewer-a/mid');
+    const evt = fireEvent.contextMenu(pill, { clientX: 77, clientY: 123 });
+
+    expect(onModelMenu).toHaveBeenCalledWith('a/mid', 77, 123);
+    expect(evt).toBe(false);
+  });
+
+  it('leaves the browser menu alone when no handler is wired', () => {
+    renderLadder();
+
+    expect(fireEvent.contextMenu(screen.getByTestId('tl-dot-coder-a/top'), { clientX: 1, clientY: 2 })).toBe(true);
+  });
+
+  it('tells the operator a pill can be right-clicked', () => {
+    renderLadder({ onModelMenu: vi.fn() });
+
+    expect(screen.getByText(/right-click a pill to blacklist/)).toBeInTheDocument();
+  });
+});
+
 describe('TierLadder - drag', () => {
   it('moves one ladder in 0.005 steps when unlinked', () => {
     const { onChange } = renderLadder();
