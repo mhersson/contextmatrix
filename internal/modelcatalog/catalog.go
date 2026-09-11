@@ -671,7 +671,7 @@ func buildEndpointCandidates(aa []aaModel, endpoint map[string]orEntry, priors m
 			continue
 		}
 
-		m, ok := idx.closest(key, maxCoding, maxIntel)
+		m, ok := idx.closest(key, "", maxCoding, maxIntel)
 		if !ok {
 			exclusions = append(exclusions, aaExclusion{Slug: slug, Reason: exclUnscored, Family: idx.slugs(key)})
 

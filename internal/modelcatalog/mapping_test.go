@@ -3,6 +3,7 @@ package modelcatalog
 import (
 	"testing"
 
+	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -127,16 +128,37 @@ func TestFamilyKey(t *testing.T) {
 	}
 }
 
-func TestFamilyKeyCounts(t *testing.T) {
-	key, effort, date := familyKeyCounts("deepseek-v4-flash-0420-high")
+func TestFamilyKeyParts(t *testing.T) {
+	key, efforts, date := familyKeyParts("deepseek-v4-flash-0420-high")
 	assert.Equal(t, "deepseek-v4-flash", key)
-	assert.Equal(t, 1, effort)
+	assert.Equal(t, []string{"high"}, efforts)
 	assert.Equal(t, 1, date)
 
-	key, effort, date = familyKeyCounts("gpt-5-2")
-	assert.Equal(t, "gpt-5-2", key)
-	assert.Zero(t, effort)
+	key, efforts, date = familyKeyParts("gpt-5-4-mini-non-reasoning")
+	assert.Equal(t, "gpt-5-4-mini", key)
+	assert.Equal(t, []string{"non-reasoning"}, efforts)
 	assert.Zero(t, date)
+
+	key, efforts, date = familyKeyParts("model-medium-thinking")
+	assert.Equal(t, "model", key)
+	assert.Equal(t, []string{"thinking", "medium"}, efforts, "outermost first")
+	assert.Zero(t, date)
+
+	key, efforts, date = familyKeyParts("gpt-5-2")
+	assert.Equal(t, "gpt-5-2", key)
+	assert.Nil(t, efforts)
+	assert.Zero(t, date)
+}
+
+// TestReasoningEffortVocabularyStrips pins config's reasoning_effort values
+// to the suffixes the family key strips: a value the key would not strip
+// could never match a row.
+func TestReasoningEffortVocabularyStrips(t *testing.T) {
+	for _, effort := range config.LLMEndpointReasoningEfforts {
+		key, efforts, _ := familyKeyParts("model-" + effort)
+		assert.Equal(t, "model", key, effort)
+		assert.Equal(t, []string{effort}, efforts, effort)
+	}
 }
 
 func TestRewriteKeys(t *testing.T) {
@@ -160,14 +182,15 @@ func TestIndexFamiliesClosest(t *testing.T) {
 		{Slug: "kimi-k3", Creator: "moonshotai"},
 		{Slug: "kimi-k3-low", Creator: "moonshotai", CodingIndex: new(40.0), IntelIndex: new(40.0)},
 		{Slug: "kimi-k3-high", Creator: "moonshotai", CodingIndex: new(75.0), IntelIndex: new(75.0)},
+		{Slug: "kimi-k3-xhigh", Creator: "moonshotai"},
 		{Slug: "ghost-1", Creator: "x"},
 		{Slug: "claude-4-5-sonnet", Creator: "anthropic", CodingIndex: new(65.0), IntelIndex: new(65.0)},
 		{Slug: "claude-35-sonnet", Creator: "anthropic", CodingIndex: new(30.0), IntelIndex: new(30.0)},
 	}
 	idx := indexFamilies(aa)
 
-	pick := func(key string) string {
-		m, ok := idx.closest(key, 80, 80)
+	pick := func(key, effort string) string {
+		m, ok := idx.closest(key, effort, 80, 80)
 		if !ok {
 			return ""
 		}
@@ -175,15 +198,22 @@ func TestIndexFamiliesClosest(t *testing.T) {
 		return m.Slug
 	}
 
-	assert.Equal(t, "gpt-5-2", pick("gpt-5-2"), "the scored base row wins over a stronger effort variant")
-	assert.Equal(t, "deepseek-v4-flash-0420", pick("deepseek-v4-flash"), "a dated base beats a dated effort variant")
-	assert.Equal(t, "kimi-k3-high", pick("kimi-k3"), "unscored base: the strongest equally-close variant")
-	assert.Empty(t, pick("ghost-1"), "no scored row")
-	assert.Empty(t, pick("nope"), "no family")
-	assert.Equal(t, "claude-4-5-sonnet", pick("claude-sonnet-4-5"), "reachable through the Anthropic rewrite")
-	assert.Equal(t, "claude-35-sonnet", pick("claude-3-5-sonnet"), "reachable through the override table")
+	assert.Equal(t, "gpt-5-2", pick("gpt-5-2", ""), "the scored base row wins over a stronger effort variant")
+	assert.Equal(t, "deepseek-v4-flash-0420", pick("deepseek-v4-flash", ""), "a dated base beats a dated effort variant")
+	assert.Equal(t, "kimi-k3-high", pick("kimi-k3", ""), "unscored base: the strongest equally-close variant")
+	assert.Empty(t, pick("ghost-1", ""), "no scored row")
+	assert.Empty(t, pick("nope", ""), "no family")
+	assert.Equal(t, "claude-4-5-sonnet", pick("claude-sonnet-4-5", ""), "reachable through the Anthropic rewrite")
+	assert.Equal(t, "claude-35-sonnet", pick("claude-3-5-sonnet", ""), "reachable through the override table")
+
+	assert.Equal(t, "gpt-5-2-medium", pick("gpt-5-2", "medium"), "the wanted effort row beats the base row")
+	assert.Equal(t, "gpt-5-2", pick("gpt-5-2", "high"), "no row for the wanted effort: the base row")
+	assert.Equal(t, "deepseek-v4-flash-0420-high", pick("deepseek-v4-flash", "high"), "the wanted effort row beats the dated base")
+	assert.Equal(t, "kimi-k3-low", pick("kimi-k3", "low"), "the wanted effort row beats a stronger sibling")
+	assert.Equal(t, "kimi-k3-high", pick("kimi-k3", "xhigh"), "an unscored wanted-effort row does not count")
+	assert.Empty(t, pick("ghost-1", "high"), "a wanted effort never resurrects an unscored family")
 
 	assert.Equal(t, []string{"ghost-1"}, idx.slugs("ghost-1"))
-	assert.Equal(t, []string{"kimi-k3", "kimi-k3-high", "kimi-k3-low"}, idx.slugs("kimi-k3"))
+	assert.Equal(t, []string{"kimi-k3", "kimi-k3-high", "kimi-k3-low", "kimi-k3-xhigh"}, idx.slugs("kimi-k3"))
 	assert.Empty(t, idx.slugs("nope"))
 }
