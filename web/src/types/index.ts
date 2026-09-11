@@ -723,6 +723,8 @@ export interface SelectorCandidate {
   completion_price_per_tok: number;
   context_window: number;
   price_source: SelectorPriceSource;
+  /** The AA slug an automatic join scored the priors from; empty for a model_priors entry and on the OpenRouter leg. */
+  scored_from: string;
 }
 
 export interface SelectorFavoriteRule {
@@ -737,6 +739,8 @@ export interface SelectorCandidatesResponse {
   blacklist: string[];
   quality_floor: number;
   catalog_refreshed_at: string;
+  /** llm_endpoint.reasoning_effort, the effort the gateway pins; empty when unset. */
+  reasoning_effort: string;
 }
 
 export type SelectorPickSource = 'auto' | 'favorite' | 'pinned' | 'capable-default';

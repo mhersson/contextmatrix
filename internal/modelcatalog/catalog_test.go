@@ -383,7 +383,7 @@ func TestBuildEndpointCandidatesPricesCandidates(t *testing.T) {
 	}
 	priors := map[string]PriorOverride{"model-c": {Coder: 0.9, Reviewer: 0.88}}
 
-	scored, exclusions := buildEndpointCandidates(aa, endpoint, priors, 0.65, []string{"vendor"})
+	scored, exclusions := buildEndpointCandidates(aa, endpoint, priors, 0.65, []string{"vendor"}, "")
 	require.Empty(t, exclusions)
 	require.Len(t, scored, 2)
 
@@ -432,13 +432,14 @@ func TestBuilderCandidatePriceFromAARateFromTokenCosts(t *testing.T) {
 	assert.InDelta(t, 3e-6, price.Prompt, 1e-15, "card costs keep the token_costs fill")
 	assert.InDelta(t, 15e-6, price.Completion, 1e-15)
 
-	sources := b.PriceSources(context.Background())
-	assert.Equal(t, map[string]string{"vendor/model-a": "aa"}, sources)
+	assert.Equal(t, map[string]CandidateProvenance{"vendor/model-a": {PriceSource: "aa", ScoredFrom: "model-a"}},
+		b.Provenance(context.Background()))
 }
 
-// TestBuilderPriceSourcesOpenRouterLeg: every OpenRouter candidate is priced
-// by the served catalog, so the source map says gateway for each.
-func TestBuilderPriceSourcesOpenRouterLeg(t *testing.T) {
+// TestBuilderProvenanceOpenRouterLeg: every OpenRouter candidate is priced by
+// the served catalog and its AA row is not exposed, so provenance says
+// gateway and nothing else.
+func TestBuilderProvenanceOpenRouterLeg(t *testing.T) {
 	orSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"data":[{"id":"z-ai/glm-5.2","context_length":1048576,
 			"pricing":{"prompt":"0.0000012","completion":"0.0000041"},"supported_parameters":["tools"]}]}`))
@@ -456,13 +457,13 @@ func TestBuilderPriceSourcesOpenRouterLeg(t *testing.T) {
 	b.aaEndpoint = aaSrv.URL
 
 	require.Len(t, b.Candidates(context.Background()), 1)
-	assert.Equal(t, map[string]string{"z-ai/glm-5.2": "gateway"}, b.PriceSources(context.Background()))
+	assert.Equal(t, map[string]CandidateProvenance{"z-ai/glm-5.2": {PriceSource: "gateway"}}, b.Provenance(context.Background()))
 }
 
-func TestBuilderPriceSourcesNilReceiver(t *testing.T) {
+func TestBuilderProvenanceNilReceiver(t *testing.T) {
 	var b *Builder
 
-	assert.Nil(t, b.PriceSources(context.Background()))
+	assert.Nil(t, b.Provenance(context.Background()))
 }
 
 // TestBuildEndpointCandidatesAutomaticJoin covers the openai-leg build end to
@@ -500,7 +501,7 @@ func TestBuildEndpointCandidatesAutomaticJoin(t *testing.T) {
 	}
 	priors := map[string]PriorOverride{"private-1": {Coder: 0.9, Reviewer: 0.88}}
 
-	scored, exclusions := buildEndpointCandidates(aa, endpoint, priors, 0.65, nil)
+	scored, exclusions := buildEndpointCandidates(aa, endpoint, priors, 0.65, nil, "")
 
 	bySlug := map[string]aaScored{}
 	for _, s := range scored {
@@ -518,6 +519,7 @@ func TestBuildEndpointCandidatesAutomaticJoin(t *testing.T) {
 	got := bySlug["openai/gpt-5.2"]
 	assert.Equal(t, "gpt-5-2", got.Source)
 	assert.Equal(t, joinAutomatic, got.Join)
+	assert.Empty(t, got.Effort, "no effort named or configured")
 	assert.InDelta(t, 60.0/80, got.Candidate.CoderPrior, 1e-9)
 	assert.InDelta(t, 60.0/80, got.Candidate.ReviewerPrior, 1e-9)
 	assert.Equal(t, "openai", got.Candidate.Creator)
@@ -585,7 +587,7 @@ func TestBuildEndpointCandidatesPriorsBeatAutomatic(t *testing.T) {
 	priors := map[string]PriorOverride{"gpt-5.2": {Coder: 0.42, Reviewer: 0.37}}
 
 	// Allowlist without openai: the override must still pass.
-	scored, exclusions := buildEndpointCandidates(aa, endpoint, priors, 0.3, []string{"anthropic"})
+	scored, exclusions := buildEndpointCandidates(aa, endpoint, priors, 0.3, []string{"anthropic"}, "")
 	require.Empty(t, exclusions)
 	require.Len(t, scored, 1)
 	assert.Equal(t, joinModelPriors, scored[0].Join)
@@ -606,10 +608,132 @@ func TestBuildEndpointCandidatesAllowlistOverride(t *testing.T) {
 		"gpt-5.2":    {ContextWindow: 1000, Tools: true},
 	}
 
-	scored, exclusions := buildEndpointCandidates(aa, endpoint, nil, 0.65, []string{"longcat"})
+	scored, exclusions := buildEndpointCandidates(aa, endpoint, nil, 0.65, []string{"longcat"}, "")
 	require.Len(t, scored, 1)
 	assert.Equal(t, "outsider-1", scored[0].Candidate.Slug)
 	require.Len(t, exclusions, 1)
 	assert.Equal(t, "gpt-5.2", exclusions[0].Slug)
 	assert.Equal(t, exclNotAllowed, exclusions[0].Reason)
+}
+
+// TestBuildEndpointCandidatesReasoningEffort pins which AA row scores a
+// served model when a reasoning effort is in play: the served id's own
+// suffix first, then the gateway's configured effort, and the base row when
+// the family has no row for the wanted effort.
+func TestBuildEndpointCandidatesReasoningEffort(t *testing.T) {
+	aa := []aaModel{
+		{Slug: "gpt-5-2", Creator: "openai", CodingIndex: new(60.0), IntelIndex: new(60.0)},
+		{Slug: "gpt-5-2-medium", Creator: "openai", CodingIndex: new(80.0), IntelIndex: new(80.0)},
+		{Slug: "gpt-5-2-high", Creator: "openai", CodingIndex: new(90.0), IntelIndex: new(90.0)},
+	}
+	endpoint := map[string]orEntry{
+		"gpt-5.2":            {ContextWindow: 1000, Tools: true},
+		"gpt-5.2-high":       {ContextWindow: 1000, Tools: true},
+		"openai/gpt-5.2-low": {ContextWindow: 1000, Tools: true},
+	}
+
+	scored, exclusions := buildEndpointCandidates(aa, endpoint, nil, 0.3, nil, "medium")
+	require.Empty(t, exclusions)
+	require.Len(t, scored, 3)
+
+	bySlug := map[string]aaScored{}
+	for _, s := range scored {
+		bySlug[s.Candidate.Slug] = s
+	}
+
+	assert.Equal(t, "gpt-5-2-medium", bySlug["gpt-5.2"].Source, "a bare id takes the gateway's effort")
+	assert.Equal(t, "medium", bySlug["gpt-5.2"].Effort)
+	assert.InDelta(t, 80.0/90, bySlug["gpt-5.2"].Candidate.CoderPrior, 1e-9)
+
+	assert.Equal(t, "gpt-5-2-high", bySlug["gpt-5.2-high"].Source, "the id's own suffix beats the gateway's effort")
+	assert.Equal(t, "high", bySlug["gpt-5.2-high"].Effort)
+
+	assert.Equal(t, "gpt-5-2", bySlug["openai/gpt-5.2-low"].Source, "no row for the wanted effort: the base row")
+	assert.Equal(t, "low", bySlug["openai/gpt-5.2-low"].Effort)
+
+	unset, _ := buildEndpointCandidates(aa, endpoint, nil, 0.3, nil, "")
+
+	unsetBySlug := map[string]aaScored{}
+	for _, s := range unset {
+		unsetBySlug[s.Candidate.Slug] = s
+	}
+
+	require.Contains(t, unsetBySlug, "gpt-5.2")
+	assert.Equal(t, "gpt-5-2", unsetBySlug["gpt-5.2"].Source, "no effort anywhere: the base-row rule")
+	assert.Empty(t, unsetBySlug["gpt-5.2"].Effort)
+}
+
+// TestBuildEndpointCandidatesAliasEffort pins the seam where the served id
+// matches no family and a gateway alias does: the alias's own effort suffix
+// is the wanted effort, ahead of the gateway's configured one.
+func TestBuildEndpointCandidatesAliasEffort(t *testing.T) {
+	aa := []aaModel{
+		{Slug: "gpt-5-2", Creator: "openai", CodingIndex: new(60.0), IntelIndex: new(60.0)},
+		{Slug: "gpt-5-2-medium", Creator: "openai", CodingIndex: new(80.0), IntelIndex: new(80.0)},
+		{Slug: "gpt-5-2-high", Creator: "openai", CodingIndex: new(90.0), IntelIndex: new(90.0)},
+	}
+	endpoint := map[string]orEntry{
+		"vendor-alias-only": {ContextWindow: 1000, Tools: true, Aliases: []string{"gpt-5.2-high"}},
+	}
+
+	scored, exclusions := buildEndpointCandidates(aa, endpoint, nil, 0.3, nil, "medium")
+	require.Empty(t, exclusions)
+	require.Len(t, scored, 1)
+	assert.Equal(t, "gpt-5-2-high", scored[0].Source, "the alias that found the family names the effort")
+	assert.Equal(t, "high", scored[0].Effort)
+}
+
+// TestBuilderReasoningEffortReachesTheJoin: the configured gateway effort
+// picks the family row through a full refresh.
+func TestBuilderReasoningEffortReachesTheJoin(t *testing.T) {
+	endpointSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"vendor/model-a","context_length":200000,"capabilities":{"features":["tools"]}}]}`))
+	}))
+	defer endpointSrv.Close()
+
+	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[
+			{"slug":"model-a","model_creator":{"name":"vendor"},
+			 "evaluations":{"artificial_analysis_coding_index":60,"artificial_analysis_intelligence_index":60}},
+			{"slug":"model-a-medium","model_creator":{"name":"vendor"},
+			 "evaluations":{"artificial_analysis_coding_index":80,"artificial_analysis_intelligence_index":80}}
+		]}`))
+	}))
+	defer aaSrv.Close()
+
+	b := NewBuilder("aa-key", 0.5, []string{"vendor"}, time.Hour,
+		WithEndpoint(endpointSrv.URL, "secret", nil),
+		WithReasoningEffort("medium"))
+	b.aaEndpoint = aaSrv.URL
+
+	cands := b.Candidates(context.Background())
+	require.Len(t, cands, 1)
+	assert.InDelta(t, 1.0, cands[0].CoderPrior, 1e-9, "scored from the medium row, the family leader")
+	assert.Equal(t, "model-a-medium", b.Provenance(context.Background())["vendor/model-a"].ScoredFrom)
+}
+
+// TestBuilderProvenanceModelPriorsNamesNoRow: a model_priors entry joins no
+// AA row, so its provenance carries the price source only.
+func TestBuilderProvenanceModelPriorsNamesNoRow(t *testing.T) {
+	endpointSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"vendor/private-1","context_length":200000,"capabilities":{"features":["tools"]}}]}`))
+	}))
+	defer endpointSrv.Close()
+
+	// fetchAAModels treats a wholly empty AA response as a fetch error (see
+	// aa.go), so this fixture carries one unrelated AA row; the model_priors
+	// path for vendor/private-1 never consults the family index, so it plays
+	// no part in the join.
+	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"slug":"unrelated-model","model_creator":{"name":"someone"},
+			"evaluations":{"artificial_analysis_coding_index":50,"artificial_analysis_intelligence_index":50}}]}`))
+	}))
+	defer aaSrv.Close()
+
+	b := NewBuilder("aa-key", 0.5, nil, time.Hour,
+		WithEndpoint(endpointSrv.URL, "secret", map[string]PriorOverride{"vendor/private-1": {Coder: 0.9, Reviewer: 0.8}}))
+	b.aaEndpoint = aaSrv.URL
+
+	require.Len(t, b.Candidates(context.Background()), 1)
+	assert.Equal(t, map[string]CandidateProvenance{"vendor/private-1": {PriceSource: "none"}}, b.Provenance(context.Background()))
 }

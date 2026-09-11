@@ -38,6 +38,7 @@ const EMPTY_CATALOG: SelectorCandidatesResponse = {
   blacklist: [],
   quality_floor: 0.65,
   catalog_refreshed_at: '',
+  reasoning_effort: '',
 };
 const EMPTY_BLACKLIST: ModelBlacklist = { models: [] };
 
@@ -154,7 +155,12 @@ export function AdminModelSelectionPage() {
   };
 
   const ladderMeta = catalogReady
-    ? `${catalog.items.candidates.length} candidates · priors normalised to the AA leader · refreshed ${formatRelativeTime(catalog.items.catalog_refreshed_at)}`
+    ? [
+        `${catalog.items.candidates.length} candidates`,
+        'priors normalised to the AA leader',
+        ...(catalog.items.reasoning_effort ? [`gateway effort ${catalog.items.reasoning_effort}`] : []),
+        `refreshed ${formatRelativeTime(catalog.items.catalog_refreshed_at)}`,
+      ].join(' · ')
     : catalog.loading
       ? 'loading the catalog…'
       : 'catalog unavailable';

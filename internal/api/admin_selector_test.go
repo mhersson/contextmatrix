@@ -17,6 +17,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/auth"
 	"github.com/mhersson/contextmatrix/internal/authstore"
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/modelcatalog"
 )
 
 // stubSelectorAdminStore is a minimal selectorAdminStore double. It records
@@ -306,18 +307,18 @@ func TestAdminSelectorLadders_MultiMode(t *testing.T) {
 }
 
 type stubSelectorCatalog struct {
-	candidates   []protocol.CandidateModel
-	priceSources map[string]string
-	floor        float64
-	refreshedAt  time.Time
+	candidates  []protocol.CandidateModel
+	provenance  map[string]modelcatalog.CandidateProvenance
+	floor       float64
+	refreshedAt time.Time
 }
 
 func (s *stubSelectorCatalog) Candidates(context.Context) []protocol.CandidateModel {
 	return s.candidates
 }
 
-func (s *stubSelectorCatalog) PriceSources(context.Context) map[string]string {
-	return s.priceSources
+func (s *stubSelectorCatalog) Provenance(context.Context) map[string]modelcatalog.CandidateProvenance {
+	return s.provenance
 }
 
 func (s *stubSelectorCatalog) Floor() float64 { return s.floor }
@@ -338,7 +339,10 @@ func previewCatalog() *stubSelectorCatalog {
 			{Slug: "c/weak", Creator: "c", CoderPrior: 0.70, ReviewerPrior: 0.70, PromptPricePerTok: 5e-7, CompletionPricePerTok: 5e-7, ContextWindow: 100000},
 			{Slug: "a/mid", Creator: "a", CoderPrior: 0.80, ReviewerPrior: 0.86, PromptPricePerTok: 2e-6, CompletionPricePerTok: 2e-6, ContextWindow: 200000},
 		},
-		priceSources: map[string]string{"a/cheap": "aa", "a/mid": "gateway", "b/pricey": "gateway", "c/weak": "token_costs"},
+		provenance: map[string]modelcatalog.CandidateProvenance{
+			"a/cheap": {PriceSource: "aa", ScoredFrom: "cheap-1"}, "a/mid": {PriceSource: "gateway"},
+			"b/pricey": {PriceSource: "gateway"}, "c/weak": {PriceSource: "token_costs"},
+		},
 	}
 }
 
@@ -372,12 +376,35 @@ func TestAdminSelectorCandidates_ReportsInputsSorted(t *testing.T) {
 	assert.Equal(t, 200000, got.Candidates[0].ContextWindow)
 	assert.Equal(t, "aa", got.Candidates[0].PriceSource)
 	assert.Equal(t, "token_costs", got.Candidates[3].PriceSource)
+	assert.Equal(t, "cheap-1", got.Candidates[0].ScoredFrom)
+	assert.Empty(t, got.Candidates[1].ScoredFrom, "a/mid joined no AA row")
+	assert.Empty(t, got.ReasoningEffort, "unset in this handler")
 	assert.Equal(t, []string{"c/weak"}, got.Blacklist)
 	require.Len(t, got.Favorites, 1)
 	assert.Equal(t, "reviewer", got.Favorites[0].Role)
 	assert.Equal(t, "critical", got.Favorites[0].Tier)
 	assert.InDelta(t, 0.65, got.QualityFloor, 1e-9)
 	assert.Equal(t, "2026-09-10T06:00:00Z", got.CatalogRefreshedAt)
+}
+
+// TestAdminSelectorCandidates_EchoesReasoningEffort: the configured gateway
+// effort rides on the candidates response so the page can name it.
+func TestAdminSelectorCandidates_EchoesReasoningEffort(t *testing.T) {
+	h := &selectorAdminHandlers{
+		store:           &stubSelectorAdminStore{},
+		catalog:         previewCatalog(),
+		blacklist:       &stubBlacklist{},
+		reasoningEffort: "medium",
+	}
+
+	w := httptest.NewRecorder()
+	h.getCandidates(w, httptest.NewRequest(http.MethodGet, "/api/admin/selector/candidates", nil))
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var got selectorCandidatesResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	assert.Equal(t, "medium", got.ReasoningEffort)
 }
 
 func TestAdminSelectorCandidates_FavoritesAreOrdered(t *testing.T) {

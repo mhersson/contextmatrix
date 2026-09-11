@@ -673,6 +673,7 @@ func main() {
 	if catalogBuilder != nil && agentAA {
 		routerCfg.Catalog = catalogBuilder
 		routerCfg.SelectorCatalog = catalogBuilder
+		routerCfg.SelectorReasoningEffort = cfg.LLMEndpoint.ReasoningEffort
 	}
 
 	if authSvc != nil {
@@ -850,6 +851,7 @@ func newCatalogBuilder(cfg *config.Config, agentCfg *config.AgentBackendConfig, 
 
 			opts = append(opts, modelcatalog.WithEndpoint(
 				cfg.LLMEndpoint.BaseURL, cfg.LLMEndpoint.APIKey, priors),
+				modelcatalog.WithReasoningEffort(cfg.LLMEndpoint.ReasoningEffort),
 				modelcatalog.WithTokenCosts(catalogTokenCosts(cfg.TokenCosts)))
 		}
 

@@ -177,7 +177,7 @@ instead:
 | ----------------- | --------------------------------------------- | ------------------------------------------------------------- |
 | Eligibility       | trusted-creator allowlist                     | automatic AA family join screened by the same allowlist, or a `model_priors` entry |
 | Quality source    | AA row joined by mapped slug                  | the closest scored row of the joined AA family, or verbatim `model_priors` |
-| Variant handling  | best combined-prior row per served slug       | closest row first: the family base row when scored, else the fewest-stripped scored variant |
+| Variant handling  | best combined-prior row per served slug       | the row for the wanted effort (served suffix, else `llm_endpoint.reasoning_effort`) when scored; else closest row first: the family base row when scored, else the fewest-stripped scored variant |
 | Pricing / window  | OpenRouter catalog                            | window from the endpoint catalog; candidate price from the gateway, else AA, else `token_costs` |
 
 **The automatic join.** Served ids and AA slugs are reduced to one canonical
@@ -194,19 +194,25 @@ in `internal/modelcatalog/mapping.go` (the 4.x Anthropic ordering flip,
 `claude-4-5-sonnet` for the vendor's `claude-sonnet-4-5`, and a short
 per-slug table); they ship with ContextMatrix and are not configuration.
 
-Each tool-capable served model is looked up by the key of its id, then the
-key of each `alias_names` entry the gateway lists. The first key with AA
-rows wins. Within that family the scored row closest to the served id
-supplies the priors: the row whose slug equals the key when it is scored,
-otherwise the scored row with the fewest effort suffixes stripped, then the
-fewest date tokens stripped, then the highest combined prior. A gateway
-serving `gpt-5.2` is scored from AA's `gpt-5-2` row, not from
-`gpt-5-2-medium`; one serving `deepseek-v4-flash` is scored from
-`deepseek-v4-flash-0420`. Closeness is measured against the family key, not
-the served id, so a gateway serving an effort variant such as `gpt-5.2-high`
-is also scored from the `gpt-5-2` base row, not from AA's `gpt-5-2-high`
-row; two ids that differ only by effort suffix carry the same priors and
-price, and `model_priors` is the override when that under-scores a model.
+Each tool-capable served model is looked up by the key of its id, then the key
+of each `alias_names` entry the gateway lists. The first key with AA rows
+wins. Within that family the scored row closest to the served id supplies the
+priors: the row whose slug equals the key when it is scored, otherwise the
+scored row with the fewest effort suffixes stripped, then the fewest date
+tokens stripped, then the highest combined prior. A gateway serving `gpt-5.2`
+is scored from AA's `gpt-5-2` row, not from `gpt-5-2-medium`; one serving
+`deepseek-v4-flash` is scored from `deepseek-v4-flash-0420`. Closeness is
+measured against the family key, with one refinement: when the served id names
+a reasoning effort (`gpt-5.2-high`), or the gateway pins one
+(`llm_endpoint.reasoning_effort: medium`; the id's own suffix wins when both
+apply), the scored row carrying that effort suffix (`gpt-5-2-high`,
+`gpt-5-2-medium`) beats every other row in the family. When the family has no
+scored row for that effort, or no effort is named or configured, the closest
+rule above applies and the base row wins. A gateway that pins one effort and
+serves bare ids therefore needs the one config line; without it every model on
+that gateway is rated at whatever effort AA ran the base row at.
+`model_priors` remains the override when the chosen row still under-scores a
+model.
 The chosen row's creator must pass the allowlist. A nil index on the chosen
 row yields no prior for that role (the candidate competes only on the
 scored axis). `model_priors` entries bypass the join entirely: the
@@ -429,6 +435,9 @@ error line if a request fails. The KPI row shows the reviewers clearing
 million tokens (orange when a seat walked), and the `moderate` coder pick.
 A price marked *list* is the Artificial Analysis list price: the gateway
 published none for that model (see [endpoint pricing](#endpoint-pricing)).
+A pill's tooltip names the AA row the candidate was scored from, and the
+panel's meta line names the gateway's pinned reasoning effort when
+`llm_endpoint.reasoning_effort` is set.
 
 Nothing is sent until **Save**; the status pill says whether the next run
 uses what is on screen. **Discard changes** returns to the saved ladders and
@@ -738,6 +747,7 @@ overrides; this table maps the knobs to their effect on selection.
 | `backends.agent.catalog_quality_floor` | 0.65               | Minimum quality prior on at least one role to keep a model as a selection candidate; applies to both catalog legs. Env `CONTEXTMATRIX_BACKEND_AGENT_CATALOG_QUALITY_FLOOR` |
 | `favorites` in a project `.board.yaml` | none               | Per-project override; replaces the global entry per tier; hand-edited only (see the [data model](data-model.md#project-board-config-format)) |
 | `llm_endpoint.type`                  | `openrouter`         | Selects the catalog leg and the wire dialect                            |
+| `llm_endpoint.reasoning_effort`      | unset                | The reasoning effort the gateway pins (`openai` leg only); the join prefers the AA row carrying it. Env `CONTEXTMATRIX_LLM_ENDPOINT_REASONING_EFFORT` |
 | `best_of_n.max_candidates`           | 5                    | Hard cap on a card's race size                                          |
 | `best_of_n.default_candidates`       | 3                    | UI-suggested race size                                                  |
 | Price headroom (admin page, stored in `ops.db`) | 1.5        | Width of the price band; edited on the Model selection admin page with the ladders; travels as `selection.price_headroom` |
@@ -757,6 +767,7 @@ endpoints, and the equal prompt+completion price weighting.
 | A favorite is never picked                     | Blacklisted, below the tier bar, not a candidate (outside the allowlist), or its tier entry was replaced wholesale by a project override | Favorites are preferences, not overrides; check `selection.blacklist` and the bar |
 | Endpoint models served but never selected      | No AA family matches the id or its aliases, the family has no scored row, the creator is outside the allowlist, or below floor | One WARN per excluded model at refresh time, naming the slug, the reason, and the keys tried or the family's rows; add a `model_priors` entry as the workaround and report the keys |
 | A preview price is marked *list*               | The gateway publishes no price for that model; the candidate carries the AA list price | Expected on an `openai` gateway without a pricing block; card costs still come from `token_costs` |
+| Every model on an `openai` gateway rates too high or too low | The gateway pins one reasoning effort and serves bare ids, so the join scores from the family base row | Set `llm_endpoint.reasoning_effort` to the pinned effort; the pill tooltip then names the effort row |
 | A model keeps disappearing from selection      | It was reported incapable and blacklisted                             | Check the admin model-selection page; delist it there, or pin it for one card      |
 | A saved ladder has no effect on picks          | The agent predates protocol v0.19 and ignores `tier_bars`             | Upgrade the agent; until then it runs its built-in ladder                         |
 | `503 catalog not available yet` on the ladders page | No `aa_api_key`, or the first catalog refresh has not completed  | The ladders still load and save; candidates and preview appear after the first refresh |

@@ -117,22 +117,24 @@ func servedSlugAllowed(slug string, allowed, favorites map[string]bool) bool {
 // name a family this way; nothing else is normalised, so an identity suffix
 // (mini, codex, flash, preview) can never be removed.
 func familyKey(s string) string {
-	key, _, _ := familyKeyCounts(s)
+	key, _, _ := familyKeyParts(s)
 
 	return key
 }
 
-// familyKeyCounts is familyKey plus how many effort suffixes and date tokens
-// were stripped to reach the key, which is how the family index ranks a
-// row's closeness to a served id.
-func familyKeyCounts(s string) (key string, effortStripped, dateStripped int) {
+// familyKeyParts is familyKey plus what was stripped to reach the key: the
+// effort suffixes, outermost first (non-reasoning is one entry), and how
+// many date tokens. The family index ranks a row's closeness to a served
+// id by these, and matches a wanted reasoning effort against the first
+// suffix.
+func familyKeyParts(s string) (key string, efforts []string, dateStripped int) {
 	s = strings.ToLower(strings.TrimSpace(s))
 	if _, name, found := strings.Cut(s, "/"); found {
 		s = name
 	}
 
 	if s == "" {
-		return "", 0, 0
+		return "", nil, 0
 	}
 
 	segs := strings.Split(strings.ReplaceAll(s, ".", "-"), "-")
@@ -140,9 +142,10 @@ func familyKeyCounts(s string) (key string, effortStripped, dateStripped int) {
 	for {
 		changed := false
 
-		if rest, ok := stripEffort(segs); ok {
+		if rest, effort, ok := stripEffort(segs); ok {
 			segs, changed = rest, true
-			effortStripped++
+
+			efforts = append(efforts, effort)
 		}
 
 		if rest, ok := stripDate(segs); ok {
@@ -155,7 +158,7 @@ func familyKeyCounts(s string) (key string, effortStripped, dateStripped int) {
 		}
 	}
 
-	return strings.Join(segs, "-"), effortStripped, dateStripped
+	return strings.Join(segs, "-"), efforts, dateStripped
 }
 
 // effortSuffixes are AA's reasoning-effort variant markers, one segment
@@ -165,20 +168,20 @@ var effortSuffixes = map[string]bool{
 	"reasoning": true, "thinking": true, "adaptive": true,
 }
 
-// stripEffort drops one trailing effort suffix, keeping at least one
-// segment so a bare "high" stays a key.
-func stripEffort(segs []string) ([]string, bool) {
+// stripEffort drops one trailing effort suffix and returns it, keeping at
+// least one segment so a bare "high" stays a key.
+func stripEffort(segs []string) (rest []string, effort string, ok bool) {
 	n := len(segs)
 
 	if n > 2 && segs[n-2] == "non" && segs[n-1] == "reasoning" {
-		return segs[:n-2], true
+		return segs[:n-2], "non-reasoning", true
 	}
 
 	if n > 1 && effortSuffixes[segs[n-1]] {
-		return segs[:n-1], true
+		return segs[:n-1], segs[n-1], true
 	}
 
-	return segs, false
+	return segs, "", false
 }
 
 // dateToken matches the trailing date shapes AA and vendors use, joined by
@@ -272,9 +275,12 @@ func isDigits(s string) bool {
 
 // familyRow is one AA row under a family key with how far its slug is from
 // the key: the effort suffixes and date tokens stripped to reach it. Zero on
-// both means the slug is the family base row.
+// both means the slug is the family base row. effort is the first suffix
+// stripped (the one the slug ends with), empty for the base row; a wanted
+// reasoning effort is matched against it.
 type familyRow struct {
 	model          aaModel
+	effort         string
 	effortStripped int
 	dateStripped   int
 }
@@ -288,12 +294,15 @@ func indexFamilies(aa []aaModel) familyIndex {
 	idx := familyIndex{}
 
 	for _, m := range aa {
-		key, effort, date := familyKeyCounts(m.Slug)
+		key, efforts, date := familyKeyParts(m.Slug)
 		if key == "" {
 			continue
 		}
 
-		row := familyRow{model: m, effortStripped: effort, dateStripped: date}
+		row := familyRow{model: m, effortStripped: len(efforts), dateStripped: date}
+		if len(efforts) > 0 {
+			row.effort = efforts[0]
+		}
 
 		keys := []string{key}
 		keys = append(keys, rewriteKeys(key)...)
@@ -313,13 +322,16 @@ func indexFamilies(aa []aaModel) familyIndex {
 	return idx
 }
 
-// closest picks the family row to score a served model from: the first
-// scored row by fewest effort suffixes stripped, then fewest date tokens
-// stripped, then highest combined normalized prior. The base row (nothing
-// stripped) therefore wins whenever it is scored, and the strongest sibling
-// is reached only when nothing closer is. ok is false when no row in the
-// family is scored, or the key has no family.
-func (idx familyIndex) closest(key string, maxCoding, maxIntel float64) (aaModel, bool) {
+// closest picks the family row to score a served model from. With a wanted
+// effort, a scored row carrying exactly that effort suffix beats every
+// other row. Otherwise, and among rows that tie on that, the first scored
+// row by fewest effort suffixes stripped, then fewest date tokens stripped,
+// then highest combined normalized prior. The base row (nothing stripped)
+// therefore wins whenever it is scored and no wanted effort names a scored
+// sibling, and the strongest sibling is reached only when nothing closer
+// is. ok is false when no row in the family is scored, or the key has no
+// family.
+func (idx familyIndex) closest(key, effort string, maxCoding, maxIntel float64) (aaModel, bool) {
 	var (
 		best  familyRow
 		found bool
@@ -330,7 +342,7 @@ func (idx familyIndex) closest(key string, maxCoding, maxIntel float64) (aaModel
 			continue
 		}
 
-		if !found || closer(r, best, maxCoding, maxIntel) {
+		if !found || closer(r, best, effort, maxCoding, maxIntel) {
 			best, found = r, true
 		}
 	}
@@ -338,7 +350,11 @@ func (idx familyIndex) closest(key string, maxCoding, maxIntel float64) (aaModel
 	return best.model, found
 }
 
-func closer(a, b familyRow, maxCoding, maxIntel float64) bool {
+func closer(a, b familyRow, effort string, maxCoding, maxIntel float64) bool {
+	if effort != "" && (a.effort == effort) != (b.effort == effort) {
+		return a.effort == effort
+	}
+
 	if a.effortStripped != b.effortStripped {
 		return a.effortStripped < b.effortStripped
 	}

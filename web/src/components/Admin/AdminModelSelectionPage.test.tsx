@@ -53,6 +53,7 @@ function catalogRes(): SelectorCandidatesResponse {
     blacklist: ['c/weak'],
     quality_floor: 0.65,
     catalog_refreshed_at: new Date(Date.now() - 6 * 3600 * 1000).toISOString(),
+    reasoning_effort: '',
   };
 }
 
@@ -169,6 +170,13 @@ describe('AdminModelSelectionPage - loading', () => {
     await renderLoaded();
 
     expect(screen.getByRole('switch', { name: 'Link the coder and reviewer ladders' })).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('names the gateway effort in the catalog meta when one is configured', async () => {
+    mocks.adminSelectorCandidates.mockResolvedValue({ ...catalogRes(), reasoning_effort: 'medium' });
+    await renderLoaded();
+
+    expect(screen.getByText(/4 candidates · priors normalised to the AA leader · gateway effort medium · refreshed 6 h ago/)).toBeInTheDocument();
   });
 });
 

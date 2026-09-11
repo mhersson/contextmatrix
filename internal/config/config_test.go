@@ -3253,6 +3253,7 @@ llm_endpoint:
   type: openai
   base_url: https://your-llm-endpoint.example/v1
   api_key: test-key
+  reasoning_effort: medium
 backends:
   agent:
     url: http://localhost:9092
@@ -3266,6 +3267,7 @@ backends:
 	assert.Equal(t, "openai", cfg.LLMEndpoint.Type)
 	assert.Equal(t, "https://your-llm-endpoint.example/v1", cfg.LLMEndpoint.BaseURL)
 	assert.Equal(t, "test-key", cfg.LLMEndpoint.APIKey)
+	assert.Equal(t, "medium", cfg.LLMEndpoint.ReasoningEffort)
 	require.NotNil(t, cfg.Backends.Agent)
 	assert.InDelta(t, 0.91, cfg.Backends.Agent.ModelPriors["model-b"].Coder, 1e-9)
 	assert.InDelta(t, 0.88, cfg.Backends.Agent.ModelPriors["model-b"].Reviewer, 1e-9)
@@ -3321,7 +3323,7 @@ func TestLLMEndpointValidationAcceptsValidTypes(t *testing.T) {
 	}
 }
 
-// TestLLMEndpointEnvOverrides verifies that the three CONTEXTMATRIX_LLM_ENDPOINT_*
+// TestLLMEndpointEnvOverrides verifies that the four CONTEXTMATRIX_LLM_ENDPOINT_*
 // variables documented in config.yaml.example are wired in applyEnvOverrides.
 func TestLLMEndpointEnvOverrides(t *testing.T) {
 	dir := t.TempDir()
@@ -3340,6 +3342,7 @@ github:
 	t.Setenv("CONTEXTMATRIX_LLM_ENDPOINT_TYPE", "openai")
 	t.Setenv("CONTEXTMATRIX_LLM_ENDPOINT_BASE_URL", "https://my-llm.example/v1")
 	t.Setenv("CONTEXTMATRIX_LLM_ENDPOINT_API_KEY", "sk-test-override")
+	t.Setenv("CONTEXTMATRIX_LLM_ENDPOINT_REASONING_EFFORT", "high")
 
 	cfg, err := Load(path)
 	require.NoError(t, err)
@@ -3347,6 +3350,7 @@ github:
 	assert.Equal(t, "openai", cfg.LLMEndpoint.Type)
 	assert.Equal(t, "https://my-llm.example/v1", cfg.LLMEndpoint.BaseURL)
 	assert.Equal(t, "sk-test-override", cfg.LLMEndpoint.APIKey)
+	assert.Equal(t, "high", cfg.LLMEndpoint.ReasoningEffort)
 }
 
 // ---------- BestOfNConfig tests ----------
@@ -3890,4 +3894,46 @@ func TestLoad_InstanceIDGeneratedWhenAnyEntryIsShared(t *testing.T) {
 	cfg, err := loadFromYAML(t, "boards:\n  - name: a\n    dir: "+a+"\n  - name: b\n    dir: "+b+"\n    git_remote_url: https://x/y\n    shared: true\ngithub:\n  auth_mode: \"pat\"\n  pat:\n    token: \"x\"\n")
 	require.NoError(t, err)
 	assert.Regexp(t, `^[a-z0-9][a-z0-9._-]{0,63}$`, cfg.Instance.ID)
+}
+
+// TestLLMEndpointReasoningEffortValidation: the key takes only the effort
+// vocabulary the family key strips, and only on the openai leg, where the
+// gateway rather than the caller decides the effort.
+func TestLLMEndpointReasoningEffortValidation(t *testing.T) {
+	base := `
+boards:
+  dir: ` + t.TempDir() + `
+github:
+  auth_mode: pat
+  pat:
+    token: ghp_test
+`
+
+	_, err := loadFromYAML(t, base+`
+llm_endpoint:
+  type: openai
+  base_url: https://your-llm-endpoint.example/v1
+  api_key: test-key
+  reasoning_effort: turbo
+`)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "llm_endpoint.reasoning_effort")
+
+	_, err = loadFromYAML(t, base+`
+llm_endpoint:
+  type: openrouter
+  reasoning_effort: medium
+`)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "llm_endpoint.reasoning_effort")
+
+	cfg, err := loadFromYAML(t, base+`
+llm_endpoint:
+  type: openai
+  base_url: https://your-llm-endpoint.example/v1
+  api_key: test-key
+  reasoning_effort: non-reasoning
+`)
+	require.NoError(t, err)
+	assert.Equal(t, "non-reasoning", cfg.LLMEndpoint.ReasoningEffort)
 }
