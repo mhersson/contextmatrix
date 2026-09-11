@@ -15,7 +15,8 @@ reference for people using the UI; execution semantics live in
 | `/chat`, `/chat/:id`                        | Global chat surface. `/chat?new=1` opens the New Chat dialog |
 | `/playbooks`, `/playbooks/:id`              | Playbook list and detail (see [playbooks](playbooks.md)) |
 | `/admin/users`, `/admin/credentials`        | Admin pages, `multi` auth mode only                      |
-| `/admin/chats`, `/admin/model-selection`    | Admin pages, `multi` auth mode only                      |
+| `/admin/chats`                              | Admin page, `multi` auth mode only                       |
+| `/admin/model-selection`                    | Tier ladders (admin; open in `none` mode)                |
 
 Every view updates live from one Server-Sent Events stream per tab
 (`GET /api/events`); no view polls for card changes.
@@ -168,6 +169,27 @@ Entry rows read `queued` while a run is active and show the waiting reason
 on the run's entry; removing the run's current entry is refused until the
 run is stopped, and the toast carries the server's reason. The list page
 shows a run pill. See [playbooks](playbooks.md#running-a-playbook).
+
+## Model selection
+
+`/admin/model-selection` is the tier ladders page: one quality ladder per
+role (coder, reviewer) over the live candidate catalog. Each column shows
+every candidate as a pill at its prior with the tier bands and their counts;
+the bars are draggable handles (coder handles on the left rail, reviewer
+handles at the reviewer column's edge). The **linked** switch in the panel
+head, on by default, moves the same tier in both ladders and keeps them
+equal; switching it on when the ladders differ snaps nothing. A filled pill
+is the pick at its rung, a dashed one a panel seat, a struck one a
+blacklisted model. The pick preview beside it shows, per tier, the coder
+pick, the reviewer pick and the three-seat review panel with prices, `↓
+<rung>` when a pick descended and `walked` on a seat that re-anchored its
+price band. The KPI row summarises the `complex` tier (reviewers clearing
+it, the cheapest reviewer, the three-seat panel cost) plus the coder pick at
+`moderate`. Nothing is sent until
+**Save ladders**; the status pill in the header says whether the next run
+uses the ladders on screen. The blacklist panel below lists the models the
+agent reported incapable, with a per-row **Delist**. Details in
+[model selection](model-selection.md#the-ladders-page).
 
 ## Keyboard shortcuts
 
