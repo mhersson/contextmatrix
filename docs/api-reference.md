@@ -798,9 +798,7 @@ URL-encoding. Returns **200 OK** with the deleted slug:
 
 ### GET /api/admin/selector/ladders
 
-Same registration and gating as the model-blacklist pair. Returns the
-per-role quality ladders the agent's selector applies, the built-in ladder
-for reference, and whether the stored value is the built-in one. `ladders`
+Same registration and gating as the model-blacklist pair. Returns the per-role quality ladders the agent's selector applies, the price headroom, the built-in ladder and headroom for reference, and whether the stored values are the built-in ones. `ladders`
 always carries both roles with all four tiers; `updated_at` (RFC 3339) is
 present only when a ladder has been saved. Does not depend on the catalog.
 
@@ -811,6 +809,8 @@ present only when a ladder has been saved. Does not depend on the catalog.
     "reviewer": { "simple": 0.65, "moderate": 0.76, "complex": 0.82, "critical": 0.93 }
   },
   "defaults": { "simple": 0.65, "moderate": 0.76, "complex": 0.82, "critical": 0.90 },
+  "headroom": 2.0,
+  "headroom_default": 1.5,
   "is_default": false,
   "updated_at": "2026-09-10T12:00:00Z"
 }
@@ -824,26 +824,31 @@ non-empty. A ladder must be non-decreasing from `simple` to `critical` with
 every bar in `[0, 1]`. The saved ladders reach the next agent run as the
 trigger's `selection.tier_bars`.
 
+`headroom` is optional: the best-value band multiplier, a number of at least
+1. Absent or `0` leaves the stored headroom as it is. Both halves are
+validated before either is written. The saved values reach the next agent
+run as the trigger's `selection.tier_bars` and `selection.price_headroom`.
+
 ```json
 {
   "ladders": {
     "coder":    { "critical": 0.95 },
     "reviewer": { "complex": 0.85 }
-  }
+  },
+  "headroom": 2.0
 }
 ```
 
 Returns **200 OK** with the same body as `GET`.
 
 **Errors:** `422 VALIDATION_ERROR` (missing role, unknown role or tier,
-non-decreasing violation, bar out of range; `details` names the reason),
+non-decreasing violation, bar out of range, headroom below 1; `details` names the reason),
 `400 BAD_REQUEST` (malformed JSON).
 
 ### GET /api/admin/selector/candidates
 
 The inputs the preview feeds the selector: the cached candidate catalog
-(sorted by slug), the backend-level favorites, the blacklist, the price
-headroom the preview assumes, the catalog quality floor, and when the
+(sorted by slug), the backend-level favorites, the blacklist, the catalog quality floor, and when the
 catalog snapshot was built. Project favorites are not included - they are
 per `.board.yaml` and merged at trigger time.
 
@@ -862,7 +867,6 @@ per `.board.yaml` and merged at trigger time.
   ],
   "favorites": [{ "tier": "critical", "role": "reviewer", "models": ["anthropic/claude-opus-5"] }],
   "blacklist": ["moonshotai/kimi-k2.7-code"],
-  "headroom": 1.5,
   "quality_floor": 0.65,
   "catalog_refreshed_at": "2026-09-10T06:00:00Z"
 }
@@ -875,7 +879,7 @@ refresh, or when no candidate catalog is configured (no `aa_api_key`).
 
 What the shared selector would pick under the given ladders, against the
 current catalog, favorites and blacklist. Validated like `PUT`, never stored.
-`headroom` is optional (default 1.5). For every tier: the coder pick, the
+`headroom` is optional: absent or `0` uses the stored headroom (the built-in 1.5 when none is stored); a value below 1 is `422 VALIDATION_ERROR`. For every tier: the coder pick, the
 reviewer pick, and the three-seat review panel, each with the pool report
 the selector produced. The single picks are vendor-blind with no exclusions;
 a run's reviewer picks additionally exclude the models that coded.
