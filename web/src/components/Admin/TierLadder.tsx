@@ -35,6 +35,8 @@ export interface TierLadderProps {
   seats: ReadonlySet<string>;
   /** Panel-head meta from the API: candidate count and catalog freshness. */
   meta: ReactNode;
+  /** Right-click on a pill: the slug and the pointer's viewport position. Unset leaves the browser menu alone. */
+  onModelMenu?: (slug: string, x: number, y: number) => void;
 }
 
 const TICKS = [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1];
@@ -79,6 +81,7 @@ export function TierLadder({
   picks,
   seats,
   meta,
+  onModelMenu,
 }: TierLadderProps) {
   const railRef = useRef<HTMLDivElement>(null);
   const { dragging, handleProps } = useLadderDrag({ ladders, linked, floor, railRef, onChange });
@@ -189,6 +192,13 @@ export function TierLadder({
                     style={{ top: `${y}%`, left: `${left}%`, '--tier-c': tier ? TIER_COLOR[tier] : BELOW_FLOOR_COLOR } as CSSProperties}
                     title={`${c.slug} · ${role} prior ${prior.toFixed(3)} · ${usdPerMillion(blendedPrice(c))}${c.price_source === 'aa' ? ' (list price)' : ''} · ${tier ?? 'below floor'}${c.scored_from ? ` · scored from ${c.scored_from}` : ''}`}
                     data-testid={`tl-dot-${role}-${c.slug}`}
+                    onContextMenu={
+                      onModelMenu &&
+                      ((e) => {
+                        e.preventDefault();
+                        onModelMenu(c.slug, e.clientX, e.clientY);
+                      })
+                    }
                   >
                     <i aria-hidden="true" />
                     <span className="tl-dot-n">{shortSlug(c.slug)}</span>
@@ -234,7 +244,10 @@ export function TierLadder({
             <span className="tl-sw" style={{ '--sw-c': BELOW_FLOOR_COLOR } as CSSProperties} aria-hidden="true" />
             below floor · never selected
           </span>
-          <span className="tl-legend-note">filled pill = the pick at its rung · dashed = a panel seat · struck = blacklisted</span>
+          <span className="tl-legend-note">
+            filled pill = the pick at its rung · dashed = a panel seat · struck = blacklisted
+            {onModelMenu && ' · right-click a pill to blacklist or delist'}
+          </span>
         </div>
       </div>
     </section>

@@ -316,6 +316,18 @@ describe('admin endpoints', () => {
     expect(result).toBeUndefined();
   });
 
+  it('adminBlacklistModel POSTs the slug to the blacklist collection', async () => {
+    fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(makeResponse({ slug: 'z-ai/glm-5.2' }));
+
+    const result = await api.adminBlacklistModel('z-ai/glm-5.2');
+
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('/api/admin/model-blacklist');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({ slug: 'z-ai/glm-5.2' });
+    expect(result).toEqual({ slug: 'z-ai/glm-5.2' });
+  });
+
   it('adminSelectorPutLadders PUTs both ladders and the headroom', async () => {
     const ladders = {
       coder: { simple: 0.65, moderate: 0.8, complex: 0.9, critical: 0.95 },

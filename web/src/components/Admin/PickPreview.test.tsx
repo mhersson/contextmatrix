@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import type { SelectorLadders } from '../../types';
 import { PickPreview } from './PickPreview';
 import { CANDIDATES, DEFAULT_BARS, pick, previewFixture, seat } from './selector.fixtures';
@@ -24,6 +24,38 @@ describe('PickPreview', () => {
     expect(within(critical).getByText('↓ complex')).toBeInTheDocument();
     expect(within(critical).getByText('no seat can be filled')).toBeInTheDocument();
     expect(screen.getByText('headroom 1.5× · favorites and blacklist applied')).toBeInTheDocument();
+  });
+
+  it('right-clicking a pick name or a seat reports the slug and pointer', () => {
+    const onModelMenu = vi.fn();
+    render(
+      <PickPreview preview={previewFixture()} pending={false} disabled={false} error={null} ladders={LADDERS} candidates={CANDIDATES} headroom={1.5} onModelMenu={onModelMenu} />,
+    );
+
+    const complexTier = screen.getByTestId('tl-pv-complex');
+    const [coderName] = within(complexTier).getAllByText('a/cheap');
+    expect(fireEvent.contextMenu(coderName, { clientX: 10, clientY: 20 })).toBe(false);
+    expect(onModelMenu).toHaveBeenLastCalledWith('a/cheap', 10, 20);
+
+    expect(fireEvent.contextMenu(screen.getByTestId('tl-seat-complex-1'), { clientX: 30, clientY: 40 })).toBe(false);
+    expect(onModelMenu).toHaveBeenLastCalledWith('b/pricey', 30, 40);
+    expect(onModelMenu).toHaveBeenCalledTimes(2);
+  });
+
+  it('gives a seat with no model no menu', () => {
+    const onModelMenu = vi.fn();
+    const p = previewFixture();
+    p.tiers.complex.panel[2] = seat('', 0, false, 'complex');
+    render(<PickPreview preview={p} pending={false} disabled={false} error={null} ladders={LADDERS} candidates={CANDIDATES} headroom={1.5} onModelMenu={onModelMenu} />);
+
+    expect(fireEvent.contextMenu(screen.getByTestId('tl-seat-complex-2'), { clientX: 1, clientY: 2 })).toBe(true);
+    expect(onModelMenu).not.toHaveBeenCalled();
+  });
+
+  it('leaves the browser menu alone when no handler is wired', () => {
+    render(<PickPreview preview={previewFixture()} pending={false} disabled={false} error={null} ladders={LADDERS} candidates={CANDIDATES} headroom={1.5} />);
+
+    expect(fireEvent.contextMenu(screen.getByTestId('tl-seat-complex-1'), { clientX: 1, clientY: 2 })).toBe(true);
   });
 
   it('says so when nothing clears any rung', () => {

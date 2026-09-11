@@ -33,11 +33,13 @@ export interface SelectorPreviewResult {
  * derived - the shown ladders differ from the ones the last answer was for -
  * so a drag step never sets state synchronously. An error keeps the last good
  * preview and is cleared by the next successful answer. A superseded request
- * is aborted and its late answer ignored.
+ * is aborted and its late answer ignored. The server applies its own
+ * blacklist; `blacklist` is the catalog's copy of it, so a change there
+ * (after an add or a delist) re-runs the preview.
  */
-export function useSelectorPreview(ladders: SelectorLadders, headroom: number, enabled: boolean): SelectorPreviewResult {
+export function useSelectorPreview(ladders: SelectorLadders, headroom: number, enabled: boolean, blacklist: readonly string[] = []): SelectorPreviewResult {
   const [state, setState] = useState<PreviewState>({ preview: null, forKey: null, forHeadroom: null, error: null });
-  const key = `${ladderKey(ladders)}|${headroom}`;
+  const key = `${ladderKey(ladders)}|${headroom}|${blacklist.join(',')}`;
 
   // The request reads the ladders through a ref so the effect keys on the
   // value (`key`), not the object: a refetch that yields equal values must

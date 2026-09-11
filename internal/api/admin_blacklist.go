@@ -3,11 +3,19 @@ package api
 import (
 	"context"
 	"net/http"
+	"strings"
 
 	"github.com/mhersson/contextmatrix/internal/opstore/sqlite"
 )
 
 const ErrCodeModelNotBlacklisted = "MODEL_NOT_BLACKLISTED"
+
+// Attribution for a manual add. In none mode there is no session to name;
+// in multi mode the admin's username replaces it.
+const (
+	blacklistOperator      = "operator"
+	blacklistDefaultReason = "blacklisted by operator"
+)
 
 // blacklistAdminStore is the op-store surface the admin model-blacklist
 // endpoints need. Deliberately separate from blacklistReader
@@ -18,9 +26,13 @@ const ErrCodeModelNotBlacklisted = "MODEL_NOT_BLACKLISTED"
 type blacklistAdminStore interface {
 	BlacklistEntries(ctx context.Context) ([]sqlite.BlacklistEntry, error)
 	DeleteBlacklistEntry(ctx context.Context, slug string) (bool, error)
+	// InsertBlacklistEntry writes the same row the MCP report_incapable_model
+	// tool does, but never overwrites one: a manual add on a listed slug
+	// leaves the agent's reason and sample card alone.
+	InsertBlacklistEntry(ctx context.Context, slug, reason, reportedBy string) (bool, error)
 }
 
-// blacklistAdminHandlers serves GET /api/admin/model-blacklist and
+// blacklistAdminHandlers serves GET and POST /api/admin/model-blacklist and
 // DELETE /api/admin/model-blacklist/{slug...}.
 type blacklistAdminHandlers struct {
 	store blacklistAdminStore
@@ -51,6 +63,91 @@ func (h *blacklistAdminHandlers) gate(w http.ResponseWriter, r *http.Request) bo
 	}
 
 	return requireAdmin(w, r) != nil
+}
+
+// modelBlacklistAddRequest is the POST /api/admin/model-blacklist body.
+type modelBlacklistAddRequest struct {
+	Slug   string `json:"slug"`
+	Reason string `json:"reason"`
+}
+
+// modelBlacklistAddResponse is the POST /api/admin/model-blacklist body.
+// Created is false when the slug was already listed and nothing changed.
+type modelBlacklistAddResponse struct {
+	Slug    string `json:"slug"`
+	Created bool   `json:"created"`
+}
+
+// add handles POST /api/admin/model-blacklist: an operator blacklisting a
+// model by hand, as opposed to the agent reporting one incapable over MCP.
+// A listed slug is left as it is (created:false), so a stale page can never
+// clobber an agent report. The slug is not checked against the catalog, so
+// a model that is not a candidate today is still excluded the day it
+// becomes one.
+func (h *blacklistAdminHandlers) add(w http.ResponseWriter, r *http.Request) {
+	if !h.gate(w, r) {
+		return
+	}
+
+	var req modelBlacklistAddRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+
+	slug := strings.TrimSpace(req.Slug)
+	if slug == "" {
+		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "slug is required", "")
+
+		return
+	}
+
+	if detail := blacklistSlugProblem(slug); detail != "" {
+		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "invalid slug", detail)
+
+		return
+	}
+
+	reason := strings.TrimSpace(req.Reason)
+	if reason == "" {
+		reason = blacklistDefaultReason
+	}
+
+	reportedBy := blacklistOperator
+	if u := sessionUserFromContext(r.Context()); u != nil {
+		reportedBy = u.Username
+	}
+
+	created, err := h.store.InsertBlacklistEntry(r.Context(), slug, reason, reportedBy)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to add blacklist entry", "")
+
+		return
+	}
+
+	writeJSON(w, http.StatusOK, modelBlacklistAddResponse{Slug: slug, Created: created})
+}
+
+// blacklistSlugProblem says why a slug cannot be listed, or "" when it can.
+// The delist route takes the slug as a raw path remainder (the web client
+// sends it unencoded), so anything the router would decode, redirect or
+// split differently must be refused up front or the row could only be
+// removed with SQL.
+func blacklistSlugProblem(slug string) string {
+	if strings.ContainsAny(slug, " \t\r\n?#%") {
+		return "slug must not contain whitespace, '?', '#' or '%'"
+	}
+
+	if strings.HasPrefix(slug, "/") || strings.HasSuffix(slug, "/") || strings.Contains(slug, "//") {
+		return "slug must not start or end with '/' or contain '//'"
+	}
+
+	for seg := range strings.SplitSeq(slug, "/") {
+		if seg == "." || seg == ".." {
+			return "slug must not contain '.' or '..' path segments"
+		}
+	}
+
+	return ""
 }
 
 // list handles GET /api/admin/model-blacklist.

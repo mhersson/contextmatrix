@@ -3,9 +3,12 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -28,6 +31,18 @@ type stubBlacklistAdminStore struct {
 	// deletedSlug records what DeleteBlacklistEntry was called with, so the
 	// wildcard-route test can prove slashes survive path parsing.
 	deletedSlug string
+	insertErr   error
+	// inserted is what InsertBlacklistEntry reports: true for a fresh row,
+	// false when the slug was already listed.
+	inserted bool
+	// insertCall captures the last InsertBlacklistEntry call; nil until one
+	// lands, so gate and validation tests can prove the store was never
+	// touched.
+	insertCall *insertedBlacklist
+}
+
+type insertedBlacklist struct {
+	slug, reason, reportedBy string
 }
 
 func (s *stubBlacklistAdminStore) BlacklistEntries(context.Context) ([]sqlite.BlacklistEntry, error) {
@@ -38,6 +53,29 @@ func (s *stubBlacklistAdminStore) DeleteBlacklistEntry(_ context.Context, slug s
 	s.deletedSlug = slug
 
 	return s.deleted, s.deleteErr
+}
+
+func (s *stubBlacklistAdminStore) InsertBlacklistEntry(_ context.Context, slug, reason, reportedBy string) (bool, error) {
+	s.insertCall = &insertedBlacklist{slug: slug, reason: reason, reportedBy: reportedBy}
+
+	return s.inserted, s.insertErr
+}
+
+// postBlacklistWithCSRF builds the POST /api/admin/model-blacklist request
+// with the CSRF header csrfGuard demands on every non-safe method.
+func postBlacklistWithCSRF(t *testing.T, url, body string, cookie *http.Cookie) *http.Request {
+	t.Helper()
+
+	req, err := http.NewRequest(http.MethodPost, url, strings.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("X-Requested-With", "contextmatrix")
+	req.Header.Set("Content-Type", "application/json")
+
+	if cookie != nil {
+		req.AddCookie(cookie)
+	}
+
+	return req
 }
 
 // newBlacklistAdminServer mirrors newOutcomeAdminServer for the
@@ -234,4 +272,154 @@ func TestAdminModelBlacklist_StoreErrors(t *testing.T) {
 
 		assert.Equal(t, http.StatusInternalServerError, res.StatusCode)
 	})
+}
+
+func TestAdminModelBlacklist_Add_NoneMode(t *testing.T) {
+	store := &stubBlacklistAdminStore{inserted: true}
+	server := newBlacklistAdminServer(t, store, false)
+
+	resp, err := http.DefaultClient.Do(postBlacklistWithCSRF(t, server.URL+"/api/admin/model-blacklist", `{"slug":"bad/model","reason":"loops on tool calls"}`, nil))
+	require.NoError(t, err)
+
+	defer closeBody(t, resp.Body)
+
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"slug":"bad/model","created":true}`, string(body))
+
+	require.NotNil(t, store.insertCall)
+	assert.Equal(t, "bad/model", store.insertCall.slug)
+	assert.Equal(t, "loops on tool calls", store.insertCall.reason)
+	assert.Equal(t, "operator", store.insertCall.reportedBy, "none mode has no session: attributed to the operator")
+}
+
+func TestAdminModelBlacklist_Add_DefaultReason(t *testing.T) {
+	store := &stubBlacklistAdminStore{}
+	h := &blacklistAdminHandlers{store: store}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/model-blacklist", strings.NewReader(`{"slug":"bad/model"}`))
+	w := httptest.NewRecorder()
+	h.add(w, req)
+
+	res := w.Result()
+	defer closeBody(t, res.Body)
+
+	require.Equal(t, http.StatusOK, res.StatusCode)
+	require.NotNil(t, store.insertCall)
+	assert.Equal(t, "blacklisted by operator", store.insertCall.reason)
+}
+
+func TestAdminModelBlacklist_Add_MultiMode(t *testing.T) {
+	t.Run("non-admin 403 before the store is touched", func(t *testing.T) {
+		store := &stubBlacklistAdminStore{}
+		server := newBlacklistAdminServer(t, store, true)
+		cookie := login(t, server, "bob", "bob password1")
+
+		resp, err := http.DefaultClient.Do(postBlacklistWithCSRF(t, server.URL+"/api/admin/model-blacklist", `{"slug":"bad/model"}`, cookie))
+		require.NoError(t, err)
+
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+		assert.Nil(t, store.insertCall)
+	})
+
+	t.Run("admin 200 attributed to the session user", func(t *testing.T) {
+		store := &stubBlacklistAdminStore{}
+		server := newBlacklistAdminServer(t, store, true)
+		cookie := login(t, server, "root", "root password1")
+
+		resp, err := http.DefaultClient.Do(postBlacklistWithCSRF(t, server.URL+"/api/admin/model-blacklist", `{"slug":"bad/model"}`, cookie))
+		require.NoError(t, err)
+
+		defer closeBody(t, resp.Body)
+
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		require.NotNil(t, store.insertCall)
+		assert.Equal(t, "root", store.insertCall.reportedBy)
+	})
+}
+
+func TestAdminModelBlacklist_Add_Rejects(t *testing.T) {
+	t.Run("empty slug 422", func(t *testing.T) {
+		store := &stubBlacklistAdminStore{}
+		h := &blacklistAdminHandlers{store: store}
+
+		req := httptest.NewRequest(http.MethodPost, "/api/admin/model-blacklist", strings.NewReader(`{"slug":"  ","reason":"r"}`))
+		w := httptest.NewRecorder()
+		h.add(w, req)
+
+		res := w.Result()
+		defer closeBody(t, res.Body)
+
+		assert.Equal(t, http.StatusUnprocessableEntity, res.StatusCode)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(res.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeValidationError, apiErr.Code)
+		assert.Nil(t, store.insertCall)
+	})
+
+	t.Run("invalid JSON 400", func(t *testing.T) {
+		store := &stubBlacklistAdminStore{}
+		h := &blacklistAdminHandlers{store: store}
+
+		req := httptest.NewRequest(http.MethodPost, "/api/admin/model-blacklist", strings.NewReader(`{`))
+		w := httptest.NewRecorder()
+		h.add(w, req)
+
+		res := w.Result()
+		defer closeBody(t, res.Body)
+
+		assert.Equal(t, http.StatusBadRequest, res.StatusCode)
+		assert.Nil(t, store.insertCall)
+	})
+
+	t.Run("malformed slug 422", func(t *testing.T) {
+		for _, slug := range []string{"a b", "x?y", "x#y", "x%2Fy", "/x", "x/", "x//y", "x/./y", "x/../y", ".", ".."} {
+			store := &stubBlacklistAdminStore{inserted: true}
+			h := &blacklistAdminHandlers{store: store}
+
+			req := httptest.NewRequest(http.MethodPost, "/api/admin/model-blacklist", strings.NewReader(`{"slug":`+strconv.Quote(slug)+`}`))
+			w := httptest.NewRecorder()
+			h.add(w, req)
+
+			res := w.Result()
+			closeBody(t, res.Body)
+
+			assert.Equal(t, http.StatusUnprocessableEntity, res.StatusCode, "slug %q", slug)
+			assert.Nil(t, store.insertCall, "slug %q", slug)
+		}
+	})
+
+	t.Run("store error 500", func(t *testing.T) {
+		store := &stubBlacklistAdminStore{insertErr: assert.AnError}
+		h := &blacklistAdminHandlers{store: store}
+
+		req := httptest.NewRequest(http.MethodPost, "/api/admin/model-blacklist", strings.NewReader(`{"slug":"bad/model"}`))
+		w := httptest.NewRecorder()
+		h.add(w, req)
+
+		res := w.Result()
+		defer closeBody(t, res.Body)
+
+		assert.Equal(t, http.StatusInternalServerError, res.StatusCode)
+	})
+}
+
+func TestAdminModelBlacklist_Add_AlreadyListedIsNoOp(t *testing.T) {
+	store := &stubBlacklistAdminStore{inserted: false}
+	h := &blacklistAdminHandlers{store: store}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/model-blacklist", strings.NewReader(`{"slug":"bad/model"}`))
+	w := httptest.NewRecorder()
+	h.add(w, req)
+
+	res := w.Result()
+	defer closeBody(t, res.Body)
+
+	require.Equal(t, http.StatusOK, res.StatusCode)
+	assert.JSONEq(t, `{"slug":"bad/model","created":false}`, w.Body.String())
 }

@@ -9,6 +9,12 @@ interface AdminResource<T> {
   setActionError: (message: string | null) => void;
   refetch: () => Promise<void>;
   act: (fn: () => Promise<unknown>, failMessage: string) => Promise<void>;
+  /**
+   * Re-reads the resource after a mutation made elsewhere. Unlike refetch,
+   * a failure keeps the loaded items on screen and reports through
+   * actionError rather than replacing the view with listError.
+   */
+  refresh: (failMessage: string) => Promise<void>;
 }
 
 /**
@@ -62,5 +68,16 @@ export function useAdminResource<T>(
     [refetch],
   );
 
-  return { items, loading, listError, actionError, setActionError, refetch, act };
+  const refresh = useCallback(
+    async (failMessage: string) => {
+      try {
+        setItems(await fetcher());
+      } catch (err) {
+        setActionError(errorMessage(err, failMessage));
+      }
+    },
+    [fetcher],
+  );
+
+  return { items, loading, listError, actionError, setActionError, refetch, act, refresh };
 }

@@ -16,6 +16,7 @@ import type {
 import { ConfirmModal } from '../ConfirmModal/ConfirmModal';
 import { LadderKpis } from './LadderKpis';
 import { ModelBlacklistTable } from './ModelBlacklistTable';
+import { ModelContextMenu } from './ModelContextMenu';
 import { PickPreview } from './PickPreview';
 import { TierLadder } from './TierLadder';
 import { ROLES, TIERS_ASC, isMonotone, laddersEqual, rolesEqual } from './ladder';
@@ -52,6 +53,13 @@ const EMPTY_SET: ReadonlySet<string> = new Set();
 interface SelectorDraft {
   ladders: SelectorLadders;
   headroom: number;
+}
+
+/** The model a right-click landed on and where. */
+interface ModelMenu {
+  slug: string;
+  x: number;
+  y: number;
 }
 
 /** Slugs that are the pick at some rung, per role. */
@@ -99,6 +107,7 @@ export function AdminModelSelectionPage() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [delistSlug, setDelistSlug] = useState<string | null>(null);
+  const [menu, setMenu] = useState<ModelMenu | null>(null);
 
   const ladders = draft?.ladders ?? saved.items.ladders;
   const headroom = draft?.headroom ?? saved.items.headroom;
@@ -118,7 +127,9 @@ export function AdminModelSelectionPage() {
   const setLadders = (next: SelectorLadders) => setDraft((d) => ({ ladders: next, headroom: d?.headroom ?? saved.items.headroom }));
   const setHeadroom = (next: number) => setDraft((d) => ({ ladders: d?.ladders ?? saved.items.ladders, headroom: next }));
 
-  const preview = useSelectorPreview(ladders, headroom, editable && headroomValid);
+  // The catalog's blacklist is what strikes the pills and what re-keys the
+  // preview after an add or a delist.
+  const preview = useSelectorPreview(ladders, headroom, editable && headroomValid, catalog.items.blacklist);
 
   const blacklisted = useMemo(() => new Set(catalog.items.blacklist), [catalog.items.blacklist]);
   const picks = useMemo(() => pickSets(preview.preview), [preview.preview]);
@@ -147,12 +158,24 @@ export function AdminModelSelectionPage() {
   const reset = () =>
     setDraft({ ladders: { coder: { ...saved.items.defaults }, reviewer: { ...saved.items.defaults } }, headroom: saved.items.headroom_default });
 
+  // Every blacklist change refetches the table and refreshes the catalog:
+  // the catalog carries the blacklist the pills and the preview read. A
+  // refresh that fails keeps the loaded catalog (and the draft) on screen.
+  const mutateBlacklist = async (fn: () => Promise<unknown>, failMessage: string) => {
+    await blacklist.act(fn, failMessage);
+    await catalog.refresh('Failed to refresh the candidate catalog.');
+  };
+
   const confirmDelist = async () => {
     const slug = delistSlug;
     setDelistSlug(null);
     if (!slug) return;
-    await blacklist.act(() => api.adminDelistModel(slug), 'Failed to delist model.');
+    await mutateBlacklist(() => api.adminDelistModel(slug), 'Failed to delist model.');
   };
+
+  const addToBlacklist = (slug: string) => void mutateBlacklist(() => api.adminBlacklistModel(slug), 'Failed to blacklist model.');
+
+  const openModelMenu = (slug: string, x: number, y: number) => setMenu({ slug, x, y });
 
   const ladderMeta = catalogReady
     ? [
@@ -223,6 +246,11 @@ export function AdminModelSelectionPage() {
             {blacklist.actionError}
           </div>
         )}
+        {catalog.actionError && (
+          <div className="tl-error" role="alert">
+            {catalog.actionError}
+          </div>
+        )}
 
         {laddersReady && (
           <LadderKpis candidates={catalog.items.candidates} ladders={ladders} preview={preview.preview} pending={preview.pending} />
@@ -243,6 +271,7 @@ export function AdminModelSelectionPage() {
               picks={picks}
               seats={seats}
               meta={ladderMeta}
+              onModelMenu={openModelMenu}
             />
           ) : (
             <section className="apd-panel" style={{ '--apd-acc': 'var(--aqua)' } as CSSProperties}>
@@ -263,11 +292,24 @@ export function AdminModelSelectionPage() {
             ladders={ladders}
             candidates={catalog.items.candidates}
             headroom={headroomValid ? headroom : (preview.appliedHeadroom ?? NaN)}
+            onModelMenu={openModelMenu}
           />
         </div>
 
         <ModelBlacklistTable models={blacklist.items.models} loading={blacklist.loading} error={blacklist.listError} onDelist={setDelistSlug} />
       </div>
+
+      {menu && (
+        <ModelContextMenu
+          slug={menu.slug}
+          x={menu.x}
+          y={menu.y}
+          blacklisted={blacklisted.has(menu.slug)}
+          onBlacklist={addToBlacklist}
+          onDelist={setDelistSlug}
+          onClose={() => setMenu(null)}
+        />
+      )}
 
       <ConfirmModal
         open={delistSlug !== null}
