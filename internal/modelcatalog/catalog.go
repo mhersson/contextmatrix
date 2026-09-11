@@ -652,8 +652,8 @@ type aaScored struct {
 // automatically: the served id and each gateway alias reduce to family keys,
 // the first key with rows wins, and the closest scored row in that family
 // supplies the priors, preferring the row for the wanted reasoning effort
-// (the served name's own suffix, else effort, the gateway's); its creator
-// must pass the allowlist. Everything that yields no floor-clearing
+// (the served name's own suffix, else the gateway's `effort` argument); its
+// creator must pass the allowlist. Everything that yields no floor-clearing
 // candidate is returned as an exclusion with its reason and what was tried.
 func buildEndpointCandidates(aa []aaModel, endpoint map[string]orEntry, priors map[string]PriorOverride, floor float64, allow []string, effort string) ([]aaScored, []aaExclusion) {
 	maxCoding, maxIntel := maxIndices(aa)

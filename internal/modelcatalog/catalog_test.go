@@ -652,12 +652,35 @@ func TestBuildEndpointCandidatesReasoningEffort(t *testing.T) {
 	assert.Equal(t, "low", bySlug["openai/gpt-5.2-low"].Effort)
 
 	unset, _ := buildEndpointCandidates(aa, endpoint, nil, 0.3, nil, "")
+
+	unsetBySlug := map[string]aaScored{}
 	for _, s := range unset {
-		if s.Candidate.Slug == "gpt-5.2" {
-			assert.Equal(t, "gpt-5-2", s.Source, "no effort anywhere: the base-row rule")
-			assert.Empty(t, s.Effort)
-		}
+		unsetBySlug[s.Candidate.Slug] = s
 	}
+
+	require.Contains(t, unsetBySlug, "gpt-5.2")
+	assert.Equal(t, "gpt-5-2", unsetBySlug["gpt-5.2"].Source, "no effort anywhere: the base-row rule")
+	assert.Empty(t, unsetBySlug["gpt-5.2"].Effort)
+}
+
+// TestBuildEndpointCandidatesAliasEffort pins the seam where the served id
+// matches no family and a gateway alias does: the alias's own effort suffix
+// is the wanted effort, ahead of the gateway's configured one.
+func TestBuildEndpointCandidatesAliasEffort(t *testing.T) {
+	aa := []aaModel{
+		{Slug: "gpt-5-2", Creator: "openai", CodingIndex: new(60.0), IntelIndex: new(60.0)},
+		{Slug: "gpt-5-2-medium", Creator: "openai", CodingIndex: new(80.0), IntelIndex: new(80.0)},
+		{Slug: "gpt-5-2-high", Creator: "openai", CodingIndex: new(90.0), IntelIndex: new(90.0)},
+	}
+	endpoint := map[string]orEntry{
+		"vendor-alias-only": {ContextWindow: 1000, Tools: true, Aliases: []string{"gpt-5.2-high"}},
+	}
+
+	scored, exclusions := buildEndpointCandidates(aa, endpoint, nil, 0.3, nil, "medium")
+	require.Empty(t, exclusions)
+	require.Len(t, scored, 1)
+	assert.Equal(t, "gpt-5-2-high", scored[0].Source, "the alias that found the family names the effort")
+	assert.Equal(t, "high", scored[0].Effort)
 }
 
 // TestBuilderReasoningEffortReachesTheJoin: the configured gateway effort
