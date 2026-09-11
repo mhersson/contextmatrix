@@ -15,7 +15,9 @@ how to operate it. The security reasoning behind the split lives in
 | `none`            | Anyone who can reach the port         | `X-Agent-ID` header, an audit tag rather than a credential            | `auth.db` not opened                   |
 
 Env: `CONTEXTMATRIX_AUTH_MODE`. In `none` mode the `/api/auth/*` and
-`/api/admin/*` routes are not registered (404, not 401) and the web UI mints
+account-bound `/api/admin/*` routes (users, credentials) are not registered
+(404, not 401); chat administration and the model-selection routes stay
+registered and open, since whoever reaches the port is trusted. The web UI mints
 a per-browser `human:web-<8 hex>` identity instead of asking for a name.
 
 ```mermaid

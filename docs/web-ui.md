@@ -15,7 +15,7 @@ reference for people using the UI; execution semantics live in
 | `/chat`, `/chat/:id`                        | Global chat surface. `/chat?new=1` opens the New Chat dialog |
 | `/playbooks`, `/playbooks/:id`              | Playbook list and detail (see [playbooks](playbooks.md)) |
 | `/admin/users`, `/admin/credentials`        | Admin pages, `multi` auth mode only                      |
-| `/admin/chats`                              | Admin page, `multi` auth mode only                       |
+| `/admin/chats`                              | Chat administration (admin; open in `none` mode)         |
 | `/admin/model-selection`                    | Tier ladders (admin; open in `none` mode)                |
 
 Every view updates live from one Server-Sent Events stream per tab
@@ -127,8 +127,9 @@ editor. The client refuses files over 10 MiB and more than 3 uploads at once.
 
 ## Appearance
 
-The sidebar footer menu (the user chip in `multi` mode, an Appearance chip in
-`none` mode) sets Light or Dark and the palette: Everforest, Radix or
+The sidebar footer menu (the user chip in `multi` mode, a Settings chip in
+`none` mode, which also holds the admin pages that exist without accounts)
+sets Light or Dark and the palette: Everforest, Radix or
 Catppuccin.
 
 | Setting     | Server default                     | Browser override (`localStorage`)   |

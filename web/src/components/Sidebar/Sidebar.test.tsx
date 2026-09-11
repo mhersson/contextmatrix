@@ -258,11 +258,13 @@ describe('Sidebar footer appearance slot', () => {
     authState.current = null;
   });
 
-  it('none mode: shows a standalone Appearance chip and no user chip', () => {
+  it('none mode: shows a Settings chip with the admin pages and appearance, and no user chip', () => {
     setAuthState({ mode: 'none', status: 'authenticated', user: null, version: null, setUser: vi.fn(), logout: vi.fn() });
     renderSidebar();
-    const chip = screen.getByRole('button', { name: /appearance/i });
+    const chip = screen.getByRole('button', { name: /settings/i });
     fireEvent.click(chip);
+    expect(screen.getByRole('menuitem', { name: 'Model selection' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Chats' })).toBeInTheDocument();
     expect(screen.getByRole('menuitemradio', { name: 'Dark' })).toBeInTheDocument();
     expect(screen.queryByTitle(/^signed in as/i)).toBeNull();
   });
@@ -270,7 +272,7 @@ describe('Sidebar footer appearance slot', () => {
   it('no AuthProvider at all behaves like none mode', () => {
     authState.current = null;
     renderSidebar();
-    expect(screen.getByRole('button', { name: /appearance/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /settings/i })).toBeInTheDocument();
   });
 
   it('multi mode: the user chip owns appearance; no standalone Appearance chip', () => {

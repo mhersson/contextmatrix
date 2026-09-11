@@ -9,7 +9,7 @@ import { AppearanceMenuItems } from './AppearanceMenuItems';
  * Sidebar-footer user chip for multi mode: display name + a small menu with
  * the admin pages, the appearance radios, change-password and sign-out.
  * Renders nothing in none mode or while logged out, so call sites need no
- * conditional (none mode gets AppearanceMenu in the same slot instead).
+ * conditional (none mode gets SettingsMenu in the same slot instead).
  *
  * Uses useOptionalAuth (not useAuth) so Sidebar still renders in tests that
  * mount it without an AuthProvider - see deviation note in task-6-report.md.

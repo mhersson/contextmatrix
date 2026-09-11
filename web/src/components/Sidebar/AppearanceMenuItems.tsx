@@ -30,7 +30,7 @@ function RadioItem({ label, checked, onSelect }: { label: string; checked: boole
 
 /**
  * APPEARANCE group for the sidebar-footer menus: theme (light/dark) and
- * palette as radio items. Shared by UserMenu (multi mode) and AppearanceMenu
+ * palette as radio items. Shared by UserMenu (multi mode) and SettingsMenu
  * (none mode) so both modes expose the identical controls.
  */
 export function AppearanceMenuItems() {
