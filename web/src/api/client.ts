@@ -408,6 +408,11 @@ class APIClient {
     return this.request<ModelBlacklist>('/admin/model-blacklist');
   }
 
+  /** Blacklists a model by hand; idempotent per slug, like an agent report. */
+  async adminBlacklistModel(slug: string): Promise<{ slug: string }> {
+    return this.request<{ slug: string }>('/admin/model-blacklist', { method: 'POST', body: JSON.stringify({ slug }) });
+  }
+
   // Slug goes into the path unencoded on purpose: model slugs contain a
   // slash (z-ai/glm-5.2) and the backend route is a rest wildcard.
   async adminDelistModel(slug: string): Promise<{ deleted: string }> {
