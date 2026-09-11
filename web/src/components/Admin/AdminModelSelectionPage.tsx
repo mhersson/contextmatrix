@@ -256,7 +256,7 @@ export function AdminModelSelectionPage() {
             error={preview.error}
             ladders={ladders}
             candidates={catalog.items.candidates}
-            headroom={headroom}
+            headroom={headroomValid ? headroom : (preview.appliedHeadroom ?? NaN)}
           />
         </div>
 

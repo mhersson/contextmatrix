@@ -432,3 +432,22 @@ describe('AdminModelSelectionPage - blacklist', () => {
     expect(screen.getByText('moonshotai/kimi-k3')).toBeInTheDocument();
   });
 });
+
+describe('AdminModelSelectionPage - preview meta', () => {
+  it('names the headroom the shown preview was computed with while the field is invalid', async () => {
+    await renderLoaded();
+    expect(screen.getByText('headroom 1.5× · favorites and blacklist applied')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Price headroom' }), { target: { value: '0.5' } });
+
+    // No request fires for 0.5, so the preview on screen is still the 1.5 one
+    // and the meta must say so rather than claim a band it never used.
+    expect(screen.getByText('headroom 1.5× · favorites and blacklist applied')).toBeInTheDocument();
+    expect(screen.queryByText(/headroom 0\.5×/)).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Price headroom' }), { target: { value: '2' } });
+
+    // A valid draft shows immediately; the preview for it is on its way.
+    expect(screen.getByText('headroom 2× · favorites and blacklist applied')).toBeInTheDocument();
+  });
+});

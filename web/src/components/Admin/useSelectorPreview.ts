@@ -11,6 +11,8 @@ interface PreviewState {
   preview: SelectorPreview | null;
   /** Key of the ladders the preview (or the error) answers for. */
   forKey: string | null;
+  /** Headroom the shown preview was computed with; null until one lands. */
+  forHeadroom: number | null;
   error: string | null;
 }
 
@@ -18,6 +20,12 @@ export interface SelectorPreviewResult {
   preview: SelectorPreview | null;
   pending: boolean;
   error: string | null;
+  /**
+   * Headroom the shown preview was computed with, null before the first
+   * answer. While the field on screen is invalid no request fires, so this
+   * is what the panel may truthfully claim.
+   */
+  appliedHeadroom: number | null;
 }
 
 /**
@@ -28,7 +36,7 @@ export interface SelectorPreviewResult {
  * is aborted and its late answer ignored.
  */
 export function useSelectorPreview(ladders: SelectorLadders, headroom: number, enabled: boolean): SelectorPreviewResult {
-  const [state, setState] = useState<PreviewState>({ preview: null, forKey: null, error: null });
+  const [state, setState] = useState<PreviewState>({ preview: null, forKey: null, forHeadroom: null, error: null });
   const key = `${ladderKey(ladders)}|${headroom}`;
 
   // The request reads the ladders through a ref so the effect keys on the
@@ -55,7 +63,7 @@ export function useSelectorPreview(ladders: SelectorLadders, headroom: number, e
         .adminSelectorPreview(laddersRef.current, headroomRef.current, controller.signal)
         .then((preview) => {
           if (latestKeyRef.current !== key) return;
-          setState({ preview, forKey: key, error: null });
+          setState({ preview, forKey: key, forHeadroom: headroomRef.current, error: null });
         })
         .catch((err: unknown) => {
           if (controller.signal.aborted || latestKeyRef.current !== key) return;
@@ -68,5 +76,5 @@ export function useSelectorPreview(ladders: SelectorLadders, headroom: number, e
     };
   }, [key, enabled]);
 
-  return { preview: state.preview, pending: enabled && state.forKey !== key, error: state.error };
+  return { preview: state.preview, pending: enabled && state.forKey !== key, error: state.error, appliedHeadroom: state.forHeadroom };
 }
