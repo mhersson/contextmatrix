@@ -101,9 +101,9 @@ POST   /api/admin/credentials                            # add a pool credential
 PUT    /api/admin/credentials/{name}                      # rotate secret / update metadata / disable (admin-only, multi mode only)
 DELETE /api/admin/credentials/{name}                      # remove a pool credential (admin-only, multi mode only)
 
-GET    /api/admin/chats                                  # list all chat sessions, metadata only (admin-only, multi mode only; chat manager required)
-POST   /api/admin/chats/{id}/end                          # force-end any session (admin-only, multi mode only; chat manager required)
-DELETE /api/admin/chats/{id}                              # delete any session (admin-only, multi mode only; chat manager required)
+GET    /api/admin/chats                                  # list all chat sessions, metadata only (both auth modes; admin-gated only in multi; chat manager required)
+POST   /api/admin/chats/{id}/end                          # force-end any session (both auth modes; admin-gated only in multi; chat manager required)
+DELETE /api/admin/chats/{id}                              # delete any session (both auth modes; admin-gated only in multi; chat manager required)
 
 GET    /api/admin/model-outcomes                            # Best-of-N per-model outcome stats (both auth modes; admin-gated only in multi)
 DELETE /api/admin/model-outcomes                            # reset recorded outcomes (both auth modes; admin-gated only in multi)
@@ -313,13 +313,16 @@ JSON body), not `401`. See § Trust model in [architecture.md](architecture.md)
 for the security-review framing; this section documents the wire contract.
 Setup and operations are in [authentication.md](authentication.md).
 
-**Exception:** the model-outcomes and model-blacklist pairs
+**Exception:** the chat-administration routes (`GET /api/admin/chats`,
+`POST /api/admin/chats/{id}/end`, `DELETE /api/admin/chats/{id}`), the
+model-outcomes and model-blacklist pairs
 (`GET`/`DELETE /api/admin/model-outcomes`, `GET /api/admin/model-blacklist`,
 `DELETE /api/admin/model-blacklist/{slug...}`) and the selector routes
 (`GET`/`PUT /api/admin/selector/ladders`, `GET /api/admin/selector/candidates`,
 `POST /api/admin/selector/preview`) are registered in **both** auth modes -
-model-selection tracking and steering do not depend on the auth system.
-They are documented at the end of this section.
+chat administration and model-selection tracking and steering do not
+depend on the auth system.
+The chat routes are documented above; the rest at the end of this section.
 
 **Session gate.** `sessionGuard` runs on every request in multi mode and
 rejects any request with no valid session - reads as well as writes. A
@@ -689,7 +692,8 @@ Refuses to delete a credential that any project's `.board.yaml`
 Lists every chat session on the instance - no owner scoping. Metadata and
 cost totals only; transcript content is never included. Query parameters
 `project`, `status`, and `limit` behave as on `GET /api/chats` (default 500,
-max 5000, bad values 400); `created_by` is ignored. Registered only when a
+max 5000, bad values 400); `created_by` is ignored. Registered in both auth
+modes (admin-gated only in `multi`) and only when a
 chat manager is wired.
 
 **Response:** `200 OK` - array of session objects (same shape as
