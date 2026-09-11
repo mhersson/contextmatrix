@@ -714,4 +714,36 @@ func TestBuilderCandidatePriceFromAARateFromTokenCosts(t *testing.T) {
 	require.True(t, ok)
 	assert.InDelta(t, 3e-6, price.Prompt, 1e-15, "card costs keep the token_costs fill")
 	assert.InDelta(t, 15e-6, price.Completion, 1e-15)
+
+	sources := b.PriceSources(context.Background())
+	assert.Equal(t, map[string]string{"vendor/model-a": "aa"}, sources)
+}
+
+// TestBuilderPriceSourcesOpenRouterLeg: every OpenRouter candidate is priced
+// by the served catalog, so the source map says gateway for each.
+func TestBuilderPriceSourcesOpenRouterLeg(t *testing.T) {
+	orSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"z-ai/glm-5.2","context_length":1048576,
+			"pricing":{"prompt":"0.0000012","completion":"0.0000041"},"supported_parameters":["tools"]}]}`))
+	}))
+	defer orSrv.Close()
+
+	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"slug":"glm-5-2","model_creator":{"name":"Z AI"},
+			"evaluations":{"artificial_analysis_coding_index":76.5,"artificial_analysis_intelligence_index":59.9}}]}`))
+	}))
+	defer aaSrv.Close()
+
+	b := NewBuilder("aa-key", 0.5, nil, time.Hour)
+	b.orEndpoint = orSrv.URL
+	b.aaEndpoint = aaSrv.URL
+
+	require.Len(t, b.Candidates(context.Background()), 1)
+	assert.Equal(t, map[string]string{"z-ai/glm-5.2": "gateway"}, b.PriceSources(context.Background()))
+}
+
+func TestBuilderPriceSourcesNilReceiver(t *testing.T) {
+	var b *Builder
+
+	assert.Nil(t, b.PriceSources(context.Background()))
 }
