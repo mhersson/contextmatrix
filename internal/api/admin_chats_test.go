@@ -21,12 +21,70 @@ func newAdminChatFixture(t *testing.T) (*http.ServeMux, *chat.Manager) {
 	_, mgr := newChatFixture(t, defaultFixtureOpts())
 
 	mux := http.NewServeMux()
-	h := &adminChatHandlers{mgr: mgr}
+	h := &adminChatHandlers{mgr: mgr, authEnabled: true}
 	mux.HandleFunc("GET /api/admin/chats", h.listChats)
 	mux.HandleFunc("POST /api/admin/chats/{id}/end", h.endChat)
 	mux.HandleFunc("DELETE /api/admin/chats/{id}", h.deleteChat)
 
 	return mux, mgr
+}
+
+func TestAdminChats_OpenInNoneMode(t *testing.T) {
+	// None mode has no sessions and no admin role: whoever reaches the API
+	// is trusted, so the chat admin surface answers without any identity on
+	// the request, the same posture as the model-selection admin routes.
+	_, mgr := newChatFixture(t, defaultFixtureOpts())
+	sess := seedSession(t, mgr, "human:alice")
+
+	_, err := mgr.OpenSession(t.Context(), sess.ID)
+	require.NoError(t, err)
+
+	mux := http.NewServeMux()
+	h := &adminChatHandlers{mgr: mgr}
+	mux.HandleFunc("GET /api/admin/chats", h.listChats)
+	mux.HandleFunc("POST /api/admin/chats/{id}/end", h.endChat)
+	mux.HandleFunc("DELETE /api/admin/chats/{id}", h.deleteChat)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/admin/chats", nil))
+	require.Equal(t, http.StatusOK, w.Code, "body: %s", w.Body.String())
+
+	var sessions []chat.Session
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&sessions))
+	assert.Len(t, sessions, 1)
+
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/admin/chats/"+sess.ID+"/end", nil))
+	require.Equal(t, http.StatusOK, w.Code, "body: %s", w.Body.String())
+
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest(http.MethodDelete, "/api/admin/chats/"+sess.ID, nil))
+	assert.Equal(t, http.StatusNoContent, w.Code)
+}
+
+func TestAdminChats_RegisteredWithoutAuthService(t *testing.T) {
+	// The routes exist in none mode: a router with a chat manager but no
+	// auth service must still serve GET /api/admin/chats.
+	_, mgr := newChatFixture(t, defaultFixtureOpts())
+	seedSession(t, mgr, "human:alice")
+
+	server := httptest.NewServer(NewRouter(RouterConfig{ChatManager: mgr}))
+	t.Cleanup(server.Close)
+
+	req, err := http.NewRequest(http.MethodGet, server.URL+"/api/admin/chats", nil)
+	require.NoError(t, err)
+	req.Header.Set("X-Requested-With", "contextmatrix")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	defer closeBody(t, resp.Body)
+
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var sessions []chat.Session
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&sessions))
+	assert.Len(t, sessions, 1)
 }
 
 func TestAdminChats_NonAdminForbidden(t *testing.T) {

@@ -14,12 +14,24 @@ import (
 // this surface is interface-level privacy against the admin role.
 type adminChatHandlers struct {
 	mgr *chat.Manager
+	// authEnabled mirrors "multi mode": every route then requires an admin
+	// session. In none mode they are open, the same trust posture as the
+	// model-selection admin routes: whoever reaches the API is trusted.
+	authEnabled bool
+}
+
+func (h *adminChatHandlers) gate(w http.ResponseWriter, r *http.Request) bool {
+	if !h.authEnabled {
+		return true
+	}
+
+	return requireAdmin(w, r) != nil
 }
 
 // listChats handles GET /api/admin/chats - every session, no owner
 // scoping. Session JSON carries metadata and cost totals only.
 func (h *adminChatHandlers) listChats(w http.ResponseWriter, r *http.Request) {
-	if requireAdmin(w, r) == nil {
+	if !h.gate(w, r) {
 		return
 	}
 
@@ -51,7 +63,7 @@ func (h *adminChatHandlers) listChats(w http.ResponseWriter, r *http.Request) {
 // error mapping; this is the remedy when a stuck active session holds a
 // slot of the global concurrency cap.
 func (h *adminChatHandlers) endChat(w http.ResponseWriter, r *http.Request) {
-	if requireAdmin(w, r) == nil {
+	if !h.gate(w, r) {
 		return
 	}
 
@@ -77,7 +89,7 @@ func (h *adminChatHandlers) endChat(w http.ResponseWriter, r *http.Request) {
 // before deleting - existing manager semantics). DeleteSession preserves
 // cost tombstones, so dashboard aggregates stay accurate.
 func (h *adminChatHandlers) deleteChat(w http.ResponseWriter, r *http.Request) {
-	if requireAdmin(w, r) == nil {
+	if !h.gate(w, r) {
 		return
 	}
 
