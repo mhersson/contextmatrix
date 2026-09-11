@@ -2420,8 +2420,10 @@ textarea {
   color: var(--grey1);
 }
 .tl-headroom input {
-  width: 4.5em;
+  /* Room for "1.25" beside the native spinner at the meta line's 10.5px mono. */
+  width: 6.5em;
   font: inherit;
+  font-variant-numeric: tabular-nums;
   color: inherit;
   background: transparent;
   border: 1px solid var(--bg3);
