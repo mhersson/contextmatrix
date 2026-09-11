@@ -30,6 +30,7 @@ The operator-facing controls, most direct first:
 | Raise or lower a tier's quality bar   | Tier ladders                                | Model selection admin page                   | One ladder per role (coder, reviewer), linked in the page when the saved ladders are equal; stored in `ops.db`, sent with every run as `selection.tier_bars`; never a config-file setting |
 | Set the orchestrator model            | `backends.agent.default_model`              | `config.yaml`                                | Card pins override it; the selector's empty-pool fallback resolves to the trigger's `default_model` when set, else the agent's serve default, else the compiled-in `deepseek/deepseek-v4-flash`
 | Clear the outcome ledger              | `DELETE /api/admin/model-outcomes`          | REST (admin)                                 | Observability data only - selection never reads it; does not touch the blacklist               |
+| Blacklist a model by hand             | `POST /api/admin/model-blacklist`           | REST (admin) / right-click on the model-selection admin page | Same row an agent report writes; excluded from every automatic pick and seat until delisted |
 | Delist a blacklisted model            | `DELETE /api/admin/model-blacklist/{slug...}` | REST (admin) / model-selection admin page  | Makes the model selectable again; the list itself is `GET /api/admin/model-blacklist`          |
 | Control Best-of-N race size           | `best_of_n.*`                               | `config.yaml`                                | Caps the number of racing candidates, never the candidate list                                 |
 
@@ -439,6 +440,14 @@ A pill's tooltip names the AA row the candidate was scored from, and the
 panel's meta line names the gateway's pinned reasoning effort when
 `llm_endpoint.reasoning_effort` is set.
 
+Right-clicking a pill, a pick name in the preview, or a panel seat opens a
+one-item menu for that model: **Add to blacklist**, or **Remove from
+blacklist** when it is already struck (the same confirm as the table's
+delist button). Either change refetches the catalog and the blacklist
+panel and re-runs the preview, so the pills, picks and seats reflect the
+new blacklist at once. The ladders and headroom on screen are untouched;
+the blacklist is not part of the unsaved draft.
+
 Nothing is sent until **Save**; the status pill says whether the next run
 uses what is on screen. **Discard changes** returns to the saved ladders and
 headroom, **Reset to defaults** loads the built-in ladder into both roles and
@@ -671,6 +680,16 @@ card, and the reporting agent id, and increments
 every subsequent trigger's `selection.blacklist`, and the agent's selector
 filters them out of every non-pinned pick.
 
+An operator can blacklist a model by hand through
+`POST /api/admin/model-blacklist` (`{"slug", "reason"?}`) or by
+right-clicking it on the admin model-selection page. A manual add writes
+the same row an agent report does: the reason defaults to "blacklisted by
+operator", the reporter is the admin's username in multi mode and
+"operator" in none mode, and the slug is not checked against the catalog,
+so a model that is not a candidate today is still excluded the day it
+becomes one. Manual adds do not increment the blacklists counter, which
+counts agent reports only.
+
 No MCP tool removes an entry - agents cannot delist. Operators delist via
 `DELETE /api/admin/model-blacklist/{slug}` or the delist button on the admin
 model-selection page; a card pin also beats the blacklist for one card,
@@ -721,13 +740,16 @@ are the only evidence that exists about that choice.
   [API reference](api-reference.md#get-apiadminmodel-outcomes).
 - `GET /api/admin/model-blacklist` - every blacklisted model with reason,
   sample card, reporter, and timestamps;
+  `POST /api/admin/model-blacklist` blacklists one model by hand
+  (`{"slug", "reason"?}`; `422 VALIDATION_ERROR` on a blank slug);
   `DELETE /api/admin/model-blacklist/{slug}` delists one model (`404
-  MODEL_NOT_BLACKLISTED` when it is not listed). Both are admin-gated in
-  multi mode and open in none mode.
+  MODEL_NOT_BLACKLISTED` when it is not listed). All three are admin-gated
+  in multi mode and open in none mode.
 - The admin UI's model-selection page (`/admin/model-selection`) is the
   ladders page: both ladders, the candidate catalog and the pick preview,
-  with the blacklist panel below (per-row delist). The outcome ledger has
-  no page; its endpoints remain.
+  with the blacklist panel below (per-row delist). Right-clicking a model
+  in the ladders or the preview blacklists or delists it. The outcome
+  ledger has no page; its endpoints remain.
 - Metrics: `contextmatrix_model_outcomes_total{model,result}` and
   `contextmatrix_model_blacklists_total{model}`. There are no catalog metrics
   (no refresh counter or candidate gauge); catalog health surfaces in logs.

@@ -108,6 +108,7 @@ DELETE /api/admin/chats/{id}                              # delete any session (
 GET    /api/admin/model-outcomes                            # Best-of-N per-model outcome stats (both auth modes; admin-gated only in multi)
 DELETE /api/admin/model-outcomes                            # reset recorded outcomes (both auth modes; admin-gated only in multi)
 GET    /api/admin/model-blacklist                           # blacklisted models with reasons (both auth modes; admin-gated only in multi)
+POST   /api/admin/model-blacklist                           # blacklist one model by hand (both auth modes; admin-gated only in multi)
 DELETE /api/admin/model-blacklist/{slug...}                 # delist one model (both auth modes; admin-gated only in multi)
 
 GET    /api/admin/selector/ladders                          # per-role tier ladders, stored or built-in (both auth modes; admin-gated only in multi)
@@ -215,7 +216,7 @@ the request's `request_id`.
 
 | Status | When                                                                                                                                                                                                                                                                                             |
 | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 200    | GET, PUT, PATCH; `POST /claim`, `/release`, `/force-release`, `/stop-all`, `/api/agent/status`, `/api/chats/{id}/open`, `/api/chats/{id}/end`; `DELETE /api/admin/model-outcomes` and `.../model-blacklist/{slug}` (body reports what was deleted); playbook entry DELETE (returns the playbook) |
+| 200    | GET, PUT, PATCH; `POST /claim`, `/release`, `/force-release`, `/stop-all`, `/api/agent/status`, `/api/chats/{id}/open`, `/api/chats/{id}/end`; `POST /api/admin/model-blacklist` (body echoes the slug); `DELETE /api/admin/model-outcomes` and `.../model-blacklist/{slug}` (body reports what was deleted); playbook entry DELETE (returns the playbook) |
 | 201    | `POST /api/projects`, `POST .../cards`, `POST /api/playbooks`, `POST /api/playbooks/{id}/entries`, `POST /api/chats`, `POST /api/admin/users`, `POST /api/admin/credentials`, `POST /api/images`                                                                                                 |
 | 202    | Async work kicked off: `POST .../run`, `/stop`, `/message`, `/promote`, `POST /api/chats/{id}/messages`, `/api/chats/{id}/clear`                                                                                                                                                                 |
 | 204    | DELETE of a card, project, playbook, chat, admin chat, or credential; `POST /api/auth/logout`, `POST /api/auth/password`; `GET /api/worker/logs` when no session manager is wired                                                                                                                |
@@ -315,8 +316,8 @@ Setup and operations are in [authentication.md](authentication.md).
 
 **Exception:** the chat-administration routes (`GET /api/admin/chats`,
 `POST /api/admin/chats/{id}/end`, `DELETE /api/admin/chats/{id}`), the
-model-outcomes and model-blacklist pairs
-(`GET`/`DELETE /api/admin/model-outcomes`, `GET /api/admin/model-blacklist`,
+model-outcomes and model-blacklist routes
+(`GET`/`DELETE /api/admin/model-outcomes`, `GET`/`POST /api/admin/model-blacklist`,
 `DELETE /api/admin/model-blacklist/{slug...}`) and the selector routes
 (`GET`/`PUT /api/admin/selector/ladders`, `GET /api/admin/selector/candidates`,
 `POST /api/admin/selector/preview`) are registered in **both** auth modes -
@@ -763,10 +764,10 @@ Deletes every recorded outcome row. Returns **200 OK** with the row count:
 
 Same registration and gating as the model-outcomes pair. Returns every model
 the agent backend has reported incapable via the MCP `report_incapable_model`
-tool. Blacklisted models are excluded from every automatic pick; only a card
-pin overrides ([model-selection.md](model-selection.md) § The blacklist).
-Timestamps are unix seconds; `sample_card` is omitted when the report carried
-none:
+tool or an operator has blacklisted by hand. Blacklisted models are excluded
+from every automatic pick; only a card pin overrides
+([model-selection.md](model-selection.md) § The blacklist). Timestamps are
+unix seconds; `sample_card` is omitted when the report carried none:
 
 ```json
 {
@@ -782,6 +783,28 @@ none:
   ]
 }
 ```
+
+### POST /api/admin/model-blacklist
+
+Blacklists one model by hand. Writes the same row an agent report does
+(idempotent per slug: an existing row keeps its `first_seen` and takes the
+new reason and reporter). `reason` is optional and defaults to
+`blacklisted by operator`; `reported_by` is the admin's username in multi
+mode and `operator` in none mode. The slug is not checked against the
+candidate catalog. Returns **200 OK** with the slug:
+
+```json
+{ "slug": "moonshotai/kimi-k3" }
+```
+
+Request body:
+
+```json
+{ "slug": "moonshotai/kimi-k3", "reason": "loops on tool calls" }
+```
+
+**Errors:** `400 BAD_REQUEST` (malformed JSON), `422 VALIDATION_ERROR`
+(blank slug).
 
 ### DELETE /api/admin/model-blacklist/{slug...}
 

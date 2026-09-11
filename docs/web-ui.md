@@ -193,7 +193,11 @@ configured. The KPI row summarises the `complex` tier (reviewers clearing it,
 the cheapest reviewer, the three-seat panel cost) plus the coder pick at
 `moderate`. Nothing is sent until **Save**; the status pill in the header says
 whether the next run uses the values on screen. The blacklist panel below lists
-the models the agent reported incapable, with a per-row **Delist**. Details in
+the models the agent reported incapable, with a per-row **Delist**.
+Right-clicking a pill, a pick name in the preview, or a panel seat opens a
+menu with **Add to blacklist**, or **Remove from blacklist** when the model is
+already struck; either change refetches the catalog and re-runs the preview at
+once, independently of the unsaved ladders. Details in
 [model selection](model-selection.md#the-ladders-page).
 
 ## Keyboard shortcuts
