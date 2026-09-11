@@ -365,6 +365,11 @@ index bunches near the top while the intelligence index spreads, so one bar
 gates the two roles very differently. The page links the two by default so
 a drag moves the same tier in both; unlinked, each moves alone.
 
+The ladders reach a run only when the candidate catalog is configured: CM
+attaches the `selection` block, ladders included, only with
+`backends.agent.aa_api_key` set, so an instance without a catalog still
+stores ladders that no run ever receives.
+
 A ladder must be non-decreasing (`simple <= moderate <= complex <=
 critical`) with every bar in `[0, 1]`; the page clamps a drag between its
 neighbours and above the catalog quality floor, and the server rejects
