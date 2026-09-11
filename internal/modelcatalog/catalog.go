@@ -21,6 +21,15 @@ import (
 // (a 30s catalog request plus the aaFetchBudget-bounded AA fetch) per call.
 const refreshFailureCooldown = 60 * time.Second
 
+// CandidateProvenance is where a candidate's inputs came from, for the admin
+// selector views: PriceSource is gateway, aa, token_costs or none; ScoredFrom
+// is the AA slug an automatic join scored the priors from, empty for a
+// model_priors entry and on the OpenRouter leg.
+type CandidateProvenance struct {
+	PriceSource string
+	ScoredFrom  string
+}
+
 // Builder fetches AA + OR on a TTL and produces the candidate set. Safe for
 // concurrent use; serves the last-good snapshot when a refresh fails.
 type Builder struct {
@@ -56,10 +65,10 @@ type Builder struct {
 	// served model, not just selection candidates). Guarded by mu; consumed by
 	// Rate() for per-slug cost lookups.
 	lastCatalog map[string]orEntry
-	// priceSources is where each candidate's price came from, keyed by
-	// slug, for the admin selector views. Guarded by mu; rebuilt with cached
-	// on every successful refresh.
-	priceSources map[string]string
+	// provenance is where each candidate's price and priors came from, keyed
+	// by slug, for the admin selector views. Guarded by mu; rebuilt with
+	// cached on every successful refresh.
+	provenance map[string]CandidateProvenance
 	// lastRefreshAttempt is when refresh() was last invoked, success or
 	// failure. Guarded by mu. Gates re-attempts on a stale cache so a failing
 	// provider is retried at most once per refreshFailureCooldown.
@@ -195,11 +204,11 @@ func (b *Builder) LastRefreshed(ctx context.Context) time.Time {
 	return b.cachedAt
 }
 
-// PriceSources reports where each candidate's price came from, keyed by
-// slug: gateway, aa, token_costs or none. It refreshes if stale, like
-// Candidates, and describes the same snapshot. Nil on a nil receiver or
-// before the first successful refresh.
-func (b *Builder) PriceSources(ctx context.Context) map[string]string {
+// Provenance reports where each candidate's price and priors came from,
+// keyed by slug. It refreshes if stale, like Candidates, and describes the
+// same snapshot. Nil on a nil receiver or before the first successful
+// refresh.
+func (b *Builder) Provenance(ctx context.Context) map[string]CandidateProvenance {
 	if b == nil {
 		return nil
 	}
@@ -209,7 +218,7 @@ func (b *Builder) PriceSources(ctx context.Context) map[string]string {
 
 	b.refreshIfStaleLocked(ctx)
 
-	return maps.Clone(b.priceSources)
+	return maps.Clone(b.provenance)
 }
 
 // ModelPrice is the per-token price set for one served model. CacheRead and
@@ -362,7 +371,7 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 		// Without an AA key there are no selection candidates (the complexity
 		// selector is an agent-only concern), but per-slug pricing is populated.
 		if b.aaKey == "" {
-			b.priceSources = map[string]string{}
+			b.provenance = map[string]CandidateProvenance{}
 
 			return []protocol.CandidateModel{}, nil
 		}
@@ -418,14 +427,20 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 		}
 
 		cands := make([]protocol.CandidateModel, 0, len(built))
-		sources := make(map[string]string, len(built))
+		prov := make(map[string]CandidateProvenance, len(built))
 
 		for _, s := range built {
 			cands = append(cands, s.Candidate)
-			sources[s.Candidate.Slug] = string(s.PriceSource)
+
+			p := CandidateProvenance{PriceSource: string(s.PriceSource)}
+			if s.Join == joinAutomatic {
+				p.ScoredFrom = s.Source
+			}
+
+			prov[s.Candidate.Slug] = p
 		}
 
-		b.priceSources = sources
+		b.provenance = prov
 
 		return cands, nil
 	}
@@ -441,7 +456,7 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 	b.lastCatalog = or
 
 	if b.aaKey == "" {
-		b.priceSources = map[string]string{}
+		b.provenance = map[string]CandidateProvenance{}
 
 		return []protocol.CandidateModel{}, nil
 	}
@@ -454,13 +469,14 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 	cands := build(aa, or, b.floor, b.allowlist)
 
 	// OpenRouter prices every model it serves: the served catalog is the
-	// gateway for this leg.
-	sources := make(map[string]string, len(cands))
+	// gateway for this leg. build does not report which AA row it scored a
+	// slug from, so ScoredFrom stays empty here.
+	prov := make(map[string]CandidateProvenance, len(cands))
 	for _, c := range cands {
-		sources[c.Slug] = string(priceSourceGateway)
+		prov[c.Slug] = CandidateProvenance{PriceSource: string(priceSourceGateway)}
 	}
 
-	b.priceSources = sources
+	b.provenance = prov
 
 	return cands, nil
 }

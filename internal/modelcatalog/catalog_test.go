@@ -432,13 +432,14 @@ func TestBuilderCandidatePriceFromAARateFromTokenCosts(t *testing.T) {
 	assert.InDelta(t, 3e-6, price.Prompt, 1e-15, "card costs keep the token_costs fill")
 	assert.InDelta(t, 15e-6, price.Completion, 1e-15)
 
-	sources := b.PriceSources(context.Background())
-	assert.Equal(t, map[string]string{"vendor/model-a": "aa"}, sources)
+	assert.Equal(t, map[string]CandidateProvenance{"vendor/model-a": {PriceSource: "aa", ScoredFrom: "model-a"}},
+		b.Provenance(context.Background()))
 }
 
-// TestBuilderPriceSourcesOpenRouterLeg: every OpenRouter candidate is priced
-// by the served catalog, so the source map says gateway for each.
-func TestBuilderPriceSourcesOpenRouterLeg(t *testing.T) {
+// TestBuilderProvenanceOpenRouterLeg: every OpenRouter candidate is priced by
+// the served catalog and its AA row is not exposed, so provenance says
+// gateway and nothing else.
+func TestBuilderProvenanceOpenRouterLeg(t *testing.T) {
 	orSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"data":[{"id":"z-ai/glm-5.2","context_length":1048576,
 			"pricing":{"prompt":"0.0000012","completion":"0.0000041"},"supported_parameters":["tools"]}]}`))
@@ -456,13 +457,13 @@ func TestBuilderPriceSourcesOpenRouterLeg(t *testing.T) {
 	b.aaEndpoint = aaSrv.URL
 
 	require.Len(t, b.Candidates(context.Background()), 1)
-	assert.Equal(t, map[string]string{"z-ai/glm-5.2": "gateway"}, b.PriceSources(context.Background()))
+	assert.Equal(t, map[string]CandidateProvenance{"z-ai/glm-5.2": {PriceSource: "gateway"}}, b.Provenance(context.Background()))
 }
 
-func TestBuilderPriceSourcesNilReceiver(t *testing.T) {
+func TestBuilderProvenanceNilReceiver(t *testing.T) {
 	var b *Builder
 
-	assert.Nil(t, b.PriceSources(context.Background()))
+	assert.Nil(t, b.Provenance(context.Background()))
 }
 
 // TestBuildEndpointCandidatesAutomaticJoin covers the openai-leg build end to
@@ -685,4 +686,31 @@ func TestBuilderReasoningEffortReachesTheJoin(t *testing.T) {
 	cands := b.Candidates(context.Background())
 	require.Len(t, cands, 1)
 	assert.InDelta(t, 1.0, cands[0].CoderPrior, 1e-9, "scored from the medium row, the family leader")
+	assert.Equal(t, "model-a-medium", b.Provenance(context.Background())["vendor/model-a"].ScoredFrom)
+}
+
+// TestBuilderProvenanceModelPriorsNamesNoRow: a model_priors entry joins no
+// AA row, so its provenance carries the price source only.
+func TestBuilderProvenanceModelPriorsNamesNoRow(t *testing.T) {
+	endpointSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"vendor/private-1","context_length":200000,"capabilities":{"features":["tools"]}}]}`))
+	}))
+	defer endpointSrv.Close()
+
+	// fetchAAModels treats a wholly empty AA response as a fetch error (see
+	// aa.go), so this fixture carries one unrelated AA row; the model_priors
+	// path for vendor/private-1 never consults the family index, so it plays
+	// no part in the join.
+	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"slug":"unrelated-model","model_creator":{"name":"someone"},
+			"evaluations":{"artificial_analysis_coding_index":50,"artificial_analysis_intelligence_index":50}}]}`))
+	}))
+	defer aaSrv.Close()
+
+	b := NewBuilder("aa-key", 0.5, nil, time.Hour,
+		WithEndpoint(endpointSrv.URL, "secret", map[string]PriorOverride{"vendor/private-1": {Coder: 0.9, Reviewer: 0.8}}))
+	b.aaEndpoint = aaSrv.URL
+
+	require.Len(t, b.Candidates(context.Background()), 1)
+	assert.Equal(t, map[string]CandidateProvenance{"vendor/private-1": {PriceSource: "none"}}, b.Provenance(context.Background()))
 }

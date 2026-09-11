@@ -222,6 +222,9 @@ type RouterConfig struct {
 	// typed-nil *modelcatalog.Builder is never boxed; nil makes both
 	// endpoints answer 503.
 	SelectorCatalog selectorCatalog
+	// SelectorReasoningEffort is llm_endpoint.reasoning_effort, echoed on the
+	// admin candidates response. Empty when unset.
+	SelectorReasoningEffort string
 
 	// ChatEndpointModels, when non-nil, is the raw (uncached) upstream fetch for
 	// the openai-endpoint model list. Set when llm_endpoint.type == "openai".
@@ -469,11 +472,12 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	// catalog has refreshed once.
 	if cfg.SelectorAdmin != nil {
 		selh := &selectorAdminHandlers{
-			store:       cfg.SelectorAdmin,
-			catalog:     cfg.SelectorCatalog,
-			blacklist:   cfg.Blacklist,
-			favorites:   agentCfg.Favorites,
-			authEnabled: cfg.AuthService != nil,
+			store:           cfg.SelectorAdmin,
+			catalog:         cfg.SelectorCatalog,
+			blacklist:       cfg.Blacklist,
+			favorites:       agentCfg.Favorites,
+			reasoningEffort: cfg.SelectorReasoningEffort,
+			authEnabled:     cfg.AuthService != nil,
 		}
 		mux.HandleFunc("GET /api/admin/selector/ladders", selh.getLadders)
 		mux.HandleFunc("PUT /api/admin/selector/ladders", selh.putLadders)
