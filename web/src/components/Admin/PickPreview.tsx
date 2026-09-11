@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import type { SelectorCandidate, SelectorLadders, SelectorPickReport, SelectorPreview, SelectorSeat, SelectorTier } from '../../types';
-import { TIERS_DESC, TIER_COLOR, formatBar, panelPrice, priorOf, shortSlug, usdPerMillion } from './ladder';
+import { TIERS_DESC, TIER_COLOR, formatBar, panelHasListPrice, panelPrice, priorOf, shortSlug, usdPerMillion } from './ladder';
 
 interface PickPreviewProps {
   preview: SelectorPreview | null;
@@ -11,6 +11,22 @@ interface PickPreviewProps {
   ladders: SelectorLadders;
   candidates: SelectorCandidate[];
   headroom: number;
+}
+
+const LIST_PRICE_TITLE = 'Artificial Analysis list price: the gateway publishes no price for this model';
+
+/** A dollar figure, marked "list" when it is the AA list price and not the gateway's. */
+function Price({ perTok, list }: { perTok: number; list: boolean }) {
+  return (
+    <>
+      {usdPerMillion(perTok)}
+      {list && (
+        <abbr className="tl-pv-list" title={LIST_PRICE_TITLE}>
+          list
+        </abbr>
+      )}
+    </>
+  );
 }
 
 function PickRow({ who, pr, tier }: { who: string; pr: SelectorPickReport; tier: SelectorTier }) {
@@ -33,7 +49,9 @@ function PickRow({ who, pr, tier }: { who: string; pr: SelectorPickReport; tier:
         <span className="tl-pv-name">{p.model}</span>
         {p.source === 'favorite' && <span className="tl-pv-src">favorite</span>}
       </span>
-      <span className="tl-pv-price">{usdPerMillion(p.price_per_tok)}</span>
+      <span className="tl-pv-price">
+        <Price perTok={p.price_per_tok} list={p.price_source === 'aa'} />
+      </span>
     </div>
   );
 }
@@ -52,13 +70,15 @@ function SeatRow({ seats, tier }: { seats: SelectorSeat[]; tier: SelectorTier })
           >
             <b>{i + 1}</b>
             {shortSlug(s.pick.model)}
-            <span className="tl-seat-px">{usdPerMillion(s.pick.price_per_tok)}</span>
+            <span className="tl-seat-px">
+              <Price perTok={s.pick.price_per_tok} list={s.pick.price_source === 'aa'} />
+            </span>
             {s.walked && <span className="tl-walked">walked</span>}
             {s.pick.duplicate && <span className="tl-walked">duplicate</span>}
           </span>
         ))}
       </span>
-      <span className="tl-pv-price">{seats.length > 0 ? usdPerMillion(panelPrice(seats)) : ''}</span>
+      <span className="tl-pv-price">{seats.length > 0 && <Price perTok={panelPrice(seats)} list={panelHasListPrice(seats)} />}</span>
     </div>
   );
 }

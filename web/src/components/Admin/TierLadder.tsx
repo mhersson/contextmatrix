@@ -187,7 +187,7 @@ export function TierLadder({
                     key={c.slug}
                     className={`tl-dot${cls}`}
                     style={{ top: `${y}%`, left: `${left}%`, '--tier-c': tier ? TIER_COLOR[tier] : BELOW_FLOOR_COLOR } as CSSProperties}
-                    title={`${c.slug} · ${role} prior ${prior.toFixed(3)} · ${usdPerMillion(blendedPrice(c))} · ${tier ?? 'below floor'}`}
+                    title={`${c.slug} · ${role} prior ${prior.toFixed(3)} · ${usdPerMillion(blendedPrice(c))}${c.price_source === 'aa' ? ' (list price)' : ''} · ${tier ?? 'below floor'}`}
                     data-testid={`tl-dot-${role}-${c.slug}`}
                   >
                     <i aria-hidden="true" />

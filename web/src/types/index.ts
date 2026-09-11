@@ -711,6 +711,9 @@ export interface SelectorLaddersResponse {
   updated_at?: string;
 }
 
+/** Where a candidate's price came from; `aa` is the Artificial Analysis list price, shown when the gateway publishes none. */
+export type SelectorPriceSource = 'gateway' | 'aa' | 'token_costs' | 'none' | '';
+
 export interface SelectorCandidate {
   slug: string;
   creator: string;
@@ -719,6 +722,7 @@ export interface SelectorCandidate {
   prompt_price_per_tok: number;
   completion_price_per_tok: number;
   context_window: number;
+  price_source: SelectorPriceSource;
 }
 
 export interface SelectorFavoriteRule {
@@ -751,6 +755,7 @@ export interface SelectorPick {
   duplicate: boolean;
   ok: boolean;
   price_per_tok: number;
+  price_source: SelectorPriceSource;
 }
 
 export interface SelectorPoolEntry {
