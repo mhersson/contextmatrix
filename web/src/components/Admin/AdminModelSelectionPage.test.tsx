@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   adminSelectorPreview: vi.fn(),
   adminModelBlacklist: vi.fn(),
   adminDelistModel: vi.fn(),
+  adminBlacklistModel: vi.fn(),
 }));
 
 vi.mock('../../api/client', async (importOriginal) => {
@@ -25,6 +26,7 @@ vi.mock('../../api/client', async (importOriginal) => {
       adminSelectorPreview: mocks.adminSelectorPreview,
       adminModelBlacklist: mocks.adminModelBlacklist,
       adminDelistModel: mocks.adminDelistModel,
+      adminBlacklistModel: mocks.adminBlacklistModel,
     },
   };
 });
@@ -406,6 +408,9 @@ describe('AdminModelSelectionPage - blacklist', () => {
     await waitFor(() => expect(mocks.adminDelistModel).toHaveBeenCalledWith('moonshotai/kimi-k3'));
     await waitFor(() => expect(mocks.adminModelBlacklist).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.queryByText('moonshotai/kimi-k3')).not.toBeInTheDocument());
+    // The catalog carries the blacklist the pills and the preview read, so
+    // it is refetched too.
+    await waitFor(() => expect(mocks.adminSelectorCandidates).toHaveBeenCalledTimes(2));
   });
 
   it('cancelling the delist dialog does not delete', async () => {
@@ -457,5 +462,68 @@ describe('AdminModelSelectionPage - preview meta', () => {
 
     // A valid draft shows immediately; the preview for it is on its way.
     expect(screen.getByText('headroom 2× · favorites and blacklist applied')).toBeInTheDocument();
+  });
+});
+
+describe('AdminModelSelectionPage - context menu', () => {
+  it('right-clicking a ladder pill and adding it posts the slug, refetches the catalog and blacklist, and re-runs the preview', async () => {
+    mocks.adminSelectorCandidates.mockResolvedValueOnce(catalogRes()).mockResolvedValueOnce({ ...catalogRes(), blacklist: ['c/weak', 'a/mid'] });
+    mocks.adminBlacklistModel.mockResolvedValue({ slug: 'a/mid' });
+
+    await renderLoaded();
+    expect(screen.getByTestId('tl-dot-coder-a/mid')).not.toHaveClass('banned');
+
+    fireEvent.contextMenu(screen.getByTestId('tl-dot-coder-a/mid'), { clientX: 50, clientY: 60 });
+    const menu = screen.getByRole('menu', { name: 'a/mid' });
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Add to blacklist' }));
+
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    await waitFor(() => expect(mocks.adminBlacklistModel).toHaveBeenCalledWith('a/mid'));
+    await waitFor(() => expect(mocks.adminModelBlacklist).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mocks.adminSelectorCandidates).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByTestId('tl-dot-coder-a/mid')).toHaveClass('banned'));
+    await waitFor(() => expect(mocks.adminSelectorPreview).toHaveBeenCalledTimes(2));
+    expect(mocks.adminDelistModel).not.toHaveBeenCalled();
+  });
+
+  it('right-clicking a struck pill offers delist, which goes through the confirm dialog', async () => {
+    mocks.adminDelistModel.mockResolvedValue({ deleted: 'c/weak' });
+
+    await renderLoaded();
+
+    fireEvent.contextMenu(screen.getByTestId('tl-dot-reviewer-c/weak'), { clientX: 50, clientY: 60 });
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Remove from blacklist' }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('c/weak');
+    expect(mocks.adminDelistModel).not.toHaveBeenCalled();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: /delist/i }));
+
+    await waitFor(() => expect(mocks.adminDelistModel).toHaveBeenCalledWith('c/weak'));
+    await waitFor(() => expect(mocks.adminSelectorCandidates).toHaveBeenCalledTimes(2));
+    expect(mocks.adminBlacklistModel).not.toHaveBeenCalled();
+  });
+
+  it('right-clicking a preview seat opens the same menu for that model', async () => {
+    await renderLoaded();
+    await waitFor(() => expect(screen.getByTestId('tl-seat-complex-1')).toBeInTheDocument());
+
+    fireEvent.contextMenu(screen.getByTestId('tl-seat-complex-1'), { clientX: 5, clientY: 6 });
+
+    expect(screen.getByRole('menu', { name: 'b/pricey' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Add to blacklist' })).toBeInTheDocument();
+  });
+
+  it('surfaces a failed add as an inline error and leaves the pill unstruck', async () => {
+    mocks.adminBlacklistModel.mockRejectedValue({ code: 'INTERNAL_ERROR', error: 'failed to add blacklist entry' });
+
+    await renderLoaded();
+
+    fireEvent.contextMenu(screen.getByTestId('tl-dot-coder-a/mid'), { clientX: 50, clientY: 60 });
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Add to blacklist' }));
+
+    expect(await screen.findByText(/failed to add blacklist entry/i)).toBeInTheDocument();
+    expect(screen.getByTestId('tl-dot-coder-a/mid')).not.toHaveClass('banned');
   });
 });
