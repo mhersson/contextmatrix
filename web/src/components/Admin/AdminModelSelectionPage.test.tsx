@@ -146,6 +146,24 @@ describe('AdminModelSelectionPage - loading', () => {
     expect(mocks.adminSelectorPreview).not.toHaveBeenCalled();
     expect(mocks.adminSelectorPutLadders).not.toHaveBeenCalled();
   });
+
+  it('loads unlinked when the saved coder and reviewer ladders differ', async () => {
+    await renderLoaded();
+
+    expect(screen.getByRole('switch', { name: 'Link the coder and reviewer ladders' })).toHaveAttribute('aria-checked', 'false');
+
+    drag('coder complex bar', 180, 145);
+
+    expect(screen.getByRole('slider', { name: 'coder complex bar' })).toHaveTextContent('0.855');
+    expect(screen.getByRole('slider', { name: 'reviewer complex bar' })).toHaveTextContent('0.82');
+  });
+
+  it('loads linked when the saved ladders are equal', async () => {
+    mocks.adminSelectorLadders.mockResolvedValue(laddersRes({ coder: { ...DEFAULTS }, reviewer: { ...DEFAULTS } }, true));
+    await renderLoaded();
+
+    expect(screen.getByRole('switch', { name: 'Link the coder and reviewer ladders' })).toHaveAttribute('aria-checked', 'true');
+  });
 });
 
 describe('AdminModelSelectionPage - edit, save, discard, reset', () => {
@@ -156,6 +174,7 @@ describe('AdminModelSelectionPage - edit, save, discard, reset', () => {
       .mockResolvedValueOnce(laddersRes({ coder: { ...DEFAULTS, complex: 0.855 }, reviewer: { ...DEFAULTS, complex: 0.855, critical: 0.93 } }));
     await renderLoaded();
 
+    fireEvent.click(screen.getByRole('switch', { name: 'Link the coder and reviewer ladders' }));
     drag('coder complex bar', 180, 145);
 
     expect(screen.getByTestId('tl-status')).toHaveTextContent('unsaved changes · next run still uses the saved ladders');
@@ -199,15 +218,14 @@ describe('AdminModelSelectionPage - edit, save, discard, reset', () => {
     expect(mocks.adminSelectorPutLadders).not.toHaveBeenCalled();
   });
 
-  it('turning linked off and on snaps nothing; the next linked drag equalises the tier', async () => {
+  it('turning linked on snaps nothing; the next linked drag equalises the tier', async () => {
     mocks.adminSelectorLadders.mockResolvedValue(laddersRes({ coder: { ...DEFAULTS, complex: 0.9 }, reviewer: { ...DEFAULTS } }));
     await renderLoaded();
 
     const toggle = screen.getByRole('switch', { name: 'Link the coder and reviewer ladders' });
-    expect(toggle).toHaveAttribute('aria-checked', 'true');
+    expect(toggle).toHaveAttribute('aria-checked', 'false');
     expect(screen.getByRole('slider', { name: 'coder complex bar' })).toHaveTextContent('0.90 · 0.82');
 
-    fireEvent.click(toggle);
     fireEvent.click(toggle);
 
     expect(toggle).toHaveAttribute('aria-checked', 'true');
@@ -218,6 +236,23 @@ describe('AdminModelSelectionPage - edit, save, discard, reset', () => {
 
     expect(screen.getByRole('slider', { name: 'coder complex bar' })).toHaveTextContent('0.855');
     expect(screen.getByRole('slider', { name: 'reviewer complex bar' })).toHaveTextContent('0.855');
+  });
+
+  it('an operator toggle survives a save and refetch', async () => {
+    mocks.adminSelectorPutLadders.mockImplementation(async (ladders: SelectorLadders) => laddersRes(ladders));
+    mocks.adminSelectorLadders
+      .mockResolvedValueOnce(laddersRes(savedLadders()))
+      .mockResolvedValueOnce(laddersRes({ coder: { ...DEFAULTS, complex: 0.855 }, reviewer: { ...DEFAULTS, complex: 0.855, critical: 0.93 } }));
+    await renderLoaded();
+
+    const toggle = screen.getByRole('switch', { name: 'Link the coder and reviewer ladders' });
+    fireEvent.click(toggle);
+    drag('coder complex bar', 180, 145);
+    fireEvent.click(screen.getByRole('button', { name: 'Save ladders' }));
+
+    await waitFor(() => expect(mocks.adminSelectorLadders).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByTestId('tl-status')).toHaveTextContent('saved · in effect for the next run'));
+    expect(toggle).toHaveAttribute('aria-checked', 'true');
   });
 
   it('surfaces a save failure inline and keeps the draft', async () => {

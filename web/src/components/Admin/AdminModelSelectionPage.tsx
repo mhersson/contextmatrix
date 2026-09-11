@@ -18,7 +18,7 @@ import { LadderKpis } from './LadderKpis';
 import { ModelBlacklistTable } from './ModelBlacklistTable';
 import { PickPreview } from './PickPreview';
 import { TierLadder } from './TierLadder';
-import { ROLES, TIERS_ASC, isMonotone, laddersEqual } from './ladder';
+import { ROLES, TIERS_ASC, isMonotone, laddersEqual, rolesEqual } from './ladder';
 import { useSelectorPreview } from './useSelectorPreview';
 
 // Placeholders behind the loading state; never rendered as data. The
@@ -83,12 +83,17 @@ export function AdminModelSelectionPage() {
   const blacklist = useAdminResource(fetchBlacklist, EMPTY_BLACKLIST, 'Failed to load model blacklist.');
 
   const [draft, setDraft] = useState<SelectorLadders | null>(null);
-  const [linked, setLinked] = useState(true);
+  // The switch follows the saved ladders until the operator touches it: two
+  // equal ladders load linked, two that differ load unlinked, so the first
+  // drag never pulls one ladder onto the other unasked. Once toggled, the
+  // choice sticks across saves, like the draft over the saved ladders.
+  const [linkedOverride, setLinkedOverride] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [delistSlug, setDelistSlug] = useState<string | null>(null);
 
   const ladders = draft ?? saved.items.ladders;
+  const linked = linkedOverride ?? rolesEqual(saved.items.ladders);
   const dirty = draft !== null && !laddersEqual(draft, saved.items.ladders);
   const monotone = ROLES.every((r) => isMonotone(ladders[r]));
   const catalogReady = !catalog.loading && catalog.listError === null;
@@ -203,7 +208,7 @@ export function AdminModelSelectionPage() {
               candidates={catalog.items.candidates}
               ladders={ladders}
               linked={linked}
-              onLinkedChange={setLinked}
+              onLinkedChange={setLinkedOverride}
               onChange={setDraft}
               floor={catalog.items.quality_floor}
               blacklist={blacklisted}
