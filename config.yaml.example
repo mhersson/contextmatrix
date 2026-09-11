@@ -125,6 +125,15 @@ theme: "everforest"
 # "openrouter" it defaults to the canonical OpenRouter models URL and can
 # usually be omitted.
 #
+# reasoning_effort names the reasoning effort the gateway pins for the models
+# it serves when it does not let the caller choose ("openai" only). The
+# selection catalog then scores a served model from the Artificial Analysis
+# row for that effort (gpt-5.2 from gpt-5-2-medium rather than the family
+# base row) when the family has one; a served id that names its own effort
+# (gpt-5.2-high) wins over this value. One of: low, medium, high, xhigh,
+# minimal, reasoning, non-reasoning, thinking, adaptive. Leave unset when the
+# gateway honours the caller's effort. Not forwarded to the backends.
+#
 # This config is also forwarded verbatim to the active task/chat backend as
 # the `llm_endpoint` wire field on every trigger / chat-start call (see
 # docs/api-reference.md's Worker & Backend Endpoints section) - one admin-managed key,
@@ -137,11 +146,13 @@ theme: "everforest"
 # Env: CONTEXTMATRIX_LLM_ENDPOINT_TYPE
 #      CONTEXTMATRIX_LLM_ENDPOINT_BASE_URL
 #      CONTEXTMATRIX_LLM_ENDPOINT_API_KEY
+#      CONTEXTMATRIX_LLM_ENDPOINT_REASONING_EFFORT
 #
 # llm_endpoint:
 #   type: openai
 #   base_url: https://your-llm-endpoint.example/v1
 #   api_key: ""
+#   reasoning_effort: medium
 
 # Per-model token cost rates used for usage reporting (optional).
 # Keys are model identifiers; prompt/completion values are USD per token.

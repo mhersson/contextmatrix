@@ -855,6 +855,11 @@ The inputs the preview feeds the selector: the cached candidate catalog
 quality floor, and when the catalog snapshot was built. Project favorites are
 not included - they are per `.board.yaml` and merged at trigger time.
 
+`price_source` says where the candidate's price came from (`gateway`, `aa`,
+`token_costs`, `none`); `scored_from` is the AA slug an automatic join scored
+the priors from, empty for a `model_priors` entry and on the OpenRouter leg;
+`reasoning_effort` echoes `llm_endpoint.reasoning_effort`, empty when unset.
+
 ```json
 {
   "candidates": [
@@ -865,13 +870,16 @@ not included - they are per `.board.yaml` and merged at trigger time.
       "reviewer_prior": 0.841,
       "prompt_price_per_tok": 2.9e-6,
       "completion_price_per_tok": 2.9e-6,
-      "context_window": 200000
+      "context_window": 200000,
+      "price_source": "gateway",
+      "scored_from": "glm-5-3"
     }
   ],
   "favorites": [{ "tier": "critical", "role": "reviewer", "models": ["anthropic/claude-opus-5"] }],
   "blacklist": ["moonshotai/kimi-k2.7-code"],
   "quality_floor": 0.65,
-  "catalog_refreshed_at": "2026-09-10T06:00:00Z"
+  "catalog_refreshed_at": "2026-09-10T06:00:00Z",
+  "reasoning_effort": ""
 }
 ```
 
@@ -902,7 +910,7 @@ the models that coded.
           "model": "z-ai/glm-5.3", "context_window": 200000, "role": "coder",
           "requested_tier": "complex", "met_tier": "complex", "requested_bar": 0.90,
           "prior": 0.917, "has_prior": true, "source": "auto", "duplicate": false,
-          "ok": true, "price_per_tok": 5.8e-6
+          "ok": true, "price_per_tok": 5.8e-6, "price_source": "gateway"
         },
         "report": {
           "rung": "complex", "bar": 0.90,
