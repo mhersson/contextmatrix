@@ -2416,12 +2416,16 @@ textarea {
 
 /* --- ladder --- */
 .tl-ladder-wrap {
+  /* The rail column's width and the column gap: the coder handles hang one
+     of each to the left of their column, so the three must agree. */
+  --tl-rail-w: 150px;
+  --tl-col-gap: 16px;
   padding: 6px 14px 14px;
 }
 .tl-ladder-head {
   display: grid;
-  grid-template-columns: 150px 1fr 1fr;
-  gap: 0 16px;
+  grid-template-columns: var(--tl-rail-w) 1fr 1fr;
+  gap: 0 var(--tl-col-gap);
   align-items: end;
   margin-bottom: 8px;
 }
@@ -2466,8 +2470,8 @@ textarea {
   position: relative;
   height: 640px;
   display: grid;
-  grid-template-columns: 150px 1fr 1fr;
-  gap: 0 16px;
+  grid-template-columns: var(--tl-rail-w) 1fr 1fr;
+  gap: 0 var(--tl-col-gap);
   user-select: none;
   touch-action: none;
 }
@@ -2574,7 +2578,7 @@ textarea {
 }
 /* Coder handles sit on the rail: one rail width plus the column gap to the left. */
 .tl-col-coder .tl-handle {
-  left: -166px;
+  left: calc(-1 * (var(--tl-rail-w) + var(--tl-col-gap)));
   width: 140px;
 }
 .tl-col-reviewer .tl-handle {
@@ -2770,6 +2774,10 @@ textarea {
   opacity: 0.55;
   transition: opacity 120ms;
 }
+.tl-kpis[aria-busy="true"] .apd-kpi.pending {
+  opacity: 0.55;
+  transition: opacity 120ms;
+}
 .tl-pv-error {
   margin: 0;
   padding: 8px 14px;
@@ -2877,6 +2885,9 @@ textarea {
   font-size: 11px;
   color: var(--grey1);
   white-space: nowrap;
+}
+.tl-bl-slug-text {
+  color: var(--fg);
 }
 .tl-bl-actions {
   text-align: right;

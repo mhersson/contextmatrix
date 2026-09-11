@@ -5,6 +5,8 @@ import { TIERS_DESC, TIER_COLOR, formatBar, panelPrice, priorOf, shortSlug, usdP
 interface PickPreviewProps {
   preview: SelectorPreview | null;
   pending: boolean;
+  /** No preview can be requested: the inputs the server needs are missing. */
+  disabled: boolean;
   error: string | null;
   ladders: SelectorLadders;
   candidates: SelectorCandidate[];
@@ -61,9 +63,12 @@ function SeatRow({ seats, tier }: { seats: SelectorSeat[]; tier: SelectorTier })
   );
 }
 
-export function PickPreview({ preview, pending, error, ladders, candidates, headroom }: PickPreviewProps) {
+export function PickPreview({ preview, pending, disabled, error, ladders, candidates, headroom }: PickPreviewProps) {
   const clearing = (tier: SelectorTier, role: 'coder' | 'reviewer') =>
     candidates.filter((c) => priorOf(c, role) >= ladders[role][tier]).length;
+
+  const busy = pending && !disabled;
+  const empty = error ? 'No preview yet.' : disabled ? 'Preview needs the candidate catalog.' : 'Waiting for the first preview…';
 
   return (
     <section className="apd-panel" style={{ '--apd-acc': 'var(--purple)' } as CSSProperties}>
@@ -71,17 +76,17 @@ export function PickPreview({ preview, pending, error, ladders, candidates, head
         <h2 className="apd-panel-title">Pick preview</h2>
         <span className="apd-panel-meta">
           <span>{`headroom ${headroom}× · favorites and blacklist applied`}</span>
-          {pending && <span className="tl-pending">computing…</span>}
+          {busy && <span className="tl-pending">computing…</span>}
         </span>
       </div>
-      <div className="apd-panel-body tl-pv" aria-busy={pending} data-testid="tl-preview">
+      <div className="apd-panel-body tl-pv" aria-busy={busy} data-testid="tl-preview">
         {error && (
           <p className="tl-pv-error" role="alert">
             {error}
           </p>
         )}
         {preview === null ? (
-          <div className="apd-panel-empty">{error ? 'No preview yet.' : 'Waiting for the first preview…'}</div>
+          <div className="apd-panel-empty">{empty}</div>
         ) : (
           TIERS_DESC.map((tier) => {
             const t = preview.tiers[tier];

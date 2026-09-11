@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
-import type { PointerEvent as ReactPointerEvent } from 'react';
+import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react';
 import type { SelectorLadders } from '../../types';
 import { useLadderDrag } from './useLadderDrag';
 
@@ -26,6 +26,10 @@ function ev(clientY: number): ReactPointerEvent<HTMLElement> {
     preventDefault: vi.fn(),
     currentTarget: { setPointerCapture: vi.fn(), releasePointerCapture: vi.fn() },
   } as unknown as ReactPointerEvent<HTMLElement>;
+}
+
+function key(k: string): ReactKeyboardEvent<HTMLElement> {
+  return { key: k, preventDefault: vi.fn() } as unknown as ReactKeyboardEvent<HTMLElement>;
 }
 
 function setup(linked: boolean, initial = ladders(), floor = 0.65) {
@@ -119,6 +123,86 @@ describe('useLadderDrag', () => {
 
     act(() => props.onPointerDown(ev(100)));
     act(() => props.onPointerMove(ev(140)));
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('steps one ladder by 0.005 per arrow key when unlinked', () => {
+    const { result, onChange } = setup(false);
+    const props = result.current.handleProps('coder', 'complex');
+
+    const up = key('ArrowUp');
+    act(() => props.onKeyDown(up));
+    expect(up.preventDefault).toHaveBeenCalled();
+    let next = onChange.mock.calls[0][0] as SelectorLadders;
+    expect(next.coder.complex).toBeCloseTo(0.825, 9);
+    expect(next.reviewer.complex).toBeCloseTo(0.82, 9);
+
+    act(() => props.onKeyDown(key('ArrowDown')));
+    next = onChange.mock.calls[1][0] as SelectorLadders;
+    expect(next.coder.complex).toBeCloseTo(0.815, 9);
+
+    act(() => props.onKeyDown(key('ArrowRight')));
+    expect((onChange.mock.calls[2][0] as SelectorLadders).coder.complex).toBeCloseTo(0.825, 9);
+
+    act(() => props.onKeyDown(key('ArrowLeft')));
+    expect((onChange.mock.calls[3][0] as SelectorLadders).coder.complex).toBeCloseTo(0.815, 9);
+  });
+
+  it('writes an arrow step into both ladders when linked', () => {
+    const { result, onChange } = setup(true);
+    const props = result.current.handleProps('reviewer', 'complex');
+
+    act(() => props.onKeyDown(key('ArrowUp')));
+
+    const next = onChange.mock.calls[0][0] as SelectorLadders;
+    expect(next.coder.complex).toBeCloseTo(0.825, 9);
+    expect(next.reviewer.complex).toBeCloseTo(0.825, 9);
+  });
+
+  it('stops an arrow step at the neighbouring bar', () => {
+    const tight = ladders();
+    tight.coder.complex = 0.898;
+    const { result, onChange } = setup(false, tight);
+    const props = result.current.handleProps('coder', 'complex');
+
+    act(() => props.onKeyDown(key('ArrowUp')));
+    expect((onChange.mock.calls[0][0] as SelectorLadders).coder.complex).toBeCloseTo(0.9, 9);
+  });
+
+  it('Home and End move the bar to the ends of its own range', () => {
+    const { result, onChange, rerender } = setup(false);
+    let props = result.current.handleProps('coder', 'complex');
+
+    act(() => props.onKeyDown(key('End')));
+    const top = onChange.mock.calls[0][0] as SelectorLadders;
+    expect(top.coder.complex).toBeCloseTo(0.9, 9);
+
+    rerender({ current: top });
+    props = result.current.handleProps('coder', 'complex');
+    act(() => props.onKeyDown(key('Home')));
+    expect((onChange.mock.calls[1][0] as SelectorLadders).coder.complex).toBeCloseTo(0.76, 9);
+  });
+
+  it('leaves keys it does not handle to the browser', () => {
+    const { result, onChange } = setup(false);
+    const props = result.current.handleProps('coder', 'complex');
+
+    const tab = key('Tab');
+    act(() => props.onKeyDown(tab));
+
+    expect(tab.preventDefault).not.toHaveBeenCalled();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('holds still on a linked arrow step when the two ladders leave no shared value', () => {
+    const disjoint: SelectorLadders = {
+      coder: { simple: 0.65, moderate: 0.85, complex: 0.9, critical: 0.95 },
+      reviewer: { simple: 0.65, moderate: 0.76, complex: 0.82, critical: 0.83 },
+    };
+    const { result, onChange } = setup(true, disjoint);
+
+    act(() => result.current.handleProps('coder', 'complex').onKeyDown(key('ArrowDown')));
+
     expect(onChange).not.toHaveBeenCalled();
   });
 

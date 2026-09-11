@@ -123,7 +123,28 @@ describe('AdminModelSelectionPage - loading', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('catalog not available yet');
     expect(screen.getByTestId('tl-status')).toHaveTextContent('saved · in effect for the next run');
     expect(screen.queryByRole('slider')).not.toBeInTheDocument();
+    expect(screen.getByText('Preview needs the candidate catalog.')).toBeInTheDocument();
+    expect(screen.queryByText('Waiting for the first preview…')).not.toBeInTheDocument();
     expect(mocks.adminSelectorPreview).not.toHaveBeenCalled();
+  });
+
+  it('claims nothing and edits nothing when the saved ladders fail to load', async () => {
+    mocks.adminSelectorLadders.mockRejectedValue({ code: 'INTERNAL_ERROR', error: 'failed to read the selector ladders' });
+
+    render(<AdminModelSelectionPage />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('failed to read the selector ladders');
+    expect(screen.getByTestId('tl-status')).toHaveTextContent('ladders unavailable');
+    expect(screen.getByTestId('tl-status')).not.toHaveTextContent('saved');
+    expect(screen.queryByRole('slider')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('tl-kpi-reviewers')).not.toBeInTheDocument();
+
+    for (const name of ['Reset to defaults', 'Discard changes', 'Save ladders']) {
+      expect(screen.getByRole('button', { name })).toBeDisabled();
+    }
+
+    expect(mocks.adminSelectorPreview).not.toHaveBeenCalled();
+    expect(mocks.adminSelectorPutLadders).not.toHaveBeenCalled();
   });
 });
 

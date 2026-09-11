@@ -8,7 +8,7 @@ const LADDERS: SelectorLadders = { coder: { ...DEFAULT_BARS }, reviewer: { ...DE
 
 describe('PickPreview', () => {
   it('renders picks, prices, the descended chip, walked seats and clearing counts', () => {
-    render(<PickPreview preview={previewFixture()} pending={false} error={null} ladders={LADDERS} candidates={CANDIDATES} headroom={1.5} />);
+    render(<PickPreview preview={previewFixture()} pending={false} disabled={false} error={null} ladders={LADDERS} candidates={CANDIDATES} headroom={1.5} />);
 
     const complexTier = screen.getByTestId('tl-pv-complex');
     expect(within(complexTier).getByText('bar c 0.82 · r 0.82 · 2 coders · 3 reviewers clear it')).toBeInTheDocument();
@@ -29,28 +29,37 @@ describe('PickPreview', () => {
   it('says so when nothing clears any rung', () => {
     const p = previewFixture();
     p.tiers.critical.coder = pick('', 'coder', 'critical', '', 0);
-    render(<PickPreview preview={p} pending={false} error={null} ladders={LADDERS} candidates={CANDIDATES} headroom={1.5} />);
+    render(<PickPreview preview={p} pending={false} disabled={false} error={null} ladders={LADDERS} candidates={CANDIDATES} headroom={1.5} />);
 
     expect(within(screen.getByTestId('tl-pv-critical')).getByText('nothing clears any rung')).toBeInTheDocument();
   });
 
   it('marks the body busy while a preview is pending', () => {
-    render(<PickPreview preview={previewFixture()} pending error={null} ladders={LADDERS} candidates={CANDIDATES} headroom={1.5} />);
+    render(<PickPreview preview={previewFixture()} pending disabled={false} error={null} ladders={LADDERS} candidates={CANDIDATES} headroom={1.5} />);
 
     expect(screen.getByTestId('tl-preview')).toHaveAttribute('aria-busy', 'true');
     expect(screen.getByText('computing…')).toBeInTheDocument();
   });
 
   it('keeps the last good preview under an error line', () => {
-    render(<PickPreview preview={previewFixture()} pending={false} error="Preview failed." ladders={LADDERS} candidates={CANDIDATES} headroom={1.5} />);
+    render(<PickPreview preview={previewFixture()} pending={false} disabled={false} error="Preview failed." ladders={LADDERS} candidates={CANDIDATES} headroom={1.5} />);
 
     expect(screen.getByRole('alert')).toHaveTextContent('Preview failed.');
     expect(screen.getByTestId('tl-seat-complex-0')).toBeInTheDocument();
   });
 
   it('shows an empty state before the first preview', () => {
-    render(<PickPreview preview={null} pending error={null} ladders={LADDERS} candidates={CANDIDATES} headroom={1.5} />);
+    render(<PickPreview preview={null} pending disabled={false} error={null} ladders={LADDERS} candidates={CANDIDATES} headroom={1.5} />);
 
     expect(screen.getByText('Waiting for the first preview…')).toBeInTheDocument();
+  });
+
+  it('promises nothing while disabled: no wait, no busy, no computing', () => {
+    render(<PickPreview preview={null} pending disabled error={null} ladders={LADDERS} candidates={CANDIDATES} headroom={1.5} />);
+
+    expect(screen.getByText('Preview needs the candidate catalog.')).toBeInTheDocument();
+    expect(screen.queryByText('Waiting for the first preview…')).not.toBeInTheDocument();
+    expect(screen.queryByText('computing…')).not.toBeInTheDocument();
+    expect(screen.getByTestId('tl-preview')).toHaveAttribute('aria-busy', 'false');
   });
 });

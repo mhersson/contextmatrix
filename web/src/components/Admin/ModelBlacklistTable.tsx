@@ -50,7 +50,7 @@ export function ModelBlacklistTable({ models, loading, error, onDelist }: ModelB
                     <td>
                       <span className="tl-bl-slug">
                         <span className="chip-pill">blacklisted</span>
-                        <span className="tl-bl-mono" style={{ color: 'var(--fg)' }}>{m.slug}</span>
+                        <span className="tl-bl-mono tl-bl-slug-text">{m.slug}</span>
                       </span>
                     </td>
                     <td className="tl-bl-reason">{m.reason}</td>

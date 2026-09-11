@@ -92,8 +92,13 @@ export function AdminModelSelectionPage() {
   const dirty = draft !== null && !laddersEqual(draft, saved.items.ladders);
   const monotone = ROLES.every((r) => isMonotone(ladders[r]));
   const catalogReady = !catalog.loading && catalog.listError === null;
+  // Without a loaded ladder the bars on screen are the placeholder, not what
+  // the next run uses: nothing may claim them as saved, and nothing may edit
+  // or save them back.
+  const laddersReady = !saved.loading && saved.listError === null;
+  const editable = catalogReady && laddersReady;
 
-  const preview = useSelectorPreview(ladders, catalogReady && !saved.loading);
+  const preview = useSelectorPreview(ladders, editable);
 
   const blacklisted = useMemo(() => new Set(catalog.items.blacklist), [catalog.items.blacklist]);
   const picks = useMemo(() => pickSets(preview.preview), [preview.preview]);
@@ -134,6 +139,19 @@ export function AdminModelSelectionPage() {
       ? 'loading the catalog…'
       : 'catalog unavailable';
 
+  // The ladder panel stands in for the rail whenever either half is missing;
+  // the ladders error wins because it blocks editing outright.
+  const panelError = saved.listError ?? catalog.listError;
+  const panelLoading = saved.loading ? 'Loading the tier ladders…' : 'Loading the candidate catalog…';
+
+  const statusText = saved.loading
+    ? 'loading the ladders…'
+    : saved.listError
+      ? 'ladders unavailable'
+      : dirty
+        ? 'unsaved changes · next run still uses the saved ladders'
+        : 'saved · in effect for the next run';
+
   return (
     <div className="apd-root tl-page">
       <header className="apd-strip">
@@ -147,28 +165,23 @@ export function AdminModelSelectionPage() {
           One bar per tier and role. Drag a bar; every model, pick and panel re-sorts as you go. Nothing is sent until you save.
         </p>
         <div className="apd-strip-actions">
-          <span className={`tl-status${dirty ? ' dirty' : ''}`} data-testid="tl-status">
+          <span className={`tl-status${dirty ? ' dirty' : ''}`} data-testid="tl-status" aria-live="polite">
             <span className="tl-status-dot" aria-hidden="true" />
-            {dirty ? 'unsaved changes · next run still uses the saved ladders' : 'saved · in effect for the next run'}
+            {statusText}
           </span>
-          <button type="button" className="bf-btn-ghost" onClick={reset} disabled={saved.loading}>
+          <button type="button" className="bf-btn-ghost" onClick={reset} disabled={!laddersReady}>
             Reset to defaults
           </button>
-          <button type="button" className="bf-btn-ghost" onClick={discard} disabled={!dirty}>
+          <button type="button" className="bf-btn-ghost" onClick={discard} disabled={!dirty || !laddersReady}>
             Discard changes
           </button>
-          <button type="button" className="bf-btn-primary" onClick={() => void save()} disabled={!dirty || !monotone || saving}>
+          <button type="button" className="bf-btn-primary" onClick={() => void save()} disabled={!dirty || !monotone || saving || !laddersReady}>
             {saving ? 'Saving…' : 'Save ladders'}
           </button>
         </div>
       </header>
 
       <div className="tl-body">
-        {saved.listError && (
-          <div className="tl-error" role="alert">
-            {saved.listError}
-          </div>
-        )}
         {saveError && (
           <div className="tl-error" role="alert">
             {saveError}
@@ -180,10 +193,12 @@ export function AdminModelSelectionPage() {
           </div>
         )}
 
-        <LadderKpis candidates={catalog.items.candidates} ladders={ladders} preview={preview.preview} />
+        {laddersReady && (
+          <LadderKpis candidates={catalog.items.candidates} ladders={ladders} preview={preview.preview} pending={preview.pending} />
+        )}
 
         <div className="tl-grid">
-          {catalogReady ? (
+          {editable ? (
             <TierLadder
               candidates={catalog.items.candidates}
               ladders={ladders}
@@ -202,14 +217,15 @@ export function AdminModelSelectionPage() {
                 <h2 className="apd-panel-title">Ladders</h2>
                 <span className="apd-panel-meta">{ladderMeta}</span>
               </div>
-              <div className={`apd-panel-empty${catalog.listError ? ' tl-error' : ''}`} role={catalog.listError ? 'alert' : undefined}>
-                {catalog.loading ? 'Loading the candidate catalog…' : catalog.listError}
+              <div className={`apd-panel-empty${panelError ? ' tl-error' : ''}`} role={panelError ? 'alert' : undefined}>
+                {panelError ?? panelLoading}
               </div>
             </section>
           )}
           <PickPreview
             preview={preview.preview}
             pending={preview.pending}
+            disabled={!editable}
             error={preview.error}
             ladders={ladders}
             candidates={catalog.items.candidates}

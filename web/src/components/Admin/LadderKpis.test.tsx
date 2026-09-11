@@ -8,7 +8,7 @@ const LADDERS: SelectorLadders = { coder: { ...DEFAULT_BARS }, reviewer: { ...DE
 
 describe('LadderKpis', () => {
   it('counts reviewers clearing complex from the candidates and prices the picks from the preview', () => {
-    render(<LadderKpis candidates={CANDIDATES} ladders={LADDERS} preview={previewFixture()} />);
+    render(<LadderKpis candidates={CANDIDATES} ladders={LADDERS} preview={previewFixture()} pending={false} />);
 
     const reviewers = screen.getByTestId('tl-kpi-reviewers');
     expect(reviewers).toHaveTextContent('3');
@@ -30,12 +30,27 @@ describe('LadderKpis', () => {
   it('turns the panel tile green when no seat walked and shows dashes without a preview', () => {
     const p = previewFixture();
     p.tiers.complex.panel = [seat('a/cheap', 2e-6, false), seat('a/mid', 4e-6, false), seat('b/pricey', 2e-5, false)];
-    const { rerender } = render(<LadderKpis candidates={CANDIDATES} ladders={LADDERS} preview={p} />);
+    const { rerender } = render(<LadderKpis candidates={CANDIDATES} ladders={LADDERS} preview={p} pending={false} />);
     expect(screen.getByTestId('tl-kpi-panel').style.getPropertyValue('--apd-acc')).toBe('var(--green)');
 
-    rerender(<LadderKpis candidates={CANDIDATES} ladders={LADDERS} preview={null} />);
+    rerender(<LadderKpis candidates={CANDIDATES} ladders={LADDERS} preview={null} pending={false} />);
     expect(screen.getByTestId('tl-kpi-cheapest')).toHaveTextContent('—');
     expect(screen.getByTestId('tl-kpi-panel')).toHaveTextContent('—');
     expect(screen.getByTestId('tl-kpi-reviewers')).toHaveTextContent('3');
+  });
+
+  it('marks the row busy and only the preview-backed tiles stale while a preview is pending', () => {
+    const { rerender } = render(<LadderKpis candidates={CANDIDATES} ladders={LADDERS} preview={previewFixture()} pending />);
+
+    expect(screen.getByTestId('tl-kpi-reviewers').parentElement).toHaveAttribute('aria-busy', 'true');
+    for (const id of ['cheapest', 'panel', 'coder']) {
+      expect(screen.getByTestId(`tl-kpi-${id}`)).toHaveClass('pending');
+    }
+    expect(screen.getByTestId('tl-kpi-reviewers')).not.toHaveClass('pending');
+
+    rerender(<LadderKpis candidates={CANDIDATES} ladders={LADDERS} preview={previewFixture()} pending={false} />);
+
+    expect(screen.getByTestId('tl-kpi-reviewers').parentElement).toHaveAttribute('aria-busy', 'false');
+    expect(screen.getByTestId('tl-kpi-cheapest')).not.toHaveClass('pending');
   });
 });

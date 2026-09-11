@@ -157,6 +157,17 @@ describe('TierLadder - drag', () => {
     expect(next.reviewer.complex).toBeCloseTo(0.855, 9);
   });
 
+  it('moves a bar from the keyboard, so the handles are operable without a pointer', () => {
+    const { onChange } = renderLadder();
+
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'coder complex bar' }), { key: 'ArrowUp' });
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    const next = onChange.mock.calls[0][0] as SelectorLadders;
+    expect(next.coder.complex).toBeCloseTo(0.825, 9);
+    expect(next.reviewer.complex).toBeCloseTo(0.82, 9);
+  });
+
   it('keeps the handle mounted across a drag', () => {
     renderLadder();
     const handle = screen.getByRole('slider', { name: 'coder complex bar' });

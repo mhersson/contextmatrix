@@ -6,6 +6,8 @@ interface LadderKpisProps {
   candidates: SelectorCandidate[];
   ladders: SelectorLadders;
   preview: SelectorPreview | null;
+  /** A newer preview is in flight: the pick-backed tiles are one step behind. */
+  pending: boolean;
 }
 
 interface TileProps {
@@ -15,12 +17,14 @@ interface TileProps {
   value: ReactNode;
   sub: string;
   accent: string;
+  /** The tile reads from the preview, so it dims while one is in flight. */
+  stale?: boolean;
 }
 
 /** Mirrors the dashboard KpiTile markup so the tiles read as one system. */
-function Tile({ id, label, badge, value, sub, accent }: TileProps) {
+function Tile({ id, label, badge, value, sub, accent, stale = false }: TileProps) {
   return (
-    <div className="apd-kpi" style={{ '--apd-acc': accent } as CSSProperties} data-testid={`tl-kpi-${id}`}>
+    <div className={`apd-kpi${stale ? ' pending' : ''}`} style={{ '--apd-acc': accent } as CSSProperties} data-testid={`tl-kpi-${id}`}>
       <div className="apd-kpi-label">
         <span>{label}</span>
         <span className="apd-kpi-badge">{badge}</span>
@@ -37,7 +41,7 @@ function Tile({ id, label, badge, value, sub, accent }: TileProps) {
 
 const NONE = '—';
 
-export function LadderKpis({ candidates, ladders, preview }: LadderKpisProps) {
+export function LadderKpis({ candidates, ladders, preview, pending }: LadderKpisProps) {
   const complexBar = ladders.reviewer.complex;
   const reviewersClearing = candidates.filter((c) => c.reviewer_prior >= complexBar).length;
 
@@ -51,7 +55,7 @@ export function LadderKpis({ candidates, ladders, preview }: LadderKpisProps) {
   const coderOK = coder !== undefined && coder.ok;
 
   return (
-    <div className="tl-kpis">
+    <div className="tl-kpis" aria-busy={pending}>
       <Tile
         id="reviewers"
         label="Reviewers clearing complex"
@@ -62,6 +66,7 @@ export function LadderKpis({ candidates, ladders, preview }: LadderKpisProps) {
       />
       <Tile
         id="cheapest"
+        stale={pending}
         label="Cheapest complex reviewer"
         badge="seat 1"
         value={cheapestOK ? usdPerMillion(cheapest.price_per_tok) : NONE}
@@ -70,6 +75,7 @@ export function LadderKpis({ candidates, ladders, preview }: LadderKpisProps) {
       />
       <Tile
         id="panel"
+        stale={pending}
         label="Review panel, complex"
         badge="3 seats · per M tok"
         value={panel.length > 0 ? usdPerMillion(panelPrice(panel)) : NONE}
@@ -78,6 +84,7 @@ export function LadderKpis({ candidates, ladders, preview }: LadderKpisProps) {
       />
       <Tile
         id="coder"
+        stale={pending}
         label="Coder at moderate"
         badge={`bar ${formatBar(ladders.coder.moderate)}`}
         value={coderOK ? usdPerMillion(coder.price_per_tok) : NONE}
