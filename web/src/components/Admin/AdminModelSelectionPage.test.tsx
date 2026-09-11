@@ -515,6 +515,24 @@ describe('AdminModelSelectionPage - context menu', () => {
     expect(screen.getByRole('menuitem', { name: 'Add to blacklist' })).toBeInTheDocument();
   });
 
+  it('keeps the ladder and reports the failure when the catalog refresh after an add fails', async () => {
+    mocks.adminSelectorCandidates.mockResolvedValueOnce(catalogRes()).mockRejectedValueOnce({ code: 'CATALOG_UNAVAILABLE', error: 'catalog not available yet' });
+    mocks.adminBlacklistModel.mockResolvedValue({ slug: 'a/mid', created: true });
+
+    await renderLoaded();
+
+    fireEvent.contextMenu(screen.getByTestId('tl-dot-coder-a/mid'), { clientX: 50, clientY: 60 });
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Add to blacklist' }));
+
+    await waitFor(() => expect(mocks.adminSelectorCandidates).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText(/catalog not available yet/i)).toBeInTheDocument();
+    // The loaded catalog stays on screen: the ladder is not replaced by the
+    // load-failure panel and the preview keeps working.
+    expect(screen.getByRole('slider', { name: 'coder complex bar' })).toBeInTheDocument();
+    expect(screen.queryByText('Failed to load the candidate catalog.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Preview needs the candidate catalog.')).not.toBeInTheDocument();
+  });
+
   it('surfaces a failed add as an inline error and leaves the pill unstruck', async () => {
     mocks.adminBlacklistModel.mockRejectedValue({ code: 'INTERNAL_ERROR', error: 'failed to add blacklist entry' });
 

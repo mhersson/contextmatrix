@@ -42,6 +42,16 @@ describe('PickPreview', () => {
     expect(onModelMenu).toHaveBeenCalledTimes(2);
   });
 
+  it('gives a seat with no model no menu', () => {
+    const onModelMenu = vi.fn();
+    const p = previewFixture();
+    p.tiers.complex.panel[2] = seat('', 0, false, 'complex');
+    render(<PickPreview preview={p} pending={false} disabled={false} error={null} ladders={LADDERS} candidates={CANDIDATES} headroom={1.5} onModelMenu={onModelMenu} />);
+
+    expect(fireEvent.contextMenu(screen.getByTestId('tl-seat-complex-2'), { clientX: 1, clientY: 2 })).toBe(true);
+    expect(onModelMenu).not.toHaveBeenCalled();
+  });
+
   it('leaves the browser menu alone when no handler is wired', () => {
     render(<PickPreview preview={previewFixture()} pending={false} disabled={false} error={null} ladders={LADDERS} candidates={CANDIDATES} headroom={1.5} />);
 

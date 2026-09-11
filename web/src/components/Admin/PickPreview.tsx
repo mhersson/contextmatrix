@@ -82,7 +82,7 @@ function SeatRow({ seats, tier, onModelMenu }: { seats: SelectorSeat[]; tier: Se
             key={`${s.pick.model}-${i}`}
             className={`tl-seat${s.walked ? ' walk' : ''}${s.pick.duplicate ? ' dup' : ''}`}
             data-testid={`tl-seat-${tier}-${i}`}
-            onContextMenu={contextMenuFor(s.pick.model, onModelMenu)}
+            onContextMenu={s.pick.ok ? contextMenuFor(s.pick.model, onModelMenu) : undefined}
           >
             <b>{i + 1}</b>
             {shortSlug(s.pick.model)}

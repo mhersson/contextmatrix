@@ -46,6 +46,20 @@ describe('ModelContextMenu', () => {
     expect(menu).toHaveStyle({ left: '123px', top: '456px' });
   });
 
+  it('closes when focus moves to another element, but not when it merely drops', () => {
+    const { onClose, onBlacklist } = renderMenu();
+    const outside = document.createElement('button');
+    document.body.appendChild(outside);
+
+    fireEvent.blur(screen.getByRole('menuitem'), { relatedTarget: null });
+    expect(onClose).not.toHaveBeenCalled();
+
+    fireEvent.blur(screen.getByRole('menuitem'), { relatedTarget: outside });
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onBlacklist).not.toHaveBeenCalled();
+    outside.remove();
+  });
+
   it('closes on Escape and on a click outside, without acting', () => {
     const { onBlacklist, onClose } = renderMenu();
 

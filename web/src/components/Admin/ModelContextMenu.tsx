@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { FocusEvent } from 'react';
 import { useMenuDismiss } from '../../hooks/useMenuDismiss';
 
 export interface ModelContextMenuProps {
@@ -47,8 +48,15 @@ export function ModelContextMenu({ slug, x, y, blacklisted, onBlacklist, onDelis
     onClose();
   };
 
+  // Tab out of the menu closes it. A blur with no target (a click in a
+  // browser that does not focus buttons) is left to the outside-mousedown
+  // handler, so the click on the item still lands.
+  const onBlur = (e: FocusEvent<HTMLDivElement>) => {
+    if (e.relatedTarget && !ref.current?.contains(e.relatedTarget as Node)) onClose();
+  };
+
   return (
-    <div ref={ref} role="menu" aria-label={slug} className="tl-menu" style={{ left: pos.left, top: pos.top }} data-testid="tl-menu">
+    <div ref={ref} role="menu" aria-label={slug} className="tl-menu" style={{ left: pos.left, top: pos.top }} data-testid="tl-menu" onBlur={onBlur}>
       <div className="tl-menu-head" aria-hidden="true">
         {slug}
       </div>

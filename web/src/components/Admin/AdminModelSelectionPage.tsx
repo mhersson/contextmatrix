@@ -158,11 +158,12 @@ export function AdminModelSelectionPage() {
   const reset = () =>
     setDraft({ ladders: { coder: { ...saved.items.defaults }, reviewer: { ...saved.items.defaults } }, headroom: saved.items.headroom_default });
 
-  // Every blacklist change refetches the table and the catalog: the catalog
-  // carries the blacklist the pills and the preview read.
+  // Every blacklist change refetches the table and refreshes the catalog:
+  // the catalog carries the blacklist the pills and the preview read. A
+  // refresh that fails keeps the loaded catalog (and the draft) on screen.
   const mutateBlacklist = async (fn: () => Promise<unknown>, failMessage: string) => {
     await blacklist.act(fn, failMessage);
-    await catalog.refetch();
+    await catalog.refresh('Failed to refresh the candidate catalog.');
   };
 
   const confirmDelist = async () => {
@@ -243,6 +244,11 @@ export function AdminModelSelectionPage() {
         {blacklist.actionError && (
           <div className="tl-error" role="alert">
             {blacklist.actionError}
+          </div>
+        )}
+        {catalog.actionError && (
+          <div className="tl-error" role="alert">
+            {catalog.actionError}
           </div>
         )}
 
