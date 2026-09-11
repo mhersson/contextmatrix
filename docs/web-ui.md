@@ -186,7 +186,9 @@ applied by the pick preview. A filled pill is the pick at its rung, a dashed
 one a panel seat, a struck one a blacklisted model. The pick preview beside
 it shows, per tier, the coder pick, the reviewer pick and the three-seat
 review panel with prices, `↓ <rung>` when a pick descended and `walked` on a
-seat that re-anchored its price band. The KPI row summarises the `complex`
+seat that re-anchored its price band. A price marked *list* is the
+Artificial Analysis list price for a model the gateway does not price. The
+KPI row summarises the `complex`
 tier (reviewers clearing it, the cheapest reviewer, the three-seat panel
 cost) plus the coder pick at `moderate`. Nothing is sent until **Save**; the
 status pill in the header says whether the next run uses the values on

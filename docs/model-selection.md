@@ -94,7 +94,9 @@ and the served-model list of the configured gateway.
 `x-api-key` header (`backends.agent.aa_api_key`), paginated at 200 models
 per page, capped at 10 pages and 60 seconds per refresh. Four fields are
 consumed per model: the AA slug, the creator name, the coding index, and the
-intelligence index. AA supplies no pricing. The free tier's 100 requests per
+intelligence index. AA also publishes each row's list price (`price_1m_input_tokens`,
+`price_1m_output_tokens`), which the `openai` leg uses to price candidates
+(see [endpoint pricing](#endpoint-pricing)). The free tier's 100 requests per
 day is ample: a refresh spends one request per page (the catalog is about 3
 pages), and the 6-hour cache holds normal operation to about 4 refreshes per
 day. Failed refreshes retry on a 60-second cooldown, so a broken AA response
@@ -138,10 +140,9 @@ vendor-prefix vocabulary, with hand overrides where the two diverge
 (`Alibaba` -> `qwen`, `Kimi` -> `moonshotai`, `SpaceXAI` -> `x-ai`; see
 `internal/modelcatalog/mapping.go`).
 
-**The allowlist is inert on the `openai` leg.** There, the candidate set is
-governed entirely by `aa_model_map` and `model_priors`: only served slugs that
-appear in one of those two maps are considered. `config.yaml.example`
-documents the same caveat inline.
+**On the `openai` leg the allowlist screens the models the automatic AA join
+produces**, exactly as it screens the OpenRouter catalog. `model_priors`
+entries bypass it: they are explicit operator intent.
 
 ### The quality floor
 
@@ -174,51 +175,67 @@ instead:
 
 | Aspect            | `openrouter` leg                              | `openai` leg                                                  |
 | ----------------- | --------------------------------------------- | ------------------------------------------------------------- |
-| Eligibility       | trusted-creator allowlist                     | membership in `aa_model_map` or `model_priors`                |
-| Quality source    | AA row joined by mapped slug                  | exact mapped AA row (`aa_model_map`) or verbatim `model_priors` |
-| Variant handling  | best combined-prior row per served slug       | none - only the mapped AA row's own scores      |
-| Pricing / window  | OpenRouter catalog                            | endpoint catalog (both dialects), gaps from `token_costs`      |
+| Eligibility       | trusted-creator allowlist                     | automatic AA family join screened by the same allowlist, or a `model_priors` entry |
+| Quality source    | AA row joined by mapped slug                  | the closest scored row of the joined AA family, or verbatim `model_priors` |
+| Variant handling  | best combined-prior row per served slug       | closest row first: the family base row when scored, else the fewest-stripped scored variant |
+| Pricing / window  | OpenRouter catalog                            | window from the endpoint catalog; candidate price from the gateway, else AA, else `token_costs` |
 
-`aa_model_map` maps an endpoint slug to the **exact AA slug** of the variant
-the gateway serves; the Builder looks up only that row and uses its coding and
-intelligence indices, normalized against the response-wide maxima. AA publishes
-separate rows per reasoning-effort variant and the base row is frequently
-unscored, so per-family aggregation would silently pin a gateway model to its
-strongest sibling variant's score - there is no variant aggregation and no
-wildcard escape hatch. A nil index on the mapped row yields no prior for that
-role (the candidate competes only on the scored axis); with both axes nil the
-model produces no candidate. `model_priors` entries bypass the AA join entirely
-- the configured 0..1 values are used verbatim. The same floor applies.
+**The automatic join.** Served ids and AA slugs are reduced to one canonical
+family key: lowercase, vendor prefix dropped, dots rewritten to dashes, and
+trailing reasoning-effort suffixes (`low`, `medium`, `high`, `xhigh`,
+`minimal`, `reasoning`, `non-reasoning`, `thinking`, `adaptive`) and date
+tokens (`0420`, `20250929`, `05-26`, `09-2025`, `2024-08-06`, `may-2024`)
+stripped until nothing changes. `anthropic/claude-opus-5`, `gpt-5.2`,
+`claude-sonnet-4-5-20250929` and `deepseek-v4-flash-0420-high` reduce to
+`claude-opus-5`, `gpt-5-2`, `claude-sonnet-4-5` and `deepseek-v4-flash`.
+Model-identity suffixes such as `mini`, `codex`, `flash` and `preview` are
+never stripped. Known AA-side naming quirks are covered by built-in rewrites
+in `internal/modelcatalog/mapping.go` (the 4.x Anthropic ordering flip,
+`claude-4-5-sonnet` for the vendor's `claude-sonnet-4-5`, and a short
+per-slug table); they ship with ContextMatrix and are not configuration.
+
+Each tool-capable served model is looked up by the key of its id, then the
+key of each `alias_names` entry the gateway lists. The first key with AA
+rows wins. Within that family the scored row closest to the served id
+supplies the priors: the row whose slug equals the key when it is scored,
+otherwise the scored row with the fewest effort suffixes stripped, then the
+fewest date tokens stripped, then the highest combined prior. A gateway
+serving `gpt-5.2` is scored from AA's `gpt-5-2` row, not from
+`gpt-5-2-medium`; one serving `deepseek-v4-flash` is scored from
+`deepseek-v4-flash-0420`. The chosen row's creator must pass the allowlist.
+A nil index on the chosen row yields no prior for that role (the candidate
+competes only on the scored axis). `model_priors` entries bypass the join
+entirely: the configured 0..1 values are used verbatim, and no allowlist
+screen applies. The same floor applies to both paths.
 
 Exclusions are loud: every served, tool-capable model that does not become a
-candidate is logged at WARN with its slug and the specific reason - no
-`aa_model_map` or `model_priors` entry, mapped AA slug not found in the AA
-catalog, mapped AA row has no usable scores (with the scored sibling rows and
-their normalized scores named so the operator can re-point the mapping), or
-below the quality floor for both roles. The refresh also logs the resolved
-candidate set: one line per served candidate with its coder prior, reviewer
-prior, and score source (`model_priors override` or the exact AA slug it was
-scored from).
+candidate is logged at WARN with its slug and the specific reason - no AA
+family matches this model (with the keys tried), the family has no usable
+scores (with the family's AA slugs), the creator is not in the allowlist, or
+below the quality floor for both roles. A miss is a ContextMatrix rewrite
+gap or an AA gap, not a configuration gap: report the logged keys, and use
+`model_priors` for the model until a rewrite ships. The refresh also logs
+the resolved candidate set: one line per served candidate with its coder
+prior, reviewer prior, how it was joined (`automatic` or `model_priors`),
+the AA slug it was scored from, and where its price came from.
 
-Note that `aa_model_map` and `model_priors` are keyed on the endpoint's model
-**id**, not on its aliases: a gateway that serves `anthropic/claude-sonnet-4-5`
-and lists `claude-sonnet-4-5-20250929` only as an alias is not matched by a map
-entry keyed on the dated name, and the model is excluded as unmapped.
+### Endpoint pricing
 
-### Endpoint pricing gaps
+The selector's price band needs a price per candidate, and an
+OpenAI-compatible gateway may publish none: the OpenAI protocol has no
+pricing block. An unpriced catalog is quietly expensive: every candidate
+arrives at price 0, the price band (step 4 below) computes
+`0 * headroom = 0`, admits the whole pool, and the best-value rule
+degenerates into "highest prior wins" - the most expensive frontier model on
+every pick, on every card. Nothing errors, and cost reporting still looks
+right, because card costs are priced separately.
 
-An unpriced catalog is quietly expensive: every candidate arrives at price 0,
-the price band (step 4 below) computes `0 * headroom = 0`, admits the whole
-pool, and the best-value rule degenerates into "highest prior wins" - the most
-expensive frontier model on every pick, on every card. Nothing errors, and cost
-reporting still looks right, because card costs are priced separately from
-`token_costs`.
+Three sources feed the price, and the candidate and the card-cost paths read
+them differently.
 
-Two things guard against it.
-
-**Both pricing dialects are read.** `/models` pricing blocks come in two shapes
-in the wild, and the key sets do not overlap, so whichever the gateway
-populated is used:
+**Both pricing dialects are read** from the gateway's `/models`. Pricing
+blocks come in two shapes in the wild, and the key sets do not overlap, so
+whichever the gateway populated is used:
 
 | Dialect      | Keys                                                                          | Unit         | Type    |
 | ------------ | ----------------------------------------------------------------------------- | ------------ | ------- |
@@ -233,24 +250,37 @@ a model with one rate pair, and the base tier is the honest choice for the
 band; a run crossing a tier boundary is therefore under-costed, and
 `token_costs` is the lever if that matters.
 
-**`token_costs` fills what is left.** Any entry still at zero after parsing is
-priced from the operator's
-[`token_costs`](configuration.md#token-cost-rates) table, before candidates,
-`Rate()` or the pickers read the catalog. A price the gateway does publish is
-never overwritten. Each model resolves against the table in this order, first
-hit wins:
+**Artificial Analysis publishes a list price** per row
+(`price_1m_input_tokens`, `price_1m_output_tokens`, USD per million), read
+alongside the quality indices. A row that prices neither side counts as
+unpriced. Cache prices are not read.
 
-1. the served slug (`anthropic/claude-opus-5`),
-2. the slug with its vendor prefix stripped (`claude-opus-5`),
-3. each `alias_names` entry the gateway lists (`claude-opus-5`,
-   `global-opus-5`, ...) - which is how a table keyed on dated model names
-   (`claude-sonnet-4-5-20250929`) prices a gateway serving the undated slug.
+**`token_costs` is the operator's table**, resolved per model in this order,
+first hit wins: the served slug (`anthropic/claude-opus-5`), the slug with
+its vendor prefix stripped (`claude-opus-5`), then each `alias_names` entry
+the gateway lists - which is how a table keyed on dated model names
+(`claude-sonnet-4-5-20250929`) prices a gateway serving the undated slug. A
+rate row that prices neither prompt nor completion tokens counts as absent.
 
-A rate row that prices neither prompt nor completion tokens counts as absent.
-Every tool-capable model still unpriced after the fill is logged at WARN, once
-per refresh, naming the slug: the selector will treat it as free and it will
-win any price comparison it enters. That WARN is the tripwire for a gateway
-changing its pricing schema again.
+**The candidate** the selector sees is priced from the gateway when it
+published a price, else from the joined AA row's list price, else from
+`token_costs`, else 0. AA beats `token_costs` on purpose: the list price is
+live, the table is whatever the operator last typed. The gateway's own price
+always wins, so a gateway that does publish prices is unaffected. The
+`model_priors` path has no AA row and resolves gateway, then `token_costs`,
+then 0.
+
+**Card costs** never read the AA price. The catalog entry behind `Rate()` is
+the gateway's price, else `token_costs`, and every cost path prices through
+it exactly as before. On a gateway that publishes no prices, `token_costs`
+is the only table left to maintain, and only so card costs come out right.
+
+Every model still unpriced for card costs after the fill is logged at WARN,
+once per refresh, naming the slug: its card costs will report as 0. Every
+candidate still unpriced after all three sources is logged separately: the
+selector will treat it as free and it will win any price comparison it
+enters. Both warnings are the tripwire for a gateway changing its pricing
+schema again.
 
 ### Caching and refresh
 
@@ -311,7 +341,7 @@ Each `CandidateModel` carries:
 | Field                                             | Content                                                        |
 | ------------------------------------------------- | -------------------------------------------------------------- |
 | `slug`                                            | the served model identifier the agent passes to the gateway    |
-| `prompt_price_per_tok`, `completion_price_per_tok`| USD per token, from the served catalog                         |
+| `prompt_price_per_tok`, `completion_price_per_tok`| USD per token: the gateway's price, else the AA list price, else `token_costs` (see [endpoint pricing](#endpoint-pricing)) |
 | `context_window`                                  | tokens                                                         |
 | `coder_prior`, `reviewer_prior`                   | normalized quality, `[0, 1]`                                   |
 | `creator`                                         | vendor prefix, drives the agent's vendor-diversity preference  |
@@ -392,6 +422,8 @@ debounced while a bar moves, and the last good preview stays visible with an
 error line if a request fails. The KPI row shows the reviewers clearing
 `complex`, the cheapest `complex` reviewer, the `complex` panel's price per
 million tokens (orange when a seat walked), and the `moderate` coder pick.
+A price marked *list* is the Artificial Analysis list price: the gateway
+published none for that model (see [endpoint pricing](#endpoint-pricing)).
 
 Nothing is sent until **Save**; the status pill says whether the next run
 uses what is on screen. **Discard changes** returns to the saved ladders and
@@ -440,7 +472,7 @@ would have.
 1. **Card pin.** If the pinned slug is present in the payload candidate list,
    it wins unconditionally - over the blacklist, over the tier bar, over the
    in-run exclude set, over cost. A pin that is *not* in the candidate list
-   (below the floor, an endpoint model with no AA mapping, or shipped with no
+   (below the floor, an endpoint model no AA family matches, or shipped with no
    catalog) is not honored: every resolution path logs a warning to the card
    and falls back. The orchestrator-model resolution warns on each call; the
    coder, reviewer and Best-of-N picks warn once per run per pin type, so a
@@ -463,8 +495,7 @@ would have.
    The band spans from the cheapest surviving candidate up to
    `cheapest x headroom` (the operator's saved headroom, built-in 1.5). An unpriced catalog makes
    this step a no-op (`0 x headroom = 0` admits everything) and step 5 then
-   picks on quality alone; see [endpoint pricing
-   gaps](#endpoint-pricing-gaps).
+   picks on quality alone; see [endpoint pricing](#endpoint-pricing).
 5. **Best value.** Within the band, the highest-prior candidate wins; ties go
    to the cheaper model. Models outside the band never win on quality - the
    band is what keeps a frontier model from being picked for a `simple` task.
@@ -696,9 +727,8 @@ overrides; this table maps the knobs to their effect on selection.
 | ------------------------------------ | -------------------- | ----------------------------------------------------------------------- |
 | `backends.agent.aa_api_key`          | unset                | Enables the candidate catalog; without it, no auto-selection at all     |
 | `backends.agent.default_model`       | unset                | Orchestrator model for the run; card pins override. The selector's empty-pool fallback: trigger `default_model` when set, else agent serve default, else compiled-in `deepseek/deepseek-v4-flash` |
-| `backends.agent.model_allowlist`     | built-in vendor list | Replaces the trusted-creator list (OpenRouter leg only)                 |
-| `backends.agent.aa_model_map`        | none                 | Endpoint slug -> exact AA slug (`openai` leg only)                      |
-| `backends.agent.model_priors`        | none                 | Verbatim 0..1 priors for slugs AA does not rate (`openai` leg only)     |
+| `backends.agent.model_allowlist`     | built-in vendor list | Replaces the trusted-creator list; screens the OpenRouter catalog and the `openai` leg's automatic matches |
+| `backends.agent.model_priors`        | none                 | Verbatim 0..1 priors for slugs AA does not rate; bypasses the join and the allowlist (`openai` leg only) |
 | `backends.agent.favorites`           | none                 | Per-tier preferred models, optionally per role                          |
 | `backends.agent.catalog_quality_floor` | 0.65               | Minimum quality prior on at least one role to keep a model as a selection candidate; applies to both catalog legs. Env `CONTEXTMATRIX_BACKEND_AGENT_CATALOG_QUALITY_FLOOR` |
 | `favorites` in a project `.board.yaml` | none               | Per-project override; replaces the global entry per tier; hand-edited only (see the [data model](data-model.md#project-board-config-format)) |
@@ -718,10 +748,10 @@ endpoints, and the equal prompt+completion price weighting.
 | ---------------------------------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
 | Every phase runs on a default model            | No `aa_api_key` (no `selection` block at all) or an empty candidate set (block present, zero candidates) | The agent cannot auto-select; orchestrator phases use the trigger `default_model`, selector picks resolve with three-tier precedence (trigger `default_model`, agent serve default, compiled-in default) |
 | Candidates gone after a restart during an AA outage | The cache is in-memory only - a restart loses the last-good catalog | While CM stays up, a failed refresh keeps serving the last-good catalog (60s retry cooldown); after a restart, candidates return on the first successful refresh |
-| A pinned model is ignored                      | The pin is not in the candidate list (below floor, unmapped endpoint model, or no catalog) | All resolution paths warn on the card and fall back: orchestrator resolution on each call, coder and reviewer picks once per run per pin type. CM validates pins against the wider served set, so the write was accepted |
+| A pinned model is ignored                      | The pin is not in the candidate list (below floor, an endpoint model no AA family matches, or no catalog) | All resolution paths warn on the card and fall back: orchestrator resolution on each call, coder and reviewer picks once per run per pin type. CM validates pins against the wider served set, so the write was accepted |
 | A favorite is never picked                     | Blacklisted, below the tier bar, not a candidate (outside the allowlist), or its tier entry was replaced wholesale by a project override | Favorites are preferences, not overrides; check `selection.blacklist` and the bar |
-| `model_allowlist` has no effect                | `llm_endpoint.type: openai`                                           | The allowlist only screens the OpenRouter leg; use `aa_model_map` / `model_priors` |
-| Endpoint models served but never selected      | Unmapped in `aa_model_map`, mapped to a nonexistent AA slug, mapped to an unscored AA row, no `model_priors` entry, or below floor | One WARN per excluded model at refresh time, naming the slug and the reason; unscored mappings also name the scored sibling rows |
+| Endpoint models served but never selected      | No AA family matches the id or its aliases, the family has no scored row, the creator is outside the allowlist, or below floor | One WARN per excluded model at refresh time, naming the slug, the reason, and the keys tried or the family's rows; add a `model_priors` entry as the workaround and report the keys |
+| A preview price is marked *list*               | The gateway publishes no price for that model; the candidate carries the AA list price | Expected on an `openai` gateway without a pricing block; card costs still come from `token_costs` |
 | A model keeps disappearing from selection      | It was reported incapable and blacklisted                             | Check the admin model-selection page; delist it there, or pin it for one card      |
 | A saved ladder has no effect on picks          | The agent predates protocol v0.19 and ignores `tier_bars`             | Upgrade the agent; until then it runs its built-in ladder                         |
 | `503 catalog not available yet` on the ladders page | No `aa_api_key`, or the first catalog refresh has not completed  | The ladders still load and save; candidates and preview appear after the first refresh |

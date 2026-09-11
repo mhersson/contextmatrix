@@ -105,7 +105,7 @@ values fail validation at startup.
 
 No env override exists for `stalled_check_interval`, `token_costs`,
 `chat.resume_budget_tokens`, `chat.rehydration_timeout`, `mob.guests`,
-`backends.agent.favorites`, `aa_model_map`, `model_priors`, or the list form
+`backends.agent.favorites`, `model_priors`, or the list form
 of `boards`. `CONTEXTMATRIX_BOARDS_*` applies to the single-repo form only;
 setting one while `boards` is a list is a startup error.
 
@@ -156,11 +156,13 @@ to the agent with every run. See
 `completion`, optional `cache_read` and `cache_write`) used for card cost
 reporting. When `llm_endpoint.type` is `openai`, rates are filled from the
 endpoint catalog and hand-listed entries act as overrides - and the table
-works the other way too: any model the gateway serves without usable pricing is
-priced from `token_costs`, which is what keeps the selector's price band
-meaningful (see [model selection](model-selection.md#endpoint-pricing-gaps)).
-Missing cache rates derive as prompt x 0.10 (read) and prompt x 1.25 (write);
-a 0 means unset, so a free cache rate cannot be expressed. Config file only.
+works the other way too: any model the gateway serves without usable pricing
+is priced from `token_costs` for card costs. The selector does not depend on
+it: a candidate is priced from the gateway, else the Artificial Analysis list
+price, and reads `token_costs` only when both are missing (see [model
+selection](model-selection.md#endpoint-pricing)). Missing cache rates derive
+as prompt x 0.10 (read) and prompt x 1.25 (write); a 0 means unset, so a free
+cache rate cannot be expressed. Config file only.
 
 ## Troubleshooting
 
