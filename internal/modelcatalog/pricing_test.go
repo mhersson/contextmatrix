@@ -47,6 +47,13 @@ func TestApplyTokenCostsResolutionOrder(t *testing.T) {
 	assert.InDelta(t, 7e-6, cat["vendor/dated"].PromptPrice, 1e-15)
 	assert.InDelta(t, 1e-9, cat["vendor/endpoint-priced"].PromptPrice, 1e-15)
 	assert.Zero(t, cat["vendor/unknown"].PromptPrice)
+
+	assert.Equal(t, priceSourceGateway, cat["vendor/endpoint-priced"].PriceSource)
+	assert.Equal(t, priceSourceTokenCosts, cat["vendor/exact-slug"].PriceSource)
+	assert.Equal(t, priceSourceTokenCosts, cat["vendor/bare-name"].PriceSource)
+	assert.Equal(t, priceSourceTokenCosts, cat["vendor/dated"].PriceSource)
+	assert.Empty(t, cat["vendor/unknown"].PriceSource, "nothing priced it")
+	assert.Empty(t, cat["vendor/free-row"].PriceSource, "a rate row pricing nothing is absent")
 }
 
 func TestApplyTokenCostsNoTable(t *testing.T) {

@@ -5,10 +5,22 @@ import (
 	"strings"
 )
 
+// priceSource names where a price came from, for the refresh log and the
+// admin selector views. applyTokenCosts tags catalog entries with gateway or
+// token_costs; candidatePrice (catalog.go) adds aa and none for candidates.
+type priceSource string
+
+const (
+	priceSourceGateway    priceSource = "gateway"
+	priceSourceAA         priceSource = "aa"
+	priceSourceTokenCosts priceSource = "token_costs"
+	priceSourceNone       priceSource = "none"
+)
+
 // applyTokenCosts fills the per-token prices of endpoint models the gateway
 // serves without a pricing block, reading them from the operator's token_costs
 // rate table. An entry the gateway did price is left alone: the provider's own
-// numbers win, token_costs only covers what the provider omits.
+// numbers win, token_costs only covers what the provider omits. It also tags each entry with where its price came from (`PriceSource`), which the candidate build reads to rank the gateway's price above the AA list price above the fill.
 //
 // Without this, a gateway that publishes no pricing hands the selector a
 // catalog where every candidate costs 0. The price band then collapses to
@@ -26,6 +38,9 @@ import (
 func applyTokenCosts(cat map[string]orEntry, costs map[string]ModelPrice) (filled int, unpriced []string) {
 	for slug, e := range cat {
 		if e.PromptPrice != 0 || e.CompletionPrice != 0 {
+			e.PriceSource = priceSourceGateway
+			cat[slug] = e
+
 			continue
 		}
 
@@ -42,6 +57,7 @@ func applyTokenCosts(cat map[string]orEntry, costs map[string]ModelPrice) (fille
 		e.CompletionPrice = p.Completion
 		e.CacheReadPrice = p.CacheRead
 		e.CacheWritePrice = p.CacheWrite
+		e.PriceSource = priceSourceTokenCosts
 		cat[slug] = e
 		filled++
 	}
