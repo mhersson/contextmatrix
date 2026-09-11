@@ -798,12 +798,12 @@ URL-encoding. Returns **200 OK** with the deleted slug:
 
 ### GET /api/admin/selector/ladders
 
-Same registration and gating as the model-blacklist pair. Returns the
-per-role quality ladders the agent's selector applies, the price headroom,
-the built-in ladder and headroom for reference, and whether the stored values
-are the built-in ones. `ladders` always carries both roles with all four
-tiers; `updated_at` (RFC 3339) is present only when a ladder has been saved.
-Does not depend on the catalog.
+Same registration and gating as the model-blacklist pair. Returns the per-role
+quality ladders the agent's selector applies, the price headroom, the built-in
+ladder and headroom for reference, and whether the stored values are the
+built-in ones. `ladders` always carries both roles with all four tiers;
+`updated_at` (RFC 3339) is present once the ladders or the headroom have been
+saved, and is the later of the two writes. Does not depend on the catalog.
 
 ```json
 {

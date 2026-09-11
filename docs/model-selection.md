@@ -27,7 +27,7 @@ The operator-facing controls, most direct first:
 | Restrict which vendors are eligible   | `backends.agent.model_allowlist`            | `config.yaml`                                | Vendor prefixes (`qwen`, `z-ai`); replaces the built-in list; inert on the `openai` leg        |
 | Rate models AA does not know          | `backends.agent.model_priors`               | `config.yaml`                                | `openai` leg only; verbatim 0..1 priors                                                        |
 | Widen or narrow the price band        | Price headroom                              | Model selection admin page                   | Default 1.5; stored in `ops.db`, sent with every run as `selection.price_headroom`; never a config-file setting |
-| Raise or lower a tier's quality bar   | Tier ladders                                | Model selection admin page                   | One ladder per role (coder, reviewer), linked in the page by default; stored in `ops.db`, sent with every run as `selection.tier_bars`; never a config-file setting |
+| Raise or lower a tier's quality bar   | Tier ladders                                | Model selection admin page                   | One ladder per role (coder, reviewer), linked in the page when the saved ladders are equal; stored in `ops.db`, sent with every run as `selection.tier_bars`; never a config-file setting |
 | Set the orchestrator model            | `backends.agent.default_model`              | `config.yaml`                                | Card pins override it; the selector's empty-pool fallback resolves to the trigger's `default_model` when set, else the agent's serve default, else the compiled-in `deepseek/deepseek-v4-flash`
 | Clear the outcome ledger              | `DELETE /api/admin/model-outcomes`          | REST (admin)                                 | Observability data only - selection never reads it; does not touch the blacklist               |
 | Delist a blacklisted model            | `DELETE /api/admin/model-blacklist/{slug...}` | REST (admin) / model-selection admin page  | Makes the model selectable again; the list itself is `GET /api/admin/model-blacklist`          |
@@ -362,8 +362,9 @@ as `selection.tier_bars`; it is not a config-file setting on either side.
 There is one ladder for coder picks and one for reviewer picks because the
 two priors come from different indices with different shapes: the coding
 index bunches near the top while the intelligence index spreads, so one bar
-gates the two roles very differently. The page links the two by default so
-a drag moves the same tier in both; unlinked, each moves alone.
+gates the two roles very differently. The page links the two whenever the
+saved ladders are equal, so a drag moves the same tier in both; unlinked,
+each moves alone.
 
 The ladders reach a run only when the candidate catalog is configured: CM
 attaches the `selection` block, ladders included, only with
