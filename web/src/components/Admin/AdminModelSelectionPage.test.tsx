@@ -145,7 +145,7 @@ describe('AdminModelSelectionPage - loading', () => {
     expect(screen.queryByRole('slider')).not.toBeInTheDocument();
     expect(screen.queryByTestId('tl-kpi-reviewers')).not.toBeInTheDocument();
 
-    for (const name of ['Reset to defaults', 'Discard changes', 'Save ladders']) {
+    for (const name of ['Reset to defaults', 'Discard changes', 'Save']) {
       expect(screen.getByRole('button', { name })).toBeDisabled();
     }
 
@@ -183,12 +183,12 @@ describe('AdminModelSelectionPage - edit, save, discard, reset', () => {
     fireEvent.click(screen.getByRole('switch', { name: 'Link the coder and reviewer ladders' }));
     drag('coder complex bar', 180, 145);
 
-    expect(screen.getByTestId('tl-status')).toHaveTextContent('unsaved changes · next run still uses the saved ladders');
+    expect(screen.getByTestId('tl-status')).toHaveTextContent('unsaved changes · next run still uses the saved values');
     expect(screen.getByRole('slider', { name: 'coder complex bar' })).toHaveTextContent('0.855');
     expect(screen.getByRole('slider', { name: 'reviewer complex bar' })).toHaveTextContent('0.855');
     await waitFor(() => expect(mocks.adminSelectorPreview).toHaveBeenCalledTimes(2));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Save ladders' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     await waitFor(() => expect(mocks.adminSelectorPutLadders).toHaveBeenCalledTimes(1));
     const sent = mocks.adminSelectorPutLadders.mock.calls[0][0] as SelectorLadders;
@@ -197,7 +197,7 @@ describe('AdminModelSelectionPage - edit, save, discard, reset', () => {
     expect(sent.reviewer.critical).toBeCloseTo(0.93, 9);
     await waitFor(() => expect(mocks.adminSelectorLadders).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.getByTestId('tl-status')).toHaveTextContent('saved · in effect for the next run'));
-    expect(screen.getByRole('button', { name: 'Save ladders' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
   });
 
   it('Discard restores the saved ladders without a request', async () => {
@@ -254,7 +254,7 @@ describe('AdminModelSelectionPage - edit, save, discard, reset', () => {
     const toggle = screen.getByRole('switch', { name: 'Link the coder and reviewer ladders' });
     fireEvent.click(toggle);
     drag('coder complex bar', 180, 145);
-    fireEvent.click(screen.getByRole('button', { name: 'Save ladders' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     await waitFor(() => expect(mocks.adminSelectorLadders).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.getByTestId('tl-status')).toHaveTextContent('saved · in effect for the next run'));
@@ -266,10 +266,50 @@ describe('AdminModelSelectionPage - edit, save, discard, reset', () => {
     await renderLoaded();
 
     drag('coder complex bar', 180, 145);
-    fireEvent.click(screen.getByRole('button', { name: 'Save ladders' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     expect(await screen.findByText('invalid selector ladders')).toBeInTheDocument();
     expect(screen.getByRole('slider', { name: 'coder complex bar' })).toHaveTextContent('0.855');
+    expect(screen.getByTestId('tl-status')).toHaveTextContent('unsaved changes');
+  });
+
+  it('the headroom is part of the draft, the preview and the save', async () => {
+    mocks.adminSelectorPutLadders.mockImplementation(async (ladders: SelectorLadders, headroom: number) => laddersRes(ladders, false, headroom));
+    mocks.adminSelectorLadders.mockResolvedValueOnce(laddersRes(savedLadders())).mockResolvedValueOnce(laddersRes(savedLadders(), false, 2));
+    await renderLoaded();
+
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Price headroom' }), { target: { value: '2' } });
+
+    expect(screen.getByTestId('tl-status')).toHaveTextContent('unsaved changes');
+    expect(screen.getByText('headroom 2× · favorites and blacklist applied')).toBeInTheDocument();
+    await waitFor(() => expect(mocks.adminSelectorPreview).toHaveBeenLastCalledWith(savedLadders(), 2, expect.any(AbortSignal)));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(mocks.adminSelectorPutLadders).toHaveBeenCalledWith(savedLadders(), 2));
+    await waitFor(() => expect(screen.getByTestId('tl-status')).toHaveTextContent('saved · in effect for the next run'));
+    expect(screen.getByRole('spinbutton', { name: 'Price headroom' })).toHaveValue(2);
+  });
+
+  it('a headroom below 1 disables Save and sends no preview', async () => {
+    await renderLoaded();
+    const calls = mocks.adminSelectorPreview.mock.calls.length;
+
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Price headroom' }), { target: { value: '0.5' } });
+
+    expect(screen.getByRole('spinbutton', { name: 'Price headroom' })).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Discard changes' })).toBeEnabled();
+    expect(mocks.adminSelectorPreview).toHaveBeenCalledTimes(calls);
+  });
+
+  it('Reset restores the default headroom with the default ladders', async () => {
+    mocks.adminSelectorLadders.mockResolvedValue(laddersRes(savedLadders(), false, 2));
+    await renderLoaded();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset to defaults' }));
+
+    expect(screen.getByRole('spinbutton', { name: 'Price headroom' })).toHaveValue(1.5);
     expect(screen.getByTestId('tl-status')).toHaveTextContent('unsaved changes');
   });
 });

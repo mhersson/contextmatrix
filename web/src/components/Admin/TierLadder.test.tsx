@@ -30,6 +30,7 @@ beforeAll(() => {
 function renderLadder(overrides: Partial<Parameters<typeof TierLadder>[0]> = {}) {
   const onChange = vi.fn();
   const onLinkedChange = vi.fn();
+  const onHeadroomChange = vi.fn();
   const utils = render(
     <TierLadder
       candidates={CANDIDATES}
@@ -42,10 +43,12 @@ function renderLadder(overrides: Partial<Parameters<typeof TierLadder>[0]> = {})
       picks={{ coder: EMPTY, reviewer: EMPTY }}
       seats={EMPTY}
       meta="4 candidates"
+      headroom={1.5}
+      onHeadroomChange={onHeadroomChange}
       {...overrides}
     />,
   );
-  return { onChange, onLinkedChange, ...utils };
+  return { onChange, onLinkedChange, onHeadroomChange, ...utils };
 }
 
 function drag(name: string, from: number, to: number) {
@@ -146,6 +149,8 @@ describe('TierLadder - drag', () => {
         picks={{ coder: EMPTY, reviewer: EMPTY }}
         seats={EMPTY}
         meta="4 candidates"
+        headroom={1.5}
+        onHeadroomChange={vi.fn()}
       />,
     );
     expect(screen.getByRole('slider', { name: 'coder complex bar' })).toHaveTextContent('0.90 · 0.82');
@@ -177,5 +182,23 @@ describe('TierLadder - drag', () => {
 
     expect(screen.getByRole('slider', { name: 'coder complex bar' })).toBe(handle);
     expect(within(screen.getByTestId('tl-col-coder')).getAllByRole('slider')).toHaveLength(4);
+  });
+});
+
+describe('TierLadder - headroom', () => {
+  it('reports a typed headroom as a number and an emptied field as NaN', () => {
+    const { onHeadroomChange } = renderLadder();
+    const input = screen.getByRole('spinbutton', { name: 'Price headroom' });
+
+    fireEvent.change(input, { target: { value: '2' } });
+    expect(onHeadroomChange).toHaveBeenLastCalledWith(2);
+
+    fireEvent.change(input, { target: { value: '' } });
+    expect(onHeadroomChange).toHaveBeenLastCalledWith(NaN);
+  });
+
+  it('marks a headroom below 1 invalid', () => {
+    renderLadder({ headroom: 0.5 });
+    expect(screen.getByRole('spinbutton', { name: 'Price headroom' })).toHaveAttribute('aria-invalid', 'true');
   });
 });

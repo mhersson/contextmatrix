@@ -47,6 +47,12 @@ const fetchBlacklist = () => api.adminModelBlacklist();
 
 const EMPTY_SET: ReadonlySet<string> = new Set();
 
+/** What the operator is editing: an override over the saved response. */
+interface SelectorDraft {
+  ladders: SelectorLadders;
+  headroom: number;
+}
+
 /** Slugs that are the pick at some rung, per role. */
 function pickSets(preview: SelectorPreview | null): Record<SelectorRole, ReadonlySet<string>> {
   const out: Record<SelectorRole, Set<string>> = { coder: new Set(), reviewer: new Set() };
@@ -83,7 +89,7 @@ export function AdminModelSelectionPage() {
   const catalog = useAdminResource(fetchCandidates, EMPTY_CATALOG, 'Failed to load the candidate catalog.');
   const blacklist = useAdminResource(fetchBlacklist, EMPTY_BLACKLIST, 'Failed to load model blacklist.');
 
-  const [draft, setDraft] = useState<SelectorLadders | null>(null);
+  const [draft, setDraft] = useState<SelectorDraft | null>(null);
   // The switch follows the saved ladders until the operator touches it: two
   // equal ladders load linked, two that differ load unlinked, so the first
   // drag never pulls one ladder onto the other unasked. Once toggled, the
@@ -93,10 +99,14 @@ export function AdminModelSelectionPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [delistSlug, setDelistSlug] = useState<string | null>(null);
 
-  const ladders = draft ?? saved.items.ladders;
+  const ladders = draft?.ladders ?? saved.items.ladders;
+  const headroom = draft?.headroom ?? saved.items.headroom;
   const linked = linkedOverride ?? rolesEqual(saved.items.ladders);
-  const dirty = draft !== null && !laddersEqual(draft, saved.items.ladders);
+  // NaN (an emptied field) compares unequal, so an emptied field is dirty
+  // and can be discarded, while Save stays disabled through headroomValid.
+  const dirty = draft !== null && (!laddersEqual(draft.ladders, saved.items.ladders) || !(Math.abs(draft.headroom - saved.items.headroom) < 1e-9));
   const monotone = ROLES.every((r) => isMonotone(ladders[r]));
+  const headroomValid = Number.isFinite(headroom) && headroom >= 1;
   const catalogReady = !catalog.loading && catalog.listError === null;
   // Without a loaded ladder the bars on screen are the placeholder, not what
   // the next run uses: nothing may claim them as saved, and nothing may edit
@@ -104,7 +114,10 @@ export function AdminModelSelectionPage() {
   const laddersReady = !saved.loading && saved.listError === null;
   const editable = catalogReady && laddersReady;
 
-  const preview = useSelectorPreview(ladders, saved.items.headroom, editable);
+  const setLadders = (next: SelectorLadders) => setDraft((d) => ({ ladders: next, headroom: d?.headroom ?? saved.items.headroom }));
+  const setHeadroom = (next: number) => setDraft((d) => ({ ladders: d?.ladders ?? saved.items.ladders, headroom: next }));
+
+  const preview = useSelectorPreview(ladders, headroom, editable && headroomValid);
 
   const blacklisted = useMemo(() => new Set(catalog.items.blacklist), [catalog.items.blacklist]);
   const picks = useMemo(() => pickSets(preview.preview), [preview.preview]);
@@ -115,11 +128,11 @@ export function AdminModelSelectionPage() {
     setSaving(true);
     setSaveError(null);
     try {
-      await api.adminSelectorPutLadders(draft, saved.items.headroom);
+      await api.adminSelectorPutLadders(draft.ladders, draft.headroom);
       await saved.refetch();
       setDraft(null);
     } catch (err) {
-      setSaveError(errorMessage(err, 'Failed to save the ladders.'));
+      setSaveError(errorMessage(err, 'Failed to save the selection settings.'));
     } finally {
       setSaving(false);
     }
@@ -130,7 +143,8 @@ export function AdminModelSelectionPage() {
     setSaveError(null);
   };
 
-  const reset = () => setDraft({ coder: { ...saved.items.defaults }, reviewer: { ...saved.items.defaults } });
+  const reset = () =>
+    setDraft({ ladders: { coder: { ...saved.items.defaults }, reviewer: { ...saved.items.defaults } }, headroom: saved.items.headroom_default });
 
   const confirmDelist = async () => {
     const slug = delistSlug;
@@ -155,7 +169,7 @@ export function AdminModelSelectionPage() {
     : saved.listError
       ? 'ladders unavailable'
       : dirty
-        ? 'unsaved changes · next run still uses the saved ladders'
+        ? 'unsaved changes · next run still uses the saved values'
         : 'saved · in effect for the next run';
 
   return (
@@ -181,8 +195,13 @@ export function AdminModelSelectionPage() {
           <button type="button" className="bf-btn-ghost" onClick={discard} disabled={!dirty || !laddersReady}>
             Discard changes
           </button>
-          <button type="button" className="bf-btn-primary" onClick={() => void save()} disabled={!dirty || !monotone || saving || !laddersReady}>
-            {saving ? 'Saving…' : 'Save ladders'}
+          <button
+            type="button"
+            className="bf-btn-primary"
+            onClick={() => void save()}
+            disabled={!dirty || !monotone || !headroomValid || saving || !laddersReady}
+          >
+            {saving ? 'Saving…' : 'Save'}
           </button>
         </div>
       </header>
@@ -210,7 +229,9 @@ export function AdminModelSelectionPage() {
               ladders={ladders}
               linked={linked}
               onLinkedChange={setLinkedOverride}
-              onChange={setDraft}
+              onChange={setLadders}
+              headroom={headroom}
+              onHeadroomChange={setHeadroom}
               floor={catalog.items.quality_floor}
               blacklist={blacklisted}
               picks={picks}
@@ -235,7 +256,7 @@ export function AdminModelSelectionPage() {
             error={preview.error}
             ladders={ladders}
             candidates={catalog.items.candidates}
-            headroom={saved.items.headroom}
+            headroom={headroom}
           />
         </div>
 

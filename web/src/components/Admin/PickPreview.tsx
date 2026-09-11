@@ -75,7 +75,7 @@ export function PickPreview({ preview, pending, disabled, error, ladders, candid
       <div className="apd-panel-head">
         <h2 className="apd-panel-title">Pick preview</h2>
         <span className="apd-panel-meta">
-          <span>{`headroom ${headroom}× · favorites and blacklist applied`}</span>
+          <span>{`headroom ${Number.isFinite(headroom) ? headroom : '?'}× · favorites and blacklist applied`}</span>
           {busy && <span className="tl-pending">computing…</span>}
         </span>
       </div>
@@ -109,7 +109,7 @@ export function PickPreview({ preview, pending, disabled, error, ladders, candid
       <p className="tl-hint">
         Computed with the selection rules the agent runs, from the current catalog, the backend favorites and the blacklist. Single picks are
         vendor-blind with no in-run exclusions. A seat marked <em>walked</em> re-anchored the price band because nothing cheaper was left at
-        that rung. Project favorites and the agent&apos;s own headroom setting are not applied here.
+        that rung. Project favorites are not applied here.
       </p>
     </section>
   );
