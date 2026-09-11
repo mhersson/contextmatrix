@@ -177,7 +177,7 @@ instead:
 | ----------------- | --------------------------------------------- | ------------------------------------------------------------- |
 | Eligibility       | trusted-creator allowlist                     | automatic AA family join screened by the same allowlist, or a `model_priors` entry |
 | Quality source    | AA row joined by mapped slug                  | the closest scored row of the joined AA family, or verbatim `model_priors` |
-| Variant handling  | best combined-prior row per served slug       | closest row first: the family base row when scored, else the fewest-stripped scored variant |
+| Variant handling  | best combined-prior row per served slug       | the row for the wanted effort (served suffix, else `llm_endpoint.reasoning_effort`) when scored; else closest row first: the family base row when scored, else the fewest-stripped scored variant |
 | Pricing / window  | OpenRouter catalog                            | window from the endpoint catalog; candidate price from the gateway, else AA, else `token_costs` |
 
 **The automatic join.** Served ids and AA slugs are reduced to one canonical
@@ -194,25 +194,25 @@ in `internal/modelcatalog/mapping.go` (the 4.x Anthropic ordering flip,
 `claude-4-5-sonnet` for the vendor's `claude-sonnet-4-5`, and a short
 per-slug table); they ship with ContextMatrix and are not configuration.
 
-Each tool-capable served model is looked up by the key of its id, then the
-key of each `alias_names` entry the gateway lists. The first key with AA
-rows wins. Within that family the scored row closest to the served id
-supplies the priors: the row whose slug equals the key when it is scored,
-otherwise the scored row with the fewest effort suffixes stripped, then the
-fewest date tokens stripped, then the highest combined prior. A gateway
-serving `gpt-5.2` is scored from AA's `gpt-5-2` row, not from
-`gpt-5-2-medium`; one serving `deepseek-v4-flash` is scored from
-`deepseek-v4-flash-0420`. Closeness is measured against the family key, with one refinement: when the
-served id names a reasoning effort (`gpt-5.2-high`), or the gateway pins one
+Each tool-capable served model is looked up by the key of its id, then the key
+of each `alias_names` entry the gateway lists. The first key with AA rows
+wins. Within that family the scored row closest to the served id supplies the
+priors: the row whose slug equals the key when it is scored, otherwise the
+scored row with the fewest effort suffixes stripped, then the fewest date
+tokens stripped, then the highest combined prior. A gateway serving `gpt-5.2`
+is scored from AA's `gpt-5-2` row, not from `gpt-5-2-medium`; one serving
+`deepseek-v4-flash` is scored from `deepseek-v4-flash-0420`. Closeness is
+measured against the family key, with one refinement: when the served id names
+a reasoning effort (`gpt-5.2-high`), or the gateway pins one
 (`llm_endpoint.reasoning_effort: medium`; the id's own suffix wins when both
 apply), the scored row carrying that effort suffix (`gpt-5-2-high`,
-`gpt-5-2-medium`) beats every other row in the family. When the family has
-no scored row for that effort, or no effort is named or configured, the
-closest rule above applies and the base row wins. A gateway that pins one
-effort and serves bare ids therefore needs the one config line; without it
-every model on that gateway is rated at whatever effort AA ran the base row
-at. `model_priors` remains the override when the chosen row still
-under-scores a model.
+`gpt-5-2-medium`) beats every other row in the family. When the family has no
+scored row for that effort, or no effort is named or configured, the closest
+rule above applies and the base row wins. A gateway that pins one effort and
+serves bare ids therefore needs the one config line; without it every model on
+that gateway is rated at whatever effort AA ran the base row at.
+`model_priors` remains the override when the chosen row still under-scores a
+model.
 The chosen row's creator must pass the allowlist. A nil index on the chosen
 row yields no prior for that role (the candidate competes only on the
 scored axis). `model_priors` entries bypass the join entirely: the
