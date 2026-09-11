@@ -168,6 +168,19 @@ func (h *backendHandlers) launch(ctx context.Context, project, id string, opts l
 			Favorites:  mergeFavorites(h.backendCfg.Favorites, projectCfg.Favorites),
 			Blacklist:  bl,
 		}
+
+		// Read per trigger so a save on the admin page reaches the next run.
+		// Best-effort like the blacklist: the agent falls back to the built-in
+		// ladder, and the miss is logged rather than silent.
+		if h.ladders != nil {
+			bars, _, ladderErr := h.ladders.SelectorLadders(ctx)
+			if ladderErr != nil {
+				ctxlog.Logger(ctx).Warn("failed to read selector ladders; proceeding with the built-in ladder",
+					"card_id", id, "project", project, "error", ladderErr)
+			} else if len(bars) > 0 {
+				payload.Selection.TierBars = bars
+			}
+		}
 	}
 
 	payload.CreateBaseBranch = opts.createBaseBranch

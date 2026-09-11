@@ -110,6 +110,11 @@ DELETE /api/admin/model-outcomes                            # reset recorded out
 GET    /api/admin/model-blacklist                           # blacklisted models with reasons (both auth modes; admin-gated only in multi)
 DELETE /api/admin/model-blacklist/{slug...}                 # delist one model (both auth modes; admin-gated only in multi)
 
+GET    /api/admin/selector/ladders                          # per-role tier ladders, stored or built-in (both auth modes; admin-gated only in multi)
+PUT    /api/admin/selector/ladders                          # replace both ladders (both auth modes; admin-gated only in multi)
+GET    /api/admin/selector/candidates                       # selector inputs: candidates, favorites, blacklist, floor (both auth modes; admin-gated only in multi)
+POST   /api/admin/selector/preview                          # picks and panel seats under a ladder, not stored (both auth modes; admin-gated only in multi)
+
 GET    /api/events                                     ?project=             # SSE stream of board events
 GET    /healthz                                        # liveness probe (shallow)
 GET    /readyz                                         # readiness probe (dependency-checked)
@@ -287,6 +292,7 @@ the request's `request_id`.
 | `IMAGE_MISSING_FILE`         | 400     | Multipart form missing the `file` field                                                                                                                                                    |
 | `IMAGE_INVALID_PAYLOAD`      | 400     | Malformed multipart body                                                                                                                                                                   |
 | `MODEL_NOT_BLACKLISTED`      | 404     | `DELETE /api/admin/model-blacklist/{slug}` for a slug not on the list                                                                                                                      |
+| `CATALOG_UNAVAILABLE`        | 503     | `GET /api/admin/selector/candidates` or `POST /api/admin/selector/preview` before the candidate catalog has refreshed once, or when none is configured                       |
 | `INTERNAL_ERROR`             | 500/502 | Unhandled server error (500); credential mint failure (502)                                                                                                                                |
 
 **Error codes relevant to vetting:**
@@ -309,9 +315,11 @@ Setup and operations are in [authentication.md](authentication.md).
 
 **Exception:** the model-outcomes and model-blacklist pairs
 (`GET`/`DELETE /api/admin/model-outcomes`, `GET /api/admin/model-blacklist`,
-`DELETE /api/admin/model-blacklist/{slug...}`) are registered in **both**
-auth modes - model-selection feedback tracking does not depend on the auth
-system. They are documented at the end of this section.
+`DELETE /api/admin/model-blacklist/{slug...}`) and the selector routes
+(`GET`/`PUT /api/admin/selector/ladders`, `GET /api/admin/selector/candidates`,
+`POST /api/admin/selector/preview`) are registered in **both** auth modes -
+model-selection tracking and steering do not depend on the auth system.
+They are documented at the end of this section.
 
 **Session gate.** `sessionGuard` runs on every request in multi mode and
 rejects any request with no valid session - reads as well as writes. A
@@ -783,6 +791,134 @@ URL-encoding. Returns **200 OK** with the deleted slug:
 ```
 
 **Errors:** `404 MODEL_NOT_BLACKLISTED`.
+
+### GET /api/admin/selector/ladders
+
+Same registration and gating as the model-blacklist pair. Returns the
+per-role quality ladders the agent's selector applies, the built-in ladder
+for reference, and whether the stored value is the built-in one. `ladders`
+always carries both roles with all four tiers; `updated_at` (RFC 3339) is
+present only when a ladder has been saved. Does not depend on the catalog.
+
+```json
+{
+  "ladders": {
+    "coder":    { "simple": 0.65, "moderate": 0.80, "complex": 0.90, "critical": 0.95 },
+    "reviewer": { "simple": 0.65, "moderate": 0.76, "complex": 0.82, "critical": 0.93 }
+  },
+  "defaults": { "simple": 0.65, "moderate": 0.76, "complex": 0.82, "critical": 0.90 },
+  "is_default": false,
+  "updated_at": "2026-09-10T12:00:00Z"
+}
+```
+
+### PUT /api/admin/selector/ladders
+
+Replaces both ladders. Each role's map merges over the built-in ladder, so a
+partial map sets only the named tiers; both roles must be present and
+non-empty. A ladder must be non-decreasing from `simple` to `critical` with
+every bar in `[0, 1]`. The saved ladders reach the next agent run as the
+trigger's `selection.tier_bars`.
+
+```json
+{
+  "ladders": {
+    "coder":    { "critical": 0.95 },
+    "reviewer": { "complex": 0.85 }
+  }
+}
+```
+
+Returns **200 OK** with the same body as `GET`.
+
+**Errors:** `422 VALIDATION_ERROR` (missing role, unknown role or tier,
+non-decreasing violation, bar out of range; `details` names the reason),
+`400 BAD_REQUEST` (malformed JSON).
+
+### GET /api/admin/selector/candidates
+
+The inputs the preview feeds the selector: the cached candidate catalog
+(sorted by slug), the backend-level favorites, the blacklist, the price
+headroom the preview assumes, the catalog quality floor, and when the
+catalog snapshot was built. Project favorites are not included - they are
+per `.board.yaml` and merged at trigger time.
+
+```json
+{
+  "candidates": [
+    {
+      "slug": "z-ai/glm-5.3",
+      "creator": "zai",
+      "coder_prior": 0.917,
+      "reviewer_prior": 0.841,
+      "prompt_price_per_tok": 2.9e-6,
+      "completion_price_per_tok": 2.9e-6,
+      "context_window": 200000
+    }
+  ],
+  "favorites": [{ "tier": "critical", "role": "reviewer", "models": ["anthropic/claude-opus-5"] }],
+  "blacklist": ["moonshotai/kimi-k2.7-code"],
+  "headroom": 1.5,
+  "quality_floor": 0.65,
+  "catalog_refreshed_at": "2026-09-10T06:00:00Z"
+}
+```
+
+**Errors:** `503 CATALOG_UNAVAILABLE` until the first successful catalog
+refresh, or when no candidate catalog is configured (no `aa_api_key`).
+
+### POST /api/admin/selector/preview
+
+What the shared selector would pick under the given ladders, against the
+current catalog, favorites and blacklist. Validated like `PUT`, never stored.
+`headroom` is optional (default 1.5). For every tier: the coder pick, the
+reviewer pick, and the three-seat review panel, each with the pool report
+the selector produced. The single picks are vendor-blind with no exclusions;
+a run's reviewer picks additionally exclude the models that coded.
+
+```json
+{ "ladders": { "coder": { "complex": 0.90 }, "reviewer": { "complex": 0.82 } }, "headroom": 1.5 }
+```
+
+```json
+{
+  "tiers": {
+    "complex": {
+      "coder": {
+        "pick": {
+          "model": "z-ai/glm-5.3", "context_window": 200000, "role": "coder",
+          "requested_tier": "complex", "met_tier": "complex", "requested_bar": 0.90,
+          "prior": 0.917, "has_prior": true, "source": "auto", "duplicate": false,
+          "ok": true, "price_per_tok": 5.8e-6
+        },
+        "report": {
+          "rung": "complex", "bar": 0.90,
+          "pool": [{ "model": "z-ai/glm-5.3", "prior": 0.917, "price_per_tok": 5.8e-6, "outcome": "selected" }],
+          "filtered_out": [{ "reason": "prior-below-bar", "models": ["google/gemini-3.8-flash"] }]
+        }
+      },
+      "reviewer": { "pick": {}, "report": {} },
+      "panel": [
+        { "pick": {}, "report": {}, "walked": false },
+        { "pick": {}, "report": {}, "walked": true },
+        { "pick": {}, "report": {}, "walked": true }
+      ]
+    },
+    "critical": {}, "moderate": {}, "simple": {}
+  }
+}
+```
+
+`met_tier` below `requested_tier` means the walk descended; `ok: false`
+means no rung holds a candidate for that role (the run would fall to the
+agent's default model, which this endpoint does not know). A seat with
+`walked: true` anchored its price band above the first seat's because every
+cheaper model at the rung was already seated or belonged to a seated vendor;
+`duplicate: true` marks a seat repeating an earlier one. `source` is one of
+`auto`, `favorite`, `pinned`, `capable-default`; pool `outcome` is
+`selected`, `in-band` or `out-of-band`.
+
+**Errors:** `422 VALIDATION_ERROR`, `503 CATALOG_UNAVAILABLE`.
 
 ## Health Endpoints
 

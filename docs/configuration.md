@@ -137,13 +137,18 @@ expansion applies to every path field.
 | Auth store              | `auth.db_path` / `CONTEXTMATRIX_AUTH_DB_PATH`                   | `<state>/auth.db`                | Users, sessions, one-time tokens, credential pool (`multi` mode only)      |
 | Master key              | `auth.master_key_file` / `CONTEXTMATRIX_AUTH_MASTER_KEY_FILE`   | `<state>/master.key`             | Hex 32-byte key encrypting pool secrets; auto-generated 0600 with a warning |
 | Image store             | `images.db_path` / `CONTEXTMATRIX_IMAGES_DB_PATH`               | `<state>/images.db`              | Pasted images for private boards repos and project-less uploads            |
-| Operational store       | `op_store.db_path` / `CONTEXTMATRIX_OP_STORE_DB_PATH`           | `<state>/ops.db`                 | Chat sessions and transcripts, model blacklist, Best-of-N outcomes, chat cost archive |
+| Operational store       | `op_store.db_path` / `CONTEXTMATRIX_OP_STORE_DB_PATH`           | `<state>/ops.db`                 | Chat sessions and transcripts, model blacklist, Best-of-N outcomes, chat cost archive, selector tier ladders |
 | Instance id             | `instance.id` / `CONTEXTMATRIX_INSTANCE_ID`                     | `<state>/instance_id`            | Generated `<hostname>-<6 hex>`; identifies this server on a shared boards repo |
 
 `<config-dir>` means the directory holding the loaded config file, so
 `-config /etc/contextmatrix/config.yaml` puts the skill defaults under
 `/etc/contextmatrix/`. Workflow skills and task skills are two different
 systems; see [Agent workflow](agent-workflow.md).
+
+The selector tier ladders have no config key on either side: they are edited
+on the Model selection admin page, stored in the operational store, and sent
+to the agent with every run. See
+[model selection](model-selection.md#tiers-are-quality-floors-not-buckets).
 
 ## Token cost rates
 

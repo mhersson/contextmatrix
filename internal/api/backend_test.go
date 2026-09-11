@@ -3271,6 +3271,10 @@ favorites:
 		},
 	}
 	bl := &stubBlacklist{slugs: []string{blacklistedSlug}}
+	ladders := &stubSelectorAdminStore{ladders: map[string]map[string]float64{
+		"coder":    {"simple": 0.65, "moderate": 0.80, "complex": 0.90, "critical": 0.95},
+		"reviewer": {"simple": 0.65, "moderate": 0.76, "complex": 0.82, "critical": 0.93},
+	}}
 
 	// Global favorites live on the backend config; the "critical" tier is
 	// supplied only by the project config above, so a project-originated rule
@@ -3296,8 +3300,9 @@ favorites:
 			DefaultModel: "openrouter/auto",
 			Favorites:    globalFavs,
 		},
-		Catalog:   cat,
-		Blacklist: bl,
+		Catalog:       cat,
+		Blacklist:     bl,
+		SelectorAdmin: ladders,
 	})
 
 	server := httptest.NewServer(router)
@@ -3325,6 +3330,12 @@ favorites:
 	// Blacklist must contain the stub slug.
 	assert.Contains(t, capturedPayload.Selection.Blacklist, blacklistedSlug)
 
+	// The stored ladders travel as tier_bars, both roles, every tier.
+	require.NotNil(t, capturedPayload.Selection.TierBars)
+	assert.Len(t, capturedPayload.Selection.TierBars["coder"], 4)
+	assert.InDelta(t, 0.90, capturedPayload.Selection.TierBars["coder"]["complex"], 1e-9)
+	assert.InDelta(t, 0.93, capturedPayload.Selection.TierBars["reviewer"]["critical"], 1e-9)
+
 	// The merged favorites must include both the global (complex/all) rule and
 	// the project-originated (critical/reviewer) rule, proving runCard merges
 	// backend + project config end-to-end.
@@ -3345,6 +3356,47 @@ favorites:
 
 	assert.True(t, foundGlobalComplexAll, "global complex/all favorite rule must be present")
 	assert.True(t, foundProjectCriticalReviewer, "project critical/reviewer favorite rule must be present")
+}
+
+func TestRunCardEmptyLadderStoreSendsNoTierBars(t *testing.T) {
+	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
+	defer cleanup()
+
+	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
+		Title: "Agent task", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	var capturedPayload backend.TriggerPayload
+
+	mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&capturedPayload)
+
+		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
+	}))
+	defer mockBackend.Close()
+
+	backendClient := backend.NewClient(mockBackend.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+	router := NewRouter(RouterConfig{
+		Service: svc, Bus: bus, Backend: backendClient,
+		AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+		Catalog:         &stubCatalog{candidates: []protocol.CandidateModel{{Slug: "z-ai/glm-5.2", CoderPrior: 0.9, ReviewerPrior: 0.8}}},
+		SelectorAdmin:   &stubSelectorAdminStore{},
+	})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	req, _ := http.NewRequest("POST", server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", nil)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	defer closeBody(t, resp.Body)
+
+	require.Equal(t, http.StatusAccepted, resp.StatusCode)
+	require.NotNil(t, capturedPayload.Selection)
+	assert.Nil(t, capturedPayload.Selection.TierBars, "an empty store sends no tier_bars, the agent keeps its built-in ladder")
 }
 
 // TestRunCardTypedNilCatalogDoesNotPanic reproduces the typed-nil-interface

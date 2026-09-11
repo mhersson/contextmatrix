@@ -2297,6 +2297,602 @@ textarea {
   animation: apd-spin 0.9s linear infinite;
 }
 
+/* ============================================================
+   Tier ladders admin page (.tl-*). Sits on the .apd-* dashboard
+   language - same tokens, panels and KPI tiles; only the ladder,
+   preview and blacklist internals are new. Positions that follow
+   the data (top, left) and the per-element colour tokens
+   (--tier-c, --bar-c, --band-c, --sw-c) are set inline.
+   ============================================================ */
+.tl-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--bg-dim);
+  color: var(--fg);
+  font-family: var(--font-sans);
+}
+.tl-summary {
+  min-width: 0;
+}
+.tl-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--apd-gap);
+  padding: var(--apd-gap) var(--apd-pad) 28px;
+}
+.tl-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--apd-gap);
+}
+.tl-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.9fr);
+  gap: var(--apd-gap);
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .tl-grid {
+    grid-template-columns: 1fr;
+  }
+  .tl-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 768px) {
+  .tl-kpis {
+    grid-template-columns: 1fr;
+  }
+}
+.tl-error {
+  font-size: 12.5px;
+  color: var(--red);
+}
+
+/* --- status pill and the linked switch --- */
+.tl-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--grey1);
+  padding: 4px 9px;
+  border-radius: 9999px;
+  border: 1px solid var(--bg3);
+  background: var(--bg1);
+}
+.tl-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+}
+.tl-status.dirty .tl-status-dot {
+  background: var(--yellow);
+}
+.tl-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: inherit;
+  color: var(--grey1);
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.tl-switch-knob {
+  position: relative;
+  width: 26px;
+  height: 14px;
+  border-radius: 9999px;
+  background: var(--bg3);
+  transition: background 120ms;
+}
+.tl-switch-knob::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--bg0);
+  transition: transform 120ms;
+}
+.tl-switch.on {
+  color: var(--aqua);
+}
+.tl-switch.on .tl-switch-knob {
+  background: var(--aqua);
+}
+.tl-switch.on .tl-switch-knob::after {
+  transform: translateX(12px);
+}
+
+/* --- ladder --- */
+.tl-ladder-wrap {
+  /* The rail column's width and the column gap: the coder handles hang one
+     of each to the left of their column, so the three must agree. */
+  --tl-rail-w: 150px;
+  --tl-col-gap: 16px;
+  padding: 6px 14px 14px;
+}
+.tl-ladder-head {
+  display: grid;
+  grid-template-columns: var(--tl-rail-w) 1fr 1fr;
+  gap: 0 var(--tl-col-gap);
+  align-items: end;
+  margin-bottom: 8px;
+}
+.tl-rail-h {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--grey0);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.tl-role-h {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--grey2);
+  font-weight: 500;
+}
+.tl-role-h small {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--grey0);
+}
+.tl-role-tag {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+.tl-role-tag.coder {
+  background: var(--bg-blue);
+  color: var(--blue);
+}
+.tl-role-tag.reviewer {
+  background: var(--bg-purple);
+  color: var(--purple);
+}
+.tl-ladder {
+  position: relative;
+  height: 640px;
+  display: grid;
+  grid-template-columns: var(--tl-rail-w) 1fr 1fr;
+  gap: 0 var(--tl-col-gap);
+  user-select: none;
+  touch-action: none;
+}
+.tl-rail {
+  position: relative;
+}
+.tl-tick {
+  position: absolute;
+  right: 0;
+  transform: translateY(-50%);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--grey0);
+  padding-right: 8px;
+}
+.tl-tick::after {
+  content: "";
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  width: 6px;
+  height: 1px;
+  background: var(--bg3);
+}
+.tl-col {
+  position: relative;
+  border-radius: 8px;
+  background: var(--bg-dim);
+  border: 1px solid var(--bg1);
+}
+.tl-band {
+  position: absolute;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--band-c) 9%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--band-c) 30%, transparent);
+}
+.tl-band.first {
+  border-top: 0;
+}
+.tl-band.floor {
+  background: transparent;
+}
+.tl-band-label {
+  position: absolute;
+  right: 8px;
+  top: 5px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--band-c);
+  text-align: right;
+  line-height: 1.3;
+}
+.tl-band-label small {
+  display: block;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  opacity: 0.8;
+}
+.tl-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  z-index: 6;
+  pointer-events: none;
+  transition: top 60ms linear;
+}
+.tl-bar.dragging {
+  transition: none;
+}
+.tl-bar-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -1px;
+  height: 2px;
+  background: var(--bar-c);
+  opacity: 0.9;
+}
+.tl-bar.dragging .tl-bar-line {
+  height: 3px;
+}
+.tl-handle {
+  position: absolute;
+  top: -13px;
+  height: 26px;
+  pointer-events: auto;
+  cursor: grab;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 9px 0 7px;
+  border-radius: 6px;
+  background: var(--bg0);
+  border: 1px solid var(--bar-c);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.28);
+}
+/* Coder handles sit on the rail: one rail width plus the column gap to the left. */
+.tl-col-coder .tl-handle {
+  left: calc(-1 * (var(--tl-rail-w) + var(--tl-col-gap)));
+  width: 140px;
+}
+.tl-col-reviewer .tl-handle {
+  left: 6px;
+  width: 72px;
+}
+.tl-handle:focus-visible {
+  outline: 2px solid var(--bar-c);
+  outline-offset: 2px;
+}
+.tl-grip {
+  width: 9px;
+  height: 14px;
+  flex-shrink: 0;
+  opacity: 0.9;
+  background: repeating-linear-gradient(to bottom, var(--bar-c) 0 1.5px, transparent 1.5px 3.5px);
+}
+.tl-tname {
+  color: var(--bar-c);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-size: 9.5px;
+  flex: 1;
+}
+.tl-tval {
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.tl-handle:hover {
+  background: color-mix(in srgb, var(--bar-c) 14%, var(--bg0));
+}
+.tl-bar.dragging .tl-handle {
+  cursor: grabbing;
+  background: color-mix(in srgb, var(--bar-c) 22%, var(--bg0));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--bar-c) 25%, transparent);
+}
+.tl-dot {
+  position: absolute;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 16px;
+  padding: 0 7px 0 4px;
+  border-radius: 9999px;
+  background: var(--bg1);
+  border: 1px solid var(--bg2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--fg);
+  white-space: nowrap;
+  z-index: 3;
+  transition:
+    border-color 120ms,
+    background 120ms;
+}
+.tl-dot i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--tier-c, var(--grey1));
+  flex-shrink: 0;
+}
+.tl-dot-p {
+  color: var(--grey1);
+}
+.tl-dot.picked {
+  border-color: var(--tier-c);
+  background: color-mix(in srgb, var(--tier-c) 14%, var(--bg1));
+}
+.tl-dot.seat {
+  outline: 1px dashed color-mix(in srgb, var(--tier-c) 60%, transparent);
+  outline-offset: 1px;
+}
+.tl-dot.banned {
+  opacity: 0.5;
+  border-style: dashed;
+}
+.tl-dot.banned i {
+  background: var(--red);
+}
+.tl-dot.banned .tl-dot-n {
+  text-decoration: line-through;
+  text-decoration-color: var(--red);
+}
+.tl-dot:hover {
+  z-index: 9;
+  border-color: var(--grey2);
+}
+.tl-legend {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--grey1);
+}
+.tl-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.tl-legend .tl-sw {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--sw-c);
+}
+.tl-legend .tl-legend-note {
+  margin-left: auto;
+}
+
+/* --- pick preview --- */
+.tl-pv-tier {
+  padding: 8px 14px 10px;
+  border-top: 1px solid var(--bg1);
+}
+.tl-pv-tier:first-of-type {
+  border-top: 0;
+}
+.tl-pv-tier-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.tl-pv-tier-name {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tier-c);
+}
+.tl-pv-tier-bar {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--grey0);
+}
+.tl-pv-row {
+  display: grid;
+  grid-template-columns: 64px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 4px 0;
+}
+.tl-pv-who {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--grey1);
+}
+.tl-pv-model {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.tl-pv-name {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tl-pv-none {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--grey0);
+}
+.tl-pv-src {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--purple);
+}
+.tl-pv-chip {
+  background: color-mix(in srgb, var(--tier-c) 16%, transparent);
+  color: var(--tier-c);
+}
+.tl-pv-price {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--grey1);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.tl-pv[aria-busy="true"] .tl-pv-tier {
+  opacity: 0.55;
+  transition: opacity 120ms;
+}
+.tl-kpis[aria-busy="true"] .apd-kpi.pending {
+  opacity: 0.55;
+  transition: opacity 120ms;
+}
+.tl-pv-error {
+  margin: 0;
+  padding: 8px 14px;
+  font-size: 11.5px;
+  color: var(--red);
+  border-bottom: 1px solid var(--bg1);
+}
+.tl-pending {
+  color: var(--yellow);
+}
+.tl-seats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.tl-seat {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 9999px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  background: var(--bg1);
+  border: 1px solid var(--bg2);
+  color: var(--fg);
+}
+.tl-seat b {
+  font-weight: 500;
+  color: var(--grey0);
+}
+.tl-seat.walk {
+  border-color: color-mix(in srgb, var(--orange) 55%, transparent);
+}
+.tl-seat.dup {
+  border-style: dashed;
+}
+.tl-seat-px {
+  color: var(--grey1);
+}
+.tl-walked {
+  color: var(--orange);
+}
+.tl-hint,
+.tl-foot {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--grey1);
+  padding: 0 14px 12px;
+  line-height: 1.45;
+}
+.tl-hint em {
+  color: var(--orange);
+  font-style: normal;
+}
+
+/* --- blacklist panel --- */
+.tl-bl-scroll {
+  overflow-x: auto;
+}
+.tl-bl-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.tl-bl-table th {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--grey0);
+  font-weight: 500;
+  text-align: left;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--bg1);
+}
+.tl-bl-table td {
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--bg1);
+  vertical-align: middle;
+  color: var(--fg);
+}
+.tl-bl-table tr:last-child td {
+  border-bottom: 0;
+}
+.tl-bl-table tr:hover td {
+  background: color-mix(in srgb, var(--bg1) 60%, transparent);
+}
+.tl-bl-slug {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.tl-bl-slug .chip-pill {
+  background: var(--bg-red);
+  color: var(--red);
+}
+.tl-bl-reason {
+  color: var(--grey2);
+  max-width: 520px;
+  line-height: 1.4;
+}
+.tl-bl-mono {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--grey1);
+  white-space: nowrap;
+}
+.tl-bl-slug-text {
+  color: var(--fg);
+}
+.tl-bl-actions {
+  text-align: right;
+}
+
 /* Playbook entry node - agent-active card pulses aqua to signal it's the
    entry currently being worked. */
 @keyframes pb-pulse-kf {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatCost, formatTokens } from './format';
+import { formatCost, formatRelativeTime, formatTokens } from './format';
 
 describe('formatCost', () => {
   it('keeps 4 decimals below 10 cents', () => {
@@ -27,5 +27,21 @@ describe('formatTokens', () => {
 
   it('leaves small counts as-is', () => {
     expect(formatTokens(150)).toBe('150');
+  });
+});
+
+describe('formatRelativeTime', () => {
+  const now = Date.parse('2026-09-10T12:00:00Z');
+
+  it('rounds to the coarsest unit that fits', () => {
+    expect(formatRelativeTime('2026-09-10T11:59:40Z', now)).toBe('just now');
+    expect(formatRelativeTime('2026-09-10T11:55:00Z', now)).toBe('5 min ago');
+    expect(formatRelativeTime('2026-09-10T06:00:00Z', now)).toBe('6 h ago');
+    expect(formatRelativeTime('2026-09-07T12:00:00Z', now)).toBe('3 d ago');
+  });
+
+  it('never reports a future stamp as negative and names an unparseable one', () => {
+    expect(formatRelativeTime('2026-09-10T12:00:30Z', now)).toBe('just now');
+    expect(formatRelativeTime('not a date', now)).toBe('unknown');
   });
 });

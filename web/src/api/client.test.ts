@@ -315,5 +315,47 @@ describe('admin endpoints', () => {
     expect(init.method).toBe('DELETE');
     expect(result).toBeUndefined();
   });
+
+  it('adminSelectorPutLadders PUTs both ladders under a ladders key', async () => {
+    const ladders = {
+      coder: { simple: 0.65, moderate: 0.8, complex: 0.9, critical: 0.95 },
+      reviewer: { simple: 0.65, moderate: 0.76, complex: 0.82, critical: 0.93 },
+    };
+    const reply = { ladders, defaults: { simple: 0.65, moderate: 0.76, complex: 0.82, critical: 0.9 }, is_default: false, updated_at: '2026-09-10T12:00:00Z' };
+    fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(makeResponse(reply));
+
+    const result = await api.adminSelectorPutLadders(ladders);
+
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('/api/admin/selector/ladders');
+    expect(init.method).toBe('PUT');
+    expect(JSON.parse(init.body as string)).toEqual({ ladders });
+    expect(result).toEqual(reply);
+  });
+
+  it('adminSelectorPreview POSTs the ladders and forwards the abort signal', async () => {
+    const ladders = {
+      coder: { simple: 0.65, moderate: 0.76, complex: 0.82, critical: 0.9 },
+      reviewer: { simple: 0.65, moderate: 0.76, complex: 0.82, critical: 0.9 },
+    };
+    fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(makeResponse({ tiers: {} }));
+    const controller = new AbortController();
+
+    await api.adminSelectorPreview(ladders, controller.signal);
+
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('/api/admin/selector/preview');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({ ladders });
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+    controller.abort();
+    expect(init.signal?.aborted).toBe(true);
+  });
+
+  it('adminSelectorCandidates surfaces the 503 as a typed APIError', async () => {
+    fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(makeErrorResponse('CATALOG_UNAVAILABLE', 'catalog not available yet', 503));
+
+    await expect(api.adminSelectorCandidates()).rejects.toMatchObject({ code: 'CATALOG_UNAVAILABLE', error: 'catalog not available yet' });
+  });
 });
 

@@ -90,7 +90,7 @@ gates only:
 | Credential pool      | `GET`/`POST /api/admin/credentials`, `PUT`/`DELETE /api/admin/credentials/{name}`        |
 | Project management   | `POST`/`PUT`/`DELETE /api/projects*`, `POST /api/projects/{project}/recalculate-costs`   |
 | Chat administration  | `GET /api/admin/chats`, `POST /api/admin/chats/{id}/end`, `DELETE /api/admin/chats/{id}` |
-| Model selection admin | `/api/admin/model-outcomes`, `/api/admin/model-blacklist`, `GET /api/backends/{backend}/images` |
+| Model selection admin | `/api/admin/model-outcomes`, `/api/admin/model-blacklist`, `/api/admin/selector/*`, `GET /api/backends/{backend}/images` |
 
 The UI mirrors this: the ADMIN section of the user menu (Users, Credentials,
 Chats, Model selection) and the project settings form appear for admins only.
