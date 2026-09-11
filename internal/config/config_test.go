@@ -3259,8 +3259,6 @@ backends:
     api_key: 0123456789012345678901234567890123456789
     default_model: model-a
     aa_api_key: aa-key
-    aa_model_map:
-      model-a: vendor-x-1
     model_priors:
       model-b: { coder: 0.91, reviewer: 0.88 }
 `)
@@ -3269,9 +3267,34 @@ backends:
 	assert.Equal(t, "https://your-llm-endpoint.example/v1", cfg.LLMEndpoint.BaseURL)
 	assert.Equal(t, "test-key", cfg.LLMEndpoint.APIKey)
 	require.NotNil(t, cfg.Backends.Agent)
-	assert.Equal(t, "vendor-x-1", cfg.Backends.Agent.AAModelMap["model-a"])
 	assert.InDelta(t, 0.91, cfg.Backends.Agent.ModelPriors["model-b"].Coder, 1e-9)
 	assert.InDelta(t, 0.88, cfg.Backends.Agent.ModelPriors["model-b"].Reviewer, 1e-9)
+}
+
+// TestAgentAAModelMapKeyRejected: aa_model_map was retired when the openai
+// leg started joining AA families automatically. Strict decoding makes a
+// stale key fail loudly, so operators clean their config at upgrade time.
+func TestAgentAAModelMapKeyRejected(t *testing.T) {
+	_, err := loadFromYAML(t, `
+boards:
+  dir: `+t.TempDir()+`
+github:
+  auth_mode: pat
+  pat:
+    token: ghp_test
+llm_endpoint:
+  type: openai
+  base_url: https://your-llm-endpoint.example/v1
+  api_key: test-key
+backends:
+  agent:
+    url: http://localhost:9092
+    api_key: 0123456789012345678901234567890123456789
+    aa_model_map:
+      model-a: vendor-x-1
+`)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "aa_model_map")
 }
 
 func TestLLMEndpointValidationRequiresBaseURLForOpenAI(t *testing.T) {

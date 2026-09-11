@@ -78,13 +78,13 @@ func TestBuilderPricesEndpointCandidatesFromTokenCosts(t *testing.T) {
 	defer endpointSrv.Close()
 
 	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"data":[{"slug":"vendor-x-1","model_creator":{"name":"vendor"},
+		_, _ = w.Write([]byte(`{"data":[{"slug":"model-a","model_creator":{"name":"vendor"},
 			"evaluations":{"artificial_analysis_coding_index":80,"artificial_analysis_intelligence_index":80}}]}`))
 	}))
 	defer aaSrv.Close()
 
-	b := NewBuilder("aa-key", 0.5, nil, time.Hour,
-		WithEndpoint(endpointSrv.URL, "secret", map[string]string{"vendor/model-a": "vendor-x-1"}, nil),
+	b := NewBuilder("aa-key", 0.5, []string{"vendor"}, time.Hour,
+		WithEndpoint(endpointSrv.URL, "secret", nil),
 		WithTokenCosts(map[string]ModelPrice{"model-a": {Prompt: 3e-6, Completion: 15e-6}}))
 	b.aaEndpoint = aaSrv.URL
 
