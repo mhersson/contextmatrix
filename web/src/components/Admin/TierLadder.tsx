@@ -114,7 +114,7 @@ export function TierLadder({
               step={0.1}
               value={Number.isNaN(headroom) ? '' : headroom}
               aria-label="Price headroom"
-              aria-invalid={headroom >= 1 ? undefined : true}
+              aria-invalid={Number.isFinite(headroom) && headroom >= 1 ? undefined : true}
               onChange={(e) => onHeadroomChange(e.target.value === '' ? NaN : Number(e.target.value))}
             />
             ×

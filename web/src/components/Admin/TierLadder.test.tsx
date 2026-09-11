@@ -201,4 +201,9 @@ describe('TierLadder - headroom', () => {
     renderLadder({ headroom: 0.5 });
     expect(screen.getByRole('spinbutton', { name: 'Price headroom' })).toHaveAttribute('aria-invalid', 'true');
   });
+
+  it('marks a non-finite headroom invalid, matching the page gate', () => {
+    renderLadder({ headroom: Infinity });
+    expect(screen.getByRole('spinbutton', { name: 'Price headroom' })).toHaveAttribute('aria-invalid', 'true');
+  });
 });
