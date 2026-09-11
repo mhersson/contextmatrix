@@ -934,7 +934,7 @@ name, a leftover `runner` entry, or an unknown per-entry key fails startup.
 | `backends.agent.model_priors`          | agent        | none       | Verbatim priors for endpoint slugs AA does not rate (`openai` leg).                            |
 | `mcp_api_key`                          | global       | unset      | Forwarded to workers so they can reach CM's MCP endpoint.                                     |
 | `llm_endpoint.{type,base_url,api_key}` | global       | unset      | Forwarded on every trigger and chat start whenever `type` is set.                             |
-| `llm_endpoint.reasoning_effort`        | global       | unset      | CM-side only: the effort the gateway pins, used to pick the AA row on the `openai` leg. Not forwarded. |
+| `llm_endpoint.reasoning_effort`        | global       | unset      | CM-side only: the effort the gateway pins for its OpenAI models, used to pick the AA row on the `openai` leg. Not forwarded. |
 | `best_of_n.max_candidates`             | global       | `5`        | Hard cap on a card's race size.                                                               |
 | `best_of_n.default_candidates`         | global       | `3`        | Race size the UI suggests.                                                                    |
 | `mob.*`                                | global       | see example | Participant and round caps, budget factor, checkpoint flags, guest registry.                |

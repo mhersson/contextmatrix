@@ -69,8 +69,8 @@ type selectorAdminHandlers struct {
 	// project favorites (merged per trigger) are not applied.
 	favorites map[string]board.TierFavorites
 	// reasoningEffort echoes llm_endpoint.reasoning_effort on the candidates
-	// response so the page can say which effort the gateway pins. Empty when
-	// unset.
+	// response so the page can say which effort the gateway pins for its
+	// OpenAI models. Empty when unset.
 	reasoningEffort string
 	// authEnabled mirrors "multi mode": every endpoint then requires an
 	// admin session. In none mode they are open, same trust posture as the
@@ -293,7 +293,7 @@ type selectorCandidatesResponse struct {
 	QualityFloor       float64                 `json:"quality_floor"`
 	CatalogRefreshedAt string                  `json:"catalog_refreshed_at"`
 	// ReasoningEffort is llm_endpoint.reasoning_effort, the effort the
-	// gateway pins; empty when unset.
+	// gateway pins for its OpenAI models; empty when unset.
 	ReasoningEffort string `json:"reasoning_effort"`
 }
 

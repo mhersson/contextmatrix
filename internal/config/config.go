@@ -34,11 +34,12 @@ type LLMEndpointConfig struct {
 	Type    string `yaml:"type"`     // "openrouter" (default) | "openai"
 	BaseURL string `yaml:"base_url"` // required for "openai"; defaults to the OpenRouter models URL for "openrouter"
 	APIKey  string `yaml:"api_key"`
-	// ReasoningEffort is the reasoning effort the gateway pins for the models
-	// it serves when it does not let the caller choose ("openai" only). The
-	// selection catalog scores a served model from the Artificial Analysis
-	// row carrying this effort when the family has one. Empty means unknown:
-	// the family base row is used. One of LLMEndpointReasoningEfforts.
+	// ReasoningEffort is the reasoning effort the gateway pins for the OpenAI
+	// models it serves when it does not let the caller choose ("openai"
+	// endpoint type only). The selection catalog scores a served OpenAI model
+	// from the Artificial Analysis row carrying this effort when the family
+	// has one; models of other creators ignore it. Empty means unknown: the
+	// family base row is used. One of LLMEndpointReasoningEfforts.
 	ReasoningEffort string `yaml:"reasoning_effort"`
 }
 

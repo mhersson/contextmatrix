@@ -181,7 +181,7 @@ export function AdminModelSelectionPage() {
     ? [
         `${catalog.items.candidates.length} candidates`,
         'priors normalised to the AA leader',
-        ...(catalog.items.reasoning_effort ? [`gateway effort ${catalog.items.reasoning_effort}`] : []),
+        ...(catalog.items.reasoning_effort ? [`OpenAI effort ${catalog.items.reasoning_effort}`] : []),
         `refreshed ${formatRelativeTime(catalog.items.catalog_refreshed_at)}`,
       ].join(' · ')
     : catalog.loading
