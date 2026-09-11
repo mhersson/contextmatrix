@@ -25,6 +25,30 @@ func (s *Store) RecordIncapableModel(ctx context.Context, slug, reason, sampleCa
 	return nil
 }
 
+// InsertBlacklistEntry adds a slug an operator blacklisted by hand. Unlike
+// RecordIncapableModel it never touches an existing row, so an agent
+// report's reason and sample card survive a manual add for the same slug.
+// Returns false when the slug was already listed.
+func (s *Store) InsertBlacklistEntry(ctx context.Context, slug, reason, reportedBy string) (bool, error) {
+	now := time.Now().Unix()
+
+	res, err := s.db.ExecContext(ctx, `
+		INSERT INTO model_blacklist (slug, reason, sample_card, reported_by, first_seen, last_seen)
+		VALUES (?, ?, NULL, ?, ?, ?)
+		ON CONFLICT(slug) DO NOTHING`,
+		slug, reason, reportedBy, now, now)
+	if err != nil {
+		return false, fmt.Errorf("insert blacklist entry %q: %w", slug, err)
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("insert blacklist entry %q: rows affected: %w", slug, err)
+	}
+
+	return n > 0, nil
+}
+
 // BlacklistedSlugs returns every blacklisted OpenRouter slug.
 func (s *Store) BlacklistedSlugs(ctx context.Context) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT slug FROM model_blacklist ORDER BY slug`)

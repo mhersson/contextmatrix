@@ -683,12 +683,14 @@ filters them out of every non-pinned pick.
 An operator can blacklist a model by hand through
 `POST /api/admin/model-blacklist` (`{"slug", "reason"?}`) or by
 right-clicking it on the admin model-selection page. A manual add writes
-the same row an agent report does: the reason defaults to "blacklisted by
-operator", the reporter is the admin's username in multi mode and
-"operator" in none mode, and the slug is not checked against the catalog,
-so a model that is not a candidate today is still excluded the day it
-becomes one. Manual adds do not increment the blacklists counter, which
-counts agent reports only.
+the same row an agent report does but never overwrites one, so an agent's
+reason and sample card survive a manual add for a slug that is already
+listed (the response says `created: false`). The reason defaults to
+"blacklisted by operator", the reporter is the admin's username in multi
+mode and "operator" in none mode, and the slug is not checked against the
+catalog, so a model that is not a candidate today is still excluded the
+day it becomes one. Manual adds do not increment the blacklists counter,
+which counts agent reports only.
 
 No MCP tool removes an entry - agents cannot delist. Operators delist via
 `DELETE /api/admin/model-blacklist/{slug}` or the delist button on the admin
@@ -741,7 +743,8 @@ are the only evidence that exists about that choice.
 - `GET /api/admin/model-blacklist` - every blacklisted model with reason,
   sample card, reporter, and timestamps;
   `POST /api/admin/model-blacklist` blacklists one model by hand
-  (`{"slug", "reason"?}`; `422 VALIDATION_ERROR` on a blank slug);
+  (`{"slug", "reason"?}`; a listed slug is left untouched;
+  `422 VALIDATION_ERROR` on a blank or malformed slug);
   `DELETE /api/admin/model-blacklist/{slug}` delists one model (`404
   MODEL_NOT_BLACKLISTED` when it is not listed). All three are admin-gated
   in multi mode and open in none mode.

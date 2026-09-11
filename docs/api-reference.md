@@ -216,7 +216,7 @@ the request's `request_id`.
 
 | Status | When                                                                                                                                                                                                                                                                                             |
 | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 200    | GET, PUT, PATCH; `POST /claim`, `/release`, `/force-release`, `/stop-all`, `/api/agent/status`, `/api/chats/{id}/open`, `/api/chats/{id}/end`; `POST /api/admin/model-blacklist` (body echoes the slug); `DELETE /api/admin/model-outcomes` and `.../model-blacklist/{slug}` (body reports what was deleted); playbook entry DELETE (returns the playbook) |
+| 200    | GET, PUT, PATCH; `POST /claim`, `/release`, `/force-release`, `/stop-all`, `/api/agent/status`, `/api/chats/{id}/open`, `/api/chats/{id}/end`; `POST /api/admin/model-blacklist` (body echoes the slug and whether a row was created); `DELETE /api/admin/model-outcomes` and `.../model-blacklist/{slug}` (body reports what was deleted); playbook entry DELETE (returns the playbook) |
 | 201    | `POST /api/projects`, `POST .../cards`, `POST /api/playbooks`, `POST /api/playbooks/{id}/entries`, `POST /api/chats`, `POST /api/admin/users`, `POST /api/admin/credentials`, `POST /api/images`                                                                                                 |
 | 202    | Async work kicked off: `POST .../run`, `/stop`, `/message`, `/promote`, `POST /api/chats/{id}/messages`, `/api/chats/{id}/clear`                                                                                                                                                                 |
 | 204    | DELETE of a card, project, playbook, chat, admin chat, or credential; `POST /api/auth/logout`, `POST /api/auth/password`; `GET /api/worker/logs` when no session manager is wired                                                                                                                |
@@ -786,15 +786,18 @@ unix seconds; `sample_card` is omitted when the report carried none:
 
 ### POST /api/admin/model-blacklist
 
-Blacklists one model by hand. Writes the same row an agent report does
-(idempotent per slug: an existing row keeps its `first_seen` and takes the
-new reason and reporter). `reason` is optional and defaults to
+Blacklists one model by hand. Writes the same row an agent report does,
+but never overwrites one: a slug that is already listed is left exactly as
+it is (an agent's reason and sample card survive) and the response says
+`created: false`. `reason` is optional and defaults to
 `blacklisted by operator`; `reported_by` is the admin's username in multi
 mode and `operator` in none mode. The slug is not checked against the
-candidate catalog. Returns **200 OK** with the slug:
+candidate catalog, but it must be addressable by the delist route: no
+whitespace, `?`, `#` or `%`, no leading, trailing or doubled `/`, and no
+`.` or `..` segment. Returns **200 OK**:
 
 ```json
-{ "slug": "moonshotai/kimi-k3" }
+{ "slug": "moonshotai/kimi-k3", "created": true }
 ```
 
 Request body:
@@ -804,7 +807,7 @@ Request body:
 ```
 
 **Errors:** `400 BAD_REQUEST` (malformed JSON), `422 VALIDATION_ERROR`
-(blank slug).
+(blank or malformed slug).
 
 ### DELETE /api/admin/model-blacklist/{slug...}
 

@@ -121,3 +121,57 @@ func TestDeleteBlacklistEntry(t *testing.T) {
 		t.Fatal("want deleted=false for absent slug")
 	}
 }
+
+func TestInsertBlacklistEntry(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "ops.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer st.Close()
+
+	ctx := context.Background()
+
+	inserted, err := st.InsertBlacklistEntry(ctx, "new/model", "blacklisted by operator", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !inserted {
+		t.Fatal("first insert must report inserted")
+	}
+
+	// An agent report with a sample card, then a manual add for the same
+	// slug: the add is a no-op so the report's evidence survives.
+	if err := st.RecordIncapableModel(ctx, "bad/model", "parse failures", "CM-7", "agent:x"); err != nil {
+		t.Fatal(err)
+	}
+
+	inserted, err = st.InsertBlacklistEntry(ctx, "bad/model", "blacklisted by operator", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if inserted {
+		t.Fatal("insert on a listed slug must report not inserted")
+	}
+
+	entries, err := st.BlacklistEntries(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(entries) != 2 {
+		t.Fatalf("want 2 entries, got %d", len(entries))
+	}
+
+	bad := entries[0]
+	if bad.Slug != "bad/model" || bad.Reason != "parse failures" || bad.SampleCard != "CM-7" || bad.ReportedBy != "agent:x" {
+		t.Fatalf("agent row was touched by the manual add: %+v", bad)
+	}
+
+	fresh := entries[1]
+	if fresh.Slug != "new/model" || fresh.Reason != "blacklisted by operator" || fresh.SampleCard != "" || fresh.ReportedBy != "root" || fresh.FirstSeen == 0 || fresh.LastSeen != fresh.FirstSeen {
+		t.Fatalf("unexpected manual row: %+v", fresh)
+	}
+}
