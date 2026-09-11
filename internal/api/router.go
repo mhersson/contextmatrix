@@ -205,8 +205,8 @@ type RouterConfig struct {
 	// same opstore handle passed as Blacklist/Catalog - one store, several
 	// narrowly sliced interfaces.
 	OutcomesAdmin outcomeAdminStore
-	// BlacklistAdmin supplies the list+delist surface for the admin
-	// model-blacklist endpoints (GET /api/admin/model-blacklist,
+	// BlacklistAdmin supplies the list, add and delist surface for the admin
+	// model-blacklist endpoints (GET and POST /api/admin/model-blacklist,
 	// DELETE /api/admin/model-blacklist/{slug...}). Separate from Blacklist
 	// (slug-only, trigger path) for the same narrow-interface reason as
 	// OutcomesAdmin; in main.go it is the same opstore handle.
@@ -463,6 +463,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			authEnabled: cfg.AuthService != nil,
 		}
 		mux.HandleFunc("GET /api/admin/model-blacklist", bh.list)
+		mux.HandleFunc("POST /api/admin/model-blacklist", bh.add)
 		mux.HandleFunc("DELETE /api/admin/model-blacklist/{slug...}", bh.delist)
 	}
 

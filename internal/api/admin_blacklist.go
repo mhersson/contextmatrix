@@ -3,11 +3,19 @@ package api
 import (
 	"context"
 	"net/http"
+	"strings"
 
 	"github.com/mhersson/contextmatrix/internal/opstore/sqlite"
 )
 
 const ErrCodeModelNotBlacklisted = "MODEL_NOT_BLACKLISTED"
+
+// Attribution for a manual add. In none mode there is no session to name;
+// in multi mode the admin's username replaces it.
+const (
+	blacklistOperator      = "operator"
+	blacklistDefaultReason = "blacklisted by operator"
+)
 
 // blacklistAdminStore is the op-store surface the admin model-blacklist
 // endpoints need. Deliberately separate from blacklistReader
@@ -18,9 +26,13 @@ const ErrCodeModelNotBlacklisted = "MODEL_NOT_BLACKLISTED"
 type blacklistAdminStore interface {
 	BlacklistEntries(ctx context.Context) ([]sqlite.BlacklistEntry, error)
 	DeleteBlacklistEntry(ctx context.Context, slug string) (bool, error)
+	// RecordIncapableModel is the same upsert the MCP report_incapable_model
+	// tool writes through, so a manual add and an agent report land in one
+	// row and delist clears either.
+	RecordIncapableModel(ctx context.Context, slug, reason, sampleCard, reportedBy string) error
 }
 
-// blacklistAdminHandlers serves GET /api/admin/model-blacklist and
+// blacklistAdminHandlers serves GET and POST /api/admin/model-blacklist and
 // DELETE /api/admin/model-blacklist/{slug...}.
 type blacklistAdminHandlers struct {
 	store blacklistAdminStore
@@ -51,6 +63,53 @@ func (h *blacklistAdminHandlers) gate(w http.ResponseWriter, r *http.Request) bo
 	}
 
 	return requireAdmin(w, r) != nil
+}
+
+// modelBlacklistAddRequest is the POST /api/admin/model-blacklist body.
+type modelBlacklistAddRequest struct {
+	Slug   string `json:"slug"`
+	Reason string `json:"reason"`
+}
+
+// add handles POST /api/admin/model-blacklist: an operator blacklisting a
+// model by hand, as opposed to the agent reporting one incapable over MCP.
+// Idempotent per slug like the report path; the slug is not checked against
+// the catalog, so a model that is not a candidate today is still excluded
+// the day it becomes one.
+func (h *blacklistAdminHandlers) add(w http.ResponseWriter, r *http.Request) {
+	if !h.gate(w, r) {
+		return
+	}
+
+	var req modelBlacklistAddRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+
+	slug := strings.TrimSpace(req.Slug)
+	if slug == "" {
+		writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "slug is required", "")
+
+		return
+	}
+
+	reason := strings.TrimSpace(req.Reason)
+	if reason == "" {
+		reason = blacklistDefaultReason
+	}
+
+	reportedBy := blacklistOperator
+	if u := sessionUserFromContext(r.Context()); u != nil {
+		reportedBy = u.Username
+	}
+
+	if err := h.store.RecordIncapableModel(r.Context(), slug, reason, "", reportedBy); err != nil {
+		writeError(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to add blacklist entry", "")
+
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"slug": slug})
 }
 
 // list handles GET /api/admin/model-blacklist.
