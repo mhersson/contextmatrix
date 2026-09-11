@@ -316,24 +316,31 @@ describe('admin endpoints', () => {
     expect(result).toBeUndefined();
   });
 
-  it('adminSelectorPutLadders PUTs both ladders under a ladders key', async () => {
+  it('adminSelectorPutLadders PUTs both ladders and the headroom', async () => {
     const ladders = {
       coder: { simple: 0.65, moderate: 0.8, complex: 0.9, critical: 0.95 },
       reviewer: { simple: 0.65, moderate: 0.76, complex: 0.82, critical: 0.93 },
     };
-    const reply = { ladders, defaults: { simple: 0.65, moderate: 0.76, complex: 0.82, critical: 0.9 }, is_default: false, updated_at: '2026-09-10T12:00:00Z' };
+    const reply = {
+      ladders,
+      defaults: { simple: 0.65, moderate: 0.76, complex: 0.82, critical: 0.9 },
+      headroom: 2,
+      headroom_default: 1.5,
+      is_default: false,
+      updated_at: '2026-09-10T12:00:00Z',
+    };
     fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(makeResponse(reply));
 
-    const result = await api.adminSelectorPutLadders(ladders);
+    const result = await api.adminSelectorPutLadders(ladders, 2);
 
     const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
     expect(url).toBe('/api/admin/selector/ladders');
     expect(init.method).toBe('PUT');
-    expect(JSON.parse(init.body as string)).toEqual({ ladders });
+    expect(JSON.parse(init.body as string)).toEqual({ ladders, headroom: 2 });
     expect(result).toEqual(reply);
   });
 
-  it('adminSelectorPreview POSTs the ladders and forwards the abort signal', async () => {
+  it('adminSelectorPreview POSTs the ladders and headroom and forwards the abort signal', async () => {
     const ladders = {
       coder: { simple: 0.65, moderate: 0.76, complex: 0.82, critical: 0.9 },
       reviewer: { simple: 0.65, moderate: 0.76, complex: 0.82, critical: 0.9 },
@@ -341,12 +348,12 @@ describe('admin endpoints', () => {
     fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(makeResponse({ tiers: {} }));
     const controller = new AbortController();
 
-    await api.adminSelectorPreview(ladders, controller.signal);
+    await api.adminSelectorPreview(ladders, 1.5, controller.signal);
 
     const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
     expect(url).toBe('/api/admin/selector/preview');
     expect(init.method).toBe('POST');
-    expect(JSON.parse(init.body as string)).toEqual({ ladders });
+    expect(JSON.parse(init.body as string)).toEqual({ ladders, headroom: 1.5 });
     expect(init.signal).toBeInstanceOf(AbortSignal);
     controller.abort();
     expect(init.signal?.aborted).toBe(true);

@@ -21,15 +21,15 @@ export interface SelectorPreviewResult {
 }
 
 /**
- * Debounced server preview for the ladders on screen. Pending is derived -
- * the shown ladders differ from the ones the last answer was for - so a drag
- * step never sets state synchronously. An error keeps the last good preview
- * and is cleared by the next successful answer. A superseded request is
- * aborted and its late answer ignored.
+ * Debounced server preview for the ladders and headroom on screen. Pending is
+ * derived - the shown ladders differ from the ones the last answer was for -
+ * so a drag step never sets state synchronously. An error keeps the last good
+ * preview and is cleared by the next successful answer. A superseded request
+ * is aborted and its late answer ignored.
  */
-export function useSelectorPreview(ladders: SelectorLadders, enabled: boolean): SelectorPreviewResult {
+export function useSelectorPreview(ladders: SelectorLadders, headroom: number, enabled: boolean): SelectorPreviewResult {
   const [state, setState] = useState<PreviewState>({ preview: null, forKey: null, error: null });
-  const key = ladderKey(ladders);
+  const key = `${ladderKey(ladders)}|${headroom}`;
 
   // The request reads the ladders through a ref so the effect keys on the
   // value (`key`), not the object: a refetch that yields equal values must
@@ -39,6 +39,11 @@ export function useSelectorPreview(ladders: SelectorLadders, enabled: boolean): 
     laddersRef.current = ladders;
   }, [ladders]);
 
+  const headroomRef = useRef(headroom);
+  useEffect(() => {
+    headroomRef.current = headroom;
+  }, [headroom]);
+
   const latestKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -47,7 +52,7 @@ export function useSelectorPreview(ladders: SelectorLadders, enabled: boolean): 
     const controller = new AbortController();
     const timer = setTimeout(() => {
       api
-        .adminSelectorPreview(laddersRef.current, controller.signal)
+        .adminSelectorPreview(laddersRef.current, headroomRef.current, controller.signal)
         .then((preview) => {
           if (latestKeyRef.current !== key) return;
           setState({ preview, forKey: key, error: null });

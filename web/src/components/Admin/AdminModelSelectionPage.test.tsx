@@ -31,8 +31,15 @@ vi.mock('../../api/client', async (importOriginal) => {
 
 const DEFAULTS = { simple: 0.65, moderate: 0.76, complex: 0.82, critical: 0.9 };
 
-function laddersRes(ladders: SelectorLadders, is_default = false): SelectorLaddersResponse {
-  return { ladders, defaults: { ...DEFAULTS }, is_default, updated_at: is_default ? undefined : '2026-09-10T08:30:00Z' };
+function laddersRes(ladders: SelectorLadders, is_default = false, headroom = 1.5): SelectorLaddersResponse {
+  return {
+    ladders,
+    defaults: { ...DEFAULTS },
+    headroom,
+    headroom_default: 1.5,
+    is_default,
+    updated_at: is_default ? undefined : '2026-09-10T08:30:00Z',
+  };
 }
 
 function savedLadders(): SelectorLadders {
@@ -44,7 +51,6 @@ function catalogRes(): SelectorCandidatesResponse {
     candidates: CANDIDATES,
     favorites: [],
     blacklist: ['c/weak'],
-    headroom: 1.5,
     quality_floor: 0.65,
     catalog_refreshed_at: new Date(Date.now() - 6 * 3600 * 1000).toISOString(),
   };
@@ -112,7 +118,7 @@ describe('AdminModelSelectionPage - loading', () => {
     expect(screen.getByTestId('tl-dot-reviewer-a/cheap')).toHaveClass('picked');
     expect(screen.getByTestId('tl-dot-reviewer-b/pricey')).toHaveClass('seat');
     expect(screen.getByTestId('tl-kpi-reviewers')).toHaveTextContent('3');
-    expect(mocks.adminSelectorPreview).toHaveBeenCalledWith(savedLadders(), expect.any(AbortSignal));
+    expect(mocks.adminSelectorPreview).toHaveBeenCalledWith(savedLadders(), 1.5, expect.any(AbortSignal));
   });
 
   it('shows the ladder empty state with the error when the catalog is unavailable', async () => {

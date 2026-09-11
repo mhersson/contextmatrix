@@ -28,13 +28,14 @@ const BUILTIN_BARS: TierBars = { simple: 0.65, moderate: 0.76, complex: 0.82, cr
 const EMPTY_LADDERS: SelectorLaddersResponse = {
   ladders: { coder: { ...BUILTIN_BARS }, reviewer: { ...BUILTIN_BARS } },
   defaults: { ...BUILTIN_BARS },
+  headroom: 1.5,
+  headroom_default: 1.5,
   is_default: true,
 };
 const EMPTY_CATALOG: SelectorCandidatesResponse = {
   candidates: [],
   favorites: [],
   blacklist: [],
-  headroom: 1.5,
   quality_floor: 0.65,
   catalog_refreshed_at: '',
 };
@@ -103,7 +104,7 @@ export function AdminModelSelectionPage() {
   const laddersReady = !saved.loading && saved.listError === null;
   const editable = catalogReady && laddersReady;
 
-  const preview = useSelectorPreview(ladders, editable);
+  const preview = useSelectorPreview(ladders, saved.items.headroom, editable);
 
   const blacklisted = useMemo(() => new Set(catalog.items.blacklist), [catalog.items.blacklist]);
   const picks = useMemo(() => pickSets(preview.preview), [preview.preview]);
@@ -114,7 +115,7 @@ export function AdminModelSelectionPage() {
     setSaving(true);
     setSaveError(null);
     try {
-      await api.adminSelectorPutLadders(draft);
+      await api.adminSelectorPutLadders(draft, saved.items.headroom);
       await saved.refetch();
       setDraft(null);
     } catch (err) {
@@ -234,7 +235,7 @@ export function AdminModelSelectionPage() {
             error={preview.error}
             ladders={ladders}
             candidates={catalog.items.candidates}
-            headroom={catalog.items.headroom}
+            headroom={saved.items.headroom}
           />
         </div>
 

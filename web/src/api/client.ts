@@ -418,10 +418,10 @@ class APIClient {
     return this.request<SelectorLaddersResponse>('/admin/selector/ladders');
   }
 
-  async adminSelectorPutLadders(ladders: SelectorLadders): Promise<SelectorLaddersResponse> {
+  async adminSelectorPutLadders(ladders: SelectorLadders, headroom: number): Promise<SelectorLaddersResponse> {
     return this.request<SelectorLaddersResponse>('/admin/selector/ladders', {
       method: 'PUT',
-      body: JSON.stringify({ ladders }),
+      body: JSON.stringify({ ladders, headroom }),
     });
   }
 
@@ -431,10 +431,10 @@ class APIClient {
 
   // signal lets the ladders page drop a preview that a newer drag step has
   // already superseded.
-  async adminSelectorPreview(ladders: SelectorLadders, signal?: AbortSignal): Promise<SelectorPreview> {
+  async adminSelectorPreview(ladders: SelectorLadders, headroom: number, signal?: AbortSignal): Promise<SelectorPreview> {
     return this.request<SelectorPreview>('/admin/selector/preview', {
       method: 'POST',
-      body: JSON.stringify({ ladders }),
+      body: JSON.stringify({ ladders, headroom }),
       signal,
     });
   }
