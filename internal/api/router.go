@@ -212,10 +212,10 @@ type RouterConfig struct {
 	// OutcomesAdmin; in main.go it is the same opstore handle.
 	BlacklistAdmin blacklistAdminStore
 
-	// SelectorAdmin supplies the stored per-role tier ladders: read on every
-	// agent trigger (SelectionContext.TierBars) and read+written by the admin
-	// selector endpoints. In main.go it is the same opstore handle as
-	// BlacklistAdmin.
+	// SelectorAdmin supplies the stored per-role tier ladders and the price
+	// headroom: read on every agent trigger (SelectionContext.TierBars and
+	// PriceHeadroom) and read+written by the admin selector endpoints. In
+	// main.go it is the same opstore handle as BlacklistAdmin.
 	SelectorAdmin selectorAdminStore
 	// SelectorCatalog backs the admin selector candidates and preview
 	// endpoints. Set with Catalog in main.go, under the same guard, so a
@@ -552,7 +552,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		replayCache:            backend.NewSignatureCache(),
 		catalog:                cfg.Catalog,
 		blacklist:              cfg.Blacklist,
-		ladders:                cfg.SelectorAdmin,
+		selector:               cfg.SelectorAdmin,
 		bestOfN:                cfg.BestOfN,
 		mob:                    cfg.Mob,
 		taskSkillsDir:          cfg.TaskSkillsDir,

@@ -109,6 +109,11 @@ export function laddersEqual(a: SelectorLadders, b: SelectorLadders): boolean {
   return ROLES.every((r) => TIERS_ASC.every((t) => Math.abs(a[r][t] - b[r][t]) < 1e-9));
 }
 
+/** True when the coder and reviewer ladders carry the same bar at every tier. */
+export function rolesEqual(l: SelectorLadders): boolean {
+  return TIERS_ASC.every((t) => Math.abs(l.coder[t] - l.reviewer[t]) < 1e-9);
+}
+
 export function isMonotone(bars: TierBars): boolean {
   return TIERS_ASC.every((t, i) => i === 0 || bars[t] >= bars[TIERS_ASC[i - 1]]);
 }

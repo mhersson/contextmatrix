@@ -23,15 +23,22 @@ import (
 // the last PutSelectorLadders argument so handler tests can prove the gate
 // and the validation run before the store is touched.
 type stubSelectorAdminStore struct {
-	ladders   map[string]map[string]float64
-	updatedAt time.Time
-	getErr    error
-	putErr    error
-	put       map[string]map[string]float64
+	ladders     map[string]map[string]float64
+	updatedAt   time.Time
+	headroom    float64
+	headroomAt  time.Time
+	getErr      error
+	putErr      error
+	put         map[string]map[string]float64
+	putHeadroom float64
 }
 
 func (s *stubSelectorAdminStore) SelectorLadders(context.Context) (map[string]map[string]float64, time.Time, error) {
 	return s.ladders, s.updatedAt, s.getErr
+}
+
+func (s *stubSelectorAdminStore) SelectorHeadroom(context.Context) (float64, time.Time, error) {
+	return s.headroom, s.headroomAt, s.getErr
 }
 
 func (s *stubSelectorAdminStore) PutSelectorLadders(_ context.Context, ladders map[string]map[string]float64) error {
@@ -42,6 +49,18 @@ func (s *stubSelectorAdminStore) PutSelectorLadders(_ context.Context, ladders m
 
 	s.ladders = ladders
 	s.updatedAt = time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
+
+	return nil
+}
+
+func (s *stubSelectorAdminStore) PutSelectorHeadroom(_ context.Context, h float64) error {
+	s.putHeadroom = h
+	if s.putErr != nil {
+		return s.putErr
+	}
+
+	s.headroom = h
+	s.headroomAt = time.Date(2026, 9, 11, 12, 0, 0, 0, time.UTC)
 
 	return nil
 }
@@ -349,7 +368,6 @@ func TestAdminSelectorCandidates_ReportsInputsSorted(t *testing.T) {
 	require.Len(t, got.Favorites, 1)
 	assert.Equal(t, "reviewer", got.Favorites[0].Role)
 	assert.Equal(t, "critical", got.Favorites[0].Tier)
-	assert.InDelta(t, 1.5, got.Headroom, 1e-9)
 	assert.InDelta(t, 0.65, got.QualityFloor, 1e-9)
 	assert.Equal(t, "2026-09-10T06:00:00Z", got.CatalogRefreshedAt)
 }
@@ -550,6 +568,17 @@ func TestAdminSelectorPreview_HeadroomFromRequest(t *testing.T) {
 	assert.Equal(t, "a/mid", got.Tiers["complex"].Reviewer.Pick.Model)
 }
 
+func TestAdminSelectorPreview_HeadroomReadFailureIs500(t *testing.T) {
+	// The store is consulted only when the request names no headroom; a
+	// read failure is a 500 like the ladders GET, not a silent 1.5.
+	h := &selectorAdminHandlers{store: &stubSelectorAdminStore{getErr: assert.AnError}, catalog: previewCatalog()}
+
+	w := httptest.NewRecorder()
+	h.preview(w, httptest.NewRequest(http.MethodPost, "/api/admin/selector/preview", jsonBody(t, defaultLadderBody())))
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
 func TestAdminSelectorPreview_InvalidLadderIs422(t *testing.T) {
 	h := &selectorAdminHandlers{store: &stubSelectorAdminStore{}, catalog: previewCatalog()}
 	body := map[string]any{"ladders": map[string]map[string]float64{"coder": {"complex": 0.5}, "reviewer": {"complex": 0.9}}}
@@ -581,4 +610,157 @@ func TestAdminSelectorCatalogRoutes_MultiMode(t *testing.T) {
 	require.NoError(t, err)
 	closeBody(t, resp.Body)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
+}
+
+func TestAdminSelectorLadders_EmptyStoreReportsTheBuiltInHeadroom(t *testing.T) {
+	h := &selectorAdminHandlers{store: &stubSelectorAdminStore{}}
+
+	w := httptest.NewRecorder()
+	h.getLadders(w, httptest.NewRequest(http.MethodGet, "/api/admin/selector/ladders", nil))
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var got selectorLaddersResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	assert.InDelta(t, 1.5, got.Headroom, 1e-9)
+	assert.InDelta(t, 1.5, got.HeadroomDefault, 1e-9)
+	assert.True(t, got.IsDefault)
+	assert.Empty(t, got.UpdatedAt)
+}
+
+func TestAdminSelectorLadders_StoredHeadroomIsReported(t *testing.T) {
+	// Only the headroom is stored: the ladders read as the built-in ladder,
+	// but the response is not the default and carries the headroom's write time.
+	h := &selectorAdminHandlers{store: &stubSelectorAdminStore{
+		headroom:   2,
+		headroomAt: time.Date(2026, 9, 11, 9, 0, 0, 0, time.UTC),
+	}}
+
+	w := httptest.NewRecorder()
+	h.getLadders(w, httptest.NewRequest(http.MethodGet, "/api/admin/selector/ladders", nil))
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var got selectorLaddersResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	assert.InDelta(t, 2, got.Headroom, 1e-9)
+	assert.InDelta(t, 1.5, got.HeadroomDefault, 1e-9)
+	assert.False(t, got.IsDefault)
+	assert.Equal(t, "2026-09-11T09:00:00Z", got.UpdatedAt)
+	assert.InDelta(t, 0.82, got.Ladders["coder"]["complex"], 1e-9, "no stored ladder reads as the built-in one")
+}
+
+func TestAdminSelectorLadders_UpdatedAtIsTheLaterWrite(t *testing.T) {
+	h := &selectorAdminHandlers{store: &stubSelectorAdminStore{
+		ladders: map[string]map[string]float64{
+			"coder":    {"simple": 0.65, "moderate": 0.76, "complex": 0.82, "critical": 0.90},
+			"reviewer": {"simple": 0.65, "moderate": 0.76, "complex": 0.82, "critical": 0.90},
+		},
+		updatedAt:  time.Date(2026, 9, 11, 9, 0, 0, 0, time.UTC),
+		headroom:   2,
+		headroomAt: time.Date(2026, 9, 11, 10, 0, 0, 0, time.UTC),
+	}}
+
+	w := httptest.NewRecorder()
+	h.getLadders(w, httptest.NewRequest(http.MethodGet, "/api/admin/selector/ladders", nil))
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var got selectorLaddersResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	assert.Equal(t, "2026-09-11T10:00:00Z", got.UpdatedAt)
+}
+
+func TestAdminSelectorLadders_PutStoresTheHeadroom(t *testing.T) {
+	store := &stubSelectorAdminStore{}
+	h := &selectorAdminHandlers{store: store}
+
+	body := defaultLadderBody()
+	body["headroom"] = 2.0
+
+	w := httptest.NewRecorder()
+	h.putLadders(w, httptest.NewRequest(http.MethodPut, "/api/admin/selector/ladders", jsonBody(t, body)))
+
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.InDelta(t, 2, store.putHeadroom, 1e-9)
+
+	var got selectorLaddersResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	assert.InDelta(t, 2, got.Headroom, 1e-9)
+	assert.False(t, got.IsDefault)
+}
+
+func TestAdminSelectorLadders_PutWithoutHeadroomKeepsTheStoredOne(t *testing.T) {
+	// A client that only knows the ladders must never reset the headroom.
+	store := &stubSelectorAdminStore{headroom: 2, headroomAt: time.Date(2026, 9, 11, 9, 0, 0, 0, time.UTC)}
+	h := &selectorAdminHandlers{store: store}
+
+	w := httptest.NewRecorder()
+	h.putLadders(w, httptest.NewRequest(http.MethodPut, "/api/admin/selector/ladders", jsonBody(t, defaultLadderBody())))
+
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Zero(t, store.putHeadroom, "no headroom write happened")
+
+	var got selectorLaddersResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	assert.InDelta(t, 2, got.Headroom, 1e-9)
+}
+
+func TestAdminSelectorLadders_PutRejectsAHeadroomBelowOne(t *testing.T) {
+	store := &stubSelectorAdminStore{}
+	h := &selectorAdminHandlers{store: store}
+
+	body := defaultLadderBody()
+	body["headroom"] = 0.5
+
+	w := httptest.NewRecorder()
+	h.putLadders(w, httptest.NewRequest(http.MethodPut, "/api/admin/selector/ladders", jsonBody(t, body)))
+
+	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
+	assert.Contains(t, w.Body.String(), "must be a number of at least 1")
+	assert.Nil(t, store.put, "nothing is written when either half fails validation")
+	assert.Zero(t, store.putHeadroom)
+}
+
+func TestAdminSelectorPreview_HeadroomFallsBackToTheStoredOne(t *testing.T) {
+	// Stored headroom 3 admits a/mid (4e-6 <= 2e-6 x 3) into the complex
+	// reviewer band; its prior 0.86 beats a/cheap's 0.85. The request names
+	// no headroom.
+	h := &selectorAdminHandlers{store: &stubSelectorAdminStore{headroom: 3}, catalog: previewCatalog()}
+
+	w := httptest.NewRecorder()
+	h.preview(w, httptest.NewRequest(http.MethodPost, "/api/admin/selector/preview", jsonBody(t, defaultLadderBody())))
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var got selectorPreviewResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	assert.Equal(t, "a/mid", got.Tiers["complex"].Reviewer.Pick.Model)
+}
+
+func TestAdminSelectorPreview_NoStoredHeadroomIsTheBuiltIn(t *testing.T) {
+	// Built-in 1.5 keeps a/mid out of the band (4e-6 > 2e-6 x 1.5): a/cheap wins.
+	h := &selectorAdminHandlers{store: &stubSelectorAdminStore{}, catalog: previewCatalog()}
+
+	w := httptest.NewRecorder()
+	h.preview(w, httptest.NewRequest(http.MethodPost, "/api/admin/selector/preview", jsonBody(t, defaultLadderBody())))
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var got selectorPreviewResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	assert.Equal(t, "a/cheap", got.Tiers["complex"].Reviewer.Pick.Model)
+}
+
+func TestAdminSelectorPreview_HeadroomBelowOneIs422(t *testing.T) {
+	h := &selectorAdminHandlers{store: &stubSelectorAdminStore{}, catalog: previewCatalog()}
+
+	body := defaultLadderBody()
+	body["headroom"] = 0.5
+
+	w := httptest.NewRecorder()
+	h.preview(w, httptest.NewRequest(http.MethodPost, "/api/admin/selector/preview", jsonBody(t, body)))
+
+	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
+	assert.Contains(t, w.Body.String(), "must be a number of at least 1")
 }

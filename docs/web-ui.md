@@ -178,18 +178,20 @@ role (coder, reviewer) over the live candidate catalog. Each column shows
 every candidate as a pill at its prior with the tier bands and their counts;
 the bars are draggable handles (coder handles on the left rail, reviewer
 handles at the reviewer column's edge). The **linked** switch in the panel
-head, on by default, moves the same tier in both ladders and keeps them
-equal; switching it on when the ladders differ snaps nothing. A filled pill
-is the pick at its rung, a dashed one a panel seat, a struck one a
-blacklisted model. The pick preview beside it shows, per tier, the coder
-pick, the reviewer pick and the three-seat review panel with prices, `↓
-<rung>` when a pick descended and `walked` on a seat that re-anchored its
-price band. The KPI row summarises the `complex` tier (reviewers clearing
-it, the cheapest reviewer, the three-seat panel cost) plus the coder pick at
-`moderate`. Nothing is sent until
-**Save ladders**; the status pill in the header says whether the next run
-uses the ladders on screen. The blacklist panel below lists the models the
-agent reported incapable, with a per-row **Delist**. Details in
+head starts on when the two saved ladders are equal and off when they differ;
+when on, it moves the same tier in both ladders and keeps them equal. The
+panel head also holds a **Price headroom** number field (the best-value band
+multiplier, at least 1, built-in 1.5) that is saved with the ladders and
+applied by the pick preview. A filled pill is the pick at its rung, a dashed
+one a panel seat, a struck one a blacklisted model. The pick preview beside
+it shows, per tier, the coder pick, the reviewer pick and the three-seat
+review panel with prices, `↓ <rung>` when a pick descended and `walked` on a
+seat that re-anchored its price band. The KPI row summarises the `complex`
+tier (reviewers clearing it, the cheapest reviewer, the three-seat panel
+cost) plus the coder pick at `moderate`. Nothing is sent until **Save**; the
+status pill in the header says whether the next run uses the values on
+screen. The blacklist panel below lists the models the agent reported
+incapable, with a per-row **Delist**. Details in
 [model selection](model-selection.md#the-ladders-page).
 
 ## Keyboard shortcuts

@@ -2413,6 +2413,24 @@ textarea {
 .tl-switch.on .tl-switch-knob::after {
   transform: translateX(12px);
 }
+.tl-headroom {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--grey1);
+}
+.tl-headroom input {
+  width: 4.5em;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--bg3);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+.tl-headroom input[aria-invalid='true'] {
+  border-color: var(--red);
+}
 
 /* --- ladder --- */
 .tl-ladder-wrap {

@@ -704,6 +704,9 @@ export type SelectorLadders = Record<SelectorRole, TierBars>;
 export interface SelectorLaddersResponse {
   ladders: SelectorLadders;
   defaults: TierBars;
+  /** The stored price headroom, or the built-in one when nothing is stored. */
+  headroom: number;
+  headroom_default: number;
   is_default: boolean;
   updated_at?: string;
 }
@@ -728,7 +731,6 @@ export interface SelectorCandidatesResponse {
   candidates: SelectorCandidate[];
   favorites: SelectorFavoriteRule[];
   blacklist: string[];
-  headroom: number;
   quality_floor: number;
   catalog_refreshed_at: string;
 }

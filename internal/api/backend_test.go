@@ -3271,10 +3271,13 @@ favorites:
 		},
 	}
 	bl := &stubBlacklist{slugs: []string{blacklistedSlug}}
-	ladders := &stubSelectorAdminStore{ladders: map[string]map[string]float64{
-		"coder":    {"simple": 0.65, "moderate": 0.80, "complex": 0.90, "critical": 0.95},
-		"reviewer": {"simple": 0.65, "moderate": 0.76, "complex": 0.82, "critical": 0.93},
-	}}
+	ladders := &stubSelectorAdminStore{
+		ladders: map[string]map[string]float64{
+			"coder":    {"simple": 0.65, "moderate": 0.80, "complex": 0.90, "critical": 0.95},
+			"reviewer": {"simple": 0.65, "moderate": 0.76, "complex": 0.82, "critical": 0.93},
+		},
+		headroom: 2,
+	}
 
 	// Global favorites live on the backend config; the "critical" tier is
 	// supplied only by the project config above, so a project-originated rule
@@ -3335,6 +3338,9 @@ favorites:
 	assert.Len(t, capturedPayload.Selection.TierBars["coder"], 4)
 	assert.InDelta(t, 0.90, capturedPayload.Selection.TierBars["coder"]["complex"], 1e-9)
 	assert.InDelta(t, 0.93, capturedPayload.Selection.TierBars["reviewer"]["critical"], 1e-9)
+
+	// The stored headroom travels as price_headroom.
+	assert.InDelta(t, 2, capturedPayload.Selection.PriceHeadroom, 1e-9)
 
 	// The merged favorites must include both the global (complex/all) rule and
 	// the project-originated (critical/reviewer) rule, proving runCard merges
@@ -3397,6 +3403,7 @@ func TestRunCardEmptyLadderStoreSendsNoTierBars(t *testing.T) {
 	require.Equal(t, http.StatusAccepted, resp.StatusCode)
 	require.NotNil(t, capturedPayload.Selection)
 	assert.Nil(t, capturedPayload.Selection.TierBars, "an empty store sends no tier_bars, the agent keeps its built-in ladder")
+	assert.Zero(t, capturedPayload.Selection.PriceHeadroom, "an empty store sends no headroom; the agent uses the built-in one")
 }
 
 // TestRunCardTypedNilCatalogDoesNotPanic reproduces the typed-nil-interface

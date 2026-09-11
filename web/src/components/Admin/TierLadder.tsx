@@ -23,6 +23,9 @@ export interface TierLadderProps {
   linked: boolean;
   onLinkedChange: (linked: boolean) => void;
   onChange: (next: SelectorLadders) => void;
+  /** The price headroom being edited; NaN while the field is emptied. */
+  headroom: number;
+  onHeadroomChange: (headroom: number) => void;
   /** Catalog quality floor: no bar may be dragged below it. */
   floor: number;
   blacklist: ReadonlySet<string>;
@@ -69,6 +72,8 @@ export function TierLadder({
   linked,
   onLinkedChange,
   onChange,
+  headroom,
+  onHeadroomChange,
   floor,
   blacklist,
   picks,
@@ -101,6 +106,19 @@ export function TierLadder({
         <h2 className="apd-panel-title">Ladders</h2>
         <div className="apd-panel-meta">
           <span>{meta}</span>
+          <label className="tl-headroom">
+            price headroom
+            <input
+              type="number"
+              min={1}
+              step={0.1}
+              value={Number.isNaN(headroom) ? '' : headroom}
+              aria-label="Price headroom"
+              aria-invalid={Number.isFinite(headroom) && headroom >= 1 ? undefined : true}
+              onChange={(e) => onHeadroomChange(e.target.value === '' ? NaN : Number(e.target.value))}
+            />
+            ×
+          </label>
           <button
             type="button"
             role="switch"

@@ -26,8 +26,8 @@ The operator-facing controls, most direct first:
 | Prefer models for a complexity tier   | `favorites`                                 | `config.yaml` (global), `.board.yaml` (project) | Favorites skip the cost logic but must still clear the tier bar and not be blacklisted      |
 | Restrict which vendors are eligible   | `backends.agent.model_allowlist`            | `config.yaml`                                | Vendor prefixes (`qwen`, `z-ai`); replaces the built-in list; inert on the `openai` leg        |
 | Rate models AA does not know          | `backends.agent.model_priors`               | `config.yaml`                                | `openai` leg only; verbatim 0..1 priors                                                        |
-| Widen or narrow the price band        | `selector_price_headroom`                   | agent backend `serve.yaml`                   | Default 1.5; env `CMX_SELECTOR_PRICE_HEADROOM`                                                 |
-| Raise or lower a tier's quality bar   | Tier ladders                                | Model selection admin page                   | One ladder per role (coder, reviewer), linked in the page by default; stored in `ops.db`, sent with every run as `selection.tier_bars`; never a config-file setting |
+| Widen or narrow the price band        | Price headroom                              | Model selection admin page                   | Default 1.5; stored in `ops.db`, sent with every run as `selection.price_headroom`; never a config-file setting |
+| Raise or lower a tier's quality bar   | Tier ladders                                | Model selection admin page                   | One ladder per role (coder, reviewer), linked in the page when the saved ladders are equal; stored in `ops.db`, sent with every run as `selection.tier_bars`; never a config-file setting |
 | Set the orchestrator model            | `backends.agent.default_model`              | `config.yaml`                                | Card pins override it; the selector's empty-pool fallback resolves to the trigger's `default_model` when set, else the agent's serve default, else the compiled-in `deepseek/deepseek-v4-flash`
 | Clear the outcome ledger              | `DELETE /api/admin/model-outcomes`          | REST (admin)                                 | Observability data only - selection never reads it; does not touch the blacklist               |
 | Delist a blacklisted model            | `DELETE /api/admin/model-blacklist/{slug...}` | REST (admin) / model-selection admin page  | Makes the model selectable again; the list itself is `GET /api/admin/model-blacklist`          |
@@ -77,7 +77,7 @@ The agent is a pure consumer: it fetches nothing itself and holds no embedded
 model knowledge. Everything it knows about models arrives in the trigger
 payload. The AA API key therefore lives only in ContextMatrix, and every pick
 is explainable from three inputs: the payload, the agent's serve config
-(default model, price headroom), and the tier the planner assigned. The
+(default model), and the tier the planner assigned. The
 selector itself is the protocol module's `selection` package, so CM's
 preview and the agent's pick are one rule.
 
@@ -362,8 +362,9 @@ as `selection.tier_bars`; it is not a config-file setting on either side.
 There is one ladder for coder picks and one for reviewer picks because the
 two priors come from different indices with different shapes: the coding
 index bunches near the top while the intelligence index spreads, so one bar
-gates the two roles very differently. The page links the two by default so
-a drag moves the same tier in both; unlinked, each moves alone.
+gates the two roles very differently. The page links the two whenever the
+saved ladders are equal, so a drag moves the same tier in both; unlinked,
+each moves alone.
 
 The ladders reach a run only when the candidate catalog is configured: CM
 attaches the `selection` block, ladders included, only with
@@ -392,13 +393,14 @@ error line if a request fails. The KPI row shows the reviewers clearing
 `complex`, the cheapest `complex` reviewer, the `complex` panel's price per
 million tokens (orange when a seat walked), and the `moderate` coder pick.
 
-Nothing is sent until **Save ladders**; the status pill says whether the
-next run uses what is on screen. **Discard changes** returns to the saved
-ladders, **Reset to defaults** loads the built-in ladder into both roles
-(still unsaved). The preview applies the backend-level favorites and the
-blacklist and assumes the default price headroom of 1.5; project favorites,
-in-run exclusions and the agent's `selector_price_headroom` are not visible
-to it, so a run can pick differently at a tier where those apply.
+Nothing is sent until **Save**; the status pill says whether the next run
+uses what is on screen. **Discard changes** returns to the saved ladders and
+headroom, **Reset to defaults** loads the built-in ladder into both roles and
+the built-in headroom (still unsaved). The price headroom field on the
+Ladders panel is saved with the ladders and applied by the preview. The
+preview applies the backend-level favorites and the blacklist; project
+favorites and in-run exclusions are not visible to it, so a run can pick
+differently at a tier where those apply.
 
 The same model serves every tier whose bar it clears. Cost never decides a
 tier - it only orders models within the eligible set. The bar is compared
@@ -459,7 +461,7 @@ would have.
    a context window that fits the estimated prompt.
 4. **Price band.** Price is the sum of prompt and completion per-token rates.
    The band spans from the cheapest surviving candidate up to
-   `cheapest x headroom` (headroom defaults to 1.5). An unpriced catalog makes
+   `cheapest x headroom` (the operator's saved headroom, built-in 1.5). An unpriced catalog makes
    this step a no-op (`0 x headroom = 0` admits everything) and step 5 then
    picks on quality alone; see [endpoint pricing
    gaps](#endpoint-pricing-gaps).
@@ -703,7 +705,7 @@ overrides; this table maps the knobs to their effect on selection.
 | `llm_endpoint.type`                  | `openrouter`         | Selects the catalog leg and the wire dialect                            |
 | `best_of_n.max_candidates`           | 5                    | Hard cap on a card's race size                                          |
 | `best_of_n.default_candidates`       | 3                    | UI-suggested race size                                                  |
-| `selector_price_headroom` (agent `serve.yaml`) | 1.5        | Width of the price band; env `CMX_SELECTOR_PRICE_HEADROOM`              |
+| Price headroom (admin page, stored in `ops.db`) | 1.5        | Width of the price band; edited on the Model selection admin page with the ladders; travels as `selection.price_headroom` |
 | Tier ladders (admin page, stored in `ops.db`) | built-in ladder (0.65 / 0.76 / 0.82 / 0.90) for both roles | Per-role quality bars; edited on the Model selection admin page, never in a config file; travel as `selection.tier_bars` |
 
 **Not configurable** (compile-time constants): the 6-hour catalog TTL and
