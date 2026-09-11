@@ -130,9 +130,12 @@ func laddersWire(l selection.Ladders) map[string]map[string]float64 {
 }
 
 // storedLadders reads the store and resolves it to a response: the built-in
-// ladder and headroom when nothing is stored. The rows were validated on
-// write, so a validation failure here is a corrupt store and is an error
-// rather than something to paper over with the defaults.
+// ladder and headroom when nothing is stored. Ladder rows were validated on
+// write, so a ladder that fails validation here is a corrupt store and is an
+// error rather than something to paper over with the defaults. The headroom
+// is passed through as stored: a corrupt scalar shows on the page as an
+// invalid field the operator can type over, which beats locking the page
+// behind a 500.
 func (h *selectorAdminHandlers) storedLadders(ctx context.Context) (selectorLaddersResponse, error) {
 	raw, laddersAt, err := h.store.SelectorLadders(ctx)
 	if err != nil {
@@ -482,11 +485,6 @@ func (h *selectorAdminHandlers) preview(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	in, ok := h.inputs(w, r)
-	if !ok {
-		return
-	}
-
 	headroom := req.Headroom
 
 	if headroom != 0 {
@@ -507,6 +505,11 @@ func (h *selectorAdminHandlers) preview(w http.ResponseWriter, r *http.Request) 
 		if headroom <= 0 {
 			headroom = selection.DefaultPriceHeadroom
 		}
+	}
+
+	in, ok := h.inputs(w, r)
+	if !ok {
+		return
 	}
 
 	sel := selection.New(selection.Input{

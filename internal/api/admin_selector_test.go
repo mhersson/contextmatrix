@@ -568,6 +568,17 @@ func TestAdminSelectorPreview_HeadroomFromRequest(t *testing.T) {
 	assert.Equal(t, "a/mid", got.Tiers["complex"].Reviewer.Pick.Model)
 }
 
+func TestAdminSelectorPreview_HeadroomReadFailureIs500(t *testing.T) {
+	// The store is consulted only when the request names no headroom; a
+	// read failure is a 500 like the ladders GET, not a silent 1.5.
+	h := &selectorAdminHandlers{store: &stubSelectorAdminStore{getErr: assert.AnError}, catalog: previewCatalog()}
+
+	w := httptest.NewRecorder()
+	h.preview(w, httptest.NewRequest(http.MethodPost, "/api/admin/selector/preview", jsonBody(t, defaultLadderBody())))
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
 func TestAdminSelectorPreview_InvalidLadderIs422(t *testing.T) {
 	h := &selectorAdminHandlers{store: &stubSelectorAdminStore{}, catalog: previewCatalog()}
 	body := map[string]any{"ladders": map[string]map[string]float64{"coder": {"complex": 0.5}, "reviewer": {"complex": 0.9}}}
