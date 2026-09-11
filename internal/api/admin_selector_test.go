@@ -23,15 +23,21 @@ import (
 // the last PutSelectorLadders argument so handler tests can prove the gate
 // and the validation run before the store is touched.
 type stubSelectorAdminStore struct {
-	ladders   map[string]map[string]float64
-	updatedAt time.Time
-	getErr    error
-	putErr    error
-	put       map[string]map[string]float64
+	ladders    map[string]map[string]float64
+	updatedAt  time.Time
+	headroom   float64
+	headroomAt time.Time
+	getErr     error
+	putErr     error
+	put        map[string]map[string]float64
 }
 
 func (s *stubSelectorAdminStore) SelectorLadders(context.Context) (map[string]map[string]float64, time.Time, error) {
 	return s.ladders, s.updatedAt, s.getErr
+}
+
+func (s *stubSelectorAdminStore) SelectorHeadroom(context.Context) (float64, time.Time, error) {
+	return s.headroom, s.headroomAt, s.getErr
 }
 
 func (s *stubSelectorAdminStore) PutSelectorLadders(_ context.Context, ladders map[string]map[string]float64) error {

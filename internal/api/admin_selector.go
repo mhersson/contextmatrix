@@ -14,16 +14,18 @@ import (
 	"github.com/mhersson/contextmatrix/internal/opstore/sqlite"
 )
 
-// selectorLadderReader is the read side of the stored per-role ladders. The
-// trigger path needs only this; the admin endpoints need selectorAdminStore.
-type selectorLadderReader interface {
+// selectorSettingsReader is the read side of the stored selector settings:
+// the per-role ladders and the price headroom. The trigger path needs only
+// this; the admin endpoints need selectorAdminStore.
+type selectorSettingsReader interface {
 	SelectorLadders(ctx context.Context) (map[string]map[string]float64, time.Time, error)
+	SelectorHeadroom(ctx context.Context) (float64, time.Time, error)
 }
 
 // selectorAdminStore is the op-store surface the admin selector endpoints
 // need. opstore/sqlite.Store implements it.
 type selectorAdminStore interface {
-	selectorLadderReader
+	selectorSettingsReader
 	PutSelectorLadders(ctx context.Context, ladders map[string]map[string]float64) error
 }
 
