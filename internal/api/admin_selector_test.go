@@ -354,6 +354,37 @@ func TestAdminSelectorCandidates_ReportsInputsSorted(t *testing.T) {
 	assert.Equal(t, "2026-09-10T06:00:00Z", got.CatalogRefreshedAt)
 }
 
+func TestAdminSelectorCandidates_FavoritesAreOrdered(t *testing.T) {
+	h := &selectorAdminHandlers{
+		store:   &stubSelectorAdminStore{},
+		catalog: previewCatalog(),
+		favorites: map[string]board.TierFavorites{
+			"critical": {All: []string{"a/cheap"}, ByRole: map[string][]string{"reviewer": {"b/pricey"}}},
+			"complex":  {ByRole: map[string][]string{"coder": {"a/mid"}}},
+		},
+	}
+
+	// Favorites come out of a map, so one call can pass by luck; repeat to
+	// catch an unsorted result.
+	for range 10 {
+		w := httptest.NewRecorder()
+		h.getCandidates(w, httptest.NewRequest(http.MethodGet, "/api/admin/selector/candidates", nil))
+
+		require.Equal(t, http.StatusOK, w.Code)
+
+		var got selectorCandidatesResponse
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+
+		require.Len(t, got.Favorites, 3)
+		assert.Equal(t, []string{"complex/coder", "critical/", "critical/reviewer"},
+			[]string{
+				got.Favorites[0].Tier + "/" + got.Favorites[0].Role,
+				got.Favorites[1].Tier + "/" + got.Favorites[1].Role,
+				got.Favorites[2].Tier + "/" + got.Favorites[2].Role,
+			})
+	}
+}
+
 func TestAdminSelectorCandidates_EmptyInputsAreArrays(t *testing.T) {
 	cat := previewCatalog()
 	cat.candidates = nil

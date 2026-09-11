@@ -360,6 +360,16 @@ func (h *selectorAdminHandlers) favoriteRules() []protocol.FavoriteRule {
 		return []protocol.FavoriteRule{}
 	}
 
+	// mergeFavorites walks maps, so the order it returns varies per call.
+	// The page renders these; sort so a refetch never reshuffles them.
+	slices.SortFunc(rules, func(a, b protocol.FavoriteRule) int {
+		if c := strings.Compare(a.Tier, b.Tier); c != 0 {
+			return c
+		}
+
+		return strings.Compare(a.Role, b.Role)
+	})
+
 	return rules
 }
 
