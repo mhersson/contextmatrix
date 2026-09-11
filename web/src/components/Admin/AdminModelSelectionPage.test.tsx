@@ -1,11 +1,14 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { AdminModelSelectionPage } from './AdminModelSelectionPage';
-import type { ModelOutcomeStats, ModelOutcomeEntry, ModelBlacklistEntry } from '../../types';
+import type { ModelBlacklistEntry, SelectorCandidatesResponse, SelectorLadders, SelectorLaddersResponse, SelectorPreview } from '../../types';
+import { CANDIDATES, previewFixture } from './selector.fixtures';
 
 const mocks = vi.hoisted(() => ({
-  adminModelOutcomes: vi.fn(),
-  adminResetModelOutcomes: vi.fn(),
+  adminSelectorLadders: vi.fn(),
+  adminSelectorPutLadders: vi.fn(),
+  adminSelectorCandidates: vi.fn(),
+  adminSelectorPreview: vi.fn(),
   adminModelBlacklist: vi.fn(),
   adminDelistModel: vi.fn(),
 }));
@@ -16,32 +19,34 @@ vi.mock('../../api/client', async (importOriginal) => {
     ...orig,
     api: {
       ...orig.api,
-      adminModelOutcomes: mocks.adminModelOutcomes,
-      adminResetModelOutcomes: mocks.adminResetModelOutcomes,
+      adminSelectorLadders: mocks.adminSelectorLadders,
+      adminSelectorPutLadders: mocks.adminSelectorPutLadders,
+      adminSelectorCandidates: mocks.adminSelectorCandidates,
+      adminSelectorPreview: mocks.adminSelectorPreview,
       adminModelBlacklist: mocks.adminModelBlacklist,
       adminDelistModel: mocks.adminDelistModel,
     },
   };
 });
 
-function entry(overrides: Partial<ModelOutcomeEntry> = {}): ModelOutcomeEntry {
-  return {
-    model: 'deepseek/deepseek-v4-flash',
-    race_samples: 8,
-    race_wins: 5,
-    race_win_rate: 0.625,
-    solo_samples: 14,
-    solo_failures: 2,
-    total_cost_usd: 1.42,
-    ...overrides,
-  };
+const DEFAULTS = { simple: 0.65, moderate: 0.76, complex: 0.82, critical: 0.9 };
+
+function laddersRes(ladders: SelectorLadders, is_default = false): SelectorLaddersResponse {
+  return { ladders, defaults: { ...DEFAULTS }, is_default, updated_at: is_default ? undefined : '2026-09-10T08:30:00Z' };
 }
 
-function stats(overrides: Partial<ModelOutcomeStats> = {}): ModelOutcomeStats {
+function savedLadders(): SelectorLadders {
+  return { coder: { ...DEFAULTS }, reviewer: { ...DEFAULTS, critical: 0.93 } };
+}
+
+function catalogRes(): SelectorCandidatesResponse {
   return {
-    total_samples: 84,
-    models: [entry()],
-    ...overrides,
+    candidates: CANDIDATES,
+    favorites: [],
+    blacklist: ['c/weak'],
+    headroom: 1.5,
+    quality_floor: 0.65,
+    catalog_refreshed_at: new Date(Date.now() - 6 * 3600 * 1000).toISOString(),
   };
 }
 
@@ -57,142 +62,198 @@ function blacklistEntry(overrides: Partial<ModelBlacklistEntry> = {}): ModelBlac
   };
 }
 
+// jsdom has neither pointer capture nor layout; the rail is 650px tall so a
+// client y of (1 - v) * 1000 lands on prior v. Plain stubs rather than spies:
+// the per-test vi.resetAllMocks() below would otherwise restore the real
+// getBoundingClientRect and every drag would read a zero-height rail.
+beforeAll(() => {
+  Object.defineProperty(HTMLElement.prototype, 'setPointerCapture', { value: () => {}, configurable: true });
+  Object.defineProperty(HTMLElement.prototype, 'releasePointerCapture', { value: () => {}, configurable: true });
+  Object.defineProperty(HTMLElement.prototype, 'getBoundingClientRect', {
+    value: () =>
+      ({
+        top: 0, height: 650, left: 0, width: 300, bottom: 650, right: 300, x: 0, y: 0, toJSON: () => ({}),
+      }) as DOMRect,
+    configurable: true,
+  });
+});
+
 beforeEach(() => {
   vi.resetAllMocks();
+  mocks.adminSelectorLadders.mockResolvedValue(laddersRes(savedLadders()));
+  mocks.adminSelectorCandidates.mockResolvedValue(catalogRes());
+  mocks.adminSelectorPreview.mockResolvedValue(previewFixture());
   mocks.adminModelBlacklist.mockResolvedValue({ models: [] });
 });
 
-describe('AdminModelSelectionPage - list', () => {
-  it('renders a row per model with race and solo stats kept separate', async () => {
-    mocks.adminModelOutcomes.mockResolvedValue(
-      stats({
-        models: [
-          entry({
-            model: 'deepseek/deepseek-v4-flash',
-            race_samples: 8,
-            race_wins: 5,
-            race_win_rate: 0.625,
-            solo_samples: 14,
-            solo_failures: 2,
-            total_cost_usd: 1.42,
-          }),
-          entry({
-            model: 'qwen/qwen3-max',
-            race_samples: 0,
-            race_wins: 0,
-            race_win_rate: 0,
-            solo_samples: 6,
-            solo_failures: 1,
-            total_cost_usd: 0.31,
-          }),
-        ],
-      }),
-    );
+function drag(name: string, from: number, to: number) {
+  const handle = screen.getByRole('slider', { name });
+  fireEvent.pointerDown(handle, { pointerId: 1, clientY: from, button: 0 });
+  fireEvent.pointerMove(handle, { pointerId: 1, clientY: to });
+  fireEvent.pointerUp(handle, { pointerId: 1, clientY: to });
+}
 
-    render(<AdminModelSelectionPage />);
+async function renderLoaded() {
+  render(<AdminModelSelectionPage />);
+  await waitFor(() => expect(screen.getByRole('slider', { name: 'coder complex bar' })).toBeInTheDocument());
+  await waitFor(() => expect(mocks.adminSelectorPreview).toHaveBeenCalled());
+}
 
-    await waitFor(() => expect(screen.getByText('deepseek/deepseek-v4-flash')).toBeInTheDocument());
-    expect(screen.getByText('qwen/qwen3-max')).toBeInTheDocument();
-    expect(screen.getByText('63%')).toBeInTheDocument();
-    expect(screen.getByText('14')).toBeInTheDocument();
-    expect(screen.getByText('$1.42')).toBeInTheDocument();
-    // A model that never raced shows no race win rate at all - a solo
-    // completion is not a win over anything.
-    expect(screen.queryByText('0%')).not.toBeInTheDocument();
+describe('AdminModelSelectionPage - loading', () => {
+  it('renders the saved ladders, the catalog meta and the first preview', async () => {
+    await renderLoaded();
+
+    expect(screen.getByTestId('tl-status')).toHaveTextContent('saved · in effect for the next run');
+    expect(screen.getByText(/4 candidates · priors normalised to the AA leader · refreshed 6 h ago/)).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: 'reviewer critical bar' })).toHaveTextContent('0.93');
+    expect(screen.getByRole('slider', { name: 'coder critical bar' })).toHaveTextContent('0.90 · 0.93');
+    expect(screen.getByTestId('tl-dot-coder-c/weak')).toHaveClass('banned');
+    await waitFor(() => expect(screen.getByTestId('tl-seat-complex-1')).toHaveTextContent('walked'));
+    expect(screen.getByTestId('tl-dot-reviewer-a/cheap')).toHaveClass('picked');
+    expect(screen.getByTestId('tl-dot-reviewer-b/pricey')).toHaveClass('seat');
+    expect(screen.getByTestId('tl-kpi-reviewers')).toHaveTextContent('3');
+    expect(mocks.adminSelectorPreview).toHaveBeenCalledWith(savedLadders(), expect.any(AbortSignal));
   });
 
-  it('shows the total recorded outcome count', async () => {
-    mocks.adminModelOutcomes.mockResolvedValue(stats({ total_samples: 84 }));
+  it('shows the ladder empty state with the error when the catalog is unavailable', async () => {
+    mocks.adminSelectorCandidates.mockRejectedValue({ code: 'CATALOG_UNAVAILABLE', error: 'catalog not available yet' });
 
     render(<AdminModelSelectionPage />);
 
-    await waitFor(() => expect(screen.getByText(/84 total recorded outcomes/)).toBeInTheDocument());
-  });
-
-  it('falls back to a generic message when adminModelOutcomes rejects with a non-APIError shape', async () => {
-    mocks.adminModelOutcomes.mockRejectedValue({ error: 12345 });
-
-    render(<AdminModelSelectionPage />);
-
-    expect(await screen.findByText('Failed to load model outcomes.')).toBeInTheDocument();
-    expect(screen.queryByText('12345')).not.toBeInTheDocument();
-  });
-
-  it('shows an empty-state message when no outcomes are recorded', async () => {
-    mocks.adminModelOutcomes.mockResolvedValue(stats({ total_samples: 0, models: [] }));
-
-    render(<AdminModelSelectionPage />);
-
-    expect(await screen.findByText(/no model outcomes recorded/i)).toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent('catalog not available yet');
+    expect(screen.getByTestId('tl-status')).toHaveTextContent('saved · in effect for the next run');
+    expect(screen.queryByRole('slider')).not.toBeInTheDocument();
+    expect(mocks.adminSelectorPreview).not.toHaveBeenCalled();
   });
 });
 
-describe('AdminModelSelectionPage - reset flow', () => {
-  it('opens a confirm dialog stating the total row count, then resets and refetches on confirm', async () => {
-    mocks.adminModelOutcomes
-      .mockResolvedValueOnce(stats({ total_samples: 84, models: [entry()] }))
-      .mockResolvedValueOnce(stats({ total_samples: 0, models: [] }));
-    mocks.adminResetModelOutcomes.mockResolvedValue({ deleted: 84 });
+describe('AdminModelSelectionPage - edit, save, discard, reset', () => {
+  it('a drag marks the page dirty; Save PUTs the draft, refetches and clears it', async () => {
+    mocks.adminSelectorPutLadders.mockImplementation(async (ladders: SelectorLadders) => laddersRes(ladders));
+    mocks.adminSelectorLadders
+      .mockResolvedValueOnce(laddersRes(savedLadders()))
+      .mockResolvedValueOnce(laddersRes({ coder: { ...DEFAULTS, complex: 0.855 }, reviewer: { ...DEFAULTS, complex: 0.855, critical: 0.93 } }));
+    await renderLoaded();
 
-    render(<AdminModelSelectionPage />);
+    drag('coder complex bar', 180, 145);
 
-    await waitFor(() => expect(screen.getByText('deepseek/deepseek-v4-flash')).toBeInTheDocument());
+    expect(screen.getByTestId('tl-status')).toHaveTextContent('unsaved changes · next run still uses the saved ladders');
+    expect(screen.getByRole('slider', { name: 'coder complex bar' })).toHaveTextContent('0.855');
+    expect(screen.getByRole('slider', { name: 'reviewer complex bar' })).toHaveTextContent('0.855');
+    await waitFor(() => expect(mocks.adminSelectorPreview).toHaveBeenCalledTimes(2));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Reset selection data' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save ladders' }));
 
-    const dialog = await screen.findByRole('dialog');
-    expect(
-      within(dialog).getByText('Delete all 84 recorded outcomes? This clears the observability ledger; model selection is unaffected.'),
-    ).toBeInTheDocument();
-    expect(mocks.adminResetModelOutcomes).not.toHaveBeenCalled();
-
-    fireEvent.click(within(dialog).getByRole('button', { name: /reset/i }));
-
-    await waitFor(() => expect(mocks.adminResetModelOutcomes).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(mocks.adminModelOutcomes).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(screen.queryByText('deepseek/deepseek-v4-flash')).not.toBeInTheDocument());
-    expect(screen.getByText(/no model outcomes recorded/i)).toBeInTheDocument();
+    await waitFor(() => expect(mocks.adminSelectorPutLadders).toHaveBeenCalledTimes(1));
+    const sent = mocks.adminSelectorPutLadders.mock.calls[0][0] as SelectorLadders;
+    expect(sent.coder.complex).toBeCloseTo(0.855, 9);
+    expect(sent.reviewer.complex).toBeCloseTo(0.855, 9);
+    expect(sent.reviewer.critical).toBeCloseTo(0.93, 9);
+    await waitFor(() => expect(mocks.adminSelectorLadders).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByTestId('tl-status')).toHaveTextContent('saved · in effect for the next run'));
+    expect(screen.getByRole('button', { name: 'Save ladders' })).toBeDisabled();
   });
 
-  it('cancelling the confirm dialog does not reset', async () => {
-    mocks.adminModelOutcomes.mockResolvedValue(stats({ total_samples: 84, models: [entry()] }));
+  it('Discard restores the saved ladders without a request', async () => {
+    await renderLoaded();
 
-    render(<AdminModelSelectionPage />);
+    drag('coder complex bar', 180, 145);
+    expect(screen.getByRole('button', { name: 'Discard changes' })).toBeEnabled();
 
-    await waitFor(() => expect(screen.getByText('deepseek/deepseek-v4-flash')).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: 'Reset selection data' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
 
-    const dialog = await screen.findByRole('dialog');
-    fireEvent.click(within(dialog).getByRole('button', { name: /cancel/i }));
-
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    expect(mocks.adminResetModelOutcomes).not.toHaveBeenCalled();
-    expect(screen.getByText('deepseek/deepseek-v4-flash')).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: 'coder complex bar' })).toHaveTextContent('0.82');
+    expect(screen.getByTestId('tl-status')).toHaveTextContent('saved · in effect for the next run');
+    expect(mocks.adminSelectorPutLadders).not.toHaveBeenCalled();
   });
 
-  it('surfaces a reset failure as an inline error without crashing', async () => {
-    mocks.adminModelOutcomes.mockResolvedValue(stats({ total_samples: 84, models: [entry()] }));
-    mocks.adminResetModelOutcomes.mockRejectedValue({ code: 'INTERNAL_ERROR', error: 'failed to reset model outcomes' });
+  it('Reset loads the defaults from the response into both roles, unsaved', async () => {
+    await renderLoaded();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset to defaults' }));
+
+    expect(screen.getByRole('slider', { name: 'reviewer critical bar' })).toHaveTextContent('0.90');
+    expect(screen.getByRole('slider', { name: 'coder critical bar' })).toHaveTextContent('0.90');
+    expect(screen.getByTestId('tl-status')).toHaveTextContent('unsaved changes');
+    expect(mocks.adminSelectorPutLadders).not.toHaveBeenCalled();
+  });
+
+  it('turning linked off and on snaps nothing; the next linked drag equalises the tier', async () => {
+    mocks.adminSelectorLadders.mockResolvedValue(laddersRes({ coder: { ...DEFAULTS, complex: 0.9 }, reviewer: { ...DEFAULTS } }));
+    await renderLoaded();
+
+    const toggle = screen.getByRole('switch', { name: 'Link the coder and reviewer ladders' });
+    expect(toggle).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('slider', { name: 'coder complex bar' })).toHaveTextContent('0.90 · 0.82');
+
+    fireEvent.click(toggle);
+    fireEvent.click(toggle);
+
+    expect(toggle).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('slider', { name: 'coder complex bar' })).toHaveTextContent('0.90 · 0.82');
+    expect(screen.getByTestId('tl-status')).toHaveTextContent('saved');
+
+    drag('coder complex bar', 100, 145);
+
+    expect(screen.getByRole('slider', { name: 'coder complex bar' })).toHaveTextContent('0.855');
+    expect(screen.getByRole('slider', { name: 'reviewer complex bar' })).toHaveTextContent('0.855');
+  });
+
+  it('surfaces a save failure inline and keeps the draft', async () => {
+    mocks.adminSelectorPutLadders.mockRejectedValue({ code: 'VALIDATION_ERROR', error: 'invalid selector ladders' });
+    await renderLoaded();
+
+    drag('coder complex bar', 180, 145);
+    fireEvent.click(screen.getByRole('button', { name: 'Save ladders' }));
+
+    expect(await screen.findByText('invalid selector ladders')).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: 'coder complex bar' })).toHaveTextContent('0.855');
+    expect(screen.getByTestId('tl-status')).toHaveTextContent('unsaved changes');
+  });
+});
+
+describe('AdminModelSelectionPage - preview', () => {
+  it('is busy until the answer lands and keeps the last good preview on an error', async () => {
+    let resolveFirst: (p: SelectorPreview) => void = () => {};
+    mocks.adminSelectorPreview
+      .mockImplementationOnce(() => new Promise<SelectorPreview>((resolve) => { resolveFirst = resolve; }))
+      .mockRejectedValueOnce({ code: 'INTERNAL_ERROR', error: 'preview exploded' });
 
     render(<AdminModelSelectionPage />);
+    await waitFor(() => expect(screen.getByRole('slider', { name: 'coder complex bar' })).toBeInTheDocument());
+    await waitFor(() => expect(mocks.adminSelectorPreview).toHaveBeenCalledTimes(1));
 
-    await waitFor(() => expect(screen.getByText('deepseek/deepseek-v4-flash')).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: 'Reset selection data' }));
+    expect(screen.getByTestId('tl-preview')).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByText('Waiting for the first preview…')).toBeInTheDocument();
 
-    const dialog = await screen.findByRole('dialog');
-    fireEvent.click(within(dialog).getByRole('button', { name: /reset/i }));
+    resolveFirst(previewFixture());
+    await waitFor(() => expect(screen.getByTestId('tl-preview')).toHaveAttribute('aria-busy', 'false'));
+    expect(screen.getByTestId('tl-seat-complex-0')).toBeInTheDocument();
 
-    await waitFor(() => expect(mocks.adminResetModelOutcomes).toHaveBeenCalledTimes(1));
-    expect(await screen.findByText(/failed to reset model outcomes/i)).toBeInTheDocument();
+    drag('coder complex bar', 180, 145);
+    expect(screen.getByTestId('tl-preview')).toHaveAttribute('aria-busy', 'true');
 
-    // Component survives the error - the row is still rendered, not crashed.
-    expect(screen.getByText('deepseek/deepseek-v4-flash')).toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent('preview exploded');
+    expect(screen.getByTestId('tl-preview')).toHaveAttribute('aria-busy', 'false');
+    expect(screen.getByTestId('tl-seat-complex-0')).toBeInTheDocument();
+  });
+
+  it('debounces drag steps into one preview request', async () => {
+    await renderLoaded();
+
+    const handle = screen.getByRole('slider', { name: 'coder complex bar' });
+    fireEvent.pointerDown(handle, { pointerId: 1, clientY: 180, button: 0 });
+    for (const y of [170, 160, 150, 145]) fireEvent.pointerMove(handle, { pointerId: 1, clientY: y });
+    fireEvent.pointerUp(handle, { pointerId: 1, clientY: 145 });
+
+    await waitFor(() => expect(mocks.adminSelectorPreview).toHaveBeenCalledTimes(2));
+    await new Promise((r) => setTimeout(r, 250));
+    expect(mocks.adminSelectorPreview).toHaveBeenCalledTimes(2);
   });
 });
 
 describe('AdminModelSelectionPage - blacklist', () => {
   it('renders a row per blacklisted model with slug, reason, sample card, and reporter', async () => {
-    mocks.adminModelOutcomes.mockResolvedValue(stats());
     mocks.adminModelBlacklist.mockResolvedValue({
       models: [
         blacklistEntry(),
@@ -210,15 +271,12 @@ describe('AdminModelSelectionPage - blacklist', () => {
   });
 
   it('shows an empty-state message when nothing is blacklisted', async () => {
-    mocks.adminModelOutcomes.mockResolvedValue(stats());
-
     render(<AdminModelSelectionPage />);
 
     expect(await screen.findByText(/no models are blacklisted/i)).toBeInTheDocument();
   });
 
   it('delist opens a confirm dialog, then deletes the slug and refetches on confirm', async () => {
-    mocks.adminModelOutcomes.mockResolvedValue(stats());
     mocks.adminModelBlacklist
       .mockResolvedValueOnce({ models: [blacklistEntry()] })
       .mockResolvedValueOnce({ models: [] });
@@ -241,7 +299,6 @@ describe('AdminModelSelectionPage - blacklist', () => {
   });
 
   it('cancelling the delist dialog does not delete', async () => {
-    mocks.adminModelOutcomes.mockResolvedValue(stats());
     mocks.adminModelBlacklist.mockResolvedValue({ models: [blacklistEntry()] });
 
     render(<AdminModelSelectionPage />);
@@ -257,7 +314,6 @@ describe('AdminModelSelectionPage - blacklist', () => {
   });
 
   it('surfaces a delist failure as an inline error without crashing', async () => {
-    mocks.adminModelOutcomes.mockResolvedValue(stats());
     mocks.adminModelBlacklist.mockResolvedValue({ models: [blacklistEntry()] });
     mocks.adminDelistModel.mockRejectedValue({ code: 'INTERNAL_ERROR', error: 'failed to delete blacklist entry' });
 
