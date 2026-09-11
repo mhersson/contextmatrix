@@ -27,6 +27,7 @@ type selectorSettingsReader interface {
 type selectorAdminStore interface {
 	selectorSettingsReader
 	PutSelectorLadders(ctx context.Context, ladders map[string]map[string]float64) error
+	PutSelectorHeadroom(ctx context.Context, headroom float64) error
 }
 
 // selectorCatalog is the catalog surface the candidates and preview
@@ -43,12 +44,6 @@ type selectorCatalog interface {
 // ErrCodeCatalogUnavailable -> 503: no candidate catalog is configured, or
 // it has not completed its first refresh.
 const ErrCodeCatalogUnavailable = "CATALOG_UNAVAILABLE"
-
-// defaultPreviewHeadroom is the price-band width the preview assumes. CM has
-// no headroom setting and the agent's serve.yaml selector_price_headroom is
-// not visible here, so the preview uses the shared default unless the
-// request names another value.
-const defaultPreviewHeadroom = 1.5
 
 // previewPanelSeats is the review panel size the preview shows: the
 // three-seat panel the agent convenes for a review.
@@ -76,17 +71,25 @@ type selectorAdminHandlers struct {
 }
 
 // selectorLaddersResponse is the GET and PUT /api/admin/selector/ladders
-// body. Ladders always carries both roles with all four tiers: the built-in
-// ladder when nothing is stored (IsDefault true, no UpdatedAt).
+// body. Ladders always carries both roles with all four tiers, and Headroom
+// always carries a value: the built-in ladder and headroom when nothing is
+// stored (IsDefault true, no UpdatedAt). UpdatedAt is the later of the two
+// writes.
 type selectorLaddersResponse struct {
-	Ladders   map[string]map[string]float64 `json:"ladders"`
-	Defaults  map[string]float64            `json:"defaults"`
-	IsDefault bool                          `json:"is_default"`
-	UpdatedAt string                        `json:"updated_at,omitempty"`
+	Ladders         map[string]map[string]float64 `json:"ladders"`
+	Defaults        map[string]float64            `json:"defaults"`
+	Headroom        float64                       `json:"headroom"`
+	HeadroomDefault float64                       `json:"headroom_default"`
+	IsDefault       bool                          `json:"is_default"`
+	UpdatedAt       string                        `json:"updated_at,omitempty"`
 }
 
+// selectorLaddersRequest carries the ladders and, optionally, the headroom.
+// A Headroom of 0 (or absent) leaves the stored headroom as it is, so a
+// client that only knows the ladders never resets it.
 type selectorLaddersRequest struct {
-	Ladders map[string]map[string]float64 `json:"ladders"`
+	Ladders  map[string]map[string]float64 `json:"ladders"`
+	Headroom float64                       `json:"headroom"`
 }
 
 func (h *selectorAdminHandlers) gate(w http.ResponseWriter, r *http.Request) bool {
@@ -127,16 +130,30 @@ func laddersWire(l selection.Ladders) map[string]map[string]float64 {
 }
 
 // storedLadders reads the store and resolves it to a response: the built-in
-// ladder for both roles when nothing is stored. The rows were validated on
+// ladder and headroom when nothing is stored. The rows were validated on
 // write, so a validation failure here is a corrupt store and is an error
 // rather than something to paper over with the defaults.
 func (h *selectorAdminHandlers) storedLadders(ctx context.Context) (selectorLaddersResponse, error) {
-	raw, at, err := h.store.SelectorLadders(ctx)
+	raw, laddersAt, err := h.store.SelectorLadders(ctx)
 	if err != nil {
 		return selectorLaddersResponse{}, err
 	}
 
-	resp := selectorLaddersResponse{Defaults: defaultTierBarsWire(), IsDefault: len(raw) == 0}
+	headroom, headroomAt, err := h.store.SelectorHeadroom(ctx)
+	if err != nil {
+		return selectorLaddersResponse{}, err
+	}
+
+	resp := selectorLaddersResponse{
+		Defaults:        defaultTierBarsWire(),
+		Headroom:        selection.DefaultPriceHeadroom,
+		HeadroomDefault: selection.DefaultPriceHeadroom,
+		IsDefault:       len(raw) == 0 && headroom <= 0,
+	}
+
+	if headroom > 0 {
+		resp.Headroom = headroom
+	}
 
 	var ladders selection.Ladders
 
@@ -145,13 +162,23 @@ func (h *selectorAdminHandlers) storedLadders(ctx context.Context) (selectorLadd
 		if err != nil {
 			return selectorLaddersResponse{}, err
 		}
-
-		resp.UpdatedAt = at.UTC().Format(time.RFC3339)
 	}
 
 	resp.Ladders = laddersWire(ladders)
 
+	if at := laterOf(laddersAt, headroomAt); !at.IsZero() {
+		resp.UpdatedAt = at.UTC().Format(time.RFC3339)
+	}
+
 	return resp, nil
+}
+
+func laterOf(a, b time.Time) time.Time {
+	if b.After(a) {
+		return b
+	}
+
+	return a
 }
 
 // getLadders handles GET /api/admin/selector/ladders.
@@ -170,9 +197,10 @@ func (h *selectorAdminHandlers) getLadders(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// putLadders handles PUT /api/admin/selector/ladders. Validation runs here
-// so a bad ladder is a 422 naming the reason; the store validates again on
-// its own write path, so the sentinel is mapped there too.
+// putLadders handles PUT /api/admin/selector/ladders. Both halves are
+// validated before either is written, so a bad headroom never leaves a
+// saved ladder behind it; the store validates again on its own write path,
+// so the sentinels are mapped there too.
 func (h *selectorAdminHandlers) putLadders(w http.ResponseWriter, r *http.Request) {
 	if !h.gate(w, r) {
 		return
@@ -189,6 +217,14 @@ func (h *selectorAdminHandlers) putLadders(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	if req.Headroom != 0 {
+		if err := sqlite.ValidateSelectorHeadroom(req.Headroom); err != nil {
+			writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "invalid selector headroom", headroomDetails(err))
+
+			return
+		}
+	}
+
 	if err := h.store.PutSelectorLadders(r.Context(), req.Ladders); err != nil {
 		if errors.Is(err, sqlite.ErrInvalidLadder) {
 			writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "invalid selector ladders", ladderDetails(err))
@@ -199,6 +235,20 @@ func (h *selectorAdminHandlers) putLadders(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to store selector ladders", "")
 
 		return
+	}
+
+	if req.Headroom != 0 {
+		if err := h.store.PutSelectorHeadroom(r.Context(), req.Headroom); err != nil {
+			if errors.Is(err, sqlite.ErrInvalidHeadroom) {
+				writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "invalid selector headroom", headroomDetails(err))
+
+				return
+			}
+
+			writeError(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to store selector headroom", "")
+
+			return
+		}
 	}
 
 	resp, err := h.storedLadders(r.Context())
@@ -217,6 +267,11 @@ func ladderDetails(err error) string {
 	return strings.TrimPrefix(err.Error(), sqlite.ErrInvalidLadder.Error()+": ")
 }
 
+// headroomDetails strips the sentinel prefix so the client sees the reason.
+func headroomDetails(err error) string {
+	return strings.TrimPrefix(err.Error(), sqlite.ErrInvalidHeadroom.Error()+": ")
+}
+
 // selectorCandidatesResponse is the GET /api/admin/selector/candidates body:
 // every input the preview feeds the selector, plus the catalog's floor and
 // freshness so the page can say what it is showing.
@@ -224,7 +279,6 @@ type selectorCandidatesResponse struct {
 	Candidates         []selectorCandidateView `json:"candidates"`
 	Favorites          []protocol.FavoriteRule `json:"favorites"`
 	Blacklist          []string                `json:"blacklist"`
-	Headroom           float64                 `json:"headroom"`
 	QualityFloor       float64                 `json:"quality_floor"`
 	CatalogRefreshedAt string                  `json:"catalog_refreshed_at"`
 }
@@ -240,7 +294,8 @@ type selectorCandidateView struct {
 }
 
 // selectorPreviewRequest carries the ladders being edited; they are
-// validated, never stored. A Headroom <= 0 means defaultPreviewHeadroom.
+// validated, never stored. A Headroom of 0 (or absent) means the stored
+// headroom, or the built-in one when none is stored.
 type selectorPreviewRequest struct {
 	Ladders  map[string]map[string]float64 `json:"ladders"`
 	Headroom float64                       `json:"headroom"`
@@ -390,7 +445,6 @@ func (h *selectorAdminHandlers) getCandidates(w http.ResponseWriter, r *http.Req
 		Candidates:         make([]selectorCandidateView, 0, len(in.candidates)),
 		Favorites:          h.favoriteRules(),
 		Blacklist:          in.blacklist,
-		Headroom:           defaultPreviewHeadroom,
 		QualityFloor:       h.catalog.Floor(),
 		CatalogRefreshedAt: in.refreshedAt.UTC().Format(time.RFC3339),
 	}
@@ -434,8 +488,25 @@ func (h *selectorAdminHandlers) preview(w http.ResponseWriter, r *http.Request) 
 	}
 
 	headroom := req.Headroom
-	if headroom <= 0 {
-		headroom = defaultPreviewHeadroom
+
+	if headroom != 0 {
+		if err := sqlite.ValidateSelectorHeadroom(headroom); err != nil {
+			writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, "invalid selector headroom", headroomDetails(err))
+
+			return
+		}
+	} else {
+		stored, _, err := h.store.SelectorHeadroom(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to read selector headroom", "")
+
+			return
+		}
+
+		headroom = stored
+		if headroom <= 0 {
+			headroom = selection.DefaultPriceHeadroom
+		}
 	}
 
 	sel := selection.New(selection.Input{
