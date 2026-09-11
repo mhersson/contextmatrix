@@ -3,7 +3,7 @@ import type { SelectorCandidate, SelectorPick, SelectorPickReport, SelectorPrevi
 export const DEFAULT_BARS: TierBars = { simple: 0.65, moderate: 0.76, complex: 0.82, critical: 0.9 };
 
 function cand(slug: string, coder: number, reviewer: number, price: number): SelectorCandidate {
-  return { slug, creator: slug.split('/')[0], coder_prior: coder, reviewer_prior: reviewer, prompt_price_per_tok: price / 2, completion_price_per_tok: price / 2, context_window: 200000, price_source: 'gateway' };
+  return { slug, creator: slug.split('/')[0], coder_prior: coder, reviewer_prior: reviewer, prompt_price_per_tok: price / 2, completion_price_per_tok: price / 2, context_window: 200000, price_source: 'gateway', scored_from: '' };
 }
 
 /** The same four models and blended prices as the Go preview fixture. */

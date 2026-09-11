@@ -20,7 +20,7 @@ import { seat } from './selector.fixtures';
 const DEFAULTS: TierBars = { simple: 0.65, moderate: 0.76, complex: 0.82, critical: 0.9 };
 
 function cand(slug: string, coder: number, reviewer: number): SelectorCandidate {
-  return { slug, creator: slug.split('/')[0], coder_prior: coder, reviewer_prior: reviewer, prompt_price_per_tok: 1e-6, completion_price_per_tok: 1e-6, context_window: 200000, price_source: 'gateway' };
+  return { slug, creator: slug.split('/')[0], coder_prior: coder, reviewer_prior: reviewer, prompt_price_per_tok: 1e-6, completion_price_per_tok: 1e-6, context_window: 200000, price_source: 'gateway', scored_from: '' };
 }
 
 describe('tierOf', () => {

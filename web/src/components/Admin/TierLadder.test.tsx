@@ -10,7 +10,7 @@ function ladders(): SelectorLadders {
 }
 
 function cand(slug: string, coder: number, reviewer: number, price = 1e-6): SelectorCandidate {
-  return { slug, creator: slug.split('/')[0], coder_prior: coder, reviewer_prior: reviewer, prompt_price_per_tok: price, completion_price_per_tok: price, context_window: 200000, price_source: 'gateway' };
+  return { slug, creator: slug.split('/')[0], coder_prior: coder, reviewer_prior: reviewer, prompt_price_per_tok: price, completion_price_per_tok: price, context_window: 200000, price_source: 'gateway', scored_from: '' };
 }
 
 const CANDIDATES = [cand('a/top', 0.95, 0.92), cand('a/mid', 0.85, 0.84), cand('b/low', 0.7, 0.8), cand('c/floor', 0.5, 0.66)];
@@ -90,6 +90,12 @@ describe('TierLadder - rendering', () => {
     expect(screen.getByRole('slider', { name: 'coder complex bar' })).toHaveTextContent('0.90 · 0.82');
     expect(screen.getByRole('slider', { name: 'reviewer complex bar' })).toHaveTextContent('0.82');
     expect(screen.getByRole('slider', { name: 'coder critical bar' })).toHaveTextContent('0.90');
+  });
+
+  it('names the AA row a candidate was scored from in the pill tooltip', () => {
+    renderLadder({ candidates: [{ ...cand('a/top', 0.95, 0.92), scored_from: 'top-1-medium' }, cand('a/mid', 0.85, 0.84)] });
+    expect(screen.getByTestId('tl-dot-coder-a/top')).toHaveAttribute('title', expect.stringContaining('scored from top-1-medium'));
+    expect(screen.getByTestId('tl-dot-coder-a/mid')).toHaveAttribute('title', expect.not.stringContaining('scored from'));
   });
 });
 
