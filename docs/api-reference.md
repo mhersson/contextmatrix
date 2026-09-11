@@ -798,9 +798,12 @@ URL-encoding. Returns **200 OK** with the deleted slug:
 
 ### GET /api/admin/selector/ladders
 
-Same registration and gating as the model-blacklist pair. Returns the per-role quality ladders the agent's selector applies, the price headroom, the built-in ladder and headroom for reference, and whether the stored values are the built-in ones. `ladders`
-always carries both roles with all four tiers; `updated_at` (RFC 3339) is
-present only when a ladder has been saved. Does not depend on the catalog.
+Same registration and gating as the model-blacklist pair. Returns the
+per-role quality ladders the agent's selector applies, the price headroom,
+the built-in ladder and headroom for reference, and whether the stored values
+are the built-in ones. `ladders` always carries both roles with all four
+tiers; `updated_at` (RFC 3339) is present only when a ladder has been saved.
+Does not depend on the catalog.
 
 ```json
 {
@@ -848,9 +851,9 @@ non-decreasing violation, bar out of range, headroom below 1; `details` names th
 ### GET /api/admin/selector/candidates
 
 The inputs the preview feeds the selector: the cached candidate catalog
-(sorted by slug), the backend-level favorites, the blacklist, the catalog quality floor, and when the
-catalog snapshot was built. Project favorites are not included - they are
-per `.board.yaml` and merged at trigger time.
+(sorted by slug), the backend-level favorites, the blacklist, the catalog
+quality floor, and when the catalog snapshot was built. Project favorites are
+not included - they are per `.board.yaml` and merged at trigger time.
 
 ```json
 {
@@ -879,10 +882,12 @@ refresh, or when no candidate catalog is configured (no `aa_api_key`).
 
 What the shared selector would pick under the given ladders, against the
 current catalog, favorites and blacklist. Validated like `PUT`, never stored.
-`headroom` is optional: absent or `0` uses the stored headroom (the built-in 1.5 when none is stored); a value below 1 is `422 VALIDATION_ERROR`. For every tier: the coder pick, the
-reviewer pick, and the three-seat review panel, each with the pool report
-the selector produced. The single picks are vendor-blind with no exclusions;
-a run's reviewer picks additionally exclude the models that coded.
+`headroom` is optional: absent or `0` uses the stored headroom (the built-in
+1.5 when none is stored); a value below 1 is `422 VALIDATION_ERROR`. For
+every tier: the coder pick, the reviewer pick, and the three-seat review
+panel, each with the pool report the selector produced. The single picks are
+vendor-blind with no exclusions; a run's reviewer picks additionally exclude
+the models that coded.
 
 ```json
 { "ladders": { "coder": { "complex": 0.90 }, "reviewer": { "complex": 0.82 } }, "headroom": 1.5 }
