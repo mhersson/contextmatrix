@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+import type { CSSProperties, MouseEvent } from 'react';
 import type { SelectorCandidate, SelectorLadders, SelectorPickReport, SelectorPreview, SelectorSeat, SelectorTier } from '../../types';
 import { TIERS_DESC, TIER_COLOR, formatBar, panelHasListPrice, panelPrice, priorOf, shortSlug, usdPerMillion } from './ladder';
 
@@ -11,6 +11,19 @@ interface PickPreviewProps {
   ladders: SelectorLadders;
   candidates: SelectorCandidate[];
   headroom: number;
+  /** Right-click on a pick or a seat: the slug and the pointer's viewport position. Unset leaves the browser menu alone. */
+  onModelMenu?: ModelMenuHandler;
+}
+
+export type ModelMenuHandler = (slug: string, x: number, y: number) => void;
+
+/** onContextMenu for one model, or undefined so the browser menu stays. */
+function contextMenuFor(slug: string, onModelMenu: ModelMenuHandler | undefined) {
+  if (!onModelMenu) return undefined;
+  return (e: MouseEvent) => {
+    e.preventDefault();
+    onModelMenu(slug, e.clientX, e.clientY);
+  };
 }
 
 const LIST_PRICE_TITLE = 'Artificial Analysis list price: the gateway publishes no price for this model';
@@ -29,7 +42,7 @@ function Price({ perTok, list }: { perTok: number; list: boolean }) {
   );
 }
 
-function PickRow({ who, pr, tier }: { who: string; pr: SelectorPickReport; tier: SelectorTier }) {
+function PickRow({ who, pr, tier, onModelMenu }: { who: string; pr: SelectorPickReport; tier: SelectorTier; onModelMenu?: ModelMenuHandler }) {
   const p = pr.pick;
   if (!p.ok) {
     return (
@@ -46,7 +59,9 @@ function PickRow({ who, pr, tier }: { who: string; pr: SelectorPickReport; tier:
       <span className="tl-pv-who">{who}</span>
       <span className="tl-pv-model">
         <span className="chip-pill tl-pv-chip">{descended ? `↓ ${p.met_tier}` : 'at bar'}</span>
-        <span className="tl-pv-name">{p.model}</span>
+        <span className="tl-pv-name" onContextMenu={contextMenuFor(p.model, onModelMenu)}>
+          {p.model}
+        </span>
         {p.source === 'favorite' && <span className="tl-pv-src">favorite</span>}
       </span>
       <span className="tl-pv-price">
@@ -56,7 +71,7 @@ function PickRow({ who, pr, tier }: { who: string; pr: SelectorPickReport; tier:
   );
 }
 
-function SeatRow({ seats, tier }: { seats: SelectorSeat[]; tier: SelectorTier }) {
+function SeatRow({ seats, tier, onModelMenu }: { seats: SelectorSeat[]; tier: SelectorTier; onModelMenu?: ModelMenuHandler }) {
   return (
     <div className="tl-pv-row">
       <span className="tl-pv-who">panel ×3</span>
@@ -67,6 +82,7 @@ function SeatRow({ seats, tier }: { seats: SelectorSeat[]; tier: SelectorTier })
             key={`${s.pick.model}-${i}`}
             className={`tl-seat${s.walked ? ' walk' : ''}${s.pick.duplicate ? ' dup' : ''}`}
             data-testid={`tl-seat-${tier}-${i}`}
+            onContextMenu={contextMenuFor(s.pick.model, onModelMenu)}
           >
             <b>{i + 1}</b>
             {shortSlug(s.pick.model)}
@@ -83,7 +99,7 @@ function SeatRow({ seats, tier }: { seats: SelectorSeat[]; tier: SelectorTier })
   );
 }
 
-export function PickPreview({ preview, pending, disabled, error, ladders, candidates, headroom }: PickPreviewProps) {
+export function PickPreview({ preview, pending, disabled, error, ladders, candidates, headroom, onModelMenu }: PickPreviewProps) {
   const clearing = (tier: SelectorTier, role: 'coder' | 'reviewer') =>
     candidates.filter((c) => priorOf(c, role) >= ladders[role][tier]).length;
 
@@ -118,9 +134,9 @@ export function PickPreview({ preview, pending, disabled, error, ladders, candid
                     {`bar c ${formatBar(ladders.coder[tier])} · r ${formatBar(ladders.reviewer[tier])} · ${clearing(tier, 'coder')} coders · ${clearing(tier, 'reviewer')} reviewers clear it`}
                   </span>
                 </div>
-                <PickRow who="coder" pr={t.coder} tier={tier} />
-                <PickRow who="reviewer" pr={t.reviewer} tier={tier} />
-                <SeatRow seats={t.panel} tier={tier} />
+                <PickRow who="coder" pr={t.coder} tier={tier} onModelMenu={onModelMenu} />
+                <PickRow who="reviewer" pr={t.reviewer} tier={tier} onModelMenu={onModelMenu} />
+                <SeatRow seats={t.panel} tier={tier} onModelMenu={onModelMenu} />
               </div>
             );
           })
