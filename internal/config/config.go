@@ -208,11 +208,6 @@ type AgentBackendConfig struct {
 	ModelAllowlist []string                       `yaml:"model_allowlist"`
 	Favorites      map[string]board.TierFavorites `yaml:"favorites"`
 
-	// AAModelMap maps each endpoint model slug to its Artificial Analysis model
-	// stem, for the openai endpoint type. Empty for the openrouter type (which
-	// uses the built-in slug mapping).
-	AAModelMap map[string]string `yaml:"aa_model_map"`
-
 	// ModelPriors supplies a direct selection prior for an endpoint slug AA does
 	// not rate (a brand-new release, or a private model). When present for a
 	// slug, the AA join is skipped for that slug and these priors are used

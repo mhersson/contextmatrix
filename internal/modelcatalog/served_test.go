@@ -71,7 +71,7 @@ func TestServedEndpointLegUnfiltered(t *testing.T) {
 		"model-a": {ContextWindow: 100000},
 		"model-b": {ContextWindow: 32000},
 	}
-	b := NewBuilder("", 0.65, nil, 0, WithEndpoint("http://endpoint.invalid", "", nil, nil))
+	b := NewBuilder("", 0.65, nil, 0, WithEndpoint("http://endpoint.invalid", "", nil))
 	seedServed(t, b, catalog)
 
 	got := b.Served(context.Background())

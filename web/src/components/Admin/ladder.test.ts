@@ -8,17 +8,19 @@ import {
   isMonotone,
   ladderKey,
   laddersEqual,
+  panelHasListPrice,
   railValue,
   railY,
   snapBar,
   tierOf,
   usdPerMillion,
 } from './ladder';
+import { seat } from './selector.fixtures';
 
 const DEFAULTS: TierBars = { simple: 0.65, moderate: 0.76, complex: 0.82, critical: 0.9 };
 
 function cand(slug: string, coder: number, reviewer: number): SelectorCandidate {
-  return { slug, creator: slug.split('/')[0], coder_prior: coder, reviewer_prior: reviewer, prompt_price_per_tok: 1e-6, completion_price_per_tok: 1e-6, context_window: 200000 };
+  return { slug, creator: slug.split('/')[0], coder_prior: coder, reviewer_prior: reviewer, prompt_price_per_tok: 1e-6, completion_price_per_tok: 1e-6, context_window: 200000, price_source: 'gateway' };
 }
 
 describe('tierOf', () => {
@@ -121,5 +123,13 @@ describe('formatting', () => {
     expect(usdPerMillion(2e-6)).toBe('$2.0/M');
     expect(usdPerMillion(6.5e-7)).toBe('$0.65/M');
     expect(usdPerMillion(1.2e-5)).toBe('$12.0/M');
+  });
+});
+
+describe('panelHasListPrice', () => {
+  it('is true when any seat carries the AA list price', () => {
+    expect(panelHasListPrice([seat('a/cheap', 2e-6, false), seat('b/pricey', 2e-5, true, 'complex', { price_source: 'aa' })])).toBe(true);
+    expect(panelHasListPrice([seat('a/cheap', 2e-6, false)])).toBe(false);
+    expect(panelHasListPrice([])).toBe(false);
   });
 });

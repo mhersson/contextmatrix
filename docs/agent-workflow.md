@@ -718,8 +718,10 @@ served them, so cost accumulates on the parent card. Rates live in
 `config.yaml` under `token_costs` as USD per token. Models served through an
 `openai`-type `llm_endpoint` are priced from the endpoint catalog and listed
 entries act as overrides; where that catalog publishes no usable pricing, the
-listed entries are also what prices the models for
-[selection](model-selection.md#endpoint-pricing-gaps). See
+listed entries price the models for card costs; the selector reads them
+only when neither the gateway nor the Artificial Analysis list price
+prices the model (see [endpoint
+pricing](model-selection.md#endpoint-pricing)). See
 [configuration](configuration.md).
 
 ```yaml

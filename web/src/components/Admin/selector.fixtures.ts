@@ -3,7 +3,7 @@ import type { SelectorCandidate, SelectorPick, SelectorPickReport, SelectorPrevi
 export const DEFAULT_BARS: TierBars = { simple: 0.65, moderate: 0.76, complex: 0.82, critical: 0.9 };
 
 function cand(slug: string, coder: number, reviewer: number, price: number): SelectorCandidate {
-  return { slug, creator: slug.split('/')[0], coder_prior: coder, reviewer_prior: reviewer, prompt_price_per_tok: price / 2, completion_price_per_tok: price / 2, context_window: 200000 };
+  return { slug, creator: slug.split('/')[0], coder_prior: coder, reviewer_prior: reviewer, prompt_price_per_tok: price / 2, completion_price_per_tok: price / 2, context_window: 200000, price_source: 'gateway' };
 }
 
 /** The same four models and blended prices as the Go preview fixture. */
@@ -11,13 +11,13 @@ export const CANDIDATES: SelectorCandidate[] = [cand('a/cheap', 0.9, 0.85, 2e-6)
 
 export function pick(model: string, role: 'coder' | 'reviewer', requested: SelectorTier, met: SelectorTier | '', price: number, extra: Partial<SelectorPick> = {}): SelectorPickReport {
   return {
-    pick: { model, context_window: 200000, role, requested_tier: requested, met_tier: met, requested_bar: DEFAULT_BARS[requested], prior: 0.85, has_prior: true, source: 'auto', duplicate: false, ok: model !== '', price_per_tok: price, ...extra },
+    pick: { model, context_window: 200000, role, requested_tier: requested, met_tier: met, requested_bar: DEFAULT_BARS[requested], prior: 0.85, has_prior: true, source: 'auto', duplicate: false, ok: model !== '', price_per_tok: price, price_source: 'gateway', ...extra },
     report: { rung: met, bar: met ? DEFAULT_BARS[met] : 0, pool: [], filtered_out: [] },
   };
 }
 
-export function seat(model: string, price: number, walked: boolean, tier: SelectorTier = 'complex'): SelectorSeat {
-  return { ...pick(model, 'reviewer', tier, tier, price), walked };
+export function seat(model: string, price: number, walked: boolean, tier: SelectorTier = 'complex', extra: Partial<SelectorPick> = {}): SelectorSeat {
+  return { ...pick(model, 'reviewer', tier, tier, price, extra), walked };
 }
 
 /** Every tier picks a/cheap; the panel is a/cheap, b/pricey (walked), a/mid (walked); critical's reviewer descended and its panel is empty. */

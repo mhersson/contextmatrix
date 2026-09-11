@@ -32,11 +32,13 @@ type selectorAdminStore interface {
 
 // selectorCatalog is the catalog surface the candidates and preview
 // endpoints need: the candidate set, the floor it was built with, and when
-// it was built. Implemented by modelcatalog.Builder; wider than
-// catalogProvider (trigger path) for the same narrow-interface reason as
-// blacklistAdminStore.
+// it was built. PriceSources names where each candidate's price came from
+// (gateway, aa, token_costs, none), so the page can mark a list price as
+// such. Implemented by modelcatalog.Builder; wider than catalogProvider
+// (trigger path) for the same narrow-interface reason as blacklistAdminStore.
 type selectorCatalog interface {
 	Candidates(ctx context.Context) []protocol.CandidateModel
+	PriceSources(ctx context.Context) map[string]string
 	Floor() float64
 	LastRefreshed(ctx context.Context) time.Time
 }
@@ -294,6 +296,7 @@ type selectorCandidateView struct {
 	PromptPricePerTok     float64 `json:"prompt_price_per_tok"`
 	CompletionPricePerTok float64 `json:"completion_price_per_tok"`
 	ContextWindow         int     `json:"context_window"`
+	PriceSource           string  `json:"price_source"`
 }
 
 // selectorPreviewRequest carries the ladders being edited; they are
@@ -345,6 +348,10 @@ type selectorPickView struct {
 	Duplicate     bool    `json:"duplicate"`
 	OK            bool    `json:"ok"`
 	PricePerTok   float64 `json:"price_per_tok"`
+	// PriceSource is where PricePerTok came from: gateway, aa (the
+	// Artificial Analysis list price, when the gateway publishes none),
+	// token_costs, or none; empty when the pick is not a candidate.
+	PriceSource string `json:"price_source"`
 }
 
 type selectorReportView struct {
@@ -369,9 +376,10 @@ type selectorFilteredOutView struct {
 // selectorInputs is what both catalog-backed endpoints read: a sorted copy
 // of the candidates, the blacklist, and the snapshot time.
 type selectorInputs struct {
-	candidates  []protocol.CandidateModel
-	blacklist   []string
-	refreshedAt time.Time
+	candidates   []protocol.CandidateModel
+	priceSources map[string]string
+	blacklist    []string
+	refreshedAt  time.Time
 }
 
 // inputs gathers the catalog-backed inputs or writes the refusal: 503 for
@@ -394,6 +402,11 @@ func (h *selectorAdminHandlers) inputs(w http.ResponseWriter, r *http.Request) (
 	}
 
 	in := selectorInputs{candidates: slices.Clone(cands), blacklist: []string{}, refreshedAt: at}
+
+	in.priceSources = h.catalog.PriceSources(ctx)
+	if in.priceSources == nil {
+		in.priceSources = map[string]string{}
+	}
 
 	if h.blacklist != nil {
 		bl, err := h.blacklist.BlacklistedSlugs(ctx)
@@ -458,6 +471,7 @@ func (h *selectorAdminHandlers) getCandidates(w http.ResponseWriter, r *http.Req
 			CoderPrior: c.CoderPrior, ReviewerPrior: c.ReviewerPrior,
 			PromptPricePerTok: c.PromptPricePerTok, CompletionPricePerTok: c.CompletionPricePerTok,
 			ContextWindow: c.ContextWindow,
+			PriceSource:   in.priceSources[c.Slug],
 		})
 	}
 
@@ -533,22 +547,22 @@ func (h *selectorAdminHandlers) preview(w http.ResponseWriter, r *http.Request) 
 		seats := sel.SelectReviewPanelReport(selection.SelectInput{Role: selection.RoleReviewer, Tier: tier}, previewPanelSeats)
 
 		resp.Tiers[string(tier)] = selectorTierPreview{
-			Coder:    selectorPickReport{Pick: pickView(coder, prices), Report: reportView(coderRep)},
-			Reviewer: selectorPickReport{Pick: pickView(reviewer, prices), Report: reportView(reviewerRep)},
-			Panel:    seatViews(seats, prices),
+			Coder:    selectorPickReport{Pick: pickView(coder, prices, in.priceSources), Report: reportView(coderRep)},
+			Reviewer: selectorPickReport{Pick: pickView(reviewer, prices, in.priceSources), Report: reportView(reviewerRep)},
+			Panel:    seatViews(seats, prices, in.priceSources),
 		}
 	}
 
 	writeJSON(w, http.StatusOK, resp)
 }
 
-func pickView(p selection.Pick, prices map[string]float64) selectorPickView {
+func pickView(p selection.Pick, prices map[string]float64, sources map[string]string) selectorPickView {
 	return selectorPickView{
 		Model: p.Model, ContextWindow: p.ContextWindow,
 		Role: string(p.Role), RequestedTier: string(p.RequestedTier), MetTier: string(p.MetTier),
 		RequestedBar: p.RequestedBar, Prior: p.Prior, HasPrior: p.HasPrior,
 		Source: p.Source.String(), Duplicate: p.Duplicate, OK: p.OK,
-		PricePerTok: prices[p.Model],
+		PricePerTok: prices[p.Model], PriceSource: sources[p.Model],
 	}
 }
 
@@ -575,12 +589,12 @@ func reportView(rep selection.SelectionReport) selectorReportView {
 // on the cheapest model in its pool; an anchor above the first seat's means
 // the seat paid for diversity or exclusion, which is what an operator is
 // looking for when a panel gets expensive.
-func seatViews(seats []selection.SeatReport, prices map[string]float64) []selectorSeatView {
+func seatViews(seats []selection.SeatReport, prices map[string]float64, sources map[string]string) []selectorSeatView {
 	out := make([]selectorSeatView, 0, len(seats))
 	first := -1.0
 
 	for _, s := range seats {
-		view := selectorSeatView{selectorPickReport: selectorPickReport{Pick: pickView(s.Pick, prices), Report: reportView(s.Report)}}
+		view := selectorSeatView{selectorPickReport: selectorPickReport{Pick: pickView(s.Pick, prices, sources), Report: reportView(s.Report)}}
 
 		if anchor, ok := poolAnchor(s.Report); ok {
 			if first < 0 {

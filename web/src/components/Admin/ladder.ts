@@ -149,3 +149,8 @@ export function shortSlug(slug: string): string {
 export function panelPrice(seats: SelectorSeat[]): number {
   return seats.reduce((sum, s) => sum + s.pick.price_per_tok, 0);
 }
+
+/** Whether any seat's price is the AA list price rather than the gateway's. */
+export function panelHasListPrice(seats: SelectorSeat[]): boolean {
+  return seats.some((s) => s.pick.price_source === 'aa');
+}

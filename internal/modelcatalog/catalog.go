@@ -2,8 +2,8 @@ package modelcatalog
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
 	"sort"
 	"strings"
@@ -29,11 +29,11 @@ type Builder struct {
 	allowlist                     []string
 	ttl                           time.Duration
 
-	// Endpoint leg (openai type). When endpointBaseURL != "", refresh() fuses
-	// the endpoint catalog with AA priors via aaModelMap/priors instead of the OR leg.
+	// Endpoint leg (openai type). When endpointBaseURL != "", refresh() joins
+	// the endpoint catalog to AA families automatically, with per-slug operator
+	// overrides from priors, instead of the OR leg.
 	endpointBaseURL string
 	endpointAPIKey  string
-	aaModelMap      map[string]string
 	priors          map[string]PriorOverride
 	// tokenCosts is the operator's token_costs rate table. On the endpoint leg
 	// it prices models the gateway serves without a pricing block; see
@@ -52,6 +52,10 @@ type Builder struct {
 	// served model, not just selection candidates). Guarded by mu; consumed by
 	// Rate() for per-slug cost lookups.
 	lastCatalog map[string]orEntry
+	// priceSources is where each candidate's price came from, keyed by
+	// slug, for the admin selector views. Guarded by mu; rebuilt with cached
+	// on every successful refresh.
+	priceSources map[string]string
 	// lastRefreshAttempt is when refresh() was last invoked, success or
 	// failure. Guarded by mu. Gates re-attempts on a stale cache so a failing
 	// provider is retried at most once per refreshFailureCooldown.
@@ -62,13 +66,13 @@ type Builder struct {
 type BuilderOption func(*Builder)
 
 // WithEndpoint switches the Builder to the openai endpoint leg: it fetches the
-// endpoint's /v1/models (authenticated) and fuses with AA priors via aaModelMap,
-// with per-slug operator overrides from priors.
-func WithEndpoint(baseURL, apiKey string, aaModelMap map[string]string, priors map[string]PriorOverride) BuilderOption {
+// endpoint's /v1/models (authenticated), joins each served model to its AA
+// family by canonical key, and applies per-slug operator overrides from
+// priors.
+func WithEndpoint(baseURL, apiKey string, priors map[string]PriorOverride) BuilderOption {
 	return func(b *Builder) {
 		b.endpointBaseURL = baseURL
 		b.endpointAPIKey = apiKey
-		b.aaModelMap = aaModelMap
 		b.priors = priors
 	}
 }
@@ -176,6 +180,23 @@ func (b *Builder) LastRefreshed(ctx context.Context) time.Time {
 	b.refreshIfStaleLocked(ctx)
 
 	return b.cachedAt
+}
+
+// PriceSources reports where each candidate's price came from, keyed by
+// slug: gateway, aa, token_costs or none. It refreshes if stale, like
+// Candidates, and describes the same snapshot. Nil on a nil receiver or
+// before the first successful refresh.
+func (b *Builder) PriceSources(ctx context.Context) map[string]string {
+	if b == nil {
+		return nil
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.refreshIfStaleLocked(ctx)
+
+	return maps.Clone(b.priceSources)
 }
 
 // ModelPrice is the per-token price set for one served model. CacheRead and
@@ -310,15 +331,16 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 
 		// A gateway that publishes no pricing leaves every entry at 0, which
 		// makes the selector's price band vacuous. Fill those from token_costs
-		// before anything reads the catalog, and name what stays unpriced: a
-		// tool-capable model the selector prices at 0 competes as if free.
+		// before anything reads the catalog for card costs, and name what stays
+		// unpriced. Whether the selector sees a price is decided per candidate
+		// below, where the AA list price also counts.
 		filled, unpriced := applyTokenCosts(ep, b.tokenCosts)
 		if filled > 0 {
 			slog.Info("endpoint models priced from token_costs", "count", filled)
 		}
 
 		for _, slug := range unpriced {
-			slog.Warn("endpoint model has no price; the selector will treat it as free",
+			slog.Warn("endpoint model has no gateway or token_costs price; card costs for it will report as 0",
 				"slug", slug, "hint", "add a token_costs entry for this slug, its vendor-stripped name, or one of its gateway aliases")
 		}
 
@@ -327,6 +349,8 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 		// Without an AA key there are no selection candidates (the complexity
 		// selector is an agent-only concern), but per-slug pricing is populated.
 		if b.aaKey == "" {
+			b.priceSources = map[string]string{}
+
 			return []protocol.CandidateModel{}, nil
 		}
 
@@ -335,40 +359,60 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 			return nil, err
 		}
 
-		built, exclusions := buildFromAAMap(aa, ep, b.aaModelMap, b.priors, b.floor)
+		built, exclusions := buildEndpointCandidates(aa, ep, b.priors, b.floor, b.allowlist)
 
-		// Deterministic audit trail: buildFromAAMap iterates the endpoint map,
-		// so both lists arrive in map order. Sort by slug so refresh-to-refresh
+		// Deterministic audit trail: the build iterates the endpoint map, so
+		// both lists arrive in map order. Sort by slug so refresh-to-refresh
 		// logs are diffable (Served() sorts the same way).
 		slices.SortFunc(exclusions, func(a, c aaExclusion) int { return strings.Compare(a.Slug, c.Slug) })
 		slices.SortFunc(built, func(a, c aaScored) int { return strings.Compare(a.Candidate.Slug, c.Candidate.Slug) })
 
 		// "Served but unselectable" is a loud condition, not a silent one: a
-		// tool-capable served model that yields no candidate (unmapped, mapped
-		// to a missing AA slug, unscored, or below the floor) means selection
+		// tool-capable served model that yields no candidate means selection
 		// will fall back to the default model for that quality. One WARN per
-		// excluded model, naming the slug and the specific reason.
+		// excluded model, naming the slug, the reason, and what was tried.
 		for _, x := range exclusions {
-			if len(x.Siblings) > 0 {
-				slog.Warn("endpoint model not selectable", "slug", x.Slug, "reason", x.Reason,
-					"siblings", formatSiblings(x.Siblings))
-			} else {
-				slog.Warn("endpoint model not selectable", "slug", x.Slug, "reason", x.Reason)
+			attrs := []any{"slug", x.Slug, "reason", x.Reason}
+
+			if len(x.Keys) > 0 {
+				attrs = append(attrs, "keys", strings.Join(x.Keys, ","))
 			}
+
+			if len(x.Family) > 0 {
+				attrs = append(attrs, "family", strings.Join(x.Family, ","))
+			}
+
+			if x.Source != "" {
+				attrs = append(attrs, "source", x.Source)
+			}
+
+			slog.Warn("endpoint model not selectable", attrs...)
 		}
 
-		// Resolved candidate set: one line per served candidate with its priors
-		// and where they came from, so the operator can audit the join.
+		// Resolved candidate set: one line per served candidate with its
+		// priors, how it was joined, the AA row it was scored from, and where
+		// its price came from, so the operator can audit the join.
 		for _, s := range built {
 			slog.Info("endpoint model scored",
 				"slug", s.Candidate.Slug, "coder_prior", s.Candidate.CoderPrior,
-				"reviewer_prior", s.Candidate.ReviewerPrior, "source", s.Source)
+				"reviewer_prior", s.Candidate.ReviewerPrior, "join", s.Join,
+				"source", s.Source, "price_source", s.PriceSource)
+
+			if s.PriceSource == priceSourceNone {
+				slog.Warn("candidate has no price from the gateway, Artificial Analysis or token_costs; the selector will treat it as free",
+					"slug", s.Candidate.Slug)
+			}
 		}
 
 		cands := make([]protocol.CandidateModel, 0, len(built))
+		sources := make(map[string]string, len(built))
+
 		for _, s := range built {
 			cands = append(cands, s.Candidate)
+			sources[s.Candidate.Slug] = string(s.PriceSource)
 		}
+
+		b.priceSources = sources
 
 		return cands, nil
 	}
@@ -384,6 +428,8 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 	b.lastCatalog = or
 
 	if b.aaKey == "" {
+		b.priceSources = map[string]string{}
+
 		return []protocol.CandidateModel{}, nil
 	}
 
@@ -392,7 +438,18 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 		return nil, err
 	}
 
-	return build(aa, or, b.floor, b.allowlist), nil
+	cands := build(aa, or, b.floor, b.allowlist)
+
+	// OpenRouter prices every model it serves: the served catalog is the
+	// gateway for this leg.
+	sources := make(map[string]string, len(cands))
+	for _, c := range cands {
+		sources[c.Slug] = string(priceSourceGateway)
+	}
+
+	b.priceSources = sources
+
+	return cands, nil
 }
 
 // build is the pure transform: normalize indices against the response-wide
@@ -501,45 +558,73 @@ type PriorOverride struct {
 type aaExclusionReason string
 
 const (
-	exclUnmapped      aaExclusionReason = "no aa_model_map or model_priors entry"
-	exclAASlugMissing aaExclusionReason = "mapped AA slug not found in the AA catalog"
-	exclUnscored      aaExclusionReason = "mapped AA row has no usable scores"
-	exclBelowFloor    aaExclusionReason = "below the quality floor for both roles"
+	exclNoFamily   aaExclusionReason = "no AA family matches this model"
+	exclUnscored   aaExclusionReason = "AA family has no usable scores"
+	exclNotAllowed aaExclusionReason = "creator not in the allowlist"
+	exclBelowFloor aaExclusionReason = "below the quality floor for both roles"
 )
 
 // aaExclusion is one served, tool-capable endpoint model that produced no
-// candidate. Siblings is populated only for exclUnscored: scored AA rows
-// sharing the mapped slug's family-base prefix, with their normalized scores -
-// a re-pointing hint for the operator. It is display-only and never feeds back
-// into scoring.
+// candidate, with what the join tried so the miss can be reported: Keys for
+// exclNoFamily, Family for exclUnscored, Source (the AA slug it joined) when
+// a join happened before the exclusion.
 type aaExclusion struct {
-	Slug     string
-	Reason   aaExclusionReason
-	Siblings []aaSibling
+	Slug   string
+	Reason aaExclusionReason
+	Keys   []string
+	Family []string
+	Source string
 }
 
-// aaSibling is one scored AA variant row suggested as a re-pointing target.
-type aaSibling struct {
-	Slug     string
-	Coder    float64
-	Reviewer float64
+// candidatePrice resolves the price a selection candidate carries and where
+// it came from: the gateway's own price when it published one, else the
+// joined AA row's list price, else the token_costs fill, else 0. A priced
+// entry not tagged token_costs is the gateway's, so an untagged catalog (a
+// test fixture) still ranks correctly. Only the candidate reads this: Rate()
+// and card costs keep the catalog entry's gateway-then-token_costs price.
+// row is nil on the model_priors path.
+func candidatePrice(e orEntry, row *aaModel) (prompt, completion float64, source priceSource) {
+	entryPriced := e.PromptPrice != 0 || e.CompletionPrice != 0
+
+	switch {
+	case entryPriced && e.PriceSource != priceSourceTokenCosts:
+		return e.PromptPrice, e.CompletionPrice, priceSourceGateway
+	case row != nil && row.priced():
+		return row.PromptPrice, row.CompletionPrice, priceSourceAA
+	case entryPriced:
+		return e.PromptPrice, e.CompletionPrice, priceSourceTokenCosts
+	default:
+		return 0, 0, priceSourceNone
+	}
 }
+
+// How a candidate's priors were obtained, for the refresh log.
+const (
+	joinModelPriors = "model_priors"
+	joinAutomatic   = "automatic"
+)
 
 // aaScored pairs a resolved candidate with the provenance of its priors for
-// the refresh log: "model_priors override" or the exact AA slug it was scored
-// from.
+// the refresh log - Join says how ("model_priors override" or the AA row it
+// was scored from in Source) - and of its price.
 type aaScored struct {
-	Candidate protocol.CandidateModel
-	Source    string
+	Candidate   protocol.CandidateModel
+	Join        string
+	Source      string
+	PriceSource priceSource
 }
 
-// buildFromAAMap scores each tool-capable served slug for the openai leg. A model_priors override
-// is used verbatim (AA join skipped); otherwise the slug joins the ONE AA row named by aaModelMap -
-// never a family or variant aggregate - and is scored per axis from that row (a nil index yields no
-// prior for that role). Everything that yields no floor-clearing candidate is returned as an
-// exclusion with its reason; unscored rows carry scored siblings as a hint.
-func buildFromAAMap(aa []aaModel, endpoint map[string]orEntry, aaModelMap map[string]string, priors map[string]PriorOverride, floor float64) ([]aaScored, []aaExclusion) {
+// buildEndpointCandidates scores each tool-capable served slug for the
+// openai leg. A model_priors override is used verbatim: no AA join, no
+// allowlist screen, creator unknown. Every other slug joins its AA family
+// automatically: the served id and each gateway alias reduce to family keys,
+// the first key with rows wins, and the closest scored row in that family
+// supplies the priors; its creator must pass the allowlist. Everything that
+// yields no floor-clearing candidate is returned as an exclusion with its
+// reason and what was tried.
+func buildEndpointCandidates(aa []aaModel, endpoint map[string]orEntry, priors map[string]PriorOverride, floor float64, allow []string) ([]aaScored, []aaExclusion) {
 	maxCoding, maxIntel := maxIndices(aa)
+	idx := indexFamilies(aa)
 
 	var (
 		scored     []aaScored
@@ -552,51 +637,49 @@ func buildFromAAMap(aa []aaModel, endpoint map[string]orEntry, aaModelMap map[st
 		}
 
 		if p, ok := priors[slug]; ok {
-			// Operator override: used verbatim, AA join skipped for this slug
-			// (which leaves the creator unknown).
 			if p.Coder < floor && p.Reviewer < floor {
 				exclusions = append(exclusions, aaExclusion{Slug: slug, Reason: exclBelowFloor})
 
 				continue
 			}
 
+			prompt, completion, priceSrc := candidatePrice(e, nil)
+
 			scored = append(scored, aaScored{
 				Candidate: protocol.CandidateModel{
 					Slug:                  slug,
-					PromptPricePerTok:     e.PromptPrice,
-					CompletionPricePerTok: e.CompletionPrice,
+					PromptPricePerTok:     prompt,
+					CompletionPricePerTok: completion,
 					ContextWindow:         e.ContextWindow,
 					CoderPrior:            p.Coder,
 					ReviewerPrior:         p.Reviewer,
 				},
-				Source: "model_priors override",
+				Join:        joinModelPriors,
+				Source:      "model_priors override",
+				PriceSource: priceSrc,
 			})
 
 			continue
 		}
 
-		aaSlug, mapped := aaModelMap[slug]
-		if !mapped {
-			exclusions = append(exclusions, aaExclusion{Slug: slug, Reason: exclUnmapped})
+		keys := lookupKeys(slug, e.Aliases)
+
+		key, found := firstFamily(idx, keys)
+		if !found {
+			exclusions = append(exclusions, aaExclusion{Slug: slug, Reason: exclNoFamily, Keys: keys})
 
 			continue
 		}
 
-		row := slices.IndexFunc(aa, func(m aaModel) bool { return m.Slug == aaSlug })
-		if row < 0 {
-			exclusions = append(exclusions, aaExclusion{Slug: slug, Reason: exclAASlugMissing})
+		m, ok := idx.closest(key, maxCoding, maxIntel)
+		if !ok {
+			exclusions = append(exclusions, aaExclusion{Slug: slug, Reason: exclUnscored, Family: idx.slugs(key)})
 
 			continue
 		}
 
-		m := aa[row]
-
-		if m.CodingIndex == nil && m.IntelIndex == nil {
-			exclusions = append(exclusions, aaExclusion{
-				Slug:     slug,
-				Reason:   exclUnscored,
-				Siblings: scoredSiblings(aa, aaSlug, maxCoding, maxIntel),
-			})
+		if !isTrusted(m.Creator, allow) {
+			exclusions = append(exclusions, aaExclusion{Slug: slug, Reason: exclNotAllowed, Source: m.Slug})
 
 			continue
 		}
@@ -605,83 +688,63 @@ func buildFromAAMap(aa []aaModel, endpoint map[string]orEntry, aaModelMap map[st
 		rev := norm(m.IntelIndex, maxIntel)
 
 		if coder < floor && rev < floor {
-			exclusions = append(exclusions, aaExclusion{Slug: slug, Reason: exclBelowFloor})
+			exclusions = append(exclusions, aaExclusion{Slug: slug, Reason: exclBelowFloor, Source: m.Slug})
 
 			continue
 		}
 
+		prompt, completion, priceSrc := candidatePrice(e, &m)
+
 		scored = append(scored, aaScored{
 			Candidate: protocol.CandidateModel{
 				Slug:                  slug,
-				PromptPricePerTok:     e.PromptPrice,
-				CompletionPricePerTok: e.CompletionPrice,
+				PromptPricePerTok:     prompt,
+				CompletionPricePerTok: completion,
 				ContextWindow:         e.ContextWindow,
 				CoderPrior:            coder,
 				ReviewerPrior:         rev,
 				Creator:               m.Creator,
 			},
-			Source: aaSlug,
+			Join:        joinAutomatic,
+			Source:      m.Slug,
+			PriceSource: priceSrc,
 		})
 	}
 
 	return scored, exclusions
 }
 
-// scoredSiblings lists the scored AA rows sharing the mapped slug's family
-// prefix, with their normalized scores. It first scans for "aaSlug-" prefixed
-// variants (the usual case: the mapped slug is the unscored family base); if
-// that yields nothing, it trims the last '-'-delimited segment from aaSlug and
-// rescans, so a mapping that misses on an unscored variant slug still surfaces
-// the scored base row and sibling branches. The result is display-only: it
-// never feeds back into scoring.
-func scoredSiblings(aa []aaModel, aaSlug string, maxCoding, maxIntel float64) []aaSibling {
-	out := siblingsInFamily(aa, aaSlug, aaSlug, maxCoding, maxIntel)
-	if len(out) > 0 {
-		return out
-	}
+// lookupKeys is the ordered family keys a served model is looked up under:
+// its id (familyKey drops any vendor prefix, so the vendor-stripped id is
+// the same key), then each gateway alias, without duplicates or empties.
+func lookupKeys(slug string, aliases []string) []string {
+	names := make([]string, 0, len(aliases)+1)
+	names = append(names, slug)
+	names = append(names, aliases...)
 
-	if i := strings.LastIndex(aaSlug, "-"); i > 0 {
-		return siblingsInFamily(aa, aaSlug[:i], aaSlug, maxCoding, maxIntel)
-	}
+	keys := make([]string, 0, len(names))
+	seen := map[string]bool{}
 
-	return nil
-}
-
-// siblingsInFamily collects the scored AA rows in base's family - the row
-// named base itself and rows prefixed "base-" - excluding the mapped row and
-// unscored rows. Including base matters on the trimmed rescan: a mapping that
-// missed on an unscored variant slug should suggest the scored base row, not
-// just its suffixed branches.
-func siblingsInFamily(aa []aaModel, base, mapped string, maxCoding, maxIntel float64) []aaSibling {
-	var out []aaSibling
-
-	for _, m := range aa {
-		if m.Slug == mapped || (m.Slug != base && !strings.HasPrefix(m.Slug, base+"-")) {
+	for _, n := range names {
+		k := familyKey(n)
+		if k == "" || seen[k] {
 			continue
 		}
 
-		if m.CodingIndex == nil && m.IntelIndex == nil {
-			continue
-		}
-
-		out = append(out, aaSibling{
-			Slug:     m.Slug,
-			Coder:    norm(m.CodingIndex, maxCoding),
-			Reviewer: norm(m.IntelIndex, maxIntel),
-		})
+		seen[k] = true
+		keys = append(keys, k)
 	}
 
-	return out
+	return keys
 }
 
-// formatSiblings renders sibling suggestions as one pre-formatted
-// "slug:coder=X,reviewer=Y" list for the exclusion WARN record, keeping the
-// log record's attribute shape independent of sibling count.
-func formatSiblings(sibs []aaSibling) string {
-	parts := make([]string, 0, len(sibs))
-	for _, s := range sibs {
-		parts = append(parts, fmt.Sprintf("%s:coder=%.2f,reviewer=%.2f", s.Slug, s.Coder, s.Reviewer))
+// firstFamily returns the first key that has AA rows.
+func firstFamily(idx familyIndex, keys []string) (string, bool) {
+	for _, k := range keys {
+		if len(idx[k]) > 0 {
+			return k, true
+		}
 	}
 
-	return strings.Join(parts, "; ")
+	return "", false
 }

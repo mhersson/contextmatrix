@@ -378,11 +378,10 @@ backends: {}
 #    aa_api_key: ""
 #
 #    # Trusted creator vendor prefixes (as seen in model slugs, e.g. qwen,
-#    # z-ai, moonshotai); empty = built-in default allowlist.
-#    # NOTE: model_allowlist is INERT when llm_endpoint.type is "openai". The
-#    # openai leg derives its candidate set from aa_model_map + model_priors
-#    # below - only slugs that appear in one of those two maps are considered for
-#    # selection. The allowlist is only consulted on the OpenRouter leg.
+#    # z-ai, moonshotai); empty = built-in default allowlist. Screens the
+#    # OpenRouter catalog and, when llm_endpoint.type is "openai", the models
+#    # the automatic Artificial Analysis join produces. model_priors entries
+#    # below bypass it.
 #    # Env: CONTEXTMATRIX_BACKEND_AGENT_MODEL_ALLOWLIST (comma-separated)
 #    model_allowlist: []
 #
@@ -396,25 +395,12 @@ backends: {}
 #    # Env: CONTEXTMATRIX_BACKEND_AGENT_CATALOG_QUALITY_FLOOR
 #    catalog_quality_floor: 0
 #
-#    # aa_model_map maps each endpoint model slug to the EXACT Artificial
-#    # Analysis slug of the variant the gateway actually serves. Used only when
-#    # llm_endpoint.type is "openai". The Builder scores the model from that one
-#    # AA row only - there is no family or variant aggregation, and no wildcard
-#    # matching. Reasoning-effort variants are separate AA rows with independent
-#    # scores, so map the served variant precisely: a gateway serving
-#    # default-effort "vendor-x-1" must map to the scored "vendor-x-1" row and
-#    # does NOT inherit a "vendor-x-1-thinking" sibling's score. An unmapped
-#    # slug is ignored unless it has an entry in model_priors below. Unmapped
-#    # or unscored models are excluded from selection and named in the WARN
-#    # log at each catalog refresh.
-#    # Example: endpoint slug "model-a" is scored by AA as "vendor-x-1".
-#    # aa_model_map:
-#    #   model-a: vendor-x-1
-#
 #    # model_priors supplies a direct selection prior (0..1 normalized quality
-#    # score) for endpoint slugs that AA does not rate. Used only when
-#    # llm_endpoint.type is "openai". Slugs in this map bypass the AA join
-#    # entirely; the values are used verbatim for coder and reviewer roles.
+#    # score) for endpoint slugs that Artificial Analysis does not rate. Used
+#    # only when llm_endpoint.type is "openai". Every other served model is
+#    # joined to its AA family automatically (see docs/model-selection.md);
+#    # slugs in this map bypass that join and the allowlist, and the values
+#    # are used verbatim for the coder and reviewer roles.
 #    # Example: "model-b" is not in AA's catalog but the operator knows its quality.
 #    # model_priors:
 #    #   model-b: { coder: 0.91, reviewer: 0.88 }

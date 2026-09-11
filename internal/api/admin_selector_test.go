@@ -306,13 +306,18 @@ func TestAdminSelectorLadders_MultiMode(t *testing.T) {
 }
 
 type stubSelectorCatalog struct {
-	candidates  []protocol.CandidateModel
-	floor       float64
-	refreshedAt time.Time
+	candidates   []protocol.CandidateModel
+	priceSources map[string]string
+	floor        float64
+	refreshedAt  time.Time
 }
 
 func (s *stubSelectorCatalog) Candidates(context.Context) []protocol.CandidateModel {
 	return s.candidates
+}
+
+func (s *stubSelectorCatalog) PriceSources(context.Context) map[string]string {
+	return s.priceSources
 }
 
 func (s *stubSelectorCatalog) Floor() float64 { return s.floor }
@@ -333,6 +338,7 @@ func previewCatalog() *stubSelectorCatalog {
 			{Slug: "c/weak", Creator: "c", CoderPrior: 0.70, ReviewerPrior: 0.70, PromptPricePerTok: 5e-7, CompletionPricePerTok: 5e-7, ContextWindow: 100000},
 			{Slug: "a/mid", Creator: "a", CoderPrior: 0.80, ReviewerPrior: 0.86, PromptPricePerTok: 2e-6, CompletionPricePerTok: 2e-6, ContextWindow: 200000},
 		},
+		priceSources: map[string]string{"a/cheap": "aa", "a/mid": "gateway", "b/pricey": "gateway", "c/weak": "token_costs"},
 	}
 }
 
@@ -364,6 +370,8 @@ func TestAdminSelectorCandidates_ReportsInputsSorted(t *testing.T) {
 	assert.InDelta(t, 0.85, got.Candidates[0].ReviewerPrior, 1e-9)
 	assert.InDelta(t, 1e-6, got.Candidates[0].PromptPricePerTok, 1e-15)
 	assert.Equal(t, 200000, got.Candidates[0].ContextWindow)
+	assert.Equal(t, "aa", got.Candidates[0].PriceSource)
+	assert.Equal(t, "token_costs", got.Candidates[3].PriceSource)
 	assert.Equal(t, []string{"c/weak"}, got.Blacklist)
 	require.Len(t, got.Favorites, 1)
 	assert.Equal(t, "reviewer", got.Favorites[0].Role)
@@ -478,6 +486,7 @@ func TestAdminSelectorPreview_PicksAndPanel(t *testing.T) {
 	assert.Equal(t, "complex", complexTier.Coder.Pick.MetTier)
 	assert.Equal(t, "auto", complexTier.Coder.Pick.Source)
 	assert.InDelta(t, 2e-6, complexTier.Coder.Pick.PricePerTok, 1e-15)
+	assert.Equal(t, "aa", complexTier.Coder.Pick.PriceSource)
 	assert.Equal(t, "complex", complexTier.Coder.Report.Rung)
 	assert.InDelta(t, 0.82, complexTier.Coder.Report.Bar, 1e-9)
 	assert.Len(t, complexTier.Coder.Report.Pool, 2)

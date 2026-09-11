@@ -2790,6 +2790,13 @@ textarea {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+.tl-pv-list {
+  margin-left: 4px;
+  font-size: 9px;
+  color: var(--orange);
+  text-decoration: none;
+  cursor: help;
+}
 .tl-pv[aria-busy="true"] .tl-pv-tier {
   opacity: 0.55;
   transition: opacity 120ms;

@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -65,296 +64,14 @@ func TestBuildCollapsesEffortVariants(t *testing.T) {
 	}
 }
 
-// TestBuildFromAAMapExactRowAndExclusions covers the openai-leg build: exact-row
-// AA joins and the exclusion diagnostics for every non-candidate (unscored row
-// with sibling suggestions, missing AA slug, unmapped slug, tool-incapable).
-func TestBuildFromAAMapExactRowAndExclusions(t *testing.T) {
-	aa := []aaModel{
-		// base row of the model-a family: unscored (AA populates variants only)
-		{Slug: "vendor-x-1", Creator: "vendor", CodingIndex: nil, IntelIndex: nil},
-		// higher-scoring sibling variants that exact-row scoring must ignore
-		{Slug: "vendor-x-1-thinking", Creator: "vendor", CodingIndex: new(float64(80)), IntelIndex: new(float64(80))},
-		{Slug: "vendor-x-1-high", Creator: "vendor", CodingIndex: new(float64(76.5)), IntelIndex: new(float64(59.9))},
-		// an unrelated family, scored on both axes
-		{Slug: "vendor-y-2", Creator: "vendor", CodingIndex: new(float64(70)), IntelIndex: new(float64(70))},
-	}
-	endpoint := map[string]orEntry{
-		"model-a":  {PromptPrice: 3e-6, CompletionPrice: 15e-6, ContextWindow: 200000, Tools: true},
-		"model-b":  {PromptPrice: 1e-6, CompletionPrice: 5e-6, ContextWindow: 128000, Tools: false},
-		"model-c":  {PromptPrice: 5e-6, CompletionPrice: 25e-6, ContextWindow: 200000, Tools: true},
-		"model-d":  {PromptPrice: 1e-6, CompletionPrice: 5e-6, ContextWindow: 128000, Tools: true},
-		"model-e":  {PromptPrice: 1e-6, CompletionPrice: 5e-6, ContextWindow: 128000, Tools: true},
-		"model-g":  {PromptPrice: 1e-6, CompletionPrice: 5e-6, ContextWindow: 128000, Tools: true},
-		"model-h":  {PromptPrice: 1e-6, CompletionPrice: 5e-6, ContextWindow: 128000, Tools: true},
-		"no-tools": {PromptPrice: 1e-6, CompletionPrice: 5e-6, ContextWindow: 128000, Tools: false},
-	}
-	aaModelMap := map[string]string{
-		"model-a": "vendor-x-1",           // unscored base row: excluded with siblings
-		"model-b": "vendor-x-1",           // tool-incapable: dropped before scoring
-		"model-c": "vendor-x-1",           // overridden: AA join skipped
-		"model-d": "vendor-x-1",           // second unscored-row exclusion
-		"model-e": "vendor-y-2",           // scored row, both axes
-		"model-g": "vendor-ghost-missing", // mapped to a nonexistent AA slug
-		// model-h: unmapped
-		// no-tools: tool-incapable, dropped before any mapping lookup
-	}
-	priors := map[string]PriorOverride{"model-c": {Coder: 0.9, Reviewer: 0.88}}
-
-	scored, exclusions := buildFromAAMap(aa, endpoint, aaModelMap, priors, 0.65)
-
-	bySlug := map[string]protocol.CandidateModel{}
-	for _, s := range scored {
-		bySlug[s.Candidate.Slug] = s.Candidate
-	}
-
-	// model-e: exact scored row - only that row's normalized indices against
-	// the response-wide maxima (80 coding / 80 intelligence).
-	require.Contains(t, bySlug, "model-e")
-	assert.InDelta(t, 70.0/80, bySlug["model-e"].CoderPrior, 1e-9)
-	assert.InDelta(t, 70.0/80, bySlug["model-e"].ReviewerPrior, 1e-9)
-
-	// model-c: override wins verbatim, AA join skipped, creator unknown.
-	require.Contains(t, bySlug, "model-c")
-	assert.InDelta(t, 0.9, bySlug["model-c"].CoderPrior, 1e-9)
-	assert.InDelta(t, 0.88, bySlug["model-c"].ReviewerPrior, 1e-9)
-	assert.Empty(t, bySlug["model-c"].Creator)
-
-	// model-b and no-tools: endpoint marks them tool-incapable - never scored,
-	// never excluded (the endpoint's capability flag is not an exclusion).
-	assert.NotContains(t, bySlug, "model-b")
-	assert.NotContains(t, bySlug, "no-tools")
-	require.Len(t, scored, 2)
-
-	byExcl := map[string]aaExclusion{}
-	for _, x := range exclusions {
-		byExcl[x.Slug] = x
-	}
-
-	// model-a: mapped to the unscored base row - excluded, and the scored
-	// sibling variants are named (display-only re-pointing hint).
-	require.Contains(t, byExcl, "model-a")
-	assert.Equal(t, exclUnscored, byExcl["model-a"].Reason)
-
-	siblings := map[string]aaSibling{}
-	for _, sib := range byExcl["model-a"].Siblings {
-		siblings[sib.Slug] = sib
-	}
-
-	require.Len(t, siblings, 2, "both scored sibling variants must be suggested")
-	assert.InDelta(t, 1.0, siblings["vendor-x-1-thinking"].Coder, 1e-9)
-	assert.InDelta(t, 1.0, siblings["vendor-x-1-thinking"].Reviewer, 1e-9)
-	assert.InDelta(t, 76.5/80, siblings["vendor-x-1-high"].Coder, 1e-9)
-	assert.InDelta(t, 59.9/80, siblings["vendor-x-1-high"].Reviewer, 1e-9)
-	assert.NotContains(t, siblings, "vendor-y-2", "other families must not be suggested")
-	assert.NotContains(t, siblings, "vendor-x-1", "the mapped row itself is not a sibling")
-
-	// model-d: duplicate unscored mapping - same exclusion shape, no candidate.
-	require.Contains(t, byExcl, "model-d")
-	assert.Equal(t, exclUnscored, byExcl["model-d"].Reason)
-
-	// model-g: mapped AA slug does not exist in the catalog.
-	require.Contains(t, byExcl, "model-g")
-	assert.Equal(t, exclAASlugMissing, byExcl["model-g"].Reason)
-	assert.Empty(t, byExcl["model-g"].Siblings)
-
-	// model-h: no aa_model_map entry and no override.
-	require.Contains(t, byExcl, "model-h")
-	assert.Equal(t, exclUnmapped, byExcl["model-h"].Reason)
-
-	require.Len(t, exclusions, 4)
-}
-
-// TestBuildFromAAMapExactRowHit pins the root cause this change fixes: a
-// served slug mapped to a SCORED AA row gets exactly that row's normalized
-// indices, even when a higher-scoring sibling variant exists in the family.
-func TestBuildFromAAMapExactRowHit(t *testing.T) {
-	aa := []aaModel{
-		{Slug: "vendor-x-1", Creator: "vendor", CodingIndex: new(float64(40)), IntelIndex: new(float64(40))},
-		{Slug: "vendor-x-1-thinking", Creator: "vendor", CodingIndex: new(float64(80)), IntelIndex: new(float64(80))},
-	}
-	endpoint := map[string]orEntry{
-		"model-a": {PromptPrice: 3e-6, CompletionPrice: 15e-6, ContextWindow: 200000, Tools: true},
-	}
-	aaModelMap := map[string]string{"model-a": "vendor-x-1"}
-
-	scored, exclusions := buildFromAAMap(aa, endpoint, aaModelMap, nil, 0.4)
-	require.Empty(t, exclusions)
-	require.Len(t, scored, 1)
-
-	got := scored[0]
-	assert.Equal(t, "model-a", got.Candidate.Slug)
-	assert.Equal(t, "vendor-x-1", got.Source, "source must name the exact AA row")
-	assert.InDelta(t, 0.5, got.Candidate.CoderPrior, 1e-9, "must use the mapped row's coder index, not the sibling's")
-	assert.InDelta(t, 0.5, got.Candidate.ReviewerPrior, 1e-9, "must use the mapped row's reviewer index, not the sibling's")
-	assert.Equal(t, "vendor", got.Candidate.Creator)
-	assert.Equal(t, 200000, got.Candidate.ContextWindow)
-	assert.InDelta(t, 3e-6, got.Candidate.PromptPricePerTok, 1e-12)
-}
-
-// TestBuildFromAAMapUnscoredVariantSuggestsScoredBase covers the common
-// mis-mapping: an unscored VARIANT slug is mapped while the family's BASE row
-// carries the scores. The trimmed rescan must suggest the scored base row
-// itself, not just suffixed branches.
-func TestBuildFromAAMapUnscoredVariantSuggestsScoredBase(t *testing.T) {
-	aa := []aaModel{
-		{Slug: "vendor-x-1", Creator: "vendor", CodingIndex: new(float64(80)), IntelIndex: new(float64(80))},
-		{Slug: "vendor-x-1-thinking", Creator: "vendor", CodingIndex: nil, IntelIndex: nil},
-	}
-	endpoint := map[string]orEntry{
-		"model-a": {PromptPrice: 3e-6, CompletionPrice: 15e-6, ContextWindow: 200000, Tools: true},
-	}
-	aaModelMap := map[string]string{"model-a": "vendor-x-1-thinking"}
-
-	scored, exclusions := buildFromAAMap(aa, endpoint, aaModelMap, nil, 0.65)
-	require.Empty(t, scored)
-	require.Len(t, exclusions, 1)
-	assert.Equal(t, exclUnscored, exclusions[0].Reason)
-
-	require.Len(t, exclusions[0].Siblings, 1, "the scored base row must be the suggestion")
-	assert.Equal(t, "vendor-x-1", exclusions[0].Siblings[0].Slug)
-	assert.InDelta(t, 1.0, exclusions[0].Siblings[0].Coder, 1e-9)
-	assert.InDelta(t, 1.0, exclusions[0].Siblings[0].Reviewer, 1e-9)
-}
-
-// TestBuildFromAAMapBelowFloorExclusion covers the exclBelowFloor branch for
-// the AA-join path: a scored mapped row whose normalized priors both fall
-// below the floor is excluded rather than scored.
-func TestBuildFromAAMapBelowFloorExclusion(t *testing.T) {
-	aa := []aaModel{
-		{Slug: "strong-1", Creator: "vendor", CodingIndex: new(float64(80)), IntelIndex: new(float64(80))},
-		{Slug: "weak-1", Creator: "vendor", CodingIndex: new(float64(10)), IntelIndex: new(float64(10))},
-	}
-	endpoint := map[string]orEntry{
-		"model-a": {PromptPrice: 3e-6, CompletionPrice: 15e-6, ContextWindow: 200000, Tools: true},
-		"model-b": {PromptPrice: 1e-6, CompletionPrice: 5e-6, ContextWindow: 128000, Tools: true},
-	}
-	aaModelMap := map[string]string{
-		"model-a": "strong-1", // clears the floor: candidate
-		"model-b": "weak-1",   // normalized 0.125/0.125, both below floor 0.65
-	}
-
-	scored, exclusions := buildFromAAMap(aa, endpoint, aaModelMap, nil, 0.65)
-
-	require.Len(t, scored, 1)
-	assert.Equal(t, "model-a", scored[0].Candidate.Slug)
-
-	require.Len(t, exclusions, 1)
-	assert.Equal(t, "model-b", exclusions[0].Slug)
-	assert.Equal(t, exclBelowFloor, exclusions[0].Reason)
-	assert.Empty(t, exclusions[0].Siblings)
-}
-
-// TestBuildFromAAMapOverrideBeatsAAMap pins override precedence: model_priors
-// values pass through verbatim and the AA join is skipped entirely (a missing
-// or poisoned AA catalog must not matter).
-func TestBuildFromAAMapOverrideBeatsAAMap(t *testing.T) {
-	aa := []aaModel{
-		{Slug: "vendor-x-1", Creator: "vendor", CodingIndex: new(float64(80)), IntelIndex: new(float64(80))},
-	}
-	endpoint := map[string]orEntry{
-		"model-a": {PromptPrice: 3e-6, CompletionPrice: 15e-6, ContextWindow: 200000, Tools: true},
-	}
-	priors := map[string]PriorOverride{"model-a": {Coder: 0.42, Reviewer: 0.37}}
-
-	// Floor 0.3: the override values clear it, so an exclusion here would mean
-	// the AA join (or a floor re-check) was wrongly applied to the override.
-	scored, exclusions := buildFromAAMap(aa, endpoint, map[string]string{"model-a": "vendor-x-1"}, priors, 0.3)
-	require.Empty(t, exclusions)
-	require.Len(t, scored, 1)
-
-	assert.Equal(t, "model-a", scored[0].Candidate.Slug)
-	assert.Equal(t, "model_priors override", scored[0].Source)
-	assert.InDelta(t, 0.42, scored[0].Candidate.CoderPrior, 1e-9)
-	assert.InDelta(t, 0.37, scored[0].Candidate.ReviewerPrior, 1e-9)
-	assert.Empty(t, scored[0].Candidate.Creator, "the skipped join leaves the creator unknown")
-}
-
-// TestBuildFromAAMapSingleAxisPriors proves per-axis nil handling: a mapped
-// row scored on one axis only yields a candidate competing on that axis (the
-// other prior is 0), while a row with both axes nil is excluded.
-func TestBuildFromAAMapSingleAxisPriors(t *testing.T) {
-	aa := []aaModel{
-		{Slug: "vendor-x-1", Creator: "vendor", CodingIndex: new(float64(80)), IntelIndex: nil},
-		{Slug: "vendor-y-2", Creator: "vendor", CodingIndex: nil, IntelIndex: new(float64(59.9))},
-		// an isolated unscored row with no scored family to suggest
-		{Slug: "vendor-w-9", Creator: "vendor", CodingIndex: nil, IntelIndex: nil},
-		// an unscored variant slug plus its scored base row and branch
-		{Slug: "vendor-z-3", Creator: "vendor", CodingIndex: nil, IntelIndex: nil},
-		{Slug: "vendor-z-3-thinking", Creator: "vendor", CodingIndex: nil, IntelIndex: nil},
-		{Slug: "vendor-z-3-base", Creator: "vendor", CodingIndex: new(float64(70)), IntelIndex: new(float64(70))},
-		{Slug: "vendor-z-3-branch", Creator: "vendor", CodingIndex: new(float64(76.5)), IntelIndex: new(float64(59.9))},
-	}
-	endpoint := map[string]orEntry{
-		"coder-only":  {PromptPrice: 1e-6, CompletionPrice: 5e-6, ContextWindow: 128000, Tools: true},
-		"review-only": {PromptPrice: 1e-6, CompletionPrice: 5e-6, ContextWindow: 128000, Tools: true},
-		"unscored":    {PromptPrice: 1e-6, CompletionPrice: 5e-6, ContextWindow: 128000, Tools: true},
-		"variant-map": {PromptPrice: 1e-6, CompletionPrice: 5e-6, ContextWindow: 128000, Tools: true},
-	}
-	aaModelMap := map[string]string{
-		"coder-only":  "vendor-x-1",
-		"review-only": "vendor-y-2",
-		"unscored":    "vendor-w-9",
-		"variant-map": "vendor-z-3-thinking",
-	}
-
-	scored, exclusions := buildFromAAMap(aa, endpoint, aaModelMap, nil, 0.65)
-
-	bySlug := map[string]aaScored{}
-	for _, s := range scored {
-		bySlug[s.Candidate.Slug] = s
-	}
-
-	require.Contains(t, bySlug, "coder-only")
-	assert.InDelta(t, 1.0, bySlug["coder-only"].Candidate.CoderPrior, 1e-9)
-	assert.InDelta(t, 0, bySlug["coder-only"].Candidate.ReviewerPrior, 1e-9)
-
-	require.Contains(t, bySlug, "review-only")
-	assert.InDelta(t, 0, bySlug["review-only"].Candidate.CoderPrior, 1e-9)
-	// intel maximum is vendor-z-3-base's 70 (the highest intelligence index).
-	assert.InDelta(t, 59.9/70, bySlug["review-only"].Candidate.ReviewerPrior, 1e-9)
-
-	require.Len(t, exclusions, 2)
-
-	byExcl := map[string]aaExclusion{}
-	for _, x := range exclusions {
-		byExcl[x.Slug] = x
-	}
-
-	// unscored: the mapped row has no usable scores and no scored siblings.
-	require.Contains(t, byExcl, "unscored")
-	assert.Equal(t, exclUnscored, byExcl["unscored"].Reason)
-	assert.Empty(t, byExcl["unscored"].Siblings, "vendor-w-9 has no scored siblings to suggest")
-
-	// variant-map: mapped to an unscored variant slug. The hint derives the
-	// family base ("vendor-z-3-thinking" -> "vendor-z-3") so the operator
-	// still sees the scored base row and branch. Only scored rows qualify;
-	// the unscored base row itself is not suggested.
-	require.Contains(t, byExcl, "variant-map")
-
-	siblings := map[string]aaSibling{}
-	for _, sib := range byExcl["variant-map"].Siblings {
-		siblings[sib.Slug] = sib
-	}
-
-	require.Len(t, siblings, 2)
-	assert.InDelta(t, 70.0/80, siblings["vendor-z-3-base"].Coder, 1e-9)
-	assert.InDelta(t, 1.0, siblings["vendor-z-3-base"].Reviewer, 1e-9)
-	assert.InDelta(t, 76.5/80, siblings["vendor-z-3-branch"].Coder, 1e-9)
-	assert.InDelta(t, 59.9/70, siblings["vendor-z-3-branch"].Reviewer, 1e-9)
-	assert.NotContains(t, siblings, "vendor-z-3", "the unscored base row must not be suggested")
-	assert.NotContains(t, siblings, "vendor-z-3-thinking", "the mapped row itself is not a sibling")
-	assert.NotContains(t, siblings, "vendor-x-1", "other families must not be suggested")
-	assert.NotContains(t, siblings, "vendor-y-2", "other families must not be suggested")
-}
-
-// TestBuilderExcludesUnmappedServedModel exercises the endpoint leg through
-// refresh: a served, tool-capable slug with no mapping surfaces as a WARN
-// exclusion while the mapped sibling still becomes a candidate.
-func TestBuilderExcludesUnmappedServedModel(t *testing.T) {
+// TestBuilderExcludesUnmatchedServedModel exercises the endpoint leg through
+// refresh: a served, tool-capable slug with no AA family surfaces as a WARN
+// exclusion while the matched sibling still becomes a candidate.
+func TestBuilderExcludesUnmatchedServedModel(t *testing.T) {
 	endpointSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"data":[
-			{"id":"model-a","context_length":200000,"pricing":{"prompt":"0.000003","completion":"0.000015"},"capabilities":{"features":["tools"]}},
-			{"id":"unmapped-model","context_length":128000,"pricing":{"prompt":"0.000001","completion":"0.000005"},"capabilities":{"features":["tools"]}}
+			{"id":"vendor-x-1","context_length":200000,"pricing":{"prompt":"0.000003","completion":"0.000015"},"capabilities":{"features":["tools"]}},
+			{"id":"unmatched-model","context_length":128000,"pricing":{"prompt":"0.000001","completion":"0.000005"},"capabilities":{"features":["tools"]}}
 		]}`))
 	}))
 	defer endpointSrv.Close()
@@ -366,18 +83,18 @@ func TestBuilderExcludesUnmappedServedModel(t *testing.T) {
 	defer aaSrv.Close()
 
 	b := NewBuilder("aa-key", 0.5, []string{"vendor"}, time.Hour,
-		WithEndpoint(endpointSrv.URL, "secret", map[string]string{"model-a": "vendor-x-1"}, nil))
+		WithEndpoint(endpointSrv.URL, "secret", nil))
 	b.aaEndpoint = aaSrv.URL // package-accessible field; set directly (no existing helper)
 
-	// The mapped model becomes a candidate; the unmapped one does not.
+	// The matched model becomes a candidate; the one with no AA family does not.
 	cands := b.Candidates(context.Background())
 	require.Len(t, cands, 1)
-	assert.Equal(t, "model-a", cands[0].Slug)
+	assert.Equal(t, "vendor-x-1", cands[0].Slug)
 }
 
 func TestBuilderUsesEndpointLegWhenConfigured(t *testing.T) {
 	endpointSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"data":[{"id":"model-a","context_length":200000,
+		_, _ = w.Write([]byte(`{"data":[{"id":"vendor-x-1","context_length":200000,
 			"pricing":{"prompt":"0.000003","completion":"0.000015"},
 			"capabilities":{"features":["tools"]}}]}`))
 	}))
@@ -390,12 +107,12 @@ func TestBuilderUsesEndpointLegWhenConfigured(t *testing.T) {
 	defer aaSrv.Close()
 
 	b := NewBuilder("aa-key", 0.5, []string{"vendor"}, time.Hour,
-		WithEndpoint(endpointSrv.URL, "secret", map[string]string{"model-a": "vendor-x-1"}, nil))
+		WithEndpoint(endpointSrv.URL, "secret", nil))
 	b.aaEndpoint = aaSrv.URL // package-accessible field; set directly (no existing helper)
 
 	cands := b.Candidates(context.Background())
 	require.Len(t, cands, 1)
-	assert.Equal(t, "model-a", cands[0].Slug)
+	assert.Equal(t, "vendor-x-1", cands[0].Slug)
 }
 
 // TestBuilderCandidatesNilReceiver proves that calling Candidates on a nil
@@ -413,7 +130,7 @@ func TestBuilderCandidatesNilReceiver(t *testing.T) {
 
 // TestBuilderRatePricesAnyServedModel verifies that Rate returns prices for every
 // model in the raw catalog, including models that are not selection candidates
-// (unmapped / below floor / picker-only).
+// (no AA family / below floor / picker-only).
 func TestBuilderRatePricesAnyServedModel(t *testing.T) {
 	endpointSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"data":[
@@ -430,10 +147,10 @@ func TestBuilderRatePricesAnyServedModel(t *testing.T) {
 	defer aaSrv.Close()
 
 	b := NewBuilder("aa-key", 0.5, nil, time.Hour,
-		WithEndpoint(endpointSrv.URL, "secret", map[string]string{"model-a": "vendor-x-1"}, nil))
+		WithEndpoint(endpointSrv.URL, "secret", nil))
 	b.aaEndpoint = aaSrv.URL
 
-	// picker-only is NOT a selection candidate (unmapped), but it is served and priced.
+	// picker-only is NOT a selection candidate (no AA family), but it is served and priced.
 	price, ok := b.Rate(context.Background(), "picker-only")
 	require.True(t, ok)
 	assert.InDelta(t, 0.000001, price.Prompt, 1e-12)
@@ -456,7 +173,7 @@ func TestBuilderRatePricesEndpointWithoutAAKey(t *testing.T) {
 
 	// No agent backend, no AA key - the chat-only + openai-endpoint topology.
 	b := NewBuilder("", 0.65, nil, time.Hour,
-		WithEndpoint(endpointSrv.URL, "secret", nil, nil))
+		WithEndpoint(endpointSrv.URL, "secret", nil))
 
 	price, ok := b.Rate(context.Background(), "model-a")
 	require.True(t, ok, "endpoint pricing must resolve without an AA key")
@@ -510,7 +227,7 @@ func TestBuilderEndpointModelsProjectsCachedCatalog(t *testing.T) {
 	defer endpointSrv.Close()
 
 	b := NewBuilder("", 0.65, nil, time.Hour,
-		WithEndpoint(endpointSrv.URL, "secret", nil, nil))
+		WithEndpoint(endpointSrv.URL, "secret", nil))
 
 	got := b.EndpointModels(context.Background())
 	require.Len(t, got, 1)
@@ -533,7 +250,7 @@ func TestBuilderRefreshFailureBackoff(t *testing.T) {
 	defer endpointSrv.Close()
 
 	b := NewBuilder("", 0.65, nil, time.Hour,
-		WithEndpoint(endpointSrv.URL, "secret", nil, nil))
+		WithEndpoint(endpointSrv.URL, "secret", nil))
 
 	ctx := context.Background()
 
@@ -579,7 +296,7 @@ func TestBuilderRefreshFailureServesLastGood(t *testing.T) {
 	defer endpointSrv.Close()
 
 	b := NewBuilder("", 0.65, nil, time.Hour,
-		WithEndpoint(endpointSrv.URL, "secret", nil, nil))
+		WithEndpoint(endpointSrv.URL, "secret", nil))
 
 	ctx := context.Background()
 
@@ -617,4 +334,282 @@ func TestBuilderLastRefreshed(t *testing.T) {
 	b.cachedAt = stamp
 
 	assert.Equal(t, stamp, b.LastRefreshed(context.Background()))
+}
+
+// TestCandidatePricePrecedence pins the selector-facing price order: the
+// gateway's own price, else the AA list price, else the token_costs fill,
+// else nothing. Rate() never sees the AA price; only candidates do.
+func TestCandidatePricePrecedence(t *testing.T) {
+	aaPriced := &aaModel{Slug: "row", PromptPrice: 2e-6, CompletionPrice: 8e-6}
+	aaUnpriced := &aaModel{Slug: "row"}
+
+	cases := []struct {
+		name               string
+		entry              orEntry
+		row                *aaModel
+		prompt, completion float64
+		source             priceSource
+	}{
+		{"gateway beats aa", orEntry{PromptPrice: 1e-6, CompletionPrice: 5e-6, PriceSource: priceSourceGateway}, aaPriced, 1e-6, 5e-6, priceSourceGateway},
+		{"an untagged priced entry is the gateway's", orEntry{PromptPrice: 1e-6, CompletionPrice: 5e-6}, aaPriced, 1e-6, 5e-6, priceSourceGateway},
+		{"aa beats token_costs", orEntry{PromptPrice: 3e-6, CompletionPrice: 15e-6, PriceSource: priceSourceTokenCosts}, aaPriced, 2e-6, 8e-6, priceSourceAA},
+		{"aa on an unpriced entry", orEntry{}, aaPriced, 2e-6, 8e-6, priceSourceAA},
+		{"token_costs when aa is unpriced", orEntry{PromptPrice: 3e-6, CompletionPrice: 15e-6, PriceSource: priceSourceTokenCosts}, aaUnpriced, 3e-6, 15e-6, priceSourceTokenCosts},
+		{"token_costs on the priors path", orEntry{PromptPrice: 3e-6, CompletionPrice: 15e-6, PriceSource: priceSourceTokenCosts}, nil, 3e-6, 15e-6, priceSourceTokenCosts},
+		{"nothing", orEntry{}, aaUnpriced, 0, 0, priceSourceNone},
+		{"nothing on the priors path", orEntry{}, nil, 0, 0, priceSourceNone},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			prompt, completion, source := candidatePrice(tc.entry, tc.row)
+			assert.InDelta(t, tc.prompt, prompt, 1e-15)
+			assert.InDelta(t, tc.completion, completion, 1e-15)
+			assert.Equal(t, tc.source, source)
+		})
+	}
+}
+
+// TestBuildEndpointCandidatesPricesCandidates proves the build routes both
+// paths through candidatePrice: the AA join takes the row's list price over
+// the fill, and the model_priors path (no row) takes the fill.
+func TestBuildEndpointCandidatesPricesCandidates(t *testing.T) {
+	aa := []aaModel{
+		{Slug: "vendor-x-1", Creator: "vendor", CodingIndex: new(80.0), IntelIndex: new(80.0), PromptPrice: 2e-6, CompletionPrice: 8e-6},
+	}
+	endpoint := map[string]orEntry{
+		"vendor-x-1": {PromptPrice: 3e-6, CompletionPrice: 15e-6, ContextWindow: 200000, Tools: true, PriceSource: priceSourceTokenCosts},
+		"model-c":    {PromptPrice: 5e-6, CompletionPrice: 25e-6, ContextWindow: 200000, Tools: true, PriceSource: priceSourceTokenCosts},
+	}
+	priors := map[string]PriorOverride{"model-c": {Coder: 0.9, Reviewer: 0.88}}
+
+	scored, exclusions := buildEndpointCandidates(aa, endpoint, priors, 0.65, []string{"vendor"})
+	require.Empty(t, exclusions)
+	require.Len(t, scored, 2)
+
+	bySlug := map[string]aaScored{}
+	for _, s := range scored {
+		bySlug[s.Candidate.Slug] = s
+	}
+
+	assert.Equal(t, priceSourceAA, bySlug["vendor-x-1"].PriceSource)
+	assert.InDelta(t, 2e-6, bySlug["vendor-x-1"].Candidate.PromptPricePerTok, 1e-15)
+	assert.InDelta(t, 8e-6, bySlug["vendor-x-1"].Candidate.CompletionPricePerTok, 1e-15)
+
+	assert.Equal(t, priceSourceTokenCosts, bySlug["model-c"].PriceSource)
+	assert.InDelta(t, 5e-6, bySlug["model-c"].Candidate.PromptPricePerTok, 1e-15)
+}
+
+// TestBuilderCandidatePriceFromAARateFromTokenCosts pins the split this
+// change introduces through a full refresh: the candidate carries the AA
+// list price while Rate() keeps the token_costs fill for card costs.
+func TestBuilderCandidatePriceFromAARateFromTokenCosts(t *testing.T) {
+	endpointSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"vendor/model-a","context_length":200000,
+			"alias_names":["model-a"],"capabilities":{"features":["tools"]}}]}`))
+	}))
+	defer endpointSrv.Close()
+
+	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"slug":"model-a","model_creator":{"name":"vendor"},
+			"evaluations":{"artificial_analysis_coding_index":80,"artificial_analysis_intelligence_index":80},
+			"pricing":{"price_1m_input_tokens":2,"price_1m_output_tokens":8}}]}`))
+	}))
+	defer aaSrv.Close()
+
+	b := NewBuilder("aa-key", 0.5, []string{"vendor"}, time.Hour,
+		WithEndpoint(endpointSrv.URL, "secret", nil),
+		WithTokenCosts(map[string]ModelPrice{"model-a": {Prompt: 3e-6, Completion: 15e-6}}))
+	b.aaEndpoint = aaSrv.URL
+
+	cands := b.Candidates(context.Background())
+	require.Len(t, cands, 1)
+	assert.InDelta(t, 2e-6, cands[0].PromptPricePerTok, 1e-15, "the candidate carries the AA list price")
+	assert.InDelta(t, 8e-6, cands[0].CompletionPricePerTok, 1e-15)
+
+	price, ok := b.Rate(context.Background(), "vendor/model-a")
+	require.True(t, ok)
+	assert.InDelta(t, 3e-6, price.Prompt, 1e-15, "card costs keep the token_costs fill")
+	assert.InDelta(t, 15e-6, price.Completion, 1e-15)
+
+	sources := b.PriceSources(context.Background())
+	assert.Equal(t, map[string]string{"vendor/model-a": "aa"}, sources)
+}
+
+// TestBuilderPriceSourcesOpenRouterLeg: every OpenRouter candidate is priced
+// by the served catalog, so the source map says gateway for each.
+func TestBuilderPriceSourcesOpenRouterLeg(t *testing.T) {
+	orSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"z-ai/glm-5.2","context_length":1048576,
+			"pricing":{"prompt":"0.0000012","completion":"0.0000041"},"supported_parameters":["tools"]}]}`))
+	}))
+	defer orSrv.Close()
+
+	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"slug":"glm-5-2","model_creator":{"name":"Z AI"},
+			"evaluations":{"artificial_analysis_coding_index":76.5,"artificial_analysis_intelligence_index":59.9}}]}`))
+	}))
+	defer aaSrv.Close()
+
+	b := NewBuilder("aa-key", 0.5, nil, time.Hour)
+	b.orEndpoint = orSrv.URL
+	b.aaEndpoint = aaSrv.URL
+
+	require.Len(t, b.Candidates(context.Background()), 1)
+	assert.Equal(t, map[string]string{"z-ai/glm-5.2": "gateway"}, b.PriceSources(context.Background()))
+}
+
+func TestBuilderPriceSourcesNilReceiver(t *testing.T) {
+	var b *Builder
+
+	assert.Nil(t, b.PriceSources(context.Background()))
+}
+
+// TestBuildEndpointCandidatesAutomaticJoin covers the openai-leg build end to
+// end: the automatic family join by id and by alias, the closest-row choice,
+// the price precedence per path, the allowlist screen, the model_priors
+// override, and every exclusion reason.
+func TestBuildEndpointCandidatesAutomaticJoin(t *testing.T) {
+	aa := []aaModel{
+		// gpt-5-2 family: a scored, priced base row and a stronger effort variant.
+		{Slug: "gpt-5-2", Creator: "openai", CodingIndex: new(60.0), IntelIndex: new(60.0), PromptPrice: 1.75e-6, CompletionPrice: 14e-6},
+		{Slug: "gpt-5-2-medium", Creator: "openai", CodingIndex: new(80.0), IntelIndex: new(80.0)},
+		// deepseek-v4-flash family: dated rows only, the dated base scored on one axis.
+		{Slug: "deepseek-v4-flash-0420", Creator: "deepseek", CodingIndex: new(60.0), IntelIndex: nil},
+		{Slug: "deepseek-v4-flash-0420-high", Creator: "deepseek", CodingIndex: new(70.0), IntelIndex: new(70.0)},
+		// A family with no scored row.
+		{Slug: "ghost-1", Creator: "openai"},
+		// A scored family from a creator outside the built-in allowlist.
+		{Slug: "outsider-1", Creator: "longcat", CodingIndex: new(80.0), IntelIndex: new(80.0)},
+		// A family below the floor on both axes.
+		{Slug: "weak-1", Creator: "openai", CodingIndex: new(10.0), IntelIndex: new(10.0)},
+		// The Anthropic ordering flip.
+		{Slug: "claude-4-5-sonnet", Creator: "anthropic", CodingIndex: new(65.0), IntelIndex: new(65.0)},
+	}
+	endpoint := map[string]orEntry{
+		"openai/gpt-5.2":             {PromptPrice: 3e-6, CompletionPrice: 15e-6, ContextWindow: 400000, Tools: true, PriceSource: priceSourceTokenCosts},
+		"deepseek-v4-flash":          {ContextWindow: 128000, Tools: true},
+		"vendor-dated-alias":         {ContextWindow: 128000, Tools: true, Aliases: []string{"gpt-5.2-2026-01-15"}},
+		"claude-sonnet-4-5-20250929": {PromptPrice: 3e-6, CompletionPrice: 15e-6, ContextWindow: 200000, Tools: true, PriceSource: priceSourceGateway},
+		"ghost-1":                    {ContextWindow: 1000, Tools: true},
+		"outsider-1":                 {ContextWindow: 1000, Tools: true},
+		"weak-1":                     {ContextWindow: 1000, Tools: true},
+		"nothing-like-it":            {ContextWindow: 1000, Tools: true, Aliases: []string{"still-nothing"}},
+		"private-1":                  {PromptPrice: 5e-6, CompletionPrice: 25e-6, ContextWindow: 1000, Tools: true, PriceSource: priceSourceTokenCosts},
+		"embed-1":                    {ContextWindow: 1000, Tools: false},
+	}
+	priors := map[string]PriorOverride{"private-1": {Coder: 0.9, Reviewer: 0.88}}
+
+	scored, exclusions := buildEndpointCandidates(aa, endpoint, priors, 0.65, nil)
+
+	bySlug := map[string]aaScored{}
+	for _, s := range scored {
+		bySlug[s.Candidate.Slug] = s
+	}
+
+	byExcl := map[string]aaExclusion{}
+	for _, x := range exclusions {
+		byExcl[x.Slug] = x
+	}
+
+	// openai/gpt-5.2: vendor prefix and dot handled; the scored base row wins
+	// over the stronger medium variant; the AA list price beats the fill.
+	require.Contains(t, bySlug, "openai/gpt-5.2")
+	got := bySlug["openai/gpt-5.2"]
+	assert.Equal(t, "gpt-5-2", got.Source)
+	assert.Equal(t, joinAutomatic, got.Join)
+	assert.InDelta(t, 60.0/80, got.Candidate.CoderPrior, 1e-9)
+	assert.InDelta(t, 60.0/80, got.Candidate.ReviewerPrior, 1e-9)
+	assert.Equal(t, "openai", got.Candidate.Creator)
+	assert.Equal(t, priceSourceAA, got.PriceSource)
+	assert.InDelta(t, 1.75e-6, got.Candidate.PromptPricePerTok, 1e-15)
+	assert.InDelta(t, 14e-6, got.Candidate.CompletionPricePerTok, 1e-15)
+	assert.Equal(t, 400000, got.Candidate.ContextWindow)
+
+	// deepseek-v4-flash: no base row; the dated base beats the dated effort
+	// variant, its nil intelligence index yields no reviewer prior, and
+	// nothing prices it.
+	require.Contains(t, bySlug, "deepseek-v4-flash")
+	assert.Equal(t, "deepseek-v4-flash-0420", bySlug["deepseek-v4-flash"].Source)
+	assert.InDelta(t, 60.0/80, bySlug["deepseek-v4-flash"].Candidate.CoderPrior, 1e-9)
+	assert.Zero(t, bySlug["deepseek-v4-flash"].Candidate.ReviewerPrior)
+	assert.Equal(t, priceSourceNone, bySlug["deepseek-v4-flash"].PriceSource)
+
+	// vendor-dated-alias: the id matches nothing, the dated alias reduces to gpt-5-2.
+	require.Contains(t, bySlug, "vendor-dated-alias")
+	assert.Equal(t, "gpt-5-2", bySlug["vendor-dated-alias"].Source)
+
+	// claude-sonnet-4-5-20250929: the dated vendor id reaches AA's
+	// version-first slug through the built-in rewrite; the gateway price wins.
+	require.Contains(t, bySlug, "claude-sonnet-4-5-20250929")
+	assert.Equal(t, "claude-4-5-sonnet", bySlug["claude-sonnet-4-5-20250929"].Source)
+	assert.Equal(t, priceSourceGateway, bySlug["claude-sonnet-4-5-20250929"].PriceSource)
+
+	// private-1: model_priors verbatim, no join, no creator, the fill's price.
+	require.Contains(t, bySlug, "private-1")
+	assert.Equal(t, joinModelPriors, bySlug["private-1"].Join)
+	assert.Equal(t, "model_priors override", bySlug["private-1"].Source)
+	assert.InDelta(t, 0.9, bySlug["private-1"].Candidate.CoderPrior, 1e-9)
+	assert.Empty(t, bySlug["private-1"].Candidate.Creator)
+	assert.Equal(t, priceSourceTokenCosts, bySlug["private-1"].PriceSource)
+
+	assert.NotContains(t, bySlug, "embed-1", "tool-incapable models are never scored")
+	require.Len(t, scored, 5)
+
+	require.Contains(t, byExcl, "ghost-1")
+	assert.Equal(t, exclUnscored, byExcl["ghost-1"].Reason)
+	assert.Equal(t, []string{"ghost-1"}, byExcl["ghost-1"].Family)
+
+	require.Contains(t, byExcl, "outsider-1")
+	assert.Equal(t, exclNotAllowed, byExcl["outsider-1"].Reason)
+	assert.Equal(t, "outsider-1", byExcl["outsider-1"].Source)
+
+	require.Contains(t, byExcl, "weak-1")
+	assert.Equal(t, exclBelowFloor, byExcl["weak-1"].Reason)
+	assert.Equal(t, "weak-1", byExcl["weak-1"].Source)
+
+	require.Contains(t, byExcl, "nothing-like-it")
+	assert.Equal(t, exclNoFamily, byExcl["nothing-like-it"].Reason)
+	assert.Equal(t, []string{"nothing-like-it", "still-nothing"}, byExcl["nothing-like-it"].Keys)
+
+	assert.NotContains(t, byExcl, "embed-1", "the capability flag is not an exclusion")
+	require.Len(t, exclusions, 4)
+}
+
+// TestBuildEndpointCandidatesPriorsBeatAutomatic pins override precedence: a
+// model_priors entry wins over a family AA would have joined, verbatim, and
+// skips the allowlist screen.
+func TestBuildEndpointCandidatesPriorsBeatAutomatic(t *testing.T) {
+	aa := []aaModel{{Slug: "gpt-5-2", Creator: "openai", CodingIndex: new(80.0), IntelIndex: new(80.0)}}
+	endpoint := map[string]orEntry{"gpt-5.2": {ContextWindow: 1000, Tools: true}}
+	priors := map[string]PriorOverride{"gpt-5.2": {Coder: 0.42, Reviewer: 0.37}}
+
+	// Allowlist without openai: the override must still pass.
+	scored, exclusions := buildEndpointCandidates(aa, endpoint, priors, 0.3, []string{"anthropic"})
+	require.Empty(t, exclusions)
+	require.Len(t, scored, 1)
+	assert.Equal(t, joinModelPriors, scored[0].Join)
+	assert.InDelta(t, 0.42, scored[0].Candidate.CoderPrior, 1e-9)
+	assert.InDelta(t, 0.37, scored[0].Candidate.ReviewerPrior, 1e-9)
+	assert.Empty(t, scored[0].Candidate.Creator)
+}
+
+// TestBuildEndpointCandidatesAllowlistOverride: a configured allowlist
+// replaces the built-in one for automatic matches, as on the OpenRouter leg.
+func TestBuildEndpointCandidatesAllowlistOverride(t *testing.T) {
+	aa := []aaModel{
+		{Slug: "outsider-1", Creator: "longcat", CodingIndex: new(80.0), IntelIndex: new(80.0)},
+		{Slug: "gpt-5-2", Creator: "openai", CodingIndex: new(80.0), IntelIndex: new(80.0)},
+	}
+	endpoint := map[string]orEntry{
+		"outsider-1": {ContextWindow: 1000, Tools: true},
+		"gpt-5.2":    {ContextWindow: 1000, Tools: true},
+	}
+
+	scored, exclusions := buildEndpointCandidates(aa, endpoint, nil, 0.65, []string{"longcat"})
+	require.Len(t, scored, 1)
+	assert.Equal(t, "outsider-1", scored[0].Candidate.Slug)
+	require.Len(t, exclusions, 1)
+	assert.Equal(t, "gpt-5.2", exclusions[0].Slug)
+	assert.Equal(t, exclNotAllowed, exclusions[0].Reason)
 }

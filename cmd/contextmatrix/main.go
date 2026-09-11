@@ -849,7 +849,7 @@ func newCatalogBuilder(cfg *config.Config, agentCfg *config.AgentBackendConfig, 
 			}
 
 			opts = append(opts, modelcatalog.WithEndpoint(
-				cfg.LLMEndpoint.BaseURL, cfg.LLMEndpoint.APIKey, agentCfg.AAModelMap, priors),
+				cfg.LLMEndpoint.BaseURL, cfg.LLMEndpoint.APIKey, priors),
 				modelcatalog.WithTokenCosts(catalogTokenCosts(cfg.TokenCosts)))
 		}
 
@@ -864,7 +864,7 @@ func newCatalogBuilder(cfg *config.Config, agentCfg *config.AgentBackendConfig, 
 		}
 
 		return modelcatalog.NewBuilder("", floor, nil, 0,
-			modelcatalog.WithEndpoint(cfg.LLMEndpoint.BaseURL, cfg.LLMEndpoint.APIKey, nil, nil),
+			modelcatalog.WithEndpoint(cfg.LLMEndpoint.BaseURL, cfg.LLMEndpoint.APIKey, nil),
 			modelcatalog.WithTokenCosts(catalogTokenCosts(cfg.TokenCosts)))
 
 	case hasAgent || chatOpenRouter:

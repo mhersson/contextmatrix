@@ -47,6 +47,13 @@ func TestApplyTokenCostsResolutionOrder(t *testing.T) {
 	assert.InDelta(t, 7e-6, cat["vendor/dated"].PromptPrice, 1e-15)
 	assert.InDelta(t, 1e-9, cat["vendor/endpoint-priced"].PromptPrice, 1e-15)
 	assert.Zero(t, cat["vendor/unknown"].PromptPrice)
+
+	assert.Equal(t, priceSourceGateway, cat["vendor/endpoint-priced"].PriceSource)
+	assert.Equal(t, priceSourceTokenCosts, cat["vendor/exact-slug"].PriceSource)
+	assert.Equal(t, priceSourceTokenCosts, cat["vendor/bare-name"].PriceSource)
+	assert.Equal(t, priceSourceTokenCosts, cat["vendor/dated"].PriceSource)
+	assert.Empty(t, cat["vendor/unknown"].PriceSource, "nothing priced it")
+	assert.Empty(t, cat["vendor/free-row"].PriceSource, "a rate row pricing nothing is absent")
 }
 
 func TestApplyTokenCostsNoTable(t *testing.T) {
@@ -71,13 +78,13 @@ func TestBuilderPricesEndpointCandidatesFromTokenCosts(t *testing.T) {
 	defer endpointSrv.Close()
 
 	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"data":[{"slug":"vendor-x-1","model_creator":{"name":"vendor"},
+		_, _ = w.Write([]byte(`{"data":[{"slug":"model-a","model_creator":{"name":"vendor"},
 			"evaluations":{"artificial_analysis_coding_index":80,"artificial_analysis_intelligence_index":80}}]}`))
 	}))
 	defer aaSrv.Close()
 
-	b := NewBuilder("aa-key", 0.5, nil, time.Hour,
-		WithEndpoint(endpointSrv.URL, "secret", map[string]string{"vendor/model-a": "vendor-x-1"}, nil),
+	b := NewBuilder("aa-key", 0.5, []string{"vendor"}, time.Hour,
+		WithEndpoint(endpointSrv.URL, "secret", nil),
 		WithTokenCosts(map[string]ModelPrice{"model-a": {Prompt: 3e-6, Completion: 15e-6}}))
 	b.aaEndpoint = aaSrv.URL
 

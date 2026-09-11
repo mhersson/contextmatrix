@@ -928,11 +928,10 @@ name, a leftover `runner` entry, or an unknown per-entry key fails startup.
 | `backends.<name>.default_model`        | agent, chat  | unset      | Optional on `agent` (empty `model` in the trigger); required on an enabled `chat` entry.       |
 | `backends.agent.reconcile_interval`    | agent        | `60s`      | Backstop sweep tick; `"0s"` disables. Rejected on the `chat` entry.                           |
 | `backends.agent.aa_api_key`            | agent        | unset      | Enables the selection catalog. See [model selection](model-selection.md).                     |
-| `backends.agent.model_allowlist`       | agent        | built-in   | Trusted vendor prefixes on the OpenRouter leg.                                                |
+| `backends.agent.model_allowlist`       | agent        | built-in   | Trusted vendor prefixes; screens the OpenRouter catalog and the openai leg's automatic AA matches. |
 | `backends.agent.catalog_quality_floor` | agent        | `0` (0.65) | Must be in `[0, 1)`; `0` means the Builder's 0.65 default.                                    |
 | `backends.agent.favorites`             | agent        | none       | Per-tier preferred models, optionally per role.                                               |
-| `backends.agent.aa_model_map`          | agent        | none       | Endpoint slug to exact AA slug (`openai` leg).                                                |
-| `backends.agent.model_priors`          | agent        | none       | Verbatim priors for unrated endpoint slugs (`openai` leg).                                    |
+| `backends.agent.model_priors`          | agent        | none       | Verbatim priors for endpoint slugs AA does not rate (`openai` leg).                            |
 | `mcp_api_key`                          | global       | unset      | Forwarded to workers so they can reach CM's MCP endpoint.                                     |
 | `llm_endpoint.{type,base_url,api_key}` | global       | unset      | Forwarded on every trigger and chat start whenever `type` is set.                             |
 | `best_of_n.max_candidates`             | global       | `5`        | Hard cap on a card's race size.                                                               |

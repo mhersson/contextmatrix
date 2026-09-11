@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import type { SelectorLadders } from '../../types';
 import { PickPreview } from './PickPreview';
-import { CANDIDATES, DEFAULT_BARS, pick, previewFixture } from './selector.fixtures';
+import { CANDIDATES, DEFAULT_BARS, pick, previewFixture, seat } from './selector.fixtures';
 
 const LADDERS: SelectorLadders = { coder: { ...DEFAULT_BARS }, reviewer: { ...DEFAULT_BARS } };
 
@@ -61,5 +61,18 @@ describe('PickPreview', () => {
     expect(screen.queryByText('Waiting for the first preview…')).not.toBeInTheDocument();
     expect(screen.queryByText('computing…')).not.toBeInTheDocument();
     expect(screen.getByTestId('tl-preview')).toHaveAttribute('aria-busy', 'false');
+  });
+
+  it('marks a pick, a seat and the panel total as list price when the price is the AA list price', () => {
+    const p = previewFixture();
+    p.tiers.complex.coder = pick('a/cheap', 'coder', 'complex', 'complex', 2e-6, { price_source: 'aa' });
+    p.tiers.complex.panel[1] = seat('b/pricey', 2e-5, true, 'complex', { price_source: 'aa' });
+    render(<PickPreview preview={p} pending={false} disabled={false} error={null} ladders={LADDERS} candidates={CANDIDATES} headroom={1.5} />);
+
+    const complexTier = screen.getByTestId('tl-pv-complex');
+    // The coder pick, seat 1 and the panel total; the reviewer pick stays unmarked.
+    expect(within(complexTier).getAllByText('list')).toHaveLength(3);
+    expect(within(screen.getByTestId('tl-seat-complex-1')).getByText('list')).toHaveAttribute('title', expect.stringContaining('list price'));
+    expect(within(screen.getByTestId('tl-pv-simple')).queryByText('list')).toBeNull();
   });
 });
