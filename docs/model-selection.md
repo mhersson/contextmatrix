@@ -202,11 +202,16 @@ otherwise the scored row with the fewest effort suffixes stripped, then the
 fewest date tokens stripped, then the highest combined prior. A gateway
 serving `gpt-5.2` is scored from AA's `gpt-5-2` row, not from
 `gpt-5-2-medium`; one serving `deepseek-v4-flash` is scored from
-`deepseek-v4-flash-0420`. The chosen row's creator must pass the allowlist.
-A nil index on the chosen row yields no prior for that role (the candidate
-competes only on the scored axis). `model_priors` entries bypass the join
-entirely: the configured 0..1 values are used verbatim, and no allowlist
-screen applies. The same floor applies to both paths.
+`deepseek-v4-flash-0420`. Closeness is measured against the family key, not
+the served id, so a gateway serving an effort variant such as `gpt-5.2-high`
+is also scored from the `gpt-5-2` base row, not from AA's `gpt-5-2-high`
+row; two ids that differ only by effort suffix carry the same priors and
+price, and `model_priors` is the override when that under-scores a model.
+The chosen row's creator must pass the allowlist. A nil index on the chosen
+row yields no prior for that role (the candidate competes only on the
+scored axis). `model_priors` entries bypass the join entirely: the
+configured 0..1 values are used verbatim, and no allowlist screen applies.
+The same floor applies to both paths.
 
 Exclusions are loud: every served, tool-capable model that does not become a
 candidate is logged at WARN with its slug and the specific reason - no AA

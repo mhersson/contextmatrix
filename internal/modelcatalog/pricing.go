@@ -19,8 +19,11 @@ const (
 
 // applyTokenCosts fills the per-token prices of endpoint models the gateway
 // serves without a pricing block, reading them from the operator's token_costs
-// rate table. An entry the gateway did price is left alone: the provider's own
-// numbers win, token_costs only covers what the provider omits. It also tags each entry with where its price came from (`PriceSource`), which the candidate build reads to rank the gateway's price above the AA list price above the fill.
+// rate table. An entry the gateway did price is left alone: the provider's
+// own numbers win, token_costs only covers what the provider omits. It
+// also tags each entry with where its price came from (`PriceSource`),
+// which the candidate build reads to rank the gateway's price above the AA
+// list price above the fill.
 //
 // Without this, a gateway that publishes no pricing hands the selector a
 // catalog where every candidate costs 0. The price band then collapses to
