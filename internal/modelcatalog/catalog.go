@@ -310,15 +310,16 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 
 		// A gateway that publishes no pricing leaves every entry at 0, which
 		// makes the selector's price band vacuous. Fill those from token_costs
-		// before anything reads the catalog, and name what stays unpriced: a
-		// tool-capable model the selector prices at 0 competes as if free.
+		// before anything reads the catalog for card costs, and name what stays
+		// unpriced. Whether the selector sees a price is decided per candidate
+		// below, where the AA list price also counts.
 		filled, unpriced := applyTokenCosts(ep, b.tokenCosts)
 		if filled > 0 {
 			slog.Info("endpoint models priced from token_costs", "count", filled)
 		}
 
 		for _, slug := range unpriced {
-			slog.Warn("endpoint model has no price; the selector will treat it as free",
+			slog.Warn("endpoint model has no gateway or token_costs price; card costs for it will report as 0",
 				"slug", slug, "hint", "add a token_costs entry for this slug, its vendor-stripped name, or one of its gateway aliases")
 		}
 
@@ -362,7 +363,13 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 		for _, s := range built {
 			slog.Info("endpoint model scored",
 				"slug", s.Candidate.Slug, "coder_prior", s.Candidate.CoderPrior,
-				"reviewer_prior", s.Candidate.ReviewerPrior, "source", s.Source)
+				"reviewer_prior", s.Candidate.ReviewerPrior, "source", s.Source,
+				"price_source", s.PriceSource)
+
+			if s.PriceSource == priceSourceNone {
+				slog.Warn("candidate has no price from the gateway, Artificial Analysis or token_costs; the selector will treat it as free",
+					"slug", s.Candidate.Slug)
+			}
 		}
 
 		cands := make([]protocol.CandidateModel, 0, len(built))
@@ -525,12 +532,35 @@ type aaSibling struct {
 	Reviewer float64
 }
 
+// candidatePrice resolves the price a selection candidate carries and where
+// it came from: the gateway's own price when it published one, else the
+// joined AA row's list price, else the token_costs fill, else 0. A priced
+// entry not tagged token_costs is the gateway's, so an untagged catalog (a
+// test fixture) still ranks correctly. Only the candidate reads this: Rate()
+// and card costs keep the catalog entry's gateway-then-token_costs price.
+// row is nil on the model_priors path.
+func candidatePrice(e orEntry, row *aaModel) (prompt, completion float64, source priceSource) {
+	entryPriced := e.PromptPrice != 0 || e.CompletionPrice != 0
+
+	switch {
+	case entryPriced && e.PriceSource != priceSourceTokenCosts:
+		return e.PromptPrice, e.CompletionPrice, priceSourceGateway
+	case row != nil && row.priced():
+		return row.PromptPrice, row.CompletionPrice, priceSourceAA
+	case entryPriced:
+		return e.PromptPrice, e.CompletionPrice, priceSourceTokenCosts
+	default:
+		return 0, 0, priceSourceNone
+	}
+}
+
 // aaScored pairs a resolved candidate with the provenance of its priors for
-// the refresh log: "model_priors override" or the exact AA slug it was scored
-// from.
+// the refresh log ("model_priors override" or the exact AA slug it was
+// scored from) and of its price.
 type aaScored struct {
-	Candidate protocol.CandidateModel
-	Source    string
+	Candidate   protocol.CandidateModel
+	Source      string
+	PriceSource priceSource
 }
 
 // buildFromAAMap scores each tool-capable served slug for the openai leg. A model_priors override
@@ -560,16 +590,19 @@ func buildFromAAMap(aa []aaModel, endpoint map[string]orEntry, aaModelMap map[st
 				continue
 			}
 
+			prompt, completion, priceSrc := candidatePrice(e, nil)
+
 			scored = append(scored, aaScored{
 				Candidate: protocol.CandidateModel{
 					Slug:                  slug,
-					PromptPricePerTok:     e.PromptPrice,
-					CompletionPricePerTok: e.CompletionPrice,
+					PromptPricePerTok:     prompt,
+					CompletionPricePerTok: completion,
 					ContextWindow:         e.ContextWindow,
 					CoderPrior:            p.Coder,
 					ReviewerPrior:         p.Reviewer,
 				},
-				Source: "model_priors override",
+				Source:      "model_priors override",
+				PriceSource: priceSrc,
 			})
 
 			continue
@@ -610,17 +643,20 @@ func buildFromAAMap(aa []aaModel, endpoint map[string]orEntry, aaModelMap map[st
 			continue
 		}
 
+		prompt, completion, priceSrc := candidatePrice(e, &m)
+
 		scored = append(scored, aaScored{
 			Candidate: protocol.CandidateModel{
 				Slug:                  slug,
-				PromptPricePerTok:     e.PromptPrice,
-				CompletionPricePerTok: e.CompletionPrice,
+				PromptPricePerTok:     prompt,
+				CompletionPricePerTok: completion,
 				ContextWindow:         e.ContextWindow,
 				CoderPrior:            coder,
 				ReviewerPrior:         rev,
 				Creator:               m.Creator,
 			},
-			Source: aaSlug,
+			Source:      aaSlug,
+			PriceSource: priceSrc,
 		})
 	}
 

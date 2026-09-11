@@ -618,3 +618,100 @@ func TestBuilderLastRefreshed(t *testing.T) {
 
 	assert.Equal(t, stamp, b.LastRefreshed(context.Background()))
 }
+
+// TestCandidatePricePrecedence pins the selector-facing price order: the
+// gateway's own price, else the AA list price, else the token_costs fill,
+// else nothing. Rate() never sees the AA price; only candidates do.
+func TestCandidatePricePrecedence(t *testing.T) {
+	aaPriced := &aaModel{Slug: "row", PromptPrice: 2e-6, CompletionPrice: 8e-6}
+	aaUnpriced := &aaModel{Slug: "row"}
+
+	cases := []struct {
+		name               string
+		entry              orEntry
+		row                *aaModel
+		prompt, completion float64
+		source             priceSource
+	}{
+		{"gateway beats aa", orEntry{PromptPrice: 1e-6, CompletionPrice: 5e-6, PriceSource: priceSourceGateway}, aaPriced, 1e-6, 5e-6, priceSourceGateway},
+		{"an untagged priced entry is the gateway's", orEntry{PromptPrice: 1e-6, CompletionPrice: 5e-6}, aaPriced, 1e-6, 5e-6, priceSourceGateway},
+		{"aa beats token_costs", orEntry{PromptPrice: 3e-6, CompletionPrice: 15e-6, PriceSource: priceSourceTokenCosts}, aaPriced, 2e-6, 8e-6, priceSourceAA},
+		{"aa on an unpriced entry", orEntry{}, aaPriced, 2e-6, 8e-6, priceSourceAA},
+		{"token_costs when aa is unpriced", orEntry{PromptPrice: 3e-6, CompletionPrice: 15e-6, PriceSource: priceSourceTokenCosts}, aaUnpriced, 3e-6, 15e-6, priceSourceTokenCosts},
+		{"token_costs on the priors path", orEntry{PromptPrice: 3e-6, CompletionPrice: 15e-6, PriceSource: priceSourceTokenCosts}, nil, 3e-6, 15e-6, priceSourceTokenCosts},
+		{"nothing", orEntry{}, aaUnpriced, 0, 0, priceSourceNone},
+		{"nothing on the priors path", orEntry{}, nil, 0, 0, priceSourceNone},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			prompt, completion, source := candidatePrice(tc.entry, tc.row)
+			assert.InDelta(t, tc.prompt, prompt, 1e-15)
+			assert.InDelta(t, tc.completion, completion, 1e-15)
+			assert.Equal(t, tc.source, source)
+		})
+	}
+}
+
+// TestBuildFromAAMapPricesCandidates proves the build routes both paths
+// through candidatePrice: the AA join takes the row's list price over the
+// fill, and the model_priors path (no row) takes the fill.
+func TestBuildFromAAMapPricesCandidates(t *testing.T) {
+	aa := []aaModel{
+		{Slug: "vendor-x-1", Creator: "vendor", CodingIndex: new(80.0), IntelIndex: new(80.0), PromptPrice: 2e-6, CompletionPrice: 8e-6},
+	}
+	endpoint := map[string]orEntry{
+		"model-a": {PromptPrice: 3e-6, CompletionPrice: 15e-6, ContextWindow: 200000, Tools: true, PriceSource: priceSourceTokenCosts},
+		"model-c": {PromptPrice: 5e-6, CompletionPrice: 25e-6, ContextWindow: 200000, Tools: true, PriceSource: priceSourceTokenCosts},
+	}
+	priors := map[string]PriorOverride{"model-c": {Coder: 0.9, Reviewer: 0.88}}
+
+	scored, exclusions := buildFromAAMap(aa, endpoint, map[string]string{"model-a": "vendor-x-1"}, priors, 0.65)
+	require.Empty(t, exclusions)
+	require.Len(t, scored, 2)
+
+	bySlug := map[string]aaScored{}
+	for _, s := range scored {
+		bySlug[s.Candidate.Slug] = s
+	}
+
+	assert.Equal(t, priceSourceAA, bySlug["model-a"].PriceSource)
+	assert.InDelta(t, 2e-6, bySlug["model-a"].Candidate.PromptPricePerTok, 1e-15)
+	assert.InDelta(t, 8e-6, bySlug["model-a"].Candidate.CompletionPricePerTok, 1e-15)
+
+	assert.Equal(t, priceSourceTokenCosts, bySlug["model-c"].PriceSource)
+	assert.InDelta(t, 5e-6, bySlug["model-c"].Candidate.PromptPricePerTok, 1e-15)
+}
+
+// TestBuilderCandidatePriceFromAARateFromTokenCosts pins the split this
+// change introduces through a full refresh: the candidate carries the AA
+// list price while Rate() keeps the token_costs fill for card costs.
+func TestBuilderCandidatePriceFromAARateFromTokenCosts(t *testing.T) {
+	endpointSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"vendor/model-a","context_length":200000,
+			"alias_names":["model-a"],"capabilities":{"features":["tools"]}}]}`))
+	}))
+	defer endpointSrv.Close()
+
+	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"slug":"vendor-x-1","model_creator":{"name":"vendor"},
+			"evaluations":{"artificial_analysis_coding_index":80,"artificial_analysis_intelligence_index":80},
+			"pricing":{"price_1m_input_tokens":2,"price_1m_output_tokens":8}}]}`))
+	}))
+	defer aaSrv.Close()
+
+	b := NewBuilder("aa-key", 0.5, nil, time.Hour,
+		WithEndpoint(endpointSrv.URL, "secret", map[string]string{"vendor/model-a": "vendor-x-1"}, nil),
+		WithTokenCosts(map[string]ModelPrice{"model-a": {Prompt: 3e-6, Completion: 15e-6}}))
+	b.aaEndpoint = aaSrv.URL
+
+	cands := b.Candidates(context.Background())
+	require.Len(t, cands, 1)
+	assert.InDelta(t, 2e-6, cands[0].PromptPricePerTok, 1e-15, "the candidate carries the AA list price")
+	assert.InDelta(t, 8e-6, cands[0].CompletionPricePerTok, 1e-15)
+
+	price, ok := b.Rate(context.Background(), "vendor/model-a")
+	require.True(t, ok)
+	assert.InDelta(t, 3e-6, price.Prompt, 1e-15, "card costs keep the token_costs fill")
+	assert.InDelta(t, 15e-6, price.Completion, 1e-15)
+}
