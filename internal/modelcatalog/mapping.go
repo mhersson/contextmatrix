@@ -3,6 +3,7 @@ package modelcatalog
 import (
 	"regexp"
 	"slices"
+	"sort"
 	"strings"
 )
 
@@ -107,4 +108,266 @@ func servedSlugAllowed(slug string, allowed, favorites map[string]bool) bool {
 	vendor, _, ok := strings.Cut(slug, "/")
 
 	return ok && allowed[vendor]
+}
+
+// familyKey reduces an AA slug or a gateway model id to the key both sides
+// join on: lowercase, no vendor prefix, dots as dashes, and no trailing
+// reasoning-effort suffix or date token. Both AA (gpt-5-2-medium,
+// deepseek-v4-flash-0420-high) and vendors (gpt-5.2, claude-sonnet-4-5-20250929)
+// name a family this way; nothing else is normalised, so an identity suffix
+// (mini, codex, flash, preview) can never be removed.
+func familyKey(s string) string {
+	key, _, _ := familyKeyCounts(s)
+
+	return key
+}
+
+// familyKeyCounts is familyKey plus how many effort suffixes and date tokens
+// were stripped to reach the key, which is how the family index ranks a
+// row's closeness to a served id.
+func familyKeyCounts(s string) (key string, effortStripped, dateStripped int) {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if _, name, found := strings.Cut(s, "/"); found {
+		s = name
+	}
+
+	if s == "" {
+		return "", 0, 0
+	}
+
+	segs := strings.Split(strings.ReplaceAll(s, ".", "-"), "-")
+
+	for {
+		changed := false
+
+		if rest, ok := stripEffort(segs); ok {
+			segs, changed = rest, true
+			effortStripped++
+		}
+
+		if rest, ok := stripDate(segs); ok {
+			segs, changed = rest, true
+			dateStripped++
+		}
+
+		if !changed {
+			break
+		}
+	}
+
+	return strings.Join(segs, "-"), effortStripped, dateStripped
+}
+
+// effortSuffixes are AA's reasoning-effort variant markers, one segment
+// each; non-reasoning spans two segments and is matched first.
+var effortSuffixes = map[string]bool{
+	"low": true, "medium": true, "high": true, "xhigh": true, "minimal": true,
+	"reasoning": true, "thinking": true, "adaptive": true,
+}
+
+// stripEffort drops one trailing effort suffix, keeping at least one
+// segment so a bare "high" stays a key.
+func stripEffort(segs []string) ([]string, bool) {
+	n := len(segs)
+
+	if n > 2 && segs[n-2] == "non" && segs[n-1] == "reasoning" {
+		return segs[:n-2], true
+	}
+
+	if n > 1 && effortSuffixes[segs[n-1]] {
+		return segs[:n-1], true
+	}
+
+	return segs, false
+}
+
+// dateToken matches the trailing date shapes AA and vendors use, joined by
+// dashes: MMDD or YYYYMMDD, MM-DD, MM-YYYY, YYYY-MM-DD, and a month name
+// with a two- or four-digit year. Anchored, so every digit group must have
+// exactly its length ("4-20" is a version, "001" a revision, "40k" a size),
+// and every four-digit year must start with 20, so a version followed by an
+// MMDD snapshot ("grok-4-20-0309": "20-0309") is not read as MM-YYYY.
+var dateToken = regexp.MustCompile(
+	`^(\d{4}|20\d{6}|\d{2}-\d{2}|\d{2}-20\d{2}|20\d{2}-\d{2}-\d{2}|(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*-(\d{2}|20\d{2}))$`)
+
+// stripDate drops one trailing date token of up to three segments, longest
+// first so 2024-08-06 is one token rather than 08-06 after 2024. At least
+// one segment is kept.
+func stripDate(segs []string) ([]string, bool) {
+	for take := 3; take >= 1; take-- {
+		if len(segs) <= take {
+			continue
+		}
+
+		if dateToken.MatchString(strings.Join(segs[len(segs)-take:], "-")) {
+			return segs[:len(segs)-take], true
+		}
+	}
+
+	return segs, false
+}
+
+// familyKeyOverrides adds index keys for AA slugs whose family key no rule
+// reconstructs from the vendor id. AA slug -> extra keys. Ships with
+// ContextMatrix; not configuration.
+var familyKeyOverrides = map[string][]string{
+	"claude-35-sonnet": {"claude-3-5-sonnet"},
+	"gpt-35-turbo":     {"gpt-3-5-turbo"},
+}
+
+// rewriteKeys returns the additional index keys a family key is reachable
+// under. The one rule is Anthropic's ordering flip: AA writes the 4.x
+// generation version-first (claude-4-5-sonnet) where the vendor id is
+// name-first (claude-sonnet-4-5). A key whose last segment is a word and
+// whose segments between "claude" and that word are all numeric also
+// indexes with the word moved before the numbers.
+func rewriteKeys(key string) []string {
+	segs := strings.Split(key, "-")
+	if len(segs) < 3 || segs[0] != "claude" {
+		return nil
+	}
+
+	name := segs[len(segs)-1]
+	if !isLetters(name) {
+		return nil
+	}
+
+	version := segs[1 : len(segs)-1]
+	for _, v := range version {
+		if !isDigits(v) {
+			return nil
+		}
+	}
+
+	return []string{"claude-" + name + "-" + strings.Join(version, "-")}
+}
+
+func isLetters(s string) bool {
+	if s == "" {
+		return false
+	}
+
+	for _, r := range s {
+		if r < 'a' || r > 'z' {
+			return false
+		}
+	}
+
+	return true
+}
+
+func isDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+
+	return true
+}
+
+// familyRow is one AA row under a family key with how far its slug is from
+// the key: the effort suffixes and date tokens stripped to reach it. Zero on
+// both means the slug is the family base row.
+type familyRow struct {
+	model          aaModel
+	effortStripped int
+	dateStripped   int
+}
+
+// familyIndex is the AA catalog keyed by family key, each key holding every
+// row that reduces to it directly, through a rewrite, or through an
+// override.
+type familyIndex map[string][]familyRow
+
+func indexFamilies(aa []aaModel) familyIndex {
+	idx := familyIndex{}
+
+	for _, m := range aa {
+		key, effort, date := familyKeyCounts(m.Slug)
+		if key == "" {
+			continue
+		}
+
+		row := familyRow{model: m, effortStripped: effort, dateStripped: date}
+
+		keys := []string{key}
+		keys = append(keys, rewriteKeys(key)...)
+		keys = append(keys, familyKeyOverrides[m.Slug]...)
+
+		seen := map[string]bool{}
+		for _, k := range keys {
+			if seen[k] {
+				continue
+			}
+
+			seen[k] = true
+			idx[k] = append(idx[k], row)
+		}
+	}
+
+	return idx
+}
+
+// closest picks the family row to score a served model from: the first
+// scored row by fewest effort suffixes stripped, then fewest date tokens
+// stripped, then highest combined normalized prior. The base row (nothing
+// stripped) therefore wins whenever it is scored, and the strongest sibling
+// is reached only when nothing closer is. ok is false when no row in the
+// family is scored, or the key has no family.
+func (idx familyIndex) closest(key string, maxCoding, maxIntel float64) (aaModel, bool) {
+	var (
+		best  familyRow
+		found bool
+	)
+
+	for _, r := range idx[key] {
+		if r.model.CodingIndex == nil && r.model.IntelIndex == nil {
+			continue
+		}
+
+		if !found || closer(r, best, maxCoding, maxIntel) {
+			best, found = r, true
+		}
+	}
+
+	return best.model, found
+}
+
+func closer(a, b familyRow, maxCoding, maxIntel float64) bool {
+	if a.effortStripped != b.effortStripped {
+		return a.effortStripped < b.effortStripped
+	}
+
+	if a.dateStripped != b.dateStripped {
+		return a.dateStripped < b.dateStripped
+	}
+
+	return combinedPrior(a.model, maxCoding, maxIntel) > combinedPrior(b.model, maxCoding, maxIntel)
+}
+
+func combinedPrior(m aaModel, maxCoding, maxIntel float64) float64 {
+	return norm(m.CodingIndex, maxCoding) + norm(m.IntelIndex, maxIntel)
+}
+
+// slugs lists every AA slug under a family key, sorted, for the unscored
+// exclusion hint.
+func (idx familyIndex) slugs(key string) []string {
+	rows := idx[key]
+	if len(rows) == 0 {
+		return nil
+	}
+
+	out := make([]string, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, r.model.Slug)
+	}
+
+	sort.Strings(out)
+
+	return out
 }
