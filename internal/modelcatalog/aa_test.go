@@ -6,6 +6,9 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestFetchAAModelsFollowsPaginationAndMapsCreators(t *testing.T) {
@@ -122,4 +125,54 @@ func TestFetchAAModelsPageFailureFailsFetch(t *testing.T) {
 	if _, err := fetchAAModels(context.Background(), srv.URL, "k"); err == nil {
 		t.Fatal("mid-pagination failure must fail the whole fetch, got nil")
 	}
+}
+
+// TestFetchAAModelsReadsPricing covers every pricing shape the live AA
+// catalog carries: a full block, a null block, null fields, a 0/0 pair, and
+// one priced side only.
+func TestFetchAAModelsReadsPricing(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[
+			{"slug":"priced","model_creator":{"name":"OpenAI"},
+			 "evaluations":{"artificial_analysis_coding_index":50,"artificial_analysis_intelligence_index":50},
+			 "pricing":{"price_1m_input_tokens":1.25,"price_1m_output_tokens":10,"price_1m_cache_hit_tokens":0.13,"price_1m_cache_write_tokens":null}},
+			{"slug":"null-block","model_creator":{"name":"OpenAI"},
+			 "evaluations":{"artificial_analysis_coding_index":50,"artificial_analysis_intelligence_index":50},
+			 "pricing":null},
+			{"slug":"null-fields","model_creator":{"name":"OpenAI"},
+			 "evaluations":{"artificial_analysis_coding_index":50,"artificial_analysis_intelligence_index":50},
+			 "pricing":{"price_1m_input_tokens":null,"price_1m_output_tokens":null}},
+			{"slug":"zero-pair","model_creator":{"name":"OpenAI"},
+			 "evaluations":{"artificial_analysis_coding_index":50,"artificial_analysis_intelligence_index":50},
+			 "pricing":{"price_1m_input_tokens":0,"price_1m_output_tokens":0}},
+			{"slug":"output-only","model_creator":{"name":"OpenAI"},
+			 "evaluations":{"artificial_analysis_coding_index":50,"artificial_analysis_intelligence_index":50},
+			 "pricing":{"price_1m_input_tokens":null,"price_1m_output_tokens":4}}
+		],"pagination":{"page":1,"page_size":200,"total_pages":1,"has_more":false}}`))
+	}))
+	defer srv.Close()
+
+	models, err := fetchAAModels(context.Background(), srv.URL, "k")
+	require.NoError(t, err)
+	require.Len(t, models, 5)
+
+	bySlug := map[string]aaModel{}
+	for _, m := range models {
+		bySlug[m.Slug] = m
+	}
+
+	assert.InDelta(t, 1.25e-6, bySlug["priced"].PromptPrice, 1e-15)
+	assert.InDelta(t, 10e-6, bySlug["priced"].CompletionPrice, 1e-15)
+	assert.True(t, bySlug["priced"].priced())
+
+	for _, slug := range []string{"null-block", "null-fields", "zero-pair"} {
+		assert.False(t, bySlug[slug].priced(), slug)
+		assert.Zero(t, bySlug[slug].PromptPrice, slug)
+		assert.Zero(t, bySlug[slug].CompletionPrice, slug)
+	}
+
+	// One priced side is enough: the same rule token_costs applies.
+	assert.True(t, bySlug["output-only"].priced())
+	assert.Zero(t, bySlug["output-only"].PromptPrice)
+	assert.InDelta(t, 4e-6, bySlug["output-only"].CompletionPrice, 1e-15)
 }

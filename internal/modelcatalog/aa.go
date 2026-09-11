@@ -26,12 +26,33 @@ const aaMaxPages = 10
 // catalog consumer for aaMaxPages full request timeouts.
 const aaFetchBudget = 60 * time.Second
 
-// aaModel is the subset of an AA entry the selector needs.
+// aaModel is the subset of an AA entry the selector needs. PromptPrice and
+// CompletionPrice are AA's list price in USD per token, 0 when AA publishes
+// none; priced is the test.
 type aaModel struct {
-	Slug        string
-	Creator     string
-	CodingIndex *float64
-	IntelIndex  *float64
+	Slug            string
+	Creator         string
+	CodingIndex     *float64
+	IntelIndex      *float64
+	PromptPrice     float64
+	CompletionPrice float64
+}
+
+// priced reports whether AA publishes a usable price for the row. A row that
+// prices neither side counts as unpriced, the same rule token_costs uses for
+// a rate row.
+func (m aaModel) priced() bool {
+	return m.PromptPrice != 0 || m.CompletionPrice != 0
+}
+
+// perMillionToPerToken scales an AA USD-per-million price to USD per token;
+// nil (AA publishes none) is 0.
+func perMillionToPerToken(perMillion *float64) float64 {
+	if perMillion == nil {
+		return 0
+	}
+
+	return *perMillion / 1e6
 }
 
 type aaPage struct {
@@ -44,6 +65,10 @@ type aaPage struct {
 			CodingIndex *float64 `json:"artificial_analysis_coding_index"`
 			IntelIndex  *float64 `json:"artificial_analysis_intelligence_index"`
 		} `json:"evaluations"`
+		Pricing struct {
+			Input  *float64 `json:"price_1m_input_tokens"`
+			Output *float64 `json:"price_1m_output_tokens"`
+		} `json:"pricing"`
 	} `json:"data"`
 	Pagination struct {
 		HasMore bool `json:"has_more"`
@@ -73,10 +98,12 @@ func fetchAAModels(ctx context.Context, endpoint, key string) ([]aaModel, error)
 
 		for _, d := range raw.Data {
 			out = append(out, aaModel{
-				Slug:        d.Slug,
-				Creator:     creatorSlug(d.ModelCreator.Name),
-				CodingIndex: d.Evaluations.CodingIndex,
-				IntelIndex:  d.Evaluations.IntelIndex,
+				Slug:            d.Slug,
+				Creator:         creatorSlug(d.ModelCreator.Name),
+				CodingIndex:     d.Evaluations.CodingIndex,
+				IntelIndex:      d.Evaluations.IntelIndex,
+				PromptPrice:     perMillionToPerToken(d.Pricing.Input),
+				CompletionPrice: perMillionToPerToken(d.Pricing.Output),
 			})
 		}
 
