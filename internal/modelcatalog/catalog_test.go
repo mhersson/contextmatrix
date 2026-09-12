@@ -202,6 +202,12 @@ func TestRefreshWithoutAAKeyPopulatesORCatalog(t *testing.T) {
 	require.True(t, ok)
 	assert.InDelta(t, 0.000003, price.Prompt, 1e-12)
 	assert.InDelta(t, 0.000015, price.Completion, 1e-12)
+
+	// OpenRouter echoes the served slug in every completion, so the
+	// echoed-name fallback is endpoint-leg only: a name that is not a served
+	// slug stays unpriced here, exactly as before.
+	_, ok = b.Rate(context.Background(), "claude-sonnet-4.5")
+	assert.False(t, ok)
 }
 
 // TestBuilderRateNilReceiver verifies that Rate on a nil *Builder returns false
@@ -831,6 +837,10 @@ func TestBuilderAAFailureKeepsAAPricedCatalog(t *testing.T) {
 	assert.InDelta(t, 2e-6, price.Prompt, 1e-15, "an AA outage must not zero the AA-priced card rate")
 	assert.InDelta(t, 8e-6, price.Completion, 1e-15)
 	assert.Len(t, b.Candidates(ctx), 1, "candidates stay last-good too")
+
+	price, ok = b.Rate(ctx, "model-a-2026-01-01")
+	require.True(t, ok, "the name index stays with the last-good catalog")
+	assert.InDelta(t, 2e-6, price.Prompt, 1e-15)
 }
 
 // TestBuilderFirstRefreshAAFailureStillServes: with no last-good catalog, an
@@ -941,4 +951,63 @@ func TestBuildEndpointCandidatesCapturesAAListPrices(t *testing.T) {
 		"model-low": {Prompt: 0.5e-6, Completion: 1.5e-6},
 		"model-x":   {Prompt: 4e-6, Completion: 16e-6},
 	}, listPrices)
+}
+
+// TestBuilderRateResolvesGatewayEchoedName: a usage report carries the
+// model name the gateway echoed in the completion, not the served id, so
+// Rate() resolves a name by served id, then by vendor-stripped id or
+// gateway alias, then by the name with its date token removed (a snapshot
+// the gateway did not list as an alias). Effort words are never stripped,
+// and a name two served ids could claim is not guessed.
+func TestBuilderRateResolvesGatewayEchoedName(t *testing.T) {
+	endpointSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[
+			{"id":"vendor/model-a","context_length":200000,"alias_names":["model-a","model-a-20260101"],"capabilities":{"features":["tools"]}},
+			{"id":"vendor/model-b","context_length":200000,"pricing":{"prompt":"0.000001","completion":"0.000002"},"capabilities":{"features":["tools"]}},
+			{"id":"other/model-b","context_length":200000,"pricing":{"prompt":"0.000003","completion":"0.000004"},"capabilities":{"features":["tools"]}},
+			{"id":"model-d","context_length":200000,"pricing":{"prompt":"0.000005","completion":"0.000006"},"capabilities":{"features":["tools"]}},
+			{"id":"vendor/model-e-reasoning","context_length":200000,"pricing":{"prompt":"0.000007","completion":"0.000008"},"capabilities":{"features":["tools"]}},
+			{"id":"vendor/model-f-20250929","context_length":200000,"pricing":{"prompt":"0.000009","completion":"0.000010"},"capabilities":{"features":["tools"]}}
+		]}`))
+	}))
+	defer endpointSrv.Close()
+
+	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"slug":"model-a","model_creator":{"name":"vendor"},
+			"evaluations":{"artificial_analysis_coding_index":80,"artificial_analysis_intelligence_index":80},
+			"pricing":{"price_1m_input_tokens":2,"price_1m_output_tokens":8}}]}`))
+	}))
+	defer aaSrv.Close()
+
+	b := NewBuilder("aa-key", 0.5, []string{"vendor"}, time.Hour,
+		WithEndpoint(endpointSrv.URL, "secret", nil))
+	b.aaEndpoint = aaSrv.URL
+
+	for _, tc := range []struct {
+		name   string
+		ok     bool
+		prompt float64
+	}{
+		{name: "vendor/model-a", ok: true, prompt: 2e-6},             // served id
+		{name: "model-a", ok: true, prompt: 2e-6},                    // vendor-stripped id, also an alias
+		{name: "model-a-20260101", ok: true, prompt: 2e-6},           // gateway alias
+		{name: "model-a-2026-03-05", ok: true, prompt: 2e-6},         // dated echo, same family, not an alias
+		{name: "vendor/model-b", ok: true, prompt: 1e-6},             // served id, exact wins over the family
+		{name: "model-b", ok: false},                                 // two served ids claim it
+		{name: "model-d-20260301", ok: true, prompt: 5e-6},           // dated echo of a bare served id
+		{name: "model-e-reasoning-20260301", ok: true, prompt: 7e-6}, // dated echo of an effort variant
+		{name: "model-e", ok: false},                                 // a different product, not the served effort variant
+		{name: "model-e-20260301", ok: false},                        // nor its snapshot
+		{name: "model-f", ok: true, prompt: 9e-6},                    // undated echo of a dated served id
+		{name: "model-c", ok: false},                                 // not served
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			price, ok := b.Rate(context.Background(), tc.name)
+			require.Equal(t, tc.ok, ok)
+
+			if tc.ok {
+				assert.InDelta(t, tc.prompt, price.Prompt, 1e-15)
+			}
+		})
+	}
 }

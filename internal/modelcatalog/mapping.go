@@ -165,6 +165,36 @@ func familyKeyParts(s string) (key string, efforts []string, dateStripped int) {
 	return strings.Join(segs, "-"), efforts, dateStripped
 }
 
+// snapshotKey is the name a dated snapshot and the model it is a snapshot
+// of share: lowercased, vendor prefix dropped, dots normalised to dashes,
+// trailing date tokens removed. Unlike familyKeyParts it keeps effort
+// suffixes, so gpt-5.4-2026-03-05 meets gpt-5.4 but sonar never meets
+// sonar-reasoning. Rate uses it to price the dated name a gateway echoes
+// for a served model.
+func snapshotKey(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if _, name, found := strings.Cut(s, "/"); found {
+		s = name
+	}
+
+	if s == "" {
+		return ""
+	}
+
+	segs := strings.Split(strings.ReplaceAll(s, ".", "-"), "-")
+
+	for {
+		rest, ok := stripDate(segs)
+		if !ok {
+			break
+		}
+
+		segs = rest
+	}
+
+	return strings.Join(segs, "-")
+}
+
 // effortSuffixes are AA's reasoning-effort variant markers, one segment
 // each; non-reasoning spans two segments and is matched first.
 var effortSuffixes = map[string]bool{

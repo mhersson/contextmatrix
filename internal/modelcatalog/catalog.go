@@ -66,6 +66,13 @@ type Builder struct {
 	// served model, not just selection candidates). Guarded by mu; consumed by
 	// Rate() for per-slug cost lookups.
 	lastCatalog map[string]orEntry
+	// names and snapshots resolve the model name a usage report carries to
+	// a served id when it is not one itself: names holds the gateway's other
+	// names for each model (vendor-stripped id, alias_names), snapshots the
+	// snapshotKey of each served id and alias. Both are unique-match only.
+	// Guarded by mu; rebuilt by setCatalog with lastCatalog.
+	names     map[string]string
+	snapshots map[string]string
 	// provenance is where each candidate's price and priors came from, keyed
 	// by slug, for the admin selector views. Guarded by mu; rebuilt with
 	// cached on every successful refresh.
@@ -232,9 +239,12 @@ type ModelPrice struct {
 
 // Rate returns the per-token price set for slug from the most recent raw
 // catalog (every served model, refreshing if stale). ok is false when the
-// slug is not served. Unlike Candidates, this is not filtered to
+// slug is not served, or names two served models at once. Unlike
+// Candidates, this is not filtered to
 // AA-rated/floor-clearing models, so picker-only and below-floor models are
-// still priced.
+// still priced. slug may be the name the gateway echoed in a completion
+// rather than the served id (claude-opus-5 for anthropic/claude-opus-5, or
+// a dated snapshot); see entryFor.
 func (b *Builder) Rate(ctx context.Context, slug string) (ModelPrice, bool) {
 	if b == nil {
 		return ModelPrice{}, false
@@ -245,7 +255,7 @@ func (b *Builder) Rate(ctx context.Context, slug string) (ModelPrice, bool) {
 
 	b.refreshIfStaleLocked(ctx)
 
-	e, found := b.lastCatalog[slug]
+	e, found := b.entryFor(slug)
 	if !found {
 		return ModelPrice{}, false
 	}
@@ -256,6 +266,99 @@ func (b *Builder) Rate(ctx context.Context, slug string) (ModelPrice, bool) {
 		CacheRead:  e.CacheReadPrice,
 		CacheWrite: e.CacheWritePrice,
 	}, true
+}
+
+// entryFor resolves a model name to its catalog entry. A usage report
+// carries the name the gateway echoed in the completion, which on an
+// endpoint gateway that serves vendor-prefixed ids is the bare name
+// (claude-opus-5) or a dated snapshot (gpt-5.4-2026-03-05), so the served
+// id is tried first, then (endpoint leg only, see setCatalog) the gateway's
+// other names for the model, then the served model that differs from the
+// name only by a date token. Effort words are never
+// stripped: sonar is not sonar-reasoning. A name two served models could
+// claim resolves to neither. The first two tiers match the gateway's own
+// spelling exactly; only the snapshot tier is case-insensitive. Caller
+// holds b.mu.
+func (b *Builder) entryFor(name string) (orEntry, bool) {
+	if e, ok := b.lastCatalog[name]; ok {
+		return e, true
+	}
+
+	if slug, ok := b.names[name]; ok {
+		return b.lastCatalog[slug], true
+	}
+
+	if slug, ok := b.snapshots[snapshotKey(name)]; ok {
+		return b.lastCatalog[slug], true
+	}
+
+	return orEntry{}, false
+}
+
+// setCatalog installs cat as the served catalog behind Rate, Served and
+// Validate and rebuilds the name index entryFor reads. The index is built
+// on the endpoint leg only: OpenRouter echoes the served slug in every
+// completion, so a usage report there always hits the catalog directly and
+// that leg keeps its exact-only lookup. Caller holds b.mu.
+func (b *Builder) setCatalog(cat map[string]orEntry) {
+	b.lastCatalog = cat
+	b.names, b.snapshots = nil, nil
+
+	if b.endpointBaseURL != "" {
+		b.names, b.snapshots = indexCatalogNames(cat)
+	}
+}
+
+// indexCatalogNames builds the two lookup maps entryFor falls back to,
+// keyed on the names a gateway may echo for a served model: names by the
+// vendor-stripped id and each alias, snapshots by the snapshotKey of the id
+// and each alias. A name that is itself a served id is never indexed (the
+// catalog is looked up directly), and a key two served models would claim
+// is dropped from that map rather than guessed: an exact hit still prices
+// those.
+func indexCatalogNames(cat map[string]orEntry) (names, snapshots map[string]string) {
+	names = make(map[string]string)
+	snapshots = make(map[string]string)
+	ambiguousName := map[string]bool{}
+	ambiguousSnapshot := map[string]bool{}
+
+	add := func(idx map[string]string, ambiguous map[string]bool, key, slug string) {
+		if key == "" || ambiguous[key] {
+			return
+		}
+
+		if prev, seen := idx[key]; seen && prev != slug {
+			delete(idx, key)
+			ambiguous[key] = true
+
+			return
+		}
+
+		idx[key] = slug
+	}
+
+	addName := func(name, slug string) {
+		if _, served := cat[name]; served {
+			return
+		}
+
+		add(names, ambiguousName, name, slug)
+	}
+
+	for slug, e := range cat {
+		if _, name, found := strings.Cut(slug, "/"); found && name != "" {
+			addName(name, slug)
+		}
+
+		add(snapshots, ambiguousSnapshot, snapshotKey(slug), slug)
+
+		for _, a := range e.Aliases {
+			addName(a, slug)
+			add(snapshots, ambiguousSnapshot, snapshotKey(a), slug)
+		}
+	}
+
+	return names, snapshots
 }
 
 // ServedModel is one entry of the picker/validation model set.
@@ -369,7 +472,7 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 		if b.aaKey == "" {
 			warnUnpriced(ep, unpriced)
 
-			b.lastCatalog = ep
+			b.setCatalog(ep)
 			b.provenance = map[string]CandidateProvenance{}
 
 			return []protocol.CandidateModel{}, nil
@@ -382,7 +485,7 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 			// swapping in a fresh unpriced one. Only a first-ever refresh
 			// adopts the served set so Rate, Served and Validate work.
 			if b.lastCatalog == nil {
-				b.lastCatalog = ep
+				b.setCatalog(ep)
 			}
 
 			return nil, err
@@ -401,7 +504,7 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 
 		warnUnpriced(ep, unpriced)
 
-		b.lastCatalog = ep
+		b.setCatalog(ep)
 
 		// Deterministic audit trail: the build iterates the endpoint map, so
 		// both lists arrive in map order. Sort by slug so refresh-to-refresh
@@ -473,7 +576,7 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 		return nil, err
 	}
 
-	b.lastCatalog = or
+	b.setCatalog(or)
 
 	if b.aaKey == "" {
 		b.provenance = map[string]CandidateProvenance{}
