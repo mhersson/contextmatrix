@@ -411,7 +411,8 @@ backends: {}
 #    # only when llm_endpoint.type is "openai". Every other served model is
 #    # joined to its AA family automatically (see docs/model-selection.md);
 #    # slugs in this map bypass that join and the allowlist, and the values
-#    # are used verbatim for the coder and reviewer roles.
+#    # are used verbatim for the coder and reviewer roles when the slug is
+#    # tool-capable; for a tool-incapable slug the entry is ignored and excluded.
 #    # Example: "model-b" is not in AA's catalog but the operator knows its quality.
 #    # model_priors:
 #    #   model-b: { coder: 0.91, reviewer: 0.88 }

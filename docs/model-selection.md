@@ -219,17 +219,23 @@ whatever effort AA ran the base row at. `model_priors` remains the override
 when the chosen row still under-scores a model.
 The chosen row's creator must pass the allowlist. A nil index on the chosen
 row yields no prior for that role (the candidate competes only on the
-scored axis). `model_priors` entries bypass the join entirely: the
-configured 0..1 values are used verbatim, and no allowlist screen applies.
+scored axis). A `model_priors` entry for a tool-capable slug is used
+verbatim: no AA join, no allowlist screen applies. For a tool-incapable slug
+the entry is excluded with the no-tools reason and never becomes a candidate.
 The same floor applies to both paths.
 
-Exclusions are loud: every served, tool-capable model that does not become a
+Exclusions are loud: every tool-capable served model that does not become a
 candidate is logged at WARN with its slug and the specific reason - no AA
 family matches this model (with the keys tried), the family has no usable
-scores (with the family's AA slugs), the creator is not in the allowlist, or
-below the quality floor for both roles. A miss is a ContextMatrix rewrite
-gap or an AA gap, not a configuration gap: report the logged keys, and use
-`model_priors` for the model until a rewrite ships. The refresh also logs
+scores (with the family's AA slugs), the creator is not in the allowlist,
+below the quality floor for both roles, or the gateway reports the model
+cannot use tools. For a tool-capable model the fifth reason (no tools) is a
+configuration gap: remove or correct the model_priors entry. A tool-incapable
+slug is logged only when a model_priors entry names it; the many embedding
+and vision models the gateway serves without tool support stay silent.
+For the other reasons the miss is a ContextMatrix rewrite gap or an AA gap,
+not a configuration gap: report the logged keys, and use `model_priors` for
+the model until a rewrite ships. The refresh also logs
 the resolved candidate set: one line per served candidate with its coder
 prior, reviewer prior, how it was joined (`automatic` or `model_priors`),
 the AA slug it was scored from, and where its price came from.
@@ -823,7 +829,7 @@ endpoints, and the equal prompt+completion price weighting.
 | Candidates gone after a restart during an AA outage | The cache is in-memory only - a restart loses the last-good catalog | While CM stays up, a failed refresh keeps serving the last-good catalog (60s retry cooldown); after a restart, candidates return on the first successful refresh |
 | A pinned model is ignored                      | The pin is not in the candidate list (below floor, an endpoint model no AA family matches, or no catalog) | All resolution paths warn on the card and fall back: orchestrator resolution on each call, coder and reviewer picks once per run per pin type. CM validates pins against the wider served set, so the write was accepted |
 | A favorite is never picked                     | Blacklisted, below the tier bar, not a candidate (outside the allowlist), or its tier entry was replaced wholesale by a project override | Favorites are preferences, not overrides; check `selection.blacklist` and the bar |
-| Endpoint models served but never selected      | No AA family matches the id or its aliases, the family has no scored row, the creator is outside the allowlist, or below floor | One WARN per excluded model at refresh time, naming the slug, the reason, and the keys tried or the family's rows; add a `model_priors` entry as the workaround and report the keys |
+| Endpoint models served but never selected      | No AA family matches the id or its aliases, the family has no scored row, the creator is outside the allowlist, below floor, or the gateway reports the model cannot use tools and a model_priors entry names it | One WARN per excluded model at refresh time, naming the slug, the reason, and the keys tried or the family's rows; for the no-tools exclusion remove or correct the `model_priors` entry, for the other reasons add a `model_priors` entry as the workaround and report the keys |
 | A preview price is marked *list*               | The gateway publishes no price for that model; the candidate carries the AA list price | Expected on an `openai` gateway without a pricing block; card costs use the same list price |
 | Every OpenAI model on an `openai` gateway rates too high or too low | The gateway pins one reasoning effort and serves bare ids, so the join scores from the family base row | Set `llm_endpoint.reasoning_effort` to the pinned effort; the pill tooltip then names the effort row. Other creators' models are unaffected by the setting |
 | A model keeps disappearing from selection      | It was reported incapable and blacklisted                             | Check the admin model-selection page; delist it there, or pin it for one card      |

@@ -65,8 +65,8 @@ func TestBuildCollapsesEffortVariants(t *testing.T) {
 }
 
 // TestBuilderExcludesUnmatchedServedModel exercises the endpoint leg through
-// refresh: a served, tool-capable slug with no AA family surfaces as a WARN
-// exclusion while the matched sibling still becomes a candidate.
+// refresh: a served slug with no AA family surfaces as a WARN exclusion while
+// the matched sibling still becomes a candidate.
 func TestBuilderExcludesUnmatchedServedModel(t *testing.T) {
 	endpointSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"data":[
@@ -507,8 +507,9 @@ func TestBuildEndpointCandidatesAutomaticJoin(t *testing.T) {
 		"nothing-like-it":            {ContextWindow: 1000, Tools: true, Aliases: []string{"still-nothing"}},
 		"private-1":                  {PromptPrice: 5e-6, CompletionPrice: 25e-6, ContextWindow: 1000, Tools: true, PriceSource: priceSourceTokenCosts},
 		"embed-1":                    {ContextWindow: 1000, Tools: false},
+		"embed-prior-1":              {ContextWindow: 1000, Tools: false},
 	}
-	priors := map[string]PriorOverride{"private-1": {Coder: 0.9, Reviewer: 0.88}}
+	priors := map[string]PriorOverride{"private-1": {Coder: 0.9, Reviewer: 0.88}, "embed-prior-1": {Coder: 0.5, Reviewer: 0.5}}
 
 	scored, exclusions, _ := buildEndpointCandidates(aa, endpoint, priors, 0.65, nil, "")
 
@@ -565,6 +566,7 @@ func TestBuildEndpointCandidatesAutomaticJoin(t *testing.T) {
 	assert.Equal(t, priceSourceTokenCosts, bySlug["private-1"].PriceSource)
 
 	assert.NotContains(t, bySlug, "embed-1", "tool-incapable models are never scored")
+	assert.NotContains(t, bySlug, "embed-prior-1", "tool-incapable models are never scored")
 	require.Len(t, scored, 5)
 
 	require.Contains(t, byExcl, "ghost-1")
@@ -583,8 +585,12 @@ func TestBuildEndpointCandidatesAutomaticJoin(t *testing.T) {
 	assert.Equal(t, exclNoFamily, byExcl["nothing-like-it"].Reason)
 	assert.Equal(t, []string{"nothing-like-it", "still-nothing"}, byExcl["nothing-like-it"].Keys)
 
-	assert.NotContains(t, byExcl, "embed-1", "the capability flag is not an exclusion")
-	require.Len(t, exclusions, 4)
+	assert.NotContains(t, byExcl, "embed-1", "the capability flag is not an exclusion when no priors entry exists")
+
+	require.Contains(t, byExcl, "embed-prior-1")
+	assert.Equal(t, exclNoTools, byExcl["embed-prior-1"].Reason)
+
+	require.Len(t, exclusions, 5)
 }
 
 // TestBuildEndpointCandidatesPriorsBeatAutomatic pins override precedence: a
