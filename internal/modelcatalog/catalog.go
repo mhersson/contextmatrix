@@ -269,11 +269,12 @@ func (b *Builder) Rate(ctx context.Context, slug string) (ModelPrice, bool) {
 }
 
 // entryFor resolves a model name to its catalog entry. A usage report
-// carries the name the gateway echoed in the completion, which on a gateway
-// that serves vendor-prefixed ids is the bare name (claude-opus-5) or a
-// dated snapshot (gpt-5.4-2026-03-05), so the served id is tried first,
-// then the gateway's other names for the model, then the served model that
-// differs from the name only by a date token. Effort words are never
+// carries the name the gateway echoed in the completion, which on an
+// endpoint gateway that serves vendor-prefixed ids is the bare name
+// (claude-opus-5) or a dated snapshot (gpt-5.4-2026-03-05), so the served
+// id is tried first, then (endpoint leg only, see setCatalog) the gateway's
+// other names for the model, then the served model that differs from the
+// name only by a date token. Effort words are never
 // stripped: sonar is not sonar-reasoning. A name two served models could
 // claim resolves to neither. The first two tiers match the gateway's own
 // spelling exactly; only the snapshot tier is case-insensitive. Caller
@@ -295,10 +296,17 @@ func (b *Builder) entryFor(name string) (orEntry, bool) {
 }
 
 // setCatalog installs cat as the served catalog behind Rate, Served and
-// Validate and rebuilds the name index entryFor reads. Caller holds b.mu.
+// Validate and rebuilds the name index entryFor reads. The index is built
+// on the endpoint leg only: OpenRouter echoes the served slug in every
+// completion, so a usage report there always hits the catalog directly and
+// that leg keeps its exact-only lookup. Caller holds b.mu.
 func (b *Builder) setCatalog(cat map[string]orEntry) {
 	b.lastCatalog = cat
-	b.names, b.snapshots = indexCatalogNames(cat)
+	b.names, b.snapshots = nil, nil
+
+	if b.endpointBaseURL != "" {
+		b.names, b.snapshots = indexCatalogNames(cat)
+	}
 }
 
 // indexCatalogNames builds the two lookup maps entryFor falls back to,

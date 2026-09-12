@@ -301,7 +301,8 @@ or a dated snapshot (`gpt-5.4-2026-03-05`); `Rate()` resolves such a name
 to the served id through the vendor-stripped id or a gateway alias, else
 through the name with its date token removed (never an effort word: `sonar`
 is not `sonar-reasoning`), and leaves a name two served models could claim
-unpriced rather than guess. What stays on
+unpriced rather than guess. This resolution is endpoint-leg only: OpenRouter
+echoes the served slug, so that leg keeps its exact lookup. What stays on
 `token_costs` (or the gateway): a served model that cannot use tools, one
 no AA family matches, one whose family has no scored row, and the
 `model_priors` path, which has no AA row. An exact-slug `token_costs` entry

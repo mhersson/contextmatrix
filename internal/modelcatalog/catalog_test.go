@@ -203,10 +203,11 @@ func TestRefreshWithoutAAKeyPopulatesORCatalog(t *testing.T) {
 	assert.InDelta(t, 0.000003, price.Prompt, 1e-12)
 	assert.InDelta(t, 0.000015, price.Completion, 1e-12)
 
-	// The OpenRouter leg resolves a vendor-stripped name the same way.
-	price, ok = b.Rate(context.Background(), "claude-sonnet-4.5")
-	require.True(t, ok)
-	assert.InDelta(t, 0.000003, price.Prompt, 1e-12)
+	// OpenRouter echoes the served slug in every completion, so the
+	// echoed-name fallback is endpoint-leg only: a name that is not a served
+	// slug stays unpriced here, exactly as before.
+	_, ok = b.Rate(context.Background(), "claude-sonnet-4.5")
+	assert.False(t, ok)
 }
 
 // TestBuilderRateNilReceiver verifies that Rate on a nil *Builder returns false
