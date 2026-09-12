@@ -675,7 +675,7 @@ between a worker and CM must tolerate a response idling for `await_max`; see
 ## Tool response shapes
 
 Mutation and list tools return **card summaries**: every scalar and bounded
-field, never `body`, `activity_log` or `usage_breakdown`. `heartbeat` returns
+field, never `body`, `activity_log`, `usage_breakdown` or `subtask_usage`. `heartbeat` returns
 a minimal `{card_id, state, last_heartbeat}` ack. Only `get_card` and
 `get_task_context` return full cards; within `get_task_context` the primary
 card and parent are full while siblings are summaries. Tool results are

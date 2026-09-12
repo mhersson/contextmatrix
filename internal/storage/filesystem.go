@@ -149,6 +149,17 @@ func NewFilesystemStore(boardsDir string) (*FilesystemStore, error) {
 	return store, nil
 }
 
+// cloneBuckets copies a bucket slice and each bucket's Steps, which the
+// service appends to and sorts in place on every report.
+func cloneBuckets(bs []board.UsageBucket) []board.UsageBucket {
+	out := slices.Clone(bs)
+	for i := range out {
+		out[i].Steps = slices.Clone(out[i].Steps)
+	}
+
+	return out
+}
+
 // copyCard returns a deep copy of the card so that callers cannot mutate the
 // cached value. All slice, map, and pointer fields are cloned.
 func copyCard(c *board.Card) *board.Card {
@@ -208,7 +219,14 @@ func copyCard(c *board.Card) *board.Card {
 	}
 
 	if c.UsageBreakdown != nil {
-		cp.UsageBreakdown = slices.Clone(c.UsageBreakdown)
+		cp.UsageBreakdown = cloneBuckets(c.UsageBreakdown)
+	}
+
+	if c.SubtaskUsage != nil {
+		cp.SubtaskUsage = slices.Clone(c.SubtaskUsage)
+		for i := range cp.SubtaskUsage {
+			cp.SubtaskUsage[i].Buckets = cloneBuckets(cp.SubtaskUsage[i].Buckets)
+		}
 	}
 
 	if c.Skills != nil {

@@ -220,6 +220,30 @@ func TestMergeCards(t *testing.T) {
 			},
 		},
 		{
+			"usage buckets keyed on role with steps unioned",
+			func(c *board.Card) {
+				c.UsageBreakdown = []board.UsageBucket{{Agent: "x", Model: "m", Role: "review", Steps: []string{"mob_seat"}, PromptTokens: 10, CostUSD: 1}}
+			},
+			func(c *board.Card) {
+				c.UsageBreakdown = []board.UsageBucket{
+					{Agent: "x", Model: "m", Role: "plan", PromptTokens: 5, CostUSD: 0.5},
+					{Agent: "x", Model: "m", Role: "review", Steps: []string{"mob_moderator"}, PromptTokens: 20, CostUSD: 2},
+				}
+			},
+			func(t *testing.T, got *board.Card, _ []Resolution) {
+				require.Len(t, got.UsageBreakdown, 2)
+
+				byRole := map[string]board.UsageBucket{}
+				for _, b := range got.UsageBreakdown {
+					byRole[b.Role] = b
+				}
+
+				assert.Equal(t, int64(30), byRole["review"].PromptTokens)
+				assert.Equal(t, []string{"mob_moderator", "mob_seat"}, byRole["review"].Steps)
+				assert.Equal(t, int64(5), byRole["plan"].PromptTokens)
+			},
+		},
+		{
 			"identical seed bucket counts once",
 			func(c *board.Card) {
 				c.UsageBreakdown = []board.UsageBucket{{Agent: "legacy", Model: "m", PromptTokens: 7, CostUSD: 1}}

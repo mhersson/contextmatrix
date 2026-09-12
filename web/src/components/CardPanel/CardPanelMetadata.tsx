@@ -38,7 +38,7 @@ interface CardPanelMetadataProps {
  *   4. MetadataRelated  - Parent / Subtasks / Depends-on (shares hydration)
  *   5. MetadataSource   - external-link pill + vetted checkbox
  *   6. MetadataSkills   - three-state skills selector
- *   7. MetadataUsage    - per-(agent, model) token/cost table
+ *   7. MetadataUsage    - cost total, role split, per-role model rows, subtask blocks
  *
  * This wrapper just composes them and renders the Created/Updated footer.
  */
@@ -113,7 +113,7 @@ export function CardPanelMetadata({
         }
       />
 
-      <MetadataUsage card={card} />
+      <MetadataUsage card={card} onSubtaskClick={onSubtaskClick} />
 
       {/* Metadata footer */}
       <section className="bf-aside-section">

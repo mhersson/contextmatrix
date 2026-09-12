@@ -70,6 +70,8 @@ export interface Card {
   subtask_cost_usd?: number;
   /** True when any direct subtask's cost includes rate-table-estimated buckets. */
   subtask_cost_has_estimates?: boolean;
+  /** Each direct subtask's usage buckets, in card-id order. Computed on read; absent when none cost anything. */
+  subtask_usage?: SubtaskUsage[];
   /** IDs of playbooks holding a card entry for this card. Computed on read. */
   in_playbooks?: string[];
   /** Computed on read: the runnable playbook that owns this card's settings. */
@@ -98,6 +100,10 @@ export interface TokenUsage {
 export interface UsageBucket {
   agent: string;
   model: string;
+  /** Orchestrator role the spend served (plan|execute|judge|document|review|gates). Absent before roles existed. */
+  role?: string;
+  /** Step words beyond the primary phase call that fed this bucket (mob_seat, gate, ...), sorted. */
+  steps?: string[];
   prompt_tokens: number;
   completion_tokens: number;
   cache_read_tokens?: number;
@@ -105,6 +111,11 @@ export interface UsageBucket {
   cost_usd: number;
   cost_source: 'actual' | 'estimated';
   counts_source?: 'collector' | 'self';
+}
+
+export interface SubtaskUsage {
+  card_id: string;
+  buckets: UsageBucket[];
 }
 
 export interface GitHubImportConfig {

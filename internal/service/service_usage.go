@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/mhersson/contextmatrix/internal/board"
@@ -115,10 +116,11 @@ type ReportUsageInput struct {
 	// UsageBucket.CountsSource, which is sticky once "collector" - mirrors the
 	// sticky "actual" cost_source flag.
 	Source string
-	// Phase, Step, and DurationMS are Prometheus-only attribution hints from
-	// the agent; they are never persisted on the card. Phase falls back to the
-	// card's current phase when empty. DurationMS is the wall time of the
-	// harness step; values <= 0 are ignored.
+	// Phase and Step attribute the spend: Phase (falling back to the card's
+	// current phase when empty) names the bucket role, Step is recorded on
+	// the bucket's step list, and both label the Prometheus series.
+	// DurationMS is the wall time of the harness step, metrics-only; values
+	// <= 0 are ignored.
 	Phase      string
 	Step       string
 	DurationMS int64
@@ -608,7 +610,8 @@ func usageModel(bucketModel, cardModel, defaultModel string) string {
 	return defaultModel
 }
 
-// upsertUsageBucket merges one report into the card's (agent, model) bucket.
+// upsertUsageBucket merges one report into the card's (agent, model, role)
+// bucket. The role comes from the report's phase, else the card's phase.
 // The bucket identity is in.OnBehalfOf when non-empty, else in.AgentID -
 // authorization was already checked against AgentID by the caller, so this
 // only affects attribution, never the ownership gate. A bucket that has ever
@@ -627,14 +630,23 @@ func upsertUsageBucket(card *board.Card, in ReportUsageInput, cost float64, sour
 		countsSource = "collector"
 	}
 
+	phase := in.Phase
+	if phase == "" {
+		phase = card.Phase
+	}
+
+	role := usageRoles[phase]
+	step := bucketStep(in.Step)
+
 	for i := range card.UsageBreakdown {
 		b := &card.UsageBreakdown[i]
-		if b.Agent == bucketAgent && b.Model == in.Model {
+		if b.Agent == bucketAgent && b.Model == in.Model && b.Role == role {
 			b.PromptTokens += in.PromptTokens
 			b.CompletionTokens += in.CompletionTokens
 			b.CacheReadTokens += in.CacheReadTokens
 			b.CacheCreationTokens += in.CacheCreationTokens
 			b.CostUSD += cost
+			b.Steps = addStep(b.Steps, step)
 
 			if source == "actual" {
 				b.CostSource = "actual"
@@ -651,6 +663,8 @@ func upsertUsageBucket(card *board.Card, in ReportUsageInput, cost float64, sour
 	card.UsageBreakdown = append(card.UsageBreakdown, board.UsageBucket{
 		Agent:               bucketAgent,
 		Model:               in.Model,
+		Role:                role,
+		Steps:               addStep(nil, step),
 		PromptTokens:        in.PromptTokens,
 		CompletionTokens:    in.CompletionTokens,
 		CacheReadTokens:     in.CacheReadTokens,
@@ -659,6 +673,35 @@ func upsertUsageBucket(card *board.Card, in ReportUsageInput, cost float64, sour
 		CostSource:          source,
 		CountsSource:        countsSource,
 	})
+}
+
+// usageRoles maps a phase to the bucket role it is billed under. pr_gates
+// and integrate collapse into "gates"; any other phase leaves the role empty.
+var usageRoles = map[string]string{
+	"plan": "plan", "execute": "execute", "judge": "judge", "document": "document",
+	"review": "review", "pr_gates": "gates", "integrate": "gates",
+}
+
+// bucketStep returns the step word to record on a bucket: empty for the
+// primary phase call and for anything outside the known step vocabulary.
+func bucketStep(step string) string {
+	s := metrics.NormalizeStep(step)
+	if s == "main" || s == "other" {
+		return ""
+	}
+
+	return s
+}
+
+func addStep(steps []string, step string) []string {
+	if step == "" || slices.Contains(steps, step) {
+		return steps
+	}
+
+	steps = append(steps, step)
+	slices.Sort(steps)
+
+	return steps
 }
 
 // emitUsageMetrics records the Prometheus side of a usage report. Called
@@ -738,10 +781,11 @@ func runModeOf(card *board.Card) (string, bool) {
 }
 
 // enrichSubtaskCost sets SubtaskCostUSD to the summed EstimatedCostUSD of the
-// card's direct subtasks. Assigns rather than accumulates so a value carried
-// in from the store cache is overwritten. Best-effort: a list failure leaves
-// the field as-is rather than failing the read - the rollup is a decoration
-// on an otherwise intact card.
+// card's direct subtasks and SubtaskUsage to their buckets, in ID order.
+// Assigns rather than accumulates so a value carried in from the store cache
+// is overwritten. Best-effort: a list failure leaves the fields as-is rather
+// than failing the read - the rollup is a decoration on an otherwise intact
+// card.
 func (s *CardService) enrichSubtaskCost(ctx context.Context, card *board.Card) {
 	if card.Type == board.SubtaskType {
 		return
@@ -757,6 +801,7 @@ func (s *CardService) enrichSubtaskCost(ctx context.Context, card *board.Card) {
 	var sum float64
 
 	card.SubtaskCostHasEstimates = false
+	card.SubtaskUsage = nil
 
 	for _, sub := range subs {
 		if sub.TokenUsage != nil {
@@ -764,7 +809,34 @@ func (s *CardService) enrichSubtaskCost(ctx context.Context, card *board.Card) {
 		}
 
 		card.SubtaskCostHasEstimates = card.SubtaskCostHasEstimates || costHasEstimates(sub)
+
+		if buckets := subtaskBuckets(sub); len(buckets) > 0 {
+			card.SubtaskUsage = append(card.SubtaskUsage, board.SubtaskUsage{CardID: sub.ID, Buckets: buckets})
+		}
 	}
 
 	card.SubtaskCostUSD = sum
+}
+
+// subtaskBuckets returns a subtask's usage buckets. A subtask that predates
+// bucketing carries only cumulative TokenUsage; that becomes one bucket
+// marked "estimated", matching how costHasEstimates classifies it.
+func subtaskBuckets(sub *board.Card) []board.UsageBucket {
+	if len(sub.UsageBreakdown) > 0 {
+		return sub.UsageBreakdown
+	}
+
+	if sub.TokenUsage == nil || sub.TokenUsage.EstimatedCostUSD == 0 {
+		return nil
+	}
+
+	return []board.UsageBucket{{
+		Model:               sub.TokenUsage.Model,
+		PromptTokens:        sub.TokenUsage.PromptTokens,
+		CompletionTokens:    sub.TokenUsage.CompletionTokens,
+		CacheReadTokens:     sub.TokenUsage.CacheReadTokens,
+		CacheCreationTokens: sub.TokenUsage.CacheCreationTokens,
+		CostUSD:             sub.TokenUsage.EstimatedCostUSD,
+		CostSource:          "estimated",
+	}}
 }

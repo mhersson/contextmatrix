@@ -23,12 +23,14 @@ func jsonTagName(tag string) string {
 
 // TestCardSummaryMirrorsBoardCard is the drift guard for the parallel struct:
 // every JSON-visible board.Card field must exist on CardSummary with an
-// identical json tag and type, except body, activity_log, and
-// usage_breakdown, which are deliberately absent (they are the three
-// unbounded fields MCP results must not echo). CardSummary must carry nothing
+// identical json tag and type, except body, activity_log, usage_breakdown,
+// and subtask_usage, which are deliberately absent (they are the unbounded
+// fields MCP results must not echo). CardSummary must carry nothing
 // board.Card does not have.
 func TestCardSummaryMirrorsBoardCard(t *testing.T) {
-	dropped := map[string]bool{"body": true, "activity_log": true, "usage_breakdown": true}
+	dropped := map[string]bool{
+		"body": true, "activity_log": true, "usage_breakdown": true, "subtask_usage": true,
+	}
 
 	cardType := reflect.TypeFor[board.Card]()
 	sumType := reflect.TypeFor[CardSummary]()
@@ -118,12 +120,13 @@ func TestSummarizeCard(t *testing.T) {
 		assert.Nil(t, summarizeCard(nil))
 	})
 
-	t.Run("keeps every field except body, activity_log, and usage_breakdown", func(t *testing.T) {
+	t.Run("keeps every field except body, activity_log, usage_breakdown, and subtask_usage", func(t *testing.T) {
 		card := &board.Card{}
 		fillNonZero(reflect.ValueOf(card).Elem(), 1)
 		require.NotEmpty(t, card.Body)
 		require.NotEmpty(t, card.ActivityLog)
 		require.NotEmpty(t, card.UsageBreakdown)
+		require.NotEmpty(t, card.SubtaskUsage)
 
 		full, err := json.Marshal(card)
 		require.NoError(t, err)
@@ -138,8 +141,9 @@ func TestSummarizeCard(t *testing.T) {
 		delete(fullMap, "body")
 		delete(fullMap, "activity_log")
 		delete(fullMap, "usage_breakdown")
+		delete(fullMap, "subtask_usage")
 		assert.Equal(t, fullMap, slimMap,
-			"summarizeCard must copy every field except body, activity_log, and usage_breakdown")
+			"summarizeCard must copy every field except body, activity_log, usage_breakdown, and subtask_usage")
 	})
 }
 
@@ -454,8 +458,26 @@ func TestGetTaskContextSiblingsAreSummaries(t *testing.T) {
 	}
 
 	sub1 := mkSub("Subtask one")
-	mkSub("Subtask two")
+	sub2 := mkSub("Subtask two")
 	mkSub("Subtask three")
+
+	// Give a sibling spend so the parent's read path carries subtask_usage.
+	_, err := env.svc.ClaimCard(t.Context(), "test-project", sub2.ID, "agent-1")
+	require.NoError(t, err)
+
+	usage := callTool(t, env, "report_usage", map[string]any{
+		"project": "test-project", "card_id": sub2.ID, "agent_id": "agent-1",
+		"model": "openai/gpt-5.5", "prompt_tokens": int64(10), "completion_tokens": int64(5),
+		"actual_cost_usd": 0.5,
+	})
+	require.False(t, usage.IsError)
+
+	var parentFull map[string]any
+
+	unmarshalResult(t, callTool(t, env, "get_card", map[string]any{
+		"project": "test-project", "card_id": parent.ID,
+	}), &parentFull)
+	require.Contains(t, parentFull, "subtask_usage", "get_card keeps the parent's subtask usage")
 
 	result := callTool(t, env, "get_task_context", map[string]any{
 		"project": "test-project",
@@ -473,6 +495,7 @@ func TestGetTaskContextSiblingsAreSummaries(t *testing.T) {
 	parentMap, ok := root["parent"].(map[string]any)
 	require.True(t, ok)
 	assert.Contains(t, parentMap, "body", "parent stays full")
+	assert.NotContains(t, parentMap, "subtask_usage", "siblings' ledgers stay out of the parent")
 
 	siblings, ok := root["siblings"].([]any)
 	require.True(t, ok)

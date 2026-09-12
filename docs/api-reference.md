@@ -1063,17 +1063,18 @@ omitted when zero or empty; the rest are always present.
 | `worker_status?`                                                | string                  | `queued`, `running`, `completed`, `failed`, `killed`, `parked`                                                                                                      |
 | `phase?`                                                        | string                  |                                                                                                                                                                     |
 | `token_usage?`                                                  | object                  | `{model?, prompt_tokens, completion_tokens, cache_read_tokens?, cache_creation_tokens?, estimated_cost_usd}`                                                        |
-| `usage_breakdown?`                                              | object[]                | Per `(agent, model)` buckets: `{agent, model, prompt_tokens, completion_tokens, cache_read_tokens?, cache_creation_tokens?, cost_usd, cost_source, counts_source?}` |
+| `usage_breakdown?`                                              | object[]                | Per `(agent, model, role)` buckets: `{agent, model, role?, steps?, prompt_tokens, completion_tokens, cache_read_tokens?, cache_creation_tokens?, cost_usd, cost_source, counts_source?}` |
 | `subtask_cost_usd?`, `subtask_cost_has_estimates?`              | float, bool             | Computed on `GET .../cards/{id}` only                                                                                                                               |
+| `subtask_usage?`                                                | object[]                | Computed on `GET .../cards/{id}` only: `{card_id, buckets}` per costed direct subtask, in id order                                                                  |
 | `in_playbooks?`                                                 | string[]                | Computed on read                                                                                                                                                    |
 | `created`, `updated`                                            | RFC 3339                |                                                                                                                                                                     |
 | `activity_log?`                                                 | object[]                | `{agent, ts, action, message, skill?}`                                                                                                                              |
 
 ### GET /api/projects/{project}/cards/{id}
 
-Returns a single card. `subtask_cost_usd` is present here for a card with
-costed direct subtasks - computed on read, omitted when zero - and absent from
-list responses.
+Returns a single card. `subtask_cost_usd` and `subtask_usage` are present
+here for a card with costed direct subtasks - computed on read, omitted when
+zero - and absent from list responses.
 
 ### Card list query parameters
 
@@ -2635,7 +2636,7 @@ The tool catalogue, connection instructions, and workflow entry points are in
 Only `get_card` and `get_task_context` (primary card and parent) return the
 full card. Every other card-bearing tool returns a **card summary** - the
 same JSON as the [Card object](#card-object) minus `body`, `activity_log`,
-and `usage_breakdown`, the three unbounded fields. Mutation results are
+`usage_breakdown`, and `subtask_usage`, the unbounded fields. Mutation results are
 re-read by the calling agent on every subsequent model call, so echoing
 those fields would multiply context cost for no information gain.
 

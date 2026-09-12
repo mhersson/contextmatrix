@@ -6,10 +6,11 @@ import (
 	"github.com/mhersson/contextmatrix/internal/board"
 )
 
-// CardSummary is board.Card without Body, ActivityLog, and UsageBreakdown -
-// the three unbounded fields. Mutation and list tools return it instead of
-// the full card so agent contexts do not re-absorb the whole spec (or an
-// ever-growing per-(agent, model) usage ledger) on every call; get_card and
+// CardSummary is board.Card without Body, ActivityLog, UsageBreakdown, and
+// SubtaskUsage - the unbounded fields. Mutation and list tools return it
+// instead of the full card so agent contexts do not re-absorb the whole spec
+// (or an ever-growing per-(agent, model, role) usage ledger) on every call;
+// get_card and
 // get_task_context remain the full fetch. A dedicated type (rather than a
 // body-cleared card copy) keeps "body" out of the JSON and the advertised
 // output schema entirely - an empty-string body would be indistinguishable

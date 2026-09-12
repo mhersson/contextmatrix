@@ -28,6 +28,19 @@ Every view updates live from one Server-Sent Events stream per tab
   ignored. Mouse drags start after 5 px, touch drags after a 250 ms hold.
 - **Card detail panel** opens on click. Tabs: Chat (only while a session is
   live), Automation, Info, Danger. `Escape` closes, `Ctrl`/`Cmd`+`S` saves.
+- **Models used** (Info tab) answers what a card cost and where it went: the
+  total including subtasks; a cost bar and legend split by role (review,
+  execute, plan, judge, document, gates = pr_gates + integrate, plus a hatched
+  subtasks share), shown
+  when there is more than one share; this card's buckets grouped under role
+  headers with the step words (seat, moderator, gate, ...) and, over two or
+  more rows, the role subtotal;
+  then one block per costed subtask with its card id (click to open) and
+  model rows. Colour means role and nothing else. `*` marks amounts that
+  include rate-table estimates. Roles come from the phase the agent reports
+  on `report_usage`; buckets written before roles existed, or reported with
+  no phase (chat-driven cards), show as `other`. That spend cannot be
+  re-attributed, so there is no migration.
 - **Collapsing**: columns collapse to a strip, cards to a header row. Both sets
   are stored per project in `localStorage` under
   `contextmatrix-collapsed-columns-<project>` and

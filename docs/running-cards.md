@@ -189,8 +189,9 @@ model, an optional provider-reported cost, and whether the counts are
 self-estimated or collector-measured. Rates come from `token_costs` or the
 endpoint catalog. Where it shows:
 
-- Card **Info** tab, "Models used": per agent and model, with a total that
-  includes subtasks and a marker when any bucket is estimated.
+- Card **Info** tab, "Models used": a total that includes subtasks, a cost
+  bar and legend split by role, this card's models grouped under each role,
+  and one block per subtask, with a marker when any bucket is estimated.
 - Dashboard: "Cost by model" and "Top cards" over 30 days.
 - `recalculate_costs` (MCP) or `POST .../recalculate-costs` re-prices
   estimated buckets after a rate change; actual costs are never touched.

@@ -226,7 +226,7 @@ func mergeCards(base, ours, theirs *board.Card, project string, c Context) (*boa
 
 	// Computed on read, never persisted: recomputed by whoever loads the card.
 	out.DependenciesMet, out.BlockedBy, out.InPlaybooks = nil, nil, nil
-	out.SubtaskCostUSD, out.SubtaskCostHasEstimates = 0, false
+	out.SubtaskCostUSD, out.SubtaskCostHasEstimates, out.SubtaskUsage = 0, false, nil
 
 	body, bodyRes, bodyAudit := mergeBody(base, ours, theirs, path, oursLater, c)
 	out.Body = body
@@ -460,12 +460,12 @@ func mergeTokenUsage(b, o, t *board.TokenUsage) *board.TokenUsage {
 // absent from the ancestor and identical on both sides is one seed written
 // twice, so it counts once.
 func mergeBuckets(b, o, t []board.UsageBucket) []board.UsageBucket {
-	type key struct{ agent, model string }
+	type key struct{ agent, model, role string }
 
 	index := func(xs []board.UsageBucket) map[key]board.UsageBucket {
 		m := make(map[key]board.UsageBucket, len(xs))
 		for _, x := range xs {
-			m[key{x.Agent, x.Model}] = x
+			m[key{x.Agent, x.Model, x.Role}] = x
 		}
 
 		return m
@@ -479,7 +479,7 @@ func mergeBuckets(b, o, t []board.UsageBucket) []board.UsageBucket {
 
 	for _, xs := range [][]board.UsageBucket{t, o} {
 		for _, x := range xs {
-			k := key{x.Agent, x.Model}
+			k := key{x.Agent, x.Model, x.Role}
 			if !seen[k] {
 				seen[k] = true
 				order = append(order, k)
@@ -504,7 +504,8 @@ func mergeBuckets(b, o, t []board.UsageBucket) []board.UsageBucket {
 		}
 
 		merged := board.UsageBucket{
-			Agent: k.agent, Model: k.model,
+			Agent: k.agent, Model: k.model, Role: k.role,
+			Steps:               unionSteps(ov.Steps, tv.Steps),
 			PromptTokens:        add3(bv.PromptTokens, ov.PromptTokens, tv.PromptTokens),
 			CompletionTokens:    add3(bv.CompletionTokens, ov.CompletionTokens, tv.CompletionTokens),
 			CacheReadTokens:     add3(bv.CacheReadTokens, ov.CacheReadTokens, tv.CacheReadTokens),
@@ -525,6 +526,26 @@ func mergeBuckets(b, o, t []board.UsageBucket) []board.UsageBucket {
 func copyBucketExtras(dst *board.UsageBucket, ours, theirs board.UsageBucket) {
 	dst.CostSource = stickiest(ours.CostSource, theirs.CostSource, "actual")
 	dst.CountsSource = stickiest(ours.CountsSource, theirs.CountsSource, "collector")
+}
+
+// unionSteps keeps every step word either side recorded, sorted; nil when
+// neither side has any so an untouched bucket round-trips unchanged.
+func unionSteps(ours, theirs []string) []string {
+	if len(ours) == 0 && len(theirs) == 0 {
+		return nil
+	}
+
+	out := slices.Clone(ours)
+
+	for _, s := range theirs {
+		if !slices.Contains(out, s) {
+			out = append(out, s)
+		}
+	}
+
+	slices.Sort(out)
+
+	return out
 }
 
 func stickiest(ours, theirs, sticky string) string {

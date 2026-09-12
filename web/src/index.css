@@ -693,6 +693,107 @@ textarea {
   margin: 0 0 10px;
 }
 
+/* Models used (Info rail): cost bar, role legend, card and role headers.
+   Color means role and nothing else; the subtasks share is hatched grey. */
+.bf-usage-bar {
+  display: flex;
+  gap: 2px;
+  height: 6px;
+  margin: 6px 0;
+}
+.bf-usage-seg {
+  min-width: 3px;
+  border-radius: 1px;
+}
+.bf-usage-seg--hatch,
+.bf-usage-swatch--hatch {
+  background-color: color-mix(in oklab, var(--grey1) 30%, transparent);
+  background-image: repeating-linear-gradient(135deg, var(--grey1) 0 2px, transparent 2px 4px);
+}
+.bf-usage-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  font-size: 12px;
+  color: var(--fg);
+  margin-bottom: 8px;
+}
+.bf-usage-legend-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  white-space: nowrap;
+}
+.bf-usage-swatch {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 1px;
+  flex-shrink: 0;
+}
+.bf-usage-card {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--fg);
+  margin: 10px 0 4px;
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in oklab, var(--bg3) 55%, transparent);
+}
+.bf-usage-card--own {
+  margin-top: 2px;
+  padding-top: 0;
+  border-top: 0;
+}
+.bf-usage-id {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--grey2);
+}
+.bf-usage-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  color: var(--blue);
+}
+.bf-usage-link:hover {
+  text-decoration: underline;
+}
+.bf-usage-link:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+.bf-usage-kind {
+  font-size: 11px;
+  color: var(--grey0);
+}
+.bf-usage-amt {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+.bf-usage-role {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 4px;
+}
+.bf-usage-role .bf-usage-amt {
+  color: var(--grey2);
+  flex-shrink: 0;
+}
+.bf-usage-steps {
+  font-size: 11px;
+  color: var(--grey0);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Chip color variants - bg/fg derived from the mock palette. All built on
    `.chip-pill` for shape/typography. */
 .chip-state-todo {

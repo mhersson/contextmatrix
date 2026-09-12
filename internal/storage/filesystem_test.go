@@ -1329,7 +1329,10 @@ func TestCopyCardIsolatesUsageBreakdown(t *testing.T) {
 		ID:    "TEST-001",
 		Title: "isolation test",
 		UsageBreakdown: []board.UsageBucket{
-			{Agent: "agent-a", Model: "m1", CostUSD: 1.0, CostSource: "actual"},
+			{Agent: "agent-a", Model: "m1", Role: "review", Steps: []string{"mob_seat"}, CostUSD: 1.0, CostSource: "actual"},
+		},
+		SubtaskUsage: []board.SubtaskUsage{
+			{CardID: "TEST-002", Buckets: []board.UsageBucket{{Model: "m2", Steps: []string{"gate"}}}},
 		},
 		Skills: &skills,
 	}
@@ -1338,10 +1341,16 @@ func TestCopyCardIsolatesUsageBreakdown(t *testing.T) {
 
 	// Mutate the copy - the original must remain unchanged.
 	cp.UsageBreakdown[0].CostUSD = 999.0
+	cp.UsageBreakdown[0].Steps[0] = "mutated"
+	cp.SubtaskUsage[0].Buckets[0].Steps[0] = "mutated"
 	(*cp.Skills)[0] = "mutated"
 
 	assert.InDelta(t, 1.0, orig.UsageBreakdown[0].CostUSD, 1e-9,
 		"UsageBreakdown copy must not share backing array with original")
+	assert.Equal(t, []string{"mob_seat"}, orig.UsageBreakdown[0].Steps,
+		"bucket Steps copy must not share backing array with original")
+	assert.Equal(t, []string{"gate"}, orig.SubtaskUsage[0].Buckets[0].Steps,
+		"SubtaskUsage bucket Steps copy must not share backing array with original")
 	assert.Equal(t, "go-development", (*orig.Skills)[0],
 		"Skills copy must not share backing array with original")
 }

@@ -156,7 +156,7 @@ type reportUsageInput struct {
 	CacheCreationTokens int64    `json:"cache_creation_tokens,omitempty" jsonschema:"number of cache-creation tokens (billed at 1.25× base input rate)"`
 	ActualCostUSD       *float64 `json:"actual_cost_usd,omitempty" jsonschema:"authoritative provider-reported cost in USD for this delta; omit to use the server rate table"`
 	Source              string   `json:"source,omitempty" jsonschema:"who produced the numbers: self (default, agent-estimated) or collector (measured from real usage frames)"`
-	Phase               string   `json:"phase,omitempty" jsonschema:"FSM phase this usage belongs to (plan|execute|judge|document|review|integrate|pr_gates|done); omit to use the card's current phase"`
+	Phase               string   `json:"phase,omitempty" jsonschema:"FSM phase this usage belongs to (plan|execute|judge|document|review|integrate|pr_gates|done); omit to use the card's current phase; persisted on the usage bucket as its role"`
 	Step                string   `json:"step,omitempty" jsonschema:"model-call kind within the phase (main|gate|brainstorm|verify_propose|mob_seat|mob_moderator|checkpoint|judge); omit for the primary phase call"`
 	DurationMS          int64    `json:"duration_ms,omitempty" jsonschema:"wall time of the model step in milliseconds; used for latency metrics only"`
 }
@@ -530,6 +530,10 @@ func registerGetTaskContext(server *mcp.Server, svc *service.CardService, imageS
 			parent, err := svc.GetCard(ctx, project, card.Parent)
 			if err == nil {
 				out.Parent = redactCardForAgent(parent, input.AgentID)
+				// The parent's subtask usage is every sibling's ledger; a
+				// worker has no use for it, and it would multiply the one
+				// unbounded field the full fetch already carries.
+				out.Parent.SubtaskUsage = nil
 			}
 		}
 
@@ -717,7 +721,9 @@ func registerReportUsage(server *mcp.Server, svc *service.CardService) {
 			"cache_creation_tokens (billed at 1.25× base input rate) for prompt-cache cost accounting. " +
 			"Accepts on_behalf_of to attribute usage to a different agent identity (e.g. a subagent) " +
 			"while agent_id still satisfies the claim check, and source to mark whether the counts are " +
-			"self-estimated or collector-measured. Call this on heartbeat and when completing a task.",
+			"self-estimated or collector-measured. phase and step are persisted on the card's usage bucket " +
+			"as its role (pr_gates and integrate count as gates) and step list, besides labelling metrics. " +
+			"Call this on heartbeat and when completing a task.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input reportUsageInput) (*mcp.CallToolResult, *CardSummary, error) {
 		// Reject negative token counts at the handler boundary. The service
 		// layer uses += on the running totals, so a negative value would

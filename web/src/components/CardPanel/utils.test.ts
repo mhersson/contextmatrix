@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { Card, ProjectConfig, UsageBucket } from '../../types';
 import {
   buildCardPatch,
-  groupBucketsByAgent,
+  groupBucketsByRole,
   isCardDirty,
   isForeignClaim,
   isWorkerAttached,
@@ -356,29 +356,38 @@ describe('isCardDirty / buildCardPatch - PR gate fields', () => {
   });
 });
 
-describe('groupBucketsByAgent', () => {
-  function makeBucket(agent: string, model: string): UsageBucket {
+describe('groupBucketsByRole', () => {
+  function makeBucket(model: string, cost: number, role?: string, steps?: string[]): UsageBucket {
     return {
-      agent,
+      agent: 'agent-1',
       model,
       prompt_tokens: 100,
       completion_tokens: 50,
-      cost_usd: 0.01,
+      cost_usd: cost,
       cost_source: 'actual',
+      ...(role !== undefined ? { role } : {}),
+      ...(steps ? { steps } : {}),
     };
   }
 
   it('returns an empty list for no buckets', () => {
-    expect(groupBucketsByAgent([])).toEqual([]);
+    expect(groupBucketsByRole([])).toEqual([]);
   });
 
-  it('groups non-adjacent buckets by agent in first-seen order', () => {
-    const a1m1 = makeBucket('agent-1', 'model-1');
-    const a2m1 = makeBucket('agent-2', 'model-1');
-    const a1m2 = makeBucket('agent-1', 'model-2');
-    expect(groupBucketsByAgent([a1m1, a2m1, a1m2])).toEqual([
-      { agent: 'agent-1', buckets: [a1m1, a1m2] },
-      { agent: 'agent-2', buckets: [a2m1] },
+  it('groups by role, largest spend first, keeping bucket order and unioning steps', () => {
+    const plan = makeBucket('model-1', 0.6, 'plan');
+    const seat = makeBucket('model-2', 7.8, 'review', ['mob_seat']);
+    const moderator = makeBucket('model-1', 0.9, 'review', ['mob_moderator', 'mob_seat']);
+    expect(groupBucketsByRole([plan, seat, moderator])).toEqual([
+      { role: 'review', cost: 8.7, steps: ['mob_seat', 'mob_moderator'], buckets: [seat, moderator] },
+      { role: 'plan', cost: 0.6, steps: [], buckets: [plan] },
+    ]);
+  });
+
+  it('files buckets without a role under the empty role', () => {
+    const legacy = makeBucket('model-1', 1);
+    expect(groupBucketsByRole([legacy])).toEqual([
+      { role: '', cost: 1, steps: [], buckets: [legacy] },
     ]);
   });
 });

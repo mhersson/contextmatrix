@@ -124,7 +124,7 @@ The server registers 39 tools. The "Caller" column uses these values:
 
 | Tool                     | Description                                                     | Caller |
 | ------------------------ | --------------------------------------------------------------- | ------ |
-| `report_usage`           | Add tokens, cache tokens, cost, phase and duration to a card    | owner  |
+| `report_usage`           | Add tokens, cache tokens, cost, phase, step and duration to a card | owner |
 | `recalculate_costs`      | Re-price estimated buckets from the current rate table          | any    |
 | `report_incapable_model` | Blacklist a model that could not drive the tool loop            | any    |
 | `report_model_outcome`   | Record win / loss / failed rows for Best-of-N or a solo run     | claim  |
@@ -191,8 +191,9 @@ Point `workflow_skills_dir` at a copy to customize any skill.
 ## Payload rules
 
 - **Full vs summary.** `get_card` and `get_task_context` (primary card and
-  parent) return the full card. Every other card-returning tool returns a
-  summary without `body`, `activity_log` or `usage_breakdown`. `get_card`
+  parent) return the full card; the parent in `get_task_context` drops
+  `subtask_usage`. Every other card-returning tool returns a summary without
+  `body`, `activity_log`, `usage_breakdown` or `subtask_usage`. `get_card`
   takes `include_activity_log=false` and `sections=[...]` to trim further.
 - **Images.** Server-hosted images referenced in the body are attached as
   inline base64 image blocks: at most 10 per call and about 20 MiB in total,
