@@ -942,3 +942,55 @@ func TestBuildEndpointCandidatesCapturesAAListPrices(t *testing.T) {
 		"model-x":   {Prompt: 4e-6, Completion: 16e-6},
 	}, listPrices)
 }
+
+// TestBuilderRateResolvesGatewayEchoedName: a usage report carries the
+// model name the gateway echoed in the completion, not the served id, so
+// Rate() resolves a name by served id, then by vendor-stripped id or
+// gateway alias, then by model family (a dated snapshot the gateway did not
+// list as an alias). A name two served ids could claim is not guessed.
+func TestBuilderRateResolvesGatewayEchoedName(t *testing.T) {
+	endpointSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[
+			{"id":"vendor/model-a","context_length":200000,"alias_names":["model-a","model-a-20260101"],"capabilities":{"features":["tools"]}},
+			{"id":"vendor/model-b","context_length":200000,"pricing":{"prompt":"0.000001","completion":"0.000002"},"capabilities":{"features":["tools"]}},
+			{"id":"other/model-b","context_length":200000,"pricing":{"prompt":"0.000003","completion":"0.000004"},"capabilities":{"features":["tools"]}},
+			{"id":"model-d","context_length":200000,"pricing":{"prompt":"0.000005","completion":"0.000006"},"capabilities":{"features":["tools"]}}
+		]}`))
+	}))
+	defer endpointSrv.Close()
+
+	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"slug":"model-a","model_creator":{"name":"vendor"},
+			"evaluations":{"artificial_analysis_coding_index":80,"artificial_analysis_intelligence_index":80},
+			"pricing":{"price_1m_input_tokens":2,"price_1m_output_tokens":8}}]}`))
+	}))
+	defer aaSrv.Close()
+
+	b := NewBuilder("aa-key", 0.5, []string{"vendor"}, time.Hour,
+		WithEndpoint(endpointSrv.URL, "secret", nil))
+	b.aaEndpoint = aaSrv.URL
+
+	for _, tc := range []struct {
+		name   string
+		ok     bool
+		prompt float64
+	}{
+		{name: "vendor/model-a", ok: true, prompt: 2e-6},     // served id
+		{name: "model-a", ok: true, prompt: 2e-6},            // vendor-stripped id, also an alias
+		{name: "model-a-20260101", ok: true, prompt: 2e-6},   // gateway alias
+		{name: "model-a-2026-03-05", ok: true, prompt: 2e-6}, // dated echo, same family, not an alias
+		{name: "vendor/model-b", ok: true, prompt: 1e-6},     // served id, exact wins over the family
+		{name: "model-b", ok: false},                         // two served ids claim it
+		{name: "model-d-20260301", ok: true, prompt: 5e-6},   // dated echo of a bare served id
+		{name: "model-c", ok: false},                         // not served
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			price, ok := b.Rate(context.Background(), tc.name)
+			require.Equal(t, tc.ok, ok)
+
+			if tc.ok {
+				assert.InDelta(t, tc.prompt, price.Prompt, 1e-15)
+			}
+		})
+	}
+}

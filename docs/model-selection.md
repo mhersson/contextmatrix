@@ -294,7 +294,13 @@ not billing: a model they exclude is priced the same way, so a pinned or
 chat-picked model outside the candidate set still costs. Every cost path
 (usage reports, recalculation, chat pricing) then bills the model at the
 number the selector ranked it on, and a gateway without a pricing block
-needs no `token_costs` table for card costs to come out. What stays on
+needs no `token_costs` table for card costs to come out. A usage report
+names the model the way the gateway echoed it in the completion, which on
+a gateway serving vendor-prefixed ids is the bare name (`claude-opus-5`)
+or a dated snapshot (`gpt-5.4-2026-03-05`); `Rate()` resolves such a name
+to the served id through the vendor-stripped id or a gateway alias, else
+through the model family, and leaves a name two served models could claim
+unpriced rather than guess. What stays on
 `token_costs` (or the gateway): a served model that cannot use tools, one
 no AA family matches, one whose family has no scored row, and the
 `model_priors` path, which has no AA row. An exact-slug `token_costs` entry
