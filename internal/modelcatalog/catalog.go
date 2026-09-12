@@ -66,13 +66,13 @@ type Builder struct {
 	// served model, not just selection candidates). Guarded by mu; consumed by
 	// Rate() for per-slug cost lookups.
 	lastCatalog map[string]orEntry
-	// names and families resolve the model name a usage report carries to a
-	// served id when it is not one itself: names holds the gateway's other
-	// names for each model (vendor-stripped id, alias_names), families the
-	// family key of each served id and alias. Both are unique-match only.
+	// names and snapshots resolve the model name a usage report carries to
+	// a served id when it is not one itself: names holds the gateway's other
+	// names for each model (vendor-stripped id, alias_names), snapshots the
+	// snapshotKey of each served id and alias. Both are unique-match only.
 	// Guarded by mu; rebuilt by setCatalog with lastCatalog.
-	names    map[string]string
-	families map[string]string
+	names     map[string]string
+	snapshots map[string]string
 	// provenance is where each candidate's price and priors came from, keyed
 	// by slug, for the admin selector views. Guarded by mu; rebuilt with
 	// cached on every successful refresh.
@@ -239,7 +239,8 @@ type ModelPrice struct {
 
 // Rate returns the per-token price set for slug from the most recent raw
 // catalog (every served model, refreshing if stale). ok is false when the
-// slug is not served. Unlike Candidates, this is not filtered to
+// slug is not served, or names two served models at once. Unlike
+// Candidates, this is not filtered to
 // AA-rated/floor-clearing models, so picker-only and below-floor models are
 // still priced. slug may be the name the gateway echoed in a completion
 // rather than the served id (claude-opus-5 for anthropic/claude-opus-5, or
@@ -271,9 +272,12 @@ func (b *Builder) Rate(ctx context.Context, slug string) (ModelPrice, bool) {
 // carries the name the gateway echoed in the completion, which on a gateway
 // that serves vendor-prefixed ids is the bare name (claude-opus-5) or a
 // dated snapshot (gpt-5.4-2026-03-05), so the served id is tried first,
-// then the gateway's other names for the model, then the served model of
-// the same family. A name two served models could claim resolves to
-// neither. Caller holds b.mu.
+// then the gateway's other names for the model, then the served model that
+// differs from the name only by a date token. Effort words are never
+// stripped: sonar is not sonar-reasoning. A name two served models could
+// claim resolves to neither. The first two tiers match the gateway's own
+// spelling exactly; only the snapshot tier is case-insensitive. Caller
+// holds b.mu.
 func (b *Builder) entryFor(name string) (orEntry, bool) {
 	if e, ok := b.lastCatalog[name]; ok {
 		return e, true
@@ -283,7 +287,7 @@ func (b *Builder) entryFor(name string) (orEntry, bool) {
 		return b.lastCatalog[slug], true
 	}
 
-	if slug, ok := b.families[familyKey(name)]; ok {
+	if slug, ok := b.snapshots[snapshotKey(name)]; ok {
 		return b.lastCatalog[slug], true
 	}
 
@@ -294,21 +298,21 @@ func (b *Builder) entryFor(name string) (orEntry, bool) {
 // Validate and rebuilds the name index entryFor reads. Caller holds b.mu.
 func (b *Builder) setCatalog(cat map[string]orEntry) {
 	b.lastCatalog = cat
-	b.names, b.families = indexCatalogNames(cat)
+	b.names, b.snapshots = indexCatalogNames(cat)
 }
 
 // indexCatalogNames builds the two lookup maps entryFor falls back to,
 // keyed on the names a gateway may echo for a served model: names by the
-// vendor-stripped id and each alias, families by the family key of the id
+// vendor-stripped id and each alias, snapshots by the snapshotKey of the id
 // and each alias. A name that is itself a served id is never indexed (the
 // catalog is looked up directly), and a key two served models would claim
 // is dropped from that map rather than guessed: an exact hit still prices
 // those.
-func indexCatalogNames(cat map[string]orEntry) (names, families map[string]string) {
+func indexCatalogNames(cat map[string]orEntry) (names, snapshots map[string]string) {
 	names = make(map[string]string)
-	families = make(map[string]string)
+	snapshots = make(map[string]string)
 	ambiguousName := map[string]bool{}
-	ambiguousFamily := map[string]bool{}
+	ambiguousSnapshot := map[string]bool{}
 
 	add := func(idx map[string]string, ambiguous map[string]bool, key, slug string) {
 		if key == "" || ambiguous[key] {
@@ -338,15 +342,15 @@ func indexCatalogNames(cat map[string]orEntry) (names, families map[string]strin
 			addName(name, slug)
 		}
 
-		add(families, ambiguousFamily, familyKey(slug), slug)
+		add(snapshots, ambiguousSnapshot, snapshotKey(slug), slug)
 
 		for _, a := range e.Aliases {
 			addName(a, slug)
-			add(families, ambiguousFamily, familyKey(a), slug)
+			add(snapshots, ambiguousSnapshot, snapshotKey(a), slug)
 		}
 	}
 
-	return names, families
+	return names, snapshots
 }
 
 // ServedModel is one entry of the picker/validation model set.

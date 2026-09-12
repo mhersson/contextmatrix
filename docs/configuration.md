@@ -165,7 +165,8 @@ a `token_costs` row matched by the vendor-stripped name or a gateway alias;
 to keep a hand-maintained rate for such a model, key the entry on the exact
 name usage reports carry for it: the served slug on OpenRouter, the name the
 gateway echoes in completions on an `openai` endpoint (the card's models-used
-list shows it). That row wins over the catalog on every cost path. Missing cache
+list shows it). That row wins over the catalog for billing on every cost
+path. Missing cache
 rates derive as prompt x 0.10 (read) and prompt x 1.25 (write); a 0 means
 unset, so a free cache rate cannot be expressed. Config file only.
 
