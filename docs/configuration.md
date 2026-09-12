@@ -155,14 +155,14 @@ to the agent with every run. See
 `token_costs` maps a model slug to USD-per-token rates (`prompt`,
 `completion`, optional `cache_read` and `cache_write`) used for card cost
 reporting. When `llm_endpoint.type` is `openai`, rates are filled from the
-endpoint catalog and hand-listed entries act as overrides - and the table
-works the other way too: any model the gateway serves without usable pricing
-is priced from `token_costs` for card costs. The selector does not depend on
-it: a candidate is priced from the gateway, else the Artificial Analysis list
-price, and reads `token_costs` only when both are missing (see [model
-selection](model-selection.md#endpoint-pricing)). Missing cache rates derive
-as prompt x 0.10 (read) and prompt x 1.25 (write); a 0 means unset, so a free
-cache rate cannot be expressed. Config file only.
+endpoint catalog and hand-listed entries act as overrides. A model the
+gateway serves without usable pricing is priced from the Artificial Analysis
+list price when the selection catalog is configured, and from `token_costs`
+only when that is missing too; the selector prices its candidates in the
+same order (see [model selection](model-selection.md#endpoint-pricing)).
+Missing cache rates derive as prompt x 0.10 (read) and prompt x 1.25
+(write); a 0 means unset, so a free cache rate cannot be expressed. Config
+file only.
 
 ## Troubleshooting
 

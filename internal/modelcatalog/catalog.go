@@ -363,16 +363,14 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 			slog.Info("endpoint models priced from token_costs", "count", filled)
 		}
 
-		for _, slug := range unpriced {
-			slog.Warn("endpoint model has no gateway or token_costs price; card costs for it will report as 0",
-				"slug", slug, "hint", "add a token_costs entry for this slug, its vendor-stripped name, or one of its gateway aliases")
-		}
-
 		b.lastCatalog = ep
 
 		// Without an AA key there are no selection candidates (the complexity
-		// selector is an agent-only concern), but per-slug pricing is populated.
+		// selector is an agent-only concern) and no AA list price to fall
+		// back on, but per-slug pricing is populated.
 		if b.aaKey == "" {
+			warnUnpriced(ep, unpriced)
+
 			b.provenance = map[string]CandidateProvenance{}
 
 			return []protocol.CandidateModel{}, nil
@@ -384,6 +382,16 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 		}
 
 		built, exclusions := buildEndpointCandidates(aa, ep, b.priors, b.floor, b.allowlist, b.reasoningEffort)
+
+		// The join found each unpriced served model's AA row; adopt its list
+		// price for card costs too, so the number the selector ranked on is
+		// the number the card is billed at. Only what AA also cannot price is
+		// left for the operator to cover.
+		if n := applyAAListPrices(ep, built); n > 0 {
+			slog.Info("endpoint models priced from the Artificial Analysis list price", "count", n)
+		}
+
+		warnUnpriced(ep, unpriced)
 
 		// Deterministic audit trail: the build iterates the endpoint map, so
 		// both lists arrive in map order. Sort by slug so refresh-to-refresh
@@ -611,9 +619,9 @@ type aaExclusion struct {
 // it came from: the gateway's own price when it published one, else the
 // joined AA row's list price, else the token_costs fill, else 0. A priced
 // entry not tagged token_costs is the gateway's, so an untagged catalog (a
-// test fixture) still ranks correctly. Only the candidate reads this: Rate()
-// and card costs keep the catalog entry's gateway-then-token_costs price.
-// row is nil on the model_priors path.
+// test fixture) still ranks correctly. applyAAListPrices then copies an AA
+// price onto the catalog entry, so Rate() and card costs follow the same
+// order. row is nil on the model_priors path.
 func candidatePrice(e orEntry, row *aaModel) (prompt, completion float64, source priceSource) {
 	entryPriced := e.PromptPrice != 0 || e.CompletionPrice != 0
 
@@ -646,6 +654,10 @@ type aaScored struct {
 	Source      string
 	Effort      string
 	PriceSource priceSource
+	// ListPrice is the joined AA row's list price, all four rates, set only
+	// when PriceSource is aa; applyAAListPrices copies it into the catalog
+	// entry so card costs price the model the way the selector saw it.
+	ListPrice ModelPrice
 }
 
 // buildEndpointCandidates scores each tool-capable served slug for the
@@ -741,6 +753,16 @@ func buildEndpointCandidates(aa []aaModel, endpoint map[string]orEntry, priors m
 
 		prompt, completion, priceSrc := candidatePrice(e, &m)
 
+		var list ModelPrice
+		if priceSrc == priceSourceAA {
+			list = ModelPrice{
+				Prompt:     m.PromptPrice,
+				Completion: m.CompletionPrice,
+				CacheRead:  m.CacheReadPrice,
+				CacheWrite: m.CacheWritePrice,
+			}
+		}
+
 		scored = append(scored, aaScored{
 			Candidate: protocol.CandidateModel{
 				Slug:                  slug,
@@ -755,6 +777,7 @@ func buildEndpointCandidates(aa []aaModel, endpoint map[string]orEntry, priors m
 			Source:      m.Slug,
 			Effort:      want,
 			PriceSource: priceSrc,
+			ListPrice:   list,
 		})
 	}
 

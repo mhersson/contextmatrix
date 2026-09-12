@@ -1,12 +1,15 @@
 package modelcatalog
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -109,4 +112,56 @@ func TestFetchEndpointCatalogCapturesAliases(t *testing.T) {
 	out, err := fetchEndpointCatalog(context.Background(), srv.URL, "secret")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"model-a", "eu-model-a"}, out["vendor/model-a"].Aliases)
+}
+
+// TestApplyAAListPricesFillsOnlyAASourcedEntries: the AA list price lands on
+// the entry of every candidate priced from AA, all four rates, and nothing
+// else is touched: a gateway-priced candidate keeps the gateway's numbers, a
+// candidate whose slug is not in the catalog is skipped.
+func TestApplyAAListPricesFillsOnlyAASourcedEntries(t *testing.T) {
+	cat := map[string]orEntry{
+		"vendor/unpriced": {Tools: true, PromptPrice: 3e-6, CompletionPrice: 15e-6, PriceSource: priceSourceTokenCosts},
+		"vendor/priced":   {Tools: true, PromptPrice: 1e-6, CompletionPrice: 2e-6, PriceSource: priceSourceGateway},
+	}
+	scored := []aaScored{
+		{
+			Candidate: protocol.CandidateModel{Slug: "vendor/unpriced"}, PriceSource: priceSourceAA,
+			ListPrice: ModelPrice{Prompt: 2e-6, Completion: 8e-6, CacheRead: 0.2e-6, CacheWrite: 2.5e-6},
+		},
+		{Candidate: protocol.CandidateModel{Slug: "vendor/priced"}, PriceSource: priceSourceGateway},
+		{
+			Candidate: protocol.CandidateModel{Slug: "vendor/gone"}, PriceSource: priceSourceAA,
+			ListPrice: ModelPrice{Prompt: 1e-6},
+		},
+	}
+
+	assert.Equal(t, 1, applyAAListPrices(cat, scored))
+
+	assert.Equal(t, orEntry{
+		Tools: true, PromptPrice: 2e-6, CompletionPrice: 8e-6,
+		CacheReadPrice: 0.2e-6, CacheWritePrice: 2.5e-6, PriceSource: priceSourceAA,
+	}, cat["vendor/unpriced"])
+	assert.Equal(t, orEntry{Tools: true, PromptPrice: 1e-6, CompletionPrice: 2e-6, PriceSource: priceSourceGateway}, cat["vendor/priced"])
+	assert.NotContains(t, cat, "vendor/gone")
+}
+
+// TestWarnUnpricedSkipsEntriesPricedSince: the unpriced list applyTokenCosts
+// returned is warned about only for slugs still unpriced after the AA fill.
+func TestWarnUnpricedSkipsEntriesPricedSince(t *testing.T) {
+	var buf bytes.Buffer
+
+	prev := slog.Default()
+
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	cat := map[string]orEntry{
+		"vendor/aa-priced":      {Tools: true, PromptPrice: 2e-6, CompletionPrice: 8e-6, PriceSource: priceSourceAA},
+		"vendor/still-unpriced": {Tools: true},
+	}
+
+	warnUnpriced(cat, []string{"vendor/aa-priced", "vendor/still-unpriced"})
+
+	assert.Contains(t, buf.String(), "slug=vendor/still-unpriced")
+	assert.NotContains(t, buf.String(), "slug=vendor/aa-priced")
 }

@@ -28,7 +28,9 @@ const aaFetchBudget = 60 * time.Second
 
 // aaModel is the subset of an AA entry the selector needs. PromptPrice and
 // CompletionPrice are AA's list price in USD per token, 0 when AA publishes
-// none; priced is the test.
+// none; priced is the test. CacheReadPrice and CacheWritePrice are the
+// cache-hit and cache-write list prices, 0 when AA publishes none; they never
+// decide priced and only reach card costs, never the selector.
 type aaModel struct {
 	Slug            string
 	Creator         string
@@ -36,6 +38,8 @@ type aaModel struct {
 	IntelIndex      *float64
 	PromptPrice     float64
 	CompletionPrice float64
+	CacheReadPrice  float64
+	CacheWritePrice float64
 }
 
 // priced reports whether AA publishes a usable price for the row. A row that
@@ -66,8 +70,10 @@ type aaPage struct {
 			IntelIndex  *float64 `json:"artificial_analysis_intelligence_index"`
 		} `json:"evaluations"`
 		Pricing struct {
-			Input  *float64 `json:"price_1m_input_tokens"`
-			Output *float64 `json:"price_1m_output_tokens"`
+			Input      *float64 `json:"price_1m_input_tokens"`
+			Output     *float64 `json:"price_1m_output_tokens"`
+			CacheHit   *float64 `json:"price_1m_cache_hit_tokens"`
+			CacheWrite *float64 `json:"price_1m_cache_write_tokens"`
 		} `json:"pricing"`
 	} `json:"data"`
 	Pagination struct {
@@ -104,6 +110,8 @@ func fetchAAModels(ctx context.Context, endpoint, key string) ([]aaModel, error)
 				IntelIndex:      d.Evaluations.IntelIndex,
 				PromptPrice:     perMillionToPerToken(d.Pricing.Input),
 				CompletionPrice: perMillionToPerToken(d.Pricing.Output),
+				CacheReadPrice:  perMillionToPerToken(d.Pricing.CacheHit),
+				CacheWritePrice: perMillionToPerToken(d.Pricing.CacheWrite),
 			})
 		}
 

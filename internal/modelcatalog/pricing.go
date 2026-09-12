@@ -1,13 +1,15 @@
 package modelcatalog
 
 import (
+	"log/slog"
 	"sort"
 	"strings"
 )
 
 // priceSource names where a price came from, for the refresh log and the
 // admin selector views. applyTokenCosts tags catalog entries with gateway or
-// token_costs; candidatePrice (catalog.go) adds aa and none for candidates.
+// token_costs and applyAAListPrices with aa; candidatePrice (catalog.go)
+// adds none for candidates.
 type priceSource string
 
 const (
@@ -97,4 +99,47 @@ func lookupTokenCost(slug string, aliases []string, costs map[string]ModelPrice)
 	}
 
 	return ModelPrice{}, false
+}
+
+// applyAAListPrices copies the AA list price onto the catalog entry of every
+// candidate whose price came from AA, tagging the entry aa, so Rate() prices
+// card costs the way the selector priced the candidate. It replaces a
+// token_costs fill: the list price is live, the table is whatever the
+// operator last typed. A gateway-priced entry is never a candidate with
+// source aa, so it is left alone. Returns how many entries it priced.
+func applyAAListPrices(cat map[string]orEntry, scored []aaScored) (filled int) {
+	for _, s := range scored {
+		if s.PriceSource != priceSourceAA {
+			continue
+		}
+
+		e, ok := cat[s.Candidate.Slug]
+		if !ok {
+			continue
+		}
+
+		e.PromptPrice = s.ListPrice.Prompt
+		e.CompletionPrice = s.ListPrice.Completion
+		e.CacheReadPrice = s.ListPrice.CacheRead
+		e.CacheWritePrice = s.ListPrice.CacheWrite
+		e.PriceSource = priceSourceAA
+		cat[s.Candidate.Slug] = e
+		filled++
+	}
+
+	return filled
+}
+
+// warnUnpriced logs, once per refresh, each tool-capable served slug that no
+// source priced: its card costs will report as 0. slugs is the list
+// applyTokenCosts returned; entries priced since (by the AA fill) are skipped.
+func warnUnpriced(cat map[string]orEntry, slugs []string) {
+	for _, slug := range slugs {
+		if e := cat[slug]; e.PromptPrice != 0 || e.CompletionPrice != 0 {
+			continue
+		}
+
+		slog.Warn("endpoint model has no gateway, Artificial Analysis or token_costs price; card costs for it will report as 0",
+			"slug", slug, "hint", "add a token_costs entry for this slug, its vendor-stripped name, or one of its gateway aliases")
+	}
 }

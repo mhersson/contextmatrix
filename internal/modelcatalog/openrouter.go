@@ -25,10 +25,10 @@ type orEntry struct {
 	ContextWindow   int
 	Tools           bool
 	Aliases         []string
-	// PriceSource is where PromptPrice and CompletionPrice came from, set by
-	// applyTokenCosts on the endpoint leg: gateway or token_costs. Zero when
-	// nothing priced the entry (and on the OpenRouter leg, which never
-	// needs it).
+	// PriceSource is where PromptPrice and CompletionPrice came from, set on
+	// the endpoint leg: gateway or token_costs by applyTokenCosts, aa by
+	// applyAAListPrices. Zero when nothing priced the entry (and on the
+	// OpenRouter leg, which never needs it).
 	PriceSource priceSource
 }
 

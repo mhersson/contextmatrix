@@ -176,3 +176,35 @@ func TestFetchAAModelsReadsPricing(t *testing.T) {
 	assert.Zero(t, bySlug["output-only"].PromptPrice)
 	assert.InDelta(t, 4e-6, bySlug["output-only"].CompletionPrice, 1e-15)
 }
+
+// TestFetchAAModelsReadsCacheRates: AA publishes cache-hit and cache-write
+// list prices next to the input/output pair; both scale per token and a null
+// side stays 0 (unset) so the card-cost multipliers can cover it.
+func TestFetchAAModelsReadsCacheRates(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[
+			{"slug":"both","model_creator":{"name":"OpenAI"},
+			 "evaluations":{"artificial_analysis_coding_index":50,"artificial_analysis_intelligence_index":50},
+			 "pricing":{"price_1m_input_tokens":10,"price_1m_output_tokens":50,"price_1m_cache_hit_tokens":1,"price_1m_cache_write_tokens":12.5}},
+			{"slug":"read-only","model_creator":{"name":"OpenAI"},
+			 "evaluations":{"artificial_analysis_coding_index":50,"artificial_analysis_intelligence_index":50},
+			 "pricing":{"price_1m_input_tokens":1.25,"price_1m_output_tokens":10,"price_1m_cache_hit_tokens":0.13,"price_1m_cache_write_tokens":null}}
+		],"pagination":{"page":1,"page_size":200,"total_pages":1,"has_more":false}}`))
+	}))
+	defer srv.Close()
+
+	models, err := fetchAAModels(context.Background(), srv.URL, "k")
+	require.NoError(t, err)
+	require.Len(t, models, 2)
+
+	bySlug := map[string]aaModel{}
+	for _, m := range models {
+		bySlug[m.Slug] = m
+	}
+
+	assert.InDelta(t, 1e-6, bySlug["both"].CacheReadPrice, 1e-15)
+	assert.InDelta(t, 12.5e-6, bySlug["both"].CacheWritePrice, 1e-15)
+
+	assert.InDelta(t, 0.13e-6, bySlug["read-only"].CacheReadPrice, 1e-15)
+	assert.Zero(t, bySlug["read-only"].CacheWritePrice, "a null cache-write rate stays unset")
+}

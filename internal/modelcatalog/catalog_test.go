@@ -403,7 +403,11 @@ func TestBuildEndpointCandidatesPricesCandidates(t *testing.T) {
 // TestBuilderCandidatePriceFromAARateFromTokenCosts pins the split this
 // change introduces through a full refresh: the candidate carries the AA
 // list price while Rate() keeps the token_costs fill for card costs.
-func TestBuilderCandidatePriceFromAARateFromTokenCosts(t *testing.T) {
+// TestBuilderRateAdoptsAAListPriceWhenGatewayUnpriced: on the openai leg a
+// served model the gateway left unpriced is priced for card costs from the
+// AA row it was scored from, all four rates, ahead of the token_costs fill;
+// the candidate and Rate() then agree.
+func TestBuilderRateAdoptsAAListPriceWhenGatewayUnpriced(t *testing.T) {
 	endpointSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"data":[{"id":"vendor/model-a","context_length":200000,
 			"alias_names":["model-a"],"capabilities":{"features":["tools"]}}]}`))
@@ -413,7 +417,7 @@ func TestBuilderCandidatePriceFromAARateFromTokenCosts(t *testing.T) {
 	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"data":[{"slug":"model-a","model_creator":{"name":"vendor"},
 			"evaluations":{"artificial_analysis_coding_index":80,"artificial_analysis_intelligence_index":80},
-			"pricing":{"price_1m_input_tokens":2,"price_1m_output_tokens":8}}]}`))
+			"pricing":{"price_1m_input_tokens":2,"price_1m_output_tokens":8,"price_1m_cache_hit_tokens":0.2,"price_1m_cache_write_tokens":2.5}}]}`))
 	}))
 	defer aaSrv.Close()
 
@@ -429,8 +433,10 @@ func TestBuilderCandidatePriceFromAARateFromTokenCosts(t *testing.T) {
 
 	price, ok := b.Rate(context.Background(), "vendor/model-a")
 	require.True(t, ok)
-	assert.InDelta(t, 3e-6, price.Prompt, 1e-15, "card costs keep the token_costs fill")
-	assert.InDelta(t, 15e-6, price.Completion, 1e-15)
+	assert.InDelta(t, 2e-6, price.Prompt, 1e-15, "card costs adopt the AA list price over the token_costs fill")
+	assert.InDelta(t, 8e-6, price.Completion, 1e-15)
+	assert.InDelta(t, 0.2e-6, price.CacheRead, 1e-15)
+	assert.InDelta(t, 2.5e-6, price.CacheWrite, 1e-15)
 
 	assert.Equal(t, map[string]CandidateProvenance{"vendor/model-a": {PriceSource: "aa", ScoredFrom: "model-a"}},
 		b.Provenance(context.Background()))
