@@ -1,7 +1,9 @@
 package modelcatalog
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -109,4 +111,48 @@ func TestFetchEndpointCatalogCapturesAliases(t *testing.T) {
 	out, err := fetchEndpointCatalog(context.Background(), srv.URL, "secret")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"model-a", "eu-model-a"}, out["vendor/model-a"].Aliases)
+}
+
+// TestApplyAAListPricesFillsCapturedEntries: every captured list price lands
+// on its entry with all four rates and the aa tag, replacing a token_costs
+// fill; a slug the catalog no longer holds is skipped.
+func TestApplyAAListPricesFillsCapturedEntries(t *testing.T) {
+	cat := map[string]orEntry{
+		"vendor/filled": {Tools: true, PromptPrice: 3e-6, CompletionPrice: 15e-6, PriceSource: priceSourceTokenCosts},
+		"vendor/priced": {Tools: true, PromptPrice: 1e-6, CompletionPrice: 2e-6, PriceSource: priceSourceGateway},
+	}
+	prices := map[string]ModelPrice{
+		"vendor/filled": {Prompt: 2e-6, Completion: 8e-6, CacheRead: 0.2e-6, CacheWrite: 2.5e-6},
+		"vendor/gone":   {Prompt: 1e-6},
+	}
+
+	assert.Equal(t, 1, applyAAListPrices(cat, prices))
+
+	assert.Equal(t, orEntry{
+		Tools: true, PromptPrice: 2e-6, CompletionPrice: 8e-6,
+		CacheReadPrice: 0.2e-6, CacheWritePrice: 2.5e-6, PriceSource: priceSourceAA,
+	}, cat["vendor/filled"])
+	assert.Equal(t, orEntry{Tools: true, PromptPrice: 1e-6, CompletionPrice: 2e-6, PriceSource: priceSourceGateway}, cat["vendor/priced"])
+	assert.NotContains(t, cat, "vendor/gone")
+}
+
+// TestWarnUnpricedSkipsEntriesPricedSince: the unpriced list applyTokenCosts
+// returned is warned about only for slugs still unpriced after the AA fill.
+func TestWarnUnpricedSkipsEntriesPricedSince(t *testing.T) {
+	var buf bytes.Buffer
+
+	prev := slog.Default()
+
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	cat := map[string]orEntry{
+		"vendor/aa-priced":      {Tools: true, PromptPrice: 2e-6, CompletionPrice: 8e-6, PriceSource: priceSourceAA},
+		"vendor/still-unpriced": {Tools: true},
+	}
+
+	warnUnpriced(cat, []string{"vendor/aa-priced", "vendor/still-unpriced"})
+
+	assert.Contains(t, buf.String(), "slug=vendor/still-unpriced")
+	assert.NotContains(t, buf.String(), "slug=vendor/aa-priced")
 }

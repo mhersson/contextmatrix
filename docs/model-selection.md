@@ -266,9 +266,10 @@ band; a run crossing a tier boundary is therefore under-costed, and
 `token_costs` is the lever if that matters.
 
 **Artificial Analysis publishes a list price** per row
-(`price_1m_input_tokens`, `price_1m_output_tokens`, USD per million), read
-alongside the quality indices. A row that prices neither side counts as
-unpriced. Cache prices are not read.
+(`price_1m_input_tokens`, `price_1m_output_tokens`, `price_1m_cache_hit_tokens`,
+`price_1m_cache_write_tokens`, USD per million), read alongside the quality
+indices. A row that prices neither the input nor the output side counts as
+unpriced; the cache rates never decide that and only reach card costs.
 
 **`token_costs` is the operator's table**, resolved per model in this order,
 first hit wins: the served slug (`anthropic/claude-opus-5`), the slug with
@@ -285,13 +286,34 @@ always wins, so a gateway that does publish prices is unaffected. The
 `model_priors` path has no AA row and resolves gateway, then `token_costs`,
 then 0.
 
-**Card costs** never read the AA price. The catalog entry behind `Rate()` is
-the gateway's price, else `token_costs`, and every cost path prices through
-it exactly as before. On a gateway that publishes no prices, `token_costs`
-is the only table left to maintain, and only so card costs come out right.
+**Card costs** follow the same order. After the join, every served model
+the gateway left unpriced adopts the list price of the AA row the join
+chose for it, all four rates, on the catalog entry behind `Rate()`,
+replacing a `token_costs` fill. The floor and the allowlist gate selection,
+not billing: a model they exclude is priced the same way, so a pinned or
+chat-picked model outside the candidate set still costs. Every cost path
+(usage reports, recalculation, chat pricing) then bills the model at the
+number the selector ranked it on, and a gateway without a pricing block
+needs no `token_costs` table for card costs to come out. What stays on
+`token_costs` (or the gateway): a served model that cannot use tools, one
+no AA family matches, one whose family has no scored row, and the
+`model_priors` path, which has no AA row. An exact-slug `token_costs` entry
+still wins over the catalog for card costs (see
+[token cost rates](configuration.md#token-cost-rates)), so negotiated or
+cache-aware rates remain the operator's lever. A row that omits a cache
+rate leaves it unset, and the prompt-derived multipliers cover it.
 
-Every model still unpriced for card costs after the fill is logged at WARN,
-once per refresh, naming the slug: its card costs will report as 0. Every
+The adopted row is the one the priors came from, named by `source` in the
+"endpoint model scored" refresh log line. A family whose scored rows carry
+different prices (dated snapshots of one served id, say) is billed at that
+row's price; an exact-slug `token_costs` entry is the correction. Because
+the list price is now part of the catalog's pricing, an AA outage after a
+successful refresh keeps the last-good priced catalog behind `Rate()`
+rather than swapping in a fresh unpriced one; only a first-ever refresh
+adopts the served set unpriced so pickers and pin validation work.
+
+Every model still unpriced for card costs after both fills is logged at
+WARN, once per refresh, naming the slug: its card costs will report as 0. Every
 candidate still unpriced after all three sources is logged separately: the
 selector will treat it as free and it will win any price comparison it
 enters. Both warnings are the tripwire for a gateway changing its pricing
@@ -794,7 +816,7 @@ endpoints, and the equal prompt+completion price weighting.
 | A pinned model is ignored                      | The pin is not in the candidate list (below floor, an endpoint model no AA family matches, or no catalog) | All resolution paths warn on the card and fall back: orchestrator resolution on each call, coder and reviewer picks once per run per pin type. CM validates pins against the wider served set, so the write was accepted |
 | A favorite is never picked                     | Blacklisted, below the tier bar, not a candidate (outside the allowlist), or its tier entry was replaced wholesale by a project override | Favorites are preferences, not overrides; check `selection.blacklist` and the bar |
 | Endpoint models served but never selected      | No AA family matches the id or its aliases, the family has no scored row, the creator is outside the allowlist, or below floor | One WARN per excluded model at refresh time, naming the slug, the reason, and the keys tried or the family's rows; add a `model_priors` entry as the workaround and report the keys |
-| A preview price is marked *list*               | The gateway publishes no price for that model; the candidate carries the AA list price | Expected on an `openai` gateway without a pricing block; card costs still come from `token_costs` |
+| A preview price is marked *list*               | The gateway publishes no price for that model; the candidate carries the AA list price | Expected on an `openai` gateway without a pricing block; card costs use the same list price |
 | Every OpenAI model on an `openai` gateway rates too high or too low | The gateway pins one reasoning effort and serves bare ids, so the join scores from the family base row | Set `llm_endpoint.reasoning_effort` to the pinned effort; the pill tooltip then names the effort row. Other creators' models are unaffected by the setting |
 | A model keeps disappearing from selection      | It was reported incapable and blacklisted                             | Check the admin model-selection page; delist it there, or pin it for one card      |
 | A saved ladder has no effect on picks          | The agent predates protocol v0.19 and ignores `tier_bars`             | Upgrade the agent; until then it runs its built-in ladder                         |

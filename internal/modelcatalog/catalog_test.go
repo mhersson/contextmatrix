@@ -383,7 +383,7 @@ func TestBuildEndpointCandidatesPricesCandidates(t *testing.T) {
 	}
 	priors := map[string]PriorOverride{"model-c": {Coder: 0.9, Reviewer: 0.88}}
 
-	scored, exclusions := buildEndpointCandidates(aa, endpoint, priors, 0.65, []string{"vendor"}, "")
+	scored, exclusions, _ := buildEndpointCandidates(aa, endpoint, priors, 0.65, []string{"vendor"}, "")
 	require.Empty(t, exclusions)
 	require.Len(t, scored, 2)
 
@@ -400,10 +400,11 @@ func TestBuildEndpointCandidatesPricesCandidates(t *testing.T) {
 	assert.InDelta(t, 5e-6, bySlug["model-c"].Candidate.PromptPricePerTok, 1e-15)
 }
 
-// TestBuilderCandidatePriceFromAARateFromTokenCosts pins the split this
-// change introduces through a full refresh: the candidate carries the AA
-// list price while Rate() keeps the token_costs fill for card costs.
-func TestBuilderCandidatePriceFromAARateFromTokenCosts(t *testing.T) {
+// TestBuilderRateAdoptsAAListPriceWhenGatewayUnpriced: on the openai leg a
+// served model the gateway left unpriced is priced for card costs from the
+// AA row it was scored from, all four rates, ahead of the token_costs fill;
+// the candidate and Rate() then agree.
+func TestBuilderRateAdoptsAAListPriceWhenGatewayUnpriced(t *testing.T) {
 	endpointSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"data":[{"id":"vendor/model-a","context_length":200000,
 			"alias_names":["model-a"],"capabilities":{"features":["tools"]}}]}`))
@@ -413,7 +414,7 @@ func TestBuilderCandidatePriceFromAARateFromTokenCosts(t *testing.T) {
 	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"data":[{"slug":"model-a","model_creator":{"name":"vendor"},
 			"evaluations":{"artificial_analysis_coding_index":80,"artificial_analysis_intelligence_index":80},
-			"pricing":{"price_1m_input_tokens":2,"price_1m_output_tokens":8}}]}`))
+			"pricing":{"price_1m_input_tokens":2,"price_1m_output_tokens":8,"price_1m_cache_hit_tokens":0.2,"price_1m_cache_write_tokens":2.5}}]}`))
 	}))
 	defer aaSrv.Close()
 
@@ -429,8 +430,10 @@ func TestBuilderCandidatePriceFromAARateFromTokenCosts(t *testing.T) {
 
 	price, ok := b.Rate(context.Background(), "vendor/model-a")
 	require.True(t, ok)
-	assert.InDelta(t, 3e-6, price.Prompt, 1e-15, "card costs keep the token_costs fill")
-	assert.InDelta(t, 15e-6, price.Completion, 1e-15)
+	assert.InDelta(t, 2e-6, price.Prompt, 1e-15, "card costs adopt the AA list price over the token_costs fill")
+	assert.InDelta(t, 8e-6, price.Completion, 1e-15)
+	assert.InDelta(t, 0.2e-6, price.CacheRead, 1e-15)
+	assert.InDelta(t, 2.5e-6, price.CacheWrite, 1e-15)
 
 	assert.Equal(t, map[string]CandidateProvenance{"vendor/model-a": {PriceSource: "aa", ScoredFrom: "model-a"}},
 		b.Provenance(context.Background()))
@@ -501,7 +504,7 @@ func TestBuildEndpointCandidatesAutomaticJoin(t *testing.T) {
 	}
 	priors := map[string]PriorOverride{"private-1": {Coder: 0.9, Reviewer: 0.88}}
 
-	scored, exclusions := buildEndpointCandidates(aa, endpoint, priors, 0.65, nil, "")
+	scored, exclusions, _ := buildEndpointCandidates(aa, endpoint, priors, 0.65, nil, "")
 
 	bySlug := map[string]aaScored{}
 	for _, s := range scored {
@@ -587,7 +590,7 @@ func TestBuildEndpointCandidatesPriorsBeatAutomatic(t *testing.T) {
 	priors := map[string]PriorOverride{"gpt-5.2": {Coder: 0.42, Reviewer: 0.37}}
 
 	// Allowlist without openai: the override must still pass.
-	scored, exclusions := buildEndpointCandidates(aa, endpoint, priors, 0.3, []string{"anthropic"}, "")
+	scored, exclusions, _ := buildEndpointCandidates(aa, endpoint, priors, 0.3, []string{"anthropic"}, "")
 	require.Empty(t, exclusions)
 	require.Len(t, scored, 1)
 	assert.Equal(t, joinModelPriors, scored[0].Join)
@@ -608,7 +611,7 @@ func TestBuildEndpointCandidatesAllowlistOverride(t *testing.T) {
 		"gpt-5.2":    {ContextWindow: 1000, Tools: true},
 	}
 
-	scored, exclusions := buildEndpointCandidates(aa, endpoint, nil, 0.65, []string{"longcat"}, "")
+	scored, exclusions, _ := buildEndpointCandidates(aa, endpoint, nil, 0.65, []string{"longcat"}, "")
 	require.Len(t, scored, 1)
 	assert.Equal(t, "outsider-1", scored[0].Candidate.Slug)
 	require.Len(t, exclusions, 1)
@@ -632,7 +635,7 @@ func TestBuildEndpointCandidatesReasoningEffort(t *testing.T) {
 		"openai/gpt-5.2-low": {ContextWindow: 1000, Tools: true},
 	}
 
-	scored, exclusions := buildEndpointCandidates(aa, endpoint, nil, 0.3, nil, "medium")
+	scored, exclusions, _ := buildEndpointCandidates(aa, endpoint, nil, 0.3, nil, "medium")
 	require.Empty(t, exclusions)
 	require.Len(t, scored, 3)
 
@@ -651,7 +654,7 @@ func TestBuildEndpointCandidatesReasoningEffort(t *testing.T) {
 	assert.Equal(t, "gpt-5-2", bySlug["openai/gpt-5.2-low"].Source, "no row for the wanted effort: the base row")
 	assert.Equal(t, "low", bySlug["openai/gpt-5.2-low"].Effort)
 
-	unset, _ := buildEndpointCandidates(aa, endpoint, nil, 0.3, nil, "")
+	unset, _, _ := buildEndpointCandidates(aa, endpoint, nil, 0.3, nil, "")
 
 	unsetBySlug := map[string]aaScored{}
 	for _, s := range unset {
@@ -676,7 +679,7 @@ func TestBuildEndpointCandidatesAliasEffort(t *testing.T) {
 		"vendor-alias-only": {ContextWindow: 1000, Tools: true, Aliases: []string{"gpt-5.2-high"}},
 	}
 
-	scored, exclusions := buildEndpointCandidates(aa, endpoint, nil, 0.3, nil, "medium")
+	scored, exclusions, _ := buildEndpointCandidates(aa, endpoint, nil, 0.3, nil, "medium")
 	require.Empty(t, exclusions)
 	require.Len(t, scored, 1)
 	assert.Equal(t, "gpt-5-2-high", scored[0].Source, "the alias that found the family names the effort")
@@ -702,7 +705,7 @@ func TestBuildEndpointCandidatesReasoningEffortOpenAIOnly(t *testing.T) {
 		"vendor-alias-only":              {ContextWindow: 1000, Tools: true, Aliases: []string{"claude-opus-5-medium"}},
 	}
 
-	scored, exclusions := buildEndpointCandidates(aa, endpoint, nil, 0.3, nil, "medium")
+	scored, exclusions, _ := buildEndpointCandidates(aa, endpoint, nil, 0.3, nil, "medium")
 	require.Empty(t, exclusions)
 	require.Len(t, scored, 4)
 
@@ -779,4 +782,163 @@ func TestBuilderProvenanceModelPriorsNamesNoRow(t *testing.T) {
 
 	require.Len(t, b.Candidates(context.Background()), 1)
 	assert.Equal(t, map[string]CandidateProvenance{"vendor/private-1": {PriceSource: "none"}}, b.Provenance(context.Background()))
+}
+
+// TestBuilderAAFailureKeepsAAPricedCatalog: card prices must not depend on
+// AA availability at every TTL expiry. When the gateway refresh succeeds but
+// the AA fetch fails, Rate() keeps serving the last-good AA-priced catalog
+// instead of the fresh unpriced one.
+func TestBuilderAAFailureKeepsAAPricedCatalog(t *testing.T) {
+	var aaFail atomic.Bool
+
+	endpointSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"vendor/model-a","context_length":200000,
+			"capabilities":{"features":["tools"]}}]}`))
+	}))
+	defer endpointSrv.Close()
+
+	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if aaFail.Load() {
+			w.WriteHeader(http.StatusInternalServerError)
+
+			return
+		}
+
+		_, _ = w.Write([]byte(`{"data":[{"slug":"model-a","model_creator":{"name":"vendor"},
+			"evaluations":{"artificial_analysis_coding_index":80,"artificial_analysis_intelligence_index":80},
+			"pricing":{"price_1m_input_tokens":2,"price_1m_output_tokens":8}}]}`))
+	}))
+	defer aaSrv.Close()
+
+	b := NewBuilder("aa-key", 0.5, []string{"vendor"}, time.Hour,
+		WithEndpoint(endpointSrv.URL, "secret", nil))
+	b.aaEndpoint = aaSrv.URL
+
+	ctx := context.Background()
+
+	price, ok := b.Rate(ctx, "vendor/model-a")
+	require.True(t, ok)
+	require.InDelta(t, 2e-6, price.Prompt, 1e-15)
+
+	aaFail.Store(true)
+	b.mu.Lock()
+	b.cachedAt = time.Now().Add(-2 * time.Hour)
+	b.lastRefreshAttempt = time.Time{}
+	b.mu.Unlock()
+
+	price, ok = b.Rate(ctx, "vendor/model-a")
+	require.True(t, ok)
+	assert.InDelta(t, 2e-6, price.Prompt, 1e-15, "an AA outage must not zero the AA-priced card rate")
+	assert.InDelta(t, 8e-6, price.Completion, 1e-15)
+	assert.Len(t, b.Candidates(ctx), 1, "candidates stay last-good too")
+}
+
+// TestBuilderFirstRefreshAAFailureStillServes: with no last-good catalog, an
+// AA failure on the very first refresh still leaves the gateway's served set
+// behind Rate() and Served(), unpriced, so pickers and validation work.
+func TestBuilderFirstRefreshAAFailureStillServes(t *testing.T) {
+	endpointSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"vendor/model-a","context_length":200000,
+			"capabilities":{"features":["tools"]}}]}`))
+	}))
+	defer endpointSrv.Close()
+
+	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer aaSrv.Close()
+
+	b := NewBuilder("aa-key", 0.5, []string{"vendor"}, time.Hour,
+		WithEndpoint(endpointSrv.URL, "secret", nil))
+	b.aaEndpoint = aaSrv.URL
+
+	ctx := context.Background()
+
+	price, ok := b.Rate(ctx, "vendor/model-a")
+	require.True(t, ok, "the served set is known even though AA failed")
+	assert.Zero(t, price.Prompt)
+	assert.Len(t, b.Served(ctx), 1)
+	assert.Empty(t, b.Candidates(ctx))
+}
+
+// TestBuilderRatePricesExcludedServedModelsFromAA: floor and allowlist gate
+// selection, not billing. A served model the join found a priced AA row for
+// is priced for card costs even when it is below the floor or its creator
+// is outside the allowlist, so a pinned or chat-picked model still costs.
+func TestBuilderRatePricesExcludedServedModelsFromAA(t *testing.T) {
+	endpointSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[
+			{"id":"vendor/model-a","context_length":200000,"capabilities":{"features":["tools"]}},
+			{"id":"vendor/model-low","context_length":200000,"capabilities":{"features":["tools"]}},
+			{"id":"other/model-x","context_length":200000,"capabilities":{"features":["tools"]}}]}`))
+	}))
+	defer endpointSrv.Close()
+
+	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[
+			{"slug":"model-a","model_creator":{"name":"vendor"},
+			 "evaluations":{"artificial_analysis_coding_index":80,"artificial_analysis_intelligence_index":80},
+			 "pricing":{"price_1m_input_tokens":2,"price_1m_output_tokens":8}},
+			{"slug":"model-low","model_creator":{"name":"vendor"},
+			 "evaluations":{"artificial_analysis_coding_index":10,"artificial_analysis_intelligence_index":10},
+			 "pricing":{"price_1m_input_tokens":0.5,"price_1m_output_tokens":1.5}},
+			{"slug":"model-x","model_creator":{"name":"other"},
+			 "evaluations":{"artificial_analysis_coding_index":80,"artificial_analysis_intelligence_index":80},
+			 "pricing":{"price_1m_input_tokens":4,"price_1m_output_tokens":16}}]}`))
+	}))
+	defer aaSrv.Close()
+
+	b := NewBuilder("aa-key", 0.65, []string{"vendor"}, time.Hour,
+		WithEndpoint(endpointSrv.URL, "secret", nil))
+	b.aaEndpoint = aaSrv.URL
+
+	ctx := context.Background()
+
+	cands := b.Candidates(ctx)
+	require.Len(t, cands, 1)
+	assert.Equal(t, "vendor/model-a", cands[0].Slug)
+
+	low, ok := b.Rate(ctx, "vendor/model-low")
+	require.True(t, ok)
+	assert.InDelta(t, 0.5e-6, low.Prompt, 1e-15, "below the floor is still billed at the AA list price")
+	assert.InDelta(t, 1.5e-6, low.Completion, 1e-15)
+
+	x, ok := b.Rate(ctx, "other/model-x")
+	require.True(t, ok)
+	assert.InDelta(t, 4e-6, x.Prompt, 1e-15, "outside the allowlist is still billed at the AA list price")
+	assert.InDelta(t, 16e-6, x.Completion, 1e-15)
+}
+
+// TestBuildEndpointCandidatesCapturesAAListPrices: the join hands back the AA
+// list price for every served slug whose price resolved to AA, including the
+// ones the allowlist or the floor then excluded from selection; a
+// gateway-priced entry, a model_priors override and an unpriced row yield
+// none.
+func TestBuildEndpointCandidatesCapturesAAListPrices(t *testing.T) {
+	aa := []aaModel{
+		{Slug: "model-a", Creator: "vendor", CodingIndex: new(80.0), IntelIndex: new(80.0), PromptPrice: 2e-6, CompletionPrice: 8e-6, CacheReadPrice: 0.2e-6, CacheWritePrice: 2.5e-6},
+		{Slug: "model-low", Creator: "vendor", CodingIndex: new(10.0), IntelIndex: new(10.0), PromptPrice: 0.5e-6, CompletionPrice: 1.5e-6},
+		{Slug: "model-x", Creator: "other", CodingIndex: new(80.0), IntelIndex: new(80.0), PromptPrice: 4e-6, CompletionPrice: 16e-6},
+		{Slug: "model-g", Creator: "vendor", CodingIndex: new(80.0), IntelIndex: new(80.0), PromptPrice: 9e-6, CompletionPrice: 9e-6},
+		{Slug: "model-free", Creator: "vendor", CodingIndex: new(80.0), IntelIndex: new(80.0)},
+	}
+	endpoint := map[string]orEntry{
+		"model-a":    {ContextWindow: 1000, Tools: true},
+		"model-low":  {ContextWindow: 1000, Tools: true},
+		"model-x":    {ContextWindow: 1000, Tools: true},
+		"model-g":    {PromptPrice: 1e-6, CompletionPrice: 2e-6, ContextWindow: 1000, Tools: true, PriceSource: priceSourceGateway},
+		"model-free": {ContextWindow: 1000, Tools: true},
+		"model-p":    {ContextWindow: 1000, Tools: true},
+	}
+	priors := map[string]PriorOverride{"model-p": {Coder: 0.9, Reviewer: 0.9}}
+
+	scored, exclusions, listPrices := buildEndpointCandidates(aa, endpoint, priors, 0.65, []string{"vendor"}, "")
+	require.Len(t, scored, 4, "model-a, model-g, model-free and model-p select")
+	require.Len(t, exclusions, 2, "model-low is below floor, model-x is not allowed")
+
+	assert.Equal(t, map[string]ModelPrice{
+		"model-a":   {Prompt: 2e-6, Completion: 8e-6, CacheRead: 0.2e-6, CacheWrite: 2.5e-6},
+		"model-low": {Prompt: 0.5e-6, Completion: 1.5e-6},
+		"model-x":   {Prompt: 4e-6, Completion: 16e-6},
+	}, listPrices)
 }
