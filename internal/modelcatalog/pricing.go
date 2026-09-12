@@ -101,29 +101,26 @@ func lookupTokenCost(slug string, aliases []string, costs map[string]ModelPrice)
 	return ModelPrice{}, false
 }
 
-// applyAAListPrices copies the AA list price onto the catalog entry of every
-// candidate whose price came from AA, tagging the entry aa, so Rate() prices
-// card costs the way the selector priced the candidate. It replaces a
-// token_costs fill: the list price is live, the table is whatever the
-// operator last typed. A gateway-priced entry is never a candidate with
-// source aa, so it is left alone. Returns how many entries it priced.
-func applyAAListPrices(cat map[string]orEntry, scored []aaScored) (filled int) {
-	for _, s := range scored {
-		if s.PriceSource != priceSourceAA {
-			continue
-		}
-
-		e, ok := cat[s.Candidate.Slug]
+// applyAAListPrices writes the AA list price the join captured for each
+// served slug onto its catalog entry, all four rates, tagging it aa, so
+// Rate() prices card costs the way the selector priced the candidate. It
+// replaces a token_costs fill: the list price is live, the table is whatever
+// the operator last typed. A gateway-priced entry never appears in prices
+// (candidatePrice ranks the gateway first), so it is never touched. Returns
+// how many entries it priced.
+func applyAAListPrices(cat map[string]orEntry, prices map[string]ModelPrice) (filled int) {
+	for slug, p := range prices {
+		e, ok := cat[slug]
 		if !ok {
 			continue
 		}
 
-		e.PromptPrice = s.ListPrice.Prompt
-		e.CompletionPrice = s.ListPrice.Completion
-		e.CacheReadPrice = s.ListPrice.CacheRead
-		e.CacheWritePrice = s.ListPrice.CacheWrite
+		e.PromptPrice = p.Prompt
+		e.CompletionPrice = p.Completion
+		e.CacheReadPrice = p.CacheRead
+		e.CacheWritePrice = p.CacheWrite
 		e.PriceSource = priceSourceAA
-		cat[s.Candidate.Slug] = e
+		cat[slug] = e
 		filled++
 	}
 

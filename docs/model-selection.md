@@ -287,17 +287,30 @@ always wins, so a gateway that does publish prices is unaffected. The
 then 0.
 
 **Card costs** follow the same order. After the join, every served model
-the gateway left unpriced adopts the list price of the AA row it was scored
-from, all four rates, on the catalog entry behind `Rate()`, replacing a
-`token_costs` fill. Every cost path (usage reports, recalculation, chat
-pricing) then bills the model at the number the selector ranked it on, and
-a gateway without a pricing block needs no `token_costs` table for card
-costs to come out. An exact-slug `token_costs` entry still wins over the
-catalog for card costs (see [token cost rates](configuration.md#token-cost-rates)),
-so negotiated or cache-aware rates remain the operator's lever. A row that
-omits a cache rate leaves it unset, and the prompt-derived multipliers
-cover it. The `model_priors` path has no AA row and keeps the gateway,
-then `token_costs`, price.
+the gateway left unpriced adopts the list price of the AA row the join
+chose for it, all four rates, on the catalog entry behind `Rate()`,
+replacing a `token_costs` fill. The floor and the allowlist gate selection,
+not billing: a model they exclude is priced the same way, so a pinned or
+chat-picked model outside the candidate set still costs. Every cost path
+(usage reports, recalculation, chat pricing) then bills the model at the
+number the selector ranked it on, and a gateway without a pricing block
+needs no `token_costs` table for card costs to come out. What stays on
+`token_costs` (or the gateway): a served model that cannot use tools, one
+no AA family matches, one whose family has no scored row, and the
+`model_priors` path, which has no AA row. An exact-slug `token_costs` entry
+still wins over the catalog for card costs (see
+[token cost rates](configuration.md#token-cost-rates)), so negotiated or
+cache-aware rates remain the operator's lever. A row that omits a cache
+rate leaves it unset, and the prompt-derived multipliers cover it.
+
+The adopted row is the one the priors came from, named by `source` in the
+"endpoint model scored" refresh log line. A family whose scored rows carry
+different prices (dated snapshots of one served id, say) is billed at that
+row's price; an exact-slug `token_costs` entry is the correction. Because
+the list price is now part of the catalog's pricing, an AA outage after a
+successful refresh keeps the last-good priced catalog behind `Rate()`
+rather than swapping in a fresh unpriced one; only a first-ever refresh
+adopts the served set unpriced so pickers and pin validation work.
 
 Every model still unpriced for card costs after both fills is logged at
 WARN, once per refresh, naming the slug: its card costs will report as 0. Every

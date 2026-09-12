@@ -157,12 +157,15 @@ to the agent with every run. See
 reporting. When `llm_endpoint.type` is `openai`, rates are filled from the
 endpoint catalog and hand-listed entries act as overrides. A model the
 gateway serves without usable pricing is priced from the Artificial Analysis
-list price when the selection catalog is configured, and from `token_costs`
-only when that is missing too; the selector prices its candidates in the
-same order (see [model selection](model-selection.md#endpoint-pricing)).
-Missing cache rates derive as prompt x 0.10 (read) and prompt x 1.25
-(write); a 0 means unset, so a free cache rate cannot be expressed. Config
-file only.
+list price when the selection catalog is configured and AA scores the
+model's family, and from `token_costs` only when that is missing too; the
+selector prices its candidates in the same order (see [model
+selection](model-selection.md#endpoint-pricing)). The list price supersedes
+a `token_costs` row matched by the vendor-stripped name or a gateway alias;
+to keep a hand-maintained rate for such a model, key the entry on the exact
+served slug, which wins over the catalog on every cost path. Missing cache
+rates derive as prompt x 0.10 (read) and prompt x 1.25 (write); a 0 means
+unset, so a free cache rate cannot be expressed. Config file only.
 
 ## Troubleshooting
 
