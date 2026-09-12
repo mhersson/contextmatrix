@@ -427,19 +427,27 @@ one card. Empty-agent buckets roll up to the dashboard's `unassigned` label.
 - The bucket's `agent` key is `on_behalf_of` when passed, else `agent_id`.
   This lets the claim holder (whose `agent_id` must pass the ownership check)
   attribute a sub-agent's tokens under the sub-agent's name. `on_behalf_of`
-  never affects authorization.
+  never affects authorization. The agent key has no card-panel surface (the
+  Models used rail groups by role); it feeds the API and dashboard rollups.
 - `role` is the orchestrator role the spend served: the `phase` on
   `report_usage`, falling back to the card's current phase, with `pr_gates`
-  and `integrate` collapsed into `gates`. Empty on buckets written before
-  roles existed, so a `report_usage` for such a card opens a new bucket
-  rather than merging into the legacy one. `steps` lists the step words
-  (`mob_seat`, `mob_moderator`, `gate`, ...) that fed the bucket beyond the
-  primary phase call, sorted; `main` and unknown words are not recorded.
+  and `integrate` collapsed into `gates`. Only `plan`, `execute`, `judge`,
+  `document`, `review` and `gates` name a role; an empty role means the
+  spend is unattributed - written before roles existed, seeded from legacy
+  cumulative usage, or reported under `done`, an unknown phase, or no phase
+  on a card without one. A roled report never merges into that bucket; it
+  opens a new one beside it. `steps` lists the step words (`mob_seat`,
+  `mob_moderator`, `gate`, ...) that fed the bucket beyond the primary phase
+  call, sorted; `main` and unknown words are not recorded. On a shared board,
+  a pre-role server merges buckets on `(agent, model)` and drops `role` and
+  `steps` when it writes, so upgrade every instance that writes the board
+  together.
 - The cumulative `TokenUsage` stays equal to the bucket sum: each report
   increments both. Cards with no buckets fall back to `assigned_agent` for
   their rollup.
 - `subtask_usage` (computed on `GET .../cards/{id}` and MCP `get_card`, never
-  persisted) lists each direct subtask's buckets as `{card_id, buckets}` in
+  persisted, and cleared from the parent in `get_task_context`) lists each
+  direct subtask's buckets as `{card_id, buckets}` in
   ID order, alongside `subtask_cost_usd`. A subtask that only has cumulative
   `token_usage` contributes one synthesized bucket marked `estimated`.
 

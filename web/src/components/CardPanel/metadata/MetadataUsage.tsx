@@ -38,6 +38,7 @@ interface Segment {
   color: string;
   cost: number;
   hatch: boolean;
+  estimated: boolean;
 }
 
 function roleWord(role: string): string {
@@ -111,7 +112,7 @@ function BucketRow({ bucket: b, indent = false }: { bucket: UsageBucket; indent?
  */
 export function MetadataUsage({ card, onSubtaskClick }: MetadataUsageProps) {
   const buckets = card.usage_breakdown ?? [];
-  const ownCost = card.token_usage?.estimated_cost_usd ?? 0;
+  const ownCost = card.token_usage?.estimated_cost_usd ?? bucketsCost(buckets);
   const subtaskCost = card.subtask_cost_usd ?? 0;
   const total = ownCost + subtaskCost;
   if (buckets.length === 0 && subtaskCost === 0) {
@@ -130,12 +131,27 @@ export function MetadataUsage({ card, onSubtaskClick }: MetadataUsageProps) {
     color: roleColor(g.role),
     cost: g.cost,
     hatch: false,
+    estimated: bucketsEstimated(g.buckets),
   }));
   if (buckets.length === 0 && ownCost > 0) {
-    segments.push({ key: 'other', word: 'other', color: OTHER_COLOR, cost: ownCost, hatch: false });
+    segments.push({
+      key: 'other',
+      word: 'other',
+      color: OTHER_COLOR,
+      cost: ownCost,
+      hatch: false,
+      estimated: true,
+    });
   }
   if (subtaskCost > 0) {
-    segments.push({ key: 'subtasks', word: 'subtasks', color: OTHER_COLOR, cost: subtaskCost, hatch: true });
+    segments.push({
+      key: 'subtasks',
+      word: 'subtasks',
+      color: OTHER_COLOR,
+      cost: subtaskCost,
+      hatch: true,
+      estimated: card.subtask_cost_has_estimates ?? false,
+    });
   }
   const showSplit = total > 0 && segments.length > 1;
   const subtasks = card.subtask_usage ?? [];
@@ -165,7 +181,7 @@ export function MetadataUsage({ card, onSubtaskClick }: MetadataUsageProps) {
                 key={s.key}
                 className={`bf-usage-seg${s.hatch ? ' bf-usage-seg--hatch' : ''}`}
                 style={{ flex: `${s.cost / total} 0 0`, backgroundColor: s.hatch ? undefined : s.color }}
-                title={`${s.word} ${formatCost(s.cost)} (${share(s.cost, total)})`}
+                title={`${s.word} ${formatCost(s.cost)}${s.estimated ? '*' : ''} (${share(s.cost, total)})`}
               />
             ))}
           </div>
@@ -178,7 +194,10 @@ export function MetadataUsage({ card, onSubtaskClick }: MetadataUsageProps) {
                   aria-hidden="true"
                 />
                 <span className="text-[var(--grey2)]">{s.word}</span>
-                <span className="tabular-nums">{formatCost(s.cost)}</span>
+                <span className="tabular-nums">
+                  {formatCost(s.cost)}
+                  {s.estimated ? '*' : ''}
+                </span>
               </span>
             ))}
           </div>
@@ -198,30 +217,41 @@ export function MetadataUsage({ card, onSubtaskClick }: MetadataUsageProps) {
             </div>
           )}
           <div className={GRID}>
-            {groups.map((g) => (
-              <Fragment key={g.role || 'other'}>
-                <div className="bf-usage-role">
-                  <span
-                    className="bf-usage-swatch"
-                    style={{ backgroundColor: roleColor(g.role) }}
-                    aria-hidden="true"
-                  />
-                  <span className="text-[var(--grey2)]">{roleWord(g.role)}</span>
-                  {g.steps.length > 0 && (
-                    <span className="bf-usage-steps">{g.steps.map(stepWord).join(', ')}</span>
-                  )}
-                  {g.buckets.length > 1 && (
-                    <span className="bf-usage-amt">
-                      {formatCost(g.cost)}
-                      {bucketsEstimated(g.buckets) ? '*' : ''}
+            {groups.map((g) => {
+              // "judge judge" reads as a stutter: a step named like its role adds nothing.
+              const steps = g.steps.map(stepWord).filter((w) => w !== roleWord(g.role));
+              return (
+                <Fragment key={g.role || 'other'}>
+                  <div className="bf-usage-role">
+                    <span
+                      className="bf-usage-swatch"
+                      style={{ backgroundColor: roleColor(g.role) }}
+                      aria-hidden="true"
+                    />
+                    <span
+                      className="text-[var(--grey2)]"
+                      title={
+                        g.role
+                          ? undefined
+                          : 'spend with no role: reported before roles existed or without a phase'
+                      }
+                    >
+                      {roleWord(g.role)}
                     </span>
-                  )}
-                </div>
-                {g.buckets.map((b, i) => (
-                  <BucketRow key={`${b.model}:${i}`} bucket={b} indent />
-                ))}
-              </Fragment>
-            ))}
+                    {steps.length > 0 && <span className="bf-usage-steps">{steps.join(', ')}</span>}
+                    {g.buckets.length > 1 && (
+                      <span className="bf-usage-amt">
+                        {formatCost(g.cost)}
+                        {bucketsEstimated(g.buckets) ? '*' : ''}
+                      </span>
+                    )}
+                  </div>
+                  {g.buckets.map((b, i) => (
+                    <BucketRow key={`${b.model}:${i}`} bucket={b} indent />
+                  ))}
+                </Fragment>
+              );
+            })}
           </div>
         </>
       )}

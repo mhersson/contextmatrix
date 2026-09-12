@@ -783,10 +783,15 @@ textarea {
 }
 .bf-usage-role .bf-usage-amt {
   color: var(--grey2);
+  flex-shrink: 0;
 }
 .bf-usage-steps {
   font-size: 11px;
   color: var(--grey0);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Chip color variants - bg/fg derived from the mock palette. All built on

@@ -46,7 +46,8 @@ describe('MetadataUsage', () => {
       'anthropic/claude-sonnet-4.6',
     );
     expect(screen.getByText('anthropic/')).toHaveClass('text-[var(--grey0)]');
-    expect(screen.getByText('$0.0123')).toBeInTheDocument();
+    // Total row and the bucket row both carry the amount.
+    expect(screen.getAllByText('$0.0123')).toHaveLength(2);
   });
 
   it('shows a plain total and no split when there is no subtask spend', () => {
@@ -93,6 +94,48 @@ describe('MetadataUsage', () => {
     render(<MetadataUsage card={card} />);
     expect(screen.getByText('CMX-779')).toBeInTheDocument();
     expect(screen.getByText('this card')).toBeInTheDocument();
+  });
+
+  it('totals the buckets when the card carries no cumulative token_usage', () => {
+    const card = makeCard({
+      usage_breakdown: [bucket({ cost_usd: 0.3 }), bucket({ model: 'openai/model-2', cost_usd: 0.2 })],
+    });
+    render(<MetadataUsage card={card} />);
+    expect(screen.getByText('Total')).toBeInTheDocument();
+    // Total row and the two-row "other" group's subtotal.
+    expect(screen.getAllByText('$0.50')).toHaveLength(2);
+  });
+
+  it('marks estimated shares in the legend and on the bar', () => {
+    const card = makeCard({
+      token_usage: { prompt_tokens: 100, completion_tokens: 50, estimated_cost_usd: 1.5 },
+      subtask_cost_usd: 0.5,
+      subtask_cost_has_estimates: true,
+      usage_breakdown: [
+        bucket({ role: 'execute', cost_usd: 1 }),
+        bucket({ model: 'openai/model-2', role: 'plan', cost_usd: 0.5, cost_source: 'estimated' }),
+      ],
+    });
+    render(<MetadataUsage card={card} />);
+    const bar = screen.getByRole('img', { name: 'cost split by role' });
+    expect(bar.children[0]).toHaveAttribute('title', 'execute $1.00 (50%)');
+    expect(bar.children[1]).toHaveAttribute('title', 'plan $0.50* (25%)');
+    expect(bar.children[2]).toHaveAttribute('title', 'subtasks $0.50* (25%)');
+    // Legend amounts for the estimated shares carry the marker; the plan row does too.
+    expect(screen.getAllByText('$0.50*')).toHaveLength(3);
+  });
+
+  it('shows a sub-percent share as <1%', () => {
+    const card = makeCard({
+      token_usage: { prompt_tokens: 100, completion_tokens: 50, estimated_cost_usd: 100 },
+      usage_breakdown: [
+        bucket({ role: 'review', cost_usd: 99.9 }),
+        bucket({ model: 'openai/model-2', role: 'gates', cost_usd: 0.1 }),
+      ],
+    });
+    render(<MetadataUsage card={card} />);
+    const bar = screen.getByRole('img', { name: 'cost split by role' });
+    expect(bar.children[1]).toHaveAttribute('title', 'gates $0.10 (<1%)');
   });
 
   it('renders the total alone when spend is entirely in subtasks', () => {
@@ -144,10 +187,21 @@ describe('MetadataUsage', () => {
     expect(screen.getAllByTitle('openai/gpt-5.6-sol')).toHaveLength(2);
   });
 
-  it('files buckets written before roles existed under "other"', () => {
+  it('files buckets written before roles existed under "other" with an explanation', () => {
     const card = makeCard({ usage_breakdown: [bucket({ cost_usd: 0.5 })] });
     render(<MetadataUsage card={card} />);
-    expect(screen.getByText('other')).toBeInTheDocument();
+    expect(screen.getByText('other')).toHaveAttribute(
+      'title',
+      'spend with no role: reported before roles existed or without a phase',
+    );
+  });
+
+  it('drops a step word that repeats the role', () => {
+    const card = makeCard({
+      usage_breakdown: [bucket({ role: 'judge', steps: ['judge'], cost_usd: 0.5 })],
+    });
+    render(<MetadataUsage card={card} />);
+    expect(screen.getAllByText('judge')).toHaveLength(1);
   });
 
   it('renders one block per subtask with its id, total and model rows, and opens the card on click', () => {
@@ -178,6 +232,39 @@ describe('MetadataUsage', () => {
     expect(onSubtaskClick).toHaveBeenCalledWith('CMX-003');
   });
 
+  it('shows a subtask total only when the subtask has more than one model row', () => {
+    const card = makeCard({
+      token_usage: { prompt_tokens: 100, completion_tokens: 50, estimated_cost_usd: 1 },
+      subtask_cost_usd: 0.45,
+      usage_breakdown: [bucket({ role: 'plan', cost_usd: 1 })],
+      subtask_usage: [
+        {
+          card_id: 'CMX-002',
+          buckets: [
+            bucket({ model: 'deepseek/deepseek-v4-flash', cost_usd: 0.3 }),
+            bucket({ model: 'anthropic/claude-sonnet-5', cost_usd: 0.15 }),
+          ],
+        },
+      ],
+    });
+    render(<MetadataUsage card={card} />);
+    // Header total, legend amount, and the two rows.
+    expect(screen.getAllByText('$0.45')).toHaveLength(2);
+    expect(screen.getByText('$0.30')).toBeInTheDocument();
+    expect(screen.getByText('$0.15')).toBeInTheDocument();
+  });
+
+  it('still lists subtask blocks when the summed subtask cost is absent', () => {
+    const card = makeCard({
+      usage_breakdown: [bucket({ role: 'plan', cost_usd: 1 })],
+      subtask_usage: [{ card_id: 'CMX-002', buckets: [bucket({ cost_usd: 0.3 })] }],
+    });
+    render(<MetadataUsage card={card} />);
+    expect(screen.getByText('Total')).toBeInTheDocument();
+    expect(screen.getByText('CMX-002')).toBeInTheDocument();
+    expect(screen.getByText('subtask')).toBeInTheDocument();
+  });
+
   it('renders subtask ids as plain text without a click handler', () => {
     const card = makeCard({
       subtask_cost_usd: 0.3,
@@ -202,15 +289,16 @@ describe('MetadataUsage', () => {
       usage_breakdown: [bucket({ cost_usd: 0.0123, cost_source: 'estimated' })],
     });
     render(<MetadataUsage card={card} />);
-    const cost = screen.getByText('$0.0123*');
-    expect(cost).toHaveAttribute('title', 'agent-reported · estimated from rate table');
+    const cost = screen.getByTitle('agent-reported · estimated from rate table');
+    expect(cost).toHaveTextContent('$0.0123*');
   });
 
   it('leaves actual costs unmarked with the actual-cost tooltip', () => {
     const card = makeCard({ usage_breakdown: [bucket({ cost_usd: 0.0123 })] });
     render(<MetadataUsage card={card} />);
-    const cost = screen.getByText('$0.0123');
-    expect(cost).toHaveAttribute('title', 'agent-reported · actual provider cost');
+    const cost = screen.getByTitle('agent-reported · actual provider cost');
+    expect(cost).toHaveTextContent('$0.0123');
+    expect(cost).not.toHaveTextContent('*');
   });
 
   it('labels collector-measured token counts as measured in the tooltip', () => {
@@ -218,8 +306,8 @@ describe('MetadataUsage', () => {
       usage_breakdown: [bucket({ cost_usd: 0.0123, counts_source: 'collector' })],
     });
     render(<MetadataUsage card={card} />);
-    const cost = screen.getByText('$0.0123');
-    expect(cost).toHaveAttribute('title', 'measured (collector-reported) · actual provider cost');
+    const cost = screen.getByTitle('measured (collector-reported) · actual provider cost');
+    expect(cost).toHaveTextContent('$0.0123');
   });
 
   it('labels self-reported token counts as agent-reported in the tooltip', () => {
@@ -227,8 +315,8 @@ describe('MetadataUsage', () => {
       usage_breakdown: [bucket({ cost_usd: 0.0123, counts_source: 'self' })],
     });
     render(<MetadataUsage card={card} />);
-    const cost = screen.getByText('$0.0123');
-    expect(cost).toHaveAttribute('title', 'agent-reported · actual provider cost');
+    const cost = screen.getByTitle('agent-reported · actual provider cost');
+    expect(cost).toHaveTextContent('$0.0123');
   });
 
   it('marks the Total line with an asterisk when any bucket is estimated', () => {

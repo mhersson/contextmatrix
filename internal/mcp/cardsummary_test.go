@@ -458,8 +458,26 @@ func TestGetTaskContextSiblingsAreSummaries(t *testing.T) {
 	}
 
 	sub1 := mkSub("Subtask one")
-	mkSub("Subtask two")
+	sub2 := mkSub("Subtask two")
 	mkSub("Subtask three")
+
+	// Give a sibling spend so the parent's read path carries subtask_usage.
+	_, err := env.svc.ClaimCard(t.Context(), "test-project", sub2.ID, "agent-1")
+	require.NoError(t, err)
+
+	usage := callTool(t, env, "report_usage", map[string]any{
+		"project": "test-project", "card_id": sub2.ID, "agent_id": "agent-1",
+		"model": "openai/gpt-5.5", "prompt_tokens": int64(10), "completion_tokens": int64(5),
+		"actual_cost_usd": 0.5,
+	})
+	require.False(t, usage.IsError)
+
+	var parentFull map[string]any
+
+	unmarshalResult(t, callTool(t, env, "get_card", map[string]any{
+		"project": "test-project", "card_id": parent.ID,
+	}), &parentFull)
+	require.Contains(t, parentFull, "subtask_usage", "get_card keeps the parent's subtask usage")
 
 	result := callTool(t, env, "get_task_context", map[string]any{
 		"project": "test-project",
@@ -477,6 +495,7 @@ func TestGetTaskContextSiblingsAreSummaries(t *testing.T) {
 	parentMap, ok := root["parent"].(map[string]any)
 	require.True(t, ok)
 	assert.Contains(t, parentMap, "body", "parent stays full")
+	assert.NotContains(t, parentMap, "subtask_usage", "siblings' ledgers stay out of the parent")
 
 	siblings, ok := root["siblings"].([]any)
 	require.True(t, ok)

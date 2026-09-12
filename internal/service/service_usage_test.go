@@ -1528,6 +1528,73 @@ func TestReportUsageBucketRoleAndSteps(t *testing.T) {
 	assert.InDelta(t, bucketCostSum(got), got.TokenUsage.EstimatedCostUSD, 1e-9)
 }
 
+// TestReportUsageLegacySeedStaysUnroled pins the upgrade decision: the
+// migration bucket seeded from pre-role cumulative spend keeps an empty role,
+// and a roled report for the same agent and model opens a second bucket
+// rather than folding the legacy spend into a role it never had.
+func TestReportUsageLegacySeedStaysUnroled(t *testing.T) {
+	svc, _, cleanup := setupTestWithCosts(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Legacy seed", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	refreshed, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+
+	refreshed.AssignedAgent = "cmx-agent-x"
+	refreshed.TokenUsage = &board.TokenUsage{
+		Model: "claude-sonnet-4-6", PromptTokens: 1000, CompletionTokens: 500, EstimatedCostUSD: 5.0,
+	}
+	refreshed.UsageBreakdown = nil
+	require.NoError(t, svc.store.UpdateCard(ctx, "test-project", refreshed))
+
+	got, err := svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+		AgentID: "cmx-agent-x", Model: "claude-sonnet-4-6",
+		PromptTokens: 10, CompletionTokens: 5, Phase: "execute",
+	})
+	require.NoError(t, err)
+
+	require.Len(t, got.UsageBreakdown, 2, "same agent and model, different role: two buckets")
+	assert.Equal(t, int64(1000), bucketByRole(got, "").PromptTokens)
+	assert.Equal(t, int64(10), bucketByRole(got, "execute").PromptTokens)
+	assert.InDelta(t, bucketCostSum(got), got.TokenUsage.EstimatedCostUSD, 1e-9)
+}
+
+// TestReportUsageUnknownPhaseIsUnattributed pins that only the documented
+// phases name a role: "done", a mistyped phase, and a report with no phase
+// on a card that has none all land in the empty-role bucket.
+func TestReportUsageUnknownPhaseIsUnattributed(t *testing.T) {
+	svc, _, cleanup := setupTestWithCosts(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Unattributed", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+	require.Empty(t, card.Phase)
+
+	for _, phase := range []string{"", "done", "bogus"} {
+		_, err := svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+			AgentID: "cmx-agent-x", Model: "claude-sonnet-4-6",
+			PromptTokens: 10, CompletionTokens: 5, Phase: phase,
+		})
+		require.NoError(t, err, "phase %q", phase)
+	}
+
+	got, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	require.Len(t, got.UsageBreakdown, 1, "all three reports share the empty-role bucket")
+	assert.Empty(t, got.UsageBreakdown[0].Role)
+	assert.Equal(t, int64(30), got.UsageBreakdown[0].PromptTokens)
+}
+
 func TestGetCard_SubtaskUsage(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
