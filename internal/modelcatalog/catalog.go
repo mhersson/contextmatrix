@@ -513,9 +513,10 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 		slices.SortFunc(built, func(a, c aaScored) int { return strings.Compare(a.Candidate.Slug, c.Candidate.Slug) })
 
 		// "Served but unselectable" is a loud condition, not a silent one: a
-		// tool-capable served model that yields no candidate means selection
-		// will fall back to the default model for that quality. One WARN per
-		// excluded model, naming the slug, the reason, and what was tried.
+		// served model that could otherwise have been a candidate yields no
+		// candidate means selection will fall back to the default model for
+		// that quality. One WARN per excluded model, naming the slug, the
+		// reason, and what was tried.
 		for _, x := range exclusions {
 			attrs := []any{"slug", x.Slug, "reason", x.Reason}
 
@@ -705,8 +706,8 @@ type PriorOverride struct {
 	Reviewer float64
 }
 
-// aaExclusionReason names why a served, tool-capable endpoint model did not
-// become a selection candidate.
+// aaExclusionReason names why a served endpoint model did not become a
+// selection candidate.
 type aaExclusionReason string
 
 const (
@@ -714,12 +715,13 @@ const (
 	exclUnscored   aaExclusionReason = "AA family has no usable scores"
 	exclNotAllowed aaExclusionReason = "creator not in the allowlist"
 	exclBelowFloor aaExclusionReason = "below the quality floor for both roles"
+	exclNoTools    aaExclusionReason = "gateway reports the model cannot use tools; model_priors entry ignored"
 )
 
-// aaExclusion is one served, tool-capable endpoint model that produced no
-// candidate, with what the join tried so the miss can be reported: Keys for
-// exclNoFamily, Family for exclUnscored, Source (the AA slug it joined) when
-// a join happened before the exclusion.
+// aaExclusion is one served endpoint model that produced no candidate, with
+// what the join tried so the miss can be reported: Keys for exclNoFamily,
+// Family for exclUnscored, Source (the AA slug it joined) when a join
+// happened before the exclusion.
 type aaExclusion struct {
 	Slug   string
 	Reason aaExclusionReason
@@ -769,9 +771,9 @@ type aaScored struct {
 	PriceSource priceSource
 }
 
-// buildEndpointCandidates scores each tool-capable served slug for the
-// openai leg. A model_priors override is used verbatim: no AA join, no
-// allowlist screen, creator unknown. Every other slug joins its AA family
+// buildEndpointCandidates scores each tool-capable served slug for the openai leg. A
+// model_priors override for a tool-capable slug is used verbatim: no AA join, no allowlist screen,
+// creator unknown; for a tool-incapable slug the entry is excluded with exclNoTools. Every other slug joins its AA family
 // automatically: the served id and each gateway alias reduce to family keys,
 // the first key with rows wins, and the closest scored row in that family
 // supplies the priors, preferring the row for the wanted reasoning effort
@@ -790,6 +792,10 @@ func buildEndpointCandidates(aa []aaModel, endpoint map[string]orEntry, priors m
 
 	for slug, e := range endpoint {
 		if !e.Tools {
+			if _, ok := priors[slug]; ok {
+				exclusions = append(exclusions, aaExclusion{Slug: slug, Reason: exclNoTools})
+			}
+
 			continue // endpoint reports the model cannot use tools
 		}
 
