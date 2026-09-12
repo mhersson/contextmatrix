@@ -124,7 +124,7 @@ The server registers 39 tools. The "Caller" column uses these values:
 
 | Tool                     | Description                                                     | Caller |
 | ------------------------ | --------------------------------------------------------------- | ------ |
-| `report_usage`           | Add tokens, cache tokens, cost, phase and duration to a card    | owner  |
+| `report_usage`           | Add tokens, cache tokens, cost, phase, step and duration to a card | owner |
 | `recalculate_costs`      | Re-price estimated buckets from the current rate table          | any    |
 | `report_incapable_model` | Blacklist a model that could not drive the tool loop            | any    |
 | `report_model_outcome`   | Record win / loss / failed rows for Best-of-N or a solo run     | claim  |

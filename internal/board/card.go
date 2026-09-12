@@ -106,6 +106,9 @@ type Card struct {
 	// includes rate-table-estimated buckets. Computed on read alongside
 	// SubtaskCostUSD, never persisted.
 	SubtaskCostHasEstimates bool `yaml:"-" json:"subtask_cost_has_estimates,omitempty"`
+	// SubtaskUsage lists each direct subtask's usage buckets. Computed on
+	// read alongside SubtaskCostUSD, never persisted.
+	SubtaskUsage []SubtaskUsage `yaml:"-" json:"subtask_usage,omitempty"`
 	// InPlaybooks lists the IDs of playbooks holding a card entry for this
 	// card. Computed on read, never persisted.
 	InPlaybooks []string `yaml:"-" json:"in_playbooks,omitempty"`
@@ -150,18 +153,33 @@ type TokenUsage struct {
 // CostSource records whether CostUSD came from the provider (actual) or the
 // local rate table (estimated); recalculation must never overwrite actual.
 type UsageBucket struct {
-	Agent               string  `yaml:"agent"                           json:"agent"`
-	Model               string  `yaml:"model"                           json:"model"`
-	PromptTokens        int64   `yaml:"prompt_tokens"                   json:"prompt_tokens"`
-	CompletionTokens    int64   `yaml:"completion_tokens"               json:"completion_tokens"`
-	CacheReadTokens     int64   `yaml:"cache_read_tokens,omitempty"     json:"cache_read_tokens,omitempty"`
-	CacheCreationTokens int64   `yaml:"cache_creation_tokens,omitempty" json:"cache_creation_tokens,omitempty"`
-	CostUSD             float64 `yaml:"cost_usd"                        json:"cost_usd"`
-	CostSource          string  `yaml:"cost_source"                     json:"cost_source"`
+	Agent string `yaml:"agent" json:"agent"`
+	Model string `yaml:"model" json:"model"`
+	// Role is the orchestrator role the spend served (plan|execute|judge|
+	// document|review|gates), taken from the report's phase or the card's
+	// phase at report time. Empty on buckets written before roles existed.
+	Role string `yaml:"role,omitempty" json:"role,omitempty"`
+	// Steps lists the model-call kinds beyond the primary phase call that
+	// fed this bucket (mob_seat, mob_moderator, gate, ...), sorted.
+	Steps               []string `yaml:"steps,omitempty"                 json:"steps,omitempty"`
+	PromptTokens        int64    `yaml:"prompt_tokens"                   json:"prompt_tokens"`
+	CompletionTokens    int64    `yaml:"completion_tokens"               json:"completion_tokens"`
+	CacheReadTokens     int64    `yaml:"cache_read_tokens,omitempty"     json:"cache_read_tokens,omitempty"`
+	CacheCreationTokens int64    `yaml:"cache_creation_tokens,omitempty" json:"cache_creation_tokens,omitempty"`
+	CostUSD             float64  `yaml:"cost_usd"                        json:"cost_usd"`
+	CostSource          string   `yaml:"cost_source"                     json:"cost_source"`
 	// CountsSource records whether the token counts came from a trusted
 	// collector reading real usage frames ("collector") or from the agent's own
 	// estimate (empty = self-reported). Sticky once "collector".
 	CountsSource string `yaml:"counts_source,omitempty" json:"counts_source,omitempty"`
+}
+
+// SubtaskUsage is one direct subtask's usage breakdown, attached to the
+// parent on read so the card panel can list subtask spend without fetching
+// each subtask.
+type SubtaskUsage struct {
+	CardID  string        `json:"card_id"`
+	Buckets []UsageBucket `json:"buckets"`
 }
 
 // CardPlaybookLock is the derived pointer from a card to the runnable

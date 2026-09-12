@@ -1458,3 +1458,119 @@ func TestAggregateCostsFlagsEstimates(t *testing.T) {
 	assert.False(t, byModel["m1"])
 	assert.True(t, byModel["m2"])
 }
+
+func bucketByRole(card *board.Card, role string) board.UsageBucket {
+	for _, b := range card.UsageBreakdown {
+		if b.Role == role {
+			return b
+		}
+	}
+
+	return board.UsageBucket{}
+}
+
+func TestReportUsageBucketRoleAndSteps(t *testing.T) {
+	svc, _, cleanup := setupTestWithCosts(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "Role test", Type: "task", Priority: "medium",
+	})
+	require.NoError(t, err)
+
+	phase := "execute"
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{Phase: &phase})
+	require.NoError(t, err)
+
+	report := func(phase, step string) *board.Card {
+		t.Helper()
+
+		got, err := svc.ReportUsage(ctx, "test-project", card.ID, ReportUsageInput{
+			AgentID: "cmx-agent-x", Model: "claude-sonnet-4-6",
+			PromptTokens: 10, CompletionTokens: 5, Phase: phase, Step: step,
+		})
+		require.NoError(t, err)
+
+		return got
+	}
+
+	// No phase on the report: the card's current phase names the role.
+	got := report("", "")
+	require.Len(t, got.UsageBreakdown, 1)
+	assert.Equal(t, "execute", got.UsageBreakdown[0].Role)
+	assert.Empty(t, got.UsageBreakdown[0].Steps, "the primary call records no step")
+
+	// Same model in another phase is a second bucket, keyed on role.
+	got = report("review", "mob_seat")
+	require.Len(t, got.UsageBreakdown, 2)
+
+	// Same role with another step merges; steps are unioned and sorted.
+	got = report("review", "mob_moderator")
+	require.Len(t, got.UsageBreakdown, 2)
+	review := bucketByRole(got, "review")
+	assert.Equal(t, int64(20), review.PromptTokens)
+	assert.Equal(t, []string{"mob_moderator", "mob_seat"}, review.Steps)
+
+	// pr_gates and integrate share the gates role.
+	report("pr_gates", "gate")
+	got = report("integrate", "")
+	require.Len(t, got.UsageBreakdown, 3)
+	gates := bucketByRole(got, "gates")
+	assert.Equal(t, int64(20), gates.PromptTokens)
+	assert.Equal(t, []string{"gate"}, gates.Steps)
+
+	// Unknown step words are dropped, not persisted.
+	got = report("review", "bogus")
+	assert.Equal(t, []string{"mob_moderator", "mob_seat"}, bucketByRole(got, "review").Steps)
+
+	assert.InDelta(t, bucketCostSum(got), got.TokenUsage.EstimatedCostUSD, 1e-9)
+}
+
+func TestGetCard_SubtaskUsage(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
+	svc, project, cleanup := setupDashboardServiceAt(t, now)
+	t.Cleanup(cleanup)
+
+	parentID := createCardWithUsage(ctx, t, svc, project, "parent", "model-a", 100, 50, 4.42)
+	legacyID := createSubtaskWithUsage(ctx, t, svc, project, parentID, "s1", "model-b", 10, 5, 0.30)
+	bucketedID := createSubtaskWithUsage(ctx, t, svc, project, parentID, "s2", "model-c", 20, 8, 0.27)
+
+	bucketed, err := svc.GetCard(ctx, project, bucketedID)
+	require.NoError(t, err)
+
+	bucketed.UsageBreakdown = []board.UsageBucket{{
+		Agent: "cmx-agent-s2", Model: "model-c", Role: "execute", Steps: []string{"verify_propose"},
+		PromptTokens: 20, CompletionTokens: 8, CostUSD: 0.27, CostSource: "actual",
+	}}
+	require.NoError(t, svc.store.UpdateCard(ctx, project, bucketed))
+
+	_, err = svc.CreateCard(ctx, project, CreateCardInput{
+		Title: "subtask s3", Type: "task", Priority: "medium", Parent: parentID,
+	})
+	require.NoError(t, err)
+
+	parent, err := svc.GetCard(ctx, project, parentID)
+	require.NoError(t, err)
+	require.Len(t, parent.SubtaskUsage, 2, "a subtask without usage is not listed")
+
+	// Ordered by card ID; a legacy subtask without buckets gets one
+	// synthesized from its cumulative usage, flagged as an estimate.
+	assert.Equal(t, legacyID, parent.SubtaskUsage[0].CardID)
+	require.Len(t, parent.SubtaskUsage[0].Buckets, 1)
+	legacyBucket := parent.SubtaskUsage[0].Buckets[0]
+	assert.Equal(t, "model-b", legacyBucket.Model)
+	assert.Equal(t, int64(10), legacyBucket.PromptTokens)
+	assert.Equal(t, int64(5), legacyBucket.CompletionTokens)
+	assert.InDelta(t, 0.30, legacyBucket.CostUSD, 1e-9)
+	assert.Equal(t, "estimated", legacyBucket.CostSource)
+
+	assert.Equal(t, bucketedID, parent.SubtaskUsage[1].CardID)
+	assert.Equal(t, bucketed.UsageBreakdown, parent.SubtaskUsage[1].Buckets)
+
+	sub, err := svc.GetCard(ctx, project, bucketedID)
+	require.NoError(t, err)
+	assert.Nil(t, sub.SubtaskUsage)
+}

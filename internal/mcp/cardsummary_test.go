@@ -23,12 +23,14 @@ func jsonTagName(tag string) string {
 
 // TestCardSummaryMirrorsBoardCard is the drift guard for the parallel struct:
 // every JSON-visible board.Card field must exist on CardSummary with an
-// identical json tag and type, except body, activity_log, and
-// usage_breakdown, which are deliberately absent (they are the three
-// unbounded fields MCP results must not echo). CardSummary must carry nothing
+// identical json tag and type, except body, activity_log, usage_breakdown,
+// and subtask_usage, which are deliberately absent (they are the unbounded
+// fields MCP results must not echo). CardSummary must carry nothing
 // board.Card does not have.
 func TestCardSummaryMirrorsBoardCard(t *testing.T) {
-	dropped := map[string]bool{"body": true, "activity_log": true, "usage_breakdown": true}
+	dropped := map[string]bool{
+		"body": true, "activity_log": true, "usage_breakdown": true, "subtask_usage": true,
+	}
 
 	cardType := reflect.TypeFor[board.Card]()
 	sumType := reflect.TypeFor[CardSummary]()
@@ -118,12 +120,13 @@ func TestSummarizeCard(t *testing.T) {
 		assert.Nil(t, summarizeCard(nil))
 	})
 
-	t.Run("keeps every field except body, activity_log, and usage_breakdown", func(t *testing.T) {
+	t.Run("keeps every field except body, activity_log, usage_breakdown, and subtask_usage", func(t *testing.T) {
 		card := &board.Card{}
 		fillNonZero(reflect.ValueOf(card).Elem(), 1)
 		require.NotEmpty(t, card.Body)
 		require.NotEmpty(t, card.ActivityLog)
 		require.NotEmpty(t, card.UsageBreakdown)
+		require.NotEmpty(t, card.SubtaskUsage)
 
 		full, err := json.Marshal(card)
 		require.NoError(t, err)
@@ -138,8 +141,9 @@ func TestSummarizeCard(t *testing.T) {
 		delete(fullMap, "body")
 		delete(fullMap, "activity_log")
 		delete(fullMap, "usage_breakdown")
+		delete(fullMap, "subtask_usage")
 		assert.Equal(t, fullMap, slimMap,
-			"summarizeCard must copy every field except body, activity_log, and usage_breakdown")
+			"summarizeCard must copy every field except body, activity_log, usage_breakdown, and subtask_usage")
 	})
 }
 

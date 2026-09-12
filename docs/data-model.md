@@ -332,6 +332,7 @@ type Card struct {
     UsageBreakdown          []UsageBucket     `yaml:"usage_breakdown,omitempty"       json:"usage_breakdown,omitempty"`
     SubtaskCostUSD          float64           `yaml:"-"                               json:"subtask_cost_usd,omitempty"`
     SubtaskCostHasEstimates bool              `yaml:"-"                               json:"subtask_cost_has_estimates,omitempty"`
+    SubtaskUsage            []SubtaskUsage    `yaml:"-"                               json:"subtask_usage,omitempty"`
     InPlaybooks             []string          `yaml:"-"                             json:"in_playbooks,omitempty"`
     PlaybookLock            *CardPlaybookLock `yaml:"-"                             json:"playbook_lock,omitempty"`
     Created                 time.Time         `yaml:"created"                       json:"created"`
@@ -364,15 +365,22 @@ type TokenUsage struct {
 }
 
 type UsageBucket struct {
-    Agent               string  `yaml:"agent"                           json:"agent"`
-    Model               string  `yaml:"model"                           json:"model"`
-    PromptTokens        int64   `yaml:"prompt_tokens"                   json:"prompt_tokens"`
-    CompletionTokens    int64   `yaml:"completion_tokens"               json:"completion_tokens"`
-    CacheReadTokens     int64   `yaml:"cache_read_tokens,omitempty"     json:"cache_read_tokens,omitempty"`
-    CacheCreationTokens int64   `yaml:"cache_creation_tokens,omitempty" json:"cache_creation_tokens,omitempty"`
-    CostUSD             float64 `yaml:"cost_usd"                        json:"cost_usd"`
-    CostSource          string  `yaml:"cost_source"                     json:"cost_source"`
-    CountsSource        string  `yaml:"counts_source,omitempty"         json:"counts_source,omitempty"`
+    Agent               string   `yaml:"agent"                           json:"agent"`
+    Model               string   `yaml:"model"                           json:"model"`
+    Role                string   `yaml:"role,omitempty"                  json:"role,omitempty"`
+    Steps               []string `yaml:"steps,omitempty"                 json:"steps,omitempty"`
+    PromptTokens        int64    `yaml:"prompt_tokens"                   json:"prompt_tokens"`
+    CompletionTokens    int64    `yaml:"completion_tokens"               json:"completion_tokens"`
+    CacheReadTokens     int64    `yaml:"cache_read_tokens,omitempty"     json:"cache_read_tokens,omitempty"`
+    CacheCreationTokens int64    `yaml:"cache_creation_tokens,omitempty" json:"cache_creation_tokens,omitempty"`
+    CostUSD             float64  `yaml:"cost_usd"                        json:"cost_usd"`
+    CostSource          string   `yaml:"cost_source"                     json:"cost_source"`
+    CountsSource        string   `yaml:"counts_source,omitempty"         json:"counts_source,omitempty"`
+}
+
+type SubtaskUsage struct {
+    CardID  string        `json:"card_id"`
+    Buckets []UsageBucket `json:"buckets"`
 }
 ```
 
@@ -402,8 +410,8 @@ pass `cache_creation_input_tokens` from the stream-json `usage` frame as is.
 
 ### Usage breakdown
 
-`UsageBreakdown` holds one `UsageBucket` per `(agent, model)` pair, merging
-every `report_usage` call for that pair. It attributes cost after release
+`UsageBreakdown` holds one `UsageBucket` per `(agent, model, role)` triple,
+merging every `report_usage` call for that triple. It attributes cost after release
 (when `assigned_agent` is cleared) and across several agents or models on
 one card. Empty-agent buckets roll up to the dashboard's `unassigned` label.
 
@@ -420,9 +428,20 @@ one card. Empty-agent buckets roll up to the dashboard's `unassigned` label.
   This lets the claim holder (whose `agent_id` must pass the ownership check)
   attribute a sub-agent's tokens under the sub-agent's name. `on_behalf_of`
   never affects authorization.
+- `role` is the orchestrator role the spend served: the `phase` on
+  `report_usage`, falling back to the card's current phase, with `pr_gates`
+  and `integrate` collapsed into `gates`. Empty on buckets written before
+  roles existed, so a `report_usage` for such a card opens a new bucket
+  rather than merging into the legacy one. `steps` lists the step words
+  (`mob_seat`, `mob_moderator`, `gate`, ...) that fed the bucket beyond the
+  primary phase call, sorted; `main` and unknown words are not recorded.
 - The cumulative `TokenUsage` stays equal to the bucket sum: each report
   increments both. Cards with no buckets fall back to `assigned_agent` for
   their rollup.
+- `subtask_usage` (computed on `GET .../cards/{id}` and MCP `get_card`, never
+  persisted) lists each direct subtask's buckets as `{card_id, buckets}` in
+  ID order, alongside `subtask_cost_usd`. A subtask that only has cumulative
+  `token_usage` contributes one synthesized bucket marked `estimated`.
 
 ```go
 // internal/board/project.go
@@ -511,7 +530,7 @@ entries winning per tier. `json:"-"`: no REST path writes it; hand-edit
 `last_heartbeat`, `claimed_via`, `claimed_at`, `claim_epoch`, `activity_log`,
 `worker_status`, `review_attempts`, `token_usage`,
 `usage_breakdown`, `dependencies_met`, `blocked_by`, `subtask_cost_usd`,
-`subtask_cost_has_estimates`, `in_playbooks`, `playbook_lock`.
+`subtask_cost_has_estimates`, `subtask_usage`, `in_playbooks`, `playbook_lock`.
 
 `branch_name` is predicted by CM at create as `<lowercase-id>/<title-slug>`
 on standalone and parent cards. No git ref is created by this generation. The

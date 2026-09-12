@@ -145,28 +145,36 @@ export function buildCardPatch(edited: Card, original: Card): PatchCardInput {
   return updates;
 }
 
-export interface AgentUsageGroup {
-  agent: string;
+export interface RoleUsageGroup {
+  /** Bucket role; empty for buckets written before roles existed. */
+  role: string;
+  cost: number;
+  /** Step words recorded on the role's buckets, deduplicated in first-seen order. */
+  steps: string[];
   buckets: UsageBucket[];
 }
 
 /**
- * Groups usage buckets by agent so the Models-used table can print each agent
- * once. First-seen agent order; original bucket order kept within a group.
+ * Groups usage buckets by role, largest spend first, so the Models-used
+ * section can print a role header with its subtotal over the model rows.
+ * Original bucket order is kept within a role.
  */
-export function groupBucketsByAgent(buckets: UsageBucket[]): AgentUsageGroup[] {
-  const groups: AgentUsageGroup[] = [];
-  const byAgent = new Map<string, AgentUsageGroup>();
+export function groupBucketsByRole(buckets: UsageBucket[]): RoleUsageGroup[] {
+  const byRole = new Map<string, RoleUsageGroup>();
   for (const b of buckets) {
-    let g = byAgent.get(b.agent);
+    const role = b.role ?? '';
+    let g = byRole.get(role);
     if (!g) {
-      g = { agent: b.agent, buckets: [] };
-      byAgent.set(b.agent, g);
-      groups.push(g);
+      g = { role, cost: 0, steps: [], buckets: [] };
+      byRole.set(role, g);
+    }
+    g.cost += b.cost_usd;
+    for (const step of b.steps ?? []) {
+      if (!g.steps.includes(step)) g.steps.push(step);
     }
     g.buckets.push(b);
   }
-  return groups;
+  return [...byRole.values()].sort((a, b) => b.cost - a.cost);
 }
 
 export function isSafeHttpUrl(url: string): boolean {
