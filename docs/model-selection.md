@@ -303,7 +303,7 @@ number the selector ranked it on, and a gateway without a pricing block
 needs no `token_costs` table for card costs to come out. A usage report
 names the model the way the gateway echoed it in the completion, which on
 a gateway serving vendor-prefixed ids is the bare name (`claude-opus-5`)
-or a dated snapshot (`gpt-5.4-2026-03-05`); `Rate()` resolves such a name
+or a dated snapshot (`gpt-5.4-2026-03-05`) or a Bedrock model id (`anthropic.claude-haiku-4-5-20251001-v1:0`); `Rate()` resolves such a name
 to the served id through the vendor-stripped id or a gateway alias, else
 through the name with its date token removed (never an effort word: `sonar`
 is not `sonar-reasoning`), and leaves a name two served models could claim

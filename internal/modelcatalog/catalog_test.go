@@ -963,8 +963,10 @@ func TestBuildEndpointCandidatesCapturesAAListPrices(t *testing.T) {
 // model name the gateway echoed in the completion, not the served id, so
 // Rate() resolves a name by served id, then by vendor-stripped id or
 // gateway alias, then by the name with its date token removed (a snapshot
-// the gateway did not list as an alias). Effort words are never stripped,
-// and a name two served ids could claim is not guessed.
+// the gateway did not list as an alias). The Bedrock form
+// (<vendor>.<model>-v<digits>:<digits>) is also stripped to the bare name.
+// Effort words are never stripped, and a name two served ids could claim
+// is not guessed.
 func TestBuilderRateResolvesGatewayEchoedName(t *testing.T) {
 	endpointSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"data":[
@@ -994,18 +996,20 @@ func TestBuilderRateResolvesGatewayEchoedName(t *testing.T) {
 		ok     bool
 		prompt float64
 	}{
-		{name: "vendor/model-a", ok: true, prompt: 2e-6},             // served id
-		{name: "model-a", ok: true, prompt: 2e-6},                    // vendor-stripped id, also an alias
-		{name: "model-a-20260101", ok: true, prompt: 2e-6},           // gateway alias
-		{name: "model-a-2026-03-05", ok: true, prompt: 2e-6},         // dated echo, same family, not an alias
-		{name: "vendor/model-b", ok: true, prompt: 1e-6},             // served id, exact wins over the family
-		{name: "model-b", ok: false},                                 // two served ids claim it
-		{name: "model-d-20260301", ok: true, prompt: 5e-6},           // dated echo of a bare served id
-		{name: "model-e-reasoning-20260301", ok: true, prompt: 7e-6}, // dated echo of an effort variant
-		{name: "model-e", ok: false},                                 // a different product, not the served effort variant
-		{name: "model-e-20260301", ok: false},                        // nor its snapshot
-		{name: "model-f", ok: true, prompt: 9e-6},                    // undated echo of a dated served id
-		{name: "model-c", ok: false},                                 // not served
+		{name: "vendor/model-a", ok: true, prompt: 2e-6},               // served id
+		{name: "model-a", ok: true, prompt: 2e-6},                      // vendor-stripped id, also an alias
+		{name: "model-a-20260101", ok: true, prompt: 2e-6},             // gateway alias
+		{name: "model-a-2026-03-05", ok: true, prompt: 2e-6},           // dated echo, same family, not an alias
+		{name: "vendor/model-b", ok: true, prompt: 1e-6},               // served id, exact wins over the family
+		{name: "model-b", ok: false},                                   // two served ids claim it
+		{name: "model-d-20260301", ok: true, prompt: 5e-6},             // dated echo of a bare served id
+		{name: "model-e-reasoning-20260301", ok: true, prompt: 7e-6},   // dated echo of an effort variant
+		{name: "model-e", ok: false},                                   // a different product, not the served effort variant
+		{name: "model-e-20260301", ok: false},                          // nor its snapshot
+		{name: "model-f", ok: true, prompt: 9e-6},                      // undated echo of a dated served id
+		{name: "model-c", ok: false},                                   // not served
+		{name: "vendor.model-a-20260101-v1:0", ok: true, prompt: 2e-6}, // Bedrock echo->snapshotKey model-a->vendor/model-a
+		{name: "vendor.model-b-v1:0", ok: false},                       // Bedrock echo->model-b, two served ids claim it
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			price, ok := b.Rate(context.Background(), tc.name)

@@ -150,6 +150,31 @@ func TestFamilyKeyParts(t *testing.T) {
 	assert.Zero(t, date)
 }
 
+// TestSnapshotKey covers the Bedrock-echoed id rewrite and every existing
+// pipeline rule (vendor-prefix cut, dots-to-dashes, date-strip).
+func TestSnapshotKey(t *testing.T) {
+	tests := []struct {
+		in   string
+		want string
+	}{
+		// Bedrock echoed id: vendor prefix and -v<digits>:<digits> suffix stripped
+		{in: "anthropic.claude-haiku-4-5-20251001-v1:0", want: "claude-haiku-4-5"},
+		{in: "meta.llama3-70b-instruct-v1:0", want: "llama3-70b-instruct"},
+		// Bedrock-like but without the -v<digits>:<digits> suffix - unchanged pipeline
+		{in: "anthropic.claude-haiku-4-5-20251001", want: "anthropic-claude-haiku-4-5"},
+		// Dotted version unaffected because it has no -vN:M suffix
+		{in: "gpt-5.4-2026-03-05", want: "gpt-5-4"},
+		// Vendor slash prefix dropped
+		{in: "vendor/model-a-20260101", want: "model-a"},
+		// Suffix without vendor-dot prefix must NOT resolve
+		{in: "model-a-v1:0", want: "model-a-v1:0"},
+	}
+
+	for _, tt := range tests {
+		assert.Equal(t, tt.want, snapshotKey(tt.in), tt.in)
+	}
+}
+
 // TestReasoningEffortVocabularyStrips pins config's reasoning_effort values
 // to the suffixes the family key strips: a value the key would not strip
 // could never match a row.

@@ -173,6 +173,14 @@ func familyKeyParts(s string) (key string, efforts []string, dateStripped int) {
 // for a served model.
 func snapshotKey(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
+
+	// Strip a Bedrock-echoed vendor prefix and version suffix so the
+	// existing pipeline sees the bare model name. Matches only the full
+	// <vendor>.<model>-v<digits>:<digits> form.
+	if m := bedrockEchoed.FindStringSubmatch(s); m != nil {
+		s = m[2]
+	}
+
 	if _, name, found := strings.Cut(s, "/"); found {
 		s = name
 	}
@@ -217,6 +225,11 @@ func stripEffort(segs []string) (rest []string, effort string, ok bool) {
 
 	return segs, "", false
 }
+
+// bedrockEchoed matches a Bedrock model id echoed by a gateway:
+// <vendor>.<model>-v<major>:<minor>. The version suffix sits after the
+// date token, so the existing trailing-date strip alone cannot reach the key.
+var bedrockEchoed = regexp.MustCompile(`^([a-z0-9]+)\.(.+)-v[0-9]+:[0-9]+$`)
 
 // dateToken matches the trailing date shapes AA and vendors use, joined by
 // dashes: MMDD or YYYYMMDD, MM-DD, MM-YYYY, YYYY-MM-DD, and a month name
