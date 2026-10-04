@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { act, fireEvent, render, renderHook, screen } from '@testing-library/react';
 import type { SelectorCandidate } from '../../types';
-import { OTHER_PROVIDER, PROVIDER_FILTER_KEY, providerCounts, providerOf, useProviderFilter } from './providerFilter';
+import { OTHER_PROVIDER, PROVIDER_FILTER_KEY, providerCounts, providerOf, useProviderFilter } from './useProviderFilter';
 import { ProviderFilter } from './ProviderFilter';
 
 function cand(slug: string, creator: string): SelectorCandidate {
