@@ -195,6 +195,10 @@ the two saved ladders are equal and off when they differ; when on, it moves the
 same tier in both ladders and keeps them equal. The panel head also holds a
 **Price headroom** number field (the best-value band multiplier, at least 1,
 built-in 1.5) that is saved with the ladders and applied by the pick preview. A
+row of provider checkboxes on its own line under the legend swatches (with
+per-provider counts and `all` / `none` buttons) hides pills on both columns while a provider is
+unchecked; the selection is remembered per browser and is display-only - it
+never changes picks, seats, KPIs, band counts, saved ladders or any request. A
 filled pill is the pick at its rung, a dashed outline a panel seat, a struck one a
 blacklisted model. The pick preview beside it shows, per tier, the coder pick,
 the reviewer pick and the three-seat review panel with prices, `↓ <rung>` when a

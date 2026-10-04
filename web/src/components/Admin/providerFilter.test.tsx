@@ -135,8 +135,14 @@ describe('useProviderFilter', () => {
 describe('ProviderFilter component', () => {
   const CANDIDATES = [cand('anthropic/x', 'Anthropic'), cand('anthropic/y', 'Anthropic'), cand('openai/z', 'openai')];
 
+  // The ladder's wiring: the hook owns the state, the row only renders it.
+  function Host() {
+    const filter = useProviderFilter(CANDIDATES);
+    return <ProviderFilter candidates={CANDIDATES} filter={filter} />;
+  }
+
   it('renders one checkbox per provider with its count and accessible group name', () => {
-    render(<ProviderFilter candidates={CANDIDATES} />);
+    render(<Host />);
 
     const group = screen.getByLabelText('Provider filter');
     expect(group).toBeInTheDocument();
@@ -146,50 +152,24 @@ describe('ProviderFilter component', () => {
     expect(screen.getByRole('button', { name: 'none' })).toBeInTheDocument();
   });
 
-  it('toggling a checkbox hides that provider and updates the other checkboxes', () => {
-    render(<ProviderFilter candidates={CANDIDATES} />);
+  it('toggling a checkbox unchecks it and drives the shared filter state', () => {
+    render(<Host />);
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Anthropic 2' }));
     expect(screen.getByRole('checkbox', { name: 'Anthropic 2' })).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'openai 1' })).toBeChecked();
     expect(localStorageMock.getItem(PROVIDER_FILTER_KEY)).toBe(JSON.stringify(['Anthropic']));
   });
 
-  it('none followed by checking one provider leaves only that provider visible', () => {
-    render(<ProviderFilter candidates={CANDIDATES} />);
+  it('none unchecks every provider; all restores them', () => {
+    render(<Host />);
 
     fireEvent.click(screen.getByRole('button', { name: 'none' }));
     expect(screen.getByRole('checkbox', { name: 'Anthropic 2' })).not.toBeChecked();
     expect(screen.getByRole('checkbox', { name: 'openai 1' })).not.toBeChecked();
 
-    fireEvent.click(screen.getByRole('checkbox', { name: 'openai 1' }));
-
-    const { result } = renderHook(() => useProviderFilter(CANDIDATES));
-    expect(result.current.hidden).toEqual(new Set(['Anthropic']));
-    expect(result.current.visible(CANDIDATES[0])).toBe(false);
-    expect(result.current.visible(CANDIDATES[2])).toBe(true);
-  });
-
-  it('the selection survives a remount through localStorage', () => {
-    const { unmount } = render(<ProviderFilter candidates={CANDIDATES} />);
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Anthropic 2' }));
-    unmount();
-
-    render(<ProviderFilter candidates={CANDIDATES} />);
-    expect(screen.getByRole('checkbox', { name: 'Anthropic 2' })).not.toBeChecked();
-    expect(screen.getByRole('checkbox', { name: 'openai 1' })).toBeChecked();
-  });
-
-  it('a throwing localStorage still renders and toggles without error', () => {
-    localStorageMock.getItem.mockImplementation(() => {
-      throw new Error('storage blocked');
-    });
-    localStorageMock.setItem.mockImplementation(() => {
-      throw new Error('QuotaExceededError');
-    });
-    render(<ProviderFilter candidates={CANDIDATES} />);
-
+    fireEvent.click(screen.getByRole('button', { name: 'all' }));
     expect(screen.getByRole('checkbox', { name: 'Anthropic 2' })).toBeChecked();
-    expect(() => fireEvent.click(screen.getByRole('checkbox', { name: 'Anthropic 2' }))).not.toThrow();
-    expect(screen.getByRole('checkbox', { name: 'Anthropic 2' })).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'openai 1' })).toBeChecked();
   });
 });

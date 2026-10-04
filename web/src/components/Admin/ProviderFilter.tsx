@@ -1,13 +1,16 @@
-import { providerCounts, useProviderFilter } from './providerFilter';
+import { providerCounts } from './providerFilter';
+import type { ProviderFilterState } from './providerFilter';
 import type { SelectorCandidate } from '../../types';
 
 export interface ProviderFilterProps {
   candidates: SelectorCandidate[];
+  /** Filter state owned by the parent, which also hides pills with it. */
+  filter: Pick<ProviderFilterState, 'hidden' | 'toggle' | 'selectAll' | 'selectNone'>;
 }
 
 /** Compact row of per-provider checkboxes that hides a provider's pills on the ladder. */
-export function ProviderFilter({ candidates }: ProviderFilterProps) {
-  const { hidden, toggle, selectAll, selectNone } = useProviderFilter(candidates);
+export function ProviderFilter({ candidates, filter }: ProviderFilterProps) {
+  const { hidden, toggle, selectAll, selectNone } = filter;
   const counts = providerCounts(candidates);
 
   return (

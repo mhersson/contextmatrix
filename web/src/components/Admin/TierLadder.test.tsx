@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import type { SelectorCandidate, SelectorLadders } from '../../types';
 import { TierLadder } from './TierLadder';
@@ -9,9 +9,26 @@ function ladders(): SelectorLadders {
   return { coder: { ...DEFAULTS }, reviewer: { ...DEFAULTS } };
 }
 
-function cand(slug: string, coder: number, reviewer: number, price = 1e-6): SelectorCandidate {
-  return { slug, creator: slug.split('/')[0], coder_prior: coder, reviewer_prior: reviewer, prompt_price_per_tok: price, completion_price_per_tok: price, context_window: 200000, price_source: 'gateway', scored_from: '', coder_prior_estimated: false };
+function cand(slug: string, coder: number, reviewer: number, price = 1e-6, creator?: string): SelectorCandidate {
+  return { slug, creator: creator ?? slug.split('/')[0], coder_prior: coder, reviewer_prior: reviewer, prompt_price_per_tok: price, completion_price_per_tok: price, context_window: 200000, price_source: 'gateway', scored_from: '', coder_prior_estimated: false };
 }
+
+// Real backing store + spy-able methods, matching providerFilter.test.tsx, so
+// remount and throwing-storage tests can drive one object.
+const localStorageMock = (() => {
+  let store: Record<string, string> = {};
+  return {
+    getItem: vi.fn((key: string) => store[key] ?? null),
+    setItem: vi.fn((key: string, value: string) => {
+      store[key] = value;
+    }),
+    clear: vi.fn(() => {
+      store = {};
+    }),
+  };
+})();
+
+Object.defineProperty(globalThis, 'localStorage', { value: localStorageMock, configurable: true });
 
 const CANDIDATES = [cand('a/top', 0.95, 0.92), cand('a/mid', 0.85, 0.84), cand('b/low', 0.7, 0.8), cand('c/floor', 0.5, 0.66)];
 
@@ -25,6 +42,11 @@ beforeAll(() => {
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
     top: 0, height: 650, left: 0, width: 300, bottom: 650, right: 300, x: 0, y: 0, toJSON: () => ({}),
   } as DOMRect);
+});
+
+beforeEach(() => {
+  localStorageMock.clear();
+  vi.clearAllMocks();
 });
 
 function renderLadder(overrides: Partial<Parameters<typeof TierLadder>[0]> = {}) {
@@ -262,5 +284,158 @@ describe('TierLadder - headroom', () => {
   it('marks a non-finite headroom invalid, matching the page gate', () => {
     renderLadder({ headroom: Infinity });
     expect(screen.getByRole('spinbutton', { name: 'Price headroom' })).toHaveAttribute('aria-invalid', 'true');
+  });
+});
+
+describe('TierLadder - provider filter', () => {
+  it('unchecking a provider removes its pills from both columns and leaves the others', () => {
+    renderLadder();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'a 2' }));
+
+    expect(screen.queryByTestId('tl-dot-coder-a/top')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('tl-dot-reviewer-a/mid')).not.toBeInTheDocument();
+    expect(screen.getByTestId('tl-dot-coder-b/low')).toBeInTheDocument();
+    expect(screen.getByTestId('tl-dot-reviewer-c/floor')).toBeInTheDocument();
+  });
+
+  it('shows the shown-of-total count in the panel meta while filtered', () => {
+    const { rerender } = renderLadder();
+
+    expect(screen.queryByText(/\d+ of \d+ candidates shown/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'a 2' }));
+    expect(screen.getByText('2 of 4 candidates shown')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'a 2' }));
+    expect(screen.queryByText(/\d+ of \d+ candidates shown/)).not.toBeInTheDocument();
+
+    rerender(
+      <TierLadder
+        candidates={CANDIDATES}
+        ladders={ladders()}
+        linked={false}
+        onLinkedChange={vi.fn()}
+        onChange={vi.fn()}
+        floor={0.65}
+        blacklist={EMPTY}
+        picks={{ coder: EMPTY, reviewer: EMPTY }}
+        seats={EMPTY}
+        meta="4 candidates"
+        headroom={1.5}
+        onHeadroomChange={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText(/\d+ of \d+ candidates shown/)).not.toBeInTheDocument();
+  });
+
+  it('keeps the tier band counts identical before and after filtering', () => {
+    renderLadder();
+
+    const bands = within(screen.getByTestId('tl-ladder')).getAllByText(/model/).map((n) => n.textContent);
+    expect(bands).toContain('1 model');
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'a 2' }));
+
+    expect(within(screen.getByTestId('tl-ladder')).getAllByText(/model/).map((n) => n.textContent)).toEqual(bands);
+    expect(screen.getByTestId('tl-band-coder-critical')).toHaveTextContent('1 model');
+    expect(screen.getByTestId('tl-band-reviewer-simple')).toHaveTextContent('1 model');
+  });
+
+  it('none followed by checking one provider shows only that provider', () => {
+    renderLadder();
+
+    fireEvent.click(screen.getByRole('button', { name: 'none' }));
+    expect(screen.queryByTestId(/^tl-dot-/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'b 1' }));
+
+    expect(screen.getByTestId('tl-dot-coder-b/low')).toBeInTheDocument();
+    expect(screen.queryByTestId(/^tl-dot-(coder|reviewer)-a\//)).not.toBeInTheDocument();
+    expect(screen.queryByTestId(/^tl-dot-(coder|reviewer)-c\//)).not.toBeInTheDocument();
+  });
+
+  it('groups a candidate with an empty creator under its slug prefix', () => {
+    renderLadder({ candidates: [cand('zhipu/glm', 0.9, 0.9, 1e-6, ''), ...CANDIDATES.slice(1)] });
+
+    expect(screen.getByRole('checkbox', { name: 'zhipu 1' })).toBeChecked();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'zhipu 1' }));
+    expect(screen.queryByTestId('tl-dot-coder-zhipu/glm')).not.toBeInTheDocument();
+    expect(screen.getByTestId('tl-dot-coder-a/mid')).toBeInTheDocument();
+  });
+
+  it('a rerender after filtering still marks picked and seat classes on the visible pills', () => {
+    const props: Parameters<typeof TierLadder>[0] = {
+      candidates: CANDIDATES,
+      ladders: ladders(),
+      linked: false,
+      onLinkedChange: vi.fn(),
+      onChange: vi.fn(),
+      floor: 0.65,
+      blacklist: EMPTY,
+      picks: { coder: new Set(['b/low']), reviewer: new Set(['a/top']) },
+      seats: new Set(['b/low']),
+      meta: '4 candidates',
+      headroom: 1.5,
+      onHeadroomChange: vi.fn(),
+    };
+    const { rerender } = renderLadder(props);
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'a 2' }));
+    rerender(<TierLadder {...props} />);
+
+    expect(screen.getByTestId('tl-dot-coder-b/low')).toHaveClass('picked');
+    expect(screen.getByTestId('tl-dot-reviewer-b/low')).toHaveClass('seat');
+    expect(screen.queryByTestId('tl-dot-reviewer-a/top')).not.toBeInTheDocument();
+  });
+
+  it('the filter never calls onChange or onHeadroomChange', () => {
+    const { onChange, onHeadroomChange } = renderLadder();
+
+    fireEvent.click(screen.getByRole('button', { name: 'none' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'a 2' }));
+
+    expect(onChange).not.toHaveBeenCalled();
+    expect(onHeadroomChange).not.toHaveBeenCalled();
+  });
+
+  it('the selection survives a remount through localStorage', () => {
+    const { unmount } = renderLadder();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'a 2' }));
+    unmount();
+
+    renderLadder();
+
+    expect(screen.queryByTestId('tl-dot-coder-a/top')).not.toBeInTheDocument();
+    expect(screen.getByTestId('tl-dot-coder-b/low')).toBeInTheDocument();
+    expect(screen.getByText('2 of 4 candidates shown')).toBeInTheDocument();
+  });
+
+  it('a throwing localStorage still renders the ladder and toggling stays safe', () => {
+    localStorageMock.getItem.mockImplementationOnce(() => {
+      throw new Error('storage blocked');
+    });
+    localStorageMock.setItem.mockImplementationOnce(() => {
+      throw new Error('QuotaExceededError');
+    });
+
+    renderLadder();
+
+    expect(screen.getByTestId('tl-dot-coder-a/top')).toBeInTheDocument();
+    expect(screen.queryByText(/\d+ of \d+ candidates shown/)).not.toBeInTheDocument();
+
+    // Unchecking a provider hits the throwing setItem; the view keeps working.
+    expect(() => fireEvent.click(screen.getByRole('checkbox', { name: 'a 2' }))).not.toThrow();
+    expect(screen.queryByTestId('tl-dot-coder-a/top')).not.toBeInTheDocument();
+    expect(screen.getByTestId('tl-dot-coder-b/low')).toBeInTheDocument();
+  });
+
+  it('the all toggle restores every pill after filtering', () => {
+    renderLadder();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'a 2' }));
+    fireEvent.click(screen.getByRole('button', { name: 'all' }));
+    expect(screen.queryByText(/\d+ of \d+ candidates shown/)).not.toBeInTheDocument();
+    expect(screen.getByTestId('tl-dot-coder-a/top')).toBeInTheDocument();
   });
 });

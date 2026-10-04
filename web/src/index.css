@@ -2864,10 +2864,11 @@ textarea {
 }
 .tl-provider-row {
   --provider-accent: var(--aqua);
+  /* flex child of .tl-legend: full basis keeps it on its own line under the swatches. */
+  flex-basis: 100%;
   display: flex;
   gap: 14px;
   flex-wrap: wrap;
-  margin-top: 10px;
   font-family: var(--font-mono);
   font-size: 10px;
   color: var(--grey1);

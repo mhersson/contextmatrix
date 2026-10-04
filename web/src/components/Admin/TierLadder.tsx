@@ -16,6 +16,8 @@ import {
   usdPerMillion,
 } from './ladder';
 import { useLadderDrag } from './useLadderDrag';
+import { ProviderFilter } from './ProviderFilter';
+import { useProviderFilter } from './providerFilter';
 
 export interface TierLadderProps {
   candidates: SelectorCandidate[];
@@ -86,14 +88,19 @@ export function TierLadder({
   const railRef = useRef<HTMLDivElement>(null);
   const { dragging, handleProps } = useLadderDrag({ ladders, linked, floor, railRef, onChange });
 
+  // View-only filter: the pills it hides never touch the tier bands, the
+  // estimated count or anything upstream of the panel.
+  const { visible, isActive, toggle, selectAll, selectNone, hidden } = useProviderFilter(candidates);
+  const shownCandidates = useMemo(() => candidates.filter(visible), [candidates, visible]);
+
   const columns = useMemo(
     () =>
       ROLES.map((role) => ({
         role,
         bands: bandsFor(ladders[role], candidates, role),
-        pills: layoutPills(candidates, role),
+        pills: layoutPills(shownCandidates, role),
       })),
-    [candidates, ladders],
+    [shownCandidates, candidates, ladders],
   );
 
   const estimatedCount = candidates.filter((c) => c.coder_prior_estimated).length;
@@ -111,6 +118,7 @@ export function TierLadder({
         <h2 className="apd-panel-title">Ladders</h2>
         <div className="apd-panel-meta">
           <span>{meta}</span>
+          {isActive && <span>{shownCandidates.length} of {candidates.length} candidates shown</span>}
           {estimatedCount > 0 && <span>{estimatedCount} estimated</span>}
           <label className="tl-headroom">
             price headroom
@@ -249,6 +257,8 @@ export function TierLadder({
             <span className="tl-sw" style={{ '--sw-c': BELOW_FLOOR_COLOR } as CSSProperties} aria-hidden="true" />
             below floor · never selected
           </span>
+          {/* .tl-provider-row's flex-basis: 100% puts the filter on its own line, ahead of the note. */}
+          <ProviderFilter candidates={candidates} filter={{ hidden, toggle, selectAll, selectNone }} />
           <span className="tl-legend-note">
             filled pill = the pick at its rung · dashed outline = a panel seat · struck = blacklisted · ~ italic dotted = coder
             prior estimated from the intelligence index

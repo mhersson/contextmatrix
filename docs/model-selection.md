@@ -513,7 +513,13 @@ A price marked *list* is the Artificial Analysis list price: the gateway
 published none for that model (see [endpoint pricing](#endpoint-pricing)).
 A pill's tooltip names the AA row the candidate was scored from, and the
 panel's meta line names the reasoning effort the gateway pins for its OpenAI
-models when `llm_endpoint.reasoning_effort` is set.
+models when `llm_endpoint.reasoning_effort` is set. When a provider filter is
+active, the panel meta also shows `N of M candidates shown`.
+
+A row of provider checkboxes (per-provider counts plus `all` / `none`
+buttons) hides the unchecked providers' pills on both columns. The selection
+is remembered per browser and is display-only: it never changes picks, seats,
+KPIs, band counts, saved ladders or any request.
 
 A coder pill whose prior was estimated from the intelligence index (see
 [the coder-prior fallback](#quality-priors)) is marked three ways: a `~`
