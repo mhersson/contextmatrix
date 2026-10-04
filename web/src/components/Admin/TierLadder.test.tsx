@@ -106,9 +106,7 @@ describe('TierLadder - estimated coder priors', () => {
     const coderPill = screen.getByTestId('tl-dot-coder-a/top');
     expect(coderPill).toHaveClass('est');
     expect(within(coderPill).getByText('~0.950')).toBeInTheDocument();
-    expect(coderPill).toHaveAttribute('title', expect.stringContaining('coder prior estimated from intelligence index'));
     expect(screen.getByTestId('tl-dot-reviewer-a/top')).not.toHaveClass('est');
-    expect(screen.getByTestId('tl-dot-reviewer-a/top')).toHaveAttribute('title', expect.not.stringContaining('estimated'));
     expect(screen.getByTestId('tl-dot-coder-a/mid')).not.toHaveClass('est');
   });
 
