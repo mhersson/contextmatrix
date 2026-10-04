@@ -53,6 +53,8 @@ func fitCoderEstimator(aa []aaModel, allow []string, floor, maxCoding, maxIntel 
 	}
 
 	if len(pairs) == 0 {
+		slog.Warn("coder prior fallback disabled: fit too small or too weak", "n", 0)
+
 		return coderEstimator{}
 	}
 

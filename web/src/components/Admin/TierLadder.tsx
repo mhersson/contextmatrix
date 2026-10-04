@@ -250,7 +250,7 @@ export function TierLadder({
             below floor · never selected
           </span>
           <span className="tl-legend-note">
-            filled pill = the pick at its rung · dashed = a panel seat · struck = blacklisted · ~ italic dotted = coder
+            filled pill = the pick at its rung · dashed outline = a panel seat · struck = blacklisted · ~ italic dotted = coder
             prior estimated from the intelligence index
             {onModelMenu && ' · right-click a pill to blacklist or delist'}
           </span>

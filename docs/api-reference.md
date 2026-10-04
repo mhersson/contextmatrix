@@ -884,7 +884,10 @@ not included - they are per `.board.yaml` and merged at trigger time.
 `price_source` says where the candidate's price came from (`gateway`, `aa`,
 `token_costs`, `none`); `scored_from` is the AA slug an automatic join scored
 the priors from, empty for a `model_priors` entry and on the OpenRouter leg;
-`reasoning_effort` echoes `llm_endpoint.reasoning_effort`, empty when unset.
+`coder_prior_estimated` is true when AA publishes no coding index for the row
+and the coder prior was estimated from the intelligence index (see the
+[coder-prior fallback](model-selection.md#quality-priors)); `reasoning_effort`
+echoes `llm_endpoint.reasoning_effort`, empty when unset.
 
 ```json
 {
@@ -898,7 +901,8 @@ the priors from, empty for a `model_priors` entry and on the OpenRouter leg;
       "completion_price_per_tok": 2.9e-6,
       "context_window": 200000,
       "price_source": "gateway",
-      "scored_from": "glm-5-3"
+      "scored_from": "glm-5-3",
+      "coder_prior_estimated": false
     }
   ],
   "favorites": [{ "tier": "critical", "role": "reviewer", "models": ["anthropic/claude-opus-5"] }],

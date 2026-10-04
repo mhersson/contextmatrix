@@ -1,7 +1,9 @@
 package modelcatalog
 
 import (
+	"bytes"
 	"fmt"
+	"log/slog"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -421,6 +423,224 @@ func TestBuilderProvenanceMeasuredRecovered(t *testing.T) {
 
 	maxCoding, _ := maxIndices(aaSecond)
 	assert.InDelta(t, norm(new(55.0), maxCoding), cands[0].CoderPrior, 1e-12)
+}
+
+// --- log capture -----------------------------------------------------------
+
+// captureLogs installs a slog handler over buf for the duration of the test
+// and returns it, so assertions can check what refresh logged.
+func captureLogs(t *testing.T) *bytes.Buffer {
+	t.Helper()
+
+	var buf bytes.Buffer
+
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	return &buf
+}
+
+// TestProvenanceMeasuredRecoveryLogging drives refresh on the OpenRouter leg
+// and asserts the measured-recovery log line fires only when a previously
+// estimated slug now carries a measured coding index - not when it stays
+// estimated or drops out of the candidate set.
+// Sequential: captureLogs installs a process-wide slog handler.
+func TestProvenanceMeasuredRecoveryLogging(t *testing.T) {
+	// First refresh: legs-new and legs-guard estimated (the 24-row fit set
+	// enables the fallback); legs-removed is not in the OR catalog.
+	aaFirst := append(legsFixture(1),
+		aaModel{Slug: "legs-removed", Creator: "openai", IntelIndex: new(70.0)},
+		aaModel{Slug: "legs-guard", Creator: "openai", IntelIndex: new(70.0)},
+	)
+
+	// Second refresh: legs-new now carries a measured coding index and
+	// joins the fit set, so the fallback stays enabled; legs-guard stays
+	// estimated (its coding index is still nil) and legs-removed is still
+	// not in the OR catalog.
+	aaSecond := slices.Clone(aaFirst)
+	aaSecond = slices.DeleteFunc(aaSecond, func(m aaModel) bool { return m.Slug == "legs-new" })
+	aaSecond = append(aaSecond, aaModel{Slug: "legs-new", Creator: "openai", CodingIndex: new(55.0), IntelIndex: new(60.0)})
+
+	page := 0
+
+	aaSrv := dynamicServer(t, func() []byte {
+		page++
+		if page == 1 {
+			return aaJSON(aaFirst)
+		}
+
+		return aaJSON(aaSecond)
+	})
+
+	defer aaSrv.Close()
+
+	orSrv := httptestServer(t, []byte(`{"data":[
+		{"id":"openai/legs-new","context_length":1000,"pricing":{"prompt":"0.000001","completion":"0.000002"},"supported_parameters":["tools"]},
+		{"id":"openai/legs-guard","context_length":1000,"pricing":{"prompt":"0.000001","completion":"0.000002"},"supported_parameters":["tools"]},
+		{"id":"openai/fit-row-0","context_length":1000,"pricing":{"prompt":"0.000001","completion":"0.000002"},"supported_parameters":["tools"]}
+	]}`))
+	defer orSrv.Close()
+
+	b := NewBuilder("aa-key", 0.25, nil, time.Hour)
+	b.orEndpoint = orSrv.URL
+	b.aaEndpoint = aaSrv.URL
+
+	ctx := t.Context()
+
+	// First refresh: legs-new and legs-guard estimated (the 24-row fit set
+	// enables the fallback); legs-removed is not in the OR catalog.
+	buf := captureLogs(t)
+	require.Len(t, b.Candidates(ctx), 3)
+
+	assert.Contains(t, buf.String(), "coder prior estimated from the intelligence index",
+		"the first refresh must log the estimated slugs")
+	assert.NotContains(t, buf.String(), "coder prior now measured",
+		"no slug can have recovered on the first refresh")
+
+	// Second refresh: legs-new measured; legs-guard stays estimated (its
+	// coding index is still nil and the fit set is still above the size
+	// guard); legs-removed is still not in the OR catalog.
+	buf.Reset()
+	b.lastRefreshAttempt = time.Time{}
+	b.cachedAt = time.Time{}
+
+	require.Len(t, b.Candidates(ctx), 3)
+
+	logs := buf.String()
+	assert.Contains(t, logs, `slugs=openai/legs-new`,
+		"the recovery line must name the slug whose coding index is now measured")
+
+	// The recovery line must name legs-new and nothing else: legs-guard is
+	// still estimated and legs-removed left the candidate set.
+	assert.Regexp(t, `msg="coder prior now measured[^"]*" slugs=openai/legs-new\n`, logs)
+}
+
+// TestProvenanceMeasuredRecoveryGuardAndRemoval drive the two silent cases:
+// a previously estimated slug removed from the candidate set, and a
+// guard-disabled fit, must not log a measured recovery.
+// Sequential: captureLogs installs a process-wide slog handler.
+func TestProvenanceMeasuredRecoveryGuardAndRemoval(t *testing.T) {
+	// First refresh: the full fixture, legs-new estimated.
+	aaFirst := legsFixture(1)
+
+	// Second refresh: the fit guard trips (fewer than 20 rows qualify) and
+	// legs-new is removed from the OR catalog entirely - both silent cases
+	// at once. The coding index is still nil: nothing was measured.
+	aaSecond := slices.Concat(coderFixture(1)[:10], []aaModel{
+		{Slug: "legs-new", Creator: "openai", IntelIndex: new(60.0)},
+	})
+
+	page := 0
+
+	aaSrv := dynamicServer(t, func() []byte {
+		page++
+		if page == 1 {
+			return aaJSON(aaFirst)
+		}
+
+		return aaJSON(aaSecond)
+	})
+
+	defer aaSrv.Close()
+
+	orFirst := `{"data":[{"id":"openai/legs-new","context_length":1000,"pricing":{"prompt":"0.000001","completion":"0.000002"},"supported_parameters":["tools"]}]}`
+	orSecond := `{"data":[]}`
+
+	page2 := 0
+
+	orSrv := dynamicServer(t, func() []byte {
+		page2++
+		if page2 == 1 {
+			return []byte(orFirst)
+		}
+
+		return []byte(orSecond)
+	})
+
+	defer orSrv.Close()
+
+	b := NewBuilder("aa-key", 0.25, nil, time.Hour)
+	b.orEndpoint = orSrv.URL
+	b.aaEndpoint = aaSrv.URL
+
+	ctx := t.Context()
+
+	buf := captureLogs(t)
+	require.Len(t, b.Candidates(ctx), 1)
+	assert.True(t, b.Provenance(ctx)["openai/legs-new"].CoderPriorEstimated)
+
+	buf.Reset()
+	b.lastRefreshAttempt = time.Time{}
+	b.cachedAt = time.Time{}
+
+	// The second build produces no candidates (empty OR catalog).
+	require.Empty(t, b.Candidates(ctx))
+
+	logs := buf.String()
+	assert.NotContains(t, logs, "coder prior now measured",
+		"a removed candidate and a guard-disabled fit must not log a measured recovery")
+}
+
+// TestProvenanceMeasuredRecoveryGuardOnlyDoesNotLog drives the guard case in
+// isolation: the second AA response leaves fewer than 20 fit rows, so the
+// fallback disables while the OR catalog keeps serving legs-new. Its prior
+// drops to 0 and the estimate flag clears, but with no measured coding index
+// that must stay silent - no measured-recovery line.
+// Sequential: captureLogs installs a process-wide slog handler.
+func TestProvenanceMeasuredRecoveryGuardOnlyDoesNotLog(t *testing.T) {
+	aaFirst := legsFixture(1)
+
+	// Second refresh: fewer than 20 rows carry both indices, so the size
+	// guard trips; legs-new is still served and its coding index is still
+	// nil.
+	aaSecond := slices.Concat(coderFixture(1)[:19], []aaModel{
+		{Slug: "legs-new", Creator: "openai", IntelIndex: new(60.0)},
+	})
+
+	page := 0
+
+	aaSrv := dynamicServer(t, func() []byte {
+		page++
+		if page == 1 {
+			return aaJSON(aaFirst)
+		}
+
+		return aaJSON(aaSecond)
+	})
+
+	defer aaSrv.Close()
+
+	orSrv := httptestServer(t, []byte(`{"data":[{"id":"openai/legs-new","context_length":1000,"pricing":{"prompt":"0.000001","completion":"0.000002"},"supported_parameters":["tools"]}]}`))
+	defer orSrv.Close()
+
+	b := NewBuilder("aa-key", 0.25, nil, time.Hour)
+	b.orEndpoint = orSrv.URL
+	b.aaEndpoint = aaSrv.URL
+
+	ctx := t.Context()
+
+	buf := captureLogs(t)
+	require.Len(t, b.Candidates(ctx), 1)
+	assert.True(t, b.Provenance(ctx)["openai/legs-new"].CoderPriorEstimated)
+
+	buf.Reset()
+
+	b.lastRefreshAttempt = time.Time{}
+	b.cachedAt = time.Time{}
+
+	// legs-new stays served; only its prior (back to 0) and estimate flag
+	// change.
+	cands := b.Candidates(ctx)
+	require.Len(t, cands, 1)
+	assert.Zero(t, cands[0].CoderPrior)
+	assert.False(t, b.Provenance(ctx)["openai/legs-new"].CoderPriorEstimated)
+
+	logs := buf.String()
+	assert.NotContains(t, logs, "coder prior now measured",
+		"a guard-disabled fit must not log a measured recovery")
+	assert.NotContains(t, logs, "coder prior estimated from the intelligence index",
+		"with the guard tripped nothing is estimated, so the estimate line must stay silent too")
 }
 
 // --- helpers ---------------------------------------------------------------

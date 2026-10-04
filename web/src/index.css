@@ -2788,8 +2788,8 @@ textarea {
   text-decoration: line-through;
   text-decoration-color: var(--red);
 }
-/* Estimated coder prior: italic + dotted border must not collide with dashed (seat) or struck (banned). */
-.tl-dot.est {
+/* Estimated coder prior: italic + dotted border must not collide with the seat outline, the banned dashed border or the struck name. */
+.tl-dot.est:not(.banned) {
   border-style: dotted;
   font-style: italic;
 }

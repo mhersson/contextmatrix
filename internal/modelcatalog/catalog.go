@@ -246,11 +246,28 @@ func (b *Builder) estimatedSlugs() map[string]bool {
 	return out
 }
 
+// measuredFromScored reports, per slug, which of the scored candidates
+// derived its coder prior from a measured coding index - the positive
+// evidence the measured-recovery log requires.
+func measuredFromScored(scored []aaScored) map[string]bool {
+	out := make(map[string]bool, len(scored))
+	for _, s := range scored {
+		if s.Measured {
+			out[s.Candidate.Slug] = true
+		}
+	}
+
+	return out
+}
+
 // setProvenance installs the freshly built provenance map and reports the
 // fallback's status once per refresh: the slugs whose coder prior is
-// estimated now, and ones the previous snapshot had estimated that carry a
-// measured coding index again. Caller holds b.mu.
-func (b *Builder) setProvenance(prov map[string]CandidateProvenance, previous map[string]bool) {
+// estimated now, and ones the previous snapshot had estimated whose winning
+// AA row now carries a measured coding index. A previously estimated slug
+// that is now merely absent (unserved, below floor, allowlist, a
+// guard-disabled fit) stays silent: without a measured index there is
+// nothing to announce. Caller holds b.mu.
+func (b *Builder) setProvenance(prov map[string]CandidateProvenance, previous map[string]bool, measured map[string]bool) {
 	b.provenance = prov
 
 	now := b.estimatedSlugs()
@@ -264,9 +281,13 @@ func (b *Builder) setProvenance(prov map[string]CandidateProvenance, previous ma
 	var recovered []string
 
 	for slug := range previous {
-		if !now[slug] {
-			recovered = append(recovered, slug)
+		// Estimated and measured are mutually exclusive per candidate, so
+		// the measured set alone separates recovery from every silent case.
+		if !measured[slug] {
+			continue
 		}
+
+		recovered = append(recovered, slug)
 	}
 
 	if len(recovered) > 0 {
@@ -616,7 +637,7 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 			prov[s.Candidate.Slug] = p
 		}
 
-		b.setProvenance(prov, previousEstimated)
+		b.setProvenance(prov, previousEstimated, measuredFromScored(built))
 
 		return cands, nil
 	}
@@ -652,17 +673,19 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 		prov[c.Slug] = CandidateProvenance{PriceSource: string(priceSourceGateway), CoderPriorEstimated: cands.estimated[c.Slug]}
 	}
 
-	b.setProvenance(prov, previousEstimated)
+	b.setProvenance(prov, previousEstimated, cands.measured)
 
 	return cands.candidates, nil
 }
 
-// buildResult is build's output: the candidate set and the OR slugs whose
-// coder prior came from the per-build estimator rather than a measured
-// coding index.
+// buildResult is build's output: the candidate set, the OR slugs whose coder
+// prior came from the per-build estimator rather than a measured coding
+// index, and the slugs whose winning row carries a measured coding index -
+// the positive evidence setProvenance needs to log a measured recovery.
 type buildResult struct {
 	candidates []protocol.CandidateModel
 	estimated  map[string]bool
+	measured   map[string]bool
 }
 
 // build is the pure transform: normalize indices against the response-wide
@@ -673,7 +696,7 @@ func build(aa []aaModel, or map[string]orEntry, floor float64, allow []string) b
 	maxCoding, maxIntel := maxIndices(aa)
 
 	if maxCoding <= 0 || maxIntel <= 0 {
-		return buildResult{}
+		return buildResult{candidates: []protocol.CandidateModel{}}
 	}
 
 	est := fitCoderEstimator(aa, allow, floor, maxCoding, maxIntel)
@@ -761,7 +784,7 @@ func build(aa []aaModel, or map[string]orEntry, floor float64, allow []string) b
 		out = append(out, c)
 	}
 
-	return buildResult{candidates: out, estimated: estimatedOR}
+	return buildResult{candidates: out, estimated: estimatedOR, measured: measuredOR}
 }
 
 func norm(idx *float64, maxVal float64) float64 {
@@ -871,6 +894,11 @@ type aaScored struct {
 	// the AA row's intelligence index because it publishes no coding index.
 	// False on the model_priors branch (never estimated) and for measured rows.
 	Estimated bool
+	// Measured marks a coder prior derived from a real coding index - the
+	// positive evidence the measured-recovery log line needs. False on the
+	// model_priors branch (its priors are operator-supplied, not measured)
+	// and for estimated rows.
+	Measured bool
 }
 
 // buildEndpointCandidates scores each tool-capable served slug for the openai leg. A
@@ -979,6 +1007,8 @@ func buildEndpointCandidates(aa []aaModel, endpoint map[string]orEntry, priors m
 			continue
 		}
 
+		measured := m.CodingIndex != nil
+
 		estimated := false
 		if prior, ok := est.estimate(m); ok {
 			coder, estimated = prior, true
@@ -999,6 +1029,7 @@ func buildEndpointCandidates(aa []aaModel, endpoint map[string]orEntry, priors m
 			Effort:      want,
 			PriceSource: priceSrc,
 			Estimated:   estimated,
+			Measured:    measured,
 		})
 	}
 

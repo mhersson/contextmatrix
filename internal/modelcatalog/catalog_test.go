@@ -242,6 +242,38 @@ func TestBuilderEndpointModelsProjectsCachedCatalog(t *testing.T) {
 	assert.Equal(t, 200000, got[0].MaxTokens)
 }
 
+// TestBuilderDegenerateBuildIsCached pins the empty-build cache: an AA
+// response whose rows carry no indices yields a successful but empty build,
+// which must be cached like any other snapshot - a second Candidates call
+// within the TTL must not refetch AA and OR.
+func TestBuilderDegenerateBuildIsCached(t *testing.T) {
+	var aaHits, orHits atomic.Int32
+
+	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		aaHits.Add(1)
+		_, _ = w.Write([]byte(`{"data":[{"slug":"vendor-x-1","model_creator":{"name":"vendor"},"evaluations":{}}]}`))
+	}))
+	defer aaSrv.Close()
+
+	orSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		orHits.Add(1)
+		_, _ = w.Write([]byte(`{"data":[{"id":"vendor-x-1","context_length":200000,"pricing":{"prompt":"0.000003","completion":"0.000015"},"supported_parameters":["tools"]}]}`))
+	}))
+	defer orSrv.Close()
+
+	b := NewBuilder("aa-key", 0.65, nil, time.Hour)
+	b.orEndpoint = orSrv.URL
+	b.aaEndpoint = aaSrv.URL
+
+	ctx := context.Background()
+
+	require.Empty(t, b.Candidates(ctx), "no indices means no candidates")
+	require.NotNil(t, b.Candidates(ctx), "an empty successful build must not be served as nil")
+
+	assert.EqualValues(t, 1, aaHits.Load(), "a call within the TTL must not refetch AA")
+	assert.EqualValues(t, 1, orHits.Load(), "a call within the TTL must not refetch OR")
+}
+
 // TestBuilderRefreshFailureBackoff pins the failure backoff: a failed catalog
 // refresh must not be re-attempted on every call. During a provider outage
 // callers get the last-good state (or nothing) without paying the fetch

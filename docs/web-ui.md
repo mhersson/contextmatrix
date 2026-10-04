@@ -195,7 +195,7 @@ the two saved ladders are equal and off when they differ; when on, it moves the
 same tier in both ladders and keeps them equal. The panel head also holds a
 **Price headroom** number field (the best-value band multiplier, at least 1,
 built-in 1.5) that is saved with the ladders and applied by the pick preview. A
-filled pill is the pick at its rung, a dashed one a panel seat, a struck one a
+filled pill is the pick at its rung, a dashed outline a panel seat, a struck one a
 blacklisted model. The pick preview beside it shows, per tier, the coder pick,
 the reviewer pick and the three-seat review panel with prices, `↓ <rung>` when a
 pick descended and `walked` on a seat that re-anchored its price band. A price
