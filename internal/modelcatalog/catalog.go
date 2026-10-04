@@ -24,10 +24,13 @@ const refreshFailureCooldown = 60 * time.Second
 // CandidateProvenance is where a candidate's inputs came from, for the admin
 // selector views: PriceSource is gateway, aa, token_costs or none; ScoredFrom
 // is the AA slug an automatic join scored the priors from, empty for a
-// model_priors entry and on the OpenRouter leg.
+// model_priors entry and on the OpenRouter leg. CoderPriorEstimated marks a
+// coder prior derived from the intelligence index because AA publishes no
+// coding index for the model; false means the coding index is measured.
 type CandidateProvenance struct {
-	PriceSource string
-	ScoredFrom  string
+	PriceSource         string
+	ScoredFrom          string
+	CoderPriorEstimated bool
 }
 
 // Builder fetches AA + OR on a TTL and produces the candidate set. Safe for
@@ -228,6 +231,70 @@ func (b *Builder) Provenance(ctx context.Context) map[string]CandidateProvenance
 	b.refreshIfStaleLocked(ctx)
 
 	return maps.Clone(b.provenance)
+}
+
+// estimatedSlugs is the set of slugs whose coder prior the current snapshot
+// derived from the intelligence index. Caller holds b.mu.
+func (b *Builder) estimatedSlugs() map[string]bool {
+	out := make(map[string]bool, len(b.provenance))
+	for slug, p := range b.provenance {
+		if p.CoderPriorEstimated {
+			out[slug] = true
+		}
+	}
+
+	return out
+}
+
+// measuredFromScored reports, per slug, which of the scored candidates
+// derived its coder prior from a measured coding index - the positive
+// evidence the measured-recovery log requires.
+func measuredFromScored(scored []aaScored) map[string]bool {
+	out := make(map[string]bool, len(scored))
+	for _, s := range scored {
+		if s.Measured {
+			out[s.Candidate.Slug] = true
+		}
+	}
+
+	return out
+}
+
+// setProvenance installs the freshly built provenance map and reports the
+// fallback's status once per refresh: the slugs whose coder prior is
+// estimated now, and ones the previous snapshot had estimated whose winning
+// AA row now carries a measured coding index. A previously estimated slug
+// that is now merely absent (unserved, below floor, allowlist, a
+// guard-disabled fit) stays silent: without a measured index there is
+// nothing to announce. Caller holds b.mu.
+func (b *Builder) setProvenance(prov map[string]CandidateProvenance, previous map[string]bool, measured map[string]bool) {
+	b.provenance = prov
+
+	now := b.estimatedSlugs()
+
+	if len(now) > 0 {
+		slugs := slices.Sorted(maps.Keys(now))
+		slog.Info("coder prior estimated from the intelligence index; AA publishes no coding index for these models",
+			"estimated_slugs", strings.Join(slugs, ","))
+	}
+
+	var recovered []string
+
+	for slug := range previous {
+		// Estimated and measured are mutually exclusive per candidate, so
+		// the measured set alone separates recovery from every silent case.
+		if !measured[slug] {
+			continue
+		}
+
+		recovered = append(recovered, slug)
+	}
+
+	if len(recovered) > 0 {
+		slices.Sort(recovered)
+		slog.Info("coder prior now measured; AA publishes a coding index again",
+			"measured_slugs", strings.Join(recovered, ","))
+	}
 }
 
 // ModelPrice is the per-token price set for one served model. CacheRead and
@@ -446,6 +513,11 @@ func (b *Builder) Floor() float64 {
 }
 
 func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error) {
+	// Snapshot of which slugs were estimated in the last-good provenance,
+	// for the measured-recovered log line. refresh() runs with b.mu held
+	// (refreshIfStaleLocked's caller), so the read is race-free.
+	previousEstimated := b.estimatedSlugs()
+
 	// Endpoint leg (openai type): pricing comes from the endpoint's own /models
 	// and is independent of Artificial Analysis, so fetch it whenever configured
 	// - even without an AA key. This lets a chat-only deployment (no agent
@@ -542,7 +614,8 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 			slog.Info("endpoint model scored",
 				"slug", s.Candidate.Slug, "coder_prior", s.Candidate.CoderPrior,
 				"reviewer_prior", s.Candidate.ReviewerPrior, "join", s.Join,
-				"source", s.Source, "effort", s.Effort, "price_source", s.PriceSource)
+				"source", s.Source, "effort", s.Effort, "price_source", s.PriceSource,
+				"coder_prior_estimated", s.Estimated)
 
 			if s.PriceSource == priceSourceNone {
 				slog.Warn("candidate has no price from the gateway, Artificial Analysis or token_costs; the selector will treat it as free",
@@ -556,7 +629,7 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 		for _, s := range built {
 			cands = append(cands, s.Candidate)
 
-			p := CandidateProvenance{PriceSource: string(s.PriceSource)}
+			p := CandidateProvenance{PriceSource: string(s.PriceSource), CoderPriorEstimated: s.Estimated}
 			if s.Join == joinAutomatic {
 				p.ScoredFrom = s.Source
 			}
@@ -564,7 +637,7 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 			prov[s.Candidate.Slug] = p
 		}
 
-		b.provenance = prov
+		b.setProvenance(prov, previousEstimated, measuredFromScored(built))
 
 		return cands, nil
 	}
@@ -595,28 +668,42 @@ func (b *Builder) refresh(ctx context.Context) ([]protocol.CandidateModel, error
 	// OpenRouter prices every model it serves: the served catalog is the
 	// gateway for this leg. build does not report which AA row it scored a
 	// slug from, so ScoredFrom stays empty here.
-	prov := make(map[string]CandidateProvenance, len(cands))
-	for _, c := range cands {
-		prov[c.Slug] = CandidateProvenance{PriceSource: string(priceSourceGateway)}
+	prov := make(map[string]CandidateProvenance, len(cands.candidates))
+	for _, c := range cands.candidates {
+		prov[c.Slug] = CandidateProvenance{PriceSource: string(priceSourceGateway), CoderPriorEstimated: cands.estimated[c.Slug]}
 	}
 
-	b.provenance = prov
+	b.setProvenance(prov, previousEstimated, cands.measured)
 
-	return cands, nil
+	return cands.candidates, nil
+}
+
+// buildResult is build's output: the candidate set, the OR slugs whose coder
+// prior came from the per-build estimator rather than a measured coding
+// index, and the slugs whose winning row carries a measured coding index -
+// the positive evidence setProvenance needs to log a measured recovery.
+type buildResult struct {
+	candidates []protocol.CandidateModel
+	estimated  map[string]bool
+	measured   map[string]bool
 }
 
 // build is the pure transform: normalize indices against the response-wide
 // max, keep trusted-creator models clearing the floor for at least one role,
 // map to OR, collapse effort variants (same OR slug -> highest prior), join
 // price/window/tools. Effort collapse falls out of keying by OR slug.
-func build(aa []aaModel, or map[string]orEntry, floor float64, allow []string) []protocol.CandidateModel {
+func build(aa []aaModel, or map[string]orEntry, floor float64, allow []string) buildResult {
 	maxCoding, maxIntel := maxIndices(aa)
 
 	if maxCoding <= 0 || maxIntel <= 0 {
-		return []protocol.CandidateModel{}
+		return buildResult{candidates: []protocol.CandidateModel{}}
 	}
 
+	est := fitCoderEstimator(aa, allow, floor, maxCoding, maxIntel)
+
 	byOR := map[string]protocol.CandidateModel{}
+	measuredOR := map[string]bool{}
+	estimatedOR := map[string]bool{}
 
 	for _, m := range aa {
 		if !isTrusted(m.Creator, allow) {
@@ -624,6 +711,14 @@ func build(aa []aaModel, or map[string]orEntry, floor float64, allow []string) [
 		}
 
 		coder := norm(m.CodingIndex, maxCoding)
+		measured := m.CodingIndex != nil
+
+		isEstimate := false
+
+		if prior, ok := est.estimate(m); ok {
+			coder = prior
+			isEstimate = true
+		}
 
 		rev := norm(m.IntelIndex, maxIntel)
 		if coder < floor && rev < floor { // below floor for every role
@@ -651,10 +746,35 @@ func build(aa []aaModel, or map[string]orEntry, floor float64, allow []string) [
 			ReviewerPrior:         rev,
 			Creator:               m.Creator,
 		}
-		// Effort-variant collapse: keep the strongest per OR slug.
-		if prev, exists := byOR[orSlug]; !exists ||
-			cand.CoderPrior+cand.ReviewerPrior > prev.CoderPrior+prev.ReviewerPrior {
+		// Effort-variant collapse: a row with a measured coding index beats
+		// an estimated one - on equal priors price decides, and price would
+		// favour the estimate; between rows of the same kind the strongest
+		// combined priors win. The estimated set follows the winner: a slug
+		// whose winning row carries a measured coding index (or none - a
+		// disabled estimator estimates nothing) is not an estimated
+		// candidate.
+		replace := false
+		if prev, exists := byOR[orSlug]; !exists {
+			replace = true
+		} else {
+			switch {
+			case measured && !measuredOR[orSlug]:
+				replace = true
+			case measured == measuredOR[orSlug]:
+				replace = coder+rev > prev.CoderPrior+prev.ReviewerPrior
+			}
+		}
+
+		if replace {
 			byOR[orSlug] = cand
+
+			measuredOR[orSlug] = measured
+
+			if isEstimate {
+				estimatedOR[orSlug] = true
+			} else {
+				delete(estimatedOR, orSlug)
+			}
 		}
 	}
 
@@ -663,7 +783,7 @@ func build(aa []aaModel, or map[string]orEntry, floor float64, allow []string) [
 		out = append(out, c)
 	}
 
-	return out
+	return buildResult{candidates: out, estimated: estimatedOR, measured: measuredOR}
 }
 
 func norm(idx *float64, maxVal float64) float64 {
@@ -769,6 +889,15 @@ type aaScored struct {
 	Source      string
 	Effort      string
 	PriceSource priceSource
+	// Estimated marks a coder prior derived by the per-build fallback from
+	// the AA row's intelligence index because it publishes no coding index.
+	// False on the model_priors branch (never estimated) and for measured rows.
+	Estimated bool
+	// Measured marks a coder prior derived from a real coding index - the
+	// positive evidence the measured-recovery log line needs. False on the
+	// model_priors branch (its priors are operator-supplied, not measured)
+	// and for estimated rows.
+	Measured bool
 }
 
 // buildEndpointCandidates scores each tool-capable served slug for the openai leg. A
@@ -787,6 +916,7 @@ type aaScored struct {
 func buildEndpointCandidates(aa []aaModel, endpoint map[string]orEntry, priors map[string]PriorOverride, floor float64, allow []string, effort string) (scored []aaScored, exclusions []aaExclusion, listPrices map[string]ModelPrice) {
 	maxCoding, maxIntel := maxIndices(aa)
 	idx := indexFamilies(aa)
+	est := fitCoderEstimator(aa, allow, floor, maxCoding, maxIntel)
 
 	listPrices = map[string]ModelPrice{}
 
@@ -869,6 +999,12 @@ func buildEndpointCandidates(aa []aaModel, endpoint map[string]orEntry, priors m
 
 		coder := norm(m.CodingIndex, maxCoding)
 		rev := norm(m.IntelIndex, maxIntel)
+		measured := m.CodingIndex != nil
+
+		estimated := false
+		if prior, ok := est.estimate(m); ok {
+			coder, estimated = prior, true
+		}
 
 		if coder < floor && rev < floor {
 			exclusions = append(exclusions, aaExclusion{Slug: slug, Reason: exclBelowFloor, Source: m.Slug})
@@ -890,6 +1026,8 @@ func buildEndpointCandidates(aa []aaModel, endpoint map[string]orEntry, priors m
 			Source:      m.Slug,
 			Effort:      want,
 			PriceSource: priceSrc,
+			Estimated:   estimated,
+			Measured:    measured,
 		})
 	}
 

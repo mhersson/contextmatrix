@@ -10,7 +10,7 @@ function ladders(): SelectorLadders {
 }
 
 function cand(slug: string, coder: number, reviewer: number, price = 1e-6): SelectorCandidate {
-  return { slug, creator: slug.split('/')[0], coder_prior: coder, reviewer_prior: reviewer, prompt_price_per_tok: price, completion_price_per_tok: price, context_window: 200000, price_source: 'gateway', scored_from: '' };
+  return { slug, creator: slug.split('/')[0], coder_prior: coder, reviewer_prior: reviewer, prompt_price_per_tok: price, completion_price_per_tok: price, context_window: 200000, price_source: 'gateway', scored_from: '', coder_prior_estimated: false };
 }
 
 const CANDIDATES = [cand('a/top', 0.95, 0.92), cand('a/mid', 0.85, 0.84), cand('b/low', 0.7, 0.8), cand('c/floor', 0.5, 0.66)];
@@ -96,6 +96,32 @@ describe('TierLadder - rendering', () => {
     renderLadder({ candidates: [{ ...cand('a/top', 0.95, 0.92), scored_from: 'top-1-medium' }, cand('a/mid', 0.85, 0.84)] });
     expect(screen.getByTestId('tl-dot-coder-a/top')).toHaveAttribute('title', expect.stringContaining('scored from top-1-medium'));
     expect(screen.getByTestId('tl-dot-coder-a/mid')).toHaveAttribute('title', expect.not.stringContaining('scored from'));
+  });
+});
+
+describe('TierLadder - estimated coder priors', () => {
+  it('marks the estimated coder pill but not its reviewer pill', () => {
+    renderLadder({ candidates: [{ ...cand('a/top', 0.95, 0.92), coder_prior_estimated: true }, ...CANDIDATES.slice(1)] });
+
+    const coderPill = screen.getByTestId('tl-dot-coder-a/top');
+    expect(coderPill).toHaveClass('est');
+    expect(within(coderPill).getByText('~0.950')).toBeInTheDocument();
+    expect(screen.getByTestId('tl-dot-reviewer-a/top')).not.toHaveClass('est');
+    expect(screen.getByTestId('tl-dot-coder-a/mid')).not.toHaveClass('est');
+  });
+
+  it('shows the estimated count in the panel meta when some candidates are estimated', () => {
+    renderLadder({ candidates: [{ ...cand('a/top', 0.95, 0.92), coder_prior_estimated: true }, { ...cand('a/mid', 0.85, 0.84), coder_prior_estimated: true }, ...CANDIDATES.slice(2)] });
+
+    expect(screen.getByText('2 estimated')).toBeInTheDocument();
+  });
+
+  it('renders no marker and no count when nothing is estimated', () => {
+    renderLadder();
+
+    expect(screen.queryByText(/\d estimated/)).not.toBeInTheDocument();
+    expect(within(screen.getByTestId('tl-col-coder')).queryByText(/^~/)).not.toBeInTheDocument();
+    expect(screen.getByTestId('tl-dot-coder-a/top')).not.toHaveClass('est');
   });
 });
 

@@ -123,6 +123,42 @@ drop on the next refresh. The 0.65 floor therefore means "within 65% of the
 current best", and floor drift after leaderboard shake-ups is expected
 behavior, not a bug.
 
+**The coder-prior fallback.** AA stopped publishing the coding index for
+models released after its Intelligence Index v4.3 switch (2026-09), so those
+rows carry `coding_index: null` and would get `coder_prior = 0`. At each
+catalog build ContextMatrix fits a linear regression of the normalized coder
+prior on the normalized intelligence prior, computed per build from the
+current AA response - never hard-coded - over rows that have both indices,
+pass the creator screen, and clear the floor on either prior. A row with no
+coding index but a non-nil intelligence index is then estimated at
+`fit(intel) - residual_sd`, so an unproven model does not rank as a coder on
+a guess. The quality floor screens the estimated coder prior, so a model
+whose intelligence prior is below the floor stays a candidate when its
+estimate clears it.
+
+The fallback is guarded: when fewer than 20 rows qualify for the fit or the
+correlation is below 0.8, it is disabled for that build and priors stay 0
+(the pre-fallback behavior). The residual-sd margin keeps the estimate
+conservative, and the estimate is capped at the highest **measured** coder
+prior in the fit set minus 0.01 - an estimated model never ties or outranks
+the best measured coder, which matters because on equal priors price decides.
+The estimate is clamped to `[0, 1]`.
+
+The fallback runs on both legs: `build` (the `openrouter` leg) and
+`buildEndpointCandidates` (the `openai` leg, on the AA row the `closest`
+join chose). Rows with a real coding index are never estimated, and
+`model_priors` entries are explicit operator intent, so they are never
+estimated either. On the OpenRouter leg the effort-variant collapse prefers
+a row with a measured coding index over an estimated one for the same served
+slug, regardless of priors; between rows of the same kind the largest
+combined priors still win.
+
+Estimated slugs carry `CoderPriorEstimated` in the candidate provenance
+(surfaced as `coder_prior_estimated` on the admin selector candidate JSON).
+Each refresh logs the list of estimated slugs at info level, and logs at
+info when a slug the previous snapshot had estimated now has a measured
+coding index again.
+
 ### Creator screen and the allowlist
 
 On the OpenRouter leg, only models from trusted creators become candidates.
@@ -478,6 +514,16 @@ published none for that model (see [endpoint pricing](#endpoint-pricing)).
 A pill's tooltip names the AA row the candidate was scored from, and the
 panel's meta line names the reasoning effort the gateway pins for its OpenAI
 models when `llm_endpoint.reasoning_effort` is set.
+
+A coder pill whose prior was estimated from the intelligence index (see
+[the coder-prior fallback](#quality-priors)) is marked three ways: a `~`
+before the prior value, an italic dotted-border pill treatment, and a
+tooltip line (`coder prior estimated from intelligence index (AA has no
+coding index yet)`). The reviewer column is never marked - its prior is a
+real intelligence index. The legend carries the same marker, and the panel
+meta line shows `N estimated` next to the candidate count while any
+candidate is estimated, so it is obvious when AA catches up: the count drops
+and the markers disappear on the next refresh.
 
 Right-clicking a pill, a pick name in the preview, or a panel seat opens a
 one-item menu for that model: **Add to blacklist**, or **Remove from
@@ -835,6 +881,7 @@ endpoints, and the equal prompt+completion price weighting.
 | A model keeps disappearing from selection      | It was reported incapable and blacklisted                             | Check the admin model-selection page; delist it there, or pin it for one card      |
 | A saved ladder has no effect on picks          | The agent predates protocol v0.19 and ignores `tier_bars`             | Upgrade the agent; until then it runs its built-in ladder                         |
 | `503 catalog not available yet` on the ladders page | No `aa_api_key`, or the first catalog refresh has not completed  | The ladders still load and save; candidates and preview appear after the first refresh |
+| A new model shows `~` on the coder ladder      | AA has no coding index for it yet (models released after Intelligence Index v4.3), so the coder prior is estimated from the intelligence index | Expected until AA publishes a coding index; the estimate is conservative (fit minus residual sd, capped below the best measured coder) and the marker disappears on the refresh after AA publishes one |
 | Recorded outcomes visibly not affecting picks  | Selection is priors-only                                              | By design - the outcome ledger is observability, never a selection input           |
 | Priors dropped across the board overnight      | A new frontier model topped the AA leaderboard                        | Priors are normalized to the current best; expected drift                          |
 | A newly served model is missing                | Catalog is cached                                                     | Up to 6h staleness; restart CM to force a refresh                                  |

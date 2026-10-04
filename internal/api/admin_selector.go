@@ -309,6 +309,9 @@ type selectorCandidateView struct {
 	// ScoredFrom is the AA slug an automatic join scored the priors from;
 	// empty for a model_priors entry and on the OpenRouter leg.
 	ScoredFrom string `json:"scored_from"`
+	// CoderPriorEstimated marks a coder prior fitted from the intelligence
+	// index because AA publishes no coding index for the row yet.
+	CoderPriorEstimated bool `json:"coder_prior_estimated"`
 }
 
 // selectorPreviewRequest carries the ladders being edited; they are
@@ -483,9 +486,10 @@ func (h *selectorAdminHandlers) getCandidates(w http.ResponseWriter, r *http.Req
 			Slug: c.Slug, Creator: c.Creator,
 			CoderPrior: c.CoderPrior, ReviewerPrior: c.ReviewerPrior,
 			PromptPricePerTok: c.PromptPricePerTok, CompletionPricePerTok: c.CompletionPricePerTok,
-			ContextWindow: c.ContextWindow,
-			PriceSource:   in.provenance[c.Slug].PriceSource,
-			ScoredFrom:    in.provenance[c.Slug].ScoredFrom,
+			ContextWindow:       c.ContextWindow,
+			PriceSource:         in.provenance[c.Slug].PriceSource,
+			ScoredFrom:          in.provenance[c.Slug].ScoredFrom,
+			CoderPriorEstimated: in.provenance[c.Slug].CoderPriorEstimated,
 		})
 	}
 

@@ -24,11 +24,11 @@ func TestBuildAppliesFloorAllowlistAndMapping(t *testing.T) {
 	}
 
 	got := build(aa, or, 0.65, nil)
-	if len(got) != 1 {
-		t.Fatalf("want 1 candidate (glm only), got %d: %+v", len(got), got)
+	if len(got.candidates) != 1 {
+		t.Fatalf("want 1 candidate (glm only), got %d: %+v", len(got.candidates), got.candidates)
 	}
 
-	c := got[0]
+	c := got.candidates[0]
 	if c.Slug != "z-ai/glm-5.2" || c.CoderPrior != 1.0 || c.ReviewerPrior != 1.0 || c.ContextWindow != 1048576 {
 		t.Errorf("bad candidate: %+v", c)
 	}
@@ -51,16 +51,16 @@ func TestBuildCollapsesEffortVariants(t *testing.T) {
 	}
 
 	got := build(aa, or, 0.65, nil)
-	if len(got) != 1 {
-		t.Fatalf("effort variants must collapse to 1 candidate, got %d: %+v", len(got), got)
+	if len(got.candidates) != 1 {
+		t.Fatalf("effort variants must collapse to 1 candidate, got %d: %+v", len(got.candidates), got.candidates)
 	}
 
-	if got[0].CoderPrior != 1.0 || got[0].ReviewerPrior != 1.0 {
-		t.Errorf("collapse must keep the highest-prior variant, got %+v", got[0])
+	if got.candidates[0].CoderPrior != 1.0 || got.candidates[0].ReviewerPrior != 1.0 {
+		t.Errorf("collapse must keep the highest-prior variant, got %+v", got.candidates[0])
 	}
 
-	if got[0].Creator != "z-ai" {
-		t.Errorf("creator must survive the collapse, got %q", got[0].Creator)
+	if got.candidates[0].Creator != "z-ai" {
+		t.Errorf("creator must survive the collapse, got %q", got.candidates[0].Creator)
 	}
 }
 
@@ -240,6 +240,40 @@ func TestBuilderEndpointModelsProjectsCachedCatalog(t *testing.T) {
 	assert.Equal(t, "model-a", got[0].ID)
 	assert.Equal(t, "model-a", got[0].Label)
 	assert.Equal(t, 200000, got[0].MaxTokens)
+}
+
+// TestBuilderDegenerateBuildIsCached pins the empty-build cache: an AA
+// response whose rows carry no indices yields a successful but empty build,
+// which must be cached like any other snapshot - a second Candidates call
+// within the TTL must not refetch AA and OR.
+func TestBuilderDegenerateBuildIsCached(t *testing.T) {
+	var aaHits, orHits atomic.Int32
+
+	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		aaHits.Add(1)
+
+		_, _ = w.Write([]byte(`{"data":[{"slug":"vendor-x-1","model_creator":{"name":"vendor"},"evaluations":{}}]}`))
+	}))
+	defer aaSrv.Close()
+
+	orSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		orHits.Add(1)
+
+		_, _ = w.Write([]byte(`{"data":[{"id":"vendor-x-1","context_length":200000,"pricing":{"prompt":"0.000003","completion":"0.000015"},"supported_parameters":["tools"]}]}`))
+	}))
+	defer orSrv.Close()
+
+	b := NewBuilder("aa-key", 0.65, nil, time.Hour)
+	b.orEndpoint = orSrv.URL
+	b.aaEndpoint = aaSrv.URL
+
+	ctx := context.Background()
+
+	require.Empty(t, b.Candidates(ctx), "no indices means no candidates")
+	require.NotNil(t, b.Candidates(ctx), "an empty successful build must not be served as nil")
+
+	assert.EqualValues(t, 1, aaHits.Load(), "a call within the TTL must not refetch AA")
+	assert.EqualValues(t, 1, orHits.Load(), "a call within the TTL must not refetch OR")
 }
 
 // TestBuilderRefreshFailureBackoff pins the failure backoff: a failed catalog
