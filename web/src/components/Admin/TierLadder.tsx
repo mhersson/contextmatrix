@@ -96,6 +96,8 @@ export function TierLadder({
     [candidates, ladders],
   );
 
+  const estimatedCount = candidates.filter((c) => c.coder_prior_estimated).length;
+
   const handleLabel = (role: SelectorRole, tier: SelectorTier): string => {
     const own = ladders[role][tier];
     const other = ladders[role === 'coder' ? 'reviewer' : 'coder'][tier];
@@ -109,6 +111,7 @@ export function TierLadder({
         <h2 className="apd-panel-title">Ladders</h2>
         <div className="apd-panel-meta">
           <span>{meta}</span>
+          {estimatedCount > 0 && <span>{estimatedCount} estimated</span>}
           <label className="tl-headroom">
             price headroom
             <input
@@ -181,16 +184,18 @@ export function TierLadder({
               })}
               {pills.map(({ c, prior, y, left }) => {
                 const tier = tierOf(ladders[role], prior);
+                const estimated = role === 'coder' && c.coder_prior_estimated;
                 const cls =
                   (picks[role].has(c.slug) ? ' picked' : '') +
                   (role === 'reviewer' && seats.has(c.slug) ? ' seat' : '') +
-                  (blacklist.has(c.slug) ? ' banned' : '');
+                  (blacklist.has(c.slug) ? ' banned' : '') +
+                  (estimated ? ' est' : '');
                 return (
                   <span
                     key={c.slug}
                     className={`tl-dot${cls}`}
                     style={{ top: `${y}%`, left: `${left}%`, '--tier-c': tier ? TIER_COLOR[tier] : BELOW_FLOOR_COLOR } as CSSProperties}
-                    title={`${c.slug} · ${role} prior ${prior.toFixed(3)} · ${usdPerMillion(blendedPrice(c))}${c.price_source === 'aa' ? ' (list price)' : ''} · ${tier ?? 'below floor'}${c.scored_from ? ` · scored from ${c.scored_from}` : ''}`}
+                    title={`${c.slug} · ${role} prior ${prior.toFixed(3)} · ${usdPerMillion(blendedPrice(c))}${c.price_source === 'aa' ? ' (list price)' : ''} · ${tier ?? 'below floor'}${c.scored_from ? ` · scored from ${c.scored_from}` : ''}${estimated ? ' · coder prior estimated from intelligence index (AA has no coding index yet)' : ''}`}
                     data-testid={`tl-dot-${role}-${c.slug}`}
                     onContextMenu={
                       onModelMenu &&
@@ -202,7 +207,7 @@ export function TierLadder({
                   >
                     <i aria-hidden="true" />
                     <span className="tl-dot-n">{shortSlug(c.slug)}</span>
-                    <span className="tl-dot-p">{prior.toFixed(3)}</span>
+                    <span className="tl-dot-p">{estimated ? `~${prior.toFixed(3)}` : prior.toFixed(3)}</span>
                   </span>
                 );
               })}
@@ -245,7 +250,8 @@ export function TierLadder({
             below floor · never selected
           </span>
           <span className="tl-legend-note">
-            filled pill = the pick at its rung · dashed = a panel seat · struck = blacklisted
+            filled pill = the pick at its rung · dashed = a panel seat · struck = blacklisted · ~ italic dotted = coder
+            prior estimated from the intelligence index
             {onModelMenu && ' · right-click a pill to blacklist or delist'}
           </span>
         </div>

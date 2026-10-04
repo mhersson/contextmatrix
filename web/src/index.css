@@ -2788,6 +2788,11 @@ textarea {
   text-decoration: line-through;
   text-decoration-color: var(--red);
 }
+/* Estimated coder prior: italic + dotted border must not collide with dashed (seat) or struck (banned). */
+.tl-dot.est {
+  border-style: dotted;
+  font-style: italic;
+}
 .tl-dot:hover {
   z-index: 9;
   border-color: var(--grey2);

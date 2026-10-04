@@ -513,6 +513,16 @@ A pill's tooltip names the AA row the candidate was scored from, and the
 panel's meta line names the reasoning effort the gateway pins for its OpenAI
 models when `llm_endpoint.reasoning_effort` is set.
 
+A coder pill whose prior was estimated from the intelligence index (see
+[the coder-prior fallback](#quality-priors)) is marked three ways: a `~`
+before the prior value, an italic dotted-border pill treatment, and a
+tooltip line (`coder prior estimated from intelligence index (AA has no
+coding index yet)`). The reviewer column is never marked - its prior is a
+real intelligence index. The legend carries the same marker, and the panel
+meta line shows `N estimated` next to the candidate count while any
+candidate is estimated, so it is obvious when AA catches up: the count drops
+and the markers disappear on the next refresh.
+
 Right-clicking a pill, a pick name in the preview, or a panel seat opens a
 one-item menu for that model: **Add to blacklist**, or **Remove from
 blacklist** when it is already struck (the same confirm as the table's
@@ -869,6 +879,7 @@ endpoints, and the equal prompt+completion price weighting.
 | A model keeps disappearing from selection      | It was reported incapable and blacklisted                             | Check the admin model-selection page; delist it there, or pin it for one card      |
 | A saved ladder has no effect on picks          | The agent predates protocol v0.19 and ignores `tier_bars`             | Upgrade the agent; until then it runs its built-in ladder                         |
 | `503 catalog not available yet` on the ladders page | No `aa_api_key`, or the first catalog refresh has not completed  | The ladders still load and save; candidates and preview appear after the first refresh |
+| A new model shows `~` on the coder ladder      | AA has no coding index for it yet (models released after Intelligence Index v4.3), so the coder prior is estimated from the intelligence index | Expected until AA publishes a coding index; the estimate is conservative (fit minus residual sd, capped below the best measured coder) and the marker disappears on the refresh after AA publishes one |
 | Recorded outcomes visibly not affecting picks  | Selection is priors-only                                              | By design - the outcome ledger is observability, never a selection input           |
 | Priors dropped across the board overnight      | A new frontier model topped the AA leaderboard                        | Priors are normalized to the current best; expected drift                          |
 | A newly served model is missing                | Catalog is cached                                                     | Up to 6h staleness; restart CM to force a refresh                                  |

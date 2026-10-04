@@ -736,6 +736,8 @@ export interface SelectorCandidate {
   price_source: SelectorPriceSource;
   /** The AA slug an automatic join scored the priors from; empty for a model_priors entry and on the OpenRouter leg. */
   scored_from: string;
+  /** True when the coding index is missing and the coder prior was estimated from the intelligence index. */
+  coder_prior_estimated: boolean;
 }
 
 export interface SelectorFavoriteRule {
