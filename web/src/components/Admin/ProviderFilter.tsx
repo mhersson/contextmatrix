@@ -14,7 +14,7 @@ export function ProviderFilter({ candidates, filter }: ProviderFilterProps) {
   const counts = providerCounts(candidates);
 
   return (
-    <div className="tl-provider-row" aria-label="Provider filter">
+    <div className="tl-provider-row" role="group" aria-label="Provider filter">
       <button type="button" className="tl-provider-btn" onClick={selectAll}>
         all
       </button>

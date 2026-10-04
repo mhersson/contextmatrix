@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { SelectorCandidate } from '../../types';
 
 export const PROVIDER_FILTER_KEY = 'contextmatrix-ladder-provider-filter';
@@ -62,36 +62,24 @@ export interface ProviderFilterState {
 export function useProviderFilter(candidates: ReadonlyArray<Pick<SelectorCandidate, 'slug' | 'creator'>>): ProviderFilterState {
   const [hidden, setHidden] = useState<ReadonlySet<string>>(loadHidden);
 
-  const persist = useCallback((next: ReadonlySet<string>) => {
-    setHidden(next);
-    saveHidden(next);
-  }, []);
+  useEffect(() => saveHidden(hidden), [hidden]);
 
-  const toggle = useCallback(
-    (provider: string) => {
-      setHidden((prev) => {
-        const next = new Set(prev);
-        if (next.has(provider)) {
-          next.delete(provider);
-        } else {
-          next.add(provider);
-        }
-        saveHidden(next);
-        return next;
-      });
-    },
-    [],
-  );
-
-  const selectAll = useCallback(() => persist(new Set()), [persist]);
-
-  const selectNone = useCallback(() => {
+  const toggle = useCallback((provider: string) => {
     setHidden((prev) => {
       const next = new Set(prev);
-      for (const c of candidates) next.add(providerOf(c));
-      saveHidden(next);
+      if (next.has(provider)) {
+        next.delete(provider);
+      } else {
+        next.add(provider);
+      }
       return next;
     });
+  }, []);
+
+  const selectAll = useCallback(() => setHidden(new Set()), []);
+
+  const selectNone = useCallback(() => {
+    setHidden((prev) => new Set([...prev, ...candidates.map(providerOf)]));
   }, [candidates]);
 
   const providers = new Set(candidates.map(providerOf));
