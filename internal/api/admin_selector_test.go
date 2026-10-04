@@ -407,6 +407,28 @@ func TestAdminSelectorCandidates_EchoesReasoningEffort(t *testing.T) {
 	assert.Equal(t, "medium", got.ReasoningEffort)
 }
 
+// TestAdminSelectorCandidates_ReportsCoderPriorEstimated: the estimated-coder
+// provenance flag rides on the candidates JSON so the ladder page can mark
+// the estimate.
+func TestAdminSelectorCandidates_ReportsCoderPriorEstimated(t *testing.T) {
+	cat := previewCatalog()
+	cat.provenance["a/cheap"] = modelcatalog.CandidateProvenance{
+		PriceSource: "aa", ScoredFrom: "cheap-1", CoderPriorEstimated: true,
+	}
+	h := &selectorAdminHandlers{store: &stubSelectorAdminStore{}, catalog: cat, blacklist: &stubBlacklist{}}
+
+	w := httptest.NewRecorder()
+	h.getCandidates(w, httptest.NewRequest(http.MethodGet, "/api/admin/selector/candidates", nil))
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var got selectorCandidatesResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	require.Len(t, got.Candidates, 4)
+	assert.True(t, got.Candidates[0].CoderPriorEstimated, "a/cheap is estimated")
+	assert.False(t, got.Candidates[1].CoderPriorEstimated, "a/mid is measured")
+}
+
 func TestAdminSelectorCandidates_FavoritesAreOrdered(t *testing.T) {
 	h := &selectorAdminHandlers{
 		store:   &stubSelectorAdminStore{},

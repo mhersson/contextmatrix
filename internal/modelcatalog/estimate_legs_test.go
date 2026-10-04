@@ -140,6 +140,7 @@ func TestBuildEstimatesCoderPrior(t *testing.T) {
 		res := build(aa, orCatalog(), floor, nil)
 
 		var flagged []string
+
 		for _, c := range res.candidates {
 			if res.estimated[c.Slug] {
 				flagged = append(flagged, c.Slug)
@@ -156,7 +157,7 @@ func TestBuildEstimatesCoderPrior(t *testing.T) {
 	t.Run("fewer than 20 fit rows leaves the prior at 0 and flags nothing", func(t *testing.T) {
 		t.Parallel()
 
-		aa := append(coderFixture(1)[:19], aaModel{Slug: "legs-new", Creator: "openai", IntelIndex: new(60.0)})
+		aa := slices.Concat(coderFixture(1)[:19], []aaModel{{Slug: "legs-new", Creator: "openai", IntelIndex: new(60.0)}})
 		maxCoding, maxIntel := maxIndices(aa)
 
 		_, _, _, _, _, n := expectedFit(t, aa, nil, floor, maxCoding, maxIntel)
@@ -281,7 +282,7 @@ func TestBuildEndpointCandidatesEstimatesCoderPrior(t *testing.T) {
 	t.Run("fewer than 20 fit rows leaves the prior at 0 and flags nothing", func(t *testing.T) {
 		t.Parallel()
 
-		aa := append(coderFixture(1)[:19], aaModel{Slug: "legs-new", Creator: "openai", IntelIndex: new(60.0)})
+		aa := slices.Concat(coderFixture(1)[:19], []aaModel{{Slug: "legs-new", Creator: "openai", IntelIndex: new(60.0)}})
 		endpoint := map[string]orEntry{"legs-new": {ContextWindow: 1000, Tools: true}}
 
 		scored, _, _ := buildEndpointCandidates(aa, endpoint, nil, floor, nil, "")
@@ -293,7 +294,7 @@ func TestBuildEndpointCandidatesEstimatesCoderPrior(t *testing.T) {
 	t.Run("weak correlation leaves the prior at 0 and flags nothing", func(t *testing.T) {
 		t.Parallel()
 
-		aa := append(coderFixture(20), aaModel{Slug: "legs-new", Creator: "openai", IntelIndex: new(60.0)})
+		aa := slices.Concat(coderFixture(20), []aaModel{{Slug: "legs-new", Creator: "openai", IntelIndex: new(60.0)}})
 		maxCoding, maxIntel := maxIndices(aa)
 
 		_, _, _, r, _, n := expectedFit(t, aa, nil, floor, maxCoding, maxIntel)
@@ -331,6 +332,7 @@ func TestBuilderProvenanceFlagsEstimates(t *testing.T) {
 
 	aa := legsFixture(1)
 	aaSrv := httptestServer(t, aaJSON(aa))
+
 	defer aaSrv.Close()
 
 	orSrv := httptestServer(t, []byte(`{"data":[{"id":"openai/legs-new","context_length":1000,
@@ -357,6 +359,7 @@ func TestBuilderProvenanceFlagsEstimates(t *testing.T) {
 	// Cross-check against the pure build on the same fixture: the flagged
 	// set is exactly the estimated set.
 	var flagged []string
+
 	for slug, p := range prov {
 		if p.CoderPriorEstimated {
 			flagged = append(flagged, slug)
@@ -375,6 +378,7 @@ func TestBuilderProvenanceMeasuredRecovered(t *testing.T) {
 
 	aaFirst := legsFixture(1)
 	aaSecond := slices.Clone(aaFirst)
+
 	for i := range aaSecond {
 		if aaSecond[i].Slug == "legs-new" {
 			aaSecond[i].CodingIndex = new(55.0)
@@ -382,6 +386,7 @@ func TestBuilderProvenanceMeasuredRecovered(t *testing.T) {
 	}
 
 	page := 0
+
 	aaSrv := dynamicServer(t, func() []byte {
 		page++
 		if page == 1 {
@@ -390,6 +395,7 @@ func TestBuilderProvenanceMeasuredRecovered(t *testing.T) {
 
 		return aaJSON(aaSecond)
 	})
+
 	defer aaSrv.Close()
 
 	orSrv := httptestServer(t, []byte(`{"data":[{"id":"openai/legs-new","context_length":1000,
