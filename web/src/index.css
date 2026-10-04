@@ -2862,6 +2862,42 @@ textarea {
 .tl-legend .tl-legend-note {
   margin-left: auto;
 }
+.tl-provider-row {
+  --provider-accent: var(--aqua);
+  /* flex child of .tl-legend: full basis keeps it on its own line under the swatches. */
+  flex-basis: 100%;
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--grey1);
+}
+.tl-provider-row .tl-provider {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+}
+.tl-provider-row .tl-provider-box {
+  width: 10px;
+  height: 10px;
+  margin: 0;
+  accent-color: var(--provider-accent);
+  cursor: pointer;
+}
+.tl-provider-row .tl-provider-btn {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--grey1);
+  cursor: pointer;
+}
+.tl-provider-row .tl-provider-btn:hover {
+  color: var(--provider-accent);
+}
 
 /* --- pick preview --- */
 .tl-pv-tier {
