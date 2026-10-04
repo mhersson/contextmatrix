@@ -29,13 +29,11 @@ func sanitizeErrorDetails(err error) string {
 	}
 
 	// Typed JSON-decoder errors first: stdlib stable phrasing, no leakage.
-	var syntaxErr *encodingjson.SyntaxError
-	if errors.As(err, &syntaxErr) {
+	if syntaxErr, ok := errors.AsType[*encodingjson.SyntaxError](err); ok {
 		return fmt.Sprintf("invalid JSON at offset %d", syntaxErr.Offset)
 	}
 
-	var typeErr *encodingjson.UnmarshalTypeError
-	if errors.As(err, &typeErr) {
+	if typeErr, ok := errors.AsType[*encodingjson.UnmarshalTypeError](err); ok {
 		field := typeErr.Field
 		if field == "" {
 			return fmt.Sprintf("invalid type: expected %s", typeErr.Type)

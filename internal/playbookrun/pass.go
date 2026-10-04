@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
@@ -212,9 +213,9 @@ func unchangedSince(snapshot *board.PlaybookRun, id string) func(*board.Playbook
 func humanReason(card *board.Card) string {
 	switch {
 	case card.WorkerStatus == "parked":
-		for i := len(card.ActivityLog) - 1; i >= 0; i-- {
-			if card.ActivityLog[i].Action == "parked" && card.ActivityLog[i].Message != "" {
-				return card.ID + " parked: " + card.ActivityLog[i].Message
+		for _, v := range slices.Backward(card.ActivityLog) {
+			if v.Action == "parked" && v.Message != "" {
+				return card.ID + " parked: " + v.Message
 			}
 		}
 

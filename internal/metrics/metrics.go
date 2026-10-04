@@ -321,8 +321,7 @@ func Register(reg prometheus.Registerer) {
 
 	for _, c := range collectors {
 		if err := reg.Register(c); err != nil {
-			var are prometheus.AlreadyRegisteredError
-			if !errors.As(err, &are) {
+			if _, ok := errors.AsType[prometheus.AlreadyRegisteredError](err); !ok {
 				panic(err)
 			}
 		}

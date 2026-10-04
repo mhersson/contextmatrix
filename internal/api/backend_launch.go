@@ -48,8 +48,7 @@ func launchRefused(status int, code, message, details string) *launchFailure {
 // writeLaunchError writes a launch or stop error: typed refusals keep their
 // status and code, everything else goes through the service error mapping.
 func writeLaunchError(w http.ResponseWriter, r *http.Request, err error) {
-	var lf *launchFailure
-	if errors.As(err, &lf) {
+	if lf, ok := errors.AsType[*launchFailure](err); ok {
 		writeError(w, lf.status, lf.code, lf.message, lf.details)
 
 		return
@@ -319,8 +318,7 @@ func (h *backendHandlers) playbookLaunch(ctx context.Context, project, id string
 		return nil
 	}
 
-	var lf *launchFailure
-	if errors.As(err, &lf) {
+	if _, ok := errors.AsType[*launchFailure](err); ok {
 		return err
 	}
 

@@ -81,8 +81,7 @@ func (h *imageHandlers) upload(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	if err := r.ParseMultipartForm(multipartInMemoryBytes); err != nil {
-		var maxErr *http.MaxBytesError
-		if errors.As(err, &maxErr) {
+		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 			writeError(w, http.StatusRequestEntityTooLarge, ErrCodeContentTooLarge,
 				imageTooLargeMessage(), "")
 

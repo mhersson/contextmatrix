@@ -83,7 +83,7 @@ func validBranchName(branch string) error {
 		return fmt.Errorf("%w: ends with '.'", ErrInvalidBranch)
 	}
 
-	for _, component := range strings.Split(branch, "/") {
+	for component := range strings.SplitSeq(branch, "/") {
 		switch {
 		case component == "":
 			return fmt.Errorf("%w: empty path component", ErrInvalidBranch)

@@ -85,8 +85,7 @@ func TestWalker_EventAndTickNudgeAPass(t *testing.T) {
 		queued.WorkerStatus = "queued"
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	e.runner.Start(ctx)
 	require.Eventually(t, e.walkerReady, time.Second, 5*time.Millisecond)

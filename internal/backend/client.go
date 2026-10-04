@@ -501,8 +501,7 @@ func (e *webhookError) HTTPStatusCode() int {
 
 // isClientError returns true if err should not be retried (4xx or logical rejection).
 func isClientError(err error) bool {
-	var we *webhookError
-	if errors.As(err, &we) {
+	if we, ok := errors.AsType[*webhookError](err); ok {
 		return we.clientErr || (we.statusCode >= 400 && we.statusCode < 500)
 	}
 

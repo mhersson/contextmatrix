@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"regexp"
 	"runtime/debug"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -910,8 +911,8 @@ func redactPath(path string) string {
 
 // chain applies middleware in order (first middleware is outermost).
 func chain(h http.Handler, middlewares ...func(http.Handler) http.Handler) http.Handler {
-	for i := len(middlewares) - 1; i >= 0; i-- {
-		h = middlewares[i](h)
+	for _, middleware := range slices.Backward(middlewares) {
+		h = middleware(h)
 	}
 
 	return h
@@ -1118,8 +1119,7 @@ func decodeJSONAllowEmpty(w http.ResponseWriter, r *http.Request, dst any) bool 
 }
 
 func validationDetails(err error) string {
-	var ve *board.ValidationError
-	if errors.As(err, &ve) {
+	if ve, ok := errors.AsType[*board.ValidationError](err); ok {
 		return ve.Error()
 	}
 
