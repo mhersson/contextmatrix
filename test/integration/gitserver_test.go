@@ -162,7 +162,7 @@ func seedBareRepo(t *testing.T, gitBin, bareRepo string) {
 
 	files := map[string]string{
 		"README.md": "# work\n\nSeed repository for the integration harness.\n",
-		"go.mod":    "module example.com/work\n\ngo 1.26\n",
+		"go.mod":    "module example.com/work\n\ngo 1.27\n",
 		"main.go":   "package main\n\nfunc main() {}\n",
 	}
 

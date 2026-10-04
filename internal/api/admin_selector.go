@@ -608,7 +608,7 @@ func seatViews(seats []selection.SeatReport, prices map[string]float64, prov map
 	first := -1.0
 
 	for _, s := range seats {
-		view := selectorSeatView{selectorPickReport: selectorPickReport{Pick: pickView(s.Pick, prices, prov), Report: reportView(s.Report)}}
+		view := selectorSeatView{Pick: pickView(s.Pick, prices, prov), Report: reportView(s.Report)}
 
 		if anchor, ok := poolAnchor(s.Report); ok {
 			if first < 0 {

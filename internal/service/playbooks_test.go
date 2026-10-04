@@ -493,9 +493,12 @@ func TestPlaybookService_ListSegments(t *testing.T) {
 func TestSummarizeDetail_NextAndGates(t *testing.T) {
 	entry := func(typ, project, card, title, text string, complete bool) PlaybookEntryDetail {
 		return PlaybookEntryDetail{
-			PlaybookEntry: board.PlaybookEntry{Type: typ, Project: project, Card: card, Text: text},
-			CardTitle:     title,
-			Complete:      complete,
+			Type:      typ,
+			Project:   project,
+			Card:      card,
+			Text:      text,
+			CardTitle: title,
+			Complete:  complete,
 		}
 	}
 
@@ -614,10 +617,6 @@ func TestPlaybookCreateVerified_RunsInsideTheCycle(t *testing.T) {
 	assert.Empty(t, env.committer.msgs, "nothing went through the queue")
 }
 
-func ptrBool(b bool) *bool { return &b }
-
-func ptrStr(s string) *string { return &s }
-
 func TestPlaybookService_MakeRunnableForcesSettings(t *testing.T) {
 	env := newPlaybookTestEnv(t)
 	ctx := context.Background()
@@ -637,7 +636,7 @@ func TestPlaybookService_MakeRunnableForcesSettings(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, detail.Runnable)
 
-	got, err := env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: ptrBool(true), BaseBranch: ptrStr("main")}, "human:alice")
+	got, err := env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: new(true), BaseBranch: new("main")}, "human:alice")
 	require.NoError(t, err)
 	assert.True(t, got.Runnable)
 	assert.Equal(t, "main", got.BaseBranch)
@@ -657,7 +656,7 @@ func TestPlaybookService_MakeRunnableForcesSettings(t *testing.T) {
 	// Idempotent: a second make-runnable is a no-op on the cards.
 	before, err := env.cardSvc.GetCard(ctx, "project-alpha", "ALPHA-001")
 	require.NoError(t, err)
-	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: new(true)}, "human:alice")
 	require.NoError(t, err)
 	after, err := env.cardSvc.GetCard(ctx, "project-alpha", "ALPHA-001")
 	require.NoError(t, err)
@@ -679,7 +678,7 @@ func TestPlaybookService_MakeRunnableRefusesProjectWithoutRepo(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = env.svc.UpdateMeta(ctx, "mixed", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+	_, err = env.svc.UpdateMeta(ctx, "mixed", UpdatePlaybookInput{Runnable: new(true)}, "human:alice")
 	require.ErrorIs(t, err, ErrPlaybookProjectNoRepo)
 	assert.Contains(t, err.Error(), "project-beta")
 
@@ -704,7 +703,7 @@ func TestPlaybookService_MakeRunnableRefusesCardOwnedElsewhere(t *testing.T) {
 		Entries: []PlaybookEntryInput{{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"}},
 	})
 	require.NoError(t, err)
-	_, err = env.svc.UpdateMeta(ctx, "first", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+	_, err = env.svc.UpdateMeta(ctx, "first", UpdatePlaybookInput{Runnable: new(true)}, "human:alice")
 	require.NoError(t, err)
 
 	_, err = env.svc.Create(ctx, CreatePlaybookInput{
@@ -716,7 +715,7 @@ func TestPlaybookService_MakeRunnableRefusesCardOwnedElsewhere(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = env.svc.UpdateMeta(ctx, "second", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+	_, err = env.svc.UpdateMeta(ctx, "second", UpdatePlaybookInput{Runnable: new(true)}, "human:alice")
 	require.ErrorIs(t, err, ErrPlaybookCardOwned)
 	assert.Contains(t, err.Error(), "ALPHA-001")
 	assert.Contains(t, err.Error(), "first")
@@ -727,7 +726,7 @@ func TestPlaybookService_MakeRunnableRefusesCardOwnedElsewhere(t *testing.T) {
 	_, err = env.svc.AddEntry(ctx, "first", PlaybookEntryInput{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-002"}, "human:alice")
 	require.NoError(t, err, "ALPHA-002 is only in the non-runnable second playbook")
 
-	_, err = env.svc.UpdateMeta(ctx, "second", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+	_, err = env.svc.UpdateMeta(ctx, "second", UpdatePlaybookInput{Runnable: new(true)}, "human:alice")
 	require.ErrorIs(t, err, ErrPlaybookCardOwned)
 }
 
@@ -746,7 +745,7 @@ func TestPlaybookService_AddEntryRefusesCardOwnedElsewhere(t *testing.T) {
 		Entries: []PlaybookEntryInput{{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"}},
 	})
 	require.NoError(t, err)
-	_, err = env.svc.UpdateMeta(ctx, "first", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+	_, err = env.svc.UpdateMeta(ctx, "first", UpdatePlaybookInput{Runnable: new(true)}, "human:alice")
 	require.NoError(t, err)
 
 	_, err = env.svc.Create(ctx, CreatePlaybookInput{
@@ -754,7 +753,7 @@ func TestPlaybookService_AddEntryRefusesCardOwnedElsewhere(t *testing.T) {
 		Entries: []PlaybookEntryInput{{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-002"}},
 	})
 	require.NoError(t, err)
-	_, err = env.svc.UpdateMeta(ctx, "second", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+	_, err = env.svc.UpdateMeta(ctx, "second", UpdatePlaybookInput{Runnable: new(true)}, "human:alice")
 	require.NoError(t, err)
 
 	_, err = env.svc.AddEntry(ctx, "second", PlaybookEntryInput{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"}, "human:alice")
@@ -773,7 +772,7 @@ func TestPlaybookService_AddEntryForcesOnRunnable(t *testing.T) {
 		Entries: []PlaybookEntryInput{{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"}},
 	})
 	require.NoError(t, err)
-	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: new(true)}, "human:alice")
 	require.NoError(t, err)
 
 	_, err = env.svc.AddEntry(ctx, "rollout", PlaybookEntryInput{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-002"}, "human:alice")
@@ -808,7 +807,7 @@ func TestPlaybookService_RunnableFalseAndBaseBranchRules(t *testing.T) {
 	_, err = env.svc.SetRunIf(ctx, "rollout", nil, &board.PlaybookRun{Status: board.RunStatusRunning, StartedAt: now, UpdatedAt: now}, "human:alice")
 	require.ErrorIs(t, err, ErrPlaybookNotRunnable)
 
-	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: ptrBool(true), BaseBranch: ptrStr("main")}, "human:alice")
+	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: new(true), BaseBranch: new("main")}, "human:alice")
 	require.NoError(t, err)
 
 	got, err := env.svc.SetRunIf(ctx, "rollout", nil, &board.PlaybookRun{Status: board.RunStatusRunning, StartedAt: now, UpdatedAt: now, Entry: "e1"}, "human:alice")
@@ -817,20 +816,20 @@ func TestPlaybookService_RunnableFalseAndBaseBranchRules(t *testing.T) {
 	assert.Equal(t, board.RunStatusRunning, got.Run.Status)
 
 	// Active run: neither the flag nor the base branch may change.
-	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: ptrBool(false)}, "human:alice")
+	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: new(false)}, "human:alice")
 	require.ErrorIs(t, err, ErrPlaybookRunActive)
-	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{BaseBranch: ptrStr("develop")}, "human:alice")
+	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{BaseBranch: new("develop")}, "human:alice")
 	require.ErrorIs(t, err, ErrPlaybookRunActive)
 
 	// Title edits still work during a run.
-	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Title: ptrStr("Rollout v2")}, "human:alice")
+	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Title: new("Rollout v2")}, "human:alice")
 	require.NoError(t, err)
 
 	// Stopped run: unchecking is allowed, drops the run block, keeps cards.
 	_, err = env.svc.SetRunIf(ctx, "rollout", nil, &board.PlaybookRun{Status: board.RunStatusStopped, StartedAt: now, UpdatedAt: now}, "human:alice")
 	require.NoError(t, err)
 
-	got, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: ptrBool(false)}, "human:alice")
+	got, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: new(false)}, "human:alice")
 	require.NoError(t, err)
 	assert.False(t, got.Runnable)
 	assert.Nil(t, got.Run)
@@ -853,7 +852,7 @@ func TestPlaybookService_MakeRunnableWithoutForcerFails(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: new(true)}, "human:alice")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "forcer")
 }
@@ -871,7 +870,7 @@ func TestPlaybookService_ReassertValidatesOwnership(t *testing.T) {
 			Entries: []PlaybookEntryInput{{Type: board.EntryTypeCard, Project: "project-alpha", Card: tc.card}},
 		})
 		require.NoError(t, err)
-		_, err = env.svc.UpdateMeta(ctx, strings.ToLower(tc.title), UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+		_, err = env.svc.UpdateMeta(ctx, strings.ToLower(tc.title), UpdatePlaybookInput{Runnable: new(true)}, "human:alice")
 		require.NoError(t, err)
 	}
 
@@ -884,7 +883,7 @@ func TestPlaybookService_ReassertValidatesOwnership(t *testing.T) {
 	require.NoError(t, env.svc.store.Save(ctx, p))
 
 	// Re-asserting runnable on "second" must refuse rather than force ALPHA-001 into a second owner.
-	_, err = env.svc.UpdateMeta(ctx, "second", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+	_, err = env.svc.UpdateMeta(ctx, "second", UpdatePlaybookInput{Runnable: new(true)}, "human:alice")
 	require.ErrorIs(t, err, ErrPlaybookCardOwned)
 	assert.Contains(t, err.Error(), "ALPHA-001")
 
@@ -915,7 +914,7 @@ func TestPlaybookService_DetailCarriesRunFieldsAndRepos(t *testing.T) {
 	assert.Empty(t, plain.Branch)
 	assert.Nil(t, plain.Repos)
 
-	got, err := env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+	got, err := env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: new(true)}, "human:alice")
 	require.NoError(t, err)
 	assert.True(t, got.Runnable)
 	assert.Equal(t, "playbook/rollout", got.Branch)
@@ -925,7 +924,7 @@ func TestPlaybookService_DetailCarriesRunFieldsAndRepos(t *testing.T) {
 	assert.Equal(t, "project-alpha", got.Repos[1].Project)
 	assert.Equal(t, "https://github.com/acme/alpha/compare/playbook/rollout?expand=1", got.Repos[1].CompareURL)
 
-	got, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{BaseBranch: ptrStr("main")}, "human:alice")
+	got, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{BaseBranch: new("main")}, "human:alice")
 	require.NoError(t, err)
 	assert.Equal(t, "https://github.com/acme/beta/compare/main...playbook/rollout?expand=1", got.Repos[0].CompareURL)
 
@@ -955,7 +954,7 @@ func TestPlaybookService_RunEventsCarryRunStatus(t *testing.T) {
 		Entries: []PlaybookEntryInput{{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"}},
 	})
 	require.NoError(t, err)
-	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: new(true)}, "human:alice")
 	require.NoError(t, err)
 
 	ch, unsub := env.bus.Subscribe()
@@ -980,7 +979,7 @@ func TestPlaybookService_RunEventsCarryRunStatus(t *testing.T) {
 	require.NoError(t, err)
 	<-ch
 
-	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Title: ptrStr("Renamed")}, "human:alice")
+	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Title: new("Renamed")}, "human:alice")
 	require.NoError(t, err)
 
 	ev := <-ch
@@ -998,7 +997,7 @@ func TestPlaybookService_SetRunIfGuardsTheWrite(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: new(true)}, "human:alice")
 	require.NoError(t, err)
 
 	now := env.clk.Now()
@@ -1069,7 +1068,7 @@ func TestPlaybookService_RepoLinksResolveTheDefaultBranch(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	got, err := env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+	got, err := env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: new(true)}, "human:alice")
 	require.NoError(t, err)
 	require.Len(t, got.Repos, 2)
 	// A failed lookup falls back to the branch-only form; a resolved default
@@ -1092,7 +1091,7 @@ func TestPlaybookService_RepoLinksResolveTheDefaultBranch(t *testing.T) {
 	assert.Equal(t, []string{"project-beta", "project-alpha", "project-beta"}, calls, "only the failure is retried")
 
 	// An explicit base branch never consults the resolver.
-	got, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{BaseBranch: ptrStr("main")}, "human:alice")
+	got, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{BaseBranch: new("main")}, "human:alice")
 	require.NoError(t, err)
 	assert.Equal(t, "https://github.com/acme/beta/compare/main...playbook/rollout?expand=1", got.Repos[0].CompareURL)
 	assert.Equal(t, "https://github.com/acme/alpha/compare/main...playbook/rollout?expand=1", got.Repos[1].CompareURL)
@@ -1113,7 +1112,7 @@ func TestPlaybookService_RemoveEntryDuringRun(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: new(true)}, "human:alice")
 	require.NoError(t, err)
 
 	now := env.clk.Now()
@@ -1232,7 +1231,7 @@ func TestPlaybookService_MakeRunnableNamesTheCardsItCouldNotForce(t *testing.T) 
 
 	logs := captureLogs(t)
 
-	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: new(true)}, "human:alice")
 	require.ErrorIs(t, err, ErrPlaybookCardForce)
 	assert.Contains(t, err.Error(), "project-alpha/ALPHA-002")
 	assert.NotContains(t, err.Error(), "disk full", "the cause stays in the server log")
@@ -1266,7 +1265,7 @@ func TestPlaybookService_MakeRunnableCommitFailureWarnsAboutForcedCards(t *testi
 	// commit goes through the card service's git manager and succeeds.
 	env.committer.fail = errors.New("boom")
 
-	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: new(true)}, "human:alice")
 	require.Error(t, err)
 
 	got, err := env.svc.Get(ctx, "rollout")
@@ -1293,7 +1292,7 @@ func TestPlaybookService_AddEntryCommitFailureWarnsAboutTheForcedCard(t *testing
 	})
 	require.NoError(t, err)
 
-	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: ptrBool(true)}, "human:alice")
+	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: new(true)}, "human:alice")
 	require.NoError(t, err)
 
 	logs := captureLogs(t)
