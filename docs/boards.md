@@ -82,8 +82,8 @@ github:                            # issue import, see github-issue-import.md
   default_priority: medium
   labels: [bug]
 remote_execution:                  # per-project worker image overrides
-  worker_image: ghcr.io/org/worker:go1.26
-  chat_worker_image: ghcr.io/org/chat-worker:go1.26
+  worker_image: ghcr.io/org/worker:go1.27
+  chat_worker_image: ghcr.io/org/chat-worker:go1.27
 verify:                            # verify gate every card inherits
   command: make test
   timeout_seconds: 900

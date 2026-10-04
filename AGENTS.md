@@ -110,7 +110,7 @@ workflow-skills/           → agent lifecycle skills (markdown, served via MCP 
 
 ## Tech stack
 
-- **Go 1.26+** backend; **net/http** stdlib router (method + path-param
+- **Go 1.27+** backend; **net/http** stdlib router (method + path-param
   routing).
 - **go-git v5** (`github.com/go-git/go-git/v5`) - git operations.
 - **gopkg.in/yaml.v3** - YAML frontmatter.

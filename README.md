@@ -141,7 +141,7 @@ Each bullet links to the document that covers it in full.
 
 ## Quick start
 
-Requires Go 1.26 and Node.js 26 (the versions CI and the Docker image build
+Requires Go 1.27 and Node.js 26 (the versions CI and the Docker image build
 with).
 
 ```bash
