@@ -123,6 +123,40 @@ drop on the next refresh. The 0.65 floor therefore means "within 65% of the
 current best", and floor drift after leaderboard shake-ups is expected
 behavior, not a bug.
 
+**The coder-prior fallback.** AA stopped publishing the coding index for
+models released after its Intelligence Index v4.3 switch (2026-09), so those
+rows carry `coding_index: null` and would get `coder_prior = 0`. At each
+catalog build ContextMatrix fits a linear regression of the normalized coder
+prior on the normalized intelligence prior, computed per build from the
+current AA response - never hard-coded - over rows that have both indices,
+pass the creator screen, and clear the floor on either prior. A row with no
+coding index but a non-nil intelligence index is then estimated at
+`fit(intel) - residual_sd`, so an unproven model does not rank as a coder on
+a guess.
+
+The fallback is guarded: when fewer than 20 rows qualify for the fit or the
+correlation is below 0.8, it is disabled for that build and priors stay 0
+(the pre-fallback behavior). The residual-sd margin keeps the estimate
+conservative, and the estimate is capped at the highest **measured** coder
+prior in the fit set minus 0.01 - an estimated model never ties or outranks
+the best measured coder, which matters because on equal priors price decides.
+The estimate is clamped to `[0, 1]`.
+
+The fallback runs on both legs: `build` (the `openrouter` leg) and
+`buildEndpointCandidates` (the `openai` leg, on the AA row the `closest`
+join chose). Rows with a real coding index are never estimated, and
+`model_priors` entries are explicit operator intent, so they are never
+estimated either. On the OpenRouter leg the effort-variant collapse prefers
+a row with a measured coding index over an estimated one for the same served
+slug, regardless of priors; between rows of the same kind the largest
+combined priors still win.
+
+Estimated slugs carry `CoderPriorEstimated` in the candidate provenance
+(surfaced as `coder_prior_estimated` on the admin selector candidate JSON).
+Each refresh logs the list of estimated slugs at info level, and logs at
+info when a slug the previous snapshot had estimated now has a measured
+coding index again.
+
 ### Creator screen and the allowlist
 
 On the OpenRouter leg, only models from trusted creators become candidates.

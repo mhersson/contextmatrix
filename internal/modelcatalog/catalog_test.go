@@ -24,11 +24,11 @@ func TestBuildAppliesFloorAllowlistAndMapping(t *testing.T) {
 	}
 
 	got := build(aa, or, 0.65, nil)
-	if len(got) != 1 {
-		t.Fatalf("want 1 candidate (glm only), got %d: %+v", len(got), got)
+	if len(got.candidates) != 1 {
+		t.Fatalf("want 1 candidate (glm only), got %d: %+v", len(got.candidates), got.candidates)
 	}
 
-	c := got[0]
+	c := got.candidates[0]
 	if c.Slug != "z-ai/glm-5.2" || c.CoderPrior != 1.0 || c.ReviewerPrior != 1.0 || c.ContextWindow != 1048576 {
 		t.Errorf("bad candidate: %+v", c)
 	}
@@ -51,16 +51,16 @@ func TestBuildCollapsesEffortVariants(t *testing.T) {
 	}
 
 	got := build(aa, or, 0.65, nil)
-	if len(got) != 1 {
-		t.Fatalf("effort variants must collapse to 1 candidate, got %d: %+v", len(got), got)
+	if len(got.candidates) != 1 {
+		t.Fatalf("effort variants must collapse to 1 candidate, got %d: %+v", len(got.candidates), got.candidates)
 	}
 
-	if got[0].CoderPrior != 1.0 || got[0].ReviewerPrior != 1.0 {
-		t.Errorf("collapse must keep the highest-prior variant, got %+v", got[0])
+	if got.candidates[0].CoderPrior != 1.0 || got.candidates[0].ReviewerPrior != 1.0 {
+		t.Errorf("collapse must keep the highest-prior variant, got %+v", got.candidates[0])
 	}
 
-	if got[0].Creator != "z-ai" {
-		t.Errorf("creator must survive the collapse, got %q", got[0].Creator)
+	if got.candidates[0].Creator != "z-ai" {
+		t.Errorf("creator must survive the collapse, got %q", got.candidates[0].Creator)
 	}
 }
 
