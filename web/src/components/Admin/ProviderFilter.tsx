@@ -1,5 +1,5 @@
-import { providerCounts } from './providerFilter';
-import type { ProviderFilterState } from './providerFilter';
+import { providerCounts } from './useProviderFilter';
+import type { ProviderFilterState } from './useProviderFilter';
 import type { SelectorCandidate } from '../../types';
 
 export interface ProviderFilterProps {

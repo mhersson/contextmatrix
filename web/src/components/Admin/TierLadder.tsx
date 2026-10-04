@@ -17,7 +17,7 @@ import {
 } from './ladder';
 import { useLadderDrag } from './useLadderDrag';
 import { ProviderFilter } from './ProviderFilter';
-import { useProviderFilter } from './providerFilter';
+import { useProviderFilter } from './useProviderFilter';
 
 export interface TierLadderProps {
   candidates: SelectorCandidate[];
