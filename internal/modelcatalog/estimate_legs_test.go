@@ -2,6 +2,7 @@ package modelcatalog
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math"
@@ -70,10 +71,22 @@ func orCatalog() map[string]orEntry {
 
 	or["openai/legs-new"] = orEntry{ContextWindow: 1000, Tools: true}
 	or["openai/legs-frontier"] = orEntry{ContextWindow: 1000, Tools: true}
+	or["openai/legs-mid"] = orEntry{ContextWindow: 1000, Tools: true}
 	or["z-ai/glm-5.2"] = orEntry{ContextWindow: 1000, Tools: true}
 
 	return or
 }
+
+// belowFloorFixture adds legs-mid to legsFixture: an intelligence prior
+// below belowFloor whose estimated coder prior clears it, so the floor screen
+// must see the estimate rather than the nil coding index's 0.
+func belowFloorFixture() []aaModel {
+	return append(legsFixture(1), aaModel{Slug: "legs-mid", Creator: "openai", IntelIndex: new(40.0)})
+}
+
+// belowFloor keeps more than 20 fixture rows in the fit set while sitting
+// above legs-mid's 0.4 intelligence prior.
+const belowFloor = 0.55
 
 func TestBuildEstimatesCoderPrior(t *testing.T) {
 	t.Parallel()
@@ -98,6 +111,24 @@ func TestBuildEstimatesCoderPrior(t *testing.T) {
 		require.True(t, ok, "the nil-coding row clears the floor on its reviewer prior and must be a candidate")
 		assert.InDelta(t, want, got.CoderPrior, 1e-12)
 		assert.True(t, res.estimated["openai/legs-new"])
+	})
+
+	t.Run("estimate that clears the floor keeps a below-floor intelligence row", func(t *testing.T) {
+		t.Parallel()
+
+		aa := belowFloorFixture()
+		_, maxIntel := maxIndices(aa)
+		require.Less(t, norm(new(40.0), maxIntel), belowFloor, "legs-mid must sit below the floor on its reviewer prior")
+
+		want := wantEstimate(t, aa, 40.0, nil, belowFloor)
+		require.GreaterOrEqual(t, want, belowFloor, "the fixture must put the estimate above the floor")
+
+		res := build(aa, orCatalog(), belowFloor, nil)
+
+		got, ok := findCandidate(res.candidates, "openai/legs-mid")
+		require.True(t, ok, "a row whose estimated coder prior clears the floor is a candidate")
+		assert.InDelta(t, want, got.CoderPrior, 1e-12)
+		assert.True(t, res.estimated["openai/legs-mid"])
 	})
 
 	t.Run("estimate capped below the highest measured coder", func(t *testing.T) {
@@ -246,6 +277,22 @@ func TestBuildEndpointCandidatesEstimatesCoderPrior(t *testing.T) {
 		assert.InDelta(t, want, scored[0].Candidate.CoderPrior, 1e-12)
 		assert.True(t, scored[0].Estimated)
 		assert.Equal(t, joinAutomatic, scored[0].Join)
+	})
+
+	t.Run("estimate that clears the floor keeps a below-floor intelligence row", func(t *testing.T) {
+		t.Parallel()
+
+		aa := belowFloorFixture()
+		endpoint := map[string]orEntry{"legs-mid": {ContextWindow: 1000, Tools: true}}
+
+		want := wantEstimate(t, aa, 40.0, nil, belowFloor)
+		require.GreaterOrEqual(t, want, belowFloor, "the fixture must put the estimate above the floor")
+
+		scored, exclusions, _ := buildEndpointCandidates(aa, endpoint, nil, belowFloor, nil, "")
+		assert.Empty(t, exclusions)
+		require.Len(t, scored, 1)
+		assert.InDelta(t, want, scored[0].Candidate.CoderPrior, 1e-12)
+		assert.True(t, scored[0].Estimated)
 	})
 
 	t.Run("estimate capped below the highest measured coder", func(t *testing.T) {
@@ -427,18 +474,43 @@ func TestBuilderProvenanceMeasuredRecovered(t *testing.T) {
 
 // --- log capture -----------------------------------------------------------
 
-// captureLogs installs a slog handler over buf for the duration of the test
-// and returns it, so assertions can check what refresh logged.
+// captureLogs installs a JSON slog handler over buf for the duration of the
+// test and returns it, so assertions can check what refresh logged.
 func captureLogs(t *testing.T) *bytes.Buffer {
 	t.Helper()
 
 	var buf bytes.Buffer
 
 	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
 	t.Cleanup(func() { slog.SetDefault(prev) })
 
 	return &buf
+}
+
+// loggedSlugs returns, per record in buf that carries the attribute key, its
+// comma-separated slug list. Matching on the attribute key rather than the
+// message keeps the assertions independent of the log wording.
+func loggedSlugs(t *testing.T, buf *bytes.Buffer, key string) [][]string {
+	t.Helper()
+
+	var out [][]string
+
+	for line := range strings.SplitSeq(strings.TrimSpace(buf.String()), "\n") {
+		if line == "" {
+			continue
+		}
+
+		var rec map[string]any
+		require.NoError(t, json.Unmarshal([]byte(line), &rec))
+
+		if v, ok := rec[key].(string); ok {
+			out = append(out, strings.Split(v, ","))
+		}
+	}
+
+	return out
 }
 
 // TestProvenanceMeasuredRecoveryLogging drives refresh on the OpenRouter leg
@@ -493,27 +565,25 @@ func TestProvenanceMeasuredRecoveryLogging(t *testing.T) {
 	buf := captureLogs(t)
 	require.Len(t, b.Candidates(ctx), 3)
 
-	assert.Contains(t, buf.String(), "coder prior estimated from the intelligence index",
+	assert.Equal(t, [][]string{{"openai/legs-guard", "openai/legs-new"}}, loggedSlugs(t, buf, "estimated_slugs"),
 		"the first refresh must log the estimated slugs")
-	assert.NotContains(t, buf.String(), "coder prior now measured",
+	assert.Empty(t, loggedSlugs(t, buf, "measured_slugs"),
 		"no slug can have recovered on the first refresh")
 
 	// Second refresh: legs-new measured; legs-guard stays estimated (its
 	// coding index is still nil and the fit set is still above the size
 	// guard); legs-removed is still not in the OR catalog.
 	buf.Reset()
+
 	b.lastRefreshAttempt = time.Time{}
 	b.cachedAt = time.Time{}
 
 	require.Len(t, b.Candidates(ctx), 3)
 
-	logs := buf.String()
-	assert.Contains(t, logs, `slugs=openai/legs-new`,
-		"the recovery line must name the slug whose coding index is now measured")
-
-	// The recovery line must name legs-new and nothing else: legs-guard is
+	// The recovery record must name legs-new and nothing else: legs-guard is
 	// still estimated and legs-removed left the candidate set.
-	assert.Regexp(t, `msg="coder prior now measured[^"]*" slugs=openai/legs-new\n`, logs)
+	assert.Equal(t, [][]string{{"openai/legs-new"}}, loggedSlugs(t, buf, "measured_slugs"))
+	assert.Equal(t, [][]string{{"openai/legs-guard"}}, loggedSlugs(t, buf, "estimated_slugs"))
 }
 
 // TestProvenanceMeasuredRecoveryGuardAndRemoval drive the two silent cases:
@@ -571,14 +641,14 @@ func TestProvenanceMeasuredRecoveryGuardAndRemoval(t *testing.T) {
 	assert.True(t, b.Provenance(ctx)["openai/legs-new"].CoderPriorEstimated)
 
 	buf.Reset()
+
 	b.lastRefreshAttempt = time.Time{}
 	b.cachedAt = time.Time{}
 
 	// The second build produces no candidates (empty OR catalog).
 	require.Empty(t, b.Candidates(ctx))
 
-	logs := buf.String()
-	assert.NotContains(t, logs, "coder prior now measured",
+	assert.Empty(t, loggedSlugs(t, buf, "measured_slugs"),
 		"a removed candidate and a guard-disabled fit must not log a measured recovery")
 }
 
@@ -636,11 +706,10 @@ func TestProvenanceMeasuredRecoveryGuardOnlyDoesNotLog(t *testing.T) {
 	assert.Zero(t, cands[0].CoderPrior)
 	assert.False(t, b.Provenance(ctx)["openai/legs-new"].CoderPriorEstimated)
 
-	logs := buf.String()
-	assert.NotContains(t, logs, "coder prior now measured",
+	assert.Empty(t, loggedSlugs(t, buf, "measured_slugs"),
 		"a guard-disabled fit must not log a measured recovery")
-	assert.NotContains(t, logs, "coder prior estimated from the intelligence index",
-		"with the guard tripped nothing is estimated, so the estimate line must stay silent too")
+	assert.Empty(t, loggedSlugs(t, buf, "estimated_slugs"),
+		"with the guard tripped nothing is estimated, so the estimate record must stay silent too")
 }
 
 // --- helpers ---------------------------------------------------------------

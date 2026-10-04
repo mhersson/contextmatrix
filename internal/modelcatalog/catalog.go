@@ -275,7 +275,7 @@ func (b *Builder) setProvenance(prov map[string]CandidateProvenance, previous ma
 	if len(now) > 0 {
 		slugs := slices.Sorted(maps.Keys(now))
 		slog.Info("coder prior estimated from the intelligence index; AA publishes no coding index for these models",
-			"slugs", strings.Join(slugs, ","))
+			"estimated_slugs", strings.Join(slugs, ","))
 	}
 
 	var recovered []string
@@ -293,7 +293,7 @@ func (b *Builder) setProvenance(prov map[string]CandidateProvenance, previous ma
 	if len(recovered) > 0 {
 		slices.Sort(recovered)
 		slog.Info("coder prior now measured; AA publishes a coding index again",
-			"slugs", strings.Join(recovered, ","))
+			"measured_slugs", strings.Join(recovered, ","))
 	}
 }
 
@@ -711,6 +711,14 @@ func build(aa []aaModel, or map[string]orEntry, floor float64, allow []string) b
 		}
 
 		coder := norm(m.CodingIndex, maxCoding)
+		measured := m.CodingIndex != nil
+
+		isEstimate := false
+
+		if prior, ok := est.estimate(m); ok {
+			coder = prior
+			isEstimate = true
+		}
 
 		rev := norm(m.IntelIndex, maxIntel)
 		if coder < floor && rev < floor { // below floor for every role
@@ -727,15 +735,6 @@ func build(aa []aaModel, or map[string]orEntry, floor float64, allow []string) b
 		e, ok := or[orSlug]
 		if !ok || !e.Tools {
 			continue // not on OR, or not tool-capable
-		}
-
-		measured := m.CodingIndex != nil
-
-		isEstimate := false
-
-		if prior, ok := est.estimate(m); ok {
-			coder = prior
-			isEstimate = true
 		}
 
 		cand := protocol.CandidateModel{
@@ -1000,18 +999,17 @@ func buildEndpointCandidates(aa []aaModel, endpoint map[string]orEntry, priors m
 
 		coder := norm(m.CodingIndex, maxCoding)
 		rev := norm(m.IntelIndex, maxIntel)
-
-		if coder < floor && rev < floor {
-			exclusions = append(exclusions, aaExclusion{Slug: slug, Reason: exclBelowFloor, Source: m.Slug})
-
-			continue
-		}
-
 		measured := m.CodingIndex != nil
 
 		estimated := false
 		if prior, ok := est.estimate(m); ok {
 			coder, estimated = prior, true
+		}
+
+		if coder < floor && rev < floor {
+			exclusions = append(exclusions, aaExclusion{Slug: slug, Reason: exclBelowFloor, Source: m.Slug})
+
+			continue
 		}
 
 		scored = append(scored, aaScored{

@@ -132,7 +132,9 @@ current AA response - never hard-coded - over rows that have both indices,
 pass the creator screen, and clear the floor on either prior. A row with no
 coding index but a non-nil intelligence index is then estimated at
 `fit(intel) - residual_sd`, so an unproven model does not rank as a coder on
-a guess.
+a guess. The quality floor screens the estimated coder prior, so a model
+whose intelligence prior is below the floor stays a candidate when its
+estimate clears it.
 
 The fallback is guarded: when fewer than 20 rows qualify for the fit or the
 correlation is below 0.8, it is disabled for that build and priors stay 0

@@ -251,12 +251,14 @@ func TestBuilderDegenerateBuildIsCached(t *testing.T) {
 
 	aaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		aaHits.Add(1)
+
 		_, _ = w.Write([]byte(`{"data":[{"slug":"vendor-x-1","model_creator":{"name":"vendor"},"evaluations":{}}]}`))
 	}))
 	defer aaSrv.Close()
 
 	orSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		orHits.Add(1)
+
 		_, _ = w.Write([]byte(`{"data":[{"id":"vendor-x-1","context_length":200000,"pricing":{"prompt":"0.000003","completion":"0.000015"},"supported_parameters":["tools"]}]}`))
 	}))
 	defer orSrv.Close()
