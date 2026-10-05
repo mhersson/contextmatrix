@@ -1002,7 +1002,7 @@ Valid values (`validWorkerStatuses` in `internal/board/validation.go`):
 
 | Value        | Set by                  | Meaning                                                                   |
 | ------------ | ----------------------- | ------------------------------------------------------------------------- |
-| `""`         | service layer / human   | No worker attached. Default on new cards; only a `completed` callback clears the stored value back to it. Card state transitions never touch it. |
+| `""`         | service layer / human   | No worker attached. Default on new cards; a `completed` callback clears the stored value back to it, and a state change into `todo` or `in_progress` clears a leftover `failed` or `killed` so a rerun does not carry the previous run's failure. |
 | `queued`     | run trigger             | A run was requested; the container has not started.                       |
 | `running`    | backend status callback | The worker is executing.                                                  |
 | `failed`     | backend status callback | The worker exited with an error, or the trigger webhook failed.           |
