@@ -26,8 +26,8 @@ import (
 // stall checker skips terminal cards, so a done card with a live claim is
 // never flagged stalled.
 //
-// worker_status is intentionally not cleared here: the end-session subscriber
-// and the backend's own terminal callback own that field.
+// worker_status is otherwise owned by the end-session subscriber and the
+// backend's own terminal callback; a state change only clears a stale failure.
 func enforceTerminalStateInvariants(card *board.Card, stateChanged, shared bool) {
 	if !stateChanged {
 		return
@@ -39,6 +39,22 @@ func enforceTerminalStateInvariants(card *board.Card, stateChanged, shared bool)
 
 	if shared && board.IsTerminalState(card.State) {
 		card.ClaimEpoch++
+	}
+
+	clearStaleWorkerFailure(card)
+}
+
+// clearStaleWorkerFailure drops a previous run's failed/killed worker_status
+// when the card re-enters todo or in_progress: a new attempt starts there, and
+// a successful rerun that never launches a worker would otherwise keep the
+// failure badge forever. Live (queued/running) and parked statuses stay.
+func clearStaleWorkerFailure(card *board.Card) {
+	if card.State != board.StateTodo && card.State != board.StateInProgress {
+		return
+	}
+
+	if card.WorkerStatus == "failed" || card.WorkerStatus == "killed" {
+		card.WorkerStatus = ""
 	}
 }
 
