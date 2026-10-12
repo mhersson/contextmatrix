@@ -1,8 +1,10 @@
 package jira
 
 import (
+	"bytes"
 	"encoding/base64"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"testing"
@@ -73,6 +75,22 @@ func TestAuthorizer_FormattingHidesSecret(t *testing.T) {
 			out := fmt.Sprintf(verb, a)
 			assert.NotContains(t, out, secret, "verb %s", verb)
 			assert.NotContains(t, out, base64.StdEncoding.EncodeToString([]byte("me@acme.com:"+secret)), "verb %s", verb)
+		}
+
+		c := NewClient("https://acme.atlassian.net", a, nil)
+
+		var buf bytes.Buffer
+
+		slog.New(slog.NewTextHandler(&buf, nil)).Info("x", "client", c)
+
+		outs := []string{buf.String()}
+		for _, verb := range []string{"%v", "%+v", "%#v"} {
+			outs = append(outs, fmt.Sprintf(verb, c))
+		}
+
+		for _, out := range outs {
+			assert.NotContains(t, out, secret, "mode %s", mode)
+			assert.NotContains(t, out, base64.StdEncoding.EncodeToString([]byte("me@acme.com:"+secret)), "mode %s", mode)
 		}
 	}
 }

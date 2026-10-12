@@ -12,7 +12,9 @@ type Authorizer interface {
 	Apply(req *http.Request) error
 }
 
-// headerAuth sets a precomputed Authorization header. The String methods keep
+// headerAuth sets a precomputed Authorization header. It is only handed out as
+// a pointer: fmt does not call String on a value held in an unexported field,
+// so a Client holding a value would print the header. The String methods keep
 // the secret out of %v, %+v and %#v so an accidental log line cannot leak it.
 type headerAuth struct {
 	mode   string
@@ -41,13 +43,13 @@ func NewAuthorizer(mode, email, token string) (Authorizer, error) {
 
 		creds := base64.StdEncoding.EncodeToString([]byte(email + ":" + token))
 
-		return headerAuth{mode: mode, header: "Basic " + creds}, nil
+		return &headerAuth{mode: mode, header: "Basic " + creds}, nil
 	case "bearer":
 		if token == "" {
 			return nil, errors.New("jira auth: bearer mode needs a token")
 		}
 
-		return headerAuth{mode: mode, header: "Bearer " + token}, nil
+		return &headerAuth{mode: mode, header: "Bearer " + token}, nil
 	default:
 		return nil, fmt.Errorf("jira auth: unknown auth_mode %q (want basic or bearer)", mode)
 	}
