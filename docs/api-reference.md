@@ -80,6 +80,7 @@ POST   /api/playbooks/{id}/stop                        # stop the run and kill t
 GET    /api/task-skills                                # list available task skill names
 GET    /api/app/config                                 # server-side app config (slim pre-login payload in multi mode)
 GET    /api/models                                     # model catalog for the card model-pin pickers (source: openrouter|endpoint|none)
+GET    /api/jira/status                                # Jira connection status ({"configured":false} when jira.site_url is unset)
 
 POST   /api/images                                     # multipart image upload (content-hashed id; 10 MB cap)
 GET    /api/images/{id}                                # serve stored image blob (immutable cache headers)
@@ -2745,3 +2746,33 @@ rehydration prompt.
 The caller's `X-CM-Chat-Session` header must equal `session_id`, otherwise
 the call is rejected. A caller with no header (card-mode or out-of-band) is
 allowed, but `session_id` must still resolve to an active chat session.
+
+## Jira
+
+### GET /api/jira/status
+
+Whether Jira is configured and whether its credentials work right now. It always
+answers 200. Needs a session in multi mode.
+
+```json
+{
+  "configured": true,
+  "authenticated": true,
+  "account": "Ada Lovelace",
+  "auth_mode": "basic",
+  "writeback_enabled": false,
+  "site_url": "https://acme.atlassian.net"
+}
+```
+
+When `jira.site_url` is unset the body is `{"configured": false}`.
+
+| Field               | Type   | Description                                                                    |
+| ------------------- | ------ | ------------------------------------------------------------------------------ |
+| `configured`        | bool   | `jira.site_url` is set                                                         |
+| `authenticated`     | bool   | The credentials passed a `GET /rest/api/3/myself` probe                        |
+| `account`           | string | Display name the credentials act as; absent when unauthenticated               |
+| `auth_mode`         | string | `basic` or `bearer`                                                            |
+| `writeback_enabled` | bool   | `jira.writeback.enabled`                                                       |
+| `site_url`          | string | `jira.site_url`                                                                |
+| `auth_error`        | string | Only when unauthenticated: `unauthorized`, `captcha_required` or `unreachable` |

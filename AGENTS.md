@@ -40,6 +40,7 @@ Read the relevant one before working in its area:
 | `docs/running-cards.md`        | Run Auto / Run HITL, fast path, guardrails, execution fields, Best-of-N, mob, PR gates, parking, stop.                                            |
 | `docs/shared-boards.md`        | Shared-repo sync cycle, merge rules, per-instance claims and leases, several boards repos.                                                        |
 | `docs/github-issue-import.md`  | Importer config, owner/repo resolution, vetting gate, `source` field, Enterprise hosts.                                                           |
+| `docs/jira-import.md`          | Jira Cloud site config, auth modes and tokens, connection status.                                                                                 |
 | `web/AGENTS.md`                | Frontend. Auto-loaded when working in `web/`.                                                                                                     |
 
 ## Trust model (summary - canonical detail in `docs/architecture.md`)
@@ -99,6 +100,7 @@ internal/auth/             → sessions, users, one-time tokens, credential-pool
 internal/authstore/        → auth.db (SQLite): users, sessions, tokens, credentials
 internal/images/           → content-hashed image store: images.db plus <project>/images/ files in shared boards repos
 internal/github/           → GitHub auth helpers shared across services
+internal/jira/             → Jira Cloud REST v3 client: auth, issue reads, transitions, ADF to markdown
 internal/clock/            → injectable clock for service-layer time invariants
 internal/events/           → in-process pub/sub event bus
 internal/config/           → global config loading
