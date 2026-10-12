@@ -824,6 +824,9 @@ type Playbook struct {
     Updated     time.Time       `yaml:"updated_at"            json:"updated_at"`
     NextEntryID int             `yaml:"next_entry_id"         json:"next_entry_id"`
     Entries     []PlaybookEntry `yaml:"entries"               json:"entries"`
+    Runnable    bool            `yaml:"runnable,omitempty"    json:"runnable"`
+    BaseBranch  string          `yaml:"base_branch,omitempty" json:"base_branch,omitempty"`
+    Run         *PlaybookRun    `yaml:"run,omitempty"         json:"run,omitempty"`
 }
 
 type PlaybookEntry struct {
@@ -837,12 +840,31 @@ type PlaybookEntry struct {
     DoneAt  *time.Time `yaml:"done_at,omitempty" json:"done_at,omitempty"`
     Note    string     `yaml:"note,omitempty"    json:"note,omitempty"`
 }
+
+type PlaybookRun struct {
+    Status    string     `yaml:"status"               json:"status"`
+    Instance  string     `yaml:"instance,omitempty"   json:"instance,omitempty"`
+    StartedBy string     `yaml:"started_by,omitempty" json:"started_by,omitempty"`
+    StartedAt time.Time  `yaml:"started_at"           json:"started_at"`
+    UpdatedAt time.Time  `yaml:"updated_at"           json:"updated_at"`
+    Entry     string     `yaml:"entry,omitempty"      json:"entry,omitempty"`
+    Reason    string     `yaml:"reason,omitempty"     json:"reason,omitempty"`
+    EndedAt   *time.Time `yaml:"ended_at,omitempty"   json:"ended_at,omitempty"`
+}
 ```
 
 `Type` is `card` or `manual`. The service layer exposes a resolved view
 (`PlaybookDetail` / `PlaybookEntryDetail` in `internal/service/playbooks.go`)
 that joins card entries against the live card store; see the
 [API reference](api-reference.md) for the JSON shape.
+
+`Runnable` is human-set and forces five card settings (see
+[playbooks](playbooks.md#make-runnable)). `BaseBranch` is the branch
+`playbook/<id>` is cut from on the first run; empty means the repository
+default. `Run` is present once a run has started; `Status` is `running`,
+`waiting`, `stopped` or `completed`, `Instance` is the owning instance (empty on
+a private board), `Entry` is the current entry and `Reason` explains a `waiting`
+status.
 
 ## Project board config format
 
