@@ -139,6 +139,17 @@ type Source struct {
 	ExternalURL string `yaml:"external_url" json:"external_url"`
 }
 
+// Clone returns a copy that shares nothing with s. Nil-safe.
+func (s *Source) Clone() *Source {
+	if s == nil {
+		return nil
+	}
+
+	c := *s
+
+	return &c
+}
+
 // TokenUsage tracks cumulative token consumption and estimated cost for a card.
 type TokenUsage struct {
 	Model               string  `yaml:"model,omitempty"                json:"model,omitempty"`
