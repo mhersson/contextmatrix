@@ -382,7 +382,7 @@ func (c JiraConfig) validate() error {
 		return nil
 	}
 
-	if err := requireHTTPSURL("jira.site_url", c.SiteURL); err != nil {
+	if err := requireHTTPSOrigin("jira.site_url", c.SiteURL); err != nil {
 		return err
 	}
 
@@ -426,8 +426,33 @@ func (c JiraConfig) validate() error {
 
 func requireHTTPSURL(field, raw string) error {
 	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != "https" || u.Host == "" {
-		return fmt.Errorf("%s must be an https URL (got %q)", field, raw)
+	if err != nil {
+		return fmt.Errorf("%s must be an https URL", field)
+	}
+
+	if u.Scheme != "https" || u.Host == "" {
+		// Redacted keeps a password in the userinfo out of the error.
+		return fmt.Errorf("%s must be an https URL (got %q)", field, u.Redacted())
+	}
+
+	return nil
+}
+
+// requireHTTPSOrigin additionally rejects everything but a bare origin: Cloud
+// sites have no path, and a pasted browser URL would otherwise yield 404s.
+func requireHTTPSOrigin(field, raw string) error {
+	if err := requireHTTPSURL(field, raw); err != nil {
+		return err
+	}
+
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("%s must be an https URL", field)
+	}
+
+	hasPath := u.Path != "" && u.Path != "/"
+	if hasPath || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.Contains(raw, "#") || u.User != nil {
+		return fmt.Errorf("%s must be a bare https origin such as https://acme.atlassian.net", field)
 	}
 
 	return nil

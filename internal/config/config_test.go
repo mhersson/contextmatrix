@@ -3955,6 +3955,13 @@ func TestJiraConfig_Validate(t *testing.T) {
 		{name: "writeback without site", mutate: func(j *JiraConfig) { *j = JiraConfig{Writeback: JiraWritebackConfig{Enabled: true}} }, wantErr: "jira.writeback.enabled"},
 		{name: "http site", mutate: func(j *JiraConfig) { j.SiteURL = "http://acme.atlassian.net" }, wantErr: "jira.site_url"},
 		{name: "site without host", mutate: func(j *JiraConfig) { j.SiteURL = "https://" }, wantErr: "jira.site_url"},
+		{name: "site with trailing slash", mutate: func(j *JiraConfig) { j.SiteURL = "https://acme.atlassian.net/" }},
+		{name: "site with path", mutate: func(j *JiraConfig) { j.SiteURL = "https://acme.atlassian.net/jira/your-work" }, wantErr: "jira.site_url"},
+		{name: "site with query", mutate: func(j *JiraConfig) { j.SiteURL = "https://acme.atlassian.net?a=b" }, wantErr: "jira.site_url"},
+		{name: "site with fragment", mutate: func(j *JiraConfig) { j.SiteURL = "https://acme.atlassian.net/#x" }, wantErr: "jira.site_url"},
+		{name: "site with userinfo", mutate: func(j *JiraConfig) { j.SiteURL = "https://u:hunter2@acme.atlassian.net" }, wantErr: "jira.site_url"},
+		{name: "api base keeps its path", mutate: func(j *JiraConfig) { j.APIBaseURL = "https://api.atlassian.com/ex/jira/abc" }},
+		{name: "http api base with userinfo", mutate: func(j *JiraConfig) { j.APIBaseURL = "http://u:hunter2@api.atlassian.com" }, wantErr: "jira.api_base_url"},
 		{name: "http api base", mutate: func(j *JiraConfig) { j.APIBaseURL = "http://api.atlassian.com" }, wantErr: "jira.api_base_url"},
 		{name: "basic without email", mutate: func(j *JiraConfig) { j.Email = "" }, wantErr: "jira.email"},
 		{name: "bearer without token", mutate: func(j *JiraConfig) { j.AuthMode, j.Token = JiraAuthBearer, "" }, wantErr: "jira.token"},
@@ -3989,6 +3996,7 @@ func TestJiraConfig_Validate(t *testing.T) {
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.wantErr)
 			assert.NotContains(t, err.Error(), "s3cr3t-tok", "validation errors never echo the token")
+			assert.NotContains(t, err.Error(), "hunter2", "validation errors never echo URL userinfo")
 		})
 	}
 }
