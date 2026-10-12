@@ -550,6 +550,7 @@ entries winning per tier. `json:"-"`: no REST path writes it; hand-edit
 `subtask_cost_has_estimates`, `subtask_usage`, `in_playbooks`, `playbook_lock`.
 
 `branch_name` is predicted by CM at create as `<lowercase-id>/<title-slug>`
+(a Jira import keeps its key uppercase: `<lowercase-id>/<KEY>-<slug of the rest of the title>`)
 on standalone and parent cards. No git ref is created by this generation. The
 worker later supplies the actual branch through `report_push`, which
 overwrites the field with the worker-reported value. Subtasks work on their
@@ -1078,7 +1079,7 @@ Reference and cycle checks run against the resulting card, so an existing
 ## `create_pr` semantics
 
 Standalone and parent cards get a predicted feature branch: `branch_name` is
-generated at create as `<lowercase-id>/<title-slug>`. The executor never
+generated at create as `<lowercase-id>/<title-slug>` (a Jira import keeps its key uppercase: `<lowercase-id>/<KEY>-<slug of the rest of the title>`). The executor never
 receives it: the worker derives its own branch from the card id and pushes
 `cm/<lowercase-card-id>`. The first `report_push` records the reported branch
 onto the card, so the stored value reflects the branch that actually exists;
