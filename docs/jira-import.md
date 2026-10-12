@@ -59,7 +59,10 @@ card must carry a Jira `source` whose URL is on the configured `site_url` host.
 
 - **Only these two moves.** Review, stall, `not_planned` and a reopen (`done` ->
   `todo` -> `done`) write nothing. Each card triggers each move at most once, and
-  a card that goes straight to `done` writes only the done move.
+  a card moved directly to `done` writes only the done move. When
+  `complete_task` walks through `in_progress` on the way, the started write is
+  recorded first and can land before the done write; the worker skips a started
+  write whose done write is also pending.
 - **A started write only moves an issue out of the To Do category, and a done
   write only acts when the issue is not already done.** An issue someone closed
   in Jira is never reopened.
@@ -75,7 +78,8 @@ available transitions:
 
 1. The status named in `jira.writeback.status_targets` for the issue's Jira
    project key. The match is case-insensitive.
-2. Otherwise, the one available transition into the target category.
+2. Otherwise, when no status is named, the one available transition into the
+   target category.
 3. Otherwise, the one forward step toward it.
 
 It follows at most 3 transitions. More than one candidate is a failure; name the
@@ -97,8 +101,8 @@ override `CONTEXTMATRIX_JIRA_WRITEBACK_ENABLED`.
 
 | Situation                                                      | Behaviour                                                                                                                                                                                         |
 | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Jira unreachable, 5xx, 429                                     | Retries with backoff (1, 2, 4, 8, 16, 32 minutes, then hourly) for 29 attempts, about 24 h, honouring `Retry-After`. Then the write fails.                                                        |
-| Credentials rejected (401, or the login CAPTCHA 403)           | Writeback pauses and pending writes keep their place and attempt count. CM re-checks the credentials with backoff of 1 to 15 minutes. `GET /api/jira/status` reports `writeback_paused: true` until they work again. |
+| Jira unreachable, 5xx, 429                                     | Retries with backoff (1, 2, 4, 8, 16, 32 minutes, then hourly) for 29 attempts, about 24 h, honouring `Retry-After`. Then the write fails and the card gets the same activity line.               |
+| Credentials rejected (401, or the login CAPTCHA 403)           | Writeback pauses and pending writes keep their place and attempt count. CM warns once, then re-checks the credentials with backoff of 1 to 15 minutes. The backoff keeps growing, and the warning stays quiet, until a write succeeds, so a token that passes the check but cannot write is probed ever less often. `GET /api/jira/status` reports `writeback_paused: true` until they work again. |
 | Issue missing, no permission, no unique transition, other 4xx  | The write fails at once and the card gets one activity line: `Jira writeback (<started or done>) failed: <reason>`. A failed write is not retried.                                                |
 
 A write cut off by shutdown stays pending and costs no attempt. The next start
@@ -106,9 +110,13 @@ re-reads the issue, so a move that already landed becomes a no-op.
 
 An hourly sweep re-checks Jira cards updated in the last 24 h. It catches
 changes the worker never saw, such as a large shared-board pull (more than 16
-changed cards emit no per-card events) or a full event buffer. For a card in a
-state past `todo` other than `done` and `not_planned`, such as `review`, the
-sweep owes the started move if it was never recorded. Turning writeback on never
+changed cards emit no per-card events) or a full event buffer. The sweep owes
+the started move for any recently updated Jira card whose state is not `todo`,
+`not_planned` or `done` (a card that went straight to `stalled` or `review`
+counts), if it was never recorded; the live subscriber writes started only on
+entry to `in_progress`. A card that points at a different Jira issue than a
+finished row did, as when a project is recreated under the same name, is
+written afresh. Turning writeback on never
 backfills older moves.
 
 **Shared boards:** every instance with writeback enabled writes for every Jira
