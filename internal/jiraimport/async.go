@@ -212,8 +212,8 @@ func (s *Service) pruneLocked(now time.Time) {
 }
 
 // Shutdown stops running imports between two issues and waits for them,
-// bounded by ctx. The issue in flight finishes, its writes detached from the
-// cancel; Begin refuses from now on.
+// bounded by ctx. The issue in flight gets drainGrace to finish its writes
+// before they are cancelled; Begin refuses from now on.
 func (s *Service) Shutdown(ctx context.Context) error {
 	s.runMu.Lock()
 	if s.stop != nil {

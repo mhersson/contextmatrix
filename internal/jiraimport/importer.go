@@ -19,16 +19,35 @@ const (
 	// maxSelections bounds one import request.
 	maxSelections = 200
 	// writeTimeout bounds the writes of one issue, and the playbook create.
-	// A shutdown waits for the unit in flight, so it must fit the shutdown
-	// drain budget; local writes take milliseconds.
-	writeTimeout = 10 * time.Second
+	// On a shared boards repo each write is a verified fetch, merge, commit
+	// and push with retries, which a slow remote stretches to seconds.
+	writeTimeout = 30 * time.Second
+	// drainGrace is how long the unit in flight keeps writing once the import
+	// stops. It fits inside the 10 s shutdown phase that joins the imports.
+	drainGrace = 8 * time.Second
 )
 
-// writeContext detaches a unit of writes from ctx: a shutdown stops the import
-// between issues, never inside one, where a cancelled store write or a dropped
-// commit would leave a card on disk uncommitted.
+// writeContext detaches a unit of writes from ctx: a shutdown or the import's
+// bound stops the import between issues, not inside one, where a cancelled
+// write can leave a card uncommitted. Once ctx ends, the unit gets drainGrace
+// to finish, then is cancelled with ctx's cause.
 func writeContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.WithoutCancel(ctx), writeTimeout)
+	detached, stopWrites := context.WithCancelCause(context.WithoutCancel(ctx))
+	wctx, cancel := context.WithTimeout(detached, writeTimeout)
+
+	stop := context.AfterFunc(ctx, func() {
+		select {
+		case <-time.After(drainGrace):
+			stopWrites(context.Cause(ctx))
+		case <-wctx.Done():
+		}
+	})
+
+	return wctx, func() {
+		stop()
+		cancel()
+		stopWrites(nil)
+	}
 }
 
 // prepare validates the request and reads the epic tree: everything that can
@@ -167,8 +186,8 @@ func (r *importRun) record(results []Result, res Result) []Result {
 	return append(results, res)
 }
 
-// execute stops between two issues once ctx ends: the issue in flight
-// finishes, the rest wait for a re-run.
+// execute stops between two issues once ctx ends: the issue in flight gets
+// the drain grace, the rest wait for a re-run.
 func (r *importRun) execute(ctx context.Context) ([]Result, error) {
 	selected := map[string]Selection{}
 	for _, sel := range r.req.Selections {
@@ -348,9 +367,14 @@ func (r *importRun) leftAtEnd(ctx context.Context, ref cardRef) {
 		"epic", r.tree.epic.Key, "playbook", r.playbookID, "project", ref.project, "card", ref.card)
 }
 
-// reason logs a per-issue failure and returns its safe phrase.
+// reason logs a per-issue failure and returns its safe phrase. A write that
+// the drain grace cut off is classed by why the import stopped.
 func (r *importRun) reason(ctx context.Context, key string, err error) string {
 	ctxlog.Logger(ctx).Warn("jira import: issue failed", "epic", r.tree.epic.Key, "issue", key, "error", err)
+
+	if cause := context.Cause(ctx); errors.Is(err, context.Canceled) && cause != nil {
+		err = cause
+	}
 
 	return failureReason(err)
 }

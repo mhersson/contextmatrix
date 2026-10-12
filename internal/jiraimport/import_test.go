@@ -7,10 +7,12 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/jira"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/internal/storage"
@@ -608,6 +610,124 @@ func TestImport_ShutdownFinishesTheIssueInFlight(t *testing.T) {
 	assert.True(t, e.committed(t, "api/tasks/"+res.Card+".md"), "the issue in flight is committed")
 	assert.Equal(t, []string{"api/" + res.Card}, e.entryNames(t, got.resp.Playbook.ID))
 	assert.Equal(t, 1, e.jiraCards(t, "api"))
+}
+
+// timedCards runs each CreateCard for hold, or until its context ends when
+// hold is zero, and records how long the write ran on the synctest clock.
+type timedCards struct {
+	Cards
+
+	hold    time.Duration
+	started chan struct{} // closed when the create starts; one issue per test
+	took    time.Duration
+}
+
+func (c *timedCards) CreateCard(ctx context.Context, project string, in service.CreateCardInput) (*board.Card, error) {
+	start := time.Now()
+
+	close(c.started)
+
+	defer func() { c.took = time.Since(start) }()
+
+	var held <-chan time.Time
+	if c.hold > 0 {
+		held = time.After(c.hold)
+	}
+
+	select {
+	case <-held:
+		return c.Cards.CreateCard(ctx, project, in)
+	case <-ctx.Done():
+		return nil, fmt.Errorf("create card: %w", ctx.Err())
+	}
+}
+
+func TestImport_WriteBoundAndDrainGrace(t *testing.T) {
+	// The shutdown phase that joins the imports has this budget.
+	const phase4Budget = 10 * time.Second
+
+	tests := []struct {
+		name        string
+		hold        time.Duration // 0 holds the write until its context ends
+		importBound time.Duration // 0 keeps the default
+		shutdown    bool          // shut down as soon as the write starts
+		wantStatus  string
+		wantClass   error // the error class whose phrase a failed row shows
+		wantTook    time.Duration
+	}{
+		{
+			name: "a write slower than 10 s succeeds", hold: 20 * time.Second,
+			wantStatus: StatusCreated, wantTook: 20 * time.Second,
+		},
+		{
+			name:       "a wedged write times out at the 30 s bound",
+			wantStatus: StatusFailed, wantClass: context.DeadlineExceeded, wantTook: 30 * time.Second,
+		},
+		{
+			name: "shutdown cancels the write in flight after the grace", shutdown: true,
+			wantStatus: StatusFailed, wantClass: context.Canceled, wantTook: drainGrace,
+		},
+		{
+			name: "the import's bound cancels the write in flight after the grace", importBound: 10 * time.Second,
+			wantStatus: StatusFailed, wantClass: context.DeadlineExceeded, wantTook: 10*time.Second + drainGrace,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newImportEnv(t, nil)
+			e.jira.add(story("102", "PROJ-2", "Cart API"))
+
+			synctest.Test(t, func(t *testing.T) {
+				cards := &timedCards{Cards: e.cards, hold: tt.hold, started: make(chan struct{})}
+				bus := events.NewBus()
+
+				ch, unsubscribe := bus.Subscribe()
+				defer unsubscribe()
+
+				svc := New(e.jira, cards, e.pbs, Config{SiteURL: testSite, Bus: bus, Clock: e.clk})
+				if tt.importBound > 0 {
+					svc.timeout = tt.importBound
+				}
+
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+
+				svc.Start(ctx)
+
+				id, err := svc.Begin(ctx, "PROJ-1", ImportRequest{Selections: []Selection{{Key: "PROJ-2", Project: "api"}}}, "human:alice")
+				require.NoError(t, err)
+
+				if tt.shutdown {
+					<-cards.started
+
+					budget, cancelBudget := context.WithTimeout(context.Background(), phase4Budget)
+					defer cancelBudget()
+
+					require.NoError(t, svc.Shutdown(budget), "the drain fits the shutdown phase's budget")
+				}
+
+				var results []Result
+
+				for ev := range ch {
+					if ev.Type == events.JiraImportDone && ev.Data["import_id"] == id {
+						results, _ = ev.Data["results"].([]Result)
+
+						break
+					}
+				}
+
+				require.Len(t, results, 1)
+				assert.Equal(t, tt.wantStatus, results[0].Status)
+
+				if tt.wantClass != nil {
+					assert.Equal(t, failureReason(tt.wantClass), results[0].Reason)
+				}
+
+				assert.Equal(t, tt.wantTook, cards.took)
+			})
+		})
+	}
 }
 
 func TestFailureReason(t *testing.T) {

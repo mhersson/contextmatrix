@@ -88,9 +88,14 @@ not stop it, and a reconnecting dialog catches up from
 instance that ran it. Imports of the same epic run one at a time on an instance.
 The import is human-only.
 
+Each issue's writes are bounded at 30 seconds, room for the verified push every
+write makes on a shared boards repository. An issue that runs over fails with
+`timed out`, and the import moves on to the next.
+
 At server shutdown, or after the 10 minute bound, an import stops between two
-issues: the issue in flight finishes, the import is marked `failed`, and the
-issues it never reached are listed as not run.
+issues: the issue in flight gets 8 seconds to finish, then its writes are
+cancelled and its row fails. The import is marked `failed`, and the issues it
+never reached are listed as not run.
 
 ## What a card gets
 
