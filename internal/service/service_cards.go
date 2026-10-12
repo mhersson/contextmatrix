@@ -1827,6 +1827,12 @@ func (s *CardService) applyCardMutation(
 
 			return nil, err
 		}
+
+		if err := s.refuseReopenDuringRun(ctx, snapshot, oldState, card.State); err != nil {
+			s.writeMu.Unlock()
+
+			return nil, err
+		}
 	}
 
 	card.Updated = s.clk.Now()

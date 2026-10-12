@@ -30,6 +30,11 @@ live in [architecture](architecture.md); the HTTP surface in the
      transition, and no path routes through a terminal state. Without this,
      completing a cancelled card would walk `not_planned` -> `todo` -> `done`.
      `not_planned` -> `todo` stays the way a human resumes a card.
+   - A card that is an entry of a playbook with a `running` or `waiting` run
+     cannot leave `done` or `not_planned` by any path (transition, `PUT`,
+     `PATCH`, MCP): 409 `CARD_REOPEN_DURING_RUN`, naming the playbook. The
+     runner acts on the first incomplete entry, so a reopened card ahead of
+     the run's live card would be launched beside it. Stop the run first.
    - `depends_on` gates `in_progress`: a transition, `PUT`, or `PATCH` into
      `in_progress` fails with `ErrDependenciesNotMet` (409) while any
      dependency is not `done`; `not_planned` does not satisfy a dependency.
@@ -799,6 +804,8 @@ entries:
 - **Manual entries** (`type: manual`) require `text`, plus `done` / `done_by`
   / `done_at`. Checking `done` stamps `done_by` and `done_at` from the caller
   and the server clock; unchecking clears both; a re-check restamps.
+  Unchecking is refused while the playbook's run is `running` or `waiting`
+  (409 `PLAYBOOK_UNCHECK_DURING_RUN`).
 - **`note`** is optional on both types and is a human-only channel: writable
   from the UI and MCP, excluded from agent-facing context.
 - **Progress is derived**: a card entry is complete when its card is
