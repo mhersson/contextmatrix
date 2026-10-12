@@ -2,9 +2,22 @@ package jirawriteback
 
 import (
 	"context"
+	"io"
+	"log/slog"
+	"path/filepath"
+	"strings"
 	"sync"
+	"testing"
+	"time"
 
+	"github.com/stretchr/testify/require"
+
+	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/clock"
+	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/jira"
+	opsqlite "github.com/mhersson/contextmatrix/internal/opstore/sqlite"
+	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
 func st(name, cat string) jira.Status { return jira.Status{Name: name, CategoryKey: cat} }
@@ -123,4 +136,127 @@ func reviewWorkflow() map[string][]jira.Transition {
 		"In Progress": {tr("41", "In Review", "indeterminate"), tr("11", "To Do", "new")},
 		"In Review":   {tr("31", "Done", "done")},
 	}
+}
+
+// fakeCards is an in-memory card store keyed "project/ID".
+type fakeCards struct {
+	mu     sync.Mutex
+	cards  map[string]*board.Card
+	logs   []loggedLine
+	logErr error
+}
+
+type loggedLine struct {
+	project, id string
+	entry       board.ActivityEntry
+}
+
+func newFakeCards(cards map[string]*board.Card) *fakeCards {
+	return &fakeCards{cards: cards}
+}
+
+func (f *fakeCards) GetCard(_ context.Context, project, id string) (*board.Card, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	c, ok := f.cards[project+"/"+id]
+	if !ok {
+		return nil, storage.ErrCardNotFound
+	}
+
+	cp := *c
+
+	return &cp, nil
+}
+
+func (f *fakeCards) ListProjects(context.Context) ([]board.ProjectConfig, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	seen := map[string]bool{}
+
+	var out []board.ProjectConfig
+
+	for k := range f.cards {
+		p, _, _ := strings.Cut(k, "/")
+		if !seen[p] {
+			seen[p] = true
+			out = append(out, board.ProjectConfig{Name: p})
+		}
+	}
+
+	return out, nil
+}
+
+func (f *fakeCards) ListCards(_ context.Context, project string, _ storage.CardFilter) ([]*board.Card, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	var out []*board.Card
+
+	for k, c := range f.cards {
+		if strings.HasPrefix(k, project+"/") {
+			cp := *c
+			out = append(out, &cp)
+		}
+	}
+
+	return out, nil
+}
+
+func (f *fakeCards) AddSystemLogEntry(_ context.Context, project, id string, e board.ActivityEntry) (*board.Card, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.logErr != nil {
+		return nil, f.logErr
+	}
+
+	c, ok := f.cards[project+"/"+id]
+	if !ok {
+		return nil, storage.ErrCardNotFound
+	}
+
+	f.logs = append(f.logs, loggedLine{project: project, id: id, entry: e})
+
+	return c, nil
+}
+
+const testSite = "https://acme.atlassian.net"
+
+func jiraCard(id, key, state string, updated time.Time) *board.Card {
+	return &board.Card{
+		ID: id, State: state, Updated: updated,
+		Source: &board.Source{System: jira.SourceSystem, ExternalID: key, ExternalURL: testSite + "/browse/" + key},
+	}
+}
+
+var testStart = time.Date(2026, 10, 12, 9, 0, 0, 0, time.UTC)
+
+func newTestWriteback(t *testing.T, cards *fakeCards, fj *fakeJira) (*Writeback, *opsqlite.Store, *clock.FakeClock) {
+	t.Helper()
+
+	store, err := opsqlite.Open(filepath.Join(t.TempDir(), "ops.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	clk := clock.Fake(testStart)
+
+	w, err := New(events.NewBus(), cards, store, fj, Options{
+		SiteURL: testSite,
+		Clock:   clk,
+		Logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	require.NoError(t, err)
+
+	return w, store, clk
+}
+
+func rowState(t *testing.T, store *opsqlite.Store, project, card, kind string) (opsqlite.JiraWriteback, bool) {
+	t.Helper()
+
+	row, ok, err := store.GetJiraWriteback(context.Background(), project, card, kind)
+	require.NoError(t, err)
+
+	return row, ok
 }
