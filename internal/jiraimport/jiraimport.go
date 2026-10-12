@@ -65,6 +65,8 @@ var (
 	// ErrPlaybookRunning is returned when the epic's playbook has a running
 	// or waiting run: the import would extend a playbook mid-run.
 	ErrPlaybookRunning = errors.New("the epic's playbook has an active run")
+	// ErrNotAccepting is returned by Begin before Start or after Shutdown.
+	ErrNotAccepting = errors.New("jira imports are not being accepted")
 )
 
 // Per-selection result statuses.

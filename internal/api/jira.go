@@ -24,6 +24,13 @@ type JiraInfo struct {
 
 const jiraStatusTimeout = 10 * time.Second
 
+// jiraAuthError results; the status endpoint reports them as auth_error.
+const (
+	jiraAuthCaptchaRequired = "captcha_required"
+	jiraAuthUnauthorized    = "unauthorized"
+	jiraAuthUnreachable     = "unreachable"
+)
+
 type jiraHandlers struct {
 	client JiraStatusClient
 	info   JiraInfo
@@ -75,12 +82,12 @@ func (h *jiraHandlers) getStatus(w http.ResponseWriter, r *http.Request) {
 
 func jiraAuthError(err error) string {
 	if authErr, ok := errors.AsType[*jira.AuthError](err); ok && authErr.CaptchaRequired() {
-		return "captcha_required"
+		return jiraAuthCaptchaRequired
 	}
 
 	if errors.Is(err, jira.ErrUnauthorized) {
-		return "unauthorized"
+		return jiraAuthUnauthorized
 	}
 
-	return "unreachable"
+	return jiraAuthUnreachable
 }

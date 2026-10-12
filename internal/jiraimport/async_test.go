@@ -437,13 +437,31 @@ func TestShutdown_LeavesARerunnablePartialImport(t *testing.T) {
 	assert.Less(t, len(st.Results), 3, "the import stopped between two issues")
 
 	_, err = svc.Begin(context.Background(), "PROJ-1", req, "human:alice")
-	require.Error(t, err, "a stopped service takes no new imports")
+	require.ErrorIs(t, err, ErrNotAccepting, "a stopped service takes no new imports")
 
 	// The restarted instance re-runs the same request cleanly.
 	resp, err := e.importSync(context.Background(), "PROJ-1", req, "human:alice")
 	require.NoError(t, err)
 	assert.Equal(t, 3, e.jiraCards(t, "api"), "one card per issue, none duplicated")
 	assert.Len(t, e.entryNames(t, resp.Playbook.ID), 3)
+}
+
+func TestBegin_RefusesUnlessStarted(t *testing.T) {
+	e := newImportEnv(t, nil)
+	e.jira.add(story("102", "PROJ-2", "A"), story("103", "PROJ-3", "B"))
+
+	notStarted := New(e.jira, e.cards, e.pbs, Config{SiteURL: testSite, Bus: e.bus, Clock: e.clk})
+
+	stopped, _ := e.serviceWith(t, e.cards, e.pbs)
+	require.NoError(t, stopped.Shutdown(context.Background()))
+
+	for name, svc := range map[string]*Service{"never started": notStarted, "shut down": stopped} {
+		t.Run(name, func(t *testing.T) {
+			_, err := svc.Begin(context.Background(), "PROJ-1", twoIssues(), "human:alice")
+			require.ErrorIs(t, err, ErrNotAccepting)
+			assert.Zero(t, e.jiraCards(t, "api"), "nothing is written")
+		})
+	}
 }
 
 func TestBegin_TotalCountsEachIssueOnce(t *testing.T) {

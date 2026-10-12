@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -74,7 +73,7 @@ func (s *Service) Begin(ctx context.Context, epicKey string, req ImportRequest, 
 	if base == nil || base.Err() != nil {
 		s.runMu.Unlock()
 
-		return "", errors.New("jira import: not accepting imports")
+		return "", ErrNotAccepting
 	}
 
 	s.pruneLocked(now)
