@@ -165,9 +165,13 @@ func (c *Client) send(ctx context.Context, method, path string, query url.Values
 func decodeResponse(resp *http.Response, out any) error {
 	defer func() { _ = resp.Body.Close() }()
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
 	if err != nil {
 		return fmt.Errorf("read response: %w", err)
+	}
+
+	if len(body) > maxResponseBytes {
+		return fmt.Errorf("response exceeds %d MiB limit", maxResponseBytes>>20)
 	}
 
 	captcha := strings.Contains(resp.Header.Get("X-Seraph-LoginReason"), "AUTHENTICATION_DENIED")

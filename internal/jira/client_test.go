@@ -1,6 +1,7 @@
 package jira
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -312,4 +313,31 @@ func TestClient_EncodesQuery(t *testing.T) {
 	q := url.Values{"jql": {"project = A & status = \"Done\""}, "maxResults": {"50"}}
 	require.NoError(t, c.do(t.Context(), http.MethodGet, "/rest/api/3/search/jql", q, nil, nil))
 	assert.Equal(t, q, got)
+}
+
+func TestClient_OversizedResponseIsExplicit(t *testing.T) {
+	for _, status := range []int{http.StatusOK, http.StatusBadGateway} {
+		c, _ := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(status)
+			_, _ = w.Write(bytes.Repeat([]byte(" "), maxResponseBytes+1))
+		})
+
+		var out map[string]any
+
+		err := c.do(t.Context(), http.MethodGet, "/rest/api/3/myself", nil, nil, &out)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "exceeds")
+		assert.NotContains(t, err.Error(), "unexpected end")
+	}
+}
+
+func TestClient_ResponseAtLimitIsAccepted(t *testing.T) {
+	c, _ := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		body := append([]byte("{}"), bytes.Repeat([]byte(" "), maxResponseBytes-2)...)
+		_, _ = w.Write(body)
+	})
+
+	var out map[string]any
+
+	require.NoError(t, c.do(t.Context(), http.MethodGet, "/rest/api/3/myself", nil, nil, &out))
 }
