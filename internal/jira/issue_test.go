@@ -2,6 +2,7 @@ package jira
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"sync/atomic"
@@ -240,4 +241,18 @@ func TestClient_Transition(t *testing.T) {
 			require.NoError(t, c.Transition(t.Context(), "PROJ-7", "31", tt.fields))
 		})
 	}
+}
+
+func TestClient_SearchStopsAtPageCap(t *testing.T) {
+	var calls atomic.Int64
+
+	c, _ := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		n := calls.Add(1)
+
+		_, _ = io.WriteString(w, fmt.Sprintf(`{"issues":[],"nextPageToken":"t%d","isLast":false}`, n))
+	})
+
+	_, err := c.Search(t.Context(), "parent = PROJ-1")
+	require.Error(t, err)
+	assert.Equal(t, int64(maxSearchPages), calls.Load())
 }
