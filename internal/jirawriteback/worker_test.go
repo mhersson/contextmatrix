@@ -55,6 +55,10 @@ func TestWorker_Outcomes(t *testing.T) {
 			wantState: "pending", wantTries: 1, minDelay: 3 * time.Hour,
 		},
 		{
+			name: "4xx is permanent", start: st("To Do", "new"), issueErr: &jira.StatusError{StatusCode: 400, Message: "bad request"},
+			wantState: "failed", wantLogged: true,
+		},
+		{
 			name: "404 is permanent", start: st("To Do", "new"), issueErr: fmt.Errorf("issue: %w", jira.ErrNotFound),
 			wantState: "failed", wantLogged: true,
 		},
@@ -303,4 +307,30 @@ func TestWorker_SuccessAfterResumeResetsProbeBackoff(t *testing.T) {
 	assert.Equal(t, "done", row.State)
 	assert.Equal(t, 0, w.probeCount)
 	assert.False(t, w.pauseWarned)
+}
+
+func TestRetryDelay(t *testing.T) {
+	tests := []struct {
+		attempt int
+		base    time.Duration
+	}{
+		{1, time.Minute},
+		{2, 2 * time.Minute},
+		{3, 4 * time.Minute},
+		{4, 8 * time.Minute},
+		{5, 16 * time.Minute},
+		{6, 32 * time.Minute},
+		{7, time.Hour},
+		{20, time.Hour},
+	}
+
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("attempt %d", tt.attempt), func(t *testing.T) {
+			for range 50 {
+				d := retryDelay(tt.attempt, nil)
+				assert.GreaterOrEqual(t, d, time.Duration(float64(tt.base)*0.8))
+				assert.LessOrEqual(t, d, time.Duration(float64(tt.base)*1.2))
+			}
+		})
+	}
 }
