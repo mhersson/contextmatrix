@@ -132,6 +132,12 @@ while the run is active; stop the run first. Other entries can be removed
 and the next pass finds a new frontier. Once the run is stopped or completed
 its former entry can be removed, which clears `entry` and `reason`.
 
+Entries cannot be reordered while the run is `running` or `waiting`
+(`409 PLAYBOOK_MOVE_DURING_RUN`): the runner walks the order it last read, so
+a reorder could make it launch a second card while the current one still
+runs. Stop the run to reorder. A `position` equal to the entry's current
+index is not a move, and note, text and done updates stay allowed.
+
 ### Play and Stop
 
 See [Playbook runs](running-cards.md#playbook-runs) for the runner's
@@ -182,7 +188,8 @@ required on mutations for `created_by` and `done_by` attribution.
 | `remove_playbook_entry` | `DELETE /api/playbooks/{id}/entries/{entryId}`    | Removes one entry                                             |
 
 `position` is the entry's final index after the move; values past the end
-clamp, negative values are rejected. Setting `done` or `text` on a card entry
+clamp, negative values are rejected, and no move is accepted while a run is
+active (see [Run state](#run-state)). Setting `done` or `text` on a card entry
 fails with a validation error. Request and response bodies are in the
 [API reference](api-reference.md#playbook-endpoints).
 

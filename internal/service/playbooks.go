@@ -57,6 +57,9 @@ var (
 	// non-terminal card entry is imported content no human has vetted; the
 	// message names them as project/card.
 	ErrPlaybookCardNotVetted = errors.New("cards must be vetted before the playbook can run")
+	// ErrPlaybookMoveDuringRun is returned when an entry move is refused
+	// because the playbook has a running or waiting run.
+	ErrPlaybookMoveDuringRun = errors.New("entries cannot be reordered while the playbook run is active")
 )
 
 // PlaybookStore is the persistence interface PlaybookService depends on.
@@ -1326,6 +1329,12 @@ func (s *PlaybookService) UpdateEntry(ctx context.Context, id, entryID string, i
 
 			if pos > len(p.Entries) {
 				pos = len(p.Entries)
+			}
+
+			// A pass walks the order it read before taking the write lock, so
+			// any reorder during a run can hand the runner a second frontier.
+			if pos != i && p.RunActive() {
+				return fmt.Errorf("%w: stop the run to reorder entries", ErrPlaybookMoveDuringRun)
 			}
 
 			p.Entries = slices.Insert(p.Entries, pos, moved)
