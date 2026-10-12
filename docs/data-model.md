@@ -126,7 +126,10 @@ live in [architecture](architecture.md); the HTTP surface in the
 9. **Human vetting gate for imported cards.** Cards with a `source` carry
    `vetted`, `false` on creation. A non-human agent cannot claim an unvetted
    card (`ClaimCard` returns 403 `CARD_NOT_VETTED`); a human toggles
-   `vetted: true` in the web UI first.
+   `vetted: true` in the web UI first. An unvetted card also cannot be run
+   (the run endpoint returns 403 for any caller), make-runnable refuses while
+   one is a non-terminal playbook entry, and a playbook run waits on it until
+   it is vetted.
    - Internal cards (no `source`) always have `vetted: true`.
    - `vetted` is human-only: agents get 403 `HUMAN_ONLY_FIELD` via REST, and
      the MCP `update_card` tool does not expose it.
@@ -863,7 +866,8 @@ that joins card entries against the live card store; see the
 `playbook/<id>` is cut from on the first run; empty means the repository
 default. `Run` is present once a run has started; `Status` is `running`,
 `waiting`, `stopped` or `completed`, `Instance` is the owning instance (empty on
-a private board), `Entry` is the current entry and `Reason` explains a `waiting`
+a private board), `Entry` is the current entry (empty once completed, and while the run
+is held on an unvetted card), and `Reason` explains a `waiting` or `stopped`
 status.
 
 ## Project board config format

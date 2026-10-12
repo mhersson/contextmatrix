@@ -39,7 +39,8 @@ func ValidPlaybookRunStatus(s string) bool {
 // PlaybookRun is the state of a playbook's current or last run. It is
 // present once a run has started and is owned by the instance that started
 // it (Instance is empty on a private board). Entry names the entry the run
-// is on, empty once completed; Reason explains a waiting status to a human.
+// is on, empty once completed or while held on an unvetted card; Reason
+// explains a waiting or stopped status to a human.
 type PlaybookRun struct {
 	Status    string     `yaml:"status"               json:"status"`
 	Instance  string     `yaml:"instance,omitempty"   json:"instance,omitempty"`

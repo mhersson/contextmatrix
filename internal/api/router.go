@@ -120,10 +120,10 @@ const (
 	// ENTRY_EXISTS -> 409 (duplicate card entry). RUN_ACTIVE -> 409 (change
 	// refused during a run, or a hand run on a card the run owns). LOCKED
 	// -> 409 (playbook-owned card setting changed by hand). CARD_OWNED,
-	// PROJECT_NO_REPO, CARD_NOT_VETTED and CARD_FORCE_FAILED -> 422 (make-runnable
-	// validation; the last names the cards that would not take the
-	// settings, cards forced before them keep theirs). NOT_RUNNABLE ->
-	// 409 (run state on a playbook that is not runnable).
+	// PROJECT_NO_REPO, CARD_NOT_VETTED and CARD_FORCE_FAILED -> 422
+	// (make-runnable validation; the last names the cards that would not
+	// take the settings, cards forced before them keep theirs).
+	// NOT_RUNNABLE -> 409 (run state on a playbook that is not runnable).
 	// RUN_INACTIVE -> 409 (stop with no active run).
 	ErrCodePlaybookNotFound      = "PLAYBOOK_NOT_FOUND"
 	ErrCodePlaybookEntryNotFound = "PLAYBOOK_ENTRY_NOT_FOUND"
