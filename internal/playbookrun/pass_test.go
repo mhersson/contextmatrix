@@ -561,3 +561,206 @@ func TestPass_SourcelessUnvettedCardLaunches(t *testing.T) {
 	require.False(t, e.runner.pass(context.Background(), "rollout"))
 	assert.Equal(t, 1, e.launcher.count())
 }
+
+// liveCard is ALPHA-2 in progress with a running worker, the run's entry e2
+// in the hold tests.
+func liveCard() *board.Card {
+	c := todoCard("alpha", "ALPHA-2")
+	c.State = board.StateInProgress
+	c.WorkerStatus = "running"
+
+	return c
+}
+
+// TestPass_HoldsOnTheLiveWorker simulates what a refusal that lost a race,
+// a peer's merge or a card delete leaves behind: an entry ahead of the run's
+// live card turned incomplete. Acting on it would start a second worker or
+// point run.entry away from the live one, and Stop kills only run.entry's
+// worker. Once that worker ends, the entry ahead is handled as it is today.
+func TestPass_HoldsOnTheLiveWorker(t *testing.T) {
+	ahead := []struct {
+		name  string
+		entry board.PlaybookEntry
+		card  func() *board.Card // e1's card; nil for a manual entry or a missing card
+		// resumed checks the pass after e2's worker ended.
+		resumed func(t *testing.T, e *env)
+	}{
+		{
+			name: "reopened card", entry: cardEntry("e1", "alpha", "ALPHA-1"),
+			card: func() *board.Card { return todoCard("alpha", "ALPHA-1") },
+			resumed: func(t *testing.T, e *env) {
+				t.Helper()
+				require.Equal(t, 1, e.launcher.count())
+				assert.Equal(t, "ALPHA-1", e.launcher.call(0).card)
+				run := e.pbs.lastRun()
+				assert.Equal(t, board.RunStatusRunning, run.Status)
+				assert.Equal(t, "e1", run.Entry)
+			},
+		},
+		{
+			name: "unvetted import", entry: cardEntry("e1", "alpha", "ALPHA-1"),
+			card: func() *board.Card { return importedCard("alpha", "ALPHA-1") },
+			resumed: func(t *testing.T, e *env) {
+				t.Helper()
+				assert.Equal(t, 0, e.launcher.count())
+				run := e.pbs.lastRun()
+				assert.Equal(t, board.RunStatusWaiting, run.Status)
+				assert.Empty(t, run.Entry)
+				assert.Equal(t, "ALPHA-1 not vetted", run.Reason)
+			},
+		},
+		{
+			name: "unchecked manual entry", entry: manualEntry("e1", "deploy"),
+			resumed: func(t *testing.T, e *env) {
+				t.Helper()
+				assert.Equal(t, 0, e.launcher.count())
+				run := e.pbs.lastRun()
+				assert.Equal(t, board.RunStatusWaiting, run.Status)
+				assert.Equal(t, "e1", run.Entry)
+				assert.Equal(t, "awaiting check-off", run.Reason)
+			},
+		},
+		{
+			name: "missing card", entry: cardEntry("e1", "alpha", "GONE-1"),
+			resumed: func(t *testing.T, e *env) {
+				t.Helper()
+				assert.Equal(t, 0, e.launcher.count())
+				run := e.pbs.lastRun()
+				assert.Equal(t, board.RunStatusWaiting, run.Status)
+				assert.Equal(t, "e1", run.Entry)
+				assert.Contains(t, run.Reason, "alpha/GONE-1")
+			},
+		},
+	}
+
+	live := []struct {
+		name string
+		make func(e *env, c *board.Card)
+	}{
+		{"running", func(_ *env, c *board.Card) { c.WorkerStatus = "running" }},
+		{"queued", func(_ *env, c *board.Card) { c.WorkerStatus = "queued" }},
+		{"claimed elsewhere", func(e *env, c *board.Card) {
+			c.WorkerStatus = ""
+			c.AssignedAgent = "agent-1"
+			e.cards.elsewhere[cardKey("alpha", "ALPHA-2")] = true
+		}},
+	}
+
+	ended := []struct {
+		name string
+		end  func(c *board.Card)
+	}{
+		{"card done", func(c *board.Card) { c.State = board.StateDone }},
+		{"worker status cleared", func(c *board.Card) { c.WorkerStatus = "" }},
+	}
+
+	setup := func(t *testing.T, i int) (*env, *board.Card) {
+		t.Helper()
+
+		e := newEnv(t)
+		if a := ahead[i]; a.card != nil {
+			e.cards.add(a.card())
+		}
+
+		c := liveCard()
+		e.cards.add(c)
+
+		p := runnablePlaybook("rollout", ahead[i].entry, cardEntry("e2", "alpha", "ALPHA-2"))
+		e.activeRun(p, "e2")
+		e.pbs.add(p)
+
+		return e, c
+	}
+
+	for i, a := range ahead {
+		for _, l := range live {
+			t.Run(a.name+"/"+l.name, func(t *testing.T) {
+				e, c := setup(t, i)
+				l.make(e, c)
+
+				require.False(t, e.runner.pass(context.Background(), "rollout"))
+				assert.Equal(t, 0, e.launcher.count(), "no second worker")
+				assert.Empty(t, e.cards.transitions)
+				assert.Empty(t, e.cards.forced)
+				assert.Equal(t, 0, e.pbs.runWrites(), "already running on e2: nothing to write")
+
+				d, err := e.pbs.Get(context.Background(), "rollout")
+				require.NoError(t, err)
+				assert.Equal(t, board.RunStatusRunning, d.Run.Status)
+				assert.Equal(t, "e2", d.Run.Entry, "Stop still targets the live worker")
+				assert.Empty(t, d.Run.Reason)
+			})
+		}
+
+		for _, end := range ended {
+			t.Run(a.name+"/after the worker ends: "+end.name, func(t *testing.T) {
+				e, c := setup(t, i)
+
+				require.False(t, e.runner.pass(context.Background(), "rollout"))
+				require.Equal(t, 0, e.launcher.count())
+
+				e.cards.mu.Lock()
+				end.end(c)
+				e.cards.mu.Unlock()
+
+				require.False(t, e.runner.pass(context.Background(), "rollout"))
+				a.resumed(t, e)
+			})
+		}
+	}
+}
+
+// TestPass_HoldOnLiveWorkerResumesRunning: a run left waiting on its entry
+// goes back to running, with the reason cleared, once that entry's card has a
+// live worker, whatever is incomplete ahead of it.
+func TestPass_HoldOnLiveWorkerResumesRunning(t *testing.T) {
+	e := newEnv(t)
+	e.cards.add(todoCard("alpha", "ALPHA-1"))
+
+	c := liveCard()
+	c.WorkerStatus = ""
+	c.AssignedAgent = "agent-1"
+	e.cards.add(c)
+	e.cards.elsewhere[cardKey("alpha", "ALPHA-2")] = true
+
+	p := runnablePlaybook("rollout", cardEntry("e1", "alpha", "ALPHA-1"), cardEntry("e2", "alpha", "ALPHA-2"))
+	e.activeRun(p, "e2")
+	p.Run.Status = board.RunStatusWaiting
+	p.Run.Reason = "ALPHA-2 is in in_progress without a worker"
+	e.pbs.add(p)
+
+	require.False(t, e.runner.pass(context.Background(), "rollout"))
+	assert.Equal(t, 0, e.launcher.count())
+
+	run := e.pbs.lastRun()
+	assert.Equal(t, board.RunStatusRunning, run.Status)
+	assert.Equal(t, "e2", run.Entry)
+	assert.Empty(t, run.Reason)
+}
+
+// TestPass_RunCardReadFailureWalksInOrder: when the run's card cannot be read
+// the pass falls back to the stored-order walk.
+func TestPass_RunCardReadFailureWalksInOrder(t *testing.T) {
+	e := newEnv(t)
+	e.cards.add(todoCard("alpha", "ALPHA-1"))
+	e.cards.add(liveCard())
+
+	p := runnablePlaybook("rollout", cardEntry("e1", "alpha", "ALPHA-1"), cardEntry("e2", "alpha", "ALPHA-2"))
+	e.activeRun(p, "e2")
+	e.pbs.add(p)
+
+	// The card vanishes between the detail read and the pass's own read.
+	e.pbs.mu.Lock()
+	e.pbs.afterGet = func() {
+		e.cards.mu.Lock()
+		defer e.cards.mu.Unlock()
+
+		delete(e.cards.cards, cardKey("alpha", "ALPHA-2"))
+	}
+	e.pbs.mu.Unlock()
+
+	require.False(t, e.runner.pass(context.Background(), "rollout"))
+	require.Equal(t, 1, e.launcher.count())
+	assert.Equal(t, "ALPHA-1", e.launcher.call(0).card)
+	assert.Equal(t, "e1", e.pbs.lastRun().Entry)
+}

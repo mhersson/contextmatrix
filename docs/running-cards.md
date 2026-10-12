@@ -185,6 +185,8 @@ first run in a repository.
   itself, without Play.
 - While a run is `running` or `waiting`, the cards' own run buttons are
   disabled and `POST .../run` answers `409 PLAYBOOK_RUN_ACTIVE`.
+- While the current card's worker is live, the run starts no other card: an
+  entry that turns incomplete ahead of it is handled after that worker ends.
 - On a shared board the instance that pressed Play owns the run; other
   instances show it and never walk it. A restart resumes owned runs.
 

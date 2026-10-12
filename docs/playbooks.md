@@ -151,6 +151,11 @@ the same reason:
 
 Notes, text and checking off a manual entry stay allowed during a run.
 
+Behind the refusals, the runner holds on its current card while that card's
+worker is live: an entry that turns incomplete ahead of it anyway (a peer
+instance's merge on a shared board, a deleted card) is handled once that
+worker ends.
+
 ### Play and Stop
 
 See [Playbook runs](running-cards.md#playbook-runs) for the runner's
