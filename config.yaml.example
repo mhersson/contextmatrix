@@ -590,7 +590,7 @@ github:
 # Jira Cloud integration. Leave site_url empty to disable Jira.
 # See docs/jira-import.md.
 jira:
-  # Jira Cloud site, e.g. https://acme.atlassian.net. Empty = Jira disabled.
+  # Jira Cloud site as a bare https origin, e.g. https://acme.atlassian.net. Empty = Jira disabled.
   # Env: CONTEXTMATRIX_JIRA_SITE_URL
   site_url: ""
 

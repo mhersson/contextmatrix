@@ -8,18 +8,19 @@ API v3. This page covers configuring that site and its credentials.
 
 | Key                 | Env                               | Default            | Rule                                                                                                                                |
 | ------------------- | --------------------------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `jira.site_url`     | `CONTEXTMATRIX_JIRA_SITE_URL`     | empty              | `https` URL of the Jira Cloud site, e.g. `https://acme.atlassian.net`. Empty disables Jira. |
+| `jira.site_url`     | `CONTEXTMATRIX_JIRA_SITE_URL`     | empty              | Bare `https` origin of the Jira Cloud site, e.g. `https://acme.atlassian.net`. Empty disables Jira. |
 | `jira.api_base_url` | `CONTEXTMATRIX_JIRA_API_BASE_URL` | empty (`site_url`) | `https`. Set to `https://api.atlassian.com/ex/jira/<cloudId>` for service-account scoped tokens.                                    |
 | `jira.auth_mode`    | `CONTEXTMATRIX_JIRA_AUTH_MODE`    | `basic`            | `basic` or `bearer`.                                                                                                                |
 | `jira.email`        | `CONTEXTMATRIX_JIRA_EMAIL`        | empty              | Required for `basic`.                                                                                                               |
 | `jira.token`        | `CONTEXTMATRIX_JIRA_TOKEN`        | empty              | Required. Supply it through the env var.                                                                                            |
 
-When `site_url` is set, startup fails if a URL is not `https`, if the fields
-`auth_mode` needs are missing, or if a map key is not a Jira project key.
+When `site_url` is set, startup fails if a URL is not `https`, if `site_url`
+carries a path, query, fragment or credentials, if the fields `auth_mode` needs
+are missing, or if a map key is not a Jira project key.
 
-The token is read once at startup and lives only inside the Jira client. It
-never appears in API responses, logs or errors. Changing it means changing the
-config or env var and restarting.
+The token is read once at startup and no package other than the Jira client
+receives it. It never appears in API responses, logs or errors. Changing it
+means changing the config or env var and restarting.
 
 ## Authentication
 

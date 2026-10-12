@@ -2775,4 +2775,4 @@ When `jira.site_url` is unset the body is `{"configured": false}`.
 | `auth_mode`         | string | `basic` or `bearer`                                                            |
 | `writeback_enabled` | bool   | `jira.writeback.enabled`                                                       |
 | `site_url`          | string | `jira.site_url`                                                                |
-| `auth_error`        | string | Only when unauthenticated: `unauthorized`, `captcha_required` or `unreachable` |
+| `auth_error`        | string | Only when unauthenticated: `unauthorized`, `captcha_required` or `unreachable` (any other failure; the server log has the cause) |
