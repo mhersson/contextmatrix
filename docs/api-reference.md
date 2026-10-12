@@ -2761,6 +2761,7 @@ answers 200. Needs a session in multi mode.
   "account": "Ada Lovelace",
   "auth_mode": "basic",
   "writeback_enabled": false,
+  "writeback_paused": false,
   "site_url": "https://acme.atlassian.net"
 }
 ```
@@ -2774,5 +2775,6 @@ When `jira.site_url` is unset the body is `{"configured": false}`.
 | `account`           | string | Display name the credentials act as; absent when unauthenticated               |
 | `auth_mode`         | string | `basic` or `bearer`                                                            |
 | `writeback_enabled` | bool   | `jira.writeback.enabled`                                                       |
+| `writeback_paused`  | bool   | Writeback is paused because Jira rejected the credentials; false when writeback is off |
 | `site_url`          | string | `jira.site_url`                                                                |
 | `auth_error`        | string | Only when unauthenticated: `unauthorized`, `captcha_required` or `unreachable` (any other failure; the server log has the cause) |

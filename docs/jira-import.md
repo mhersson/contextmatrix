@@ -1,7 +1,8 @@
 # Jira import
 
 ContextMatrix connects to one Jira Cloud site per instance through the Jira REST
-API v3. This page covers configuring that site and its credentials.
+API v3. This page covers configuring that site and its credentials, and the
+optional writeback that moves imported issues as their cards progress.
 `GET /api/jira/status` reports whether the connection works.
 
 ## Configuration
@@ -45,3 +46,70 @@ Check the connection:
 ```bash
 curl -s -H 'X-Requested-With: contextmatrix' localhost:8080/api/jira/status
 ```
+
+## Status writeback
+
+With `jira.writeback.enabled: true`, CM moves an imported issue in Jira. The
+card must carry a Jira `source` whose URL is on the configured `site_url` host.
+
+| Card event                     | Jira                                           |
+| ------------------------------ | ---------------------------------------------- |
+| First entry into `in_progress` | Started (a status in the In Progress category) |
+| Reaches `done`                 | Done (a status in the Done category)           |
+
+- **Only these two moves.** Review, stall, `not_planned` and a reopen (`done` ->
+  `todo` -> `done`) write nothing. Each card triggers each move at most once, and
+  a card that goes straight to `done` writes only the done move.
+- **A started write only moves an issue out of the To Do category, and a done
+  write only acts when the issue is not already done.** An issue someone closed
+  in Jira is never reopened.
+- **CM never waits on Jira.** A card change only records the owed write in
+  ops.db; a background worker sends it.
+- **Enabling needs Jira configured.** `jira.writeback.enabled` without
+  `jira.site_url` fails startup.
+
+### Choosing the transition
+
+Transition IDs differ per workflow, so CM resolves them from the issue's
+available transitions:
+
+1. The status named in `jira.writeback.status_targets` for the issue's Jira
+   project key. The match is case-insensitive.
+2. Otherwise, the one available transition into the target category.
+3. Otherwise, the one forward step toward it.
+
+It follows at most 3 transitions. More than one candidate is a failure; name the
+status in `status_targets` to resolve it. If the transition's screen requires a
+resolution, CM sends the configured `resolution`, or `Done`.
+
+```yaml
+jira:
+  writeback:
+    enabled: true
+    status_targets:
+      PROJ: { started: "In Progress", done: "Done", resolution: "Done" }
+```
+
+`status_targets` is config file only; `jira.writeback.enabled` also has the env
+override `CONTEXTMATRIX_JIRA_WRITEBACK_ENABLED`.
+
+### Failures
+
+| Situation                                                      | Behaviour                                                                                                                                                                                         |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Jira unreachable, 5xx, 429                                     | Retries with backoff (1, 2, 4, 8, 16, 32 minutes, then hourly) for 29 attempts, about 24 h, honouring `Retry-After`. Then the write fails.                                                        |
+| Credentials rejected (401, or the login CAPTCHA 403)           | Writeback pauses and pending writes keep their place and attempt count. CM re-checks the credentials with backoff of 1 to 15 minutes. `GET /api/jira/status` reports `writeback_paused: true` until they work again. |
+| Issue missing, no permission, no unique transition, other 4xx  | The write fails at once and the card gets one activity line: `Jira writeback (<started or done>) failed: <reason>`. A failed write is not retried.                                                |
+
+A write cut off by shutdown stays pending and costs no attempt. The next start
+re-reads the issue, so a move that already landed becomes a no-op.
+
+An hourly sweep re-checks Jira cards updated in the last 24 h. It catches
+changes the worker never saw, such as a large shared-board pull (more than 16
+changed cards emit no per-card events) or a full event buffer. For a card in a
+state past `todo` other than `done` and `not_planned`, such as `review`, the
+sweep owes the started move if it was never recorded. Turning writeback on never
+backfills older moves.
+
+**Shared boards:** every instance with writeback enabled writes for every Jira
+card change it sees, including synced ones. Duplicate writes become no-ops.

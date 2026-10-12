@@ -143,7 +143,7 @@ expansion applies to every path field.
 | Auth store              | `auth.db_path` / `CONTEXTMATRIX_AUTH_DB_PATH`                   | `<state>/auth.db`                | Users, sessions, one-time tokens, credential pool (`multi` mode only)      |
 | Master key              | `auth.master_key_file` / `CONTEXTMATRIX_AUTH_MASTER_KEY_FILE`   | `<state>/master.key`             | Hex 32-byte key encrypting pool secrets; auto-generated 0600 with a warning |
 | Image store             | `images.db_path` / `CONTEXTMATRIX_IMAGES_DB_PATH`               | `<state>/images.db`              | Pasted images for private boards repos and project-less uploads            |
-| Operational store       | `op_store.db_path` / `CONTEXTMATRIX_OP_STORE_DB_PATH`           | `<state>/ops.db`                 | Chat sessions and transcripts, model blacklist, Best-of-N outcomes, chat cost archive, selector tier ladders |
+| Operational store       | `op_store.db_path` / `CONTEXTMATRIX_OP_STORE_DB_PATH`           | `<state>/ops.db`                 | Chat sessions and transcripts, model blacklist, Best-of-N outcomes, chat cost archive, selector tier ladders, Jira writeback outbox |
 | Instance id             | `instance.id` / `CONTEXTMATRIX_INSTANCE_ID`                     | `<state>/instance_id`            | Generated `<hostname>-<6 hex>`; identifies this server on a shared boards repo |
 
 `<config-dir>` means the directory holding the loaded config file, so
