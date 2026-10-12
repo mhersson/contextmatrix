@@ -914,6 +914,75 @@ func TestPlaybooksAPI_MoveDuringActiveRunIs409(t *testing.T) {
 	assert.Equal(t, "e2", detail.Entries[1].ID)
 }
 
+func TestPlaybooksAPI_UncheckDuringActiveRunIs409(t *testing.T) {
+	server, _, pbSvc, _ := lockedCardSetup(t, nil)
+	ctx := context.Background()
+
+	_, err := pbSvc.AddEntry(ctx, "rollout", service.PlaybookEntryInput{Type: board.EntryTypeManual, Text: "verify"}, "human:alice")
+	require.NoError(t, err)
+
+	_, err = pbSvc.UpdateEntry(ctx, "rollout", "e2", service.UpdateEntryInput{Done: new(true)}, "human:alice")
+	require.NoError(t, err)
+
+	now := time.Now().UTC()
+	_, err = pbSvc.SetRunIf(ctx, "rollout", nil, &board.PlaybookRun{
+		Status: board.RunStatusRunning, StartedAt: now, UpdatedAt: now, Entry: "e1",
+	}, "human:alice")
+	require.NoError(t, err)
+
+	resp := doJSON(t, http.MethodPatch, server.URL+"/api/playbooks/rollout/entries/e2", map[string]any{"done": false}, "human:alice")
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusConflict, resp.StatusCode)
+
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodePlaybookUncheckDuringRun, apiErr.Code)
+	// The page renders "<error>: <details>", so details must not repeat it.
+	assert.NotEmpty(t, apiErr.Details)
+	assert.NotContains(t, apiErr.Details, apiErr.Error)
+
+	getResp := doGet(t, server.URL+"/api/playbooks/rollout")
+	defer closeBody(t, getResp.Body)
+
+	var detail service.PlaybookDetail
+	require.NoError(t, json.NewDecoder(getResp.Body).Decode(&detail))
+	require.Len(t, detail.Entries, 2)
+	assert.True(t, detail.Entries[1].Done, "the refused uncheck leaves the entry checked")
+}
+
+func TestCardsAPI_ReopenDuringActivePlaybookRunIs409(t *testing.T) {
+	server, svc, pbSvc, card := lockedCardSetup(t, nil)
+	ctx := context.Background()
+
+	_, err := svc.TransitionTo(ctx, "test-project", card.ID, board.StateDone)
+	require.NoError(t, err)
+
+	now := time.Now().UTC()
+	_, err = pbSvc.SetRunIf(ctx, "rollout", nil, &board.PlaybookRun{
+		Status: board.RunStatusRunning, StartedAt: now, UpdatedAt: now,
+	}, "human:alice")
+	require.NoError(t, err)
+
+	base := server.URL + "/api/projects/test-project/cards/" + card.ID
+
+	resp := doJSON(t, http.MethodPatch, base, map[string]any{"state": "todo"}, "human:alice")
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusConflict, resp.StatusCode)
+
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodeCardReopenDuringRun, apiErr.Code)
+	// details name the playbook, not the refusal again.
+	assert.Contains(t, apiErr.Details, "Rollout")
+	assert.NotContains(t, apiErr.Details, apiErr.Error)
+
+	got, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, board.StateDone, got.State)
+}
+
 func TestRunCard_RefusedWhilePlaybookRunActive(t *testing.T) {
 	mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})

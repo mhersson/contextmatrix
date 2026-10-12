@@ -136,7 +136,20 @@ Entries cannot be reordered while the run is `running` or `waiting`
 (`409 PLAYBOOK_MOVE_DURING_RUN`): the runner walks the order it last read, so
 a reorder could make it launch a second card while the current one still
 runs. Stop the run to reorder. A `position` equal to the entry's current
-index is not a move, and note, text and done updates stay allowed.
+index is not a move.
+
+No entry may turn incomplete during a `running` or `waiting` run either, for
+the same reason:
+
+- Unchecking a done manual entry is refused
+  (`409 PLAYBOOK_UNCHECK_DURING_RUN`); stop the run to uncheck.
+- A card that is an entry of the playbook cannot leave `done` or
+  `not_planned` by any path (REST `PUT` or `PATCH`, MCP `transition_card` and
+  the other tools that change state): `409 CARD_REOPEN_DURING_RUN`, whose
+  details name the playbook. Stop its run first. Moves into a terminal state
+  and between non-terminal states are unaffected.
+
+Notes, text and checking off a manual entry stay allowed during a run.
 
 ### Play and Stop
 

@@ -283,6 +283,8 @@ the request's `request_id`.
 | `PLAYBOOK_RUN_ACTIVE`        | 409     | `runnable: false` or `base_branch` while a run is `running` or `waiting`; a card's own run trigger while its owning playbook run is active                                                 |
 | `PLAYBOOK_RUN_INACTIVE`      | 409     | `POST .../stop` when the playbook has no active run                                                                                                                                        |
 | `PLAYBOOK_MOVE_DURING_RUN`   | 409     | `PATCH .../entries/{entryId}` with a `position` that moves the entry while a run is `running` or `waiting`                                                                                 |
+| `PLAYBOOK_UNCHECK_DURING_RUN`| 409     | `PATCH .../entries/{entryId}` with `done: false` on a done manual entry while a run is `running` or `waiting`                                                                              |
+| `CARD_REOPEN_DURING_RUN`     | 409     | A card would leave `done` or `not_planned` while a playbook holding it has a `running` or `waiting` run; `details` name the playbook                                                       |
 | `PLAYBOOK_LOCKED`            | 409     | `PUT` or `PATCH` on a card changes one of the five fields a runnable playbook forces                                                                                                       |
 | `PLAYBOOK_NOT_RUNNABLE`      | 409     | An operation that requires `runnable: true` is called on a playbook that is not runnable                                                                                                   |
 | `PLAYBOOK_CARD_OWNED`        | 422     | `runnable: true` and a card entry already belongs to another runnable playbook                                                                                                             |
@@ -1213,13 +1215,16 @@ Full replacement. Accepts `title`, `type`, `state`, `priority`, `labels`,
 `max_capability`, and the three mob fields as plain values; every omitted
 field is written as its zero value (`skills` omitted resets to the project
 default). `phase` is the exception: omitted leaves it unchanged. A `state`
-change goes through transition validation.
+change goes through transition validation, and a card leaving `done` or
+`not_planned` is refused while a playbook holding it has a `running` or
+`waiting` run.
 
 **Response:** 200 with the full card.
 
 **Errors:** the create set plus 404 `CARD_NOT_FOUND`, 403 `AGENT_MISMATCH`
 (the card is claimed and the caller is not the owner, or sends no
-`X-Agent-ID`), 409 `INVALID_TRANSITION`, and 409 `DEPENDENCIES_NOT_MET`.
+`X-Agent-ID`), 409 `INVALID_TRANSITION`, 409 `DEPENDENCIES_NOT_MET`, and 409
+`CARD_REOPEN_DURING_RUN` (`details` name the playbook; stop its run first).
 
 ### PATCH /api/projects/{project}/cards/{id}
 
@@ -1969,7 +1974,9 @@ apply only to manual entries; `note` to both. Checking `done` stamps
 clears both. `position` is the entry's final index after the move: values
 beyond the end clamp, negative is rejected. While a run is `running` or
 `waiting`, any `position` that moves the entry is refused; stop the run to
-reorder. A `position` equal to the current index is not a move.
+reorder. A `position` equal to the current index is not a move. Likewise
+`done: false` on a done manual entry is refused while the run is active;
+stop the run to uncheck.
 
 ```json
 { "done": true }
@@ -1977,12 +1984,13 @@ reorder. A `position` equal to the current index is not a move.
 
 Response **200** with the full detail.
 
-| Status | Code                       | When                                                             |
-| ------ | -------------------------- | ---------------------------------------------------------------- |
-| 404    | `PLAYBOOK_NOT_FOUND`       | Unknown playbook id                                              |
-| 404    | `PLAYBOOK_ENTRY_NOT_FOUND` | Unknown entry id                                                 |
-| 409    | `PLAYBOOK_MOVE_DURING_RUN` | `position` moves the entry while a run is `running` or `waiting` |
-| 422    | `VALIDATION_ERROR`         | `done`/`text` on a card entry, empty `text`, negative `position` |
+| Status | Code                          | When                                                                |
+| ------ | ----------------------------- | ------------------------------------------------------------------- |
+| 404    | `PLAYBOOK_NOT_FOUND`          | Unknown playbook id                                                 |
+| 404    | `PLAYBOOK_ENTRY_NOT_FOUND`    | Unknown entry id                                                    |
+| 409    | `PLAYBOOK_MOVE_DURING_RUN`    | `position` moves the entry while a run is `running` or `waiting`    |
+| 409    | `PLAYBOOK_UNCHECK_DURING_RUN` | `done: false` on a done entry while a run is `running` or `waiting` |
+| 422    | `VALIDATION_ERROR`            | `done`/`text` on a card entry, empty `text`, negative `position`    |
 
 ### DELETE /api/playbooks/{id}/entries/{entryId}
 
