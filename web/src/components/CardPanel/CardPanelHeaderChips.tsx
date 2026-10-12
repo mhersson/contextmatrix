@@ -1,5 +1,5 @@
 import type { Card, ProjectConfig } from '../../types';
-import { gitHubIcon } from '../icons';
+import { sourceIcon } from '../icons';
 import { priorityColors, stateColors, typeColors } from '../../lib/chip';
 import { isSafeHttpUrl } from './utils';
 import { ChipPicker } from './ChipPicker';
@@ -149,10 +149,10 @@ export function CardPanelHeaderChips({
           className="bf-source-link"
           title={`Imported from ${card.source.system} · ${card.source.external_id} - opens externally`}
         >
-          {card.source.system === 'github' ? (
+          {sourceIcon(card.source.system) ? (
             <>
-              {gitHubIcon}
-              <span>#{card.source.external_id}</span>
+              {sourceIcon(card.source.system)}
+              <span>{card.source.system === 'github' ? `#${card.source.external_id}` : card.source.external_id}</span>
             </>
           ) : (
             <>

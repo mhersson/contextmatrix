@@ -314,4 +314,15 @@ describe('PlaybookDetailPage', () => {
     await waitFor(() => expect(api.stopPlaybook).toHaveBeenCalledWith('roll'));
     expect(await screen.findByText('Stopped')).toBeInTheDocument();
   });
+
+  it('links a Jira-imported playbook to its epic', async () => {
+    vi.mocked(api.getPlaybook).mockResolvedValue({
+      ...baseDetail(),
+      source: { system: 'jira', external_id: 'PROJ-1', external_url: 'https://acme.atlassian.net/browse/PROJ-1' },
+    });
+    renderPage();
+    const link = await screen.findByRole('link', { name: /PROJ-1/ });
+    expect(link).toHaveAttribute('href', 'https://acme.atlassian.net/browse/PROJ-1');
+    expect(link).toHaveAttribute('target', '_blank');
+  });
 });

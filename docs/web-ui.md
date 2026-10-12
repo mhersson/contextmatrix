@@ -189,7 +189,8 @@ background: the dialog lists each issue's result as it lands (from the event
 stream, caught up from the server on reconnect and every 5 s), then enables
 **Open playbook**. An import that stops early, or that a server restart forgot,
 lists the issues it never reached as `not run`. Closing the dialog does not
-stop the import. See
+stop the import. A playbook imported from Jira shows a Jira chip in its header
+that links to the epic, and its cards carry a Jira source icon on the board. See
 [Jira import](jira-import.md).
 
 `/playbooks/:id` carries a **Run** card in its side panel. **Make runnable**

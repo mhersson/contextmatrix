@@ -4,7 +4,7 @@ import { CSS } from '@dnd-kit/utilities';
 import type { Card } from '../../types';
 import { chipTint, priorityColors, typeColors } from '../../lib/chip';
 import { cardSignals, HEADER_SIGNAL_CAP } from '../../lib/cardSignals';
-import { gitHubIcon } from '../icons';
+import { sourceIcon } from '../icons';
 import { CardChipRow } from './CardChipRow';
 import { CardSignalIcons } from './CardSignalIcons';
 import { SubtaskStrip, SubtaskPeekList } from './SubtaskStrip';
@@ -293,7 +293,7 @@ function CardItemImpl({ card, onClick, flashCardId, isCollapsed, onToggleCollaps
               </span>
             )}
             <CardSignalIcons card={card} />
-            {card.source?.system === 'github' && gitHubIcon}
+            {sourceIcon(card.source?.system)}
             {card.source && !card.vetted && (
               <span className="chip-pill flex-shrink-0" style={chipTint('var(--yellow)')}>
                 unvetted
