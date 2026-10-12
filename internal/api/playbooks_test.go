@@ -879,7 +879,7 @@ func TestPlaybooksAPI_RemoveEntryRefusedWhileRunActive(t *testing.T) {
 	assert.Equal(t, "e1", detail.Run.Entry)
 }
 
-func TestPlaybooksAPI_MoveAheadOfActiveRunIs409(t *testing.T) {
+func TestPlaybooksAPI_MoveDuringActiveRunIs409(t *testing.T) {
 	server, _, pbSvc, _ := lockedCardSetup(t, nil)
 	ctx := context.Background()
 
@@ -899,7 +899,10 @@ func TestPlaybooksAPI_MoveAheadOfActiveRunIs409(t *testing.T) {
 
 	var apiErr APIError
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
-	assert.Equal(t, ErrCodePlaybookMoveAheadOfRun, apiErr.Code)
+	assert.Equal(t, ErrCodePlaybookMoveDuringRun, apiErr.Code)
+	// The page renders "<error>: <details>", so details must not repeat it.
+	assert.NotEmpty(t, apiErr.Details)
+	assert.NotContains(t, apiErr.Details, apiErr.Error)
 
 	getResp := doGet(t, server.URL+"/api/playbooks/rollout")
 	defer closeBody(t, getResp.Body)

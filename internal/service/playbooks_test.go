@@ -1445,10 +1445,8 @@ func TestPlaybookService_ReassertRunnableRefusesUnvettedAddedCard(t *testing.T) 
 // runMoveFixture is the starting point of a run-move case: a runnable
 // "rollout" with e1..e3 on cards ALPHA-001..ALPHA-003 and a manual e4.
 type runMoveFixture struct {
-	importedE2 bool     // e2's card is an unvetted import, else a plain card
-	done       []string // cards moved to done before the run is written
-	deleted    []string // cards deleted, leaving their entries missing
-	e4Done     bool
+	importedE2 bool               // e2's card is an unvetted import, else a plain card
+	done       []string           // cards moved to done before the run is written
 	run        *board.PlaybookRun // nil leaves the playbook without a run
 }
 
@@ -1485,11 +1483,6 @@ func (f runMoveFixture) build(t *testing.T) *playbookTestEnv {
 		require.NoError(t, err)
 	}
 
-	if f.e4Done {
-		_, err = env.svc.UpdateEntry(ctx, "rollout", "e4", UpdateEntryInput{Done: new(true)}, "human:alice")
-		require.NoError(t, err)
-	}
-
 	// The run's first card has a live worker unless the case finished it.
 	first, err := env.cards.GetCard(ctx, "project-alpha", "ALPHA-001")
 	require.NoError(t, err)
@@ -1503,10 +1496,6 @@ func (f runMoveFixture) build(t *testing.T) *playbookTestEnv {
 
 		card.State, card.WorkerStatus = "done", ""
 		require.NoError(t, env.cards.UpdateCard(ctx, "project-alpha", card))
-	}
-
-	for _, id := range f.deleted {
-		require.NoError(t, env.cards.DeleteCard(ctx, "project-alpha", id))
 	}
 
 	if f.run != nil {
@@ -1537,6 +1526,13 @@ func TestPlaybookService_MoveDuringRun(t *testing.T) {
 		return r
 	}
 	unchanged := []string{"e1", "e2", "e3", "e4"}
+	live := runMoveFixture{importedE2: true, run: run(board.RunStatusRunning, "e1", "")}
+	// The vetting hold: e1 finished and the run waits on the unvetted e2
+	// with no entry recorded.
+	held := runMoveFixture{
+		importedE2: true, done: []string{"ALPHA-001"},
+		run: run(board.RunStatusWaiting, "", "ALPHA-002 not vetted"),
+	}
 
 	tests := []struct {
 		name      string
@@ -1547,34 +1543,70 @@ func TestPlaybookService_MoveDuringRun(t *testing.T) {
 		wantOrder []string
 	}{
 		{
-			name:    "unvetted import moved ahead of the live entry is refused",
-			fixture: runMoveFixture{importedE2: true, run: run(board.RunStatusRunning, "e1", "")},
-			entry:   "e2", in: UpdateEntryInput{Position: new(0)},
-			wantErr: ErrPlaybookMoveAheadOfRun, wantOrder: unchanged,
+			name: "running: an unvetted import moved ahead of the live entry is refused", fixture: live,
+			entry: "e2", in: UpdateEntryInput{Position: new(0)},
+			wantErr: ErrPlaybookMoveDuringRun, wantOrder: unchanged,
 		},
 		{
-			name:    "vetted card moved ahead of the live entry is refused",
+			name:    "running: a vetted card moved ahead of the live entry is refused",
 			fixture: runMoveFixture{run: run(board.RunStatusRunning, "e1", "")},
 			entry:   "e2", in: UpdateEntryInput{Position: new(0)},
-			wantErr: ErrPlaybookMoveAheadOfRun, wantOrder: unchanged,
+			wantErr: ErrPlaybookMoveDuringRun, wantOrder: unchanged,
 		},
 		{
-			name:    "the run's own entry moved behind another is refused",
-			fixture: runMoveFixture{run: run(board.RunStatusRunning, "e1", "")},
-			entry:   "e1", in: UpdateEntryInput{Position: new(1)},
-			wantErr: ErrPlaybookMoveAheadOfRun, wantOrder: unchanged,
+			name: "running: the run's own entry moved behind another is refused", fixture: live,
+			entry: "e1", in: UpdateEntryInput{Position: new(1)},
+			wantErr: ErrPlaybookMoveDuringRun, wantOrder: unchanged,
 		},
 		{
-			name:    "a queued entry moved directly behind the run's entry is allowed",
-			fixture: runMoveFixture{importedE2: true, run: run(board.RunStatusRunning, "e1", "")},
-			entry:   "e4", in: UpdateEntryInput{Position: new(1)},
-			wantOrder: []string{"e1", "e4", "e2", "e3"},
+			name: "running: a queued entry moved behind the live entry is refused", fixture: live,
+			entry: "e4", in: UpdateEntryInput{Position: new(1)},
+			wantErr: ErrPlaybookMoveDuringRun, wantOrder: unchanged,
 		},
 		{
-			name:    "a queued entry moved further back is allowed",
-			fixture: runMoveFixture{importedE2: true, run: run(board.RunStatusWaiting, "e1", "ALPHA-001 parked")},
-			entry:   "e2", in: UpdateEntryInput{Position: new(3)},
-			wantOrder: []string{"e1", "e3", "e4", "e2"},
+			name: "running: a queued entry moved to the end is refused", fixture: live,
+			entry: "e2", in: UpdateEntryInput{Position: new(99)},
+			wantErr: ErrPlaybookMoveDuringRun, wantOrder: unchanged,
+		},
+		{
+			name: "vetting hold: a card moved ahead of the held import is refused", fixture: held,
+			entry: "e3", in: UpdateEntryInput{Position: new(1)},
+			wantErr: ErrPlaybookMoveDuringRun, wantOrder: unchanged,
+		},
+		{
+			name: "vetting hold: the held import moved back is refused", fixture: held,
+			entry: "e2", in: UpdateEntryInput{Position: new(2)},
+			wantErr: ErrPlaybookMoveDuringRun, wantOrder: unchanged,
+		},
+		{
+			name: "vetting hold: a move behind the held import is refused", fixture: held,
+			entry: "e4", in: UpdateEntryInput{Position: new(2)},
+			wantErr: ErrPlaybookMoveDuringRun, wantOrder: unchanged,
+		},
+		{
+			name: "running: a position equal to the current one is not a move", fixture: live,
+			entry: "e1", in: UpdateEntryInput{Position: new(0), Note: new("pinned")},
+			wantOrder: unchanged,
+		},
+		{
+			name: "running: a position that clamps to the current one is not a move", fixture: live,
+			entry: "e4", in: UpdateEntryInput{Position: new(99)},
+			wantOrder: unchanged,
+		},
+		{
+			name: "running: a note on the run's entry is allowed", fixture: live,
+			entry: "e1", in: UpdateEntryInput{Note: new("watch the migration")},
+			wantOrder: unchanged,
+		},
+		{
+			name: "vetting hold: a note on a queued entry is allowed", fixture: held,
+			entry: "e3", in: UpdateEntryInput{Note: new("after the deploy")},
+			wantOrder: unchanged,
+		},
+		{
+			name: "running: checking off a manual entry is allowed", fixture: live,
+			entry: "e4", in: UpdateEntryInput{Done: new(true)},
+			wantOrder: unchanged,
 		},
 		{
 			name:    "stopped run: every move is allowed",
@@ -1593,104 +1625,6 @@ func TestPlaybookService_MoveDuringRun(t *testing.T) {
 			fixture: runMoveFixture{importedE2: true},
 			entry:   "e2", in: UpdateEntryInput{Position: new(0)},
 			wantOrder: []string{"e2", "e1", "e3", "e4"},
-		},
-		{
-			name: "vetting hold: a card moved ahead of the held import is refused",
-			fixture: runMoveFixture{
-				importedE2: true, done: []string{"ALPHA-001"},
-				run: run(board.RunStatusWaiting, "", "ALPHA-002 not vetted"),
-			},
-			entry: "e3", in: UpdateEntryInput{Position: new(1)},
-			wantErr: ErrPlaybookMoveAheadOfRun, wantOrder: unchanged,
-		},
-		{
-			name: "vetting hold: the held import itself cannot move",
-			fixture: runMoveFixture{
-				importedE2: true, done: []string{"ALPHA-001"},
-				run: run(board.RunStatusWaiting, "", "ALPHA-002 not vetted"),
-			},
-			entry: "e2", in: UpdateEntryInput{Position: new(2)},
-			wantErr: ErrPlaybookMoveAheadOfRun, wantOrder: unchanged,
-		},
-		{
-			name: "vetting hold: a move behind the held import is allowed",
-			fixture: runMoveFixture{
-				importedE2: true, done: []string{"ALPHA-001"},
-				run: run(board.RunStatusWaiting, "", "ALPHA-002 not vetted"),
-			},
-			entry: "e4", in: UpdateEntryInput{Position: new(2)},
-			wantOrder: []string{"e1", "e2", "e4", "e3"},
-		},
-		{
-			name: "just after Play the first incomplete entry is the run's position",
-			fixture: runMoveFixture{
-				done: []string{"ALPHA-001"}, run: run(board.RunStatusRunning, "", ""),
-			},
-			entry: "e3", in: UpdateEntryInput{Position: new(0)},
-			wantErr: ErrPlaybookMoveAheadOfRun, wantOrder: unchanged,
-		},
-		{
-			name: "a missing card holds the run's position: a move ahead of it is refused",
-			fixture: runMoveFixture{
-				done: []string{"ALPHA-001"}, deleted: []string{"ALPHA-002"},
-				run: run(board.RunStatusRunning, "", ""),
-			},
-			entry: "e4", in: UpdateEntryInput{Position: new(1)},
-			wantErr: ErrPlaybookMoveAheadOfRun, wantOrder: unchanged,
-		},
-		{
-			name: "a missing card holds the run's position: a move behind it is allowed",
-			fixture: runMoveFixture{
-				done: []string{"ALPHA-001"}, deleted: []string{"ALPHA-002"},
-				run: run(board.RunStatusRunning, "", ""),
-			},
-			entry: "e4", in: UpdateEntryInput{Position: new(2)},
-			wantOrder: []string{"e1", "e2", "e4", "e3"},
-		},
-		{
-			name: "every entry complete: every move is allowed",
-			fixture: runMoveFixture{
-				done: []string{"ALPHA-001", "ALPHA-002", "ALPHA-003"}, e4Done: true,
-				run: run(board.RunStatusRunning, "", ""),
-			},
-			entry: "e4", in: UpdateEntryInput{Position: new(0)},
-			wantOrder: []string{"e4", "e1", "e2", "e3"},
-		},
-		{
-			// The pass that saw e1 finish may already have decided on e2 and
-			// not yet written it, so the next card holds the position too.
-			name: "the run's entry finished: a move ahead of the next card is refused",
-			fixture: runMoveFixture{
-				done: []string{"ALPHA-001"}, run: run(board.RunStatusRunning, "e1", ""),
-			},
-			entry: "e3", in: UpdateEntryInput{Position: new(1)},
-			wantErr: ErrPlaybookMoveAheadOfRun, wantOrder: unchanged,
-		},
-		{
-			name: "the run's entry finished: a move behind the next card is allowed",
-			fixture: runMoveFixture{
-				done: []string{"ALPHA-001"}, run: run(board.RunStatusRunning, "e1", ""),
-			},
-			entry: "e4", in: UpdateEntryInput{Position: new(2)},
-			wantOrder: []string{"e1", "e2", "e4", "e3"},
-		},
-		{
-			name:    "a note on the run's entry is allowed",
-			fixture: runMoveFixture{importedE2: true, run: run(board.RunStatusRunning, "e1", "")},
-			entry:   "e1", in: UpdateEntryInput{Note: new("watch the migration")},
-			wantOrder: unchanged,
-		},
-		{
-			name:    "a note on a queued entry is allowed",
-			fixture: runMoveFixture{importedE2: true, run: run(board.RunStatusRunning, "e1", "")},
-			entry:   "e3", in: UpdateEntryInput{Note: new("after the deploy")},
-			wantOrder: unchanged,
-		},
-		{
-			name:    "a position equal to the current one is not a move",
-			fixture: runMoveFixture{importedE2: true, run: run(board.RunStatusRunning, "e1", "")},
-			entry:   "e1", in: UpdateEntryInput{Position: new(0), Note: new("pinned")},
-			wantOrder: unchanged,
 		},
 	}
 
@@ -1712,13 +1646,19 @@ func TestPlaybookService_MoveDuringRun(t *testing.T) {
 			got, err := env.svc.Get(ctx, "rollout")
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantOrder, entryOrder(got))
-			assert.Equal(t, before.Run, got.Run, "a move never touches the run block")
+			assert.Equal(t, before.Run, got.Run, "an entry update never touches the run block")
 
-			if tt.in.Note != nil {
-				for _, e := range got.Entries {
-					if e.ID == tt.entry {
-						assert.Equal(t, *tt.in.Note, e.Note)
-					}
+			for _, e := range got.Entries {
+				if e.ID != tt.entry {
+					continue
+				}
+
+				if tt.in.Note != nil {
+					assert.Equal(t, *tt.in.Note, e.Note)
+				}
+
+				if tt.in.Done != nil {
+					assert.Equal(t, *tt.in.Done, e.Done)
 				}
 			}
 		})

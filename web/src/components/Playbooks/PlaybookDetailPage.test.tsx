@@ -246,9 +246,10 @@ describe('PlaybookDetailPage', () => {
       run: { status: 'running' as const, started_at: 'x', updated_at: 'x', entry: 'e1' },
     };
     vi.mocked(api.getPlaybook).mockResolvedValue(running);
+    // The 409 body exactly as handleServiceError writes it.
     vi.mocked(api.patchPlaybookEntry).mockRejectedValueOnce({
-      error: "entry cannot move to or ahead of the active run's position", code: 'PLAYBOOK_MOVE_AHEAD_OF_RUN',
-      details: 'the run is at entry e1; stop the run to reorder at or ahead of it',
+      error: 'entries cannot be reordered while the playbook run is active', code: 'PLAYBOOK_MOVE_DURING_RUN',
+      details: 'stop the run to reorder entries',
     });
     renderPage();
     await screen.findByText('Roll');
@@ -261,7 +262,7 @@ describe('PlaybookDetailPage', () => {
 
     await waitFor(() => expect(api.patchPlaybookEntry).toHaveBeenCalledWith('roll', 'e2', { position: 0 }));
     await waitFor(() => expect(toast.showToast).toHaveBeenCalledWith(
-      "entry cannot move to or ahead of the active run's position: the run is at entry e1; stop the run to reorder at or ahead of it",
+      'entries cannot be reordered while the playbook run is active: stop the run to reorder entries',
       'error',
     ));
     await waitFor(() => expect(order()).toEqual(before));

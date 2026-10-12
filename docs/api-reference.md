@@ -282,7 +282,7 @@ the request's `request_id`.
 | `PLAYBOOK_ENTRY_EXISTS`      | 409     | Duplicate `{project, card}` entry                                                                                                                                                          |
 | `PLAYBOOK_RUN_ACTIVE`        | 409     | `runnable: false` or `base_branch` while a run is `running` or `waiting`; a card's own run trigger while its owning playbook run is active                                                 |
 | `PLAYBOOK_RUN_INACTIVE`      | 409     | `POST .../stop` when the playbook has no active run                                                                                                                                        |
-| `PLAYBOOK_MOVE_AHEAD_OF_RUN` | 409     | `PATCH .../entries/{entryId}` with a `position` that moves an entry to or ahead of an active run's position, or moves the entry at that position                                           |
+| `PLAYBOOK_MOVE_DURING_RUN`   | 409     | `PATCH .../entries/{entryId}` with a `position` that moves the entry while a run is `running` or `waiting`                                                                                 |
 | `PLAYBOOK_LOCKED`            | 409     | `PUT` or `PATCH` on a card changes one of the five fields a runnable playbook forces                                                                                                       |
 | `PLAYBOOK_NOT_RUNNABLE`      | 409     | An operation that requires `runnable: true` is called on a playbook that is not runnable                                                                                                   |
 | `PLAYBOOK_CARD_OWNED`        | 422     | `runnable: true` and a card entry already belongs to another runnable playbook                                                                                                             |
@@ -1968,8 +1968,8 @@ apply only to manual entries; `note` to both. Checking `done` stamps
 `done_by`/`done_at` from the caller identity and server clock; unchecking
 clears both. `position` is the entry's final index after the move: values
 beyond the end clamp, negative is rejected. While a run is `running` or
-`waiting`, a move must land strictly behind the run's position: the later of
-its current entry and the first incomplete entry.
+`waiting`, any `position` that moves the entry is refused; stop the run to
+reorder. A `position` equal to the current index is not a move.
 
 ```json
 { "done": true }
@@ -1977,12 +1977,12 @@ its current entry and the first incomplete entry.
 
 Response **200** with the full detail.
 
-| Status | Code                         | When                                                                                       |
-| ------ | ---------------------------- | ------------------------------------------------------------------------------------------ |
-| 404    | `PLAYBOOK_NOT_FOUND`         | Unknown playbook id                                                                        |
-| 404    | `PLAYBOOK_ENTRY_NOT_FOUND`   | Unknown entry id                                                                           |
-| 409    | `PLAYBOOK_MOVE_AHEAD_OF_RUN` | Active run: the move lands at or ahead of the run's position, or moves the entry there     |
-| 422    | `VALIDATION_ERROR`           | `done`/`text` on a card entry, empty `text`, negative `position`                           |
+| Status | Code                       | When                                                             |
+| ------ | -------------------------- | ---------------------------------------------------------------- |
+| 404    | `PLAYBOOK_NOT_FOUND`       | Unknown playbook id                                              |
+| 404    | `PLAYBOOK_ENTRY_NOT_FOUND` | Unknown entry id                                                 |
+| 409    | `PLAYBOOK_MOVE_DURING_RUN` | `position` moves the entry while a run is `running` or `waiting` |
+| 422    | `VALIDATION_ERROR`         | `done`/`text` on a card entry, empty `text`, negative `position` |
 
 ### DELETE /api/playbooks/{id}/entries/{entryId}
 

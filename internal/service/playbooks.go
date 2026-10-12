@@ -57,10 +57,9 @@ var (
 	// non-terminal card entry is imported content no human has vetted; the
 	// message names them as project/card.
 	ErrPlaybookCardNotVetted = errors.New("cards must be vetted before the playbook can run")
-	// ErrPlaybookMoveAheadOfRun is returned when an entry move during an
-	// active run would land at or ahead of the run's position, or move the
-	// entry at that position.
-	ErrPlaybookMoveAheadOfRun = errors.New("entry cannot move to or ahead of the active run's position")
+	// ErrPlaybookMoveDuringRun is returned when an entry move is refused
+	// because the playbook has a running or waiting run.
+	ErrPlaybookMoveDuringRun = errors.New("entries cannot be reordered while the playbook run is active")
 )
 
 // PlaybookStore is the persistence interface PlaybookService depends on.
@@ -1325,17 +1324,6 @@ func (s *PlaybookService) UpdateEntry(ctx context.Context, id, entryID string, i
 				return fmt.Errorf("%w: position must not be negative", ErrInvalidPlaybookEntry)
 			}
 
-			anchor := ""
-
-			if p.RunActive() {
-				a, err := s.runAnchor(ctx, p)
-				if err != nil {
-					return err
-				}
-
-				anchor = a
-			}
-
 			moved := p.Entries[i]
 			p.Entries = slices.Delete(p.Entries, i, i+1)
 
@@ -1343,69 +1331,17 @@ func (s *PlaybookService) UpdateEntry(ctx context.Context, id, entryID string, i
 				pos = len(p.Entries)
 			}
 
-			p.Entries = slices.Insert(p.Entries, pos, moved)
-
-			// Only the moved entry changes order relative to the others, so
-			// the move is safe exactly when it ends strictly behind the anchor.
-			if anchor != "" && pos != i && (moved.ID == anchor || pos < p.FindEntry(anchor)) {
-				return fmt.Errorf("%w: the run is at entry %s; stop the run to reorder at or ahead of it",
-					ErrPlaybookMoveAheadOfRun, anchor)
+			// A pass walks the order it read before taking the write lock, so
+			// any reorder during a run can hand the runner a second frontier.
+			if pos != i && p.RunActive() {
+				return fmt.Errorf("%w: stop the run to reorder entries", ErrPlaybookMoveDuringRun)
 			}
+
+			p.Entries = slices.Insert(p.Entries, pos, moved)
 		}
 
 		return nil
 	})
-}
-
-// runAnchor returns the entry at an active run's position: the later of the
-// run's entry and the first incomplete entry, or "" when there is neither.
-// The frontier wins over a finished run entry because a pass may have chosen
-// it and not yet written it; the runner's guard checks only the run block, so
-// a move in between would start a second worker.
-func (s *PlaybookService) runAnchor(ctx context.Context, p *board.Playbook) (string, error) {
-	anchor := -1
-	if p.Run.Entry != "" {
-		anchor = p.FindEntry(p.Run.Entry)
-	}
-
-	for i := range p.Entries {
-		complete, err := s.entryComplete(ctx, &p.Entries[i])
-		if err != nil {
-			return "", err
-		}
-
-		if !complete {
-			anchor = max(anchor, i)
-
-			break
-		}
-	}
-
-	if anchor < 0 {
-		return "", nil
-	}
-
-	return p.Entries[anchor].ID, nil
-}
-
-// entryComplete judges an entry the way the runner does: a card entry is
-// complete when its card is terminal, and a missing card or project is not,
-// since the run waits on it. A manual entry is complete when checked off.
-func (s *PlaybookService) entryComplete(ctx context.Context, e *board.PlaybookEntry) (bool, error) {
-	if e.Type == board.EntryTypeManual {
-		return e.Done, nil
-	}
-
-	card, err := s.cards.GetCard(ctx, e.Project, e.Card)
-
-	switch {
-	case err == nil:
-		return board.IsTerminalState(card.State), nil
-	case errors.Is(err, storage.ErrCardNotFound), errors.Is(err, storage.ErrProjectNotFound):
-		return false, nil
-	default:
-		return false, fmt.Errorf("check entry %s: %w", e.ID, err)
-	}
 }
 
 // resolve turns a stored playbook into its API-facing detail: each card

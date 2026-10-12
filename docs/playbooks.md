@@ -132,14 +132,11 @@ while the run is active; stop the run first. Other entries can be removed
 and the next pass finds a new frontier. Once the run is stopped or completed
 its former entry can be removed, which clears `entry` and `reason`.
 
-While the run is active, moving an entry to or ahead of the run's position,
-or moving the entry at that position, is refused
-(`409 PLAYBOOK_MOVE_AHEAD_OF_RUN`): the runner would take the moved entry as
-its next step while the current card still runs. The run's position is the
-later of its current entry and the first incomplete entry, so a finished card
-hands the position to the next one before the runner launches it. Moves
-behind the position are allowed and change which card runs next. Stop the
-run to reorder freely.
+Entries cannot be reordered while the run is `running` or `waiting`
+(`409 PLAYBOOK_MOVE_DURING_RUN`): the runner walks the order it last read, so
+a reorder could make it launch a second card while the current one still
+runs. Stop the run to reorder. A `position` equal to the entry's current
+index is not a move, and note, text and done updates stay allowed.
 
 ### Play and Stop
 
@@ -191,10 +188,10 @@ required on mutations for `created_by` and `done_by` attribution.
 | `remove_playbook_entry` | `DELETE /api/playbooks/{id}/entries/{entryId}`    | Removes one entry                                             |
 
 `position` is the entry's final index after the move; values past the end
-clamp, negative values are rejected, and during an active run a move to or
-ahead of the run's position is refused (see [Run state](#run-state)). Setting
-`done` or `text` on a card entry fails with a validation error. Request and
-response bodies are in the [API reference](api-reference.md#playbook-endpoints).
+clamp, negative values are rejected, and no move is accepted while a run is
+active (see [Run state](#run-state)). Setting `done` or `text` on a card entry
+fails with a validation error. Request and response bodies are in the
+[API reference](api-reference.md#playbook-endpoints).
 
 ## YAML shape
 
