@@ -586,3 +586,28 @@ github:
     # Min: 5m. Default: 5m.
     # Env: CONTEXTMATRIX_GITHUB_ISSUE_IMPORTING_SYNC_INTERVAL
     sync_interval: "5m"
+
+# Jira Cloud integration. Leave site_url empty to disable Jira.
+# See docs/jira-import.md.
+jira:
+  # Jira Cloud site, e.g. https://acme.atlassian.net. Empty = Jira disabled.
+  # Env: CONTEXTMATRIX_JIRA_SITE_URL
+  site_url: ""
+
+  # REST base URL. Empty = site_url. Service-account scoped tokens need the
+  # gateway: https://api.atlassian.com/ex/jira/<cloudId>
+  # Env: CONTEXTMATRIX_JIRA_API_BASE_URL
+  api_base_url: ""
+
+  # Allowed values: "basic" (account email + API token) | "bearer" (token only).
+  # Default: basic.
+  # Env: CONTEXTMATRIX_JIRA_AUTH_MODE
+  auth_mode: "basic"
+
+  # Atlassian account email for basic auth.
+  # Env: CONTEXTMATRIX_JIRA_EMAIL
+  email: ""
+
+  # API token. Never hard-code in production. Supply via env var.
+  # Env: CONTEXTMATRIX_JIRA_TOKEN
+  token: ""

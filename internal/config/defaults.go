@@ -26,6 +26,7 @@ func Defaults() *Config {
 	applyBestOfNDefaults(cfg)
 	applyMobDefaults(cfg)
 	applyAuthDefaults(cfg)
+	applyJiraDefaults(cfg)
 	applyBackendDefaults(cfg)
 
 	disabled := false

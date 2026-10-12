@@ -3937,3 +3937,138 @@ llm_endpoint:
 	require.NoError(t, err)
 	assert.Equal(t, "non-reasoning", cfg.LLMEndpoint.ReasoningEffort)
 }
+
+func TestJiraConfig_Validate(t *testing.T) {
+	valid := JiraConfig{SiteURL: "https://acme.atlassian.net", AuthMode: JiraAuthBasic, Email: "me@acme.com", Token: "s3cr3t-tok"}
+
+	tests := []struct {
+		name    string
+		mutate  func(j *JiraConfig)
+		wantErr string // a substring naming the offending key; "" = valid
+	}{
+		{name: "unconfigured", mutate: func(j *JiraConfig) { *j = JiraConfig{} }},
+		{name: "unconfigured ignores stray credentials", mutate: func(j *JiraConfig) { *j = JiraConfig{Token: "x", AuthMode: "nonsense"} }},
+		{name: "valid basic", mutate: func(*JiraConfig) {}},
+		{name: "valid bearer via gateway", mutate: func(j *JiraConfig) {
+			j.AuthMode, j.Email, j.APIBaseURL = JiraAuthBearer, "", "https://api.atlassian.com/ex/jira/abc"
+		}},
+		{name: "writeback without site", mutate: func(j *JiraConfig) { *j = JiraConfig{Writeback: JiraWritebackConfig{Enabled: true}} }, wantErr: "jira.writeback.enabled"},
+		{name: "http site", mutate: func(j *JiraConfig) { j.SiteURL = "http://acme.atlassian.net" }, wantErr: "jira.site_url"},
+		{name: "site without host", mutate: func(j *JiraConfig) { j.SiteURL = "https://" }, wantErr: "jira.site_url"},
+		{name: "http api base", mutate: func(j *JiraConfig) { j.APIBaseURL = "http://api.atlassian.com" }, wantErr: "jira.api_base_url"},
+		{name: "basic without email", mutate: func(j *JiraConfig) { j.Email = "" }, wantErr: "jira.email"},
+		{name: "bearer without token", mutate: func(j *JiraConfig) { j.AuthMode, j.Token = JiraAuthBearer, "" }, wantErr: "jira.token"},
+		{name: "cookie mode rejected", mutate: func(j *JiraConfig) { j.AuthMode = "cookie" }, wantErr: "jira.auth_mode"},
+		{name: "lowercase project_map key", mutate: func(j *JiraConfig) {
+			j.ProjectMap = map[string]JiraProjectMapping{"proj": {Default: "api"}}
+		}, wantErr: "jira.project_map"},
+		{name: "empty project_map entry", mutate: func(j *JiraConfig) {
+			j.ProjectMap = map[string]JiraProjectMapping{"PROJ": {}}
+		}, wantErr: "jira.project_map.PROJ"},
+		{name: "components-only project_map entry", mutate: func(j *JiraConfig) {
+			j.ProjectMap = map[string]JiraProjectMapping{"PROJ": {Components: map[string]string{"Frontend": "web"}}}
+		}},
+		{name: "bad status_targets key", mutate: func(j *JiraConfig) {
+			j.Writeback.StatusTargets = map[string]JiraStatusTarget{"PROJ-1": {Done: "Done"}}
+		}, wantErr: "jira.writeback.status_targets"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := validBaseConfig(t)
+			cfg.Jira = valid
+			tt.mutate(&cfg.Jira)
+
+			err := cfg.Validate()
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+
+				return
+			}
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+			assert.NotContains(t, err.Error(), "s3cr3t-tok", "validation errors never echo the token")
+		})
+	}
+}
+
+func TestJiraConfig_ValidateAppliesAuthModeDefault(t *testing.T) {
+	cfg := validBaseConfig(t)
+	cfg.Jira = JiraConfig{SiteURL: "https://acme.atlassian.net", Email: "me@acme.com", Token: "tok"}
+
+	require.NoError(t, cfg.Validate())
+	assert.Equal(t, JiraAuthBasic, cfg.Jira.AuthMode)
+}
+
+func TestJiraConfig_ResolvedAPIBaseURL(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  JiraConfig
+		want string
+	}{
+		{name: "falls back to site", cfg: JiraConfig{SiteURL: "https://acme.atlassian.net/"}, want: "https://acme.atlassian.net"},
+		{
+			name: "explicit gateway",
+			cfg:  JiraConfig{SiteURL: "https://acme.atlassian.net", APIBaseURL: "https://api.atlassian.com/ex/jira/abc/"},
+			want: "https://api.atlassian.com/ex/jira/abc",
+		},
+		{name: "unconfigured", cfg: JiraConfig{}, want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.cfg.ResolvedAPIBaseURL())
+			assert.Equal(t, tt.cfg.SiteURL != "", tt.cfg.Configured())
+		})
+	}
+}
+
+func TestJiraConfig_LoadFromFile(t *testing.T) {
+	cfg := loadConfigFromYAML(t, `jira:
+  site_url: "https://acme.atlassian.net/"
+  email: "me@acme.com"
+  token: "tok"
+  project_map:
+    PROJ:
+      default: api
+      components:
+        Frontend: web
+  writeback:
+    status_targets:
+      PROJ: { started: "In Progress", done: "Done", resolution: "Fixed" }
+`)
+
+	assert.True(t, cfg.Jira.Configured())
+	assert.Equal(t, JiraAuthBasic, cfg.Jira.AuthMode, "auth_mode defaults to basic")
+	assert.Equal(t, "https://acme.atlassian.net", cfg.Jira.ResolvedAPIBaseURL())
+	assert.Equal(t, "web", cfg.Jira.ProjectMap["PROJ"].Components["Frontend"])
+	assert.Equal(t, JiraStatusTarget{Started: "In Progress", Done: "Done", Resolution: "Fixed"}, cfg.Jira.Writeback.StatusTargets["PROJ"])
+	assert.False(t, cfg.Jira.Writeback.Enabled)
+}
+
+func TestJiraConfig_EnvOverrides(t *testing.T) {
+	t.Setenv("CONTEXTMATRIX_JIRA_SITE_URL", "https://acme.atlassian.net")
+	t.Setenv("CONTEXTMATRIX_JIRA_API_BASE_URL", "https://api.atlassian.com/ex/jira/abc")
+	t.Setenv("CONTEXTMATRIX_JIRA_AUTH_MODE", "bearer")
+	t.Setenv("CONTEXTMATRIX_JIRA_EMAIL", "svc@acme.com")
+	t.Setenv("CONTEXTMATRIX_JIRA_TOKEN", "env-token")
+	t.Setenv("CONTEXTMATRIX_JIRA_WRITEBACK_ENABLED", "true")
+
+	cfg := loadConfigFromYAML(t, "")
+
+	assert.Equal(t, JiraConfig{
+		SiteURL:    "https://acme.atlassian.net",
+		APIBaseURL: "https://api.atlassian.com/ex/jira/abc",
+		AuthMode:   JiraAuthBearer,
+		Email:      "svc@acme.com",
+		Token:      "env-token",
+		Writeback:  JiraWritebackConfig{Enabled: true},
+	}, cfg.Jira)
+}
+
+func TestDefaults_JiraUnconfigured(t *testing.T) {
+	d := Defaults()
+	assert.False(t, d.Jira.Configured())
+	assert.Equal(t, JiraAuthBasic, d.Jira.AuthMode)
+}

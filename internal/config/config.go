@@ -3,9 +3,11 @@ package config
 import (
 	"bytes"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -316,6 +318,119 @@ type GitHubConfig struct {
 	App            GitHubAppConfig      `yaml:"app"`
 	PAT            GitHubPATConfig      `yaml:"pat"`
 	IssueImporting IssueImportingConfig `yaml:"issue_importing"`
+}
+
+// Jira auth modes.
+const (
+	JiraAuthBasic  = "basic"
+	JiraAuthBearer = "bearer"
+)
+
+// JiraConfig configures the Jira Cloud integration. An empty SiteURL means
+// Jira is not configured and every other key is ignored.
+type JiraConfig struct {
+	SiteURL    string                        `yaml:"site_url"`
+	APIBaseURL string                        `yaml:"api_base_url"`
+	AuthMode   string                        `yaml:"auth_mode"` // "basic" | "bearer"
+	Email      string                        `yaml:"email"`
+	Token      string                        `yaml:"token"`
+	ProjectMap map[string]JiraProjectMapping `yaml:"project_map"`
+	Writeback  JiraWritebackConfig           `yaml:"writeback"`
+}
+
+// JiraProjectMapping maps one Jira project to its default CM project,
+// optionally per component.
+type JiraProjectMapping struct {
+	Default    string            `yaml:"default"`
+	Components map[string]string `yaml:"components"`
+}
+
+// JiraWritebackConfig controls status writeback to Jira.
+type JiraWritebackConfig struct {
+	Enabled       bool                        `yaml:"enabled"`
+	StatusTargets map[string]JiraStatusTarget `yaml:"status_targets"`
+}
+
+// JiraStatusTarget names the Jira statuses one Jira project's issues move to.
+type JiraStatusTarget struct {
+	Started    string `yaml:"started"`
+	Done       string `yaml:"done"`
+	Resolution string `yaml:"resolution"`
+}
+
+// Configured reports whether a Jira site is set.
+func (c JiraConfig) Configured() bool { return c.SiteURL != "" }
+
+// ResolvedAPIBaseURL returns APIBaseURL, else SiteURL, without a trailing slash.
+func (c JiraConfig) ResolvedAPIBaseURL() string {
+	base := c.APIBaseURL
+	if base == "" {
+		base = c.SiteURL
+	}
+
+	return strings.TrimRight(base, "/")
+}
+
+var jiraProjectKeyPattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]+$`)
+
+func (c JiraConfig) validate() error {
+	if !c.Configured() {
+		if c.Writeback.Enabled {
+			return errors.New("jira.writeback.enabled requires jira.site_url")
+		}
+
+		return nil
+	}
+
+	if err := requireHTTPSURL("jira.site_url", c.SiteURL); err != nil {
+		return err
+	}
+
+	if c.APIBaseURL != "" {
+		if err := requireHTTPSURL("jira.api_base_url", c.APIBaseURL); err != nil {
+			return err
+		}
+	}
+
+	switch c.AuthMode {
+	case JiraAuthBasic:
+		if c.Email == "" || c.Token == "" {
+			return errors.New("jira.email and jira.token are required when jira.auth_mode is \"basic\"")
+		}
+	case JiraAuthBearer:
+		if c.Token == "" {
+			return errors.New("jira.token is required when jira.auth_mode is \"bearer\"")
+		}
+	default:
+		return fmt.Errorf("jira.auth_mode must be \"basic\" or \"bearer\" (got %q)", c.AuthMode)
+	}
+
+	for key, m := range c.ProjectMap {
+		if !jiraProjectKeyPattern.MatchString(key) {
+			return fmt.Errorf("jira.project_map key %q is not a Jira project key", key)
+		}
+
+		if m.Default == "" && len(m.Components) == 0 {
+			return fmt.Errorf("jira.project_map.%s needs a default or components", key)
+		}
+	}
+
+	for key := range c.Writeback.StatusTargets {
+		if !jiraProjectKeyPattern.MatchString(key) {
+			return fmt.Errorf("jira.writeback.status_targets key %q is not a Jira project key", key)
+		}
+	}
+
+	return nil
+}
+
+func requireHTTPSURL(field, raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.Host == "" {
+		return fmt.Errorf("%s must be an https URL (got %q)", field, raw)
+	}
+
+	return nil
 }
 
 // ResolvedAPIBaseURL returns the effective GitHub API base URL.
@@ -649,6 +764,7 @@ type Config struct {
 	// The mapping's key set is closed - see Backends.UnmarshalYAML.
 	Backends      Backends       `yaml:"backends"`
 	GitHub        GitHubConfig   `yaml:"github"`
+	Jira          JiraConfig     `yaml:"jira"`
 	LogFormat     string         `yaml:"log_format"`      // "json" or "text", default "text"
 	LogLevel      string         `yaml:"log_level"`       // "debug"/"info"/"warn"/"error", default "info"
 	AdminPort     int            `yaml:"admin_port"`      // 0 = disabled
@@ -696,6 +812,13 @@ func (c *Config) Validate() error {
 	}
 
 	if err := c.LLMEndpoint.validate(); err != nil {
+		return err
+	}
+
+	// Defaults first so a hand-built config with only a site set validates.
+	applyJiraDefaults(c)
+
+	if err := c.Jira.validate(); err != nil {
 		return err
 	}
 
@@ -1138,6 +1261,7 @@ func Load(path string) (*Config, error) {
 			applyBestOfNDefaults(cfg)
 			applyMobDefaults(cfg)
 			applyAuthDefaults(cfg)
+			applyJiraDefaults(cfg)
 			applyBackendDefaults(cfg)
 
 			if err := applyEnvOverrides(cfg); err != nil {
@@ -1175,6 +1299,7 @@ func Load(path string) (*Config, error) {
 	applyBestOfNDefaults(cfg)
 	applyMobDefaults(cfg)
 	applyAuthDefaults(cfg)
+	applyJiraDefaults(cfg)
 	applyBackendDefaults(cfg)
 
 	if err := applyEnvOverrides(cfg); err != nil {
@@ -1398,6 +1523,12 @@ func applyMobDefaults(cfg *Config) {
 
 	if cfg.Mob.CheckpointMinTier == "" {
 		cfg.Mob.CheckpointMinTier = "simple"
+	}
+}
+
+func applyJiraDefaults(cfg *Config) {
+	if cfg.Jira.AuthMode == "" {
+		cfg.Jira.AuthMode = JiraAuthBasic
 	}
 }
 
@@ -1639,6 +1770,28 @@ func applyEnvOverrides(cfg *Config) error {
 	if v := os.Getenv("CONTEXTMATRIX_GITHUB_ISSUE_IMPORTING_SYNC_INTERVAL"); v != "" {
 		cfg.GitHub.IssueImporting.SyncInterval = v
 	}
+
+	if v := os.Getenv("CONTEXTMATRIX_JIRA_SITE_URL"); v != "" {
+		cfg.Jira.SiteURL = v
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_JIRA_API_BASE_URL"); v != "" {
+		cfg.Jira.APIBaseURL = v
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_JIRA_AUTH_MODE"); v != "" {
+		cfg.Jira.AuthMode = v
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_JIRA_EMAIL"); v != "" {
+		cfg.Jira.Email = v
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_JIRA_TOKEN"); v != "" {
+		cfg.Jira.Token = v
+	}
+
+	cfg.Jira.Writeback.Enabled = parseBoolEnv("CONTEXTMATRIX_JIRA_WRITEBACK_ENABLED", cfg.Jira.Writeback.Enabled)
 
 	if v := os.Getenv("CONTEXTMATRIX_LOG_FORMAT"); v != "" {
 		cfg.LogFormat = v
