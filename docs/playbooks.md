@@ -56,9 +56,14 @@ page; the switch opens a warning that lists exactly what follows.
 
 ### Make runnable
 
-- Every card entry's project must have a GitHub repository URL, and no card
-  may already belong to another runnable playbook. Either fails the switch
-  with a message naming the offenders.
+- Every card entry's project must have a GitHub repository URL, no card may
+  already belong to another runnable playbook, and every non-terminal imported
+  card must be vetted. Each fails the switch with a message naming the
+  offenders (`PLAYBOOK_PROJECT_NO_REPO`, `PLAYBOOK_CARD_OWNED`,
+  `PLAYBOOK_CARD_NOT_VETTED`). A card added to a playbook that is already
+  runnable is not checked for vetting; the run waits on it instead.
+  Re-asserting runnable on an already-runnable playbook checks vetting too
+  and fails the same way, leaving the playbook runnable.
 - A card that will not take the five settings also fails the switch
   (`PLAYBOOK_CARD_FORCE_FAILED`, naming the cards); cards forced before it
   keep the settings while the playbook stays not runnable.
@@ -106,7 +111,7 @@ run:
   started_by: human:alice
   started_at: 2026-09-06T10:00:00Z
   updated_at: 2026-09-06T10:41:00Z
-  entry: e3                # current entry; empty once completed
+  entry: e3                # current entry; empty once completed or held on an unvetted card
   reason: "awaiting check-off"
 ```
 

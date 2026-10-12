@@ -182,7 +182,8 @@ active. A completed run whose entries are all complete keeps **Run** and
 Make runnable disabled; entries added after completion re-enable both.
 A completed run lists one "Open PR" compare link per repository.
 Entry rows read `queued` while a run is active and show the waiting reason
-on the run's entry; removing the run's current entry is refused until the
+on the run's entry (while a run is held on an unvetted card, on the first
+incomplete entry); removing the run's current entry is refused until the
 run is stopped, and the toast carries the server's reason. The list page
 shows a run pill. See [playbooks](playbooks.md#running-a-playbook).
 
