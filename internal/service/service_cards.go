@@ -34,6 +34,11 @@ type CreateCardInput struct {
 	Body      string
 	Source    *board.Source // Optional, immutable after creation
 	Assignee  string        // Informational responsibility label; independent of claim ownership
+	// Custom and Log are set by internal importers only; REST and MCP never
+	// fill them. Log becomes the card's first activity entry, written in the
+	// create commit.
+	Custom map[string]any
+	Log    *board.ActivityEntry
 	// Autonomous, CreatePR, AwaitCI, AwaitCopilotReview, MaxCapability and
 	// MobParticipants are nullable: nil means "unset". At create, a top-level
 	// card fills unset fields from the project's card_defaults
@@ -797,6 +802,7 @@ func (s *CardService) buildNewCardFromInput(
 		Parent:             parentID,
 		DependsOn:          dependsOn,
 		Source:             input.Source,
+		Custom:             input.Custom,
 		Assignee:           input.Assignee,
 		Autonomous:         valueOr(input.Autonomous, defaults.autonomous),
 		CreatePR:           valueOr(input.CreatePR, defaults.createPR),
@@ -818,6 +824,15 @@ func (s *CardService) buildNewCardFromInput(
 		Created:            now,
 		Updated:            now,
 		Body:               input.Body,
+	}
+
+	if input.Log != nil {
+		entry := *input.Log
+		if entry.Timestamp.IsZero() {
+			entry.Timestamp = now
+		}
+
+		card.ActivityLog = []board.ActivityEntry{entry}
 	}
 
 	enforceVettingInvariant(card)

@@ -1410,3 +1410,27 @@ func BenchmarkListCards_500Cards(b *testing.B) {
 		}
 	}
 }
+
+func TestFilesystemStore_ListCards_FilterBySourceSystem(t *testing.T) {
+	dir := t.TempDir()
+	setupTestProject(t, dir, "test-project", "TEST")
+
+	store, err := NewFilesystemStore(dir)
+	require.NoError(t, err)
+
+	jiraCard := testCard("TEST-001", "todo")
+	jiraCard.Source = &board.Source{System: "jira", ExternalID: "PROJ-1"}
+	ghCard := testCard("TEST-002", "todo")
+	ghCard.Source = &board.Source{System: "github", ExternalID: "acme/x#1"}
+	plain := testCard("TEST-003", "todo")
+
+	ctx := context.Background()
+	for _, c := range []*board.Card{jiraCard, ghCard, plain} {
+		require.NoError(t, store.CreateCard(ctx, "test-project", c))
+	}
+
+	cards, err := store.ListCards(ctx, "test-project", CardFilter{SourceSystem: "jira"})
+	require.NoError(t, err)
+	require.Len(t, cards, 1)
+	assert.Equal(t, "TEST-001", cards[0].ID)
+}

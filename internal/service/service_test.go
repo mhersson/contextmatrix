@@ -7801,3 +7801,31 @@ func TestEnrichPlaybookLock(t *testing.T) {
 
 	assert.Equal(t, 2, locked)
 }
+
+func TestCreateCard_CustomAndInitialLog(t *testing.T) {
+	svc, tmpDir, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "PROJ-7 Import me", Type: "task", Priority: "medium",
+		Source: &board.Source{System: "jira", ExternalID: "PROJ-7", ExternalURL: "https://acme.atlassian.net/browse/PROJ-7"},
+		Custom: map[string]any{"jira_issue_id": "10007", "jira_import_hash": "abc"},
+		Log:    &board.ActivityEntry{Agent: "human:alice", Action: "imported", Message: "Imported from Jira PROJ-7"},
+	})
+	require.NoError(t, err)
+
+	// A fresh store proves the fields went through YAML, not just the cache.
+	fresh, err := storage.NewFilesystemStore(filepath.Join(tmpDir, "boards"))
+	require.NoError(t, err)
+
+	got, err := fresh.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "10007", got.Custom["jira_issue_id"])
+	assert.Equal(t, "abc", got.Custom["jira_import_hash"])
+	require.Len(t, got.ActivityLog, 1)
+	assert.Equal(t, "human:alice", got.ActivityLog[0].Agent)
+	assert.Equal(t, "imported", got.ActivityLog[0].Action)
+	assert.False(t, got.ActivityLog[0].Timestamp.IsZero())
+}
