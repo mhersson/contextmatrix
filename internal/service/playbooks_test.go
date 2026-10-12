@@ -1391,3 +1391,53 @@ func TestPlaybookService_AddEntryToRunnableAcceptsUnvettedCard(t *testing.T) {
 	require.NoError(t, err, "the runner gates an unvetted card; adding it is allowed")
 	assert.Len(t, got.Entries, 2)
 }
+
+func TestPlaybookService_MakeRunnableSkipsMissingCardsForVetting(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	env.importedCard(t, "ALPHA-002", "todo", false)
+
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{
+		Title: "Gone", AgentID: "human:alice",
+		Entries: []PlaybookEntryInput{
+			{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"}, // sourceless
+			{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-002"},
+		},
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, env.cards.DeleteCard(ctx, "project-alpha", "ALPHA-002"))
+
+	got, err := env.svc.UpdateMeta(ctx, "gone", UpdatePlaybookInput{Runnable: new(true)}, "human:alice")
+	require.NoError(t, err, "a missing card is already flagged on read; it never blocks vetting")
+	assert.True(t, got.Runnable)
+}
+
+func TestPlaybookService_ReassertRunnableRefusesUnvettedAddedCard(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{
+		Title: "Rollout", AgentID: "human:alice",
+		Entries: []PlaybookEntryInput{{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"}},
+	})
+	require.NoError(t, err)
+
+	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: new(true)}, "human:alice")
+	require.NoError(t, err)
+
+	env.importedCard(t, "ALPHA-002", "todo", false)
+
+	_, err = env.svc.AddEntry(ctx, "rollout",
+		PlaybookEntryInput{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-002"}, "human:alice")
+	require.NoError(t, err)
+
+	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: new(true)}, "human:alice")
+	require.ErrorIs(t, err, ErrPlaybookCardNotVetted)
+	assert.Contains(t, err.Error(), "project-alpha/ALPHA-002")
+
+	got, err := env.svc.Get(ctx, "rollout")
+	require.NoError(t, err)
+	assert.True(t, got.Runnable, "the refusal leaves the playbook runnable")
+}
