@@ -764,3 +764,161 @@ func TestPass_RunCardReadFailureWalksInOrder(t *testing.T) {
 	assert.Equal(t, "ALPHA-1", e.launcher.call(0).card)
 	assert.Equal(t, "e1", e.pbs.lastRun().Entry)
 }
+
+// TestPlay_WaitsOnAWorkerThatOutlivedStop: Stop leaves a worker alive when
+// its kill fails or the card is claimed through another instance. A reopen is
+// allowed once the run is stopped, so without Play resuming on the live
+// worker the first pass would launch the reopened card beside it and Stop
+// would then target the wrong one.
+func TestPlay_WaitsOnAWorkerThatOutlivedStop(t *testing.T) {
+	modes := []struct {
+		name    string
+		survive func(e *env, c *board.Card)
+		stopErr error
+	}{
+		{"the kill fails", func(e *env, _ *board.Card) {
+			e.stopper.err = errors.New("kill webhook failed")
+		}, ErrStopWorker},
+		{"the card is claimed elsewhere", func(e *env, c *board.Card) {
+			c.AssignedAgent = "agent-1"
+			e.cards.elsewhere[cardKey("alpha", "ALPHA-2")] = true
+		}, nil},
+	}
+
+	for _, m := range modes {
+		t.Run(m.name, func(t *testing.T) {
+			e := newEnv(t)
+			ctx := context.Background()
+
+			first := todoCard("alpha", "ALPHA-1")
+			first.State = board.StateDone
+			e.cards.add(first)
+
+			c := liveCard()
+			e.cards.add(c)
+			m.survive(e, c)
+
+			p := runnablePlaybook("rollout", cardEntry("e1", "alpha", "ALPHA-1"), cardEntry("e2", "alpha", "ALPHA-2"))
+			e.activeRun(p, "e2")
+			e.pbs.add(p)
+
+			_, err := e.runner.Stop(ctx, "rollout", "human:alice")
+			if m.stopErr != nil {
+				require.ErrorIs(t, err, m.stopErr)
+			} else {
+				require.NoError(t, err)
+			}
+
+			// The run is stopped, so the reopen is allowed.
+			e.cards.mu.Lock()
+			first.State = board.StateTodo
+			e.cards.mu.Unlock()
+
+			d, err := e.runner.Play(ctx, "rollout", "human:alice")
+			require.NoError(t, err)
+			assert.Equal(t, "e2", d.Run.Entry, "the resume names the surviving worker")
+
+			require.False(t, e.runner.pass(ctx, "rollout"))
+			assert.Equal(t, 0, e.launcher.count(), "no second worker")
+
+			got, err := e.pbs.Get(ctx, "rollout")
+			require.NoError(t, err)
+			assert.Equal(t, board.RunStatusRunning, got.Run.Status)
+			assert.Equal(t, "e2", got.Run.Entry, "Stop targets the surviving worker")
+		})
+	}
+}
+
+// TestPlay_ResumeEntry pins which entry a Play resumes on.
+func TestPlay_ResumeEntry(t *testing.T) {
+	card := func(id, state, worker string) *board.Card {
+		c := todoCard("alpha", id)
+		c.State, c.WorkerStatus = state, worker
+
+		return c
+	}
+	stopped := func(entry string) *board.PlaybookRun {
+		return &board.PlaybookRun{Status: board.RunStatusStopped, Entry: entry, Reason: "stopped by human:alice"}
+	}
+
+	tests := []struct {
+		name      string
+		cards     []*board.Card
+		run       *board.PlaybookRun
+		vanish    string // card deleted between Play's detail read and its scan
+		wantEntry string
+		launches  []string // cards the first pass launches
+	}{
+		{
+			name:  "a hand run made while stopped is waited on",
+			cards: []*board.Card{card("ALPHA-1", board.StateTodo, ""), card("ALPHA-2", board.StateTodo, "queued")},
+			run:   stopped(""), wantEntry: "e2",
+		},
+		{
+			name:  "the stopped run's own live entry wins over an earlier one",
+			cards: []*board.Card{card("ALPHA-1", board.StateTodo, "running"), card("ALPHA-2", board.StateInProgress, "running")},
+			run:   stopped("e2"), wantEntry: "e2",
+		},
+		{
+			name:  "a failed card's resume relaunches it",
+			cards: []*board.Card{card("ALPHA-1", board.StateTodo, "failed"), card("ALPHA-2", board.StateTodo, "")},
+			run:   stopped("e1"), wantEntry: "", launches: []string{"ALPHA-1"},
+		},
+		{
+			name:      "a first run starts from the top",
+			cards:     []*board.Card{card("ALPHA-1", board.StateTodo, ""), card("ALPHA-2", board.StateTodo, "")},
+			wantEntry: "", launches: []string{"ALPHA-1"},
+		},
+		{
+			name:  "a terminal card's worker is not waited on",
+			cards: []*board.Card{card("ALPHA-1", board.StateDone, "running"), card("ALPHA-2", board.StateTodo, "")},
+			run:   stopped("e1"), wantEntry: "", launches: []string{"ALPHA-2"},
+		},
+		{
+			name:  "a card read failure during the scan does not block Play",
+			cards: []*board.Card{card("ALPHA-1", board.StateTodo, ""), card("ALPHA-2", board.StateTodo, "queued")},
+			run:   stopped(""), vanish: "ALPHA-2",
+			wantEntry: "", launches: []string{"ALPHA-1"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newEnv(t)
+			ctx := context.Background()
+
+			for _, c := range tt.cards {
+				e.cards.add(c)
+			}
+
+			p := runnablePlaybook("rollout", cardEntry("e1", "alpha", "ALPHA-1"), cardEntry("e2", "alpha", "ALPHA-2"))
+			p.Run = tt.run
+			e.pbs.add(p)
+
+			if tt.vanish != "" {
+				e.pbs.mu.Lock()
+				e.pbs.afterGet = func() {
+					e.cards.mu.Lock()
+					defer e.cards.mu.Unlock()
+
+					delete(e.cards.cards, cardKey("alpha", tt.vanish))
+				}
+				e.pbs.mu.Unlock()
+			}
+
+			d, err := e.runner.Play(ctx, "rollout", "human:alice")
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantEntry, d.Run.Entry)
+			assert.Empty(t, d.Run.Reason)
+
+			require.False(t, e.runner.pass(ctx, "rollout"))
+
+			launched := make([]string, 0, e.launcher.count())
+			for i := range e.launcher.count() {
+				launched = append(launched, e.launcher.call(i).card)
+			}
+
+			assert.Equal(t, append([]string{}, tt.launches...), launched)
+		})
+	}
+}

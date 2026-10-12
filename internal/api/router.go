@@ -139,10 +139,10 @@ const (
 	ErrCodePlaybookRunInactive   = "PLAYBOOK_RUN_INACTIVE"
 	ErrCodePlaybookMoveDuringRun = "PLAYBOOK_MOVE_DURING_RUN"
 
-	// UNCHECK_DURING_RUN -> 409 (a done manual entry unchecked while a run is
-	// running or waiting). CARD_REOPEN_DURING_RUN -> 409 (a card leaving done
-	// or not_planned while a playbook holding it has such a run; details name
-	// the playbook).
+	// PLAYBOOK_UNCHECK_DURING_RUN -> 409 (a done manual entry unchecked while
+	// a run is running or waiting). CARD_REOPEN_DURING_RUN -> 409 (a card
+	// leaving done or not_planned while a playbook holding it has such a run;
+	// details name the playbook).
 	ErrCodePlaybookUncheckDuringRun = "PLAYBOOK_UNCHECK_DURING_RUN"
 	ErrCodeCardReopenDuringRun      = "CARD_REOPEN_DURING_RUN"
 )

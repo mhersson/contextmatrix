@@ -187,6 +187,9 @@ first run in a repository.
   disabled and `POST .../run` answers `409 PLAYBOOK_RUN_ACTIVE`.
 - While the current card's worker is live, the run starts no other card: an
   entry that turns incomplete ahead of it is handled after that worker ends.
+- A Play after a Stop that left a worker alive (the kill failed, or the card
+  is claimed through another instance), or after a hand run while stopped,
+  waits on that worker before starting anything else.
 - On a shared board the instance that pressed Play owns the run; other
   instances show it and never walk it. A restart resumes owned runs.
 
