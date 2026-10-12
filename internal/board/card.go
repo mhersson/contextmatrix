@@ -212,6 +212,12 @@ func (c *Card) ApplyPlaybookSettings(branch string) {
 	c.BaseBranch = branch
 }
 
+// NeedsVetting reports whether the card is imported content no human has
+// vetted yet. Agents may not claim it, and nothing may launch it.
+func (c *Card) NeedsVetting() bool {
+	return c.Source != nil && !c.Vetted
+}
+
 var (
 	// ErrMissingFrontmatter is returned when a card file lacks YAML frontmatter.
 	ErrMissingFrontmatter = errors.New("missing YAML frontmatter")

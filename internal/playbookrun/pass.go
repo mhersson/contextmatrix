@@ -100,6 +100,14 @@ func (r *Runner) pass(ctx context.Context, id string) bool {
 			return false
 		}
 
+		// An unvetted import holds the run like a manual gate. The entry
+		// stays unset so the pass after a human vets the card launches it.
+		if card.NeedsVetting() {
+			r.setRun(ctx, d, board.RunStatusWaiting, "", card.ID+" not vetted")
+
+			return false
+		}
+
 		r.launchEntry(ctx, d, e, card)
 
 		return false

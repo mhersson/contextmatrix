@@ -701,7 +701,7 @@ func registerGetReadyTasks(server *mcp.Server, svc *service.CardService) {
 				continue
 			}
 
-			if card.Source != nil && !card.Vetted {
+			if card.NeedsVetting() {
 				continue // unvetted external cards cannot be claimed by agents
 			}
 

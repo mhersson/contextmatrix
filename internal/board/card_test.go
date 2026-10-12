@@ -1197,3 +1197,24 @@ func TestCardPlaybookLock_Active(t *testing.T) {
 	assert.True(t, (&CardPlaybookLock{ID: "rollout", RunStatus: RunStatusWaiting}).Active())
 	assert.False(t, (&CardPlaybookLock{ID: "rollout", RunStatus: RunStatusCompleted}).Active())
 }
+
+func TestCard_NeedsVetting(t *testing.T) {
+	src := &Source{System: "jira", ExternalID: "PROJ-1", ExternalURL: "https://acme.atlassian.net/browse/PROJ-1"}
+
+	tests := []struct {
+		name string
+		card Card
+		want bool
+	}{
+		{"imported, unvetted", Card{Source: src}, true},
+		{"imported, vetted", Card{Source: src, Vetted: true}, false},
+		{"no source, unvetted flag", Card{}, false},
+		{"no source, vetted", Card{Vetted: true}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.card.NeedsVetting())
+		})
+	}
+}
