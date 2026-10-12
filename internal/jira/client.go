@@ -1,4 +1,3 @@
-// internal/jira/client.go
 package jira
 
 import (
