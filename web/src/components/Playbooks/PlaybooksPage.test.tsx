@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { PlaybooksPage } from './PlaybooksPage';
 import { api } from '../../api/client';
@@ -12,6 +12,8 @@ vi.mock('../../api/client', () => ({
       { id: 'done-one', title: 'Done one', complete: 2, total: 2, segments: ['complete', 'complete'], projects: 1, updated_at: '2026-08-19T09:00:00Z' },
     ]),
     createPlaybook: vi.fn(),
+    getJiraStatus: vi.fn().mockResolvedValue({ configured: false }),
+    previewJiraEpic: vi.fn(() => new Promise(() => {})),
   },
 }));
 
@@ -184,5 +186,92 @@ describe('PlaybooksPage - boards repo', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create playbook' }));
     await waitFor(() => expect(vi.mocked(api.createPlaybook)).toHaveBeenCalledWith({ title: 'X', boards_repo: 'private' }));
     themeState.boardsRepos = [];
+  });
+});
+
+describe('PlaybooksPage - Jira import', () => {
+  const SITE = 'https://acme.atlassian.net';
+
+  beforeEach(() => {
+    vi.mocked(api.previewJiraEpic).mockClear();
+    vi.mocked(api.listPlaybooks).mockResolvedValue([
+      { id: 'active-one', title: 'Active one', complete: 1, total: 3, segments: ['complete', 'active', 'pending'], projects: 2, updated_at: '2026-08-20T09:00:00Z' },
+    ]);
+    vi.mocked(api.getJiraStatus).mockResolvedValue({ configured: true, authenticated: true, site_url: SITE });
+  });
+
+  afterEach(() => {
+    vi.mocked(api.getJiraStatus).mockResolvedValue({ configured: false });
+  });
+
+  async function openGhost() {
+    render(<MemoryRouter><PlaybooksPage /></MemoryRouter>);
+    await screen.findByText('Active one');
+    fireEvent.click(screen.getByRole('button', { name: /new playbook/i }));
+    return screen.findByRole('button', { name: 'Import from Jira' });
+  }
+
+  it('hides the import button when Jira is not configured', async () => {
+    vi.mocked(api.getJiraStatus).mockResolvedValue({ configured: false });
+    render(<MemoryRouter><PlaybooksPage /></MemoryRouter>);
+    await screen.findByText('Active one');
+    fireEvent.click(screen.getByRole('button', { name: /new playbook/i }));
+    await waitFor(() => expect(api.getJiraStatus).toHaveBeenCalled());
+    expect(screen.queryByRole('button', { name: 'Import from Jira' })).not.toBeInTheDocument();
+  });
+
+  it('enables the button only for an epic key or a site URL', async () => {
+    const button = await openGhost();
+    const title = screen.getByLabelText('Playbook title');
+    expect(button).toBeDisabled();
+
+    for (const [value, enabled] of [
+      ['Q3 rollout', false],
+      ['PROJ-12', true],
+      [`${SITE}/browse/PROJ-12`, true],
+      ['https://evil.example/browse/PROJ-12', false],
+    ] as const) {
+      fireEvent.change(title, { target: { value } });
+      if (enabled) expect(button).toBeEnabled();
+      else expect(button).toBeDisabled();
+    }
+  });
+
+  it('keeps Enter as Create even when the title is a key', async () => {
+    vi.mocked(api.createPlaybook).mockResolvedValue({
+      id: 'x', title: 'PROJ-12', created_at: '', updated_at: '', complete: 0, total: 0, entries: [],
+    } as unknown as PlaybookDetail);
+    await openGhost();
+    const title = screen.getByLabelText('Playbook title');
+    fireEvent.change(title, { target: { value: 'PROJ-12' } });
+    fireEvent.keyDown(title, { key: 'Enter' });
+    await waitFor(() => expect(api.createPlaybook).toHaveBeenCalledWith({ title: 'PROJ-12' }));
+    expect(api.previewJiraEpic).not.toHaveBeenCalled();
+  });
+
+  it('opens the import dialog for the parsed key', async () => {
+    const button = await openGhost();
+    fireEvent.change(screen.getByLabelText('Playbook title'), { target: { value: `${SITE}/browse/PROJ-12` } });
+    fireEvent.click(button);
+    await waitFor(() => expect(api.previewJiraEpic).toHaveBeenCalledWith('PROJ-12'));
+  });
+
+  it('accepts a lowercase key and opens the dialog with it upper-cased', async () => {
+    const button = await openGhost();
+    fireEvent.change(screen.getByLabelText('Playbook title'), { target: { value: 'proj-12' } });
+    expect(button).toBeEnabled();
+    fireEvent.click(button);
+    await waitFor(() => expect(api.previewJiraEpic).toHaveBeenCalledWith('PROJ-12'));
+  });
+
+  it('explains and disables the import while the Jira token is failing', async () => {
+    vi.mocked(api.getJiraStatus).mockResolvedValue({
+      configured: true, authenticated: false, auth_error: 'captcha_required', site_url: SITE,
+    });
+    const button = await openGhost();
+    fireEvent.change(screen.getByLabelText('Playbook title'), { target: { value: 'PROJ-12' } });
+    expect(button).toBeDisabled();
+    const ghost = screen.getByLabelText('Playbook title').closest('.pbl-ghost') as HTMLElement;
+    expect(within(ghost).getByRole('status')).toBeInTheDocument();
   });
 });

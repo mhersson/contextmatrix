@@ -1,31 +1,31 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router';
 import { api } from '../../api/client';
 import { useSSEBus } from '../../hooks/useSSEBus';
-import { useTheme } from '../../hooks/useTheme';
+import { useJiraStatus } from '../../hooks/useJiraStatus';
+import { jiraAuthProblem } from '../../lib/jiraStatus';
+import { JiraImportDialog } from '../JiraImport/JiraImportDialog';
 import { useToast } from '../../hooks/useToast';
-import type { CreatePlaybookInput, PlaybookSummary } from '../../types';
+import type { PlaybookSummary } from '../../types';
 import { isFullyComplete } from './playbookUtils';
 import { PlaybookReceipt, PlaybookRow } from './PlaybookRow';
 import { PlaybooksBar } from './PlaybooksBar';
 import { NewPlaybookButton, PlaybookGhostRow } from './PlaybookGhostRow';
 import { PlaybooksEmptyHero } from './PlaybooksEmptyHero';
+import { usePlaybookCreateForm } from './usePlaybookCreateForm';
 
 export function PlaybooksPage() {
   const [playbooks, setPlaybooks] = useState<PlaybookSummary[] | null>(null);
   // Ephemeral by design - no localStorage; folding state resets on reload.
   // Open by default so a board where everything is done never looks empty.
   const [completedOpen, setCompletedOpen] = useState(true);
-  const [creating, setCreating] = useState(false);
-  const [newTitle, setNewTitle] = useState('');
-  const [newDescription, setNewDescription] = useState('');
-  const [submitting, setSubmitting] = useState(false);
   const { subscribe, reconnectEpoch } = useSSEBus();
-  const { boardsRepos = [] } = useTheme();
-  const multiRepo = boardsRepos.length > 1;
-  const [newRepo, setNewRepo] = useState('');
+  const {
+    creating, setCreating, newTitle, setNewTitle, newDescription, setNewDescription,
+    newRepo, setNewRepo, submitting, boardsRepos, multiRepo, handleCreate, cancelCreate,
+  } = usePlaybookCreateForm();
+  const jira = useJiraStatus(creating);
+  const [importKey, setImportKey] = useState<string | null>(null);
   const { showToast } = useToast();
-  const navigate = useNavigate();
 
   const fetchAll = useCallback(() => {
     api.listPlaybooks().then(setPlaybooks).catch(() => showToast('Failed to load playbooks', 'error'));
@@ -40,32 +40,6 @@ export function PlaybooksPage() {
   const active = (playbooks ?? []).filter((p) => !isFullyComplete(p));
   const completed = (playbooks ?? []).filter(isFullyComplete);
 
-  const handleCreate = async () => {
-    if (submitting) return;
-    const title = newTitle.trim();
-    if (!title) return;
-    setSubmitting(true);
-    try {
-      const input: CreatePlaybookInput = { title };
-      const description = newDescription.trim();
-      if (description) input.description = description;
-      if (multiRepo) input.boards_repo = newRepo || boardsRepos[0].name;
-      const detail = await api.createPlaybook(input);
-      navigate(`/playbooks/${detail.id}`);
-    } catch {
-      showToast('Failed to create playbook', 'error');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const cancelCreate = () => {
-    setCreating(false);
-    setNewTitle('');
-    setNewDescription('');
-    setNewRepo('');
-  };
-
   const ghostProps = {
     title: newTitle,
     onTitleChange: setNewTitle,
@@ -77,7 +51,19 @@ export function PlaybooksPage() {
     repos: boardsRepos,
     repo: newRepo || boardsRepos[0]?.name,
     onRepoChange: setNewRepo,
+    jiraSiteURL: jira?.configured ? jira.site_url : undefined,
+    jiraAuthProblem: jiraAuthProblem(jira) ?? undefined,
+    onImportJira: setImportKey,
   };
+
+  const importDialog = importKey && (
+    <JiraImportDialog
+      epicKey={importKey}
+      description={newDescription.trim()}
+      boardsRepo={multiRepo ? newRepo || boardsRepos[0].name : undefined}
+      onClose={() => setImportKey(null)}
+    />
+  );
 
   const isEmpty = playbooks !== null && active.length === 0 && completed.length === 0;
 
@@ -86,6 +72,7 @@ export function PlaybooksPage() {
       <div className="h-full flex flex-col overflow-y-auto">
         <PlaybooksBar />
         <PlaybooksEmptyHero creating={creating} onStartCreate={() => setCreating(true)} {...ghostProps} />
+        {importDialog}
       </div>
     );
   }
@@ -132,6 +119,7 @@ export function PlaybooksPage() {
           </>
         )}
       </div>
+      {importDialog}
     </div>
   );
 }
