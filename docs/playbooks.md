@@ -38,6 +38,11 @@ top of the list: name it, optionally describe it, pick the boards repo on a
 multi-repo instance, and Enter creates. The sidebar link jumps straight to the
 detail page when exactly one playbook exists.
 
+When Jira is configured, the title also takes a Jira epic key or URL and
+**Import from Jira** builds the playbook from the epic instead (see
+[Jira import](jira-import.md)). An imported playbook carries a `source` and
+links to its epic from the detail page.
+
 `/playbooks/:id` shows the entries as a route: a rail threads through the
 nodes, solid where the previous step is complete and dashed where it is not.
 Card nodes carry the sequence number and a state chip; an `in_progress` card
@@ -250,3 +255,4 @@ entries:
 - [API reference](api-reference.md#playbook-endpoints) - wire shapes
 - [Boards](boards.md) - the boards repository layout
 - [MCP](mcp.md) - the full tool catalogue
+- [Jira import](jira-import.md) - epics as playbooks

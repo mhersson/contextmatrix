@@ -611,3 +611,15 @@ jira:
   # API token. Never hard-code in production. Supply via env var.
   # Env: CONTEXTMATRIX_JIRA_TOKEN
   token: ""
+
+  # Import wizard defaults per Jira project key: the CM project an issue
+  # lands in. components maps a Jira component to a project and wins over
+  # default; sub-tasks follow their parent. A target that names no CM
+  # project is logged at startup. Default: empty. No env override.
+  # Example:
+  #   project_map:
+  #     PROJ:
+  #       default: api
+  #       components:
+  #         Frontend: web
+  project_map: {}
