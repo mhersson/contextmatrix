@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/gitops"
@@ -119,6 +120,8 @@ type importEnv struct {
 	jira  *fakeJira
 	cards *service.CardService
 	pbs   *service.PlaybookService
+	bus   *events.Bus
+	clk   *clock.FakeClock
 	dir   string // the boards repo
 }
 
@@ -171,13 +174,18 @@ func newImportEnv(t *testing.T, projectMap map[string]config.JiraProjectMapping)
 	fj := &fakeJira{issues: map[string]jira.Issue{}}
 	fj.add(epicIssue())
 
-	return &importEnv{
-		svc:   New(fj, cards, pbs, Config{SiteURL: testSite, ProjectMap: projectMap}),
-		jira:  fj,
-		cards: cards,
-		pbs:   pbs,
-		dir:   boardsDir,
-	}
+	clk := clock.Fake(time.Date(2026, 10, 12, 9, 0, 0, 0, time.UTC))
+	svc := New(fj, cards, pbs, Config{SiteURL: testSite, ProjectMap: projectMap, Bus: bus, Clock: clk})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	svc.Start(ctx)
+	t.Cleanup(func() {
+		cancel()
+
+		_ = svc.Shutdown(context.Background())
+	})
+
+	return &importEnv{svc: svc, jira: fj, cards: cards, pbs: pbs, bus: bus, clk: clk, dir: boardsDir}
 }
 
 // seedImported writes a card as an earlier import would have left it.

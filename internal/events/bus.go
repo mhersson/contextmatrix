@@ -38,6 +38,11 @@ const (
 	PlaybookUpdated EventType = "playbook.updated"
 	PlaybookDeleted EventType = "playbook.deleted"
 
+	// Jira epic import progress. Project is empty, so every SSE client
+	// receives them; the dialog filters on data.import_id.
+	JiraImportProgress EventType = "jira_import.progress"
+	JiraImportDone     EventType = "jira_import.done"
+
 	SyncStarted   EventType = "sync.started"
 	SyncCompleted EventType = "sync.completed"
 	SyncConflict  EventType = "sync.conflict"

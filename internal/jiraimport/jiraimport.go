@@ -8,9 +8,12 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/config"
+	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/jira"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/internal/storage"
@@ -44,6 +47,11 @@ type Config struct {
 	SiteURL string
 	// ProjectMap gives wizard defaults per Jira project key.
 	ProjectMap map[string]config.JiraProjectMapping
+	// Bus carries import progress to SSE clients; nil publishes nothing.
+	Bus *events.Bus
+	// Clock stamps import state and ages finished imports out; nil is the
+	// real clock.
+	Clock clock.Clock
 }
 
 var (
@@ -72,14 +80,32 @@ type Service struct {
 	cards     Cards
 	playbooks Playbooks
 	cfg       Config
+	clk       clock.Clock
+	// timeout bounds one background import.
+	timeout time.Duration
 
 	mu    sync.Mutex
 	epics map[string]*sync.Mutex
+
+	// runMu guards base, stop and imports; wg joins the import goroutines.
+	runMu   sync.Mutex
+	base    context.Context //nolint:containedctx // the imports' parent, set by Start and cancelled by Shutdown
+	stop    context.CancelFunc
+	imports map[string]*ImportState
+	wg      sync.WaitGroup
 }
 
-// New builds the import service.
+// New builds the import service. Call Start before Begin.
 func New(client JiraClient, cards Cards, playbooks Playbooks, cfg Config) *Service {
-	return &Service{jira: client, cards: cards, playbooks: playbooks, cfg: cfg, epics: map[string]*sync.Mutex{}}
+	clk := cfg.Clock
+	if clk == nil {
+		clk = clock.Real()
+	}
+
+	return &Service{
+		jira: client, cards: cards, playbooks: playbooks, cfg: cfg, clk: clk, timeout: importTimeout,
+		epics: map[string]*sync.Mutex{}, imports: map[string]*ImportState{},
+	}
 }
 
 func (s *Service) browseURL(key string) string {

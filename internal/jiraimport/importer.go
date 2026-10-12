@@ -19,7 +19,9 @@ const (
 	// maxSelections bounds one import request.
 	maxSelections = 200
 	// writeTimeout bounds the writes of one issue, and the playbook create.
-	writeTimeout = 30 * time.Second
+	// A shutdown waits for the unit in flight, so it must fit the shutdown
+	// drain budget; local writes take milliseconds.
+	writeTimeout = 10 * time.Second
 )
 
 // writeContext detaches a unit of writes from ctx: a shutdown stops the import
@@ -380,7 +382,7 @@ func failureReason(err error) string {
 		return "the card belongs to another runnable playbook"
 	case errors.Is(err, service.ErrPlaybookCardForce):
 		return "could not apply the playbook's settings to the card"
-	case errors.Is(err, service.ErrPlaybookRunActive):
+	case errors.Is(err, service.ErrPlaybookRunActive), errors.Is(err, ErrPlaybookRunning):
 		return "the playbook's run is active; run the import again once it stops"
 	default:
 		return "internal error; see the server log"
