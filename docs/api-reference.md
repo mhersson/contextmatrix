@@ -2943,6 +2943,8 @@ import for an hour; after that, or after a restart, it answers
 }
 ```
 
-`status` is `running`, `done` or `failed`; `failed` means the playbook could not
-be resolved or the import stopped (shutdown, the 10-minute bound), with a safe
-`error` phrase and the results so far.
+`status` is `running`, `done` or `failed`. `failed` means the playbook could not
+be resolved or the import was stopped (shutdown, the 10-minute bound) before its
+last selection, with a safe `error` phrase and the results so far; selections
+not reached have no result. A stop during the last selection ends `done`, with
+that row `failed`.

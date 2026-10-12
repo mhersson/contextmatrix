@@ -14,8 +14,9 @@ import (
 )
 
 // Background import states. ImportFailed covers an import that could not
-// resolve its playbook and one stopped by shutdown or its time bound; the
-// selections it never reached have no result.
+// resolve its playbook and one stopped by shutdown or its time bound before
+// its last selection; the selections it never reached have no result. A stop
+// during the last selection ends done, with that row failed.
 const (
 	ImportRunning = "running"
 	ImportDone    = "done"
