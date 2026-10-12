@@ -138,6 +138,13 @@ const (
 	ErrCodePlaybookNotRunnable   = "PLAYBOOK_NOT_RUNNABLE"
 	ErrCodePlaybookRunInactive   = "PLAYBOOK_RUN_INACTIVE"
 	ErrCodePlaybookMoveDuringRun = "PLAYBOOK_MOVE_DURING_RUN"
+
+	// PLAYBOOK_UNCHECK_DURING_RUN -> 409 (a done manual entry unchecked while
+	// a run is running or waiting). CARD_REOPEN_DURING_RUN -> 409 (a card
+	// leaving done or not_planned while a playbook holding it has such a run;
+	// details name the playbook).
+	ErrCodePlaybookUncheckDuringRun = "PLAYBOOK_UNCHECK_DURING_RUN"
+	ErrCodeCardReopenDuringRun      = "CARD_REOPEN_DURING_RUN"
 )
 
 // APIError is the standard error response format.
@@ -1195,6 +1202,12 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, service.ErrPlaybookMoveDuringRun):
 		writeError(w, http.StatusConflict, ErrCodePlaybookMoveDuringRun,
 			"entries cannot be reordered while the playbook run is active", "stop the run to reorder entries")
+	case errors.Is(err, service.ErrPlaybookUncheckDuringRun):
+		writeError(w, http.StatusConflict, ErrCodePlaybookUncheckDuringRun,
+			"entries cannot be unchecked while the playbook run is active", "stop the run to uncheck entries")
+	case errors.Is(err, service.ErrCardReopenDuringRun):
+		writeError(w, http.StatusConflict, ErrCodeCardReopenDuringRun,
+			"card cannot be reopened while its playbook run is active", reopenDetails(err))
 	case errors.Is(err, service.ErrPlaybookNotRunnable):
 		writeError(w, http.StatusConflict, ErrCodePlaybookNotRunnable, "playbook is not runnable", sanitizeErrorDetails(err))
 	case errors.Is(err, service.ErrPlaybookLocked):

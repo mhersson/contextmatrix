@@ -268,6 +268,30 @@ describe('PlaybookDetailPage', () => {
     await waitFor(() => expect(order()).toEqual(before));
   });
 
+  it('keeps the entry checked and surfaces the server reason when an uncheck is refused', async () => {
+    const running = {
+      ...baseDetail(), runnable: true, branch: 'playbook/roll',
+      run: { status: 'running' as const, started_at: 'x', updated_at: 'x', entry: 'e2' },
+    };
+    vi.mocked(api.getPlaybook).mockResolvedValue(running);
+    // The 409 body exactly as handleServiceError writes it.
+    vi.mocked(api.patchPlaybookEntry).mockRejectedValueOnce({
+      error: 'entries cannot be unchecked while the playbook run is active', code: 'PLAYBOOK_UNCHECK_DURING_RUN',
+      details: 'stop the run to uncheck entries',
+    });
+    renderPage();
+    await screen.findByText('Roll');
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'done step' }));
+
+    await waitFor(() => expect(api.patchPlaybookEntry).toHaveBeenCalledWith('roll', 'e1', { done: false }));
+    await waitFor(() => expect(toast.showToast).toHaveBeenCalledWith(
+      'entries cannot be unchecked while the playbook run is active: stop the run to uncheck entries',
+      'error',
+    ));
+    expect(screen.getByRole('checkbox', { name: 'done step' })).toBeChecked();
+  });
+
   it('plays and stops through the run endpoints', async () => {
     const runnable = { ...baseDetail(), runnable: true, branch: 'playbook/roll' };
     vi.mocked(api.getPlaybook).mockResolvedValue(runnable);

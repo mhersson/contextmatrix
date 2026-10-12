@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -1691,4 +1692,141 @@ func TestPlaybookService_SourceSetOnCreateAndFound(t *testing.T) {
 
 	_, err = env.svc.FindBySource(ctx, "github", "PROJ-1")
 	require.ErrorIs(t, err, storage.ErrPlaybookNotFound)
+}
+
+// uncheckFixture builds a runnable "rollout" of a checked manual e1, a card
+// e2 on ALPHA-001 with a live worker, and an unchecked manual e3, then writes
+// run (nil leaves the playbook without one).
+func uncheckFixture(t *testing.T, run *board.PlaybookRun) *playbookTestEnv {
+	t.Helper()
+
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{
+		Title: "Rollout", AgentID: "human:alice",
+		Entries: []PlaybookEntryInput{
+			{Type: board.EntryTypeManual, Text: "deploy"},
+			{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"},
+			{Type: board.EntryTypeManual, Text: "verify"},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: new(true)}, "human:alice")
+	require.NoError(t, err)
+
+	_, err = env.svc.UpdateEntry(ctx, "rollout", "e1", UpdateEntryInput{Done: new(true)}, "human:alice")
+	require.NoError(t, err)
+
+	card, err := env.cards.GetCard(ctx, "project-alpha", "ALPHA-001")
+	require.NoError(t, err)
+
+	card.State, card.WorkerStatus = "in_progress", "running"
+	require.NoError(t, env.cards.UpdateCard(ctx, "project-alpha", card))
+
+	if run != nil {
+		_, err = env.svc.SetRunIf(ctx, "rollout", nil, run, "human:alice")
+		require.NoError(t, err)
+	}
+
+	return env
+}
+
+func TestPlaybookService_UncheckDuringRun(t *testing.T) {
+	started := time.Date(2026, 8, 20, 9, 0, 0, 0, time.UTC)
+	run := func(status, entry, reason string) *board.PlaybookRun {
+		r := &board.PlaybookRun{Status: status, StartedAt: started, UpdatedAt: started, Entry: entry, Reason: reason}
+		if status == board.RunStatusStopped || status == board.RunStatusCompleted {
+			r.EndedAt = &started
+		}
+
+		return r
+	}
+	running := run(board.RunStatusRunning, "e2", "")
+
+	tests := []struct {
+		name     string
+		run      *board.PlaybookRun
+		entry    string
+		in       UpdateEntryInput
+		wantErr  error
+		wantDone bool
+	}{
+		{
+			name: "running on a later card: unchecking a done entry is refused", run: running,
+			entry: "e1", in: UpdateEntryInput{Done: new(false)},
+			wantErr: ErrPlaybookUncheckDuringRun, wantDone: true,
+		},
+		{
+			name: "waiting: unchecking a done entry is refused", run: run(board.RunStatusWaiting, "e2", "ALPHA-001 worker failed"),
+			entry: "e1", in: UpdateEntryInput{Done: new(false)},
+			wantErr: ErrPlaybookUncheckDuringRun, wantDone: true,
+		},
+		{
+			name: "running: an uncheck sent with a note is refused whole", run: running,
+			entry: "e1", in: UpdateEntryInput{Done: new(false), Note: new("redo")},
+			wantErr: ErrPlaybookUncheckDuringRun, wantDone: true,
+		},
+		{
+			name: "stopped run: unchecking is allowed", run: run(board.RunStatusStopped, "e2", "stopped by human:alice"),
+			entry: "e1", in: UpdateEntryInput{Done: new(false)},
+		},
+		{
+			name: "completed run: unchecking is allowed", run: run(board.RunStatusCompleted, "", ""),
+			entry: "e1", in: UpdateEntryInput{Done: new(false)},
+		},
+		{
+			name:  "no run: unchecking is allowed",
+			entry: "e1", in: UpdateEntryInput{Done: new(false)},
+		},
+		{
+			name: "running: checking an entry is allowed", run: running,
+			entry: "e3", in: UpdateEntryInput{Done: new(true)},
+			wantDone: true,
+		},
+		{
+			name: "running: unchecking an entry that is not done is allowed", run: running,
+			entry: "e3", in: UpdateEntryInput{Done: new(false)},
+		},
+		{
+			name: "running: a note on a done entry is allowed", run: running,
+			entry: "e1", in: UpdateEntryInput{Note: new("deployed at noon")},
+			wantDone: true,
+		},
+		{
+			name: "running: text on a done entry is allowed", run: running,
+			entry: "e1", in: UpdateEntryInput{Text: new("deploy to prod")},
+			wantDone: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := uncheckFixture(t, tt.run)
+			ctx := context.Background()
+
+			before, err := env.svc.Get(ctx, "rollout")
+			require.NoError(t, err)
+
+			_, err = env.svc.UpdateEntry(ctx, "rollout", tt.entry, tt.in, "human:alice")
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+
+			got, err := env.svc.Get(ctx, "rollout")
+			require.NoError(t, err)
+			assert.Equal(t, before.Run, got.Run, "an entry update never touches the run block")
+
+			i := slices.IndexFunc(got.Entries, func(e PlaybookEntryDetail) bool { return e.ID == tt.entry })
+			require.GreaterOrEqual(t, i, 0)
+			assert.Equal(t, tt.wantDone, got.Entries[i].Done)
+
+			if tt.wantErr != nil {
+				assert.Equal(t, before.Entries[i], got.Entries[i], "a refused update changes nothing on the entry")
+			}
+		})
+	}
 }

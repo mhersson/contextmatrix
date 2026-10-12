@@ -60,7 +60,30 @@ var (
 	// ErrPlaybookMoveDuringRun is returned when an entry move is refused
 	// because the playbook has a running or waiting run.
 	ErrPlaybookMoveDuringRun = errors.New("entries cannot be reordered while the playbook run is active")
+	// ErrPlaybookUncheckDuringRun refuses unchecking a done manual entry while the run is running or waiting.
+	ErrPlaybookUncheckDuringRun = errors.New("entries cannot be unchecked while the playbook run is active")
+	// ErrCardReopenDuringRun refuses moving a card out of done or not_planned while a playbook holding it has an active run.
+	ErrCardReopenDuringRun = errors.New("card cannot be reopened while its playbook run is active")
 )
+
+// CardReopenError is the ErrCardReopenDuringRun refusal with the playbook
+// that caused it, so callers can name it without repeating the refusal.
+type CardReopenError struct {
+	Playbook string // the playbook's title
+}
+
+func (e *CardReopenError) Error() string {
+	return ErrCardReopenDuringRun.Error() + ": " + e.Remedy()
+}
+
+// Remedy is what the caller has to do before the card can be reopened.
+func (e *CardReopenError) Remedy() string {
+	return fmt.Sprintf("stop the run of playbook %q first", e.Playbook)
+}
+
+func (e *CardReopenError) Unwrap() error {
+	return ErrCardReopenDuringRun
+}
 
 // PlaybookStore is the persistence interface PlaybookService depends on.
 // Implemented by storage.FilesystemPlaybookStore.
@@ -1326,6 +1349,12 @@ func (s *PlaybookService) UpdateEntry(ctx context.Context, id, entryID string, i
 		}
 
 		if in.Done != nil {
+			// The runner acts on the first incomplete entry; one turning
+			// incomplete ahead of the live card would become a second frontier.
+			if !*in.Done && e.Done && p.RunActive() {
+				return fmt.Errorf("%w: stop the run to uncheck entries", ErrPlaybookUncheckDuringRun)
+			}
+
 			if *in.Done {
 				e.Done = true
 				e.DoneBy = agentID

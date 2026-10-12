@@ -149,8 +149,9 @@ func (r *Runner) stopper() Stopper {
 	return r.stop
 }
 
-// Play starts or resumes a run. It writes the run block with entry and
-// reason cleared, keeps started_at across a resume, and starts the walker.
+// Play starts or resumes a run. It writes the run block with the reason
+// cleared and the entry on a live worker (resumeEntry), keeps started_at
+// across a resume, and starts the walker.
 func (r *Runner) Play(ctx context.Context, id, agentID string) (*service.PlaybookDetail, error) {
 	d, err := r.cfg.Playbooks.Get(ctx, id)
 	if err != nil {
@@ -170,7 +171,10 @@ func (r *Runner) Play(ctx context.Context, id, agentID string) (*service.Playboo
 	}
 
 	now := r.cfg.Clock.Now().UTC()
-	run := board.PlaybookRun{Status: board.RunStatusRunning, Instance: r.cfg.Instance, StartedBy: agentID, StartedAt: now, UpdatedAt: now}
+	run := board.PlaybookRun{
+		Status: board.RunStatusRunning, Instance: r.cfg.Instance, StartedBy: agentID, StartedAt: now, UpdatedAt: now,
+		Entry: r.resumeEntry(ctx, d),
+	}
 
 	// A resume keeps the original start; a run after completion is new.
 	if d.Run != nil && d.Run.Status != board.RunStatusCompleted && !d.Run.StartedAt.IsZero() {
@@ -196,6 +200,42 @@ func (r *Runner) Play(ctx context.Context, id, agentID string) (*service.Playboo
 	r.Ensure(id)
 
 	return d, nil
+}
+
+// resumeEntry is the entry whose card still has a live worker (one that
+// outlived Stop, or a hand run made while stopped), so the first pass holds
+// on it instead of starting a second. The stopped run's own entry wins, then
+// the first in stored order; empty when none. A failed read counts as idle.
+func (r *Runner) resumeEntry(ctx context.Context, d *service.PlaybookDetail) string {
+	live := func(e *service.PlaybookEntryDetail) bool {
+		if e == nil || e.Type != board.EntryTypeCard || e.Missing {
+			return false
+		}
+
+		card, err := r.cfg.Cards.GetCard(ctx, e.Project, e.Card)
+		if err != nil {
+			ctxlog.Logger(ctx).Warn("playbook play: card read failed, treated as idle",
+				"playbook", d.ID, "project", e.Project, "card", e.Card, "error", err)
+
+			return false
+		}
+
+		return !board.IsTerminalState(card.State) && r.workerLive(card)
+	}
+
+	if d.Run != nil {
+		if e := findEntry(d, d.Run.Entry); live(e) {
+			return e.ID
+		}
+	}
+
+	for i := range d.Entries {
+		if e := &d.Entries[i]; live(e) {
+			return e.ID
+		}
+	}
+
+	return ""
 }
 
 // Stop marks the run stopped, then kills the current entry's worker when one

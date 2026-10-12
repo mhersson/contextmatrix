@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/mhersson/contextmatrix/internal/gitsync"
+	"github.com/mhersson/contextmatrix/internal/service"
 )
 
 // sanitizeErrorDetails converts an error into a short, sanitized detail
@@ -115,4 +116,14 @@ func remoteUnreachableDetails(err error) string {
 	default:
 		return "boards remote unreachable"
 	}
+}
+
+// reopenDetails is the remedy naming the playbook whose run refused a card
+// reopen, without the refusal text the error field already carries.
+func reopenDetails(err error) string {
+	if re, ok := errors.AsType[*service.CardReopenError](err); ok {
+		return re.Remedy()
+	}
+
+	return ""
 }
