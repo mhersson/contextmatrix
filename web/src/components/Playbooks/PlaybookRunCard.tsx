@@ -1,5 +1,5 @@
 import type { PlaybookDetail } from '../../types';
-import { describeRun, isRunActive, isRunCompleted, runStatusChip } from './playbookUtils';
+import { describeRun, isFullyComplete, isRunActive, isRunCompleted, runStatusChip } from './playbookUtils';
 
 interface PlaybookRunCardProps {
   detail: PlaybookDetail;
@@ -25,7 +25,11 @@ export function PlaybookRunCard({
 }: PlaybookRunCardProps) {
   const runnable = detail.runnable === true;
   const active = isRunActive(detail.run);
-  const completed = isRunCompleted(detail.run);
+  const runCompleted = isRunCompleted(detail.run);
+  // The lock is UI-only (the server still accepts Play and runnable
+  // changes), so it applies only when nothing is left to run; entries
+  // added after completion keep the page operable.
+  const completed = runCompleted && isFullyComplete(detail);
   const baseBranch = detail.base_branch ?? '';
   // A stored base branch that is not in the shared list (loading, or gone
   // from one repository) stays selectable so the select never renders blank.
@@ -99,13 +103,10 @@ export function PlaybookRunCard({
             ) : (
               <button
                 type="button"
-                onClick={completed ? undefined : onRun}
+                onClick={onRun}
                 disabled={completed}
-                className={
-                  completed
-                    ? 'px-3 py-1.5 rounded bg-[var(--bg-green)] text-[var(--green)] opacity-50 cursor-not-allowed transition-opacity text-sm font-medium inline-flex items-center gap-2'
-                    : 'px-3 py-1.5 rounded bg-[var(--bg-green)] text-[var(--green)] hover:opacity-90 transition-opacity text-sm font-medium inline-flex items-center gap-2'
-                }
+                title={completed ? 'Run completed' : undefined}
+                className="px-3 py-1.5 rounded bg-[var(--bg-green)] text-[var(--green)] hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity text-sm font-medium inline-flex items-center gap-2"
               >
                 <span aria-hidden="true">▶</span>
                 <span>Run</span>
@@ -113,7 +114,7 @@ export function PlaybookRunCard({
             )}
           </div>
 
-          {detail.run?.status === 'completed' && (detail.repos?.length ?? 0) > 0 && (
+          {runCompleted && (detail.repos?.length ?? 0) > 0 && (
             <ul className="mt-2 flex flex-col gap-1">
               {detail.repos!.map((r) => (
                 <li key={r.project}>
