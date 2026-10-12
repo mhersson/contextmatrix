@@ -9,13 +9,13 @@ import (
 // schemaVersion is the current opstore schema revision. Bump it when adding
 // tables/columns: every CREATE is IF NOT EXISTS, so an older database grows
 // the new table on open and is stamped; a newer database is refused.
-const schemaVersion = 4
+const schemaVersion = 5
 
 // ensureSchema creates every operational table if absent. Clean-cut: there is
 // no migration ledger and no backward-compat path - an obsolete DB is deleted
-// and recreated by the operator. Holds the chat schema (sessions, messages,
-// cost archive), the model blacklist, Best-of-N model outcomes, and the
-// selector tier ladders and price headroom in a single ops.db.
+// and recreated by the operator. One ops.db holds the chat schema (sessions,
+// messages, cost archive), the model blacklist, Best-of-N model outcomes, the
+// selector tier ladders and price headroom, and the Jira writeback outbox.
 func ensureSchema(ctx context.Context, db *sql.DB) error {
 	var current int
 	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&current); err != nil {
@@ -111,6 +111,20 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			headroom   REAL NOT NULL,
 			updated_at INTEGER NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS jira_writeback (
+			project         TEXT NOT NULL,
+			card_id         TEXT NOT NULL,
+			kind            TEXT NOT NULL CHECK (kind IN ('started','done')),
+			issue_key       TEXT NOT NULL,
+			state           TEXT NOT NULL CHECK (state IN ('pending','done','skipped','failed')),
+			attempts        INTEGER NOT NULL DEFAULT 0,
+			next_attempt_at INTEGER NOT NULL,
+			last_error      TEXT,
+			created_at      INTEGER NOT NULL,
+			updated_at      INTEGER NOT NULL,
+			PRIMARY KEY (project, card_id, kind)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_jira_writeback_due ON jira_writeback(state, next_attempt_at)`,
 	}
 
 	for _, s := range stmts {

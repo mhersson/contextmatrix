@@ -474,6 +474,69 @@ func TestAddLogEntry(t *testing.T) {
 	}
 }
 
+func TestAddSystemLogEntry(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{Title: "Test", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-1")
+	require.NoError(t, err)
+
+	before, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+
+	entry := board.ActivityEntry{Agent: "system:jira-writeback", Action: "jira-writeback", Message: "m"}
+
+	_, err = svc.AddLogEntry(ctx, "test-project", card.ID, entry)
+	require.ErrorIs(t, err, lock.ErrAgentMismatch, "the owner-checked path still refuses a system writer on a claimed card")
+
+	updated, err := svc.AddSystemLogEntry(ctx, "test-project", card.ID, entry)
+	require.NoError(t, err)
+	require.NotEmpty(t, updated.ActivityLog)
+	assert.Equal(t, "system:jira-writeback", updated.ActivityLog[len(updated.ActivityLog)-1].Agent)
+	assert.Equal(t, "agent-1", updated.AssignedAgent, "the claim is untouched")
+
+	after, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, before.LastHeartbeat, after.LastHeartbeat, "a system line is not proof of agent liveness")
+
+	for _, agent := range []string{"agent-2", "systemd", ""} {
+		_, err = svc.AddSystemLogEntry(ctx, "test-project", card.ID, board.ActivityEntry{Agent: agent, Action: "x", Message: "y"})
+		require.ErrorIs(t, err, lock.ErrAgentMismatch, "agent %q", agent)
+	}
+}
+
+func TestAddSystemLogEntry_NoHeartbeatRefreshForSystemClaimHolder(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{Title: "Test", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "system")
+	require.NoError(t, err)
+
+	before, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	require.NotNil(t, before.LastHeartbeat)
+
+	time.Sleep(5 * time.Millisecond)
+
+	_, err = svc.AddSystemLogEntry(ctx, "test-project", card.ID, board.ActivityEntry{Agent: "system", Action: "x", Message: "y"})
+	require.NoError(t, err)
+
+	after, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	require.NotNil(t, after.LastHeartbeat)
+	assert.Equal(t, before.LastHeartbeat, after.LastHeartbeat, "a system line never refreshes the heartbeat, even for a claim held under a system ID")
+}
+
 func TestClaimCard(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
 	defer cleanup()

@@ -15,6 +15,11 @@ type JiraStatusClient interface {
 	Myself(ctx context.Context) (jira.Account, error)
 }
 
+// JiraWritebackStatus reports the writeback worker's live state.
+type JiraWritebackStatus interface {
+	Paused() bool
+}
+
 // JiraInfo is the non-secret Jira configuration the API reports.
 type JiraInfo struct {
 	SiteURL          string
@@ -25,8 +30,9 @@ type JiraInfo struct {
 const jiraStatusTimeout = 10 * time.Second
 
 type jiraHandlers struct {
-	client JiraStatusClient
-	info   JiraInfo
+	client    JiraStatusClient
+	info      JiraInfo
+	writeback JiraWritebackStatus
 }
 
 type jiraStatusResponse struct {
@@ -35,6 +41,7 @@ type jiraStatusResponse struct {
 	Account          string `json:"account,omitempty"`
 	AuthMode         string `json:"auth_mode"`
 	WritebackEnabled bool   `json:"writeback_enabled"`
+	WritebackPaused  bool   `json:"writeback_paused"`
 	SiteURL          string `json:"site_url"`
 	AuthError        string `json:"auth_error,omitempty"`
 }
@@ -54,6 +61,10 @@ func (h *jiraHandlers) getStatus(w http.ResponseWriter, r *http.Request) {
 		AuthMode:         h.info.AuthMode,
 		WritebackEnabled: h.info.WritebackEnabled,
 		SiteURL:          h.info.SiteURL,
+	}
+
+	if h.writeback != nil {
+		resp.WritebackPaused = h.writeback.Paused()
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), jiraStatusTimeout)

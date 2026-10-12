@@ -11,6 +11,7 @@ import (
 	ghimport "github.com/mhersson/contextmatrix/internal/github"
 	"github.com/mhersson/contextmatrix/internal/gitops"
 	"github.com/mhersson/contextmatrix/internal/gitsync"
+	"github.com/mhersson/contextmatrix/internal/jirawriteback"
 	"github.com/mhersson/contextmatrix/internal/playbookrun"
 )
 
@@ -39,6 +40,11 @@ type shutdownComponents struct {
 	// nil when no boards repo has playbooks enabled.
 	PlaybookRunner *playbookrun.Runner
 
+	// JiraWriteback is the Jira status writeback; nil when writeback is off.
+	// Joined with the playbook walkers, before the commit queues close: a
+	// permanent failure writes a card log line through them.
+	JiraWriteback *jirawriteback.Writeback
+
 	// Syncer fronts every boards repo's background syncer. May be nil when
 	// no repo has a remote.
 	Syncer *gitsync.Group
@@ -61,7 +67,8 @@ type shutdownComponents struct {
 //  1. http_drain      - cancel SSE contexts, drain in-flight HTTP requests.
 //  2. sessionlog_close - close backend SSE log sessions with terminal events.
 //  3. ctx_cancel      - cancel the long-lived application context.
-//  4. playbook_runner_drain - join the playbook walkers.
+//  4. playbook_runner_drain, jira_writeback_drain - join the playbook
+//     walkers and the Jira writeback worker on one shared budget.
 //  5. commit_queue_close - flush buffered commits to disk.
 //  6. syncers_drain   - wait for git syncers to finish any late push.
 //
@@ -110,19 +117,21 @@ func runShutdownSequence(ctx context.Context, c shutdownComponents) error {
 	slog.Info("shutdown: phase=ctx_cancel")
 	c.AppCancel()
 
-	// Phase 4: join the playbook walkers. AppCancel above is what stops
-	// them; this waits so a walker mid-write finishes before the commit
-	// queues close underneath it, which would otherwise roll its run-state
-	// write back. Bounded so a wedged walker cannot hold shutdown open, and
-	// on its own budget like phase 6: derived from the shutdown ctx it would
-	// shrink to whatever phase 1's HTTP drain left, and a slow drain could
-	// let the queues close under a walker still writing.
+	// Phase 4: join the playbook walkers and the Jira writeback worker.
+	// AppCancel above is what stops them; this waits so a walker mid-write
+	// finishes before the commit queues close underneath it, which would
+	// otherwise roll its run-state write back. Bounded so a wedged drain
+	// cannot hold shutdown open. The drains run in turn on one budget that
+	// is independent of the shutdown ctx, like phase 6: derived from it, the
+	// budget would shrink to whatever phase 1's HTTP drain left, and a slow
+	// drain could let the queues close under a walker still writing.
 	slog.Info("shutdown: phase=playbook_runner_drain")
 
 	const phase4Timeout = 10 * time.Second
 
+	phase4Ctx, phase4Cancel := context.WithTimeout(context.Background(), phase4Timeout)
+
 	if c.PlaybookRunner != nil {
-		phase4Ctx, phase4Cancel := context.WithTimeout(context.Background(), phase4Timeout)
 		if err := c.PlaybookRunner.Shutdown(phase4Ctx); err != nil {
 			slog.Warn("shutdown: playbook runner drain exceeded budget",
 				"phase", "playbook_runner_drain",
@@ -130,9 +139,19 @@ func runShutdownSequence(ctx context.Context, c shutdownComponents) error {
 				"error", err,
 			)
 		}
-
-		phase4Cancel()
 	}
+
+	if c.JiraWriteback != nil {
+		if err := waitSyncer(phase4Ctx, c.JiraWriteback.Wait); err != nil {
+			slog.Warn("shutdown: jira writeback drain exceeded budget",
+				"phase", "jira_writeback_drain",
+				"timeout", phase4Timeout,
+				"error", err,
+			)
+		}
+	}
+
+	phase4Cancel()
 
 	// Phase 5: drain the commit queue so any writes that landed on the
 	// worker channel - but whose go-git commit had not yet started when

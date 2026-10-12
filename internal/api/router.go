@@ -291,6 +291,9 @@ type RouterConfig struct {
 	Jira JiraStatusClient
 	// JiraInfo is the non-secret Jira configuration the status endpoint reports.
 	JiraInfo JiraInfo
+	// JiraWriteback reports whether Jira status writeback is paused; nil when
+	// writeback is off. Assign only a non-nil worker (typed-nil gotcha).
+	JiraWriteback JiraWritebackStatus
 }
 
 // EndpointModelView is the api-package projection of modelcatalog.EndpointModel
@@ -454,7 +457,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	mux.HandleFunc("GET /api/app/config", ach.getAppConfig)
 
 	// Jira status: always registered so the web can learn Jira is off.
-	jiraH := &jiraHandlers{client: cfg.Jira, info: cfg.JiraInfo}
+	jiraH := &jiraHandlers{client: cfg.Jira, info: cfg.JiraInfo, writeback: cfg.JiraWriteback}
 	mux.HandleFunc("GET /api/jira/status", jiraH.getStatus)
 
 	// Admin model-outcomes: registered in both auth modes (open in none

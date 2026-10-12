@@ -634,6 +634,17 @@ func main() {
 		slog.Info("jira client initialized", "site_url", cfg.Jira.SiteURL, "auth_mode", cfg.Jira.AuthMode)
 	}
 
+	jiraWriteback, err := wireJiraWriteback(ctx, cfg.Jira, jiraClient, bus, svc, opStore)
+	if err != nil {
+		slog.Error("failed to start jira writeback", "error", err)
+		cancel()
+		os.Exit(1) //nolint:gocritic // cancel called explicitly above
+	}
+
+	if jiraWriteback != nil {
+		slog.Info("jira writeback started")
+	}
+
 	// Create router with all API routes. MCP is registered on the inner mux
 	// so it shares the same middleware chain as every other route - no
 	// separate wrapping needed here.
@@ -696,6 +707,10 @@ func main() {
 
 	if jiraClient != nil {
 		routerCfg.Jira = jiraClient
+	}
+
+	if jiraWriteback != nil {
+		routerCfg.JiraWriteback = jiraWriteback
 	}
 
 	if catalogBuilder != nil && agentAA {
@@ -839,6 +854,7 @@ func main() {
 		SessionLog:     sessionMgr,
 		CommitQueues:   boards.queues(),
 		PlaybookRunner: pbRunner,
+		JiraWriteback:  jiraWriteback,
 		Syncer:         syncGroup,
 		GHSyncer:       ghSyncer,
 		HTTPCancel:     httpCancel,

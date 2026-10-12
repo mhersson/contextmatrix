@@ -611,3 +611,16 @@ jira:
   # API token. Never hard-code in production. Supply via env var.
   # Env: CONTEXTMATRIX_JIRA_TOKEN
   token: ""
+
+  # Move Jira issues to started and done as their cards progress.
+  # See docs/jira-import.md "Status writeback".
+  writeback:
+    # Requires site_url. Default: false.
+    # Env: CONTEXTMATRIX_JIRA_WRITEBACK_ENABLED
+    enabled: false
+
+    # Per Jira project key: target statuses and the resolution for done.
+    # Config file only (no env override).
+    # Example:
+    #   PROJ: { started: "In Progress", done: "Done", resolution: "Done" }
+    status_targets: {}
