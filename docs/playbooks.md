@@ -67,7 +67,7 @@ page; the switch opens a warning that lists exactly what follows.
   `base_branch: playbook/<id>`. A card added later gets the same. A terminal
   card is left alone.
 - Those five fields are locked on the cards from that moment: the web UI
-  shows them read-only with "Set by playbook <title>", REST returns
+  shows them read-only with "Set by playbook \<title\>", REST returns
   `409 PLAYBOOK_LOCKED` on a change, and the MCP `update_card` tool refuses
   `autonomous`. Repeating the current value is not a change. Everything else
   on the card stays editable.
