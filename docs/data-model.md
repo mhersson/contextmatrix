@@ -150,6 +150,7 @@ live in [architecture](architecture.md); the HTTP surface in the
     | Scenario                                           | Behaviour                                                                   |
     | -------------------------------------------------- | --------------------------------------------------------------------------- |
     | Created with a non-empty `parent`                  | `type` forced to `subtask`                                                  |
+    | Created with no `parent` and `type: subtask`       | rejected with 422 `VALIDATION_ERROR`; no card ID is consumed                |
     | `UpdateCard` sets `parent` on a card that had none | `type` forced to `subtask`                                                  |
     | `UpdateCard` clears `parent`                       | a `subtask` type resets to the first entry in the project's `types`         |
     | `UpdateCard` keeps an existing `parent`            | `type` must stay `subtask`, else 422                                        |
