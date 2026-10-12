@@ -1,13 +1,16 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"slices"
 
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/config"
+	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/jira"
+	"github.com/mhersson/contextmatrix/internal/jirawriteback"
 )
 
 // wireJira builds the Jira client when jira.site_url is set. This is the only
@@ -58,4 +61,31 @@ func warnUnknownJiraTargets(mapping map[string]config.JiraProjectMapping, projec
 	for _, u := range unknownJiraTargets(mapping, projects) {
 		slog.Warn("jira.project_map target is not a CM project", "mapping", u)
 	}
+}
+
+// wireJiraWriteback builds and starts status writeback when it is enabled
+// and Jira is configured; otherwise it constructs and starts nothing.
+func wireJiraWriteback(
+	ctx context.Context,
+	cfg config.JiraConfig,
+	client *jira.Client,
+	bus *events.Bus,
+	cards jirawriteback.Cards,
+	outbox jirawriteback.Outbox,
+) (*jirawriteback.Writeback, error) {
+	if !cfg.Writeback.Enabled || client == nil {
+		return nil, nil
+	}
+
+	wb, err := jirawriteback.New(bus, cards, outbox, client, jirawriteback.Options{
+		SiteURL:       cfg.SiteURL,
+		StatusTargets: cfg.Writeback.StatusTargets,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("jira writeback: %w", err)
+	}
+
+	wb.Start(ctx)
+
+	return wb, nil
 }
