@@ -29,6 +29,26 @@ type tree struct {
 	byKey    map[string]jira.Issue   // every child and sub-task
 }
 
+type treeItem struct {
+	issue     jira.Issue
+	parentKey string // the Jira parent of a sub-task; "" for a child of the epic
+}
+
+// ordered lists the tree children-first: each child's sub-tasks, then the child.
+func (t *tree) ordered() []treeItem {
+	var out []treeItem
+
+	for _, c := range t.children {
+		for _, st := range t.subtasks[c.Key] {
+			out = append(out, treeItem{issue: st, parentKey: c.Key})
+		}
+
+		out = append(out, treeItem{issue: c})
+	}
+
+	return out
+}
+
 // fetchTree reads the epic, its children and their sub-tasks. Epic level is
 // decided by hierarchy level, never by type name: sites rename the levels.
 func (s *Service) fetchTree(ctx context.Context, epicKey string) (*tree, error) {

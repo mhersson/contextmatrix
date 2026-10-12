@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/config"
@@ -53,6 +54,9 @@ var (
 	ErrJiraUnavailable = errors.New("jira unavailable")
 	// ErrInvalidRequest is returned for an import request that cannot run.
 	ErrInvalidRequest = errors.New("invalid import request")
+	// ErrPlaybookRunning is returned when the epic's playbook has a running
+	// or waiting run: the import would extend a playbook mid-run.
+	ErrPlaybookRunning = errors.New("the epic's playbook has an active run")
 )
 
 // Per-selection result statuses.
@@ -68,13 +72,33 @@ type Service struct {
 	cards     Cards
 	playbooks Playbooks
 	cfg       Config
+
+	mu    sync.Mutex
+	epics map[string]*sync.Mutex
 }
 
 // New builds the import service.
 func New(client JiraClient, cards Cards, playbooks Playbooks, cfg Config) *Service {
-	return &Service{jira: client, cards: cards, playbooks: playbooks, cfg: cfg}
+	return &Service{jira: client, cards: cards, playbooks: playbooks, cfg: cfg, epics: map[string]*sync.Mutex{}}
 }
 
 func (s *Service) browseURL(key string) string {
 	return strings.TrimRight(s.cfg.SiteURL, "/") + "/browse/" + key
+}
+
+// lockEpic serialises imports of one epic on this instance, so two clicks
+// cannot both create the playbook or the same card.
+func (s *Service) lockEpic(key string) func() {
+	s.mu.Lock()
+
+	m, ok := s.epics[key]
+	if !ok {
+		m = &sync.Mutex{}
+		s.epics[key] = m
+	}
+
+	s.mu.Unlock()
+	m.Lock()
+
+	return m.Unlock
 }

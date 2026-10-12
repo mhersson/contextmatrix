@@ -119,6 +119,7 @@ type importEnv struct {
 	jira  *fakeJira
 	cards *service.CardService
 	pbs   *service.PlaybookService
+	dir   string // the boards repo
 }
 
 // newImportEnv builds real card and playbook services over two projects,
@@ -175,6 +176,7 @@ func newImportEnv(t *testing.T, projectMap map[string]config.JiraProjectMapping)
 		jira:  fj,
 		cards: cards,
 		pbs:   pbs,
+		dir:   boardsDir,
 	}
 }
 
