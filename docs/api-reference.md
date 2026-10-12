@@ -286,6 +286,7 @@ the request's `request_id`.
 | `PLAYBOOK_NOT_RUNNABLE`      | 409     | An operation that requires `runnable: true` is called on a playbook that is not runnable                                                                                                   |
 | `PLAYBOOK_CARD_OWNED`        | 422     | `runnable: true` and a card entry already belongs to another runnable playbook                                                                                                             |
 | `PLAYBOOK_PROJECT_NO_REPO`   | 422     | `runnable: true` and a card entry's project has no GitHub repository URL                                                                                                                   |
+| `PLAYBOOK_CARD_NOT_VETTED`   | 422     | `runnable: true` and a non-terminal card entry is imported content not yet vetted |
 | `PLAYBOOK_CARD_FORCE_FAILED` | 422     | `runnable: true` and one or more card entries would not take the forced settings; `details` names them as `project/card`. Cards forced before them keep their settings; the flag stays off |
 | `IMAGE_NOT_FOUND`            | 404     | Unknown or malformed image id                                                                                                                                                              |
 | `IMAGE_UNSUPPORTED`          | 415     | Image format not png/jpeg/gif/webp (animated WebP lands here too)                                                                                                                          |
@@ -1914,9 +1915,11 @@ Response **200** with the full detail. **Errors:** 404
 (string) from human callers; agents get `403 HUMAN_ONLY_FIELD`. Setting
 `runnable: true` forces `autonomous`, `create_pr`, `await_ci`, `merge_pr` and
 `base_branch: playbook/<id>` on every non-terminal card entry; it fails with
-`422 PLAYBOOK_PROJECT_NO_REPO`, `422 PLAYBOOK_CARD_OWNED`, or
-`422 PLAYBOOK_CARD_FORCE_FAILED` (the cards that would not take the
-settings, named in `details`; cards forced before them keep their settings)
+`422 PLAYBOOK_PROJECT_NO_REPO`, `422 PLAYBOOK_CARD_OWNED`,
+`422 PLAYBOOK_CARD_NOT_VETTED` (non-terminal imported cards not yet vetted,
+named in `details`), or `422 PLAYBOOK_CARD_FORCE_FAILED` (the cards that would
+not take the settings, named in `details`; cards forced before them keep their
+settings)
 and leaves the flag off. `runnable: false` and `base_branch` return
 `409 PLAYBOOK_RUN_ACTIVE` while a run is running or waiting.
 

@@ -53,6 +53,10 @@ var (
 	// be applied to one or more card entries; the message names them as
 	// project/card. Cards forced before the failure keep their settings.
 	ErrPlaybookCardForce = errors.New("could not apply playbook settings to cards")
+	// ErrPlaybookCardNotVetted is returned by make-runnable when a
+	// non-terminal card entry is imported content no human has vetted; the
+	// message names them as project/card.
+	ErrPlaybookCardNotVetted = errors.New("cards must be vetted before the playbook can run")
 )
 
 // PlaybookStore is the persistence interface PlaybookService depends on.
@@ -840,7 +844,44 @@ func (s *PlaybookService) makeRunnable(ctx context.Context, p *board.Playbook, a
 		return nil, err
 	}
 
+	if err := s.validateVetted(ctx, p.Entries); err != nil {
+		return nil, err
+	}
+
 	return s.forceEntries(ctx, p, p.Entries, agentID)
+}
+
+// validateVetted names every non-terminal card entry that is imported content
+// no human has vetted, so make-runnable refuses before forcing anything.
+// AddEntry deliberately skips it: on a runnable playbook the runner holds the
+// run on such a card until it is vetted.
+func (s *PlaybookService) validateVetted(ctx context.Context, entries []board.PlaybookEntry) error {
+	var unvetted []string
+
+	for _, e := range entries {
+		if e.Type != board.EntryTypeCard {
+			continue
+		}
+
+		card, err := s.cards.GetCard(ctx, e.Project, e.Card)
+		if err != nil {
+			if errors.Is(err, storage.ErrCardNotFound) || errors.Is(err, storage.ErrProjectNotFound) {
+				continue
+			}
+
+			return fmt.Errorf("get card %s/%s: %w", e.Project, e.Card, err)
+		}
+
+		if !board.IsTerminalState(card.State) && card.NeedsVetting() {
+			unvetted = append(unvetted, e.Project+"/"+e.Card)
+		}
+	}
+
+	if len(unvetted) > 0 {
+		return fmt.Errorf("%w: %s", ErrPlaybookCardNotVetted, strings.Join(unvetted, ", "))
+	}
+
+	return nil
 }
 
 // validateRunnableEntries checks that each card entry's project has a GitHub

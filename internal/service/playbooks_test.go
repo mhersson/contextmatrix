@@ -1313,3 +1313,81 @@ func TestPlaybookService_AddEntryCommitFailureWarnsAboutTheForcedCard(t *testing
 	assert.Contains(t, logs.String(), "the cards keep them")
 	assert.Contains(t, logs.String(), "project-alpha/ALPHA-002")
 }
+
+// importedCard writes a jira-sourced card straight to the store.
+func (env *playbookTestEnv) importedCard(t *testing.T, id, state string, vetted bool) {
+	t.Helper()
+
+	card := &board.Card{
+		ID: id, Title: id, Project: "project-alpha",
+		Type: "task", State: state, Priority: "medium", Vetted: vetted,
+		Source:  &board.Source{System: "jira", ExternalID: "PROJ-" + id, ExternalURL: "https://acme.atlassian.net/browse/PROJ-1"},
+		Created: time.Now().UTC(), Updated: time.Now().UTC(),
+	}
+	require.NoError(t, env.cards.CreateCard(context.Background(), "project-alpha", card))
+}
+
+func TestPlaybookService_MakeRunnableRefusesUnvettedCards(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	env.importedCard(t, "ALPHA-002", "todo", false)
+	env.importedCard(t, "ALPHA-003", "done", false) // terminal: never runs, never flagged
+
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{
+		Title: "Imported", AgentID: "human:alice",
+		Entries: []PlaybookEntryInput{
+			{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"}, // no source
+			{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-002"},
+			{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-003"},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = env.svc.UpdateMeta(ctx, "imported", UpdatePlaybookInput{Runnable: new(true)}, "human:alice")
+	require.ErrorIs(t, err, ErrPlaybookCardNotVetted)
+	assert.Contains(t, err.Error(), "project-alpha/ALPHA-002")
+	assert.NotContains(t, err.Error(), "ALPHA-003")
+	assert.NotContains(t, err.Error(), "ALPHA-001")
+
+	// Nothing was forced and the flag did not flip.
+	first, err := env.cardSvc.GetCard(ctx, "project-alpha", "ALPHA-001")
+	require.NoError(t, err)
+	assert.False(t, first.Autonomous)
+
+	got, err := env.svc.Get(ctx, "imported")
+	require.NoError(t, err)
+	assert.False(t, got.Runnable)
+
+	// Vetting the card clears the refusal.
+	card, err := env.cards.GetCard(ctx, "project-alpha", "ALPHA-002")
+	require.NoError(t, err)
+
+	card.Vetted = true
+	require.NoError(t, env.cards.UpdateCard(ctx, "project-alpha", card))
+
+	got, err = env.svc.UpdateMeta(ctx, "imported", UpdatePlaybookInput{Runnable: new(true)}, "human:alice")
+	require.NoError(t, err)
+	assert.True(t, got.Runnable)
+}
+
+func TestPlaybookService_AddEntryToRunnableAcceptsUnvettedCard(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{
+		Title: "Rollout", AgentID: "human:alice",
+		Entries: []PlaybookEntryInput{{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"}},
+	})
+	require.NoError(t, err)
+
+	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: new(true)}, "human:alice")
+	require.NoError(t, err)
+
+	env.importedCard(t, "ALPHA-002", "todo", false)
+
+	got, err := env.svc.AddEntry(ctx, "rollout",
+		PlaybookEntryInput{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-002"}, "human:alice")
+	require.NoError(t, err, "the runner gates an unvetted card; adding it is allowed")
+	assert.Len(t, got.Entries, 2)
+}
