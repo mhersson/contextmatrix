@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"runtime/debug"
 	"slices"
 	"time"
 
@@ -115,6 +116,9 @@ func (s *Service) run(base context.Context, id string, t *tree, req ImportReques
 		// A panic must end this import, not the server.
 		defer func() {
 			if p := recover(); p != nil {
+				ctxlog.Logger(ctx).Error("jira import panicked",
+					"import", id, "epic", t.epic.Key, "panic", p, "stack", string(debug.Stack()))
+
 				err = fmt.Errorf("jira import panicked: %v", p)
 			}
 		}()

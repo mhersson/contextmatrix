@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"testing"
 	"time"
@@ -342,6 +343,83 @@ func TestBegin_FailureShowsOnlyASafePhrase(t *testing.T) {
 			assert.Equal(t, st.Error, ev.Data["error"], "the event carries the same safe phrase")
 		})
 	}
+}
+
+// recordedLogs keeps every record slog's default logger handles in one test.
+type recordedLogs struct {
+	mu      sync.Mutex
+	records []slog.Record
+}
+
+func recordLogs(t *testing.T) *recordedLogs {
+	t.Helper()
+
+	h := &recordedLogs{}
+	prev := slog.Default()
+
+	slog.SetDefault(slog.New(h))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	return h
+}
+
+func (h *recordedLogs) Enabled(context.Context, slog.Level) bool { return true }
+func (h *recordedLogs) WithAttrs([]slog.Attr) slog.Handler       { return h }
+func (h *recordedLogs) WithGroup(string) slog.Handler            { return h }
+
+func (h *recordedLogs) Handle(_ context.Context, r slog.Record) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	h.records = append(h.records, r.Clone())
+
+	return nil
+}
+
+// withAttr returns the attributes of every record that carries key.
+func (h *recordedLogs) withAttr(key string) []map[string]any {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	var out []map[string]any
+
+	for _, r := range h.records {
+		attrs := map[string]any{"level": r.Level}
+
+		r.Attrs(func(a slog.Attr) bool {
+			attrs[a.Key] = a.Value.Any()
+
+			return true
+		})
+
+		if _, ok := attrs[key]; ok {
+			out = append(out, attrs)
+		}
+	}
+
+	return out
+}
+
+func TestBegin_PanicIsLoggedWithItsStack(t *testing.T) {
+	logs := recordLogs(t)
+
+	e := newImportEnv(t, nil)
+	e.jira.add(story("102", "PROJ-2", "Cart API"))
+
+	svc, _ := e.serviceWith(t, &panicCards{Cards: e.cards, value: "boom"}, e.pbs)
+
+	id, err := svc.Begin(context.Background(), "PROJ-1",
+		ImportRequest{Selections: []Selection{{Key: "PROJ-2", Project: "api"}}}, "human:alice")
+	require.NoError(t, err)
+
+	st := waitDone(t, svc, id)
+	assert.Equal(t, ImportFailed, st.Status)
+
+	panics := logs.withAttr("panic")
+	require.Len(t, panics, 1)
+	assert.Equal(t, slog.LevelError, panics[0]["level"])
+	assert.Equal(t, "boom", panics[0]["panic"])
+	assert.NotEmpty(t, panics[0]["stack"])
 }
 
 func TestBegin_TimeBoundEndsTheImport(t *testing.T) {
