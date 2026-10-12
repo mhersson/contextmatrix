@@ -216,6 +216,7 @@ func TestPlaybook_V1FileParsesWithoutRunFields(t *testing.T) {
 	assert.False(t, got.Runnable)
 	assert.Empty(t, got.BaseBranch)
 	assert.Nil(t, got.Run)
+	assert.Nil(t, got.Source)
 	require.NoError(t, got.Validate())
 }
 
@@ -230,4 +231,17 @@ func TestPlaybookRun_Clone(t *testing.T) {
 	assert.Equal(t, r, cp)
 	require.NotSame(t, r, cp)
 	require.NotSame(t, r.EndedAt, cp.EndedAt)
+}
+
+func TestPlaybook_SourceRoundTrip(t *testing.T) {
+	p := validPlaybook()
+	p.Source = &Source{System: "jira", ExternalID: "PROJ-1", ExternalURL: "https://acme.atlassian.net/browse/PROJ-1"}
+
+	data, err := SerializePlaybook(p)
+	require.NoError(t, err)
+
+	got, err := ParsePlaybook(data)
+	require.NoError(t, err)
+	assert.Equal(t, p, got)
+	require.NoError(t, got.Validate())
 }

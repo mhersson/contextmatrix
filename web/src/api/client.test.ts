@@ -378,3 +378,40 @@ describe('admin endpoints', () => {
   });
 });
 
+
+describe('api.importJiraEpic', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('starts an import with a POST to the epic route', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(makeResponse({ import_id: 'ji-1' }, 202));
+    const input = {
+      selections: [{ key: 'PROJ-2', project: 'api' }],
+      vetted: false,
+      include_epic_context: true,
+      playbook: { title: 'PROJ-1 Epic', description: 'Epic' },
+    };
+
+    await expect(api.importJiraEpic('PROJ-1', input)).resolves.toEqual({ import_id: 'ji-1' });
+
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('/api/jira/epics/PROJ-1/import');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual(input);
+  });
+});
+
+describe('api Jira reads', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it.each([
+    ['getJiraStatus', () => api.getJiraStatus(), '/api/jira/status'],
+    ['previewJiraEpic', () => api.previewJiraEpic('PROJ-1'), '/api/jira/epics/PROJ-1/preview'],
+    ['getJiraImport', () => api.getJiraImport('ji-1'), '/api/jira/imports/ji-1'],
+  ])('%s GETs its route', async (_name, call, want) => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(makeResponse({}));
+    await call();
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit | undefined];
+    expect(url).toBe(want);
+    expect(init?.method ?? 'GET').toBe('GET');
+  });
+});

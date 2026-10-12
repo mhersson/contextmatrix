@@ -4603,25 +4603,48 @@ func TestNotPlannedDoesNotAppearInStalledDetection(t *testing.T) {
 }
 
 func TestGenerateBranchName(t *testing.T) {
+	jiraSrc := func(key string) *board.Source {
+		return &board.Source{System: "jira", ExternalID: key, ExternalURL: "https://acme.atlassian.net/browse/" + key}
+	}
+
 	tests := []struct {
 		name     string
 		cardID   string
 		title    string
+		source   *board.Source
 		expected string
 	}{
-		{"simple", "TEST-001", "Fix login bug", "test-001/fix-login-bug"},
-		{"special chars", "ALPHA-042", "Add user auth & validation!", "alpha-042/add-user-auth-validation"},
-		{"long title", "X-001", strings.Repeat("word ", 20), "x-001/word-word-word-word-word-word-word-word-word-word"},
-		{"empty title", "TEST-001", "", "test-001"},
-		{"unicode", "TEST-001", "Fix über bug", "test-001/fix-ber-bug"},
+		{"simple", "TEST-001", "Fix login bug", nil, "test-001/fix-login-bug"},
+		{"special chars", "ALPHA-042", "Add user auth & validation!", nil, "alpha-042/add-user-auth-validation"},
+		{"long title", "X-001", strings.Repeat("word ", 20), nil, "x-001/word-word-word-word-word-word-word-word-word-word"},
+		{"empty title", "TEST-001", "", nil, "test-001"},
+		{"unicode", "TEST-001", "Fix über bug", nil, "test-001/fix-ber-bug"},
+		{"github source unchanged", "TEST-001", "Fix login", &board.Source{System: "github", ExternalID: "acme/x#1"}, "test-001/fix-login"},
+		{"jira key kept uppercase", "CTXMAX-801", "PROJ-123 Fix login bug", jiraSrc("PROJ-123"), "ctxmax-801/PROJ-123-fix-login-bug"},
+		{"jira title edited to drop the key", "CTXMAX-801", "Fix login bug", jiraSrc("PROJ-123"), "ctxmax-801/PROJ-123-fix-login-bug"},
+		{"jira title is only the key", "CTXMAX-801", "PROJ-123", jiraSrc("PROJ-123"), "ctxmax-801/PROJ-123"},
+		{"jira longer key prefix not stripped", "CTXMAX-801", "PROJ-1234 Fix", jiraSrc("PROJ-123"), "ctxmax-801/PROJ-123-proj-1234-fix"},
+		{"jira invalid key ignored", "CTXMAX-801", "Fix", jiraSrc("proj 1;rm"), "ctxmax-801/fix"},
+		{"jira key over 64 bytes ignored", "CTXMAX-801", "Fix", jiraSrc("P" + strings.Repeat("X", 60) + "-1234"), "ctxmax-801/fix"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := generateBranchName(tt.cardID, tt.title)
-			assert.Equal(t, tt.expected, result)
+			assert.Equal(t, tt.expected, generateBranchName(tt.cardID, tt.title, tt.source))
 		})
 	}
+}
+
+func TestCreateCard_JiraBranchNameKeepsKey(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	card, err := svc.CreateCard(context.Background(), "test-project", CreateCardInput{
+		Title: "PROJ-7 Fix login", Type: "task", Priority: "medium",
+		Source: &board.Source{System: "jira", ExternalID: "PROJ-7", ExternalURL: "https://acme.atlassian.net/browse/PROJ-7"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "test-001/PROJ-7-fix-login", card.BranchName)
 }
 
 func TestCreateCard_AutonomousFields(t *testing.T) {
@@ -7863,4 +7886,32 @@ func TestEnrichPlaybookLock(t *testing.T) {
 	}
 
 	assert.Equal(t, 2, locked)
+}
+
+func TestCreateCard_CustomAndInitialLog(t *testing.T) {
+	svc, tmpDir, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "PROJ-7 Import me", Type: "task", Priority: "medium",
+		Source: &board.Source{System: "jira", ExternalID: "PROJ-7", ExternalURL: "https://acme.atlassian.net/browse/PROJ-7"},
+		Custom: map[string]any{"jira_issue_id": "10007", "jira_import_hash": "abc"},
+		Log:    &board.ActivityEntry{Agent: "human:alice", Action: "imported", Message: "Imported from Jira PROJ-7"},
+	})
+	require.NoError(t, err)
+
+	// A fresh store proves the fields went through YAML, not just the cache.
+	fresh, err := storage.NewFilesystemStore(filepath.Join(tmpDir, "boards"))
+	require.NoError(t, err)
+
+	got, err := fresh.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "10007", got.Custom["jira_issue_id"])
+	assert.Equal(t, "abc", got.Custom["jira_import_hash"])
+	require.Len(t, got.ActivityLog, 1)
+	assert.Equal(t, "human:alice", got.ActivityLog[0].Agent)
+	assert.Equal(t, "imported", got.ActivityLog[0].Action)
+	assert.False(t, got.ActivityLog[0].Timestamp.IsZero())
 }

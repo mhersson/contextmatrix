@@ -231,7 +231,9 @@ export type EventType =
   | 'worker.parked'
   | 'playbook.created'
   | 'playbook.updated'
-  | 'playbook.deleted';
+  | 'playbook.deleted'
+  | 'jira_import.progress'
+  | 'jira_import.done';
 
 export interface SyncResolution {
   path: string;
@@ -988,6 +990,106 @@ export interface PlaybookDetail {
   branch?: string;
   run?: PlaybookRun;
   repos?: PlaybookRepoLink[];
+  /** Present on a playbook imported from a Jira epic. */
+  source?: Source;
+}
+
+export interface JiraStatus {
+  configured: boolean;
+  authenticated?: boolean;
+  account?: string;
+  auth_mode?: string;
+  writeback_enabled?: boolean;
+  site_url?: string;
+  /** Only when authenticated is false. */
+  auth_error?: 'unauthorized' | 'captcha_required' | 'unreachable';
+}
+
+export interface JiraImportedRef {
+  project: string;
+  card: string;
+  in_playbook: boolean;
+}
+
+export interface JiraIssueNode {
+  key: string;
+  id: string;
+  summary: string;
+  url: string;
+  issue_type: string;
+  status: string;
+  /** Jira status category key: new, indeterminate or done. */
+  status_category: string;
+  jira_project: string;
+  components?: string[];
+  default_project?: string;
+  imported?: JiraImportedRef;
+  subtasks?: JiraIssueNode[];
+}
+
+export interface JiraEpicPreview {
+  epic: { key: string; summary: string; url: string; description: string };
+  children: JiraIssueNode[];
+  /** The playbook an import would extend, when one exists for the epic. */
+  playbook?: { id: string; title: string; boards_repo?: string; run_active?: boolean };
+}
+
+export interface JiraImportSelection {
+  key: string;
+  project: string;
+}
+
+export interface JiraImportRequest {
+  selections: JiraImportSelection[];
+  vetted: boolean;
+  include_epic_context: boolean;
+  playbook: { title: string; description: string; boards_repo?: string };
+}
+
+export type JiraImportStatus = 'created' | 'skipped' | 'failed';
+
+export interface JiraImportResult {
+  key: string;
+  status: JiraImportStatus;
+  project?: string;
+  card?: string;
+  reason?: string;
+}
+
+export interface JiraImportStarted {
+  import_id: string;
+}
+
+/** A background import as GET /api/jira/imports/{id} reports it. */
+export interface JiraImportState {
+  id: string;
+  epic: string;
+  status: 'running' | 'done' | 'failed';
+  playbook_id?: string;
+  total: number;
+  results: JiraImportResult[];
+  error?: string;
+  started_at: string;
+  finished_at?: string;
+}
+
+/** Data of a jira_import.progress event, one per issue. Strings the server has no value for are empty. */
+export interface JiraImportProgressEvent {
+  import_id: string;
+  key: string;
+  status: JiraImportStatus;
+  project: string;
+  card_id: string;
+  reason: string;
+}
+
+/** Data of a jira_import.done event. playbook_id and error are empty when unset. */
+export interface JiraImportDoneEvent {
+  import_id: string;
+  status: 'done' | 'failed';
+  playbook_id: string;
+  results: JiraImportResult[];
+  error: string;
 }
 
 export interface NewPlaybookEntry {

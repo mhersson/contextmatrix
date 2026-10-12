@@ -301,6 +301,10 @@ type RouterConfig struct {
 	// JiraWriteback reports whether Jira status writeback is paused; nil when
 	// writeback is off. Assign only a non-nil worker (typed-nil gotcha).
 	JiraWriteback JiraWritebackStatus
+	// JiraImport serves the epic preview and import routes. Nil when Jira
+	// is not configured or playbooks are disabled; the routes then answer
+	// 404 JIRA_NOT_CONFIGURED. Assign only a non-nil service, as with Jira.
+	JiraImport JiraImporter
 }
 
 // EndpointModelView is the api-package projection of modelcatalog.EndpointModel
@@ -463,9 +467,14 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	// App config
 	mux.HandleFunc("GET /api/app/config", ach.getAppConfig)
 
-	// Jira status: always registered so the web can learn Jira is off.
+	// Jira status and import: always registered so the web can learn Jira is off.
 	jiraH := &jiraHandlers{client: cfg.Jira, info: cfg.JiraInfo, writeback: cfg.JiraWriteback}
 	mux.HandleFunc("GET /api/jira/status", jiraH.getStatus)
+
+	jih := &jiraImportHandlers{importer: cfg.JiraImport}
+	mux.HandleFunc("GET /api/jira/epics/{key}/preview", jih.preview)
+	mux.HandleFunc("POST /api/jira/epics/{key}/import", jih.importEpic)
+	mux.HandleFunc("GET /api/jira/imports/{id}", jih.getImport)
 
 	// Admin model-outcomes: registered in both auth modes (open in none
 	// mode; admin-gated in multi via outcomeAdminHandlers.gate) - same

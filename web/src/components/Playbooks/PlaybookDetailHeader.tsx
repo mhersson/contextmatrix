@@ -1,5 +1,7 @@
 import { Link } from 'react-router';
 import type { PlaybookDetail } from '../../types';
+import { sourceIcon } from '../icons';
+import { isSafeHttpUrl } from '../CardPanel/utils';
 
 interface PlaybookDetailHeaderProps {
   detail: PlaybookDetail;
@@ -48,6 +50,18 @@ export function PlaybookDetailHeader({
           >
             {detail.title}
           </h1>
+        )}
+        {detail.source && isSafeHttpUrl(detail.source.external_url) && (
+          <a
+            href={detail.source.external_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="bf-source-link shrink-0"
+            title={`Imported from ${detail.source.system} · ${detail.source.external_id}`}
+          >
+            {sourceIcon(detail.source.system)}
+            <span>{detail.source.external_id}</span>
+          </a>
         )}
         <button type="button" onClick={onDeleteClick} className="text-sm shrink-0" style={{ color: 'var(--red)' }}>
           Delete

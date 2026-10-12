@@ -1218,3 +1218,16 @@ func TestCard_NeedsVetting(t *testing.T) {
 		})
 	}
 }
+
+func TestSource_Clone(t *testing.T) {
+	var nilSrc *Source
+	assert.Nil(t, nilSrc.Clone())
+
+	src := &Source{System: "jira", ExternalID: "PROJ-1", ExternalURL: "https://acme.atlassian.net/browse/PROJ-1"}
+	cp := src.Clone()
+	require.NotSame(t, src, cp)
+	assert.Equal(t, src, cp)
+
+	cp.ExternalID = "PROJ-2"
+	assert.Equal(t, "PROJ-1", src.ExternalID)
+}

@@ -13,7 +13,8 @@ import (
 // keeps theirs and re-mints ours under a fresh id. title and description are
 // plain three-way scalars with the later-updated side breaking a real
 // conflict; updated_at is the later of the two. id, created_by and created_at
-// are immutable after creation and carried forward unchanged. Two instances
+// are immutable after creation and carried forward unchanged; source is
+// immutable too and survives a side that dropped it. Two instances
 // creating a playbook at the same path with no common ancestor re-slugs the
 // local copy to a free id instead of colliding.
 func resolvePlaybook(in Input, id string, c Context) (Output, error) {
@@ -160,6 +161,10 @@ func mergePlaybooks(base, ours, theirs *board.Playbook, path string, c Context) 
 	if !out.Runnable {
 		out.Run = nil
 	}
+
+	// Source is immutable after create: keep whichever side still has it, so
+	// a peer that rewrote the file without the field cannot erase it.
+	out.Source = firstNonNil(ours.Source, theirs.Source).Clone()
 
 	out.NextEntryID = max(ours.NextEntryID, theirs.NextEntryID)
 	out.Updated = later.Updated

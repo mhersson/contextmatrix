@@ -18,6 +18,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/gitops"
+	"github.com/mhersson/contextmatrix/internal/jira"
 	"github.com/mhersson/contextmatrix/internal/lock"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
@@ -34,6 +35,11 @@ type CreateCardInput struct {
 	Body      string
 	Source    *board.Source // Optional, immutable after creation
 	Assignee  string        // Informational responsibility label; independent of claim ownership
+	// Custom and Log are set by internal importers only; REST and MCP never
+	// fill them. Log becomes the card's first activity entry, written in the
+	// create commit.
+	Custom map[string]any
+	Log    *board.ActivityEntry
 	// Autonomous, CreatePR, AwaitCI, AwaitCopilotReview, MaxCapability and
 	// MobParticipants are nullable: nil means "unset". At create, a top-level
 	// card fills unset fields from the project's card_defaults
@@ -797,6 +803,7 @@ func (s *CardService) buildNewCardFromInput(
 		Parent:             parentID,
 		DependsOn:          dependsOn,
 		Source:             input.Source,
+		Custom:             input.Custom,
 		Assignee:           input.Assignee,
 		Autonomous:         valueOr(input.Autonomous, defaults.autonomous),
 		CreatePR:           valueOr(input.CreatePR, defaults.createPR),
@@ -820,12 +827,21 @@ func (s *CardService) buildNewCardFromInput(
 		Body:               input.Body,
 	}
 
+	if input.Log != nil {
+		entry := *input.Log
+		if entry.Timestamp.IsZero() {
+			entry.Timestamp = now
+		}
+
+		card.ActivityLog = []board.ActivityEntry{entry}
+	}
+
 	enforceVettingInvariant(card)
 
 	// Subtasks work on their parent's branch, so they never get their own
 	// branch name - a per-subtask name would advertise a branch nobody creates.
 	if parentID == "" {
-		card.BranchName = generateBranchName(card.ID, card.Title)
+		card.BranchName = generateBranchName(card.ID, card.Title, card.Source)
 	}
 
 	if err := validateFieldLimits(card.Title, card.Body, card.Assignee, card.Labels, card.DependsOn); err != nil {
@@ -1117,7 +1133,7 @@ func (s *CardService) buildUpdateApply(ctx context.Context, input UpdateCardInpu
 		// the branch the worker actually pushed. Subtasks work on their
 		// parent's branch and never get one.
 		if card.BranchName == "" && card.Parent == "" {
-			card.BranchName = generateBranchName(card.ID, card.Title)
+			card.BranchName = generateBranchName(card.ID, card.Title, card.Source)
 		}
 
 		card.CreatePR = input.CreatePR
@@ -1368,7 +1384,7 @@ func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput)
 		// the branch the worker actually pushed. Subtasks work on their
 		// parent's branch and never get one.
 		if card.BranchName == "" && card.Parent == "" {
-			card.BranchName = generateBranchName(card.ID, card.Title)
+			card.BranchName = generateBranchName(card.ID, card.Title, card.Source)
 		}
 
 		if input.CreatePR != nil {
@@ -2170,10 +2186,30 @@ func valueOr[T any](explicit *T, fallback T) T {
 	return fallback
 }
 
-// generateBranchName creates a git branch name from a card ID and title.
-// Format: alpha-042/fix-login-validation (lowercase, alphanumeric + hyphens).
-// Non-ASCII characters are stripped (e.g. "über" becomes "ber").
-func generateBranchName(cardID, title string) string {
+// maxBranchKeyLen keeps a Jira key out of the branch name when it would
+// strain git ref limits and report_push's 255-byte branch field.
+const maxBranchKeyLen = 64
+
+// generateBranchName predicts a card's git branch from its ID and title:
+// alpha-042/fix-login-validation (lowercase, alphanumeric + hyphens,
+// non-ASCII stripped). A Jira import keeps its issue key uppercase after the
+// ID - alpha-042/PROJ-123-fix-login - because GitHub for Jira only links
+// uppercase keys.
+func generateBranchName(cardID, title string, source *board.Source) string {
+	prefix := strings.ToLower(cardID)
+
+	key := ""
+	if source != nil && source.System == jira.SourceSystem && len(source.ExternalID) <= maxBranchKeyLen && jira.IsIssueKey(source.ExternalID) {
+		key = source.ExternalID
+
+		title = strings.TrimSpace(title)
+		if title == key {
+			title = ""
+		} else {
+			title = strings.TrimPrefix(title, key+" ")
+		}
+	}
+
 	slug := strings.ToLower(title)
 	slug = branchNameSlugPattern.ReplaceAllString(slug, "-")
 
@@ -2183,10 +2219,14 @@ func generateBranchName(cardID, title string) string {
 		slug = strings.TrimRight(slug, "-")
 	}
 
-	prefix := strings.ToLower(cardID)
-	if slug == "" {
+	switch {
+	case key != "" && slug != "":
+		return prefix + "/" + key + "-" + slug
+	case key != "":
+		return prefix + "/" + key
+	case slug != "":
+		return prefix + "/" + slug
+	default:
 		return prefix
 	}
-
-	return prefix + "/" + slug
 }

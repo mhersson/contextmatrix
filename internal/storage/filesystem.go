@@ -408,6 +408,12 @@ func (s *FilesystemStore) matchesFilter(c *board.Card, f CardFilter) bool {
 		}
 	}
 
+	if f.SourceSystem != "" {
+		if c.Source == nil || c.Source.System != f.SourceSystem {
+			return false
+		}
+	}
+
 	if f.Label != "" && !slices.Contains(c.Labels, f.Label) {
 		return false
 	}

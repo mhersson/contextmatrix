@@ -460,3 +460,35 @@ func TestUpdateCard_MCP_RefusesAutonomousOnLockedCard(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, res.IsError)
 }
+
+// TestUpdatePlaybook_MCP_PreservesSource pins that the agent-facing tools can
+// neither drop nor forge an imported playbook's source.
+func TestUpdatePlaybook_MCP_PreservesSource(t *testing.T) {
+	env := setupMCPWithPlaybooks(t)
+	ctx := context.Background()
+
+	src := &board.Source{System: "jira", ExternalID: "PROJ-1", ExternalURL: "https://acme.atlassian.net/browse/PROJ-1"}
+	_, err := env.pb.Create(ctx, service.CreatePlaybookInput{Title: "PROJ-1 Checkout", AgentID: "human:alice", Source: src})
+	require.NoError(t, err)
+
+	res, err := env.session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "update_playbook",
+		Arguments: map[string]any{"agent_id": "agent-1", "id": "proj-1-checkout", "title": "Checkout", "description": "renamed"},
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError)
+
+	got, err := env.pb.Get(ctx, "proj-1-checkout")
+	require.NoError(t, err)
+	assert.Equal(t, "Checkout", got.Title)
+	assert.Equal(t, src, got.Source, "update_playbook must never drop the import source")
+
+	res, err = env.session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "create_playbook",
+		Arguments: map[string]any{
+			"agent_id": "agent-1", "title": "Forged",
+			"source": map[string]any{"system": "jira", "external_id": "PROJ-9", "external_url": "https://acme.atlassian.net/browse/PROJ-9"},
+		},
+	})
+	assert.True(t, err != nil || res.IsError, "create_playbook must reject a source argument")
+}

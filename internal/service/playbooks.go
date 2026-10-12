@@ -120,6 +120,9 @@ type CreatePlaybookInput struct {
 	// BoardsRepo names the boards repository to create the playbook in;
 	// empty means the first configured one.
 	BoardsRepo string
+	// Source marks a playbook imported from an external system. Importers
+	// set it; the REST and MCP create paths never do.
+	Source *board.Source
 }
 
 // UpdatePlaybookInput patches a playbook's metadata. Nil fields are left
@@ -227,6 +230,8 @@ type PlaybookDetail struct {
 	// both present only on a runnable playbook.
 	Branch string             `json:"branch,omitempty"`
 	Repos  []PlaybookRepoLink `json:"repos,omitempty"`
+	// Source is the external origin of an imported playbook, nil otherwise.
+	Source *board.Source `json:"source,omitempty"`
 }
 
 // PlaybookRepo is one boards repository's playbook write path: its commit
@@ -619,6 +624,7 @@ func (s *PlaybookService) createLocked(
 		Created:     now,
 		Updated:     now,
 		NextEntryID: 1,
+		Source:      input.Source.Clone(),
 	}
 
 	for i, in := range input.Entries {
@@ -775,6 +781,24 @@ func (s *PlaybookService) Get(ctx context.Context, id string) (*PlaybookDetail, 
 	}
 
 	return s.resolve(ctx, p)
+}
+
+// FindBySource returns the playbook imported from the given external source.
+// The store lists by id across every boards repo, so two instances that
+// imported the same epic at once on a shared board resolve to the lower id.
+func (s *PlaybookService) FindBySource(ctx context.Context, system, externalID string) (*PlaybookDetail, error) {
+	playbooks, err := s.store.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list playbooks: %w", err)
+	}
+
+	for _, p := range playbooks {
+		if p.Source != nil && p.Source.System == system && p.Source.ExternalID == externalID {
+			return s.resolve(ctx, p)
+		}
+	}
+
+	return nil, fmt.Errorf("%w: no playbook from %s %s", storage.ErrPlaybookNotFound, system, externalID)
 }
 
 // UpdateMeta patches a playbook's title, description, runnable flag and
@@ -1395,6 +1419,7 @@ func (s *PlaybookService) resolve(ctx context.Context, p *board.Playbook) (*Play
 	}
 
 	detail.Run = p.Run.Clone()
+	detail.Source = p.Source.Clone()
 
 	if p.Runnable {
 		detail.Branch = p.Branch()

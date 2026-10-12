@@ -1666,6 +1666,34 @@ func TestPlaybookService_MoveDuringRun(t *testing.T) {
 	}
 }
 
+func TestPlaybookService_SourceSetOnCreateAndFound(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	src := &board.Source{System: "jira", ExternalID: "PROJ-1", ExternalURL: "https://acme.atlassian.net/browse/PROJ-1"}
+
+	d, err := env.svc.Create(ctx, CreatePlaybookInput{Title: "PROJ-1 Checkout", AgentID: "human:alice", Source: src})
+	require.NoError(t, err)
+	assert.Equal(t, src, d.Source)
+
+	src.ExternalID = "MUTATED" // the caller's pointer must not alias the stored source
+
+	_, err = env.svc.UpdateMeta(ctx, d.ID, UpdatePlaybookInput{Title: new("Renamed")}, "human:alice")
+	require.NoError(t, err)
+
+	got, err := env.svc.FindBySource(ctx, "jira", "PROJ-1")
+	require.NoError(t, err)
+	assert.Equal(t, d.ID, got.ID)
+	assert.Equal(t, "Renamed", got.Title)
+	require.NotNil(t, got.Source, "a metadata update keeps the source")
+
+	_, err = env.svc.FindBySource(ctx, "jira", "PROJ-2")
+	require.ErrorIs(t, err, storage.ErrPlaybookNotFound)
+
+	_, err = env.svc.FindBySource(ctx, "github", "PROJ-1")
+	require.ErrorIs(t, err, storage.ErrPlaybookNotFound)
+}
+
 // uncheckFixture builds a runnable "rollout" of a checked manual e1, a card
 // e2 on ALPHA-001 with a live worker, and an unchecked manual e3, then writes
 // run (nil leaves the playbook without one).

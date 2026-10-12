@@ -1,5 +1,10 @@
 import type {
   AppConfig,
+  JiraEpicPreview,
+  JiraImportRequest,
+  JiraImportStarted,
+  JiraImportState,
+  JiraStatus,
   Card,
   ProjectConfig,
   CardFilter,
@@ -710,6 +715,26 @@ class APIClient {
 
   async stopPlaybook(id: string): Promise<PlaybookDetail> {
     return this.request<PlaybookDetail>(`/playbooks/${encodeURIComponent(id)}/stop`, { method: 'POST' });
+  }
+
+  // Jira
+  async getJiraStatus(): Promise<JiraStatus> {
+    return this.request<JiraStatus>('/jira/status');
+  }
+
+  async previewJiraEpic(key: string): Promise<JiraEpicPreview> {
+    return this.request<JiraEpicPreview>(`/jira/epics/${encodeURIComponent(key)}/preview`);
+  }
+
+  async importJiraEpic(key: string, input: JiraImportRequest): Promise<JiraImportStarted> {
+    return this.request<JiraImportStarted>(`/jira/epics/${encodeURIComponent(key)}/import`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  }
+
+  async getJiraImport(id: string): Promise<JiraImportState> {
+    return this.request<JiraImportState>(`/jira/imports/${encodeURIComponent(id)}`);
   }
 }
 

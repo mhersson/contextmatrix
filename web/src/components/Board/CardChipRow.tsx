@@ -1,5 +1,5 @@
 import type { Card } from '../../types';
-import { gitHubIcon } from '../icons';
+import { sourceIcon } from '../icons';
 import { chipTint, typeColors } from '../../lib/chip';
 import { useOptionalAuth } from '../../hooks/useAuth';
 import { useUsers } from '../../hooks/useUsers';
@@ -38,7 +38,7 @@ export function CardChipRow({ card, compact = false }: CardChipRowProps) {
             {card.type.charAt(0)}
           </span>
         )}
-        {card.source?.system === 'github' && gitHubIcon}
+        {sourceIcon(card.source?.system)}
         {card.source && !card.vetted && (
           <span className="chip-pill flex-shrink-0" style={chipTint('var(--yellow)')}>
             unvetted
