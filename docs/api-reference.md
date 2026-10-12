@@ -2005,9 +2005,14 @@ cards - session in multi mode, else `X-Agent-ID`, falling back to
 
 ### POST /api/playbooks/{id}/run
 
-Play, or resume a `waiting`/`stopped` run. Human-only. Writes the run block
-with `status: running`, `entry` and `reason` cleared, `started_at` kept
-across a resume, and starts the walker. `202` with the playbook detail.
+Play starts a run, or resumes a `stopped` one. Human-only. A `running` or
+`waiting` run is refused with `409 PLAYBOOK_RUN_ACTIVE`; resume a `waiting`
+run with Stop, then Play. Writes the run block with `status: running` and
+`reason` cleared. `entry` is cleared unless a card entry still has a live
+worker (after a Stop whose kill failed, or a hand run made while stopped); then
+the run stays on that entry, preferring the stopped run's own, and waits for
+that worker before starting anything else. `started_at` is kept across a
+resume, and the walker starts. `202` with the playbook detail.
 Errors: `403 HUMAN_ONLY_FIELD`, `404 PLAYBOOK_NOT_FOUND`,
 `409 PLAYBOOK_NOT_RUNNABLE`, `409 PLAYBOOK_RUN_ACTIVE`, `503 BACKEND_DISABLED`.
 
