@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/clock"
@@ -64,6 +65,7 @@ type Options struct {
 type Writeback struct {
 	bus      *events.Bus
 	cards    Cards
+	api      JiraAPI
 	outbox   Outbox
 	resolver *resolver
 	siteHost string
@@ -72,6 +74,10 @@ type Writeback struct {
 	wake     chan struct{}
 	paused   atomic.Bool
 	wg       sync.WaitGroup
+
+	// Owned by the worker goroutine.
+	probeAt    time.Time
+	probeCount int
 }
 
 // New builds a Writeback; nothing runs until Start.
@@ -94,6 +100,7 @@ func New(bus *events.Bus, cards Cards, outbox Outbox, api JiraAPI, opts Options)
 	return &Writeback{
 		bus:      bus,
 		cards:    cards,
+		api:      api,
 		outbox:   outbox,
 		resolver: newResolver(api, opts.StatusTargets),
 		siteHost: u.Hostname(),

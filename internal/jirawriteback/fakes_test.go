@@ -204,6 +204,13 @@ func (f *fakeCards) ListCards(_ context.Context, project string, _ storage.CardF
 	return out, nil
 }
 
+func (f *fakeCards) loggedLines() []loggedLine {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return append([]loggedLine(nil), f.logs...)
+}
+
 func (f *fakeCards) AddSystemLogEntry(_ context.Context, project, id string, e board.ActivityEntry) (*board.Card, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

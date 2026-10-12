@@ -101,8 +101,6 @@ func TestSubscriber_ReentryIsNoOp(t *testing.T) {
 }
 
 func TestStart_EndToEndAndShutdown(t *testing.T) {
-	t.Skip("worker lands in the next task")
-
 	cards := newFakeCards(map[string]*board.Card{"api/API-001": jiraCard("API-001", "PROJ-1", board.StateInProgress, testStart)})
 	fj := newFakeJira(st("To Do", "new"), simpleWorkflow())
 	w, store, _ := newTestWriteback(t, cards, fj)
