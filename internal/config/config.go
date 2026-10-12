@@ -327,7 +327,7 @@ const (
 )
 
 // JiraConfig configures the Jira Cloud integration. An empty SiteURL means
-// Jira is not configured and every other key is ignored.
+// Jira is not configured; writeback.enabled without one fails validation.
 type JiraConfig struct {
 	SiteURL    string                        `yaml:"site_url"`
 	APIBaseURL string                        `yaml:"api_base_url"`

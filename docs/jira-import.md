@@ -8,7 +8,7 @@ API v3. This page covers configuring that site and its credentials.
 
 | Key                 | Env                               | Default            | Rule                                                                                                                                |
 | ------------------- | --------------------------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `jira.site_url`     | `CONTEXTMATRIX_JIRA_SITE_URL`     | empty              | `https` URL of the Jira Cloud site, e.g. `https://acme.atlassian.net`. Empty disables Jira and every other `jira.*` key is ignored. |
+| `jira.site_url`     | `CONTEXTMATRIX_JIRA_SITE_URL`     | empty              | `https` URL of the Jira Cloud site, e.g. `https://acme.atlassian.net`. Empty disables Jira. |
 | `jira.api_base_url` | `CONTEXTMATRIX_JIRA_API_BASE_URL` | empty (`site_url`) | `https`. Set to `https://api.atlassian.com/ex/jira/<cloudId>` for service-account scoped tokens.                                    |
 | `jira.auth_mode`    | `CONTEXTMATRIX_JIRA_AUTH_MODE`    | `basic`            | `basic` or `bearer`.                                                                                                                |
 | `jira.email`        | `CONTEXTMATRIX_JIRA_EMAIL`        | empty              | Required for `basic`.                                                                                                               |
