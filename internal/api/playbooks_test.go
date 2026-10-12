@@ -879,6 +879,38 @@ func TestPlaybooksAPI_RemoveEntryRefusedWhileRunActive(t *testing.T) {
 	assert.Equal(t, "e1", detail.Run.Entry)
 }
 
+func TestPlaybooksAPI_MoveAheadOfActiveRunIs409(t *testing.T) {
+	server, _, pbSvc, _ := lockedCardSetup(t, nil)
+	ctx := context.Background()
+
+	_, err := pbSvc.AddEntry(ctx, "rollout", service.PlaybookEntryInput{Type: board.EntryTypeManual, Text: "verify"}, "human:alice")
+	require.NoError(t, err)
+
+	now := time.Now().UTC()
+	_, err = pbSvc.SetRunIf(ctx, "rollout", nil, &board.PlaybookRun{
+		Status: board.RunStatusRunning, StartedAt: now, UpdatedAt: now, Entry: "e1",
+	}, "human:alice")
+	require.NoError(t, err)
+
+	resp := doJSON(t, http.MethodPatch, server.URL+"/api/playbooks/rollout/entries/e2", map[string]any{"position": 0}, "human:alice")
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusConflict, resp.StatusCode)
+
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodePlaybookMoveAheadOfRun, apiErr.Code)
+
+	getResp := doGet(t, server.URL+"/api/playbooks/rollout")
+	defer closeBody(t, getResp.Body)
+
+	var detail service.PlaybookDetail
+	require.NoError(t, json.NewDecoder(getResp.Body).Decode(&detail))
+	require.Len(t, detail.Entries, 2)
+	assert.Equal(t, "e1", detail.Entries[0].ID)
+	assert.Equal(t, "e2", detail.Entries[1].ID)
+}
+
 func TestRunCard_RefusedWhilePlaybookRunActive(t *testing.T) {
 	mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})

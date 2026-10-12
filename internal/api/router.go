@@ -124,18 +124,20 @@ const (
 	// (make-runnable validation; the last names the cards that would not
 	// take the settings, cards forced before them keep theirs).
 	// NOT_RUNNABLE -> 409 (run state on a playbook that is not runnable).
-	// RUN_INACTIVE -> 409 (stop with no active run).
-	ErrCodePlaybookNotFound      = "PLAYBOOK_NOT_FOUND"
-	ErrCodePlaybookEntryNotFound = "PLAYBOOK_ENTRY_NOT_FOUND"
-	ErrCodePlaybookEntryExists   = "PLAYBOOK_ENTRY_EXISTS"
-	ErrCodePlaybookRunActive     = "PLAYBOOK_RUN_ACTIVE"
-	ErrCodePlaybookLocked        = "PLAYBOOK_LOCKED"
-	ErrCodePlaybookCardOwned     = "PLAYBOOK_CARD_OWNED"
-	ErrCodePlaybookProjectNoRepo = "PLAYBOOK_PROJECT_NO_REPO"
-	ErrCodePlaybookCardNotVetted = "PLAYBOOK_CARD_NOT_VETTED"
-	ErrCodePlaybookCardForce     = "PLAYBOOK_CARD_FORCE_FAILED"
-	ErrCodePlaybookNotRunnable   = "PLAYBOOK_NOT_RUNNABLE"
-	ErrCodePlaybookRunInactive   = "PLAYBOOK_RUN_INACTIVE"
+	// RUN_INACTIVE -> 409 (stop with no active run). MOVE_AHEAD_OF_RUN
+	// -> 409 (entry move to or ahead of an active run's position).
+	ErrCodePlaybookNotFound       = "PLAYBOOK_NOT_FOUND"
+	ErrCodePlaybookEntryNotFound  = "PLAYBOOK_ENTRY_NOT_FOUND"
+	ErrCodePlaybookEntryExists    = "PLAYBOOK_ENTRY_EXISTS"
+	ErrCodePlaybookRunActive      = "PLAYBOOK_RUN_ACTIVE"
+	ErrCodePlaybookLocked         = "PLAYBOOK_LOCKED"
+	ErrCodePlaybookCardOwned      = "PLAYBOOK_CARD_OWNED"
+	ErrCodePlaybookProjectNoRepo  = "PLAYBOOK_PROJECT_NO_REPO"
+	ErrCodePlaybookCardNotVetted  = "PLAYBOOK_CARD_NOT_VETTED"
+	ErrCodePlaybookCardForce      = "PLAYBOOK_CARD_FORCE_FAILED"
+	ErrCodePlaybookNotRunnable    = "PLAYBOOK_NOT_RUNNABLE"
+	ErrCodePlaybookRunInactive    = "PLAYBOOK_RUN_INACTIVE"
+	ErrCodePlaybookMoveAheadOfRun = "PLAYBOOK_MOVE_AHEAD_OF_RUN"
 )
 
 // APIError is the standard error response format.
@@ -1180,6 +1182,9 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusConflict, ErrCodePlaybookEntryExists, "card already in playbook", sanitizeErrorDetails(err))
 	case errors.Is(err, service.ErrPlaybookRunActive):
 		writeError(w, http.StatusConflict, ErrCodePlaybookRunActive, "playbook run is active", sanitizeErrorDetails(err))
+	case errors.Is(err, service.ErrPlaybookMoveAheadOfRun):
+		writeError(w, http.StatusConflict, ErrCodePlaybookMoveAheadOfRun,
+			"entry cannot move to or ahead of the active run's position", sanitizeErrorDetails(err))
 	case errors.Is(err, service.ErrPlaybookNotRunnable):
 		writeError(w, http.StatusConflict, ErrCodePlaybookNotRunnable, "playbook is not runnable", sanitizeErrorDetails(err))
 	case errors.Is(err, service.ErrPlaybookLocked):

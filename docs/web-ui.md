@@ -184,8 +184,9 @@ A completed run lists one "Open PR" compare link per repository.
 Entry rows read `queued` while a run is active and show the waiting reason
 on the run's entry (while a run is held on an unvetted card, on the first
 incomplete entry); removing the run's current entry is refused until the
-run is stopped, and the toast carries the server's reason. The list page
-shows a run pill. See [playbooks](playbooks.md#running-a-playbook).
+run is stopped, and a drag to or ahead of the run's position snaps the order
+back. Both toasts carry the server's reason. The list page shows a run pill.
+See [playbooks](playbooks.md#running-a-playbook).
 
 ## Model selection
 

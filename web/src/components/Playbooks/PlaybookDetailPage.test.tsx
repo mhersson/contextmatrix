@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router';
 import { PlaybookDetailPage } from './PlaybookDetailPage';
 import { persistReorder } from './playbookUtils';
 import { api } from '../../api/client';
 import type { PlaybookDetail } from '../../types';
+import type { DndContextProps } from '@dnd-kit/core';
 
 vi.mock('../../api/client', () => ({
   api: {
@@ -26,6 +27,20 @@ vi.mock('../../api/client', () => ({
 vi.mock('../../hooks/useSSEBus', () => ({
   useSSEBus: () => ({ subscribe: () => () => {}, connected: true, error: null, reconnectEpoch: 0 }),
 }));
+
+// DndContext is a pass-through that captures its props, so a test can end
+// a drag directly; jsdom has no layout for dnd-kit's sensors to measure.
+const dnd = vi.hoisted(() => ({ props: {} as DndContextProps }));
+vi.mock('@dnd-kit/core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dnd-kit/core')>();
+  return {
+    ...actual,
+    DndContext: (props: DndContextProps) => {
+      dnd.props = props;
+      return props.children;
+    },
+  };
+});
 
 const toast = vi.hoisted(() => ({ showToast: vi.fn() }));
 vi.mock('../../hooks/useToast', () => ({ useToast: () => toast }));
@@ -223,6 +238,33 @@ describe('PlaybookDetailPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /^delete$/i }));
     dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText(/run is active/i)).toBeInTheDocument();
+  });
+
+  it('restores the order and surfaces the server reason when a reorder is refused', async () => {
+    const running = {
+      ...baseDetail(), runnable: true, branch: 'playbook/roll',
+      run: { status: 'running' as const, started_at: 'x', updated_at: 'x', entry: 'e1' },
+    };
+    vi.mocked(api.getPlaybook).mockResolvedValue(running);
+    vi.mocked(api.patchPlaybookEntry).mockRejectedValueOnce({
+      error: "entry cannot move to or ahead of the active run's position", code: 'PLAYBOOK_MOVE_AHEAD_OF_RUN',
+      details: 'the run is at entry e1; stop the run to reorder at or ahead of it',
+    });
+    renderPage();
+    await screen.findByText('Roll');
+    const order = () => screen.getAllByText(/^(done step|The card)$/).map((el) => el.textContent);
+    const before = order();
+
+    act(() => {
+      dnd.props.onDragEnd?.({ active: { id: 'e2' }, over: { id: 'e1' } } as Parameters<NonNullable<DndContextProps['onDragEnd']>>[0]);
+    });
+
+    await waitFor(() => expect(api.patchPlaybookEntry).toHaveBeenCalledWith('roll', 'e2', { position: 0 }));
+    await waitFor(() => expect(toast.showToast).toHaveBeenCalledWith(
+      "entry cannot move to or ahead of the active run's position: the run is at entry e1; stop the run to reorder at or ahead of it",
+      'error',
+    ));
+    await waitFor(() => expect(order()).toEqual(before));
   });
 
   it('plays and stops through the run endpoints', async () => {
