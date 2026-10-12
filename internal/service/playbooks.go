@@ -1024,8 +1024,7 @@ func (s *PlaybookService) SetRunIf(
 			return nil
 		}
 
-		copied := *run
-		p.Run = &copied
+		p.Run = run.Clone()
 
 		return nil
 	})
@@ -1357,10 +1356,7 @@ func (s *PlaybookService) resolve(ctx context.Context, p *board.Playbook) (*Play
 		BaseBranch:  p.BaseBranch,
 	}
 
-	if p.Run != nil {
-		run := *p.Run
-		detail.Run = &run
-	}
+	detail.Run = p.Run.Clone()
 
 	if p.Runnable {
 		detail.Branch = p.Branch()

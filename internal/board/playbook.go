@@ -56,6 +56,22 @@ func (r *PlaybookRun) Active() bool {
 	return r != nil && (r.Status == RunStatusRunning || r.Status == RunStatusWaiting)
 }
 
+// Clone returns a copy that shares nothing with r, EndedAt included. Nil-safe.
+func (r *PlaybookRun) Clone() *PlaybookRun {
+	if r == nil {
+		return nil
+	}
+
+	c := *r
+
+	if r.EndedAt != nil {
+		ended := *r.EndedAt
+		c.EndedAt = &ended
+	}
+
+	return &c
+}
+
 // ErrInvalidPlaybook is the sentinel wrapped by all playbook validation
 // failures.
 var ErrInvalidPlaybook = errors.New("invalid playbook")
