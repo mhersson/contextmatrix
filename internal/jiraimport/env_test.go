@@ -32,6 +32,14 @@ type fakeJira struct {
 	issues   map[string]jira.Issue
 	issueErr error
 	searches int
+	jqls     []string
+}
+
+func (f *fakeJira) queries() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return slices.Clone(f.jqls)
 }
 
 func (f *fakeJira) add(issues ...jira.Issue) {
@@ -64,6 +72,7 @@ func (f *fakeJira) Search(_ context.Context, jql string) ([]jira.Issue, error) {
 	defer f.mu.Unlock()
 
 	f.searches++
+	f.jqls = append(f.jqls, jql)
 	parents := map[string]bool{}
 
 	switch {

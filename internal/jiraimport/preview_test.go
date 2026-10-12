@@ -104,6 +104,18 @@ func TestPreview_Errors(t *testing.T) {
 		assert.NotErrorIs(t, err, ErrJiraUnavailable)
 	})
 
+	t.Run("jira answers with a malformed epic key", func(t *testing.T) {
+		e := newImportEnv(t, nil)
+
+		epic := epicIssue()
+		epic.Key = "PROJ-1 OR project = OPS"
+		e.jira.issues["PROJ-1"] = epic
+
+		_, err := e.svc.Preview(ctx, "PROJ-1")
+		require.ErrorIs(t, err, ErrJiraUnavailable)
+		assert.Zero(t, e.jira.searches, "no query is built from it")
+	})
+
 	t.Run("other jira failure", func(t *testing.T) {
 		e := newImportEnv(t, nil)
 		e.jira.issueErr = context.DeadlineExceeded
@@ -111,6 +123,29 @@ func TestPreview_Errors(t *testing.T) {
 		_, err := e.svc.Preview(ctx, "PROJ-1")
 		require.ErrorIs(t, err, ErrJiraUnavailable)
 	})
+}
+
+func TestPreview_SkipsAChildWithAMalformedKey(t *testing.T) {
+	const bad = "PROJ-2 OR project = OPS"
+
+	e := newImportEnv(t, nil)
+	e.jira.add(story("102", bad, "Injected"), subtask("105", "PROJ-5", bad, "Under the bad key"),
+		story("103", "PROJ-3", "Cart UI"), subtask("104", "PROJ-4", "PROJ-3", "Cart button"))
+
+	p, err := e.svc.Preview(context.Background(), "PROJ-1")
+	require.NoError(t, err)
+
+	require.Len(t, p.Children, 1)
+	assert.Equal(t, "PROJ-3", p.Children[0].Key)
+	require.Len(t, p.Children[0].Subtasks, 1, "a well-formed sibling keeps its sub-tasks")
+	assert.Equal(t, "PROJ-4", p.Children[0].Subtasks[0].Key)
+
+	jqls := e.jira.queries()
+	require.Len(t, jqls, 2, "the children query and one sub-task query")
+
+	for _, jql := range jqls {
+		assert.NotContains(t, jql, bad)
+	}
 }
 
 func TestPreview_RunActive(t *testing.T) {

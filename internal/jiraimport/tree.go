@@ -7,13 +7,15 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/jira"
 )
 
 // subtaskChunk bounds the key list in one "parent in (...)" query.
 const subtaskChunk = 50
 
-// Keys in these queries come from IsIssueKey or from Jira's own responses.
+// Every key in these queries has passed IsIssueKey, including the ones Jira
+// returned.
 func childrenJQL(epicKey string) string {
 	return "parent = " + epicKey + " ORDER BY key ASC"
 }
@@ -61,6 +63,10 @@ func (s *Service) fetchTree(ctx context.Context, epicKey string) (*tree, error) 
 		return nil, wrapJira("fetch epic "+epicKey, err)
 	}
 
+	if !jira.IsIssueKey(epic.Key) {
+		return nil, fmt.Errorf("fetch epic %s: %w: malformed key %q", epicKey, ErrJiraUnavailable, epic.Key)
+	}
+
 	if epic.IssueType.HierarchyLevel != 1 {
 		return nil, fmt.Errorf("%w: %s is a %s", ErrNotEpic, epic.Key, epic.IssueType.Name)
 	}
@@ -70,10 +76,17 @@ func (s *Service) fetchTree(ctx context.Context, epicKey string) (*tree, error) 
 		return nil, wrapJira("search children of "+epic.Key, err)
 	}
 
-	t := &tree{epic: epic, children: children, subtasks: map[string][]jira.Issue{}, byKey: map[string]jira.Issue{}}
+	t := &tree{epic: epic, subtasks: map[string][]jira.Issue{}, byKey: map[string]jira.Issue{}}
 	keys := make([]string, 0, len(children))
 
 	for _, c := range children {
+		if !jira.IsIssueKey(c.Key) {
+			ctxlog.Logger(ctx).Warn("jira import: skipping a child with a malformed key", "epic", epic.Key, "key", c.Key)
+
+			continue
+		}
+
+		t.children = append(t.children, c)
 		keys = append(keys, c.Key)
 		t.byKey[c.Key] = c
 	}
