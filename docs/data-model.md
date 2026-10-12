@@ -759,6 +759,10 @@ created_by: human:alice      # informational attribution
 created_at: 2026-08-20T09:00:00Z
 updated_at: 2026-08-20T10:30:00Z
 next_entry_id: 4             # persisted counter; entry IDs are never reused
+source:                      # optional; set by the Jira import, immutable
+  system: jira
+  external_id: PROJ-1
+  external_url: https://acme.atlassian.net/browse/PROJ-1
 runnable: true               # human-set; forces and locks five card settings
 base_branch: main            # optional; source of playbook/<id> on first run
 run:                         # present once a run has started; see playbooks.md
@@ -789,6 +793,10 @@ entries:
   (`^[a-z0-9][a-z0-9-]*$`). Immutable: a title edit never renames the file.
   Collisions get a numeric suffix (`alpha-rollout-2`, ...) under the service
   write lock, so creation never surfaces a collision.
+- **`source`** is the external origin of an imported playbook (a Jira epic), set
+  at create by the importer only and never changed. A three-way merge keeps it
+  from whichever side still has it. REST `POST /api/playbooks` and MCP
+  `create_playbook` cannot set it; `update_playbook` preserves it.
 - **Entry IDs** are `e<N>` from the persisted `next_entry_id`; stable under
   reorder, never reused after deletion.
 - **Card entries** (`type: card`) require `project` and `card` naming an
@@ -830,6 +838,7 @@ type Playbook struct {
     Runnable    bool            `yaml:"runnable,omitempty"    json:"runnable"`
     BaseBranch  string          `yaml:"base_branch,omitempty" json:"base_branch,omitempty"`
     Run         *PlaybookRun    `yaml:"run,omitempty"         json:"run,omitempty"`
+    Source      *Source         `yaml:"source,omitempty"      json:"source,omitempty"`
 }
 
 type PlaybookEntry struct {

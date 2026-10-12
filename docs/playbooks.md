@@ -203,6 +203,10 @@ created_by: human:alice
 created_at: 2026-08-20T09:00:00Z
 updated_at: 2026-08-20T10:30:00Z
 next_entry_id: 4
+source: # present on a playbook imported from a Jira epic
+  system: jira
+  external_id: PROJ-1
+  external_url: https://acme.atlassian.net/browse/PROJ-1
 # runnable is absent until a human makes the playbook runnable
 entries:
   - id: e1
