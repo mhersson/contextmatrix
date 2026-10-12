@@ -2050,6 +2050,7 @@ asynchronously.
 | Status | Code                  | When                                                                                                       |
 | ------ | --------------------- | ---------------------------------------------------------------------------------------------------------- |
 | 403    | `HUMAN_ONLY_FIELD`    | Caller is not `human:`                                                                                     |
+| 403    | `CARD_NOT_VETTED`     | The card has a `source` and is not vetted                                                                  |
 | 409    | `INVALID_TRANSITION`  | Card is not in `todo`                                                                                      |
 | 409    | `WORKER_CONFLICT`     | Card is already `queued` or `running`                                                                      |
 | 409    | `VALIDATION_ERROR`    | The project's `github_credential` binding is broken (worker status reverts, activity entry `run-rejected`) |

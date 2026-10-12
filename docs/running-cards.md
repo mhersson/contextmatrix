@@ -20,6 +20,9 @@ A card in `todo` shows one run button in the card panel header. The
 Runs are human-only and need an enabled task backend. Every run gets a fresh
 container, the card's generated branch, and a claim held by the worker.
 
+An imported card (one with a `source`) that is not vetted cannot run: the run
+button answers `403 CARD_NOT_VETTED` until a human ticks **Content vetted**.
+
 ## HITL runs
 
 - The worker starts plan drafting immediately and pauses at its gates: plan

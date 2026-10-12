@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -10,6 +11,7 @@ import (
 
 	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/backend"
+	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/playbookrun"
 	"github.com/mhersson/contextmatrix/internal/service"
@@ -236,4 +238,36 @@ func TestPlaybookLaunch_SanitizesServiceErrors(t *testing.T) {
 	err = h.playbookLaunch(ctx, "test-project", card.ID, playbookrun.LaunchOptions{})
 	require.ErrorAs(t, err, &lf)
 	assert.Equal(t, ErrCodeWorkerConflict, lf.code)
+}
+
+func TestLaunch_RefusesUnvettedCard(t *testing.T) {
+	svc, _, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
+	defer cleanup()
+
+	ctx := context.Background()
+	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+		Title: "PROJ-1 Imported", Type: "task", Priority: "medium",
+		Source: &board.Source{System: "jira", ExternalID: "PROJ-1", ExternalURL: "https://acme.atlassian.net/browse/PROJ-1"},
+	})
+	require.NoError(t, err)
+	require.False(t, card.Vetted)
+
+	cb := newCaptureBackend(t)
+	h := newLaunchHandlers(t, svc, cb)
+
+	_, err = h.launch(ctx, "test-project", card.ID, launchOptions{})
+	require.Error(t, err)
+
+	lf, ok := errors.AsType[*launchFailure](err)
+	require.True(t, ok)
+	assert.Equal(t, http.StatusForbidden, lf.status)
+	assert.Equal(t, ErrCodeCardNotVetted, lf.code)
+
+	cb.mu.Lock()
+	assert.Empty(t, cb.triggers, "no trigger is sent")
+	cb.mu.Unlock()
+
+	got, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Empty(t, got.WorkerStatus, "a refused launch leaves no queued status behind")
 }
