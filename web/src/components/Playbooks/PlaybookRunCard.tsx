@@ -1,5 +1,5 @@
 import type { PlaybookDetail } from '../../types';
-import { describeRun, isRunActive, runStatusChip } from './playbookUtils';
+import { describeRun, isRunActive, isRunCompleted, runStatusChip } from './playbookUtils';
 
 interface PlaybookRunCardProps {
   detail: PlaybookDetail;
@@ -25,6 +25,7 @@ export function PlaybookRunCard({
 }: PlaybookRunCardProps) {
   const runnable = detail.runnable === true;
   const active = isRunActive(detail.run);
+  const completed = isRunCompleted(detail.run);
   const baseBranch = detail.base_branch ?? '';
   // A stored base branch that is not in the shared list (loading, or gone
   // from one repository) stays selectable so the select never renders blank.
@@ -37,12 +38,15 @@ export function PlaybookRunCard({
       <h2 className="pb-eyebrow">Run</h2>
 
       <div className="bf-spread">
-        <label className="bf-switch" title={active ? 'Stop the run to change this' : undefined}>
+        <label
+          className="bf-switch"
+          title={active ? 'Stop the run to change this' : completed ? 'Run completed' : undefined}
+        >
           <input
             type="checkbox"
             aria-label="Make runnable"
             checked={runnable}
-            disabled={active}
+            disabled={active || completed}
             onChange={(e) => onToggleRunnable(e.target.checked)}
           />
           <span>Make runnable</span>
@@ -95,8 +99,13 @@ export function PlaybookRunCard({
             ) : (
               <button
                 type="button"
-                onClick={onRun}
-                className="px-3 py-1.5 rounded bg-[var(--bg-green)] text-[var(--green)] hover:opacity-90 transition-opacity text-sm font-medium inline-flex items-center gap-2"
+                onClick={completed ? undefined : onRun}
+                disabled={completed}
+                className={
+                  completed
+                    ? 'px-3 py-1.5 rounded bg-[var(--bg-green)] text-[var(--green)] opacity-50 cursor-not-allowed transition-opacity text-sm font-medium inline-flex items-center gap-2'
+                    : 'px-3 py-1.5 rounded bg-[var(--bg-green)] text-[var(--green)] hover:opacity-90 transition-opacity text-sm font-medium inline-flex items-center gap-2'
+                }
               >
                 <span aria-hidden="true">▶</span>
                 <span>Run</span>

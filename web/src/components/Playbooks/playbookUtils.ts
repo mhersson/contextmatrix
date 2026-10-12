@@ -104,6 +104,11 @@ export function isRunActive(run?: PlaybookRun | null): boolean {
   return run?.status === 'running' || run?.status === 'waiting';
 }
 
+// A completed run is terminal - its Run and runnable controls stay disabled.
+export function isRunCompleted(run?: PlaybookRun | null): boolean {
+  return run?.status === 'completed';
+}
+
 // Run status chip in the entryStateChip idiom: foreground on its bg token.
 export function runStatusChip(status: PlaybookRunStatus): EntryStateChip {
   switch (status) {

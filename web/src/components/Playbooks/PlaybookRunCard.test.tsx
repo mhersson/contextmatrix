@@ -80,6 +80,21 @@ describe('PlaybookRunCard', () => {
     expect(screen.queryByRole('button', { name: /^run$/i })).not.toBeInTheDocument();
   });
 
+  it('locks the run controls once the run is completed', () => {
+    const h = renderCard(detail({
+      runnable: true, branch: 'playbook/roll',
+      run: { status: 'completed', started_at: 'x', updated_at: 'x' },
+    }));
+    const toggle = screen.getByRole('checkbox', { name: /make runnable/i });
+    expect(toggle).toBeDisabled();
+    expect(toggle).toBeChecked();
+
+    const run = screen.getByRole('button', { name: /^run$/i });
+    expect(run).toBeDisabled();
+    fireEvent.click(run);
+    expect(h.onRun).not.toHaveBeenCalled();
+  });
+
   it('offers Run again after a stop', () => {
     renderCard(detail({
       runnable: true, branch: 'playbook/roll',

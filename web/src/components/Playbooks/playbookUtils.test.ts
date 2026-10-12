@@ -6,6 +6,7 @@ import {
   frontierIndex,
   isFullyComplete,
   isRunActive,
+  isRunCompleted,
   runEntryIndex,
   runStatusChip,
   segmentColor,
@@ -90,6 +91,14 @@ describe('run helpers', () => {
     expect(isRunActive({ status: 'waiting', started_at: 'x', updated_at: 'x' })).toBe(true);
     expect(isRunActive({ status: 'stopped', started_at: 'x', updated_at: 'x' })).toBe(false);
     expect(isRunActive({ status: 'completed', started_at: 'x', updated_at: 'x' })).toBe(false);
+  });
+
+  it('isRunCompleted is true only for completed', () => {
+    expect(isRunCompleted(undefined)).toBe(false);
+    expect(isRunCompleted(null)).toBe(false);
+    expect(isRunCompleted({ status: 'running', started_at: 'x', updated_at: 'x' })).toBe(false);
+    expect(isRunCompleted({ status: 'stopped', started_at: 'x', updated_at: 'x' })).toBe(false);
+    expect(isRunCompleted({ status: 'completed', started_at: 'x', updated_at: 'x' })).toBe(true);
   });
 
   it('runStatusChip maps every status to the house colours', () => {
