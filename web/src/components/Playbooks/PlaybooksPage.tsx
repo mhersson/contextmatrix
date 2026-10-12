@@ -56,70 +56,69 @@ export function PlaybooksPage() {
     onImportJira: setImportKey,
   };
 
-  const importDialog = importKey && (
-    <JiraImportDialog
-      epicKey={importKey}
-      description={newDescription.trim()}
-      boardsRepo={multiRepo ? newRepo || boardsRepos[0].name : undefined}
-      onClose={() => setImportKey(null)}
-    />
-  );
-
   const isEmpty = playbooks !== null && active.length === 0 && completed.length === 0;
 
-  if (isEmpty) {
-    return (
-      <div className="h-full flex flex-col overflow-y-auto">
-        <PlaybooksBar />
-        <PlaybooksEmptyHero creating={creating} onStartCreate={() => setCreating(true)} {...ghostProps} />
-        {importDialog}
-      </div>
-    );
-  }
-
+  // The dialog sits outside both layouts: the first import on an empty page
+  // creates the playbook and flips the layout mid-run, which must not remount it.
   return (
-    <div className="h-full overflow-y-auto">
-      <PlaybooksBar />
-      <div className="pbl-page">
-        <div className="pbl-header">
-          <div>
-            <h1 className="pbl-title">Playbooks</h1>
-            {playbooks === null ? (
-              <p className="pbl-summary">Loading...</p>
-            ) : (
-              <p className="pbl-summary"><b>{active.length}</b> in progress, <b>{completed.length}</b> completed</p>
+    <>
+      {isEmpty ? (
+        <div className="h-full flex flex-col overflow-y-auto">
+          <PlaybooksBar />
+          <PlaybooksEmptyHero creating={creating} onStartCreate={() => setCreating(true)} {...ghostProps} />
+        </div>
+      ) : (
+        <div className="h-full overflow-y-auto">
+          <PlaybooksBar />
+          <div className="pbl-page">
+            <div className="pbl-header">
+              <div>
+                <h1 className="pbl-title">Playbooks</h1>
+                {playbooks === null ? (
+                  <p className="pbl-summary">Loading...</p>
+                ) : (
+                  <p className="pbl-summary"><b>{active.length}</b> in progress, <b>{completed.length}</b> completed</p>
+                )}
+              </div>
+              <NewPlaybookButton onClick={() => setCreating(true)} disabled={creating} />
+            </div>
+
+            <div className="pbl-list">
+              {creating && <PlaybookGhostRow {...ghostProps} />}
+              {active.map((p) => <PlaybookRow key={p.id} playbook={p} />)}
+            </div>
+
+            {completed.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setCompletedOpen((v) => !v)}
+                  aria-expanded={completedOpen}
+                  className={`pbl-section${completedOpen ? ' pbl-section-open' : ''}`}
+                >
+                  <span className="pbl-section-chev" aria-hidden="true">▶</span>
+                  <span>Completed</span>
+                  <span className="pbl-section-count">{completed.length}</span>
+                  <span className="pbl-section-line" aria-hidden="true" />
+                </button>
+                {completedOpen && (
+                  <div className="pbl-receipts">
+                    {completed.map((p) => <PlaybookReceipt key={p.id} playbook={p} />)}
+                  </div>
+                )}
+              </>
             )}
           </div>
-          <NewPlaybookButton onClick={() => setCreating(true)} disabled={creating} />
         </div>
-
-        <div className="pbl-list">
-          {creating && <PlaybookGhostRow {...ghostProps} />}
-          {active.map((p) => <PlaybookRow key={p.id} playbook={p} />)}
-        </div>
-
-        {completed.length > 0 && (
-          <>
-            <button
-              type="button"
-              onClick={() => setCompletedOpen((v) => !v)}
-              aria-expanded={completedOpen}
-              className={`pbl-section${completedOpen ? ' pbl-section-open' : ''}`}
-            >
-              <span className="pbl-section-chev" aria-hidden="true">▶</span>
-              <span>Completed</span>
-              <span className="pbl-section-count">{completed.length}</span>
-              <span className="pbl-section-line" aria-hidden="true" />
-            </button>
-            {completedOpen && (
-              <div className="pbl-receipts">
-                {completed.map((p) => <PlaybookReceipt key={p.id} playbook={p} />)}
-              </div>
-            )}
-          </>
-        )}
-      </div>
-      {importDialog}
-    </div>
+      )}
+      {importKey && (
+        <JiraImportDialog
+          epicKey={importKey}
+          description={newDescription.trim()}
+          boardsRepo={multiRepo ? newRepo || boardsRepos[0].name : undefined}
+          onClose={() => setImportKey(null)}
+        />
+      )}
+    </>
   );
 }

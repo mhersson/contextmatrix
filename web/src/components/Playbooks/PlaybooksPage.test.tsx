@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { PlaybooksPage } from './PlaybooksPage';
 import { api } from '../../api/client';
-import type { PlaybookDetail, PlaybookSummary } from '../../types';
+import type { BoardEvent, PlaybookDetail, PlaybookSummary } from '../../types';
+import { samplePreview } from '../JiraImport/previewFixture';
 
 vi.mock('../../api/client', () => ({
   api: {
@@ -14,16 +15,44 @@ vi.mock('../../api/client', () => ({
     createPlaybook: vi.fn(),
     getJiraStatus: vi.fn().mockResolvedValue({ configured: false }),
     previewJiraEpic: vi.fn(() => new Promise(() => {})),
+    importJiraEpic: vi.fn(),
+    getJiraImport: vi.fn(() => new Promise(() => {})),
   },
 }));
 
+// A stand-in SSE bus: one stable subscribe and handlers by exact pattern.
+const sse = vi.hoisted(() => {
+  const handlers = new Map<string, (e: BoardEvent) => void>();
+  return {
+    handlers,
+    subscribe: (pattern: string, fn: (e: BoardEvent) => void) => {
+      handlers.set(pattern, fn);
+      return () => {
+        if (handlers.get(pattern) === fn) handlers.delete(pattern);
+      };
+    },
+  };
+});
+
 vi.mock('../../hooks/useSSEBus', () => ({
-  useSSEBus: () => ({ subscribe: () => () => {}, connected: true, error: null, reconnectEpoch: 0 }),
+  useSSEBus: () => ({ subscribe: sse.subscribe, connected: true, error: null, reconnectEpoch: 0 }),
 }));
+
+function emit(type: string, data: Record<string, unknown>) {
+  act(() => {
+    sse.handlers.get(type)?.({ type, project: '', card_id: '', timestamp: '', data } as BoardEvent);
+  });
+}
 
 // The import dialog renders the project pickers; useProjects throws outside ProjectsProvider.
 vi.mock('../../hooks/useProjects', () => ({
-  useProjects: () => ({ projects: [], loading: false, error: null, connected: true, refreshProjects: () => {} }),
+  useProjects: () => ({
+    projects: [{ name: 'api', display_name: 'API', prefix: 'API' }, { name: 'web', display_name: 'Web', prefix: 'WEB' }],
+    loading: false,
+    error: null,
+    connected: true,
+    refreshProjects: () => {},
+  }),
 }));
 
 vi.mock('../../hooks/useToast', () => {
@@ -269,6 +298,31 @@ describe('PlaybooksPage - Jira import', () => {
     fireEvent.click(button);
     expect(await screen.findByRole('dialog', { name: /^Import Jira epic PROJ-12/ })).toBeInTheDocument();
     expect(api.previewJiraEpic).toHaveBeenCalledWith('PROJ-12');
+  });
+
+  it('keeps the import dialog and its progress when the first import fills an empty page', async () => {
+    vi.mocked(api.listPlaybooks).mockResolvedValueOnce([]);
+    vi.mocked(api.previewJiraEpic).mockResolvedValueOnce(samplePreview());
+    vi.mocked(api.importJiraEpic).mockResolvedValueOnce({ import_id: 'ji-1' });
+    render(<MemoryRouter><PlaybooksPage /></MemoryRouter>);
+    await screen.findByText('No playbooks yet');
+
+    fireEvent.click(screen.getByRole('button', { name: /new playbook/i }));
+    const button = await screen.findByRole('button', { name: 'Import from Jira' });
+    fireEvent.change(screen.getByLabelText('Playbook title'), { target: { value: 'PROJ-1' } });
+    fireEvent.click(button);
+    const dialog = await screen.findByRole('dialog', { name: /Checkout revamp/ });
+    fireEvent.change(await within(dialog).findByLabelText('Project for PROJ-7'), { target: { value: 'web' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: /^Import 3 issues/ }));
+    await within(dialog).findByRole('list', { name: 'Import results' });
+    emit('jira_import.progress', { import_id: 'ji-1', key: 'PROJ-3', status: 'created', project: 'api', card_id: 'API-001', reason: '' });
+
+    // The import created the epic's playbook, so the list fills mid-run.
+    emit('playbook.*', {});
+    await screen.findByRole('link', { name: /active one/i });
+
+    expect(dialog).toBeInTheDocument();
+    expect(within(dialog).getByRole('list', { name: 'Import results' })).toHaveTextContent('API-001');
   });
 
   it('explains and disables the import while the Jira token is failing', async () => {
