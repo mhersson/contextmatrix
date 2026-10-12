@@ -124,7 +124,8 @@ const (
 	// (make-runnable validation; the last names the cards that would not
 	// take the settings, cards forced before them keep theirs).
 	// NOT_RUNNABLE -> 409 (run state on a playbook that is not runnable).
-	// RUN_INACTIVE -> 409 (stop with no active run).
+	// RUN_INACTIVE -> 409 (stop with no active run). MOVE_DURING_RUN -> 409
+	// (entry reorder while a run is running or waiting).
 	ErrCodePlaybookNotFound      = "PLAYBOOK_NOT_FOUND"
 	ErrCodePlaybookEntryNotFound = "PLAYBOOK_ENTRY_NOT_FOUND"
 	ErrCodePlaybookEntryExists   = "PLAYBOOK_ENTRY_EXISTS"
@@ -136,6 +137,7 @@ const (
 	ErrCodePlaybookCardForce     = "PLAYBOOK_CARD_FORCE_FAILED"
 	ErrCodePlaybookNotRunnable   = "PLAYBOOK_NOT_RUNNABLE"
 	ErrCodePlaybookRunInactive   = "PLAYBOOK_RUN_INACTIVE"
+	ErrCodePlaybookMoveDuringRun = "PLAYBOOK_MOVE_DURING_RUN"
 )
 
 // APIError is the standard error response format.
@@ -1190,6 +1192,9 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusConflict, ErrCodePlaybookEntryExists, "card already in playbook", sanitizeErrorDetails(err))
 	case errors.Is(err, service.ErrPlaybookRunActive):
 		writeError(w, http.StatusConflict, ErrCodePlaybookRunActive, "playbook run is active", sanitizeErrorDetails(err))
+	case errors.Is(err, service.ErrPlaybookMoveDuringRun):
+		writeError(w, http.StatusConflict, ErrCodePlaybookMoveDuringRun,
+			"entries cannot be reordered while the playbook run is active", "stop the run to reorder entries")
 	case errors.Is(err, service.ErrPlaybookNotRunnable):
 		writeError(w, http.StatusConflict, ErrCodePlaybookNotRunnable, "playbook is not runnable", sanitizeErrorDetails(err))
 	case errors.Is(err, service.ErrPlaybookLocked):

@@ -154,7 +154,7 @@ export function PlaybookDetailPage() {
     setDetail({ ...detail, entries: arrayMoveLocal(detail.entries, from, to) });
     persistReorder(snapshot.id, snapshot, activeId, overId)
       .then((updated) => { if (updated) setDetail(updated); })
-      .catch(() => { showToast('Reorder failed', 'error'); fetchDetail(); });
+      .catch((err: unknown) => { showToast(describeApiError(err, 'Reorder failed'), 'error'); fetchDetail(); });
   }, [detail, showToast, fetchDetail]);
 
   const saveTitle = (value: string) => {
