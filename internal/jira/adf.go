@@ -94,6 +94,11 @@ func renderBlock(n adfNode) string {
 		return renderInline([]adfNode{n})
 	}
 
+	// Keep the children of an unknown container so their text survives.
+	if body := renderBlocks(n.Content, "\n\n"); body != "" {
+		return unsupported(n.Type) + "\n\n" + body
+	}
+
 	return unsupported(n.Type)
 }
 
@@ -137,6 +142,7 @@ func renderInline(nodes []adfNode) string {
 			b.WriteString(mediaPlaceholder(n))
 		default:
 			b.WriteString(unsupported(n.Type))
+			b.WriteString(renderInline(n.Content))
 		}
 	}
 

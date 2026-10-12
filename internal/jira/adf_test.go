@@ -116,7 +116,24 @@ func TestADFToMarkdown(t *testing.T) {
 			in:   doc(node("mediaGroup", "", `{"type":"media","attrs":{"alt":"a.txt"}}`, `{"type":"media","attrs":{}}`)),
 			want: "[attachment: a.txt]\n[attachment: unnamed]",
 		},
-		{name: "unknown block", in: doc(node("expand", `{"title":"More"}`, para(text("hidden")))), want: "[unsupported Jira content: expand]"},
+		{
+			name: "unknown block keeps children",
+			in:   doc(node("expand", `{"title":"More"}`, para(text("hidden")))),
+			want: "[unsupported Jira content: expand]\n\nhidden",
+		},
+		{
+			name: "nested unknown containers keep children",
+			in: doc(node("layoutSection", "",
+				node("layoutColumn", "", para(text("left"))),
+				node("expand", "", para(text("right"))))),
+			want: "[unsupported Jira content: layoutSection]\n\n[unsupported Jira content: layoutColumn]\n\nleft\n\n[unsupported Jira content: expand]\n\nright",
+		},
+		{name: "unknown without content", in: doc(node("extension", `{}`)), want: "[unsupported Jira content: extension]"},
+		{
+			name: "unknown inline keeps children",
+			in:   doc(para(text("see "), node("inlineExtension", "", text("inner")))),
+			want: "see [unsupported Jira content: inlineExtension]inner",
+		},
 		{name: "unknown inline", in: doc(para(text("see "), `{"type":"inlineExtension","attrs":{}}`)), want: "see [unsupported Jira content: inlineExtension]"},
 		{name: "empty raw message", in: json.RawMessage(``), want: ""},
 	}
