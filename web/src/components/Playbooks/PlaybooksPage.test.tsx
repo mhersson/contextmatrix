@@ -315,6 +315,8 @@ describe('PlaybooksPage - Jira import', () => {
     fireEvent.change(await within(dialog).findByLabelText('Project for PROJ-7'), { target: { value: 'web' } });
     fireEvent.click(within(dialog).getByRole('button', { name: /^Import 3 issues/ }));
     await within(dialog).findByRole('list', { name: 'Import results' });
+    // The list can paint before the hook's passive effect subscribes; an event emitted earlier is dropped.
+    await waitFor(() => expect(sse.handlers.has('jira_import.progress')).toBe(true));
     emit('jira_import.progress', { import_id: 'ji-1', key: 'PROJ-3', status: 'created', project: 'api', card_id: 'API-001', reason: '' });
 
     // The import created the epic's playbook, so the list fills mid-run.
