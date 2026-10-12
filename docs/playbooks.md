@@ -112,8 +112,15 @@ run:
 
 `running` and `waiting` are active: the cards' own run buttons are disabled
 and answer `409 PLAYBOOK_RUN_ACTIVE`, unchecking runnable is refused, and a
-second Play is refused. Cards carry a derived `playbook_lock` with the
-owning playbook's id, title and, while active, its run status.
+second Play is refused. `completed` does not lock the playbook on the
+server: the API still accepts Play and `runnable: false` after it. On the
+detail page, a completed run whose entries are all complete disables both
+the Make runnable switch and the Run button, and the page offers no way to
+un-runnable or replay such a playbook; entries added later re-enable both
+controls so Play can run them.
+
+Cards carry a derived `playbook_lock` with the owning playbook's id, title
+and, while active, its run status.
 
 Removing the run's current entry is refused (`409 PLAYBOOK_RUN_ACTIVE`)
 while the run is active; stop the run first. Other entries can be removed

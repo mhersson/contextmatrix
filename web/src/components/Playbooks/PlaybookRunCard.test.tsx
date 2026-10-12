@@ -80,6 +80,37 @@ describe('PlaybookRunCard', () => {
     expect(screen.queryByRole('button', { name: /^run$/i })).not.toBeInTheDocument();
   });
 
+  it('locks the run controls once a completed run has every entry complete', () => {
+    const h = renderCard(detail({
+      runnable: true, branch: 'playbook/roll', complete: 2, total: 2,
+      entries: [
+        { id: 'e1', type: 'card', project: 'alpha', card: 'ALPHA-1', card_title: 'First', card_state: 'done', complete: true },
+        { id: 'e2', type: 'card', project: 'beta', card: 'BETA-1', card_title: 'Second', card_state: 'done', complete: true },
+      ],
+      run: { status: 'completed', started_at: 'x', updated_at: 'x' },
+    }));
+    const toggle = screen.getByRole('checkbox', { name: /make runnable/i });
+    expect(toggle).toBeDisabled();
+    expect(toggle).toBeChecked();
+
+    const run = screen.getByRole('button', { name: /^run$/i });
+    expect(run).toBeDisabled();
+    fireEvent.click(run);
+    expect(h.onRun).not.toHaveBeenCalled();
+  });
+
+  it('keeps the run controls working on a completed run with unfinished entries', () => {
+    const h = renderCard(detail({
+      runnable: true, branch: 'playbook/roll',
+      run: { status: 'completed', started_at: 'x', updated_at: 'x' },
+    }));
+    const toggle = screen.getByRole('checkbox', { name: /make runnable/i });
+    expect(toggle).toBeEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: /^run$/i }));
+    expect(h.onRun).toHaveBeenCalledTimes(1);
+  });
+
   it('offers Run again after a stop', () => {
     renderCard(detail({
       runnable: true, branch: 'playbook/roll',

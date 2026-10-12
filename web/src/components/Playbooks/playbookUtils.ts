@@ -1,13 +1,13 @@
 import { api } from '../../api/client';
 import { displayState } from '../../lib/stateLabels';
-import type { PlaybookDetail, PlaybookEntry, PlaybookRun, PlaybookRunStatus, PlaybookSummary } from '../../types';
+import type { PlaybookDetail, PlaybookEntry, PlaybookRun, PlaybookRunStatus } from '../../types';
 
 // First incomplete entry - the frontier marker's target. -1 when all done.
 export function frontierIndex(entries: PlaybookEntry[]): number {
   return entries.findIndex((e) => !e.complete);
 }
 
-export function isFullyComplete(p: PlaybookSummary): boolean {
+export function isFullyComplete(p: { complete: number; total: number }): boolean {
   return p.total > 0 && p.complete >= p.total;
 }
 
@@ -102,6 +102,12 @@ export async function persistReorder(
 // Active runs lock the playbook's cards and refuse a second Play.
 export function isRunActive(run?: PlaybookRun | null): boolean {
   return run?.status === 'running' || run?.status === 'waiting';
+}
+
+// A completed run locks the run controls once every entry is complete; the
+// server itself still accepts Play and runnable changes.
+export function isRunCompleted(run?: PlaybookRun | null): boolean {
+  return run?.status === 'completed';
 }
 
 // Run status chip in the entryStateChip idiom: foreground on its bg token.

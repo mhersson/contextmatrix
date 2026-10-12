@@ -178,7 +178,9 @@ and names the branch the playbook branch is cut from ("Default branch" means
 the repository default). A runnable playbook shows its branch, a status line
 (`Running <card>, n of m`, `Waiting for you: <reason>`,
 `Stopped: <reason>`, `Completed`), **Run** while idle and **Stop** while
-active. A completed run lists one "Open PR" compare link per repository.
+active. A completed run whose entries are all complete keeps **Run** and
+Make runnable disabled; entries added after completion re-enable both.
+A completed run lists one "Open PR" compare link per repository.
 Entry rows read `queued` while a run is active and show the waiting reason
 on the run's entry; removing the run's current entry is refused until the
 run is stopped, and the toast carries the server's reason. The list page
