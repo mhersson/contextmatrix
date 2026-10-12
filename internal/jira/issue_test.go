@@ -108,10 +108,11 @@ func TestClient_InvalidKeyNeverCallsJira(t *testing.T) {
 
 func TestClient_Search(t *testing.T) {
 	tests := []struct {
-		name     string
-		pages    []string
-		wantKeys []string
-		wantErr  bool
+		name       string
+		pages      []string
+		wantKeys   []string
+		wantTokens []string
+		wantErr    bool
 	}{
 		{
 			name: "follows nextPageToken until isLast",
@@ -119,12 +120,14 @@ func TestClient_Search(t *testing.T) {
 				`{"issues":[` + issueJSON + `],"nextPageToken":"t1","isLast":false}`,
 				`{"issues":[{"id":"2","key":"PROJ-8","fields":{"summary":"b"}}],"isLast":true}`,
 			},
-			wantKeys: []string{"PROJ-7", "PROJ-8"},
+			wantKeys:   []string{"PROJ-7", "PROJ-8"},
+			wantTokens: []string{"", "t1"},
 		},
 		{
-			name:     "stops when the token is absent and isLast is omitted",
-			pages:    []string{`{"issues":[{"id":"2","key":"PROJ-8","fields":{}}]}`},
-			wantKeys: []string{"PROJ-8"},
+			name:       "stops when the token is absent and isLast is omitted",
+			pages:      []string{`{"issues":[{"id":"2","key":"PROJ-8","fields":{}}]}`},
+			wantKeys:   []string{"PROJ-8"},
+			wantTokens: []string{""},
 		},
 		{
 			name: "repeated token is an error",
@@ -132,7 +135,8 @@ func TestClient_Search(t *testing.T) {
 				`{"issues":[],"nextPageToken":"t1"}`,
 				`{"issues":[],"nextPageToken":"t1"}`,
 			},
-			wantErr: true,
+			wantTokens: []string{"", "t1"},
+			wantErr:    true,
 		},
 	}
 
@@ -166,6 +170,8 @@ func TestClient_Search(t *testing.T) {
 			})
 
 			got, err := c.Search(t.Context(), "parent = PROJ-1")
+			assert.Equal(t, tt.wantTokens, tokens)
+
 			if tt.wantErr {
 				require.Error(t, err)
 
@@ -180,7 +186,6 @@ func TestClient_Search(t *testing.T) {
 			}
 
 			assert.Equal(t, tt.wantKeys, keys)
-			assert.Empty(t, tokens[0], "first page sends no token")
 		})
 	}
 }
