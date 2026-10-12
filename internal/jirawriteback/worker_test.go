@@ -235,3 +235,72 @@ func TestTruncate(t *testing.T) {
 		})
 	}
 }
+
+func TestWorker_UnauthorizedWritesKeepProbeBackoffGrowing(t *testing.T) {
+	cards := oneCard(board.StateInProgress)
+	fj := newFakeJira(st("To Do", "new"), simpleWorkflow())
+	// Myself and reads pass; only the write is rejected (no write scope).
+	fj.postErr = fmt.Errorf("transition: %w", &jira.AuthError{})
+	w, store, clk := newTestWriteback(t, cards, fj)
+
+	seed(t, store, "API-001", KindStarted)
+
+	var delays []time.Duration
+
+	w.drain(t.Context())
+	require.True(t, w.Paused())
+
+	for range 8 {
+		before := clk.Now()
+		delays = append(delays, w.probeAt.Sub(before))
+		clk.Advance(w.probeAt.Sub(before))
+		w.drain(t.Context()) // probe passes, resumes, the POST 401s again
+		require.True(t, w.Paused())
+	}
+
+	assert.Equal(t, time.Minute, delays[0])
+	assert.Equal(t, maxProbeDelay, delays[len(delays)-1], "backoff reaches the cap")
+
+	for i := 1; i < len(delays); i++ {
+		assert.GreaterOrEqual(t, delays[i], delays[i-1], "backoff never shrinks")
+	}
+
+	assert.LessOrEqual(t, len(fj.postedIDs()), 9, "one POST per probe, spaced by the growing delay")
+	assert.True(t, w.pauseWarned, "the pause is announced once until a write succeeds")
+
+	row, _ := rowState(t, store, "api", "API-001", KindStarted)
+	assert.Equal(t, "pending", row.State)
+	assert.Equal(t, 0, row.Attempts)
+}
+
+func TestWorker_SuccessAfterResumeResetsProbeBackoff(t *testing.T) {
+	cards := oneCard(board.StateInProgress)
+	fj := newFakeJira(st("To Do", "new"), simpleWorkflow())
+	fj.postErr = fmt.Errorf("transition: %w", &jira.AuthError{})
+	w, store, clk := newTestWriteback(t, cards, fj)
+
+	seed(t, store, "API-001", KindStarted)
+
+	w.drain(t.Context())
+
+	for range 3 {
+		clk.Advance(w.probeAt.Sub(clk.Now()))
+		w.drain(t.Context())
+	}
+
+	require.Positive(t, w.probeCount)
+
+	fj.mu.Lock()
+	fj.postErr = nil
+	fj.mu.Unlock()
+
+	clk.Advance(w.probeAt.Sub(clk.Now()))
+	w.drain(t.Context())
+
+	require.False(t, w.Paused())
+
+	row, _ := rowState(t, store, "api", "API-001", KindStarted)
+	assert.Equal(t, "done", row.State)
+	assert.Equal(t, 0, w.probeCount)
+	assert.False(t, w.pauseWarned)
+}

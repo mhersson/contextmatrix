@@ -93,8 +93,12 @@ func (w *Writeback) process(ctx context.Context, row opsqlite.JiraWriteback) boo
 
 	switch {
 	case err == nil && out == outcomeSkipped:
+		w.writeSucceeded()
+
 		return w.finish(ctx, row, opsqlite.JiraWritebackSkipped, "")
 	case err == nil:
+		w.writeSucceeded()
+
 		return w.finish(ctx, row, opsqlite.JiraWritebackDone, "")
 	case ctx.Err() != nil:
 		// Shutdown cut the call: the row stays pending at no attempt cost, and
@@ -195,12 +199,24 @@ func (w *Writeback) fail(ctx context.Context, row opsqlite.JiraWriteback, reason
 	return true
 }
 
+// writeSucceeded re-arms the pause warning and the probe backoff: the
+// credentials demonstrably work for writes.
+func (w *Writeback) writeSucceeded() {
+	w.pauseWarned = false
+	w.probeCount = 0
+}
+
 // pause stops draining until Myself succeeds again. Rows keep their place
 // and attempt count, so an expired token loses nothing.
 func (w *Writeback) pause(err error) {
 	if w.paused.CompareAndSwap(false, true) {
-		w.logger.Warn("jira writeback paused: Jira rejected the credentials", "error", err)
-		w.probeCount = 0
+		if w.pauseWarned {
+			// Resumed but no write succeeded since: keep backing off.
+			w.probeCount++
+		} else {
+			w.pauseWarned = true
+			w.logger.Warn("jira writeback paused: Jira rejected the credentials", "error", err)
+		}
 	}
 
 	w.probeAt = w.clk.Now().Add(probeDelay(w.probeCount))

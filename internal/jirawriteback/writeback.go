@@ -78,6 +78,9 @@ type Writeback struct {
 	// Owned by the worker goroutine.
 	probeAt    time.Time
 	probeCount int
+	// pauseWarned holds until a write succeeds, so a pause right after a
+	// resume keeps backing off and stays quiet.
+	pauseWarned bool
 }
 
 // New builds a Writeback; nothing runs until Start.

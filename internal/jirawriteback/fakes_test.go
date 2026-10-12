@@ -42,6 +42,7 @@ type fakeJira struct {
 	transitionsCalls int
 	issueErr         error
 	myselfErr        error
+	postErr          error           // returned by every Transition
 	postErrOnce      error           // returned by the next Transition, then cleared
 	onPostErr        func(*fakeJira) // runs when postErrOnce fires (simulates a racing writer)
 }
@@ -85,6 +86,10 @@ func (f *fakeJira) Transition(_ context.Context, _, id string, fields map[string
 
 	f.posts = append(f.posts, id)
 	f.fields = append(f.fields, fields)
+
+	if f.postErr != nil {
+		return f.postErr
+	}
 
 	if err := f.postErrOnce; err != nil {
 		f.postErrOnce = nil
