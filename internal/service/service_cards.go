@@ -1578,6 +1578,22 @@ func (s *CardService) DeleteCard(ctx context.Context, project, id string) error 
 // AddLogEntry appends an activity log entry to a card and returns the updated card.
 // The activity log is capped at 50 entries (oldest dropped).
 func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry board.ActivityEntry) (*board.Card, error) {
+	return s.addLogEntry(ctx, project, id, entry, true)
+}
+
+// AddSystemLogEntry appends an entry from an in-process system writer
+// ("system" or "system:<component>") without the claim check, so background
+// components can annotate a card an agent holds. It is not reachable from
+// REST or MCP, and it never refreshes the claim heartbeat.
+func (s *CardService) AddSystemLogEntry(ctx context.Context, project, id string, entry board.ActivityEntry) (*board.Card, error) {
+	if entry.Agent != "system" && !strings.HasPrefix(entry.Agent, "system:") {
+		return nil, fmt.Errorf("add system log entry: agent %q is not a system writer: %w", entry.Agent, lock.ErrAgentMismatch)
+	}
+
+	return s.addLogEntry(ctx, project, id, entry, false)
+}
+
+func (s *CardService) addLogEntry(ctx context.Context, project, id string, entry board.ActivityEntry, checkOwner bool) (*board.Card, error) {
 	id = strings.ToUpper(id)
 	r := s.repoOf(project)
 
@@ -1607,7 +1623,7 @@ func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry
 	}
 
 	// Verify agent ownership.
-	if card.AssignedAgent != "" && !s.OwnsClaim(card, entry.Agent) {
+	if checkOwner && card.AssignedAgent != "" && !s.OwnsClaim(card, entry.Agent) {
 		s.writeMu.Unlock()
 
 		return nil, fmt.Errorf("agent authorization: %w", lock.ErrAgentMismatch)
@@ -1624,7 +1640,7 @@ func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry
 
 	// See applyCardMutation: an owner-attributed log entry is proof of
 	// liveness and refreshes the claim heartbeat on the same write.
-	if entry.Agent != "" && s.OwnsClaim(card, entry.Agent) {
+	if checkOwner && entry.Agent != "" && s.OwnsClaim(card, entry.Agent) {
 		now := card.Updated
 		card.LastHeartbeat = &now
 	}
