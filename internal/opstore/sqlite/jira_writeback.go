@@ -34,13 +34,19 @@ const jiraWritebackColumns = `project, card_id, kind, issue_key, state, attempts
 	COALESCE(last_error, ''), created_at, updated_at`
 
 // EnqueueJiraWriteback records a pending write unless a row for
-// (project, card, kind) exists in any state. That uniqueness is what makes a
-// second entry into in_progress, or a reopened card's second done, a no-op.
+// (project, card, kind) already targets the same issue, in any state. That
+// makes a second entry into in_progress, or a reopened card's second done, a
+// no-op. A row for a different issue (a recreated project reusing card IDs)
+// is reset to pending for the new one. It reports whether a row was written.
 func (s *Store) EnqueueJiraWriteback(ctx context.Context, project, cardID, kind, issueKey string, now int64) (bool, error) {
 	res, err := s.db.ExecContext(ctx, `
 		INSERT INTO jira_writeback (project, card_id, kind, issue_key, state, attempts, next_attempt_at, created_at, updated_at)
 		VALUES (?, ?, ?, ?, 'pending', 0, ?, ?, ?)
-		ON CONFLICT(project, card_id, kind) DO NOTHING`,
+		ON CONFLICT(project, card_id, kind) DO UPDATE SET
+			issue_key = excluded.issue_key, state = 'pending', attempts = 0,
+			next_attempt_at = excluded.next_attempt_at, last_error = NULL,
+			created_at = excluded.created_at, updated_at = excluded.updated_at
+		WHERE jira_writeback.issue_key <> excluded.issue_key`,
 		project, cardID, kind, issueKey, now, now, now)
 	if err != nil {
 		return false, fmt.Errorf("enqueue jira writeback %s/%s %s: %w", project, cardID, kind, err)

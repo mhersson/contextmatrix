@@ -13,9 +13,9 @@ const schemaVersion = 5
 
 // ensureSchema creates every operational table if absent. Clean-cut: there is
 // no migration ledger and no backward-compat path - an obsolete DB is deleted
-// and recreated by the operator. Holds the chat schema (sessions, messages,
-// cost archive), the model blacklist, Best-of-N model outcomes, and the
-// selector tier ladders and price headroom, and the Jira writeback outbox in a single ops.db.
+// and recreated by the operator. One ops.db holds the chat schema (sessions,
+// messages, cost archive), the model blacklist, Best-of-N model outcomes, the
+// selector tier ladders and price headroom, and the Jira writeback outbox.
 func ensureSchema(ctx context.Context, db *sql.DB) error {
 	var current int
 	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&current); err != nil {

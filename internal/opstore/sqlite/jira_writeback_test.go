@@ -59,6 +59,38 @@ func TestJiraWriteback_EnqueueIsFirstEntryOnly(t *testing.T) {
 	require.Error(t, err, "kind is constrained")
 }
 
+func TestJiraWriteback_EnqueueKeysOnIssue(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	inserted, err := s.EnqueueJiraWriteback(ctx, "api", "API-001", "done", "PROJ-1", 100)
+	require.NoError(t, err)
+	require.True(t, inserted)
+	require.NoError(t, s.RetryJiraWriteback(ctx, "api", "API-001", "done", 2, 150, "boom", 140))
+
+	inserted, err = s.EnqueueJiraWriteback(ctx, "api", "API-001", "done", "PROJ-1", 200)
+	require.NoError(t, err)
+	assert.False(t, inserted, "same issue: row untouched")
+
+	row, _, err := s.GetJiraWriteback(ctx, "api", "API-001", "done")
+	require.NoError(t, err)
+	assert.Equal(t, 2, row.Attempts)
+	assert.Equal(t, int64(100), row.CreatedAt)
+
+	require.NoError(t, s.FinishJiraWriteback(ctx, "api", "API-001", "done", JiraWritebackDone, "", 210))
+
+	inserted, err = s.EnqueueJiraWriteback(ctx, "api", "API-001", "done", "OTHER-9", 300)
+	require.NoError(t, err)
+	assert.True(t, inserted, "a recreated project reusing the card id points at a new issue")
+
+	row, _, err = s.GetJiraWriteback(ctx, "api", "API-001", "done")
+	require.NoError(t, err)
+	assert.Equal(t, JiraWriteback{
+		Project: "api", CardID: "API-001", Kind: "done", IssueKey: "OTHER-9", State: JiraWritebackPending,
+		NextAttemptAt: 300, CreatedAt: 300, UpdatedAt: 300,
+	}, row)
+}
+
 func TestJiraWriteback_DueRetryFinish(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
