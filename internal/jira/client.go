@@ -170,11 +170,13 @@ func decodeResponse(resp *http.Response, out any) error {
 		return fmt.Errorf("read response: %w", err)
 	}
 
+	captcha := strings.Contains(resp.Header.Get("X-Seraph-LoginReason"), "AUTHENTICATION_DENIED")
+
 	switch {
 	case resp.StatusCode == http.StatusUnauthorized:
-		captcha := strings.Contains(resp.Header.Get("X-Seraph-LoginReason"), "AUTHENTICATION_DENIED")
-
 		return &AuthError{captcha: captcha}
+	case resp.StatusCode == http.StatusForbidden && captcha:
+		return &AuthError{captcha: true}
 	case resp.StatusCode == http.StatusNotFound:
 		return ErrNotFound
 	case resp.StatusCode < 200 || resp.StatusCode > 299:

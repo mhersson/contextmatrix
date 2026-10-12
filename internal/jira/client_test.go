@@ -99,6 +99,29 @@ func TestClient_StatusMapping(t *testing.T) {
 			},
 		},
 		{
+			name: "403 captcha", status: http.StatusForbidden,
+			header: map[string]string{"X-Seraph-LoginReason": "AUTHENTICATION_DENIED"},
+			check: func(t *testing.T, err error) {
+				t.Helper()
+				require.ErrorIs(t, err, ErrUnauthorized)
+
+				authErr, ok := errors.AsType[*AuthError](err)
+				require.True(t, ok)
+				assert.True(t, authErr.CaptchaRequired())
+			},
+		},
+		{
+			name: "403 without captcha header", status: http.StatusForbidden,
+			check: func(t *testing.T, err error) {
+				t.Helper()
+				require.NotErrorIs(t, err, ErrUnauthorized)
+
+				se, ok := errors.AsType[*StatusError](err)
+				require.True(t, ok)
+				assert.Equal(t, http.StatusForbidden, se.StatusCode)
+			},
+		},
+		{
 			name: "404", status: http.StatusNotFound,
 			check: func(t *testing.T, err error) {
 				t.Helper()
