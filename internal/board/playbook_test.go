@@ -218,3 +218,16 @@ func TestPlaybook_V1FileParsesWithoutRunFields(t *testing.T) {
 	assert.Nil(t, got.Run)
 	require.NoError(t, got.Validate())
 }
+
+func TestPlaybookRun_Clone(t *testing.T) {
+	var nilRun *PlaybookRun
+	assert.Nil(t, nilRun.Clone())
+
+	ended := time.Date(2026, 9, 6, 11, 0, 0, 0, time.UTC)
+	r := &PlaybookRun{Status: RunStatusStopped, Reason: "stopped", EndedAt: &ended}
+
+	cp := r.Clone()
+	assert.Equal(t, r, cp)
+	require.NotSame(t, r, cp)
+	require.NotSame(t, r.EndedAt, cp.EndedAt)
+}

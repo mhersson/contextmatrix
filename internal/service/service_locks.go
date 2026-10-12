@@ -45,7 +45,7 @@ func (s *CardService) claimPreconditions(ctx context.Context, project, id, agent
 	// Block non-human agents from claiming cards that have an external source
 	// but have not been vetted. This prevents prompt-injection attacks where a
 	// malicious issue body could instruct an agent to perform unintended actions.
-	if !board.IsHumanAgentID(agentID) && snapshot.Source != nil && !snapshot.Vetted {
+	if !board.IsHumanAgentID(agentID) && snapshot.NeedsVetting() {
 		return nil, fmt.Errorf("claim card: %w", ErrCardNotVetted)
 	}
 

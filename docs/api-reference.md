@@ -259,7 +259,7 @@ the request's `request_id`.
 | `ALREADY_CLAIMED`            | 409     | Card is claimed by another agent (on a shared board the details name the holding instance)                                                                                                 |
 | `NOT_CLAIMED`                | 409     | Release or force-release on a card with no claim                                                                                                                                           |
 | `AGENT_MISMATCH`             | 403     | Caller does not own the claim on the card                                                                                                                                                  |
-| `CARD_NOT_VETTED`            | 403     | Non-human claim on an external card with `vetted: false`                                                                                                                                   |
+| `CARD_NOT_VETTED`            | 403     | Non-human claim, or `POST .../run` by any caller, on an external card with `vetted: false`                                                                                                 |
 | `HUMAN_ONLY_FIELD`           | 403     | Non-human caller on a human-only field or endpoint                                                                                                                                         |
 | `PROTECTED_BRANCH`           | 403     | MCP `report_push` targeted `main` / `master`                                                                                                                                               |
 | `REVIEW_ATTEMPTS_CAPPED`     | 409     | Review attempts limit reached                                                                                                                                                              |
@@ -287,6 +287,7 @@ the request's `request_id`.
 | `PLAYBOOK_NOT_RUNNABLE`      | 409     | An operation that requires `runnable: true` is called on a playbook that is not runnable                                                                                                   |
 | `PLAYBOOK_CARD_OWNED`        | 422     | `runnable: true` and a card entry already belongs to another runnable playbook                                                                                                             |
 | `PLAYBOOK_PROJECT_NO_REPO`   | 422     | `runnable: true` and a card entry's project has no GitHub repository URL                                                                                                                   |
+| `PLAYBOOK_CARD_NOT_VETTED`   | 422     | `runnable: true` and a non-terminal card entry is imported content not yet vetted                                                                                                          |
 | `PLAYBOOK_CARD_FORCE_FAILED` | 422     | `runnable: true` and one or more card entries would not take the forced settings; `details` names them as `project/card`. Cards forced before them keep their settings; the flag stays off |
 | `IMAGE_NOT_FOUND`            | 404     | Unknown or malformed image id                                                                                                                                                              |
 | `IMAGE_UNSUPPORTED`          | 415     | Image format not png/jpeg/gif/webp (animated WebP lands here too)                                                                                                                          |
@@ -301,7 +302,7 @@ the request's `request_id`.
 
 | Code               | HTTP | When                                                                                                                                                      |
 | ------------------ | ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `CARD_NOT_VETTED`  | 403  | A non-human agent calls `POST /claim` on a card with `source != null && vetted == false`.                                                                 |
+| `CARD_NOT_VETTED`  | 403  | A non-human agent calls `POST /claim`, or any caller calls `POST /run`, on a card with `source != null && vetted == false`.                               |
 | `HUMAN_ONLY_FIELD` | 403  | A caller without the `human:` prefix sets a human-only field on card create, PUT, or PATCH (list under § Card Endpoints), or calls a human-only endpoint. |
 
 ## Authentication (multi mode)
@@ -1915,9 +1916,11 @@ Response **200** with the full detail. **Errors:** 404
 (string) from human callers; agents get `403 HUMAN_ONLY_FIELD`. Setting
 `runnable: true` forces `autonomous`, `create_pr`, `await_ci`, `merge_pr` and
 `base_branch: playbook/<id>` on every non-terminal card entry; it fails with
-`422 PLAYBOOK_PROJECT_NO_REPO`, `422 PLAYBOOK_CARD_OWNED`, or
-`422 PLAYBOOK_CARD_FORCE_FAILED` (the cards that would not take the
-settings, named in `details`; cards forced before them keep their settings)
+`422 PLAYBOOK_PROJECT_NO_REPO`, `422 PLAYBOOK_CARD_OWNED`,
+`422 PLAYBOOK_CARD_NOT_VETTED` (non-terminal imported cards not yet vetted,
+named in `details`), or `422 PLAYBOOK_CARD_FORCE_FAILED` (the cards that would
+not take the settings, named in `details`; cards forced before them keep their
+settings)
 and leaves the flag off. `runnable: false` and `base_branch` return
 `409 PLAYBOOK_RUN_ACTIVE` while a run is running or waiting.
 
@@ -2051,6 +2054,7 @@ asynchronously.
 | Status | Code                  | When                                                                                                       |
 | ------ | --------------------- | ---------------------------------------------------------------------------------------------------------- |
 | 403    | `HUMAN_ONLY_FIELD`    | Caller is not `human:`                                                                                     |
+| 403    | `CARD_NOT_VETTED`     | The card has a `source` and is not vetted                                                                  |
 | 409    | `INVALID_TRANSITION`  | Card is not in `todo`                                                                                      |
 | 409    | `WORKER_CONFLICT`     | Card is already `queued` or `running`                                                                      |
 | 409    | `VALIDATION_ERROR`    | The project's `github_credential` binding is broken (worker status reverts, activity entry `run-rejected`) |

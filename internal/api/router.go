@@ -120,10 +120,10 @@ const (
 	// ENTRY_EXISTS -> 409 (duplicate card entry). RUN_ACTIVE -> 409 (change
 	// refused during a run, or a hand run on a card the run owns). LOCKED
 	// -> 409 (playbook-owned card setting changed by hand). CARD_OWNED,
-	// PROJECT_NO_REPO and CARD_FORCE_FAILED -> 422 (make-runnable
-	// validation; the last names the cards that would not take the
-	// settings, cards forced before them keep theirs). NOT_RUNNABLE ->
-	// 409 (run state on a playbook that is not runnable).
+	// PROJECT_NO_REPO, CARD_NOT_VETTED and CARD_FORCE_FAILED -> 422
+	// (make-runnable validation; the last names the cards that would not
+	// take the settings, cards forced before them keep theirs).
+	// NOT_RUNNABLE -> 409 (run state on a playbook that is not runnable).
 	// RUN_INACTIVE -> 409 (stop with no active run).
 	ErrCodePlaybookNotFound      = "PLAYBOOK_NOT_FOUND"
 	ErrCodePlaybookEntryNotFound = "PLAYBOOK_ENTRY_NOT_FOUND"
@@ -132,6 +132,7 @@ const (
 	ErrCodePlaybookLocked        = "PLAYBOOK_LOCKED"
 	ErrCodePlaybookCardOwned     = "PLAYBOOK_CARD_OWNED"
 	ErrCodePlaybookProjectNoRepo = "PLAYBOOK_PROJECT_NO_REPO"
+	ErrCodePlaybookCardNotVetted = "PLAYBOOK_CARD_NOT_VETTED"
 	ErrCodePlaybookCardForce     = "PLAYBOOK_CARD_FORCE_FAILED"
 	ErrCodePlaybookNotRunnable   = "PLAYBOOK_NOT_RUNNABLE"
 	ErrCodePlaybookRunInactive   = "PLAYBOOK_RUN_INACTIVE"
@@ -1234,6 +1235,8 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusUnprocessableEntity, ErrCodePlaybookCardOwned, "card belongs to another runnable playbook", sanitizeErrorDetails(err))
 	case errors.Is(err, service.ErrPlaybookProjectNoRepo):
 		writeError(w, http.StatusUnprocessableEntity, ErrCodePlaybookProjectNoRepo, "project has no GitHub repository", sanitizeErrorDetails(err))
+	case errors.Is(err, service.ErrPlaybookCardNotVetted):
+		writeError(w, http.StatusUnprocessableEntity, ErrCodePlaybookCardNotVetted, "cards must be vetted before the playbook can run", sanitizeErrorDetails(err))
 	case errors.Is(err, service.ErrPlaybookCardForce):
 		writeError(w, http.StatusUnprocessableEntity, ErrCodePlaybookCardForce, "could not apply playbook settings to cards", sanitizeErrorDetails(err))
 	case errors.Is(err, service.ErrInvalidPlaybookEntry), errors.Is(err, board.ErrInvalidPlaybook):

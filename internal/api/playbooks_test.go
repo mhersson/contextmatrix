@@ -958,3 +958,38 @@ func TestPlaybooksAPI_MakeRunnableCardForceFailureIs422(t *testing.T) {
 	assert.Contains(t, apiErr.Details, "test-project/"+card.ID)
 	assert.NotContains(t, apiErr.Details, "commit failed")
 }
+
+func TestPlaybooksAPI_MakeRunnableUnvetted(t *testing.T) {
+	svc, pbSvc, bus, cleanup := playbookTestSetup(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+		Title: "PROJ-1 Imported", Type: "task", Priority: "medium",
+		Source: &board.Source{System: "jira", ExternalID: "PROJ-1", ExternalURL: "https://acme.atlassian.net/browse/PROJ-1"},
+	})
+	require.NoError(t, err)
+
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Playbooks: pbSvc})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	createResp := doJSON(t, http.MethodPost, server.URL+"/api/playbooks", map[string]any{
+		"title":   "Rollout",
+		"entries": []map[string]any{{"type": "card", "project": "test-project", "card": card.ID}},
+	}, "human:alice")
+	closeBody(t, createResp.Body)
+	require.Equal(t, http.StatusCreated, createResp.StatusCode)
+
+	resp := doJSON(t, http.MethodPatch, server.URL+"/api/playbooks/rollout", map[string]any{"runnable": true}, "human:alice")
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode)
+
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodePlaybookCardNotVetted, apiErr.Code)
+	assert.Contains(t, apiErr.Details, card.ID)
+}

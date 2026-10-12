@@ -20,6 +20,9 @@ A card in `todo` shows one run button in the card panel header. The
 Runs are human-only and need an enabled task backend. Every run gets a fresh
 container, the card's generated branch, and a claim held by the worker.
 
+An imported card (one with a `source`) that is not vetted cannot run: the run
+button answers `403 CARD_NOT_VETTED` until a human ticks **Content vetted**.
+
 ## HITL runs
 
 - The worker starts plan drafting immediately and pauses at its gates: plan
@@ -167,7 +170,7 @@ first run in a repository.
 | Run status  | Meaning                                                                                   |
 | ----------- | ----------------------------------------------------------------------------------------- |
 | `running`   | The current card is queued or executing.                                                  |
-| `waiting`   | A human is needed: a manual step, or the current card parked, stalled, failed, was killed, or could not be launched. `reason` says which. |
+| `waiting`   | A human is needed: a manual step, an imported card that is not vetted, or the current card parked, stalled, failed, was killed, or could not be launched. `reason` says which. |
 | `stopped`   | Stop was pressed. The current worker was killed.                                          |
 | `completed` | Every entry is complete. The compare links open the final pull requests.                 |
 
@@ -177,6 +180,9 @@ first run in a repository.
   waited on.
 - The runner never retries on its own. After a failed card, fix the cause and
   press Play.
+- An imported card that is not vetted holds the run at `waiting` with the reason
+  `<card> not vetted`. Vetting the card is the go-ahead: the run continues by
+  itself, without Play.
 - While a run is `running` or `waiting`, the cards' own run buttons are
   disabled and `POST .../run` answers `409 PLAYBOOK_RUN_ACTIVE`.
 - On a shared board the instance that pressed Play owns the run; other

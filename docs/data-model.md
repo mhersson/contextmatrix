@@ -126,7 +126,10 @@ live in [architecture](architecture.md); the HTTP surface in the
 9. **Human vetting gate for imported cards.** Cards with a `source` carry
    `vetted`, `false` on creation. A non-human agent cannot claim an unvetted
    card (`ClaimCard` returns 403 `CARD_NOT_VETTED`); a human toggles
-   `vetted: true` in the web UI first.
+   `vetted: true` in the web UI first. An unvetted card also cannot be run
+   (the run endpoint returns 403 for any caller), make-runnable refuses while
+   one is a non-terminal playbook entry, and a playbook run waits on it until
+   it is vetted.
    - Internal cards (no `source`) always have `vetted: true`.
    - `vetted` is human-only: agents get 403 `HUMAN_ONLY_FIELD` via REST, and
      the MCP `update_card` tool does not expose it.
@@ -150,6 +153,7 @@ live in [architecture](architecture.md); the HTTP surface in the
     | Scenario                                           | Behaviour                                                                   |
     | -------------------------------------------------- | --------------------------------------------------------------------------- |
     | Created with a non-empty `parent`                  | `type` forced to `subtask`                                                  |
+    | Created with no `parent` and `type: subtask`       | rejected with 422 `VALIDATION_ERROR`; no card ID is consumed                |
     | `UpdateCard` sets `parent` on a card that had none | `type` forced to `subtask`                                                  |
     | `UpdateCard` clears `parent`                       | a `subtask` type resets to the first entry in the project's `types`         |
     | `UpdateCard` keeps an existing `parent`            | `type` must stay `subtask`, else 422                                        |
@@ -823,6 +827,9 @@ type Playbook struct {
     Updated     time.Time       `yaml:"updated_at"            json:"updated_at"`
     NextEntryID int             `yaml:"next_entry_id"         json:"next_entry_id"`
     Entries     []PlaybookEntry `yaml:"entries"               json:"entries"`
+    Runnable    bool            `yaml:"runnable,omitempty"    json:"runnable"`
+    BaseBranch  string          `yaml:"base_branch,omitempty" json:"base_branch,omitempty"`
+    Run         *PlaybookRun    `yaml:"run,omitempty"         json:"run,omitempty"`
 }
 
 type PlaybookEntry struct {
@@ -836,12 +843,32 @@ type PlaybookEntry struct {
     DoneAt  *time.Time `yaml:"done_at,omitempty" json:"done_at,omitempty"`
     Note    string     `yaml:"note,omitempty"    json:"note,omitempty"`
 }
+
+type PlaybookRun struct {
+    Status    string     `yaml:"status"               json:"status"`
+    Instance  string     `yaml:"instance,omitempty"   json:"instance,omitempty"`
+    StartedBy string     `yaml:"started_by,omitempty" json:"started_by,omitempty"`
+    StartedAt time.Time  `yaml:"started_at"           json:"started_at"`
+    UpdatedAt time.Time  `yaml:"updated_at"           json:"updated_at"`
+    Entry     string     `yaml:"entry,omitempty"      json:"entry,omitempty"`
+    Reason    string     `yaml:"reason,omitempty"     json:"reason,omitempty"`
+    EndedAt   *time.Time `yaml:"ended_at,omitempty"   json:"ended_at,omitempty"`
+}
 ```
 
 `Type` is `card` or `manual`. The service layer exposes a resolved view
 (`PlaybookDetail` / `PlaybookEntryDetail` in `internal/service/playbooks.go`)
 that joins card entries against the live card store; see the
 [API reference](api-reference.md) for the JSON shape.
+
+`Runnable` is human-set and forces five card settings (see
+[playbooks](playbooks.md#make-runnable)). `BaseBranch` is the branch
+`playbook/<id>` is cut from on the first run; empty means the repository
+default. `Run` is present once a run has started; `Status` is `running`,
+`waiting`, `stopped` or `completed`, `Instance` is the owning instance (empty on
+a private board), `Entry` is the current entry (empty once completed, and while the run
+is held on an unvetted card), and `Reason` explains a `waiting` or `stopped`
+status.
 
 ## Project board config format
 

@@ -508,3 +508,56 @@ func TestStop_DeclinesTheStopperWhenTheCardIsClaimedElsewhere(t *testing.T) {
 	assert.Equal(t, board.RunStatusStopped, d.Run.Status)
 	assert.Empty(t, e.stopper.calls, "another instance owns that container")
 }
+
+func importedCard(project, id string) *board.Card {
+	c := todoCard(project, id)
+	c.Source = &board.Source{System: "jira", ExternalID: "PROJ-1", ExternalURL: "https://acme.atlassian.net/browse/PROJ-1"}
+
+	return c
+}
+
+func TestPass_UnvettedCardWaitsUntilVetted(t *testing.T) {
+	e := newEnv(t)
+	c := importedCard("alpha", "ALPHA-1")
+	e.cards.add(c)
+
+	p := runnablePlaybook("rollout", cardEntry("e1", "alpha", "ALPHA-1"))
+	e.activeRun(p, "")
+	e.pbs.add(p)
+
+	ctx := context.Background()
+
+	require.False(t, e.runner.pass(ctx, "rollout"))
+	assert.Equal(t, 0, e.launcher.count(), "an unvetted card is never launched")
+	assert.Empty(t, e.cards.forced, "settings are not forced on a card the run cannot launch")
+
+	run := e.pbs.lastRun()
+	assert.Equal(t, board.RunStatusWaiting, run.Status)
+	assert.Empty(t, run.Entry, "the entry is not marked triggered")
+	assert.Contains(t, run.Reason, "ALPHA-1")
+
+	// A second pass with nothing changed writes nothing.
+	writes := e.pbs.runWrites()
+	require.False(t, e.runner.pass(ctx, "rollout"))
+	assert.Equal(t, writes, e.pbs.runWrites())
+
+	// A human vets the card: the next pass launches it without a Play.
+	c.Vetted = true
+
+	require.False(t, e.runner.pass(ctx, "rollout"))
+	assert.Equal(t, 1, e.launcher.count())
+	assert.Equal(t, "e1", e.pbs.lastRun().Entry)
+	assert.Equal(t, board.RunStatusRunning, e.pbs.lastRun().Status)
+}
+
+func TestPass_SourcelessUnvettedCardLaunches(t *testing.T) {
+	e := newEnv(t)
+	e.cards.add(todoCard("alpha", "ALPHA-1")) // Vetted false, Source nil
+
+	p := runnablePlaybook("rollout", cardEntry("e1", "alpha", "ALPHA-1"))
+	e.activeRun(p, "")
+	e.pbs.add(p)
+
+	require.False(t, e.runner.pass(context.Background(), "rollout"))
+	assert.Equal(t, 1, e.launcher.count())
+}
