@@ -56,7 +56,8 @@ export function JiraIssueRow({
           value={project}
           disabled={!!node.imported}
           onChange={(e) => onProject(e.target.value)}
-          className="bf-input text-xs w-36 shrink-0"
+          className="bf-input text-xs shrink-0"
+          style={{ width: '9rem' }}
         >
           <option value="">Choose project</option>
           {projects.map((p) => (

@@ -53,9 +53,9 @@ describe('jiraImportModel', () => {
 
   it('sets every non-imported issue at once', () => {
     const p = samplePreview();
-    const all = setAllProjects(initialForm(p), p, 'web');
-    expect(all.projects['PROJ-7']).toBe('web');
-    expect(all.projects['PROJ-5']).toBe('api');
+    const all = setAllProjects(initialForm(p), p, 'api');
+    expect(all.projects['PROJ-7']).toBe('api');
+    expect(all.projects['PROJ-6']).toBe('web');
   });
 
   it('needs a project for every selected issue before submitting', () => {

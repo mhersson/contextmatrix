@@ -21,6 +21,11 @@ vi.mock('../../hooks/useSSEBus', () => ({
   useSSEBus: () => ({ subscribe: () => () => {}, connected: true, error: null, reconnectEpoch: 0 }),
 }));
 
+// The import dialog renders the project pickers; useProjects throws outside ProjectsProvider.
+vi.mock('../../hooks/useProjects', () => ({
+  useProjects: () => ({ projects: [], loading: false, error: null, connected: true, refreshProjects: () => {} }),
+}));
+
 vi.mock('../../hooks/useToast', () => {
   // Stable identity: a fresh showToast per render would destabilize the
   // page's fetch callback and trigger duplicate fetches in tests.
@@ -253,7 +258,8 @@ describe('PlaybooksPage - Jira import', () => {
     const button = await openGhost();
     fireEvent.change(screen.getByLabelText('Playbook title'), { target: { value: `${SITE}/browse/PROJ-12` } });
     fireEvent.click(button);
-    await waitFor(() => expect(api.previewJiraEpic).toHaveBeenCalledWith('PROJ-12'));
+    expect(await screen.findByRole('dialog', { name: /^Import Jira epic PROJ-12/ })).toBeInTheDocument();
+    expect(api.previewJiraEpic).toHaveBeenCalledWith('PROJ-12');
   });
 
   it('accepts a lowercase key and opens the dialog with it upper-cased', async () => {
@@ -261,7 +267,8 @@ describe('PlaybooksPage - Jira import', () => {
     fireEvent.change(screen.getByLabelText('Playbook title'), { target: { value: 'proj-12' } });
     expect(button).toBeEnabled();
     fireEvent.click(button);
-    await waitFor(() => expect(api.previewJiraEpic).toHaveBeenCalledWith('PROJ-12'));
+    expect(await screen.findByRole('dialog', { name: /^Import Jira epic PROJ-12/ })).toBeInTheDocument();
+    expect(api.previewJiraEpic).toHaveBeenCalledWith('PROJ-12');
   });
 
   it('explains and disables the import while the Jira token is failing', async () => {
