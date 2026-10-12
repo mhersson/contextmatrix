@@ -19,7 +19,7 @@ export function useJiraStatus(enabled: boolean): JiraStatus | null {
         if (!cancelled) setStatus(s);
       })
       .catch(() => {
-        /* hidden on failure by design */
+        if (!cancelled) setStatus(null);
       });
     return () => {
       cancelled = true;

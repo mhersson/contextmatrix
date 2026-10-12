@@ -1060,7 +1060,7 @@ export interface JiraImportStarted {
   import_id: string;
 }
 
-/** A background import as GET /api/jira/imports/{id} and jira_import.done report it. */
+/** A background import as GET /api/jira/imports/{id} reports it. */
 export interface JiraImportState {
   id: string;
   epic: string;
@@ -1071,6 +1071,25 @@ export interface JiraImportState {
   error?: string;
   started_at: string;
   finished_at?: string;
+}
+
+/** Data of a jira_import.progress event, one per issue. Strings the server has no value for are empty. */
+export interface JiraImportProgressEvent {
+  import_id: string;
+  key: string;
+  status: JiraImportStatus;
+  project: string;
+  card_id: string;
+  reason: string;
+}
+
+/** Data of a jira_import.done event. playbook_id and error are empty when unset. */
+export interface JiraImportDoneEvent {
+  import_id: string;
+  status: 'done' | 'failed';
+  playbook_id: string;
+  results: JiraImportResult[];
+  error: string;
 }
 
 export interface NewPlaybookEntry {
