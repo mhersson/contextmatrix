@@ -282,6 +282,12 @@ type RouterConfig struct {
 	Playbooks *service.PlaybookService
 	// PlaybookRunner drives runnable playbooks; nil disables Play and Stop.
 	PlaybookRunner *playbookrun.Runner
+	// Jira probes the Jira site for GET /api/jira/status; nil reports Jira as
+	// not configured. Assign only a non-nil client: a typed nil in this
+	// interface would defeat the nil check.
+	Jira JiraStatusClient
+	// JiraInfo is the non-secret Jira configuration the status endpoint reports.
+	JiraInfo JiraInfo
 }
 
 // EndpointModelView is the api-package projection of modelcatalog.EndpointModel
@@ -443,6 +449,10 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	// App config
 	mux.HandleFunc("GET /api/app/config", ach.getAppConfig)
+
+	// Jira status: always registered so the web can learn Jira is off.
+	jiraH := &jiraHandlers{client: cfg.Jira, info: cfg.JiraInfo}
+	mux.HandleFunc("GET /api/jira/status", jiraH.getStatus)
 
 	// Admin model-outcomes: registered in both auth modes (open in none
 	// mode; admin-gated in multi via outcomeAdminHandlers.gate) - same

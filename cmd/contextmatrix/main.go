@@ -617,6 +617,23 @@ func main() {
 		slog.Info("MCP authentication enabled")
 	}
 
+	jiraClient, err := wireJira(cfg.Jira)
+	if err != nil {
+		slog.Error("failed to construct jira client", "error", err)
+		cancel()
+		os.Exit(1) //nolint:gocritic // cancel called explicitly above
+	}
+
+	if jiraClient != nil {
+		if projects, listErr := svc.ListProjects(ctx); listErr != nil {
+			slog.Warn("jira: could not check project_map targets", "error", listErr)
+		} else {
+			warnUnknownJiraTargets(cfg.Jira.ProjectMap, projects)
+		}
+
+		slog.Info("jira client initialized", "site_url", cfg.Jira.SiteURL, "auth_mode", cfg.Jira.AuthMode)
+	}
+
 	// Create router with all API routes. MCP is registered on the inner mux
 	// so it shares the same middleware chain as every other route - no
 	// separate wrapping needed here.
@@ -670,6 +687,17 @@ func main() {
 		Playbooks:              pbSvc,
 		PlaybookRunner:         pbRunner,
 	}
+
+	routerCfg.JiraInfo = api.JiraInfo{
+		SiteURL:          cfg.Jira.SiteURL,
+		AuthMode:         cfg.Jira.AuthMode,
+		WritebackEnabled: cfg.Jira.Writeback.Enabled,
+	}
+
+	if jiraClient != nil {
+		routerCfg.Jira = jiraClient
+	}
+
 	if catalogBuilder != nil && agentAA {
 		routerCfg.Catalog = catalogBuilder
 		routerCfg.SelectorCatalog = catalogBuilder
