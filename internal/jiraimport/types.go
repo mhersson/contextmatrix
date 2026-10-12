@@ -43,6 +43,8 @@ type PlaybookRef struct {
 	ID         string `json:"id"`
 	Title      string `json:"title"`
 	BoardsRepo string `json:"boards_repo,omitempty"`
+	// RunActive is set on a preview when the playbook has a run in flight.
+	RunActive bool `json:"run_active,omitempty"`
 }
 
 // ImportRequest is the POST body. The server re-reads every issue from Jira;
