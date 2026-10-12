@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api } from '../../api/client';
+import { api, isAPIError } from '../../api/client';
 import { useSSEBus } from '../../hooks/useSSEBus';
 import type {
   BoardEvent,
@@ -26,11 +26,20 @@ function fromState(s: JiraImportState): ImportRun {
   return { status: s.status, results: s.results, total: s.total, playbookId: s.playbook_id, error: s.error };
 }
 
-// Server state replaces what the events built once it knows at least as much.
+// A finished run is final. While running, the server rows win and event rows
+// the snapshot predates are kept, since either side can miss a row.
 function merge(current: ImportRun, next: ImportRun): ImportRun {
   if (current.status !== 'running') return current;
-  if (next.status !== 'running' || next.results.length >= current.results.length) return next;
-  return current;
+  if (next.status !== 'running') return next;
+  const known = new Set(next.results.map((r) => r.key));
+  return { ...next, results: [...next.results, ...current.results.filter((r) => !known.has(r.key))] };
+}
+
+// The registry is in memory, so a restart forgets the import, and the done
+// event published at shutdown never reaches this stream.
+function forgotten(current: ImportRun): ImportRun {
+  if (current.status !== 'running') return current;
+  return { ...current, status: 'failed', error: 'the server no longer has this import' };
 }
 
 function progressResult(d: JiraImportProgressEvent): JiraImportResult {
@@ -91,8 +100,11 @@ export function useJiraImportRun(importId: string | null, total: number): Import
         .then((s) => {
           if (!cancelled) setRun((cur) => merge(cur ?? started(total), fromState(s)));
         })
-        .catch(() => {
-          // The next event or tick retries.
+        .catch((err) => {
+          if (!cancelled && isAPIError(err) && err.code === 'JIRA_IMPORT_NOT_FOUND') {
+            setRun((cur) => forgotten(cur ?? started(total)));
+          }
+          // Any other failure is transient: the next event or tick retries.
         });
     };
     catchUp();

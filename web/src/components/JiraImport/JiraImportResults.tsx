@@ -19,7 +19,9 @@ function summary(run: ImportRun): string {
   const count = `${run.results.length} of ${run.total}`;
   if (run.status === 'running') return `Importing… ${count}`;
   if (run.status === 'failed') return `Import stopped after ${count}: ${run.error ?? 'see the results'}`;
-  return `Imported ${count}`;
+  const tally = (status: JiraImportStatus) => run.results.filter((r) => r.status === status).length;
+  const others = (['skipped', 'failed'] as const).filter((st) => tally(st) > 0).map((st) => `${tally(st)} ${st}`);
+  return `Imported ${tally('created')} of ${run.total}${others.length ? ` (${others.join(', ')})` : ''}`;
 }
 
 function ResultRow({ result }: { result: JiraImportResult }) {

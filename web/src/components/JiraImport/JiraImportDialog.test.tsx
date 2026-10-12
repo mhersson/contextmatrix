@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router';
 import { JiraImportDialog } from './JiraImportDialog';
@@ -159,10 +159,12 @@ describe('JiraImportDialog', () => {
     render(tree());
     fireEvent.change(await screen.findByLabelText('Project for PROJ-7'), { target: { value: 'web' } });
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    importButton().focus();
     fireEvent.click(importButton());
 
     expect(await screen.findByRole('alert', { name: /^Playbook run in progress/ })).toBeInTheDocument();
     expect(importButton()).toBeDisabled();
+    expect(screen.getByRole('dialog')).toHaveFocus();
     expect(screen.queryByRole('list', { name: 'Import results' })).not.toBeInTheDocument();
   });
 
@@ -170,9 +172,11 @@ describe('JiraImportDialog', () => {
     vi.mocked(api.importJiraEpic).mockRejectedValueOnce({ error: 'imports are paused', code: 'JIRA_IMPORT_UNAVAILABLE' });
     render(tree());
     fireEvent.change(await screen.findByLabelText('Project for PROJ-7'), { target: { value: 'web' } });
+    importButton().focus();
     fireEvent.click(importButton());
 
     expect(await screen.findByRole('alert')).toHaveTextContent('imports are paused');
+    expect(screen.getByRole('dialog')).toHaveFocus();
     expect(importButton()).toBeEnabled();
     fireEvent.click(importButton());
     await waitFor(() => expect(api.getJiraImport).toHaveBeenCalledWith('ji-1'));
@@ -279,6 +283,96 @@ describe('JiraImportDialog', () => {
     await act(async () => resolveCatchUp(state('running')));
     expect(resultRows()).toHaveLength(3);
     expect(screen.getByRole('status')).toHaveTextContent('stopped');
+  });
+
+  it('merges a catch-up by key, so a row only the events saw is kept', async () => {
+    let resolveCatchUp: (s: JiraImportState) => void = () => {};
+    vi.mocked(api.getJiraImport).mockReturnValueOnce(new Promise((resolve) => { resolveCatchUp = resolve; }));
+    render(tree());
+    await startImport();
+
+    // The PROJ-3 event was dropped; the snapshot predates PROJ-7.
+    emit('jira_import.progress', { import_id: 'ji-1', key: 'PROJ-2', status: 'created', project: 'api', card_id: 'API-002', reason: '' });
+    emit('jira_import.progress', { import_id: 'ji-1', key: 'PROJ-7', status: 'created', project: 'web', card_id: 'WEB-001', reason: '' });
+    await act(async () =>
+      resolveCatchUp(
+        state('running', {
+          results: [
+            { key: 'PROJ-2', status: 'created', project: 'api', card: 'API-002' },
+            { key: 'PROJ-3', status: 'created', project: 'api', card: 'API-003' },
+          ],
+        }),
+      ),
+    );
+    expect(Array.from(resultRows()).map((li) => li.textContent)).toEqual([
+      expect.stringContaining('PROJ-2'),
+      expect.stringContaining('PROJ-3'),
+      expect.stringContaining('PROJ-7'),
+    ]);
+  });
+
+  it('ends an import the server has forgotten and lists its selections as not run', async () => {
+    vi.mocked(api.getJiraImport).mockRejectedValue({ error: 'import not found', code: 'JIRA_IMPORT_NOT_FOUND' });
+    render(tree());
+    await startImport();
+
+    await waitFor(() => expect(resultRows()).toHaveLength(3));
+    expect(within(screen.getByRole('list', { name: 'Import results' })).getAllByText('not run')).toHaveLength(3);
+    expect(screen.getByRole('button', { name: 'Open playbook' })).toBeDisabled();
+  });
+
+  it('keeps following the import when a catch-up fails for another reason', async () => {
+    vi.mocked(api.getJiraImport).mockRejectedValue(new TypeError('Failed to fetch'));
+    render(tree());
+    await startImport();
+    await act(async () => {});
+
+    expect(resultRows()).toHaveLength(0);
+    emit('jira_import.progress', { import_id: 'ji-1', key: 'PROJ-2', status: 'created', project: 'api', card_id: 'API-002', reason: '' });
+    expect(resultRows()).toHaveLength(1);
+  });
+
+  describe('catch-up timer', () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    const tick = () => act(() => vi.advanceTimersByTimeAsync(5_000));
+
+    // waitFor polls on setInterval, which is frozen here; act flushes the POST and the effects instead.
+    async function startImportNow() {
+      fireEvent.change(await screen.findByLabelText('Project for PROJ-7'), { target: { value: 'web' } });
+      await act(async () => fireEvent.click(importButton()));
+      await act(async () => {});
+    }
+
+    it('polls every 5 s while running and stops once the import is done', async () => {
+      render(tree());
+      await startImportNow();
+      expect(api.getJiraImport).toHaveBeenCalledTimes(1);
+      await tick();
+      await tick();
+      expect(api.getJiraImport).toHaveBeenCalledTimes(3);
+
+      emit('jira_import.done', { import_id: 'ji-1', status: 'done', playbook_id: 'p', error: '', results: [] });
+      await tick();
+      await tick();
+      expect(api.getJiraImport).toHaveBeenCalledTimes(3);
+    });
+
+    it('stops polling when the dialog unmounts', async () => {
+      const view = render(tree());
+      await startImportNow();
+      expect(api.getJiraImport).toHaveBeenCalledTimes(1);
+      view.unmount();
+      await tick();
+      await tick();
+      expect(api.getJiraImport).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('shows the server error when the preview fails', async () => {

@@ -53,12 +53,13 @@ export function JiraImportDialog({ epicKey, description, boardsRepo, onClose }: 
       const req = buildRequest(preview, form, description, boardsRepo);
       const { import_id } = await api.importJiraEpic(epicKey, req);
       setStarted({ id: import_id, keys: req.selections.map((s) => s.key) });
-      dialogRef.current?.focus();
     } catch (err) {
       if (isAPIError(err) && err.code === 'JIRA_PLAYBOOK_RUNNING') setRunConflict(true);
       else setSubmitError(errorMessage(err, 'Import failed'));
     } finally {
       setBusy(false);
+      // The busy Import button disables itself, and on success the results view removes it.
+      dialogRef.current?.focus();
     }
   };
 
