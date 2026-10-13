@@ -1,5 +1,4 @@
 import { Suspense, lazy, memo } from 'react';
-import { safeUrlTransform } from '../../utils/safeUrlTransform';
 import { ErrorBoundary } from '../ErrorBoundary';
 
 // Lazy-load the markdown previewer so the chat panel doesn't pay the
@@ -8,7 +7,7 @@ import { ErrorBoundary } from '../ErrorBoundary';
 // data-color-mode. The per-message Suspense fallback shows the raw source,
 // so the transcript reads as plain text during the (preloaded, one-off)
 // chunk fetch instead of blanking behind a single transcript-level boundary.
-const MarkdownPreview = lazy(() => import('@uiw/react-markdown-preview'));
+const MarkdownPreview = lazy(() => import('../Markdown/SafeMarkdownPreview'));
 
 function ChatMarkdownImpl({ source }: { source: string }) {
   const plainText = <div className="whitespace-pre-wrap break-words text-sm">{source}</div>;
@@ -21,7 +20,7 @@ function ChatMarkdownImpl({ source }: { source: string }) {
     <div className="bf-chat-markdown">
       <ErrorBoundary fallback={plainText}>
         <Suspense fallback={plainText}>
-          <MarkdownPreview source={source} skipHtml urlTransform={safeUrlTransform} />
+          <MarkdownPreview source={source} />
         </Suspense>
       </ErrorBoundary>
     </div>

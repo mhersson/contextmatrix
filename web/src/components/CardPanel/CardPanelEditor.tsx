@@ -3,11 +3,10 @@ import { useTheme } from '../../hooks/useTheme';
 import { useEditorHeight } from '../../hooks/useEditorHeight';
 import { useCursorFollowScroll } from '../../hooks/useCursorFollowScroll';
 import { useImageUpload } from '../../hooks/useImageUpload';
-import { safeUrlTransform } from '../../utils/safeUrlTransform';
 import { ErrorBoundary } from '../ErrorBoundary';
 
-const MDEditor = lazy(() => import('@uiw/react-md-editor'));
-const MarkdownPreview = lazy(() => import('@uiw/react-markdown-preview'));
+const MDEditor = lazy(() => import('../Markdown/SafeMDEditor'));
+const MarkdownPreview = lazy(() => import('../Markdown/SafeMarkdownPreview'));
 
 /** Read-only description body, memoized on the body string: the left column
  *  stays mounted while a transcript streams, and without the memo every ring
@@ -26,7 +25,7 @@ const CardBodyPreview = memo(function CardBodyPreview({ body }: { body: string }
   return (
     <ErrorBoundary fallback={previewFallback}>
       <Suspense fallback={previewFallback}>
-        <MarkdownPreview source={body} skipHtml className="bf-markdown" urlTransform={safeUrlTransform} />
+        <MarkdownPreview source={body} className="bf-markdown" />
       </Suspense>
     </ErrorBoundary>
   );
@@ -47,9 +46,9 @@ interface CardPanelEditorProps {
  * - `editable` gates whether edits are possible at all (false when the worker
  *   is attached).
  * - `editing` is the user-controlled toggle; only when `editable && editing`
- *   is MDEditor mounted. Otherwise the body renders through
- *   `@uiw/react-markdown-preview` so the read-only view has no editor chrome
- *   and flows into the panel as plain content.
+ *   is SafeMDEditor mounted. Otherwise the body renders through
+ *   SafeMarkdownPreview so the read-only view has no editor chrome and flows
+ *   into the panel as plain content.
  * - `onToggleEditing` is optional: when provided, an "Open in editor" /
  *   "Close editor" button appears next to the Description eyebrow. Callers
  *   that always want the editor open (CreateCardPanel) omit it.
@@ -184,7 +183,6 @@ export function CardPanelEditor({ body, project, onChange, editable, editing, on
                     hideToolbar={false}
                     height={editorHeight}
                     visibleDragbar
-                    previewOptions={{ skipHtml: true }}
                     textareaProps={{ onPaste: upload.handlePaste }}
                     className="bf-mdeditor"
                   />
