@@ -14,7 +14,8 @@ const (
 	// CustomIssueID holds the Jira numeric issue id; it survives a move
 	// between Jira projects, which changes the key.
 	CustomIssueID = "jira_issue_id"
-	// CustomImportHash holds the hex SHA-256 of the imported title + "\n" + body.
+	// CustomImportHash holds the hex SHA-256 of the imported title, a newline,
+	// and the body with trailing newlines trimmed.
 	CustomImportHash = "jira_import_hash"
 )
 

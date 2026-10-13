@@ -2880,9 +2880,9 @@ starting another. With several queued, it is the oldest.
 
 Human-only. The server validates the body and re-reads the epic's issues from
 Jira, then answers **202** `{"import_id": "ji-..."}` and imports in the
-background, bounded at 10 minutes from when it holds the epic. The body carries only keys, target projects
-and options. Imports of the same epic run one at a time. Every error below is
-returned before anything is written.
+background, bounded at 10 minutes from when it holds the epic. The body carries
+only keys, target projects and options. Imports of the same epic run one at a
+time. Every error below is returned before anything is written.
 
 ```json
 {
@@ -2930,9 +2930,9 @@ The same codes apply to the preview, except `403`, `409` and
 ### GET /api/jira/imports/{id}
 
 The import's current state, for a dialog that reconnects, or that reopens and
-finds the import through the preview's `active_import`. The registry is in memory on the instance that ran the import and keeps a finished
-import for an hour; after that, or after a restart, it answers
-`404 JIRA_IMPORT_NOT_FOUND`.
+finds the import through the preview's `active_import`. The registry is in
+memory on the instance that ran the import and keeps a finished import for an
+hour; after that, or after a restart, it answers `404 JIRA_IMPORT_NOT_FOUND`.
 
 ```json
 {
