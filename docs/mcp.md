@@ -145,7 +145,7 @@ Mutations require `agent_id` for attribution but have no permission gate.
 
 Every tool also takes `agent_id` for redaction. Entry `card_title` and the
 list summary's `next.title` are replaced with a placeholder when the card is
-imported and unvetted and `agent_id` is empty or does not start with `human:`;
+imported and unvetted and `agent_id` is empty or is not a `human:<name>` id;
 `card_unvetted` and `next.unvetted` flag those entries. Human callers and
 vetted cards see the real title.
 

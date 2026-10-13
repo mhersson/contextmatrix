@@ -1844,7 +1844,8 @@ List-view summary of every playbook, sorted by id.
 `gates` lists the indexes of manual entries (omitted when there are none).
 `next` is the first incomplete entry - `title` is the card title (empty when
 the card is missing), or the step text for a manual entry - and is omitted
-once every entry is complete.
+once every entry is complete. `next.unvetted` is true when that card is
+imported and not yet vetted by a human.
 `boards_repo` is omitted on a single-repo instance.
 
 ### POST /api/playbooks
@@ -1919,7 +1920,8 @@ Resolved detail: metadata plus every entry joined against the card store.
 
 A card entry is `complete` when the card is in a terminal state; a broken
 reference renders with `missing: true` and counts in `total` but never in
-`complete`. All entry fields except `id`, `type`, and `complete` are omitted
+`complete`. `card_unvetted` is true on a card entry whose card is imported
+and not yet vetted by a human. All entry fields except `id`, `type`, and `complete` are omitted
 when empty.
 
 `source` (`{system, external_id, external_url}`) is present on a playbook

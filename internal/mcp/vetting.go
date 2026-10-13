@@ -15,8 +15,8 @@ import (
 const unvettedBodyPlaceholder = "[unvetted - human review required before body is exposed to agents]"
 
 // unvettedPlaceholderTitle is substituted for the title of an unvetted
-// external card when it would otherwise be rendered to a non-human caller via
-// an MCP prompt formatter (which has no agent identity available).
+// external card when it would otherwise reach a non-human caller: MCP prompt
+// formatters (no agent identity) and the playbook tools.
 const unvettedPlaceholderTitle = "[unvetted - title redacted]"
 
 // shouldRedact returns true if a non-human caller is reading an unvetted card.

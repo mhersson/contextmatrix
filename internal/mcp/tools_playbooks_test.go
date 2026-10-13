@@ -510,22 +510,30 @@ func TestPlaybookTools_RedactUnvettedTitles(t *testing.T) {
 
 	plain := createTestCard(t, env, "Plain card", "task", "medium")
 
+	vetted, err := env.svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+		Title: "Vetted jira card", Type: "task", Priority: "medium", Vetted: true,
+		Source: &board.Source{System: "jira", ExternalID: "PROJ-8", ExternalURL: "https://acme.atlassian.net/browse/PROJ-8"},
+	})
+	require.NoError(t, err)
+	require.True(t, vetted.Vetted)
+
 	_, err = env.pb.Create(ctx, service.CreatePlaybookInput{
 		Title: "Mixed", AgentID: "human:alice",
 		Entries: []service.PlaybookEntryInput{
 			{Type: board.EntryTypeCard, Project: "test-project", Card: plain.ID},
 			{Type: board.EntryTypeCard, Project: "test-project", Card: unvetted.ID},
+			{Type: board.EntryTypeCard, Project: "test-project", Card: vetted.ID},
 		},
 	})
 	require.NoError(t, err)
 
-	getTitles := func(args map[string]any) (string, string) {
+	getTitles := func(args map[string]any) (string, string, string) {
 		var d service.PlaybookDetail
 
 		unmarshalResult(t, callTool(t, env, "get_playbook", args), &d)
-		require.Len(t, d.Entries, 2)
+		require.Len(t, d.Entries, 3)
 
-		return d.Entries[0].CardTitle, d.Entries[1].CardTitle
+		return d.Entries[0].CardTitle, d.Entries[1].CardTitle, d.Entries[2].CardTitle
 	}
 
 	for _, tc := range []struct {
@@ -535,6 +543,7 @@ func TestPlaybookTools_RedactUnvettedTitles(t *testing.T) {
 	}{
 		{"agent", "agent-1", unvettedPlaceholderTitle},
 		{"empty", nil, unvettedPlaceholderTitle},
+		{"bare human prefix", "human:", unvettedPlaceholderTitle},
 		{"human", "human:alice", secret},
 	} {
 		t.Run("get/"+tc.name, func(t *testing.T) {
@@ -543,9 +552,10 @@ func TestPlaybookTools_RedactUnvettedTitles(t *testing.T) {
 				args["agent_id"] = tc.agent
 			}
 
-			first, second := getTitles(args)
+			first, second, third := getTitles(args)
 			assert.Equal(t, "Plain card", first)
 			assert.Equal(t, tc.want, second)
+			assert.Equal(t, "Vetted jira card", third, "a vetted sourced card is never redacted")
 		})
 	}
 
@@ -561,12 +571,19 @@ func TestPlaybookTools_RedactUnvettedTitles(t *testing.T) {
 		want  string
 	}{
 		{"agent", "agent-1", unvettedPlaceholderTitle},
+		{"empty", "", unvettedPlaceholderTitle},
+		{"bare human prefix", "human:", unvettedPlaceholderTitle},
 		{"human", "human:alice", secret},
 	} {
 		t.Run("list/"+tc.name, func(t *testing.T) {
 			var list listPlaybooksOutput
 
-			unmarshalResult(t, callTool(t, env, "list_playbooks", map[string]any{"agent_id": tc.agent}), &list)
+			args := map[string]any{}
+			if tc.agent != "" {
+				args["agent_id"] = tc.agent
+			}
+
+			unmarshalResult(t, callTool(t, env, "list_playbooks", args), &list)
 
 			for _, pl := range list.Playbooks {
 				if pl.ID == "solo" {
@@ -579,6 +596,17 @@ func TestPlaybookTools_RedactUnvettedTitles(t *testing.T) {
 
 			t.Fatal("solo playbook not listed")
 		})
+	}
+
+	// A mutation summary redacts the frontier title too.
+	for agent, want := range map[string]string{"agent-1": unvettedPlaceholderTitle, "human:alice": secret} {
+		var sm service.PlaybookSummary
+
+		unmarshalResult(t, callTool(t, env, "update_playbook_entry", map[string]any{
+			"agent_id": agent, "playbook": "solo", "entry": "e1", "note": "n-" + agent,
+		}), &sm)
+		require.NotNil(t, sm.Next)
+		assert.Equal(t, want, sm.Next.Title, agent)
 	}
 
 	// The service's own view stays unredacted.

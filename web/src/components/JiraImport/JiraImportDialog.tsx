@@ -11,7 +11,7 @@ import { useJiraImportRun } from './useJiraImportRun';
 
 interface JiraImportDialogProps {
   epicKey: string;
-  /** What was typed in the form; empty falls back to the epic summary. */
+  /** What was typed in the form; sent as typed; empty stays empty. */
   description: string;
   boardsRepo?: string;
   onClose: () => void;
