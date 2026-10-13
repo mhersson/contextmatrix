@@ -89,13 +89,13 @@ Developer traps in this codebase. Each entry names the code it describes.
 - **`CONTEXTMATRIX_BOARDS_*` and the list form do not mix.** With two or more
   entries any of those variables is a load error, on purpose: an override
   that silently landed on one entry of many would be invisible.
-- **`gitops.CommitQueue` per-project ordering, idle teardown:** one goroutine
+- **`gitops.CommitQueue` per-project ordering, close handshake:** one goroutine
   per project serialises that project's commits in enqueue order; different
-  projects commit in parallel. `cmd/contextmatrix/wire_repos.go` wires
-  `WithIdleTimeout(30*time.Minute)`, so an idle worker exits and the next
-  `Enqueue` spawns a fresh one; `projectWorker.closed` plus the per-worker
-  mutex stop an `Enqueue` from sending into a channel the worker is about to
-  abandon. Do not assume worker identity across an idle gap.
+  projects commit in parallel. A worker spawns on the first `Enqueue` for its
+  project and runs until `Close`. `Enqueue` sends outside the queue lock, so
+  it registers on the `sending` WaitGroup under that lock and `Close` waits
+  it out before closing any worker channel; a send racing `Close` otherwise
+  panics on a closed channel.
 - **Network git calls are bounded by `gitops.NetworkGitTimeout` (120 s) and
   every `runGit` sets `cmd.WaitDelay = 3 * time.Second`.** Fetch, `pull
   --rebase`, `pull --ff-only`, push, and clone run under that timeout so a

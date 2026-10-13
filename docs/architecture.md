@@ -242,11 +242,10 @@ Mutations are eager-write, async-commit:
    blocks other writers.
 
 `CommitQueue` runs one worker goroutine per project: same-project commits
-run in enqueue order, different projects commit in parallel. Workers spawn
-lazily and, with `WithIdleTimeout`, tear down after an idle window
-(`wire_repos.go` uses 30 minutes). `Pause` / `Resume` / `AwaitIdle` let the
-syncer drain in-flight commits before a shell rebase or push;
-`CardService.LockWrites` calls them in sequence.
+run in enqueue order, different projects commit in parallel. A worker spawns
+on the first `Enqueue` for its project and runs until `Close`. `Pause` /
+`Resume` / `AwaitIdle` let the syncer drain in-flight commits before a shell
+rebase or push; `CardService.LockWrites` calls them in sequence.
 
 Cache and disk can therefore run ahead of git until the commit lands. On
 failure the service layer closes the gap:
