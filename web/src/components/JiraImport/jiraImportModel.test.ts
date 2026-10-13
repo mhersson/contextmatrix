@@ -102,7 +102,7 @@ describe('jiraImportModel', () => {
     expect(prefixClashes(p, setProject(form, p, 'PROJ-7', 'api'), projects).size).toBe(0);
   });
 
-  it('builds the request, falling back to the epic summary for the description', () => {
+  it('builds the request with an empty description when none is typed', () => {
     const p = samplePreview();
     const form = setProject(initialForm(p), p, 'PROJ-7', 'api');
     const req = buildRequest(p, form, '', 'team');
@@ -116,7 +116,7 @@ describe('jiraImportModel', () => {
     expect(req.selections).toHaveLength(3);
     expect(req.playbook).toEqual({
       title: 'PROJ-1 Checkout revamp',
-      description: 'Checkout revamp',
+      description: '',
       boards_repo: 'team',
     });
     expect(buildRequest(p, form, 'Typed', undefined).playbook).toEqual({

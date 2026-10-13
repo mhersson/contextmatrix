@@ -134,7 +134,7 @@ export function buildRequest(
     include_epic_context: form.includeEpic,
     playbook: {
       title: form.title.trim(),
-      description: description || preview.epic.summary,
+      description,
       ...(boardsRepo ? { boards_repo: boardsRepo } : {}),
     },
   };
