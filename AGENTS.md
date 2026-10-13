@@ -37,7 +37,7 @@ Read the relevant one before working in its area:
 | `docs/web-ui.md`               | Routes, board and sorting behaviour, dashboard, console, chat panes, images, appearance, shortcuts.                                               |
 | `docs/playbooks.md`            | Entry kinds, storage and the reserved name, REST and MCP surface.                                                                                 |
 | `docs/mcp.md`                  | Every MCP tool with its caller gate, slash commands, phase skills, payload rules.                                                                 |
-| `docs/running-cards.md`        | Run Auto / Run HITL, guardrails, execution fields, Best-of-N, mob, PR gates, parking, stop.           |
+| `docs/running-cards.md`        | Run Auto / Run HITL, guardrails, execution fields, Best-of-N, mob, PR gates, parking, stop.                                                       |
 | `docs/shared-boards.md`        | Shared-repo sync cycle, merge rules, per-instance claims and leases, several boards repos.                                                        |
 | `docs/github-issue-import.md`  | Importer config, owner/repo resolution, vetting gate, `source` field, Enterprise hosts.                                                           |
 | `docs/jira-import.md`          | Jira site config and auth, connection status, epic import: wizard, card mapping, dedup, ordering, playbook source, vetting; status writeback.     |
