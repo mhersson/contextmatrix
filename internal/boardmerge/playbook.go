@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"time"
 
 	"github.com/mhersson/contextmatrix/internal/board"
 )
@@ -19,9 +20,23 @@ import (
 // local copy to a free id instead of colliding.
 func resolvePlaybook(in Input, id string, c Context) (Output, error) {
 	if in.Ours == nil || in.Theirs == nil {
-		if kept := activeRunSurvivor(in); kept != nil {
+		if kept, stopped := activeRunSurvivor(in); kept != nil {
+			detail := "deleted on one side while its run is active on the other; kept"
+
+			if stopped {
+				// The deleter saw base's active run and a local delete refuses
+				// one, so it stopped that run first.
+				data, err := stopSurvivorRun(kept, c.Now())
+				if err != nil {
+					return Output{}, fmt.Errorf("stop surviving playbook run %s: %w", id, err)
+				}
+
+				kept = data
+				detail = "deleted on one side after stopping the run the other side still had active; kept with the run stopped"
+			}
+
 			return Output{Content: kept, Resolutions: []Resolution{{
-				Path: in.Path, Rule: RulePlaybookRunOverDelete, Detail: "deleted on one side while its run is active on the other; kept",
+				Path: in.Path, Rule: RulePlaybookRunOverDelete, Detail: detail,
 			}}}, nil
 		}
 
@@ -172,6 +187,24 @@ func mergePlaybooks(base, ours, theirs *board.Playbook, path string, c Context) 
 
 	// A run block only makes sense on a runnable playbook; Validate rejects
 	// the combination, so repair it here rather than leave the file unusable.
+	// Turning runnable off refuses an active run, so a side that did it never
+	// saw the other side's run unless base held it: keep that run runnable.
+	if !out.Runnable && !base.RunActive() {
+		for _, p := range []*board.Playbook{ours, theirs} {
+			if p.Runnable && p.RunActive() {
+				out.Runnable = true
+				out.Run = p.Run.Clone()
+
+				res = append(res, Resolution{
+					Path: path, Rule: RulePlaybookRunKeepsRunnable,
+					Detail: "runnable turned off on one side while the other side's run is active; kept runnable",
+				})
+
+				break
+			}
+		}
+	}
+
 	if !out.Runnable {
 		out.Run = nil
 	}
@@ -294,9 +327,28 @@ func applyEntryRename(e board.PlaybookEntry, renames map[string]string) board.Pl
 	return e
 }
 
+// besideBaseNeighbour is where base entry i goes back into out: after its
+// nearest earlier base entry out kept, else before its nearest later one,
+// else at the end.
+func besideBaseNeighbour(base []board.PlaybookEntry, i int, out *board.Playbook) int {
+	for j := i - 1; j >= 0; j-- {
+		if k := out.FindEntry(base[j].ID); k >= 0 {
+			return k + 1
+		}
+	}
+
+	for j := i + 1; j < len(base); j++ {
+		if k := out.FindEntry(base[j].ID); k >= 0 {
+			return k
+		}
+	}
+
+	return len(out.Entries)
+}
+
 // keepRunEntry carries "the run's current entry stays until the run stops"
-// through a merge: a stale peer's removal is undone at the entry's base
-// position, and a dedupe re-points the run to the surviving entry for its card.
+// through a merge: a stale peer's removal is undone beside the entry's
+// nearest surviving base neighbour, and a dedupe re-points the run to the surviving entry for its card.
 func keepRunEntry(out, base, ours, theirs *board.Playbook, path string, renames map[string]string) []Resolution {
 	if !out.Run.Active() || out.Run.Entry == "" || out.FindEntry(out.Run.Entry) >= 0 {
 		return nil
@@ -335,8 +387,8 @@ func keepRunEntry(out, base, ours, theirs *board.Playbook, path string, renames 
 	}
 
 	at := len(out.Entries)
-	if i := base.FindEntry(id); i >= 0 && i < at {
-		at = i
+	if i := base.FindEntry(id); i >= 0 {
+		at = besideBaseNeighbour(base.Entries, i, out)
 	}
 
 	out.Entries = slices.Insert(out.Entries, at, lost)
@@ -370,21 +422,49 @@ func entryByID(p *board.Playbook, id string) (board.PlaybookEntry, bool) {
 
 // activeRunSurvivor returns the surviving side of a delete/modify conflict
 // when it holds an active run; a local delete refuses one, so the deleter
-// was stale.
-func activeRunSurvivor(in Input) []byte {
+// was stale. stopped reports that base's run was already active, so the
+// deleter had stopped it.
+func activeRunSurvivor(in Input) (kept []byte, stopped bool) {
 	survivor := in.Ours
 	if survivor == nil {
 		survivor = in.Theirs
 	}
 
 	if survivor == nil {
-		return nil
+		return nil, false
 	}
 
 	p, err := board.ParsePlaybook(survivor)
 	if err != nil || !p.Runnable || !p.RunActive() {
-		return nil
+		return nil, false
 	}
 
-	return survivor
+	if in.Base != nil {
+		if b, err := board.ParsePlaybook(in.Base); err == nil && b.RunActive() {
+			return survivor, true
+		}
+	}
+
+	return survivor, false
+}
+
+// stopSurvivorRun returns the playbook with its run stopped at now.
+func stopSurvivorRun(content []byte, now time.Time) ([]byte, error) {
+	p, err := board.ParsePlaybook(content)
+	if err != nil {
+		return nil, fmt.Errorf("parse playbook: %w", err)
+	}
+
+	p.Run = p.Run.Clone()
+	p.Run.Status = board.RunStatusStopped
+	p.Run.Reason = "stopped and deleted on another instance"
+	p.Run.UpdatedAt = now
+	p.Run.EndedAt = &now
+
+	data, err := board.SerializePlaybook(p)
+	if err != nil {
+		return nil, fmt.Errorf("serialize playbook: %w", err)
+	}
+
+	return data, nil
 }
