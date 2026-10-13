@@ -19,6 +19,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/gitops"
+	"github.com/mhersson/contextmatrix/internal/jira"
 	"github.com/mhersson/contextmatrix/internal/lock"
 	"github.com/mhersson/contextmatrix/internal/metrics"
 	"github.com/mhersson/contextmatrix/internal/storage"
@@ -6201,6 +6202,50 @@ func TestCreateCard_SourceGuard(t *testing.T) {
 		got := create(t, svc, "PROJ-2 other", src("other", "PROJ-2"))
 		assert.NotEqual(t, first.ID, got.ID)
 		assert.Equal(t, 2, count(t, svc))
+	})
+
+	t.Run("a recorded jira issue id that differs is another issue", func(t *testing.T) {
+		tests := []struct {
+			name            string
+			existing, input any // custom jira_issue_id; nil leaves it unset
+			returnsExisting bool
+		}{
+			{"different id", "102", "999", false},
+			{"same id", "102", "102", true},
+			{"no id on either side", nil, nil, true},
+			{"only the existing card has an id", "102", nil, true},
+			{"only the input has an id", nil, "102", true},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				svc, _, cleanup := setupTest(t)
+				t.Cleanup(cleanup)
+
+				in := func(title string, id any) CreateCardInput {
+					c := CreateCardInput{Title: title, Type: "task", Priority: "medium", Source: src("acme", "PROJ-5")}
+					if id != nil {
+						c.Custom = map[string]any{jira.CustomIssueID: id}
+					}
+
+					return c
+				}
+
+				first, err := svc.CreateCard(ctx, "test-project", in("PROJ-5 first", tt.existing))
+				require.NoError(t, err)
+
+				got, err := svc.CreateCard(ctx, "test-project", in("PROJ-5 again", tt.input))
+				require.NoError(t, err)
+
+				if tt.returnsExisting {
+					assert.Equal(t, first.ID, got.ID)
+					assert.Equal(t, 1, count(t, svc))
+				} else {
+					assert.NotEqual(t, first.ID, got.ID)
+					assert.Equal(t, 2, count(t, svc))
+				}
+			})
+		}
 	})
 
 	t.Run("a source without an external id never matches", func(t *testing.T) {

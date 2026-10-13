@@ -189,6 +189,8 @@ live in [architecture](architecture.md); the HTTP surface in the
     project keep one card.
     - The same key from another host, a source without an `external_id`, or
       an `external_url` that does not parse never matches.
+    - A card whose `custom.jira_issue_id` is set and differs from the
+      create's is another Jira issue under the same key and does not match.
     - No `card.created` event is published for the returned card, and
       `next_id` still increments.
 

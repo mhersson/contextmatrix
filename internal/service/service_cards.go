@@ -899,7 +899,7 @@ func (s *CardService) applyDedupGuard(
 	project string,
 	input CreateCardInput,
 ) (*board.Card, bool, error) {
-	if existing, err := s.cardBySource(ctx, project, input.Source); err != nil || existing != nil {
+	if existing, err := s.cardBySource(ctx, project, input); err != nil || existing != nil {
 		return existing, existing != nil, err
 	}
 
@@ -933,10 +933,12 @@ func (s *CardService) applyDedupGuard(
 	return nil, false, nil
 }
 
-// cardBySource returns the project's card imported from src, or nil. A
-// terminal card still counts: an importer treats any card from the source
-// as already imported.
-func (s *CardService) cardBySource(ctx context.Context, project string, src *board.Source) (*board.Card, error) {
+// cardBySource returns the project's card imported from input's source, or
+// nil. A terminal card still counts: an importer treats any card from the
+// source as already imported. Two recorded Jira issue ids that differ are two
+// issues under one key, as the Jira importer's own index rules.
+func (s *CardService) cardBySource(ctx context.Context, project string, input CreateCardInput) (*board.Card, error) {
+	src := input.Source
 	if src == nil || src.System == "" || src.ExternalID == "" {
 		return nil, nil
 	}
@@ -946,8 +948,14 @@ func (s *CardService) cardBySource(ctx context.Context, project string, src *boa
 		return nil, fmt.Errorf("list cards for source check: %w", err)
 	}
 
+	issueID := customValue(input.Custom, jira.CustomIssueID)
+
 	for _, c := range cards {
 		if !board.SameSource(c.Source, src) {
+			continue
+		}
+
+		if id := customValue(c.Custom, jira.CustomIssueID); issueID != "" && id != "" && id != issueID {
 			continue
 		}
 
@@ -962,6 +970,17 @@ func (s *CardService) cardBySource(ctx context.Context, project string, src *boa
 	}
 
 	return nil, nil
+}
+
+// customValue renders a custom field as text, or "" when it is unset. A
+// hand-edited card can hold a number where the importer wrote a string.
+func customValue(custom map[string]any, key string) string {
+	v, ok := custom[key]
+	if !ok || v == nil {
+		return ""
+	}
+
+	return fmt.Sprint(v)
 }
 
 // commitNewCardWithNextID persists the card to the store and commits both the

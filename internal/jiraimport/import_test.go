@@ -275,7 +275,7 @@ func TestImport_SkipsAlreadyImported(t *testing.T) {
 
 	moved := e.seedImported(t, "web", "OLD-9", "102")
 	byKey := e.seedImported(t, "api", "PROJ-3", "")
-	e.seedImported(t, "api", "PROJ-5", "999")
+	reused := e.seedImported(t, "api", "PROJ-5", "999")
 
 	resp, err := e.importSync(context.Background(), "PROJ-1", ImportRequest{
 		Selections: []Selection{{Key: "PROJ-2", Project: "api"}, {Key: "PROJ-3", Project: "api"}, {Key: "PROJ-5", Project: "api"}},
@@ -286,6 +286,7 @@ func TestImport_SkipsAlreadyImported(t *testing.T) {
 	assert.Equal(t, Result{Key: "PROJ-2", Status: StatusSkipped, Project: "web", Card: moved.ID}, r["PROJ-2"])
 	assert.Equal(t, Result{Key: "PROJ-3", Status: StatusSkipped, Project: "api", Card: byKey.ID}, r["PROJ-3"])
 	assert.Equal(t, StatusCreated, r["PROJ-5"].Status, "a key match with another issue id is a different issue")
+	assert.NotEqual(t, reused.ID, r["PROJ-5"].Card)
 
 	assert.ElementsMatch(t, []string{"web/" + moved.ID, "api/" + byKey.ID, "api/" + r["PROJ-5"].Card},
 		e.entryNames(t, resp.Playbook.ID), "skipped cards are placed in the playbook too")
