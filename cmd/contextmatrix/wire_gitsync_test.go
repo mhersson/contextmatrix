@@ -15,6 +15,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/config"
 	"github.com/mhersson/contextmatrix/internal/events"
+	"github.com/mhersson/contextmatrix/internal/gitops"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 
@@ -25,6 +26,8 @@ func wireGitRun(t *testing.T, dir string, args ...string) {
 	env := append(os.Environ(),
 		"GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=test@test.com",
 		"GIT_COMMITTER_NAME=Test", "GIT_COMMITTER_EMAIL=test@test.com")
+
+	args = gitops.HermeticTestArgs(args)
 
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir

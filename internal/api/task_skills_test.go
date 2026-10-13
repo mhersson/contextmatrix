@@ -19,6 +19,7 @@ import (
 	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/backend"
 	"github.com/mhersson/contextmatrix/internal/config"
+	"github.com/mhersson/contextmatrix/internal/gitops"
 )
 
 // writeSkillFile creates dir/<name>/SKILL.md with a frontmatter
@@ -543,6 +544,8 @@ func TestTaskSkillsSourceEmptyWhenNothing(t *testing.T) {
 // runGit runs a git command in dir, failing the test on error.
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
+
+	args = gitops.HermeticTestArgs(args)
 
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
