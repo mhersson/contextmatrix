@@ -35,14 +35,10 @@ vi.mock('@uiw/react-md-editor', () => ({
   ),
 }));
 
-// MarkdownPreview is mounted in the read-only path. The mock honours
-// `skipHtml` so the XSS guard assertions remain meaningful.
+// MarkdownPreview is mounted in the read-only path. Raw HTML handling is
+// covered against the real library in CardPanelEditor.test.tsx.
 vi.mock('@uiw/react-markdown-preview', () => ({
-  default: ({ source, skipHtml }: { source: string; skipHtml?: boolean }) => (
-    skipHtml
-      ? <div data-testid="md-preview">{source}</div>
-      : <div data-testid="md-preview" dangerouslySetInnerHTML={{ __html: source }} />
-  ),
+  default: ({ source }: { source: string }) => <div data-testid="md-preview">{source}</div>,
 }));
 
 const useModelCatalogMock = vi.hoisted(() => vi.fn());
@@ -598,47 +594,6 @@ describe('CardPanel - Delete via Danger Zone', () => {
     );
     fireEvent.click(screen.getByRole('tab', { name: 'Danger' }));
     expect(screen.getByRole('button', { name: 'Delete card' })).toBeDisabled();
-  });
-});
-
-describe('CardPanel - MDEditor preview skipHtml XSS prevention', () => {
-  const xssBody = '<iframe src="https://example.com"></iframe>\n<script>alert(\'xss\')</script>\nhello';
-
-  beforeEach(() => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
-  });
-
-  it('does not render iframe in the preview pane', async () => {
-    const { container } = render(
-      <CardPanel {...makeProps({ card: { ...baseCard, body: xssBody } })} />,
-    );
-    await screen.findByTestId('md-preview');
-    expect(container.querySelector('iframe')).toBeNull();
-  });
-
-  it('does not render script in the preview pane', async () => {
-    const { container } = render(
-      <CardPanel {...makeProps({ card: { ...baseCard, body: xssBody } })} />,
-    );
-    await screen.findByTestId('md-preview');
-    expect(container.querySelector('script')).toBeNull();
-  });
-
-  it('does not render anchors with javascript: hrefs in the preview pane', async () => {
-    // The skipHtml-honoring mock stores the raw markdown under md-preview.
-    // Assert by inspecting every anchor in the DOM - if the real renderer
-    // ever starts producing anchors from markdown link syntax and forgets
-    // to filter javascript: URLs, this test fails.
-    const body = '[click](javascript:alert(1))\nhello';
-    const { container } = render(
-      <CardPanel {...makeProps({ card: { ...baseCard, body } })} />,
-    );
-    await screen.findByTestId('md-preview');
-    const anchors = container.querySelectorAll('a[href]');
-    anchors.forEach((a) => {
-      const href = a.getAttribute('href') ?? '';
-      expect(href).not.toMatch(/^javascript:/i);
-    });
   });
 });
 

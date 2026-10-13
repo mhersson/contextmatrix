@@ -28,6 +28,10 @@ Every view updates live from one Server-Sent Events stream per tab
   ignored. Mouse drags start after 5 px, touch drags after a 250 ms hold.
 - **Card detail panel** opens on click. Tabs: Chat (only while a session is
   live), Automation, Info, Danger. `Escape` closes, `Ctrl`/`Cmd`+`S` saves.
+- **Card bodies and chat messages** render as GitHub-flavoured markdown. Raw
+  HTML, including HTML comments, shows as literal text, never as live markup
+  or hidden content: bodies arrive from agents and from GitHub and Jira
+  imports.
 - **Models used** (Info tab) answers what a card cost and where it went: the
   total including subtasks; a cost bar and legend split by role (review,
   execute, plan, judge, document, gates = pr_gates + integrate, plus a hatched
