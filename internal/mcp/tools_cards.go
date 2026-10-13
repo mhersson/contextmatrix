@@ -245,8 +245,9 @@ func registerGetCard(server *mcp.Server, svc *service.CardService, imageStore im
 			return nil, nil, fmt.Errorf("get card %s: %w", input.CardID, err)
 		}
 
-		// Redact unvetted card title and body for non-human callers so prompt-injection
-		// payloads from imported external cards cannot reach agent context.
+		// Redact unvetted card text (title, body, activity log, context, source URL)
+		// for non-human callers so prompt-injection payloads from imported external
+		// cards cannot reach agent context.
 		card = redactCardForAgent(card, input.AgentID)
 
 		// Shallow-copy before trimming (precedent: vetting.go's
@@ -515,7 +516,7 @@ func registerGetTaskContext(server *mcp.Server, svc *service.CardService, imageS
 			return nil, getTaskContextOutput{}, fmt.Errorf("get project config: %w", err)
 		}
 
-		// Redact unvetted card title and body for non-human callers - get_task_context
+		// Redact unvetted card text for non-human callers - get_task_context
 		// is the primary prompt-injection vector because its response is fed
 		// straight into agent context.
 		primary := redactCardForAgent(card, input.AgentID)

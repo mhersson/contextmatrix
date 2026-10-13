@@ -52,11 +52,11 @@ func redactUnvettedBody(card *board.Card, agentID string) string {
 	return unvettedBodyPlaceholder
 }
 
-// redactCardForAgent returns a shallow copy of card with Body and Title
-// replaced and BranchName cleared for a non-human caller reading an unvetted card. The original card
-// is left unmodified. Returns nil if card is nil. Used by the body-carrying
-// read tools (get_card, get_task_context); summary-returning tools use
-// summarizeCardForAgent. Humans get full visibility.
+// redactCardForAgent returns a redacted copy of card for a non-human caller
+// reading an unvetted card (see redactUntrustedFields); the original is left
+// unmodified. Returns nil if card is nil. Used by the card-returning read tools
+// (get_card, get_task_context); summary-returning tools use
+// summarizeCardForAgent. Humans and vetted cards get the card unchanged.
 func redactCardForAgent(card *board.Card, agentID string) *board.Card {
 	if card == nil {
 		return nil
@@ -66,12 +66,30 @@ func redactCardForAgent(card *board.Card, agentID string) *board.Card {
 		return card
 	}
 
-	redacted := *card
-	redacted.Body = unvettedBodyPlaceholder
-	redacted.Title = unvettedPlaceholderTitle
-	redacted.BranchName = "" // the branch slug is derived from the title
+	return redactUntrustedFields(card)
+}
 
-	return &redacted
+// redactUntrustedFields returns a copy of card with every field that can carry
+// importer-supplied text replaced or cleared: Body, Title, BranchName (derived
+// from the title), ActivityLog, Context and Source.ExternalURL. Structural
+// metadata (ID, State, Type, Priority, ...) is preserved. card and its Source
+// are never mutated. Shared by redactCardForAgent and redactCardForPrompt so
+// the field list cannot drift.
+func redactUntrustedFields(card *board.Card) *board.Card {
+	cp := *card // shallow copy; slices and pointers are replaced below
+	cp.Body = unvettedBodyPlaceholder
+	cp.Title = unvettedPlaceholderTitle
+	cp.BranchName = ""
+	cp.ActivityLog = nil
+	cp.Context = nil
+
+	if cp.Source != nil {
+		src := *cp.Source
+		src.ExternalURL = ""
+		cp.Source = &src
+	}
+
+	return &cp
 }
 
 // summarizeCardForAgent is summarizeCard with the title replaced by the
@@ -121,20 +139,7 @@ func redactCardForPrompt(card *board.Card) *board.Card {
 		return card
 	}
 
-	cp := *card // shallow copy; Card contains slices/pointers we handle below
-	cp.Body = unvettedBodyPlaceholder
-	cp.Title = unvettedPlaceholderTitle
-	cp.BranchName = ""   // the branch slug is derived from the title
-	cp.ActivityLog = nil // log entries can carry injected text as "messages"
-	cp.Context = nil     // free-form strings supplied by external importers
-
-	if cp.Source != nil {
-		src := *cp.Source
-		src.ExternalURL = ""
-		cp.Source = &src
-	}
-
-	return &cp
+	return redactUntrustedFields(card)
 }
 
 // redactPlaybookDetail returns a copy of d with the title of every unvetted

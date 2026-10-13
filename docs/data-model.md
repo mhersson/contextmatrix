@@ -141,7 +141,8 @@ live in [architecture](architecture.md); the HTTP surface in the
      the MCP `update_card` tool does not expose it.
    - `get_ready_tasks` excludes unvetted external cards. For non-human MCP
      callers, `get_card` and `get_task_context` redact an unvetted card's
-     title, body and `branch_name`; `list_cards` and the mutation responses
+     title, body and `branch_name` and drop its activity log, `context` and
+     source `external_url`; `list_cards` and the mutation responses
      redact its title and `branch_name`; the playbook tools redact its
      title. "Unvetted" means imported (has a `source`) and not yet vetted. A caller is human only with a `human:<name>`
      `agent_id`; tools with no `agent_id` treat the caller as non-human.
