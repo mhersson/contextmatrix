@@ -158,11 +158,15 @@ the same reason:
 Notes, text and checking off a manual entry stay allowed during a run.
 
 Behind the refusals, the runner holds while any card entry that is not
-`done` or `not_planned` has a live worker, pointing the run at it (its current
-entry when that one is live, else the first in order): an entry that turns
-incomplete or gains a worker outside the walk (a peer instance's merge on a
-shared board, a hand run on another instance, a completion whose commit
-failed, a deleted card) is handled once that worker ends.
+`done` or `not_planned` has a live worker: an entry that turns incomplete or
+gains a worker outside the walk (a peer instance's merge on a shared board, a
+hand run on another instance, a completion whose commit failed, a deleted
+card) is handled once that worker ends. The run is pointed at the live card
+(its current entry when that one is live, else the first in order) only when
+its current entry is unset, complete or gone; a run on a failed or
+launch-failed card keeps that entry and its reason while another card's worker
+holds it. A card left `queued` or `running` with no worker behind it holds the
+run until Stop All in its project clears it.
 
 ### Play and Stop
 
@@ -176,9 +180,11 @@ behavior. Both controls are human-only.
 - **Stop** requires an active run (`409 PLAYBOOK_RUN_INACTIVE`) and kills the
   worker of every card entry that is queued or running on this instance and not
   `done` or `not_planned`, not only the current card's. A launch already in
-  flight when Stop lands finishes first, and its worker is then killed. If a
-  kill webhook fails after the run is marked `stopped`, it answers
-  `502 BACKEND_UNAVAILABLE`.
+  flight when Stop lands finishes first, and Stop then kills the worker it
+  queued. If a kill webhook fails after the run is marked `stopped`, it
+  answers `502 BACKEND_UNAVAILABLE`. A backend that has not started tracking
+  the just-launched worker yet refuses its kill, which gives that 502; stop
+  that card's worker from the card, or with Stop All for its project.
 - `playbook.updated` events carry `run_status` and `run_entry` so open
   detail pages track a run live.
 

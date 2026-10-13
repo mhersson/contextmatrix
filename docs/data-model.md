@@ -181,8 +181,9 @@ live in [architecture](architecture.md); the HTTP surface in the
 13. **Card deletion requires no subtasks.** `DELETE .../cards/{id}` removes
     the file (`os.Remove`) and enqueues a `CommitKindFile` commit; go-git
     records the deletion when the missing path is staged. It returns 422
-    `VALIDATION_ERROR` if the card has subtasks, and 403 if the card is
-    claimed by another agent. The web UI enables Delete only for `todo` or
+    `VALIDATION_ERROR` if the card has subtasks, 403 if the card is claimed
+    by another agent, and 409 `WORKER_CONFLICT` while its `worker_status` is
+    `queued` or `running`. The web UI enables Delete only for `todo` or
     `not_planned` cards with no `assigned_agent`, behind a `ConfirmModal`.
 
 ## Card file format
