@@ -61,14 +61,11 @@ means changing the config or env var and restarting.
 - **Login CAPTCHA.** After repeated failed logins Jira blocks basic auth for the
   account until someone signs in through a browser. The status endpoint then
   reports `auth_error: captcha_required`.
-
-- **Scoped tokens.** A service account token carries scopes. `read:jira-user`
-  covers the status probe, `read:jira-work` covers preview and import, and
-  `write:jira-work` covers writeback transitions. Without the probe's scope the
-  status reports `auth_error: unreachable`; this only shows a warning and does
-  not disable **Import from Jira**, so preview and import still work. A write
-  refused with 401 while the probe works fails that writeback row as
-  insufficient scope instead of pausing writeback.
+- **Scoped tokens.** A service account token carries scopes. Grant all three:
+  `read:jira-user` for the status probe, `read:jira-work` for preview and
+  import, and `write:jira-work` for writeback transitions. A write refused with
+  401 while the probe works fails that writeback row as insufficient scope
+  instead of pausing writeback.
 
 Check the connection:
 
@@ -80,9 +77,9 @@ curl -s -H 'X-Requested-With: contextmatrix' localhost:8080/api/jira/status
 
 1. Click **New playbook**, paste an epic key (`PROJ-1`, any case) or a Jira URL
    on the configured site into the title, and click **Import from Jira**. Enter
-   still creates an ordinary playbook. While the status probe fails, the form says why
-   (`unauthorized`, `captcha_required`, `unreachable`). The button stays
-   disabled for `unauthorized` and `captcha_required` only.
+   still creates an ordinary playbook. While the status probe fails, the form
+   says why (`unauthorized`, `captcha_required`, `unreachable`). The button
+   stays disabled for `unauthorized` and `captcha_required` only.
 2. The dialog shows the epic's children and their sub-tasks. Open issues that
    were never imported are preselected. Pick a project per issue, or one for
    all; defaults come from `jira.project_map`, and sub-tasks follow their
