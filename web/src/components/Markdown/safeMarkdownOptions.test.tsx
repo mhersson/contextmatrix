@@ -188,6 +188,15 @@ describe('hardening', () => {
     expect(root.querySelector('[aria-hidden], [tabindex]')).toBeNull();
   });
 
+  // Fails when the direct rehype-attr pin and @uiw's range diverge: the nested
+  // copy escapes the identity drop in secureRehypePlugins.
+  it('does not let a rehype comment rewrite a link', () => {
+    const root = renderSafe('[docs](https://example.com/docs)<!--rehype:href=https://evil.example/login&title=Docs-->');
+    const link = root.querySelector('a');
+    expect(link).toHaveAttribute('href', 'https://example.com/docs');
+    expect(link).not.toHaveAttribute('title');
+  });
+
   it('renders definition lists, struck and inserted text, and table extras', () => {
     const root = renderSafe(
       [
