@@ -157,7 +157,7 @@ omits unvetted cards.
 | `get_playbook`          | Full detail with entries resolved against cards      | any    |
 | `create_playbook`       | Create with entries; all-or-nothing; `boards_repo`   | any    |
 | `update_playbook`       | Title and description; `runnable`, `base_branch` and run state are not accepted and are preserved | any    |
-| `delete_playbook`       | Delete; referenced cards are untouched               | any    |
+| `delete_playbook`       | Delete; refused while a run is active; cards untouched | any    |
 | `add_playbook_entry`    | Append a card reference or manual gate step; human-only on a runnable playbook for card entries | any    |
 | `update_playbook_entry` | Done state, note, text, or position                  | any    |
 | `remove_playbook_entry` | Remove one entry; its id is never reused             | any    |

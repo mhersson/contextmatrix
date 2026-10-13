@@ -103,6 +103,9 @@ Cards:
   local card is re-minted under a fresh ID with references renamed, unless
   both imported the same external issue, which dedupes to one card.
 - Delete versus modify: the delete wins; the modification stays in history.
+  A card deleted on another instance while its worker ran has its container
+  stopped by the reconcile sweep; a local delete is refused while the worker
+  is queued or running.
 - One side unparseable: the parsing side is kept.
 - Invariants are re-applied after the merge (`not_planned` clears the claim,
   a missing parent is cleared, subtask type follows `parent`, dangling
@@ -114,7 +117,17 @@ transitions union; `name` and `prefix` are immutable and the remote is kept;
 every other field prefers the remote on a real conflict. Playbooks: entries
 merge by entry id, `next_entry_id` takes the max, a same-id add on both sides
 keeps the remote and re-mints the local entry, and two playbooks created at
-the same path re-slug the local one to `<id>-N`. Any other file: remote wins.
+the same path re-slug the local one to `<id>-N`.
+
+While a run is `running` or `waiting` its current entry survives the merge: a
+removal on the other side is undone, and when the merge drops it as a
+duplicate the run moves to the surviving entry for the same card. A run entry
+left naming no entry on a run that is not active is cleared, and a merged
+playbook that still fails validation keeps the remote version. A playbook
+deleted on one side while the other side's run is `running` or `waiting` is
+kept.
+
+Any other file: remote wins.
 
 ## Sync status
 

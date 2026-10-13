@@ -922,3 +922,242 @@ func TestPlay_ResumeEntry(t *testing.T) {
 		})
 	}
 }
+
+// TestPass_HoldsOnALiveWorkerOffTheRunEntry: a card entry the run does not
+// point at has a live worker (a hand run that raced Play, one on another
+// instance, a card the walk passed before a reorder). The run holds on it
+// instead of starting the frontier beside it, and points at it for Stop.
+func TestPass_HoldsOnALiveWorkerOffTheRunEntry(t *testing.T) {
+	live := []struct {
+		name string
+		make func(e *env, c *board.Card)
+	}{
+		{"queued", func(_ *env, c *board.Card) { c.WorkerStatus = "queued" }},
+		{"running", func(_ *env, c *board.Card) { c.WorkerStatus = "running" }},
+		{"claimed elsewhere", func(e *env, c *board.Card) {
+			c.AssignedAgent = "agent-1"
+			e.cards.elsewhere[cardKey("alpha", "ALPHA-2")] = true
+		}},
+	}
+
+	for _, l := range live {
+		t.Run(l.name, func(t *testing.T) {
+			e := newEnv(t)
+			e.cards.add(todoCard("alpha", "ALPHA-1"))
+
+			c := todoCard("alpha", "ALPHA-2")
+			c.State = board.StateInProgress
+			l.make(e, c)
+			e.cards.add(c)
+
+			p := runnablePlaybook("rollout", cardEntry("e1", "alpha", "ALPHA-1"), cardEntry("e2", "alpha", "ALPHA-2"))
+			e.activeRun(p, "")
+			e.pbs.add(p)
+
+			require.False(t, e.runner.pass(context.Background(), "rollout"))
+			assert.Equal(t, 0, e.launcher.count(), "no second worker")
+
+			run := e.pbs.lastRun()
+			assert.Equal(t, board.RunStatusRunning, run.Status)
+			assert.Equal(t, "e2", run.Entry, "the run points at the live worker")
+		})
+	}
+}
+
+// TestPass_RolledBackEntryBehindTheRunIsHeldAndStopKillsBoth: a completion
+// whose commit failed was rolled back after the walk moved past it, leaving
+// an entry behind the run's card with its own worker alive. Stop must kill
+// both, and once the run's card ends the run moves to the rolled-back card.
+func TestPass_RolledBackEntryBehindTheRunIsHeldAndStopKillsBoth(t *testing.T) {
+	setup := func(t *testing.T) *env {
+		t.Helper()
+
+		e := newEnv(t)
+
+		done := todoCard("alpha", "ALPHA-1")
+		done.State = board.StateDone
+		e.cards.add(done)
+		e.cards.add(liveCard()) // ALPHA-2: rolled back to in_progress, worker running
+
+		current := todoCard("alpha", "ALPHA-3")
+		current.State, current.WorkerStatus = board.StateInProgress, "queued"
+		e.cards.add(current)
+
+		p := runnablePlaybook("rollout",
+			cardEntry("e1", "alpha", "ALPHA-1"), cardEntry("e2", "alpha", "ALPHA-2"), cardEntry("e3", "alpha", "ALPHA-3"))
+		e.activeRun(p, "e3")
+		e.pbs.add(p)
+
+		return e
+	}
+
+	t.Run("the run holds, then moves to the rolled-back card", func(t *testing.T) {
+		e := setup(t)
+
+		require.False(t, e.runner.pass(context.Background(), "rollout"))
+		assert.Equal(t, 0, e.launcher.count())
+		assert.Equal(t, 0, e.pbs.runWrites(), "already running on e3")
+
+		e.cards.set("alpha", "ALPHA-3", func(c *board.Card) { c.State = board.StateDone })
+
+		require.False(t, e.runner.pass(context.Background(), "rollout"))
+		assert.Equal(t, 0, e.launcher.count())
+
+		run := e.pbs.lastRun()
+		assert.Equal(t, board.RunStatusRunning, run.Status)
+		assert.Equal(t, "e2", run.Entry)
+	})
+
+	t.Run("stop kills both workers", func(t *testing.T) {
+		e := setup(t)
+
+		_, err := e.runner.Stop(context.Background(), "rollout", "human:alice")
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{"ALPHA-2", "ALPHA-3"}, e.stopper.called())
+	})
+}
+
+// TestStop_KillsEveryLiveEntryWorker: Stop kills every queued or running
+// worker this instance owns on a card that is not terminal, wherever the run
+// points, and keeps going past a failed kill.
+func TestStop_KillsEveryLiveEntryWorker(t *testing.T) {
+	setup := func(t *testing.T) *env {
+		t.Helper()
+
+		e := newEnv(t)
+		card := func(id, state, worker string) *board.Card {
+			c := todoCard("alpha", id)
+			c.State, c.WorkerStatus = state, worker
+
+			return c
+		}
+
+		e.cards.add(card("ALPHA-1", board.StateInProgress, "running"))
+		e.cards.add(card("ALPHA-2", board.StateInProgress, "queued")) // the run's entry
+		e.cards.add(card("ALPHA-3", board.StateInProgress, "running"))
+		e.cards.elsewhere[cardKey("alpha", "ALPHA-3")] = true    // another instance's worker
+		e.cards.add(card("ALPHA-4", board.StateDone, "running")) // finishing up
+		e.cards.add(card("ALPHA-5", board.StateTodo, ""))
+
+		p := runnablePlaybook("rollout",
+			cardEntry("e1", "alpha", "ALPHA-1"), cardEntry("e2", "alpha", "ALPHA-2"), cardEntry("e3", "alpha", "ALPHA-3"),
+			cardEntry("e4", "alpha", "ALPHA-4"), cardEntry("e5", "alpha", "ALPHA-5"), cardEntry("e6", "alpha", "GONE-1"),
+			manualEntry("e7", "deploy"))
+		e.activeRun(p, "e2")
+		e.pbs.add(p)
+
+		return e
+	}
+
+	t.Run("every local live worker of a card that is not terminal", func(t *testing.T) {
+		e := setup(t)
+
+		d, err := e.runner.Stop(context.Background(), "rollout", "human:alice")
+		require.NoError(t, err)
+		assert.Equal(t, board.RunStatusStopped, d.Run.Status)
+		assert.ElementsMatch(t, []string{"ALPHA-1", "ALPHA-2"}, e.stopper.called())
+	})
+
+	t.Run("a failed kill does not spare the others", func(t *testing.T) {
+		e := setup(t)
+		e.stopper.err = errors.New("kill webhook failed")
+
+		d, err := e.runner.Stop(context.Background(), "rollout", "human:alice")
+		require.ErrorIs(t, err, ErrStopWorker)
+		require.NotNil(t, d)
+		assert.Equal(t, board.RunStatusStopped, d.Run.Status)
+		assert.ElementsMatch(t, []string{"ALPHA-1", "ALPHA-2"}, e.stopper.called())
+	})
+}
+
+// TestPass_LiveWorkerElsewhereKeepsATriggeredRunEntry: a run that already
+// triggered an entry keeps pointing at it while another entry's worker holds
+// the run, so the walk still waits for a human on it afterwards instead of
+// launching it again.
+func TestPass_LiveWorkerElsewhereKeepsATriggeredRunEntry(t *testing.T) {
+	tests := []struct {
+		name       string
+		setup      func(e *env, p *board.Playbook, c1 *board.Card)
+		wantReason string
+	}{
+		{
+			name: "the triggered entry failed",
+			setup: func(e *env, p *board.Playbook, c1 *board.Card) {
+				c1.State, c1.WorkerStatus = board.StateInProgress, "failed"
+			},
+			wantReason: "ALPHA-1",
+		},
+		{
+			name: "the launch of the triggered entry failed",
+			setup: func(e *env, p *board.Playbook, c1 *board.Card) {
+				p.Run.Status, p.Run.Reason = board.RunStatusWaiting, "launch ALPHA-1 failed"
+			},
+			wantReason: "launch ALPHA-1 failed",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+
+			c1 := todoCard("alpha", "ALPHA-1")
+			c2 := todoCard("alpha", "ALPHA-2")
+			c2.State, c2.WorkerStatus = board.StateInProgress, "running"
+
+			p := runnablePlaybook("rollout", cardEntry("e1", "alpha", "ALPHA-1"), cardEntry("e2", "alpha", "ALPHA-2"))
+			e.activeRun(p, "e1")
+			tc.setup(e, p, c1)
+			e.cards.add(c1)
+			e.cards.add(c2)
+			e.pbs.add(p)
+
+			require.False(t, e.runner.pass(context.Background(), "rollout"))
+			assert.Equal(t, 0, e.launcher.count())
+			assert.Equal(t, 0, e.pbs.runWrites(), "the run is left as it was")
+
+			e.cards.set("alpha", "ALPHA-2", func(c *board.Card) { c.State = board.StateDone })
+
+			require.False(t, e.runner.pass(context.Background(), "rollout"))
+			assert.Equal(t, 0, e.launcher.count(), "no retry without a human")
+
+			d, err := e.pbs.Get(context.Background(), "rollout")
+			require.NoError(t, err)
+			assert.Equal(t, board.RunStatusWaiting, d.Run.Status)
+			assert.Equal(t, "e1", d.Run.Entry)
+			assert.Contains(t, d.Run.Reason, tc.wantReason)
+		})
+	}
+}
+
+// TestPlay_LiveEntryRemovedDuringPlay: Play read the playbook while e2's card
+// had a live worker, then e2 was removed (allowed while stopped). A run
+// decided from that read names a removed entry and fails validation; decided
+// inside the write it sees the stored entries.
+func TestPlay_LiveEntryRemovedDuringPlay(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+
+	e.cards.add(todoCard("alpha", "ALPHA-1"))
+	e.cards.add(liveCard())
+
+	p := runnablePlaybook("rollout", cardEntry("e1", "alpha", "ALPHA-1"), cardEntry("e2", "alpha", "ALPHA-2"))
+	p.Run = &board.PlaybookRun{Status: board.RunStatusStopped, Entry: "e2", Reason: "stopped by human:alice"}
+	e.pbs.add(p)
+
+	// The removal lands right after Play's read, the way RemoveEntry does it.
+	e.pbs.mu.Lock()
+	e.pbs.afterGet = func() {
+		e.pbs.mu.Lock()
+		defer e.pbs.mu.Unlock()
+
+		stored := e.pbs.pbs["rollout"]
+		stored.Entries = stored.Entries[:1]
+		stored.Run.Entry, stored.Run.Reason = "", ""
+	}
+	e.pbs.mu.Unlock()
+
+	d, err := e.runner.Play(ctx, "rollout", "human:alice")
+	require.NoError(t, err)
+	assert.Equal(t, board.RunStatusRunning, d.Run.Status)
+	assert.Empty(t, d.Run.Entry, "no live entry is left to resume on")
+}

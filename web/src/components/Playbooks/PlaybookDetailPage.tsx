@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router';
 import type { DragEndEvent } from '@dnd-kit/core';
-import { api, isAPIError } from '../../api/client';
+import { api, describeApiError } from '../../api/client';
 import { useSSEBus } from '../../hooks/useSSEBus';
 import { useToast } from '../../hooks/useToast';
 import { usePlaybookBranches } from '../../hooks/usePlaybookBranches';
@@ -62,9 +62,6 @@ export function PlaybookDetailPage() {
   const applyPatch = useCallback((promise: Promise<PlaybookDetail>) => {
     return promise.then(setDetail).catch(() => { showToast('Update failed', 'error'); fetchDetail(); });
   }, [showToast, fetchDetail]);
-
-  const describeApiError = (err: unknown, fallback: string) =>
-    isAPIError(err) ? (err.details ? `${err.error}: ${err.details}` : err.error) : fallback;
 
   // Writes an active run can refuse (409 PLAYBOOK_RUN_ACTIVE,
   // PLAYBOOK_UNCHECK_DURING_RUN) show the server's own text; applyPatch keeps
@@ -176,8 +173,8 @@ export function PlaybookDetailPage() {
     try {
       await api.deletePlaybook(detail.id);
       navigate('/playbooks');
-    } catch {
-      showToast('Failed to delete playbook', 'error');
+    } catch (err) {
+      showToast(describeApiError(err, 'Failed to delete playbook'), 'error');
     }
     setDeleteOpen(false);
   };

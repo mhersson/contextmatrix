@@ -1957,3 +1957,227 @@ func TestPlaybookService_UncheckDuringRun(t *testing.T) {
 		})
 	}
 }
+
+// TestPlaybookService_DeleteDuringRunRefused: deleting the file under an
+// active run leaves its worker running with no run to stop it.
+func TestPlaybookService_DeleteDuringRunRefused(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{
+		Title: "Rollout", AgentID: "human:alice",
+		Entries: []PlaybookEntryInput{{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"}},
+	})
+	require.NoError(t, err)
+	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: new(true), BaseBranch: new("main")}, "human:alice")
+	require.NoError(t, err)
+
+	now := env.clk.Now()
+
+	for _, status := range []string{board.RunStatusRunning, board.RunStatusWaiting} {
+		_, err = env.svc.SetRunIf(ctx, "rollout", nil, &board.PlaybookRun{Status: status, StartedAt: now, UpdatedAt: now, Entry: "e1"}, "human:alice")
+		require.NoError(t, err)
+
+		require.ErrorIs(t, env.svc.Delete(ctx, "rollout", "human:alice"), ErrPlaybookRunActive, status)
+
+		_, err = env.svc.Get(ctx, "rollout")
+		require.NoError(t, err, "a refused delete leaves the playbook in place")
+	}
+
+	_, err = env.svc.SetRunIf(ctx, "rollout", nil, &board.PlaybookRun{Status: board.RunStatusStopped, StartedAt: now, UpdatedAt: now}, "human:alice")
+	require.NoError(t, err)
+	require.NoError(t, env.svc.Delete(ctx, "rollout", "human:alice"))
+}
+
+// TestPlaybookService_SetRunFuncDecidesUnderTheWriteLock: next runs inside
+// the write, so a removal racing it waits and then meets the stored run
+// instead of slipping between the decision and the write.
+func TestPlaybookService_SetRunFuncDecidesUnderTheWriteLock(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{
+		Title: "Rollout", AgentID: "human:alice",
+		Entries: []PlaybookEntryInput{
+			{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"},
+			{Type: board.EntryTypeManual, Text: "deploy"},
+		},
+	})
+	require.NoError(t, err)
+	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: new(true), BaseBranch: new("main")}, "human:alice")
+	require.NoError(t, err)
+
+	entered := make(chan struct{})
+	gate := make(chan struct{})
+	release := sync.OnceFunc(func() { close(gate) })
+	t.Cleanup(release)
+
+	now := env.clk.Now()
+	set := make(chan error, 1)
+
+	go func() {
+		_, err := env.svc.SetRunFunc(ctx, "rollout", func(p *board.Playbook) (*board.PlaybookRun, error) {
+			close(entered)
+			<-gate
+
+			return &board.PlaybookRun{Status: board.RunStatusRunning, StartedAt: now, UpdatedAt: now, Entry: p.Entries[1].ID}, nil
+		}, "human:alice")
+		set <- err
+	}()
+
+	<-entered
+
+	removed := make(chan error, 1)
+
+	go func() {
+		_, err := env.svc.RemoveEntry(ctx, "rollout", "e2", "human:bob")
+		removed <- err
+	}()
+
+	select {
+	case err := <-removed:
+		t.Fatalf("the removal ran while the run was being decided: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	release()
+
+	require.NoError(t, <-set)
+	require.ErrorIs(t, <-removed, ErrPlaybookRunActive, "the removal meets the stored run")
+
+	d, err := env.svc.Get(ctx, "rollout")
+	require.NoError(t, err)
+	assert.Equal(t, "e2", d.Run.Entry)
+}
+
+// listFailingStore is a playbook store whose List fails.
+type listFailingStore struct{ PlaybookStore }
+
+func (listFailingStore) List(context.Context) ([]*board.Playbook, error) {
+	return nil, errors.New("playbook index unavailable")
+}
+
+// TestPlaybookService_QueueUnlessRunActive pins the hand-run guard.
+func TestPlaybookService_QueueUnlessRunActive(t *testing.T) {
+	ctx := context.Background()
+
+	setup := func(t *testing.T, status string) *playbookTestEnv {
+		t.Helper()
+
+		env := newPlaybookTestEnv(t)
+
+		_, err := env.svc.Create(ctx, CreatePlaybookInput{
+			Title: "Rollout", AgentID: "human:alice",
+			Entries: []PlaybookEntryInput{{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"}},
+		})
+		require.NoError(t, err)
+		_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: new(true), BaseBranch: new("main")}, "human:alice")
+		require.NoError(t, err)
+
+		if status != "" {
+			now := env.clk.Now()
+			_, err = env.svc.SetRunIf(ctx, "rollout", nil, &board.PlaybookRun{Status: status, StartedAt: now, UpdatedAt: now}, "human:alice")
+			require.NoError(t, err)
+		}
+
+		return env
+	}
+
+	tests := []struct {
+		name   string
+		status string
+		card   string
+		queued bool
+	}{
+		{"a running run refuses its card", board.RunStatusRunning, "ALPHA-001", false},
+		{"a waiting run refuses its card", board.RunStatusWaiting, "ALPHA-001", false},
+		{"a stopped run allows its card", board.RunStatusStopped, "ALPHA-001", true},
+		{"no run allows its card", "", "ALPHA-001", true},
+		{"an active run allows a card it does not hold", board.RunStatusRunning, "ALPHA-002", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := setup(t, tt.status)
+
+			called := false
+			err := env.svc.QueueUnlessRunActive(ctx, "project-alpha", tt.card, func() error {
+				called = true
+
+				return nil
+			})
+
+			if tt.queued {
+				require.NoError(t, err)
+				assert.True(t, called)
+
+				return
+			}
+
+			require.ErrorIs(t, err, ErrPlaybookRunActive)
+			assert.False(t, called, "a refused hand run is never queued")
+		})
+	}
+
+	t.Run("the queue error is returned unchanged", func(t *testing.T) {
+		env := setup(t, "")
+		want := errors.New("queue failed")
+
+		require.ErrorIs(t, env.svc.QueueUnlessRunActive(ctx, "project-alpha", "ALPHA-001", func() error { return want }), want)
+	})
+
+	t.Run("a listing error refuses", func(t *testing.T) {
+		env := setup(t, "")
+		svc := NewPlaybookService(listFailingStore{env.svc.store}, env.cards, env.bus, env.clk, false)
+
+		called := false
+		err := svc.QueueUnlessRunActive(ctx, "project-alpha", "ALPHA-001", func() error {
+			called = true
+
+			return nil
+		})
+		require.Error(t, err)
+		assert.False(t, called)
+	})
+
+	t.Run("a run write waits for the queued write", func(t *testing.T) {
+		env := setup(t, board.RunStatusStopped)
+
+		entered := make(chan struct{})
+		gate := make(chan struct{})
+		release := sync.OnceFunc(func() { close(gate) })
+		t.Cleanup(release)
+
+		queued := make(chan error, 1)
+
+		go func() {
+			queued <- env.svc.QueueUnlessRunActive(ctx, "project-alpha", "ALPHA-001", func() error {
+				close(entered)
+				<-gate
+
+				return nil
+			})
+		}()
+
+		<-entered
+
+		played := make(chan error, 1)
+
+		go func() {
+			now := env.clk.Now()
+			_, err := env.svc.SetRunIf(ctx, "rollout", nil, &board.PlaybookRun{Status: board.RunStatusRunning, StartedAt: now, UpdatedAt: now}, "human:alice")
+
+			played <- err
+		}()
+
+		select {
+		case err := <-played:
+			t.Fatalf("the run was written while a hand run was queuing: %v", err)
+		case <-time.After(50 * time.Millisecond):
+		}
+
+		release()
+		require.NoError(t, <-queued)
+		require.NoError(t, <-played)
+	})
+}

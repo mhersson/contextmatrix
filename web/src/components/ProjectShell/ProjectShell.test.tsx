@@ -192,7 +192,8 @@ vi.mock('../NotFound', () => ({
   NotFound: () => <div data-testid="not-found" />,
 }));
 
-vi.mock('../../api/client', () => ({
+vi.mock('../../api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../api/client')>()),
   api: {
     runCard: vi.fn(),
     createCard: vi.fn(),
@@ -200,8 +201,6 @@ vi.mock('../../api/client', () => ({
     getActivity: vi.fn(() => new Promise(() => {})),
     getBackendHealth: vi.fn(() => new Promise(() => {})),
   },
-  isAPIError: (err: unknown): err is { error: string; code?: string } =>
-    err != null && typeof err === 'object' && 'error' in err,
 }));
 
 // context/MobileSidebarContext feeds the band's hamburger; mock it.

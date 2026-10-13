@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,6 +21,10 @@ type clockTicker = clock.Ticker
 
 // RunnerAgent is the actor stamped on every run-state write the runner makes.
 const RunnerAgent = "system:playbook-runner"
+
+// defaultStopWait bounds Stop's walker wait and kills once the stop is
+// persisted: above the launch's worst case, about 33 s.
+const defaultStopWait = time.Minute
 
 var (
 	// ErrNoBackend is returned by Play when no task backend is configured.
@@ -44,13 +49,15 @@ type Launcher func(ctx context.Context, project, cardID string, opts LaunchOptio
 type Stopper func(ctx context.Context, project, cardID string) error
 
 // Playbooks is the slice of the playbook service the runner uses. Every run
-// write goes through the guarded SetRunIf: the runner decides from a detail
-// it read earlier, so an unguarded write could overwrite a Stop that landed
-// in between.
+// write is guarded: the pass and Stop decide from an earlier read and write
+// through SetRunIf's compare-and-swap; Play decides inside the write.
 type Playbooks interface {
 	Get(ctx context.Context, id string) (*service.PlaybookDetail, error)
 	SetRunIf(
 		ctx context.Context, id string, guard func(current *board.PlaybookRun) error, run *board.PlaybookRun, agentID string,
+	) (*service.PlaybookDetail, error)
+	SetRunFunc(
+		ctx context.Context, id string, next func(p *board.Playbook) (*board.PlaybookRun, error), agentID string,
 	) (*service.PlaybookDetail, error)
 }
 
@@ -96,7 +103,14 @@ type Runner struct {
 	// it instead of resolving the playbook for every card event on the
 	// board; the pass that a playbook's own event triggers refreshes it.
 	watched map[string]map[string]struct{}
-	wg      sync.WaitGroup
+	// control holds one token per playbook. Play and Stop each hold it for
+	// their whole call, so a Play never lands inside a Stop's wait and kill.
+	control map[string]chan struct{}
+	// exiting is, per playbook, the done channel of the walker Stop last
+	// cancelled; the next walker waits on it before its first pass.
+	exiting  map[string]chan struct{}
+	stopWait time.Duration
+	wg       sync.WaitGroup
 }
 
 // New creates a runner. Clock nil defaults to the real clock; Tick zero
@@ -116,7 +130,31 @@ func New(cfg Config) *Runner {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	return &Runner{cfg: cfg, ctx: ctx, walkers: map[string]*walker{}, watched: map[string]map[string]struct{}{}}
+	return &Runner{
+		cfg: cfg, ctx: ctx, walkers: map[string]*walker{}, watched: map[string]map[string]struct{}{},
+		control: map[string]chan struct{}{}, exiting: map[string]chan struct{}{}, stopWait: defaultStopWait,
+	}
+}
+
+// lockControl takes id's control token, waiting for a Play or Stop that
+// holds it, and returns its release. It gives up when ctx ends.
+func (r *Runner) lockControl(ctx context.Context, id string) (func(), error) {
+	r.mu.Lock()
+
+	token, ok := r.control[id]
+	if !ok {
+		token = make(chan struct{}, 1)
+		r.control[id] = token
+	}
+
+	r.mu.Unlock()
+
+	select {
+	case token <- struct{}{}:
+		return func() { <-token }, nil
+	case <-ctx.Done():
+		return nil, fmt.Errorf("wait for playbook %s: %w", id, ctx.Err())
+	}
 }
 
 // SetLauncher wires the trigger path; nil means no task backend.
@@ -150,9 +188,16 @@ func (r *Runner) stopper() Stopper {
 }
 
 // Play starts or resumes a run. It writes the run block with the reason
-// cleared and the entry on a live worker (resumeEntry), keeps started_at
-// across a resume, and starts the walker.
+// cleared and the entry on a live worker (the stopped run's own first), keeps
+// started_at across a resume, and starts the walker. It waits for a Stop of the
+// same playbook that is still in progress.
 func (r *Runner) Play(ctx context.Context, id, agentID string) (*service.PlaybookDetail, error) {
+	release, err := r.lockControl(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
 	d, err := r.cfg.Playbooks.Get(ctx, id)
 	if err != nil {
 		return nil, err
@@ -171,28 +216,36 @@ func (r *Runner) Play(ctx context.Context, id, agentID string) (*service.Playboo
 	}
 
 	now := r.cfg.Clock.Now().UTC()
-	run := board.PlaybookRun{
-		Status: board.RunStatusRunning, Instance: r.cfg.Instance, StartedBy: agentID, StartedAt: now, UpdatedAt: now,
-		Entry: r.resumeEntry(ctx, d),
-	}
 
-	// A resume keeps the original start; a run after completion is new.
-	if d.Run != nil && d.Run.Status != board.RunStatusCompleted && !d.Run.StartedAt.IsZero() {
-		run.StartedAt = d.Run.StartedAt
-	}
-
-	// The pre-read checks above give the early answers; this guard is what
-	// makes "not already active" true at the moment of the write, so two
-	// Plays racing cannot both start a run.
-	guard := func(cur *board.PlaybookRun) error {
-		if cur.Active() {
-			return fmt.Errorf("%w: %s is %s", service.ErrPlaybookRunActive, id, cur.Status)
+	// The pre-read above gives the early answers; the run is decided inside
+	// the write, from the stored entries, under the lock a hand run's queued
+	// write takes. It never names a removed entry and sees every live worker.
+	next := func(p *board.Playbook) (*board.PlaybookRun, error) {
+		if p.RunActive() {
+			return nil, fmt.Errorf("%w: %s is %s", service.ErrPlaybookRunActive, id, p.Run.Status)
 		}
 
-		return nil
+		run := &board.PlaybookRun{
+			Status: board.RunStatusRunning, Instance: r.cfg.Instance, StartedBy: agentID, StartedAt: now, UpdatedAt: now,
+		}
+
+		prefer := ""
+
+		if p.Run != nil {
+			prefer = p.Run.Entry
+
+			// A resume keeps the original start; a run after completion is new.
+			if p.Run.Status != board.RunStatusCompleted && !p.Run.StartedAt.IsZero() {
+				run.StartedAt = p.Run.StartedAt
+			}
+		}
+
+		run.Entry = r.liveEntry(ctx, id, p.Entries, prefer)
+
+		return run, nil
 	}
 
-	d, err = r.cfg.Playbooks.SetRunIf(ctx, id, guard, &run, agentID)
+	d, err = r.cfg.Playbooks.SetRunFunc(ctx, id, next, agentID)
 	if err != nil {
 		return nil, err
 	}
@@ -202,46 +255,17 @@ func (r *Runner) Play(ctx context.Context, id, agentID string) (*service.Playboo
 	return d, nil
 }
 
-// resumeEntry is the entry whose card still has a live worker (one that
-// outlived Stop, or a hand run made while stopped), so the first pass holds
-// on it instead of starting a second. The stopped run's own entry wins, then
-// the first in stored order; empty when none. A failed read counts as idle.
-func (r *Runner) resumeEntry(ctx context.Context, d *service.PlaybookDetail) string {
-	live := func(e *service.PlaybookEntryDetail) bool {
-		if e == nil || e.Type != board.EntryTypeCard || e.Missing {
-			return false
-		}
-
-		card, err := r.cfg.Cards.GetCard(ctx, e.Project, e.Card)
-		if err != nil {
-			ctxlog.Logger(ctx).Warn("playbook play: card read failed, treated as idle",
-				"playbook", d.ID, "project", e.Project, "card", e.Card, "error", err)
-
-			return false
-		}
-
-		return !board.IsTerminalState(card.State) && r.workerLive(card)
-	}
-
-	if d.Run != nil {
-		if e := findEntry(d, d.Run.Entry); live(e) {
-			return e.ID
-		}
-	}
-
-	for i := range d.Entries {
-		if e := &d.Entries[i]; live(e) {
-			return e.ID
-		}
-	}
-
-	return ""
-}
-
-// Stop marks the run stopped, then kills the current entry's worker when one
-// is in flight and owned by this instance. A kill failure is reported as
-// ErrStopWorker with the stopped detail; the run stays stopped.
+// Stop marks the run stopped, then kills every live worker this instance owns
+// on the run's cards. A kill failure is reported as ErrStopWorker with the
+// stopped detail; the run stays stopped. Once the stop is persisted, the wait
+// and kills outlive ctx, bounded by stopWait.
 func (r *Runner) Stop(ctx context.Context, id, agentID string) (*service.PlaybookDetail, error) {
+	release, err := r.lockControl(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
 	d, err := r.cfg.Playbooks.Get(ctx, id)
 	if err != nil {
 		return nil, err
@@ -279,11 +303,14 @@ func (r *Runner) Stop(ctx context.Context, id, agentID string) (*service.Playboo
 		return nil, err
 	}
 
-	// The stop is persisted: take the walker down and wait for it. A launch
-	// in flight either finishes, so the card below reads queued and is
-	// killed, or fails on the cancelled context and the launcher reverts
-	// the card. Reading the card before the walker exits could see todo,
-	// kill nothing, and let the launch queue a worker that outlives the stop.
+	// The stop is persisted, so a client that hangs up must not skip the kills.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), r.stopWait)
+	defer cancel()
+
+	// Take the walker down and wait for it. A launch in flight runs to its
+	// outcome, so the card below reads queued and is killed, or its webhook
+	// failed and the launcher reverted the card. Reading the card before the
+	// walker exits could see todo and kill nothing.
 	if done := r.cancelWalker(id); done != nil {
 		select {
 		case <-done:
@@ -292,31 +319,53 @@ func (r *Runner) Stop(ctx context.Context, id, agentID string) (*service.Playboo
 		}
 	}
 
-	entry := findEntry(d, run.Entry)
-	if entry == nil || entry.Type != board.EntryTypeCard {
-		return d, nil
-	}
-
-	card, err := r.cfg.Cards.GetCard(ctx, entry.Project, entry.Card)
-	if err != nil {
-		return d, nil //nolint:nilerr // a vanished card has no worker to kill
-	}
-
-	inFlight := card.WorkerStatus == "queued" || card.WorkerStatus == "running"
-	if !inFlight || r.cfg.Cards.ClaimedElsewhere(card) {
-		return d, nil
-	}
-
-	s := r.stopper()
-	if s == nil {
-		return d, fmt.Errorf("%w: %v", ErrStopWorker, ErrNoBackend)
-	}
-
-	if err := s(ctx, entry.Project, entry.Card); err != nil {
-		return d, fmt.Errorf("%w: %v", ErrStopWorker, err)
+	if err := r.killLiveWorkers(ctx, d); err != nil {
+		return d, err
 	}
 
 	return d, nil
+}
+
+// killLiveWorkers kills every queued or running worker this instance owns
+// on a card entry that is not terminal, wherever the run points: a stopped
+// run must leave none behind. A failed kill does not spare the others.
+func (r *Runner) killLiveWorkers(ctx context.Context, d *service.PlaybookDetail) error {
+	var failed []string
+
+	for _, e := range d.Entries {
+		if e.Type != board.EntryTypeCard || e.Missing {
+			continue
+		}
+
+		card, err := r.cfg.Cards.GetCard(ctx, e.Project, e.Card)
+		if err != nil {
+			// The reconcile sweep reaps the container of a card deleted under its worker.
+			ctxlog.Logger(ctx).Warn("playbook stop: card read failed, worker not killed",
+				"playbook", d.ID, "project", e.Project, "card", e.Card, "error", err)
+
+			continue
+		}
+
+		inFlight := card.WorkerStatus == "queued" || card.WorkerStatus == "running"
+		if board.IsTerminalState(card.State) || !inFlight || r.cfg.Cards.ClaimedElsewhere(card) {
+			continue
+		}
+
+		s := r.stopper()
+		if s == nil {
+			return fmt.Errorf("%w: %v", ErrStopWorker, ErrNoBackend)
+		}
+
+		if err := s(ctx, e.Project, e.Card); err != nil {
+			failed = append(failed, card.ID+": "+err.Error())
+		}
+	}
+
+	if len(failed) > 0 {
+		return fmt.Errorf("%w: %s", ErrStopWorker, strings.Join(failed, "; "))
+	}
+
+	return nil
 }
 
 // findEntry returns the entry with the given id, or nil.
@@ -385,7 +434,7 @@ func (r *Runner) Ensure(id string) bool {
 
 	r.wg.Add(1)
 
-	go r.walk(ctx, id, w)
+	go r.walk(ctx, id, w, r.exiting[id])
 
 	return true
 }

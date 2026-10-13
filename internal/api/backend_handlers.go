@@ -47,11 +47,18 @@ type blacklistReader interface {
 	BlacklistedSlugs(ctx context.Context) ([]string, error)
 }
 
+// handRunGuard makes a hand run's queued write under the lock Play's run
+// write takes. Implemented by *service.PlaybookService.
+type handRunGuard interface {
+	QueueUnlessRunActive(ctx context.Context, project, cardID string, queue func() error) error
+}
+
 // backendHandlers contains handlers for remote execution endpoints. This
 // handler set exists only for the agent backend - the callback endpoints it
 // serves mount at config.AgentCallbackPath.
 type backendHandlers struct {
 	svc               *service.CardService
+	handRuns          handRunGuard               // nil when the playbook subsystem is off
 	backend           TaskBackend                // nil when no task backend is configured
 	backendCfg        *config.AgentBackendConfig // resolved agent entry; never nil (NewRouter normalizes an absent entry to the zero value)
 	mcpAPIKey         string

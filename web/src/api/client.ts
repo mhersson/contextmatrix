@@ -748,3 +748,9 @@ export function isAPIError(err: unknown): err is { error: string; code?: string;
     typeof (err as Record<string, unknown>).error === 'string'
   );
 }
+
+/** The API's message with its details appended when it has any; fallback for anything else. */
+export function describeApiError(err: unknown, fallback: string): string {
+  if (!isAPIError(err)) return fallback;
+  return err.details ? `${err.error}: ${err.details}` : err.error;
+}

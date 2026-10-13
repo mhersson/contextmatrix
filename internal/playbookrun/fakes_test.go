@@ -3,6 +3,7 @@ package playbookrun
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -30,6 +31,22 @@ func (f *fakeCards) add(c *board.Card) {
 	defer f.mu.Unlock()
 
 	f.cards[cardKey(c.Project, c.ID)] = c
+}
+
+// set changes a stored card under the lock.
+func (f *fakeCards) set(project, id string, fn func(*board.Card)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	fn(f.cards[cardKey(project, id)])
+}
+
+// queue does to a card what a successful trigger does.
+func (f *fakeCards) queue(project, id string) {
+	f.set(project, id, func(c *board.Card) {
+		c.State = board.StateInProgress
+		c.WorkerStatus = "queued"
+	})
 }
 
 func (f *fakeCards) GetCard(_ context.Context, project, id string) (*board.Card, error) {
@@ -98,6 +115,10 @@ type fakePlaybooks struct {
 	// failNextSetRun, when set, is returned by the next run write instead
 	// of writing, then cleared.
 	failNextSetRun error
+
+	// afterSetRun, when set, is called once after the next successful run
+	// write, outside the lock, then cleared.
+	afterSetRun func()
 
 	// afterGet, when set, is called once by Get after the detail is built
 	// and before it is returned, then cleared. Tests use it to hold a pass
@@ -198,10 +219,10 @@ func (f *fakePlaybooks) Get(ctx context.Context, id string) (*service.PlaybookDe
 	return d, nil
 }
 
-// SetRunIf runs the guard against the stored run block under the same lock
-// that applies the write, the way the real service runs it under writeMu.
-func (f *fakePlaybooks) SetRunIf(
-	ctx context.Context, id string, guard func(current *board.PlaybookRun) error, run *board.PlaybookRun, _ string,
+// SetRunFunc runs next on the stored playbook and validates the result under
+// the lock that applies the write, as the service does under writeMu.
+func (f *fakePlaybooks) SetRunFunc(
+	ctx context.Context, id string, next func(p *board.Playbook) (*board.PlaybookRun, error), _ string,
 ) (*service.PlaybookDetail, error) {
 	f.mu.Lock()
 
@@ -225,24 +246,53 @@ func (f *fakePlaybooks) SetRunIf(
 		return nil, service.ErrPlaybookNotRunnable
 	}
 
-	if guard != nil {
-		if err := guard(p.Run); err != nil {
-			f.mu.Unlock()
+	run, err := next(p)
+	if err != nil {
+		f.mu.Unlock()
 
-			return nil, err
-		}
+		return nil, err
 	}
 
-	if run == nil {
-		p.Run = nil
-	} else {
-		copied := *run
-		p.Run = &copied
-		f.runs = append(f.runs, copied)
+	candidate := *p
+	candidate.Run = run.Clone()
+
+	if err := candidate.Validate(); err != nil {
+		f.mu.Unlock()
+
+		return nil, err
 	}
+
+	p.Run = candidate.Run
+
+	if run != nil {
+		f.runs = append(f.runs, *run)
+	}
+
+	hook := f.afterSetRun
+	f.afterSetRun = nil
 	f.mu.Unlock()
 
+	if hook != nil {
+		hook()
+	}
+
 	return f.Get(ctx, id)
+}
+
+// SetRunIf runs the guard against the stored run block under the same lock
+// that applies the write, the way the real service runs it under writeMu.
+func (f *fakePlaybooks) SetRunIf(
+	ctx context.Context, id string, guard func(current *board.PlaybookRun) error, run *board.PlaybookRun, agentID string,
+) (*service.PlaybookDetail, error) {
+	return f.SetRunFunc(ctx, id, func(p *board.Playbook) (*board.PlaybookRun, error) {
+		if guard != nil {
+			if err := guard(p.Run); err != nil {
+				return nil, err
+			}
+		}
+
+		return run, nil
+	}, agentID)
 }
 
 func (f *fakePlaybooks) lastRun() board.PlaybookRun {
@@ -276,14 +326,13 @@ type recordingLauncher struct {
 	calls []launchCall
 	err   error
 
-	// onLaunch, when set, runs after a successful call is recorded. Tests
-	// with live walkers use it to do to the card what a real trigger does,
-	// so a pass that runs again before the worker starts does not see a
-	// bare todo card and launch it a second time.
-	onLaunch func(project, card string)
+	// onLaunch, when set, runs after a successful call is recorded and its
+	// error is the launch's. Tests with live walkers use it to do to the card
+	// what a real trigger does, so a later pass does not relaunch a bare todo card.
+	onLaunch func(ctx context.Context, project, card string) error
 }
 
-func (l *recordingLauncher) launch(_ context.Context, project, card string, opts LaunchOptions) error {
+func (l *recordingLauncher) launch(ctx context.Context, project, card string, opts LaunchOptions) error {
 	l.mu.Lock()
 	l.calls = append(l.calls, launchCall{project: project, card: card, opts: opts})
 	err, hook := l.err, l.onLaunch
@@ -296,7 +345,7 @@ func (l *recordingLauncher) launch(_ context.Context, project, card string, opts
 	// The hook runs outside the lock: a test may block inside it to hold a
 	// launch in flight while it reads counts or drives Stop.
 	if hook != nil {
-		hook(project, card)
+		return hook(ctx, project, card)
 	}
 
 	return nil
@@ -320,15 +369,30 @@ type recordingStopper struct {
 	mu    sync.Mutex
 	calls []string
 	err   error
+
+	// onStop, when set, runs after a successful call, outside the lock, so a
+	// test can mark the card the way the stop endpoint does.
+	onStop func(project, card string)
 }
 
-func (s *recordingStopper) stop(_ context.Context, _, card string) error {
+func (s *recordingStopper) stop(_ context.Context, project, card string) error {
+	s.mu.Lock()
+	s.calls = append(s.calls, card)
+	err, hook := s.err, s.onStop
+	s.mu.Unlock()
+
+	if err == nil && hook != nil {
+		hook(project, card)
+	}
+
+	return err
+}
+
+func (s *recordingStopper) called() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.calls = append(s.calls, card)
-
-	return s.err
+	return slices.Clone(s.calls)
 }
 
 func todoCard(project, id string) *board.Card {

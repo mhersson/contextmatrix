@@ -159,3 +159,61 @@ describe('useCardActions - handleCardSave clear-safe merge', () => {
     expect('subtask_cost_usd' in updates).toBe(false);
   });
 });
+
+describe('useCardActions - refusal toasts carry the details', () => {
+  const refusal = {
+    error: 'card cannot be reopened while its playbook run is active',
+    code: 'CARD_REOPEN_DURING_RUN',
+    details: 'stop the run of playbook "Rollout" first',
+  };
+
+  it('shows the details when a move is refused', async () => {
+    patchCardMock.mockRejectedValueOnce(refusal);
+    const showToast = vi.fn();
+    const { result } = setup({ showToast });
+
+    await act(async () => {
+      await result.current.handleCardMove('TEST-001', 'in_progress');
+    });
+
+    expect(showToast).toHaveBeenCalledWith(expect.stringContaining(refusal.details), 'error');
+  });
+
+  it('shows the details when a save is refused', async () => {
+    patchCardMock.mockRejectedValueOnce(refusal);
+    const showToast = vi.fn();
+    const { result } = setup({ showToast });
+
+    await act(async () => {
+      await expect(result.current.handleCardSave({ title: 'renamed' })).rejects.toBe(refusal);
+    });
+
+    expect(showToast).toHaveBeenCalledWith(expect.stringContaining(refusal.details), 'error');
+  });
+
+  it('shows the details when a run is refused', async () => {
+    const runRefusal = { error: 'playbook run is active', code: 'PLAYBOOK_RUN_ACTIVE', details: 'card is queued in playbook rollout' };
+    vi.spyOn(api, 'runCard').mockRejectedValueOnce(runRefusal);
+    const showToast = vi.fn();
+    const { result } = setup({ showToast });
+
+    await act(async () => {
+      await result.current.handleRunCard(false);
+    });
+
+    expect(showToast).toHaveBeenCalledWith(expect.stringContaining(runRefusal.details), 'error');
+  });
+
+  it('shows the details when a delete is refused', async () => {
+    const deleteRefusal = { error: 'card has a queued or running worker', code: 'WORKER_CONFLICT', details: 'stop the worker first' };
+    vi.spyOn(api, 'deleteCard').mockRejectedValueOnce(deleteRefusal);
+    const showToast = vi.fn();
+    const { result } = setup({ showToast });
+
+    await act(async () => {
+      await expect(result.current.handleCardDelete('TEST-001')).rejects.toBe(deleteRefusal);
+    });
+
+    expect(showToast).toHaveBeenCalledWith(expect.stringContaining(deleteRefusal.details), 'error');
+  });
+});
