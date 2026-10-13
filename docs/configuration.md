@@ -46,7 +46,11 @@ With no flag and no file in the XDG location the server logs
 `no config file found; use -config to specify a path` and exits 1.
 
 YAML decoding is strict: an unknown key fails startup with a `parse config`
-error naming the field.
+error naming the field. Two retired keys still decode so existing configs
+load: `cors_origin` and `mob.max_rounds` (and their `CONTEXTMATRIX_CORS_ORIGIN`
+and `CONTEXTMATRIX_MOB_MAX_ROUNDS` env vars). They have no effect and log a
+startup warning; delete them. `mob.default_rounds` and `mob.checkpoint_rounds`
+accept 1..5 directly.
 
 Containers use rule 1 with a path that does not exist and configure
 everything through environment variables (see

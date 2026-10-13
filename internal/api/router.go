@@ -156,11 +156,10 @@ type APIError struct {
 
 // RouterConfig holds all dependencies for creating the HTTP router.
 type RouterConfig struct {
-	Service    *service.CardService
-	Bus        *events.Bus
-	CORSOrigin string
-	Syncer     Syncer
-	Backend    TaskBackend // nil when no task backend is configured
+	Service *service.CardService
+	Bus     *events.Bus
+	Syncer  Syncer
+	Backend TaskBackend // nil when no task backend is configured
 	// AgentBackendCfg is the resolved agent backend entry. nil when Backend is
 	// nil; normalized to an empty config at construction so handlers can read
 	// fields without nil checks (an empty APIKey fails callback auth closed).
@@ -324,8 +323,6 @@ type ServedModelView struct {
 }
 
 // NewRouter creates a new HTTP router with all API routes registered.
-// cfg.CORSOrigin specifies the allowed CORS origin (e.g. "http://localhost:5173").
-// If empty, CORS headers are not set.
 // Returns http.Handler (wraps mux with metrics and other middleware).
 func NewRouter(cfg RouterConfig) http.Handler {
 	mux := http.NewServeMux()
@@ -784,16 +781,13 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	bodyLimit := bodyLimitN(maxRequestBodySize, mux, bodyLimitOverrides)
 
 	// Apply middleware chain. First entry is outermost:
-	//   recovery -> securityHeaders -> [cors] -> requestID -> observe -> bodyLimit -> csrfGuard -> mux
+	//   recovery -> securityHeaders -> requestID -> observe -> bodyLimit -> csrfGuard -> mux
 	// requestID runs before observe so the request_id is in-context when the
 	// request log line fires. observe sits inside recovery so any panic's
 	// stack trace is logged with the request's context. csrfGuard sits just
 	// outside the mux so route handlers run only when the header check
 	// passes (or the path is exempt).
 	middlewares := []func(http.Handler) http.Handler{recovery, securityHeaders, requestID, observe, bodyLimit, csrfGuard}
-	if cfg.CORSOrigin != "" {
-		middlewares = []func(http.Handler) http.Handler{recovery, securityHeaders, corsMiddleware(cfg.CORSOrigin), requestID, observe, bodyLimit, csrfGuard}
-	}
 
 	// Session guard sits innermost - just outside the mux - so machine
 	// channels and probes are exempted with the same path logic as the CSRF
@@ -973,26 +967,6 @@ func requestID(next http.Handler) http.Handler {
 		ctx := ctxlog.WithRequestID(r.Context(), id)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
-}
-
-// corsMiddleware returns a middleware that adds CORS headers for the given origin.
-func corsMiddleware(origin string) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Agent-ID, X-Request-ID, X-Signature-256")
-			w.Header().Set("Access-Control-Expose-Headers", "X-Request-ID")
-
-			if r.Method == http.MethodOptions {
-				w.WriteHeader(http.StatusNoContent)
-
-				return
-			}
-
-			next.ServeHTTP(w, r)
-		})
-	}
 }
 
 // recovery recovers from panics and returns 500.

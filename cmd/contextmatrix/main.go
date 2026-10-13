@@ -675,7 +675,6 @@ func main() {
 	routerCfg := api.RouterConfig{
 		Service:                svc,
 		Bus:                    bus,
-		CORSOrigin:             cfg.CORSOrigin,
 		Syncer:                 syncGroup,
 		Backend:                taskBackend,
 		AgentBackendCfg:        agentCfg,

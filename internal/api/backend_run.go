@@ -71,7 +71,7 @@ func (h *backendHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 // needed. Participants are re-clamped against the CURRENT config (the
 // trigger clamp is authoritative - mob.max_participants may have been
 // lowered since the card was written); Rounds carries mob.default_rounds,
-// which applyMobDefaults guarantees is within 1..max_rounds. Unknown guest
+// which applyMobDefaults guarantees is within 1..5. Unknown guest
 // names and a blocked "execute" phase degrade with a warning instead of
 // failing the trigger - a discussion must never block a run. Mob coding
 // takes trigger-time priority over Best-of-N: a live execute phase zeroes

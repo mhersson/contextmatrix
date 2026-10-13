@@ -147,7 +147,7 @@ Developer traps in this codebase. Each entry names the code it describes.
   injections (`TestGetSkill_CreatePlan_FullBodyPinned`).
 - **MCP middleware chain and body limit:** `/mcp` is registered on the same
   inner mux as the REST API, so it inherits the shared chain: recovery,
-  security headers, CORS (when configured), request ID, observe, body limit,
+  security headers, request ID, observe, body limit,
   `csrfGuard`. The cap is 5 MB (`maxRequestBodySize`) on every route unless
   registered through `bodyLimitOverrides`, which may only raise it
   (`POST /api/images` gets 11 MiB). A `Content-Length` over the cap is

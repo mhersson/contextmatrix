@@ -72,7 +72,6 @@ boards:
   git_auto_push: true
   git_deferred_commit: true
 heartbeat_timeout: "15m"
-cors_origin: "https://example.com"
 github:
   auth_mode: "pat"
   pat:
@@ -88,7 +87,6 @@ github:
 	assert.True(t, cfg.Boards[0].GitAutoPush)
 	assert.True(t, cfg.Boards[0].GitDeferredCommit)
 	assert.Equal(t, "15m", cfg.HeartbeatTimeout)
-	assert.Equal(t, "https://example.com", cfg.CORSOrigin)
 }
 
 func TestLoad_WithGitSyncFields(t *testing.T) {
@@ -145,7 +143,6 @@ github:
 	assert.False(t, cfg.Boards[0].GitDeferredCommit)
 	assert.Equal(t, "30m", cfg.HeartbeatTimeout)
 	assert.Equal(t, "8m", cfg.AwaitMax)
-	assert.Empty(t, cfg.CORSOrigin)
 }
 
 func TestLoad_MissingFile_NoBoardsDir_ReturnsError(t *testing.T) {
@@ -170,7 +167,6 @@ boards:
   git_auto_commit: true
   git_auto_push: false
 heartbeat_timeout: "30m"
-cors_origin: "http://localhost:5173"
 github:
   auth_mode: "pat"
   pat:
@@ -318,15 +314,6 @@ github:
 				assert.Equal(t, "5m", cfg.AwaitMax)
 			},
 		},
-		{
-			name:     "CONTEXTMATRIX_CORS_ORIGIN",
-			envKey:   "CONTEXTMATRIX_CORS_ORIGIN",
-			envValue: "https://myapp.example.com",
-			check: func(t *testing.T, cfg *Config) {
-				t.Helper()
-				assert.Equal(t, "https://myapp.example.com", cfg.CORSOrigin)
-			},
-		},
 	}
 
 	for _, tt := range tests {
@@ -376,7 +363,6 @@ port: 9090
 boards:
   dir: `+boardsDir+`
 heartbeat_timeout: "15m"
-cors_origin: "http://localhost:5173"
 github:
   auth_mode: "pat"
   pat:
@@ -386,7 +372,6 @@ github:
 	t.Setenv("CONTEXTMATRIX_PORT", "4000")
 	t.Setenv("CONTEXTMATRIX_BOARDS_DIR", envBoardsDir)
 	t.Setenv("CONTEXTMATRIX_HEARTBEAT_TIMEOUT", "45m")
-	t.Setenv("CONTEXTMATRIX_CORS_ORIGIN", "https://override.example.com")
 
 	cfg, err := Load(path)
 	require.NoError(t, err)
@@ -394,7 +379,6 @@ github:
 	assert.Equal(t, 4000, cfg.Port)
 	assert.Equal(t, envBoardsDir, cfg.Boards[0].Dir)
 	assert.Equal(t, "45m", cfg.HeartbeatTimeout)
-	assert.Equal(t, "https://override.example.com", cfg.CORSOrigin)
 }
 
 func TestValidate_MissingBoardsDir(t *testing.T) {
@@ -745,7 +729,6 @@ github:
 	assert.True(t, cfg.Boards[0].GitAutoCommit)
 	assert.False(t, cfg.Boards[0].GitAutoPush)
 	assert.Equal(t, "30m", cfg.HeartbeatTimeout)
-	assert.Empty(t, cfg.CORSOrigin)
 	assert.Equal(t, filepath.Join(dir, "workflow-skills"), cfg.WorkflowSkillsDir)
 }
 
@@ -829,7 +812,6 @@ func TestDefaults(t *testing.T) {
 	assert.Empty(t, cfg.Boards[0].GitRemoteURL)
 	assert.Equal(t, "30m", cfg.HeartbeatTimeout)
 	assert.Equal(t, "8m", cfg.AwaitMax)
-	assert.Empty(t, cfg.CORSOrigin)
 	assert.Empty(t, cfg.WorkflowSkillsDir)
 	assert.Empty(t, cfg.MCPAPIKey)
 }
@@ -3426,7 +3408,6 @@ func TestMobConfigDefaultsAndOverrides(t *testing.T) {
 		assert.Equal(t, 5, cfg.Mob.MaxParticipants)
 		assert.Equal(t, 3, cfg.Mob.DefaultParticipants)
 		assert.Equal(t, 2, cfg.Mob.DefaultRounds)
-		assert.Equal(t, 3, cfg.Mob.MaxRounds)
 		assert.InDelta(t, 0.75, cfg.Mob.BudgetFactor, 1e-9)
 		assert.True(t, cfg.Mob.ExecuteCheckpoints())
 		assert.Equal(t, "simple", cfg.Mob.CheckpointMinTier)
@@ -3439,7 +3420,6 @@ func TestMobConfigDefaultsAndOverrides(t *testing.T) {
 			"  max_participants: 4\n"+
 			"  default_participants: 2\n"+
 			"  default_rounds: 1\n"+
-			"  max_rounds: 2\n"+
 			"  budget_factor: 1.5\n"+
 			"  execute_checkpoints_enabled: true\n"+
 			"  checkpoint_min_tier: critical\n"+
@@ -3450,7 +3430,6 @@ func TestMobConfigDefaultsAndOverrides(t *testing.T) {
 		assert.Equal(t, 4, cfg.Mob.MaxParticipants)
 		assert.Equal(t, 2, cfg.Mob.DefaultParticipants)
 		assert.Equal(t, 1, cfg.Mob.DefaultRounds)
-		assert.Equal(t, 2, cfg.Mob.MaxRounds)
 		assert.InDelta(t, 1.5, cfg.Mob.BudgetFactor, 1e-9)
 		assert.True(t, cfg.Mob.ExecuteCheckpoints())
 		assert.Equal(t, "critical", cfg.Mob.CheckpointMinTier)
@@ -3462,7 +3441,6 @@ func TestMobConfigDefaultsAndOverrides(t *testing.T) {
 		t.Setenv("CONTEXTMATRIX_MOB_MAX_PARTICIPANTS", "6")
 		t.Setenv("CONTEXTMATRIX_MOB_DEFAULT_PARTICIPANTS", "4")
 		t.Setenv("CONTEXTMATRIX_MOB_DEFAULT_ROUNDS", "3")
-		t.Setenv("CONTEXTMATRIX_MOB_MAX_ROUNDS", "4")
 		t.Setenv("CONTEXTMATRIX_MOB_BUDGET_FACTOR", "1.25")
 		t.Setenv("CONTEXTMATRIX_MOB_EXECUTE_CHECKPOINTS_ENABLED", "true")
 		t.Setenv("CONTEXTMATRIX_MOB_CHECKPOINT_MIN_TIER", "moderate")
@@ -3470,7 +3448,6 @@ func TestMobConfigDefaultsAndOverrides(t *testing.T) {
 		assert.Equal(t, 6, cfg.Mob.MaxParticipants)
 		assert.Equal(t, 4, cfg.Mob.DefaultParticipants)
 		assert.Equal(t, 3, cfg.Mob.DefaultRounds)
-		assert.Equal(t, 4, cfg.Mob.MaxRounds)
 		assert.InDelta(t, 1.25, cfg.Mob.BudgetFactor, 1e-9)
 		assert.True(t, cfg.Mob.ExecuteCheckpoints())
 		assert.Equal(t, "moderate", cfg.Mob.CheckpointMinTier)
@@ -3480,13 +3457,11 @@ func TestMobConfigDefaultsAndOverrides(t *testing.T) {
 		cfg := loadConfigFromYAML(t, "mob:\n"+
 			"  max_participants: 1\n"+ // < 2 → default 5
 			"  default_participants: 9\n"+ // > max → min(3, max)
-			"  default_rounds: 0\n"+ // < 1 → min(2, max_rounds)
-			"  max_rounds: 6\n"+ // > 5 → default 3
+			"  default_rounds: 0\n"+ // < 1 → default 2
 			"  budget_factor: -1\n") // <= 0 → default 0.75
 		assert.Equal(t, 5, cfg.Mob.MaxParticipants, "max_participants outside 2..10 falls back")
 		assert.Equal(t, 3, cfg.Mob.DefaultParticipants, "default_participants outside 2..max falls back")
-		assert.Equal(t, 2, cfg.Mob.DefaultRounds, "default_rounds outside 1..max_rounds falls back")
-		assert.Equal(t, 3, cfg.Mob.MaxRounds, "max_rounds outside 1..5 falls back")
+		assert.Equal(t, 2, cfg.Mob.DefaultRounds, "default_rounds outside 1..5 falls back")
 		assert.InDelta(t, 0.75, cfg.Mob.BudgetFactor, 1e-9, "budget_factor outside (0, 5] falls back")
 	})
 
@@ -3495,10 +3470,19 @@ func TestMobConfigDefaultsAndOverrides(t *testing.T) {
 		assert.Equal(t, 5, cfg.Mob.MaxParticipants)
 	})
 
-	t.Run("default_rounds above max_rounds normalized", func(t *testing.T) {
-		cfg := loadConfigFromYAML(t, "mob:\n  max_rounds: 2\n  default_rounds: 3\n")
-		assert.Equal(t, 2, cfg.Mob.MaxRounds)
-		assert.Equal(t, 2, cfg.Mob.DefaultRounds, "default_rounds clamps into 1..max_rounds via min(2, max)")
+	t.Run("rounds accept 1..5 and fall back outside", func(t *testing.T) {
+		for _, tc := range []struct {
+			in, wantDefault, wantCheckpoint int
+		}{
+			{1, 1, 1}, {4, 4, 4}, {5, 5, 5}, {0, 2, 3}, {6, 2, 3}, {-1, 2, 3},
+		} {
+			cfg := &Config{}
+			cfg.Mob.DefaultRounds = tc.in
+			cfg.Mob.CheckpointRounds = tc.in
+			applyMobDefaults(cfg)
+			assert.Equal(t, tc.wantDefault, cfg.Mob.DefaultRounds, "default_rounds=%d", tc.in)
+			assert.Equal(t, tc.wantCheckpoint, cfg.Mob.CheckpointRounds, "checkpoint_rounds=%d", tc.in)
+		}
 	})
 
 	t.Run("budget_factor above 5 normalized", func(t *testing.T) {
@@ -3538,16 +3522,10 @@ func TestMobCheckpointDefaults(t *testing.T) {
 		assert.Equal(t, "simple", cfg.Mob.CheckpointMinTier)
 	})
 
-	t.Run("checkpoint rounds default 3, clamped to max_rounds", func(t *testing.T) {
+	t.Run("checkpoint rounds default 3", func(t *testing.T) {
 		cfg := &Config{}
 		applyMobDefaults(cfg)
 		assert.Equal(t, 3, cfg.Mob.CheckpointRounds)
-
-		cfg = &Config{}
-		cfg.Mob.MaxRounds = 2
-		cfg.Mob.CheckpointRounds = 5
-		applyMobDefaults(cfg)
-		assert.Equal(t, 2, cfg.Mob.CheckpointRounds)
 	})
 }
 
@@ -4079,4 +4057,63 @@ func TestDefaults_JiraUnconfigured(t *testing.T) {
 	d := Defaults()
 	assert.False(t, d.Jira.Configured())
 	assert.Equal(t, JiraAuthBasic, d.Jira.AuthMode)
+}
+
+// captureSlog routes the default logger into a buffer for the test.
+func captureSlog(t *testing.T) *bytes.Buffer {
+	t.Helper()
+
+	var buf bytes.Buffer
+
+	prev := slog.Default()
+
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	return &buf
+}
+
+func TestLoad_RemovedKeysDecodeAndWarn(t *testing.T) {
+	t.Run("yaml", func(t *testing.T) {
+		buf := captureSlog(t)
+		cfg := loadConfigFromYAML(t, "cors_origin: \"http://x\"\nmob:\n  max_rounds: 2\n  default_rounds: 4\n")
+
+		assert.Contains(t, buf.String(), "cors_origin is removed and ignored")
+		assert.Contains(t, buf.String(), "mob.max_rounds is removed and ignored")
+		assert.Equal(t, 4, cfg.Mob.DefaultRounds, "max_rounds no longer clamps default_rounds")
+	})
+
+	t.Run("env", func(t *testing.T) {
+		buf := captureSlog(t)
+
+		t.Setenv("CONTEXTMATRIX_CORS_ORIGIN", "http://x")
+		t.Setenv("CONTEXTMATRIX_MOB_MAX_ROUNDS", "2")
+
+		cfg := loadConfigFromYAML(t, "port: 8080\n")
+
+		assert.Contains(t, buf.String(), "CONTEXTMATRIX_CORS_ORIGIN is removed and ignored")
+		assert.Contains(t, buf.String(), "CONTEXTMATRIX_MOB_MAX_ROUNDS is removed and ignored")
+		assert.Equal(t, 2, cfg.Mob.DefaultRounds)
+	})
+
+	t.Run("absent keys do not warn", func(t *testing.T) {
+		buf := captureSlog(t)
+		loadConfigFromYAML(t, "port: 8080\n")
+		assert.NotContains(t, buf.String(), "removed and ignored")
+	})
+}
+
+func TestDefaults_OmitsRemovedKeys(t *testing.T) {
+	out, err := yaml.Marshal(Defaults())
+	require.NoError(t, err)
+
+	var m map[string]any
+	require.NoError(t, yaml.Unmarshal(out, &m))
+
+	assert.NotContains(t, m, "cors_origin")
+
+	mob, ok := m["mob"].(map[string]any)
+	require.True(t, ok)
+	assert.NotContains(t, mob, "max_rounds")
+	assert.Contains(t, mob, "default_rounds")
 }

@@ -554,58 +554,23 @@ func TestDeleteCard(t *testing.T) {
 	})
 }
 
-func TestCORSHeaders(t *testing.T) {
+func TestNoCORSHeaders(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, CORSOrigin: "http://localhost:5173"})
-
-	server := httptest.NewServer(router)
+	server := httptest.NewServer(NewRouter(RouterConfig{Service: svc, Bus: bus}))
 	defer server.Close()
 
-	resp, err := http.Get(server.URL + "/api/projects")
-
+	req, err := http.NewRequest(http.MethodGet, server.URL+"/api/projects", nil)
 	require.NoError(t, err)
-	defer closeBody(t, resp.Body)
+	req.Header.Set("Origin", "http://localhost:5173")
 
-	assert.Equal(t, "http://localhost:5173", resp.Header.Get("Access-Control-Allow-Origin"))
-}
-
-func TestCORSDisabledWhenEmpty(t *testing.T) {
-	svc, bus, cleanup := testSetup(t)
-	defer cleanup()
-
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
-
-	server := httptest.NewServer(router)
-	defer server.Close()
-
-	resp, err := http.Get(server.URL + "/api/projects")
-
-	require.NoError(t, err)
-	defer closeBody(t, resp.Body)
-
-	assert.Empty(t, resp.Header.Get("Access-Control-Allow-Origin"))
-}
-
-func TestCORSPreflight(t *testing.T) {
-	svc, bus, cleanup := testSetup(t)
-	defer cleanup()
-
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, CORSOrigin: "http://localhost:5173"})
-
-	server := httptest.NewServer(router)
-	defer server.Close()
-
-	req, _ := http.NewRequest(http.MethodOptions, server.URL+"/api/projects", nil)
 	resp, err := http.DefaultClient.Do(req)
 
 	require.NoError(t, err)
 	defer closeBody(t, resp.Body)
 
-	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
-	assert.Contains(t, resp.Header.Get("Access-Control-Allow-Methods"), "GET")
-	assert.Contains(t, resp.Header.Get("Access-Control-Allow-Methods"), "POST")
+	assert.Empty(t, resp.Header.Get("Access-Control-Allow-Origin"))
 }
 
 func TestRequestID(t *testing.T) {
