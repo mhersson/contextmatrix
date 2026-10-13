@@ -784,6 +784,8 @@ calls `report_usage` is the natural shape.
   not a privilege. Once a bucket has a collector report its `counts_source`
   stays `"collector"` even if later reports omit `source`.
 
+contextmatrix-agent is the only shipped collector.
+
 The agent backend's own contract (disjoint cache buckets, vendor-prefixed
 slugs) is in [remote execution](remote-execution.md#usage-reporting).
 
