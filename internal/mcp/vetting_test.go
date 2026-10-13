@@ -97,7 +97,8 @@ func TestRedactCardForAgent(t *testing.T) {
 		assert.Equal(t, "malicious payload", orig.Body)
 		// Non-body fields preserved on the copy.
 		assert.Equal(t, "ALPHA-001", redacted.ID)
-		assert.Equal(t, "Externally imported", redacted.Title)
+		assert.Equal(t, unvettedPlaceholderTitle, redacted.Title)
+		assert.Equal(t, "Externally imported", orig.Title)
 	})
 
 	t.Run("vetted card returned unchanged", func(t *testing.T) {
@@ -173,7 +174,7 @@ func TestGetCard_UnvettedBodyRedaction(t *testing.T) {
 		assert.NotContains(t, got.Body, injected)
 		// Metadata must still be visible so planning/filtering works.
 		assert.Equal(t, "TEST-100", got.ID)
-		assert.Equal(t, "Unvetted external card", got.Title)
+		assert.Equal(t, unvettedPlaceholderTitle, got.Title)
 	})
 
 	t.Run("human caller → full body returned", func(t *testing.T) {

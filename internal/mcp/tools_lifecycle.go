@@ -70,7 +70,7 @@ func registerClaimCard(server *mcp.Server, svc *service.CardService) {
 			return nil, claimCardOutput{}, remoteErr(fmt.Errorf("claim card %s: %w", input.CardID, err))
 		}
 
-		out := claimCardOutput{CardSummary: summarizeCard(card)}
+		out := claimCardOutput{CardSummary: summarizeCardForAgent(card, input.AgentID)}
 
 		// Auto-transition to in_progress only from todo - claiming a card
 		// in review/done/blocked should not change its state.
@@ -85,7 +85,7 @@ func registerClaimCard(server *mcp.Server, svc *service.CardService) {
 				// card stays at the post-claim state so callers can see the
 				// claim landed even though the state did not move.
 			} else {
-				out.CardSummary = summarizeCard(transitioned)
+				out.CardSummary = summarizeCardForAgent(transitioned, input.AgentID)
 			}
 		}
 
@@ -108,7 +108,7 @@ func registerReleaseCard(server *mcp.Server, svc *service.CardService) {
 			return nil, nil, fmt.Errorf("release card %s: %w", input.CardID, err)
 		}
 
-		return nil, summarizeCard(card), nil
+		return nil, summarizeCardForAgent(card, input.AgentID), nil
 	})
 }
 
@@ -174,7 +174,7 @@ func registerAddLog(server *mcp.Server, svc *service.CardService) {
 			return nil, nil, fmt.Errorf("add log to %s: %w", input.CardID, err)
 		}
 
-		return nil, summarizeCard(card), nil
+		return nil, summarizeCardForAgent(card, input.AgentID), nil
 	})
 }
 
@@ -235,7 +235,7 @@ func registerCompleteTask(server *mcp.Server, svc *service.CardService) {
 			}
 		}
 
-		out := completeTaskOutput{Card: summarizeCard(card)}
+		out := completeTaskOutput{Card: summarizeCardForAgent(card, input.AgentID)}
 
 		// Build informational next_step, preserving release warning if present.
 		var parts []string

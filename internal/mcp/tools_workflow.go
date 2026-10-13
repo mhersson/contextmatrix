@@ -212,6 +212,6 @@ func registerIncrementReviewAttempts(server *mcp.Server, svc *service.CardServic
 			return nil, output{}, fmt.Errorf("increment review attempts: %w", err)
 		}
 
-		return nil, output{Card: summarizeCard(card)}, nil
+		return nil, output{Card: summarizeCardForAgent(card, in.AgentID)}, nil
 	})
 }
