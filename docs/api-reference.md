@@ -1921,8 +1921,8 @@ Resolved detail: metadata plus every entry joined against the card store.
 A card entry is `complete` when the card is in a terminal state; a broken
 reference renders with `missing: true` and counts in `total` but never in
 `complete`. `card_unvetted` is true on a card entry whose card is imported
-and not yet vetted by a human. All entry fields except `id`, `type`, and `complete` are omitted
-when empty.
+and not yet vetted by a human. All entry fields except `id`, `type`, and
+`complete` are omitted when empty.
 
 `source` (`{system, external_id, external_url}`) is present on a playbook
 imported from a Jira epic.
@@ -2082,9 +2082,10 @@ cards. Best-of-N and mob settings come from the stored card, not the body.
 
 The run never modifies the card's automation flags: the stored `create_pr`
 value decides whether the worker opens a pull request. The worker pushes its
-own `cm/<lowercase-card-id>` branch; `report_push` afterward sets the stored
-`branch_name` to the worker-reported value. The trigger payload carries a project-scoped
-git token (`git_token`, `git_token_expires_at`) and the `llm_endpoint`.
+own `cm/<lowercase-card-id>` branch (`cm/<lowercase-card-id>-<KEY>` for a
+Jira-imported card, key uppercase); `report_push` afterward sets the stored
+`branch_name` to the worker-reported value. The trigger payload carries a
+project-scoped git token (`git_token`, `git_token_expires_at`) and the `llm_endpoint`.
 
 Returns **202 Accepted** with the updated card (`worker_status: "queued"`) as
 soon as the backend webhook is accepted; the container is provisioned

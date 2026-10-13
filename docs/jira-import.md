@@ -93,9 +93,9 @@ only keys, projects and options. It then runs in the background and reports
 each issue over the event stream. Imports of the same epic run one at a time on
 an instance, and each is bounded at 10 minutes from when its turn comes. Closing
 the dialog does not stop the import: opening the dialog for the epic again shows
-its progress instead of offering Import once the epic preview loads (so Jira must
-be reachable), and a reconnecting dialog catches up
-from `GET /api/jira/imports/{id}`, which keeps a finished import for an hour.
+its progress instead of offering Import once the epic preview loads (so Jira
+must be reachable), and a reconnecting dialog catches up from
+`GET /api/jira/imports/{id}`, which keeps a finished import for an hour.
 Both work only on the instance that runs the import. The import is human-only.
 
 Each issue's writes are bounded at 30 seconds, room for the verified push every
@@ -196,6 +196,13 @@ so vetting covers it.
 Every card in a runnable playbook keeps its own agent branch and opens a PR into
 `playbook/<id>` (see [playbooks](playbooks.md#the-branch-model)). The PR title
 is the card title, so it starts with the issue key and GitHub for Jira links it.
+
+The agent branch is `cm/<lowercase-card-id>-<KEY>` with the key uppercase (e.g.
+`cm/api-012-PROJ-123`), so GitHub for Jira links the branch as well; the
+predicted HITL `branch_name` is `<id>/PROJ-123-<slug>`. An agent that predates
+the Jira branch change pushes `cm/<lowercase-card-id>` for every card, and
+GitHub for Jira cannot link those branches. Upgrade contextmatrix-agent to a
+version that derives the Jira branch before importing epics.
 
 When a target project's card prefix equals a Jira project key (a CM project with
 prefix `PROJ` receiving `PROJ-...` issues), a card ID such as `PROJ-801` in a PR

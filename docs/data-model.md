@@ -1096,11 +1096,14 @@ Reference and cycle checks run against the resulting card, so an existing
 ## `create_pr` semantics
 
 Standalone and parent cards get a predicted feature branch: `branch_name` is
-generated at create as `<lowercase-id>/<title-slug>` (a Jira import keeps its key uppercase: `<lowercase-id>/<KEY>-<slug of the rest of the title>`). The executor never
-receives it: the worker derives its own branch from the card id and pushes
-`cm/<lowercase-card-id>`. The first `report_push` records the reported branch
-onto the card, so the stored value reflects the branch that actually exists;
-before that first push it is a prediction. Subtasks work on their parent's
+generated at create as `<lowercase-id>/<title-slug>` (a Jira import keeps its
+key uppercase: `<lowercase-id>/<KEY>-<slug of the rest of the title>`). The
+executor never receives it: the worker derives its own branch from the card id
+and pushes `cm/<lowercase-card-id>`, or `cm/<lowercase-card-id>-<KEY>` for a
+Jira-imported card, key uppercase (e.g. `cm/api-012-PROJ-123`). The first
+`report_push` records the reported branch onto the card, so the stored value
+reflects the branch that actually exists; before that first push it is a
+prediction. Subtasks work on their parent's
 branch and get no `branch_name`; `report_push` on a subtask never adds one.
 `create_pr` decides only whether the run opens a pull request after pushing.
 When absent
