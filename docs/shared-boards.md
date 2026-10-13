@@ -114,7 +114,15 @@ transitions union; `name` and `prefix` are immutable and the remote is kept;
 every other field prefers the remote on a real conflict. Playbooks: entries
 merge by entry id, `next_entry_id` takes the max, a same-id add on both sides
 keeps the remote and re-mints the local entry, and two playbooks created at
-the same path re-slug the local one to `<id>-N`. Any other file: remote wins.
+the same path re-slug the local one to `<id>-N`.
+
+While a run is `running` or `waiting` its current entry survives the merge: a
+removal on the other side is undone, and when the merge drops it as a
+duplicate the run moves to the surviving entry for the same card. A run entry
+left naming no entry on a run that is not active is cleared, and a merged
+playbook that still fails validation keeps the remote version.
+
+Any other file: remote wins.
 
 ## Sync status
 

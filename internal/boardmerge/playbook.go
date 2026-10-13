@@ -3,6 +3,7 @@ package boardmerge
 import (
 	"fmt"
 	"reflect"
+	"slices"
 
 	"github.com/mhersson/contextmatrix/internal/board"
 )
@@ -51,6 +52,14 @@ func resolvePlaybook(in Input, id string, c Context) (Output, error) {
 	}
 
 	out, res := mergePlaybooks(base, ours, theirs, in.Path, c)
+
+	// The index skips a playbook that fails Validate, hiding it on every
+	// instance; keep the remote version rather than write one.
+	if err := out.Validate(); err != nil {
+		return Output{Content: in.Theirs, Resolutions: append(res, Resolution{
+			Path: in.Path, Rule: RuleInvariantFallback, Detail: "merged playbook invalid (" + err.Error() + "); remote version kept",
+		})}, nil
+	}
 
 	data, err := board.SerializePlaybook(out)
 	if err != nil {
@@ -168,6 +177,8 @@ func mergePlaybooks(base, ours, theirs *board.Playbook, path string, c Context) 
 	out.Entries = entries
 
 	res = append(res, entryRes...)
+	res = append(res, keepRunEntry(&out, base, ours, theirs, path, c.Renames)...)
+	res = append(res, clearDanglingRunEntry(&out, path)...)
 
 	return &out, res
 }
@@ -275,4 +286,78 @@ func applyEntryRename(e board.PlaybookEntry, renames map[string]string) board.Pl
 	}
 
 	return e
+}
+
+// keepRunEntry carries "the run's current entry stays until the run stops"
+// through a merge: a stale peer's removal is undone at the entry's base
+// position, and a dedupe re-points the run to the surviving entry for its card.
+func keepRunEntry(out, base, ours, theirs *board.Playbook, path string, renames map[string]string) []Resolution {
+	if !out.Run.Active() || out.Run.Entry == "" || out.FindEntry(out.Run.Entry) >= 0 {
+		return nil
+	}
+
+	id := out.Run.Entry
+
+	lost, ok := entryByID(theirs, id)
+	if !ok {
+		// Only an entry ours added since base can reference a card ours re-minted.
+		if lost, ok = entryByID(ours, id); ok && base.FindEntry(id) < 0 {
+			lost = applyEntryRename(lost, renames)
+		}
+	}
+
+	if !ok {
+		lost, ok = entryByID(base, id)
+	}
+
+	if !ok {
+		return nil
+	}
+
+	if lost.Type == board.EntryTypeCard {
+		for _, e := range out.Entries {
+			if e.Type == board.EntryTypeCard && e.Project == lost.Project && e.Card == lost.Card {
+				out.Run = out.Run.Clone()
+				out.Run.Entry = e.ID
+
+				return []Resolution{{
+					Path: path, Rule: RulePlaybookRunEntry,
+					Detail: "run entry " + id + " re-pointed to " + e.ID + ", the surviving entry for " + e.Project + "/" + e.Card,
+				}}
+			}
+		}
+	}
+
+	at := len(out.Entries)
+	if i := base.FindEntry(id); i >= 0 && i < at {
+		at = i
+	}
+
+	out.Entries = slices.Insert(out.Entries, at, lost)
+
+	return []Resolution{{Path: path, Rule: RulePlaybookRunEntry, Detail: "entry " + id + " kept: it is the active run's current entry"}}
+}
+
+// clearDanglingRunEntry clears a run entry that names no entry, with its
+// reason, as RemoveEntry does; an active run's entry was restored above.
+func clearDanglingRunEntry(out *board.Playbook, path string) []Resolution {
+	if out.Run == nil || out.Run.Entry == "" || out.FindEntry(out.Run.Entry) >= 0 {
+		return nil
+	}
+
+	id := out.Run.Entry
+	out.Run = out.Run.Clone()
+	out.Run.Entry = ""
+	out.Run.Reason = ""
+
+	return []Resolution{{Path: path, Rule: RuleInvariantRepair, Detail: "run entry " + id + " no longer exists; cleared"}}
+}
+
+// entryByID returns p's entry with id, if it has one.
+func entryByID(p *board.Playbook, id string) (board.PlaybookEntry, bool) {
+	if i := p.FindEntry(id); i >= 0 {
+		return p.Entries[i], true
+	}
+
+	return board.PlaybookEntry{}, false
 }

@@ -131,6 +131,8 @@ Removing the run's current entry is refused (`409 PLAYBOOK_RUN_ACTIVE`)
 while the run is active; stop the run first. Other entries can be removed
 and the next pass finds a new frontier. Once the run is stopped or completed
 its former entry can be removed, which clears `entry` and `reason`.
+On a shared board a peer instance's removal of the current entry is undone
+when the boards merge.
 
 Entries cannot be reordered while the run is `running` or `waiting`
 (`409 PLAYBOOK_MOVE_DURING_RUN`): the runner walks the order it last read, so
