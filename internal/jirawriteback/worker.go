@@ -215,7 +215,8 @@ func (w *Writeback) fail(ctx context.Context, row opsqlite.JiraWriteback, reason
 		}
 	}
 
-	if !w.finish(ctx, row, opsqlite.JiraWritebackFailed, reason) {
+	// WithoutCancel: the line is already written, so the outcome must land too.
+	if !w.finish(context.WithoutCancel(ctx), row, opsqlite.JiraWritebackFailed, reason) {
 		return false
 	}
 
