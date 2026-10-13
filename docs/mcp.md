@@ -45,9 +45,9 @@ see [remote execution](remote-execution.md) § Security Model.
 - Unvetted external cards (imported issues with `vetted: false`) are
   skipped by `get_ready_tasks`. Non-human callers get a placeholder title
   and body, and no activity log, `context` or source `external_url`, from
-  `get_card` and `get_task_context` (siblings: title only),
-  and a placeholder title from `list_cards` and every mutation response, with
-  `context` and source `external_url` dropped from those summaries too;
+  `get_card` and `get_task_context`. Siblings, `list_cards` and every
+  mutation response are summaries: a placeholder title, and `context` and
+  source `external_url` dropped;
   `branch_name`, which is derived from the title, is blanked wherever the
   title is replaced on a card or summary. Internal cards (no `source`) are
   never redacted.

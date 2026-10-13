@@ -175,3 +175,27 @@ func TestCardSummaries_RedactUnvettedFreeText(t *testing.T) {
 	assert.Equal(t, []string{injectedContext}, stored.Context)
 	assert.Equal(t, wantURL, stored.Source.ExternalURL)
 }
+
+func TestSummarizeCardForAgent_KeepsOriginalIntact(t *testing.T) {
+	card := &board.Card{
+		Title: "t", Body: "b", Context: []string{"c"}, BranchName: "x/t",
+		Source: &board.Source{System: "jira", ExternalID: "X-1", ExternalURL: "https://x/1"},
+	}
+
+	got := summarizeCardForAgent(card, "agent-1")
+	assert.Equal(t, unvettedPlaceholderTitle, got.Title)
+	assert.Empty(t, got.Context)
+	assert.Empty(t, got.BranchName)
+	require.NotNil(t, got.Source)
+	assert.Empty(t, got.Source.ExternalURL)
+	assert.Equal(t, "X-1", got.Source.ExternalID)
+
+	assert.Equal(t, "t", card.Title)
+	assert.Equal(t, []string{"c"}, card.Context)
+	assert.Equal(t, "x/t", card.BranchName)
+	assert.Equal(t, "https://x/1", card.Source.ExternalURL)
+
+	human := summarizeCardForAgent(card, "human:alice")
+	assert.Equal(t, "https://x/1", human.Source.ExternalURL)
+	assert.Equal(t, []string{"c"}, human.Context)
+}

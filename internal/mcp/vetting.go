@@ -36,10 +36,10 @@ func shouldRedact(card *board.Card, agentID string) bool {
 // cards. For non-human callers reading an unvetted card, it returns a
 // placeholder so prompt-injection payloads do not reach the agent.
 //
-// The body is redacted here and the title by redactCardForAgent and
-// summarizeCardForAgent. ID, State, Priority, Labels, Parent, DependsOn,
-// Source, Vetted, AssignedAgent, etc. remain visible - planning and filtering
-// must still work.
+// The body is redacted here; the other untrusted fields (title, branch name,
+// activity log, context, source URL) by redactUntrustedFields. ID, State,
+// Priority, Labels, Parent, DependsOn, Source (minus its URL), Vetted,
+// AssignedAgent, etc. remain visible - planning and filtering must still work.
 func redactUnvettedBody(card *board.Card, agentID string) string {
 	if card == nil {
 		return ""
@@ -83,38 +83,19 @@ func redactUntrustedFields(card *board.Card) *board.Card {
 	cp.ActivityLog = nil
 	cp.Context = nil
 
-	cp.Source = withoutExternalURL(cp.Source)
-
-	return &cp
-}
-
-// withoutExternalURL returns a copy of src with ExternalURL cleared; src is
-// never mutated. Part of the shared redaction field list.
-func withoutExternalURL(src *board.Source) *board.Source {
-	if src == nil {
-		return nil
+	if cp.Source != nil {
+		src := *cp.Source
+		src.ExternalURL = ""
+		cp.Source = &src
 	}
 
-	cp := *src
-	cp.ExternalURL = ""
-
 	return &cp
 }
 
-// summarizeCardForAgent is summarizeCard with the title replaced by the
-// placeholder and Context and Source.ExternalURL cleared when shouldRedact
-// applies. The summary is a fresh struct and Source is copied, so the source
-// card is never mutated.
+// summarizeCardForAgent is summarizeCard over redactCardForAgent, so a summary
+// loses exactly the fields a full card does. The source card is never mutated.
 func summarizeCardForAgent(card *board.Card, agentID string) *CardSummary {
-	s := summarizeCard(card)
-	if s != nil && shouldRedact(card, agentID) {
-		s.Title = unvettedPlaceholderTitle
-		s.BranchName = "" // the branch slug is derived from the title
-		s.Context = nil
-		s.Source = withoutExternalURL(s.Source)
-	}
-
-	return s
+	return summarizeCard(redactCardForAgent(card, agentID))
 }
 
 // summarizeCardsForAgent applies summarizeCardForAgent to each card and keeps
