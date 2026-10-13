@@ -567,9 +567,12 @@ using these definitions from the planning prompt:
   architecture work
 
 Invalid tier strings fail plan validation and trigger a repair turn. Each
-subtask's tier is persisted as an invisible `<!-- cm:tier=... -->` marker in
-the subtask card body so a resumed run re-reads it; an unknown or missing tier
-resolves to `moderate`.
+subtask's tier is persisted in the subtask card body as a
+`<!-- cm:meta bar=... budget=... seed=... -->` marker on the first line (legacy
+cards carry `<!-- cm:tier=... -->`, still read) so a resumed run re-reads it;
+an unknown or missing tier resolves to `moderate`. The web UI hides only
+markers that strictly match the machine format, so a hand-edited marker shows
+as text.
 
 ### The decision order
 

@@ -208,6 +208,10 @@ flowchart LR
 | `bodyLimit`       | 5 MB cap; `bodyLimitOverrides` raises `POST /api/images` to 11 MB (10 MiB image plus multipart headroom).                                    |
 | `csrfGuard`       | Rejects state-changing requests without `X-Requested-With: contextmatrix`. Exempt: GET/HEAD/OPTIONS, `/healthz`, `/readyz`, `/api/agent/*`, `/api/chat/*`, `/mcp`. |
 
+The SPA itself (`index.html`, static assets, the client-route fallback) is served
+by `newSPAHandler` outside this chain, so it sends its own headers. Card bodies
+are attacker-controlled, so the page carries a CSP of `script-src 'self'; object-src 'none'; frame-src 'none'; frame-ancestors 'none'; form-action 'self'; base-uri 'self'` and `Referrer-Policy: no-referrer`.
+
 Card mutations follow one pipeline through the service layer:
 
 ```mermaid
