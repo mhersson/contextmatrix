@@ -947,3 +947,73 @@ func TestShutdown_JoinsAStopsKills(t *testing.T) {
 
 	require.NoError(t, e.runner.Shutdown(sctx2))
 }
+
+// TestEnsure_SpawnsNothingAfterShutdown: a Play that lands once Shutdown has
+// begun starts no walker, whose Add would race Shutdown's Wait.
+func TestEnsure_SpawnsNothingAfterShutdown(t *testing.T) {
+	e := newEnv(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Started before the run is seeded, so no walker is resumed.
+	e.runner.Start(ctx)
+	require.NoError(t, e.runner.Shutdown(context.Background()))
+
+	e.seedOneCardRun()
+
+	assert.False(t, e.runner.Ensure("rollout"), "no walker starts after Shutdown")
+	assert.Equal(t, 0, e.runner.walkerCount())
+}
+
+// TestStop_KillsUnjoinedAfterShutdown: a Stop whose write lands once Shutdown
+// has begun still kills, without joining the WaitGroup Shutdown waits on.
+func TestStop_KillsUnjoinedAfterShutdown(t *testing.T) {
+	e := newEnv(t)
+
+	c := todoCard("alpha", "ALPHA-1")
+	c.ApplyPlaybookSettings("playbook/rollout")
+	e.cards.add(c)
+	e.cards.queue("alpha", "ALPHA-1")
+
+	p := runnablePlaybook("rollout", cardEntry("e1", "alpha", "ALPHA-1"))
+	e.activeRun(p, "e1")
+	e.pbs.add(p)
+
+	entered := make(chan struct{})
+	gate := make(chan struct{})
+	release := sync.OnceFunc(func() { close(gate) })
+	t.Cleanup(release)
+
+	e.stopper.onStop = func(_, _ string) {
+		close(entered)
+		<-gate
+	}
+
+	// Never started, so there is no walker and Shutdown returns at once.
+	require.NoError(t, e.runner.Shutdown(context.Background()))
+
+	stopped := make(chan error, 1)
+
+	go func() {
+		_, err := e.runner.Stop(context.Background(), "rollout", "human:alice")
+		stopped <- err
+	}()
+
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the kill never started")
+	}
+
+	// The kill is still held: a Stop that had joined would keep Shutdown waiting.
+	sctx, scancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer scancel()
+
+	require.NoError(t, e.runner.Shutdown(sctx))
+
+	release()
+	require.NoError(t, <-stopped)
+	assert.Equal(t, []string{"ALPHA-1"}, e.stopper.called(), "the run's worker is killed")
+	assert.Equal(t, board.RunStatusStopped, e.pbs.lastRun().Status)
+}

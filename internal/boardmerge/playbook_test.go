@@ -739,7 +739,11 @@ func TestResolvePlaybook_DeleteAfterStopKeepsTheRunStopped(t *testing.T) {
 				in.Theirs = nil
 			}
 
-			out, err := Resolve(in, testCtx())
+			// A local clock in another zone still stamps the stop in UTC, as the runner does.
+			c := testCtx()
+			c.Now = func() time.Time { return ts(99).In(time.FixedZone("CEST", 2*60*60)) }
+
+			out, err := Resolve(in, c)
 			require.NoError(t, err)
 			require.False(t, out.Deleted)
 			assert.True(t, hasRule(out.Resolutions, RulePlaybookRunOverDelete))
@@ -755,7 +759,9 @@ func TestResolvePlaybook_DeleteAfterStopKeepsTheRunStopped(t *testing.T) {
 			}
 
 			assert.Equal(t, board.RunStatusStopped, got.Run.Status)
-			assert.NotNil(t, got.Run.EndedAt)
+			require.NotNil(t, got.Run.EndedAt)
+			assert.Equal(t, time.UTC, got.Run.EndedAt.Location())
+			assert.Equal(t, time.UTC, got.Run.UpdatedAt.Location())
 			require.NoError(t, got.Validate())
 		})
 	}

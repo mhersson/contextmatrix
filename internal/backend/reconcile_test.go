@@ -335,8 +335,8 @@ func waitForListCount(t *testing.T, fc *fakeClient, want int) {
 	}, 2*time.Second, 5*time.Millisecond, "expected >= %d container listings", want)
 }
 
-// TestReconciliationSweep_LostWorker: a queued or running card the backend
-// lists no container for is failed once it has gone unwritten for the grace.
+// TestReconciliationSweep_LostWorker: a queued or running card two listings
+// show no container for is failed once it has gone unwritten for the grace.
 func TestReconciliationSweep_LostWorker(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -373,7 +373,7 @@ func TestReconciliationSweep_LostWorker(t *testing.T) {
 
 			backend.StartReconciliationSweep(ctx, cg, fc, 10*time.Millisecond, discardLogger())
 
-			waitForListCount(t, fc, 2)
+			waitForListCount(t, fc, 3)
 
 			calls := cg.Failed()
 			if !tt.wantFailed {
@@ -385,6 +385,75 @@ func TestReconciliationSweep_LostWorker(t *testing.T) {
 			require.Len(t, calls, 1)
 			assert.Equal(t, "proj/C-001", calls[0].key)
 			assert.WithinDuration(t, time.Now().Add(-backend.StaleWorkerGrace), calls[0].cutoff, 5*time.Second)
+		})
+	}
+}
+
+// TestReconciliationSweep_LostWorkerNeedsTwoListings: the agent drops a run
+// from its list before its exit callback lands, so a card is failed only when
+// two consecutive successful listings miss it. A failed listing changes nothing.
+func TestReconciliationSweep_LostWorkerNeedsTwoListings(t *testing.T) {
+	const (
+		miss = "missing"
+		show = "listed"
+		down = "list failed"
+	)
+
+	tests := []struct {
+		name string
+		// Listing n answers listings[n-1]; every later listing shows the card.
+		listings   []string
+		wantFailed bool
+	}{
+		{"missing on one listing", []string{miss}, false},
+		{"missing on alternate listings", []string{miss, show, miss, show, miss}, false},
+		{"missing on two consecutive listings", []string{miss, miss}, true},
+		{"missing on two listings with a failed one between", []string{miss, down, miss}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			card := board.Card{
+				ID: "C-001", Project: "proj", State: "in_progress",
+				WorkerStatus: "running", Updated: time.Now().Add(-time.Hour),
+			}
+			cg := &fakeCardGetter{
+				cards: map[string]*board.Card{"proj/C-001": &card},
+				live:  []*board.Card{&card},
+			}
+			fc := &fakeClient{listFunc: func(n int) ([]backend.ContainerInfo, error) {
+				step := show
+				if n <= len(tt.listings) {
+					step = tt.listings[n-1]
+				}
+
+				switch step {
+				case miss:
+					return nil, nil
+				case down:
+					return nil, errors.New("backend unreachable")
+				default:
+					return []backend.ContainerInfo{{
+						ContainerID: "abc", CardID: "C-001", Project: "proj",
+						State: "running", StartedAt: time.Now().Add(-time.Hour),
+					}}, nil
+				}
+			}}
+
+			backend.StartReconciliationSweep(t.Context(), cg, fc, 10*time.Millisecond, discardLogger())
+
+			// Every scripted listing's tick has finished.
+			waitForListCount(t, fc, len(tt.listings)+1)
+
+			if !tt.wantFailed {
+				assert.Empty(t, cg.Failed())
+
+				return
+			}
+
+			calls := cg.Failed()
+			require.Len(t, calls, 1)
+			assert.Equal(t, "proj/C-001", calls[0].key)
 		})
 	}
 }
@@ -402,7 +471,7 @@ func TestReconciliationSweep_LostWorkerSkippedOnListFailure(t *testing.T) {
 
 	backend.StartReconciliationSweep(ctx, cg, fc, 10*time.Millisecond, discardLogger())
 
-	waitForListCount(t, fc, 2)
+	waitForListCount(t, fc, 3)
 
 	assert.Zero(t, cg.LiveCalls())
 	assert.Empty(t, cg.Failed())
@@ -424,7 +493,7 @@ func TestReconciliationSweep_LiveWorkerReadFailureKeepsKills(t *testing.T) {
 
 	backend.StartReconciliationSweep(ctx, cg, fc, 10*time.Millisecond, discardLogger())
 
-	waitForListCount(t, fc, 2)
+	waitForListCount(t, fc, 3)
 
 	assert.Positive(t, cg.LiveCalls())
 	assert.Empty(t, cg.Failed())

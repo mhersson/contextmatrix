@@ -113,6 +113,9 @@ type fakeClient struct {
 	listResult []backend.ContainerInfo
 	listErr    error
 	listCount  int
+	// listFunc, when set, answers listing n (counted from 1) in place of
+	// listResult and listErr.
+	listFunc func(n int) ([]backend.ContainerInfo, error)
 }
 
 func (f *fakeClient) EndSession(_ context.Context, p backend.EndSessionPayload) error {
@@ -142,6 +145,10 @@ func (f *fakeClient) ListContainers(_ context.Context) ([]backend.ContainerInfo,
 	defer f.mu.Unlock()
 
 	f.listCount++
+
+	if f.listFunc != nil {
+		return f.listFunc(f.listCount)
+	}
 
 	if f.listErr != nil {
 		return nil, f.listErr

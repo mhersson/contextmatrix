@@ -26,7 +26,7 @@ func resolvePlaybook(in Input, id string, c Context) (Output, error) {
 			if stopped {
 				// The deleter saw base's active run and a local delete refuses
 				// one, so it stopped that run first.
-				data, err := stopSurvivorRun(survivor, c.Now())
+				data, err := stopSurvivorRun(survivor, c.Now().UTC())
 				if err != nil {
 					return Output{}, fmt.Errorf("stop surviving playbook run %s: %w", id, err)
 				}
@@ -349,7 +349,8 @@ func besideBaseNeighbour(base []board.PlaybookEntry, i int, out *board.Playbook)
 
 // keepRunEntry carries "the run's current entry stays until the run stops"
 // through a merge: a stale peer's removal is undone beside the entry's
-// nearest surviving base neighbour, and a dedupe re-points the run to the surviving entry for its card.
+// nearest surviving base neighbour, and a dedupe re-points the run to the
+// surviving entry for its card.
 func keepRunEntry(out, base, ours, theirs *board.Playbook, path string, renames map[string]string) []Resolution {
 	if !out.Run.Active() || out.Run.Entry == "" || out.FindEntry(out.Run.Entry) >= 0 {
 		return nil

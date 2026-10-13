@@ -113,6 +113,9 @@ type Runner struct {
 	exiting  map[string]chan struct{}
 	stopWait time.Duration
 	wg       sync.WaitGroup
+	// closed is set by Shutdown. Every wg.Add checks it under mu, so no Add
+	// races Shutdown's Wait.
+	closed bool
 }
 
 // New creates a runner. Clock nil defaults to the real clock; Tick zero
@@ -259,10 +262,11 @@ func (r *Runner) Play(ctx context.Context, id, agentID string) (*service.Playboo
 
 // Stop marks the run stopped, then kills the workers this instance owns that
 // were live on the run's cards at the stop write, and the current entry's,
-// which a launch in flight may be queuing. A worker started after the write,
-// such as a hand run, is left alone. A kill failure is reported as
-// ErrStopWorker with the stopped detail; the run stays stopped. Once the stop
-// is persisted, the wait and kills outlive ctx, bounded by stopWait.
+// which a launch in flight may be queuing. A worker started on another card
+// after the write, such as a hand run, is left alone. A kill failure is
+// reported as ErrStopWorker with the stopped detail; the run stays stopped.
+// Once the stop is persisted, the wait and kills outlive ctx, bounded by
+// stopWait.
 func (r *Runner) Stop(ctx context.Context, id, agentID string) (*service.PlaybookDetail, error) {
 	release, err := r.lockControl(ctx, id)
 	if err != nil {
@@ -318,9 +322,10 @@ func (r *Runner) Stop(ctx context.Context, id, agentID string) (*service.Playboo
 	}
 
 	// Shutdown joins the wait and kills, so the process cannot exit between
-	// a trigger and its kill.
-	r.wg.Add(1)
-	defer r.wg.Done()
+	// a trigger and its kill. Past Shutdown they still run, unjoined.
+	if r.join() {
+		defer r.wg.Done()
+	}
 
 	// The stop is persisted, so a client that hangs up must not skip the kills.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), r.stopWait)
@@ -339,6 +344,21 @@ func (r *Runner) Stop(ctx context.Context, id, agentID string) (*service.Playboo
 	}
 
 	return d, r.killLiveWorkers(ctx, d.ID, targets)
+}
+
+// join adds one to wg and reports true, or reports false once Shutdown has
+// begun.
+func (r *Runner) join() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.closed {
+		return false
+	}
+
+	r.wg.Add(1)
+
+	return true
 }
 
 // stopTargets returns the card entries Stop may kill: those whose card is not
@@ -467,10 +487,14 @@ func (r *Runner) Start(ctx context.Context) {
 // Ensure starts a walker for id when none is running and reports whether
 // it did. When one is running it is nudged instead: the nudge is what keeps
 // a Play that lands while a walker is mid-pass on a run Stop just ended
-// from being lost.
+// from being lost. After Shutdown it does nothing.
 func (r *Runner) Ensure(id string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	if r.closed {
+		return false
+	}
 
 	if w, running := r.walkers[id]; running {
 		select {
@@ -514,11 +538,15 @@ func (r *Runner) Wait() {
 }
 
 // Shutdown waits for every walker to exit, and for the wait and kills of any
-// Stop past its run write, bounded by ctx: it returns
-// ctx.Err() when ctx ends first, leaving the walkers running. Cancelling the
-// context given to Start is what makes them stop; this only waits, so the
-// caller must cancel before calling it.
+// Stop past its run write, bounded by ctx: it returns ctx.Err() when ctx ends
+// first, leaving the walkers running. Cancelling the context given to Start is
+// what makes them stop; this only waits, so the caller must cancel first.
+// After it no walker starts, and a later Stop's wait and kills are not joined.
 func (r *Runner) Shutdown(ctx context.Context) error {
+	r.mu.Lock()
+	r.closed = true
+	r.mu.Unlock()
+
 	done := make(chan struct{})
 
 	go func() {
