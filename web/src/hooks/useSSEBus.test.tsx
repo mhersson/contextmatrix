@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, act } from '@testing-library/react';
 import { SSEProvider, useSSEBus } from './useSSEBus';
-import { SESSION_EXPIRED_EVENT } from '../api/client';
+import { api, SESSION_EXPIRED_EVENT } from '../api/client';
 import type { BoardEvent } from '../types';
 import { useEffect } from 'react';
 
@@ -568,24 +568,24 @@ describe('reconnect epoch', () => {
 // top in both cases, but only the CLOSED case means the session is dead.
 
 describe('session-expired dispatch', () => {
-  it('dispatches SESSION_EXPIRED_EVENT when onerror fires with readyState CLOSED', () => {
+  it('does not dispatch SESSION_EXPIRED_EVENT when the stream closes but the session probe succeeds, and still reconnects', async () => {
     const fired = vi.fn();
     window.addEventListener(SESSION_EXPIRED_EVENT, fired);
+    const probe = vi
+      .spyOn(api, 'getAuthSession')
+      .mockResolvedValue({ username: 'alice', display_name: 'Alice', is_admin: true });
 
     act(() => {
       renderWithProvider(() => {});
     });
 
-    act(() => {
+    await act(async () => {
       latestInstance().readyState = MockEventSource.CLOSED;
       latestInstance()._triggerError();
     });
 
-    expect(fired).toHaveBeenCalledTimes(1);
-
-    // A CLOSED error must still schedule the backoff reconnect: in none mode
-    // the same dispatch is an auth no-op, and the stream has to come back on
-    // its own after e.g. a server restart closes it for good.
+    expect(probe).toHaveBeenCalledTimes(1);
+    expect(fired).not.toHaveBeenCalled();
     expect(instances).toHaveLength(1);
 
     act(() => {
@@ -593,6 +593,56 @@ describe('session-expired dispatch', () => {
     });
     expect(instances).toHaveLength(2);
 
+    probe.mockRestore();
+    window.removeEventListener(SESSION_EXPIRED_EVENT, fired);
+  });
+
+  it('does not dispatch SESSION_EXPIRED_EVENT when the session probe fails for a non-auth reason', async () => {
+    const fired = vi.fn();
+    window.addEventListener(SESSION_EXPIRED_EVENT, fired);
+    const probe = vi
+      .spyOn(api, 'getAuthSession')
+      .mockRejectedValue({ error: 'Not Found', code: 'UNKNOWN_ERROR' });
+
+    act(() => {
+      renderWithProvider(() => {});
+    });
+
+    await act(async () => {
+      latestInstance().readyState = MockEventSource.CLOSED;
+      latestInstance()._triggerError();
+    });
+
+    expect(fired).not.toHaveBeenCalled();
+
+    probe.mockRestore();
+    window.removeEventListener(SESSION_EXPIRED_EVENT, fired);
+  });
+
+  it('dispatches SESSION_EXPIRED_EVENT when the stream closes and the session probe answers 401, and still reconnects', async () => {
+    const fired = vi.fn();
+    window.addEventListener(SESSION_EXPIRED_EVENT, fired);
+    const probe = vi
+      .spyOn(api, 'getAuthSession')
+      .mockRejectedValue({ error: 'authentication required', code: 'UNAUTHORIZED' });
+
+    act(() => {
+      renderWithProvider(() => {});
+    });
+
+    await act(async () => {
+      latestInstance().readyState = MockEventSource.CLOSED;
+      latestInstance()._triggerError();
+    });
+
+    expect(fired).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(instances).toHaveLength(2);
+
+    probe.mockRestore();
     window.removeEventListener(SESSION_EXPIRED_EVENT, fired);
   });
 

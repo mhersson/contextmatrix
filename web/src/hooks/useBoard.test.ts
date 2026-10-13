@@ -165,6 +165,38 @@ describe('useBoard - SSE reconnect resync', () => {
   });
 });
 
+describe('useBoard - SSE disconnect', () => {
+  beforeEach(() => {
+    instances = [];
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.mocked(api.getProject).mockResolvedValue(projectConfig);
+    vi.mocked(api.getCards).mockResolvedValue([{ id: 'ALPHA-001' } as Card]);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  it('keeps the loaded board and reports no error while the stream is down', async () => {
+    const { result } = renderHook(() => useBoard('alpha'), { wrapper });
+
+    await waitFor(() => expect(result.current.cards).toHaveLength(1));
+    act(() => {
+      latestInstance()._triggerOpen();
+    });
+    expect(result.current.connected).toBe(true);
+
+    act(() => {
+      latestInstance()._triggerError();
+    });
+
+    expect(result.current.connected).toBe(false);
+    expect(result.current.error).toBeNull();
+    expect(result.current.cards).toHaveLength(1);
+  });
+});
+
 describe('useBoard - dependency state changes', () => {
   beforeEach(() => {
     instances = [];

@@ -299,7 +299,7 @@ export function useBoard(
     [project, fetchData, mergeCard, refreshCards]
   );
 
-  const { subscribe, connected, error: sseError, reconnectEpoch } = useSSEBus();
+  const { subscribe, connected, reconnectEpoch } = useSSEBus();
 
   // Resync after an SSE outage: useSSEBus bumps reconnectEpoch on every
   // true reconnect (never on the initial connect). Events published while
@@ -357,7 +357,7 @@ export function useBoard(
     config,
     cards,
     loading,
-    error: error || sseError,
+    error,
     connected,
     refresh: fetchData,
     listEpoch,
