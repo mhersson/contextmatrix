@@ -51,8 +51,9 @@ type (
 // ContainerInfo is a decoded entry from GET /containers. The agent backend
 // builds the list from its in-memory tracker, so Tracked is always true and
 // State is always "running"; both stay on the wire for compatibility. The
-// reconcile sweep uses the list, independent of CM's worker_status field, as
-// its decision input and StartedAt to age-cap runaway containers.
+// reconcile sweep's kill decisions use the list, independent of CM's
+// worker_status, and StartedAt to age-cap runaway containers; its lost-worker
+// check reads worker_status only to pick candidates the list then confirms.
 type ContainerInfo struct {
 	ContainerID string
 	CardID      string

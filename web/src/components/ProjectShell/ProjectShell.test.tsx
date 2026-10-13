@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, act, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useNavigate, useSearchParams } from 'react-router';
 import { ProjectShell } from './ProjectShell';
+import { useToast } from '../../hooks/useToast';
 import type { Card, CreateCardInput, ProjectConfig } from '../../types';
 
 // ---------------------------------------------------------------------------
@@ -353,6 +354,25 @@ describe('ProjectShell - onCreateCard', () => {
 
     // On worker error, the panel should not open.
     expect(screen.queryByTestId('card-panel-TEST-001')).not.toBeInTheDocument();
+  });
+
+  it('"Create & Run" refusal toast carries the server details', async () => {
+    mockApi.runCard.mockRejectedValue({ error: 'playbook run is active', code: 'PLAYBOOK_RUN_ACTIVE', details: 'stop the run first' });
+    const showToast = vi.fn();
+    const previous = vi.mocked(useToast).getMockImplementation();
+    vi.mocked(useToast).mockReturnValue({ showToast, toasts: [], dismissToast: vi.fn() } as unknown as ReturnType<typeof useToast>);
+    try {
+      renderProjectShell();
+
+      act(() => screen.getByTestId('open-create-btn').click());
+      await act(async () => {
+        await capturedOnCreate!({ title: 'New card', type: 'task', priority: 'medium' }, { run: true, interactive: true });
+      });
+
+      expect(showToast).toHaveBeenCalledWith(expect.stringContaining('stop the run first'), 'error');
+    } finally {
+      vi.mocked(useToast).mockImplementation(previous!);
+    }
   });
 });
 

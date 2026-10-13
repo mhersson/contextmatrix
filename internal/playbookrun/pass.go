@@ -139,8 +139,9 @@ func (r *Runner) holdOnLiveWorker(ctx context.Context, d *service.PlaybookDetail
 	return true
 }
 
-// liveEntry is the card entry whose card is not terminal and has a live
-// worker: prefer when it qualifies, else the first in order; "" when none.
+// liveEntry is the card entry whose card is not terminal and has a queued or
+// running worker: prefer when it qualifies, else the first in order; "" when
+// none. A claim through another instance with no worker does not hold the run.
 // A terminal card's worker is finishing and is let go; a failed read is idle.
 func (r *Runner) liveEntry(ctx context.Context, playbookID string, entries []board.PlaybookEntry, prefer string) string {
 	live := func(e *board.PlaybookEntry) bool {
@@ -158,7 +159,7 @@ func (r *Runner) liveEntry(ctx context.Context, playbookID string, entries []boa
 			return false
 		}
 
-		return !board.IsTerminalState(card.State) && r.workerLive(card)
+		return !board.IsTerminalState(card.State) && workerInFlight(card)
 	}
 
 	if prefer != "" {
@@ -191,7 +192,12 @@ func rawEntries(d *service.PlaybookDetail) []board.PlaybookEntry {
 // workerLive reports whether card has a queued or running worker, or a claim
 // granted by another instance.
 func (r *Runner) workerLive(card *board.Card) bool {
-	return card.WorkerStatus == "queued" || card.WorkerStatus == "running" || r.cfg.Cards.ClaimedElsewhere(card)
+	return workerInFlight(card) || r.cfg.Cards.ClaimedElsewhere(card)
+}
+
+// workerInFlight reports whether card's worker is queued or running.
+func workerInFlight(card *board.Card) bool {
+	return card.WorkerStatus == "queued" || card.WorkerStatus == "running"
 }
 
 // launchEntry brings the card back to todo when needed, re-asserts the
@@ -231,15 +237,19 @@ func (r *Runner) launchEntry(ctx context.Context, d *service.PlaybookDetail, e *
 	}
 
 	// A Stop that cancelled this walker after the running write gets no
-	// trigger. Once sent, the trigger runs to its outcome despite a later
-	// cancel: an aborted webhook may still start a worker the reverted card
-	// hides, while a finished one leaves a queued card Stop can kill.
+	// trigger. A sent trigger outlives Stop's cancel, since an aborted
+	// webhook may still start a worker the reverted card hides, but not
+	// shutdown: past the commit queue's close it would strand a queued card.
 	if ctx.Err() != nil {
 		return
 	}
 
+	lctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	defer cancel()
+	defer context.AfterFunc(r.parent(), cancel)()
+
 	opts := LaunchOptions{CreateBaseBranch: true, BaseBranchFrom: d.BaseBranch}
-	if err := launch(context.WithoutCancel(ctx), e.Project, e.Card, opts); err != nil {
+	if err := launch(lctx, e.Project, e.Card, opts); err != nil {
 		r.setRun(ctx, d, board.RunStatusWaiting, e.ID, err.Error())
 	}
 }

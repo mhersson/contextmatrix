@@ -247,6 +247,14 @@ func (e *erroringCardGetter) GetCard(_ context.Context, _, _ string) (*board.Car
 	return nil, e.err
 }
 
+func (e *erroringCardGetter) LiveWorkerCards(_ context.Context) ([]*board.Card, error) {
+	return nil, nil
+}
+
+func (e *erroringCardGetter) FailLostWorker(_ context.Context, _, _ string, _ time.Time, _ string) (bool, error) {
+	return false, nil
+}
+
 // TestReconciliationSweep_StorageNotFoundErrorIsKill regression-guards the
 // sentinel bug where isCardNotFound compared a local errors.New object
 // against the store's own storage.ErrCardNotFound - two different instances,
@@ -315,4 +323,179 @@ func TestReconciliationSweep_SkipsChatContainers(t *testing.T) {
 		"card sweep must skip chat containers (those carry SessionID, not CardID)")
 	assert.Empty(t, fc.Calls(),
 		"card sweep must not call /end-session for chat containers either")
+}
+
+// waitForListCount waits until the sweep has listed containers want times;
+// ticks run in order, so every tick before the last one has finished.
+func waitForListCount(t *testing.T, fc *fakeClient, want int) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		return fc.ListCount() >= want
+	}, 2*time.Second, 5*time.Millisecond, "expected >= %d container listings", want)
+}
+
+// TestReconciliationSweep_LostWorker: a queued or running card two listings
+// show no container for is failed once it has gone unwritten for the grace.
+func TestReconciliationSweep_LostWorker(t *testing.T) {
+	tests := []struct {
+		name       string
+		status     string
+		age        time.Duration
+		listed     bool
+		wantFailed bool
+	}{
+		{"queued past the grace without a container", "queued", 11 * time.Minute, false, true},
+		{"running past the grace with its container", "running", 11 * time.Minute, true, false},
+		{"queued inside the grace without a container", "queued", 2 * time.Minute, false, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := t.Context()
+
+			card := board.Card{
+				ID: "C-001", Project: "proj", State: "in_progress",
+				WorkerStatus: tt.status, Updated: time.Now().Add(-tt.age),
+			}
+			cg := &fakeCardGetter{
+				cards: map[string]*board.Card{"proj/C-001": &card},
+				live:  []*board.Card{&card},
+			}
+
+			fc := &fakeClient{}
+			if tt.listed {
+				fc.listResult = []backend.ContainerInfo{{
+					ContainerID: "abc", CardID: "C-001", Project: "proj",
+					State: "running", StartedAt: time.Now().Add(-tt.age),
+				}}
+			}
+
+			backend.StartReconciliationSweep(ctx, cg, fc, 10*time.Millisecond, discardLogger())
+
+			waitForListCount(t, fc, 3)
+
+			calls := cg.Failed()
+			if !tt.wantFailed {
+				assert.Empty(t, calls)
+
+				return
+			}
+
+			require.Len(t, calls, 1)
+			assert.Equal(t, "proj/C-001", calls[0].key)
+			assert.WithinDuration(t, time.Now().Add(-backend.StaleWorkerGrace), calls[0].cutoff, 5*time.Second)
+		})
+	}
+}
+
+// TestReconciliationSweep_LostWorkerNeedsTwoListings: the agent drops a run
+// from its list before its exit callback lands, so a card is failed only when
+// two consecutive successful listings miss it. A failed listing changes nothing.
+func TestReconciliationSweep_LostWorkerNeedsTwoListings(t *testing.T) {
+	const (
+		miss = "missing"
+		show = "listed"
+		down = "list failed"
+	)
+
+	tests := []struct {
+		name string
+		// Listing n answers listings[n-1]; every later listing shows the card.
+		listings   []string
+		wantFailed bool
+	}{
+		{"missing on one listing", []string{miss}, false},
+		{"missing on alternate listings", []string{miss, show, miss, show, miss}, false},
+		{"missing on two consecutive listings", []string{miss, miss}, true},
+		{"missing on two listings with a failed one between", []string{miss, down, miss}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			card := board.Card{
+				ID: "C-001", Project: "proj", State: "in_progress",
+				WorkerStatus: "running", Updated: time.Now().Add(-time.Hour),
+			}
+			cg := &fakeCardGetter{
+				cards: map[string]*board.Card{"proj/C-001": &card},
+				live:  []*board.Card{&card},
+			}
+			fc := &fakeClient{listFunc: func(n int) ([]backend.ContainerInfo, error) {
+				step := show
+				if n <= len(tt.listings) {
+					step = tt.listings[n-1]
+				}
+
+				switch step {
+				case miss:
+					return nil, nil
+				case down:
+					return nil, errors.New("backend unreachable")
+				default:
+					return []backend.ContainerInfo{{
+						ContainerID: "abc", CardID: "C-001", Project: "proj",
+						State: "running", StartedAt: time.Now().Add(-time.Hour),
+					}}, nil
+				}
+			}}
+
+			backend.StartReconciliationSweep(t.Context(), cg, fc, 10*time.Millisecond, discardLogger())
+
+			// Every scripted listing's tick has finished.
+			waitForListCount(t, fc, len(tt.listings)+1)
+
+			if !tt.wantFailed {
+				assert.Empty(t, cg.Failed())
+
+				return
+			}
+
+			calls := cg.Failed()
+			require.Len(t, calls, 1)
+			assert.Equal(t, "proj/C-001", calls[0].key)
+		})
+	}
+}
+
+// TestReconciliationSweep_LostWorkerSkippedOnListFailure: a failed listing says
+// nothing about what runs, so no worker is read or failed.
+func TestReconciliationSweep_LostWorkerSkippedOnListFailure(t *testing.T) {
+	ctx := t.Context()
+
+	cg := &fakeCardGetter{live: []*board.Card{{
+		ID: "C-001", Project: "proj", State: "in_progress",
+		WorkerStatus: "queued", Updated: time.Now().Add(-time.Hour),
+	}}}
+	fc := &fakeClient{listErr: errors.New("backend unreachable")}
+
+	backend.StartReconciliationSweep(ctx, cg, fc, 10*time.Millisecond, discardLogger())
+
+	waitForListCount(t, fc, 3)
+
+	assert.Zero(t, cg.LiveCalls())
+	assert.Empty(t, cg.Failed())
+}
+
+// TestReconciliationSweep_LiveWorkerReadFailureKeepsKills: a failed worker
+// read skips only the lost-worker pass; the kill rules still ran.
+func TestReconciliationSweep_LiveWorkerReadFailureKeepsKills(t *testing.T) {
+	ctx := t.Context()
+
+	cg := &fakeCardGetter{
+		cards:   map[string]*board.Card{"proj/C-001": {ID: "C-001", Project: "proj", State: "done"}},
+		liveErr: errors.New("store down"),
+	}
+	fc := &fakeClient{listResult: []backend.ContainerInfo{{
+		ContainerID: "abc", CardID: "C-001", Project: "proj",
+		State: "running", StartedAt: time.Now(),
+	}}}
+
+	backend.StartReconciliationSweep(ctx, cg, fc, 10*time.Millisecond, discardLogger())
+
+	waitForListCount(t, fc, 3)
+
+	assert.Positive(t, cg.LiveCalls())
+	assert.Empty(t, cg.Failed())
+	assert.NotEmpty(t, fc.KillCalls(), "the kill rules run before the lost-worker pass")
 }

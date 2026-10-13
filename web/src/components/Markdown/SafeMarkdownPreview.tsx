@@ -7,7 +7,8 @@ interface SafeMarkdownPreviewProps {
 }
 
 /** The only sanctioned MarkdownPreview: card bodies and chat come from agents
- *  and external imports, so raw HTML must never render as live elements. */
+ *  and external imports, so raw HTML passes an allowlist sanitizer and nothing
+ *  outside it renders live. */
 export default function SafeMarkdownPreview({ source, className }: SafeMarkdownPreviewProps) {
   return <MarkdownPreview source={source} className={className} {...safeMarkdownOptions} />;
 }

@@ -216,4 +216,23 @@ describe('useCardActions - refusal toasts carry the details', () => {
 
     expect(showToast).toHaveBeenCalledWith(expect.stringContaining(deleteRefusal.details), 'error');
   });
+
+  it.each([
+    ['claim', 'claimCard', (r: ReturnType<typeof setup>['result']) => r.current.handleClaim('agent-1')],
+    ['release', 'releaseCard', (r: ReturnType<typeof setup>['result']) => r.current.handleRelease('agent-1')],
+    ['stop', 'stopCard', (r: ReturnType<typeof setup>['result']) => r.current.handleStopCard()],
+    ['force-release', 'forceReleaseCard', (r: ReturnType<typeof setup>['result']) => r.current.handleForceRelease()],
+    ['stop-all', 'stopAllCards', (r: ReturnType<typeof setup>['result']) => r.current.handleStopAll()],
+  ] as const)('shows the details when %s is refused', async (_name, method, invoke) => {
+    const err = { error: 'some message', code: 'X', details: 'the remedy' };
+    vi.spyOn(api, method).mockRejectedValueOnce(err);
+    const showToast = vi.fn();
+    const { result } = setup({ showToast });
+
+    await act(async () => {
+      await invoke(result);
+    });
+
+    expect(showToast).toHaveBeenCalledWith(expect.stringContaining('the remedy'), 'error');
+  });
 });

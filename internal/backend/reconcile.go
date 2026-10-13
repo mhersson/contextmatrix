@@ -3,6 +3,7 @@ package backend
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -22,6 +23,16 @@ import (
 // (in the caller's goroutine) and captured into the spawned goroutine as a
 // local, so a ticker-driven read never races a subsequent test's write.
 var ContainerMaxAge = 150 * time.Minute
+
+// StaleWorkerGrace is how long a queued or running card the backend lists no
+// container for must go unwritten before the sweep marks its worker failed.
+// The trigger takes up to about 39 s and the agent pulls the worker image
+// before its container is listed; a cold pull of a large image can take
+// minutes. Ten minutes keeps a slow start alive and still ends a lost worker
+// on its own. The age runs from the card's Updated, which is never later than
+// the status write, so the check is conservative. Captured once per
+// StartReconciliationSweep, like ContainerMaxAge.
+var StaleWorkerGrace = 10 * time.Minute
 
 // ContainerLister is the subset of *Client needed to ask the backend for
 // ground-truth container state. The reconcile sweep consults this instead of
@@ -51,6 +62,14 @@ type CardLookup interface {
 	GetCard(ctx context.Context, project, id string) (*board.Card, error)
 }
 
+// WorkerCards is the card side of the sweep: the per-card lookup for the kill
+// rules plus the reads and the guarded write of the lost-worker pass.
+type WorkerCards interface {
+	CardLookup
+	LiveWorkerCards(ctx context.Context) ([]*board.Card, error)
+	FailLostWorker(ctx context.Context, project, id string, cutoff time.Time, message string) (bool, error)
+}
+
 // StartReconciliationSweep launches a ticker goroutine that periodically asks
 // the backend for every worker container and decides, per container, whether
 // it should still be running. A card container is killed if:
@@ -60,7 +79,7 @@ type CardLookup interface {
 //  2. The card's state is terminal (done / not_planned) - the work is over.
 //  3. The container is older than ContainerMaxAge - runaway cap.
 //
-// Notably: the sweep does NOT consult the card's worker_status field. That
+// Notably: the kill rules do NOT consult the card's worker_status field. That
 // field is a CM-side bookkeeping convenience that has repeatedly drifted
 // away from Docker reality (the backend's completion/failure callbacks can
 // flip it before the Docker cleanup actually succeeds); any
@@ -68,9 +87,13 @@ type CardLookup interface {
 // Docker is the single authority on "is this container running"; CM is the
 // single authority on "should it be". Those two facts, nothing else.
 //
+// A fourth decision marks lost workers failed (see failLostWorkers). It is the
+// only one that reads worker_status, and only to find candidates that two
+// consecutive successful listings confirm have no container.
+//
 // Blocks only until the goroutine is scheduled; returns immediately. An
 // interval of 0 disables the sweep entirely.
-func StartReconciliationSweep(ctx context.Context, svc CardLookup, client ReconcileClient, interval time.Duration, logger *slog.Logger) {
+func StartReconciliationSweep(ctx context.Context, svc WorkerCards, client ReconcileClient, interval time.Duration, logger *slog.Logger) {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -94,12 +117,13 @@ func StartReconciliationSweep(ctx context.Context, svc CardLookup, client Reconc
 	// eliminates the race and also gives every running sweep a stable
 	// cap for its lifetime.
 	maxAge := ContainerMaxAge
+	grace := StaleWorkerGrace
 
 	go func() {
 		// Run an initial sweep immediately so containers orphaned by a CM
 		// restart (events published while CM was down are never delivered)
 		// are cleaned up without having to wait a full interval.
-		runReconcileSweep(ctx, svc, client, maxAge, logger)
+		missing := runReconcileSweep(ctx, svc, client, maxAge, grace, nil, logger)
 
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
@@ -110,23 +134,28 @@ func StartReconciliationSweep(ctx context.Context, svc CardLookup, client Reconc
 				return
 
 			case <-ticker.C:
-				runReconcileSweep(ctx, svc, client, maxAge, logger)
+				missing = runReconcileSweep(ctx, svc, client, maxAge, grace, missing, logger)
 			}
 		}
 	}()
 }
 
 // runReconcileSweep asks the backend for its current container list once,
-// then runs the card-kill loop against it. Safe to call ad-hoc from tests.
+// then runs the card-kill loop and the lost-worker pass against it. missing is
+// the lost-worker candidates the last successful listing missed; it returns
+// this tick's, or missing unchanged when the listing fails.
 //
 // Every tick logs scanned/killed - including 0/0 - so "is the sweep actually
 // running?" is answerable from a single grep.
-func runReconcileSweep(ctx context.Context, svc CardLookup, client ReconcileClient, maxAge time.Duration, logger *slog.Logger) {
+func runReconcileSweep(
+	ctx context.Context, svc WorkerCards, client ReconcileClient, maxAge, grace time.Duration,
+	missing map[string]struct{}, logger *slog.Logger,
+) map[string]struct{} {
 	containers, err := client.ListContainers(ctx)
 	if err != nil {
 		logger.Warn("reconcile sweep: backend list failed (skipping tick)", "error", err)
 
-		return
+		return missing
 	}
 
 	var killed int
@@ -150,10 +179,74 @@ func runReconcileSweep(ctx context.Context, svc CardLookup, client ReconcileClie
 		endSessionAndKill(ctx, client, logger, c.Project, c.CardID, "", "", sourceSweep)
 	}
 
+	failed, missing := failLostWorkers(ctx, svc, containers, grace, missing, logger)
+
 	logger.Info("reconcile sweep tick",
 		"scanned", len(containers),
 		"killed", killed,
+		"lost_workers_failed", failed,
 	)
+
+	return missing
+}
+
+// failLostWorkers marks failed every queued or running card that this listing
+// and prev, the previous successful one's misses, both lack a container for,
+// once the card has gone unwritten for grace. One miss is not enough: the
+// agent drops a run from its list before its exit callback reaches CM. It
+// returns this listing's misses, none when the worker read fails.
+func failLostWorkers(
+	ctx context.Context, svc WorkerCards, containers []ContainerInfo, grace time.Duration,
+	prev map[string]struct{}, logger *slog.Logger,
+) (int, map[string]struct{}) {
+	listed := make(map[string]struct{}, len(containers))
+	for _, c := range containers {
+		if c.CardID != "" {
+			listed[c.Project+"/"+c.CardID] = struct{}{}
+		}
+	}
+
+	cards, err := svc.LiveWorkerCards(ctx)
+	if err != nil {
+		logger.Warn("reconcile sweep: live worker read failed (skipping lost-worker check)", "error", err)
+
+		return 0, nil
+	}
+
+	cutoff := time.Now().Add(-grace)
+	message := fmt.Sprintf("worker lost: the agent has no container for this card and the card has not changed for %d minutes; marked failed", int(grace.Minutes()))
+	missing := make(map[string]struct{})
+	failed := 0
+
+	for _, card := range cards {
+		key := card.Project + "/" + card.ID
+		if _, ok := listed[key]; ok {
+			continue
+		}
+
+		missing[key] = struct{}{}
+
+		if _, ok := prev[key]; !ok || card.Updated.After(cutoff) {
+			continue
+		}
+
+		wrote, err := svc.FailLostWorker(ctx, card.Project, card.ID, cutoff, message)
+		if err != nil {
+			logger.Warn("reconcile sweep: marking a lost worker failed did not commit",
+				"project", card.Project, "card_id", card.ID, "error", err)
+
+			continue
+		}
+
+		if wrote {
+			failed++
+
+			logger.Info("reconcile sweep: lost worker marked failed",
+				"source", sourceSweep, "project", card.Project, "card_id", card.ID, "worker_status", card.WorkerStatus)
+		}
+	}
+
+	return failed, missing
 }
 
 // decideKill runs the three-rule authoritative check against a single

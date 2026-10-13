@@ -3,11 +3,26 @@ package api
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/playbookrun"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
+
+// playbookControlWriteTimeout outlasts a Play or Stop that waits behind
+// another Stop's walker wait and kills: two of the runner's one-minute stop
+// waits plus margin, past the server's WriteTimeout.
+const playbookControlWriteTimeout = 3 * time.Minute
+
+// extendWriteDeadline lifts the server's write deadline for a handler that
+// may legitimately run longer than it.
+func extendWriteDeadline(w http.ResponseWriter, r *http.Request, d time.Duration) {
+	if err := http.NewResponseController(w).SetWriteDeadline(time.Now().Add(d)); err != nil {
+		ctxlog.Logger(r.Context()).Warn("write deadline not extended", "error", err)
+	}
+}
 
 type playbookHandlers struct {
 	svc    *service.PlaybookService
@@ -273,6 +288,8 @@ func (h *playbookHandlers) run(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	extendWriteDeadline(w, r, playbookControlWriteTimeout)
+
 	detail, err := h.runner.Play(r.Context(), r.PathValue("id"), playbookAgentID(r))
 	if err != nil {
 		handleServiceError(w, r, err)
@@ -298,6 +315,8 @@ func (h *playbookHandlers) stop(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
+
+	extendWriteDeadline(w, r, playbookControlWriteTimeout)
 
 	detail, err := h.runner.Stop(r.Context(), r.PathValue("id"), playbookAgentID(r))
 	if err != nil {

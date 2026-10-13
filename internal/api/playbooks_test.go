@@ -632,6 +632,8 @@ func TestPlaybooksAPI_MakeRunnable(t *testing.T) {
 		var apiErr APIError
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 		assert.Equal(t, ErrCodePlaybookRunActive, apiErr.Code)
+		assert.NotEmpty(t, apiErr.Details)
+		assert.NotContains(t, apiErr.Details, apiErr.Error, "a client joining message and details must not repeat the message")
 
 		listResp := doGet(t, server.URL+"/api/playbooks")
 		defer closeBody(t, listResp.Body)

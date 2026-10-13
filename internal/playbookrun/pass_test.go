@@ -122,6 +122,47 @@ func TestPass_ClaimedElsewhereCountsAsRunning(t *testing.T) {
 	assert.Equal(t, board.RunStatusRunning, e.pbs.lastRun().Status)
 }
 
+func TestPass_HoldsOnlyOnAWorker(t *testing.T) {
+	tests := []struct {
+		name         string
+		workerStatus string
+		wantLaunch   bool
+		wantEntry    string
+	}{
+		{name: "a claim through another instance without a worker does not hold", workerStatus: "", wantLaunch: true, wantEntry: "e1"},
+		{name: "a running worker holds the run", workerStatus: "running", wantLaunch: false, wantEntry: "e2"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newEnv(t)
+			e.cards.add(todoCard("alpha", "ALPHA-1"))
+
+			c2 := todoCard("alpha", "ALPHA-2")
+			c2.AssignedAgent = "human:bob"
+			c2.ClaimedVia = "lap-b"
+			c2.WorkerStatus = tt.workerStatus
+			e.cards.add(c2)
+			e.cards.elsewhere[cardKey("alpha", "ALPHA-2")] = true
+
+			p := runnablePlaybook("rollout", cardEntry("e1", "alpha", "ALPHA-1"), cardEntry("e2", "alpha", "ALPHA-2"))
+			e.activeRun(p, "")
+			e.pbs.add(p)
+
+			require.False(t, e.runner.pass(context.Background(), "rollout"))
+
+			if tt.wantLaunch {
+				require.Equal(t, 1, e.launcher.count())
+				assert.Equal(t, "ALPHA-1", e.launcher.call(0).card)
+			} else {
+				assert.Equal(t, 0, e.launcher.count())
+			}
+
+			assert.Equal(t, tt.wantEntry, e.pbs.lastRun().Entry)
+		})
+	}
+}
+
 func TestPass_NeedsHumanOnTriggeredEntry(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -491,6 +532,85 @@ func TestPass_SkipsForcingWhenTheCardAlreadyHasTheSettings(t *testing.T) {
 	assert.Empty(t, e.cards.forced, "no card write when the settings are already there")
 }
 
+// TestStop_BuildsTheStoppedBlockFromTheStoredRun: the run moves to another
+// entry and its old one is removed between Stop's read and its write. A block
+// built from the read would name the removed entry and fail validation, so
+// the run would keep going.
+func TestStop_BuildsTheStoppedBlockFromTheStoredRun(t *testing.T) {
+	e := newEnv(t)
+	e.cards.add(todoCard("alpha", "ALPHA-1"))
+	e.cards.add(todoCard("alpha", "ALPHA-2"))
+
+	p := runnablePlaybook("rollout", cardEntry("e1", "alpha", "ALPHA-1"), cardEntry("e2", "alpha", "ALPHA-2"))
+	e.activeRun(p, "e1")
+	e.pbs.add(p)
+
+	e.pbs.mu.Lock()
+	e.pbs.afterGet = func() {
+		e.pbs.mu.Lock()
+		defer e.pbs.mu.Unlock()
+
+		p.Run.Entry = "e2"
+		p.Entries = p.Entries[1:]
+	}
+	e.pbs.mu.Unlock()
+
+	_, err := e.runner.Stop(context.Background(), "rollout", "human:alice")
+	require.NoError(t, err)
+
+	run := e.pbs.lastRun()
+	assert.Equal(t, board.RunStatusStopped, run.Status)
+	assert.Equal(t, "e2", run.Entry)
+}
+
+func TestStop_RefusesARunThatEndedBetweenReadAndWrite(t *testing.T) {
+	e := newEnv(t)
+	e.cards.add(todoCard("alpha", "ALPHA-1"))
+
+	p := runnablePlaybook("rollout", cardEntry("e1", "alpha", "ALPHA-1"))
+	e.activeRun(p, "e1")
+	e.pbs.add(p)
+
+	e.pbs.mu.Lock()
+	e.pbs.afterGet = func() {
+		e.pbs.mu.Lock()
+		defer e.pbs.mu.Unlock()
+
+		ended := e.clk.Now()
+		p.Run.Status = board.RunStatusCompleted
+		p.Run.EndedAt = &ended
+	}
+	e.pbs.mu.Unlock()
+
+	_, err := e.runner.Stop(context.Background(), "rollout", "human:alice")
+	require.ErrorIs(t, err, ErrRunInactive)
+	assert.Equal(t, 0, e.pbs.runWrites(), "a run that already ended is not overwritten")
+}
+
+func TestPlay_RefusesARunAnotherInstanceStartedAfterItsRead(t *testing.T) {
+	e := newEnv(t)
+	e.cards.add(todoCard("alpha", "ALPHA-1"))
+
+	p := runnablePlaybook("rollout", cardEntry("e1", "alpha", "ALPHA-1"))
+	e.pbs.add(p)
+
+	e.pbs.mu.Lock()
+	e.pbs.afterGet = func() {
+		e.pbs.mu.Lock()
+		defer e.pbs.mu.Unlock()
+
+		now := e.clk.Now()
+		p.Run = &board.PlaybookRun{
+			Status: board.RunStatusRunning, Instance: "other", StartedBy: "human:bob", StartedAt: now, UpdatedAt: now,
+		}
+	}
+	e.pbs.mu.Unlock()
+
+	_, err := e.runner.Play(context.Background(), "rollout", "human:alice")
+	require.ErrorIs(t, err, service.ErrPlaybookRunActive)
+	assert.Equal(t, 0, e.pbs.runWrites(), "the other instance's run is not overwritten")
+}
+
 func TestStop_DeclinesTheStopperWhenTheCardIsClaimedElsewhere(t *testing.T) {
 	e := newEnv(t)
 	c := todoCard("alpha", "ALPHA-1")
@@ -639,11 +759,6 @@ func TestPass_HoldsOnTheLiveWorker(t *testing.T) {
 	}{
 		{"running", func(_ *env, c *board.Card) { c.WorkerStatus = "running" }},
 		{"queued", func(_ *env, c *board.Card) { c.WorkerStatus = "queued" }},
-		{"claimed elsewhere", func(e *env, c *board.Card) {
-			c.WorkerStatus = ""
-			c.AssignedAgent = "agent-1"
-			e.cards.elsewhere[cardKey("alpha", "ALPHA-2")] = true
-		}},
 	}
 
 	ended := []struct {
@@ -718,10 +833,8 @@ func TestPass_HoldOnLiveWorkerResumesRunning(t *testing.T) {
 	e.cards.add(todoCard("alpha", "ALPHA-1"))
 
 	c := liveCard()
-	c.WorkerStatus = ""
-	c.AssignedAgent = "agent-1"
+	c.WorkerStatus = "running"
 	e.cards.add(c)
-	e.cards.elsewhere[cardKey("alpha", "ALPHA-2")] = true
 
 	p := runnablePlaybook("rollout", cardEntry("e1", "alpha", "ALPHA-1"), cardEntry("e2", "alpha", "ALPHA-2"))
 	e.activeRun(p, "e2")
@@ -934,10 +1047,6 @@ func TestPass_HoldsOnALiveWorkerOffTheRunEntry(t *testing.T) {
 	}{
 		{"queued", func(_ *env, c *board.Card) { c.WorkerStatus = "queued" }},
 		{"running", func(_ *env, c *board.Card) { c.WorkerStatus = "running" }},
-		{"claimed elsewhere", func(e *env, c *board.Card) {
-			c.AssignedAgent = "agent-1"
-			e.cards.elsewhere[cardKey("alpha", "ALPHA-2")] = true
-		}},
 	}
 
 	for _, l := range live {

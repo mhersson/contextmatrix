@@ -118,7 +118,7 @@ type fakePlaybooks struct {
 
 	// afterSetRun, when set, is called once after the next successful run
 	// write, outside the lock, then cleared.
-	afterSetRun func()
+	afterSetRun func(ctx context.Context)
 
 	// afterGet, when set, is called once by Get after the detail is built
 	// and before it is returned, then cleared. Tests use it to hold a pass
@@ -273,7 +273,7 @@ func (f *fakePlaybooks) SetRunFunc(
 	f.mu.Unlock()
 
 	if hook != nil {
-		hook()
+		hook(ctx)
 	}
 
 	return f.Get(ctx, id)

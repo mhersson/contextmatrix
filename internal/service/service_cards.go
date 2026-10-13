@@ -1486,11 +1486,14 @@ func (s *CardService) DeleteCard(ctx context.Context, project, id string) error 
 	}
 
 	// Stop and the playbook runner find a worker through its card; a delete
-	// would orphan it.
-	if err := refuseLiveWorker(snapshot); err != nil {
-		s.writeMu.Unlock()
+	// would orphan a non-terminal card's worker. A terminal card's worker is
+	// finishing and the sweep reaps its container.
+	if !board.IsTerminalState(snapshot.State) {
+		if err := refuseLiveWorker(snapshot); err != nil {
+			s.writeMu.Unlock()
 
-		return fmt.Errorf("delete card: %w", err)
+			return fmt.Errorf("delete card: %w", err)
+		}
 	}
 
 	// Reject deletion if card has children (subtasks)

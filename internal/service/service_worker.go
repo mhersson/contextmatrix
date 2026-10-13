@@ -2,13 +2,16 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/lock"
+	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
 // ErrProtectedBranch is returned when an operation targets a protected branch (main/master).
@@ -378,6 +381,60 @@ func (s *CardService) UpdateWorkerStatus(ctx context.Context, project, cardID, s
 // or running (ErrWorkerActive); the check and the write share the write lock.
 func (s *CardService) MarkQueued(ctx context.Context, project, cardID, message string) (*board.Card, error) {
 	return s.updateWorkerStatus(ctx, project, cardID, "queued", message, refuseLiveWorker)
+}
+
+// errWorkerNotLost is FailLostWorker's guard refusal; it never leaves the package.
+var errWorkerNotLost = errors.New("worker not lost")
+
+// LiveWorkerCards returns every card, across all projects, whose worker is
+// queued or running.
+func (s *CardService) LiveWorkerCards(ctx context.Context) ([]*board.Card, error) {
+	projects, err := s.store.ListProjects(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list projects: %w", err)
+	}
+
+	var out []*board.Card
+
+	for _, p := range projects {
+		cards, err := s.store.ListCards(ctx, p.Name, storage.CardFilter{})
+		if err != nil {
+			return nil, fmt.Errorf("list cards in %s: %w", p.Name, err)
+		}
+
+		for _, c := range cards {
+			if c.WorkerStatus == "queued" || c.WorkerStatus == "running" {
+				out = append(out, c)
+			}
+		}
+	}
+
+	return out, nil
+}
+
+// FailLostWorker marks the card's worker failed when it is still queued or
+// running, the card has not been written since cutoff, and its claim was not
+// granted by another instance. It reports whether it wrote.
+func (s *CardService) FailLostWorker(ctx context.Context, project, id string, cutoff time.Time, message string) (bool, error) {
+	guard := func(card *board.Card) error {
+		if (card.WorkerStatus != "queued" && card.WorkerStatus != "running") ||
+			card.Updated.After(cutoff) || s.ClaimedElsewhere(card) {
+			return errWorkerNotLost
+		}
+
+		return nil
+	}
+
+	_, err := s.updateWorkerStatus(ctx, project, id, "failed", message, guard)
+	if errors.Is(err, errWorkerNotLost) {
+		return false, nil
+	}
+
+	if err != nil {
+		return false, err
+	}
+
+	return true, nil
 }
 
 // updateWorkerStatus is UpdateWorkerStatus with an optional guard run on the

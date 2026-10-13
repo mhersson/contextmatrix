@@ -181,7 +181,7 @@ describe('PlaybookDetailPage', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: /make runnable/i }));
 
     await waitFor(() => expect(api.patchPlaybook).toHaveBeenCalledWith('roll', { runnable: true }));
-    await waitFor(() => expect(toast.showToast).toHaveBeenCalledWith('project has no GitHub repository: alpha', 'error'));
+    await waitFor(() => expect(toast.showToast).toHaveBeenCalledWith(expect.stringContaining('alpha'), 'error'));
   });
 
   it('surfaces the server reason when the base-branch change is refused', async () => {
@@ -213,7 +213,7 @@ describe('PlaybookDetailPage', () => {
     fireEvent.click(removeButtons[removeButtons.length - 1]);
     await waitFor(() => expect(api.deletePlaybookEntry).toHaveBeenCalledWith('roll', 'e2'));
     await waitFor(() => expect(toast.showToast).toHaveBeenCalledWith(
-      "playbook run is active: entry is the run's current card; stop the run first", 'error',
+      expect.stringContaining("entry is the run's current card; stop the run first"), 'error',
     ));
     // Refusal is the server's; the page opens no confirm of its own.
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
@@ -252,7 +252,7 @@ describe('PlaybookDetailPage', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: /^delete$/i }));
 
     await waitFor(() => expect(toast.showToast).toHaveBeenCalledWith(
-      'playbook run is active: stop the run first', 'error',
+      expect.stringContaining('stop the run first'), 'error',
     ));
   });
 
@@ -278,7 +278,7 @@ describe('PlaybookDetailPage', () => {
 
     await waitFor(() => expect(api.patchPlaybookEntry).toHaveBeenCalledWith('roll', 'e2', { position: 0 }));
     await waitFor(() => expect(toast.showToast).toHaveBeenCalledWith(
-      'entries cannot be reordered while the playbook run is active: stop the run to reorder entries',
+      expect.stringContaining('stop the run to reorder entries'),
       'error',
     ));
     await waitFor(() => expect(order()).toEqual(before));
@@ -302,7 +302,7 @@ describe('PlaybookDetailPage', () => {
 
     await waitFor(() => expect(api.patchPlaybookEntry).toHaveBeenCalledWith('roll', 'e1', { done: false }));
     await waitFor(() => expect(toast.showToast).toHaveBeenCalledWith(
-      'entries cannot be unchecked while the playbook run is active: stop the run to uncheck entries',
+      expect.stringContaining('stop the run to uncheck entries'),
       'error',
     ));
     expect(screen.getByRole('checkbox', { name: 'done step' })).toBeChecked();

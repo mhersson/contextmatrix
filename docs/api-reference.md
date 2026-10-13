@@ -266,7 +266,7 @@ the request's `request_id`.
 | `INVALID_MODEL`               | 400     | Chat `model` not in the active model source                                                                                                                                                |
 | `TOO_MANY_CHATS`              | 429     | `chat.max_concurrent` reached, or 32 subscribers already on one chat stream                                                                                                                |
 | `TOO_MANY_SUBSCRIBERS`        | 429     | 128 concurrent `GET /api/events` subscribers already connected                                                                                                                             |
-| `WORKER_CONFLICT`             | 409     | Card already queued or running: a run trigger, or a delete while the worker is live                                                                                                        |
+| `WORKER_CONFLICT`             | 409     | Card already queued or running: a run trigger, or a delete of an unfinished card while the worker is live                                                                                  |
 | `WORKER_NOT_RUNNING`          | 409     | Card is not running; also a cold chat session                                                                                                                                              |
 | `BACKEND_DISABLED`            | 503     | No task backend (or no such backend) configured                                                                                                                                            |
 | `BACKEND_UNAVAILABLE`         | 502     | Backend webhook or probe failed                                                                                                                                                            |
@@ -1254,11 +1254,13 @@ Deletes the card file (git history keeps it). **204 No Content**.
 
 **Errors:** 404 `CARD_NOT_FOUND`; 403 `AGENT_MISMATCH` on a claimed card the
 caller does not own; 422 `VALIDATION_ERROR` when the card still has subtasks
-("cannot delete card with N subtask(s)"); 409 `WORKER_CONFLICT` while the card's
-worker is `queued` or `running`. Stop the worker first; if the stop fails because
-the backend no longer has that worker, `POST /api/projects/{project}/stop-all`
-stops every worker in the project and marks this one `killed`, and force-release
-marks a claimed card's worker `failed`.
+("cannot delete card with N subtask(s)"); 409 `WORKER_CONFLICT` while a card that
+is not `done` or `not_planned` has its worker `queued` or `running`. Stop the
+worker first. When the reconcile sweep is enabled (a non-zero
+`reconcile_interval`), it marks a worker the backend no longer has `failed`
+once the card has gone 10 minutes without a change;
+`POST /api/projects/{project}/stop-all` clears it sooner, and force-release marks
+a claimed card's worker `failed`.
 
 ### POST /api/projects/{project}/cards/{id}/claim
 
@@ -2002,7 +2004,8 @@ Response **200** with the full detail.
 Removes one entry; its id is never reused. Response **200** with the full
 detail (the playbook still exists). **Errors:** 404 `PLAYBOOK_NOT_FOUND`,
 404 `PLAYBOOK_ENTRY_NOT_FOUND`, 409 `PLAYBOOK_RUN_ACTIVE` (the entry is the
-run's current card; stop the run first).
+run's current card, or a non-terminal card with a queued or running worker;
+stop the run first).
 
 **Attribution** (`created_by`, `done_by`): the same resolved identity as
 cards - session in multi mode, else `X-Agent-ID`, falling back to
@@ -2024,12 +2027,14 @@ Errors: `403 HUMAN_ONLY_FIELD`, `404 PLAYBOOK_NOT_FOUND`,
 
 ### POST /api/playbooks/{id}/stop
 
-Marks the run `stopped` (with `ended_at`), then kills the worker of every card
-entry that is queued or running on this instance and not `done` or
-`not_planned`. A launch already in flight finishes first, and Stop then kills
-the worker it queued. A backend that has not started tracking that worker yet
-refuses the kill, so Stop answers `502` (run stopped, kill failed); stop that
-card's worker from the card, or with `POST /api/projects/{project}/stop-all`.
+Marks the run `stopped` (with `ended_at`), then kills, on this instance, the
+current card's worker and every worker queued or running on the run's other
+cards when the stop was written, skipping `done` and `not_planned` cards. A
+launch already in flight finishes first, and Stop then kills the worker it
+queued. A hand run on another card after the stop is left alone. A backend
+that has not started tracking that worker yet refuses the kill, so Stop answers
+`502` (run stopped, kill failed); stop that card's worker from the card, or
+with `POST /api/projects/{project}/stop-all`.
 `202` with the detail. Errors: `403 HUMAN_ONLY_FIELD`, `404 PLAYBOOK_NOT_FOUND`,
 `409 PLAYBOOK_RUN_INACTIVE`, `502 BACKEND_UNAVAILABLE` (run stopped, a kill
 failed; the other workers were still killed).

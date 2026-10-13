@@ -613,7 +613,9 @@ func TestResolvePlaybook_ActiveRunBeatsADelete(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			kept := serializePb(t, tt.survivor)
-			in := Input{Path: "playbooks/release.yaml", Base: serializePb(t, runningPb()), Ours: kept, Theirs: kept}
+			base := runningPb()
+			base.Run = nil
+			in := Input{Path: "playbooks/release.yaml", Base: serializePb(t, base), Ours: kept, Theirs: kept}
 
 			if tt.deleteOurs {
 				in.Ours = nil
@@ -635,4 +637,261 @@ func TestResolvePlaybook_ActiveRunBeatsADelete(t *testing.T) {
 			assert.True(t, hasRule(out.Resolutions, RulePlaybookRunOverDelete))
 		})
 	}
+}
+
+func TestResolvePlaybook_ActiveRunKeepsRunnable(t *testing.T) {
+	disabled := func(updated int) *board.Playbook {
+		p := runningPb()
+		p.Runnable = false
+		p.Run = nil
+		p.Updated = ts(updated)
+
+		return p
+	}
+	active := func(updated int) *board.Playbook {
+		p := runningPb()
+		p.Updated = ts(updated)
+
+		return p
+	}
+	noRun := func() *board.Playbook {
+		p := runningPb()
+		p.Run = nil
+
+		return p
+	}
+	stopped := func() *board.Playbook {
+		p := runningPb()
+		p.Run.Status = board.RunStatusStopped
+
+		return p
+	}
+
+	newer := func(p *board.Playbook) *board.Playbook {
+		p.Run.StartedAt = ts(1)
+
+		return p
+	}
+
+	tests := []struct {
+		name         string
+		base         *board.Playbook
+		ours, theirs *board.Playbook
+		wantKept     bool
+	}{
+		{name: "ours active, theirs disabled", base: noRun(), ours: active(5), theirs: disabled(3), wantKept: true},
+		{name: "theirs active, ours disabled", base: noRun(), ours: disabled(3), theirs: active(5), wantKept: true},
+		{name: "base stopped run, disabler later", base: stopped(), ours: newer(active(2)), theirs: disabled(9), wantKept: true},
+		{name: "base active run, disabler stopped it", base: active(0), ours: active(9), theirs: disabled(3)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, out := resolveParsed(t, tt.base, tt.ours, tt.theirs)
+
+			if !tt.wantKept {
+				assert.False(t, got.Runnable)
+				assert.Nil(t, got.Run)
+				assert.False(t, hasRule(out.Resolutions, RulePlaybookRunKeepsRunnable))
+
+				return
+			}
+
+			assert.True(t, got.Runnable)
+			require.NotNil(t, got.Run)
+
+			wantRun := tt.ours.Run
+			if wantRun == nil {
+				wantRun = tt.theirs.Run
+			}
+
+			assert.Equal(t, wantRun, got.Run)
+			assert.True(t, hasRule(out.Resolutions, RulePlaybookRunKeepsRunnable))
+		})
+	}
+}
+
+func TestResolvePlaybook_DeleteAfterStopKeepsTheRunStopped(t *testing.T) {
+	later := runningPb()
+	later.Updated = ts(9)
+	later.Run.UpdatedAt = ts(9)
+
+	noRun := runningPb()
+	noRun.Run = nil
+
+	tests := []struct {
+		name       string
+		base       *board.Playbook
+		deleteOurs bool
+		wantActive bool
+	}{
+		{name: "ours deleted after stop", base: runningPb(), deleteOurs: true},
+		{name: "theirs deleted after stop", base: runningPb(), deleteOurs: false},
+		{name: "base without an active run keeps the run", base: noRun, deleteOurs: true, wantActive: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			in := Input{Path: "playbooks/release.yaml", Base: serializePb(t, tt.base), Ours: serializePb(t, later), Theirs: serializePb(t, later)}
+			if tt.deleteOurs {
+				in.Ours = nil
+			} else {
+				in.Theirs = nil
+			}
+
+			// A local clock in another zone still stamps the stop in UTC, as the runner does.
+			c := testCtx()
+			c.Now = func() time.Time { return ts(99).In(time.FixedZone("CEST", 2*60*60)) }
+
+			out, err := Resolve(in, c)
+			require.NoError(t, err)
+			require.False(t, out.Deleted)
+			assert.True(t, hasRule(out.Resolutions, RulePlaybookRunOverDelete))
+
+			got, err := board.ParsePlaybook(out.Content)
+			require.NoError(t, err)
+			require.NotNil(t, got.Run)
+
+			if tt.wantActive {
+				assert.True(t, got.Run.Active())
+
+				return
+			}
+
+			assert.Equal(t, board.RunStatusStopped, got.Run.Status)
+			require.NotNil(t, got.Run.EndedAt)
+			assert.Equal(t, time.UTC, got.Run.EndedAt.Location())
+			assert.Equal(t, time.UTC, got.Run.UpdatedAt.Location())
+			require.NoError(t, got.Validate())
+		})
+	}
+}
+
+func TestKeepRunEntry_RestoresBesideItsBaseNeighbours(t *testing.T) {
+	three := func() *board.Playbook {
+		p := runningPb()
+		p.Run = nil
+		p.Entries = append(p.Entries, board.PlaybookEntry{ID: "e3", Type: board.EntryTypeCard, Project: "alpha", Card: "ALPHA-003"})
+		p.NextEntryID = 4
+
+		return p
+	}
+	byID := func(p *board.Playbook, ids ...string) []board.PlaybookEntry {
+		var es []board.PlaybookEntry
+		for _, id := range ids {
+			es = append(es, p.Entries[p.FindEntry(id)])
+		}
+
+		return es
+	}
+
+	tests := []struct {
+		name   string
+		theirs []string
+		want   []string
+	}{
+		{name: "middle entry", theirs: []string{"e1", "e3"}, want: []string{"e1", "e2", "e3"}},
+		{name: "two earlier entries removed", theirs: []string{"e3"}, want: []string{"e2", "e3"}},
+		{name: "two later entries removed", theirs: []string{"e1"}, want: []string{"e1", "e2"}},
+		{name: "theirs reordered", theirs: []string{"e3", "e1"}, want: []string{"e3", "e1", "e2"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			base := three()
+			ours := three()
+			ours.Run = &board.PlaybookRun{Status: board.RunStatusRunning, Instance: "lap-a", StartedAt: ts(0), UpdatedAt: ts(5), Entry: "e2"}
+			ours.Updated = ts(5)
+
+			theirs := three()
+			theirs.Entries = byID(base, tt.theirs...)
+			theirs.Updated = ts(3)
+
+			got, _ := resolveParsed(t, base, ours, theirs)
+			assert.Equal(t, tt.want, entryIDs(got))
+		})
+	}
+}
+
+func TestKeepRunEntry_RenamesARunEntryOursAdded(t *testing.T) {
+	base := runningPb()
+	base.Run = nil
+	base.Entries = base.Entries[:1]
+
+	ours := runningPb()
+	ours.Entries = []board.PlaybookEntry{base.Entries[0], {ID: "e2", Type: board.EntryTypeCard, Project: "P", Card: "P-002"}}
+	ours.Run = &board.PlaybookRun{Status: board.RunStatusRunning, Instance: "lap-a", StartedAt: ts(0), UpdatedAt: ts(5), Entry: "e2"}
+
+	theirs := runningPb()
+	theirs.Run = nil
+	theirs.Entries = []board.PlaybookEntry{base.Entries[0], {ID: "e3", Type: board.EntryTypeCard, Project: "P", Card: "P-005"}}
+
+	// Constructed to reach the rename branch; not a realistic merge.
+	ctx := testCtx()
+	ctx.Renames = map[string]string{"P/P-002": "P-005"}
+
+	out, err := Resolve(Input{
+		Path: "playbooks/release.yaml", Base: serializePb(t, base),
+		Ours: serializePb(t, ours), Theirs: serializePb(t, theirs),
+	}, ctx)
+	require.NoError(t, err)
+
+	got, err := board.ParsePlaybook(out.Content)
+	require.NoError(t, err)
+	require.NotNil(t, got.Run)
+	assert.Equal(t, "e3", got.Run.Entry)
+
+	for _, e := range got.Entries {
+		assert.NotEqual(t, "P-002", e.Card)
+	}
+
+	assert.True(t, hasRule(out.Resolutions, RulePlaybookRunEntry))
+}
+
+// TestResolvePlaybook_NewerRunSurvivesAStaleStop: base holds run A; a stale peer
+// stopped it and turned runnable off or deleted, while A's owner finished A
+// and started run B. B was never seen by the peer and must survive.
+func TestResolvePlaybook_NewerRunSurvivesAStaleStop(t *testing.T) {
+	newRun := func(p *board.Playbook) {
+		p.Run = &board.PlaybookRun{
+			Status: board.RunStatusRunning, Instance: "a", StartedAt: ts(0).Add(5 * time.Minute),
+			UpdatedAt: ts(9), Entry: "e1",
+		}
+		p.Updated = ts(9)
+	}
+
+	t.Run("runnable turned off", func(t *testing.T) {
+		base, owner, peer := runningPb(), runningPb(), runningPb()
+		base.Run.Instance, owner.Run.Instance, peer.Run.Instance = "a", "a", "a"
+		newRun(owner)
+
+		peer.Runnable = false
+		peer.Run = nil
+		peer.Updated = ts(3)
+
+		got, out := resolveParsed(t, base, owner, peer)
+		assert.True(t, got.Runnable)
+		require.NotNil(t, got.Run)
+		assert.True(t, got.Run.Active())
+		assert.True(t, got.Run.StartedAt.Equal(owner.Run.StartedAt))
+		assert.True(t, hasRule(out.Resolutions, RulePlaybookRunKeepsRunnable))
+	})
+
+	t.Run("deleted", func(t *testing.T) {
+		base, owner := runningPb(), runningPb()
+		base.Run.Instance = "a"
+
+		newRun(owner)
+
+		out, err := Resolve(Input{
+			Path: "playbooks/release.yaml", Base: serializePb(t, base), Ours: nil, Theirs: serializePb(t, owner),
+		}, testCtx())
+		require.NoError(t, err)
+		require.False(t, out.Deleted)
+
+		got, err := board.ParsePlaybook(out.Content)
+		require.NoError(t, err)
+		require.NotNil(t, got.Run)
+		assert.True(t, got.Run.Active())
+	})
 }

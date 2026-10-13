@@ -1,7 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, beforeAll, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ChatTranscript } from './ChatTranscript';
 import type { LogEntry } from '../../types';
+
+// Chat entries lazy-load the markdown chunk; loading it up front keeps the
+// import from finishing after this file's environment is torn down.
+beforeAll(() => import('../Markdown/SafeMarkdownPreview'));
 
 /**
  * jsdom has no layout, so scroll geometry is stubbed (same approach as

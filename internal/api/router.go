@@ -1192,12 +1192,13 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusConflict, ErrCodeInvalidTransition, "card is in a terminal state", sanitizeErrorDetails(err))
 	case errors.Is(err, service.ErrWorkerActive):
 		writeError(w, http.StatusConflict, ErrCodeWorkerConflict, "card has a queued or running worker",
-			"stop the worker first; if Stop fails because the worker no longer exists, "+
-				"use Stop All for the project, or force-release the card when it is claimed")
+			fmt.Sprintf("stop the worker first; with the reconcile sweep enabled, a worker that no longer exists "+
+				"is marked failed automatically once its card has gone %d minutes without a change",
+				int(backend.StaleWorkerGrace.Minutes())))
 	case errors.Is(err, service.ErrDuplicateCardEntry):
 		writeError(w, http.StatusConflict, ErrCodePlaybookEntryExists, "card already in playbook", sanitizeErrorDetails(err))
 	case errors.Is(err, service.ErrPlaybookRunActive):
-		writeError(w, http.StatusConflict, ErrCodePlaybookRunActive, "playbook run is active", sanitizeErrorDetails(err))
+		writeError(w, http.StatusConflict, ErrCodePlaybookRunActive, "playbook run is active", detailsAfter(err, service.ErrPlaybookRunActive))
 	case errors.Is(err, service.ErrPlaybookMoveDuringRun):
 		writeError(w, http.StatusConflict, ErrCodePlaybookMoveDuringRun,
 			"entries cannot be reordered while the playbook run is active", "stop the run to reorder entries")
