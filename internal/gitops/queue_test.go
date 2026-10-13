@@ -604,6 +604,81 @@ func TestCommitQueue_ShutdownCompletesPendingJob(t *testing.T) {
 	assert.Len(t, fake.snapshot(), 1)
 }
 
+// wedgedCommitter blocks every commit until release is closed and closes
+// entered when the first commit starts.
+type wedgedCommitter struct {
+	fakeCommitter
+
+	once    sync.Once
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (w *wedgedCommitter) CommitFile(ctx context.Context, path, message string) error {
+	w.once.Do(func() { close(w.entered) })
+	<-w.release
+
+	return w.fakeCommitter.CommitFile(ctx, path, message)
+}
+
+// TestCommitQueue_CloseHonorsCtxWithBlockedSender pins that Close returns
+// ctx.Err() on its deadline even while an Enqueue is stuck sending into the
+// full buffer of a wedged worker.
+func TestCommitQueue_CloseHonorsCtxWithBlockedSender(t *testing.T) {
+	w := &wedgedCommitter{entered: make(chan struct{}), release: make(chan struct{})}
+	q := NewCommitQueueWithCommitter(w, 1)
+
+	job := func(msg string) CommitJob {
+		return CommitJob{Project: "alpha", Kind: CommitKindFile, Path: "a.md", Message: msg}
+	}
+
+	first := q.Enqueue(job("wedged"))
+
+	<-w.entered
+
+	second := q.Enqueue(job("buffered"))
+
+	var third <-chan error
+
+	sender := make(chan struct{})
+
+	go func() {
+		defer close(sender)
+
+		third = q.Enqueue(job("blocked"))
+	}()
+
+	t.Cleanup(func() {
+		close(w.release)
+		<-sender
+
+		for _, d := range []<-chan error{first, second, third} {
+			require.NoError(t, <-d)
+		}
+	})
+
+	require.Eventually(t, func() bool {
+		q.mu.Lock()
+		defer q.mu.Unlock()
+
+		return q.pending == 3
+	}, 2*time.Second, time.Millisecond, "third Enqueue never registered")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+
+	closed := make(chan error, 1)
+
+	go func() { closed <- q.Close(ctx) }()
+
+	select {
+	case err := <-closed:
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close ignored its ctx while a sender was blocked")
+	}
+}
+
 // TestCommitQueue_DrainRunsBufferedJobs pins the contract Drain adds over
 // AwaitIdle: buffered jobs that have not started yet must run to completion,
 // and the queue is left paused so the caller can take the repository

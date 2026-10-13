@@ -468,9 +468,9 @@ func (q *CommitQueue) Drain(ctx context.Context) error {
 // Close stops the queue and drains all buffered jobs. After Close
 // returns, Enqueue rejects new jobs with ErrQueueClosed.
 //
-// Close blocks until either all workers finish or ctx is cancelled.
-// Pending jobs that cannot run before ctx deadline return context errors
-// on their Done channels.
+// Close blocks until either all workers finish or ctx is cancelled. On
+// cancellation it returns ctx.Err() and the drain carries on in the
+// background.
 func (q *CommitQueue) Close(ctx context.Context) error {
 	q.mu.Lock()
 
@@ -497,17 +497,17 @@ func (q *CommitQueue) Close(ctx context.Context) error {
 	}
 	q.mu.Unlock()
 
-	// Every Enqueue that passed the closed check registered on sending
-	// first, so once it drains no send can hit a closed channel.
-	q.sending.Wait()
-
-	for _, ch := range workers {
-		close(ch)
-	}
-
 	done := make(chan struct{})
 
 	go func() {
+		// Every Enqueue that passed the closed check registered on sending
+		// first, so once it drains no send can hit a closed channel.
+		q.sending.Wait()
+
+		for _, ch := range workers {
+			close(ch)
+		}
+
 		q.wg.Wait()
 		close(done)
 	}()
