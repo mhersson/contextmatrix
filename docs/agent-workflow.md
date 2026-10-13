@@ -332,8 +332,9 @@ main session, creates the card and offers next steps.
 
 **3. Execution** (Phase 5) - the orchestrator checks out `branch_name`
 (a local workflow uses the predicted name as-is; a remote worker never
-receives the field, pushes `cm/<lowercase-card-id>` instead, and `report_push`
-then stores the branch it reports - see
+receives the field, pushes `cm/<lowercase-card-id>` instead
+(`cm/<lowercase-card-id>-<KEY>` for a Jira-imported card, e.g.
+`cm/api-012-PROJ-123`), and `report_push` then stores the branch it reports - see
 [`create_pr` semantics](data-model.md#create_pr-semantics)), claims the
 parent, calls `get_ready_tasks` and spawns one `execute-task` sub-agent per
 ready subtask via `Agent`, in parallel, sharing the working tree; never
@@ -421,7 +422,8 @@ Parent lifecycle with rejections:
 Cards with `autonomous: true` skip the human gates. `start_workflow` routes
 them to `run-autonomous.md`, which claims the card, creates or checks out
 `branch_name` (the predicted name; a remote worker works on
-`cm/<lowercase-card-id>` instead and `report_push` reconciles the field), and
+`cm/<lowercase-card-id>` instead, or `cm/<lowercase-card-id>-<KEY>` for a
+Jira-imported card, and `report_push` reconciles the field), and
 resumes at the phase the card state implies:
 
 | Card state                                 | Starts at                                                             |

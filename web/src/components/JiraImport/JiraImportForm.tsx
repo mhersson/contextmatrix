@@ -1,7 +1,7 @@
 import { useId } from 'react';
 import { useProjects } from '../../hooks/useProjects';
 import type { JiraEpicPreview } from '../../types';
-import { canSubmit, prefixClashes, splitWarnings, type ImportForm } from './jiraImportModel';
+import { canSubmit, MAX_SELECTIONS, prefixClashes, splitWarnings, type ImportForm } from './jiraImportModel';
 import { JiraImportOptions } from './JiraImportOptions';
 import { JiraIssueTree } from './JiraIssueTree';
 
@@ -44,6 +44,11 @@ export function JiraImportForm({ preview, form, onChange, runActive, busy, onSub
         />
       </div>
       <JiraImportOptions preview={preview} form={form} projects={projects} onChange={onChange} />
+      {count > MAX_SELECTIONS && (
+        <div role="status" className="text-sm" style={{ color: 'var(--yellow)' }}>
+          An import takes at most {MAX_SELECTIONS} issues; {count} are selected.
+        </div>
+      )}
       <div className="flex gap-2 justify-end">
         <button type="button" onClick={onCancel} disabled={busy} className="bf-btn-ghost bf-btn-sm">
           Cancel

@@ -183,7 +183,8 @@ payload in `internal/api/backend_launch.go` (`launch`, shared with the playbook 
 
 Standalone and parent cards carry a predicted `branch_name` at create; no
 git ref is created merely by generating the field. The worker derives the
-branch it actually pushes from the card id (`cm/<lowercase-card-id>`); the
+branch it actually pushes from the card id (`cm/<lowercase-card-id>`, or
+`cm/<lowercase-card-id>-<KEY>` for a Jira-imported card, key uppercase); the
 first `report_push` sets the stored `branch_name` to the worker-reported
 value. The card's `create_pr` (default `true` at create) decides whether a
 pull request is opened, whatever the launch mode.

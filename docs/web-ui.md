@@ -174,9 +174,10 @@ Catppuccin.
 When Jira is configured, the "New playbook" form's title also takes a Jira epic
 key or URL, and **Import from Jira** sits next to **Create playbook** (Enter
 still creates). It is enabled only for a key or a URL on the configured site,
-and disabled while the Jira token fails. The import dialog shows the epic's
-children and their sub-tasks with checkboxes (open, never-imported issues
-preselected; issues already in the playbook disabled), a project picker per
+and disabled only while Jira rejects the token or a login CAPTCHA blocks it.
+The import dialog shows the epic's children and their sub-tasks with checkboxes
+(open, never-imported issues preselected; issues already in the playbook
+disabled), a project picker per
 issue plus one for all, an order-only warning on a sub-task placed in another
 project than its parent, a warning when a target project's card prefix equals a
 Jira project key in the import (PR links may attach to the wrong issue; it never
@@ -189,8 +190,10 @@ background: the dialog lists each issue's result as it lands (from the event
 stream, caught up from the server on reconnect and every 5 s), then enables
 **Open playbook**. An import that stops early, or that a server restart forgot,
 lists the issues it never reached as `not run`. Closing the dialog does not
-stop the import. A playbook imported from Jira shows a Jira chip in its header
-that links to the epic, and its cards carry a Jira source icon on the board. See
+stop the import; opening the dialog for the epic again, on the same server, shows
+that import's progress instead of offering Import, once the epic preview loads.
+A playbook imported from Jira shows a Jira chip in its header that links to the
+epic, and its cards carry a Jira source icon on the board. See
 [Jira import](jira-import.md).
 
 `/playbooks/:id` carries a **Run** card in its side panel. **Make runnable**

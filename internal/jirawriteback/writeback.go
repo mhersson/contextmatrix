@@ -69,6 +69,8 @@ type Writeback struct {
 	outbox   Outbox
 	resolver *resolver
 	siteHost string
+	// sitePath is the site URL's path without a trailing slash, usually "".
+	sitePath string
 	clk      clock.Clock
 	logger   *slog.Logger
 	wake     chan struct{}
@@ -107,6 +109,7 @@ func New(bus *events.Bus, cards Cards, outbox Outbox, api JiraAPI, opts Options)
 		outbox:   outbox,
 		resolver: newResolver(api, opts.StatusTargets),
 		siteHost: u.Hostname(),
+		sitePath: strings.TrimRight(u.Path, "/"),
 		clk:      clk,
 		logger:   logger,
 		wake:     make(chan struct{}, 1),
@@ -143,14 +146,15 @@ func (w *Writeback) nudge() {
 
 // jiraKey returns the issue key of a card imported from this instance's
 // Jira site, or "". The host check stops a card sourced from another Jira
-// site from moving the same issue key on this one.
+// site from moving the same issue key on this one; the path check stops a
+// card whose link shows one issue from moving another.
 func (w *Writeback) jiraKey(c *board.Card) string {
 	if c == nil || c.Source == nil || c.Source.System != jira.SourceSystem || !jira.IsIssueKey(c.Source.ExternalID) {
 		return ""
 	}
 
 	u, err := url.Parse(c.Source.ExternalURL)
-	if err != nil || !strings.EqualFold(u.Hostname(), w.siteHost) {
+	if err != nil || !strings.EqualFold(u.Hostname(), w.siteHost) || u.Path != w.sitePath+"/browse/"+c.Source.ExternalID {
 		return ""
 	}
 

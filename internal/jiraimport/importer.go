@@ -66,7 +66,7 @@ func (s *Service) prepare(ctx context.Context, epicKey string, req ImportRequest
 		return nil, err
 	}
 
-	d, err := s.playbooks.FindBySource(ctx, jira.SourceSystem, t.epic.Key)
+	d, err := s.playbooks.FindBySource(ctx, s.source(t.epic.Key))
 
 	switch {
 	case err == nil:
@@ -90,10 +90,18 @@ func errPlaybookRunning(d *service.PlaybookDetail) error {
 func (s *Service) importTree(
 	ctx context.Context, t *tree, req ImportRequest, agentID string, progress func(Result),
 ) (*ImportResponse, error) {
-	unlock := s.lockEpic(t.epic.Key)
+	unlock, err := s.lockEpic(ctx, t.epic.Key)
+	if err != nil {
+		return nil, err
+	}
 	defer unlock()
 
-	if err := ctx.Err(); err != nil {
+	// The bound starts once the epic is free: time queued behind another
+	// import of the epic is not this import's.
+	ctx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+
+	if err = ctx.Err(); err != nil {
 		return nil, err
 	}
 
@@ -109,7 +117,7 @@ func (s *Service) importTree(
 
 	run := &importRun{
 		svc: s, req: req, agentID: agentID, tree: t, index: idx, progress: progress,
-		playbookID: pb.ID, entries: entryRefs(pb), cards: map[string]cardRef{},
+		playbookID: pb.ID, entries: entryRefs(pb), cards: map[string]cardRef{}, failed: map[string]string{},
 	}
 
 	if req.IncludeEpicContext {
@@ -126,11 +134,12 @@ func (s *Service) importTree(
 
 // resolvePlaybook reuses the epic's playbook from any boards repo, ignoring
 // the submitted title and repo, or creates one sourced to the epic. A run
-// that went active since prepare refuses the import before any card exists.
+// that went active since prepare refuses the import before any card exists,
+// including on a playbook the create found instead of writing.
 func (s *Service) resolvePlaybook(
 	ctx context.Context, epic jira.Issue, req PlaybookRequest, agentID string,
 ) (*service.PlaybookDetail, error) {
-	d, err := s.playbooks.FindBySource(ctx, jira.SourceSystem, epic.Key)
+	d, err := s.playbooks.FindBySource(ctx, s.source(epic.Key))
 	if err == nil {
 		if d.Run.Active() {
 			return nil, errPlaybookRunning(d)
@@ -153,10 +162,14 @@ func (s *Service) resolvePlaybook(
 
 	d, err = s.playbooks.Create(wctx, service.CreatePlaybookInput{
 		Title: title, Description: req.Description, AgentID: agentID, BoardsRepo: req.BoardsRepo,
-		Source: &board.Source{System: jira.SourceSystem, ExternalID: epic.Key, ExternalURL: s.browseURL(epic.Key)},
+		Source: s.source(epic.Key),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create playbook for %s: %w", epic.Key, err)
+	}
+
+	if d.Run.Active() {
+		return nil, errPlaybookRunning(d)
 	}
 
 	return d, nil
@@ -172,6 +185,9 @@ type importRun struct {
 	epicSection string
 	// cards maps an issue key to its card, created in this run or earlier.
 	cards map[string]cardRef
+	// failed maps the key of an issue this run could not create to the
+	// project it was selected into.
+	failed map[string]string
 	// entries mirrors the playbook's entries after the last write.
 	entries []entryRef
 	// progress, when set, sees each result as it lands.
@@ -209,7 +225,13 @@ func (r *importRun) execute(ctx context.Context) ([]Result, error) {
 		}
 
 		delete(selected, it.issue.Key)
-		results = r.record(results, r.importIssue(ctx, it, sel))
+
+		res := r.importIssue(ctx, it, sel)
+		if res.Status == StatusFailed && res.Card == "" {
+			r.failed[res.Key] = sel.Project
+		}
+
+		results = r.record(results, res)
 	}
 
 	rest := make([]string, 0, len(selected))
@@ -249,13 +271,34 @@ func (r *importRun) importIssue(ctx context.Context, it treeItem, sel Selection)
 		return Result{Key: key, Status: StatusFailed, Reason: "no project chosen"}
 	}
 
+	// A parent created without its dependency would keep it missing for
+	// good: a re-run creates the sub-task but skips the existing parent.
+	if st := r.failedSubtask(it.issue, sel.Project); st != "" {
+		return Result{
+			Key: key, Status: StatusFailed, Project: sel.Project,
+			Reason: "its sub-task " + st + " failed; run the import again once that is fixed",
+		}
+	}
+
 	cfg, err := r.svc.cards.GetProject(ctx, sel.Project)
 	if err != nil {
 		return Result{Key: key, Status: StatusFailed, Project: sel.Project, Reason: r.reason(ctx, key, err)}
 	}
 
 	input := r.svc.cardInput(it.issue, cfg, r.epicSection, r.req.Vetted, r.agentID)
-	input.DependsOn = r.dependencies(it.issue, sel.Project)
+
+	deps := r.dependencies(it.issue, sel.Project)
+	input.DependsOn = deps
+
+	var capNote string
+
+	if len(deps) > service.MaxDependsOn {
+		capNote = fmt.Sprintf("only the first %d of %d same-project sub-tasks are dependencies", service.MaxDependsOn, len(deps))
+		input.DependsOn = deps[:service.MaxDependsOn]
+
+		ctxlog.Logger(ctx).Warn("jira import: dependencies capped",
+			"epic", r.tree.epic.Key, "issue", key, "dependencies", len(deps), "kept", service.MaxDependsOn)
+	}
 
 	card, err := r.svc.cards.CreateCard(ctx, sel.Project, input)
 	if err != nil {
@@ -265,7 +308,7 @@ func (r *importRun) importIssue(ctx context.Context, it treeItem, sel Selection)
 	ref := cardRef{project: card.Project, card: card.ID}
 	r.cards[key] = ref
 
-	res := Result{Key: key, Status: StatusCreated, Project: ref.project, Card: ref.card}
+	res := Result{Key: key, Status: StatusCreated, Project: ref.project, Card: ref.card, Reason: capNote}
 	if err := r.place(ctx, ref, it.parentKey); err != nil {
 		res.Status = StatusFailed
 		res.Reason = "created " + ref.card + " but could not add it to the playbook; run the import again: " + r.reason(ctx, key, err)
@@ -275,17 +318,39 @@ func (r *importRun) importIssue(ctx context.Context, it treeItem, sel Selection)
 }
 
 // dependencies are the issue's sub-tasks that live in the same CM project,
-// created in this run or imported earlier. Cross-project ones are order only.
+// created in this run or imported earlier, unless already finished.
+// Cross-project ones are order only.
 func (r *importRun) dependencies(issue jira.Issue, project string) []string {
 	var deps []string
 
 	for _, st := range r.tree.subtasks[issue.Key] {
-		if ref, ok := r.lookup(st.Key); ok && ref.project == project {
+		if ref, ok := r.lookup(st.Key); ok && ref.project == project && !r.finished(st) {
 			deps = append(deps, ref.card)
 		}
 	}
 
 	return deps
+}
+
+// failedSubtask names a sub-task of issue that this run failed to create in
+// project, the dependency a parent created now would miss.
+func (r *importRun) failedSubtask(issue jira.Issue, project string) string {
+	for _, st := range r.tree.subtasks[issue.Key] {
+		if p, ok := r.failed[st.Key]; ok && p == project {
+			return st.Key
+		}
+	}
+
+	return ""
+}
+
+// finished reports whether the sub-task was imported earlier and its card is
+// done or not planned. The index predates the run, so a card created now is
+// never in it.
+func (r *importRun) finished(st jira.Issue) bool {
+	c := r.index.find(st)
+
+	return c != nil && board.IsTerminalState(c.State)
 }
 
 func (r *importRun) lookup(key string) (cardRef, bool) {

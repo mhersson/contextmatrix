@@ -41,6 +41,8 @@ type ImportState struct {
 	Error      string     `json:"error,omitempty"`
 	StartedAt  time.Time  `json:"started_at"`
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
+
+	keys []string
 }
 
 // Start sets the context background imports run under. Cancelling it, or
@@ -78,10 +80,12 @@ func (s *Service) Begin(ctx context.Context, epicKey string, req ImportRequest, 
 		return "", ErrNotAccepting
 	}
 
+	keys := selectionKeys(req)
+
 	s.pruneLocked(now)
 	s.imports[id] = &ImportState{
 		ID: id, Epic: t.epic.Key, Status: ImportRunning,
-		Total: distinctSelections(req), Results: []Result{}, StartedAt: now,
+		Total: len(keys), Results: []Result{}, StartedAt: now, keys: keys,
 	}
 	s.wg.Add(1)
 	s.runMu.Unlock()
@@ -91,22 +95,24 @@ func (s *Service) Begin(ctx context.Context, epicKey string, req ImportRequest, 
 	return id, nil
 }
 
-// distinctSelections counts the issues an import covers; a key selected
-// twice is imported once.
-func distinctSelections(req ImportRequest) int {
+// selectionKeys lists the issues an import covers in request order; a key
+// selected twice is imported once.
+func selectionKeys(req ImportRequest) []string {
 	seen := map[string]bool{}
+	keys := make([]string, 0, len(req.Selections))
+
 	for _, sel := range req.Selections {
-		seen[sel.Key] = true
+		if !seen[sel.Key] {
+			seen[sel.Key] = true
+			keys = append(keys, sel.Key)
+		}
 	}
 
-	return len(seen)
+	return keys
 }
 
-func (s *Service) run(base context.Context, id string, t *tree, req ImportRequest, agentID string) {
+func (s *Service) run(ctx context.Context, id string, t *tree, req ImportRequest, agentID string) {
 	defer s.wg.Done()
-
-	ctx, cancel := context.WithTimeout(base, s.timeout)
-	defer cancel()
 
 	var (
 		resp *ImportResponse
@@ -206,6 +212,32 @@ func (s *Service) Lookup(id string) (*ImportState, bool) {
 	}
 
 	return &cp, true
+}
+
+// activeImport returns the epic's oldest running import, the one a queued
+// import of the same epic waits behind.
+func (s *Service) activeImport(epicKey string) *ActiveImport {
+	s.runMu.Lock()
+	defer s.runMu.Unlock()
+
+	var oldest *ImportState
+
+	for _, st := range s.imports {
+		if st.Epic != epicKey || st.Status != ImportRunning {
+			continue
+		}
+
+		if oldest == nil || st.StartedAt.Before(oldest.StartedAt) ||
+			(st.StartedAt.Equal(oldest.StartedAt) && st.ID < oldest.ID) {
+			oldest = st
+		}
+	}
+
+	if oldest == nil {
+		return nil
+	}
+
+	return &ActiveImport{ID: oldest.ID, Keys: slices.Clone(oldest.keys)}
 }
 
 func (s *Service) pruneLocked(now time.Time) {

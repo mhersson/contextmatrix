@@ -2,6 +2,7 @@ package jirawriteback
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -14,6 +15,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/jira"
 	opsqlite "github.com/mhersson/contextmatrix/internal/opstore/sqlite"
+	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
 func seed(t *testing.T, store *opsqlite.Store, card, kind string) {
@@ -32,6 +34,7 @@ func TestWorker_Outcomes(t *testing.T) {
 		name       string
 		start      jira.Status
 		issueErr   error
+		myselfErr  error
 		attempts   int // preset attempts on the row
 		wantState  string
 		wantTries  int
@@ -71,7 +74,7 @@ func TestWorker_Outcomes(t *testing.T) {
 			wantState: "failed", wantLogged: true, noPath: true,
 		},
 		{
-			name: "401 pauses without ageing", start: st("To Do", "new"), issueErr: fmt.Errorf("issue: %w", &jira.AuthError{}),
+			name: "401 with a failing probe pauses without ageing", start: st("To Do", "new"), issueErr: fmt.Errorf("issue: %w", &jira.AuthError{}), myselfErr: &jira.AuthError{},
 			wantState: "pending", wantPaused: true,
 		},
 	}
@@ -81,6 +84,7 @@ func TestWorker_Outcomes(t *testing.T) {
 			cards := oneCard(board.StateInProgress)
 			fj := newFakeJira(tt.start, simpleWorkflow())
 			fj.issueErr = tt.issueErr
+			fj.myselfErr = tt.myselfErr
 
 			if tt.noPath {
 				fj.workflow = map[string][]jira.Transition{}
@@ -240,11 +244,12 @@ func TestTruncate(t *testing.T) {
 	}
 }
 
-func TestWorker_UnauthorizedWritesKeepProbeBackoffGrowing(t *testing.T) {
+func TestWorker_ExpiredTokenKeepsProbeBackoffGrowing(t *testing.T) {
 	cards := oneCard(board.StateInProgress)
 	fj := newFakeJira(st("To Do", "new"), simpleWorkflow())
-	// Myself and reads pass; only the write is rejected (no write scope).
+	// Every call is rejected: an expired token keeps the worker paused.
 	fj.postErr = fmt.Errorf("transition: %w", &jira.AuthError{})
+	fj.myselfErr = &jira.AuthError{}
 	w, store, clk := newTestWriteback(t, cards, fj)
 
 	seed(t, store, "API-001", KindStarted)
@@ -258,7 +263,7 @@ func TestWorker_UnauthorizedWritesKeepProbeBackoffGrowing(t *testing.T) {
 		before := clk.Now()
 		delays = append(delays, w.probeAt.Sub(before))
 		clk.Advance(w.probeAt.Sub(before))
-		w.drain(t.Context()) // probe passes, resumes, the POST 401s again
+		w.drain(t.Context()) // the probe keeps failing, so no row is attempted
 		require.True(t, w.Paused())
 	}
 
@@ -269,8 +274,38 @@ func TestWorker_UnauthorizedWritesKeepProbeBackoffGrowing(t *testing.T) {
 		assert.GreaterOrEqual(t, delays[i], delays[i-1], "backoff never shrinks")
 	}
 
-	assert.LessOrEqual(t, len(fj.postedIDs()), 9, "one POST per probe, spaced by the growing delay")
+	assert.Len(t, fj.postedIDs(), 1, "no write while the probe fails")
 	assert.True(t, w.pauseWarned, "the pause is announced once until a write succeeds")
+
+	row, _ := rowState(t, store, "api", "API-001", KindStarted)
+	assert.Equal(t, "pending", row.State)
+	assert.Equal(t, 0, row.Attempts)
+}
+
+func TestWorker_RePausedAfterResumeKeepsBackingOff(t *testing.T) {
+	cards := oneCard(board.StateInProgress)
+	fj := newFakeJira(st("To Do", "new"), simpleWorkflow())
+	fj.postErr = fmt.Errorf("transition: %w", &jira.AuthError{})
+	fj.myselfErr = &jira.AuthError{}
+	w, store, clk := newTestWriteback(t, cards, fj)
+
+	seed(t, store, "API-001", KindStarted)
+
+	w.drain(t.Context())
+	require.True(t, w.Paused())
+	require.Zero(t, w.probeCount)
+
+	// The probe passes and the worker resumes, the write 401s, and the
+	// follow-up check fails: paused again without a write having succeeded.
+	fj.mu.Lock()
+	fj.myselfSeq = []error{nil}
+	fj.mu.Unlock()
+	clk.Advance(w.probeAt.Sub(clk.Now()))
+	w.drain(t.Context())
+
+	assert.True(t, w.Paused())
+	assert.Equal(t, 1, w.probeCount, "backoff grows instead of restarting")
+	assert.Equal(t, probeDelay(1), w.probeAt.Sub(clk.Now()))
 
 	row, _ := rowState(t, store, "api", "API-001", KindStarted)
 	assert.Equal(t, "pending", row.State)
@@ -281,6 +316,7 @@ func TestWorker_SuccessAfterResumeResetsProbeBackoff(t *testing.T) {
 	cards := oneCard(board.StateInProgress)
 	fj := newFakeJira(st("To Do", "new"), simpleWorkflow())
 	fj.postErr = fmt.Errorf("transition: %w", &jira.AuthError{})
+	fj.myselfErr = &jira.AuthError{}
 	w, store, clk := newTestWriteback(t, cards, fj)
 
 	seed(t, store, "API-001", KindStarted)
@@ -296,6 +332,7 @@ func TestWorker_SuccessAfterResumeResetsProbeBackoff(t *testing.T) {
 
 	fj.mu.Lock()
 	fj.postErr = nil
+	fj.myselfErr = nil
 	fj.mu.Unlock()
 
 	clk.Advance(w.probeAt.Sub(clk.Now()))
@@ -331,6 +368,102 @@ func TestRetryDelay(t *testing.T) {
 				assert.GreaterOrEqual(t, d, time.Duration(float64(tt.base)*0.8))
 				assert.LessOrEqual(t, d, time.Duration(float64(tt.base)*1.2))
 			}
+		})
+	}
+}
+
+func TestWorker_ScopeRefusedWriteFailsTheRow(t *testing.T) {
+	cards := oneCard(board.StateInProgress)
+	fj := newFakeJira(st("To Do", "new"), simpleWorkflow())
+	// Myself passes; only the write is rejected (no write scope).
+	fj.postErr = fmt.Errorf("transition: %w", &jira.AuthError{})
+	w, store, _ := newTestWriteback(t, cards, fj)
+
+	seed(t, store, "API-001", KindStarted)
+
+	w.drain(t.Context())
+
+	row, ok := rowState(t, store, "api", "API-001", KindStarted)
+	require.True(t, ok)
+	assert.Equal(t, "failed", row.State)
+	assert.NotEmpty(t, row.LastError)
+	assert.False(t, w.Paused())
+	assert.Len(t, cards.loggedLines(), 1)
+}
+
+func TestWorker_FailureLineIsDurable(t *testing.T) {
+	failing := func() (*fakeCards, *fakeJira) {
+		return oneCard(board.StateInProgress), newFakeJira(st("To Do", "new"), simpleWorkflow())
+	}
+
+	t.Run("a persistently failing log line backs the row off without ageing it", func(t *testing.T) {
+		cards, fj := failing()
+		fj.issueErr = &jira.StatusError{StatusCode: 400, Message: "bad request"}
+		cards.logErr = errors.New("parse card: corrupt")
+		w, store, clk := newTestWriteback(t, cards, fj)
+
+		seed(t, store, "API-001", KindStarted)
+
+		w.drain(t.Context())
+
+		due, err := store.DueJiraWritebacks(t.Context(), clk.Now().Unix(), batchSize)
+		require.NoError(t, err)
+		assert.Empty(t, due, "not due again straight away")
+
+		row, _ := rowState(t, store, "api", "API-001", KindStarted)
+		assert.Equal(t, "pending", row.State)
+		assert.Equal(t, 0, row.Attempts)
+
+		clk.Advance(2 * time.Minute)
+
+		due, err = store.DueJiraWritebacks(t.Context(), clk.Now().Unix(), batchSize)
+		require.NoError(t, err)
+		assert.Len(t, due, 1, "due again once the delay passes")
+	})
+
+	t.Run("a failing log line leaves the row pending until it lands", func(t *testing.T) {
+		cards, fj := failing()
+		fj.issueErr = &jira.StatusError{StatusCode: 400, Message: "bad request"}
+		cards.logErr = errors.New("commit queue closed")
+		w, store, clk := newTestWriteback(t, cards, fj)
+
+		seed(t, store, "API-001", KindStarted)
+
+		w.drain(t.Context())
+
+		row, _ := rowState(t, store, "api", "API-001", KindStarted)
+		assert.Equal(t, "pending", row.State)
+		assert.Empty(t, cards.loggedLines())
+
+		clk.Advance(2 * time.Minute)
+
+		cards.mu.Lock()
+		cards.logErr = nil
+		cards.mu.Unlock()
+
+		w.drain(t.Context())
+
+		row, _ = rowState(t, store, "api", "API-001", KindStarted)
+		assert.Equal(t, "failed", row.State)
+		assert.Len(t, cards.loggedLines(), 1)
+	})
+
+	for name, gone := range map[string]error{
+		"card gone":    storage.ErrCardNotFound,
+		"project gone": storage.ErrProjectNotFound,
+	} {
+		t.Run(name+" still finishes the row", func(t *testing.T) {
+			cards, fj := failing()
+			fj.issueErr = &jira.StatusError{StatusCode: 400, Message: "bad request"}
+			cards.logErr = fmt.Errorf("log: %w", gone)
+			w, store, _ := newTestWriteback(t, cards, fj)
+
+			seed(t, store, "API-001", KindStarted)
+
+			w.drain(t.Context())
+
+			row, _ := rowState(t, store, "api", "API-001", KindStarted)
+			assert.Equal(t, "failed", row.State)
 		})
 	}
 }

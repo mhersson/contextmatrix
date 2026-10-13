@@ -1193,7 +1193,9 @@ included, is explicit. `merge_pr` is nullable too, but has no `card_defaults`
 entry: omitted always means off. `mob_phases` is read only alongside an
 explicit `mob_participants`. `skills` omitted means the project default; `[]`
 mounts no skills. `depends_on`, `subtasks`, `context`, and `custom` are not
-accepted on create - set them with PUT or PATCH.
+accepted on create - set them with PUT or PATCH. A `source` with `system: jira`
+is refused: Jira writeback moves the issue that source names, so only the Jira
+import sets one.
 
 **Human-only fields** (403 `HUMAN_ONLY_FIELD` when a non-`human:` caller sets
 any of them, on create, PUT, and PATCH alike): `autonomous`, `create_pr`,
@@ -1212,7 +1214,7 @@ rejected, omitting it is not.
 
 | Status | Code                                    | When                                                                                                                                                           |
 | ------ | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 400    | `BAD_REQUEST`                           | Bad JSON, empty `title`, `best_of_n` outside `0` or `2..max_candidates`, invalid mob fields                                                                    |
+| 400    | `BAD_REQUEST`                           | Bad JSON, empty `title`, a `jira` source, `best_of_n` outside `0` or `2..max_candidates`, invalid mob fields                                                    |
 | 400    | `VALIDATION_ERROR`                      | A `skills` name not in `task_skills.dir` (or outside the project's `default_skills`)                                                                           |
 | 403    | `HUMAN_ONLY_FIELD`                      | See above                                                                                                                                                      |
 | 404    | `PROJECT_NOT_FOUND`, `PARENT_NOT_FOUND` |                                                                                                                                                                |
@@ -1842,7 +1844,8 @@ List-view summary of every playbook, sorted by id.
 `gates` lists the indexes of manual entries (omitted when there are none).
 `next` is the first incomplete entry - `title` is the card title (empty when
 the card is missing), or the step text for a manual entry - and is omitted
-once every entry is complete.
+once every entry is complete. `next.unvetted` is true when that card is
+imported and not yet vetted by a human.
 `boards_repo` is omitted on a single-repo instance.
 
 ### POST /api/playbooks
@@ -1917,8 +1920,9 @@ Resolved detail: metadata plus every entry joined against the card store.
 
 A card entry is `complete` when the card is in a terminal state; a broken
 reference renders with `missing: true` and counts in `total` but never in
-`complete`. All entry fields except `id`, `type`, and `complete` are omitted
-when empty.
+`complete`. `card_unvetted` is true on a card entry whose card is imported
+and not yet vetted by a human. All entry fields except `id`, `type`, and
+`complete` are omitted when empty.
 
 `source` (`{system, external_id, external_url}`) is present on a playbook
 imported from a Jira epic.
@@ -2078,9 +2082,10 @@ cards. Best-of-N and mob settings come from the stored card, not the body.
 
 The run never modifies the card's automation flags: the stored `create_pr`
 value decides whether the worker opens a pull request. The worker pushes its
-own `cm/<lowercase-card-id>` branch; `report_push` afterward sets the stored
-`branch_name` to the worker-reported value. The trigger payload carries a project-scoped
-git token (`git_token`, `git_token_expires_at`) and the `llm_endpoint`.
+own `cm/<lowercase-card-id>` branch (`cm/<lowercase-card-id>-<KEY>` for a
+Jira-imported card, key uppercase); `report_push` afterward sets the stored
+`branch_name` to the worker-reported value. The trigger payload carries a
+project-scoped git token (`git_token`, `git_token_expires_at`) and the `llm_endpoint`.
 
 Returns **202 Accepted** with the updated card (`worker_status: "queued"`) as
 soon as the backend webhook is accepted; the container is provisioned
@@ -2866,14 +2871,18 @@ that card is in the epic's playbook. `default_project` comes from
 an import would extend, absent until the first import creates it.
 `run_active` is present and `true` while that playbook has a `running` or
 `waiting` run; an import then answers `409 JIRA_PLAYBOOK_RUNNING`.
+`active_import` is present while an import of the epic runs on this instance:
+`{"id": "ji-...", "keys": ["PROJ-2"]}`, its id and the issue keys it covers, so a
+reopened dialog follows it through `GET /api/jira/imports/{id}` instead of
+starting another. With several queued, it is the oldest.
 
 ### POST /api/jira/epics/{key}/import
 
 Human-only. The server validates the body and re-reads the epic's issues from
 Jira, then answers **202** `{"import_id": "ji-..."}` and imports in the
-background, bounded at 10 minutes. The body carries only keys, target projects
-and options. Imports of the same epic run one at a time. Every error below is
-returned before anything is written.
+background, bounded at 10 minutes from when it holds the epic. The body carries
+only keys, target projects and options. Imports of the same epic run one at a
+time. Every error below is returned before anything is written.
 
 ```json
 {
@@ -2920,10 +2929,10 @@ The same codes apply to the preview, except `403`, `409` and
 
 ### GET /api/jira/imports/{id}
 
-The import's current state, for a dialog that reconnects or reopens. The
-registry is in memory on the instance that ran the import and keeps a finished
-import for an hour; after that, or after a restart, it answers
-`404 JIRA_IMPORT_NOT_FOUND`.
+The import's current state, for a dialog that reconnects, or that reopens and
+finds the import through the preview's `active_import`. The registry is in
+memory on the instance that ran the import and keeps a finished import for an
+hour; after that, or after a restart, it answers `404 JIRA_IMPORT_NOT_FOUND`.
 
 ```json
 {

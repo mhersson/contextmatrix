@@ -143,6 +143,14 @@ The server registers 39 tools. The "Caller" column uses these values:
 Registered unless a project named `playbooks` disables the subsystem.
 Mutations require `agent_id` for attribution but have no permission gate.
 
+Every tool also takes `agent_id` for redaction. Entry `card_title` and the
+list summary's `next.title` are replaced with a placeholder when the card is
+imported and unvetted and `agent_id` is empty or is not a `human:<name>` id;
+`card_unvetted` and `next.unvetted` flag those entries. Human callers and
+vetted cards see the real title. The card tools `list_cards` and `get_card`
+still return unvetted card titles and redact only the body; `get_ready_tasks`
+omits unvetted cards.
+
 | Tool                    | Description                                          | Caller |
 | ----------------------- | ---------------------------------------------------- | ------ |
 | `list_playbooks`        | Slim list view with per-entry status                 | any    |

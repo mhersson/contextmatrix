@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { api, isAPIError } from '../../api/client';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
-import { errorMessage } from '../../lib/errors';
+import { errorWithDetails } from '../../lib/errors';
 import { buildRequest, canSubmit } from './jiraImportModel';
 import { JiraImportForm } from './JiraImportForm';
 import { JiraImportResults } from './JiraImportResults';
@@ -11,7 +11,7 @@ import { useJiraImportRun } from './useJiraImportRun';
 
 interface JiraImportDialogProps {
   epicKey: string;
-  /** What was typed in the form; empty falls back to the epic summary. */
+  /** What was typed in the form; sent as typed; empty stays empty. */
   description: string;
   boardsRepo?: string;
   onClose: () => void;
@@ -22,7 +22,9 @@ export function JiraImportDialog({ epicKey, description, boardsRepo, onClose }: 
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [runConflict, setRunConflict] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [started, setStarted] = useState<{ id: string; keys: string[] } | null>(null);
+  const [startedHere, setStarted] = useState<{ id: string; keys: string[] } | null>(null);
+  // A dialog reopened mid-import follows that import instead of offering a second one.
+  const started = startedHere ?? preview?.active_import ?? null;
   const run = useJiraImportRun(started?.id ?? null, started?.keys.length ?? 0);
   const navigate = useNavigate();
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -55,7 +57,7 @@ export function JiraImportDialog({ epicKey, description, boardsRepo, onClose }: 
       setStarted({ id: import_id, keys: req.selections.map((s) => s.key) });
     } catch (err) {
       if (isAPIError(err) && err.code === 'JIRA_PLAYBOOK_RUNNING') setRunConflict(true);
-      else setSubmitError(errorMessage(err, 'Import failed'));
+      else setSubmitError(errorWithDetails(err, 'Import failed'));
     } finally {
       setBusy(false);
       // The busy Import button disables itself, and on success the results view removes it.
@@ -88,6 +90,13 @@ export function JiraImportDialog({ epicKey, description, boardsRepo, onClose }: 
           <p className="text-sm" style={{ color: 'var(--grey1)' }}>
             Loading the epic from Jira…
           </p>
+        )}
+        {!preview && (
+          <div className="flex justify-end">
+            <button type="button" onClick={onClose} className="bf-btn-ghost bf-btn-sm">
+              Close
+            </button>
+          </div>
         )}
         {run && started ? (
           <JiraImportResults

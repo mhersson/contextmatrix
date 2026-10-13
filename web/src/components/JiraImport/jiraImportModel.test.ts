@@ -3,6 +3,7 @@ import type { ProjectConfig } from '../../types';
 import {
   buildRequest,
   canSubmit,
+  MAX_SELECTIONS,
   initialForm,
   isSelectable,
   prefixClashes,
@@ -66,6 +67,17 @@ describe('jiraImportModel', () => {
     expect(canSubmit(p, { ...form, selected: new Set() })).toBe(false);
   });
 
+  it('refuses a selection above the cap', () => {
+    const many = (n: number) => {
+      const base = samplePreview();
+      const children = Array.from({ length: n }, (_, i) => ({ ...base.children[0], key: `PROJ-${100 + i}`, subtasks: [] }));
+      const p = samplePreview({ children });
+      return canSubmit(p, initialForm(p));
+    };
+    expect(many(MAX_SELECTIONS)).toBe(true);
+    expect(many(MAX_SELECTIONS + 1)).toBe(false);
+  });
+
   it('blocks submitting while the playbook has an active run', () => {
     const ready = (runActive: boolean) => {
       const p = samplePreview({
@@ -90,7 +102,7 @@ describe('jiraImportModel', () => {
     expect(prefixClashes(p, setProject(form, p, 'PROJ-7', 'api'), projects).size).toBe(0);
   });
 
-  it('builds the request, falling back to the epic summary for the description', () => {
+  it('builds the request with an empty description when none is typed', () => {
     const p = samplePreview();
     const form = setProject(initialForm(p), p, 'PROJ-7', 'api');
     const req = buildRequest(p, form, '', 'team');
@@ -104,7 +116,7 @@ describe('jiraImportModel', () => {
     expect(req.selections).toHaveLength(3);
     expect(req.playbook).toEqual({
       title: 'PROJ-1 Checkout revamp',
-      description: 'Checkout revamp',
+      description: '',
       boards_repo: 'team',
     });
     expect(buildRequest(p, form, 'Typed', undefined).playbook).toEqual({

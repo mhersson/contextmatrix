@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -122,6 +124,38 @@ func (g *gatedCards) CreateCard(ctx context.Context, project string, in service.
 	<-g.release
 
 	return g.Cards.CreateCard(ctx, project, in)
+}
+
+// failingCards fails every CreateCard that fail selects.
+type failingCards struct {
+	Cards
+
+	fail func(service.CreateCardInput) bool
+}
+
+func (f *failingCards) CreateCard(ctx context.Context, project string, in service.CreateCardInput) (*board.Card, error) {
+	if f.fail(in) {
+		return nil, errors.New("injected create failure")
+	}
+
+	return f.Cards.CreateCard(ctx, project, in)
+}
+
+// failingAdd fails the first AddEntry when failFirst is set.
+type failingAdd struct {
+	Playbooks
+
+	failFirst bool
+}
+
+func (f *failingAdd) AddEntry(ctx context.Context, id string, in service.PlaybookEntryInput, agentID string) (*service.PlaybookDetail, error) {
+	if f.failFirst {
+		f.failFirst = false
+
+		return nil, errors.New("injected add failure")
+	}
+
+	return f.Playbooks.AddEntry(ctx, id, in, agentID)
 }
 
 // hookedPlaybooks runs a hook once before the next AddEntry or UpdateEntry,
@@ -243,7 +277,7 @@ func TestImport_SkipsAlreadyImported(t *testing.T) {
 
 	moved := e.seedImported(t, "web", "OLD-9", "102")
 	byKey := e.seedImported(t, "api", "PROJ-3", "")
-	e.seedImported(t, "api", "PROJ-5", "999")
+	reused := e.seedImported(t, "api", "PROJ-5", "999")
 
 	resp, err := e.importSync(context.Background(), "PROJ-1", ImportRequest{
 		Selections: []Selection{{Key: "PROJ-2", Project: "api"}, {Key: "PROJ-3", Project: "api"}, {Key: "PROJ-5", Project: "api"}},
@@ -254,6 +288,7 @@ func TestImport_SkipsAlreadyImported(t *testing.T) {
 	assert.Equal(t, Result{Key: "PROJ-2", Status: StatusSkipped, Project: "web", Card: moved.ID}, r["PROJ-2"])
 	assert.Equal(t, Result{Key: "PROJ-3", Status: StatusSkipped, Project: "api", Card: byKey.ID}, r["PROJ-3"])
 	assert.Equal(t, StatusCreated, r["PROJ-5"].Status, "a key match with another issue id is a different issue")
+	assert.NotEqual(t, reused.ID, r["PROJ-5"].Card)
 
 	assert.ElementsMatch(t, []string{"web/" + moved.ID, "api/" + byKey.ID, "api/" + r["PROJ-5"].Card},
 		e.entryNames(t, resp.Playbook.ID), "skipped cards are placed in the playbook too")
@@ -319,6 +354,74 @@ func TestImport_PartialFailureRerunsCleanly(t *testing.T) {
 	assert.Equal(t, StatusSkipped, r2["PROJ-2"].Status)
 	assert.Equal(t, 2, e.jiraCards(t, "api"))
 	assert.Equal(t, []string{"api/" + r2["PROJ-3"].Card, "api/" + r["PROJ-2"].Card}, e.entryNames(t, first.Playbook.ID))
+}
+
+func TestImport_ParentFailsWhenItsSameProjectSubtaskFailed(t *testing.T) {
+	e := newImportEnv(t, nil)
+	e.jira.add(story("102", "PROJ-2", "Cart API"), subtask("103", "PROJ-3", "PROJ-2", "Cart schema"))
+
+	ctx := context.Background()
+	req := ImportRequest{Selections: []Selection{{Key: "PROJ-3", Project: "api"}, {Key: "PROJ-2", Project: "api"}}}
+
+	creates := 0
+	e.svc.cards = &failingCards{Cards: e.cards, fail: func(in service.CreateCardInput) bool {
+		creates++
+
+		return in.Source.ExternalID == "PROJ-3"
+	}}
+
+	first, err := e.importSync(ctx, "PROJ-1", req, "human:alice")
+	require.NoError(t, err)
+
+	r := resultsByKey(first.Results)
+	assert.Equal(t, StatusFailed, r["PROJ-3"].Status)
+	assert.Equal(t, StatusFailed, r["PROJ-2"].Status, "a parent created now would miss the dependency for good")
+	assert.Contains(t, r["PROJ-2"].Reason, "PROJ-3")
+	assert.Equal(t, 1, creates, "the parent is never attempted")
+	assert.Zero(t, e.jiraCards(t, "api"))
+
+	e.svc.cards = e.cards
+
+	second, err := e.importSync(ctx, "PROJ-1", req, "human:alice")
+	require.NoError(t, err)
+
+	r2 := resultsByKey(second.Results)
+	require.Equal(t, StatusCreated, r2["PROJ-2"].Status)
+	assert.Equal(t, []string{r2["PROJ-3"].Card}, e.card(t, "api", r2["PROJ-2"].Card).DependsOn)
+}
+
+func TestImport_SubtaskCreatedButNotPlacedKeepsItsParent(t *testing.T) {
+	e := newImportEnv(t, nil)
+	e.jira.add(story("102", "PROJ-2", "Cart API"), subtask("103", "PROJ-3", "PROJ-2", "Cart schema"))
+
+	e.svc.playbooks = &failingAdd{Playbooks: e.pbs, failFirst: true}
+
+	resp, err := e.importSync(context.Background(), "PROJ-1", ImportRequest{
+		Selections: []Selection{{Key: "PROJ-3", Project: "api"}, {Key: "PROJ-2", Project: "api"}},
+	}, "human:alice")
+	require.NoError(t, err)
+
+	r := resultsByKey(resp.Results)
+	require.Equal(t, StatusFailed, r["PROJ-3"].Status)
+	require.NotEmpty(t, r["PROJ-3"].Card, "the card exists; only its playbook entry failed")
+	require.Equal(t, StatusCreated, r["PROJ-2"].Status)
+	assert.Equal(t, []string{r["PROJ-3"].Card}, e.card(t, "api", r["PROJ-2"].Card).DependsOn)
+}
+
+func TestImport_ParentDependsOnASubtaskImportedInAnEarlierRun(t *testing.T) {
+	e := newImportEnv(t, nil)
+	e.jira.add(story("102", "PROJ-2", "Cart API"), subtask("103", "PROJ-3", "PROJ-2", "Cart schema"))
+
+	ctx := context.Background()
+
+	first, err := e.importSync(ctx, "PROJ-1", ImportRequest{Selections: []Selection{{Key: "PROJ-3", Project: "api"}}}, "human:alice")
+	require.NoError(t, err)
+
+	second, err := e.importSync(ctx, "PROJ-1", ImportRequest{Selections: []Selection{{Key: "PROJ-2", Project: "api"}}}, "human:alice")
+	require.NoError(t, err)
+	require.Equal(t, StatusCreated, second.Results[0].Status)
+
+	assert.Equal(t, []string{first.Results[0].Card}, e.card(t, "api", second.Results[0].Card).DependsOn)
 }
 
 func TestImport_HostileOrStaleSelectionFailsOnlyItsRow(t *testing.T) {
@@ -514,6 +617,81 @@ func TestImport_RefusedWhenTheRunStartsAfterPrepare(t *testing.T) {
 	require.ErrorIs(t, err, ErrPlaybookRunning)
 	assert.Nil(t, resp)
 	assert.Equal(t, 1, e.jiraCards(t, "api"), "no card is written")
+}
+
+// blindPlaybooks never finds a playbook by source, like an instance whose
+// last pull predates a peer's import of the epic.
+type blindPlaybooks struct{ Playbooks }
+
+func (blindPlaybooks) FindBySource(context.Context, *board.Source) (*service.PlaybookDetail, error) {
+	return nil, storage.ErrPlaybookNotFound
+}
+
+func TestImport_RefusedWhenTheCreateReturnsARunningPlaybook(t *testing.T) {
+	e := newImportEnv(t, nil)
+	e.jira.add(story("102", "PROJ-2", "Cart API"), story("103", "PROJ-3", "Cart UI"))
+
+	ctx := context.Background()
+
+	first, err := e.importSync(ctx, "PROJ-1", ImportRequest{
+		Selections: []Selection{{Key: "PROJ-2", Project: "api"}}, Vetted: true,
+	}, "human:alice")
+	require.NoError(t, err)
+	e.makeRunnable(t, first.Playbook.ID)
+	e.setRun(t, first.Playbook.ID, board.RunStatusRunning)
+
+	before := e.entryNames(t, first.Playbook.ID)
+	svc, _ := e.serviceWith(t, e.cards, blindPlaybooks{Playbooks: e.pbs})
+
+	req := ImportRequest{Selections: []Selection{{Key: "PROJ-3", Project: "api"}}}
+	tr, err := svc.prepare(ctx, "PROJ-1", req)
+	require.NoError(t, err)
+
+	resp, err := svc.importTree(ctx, tr, req, "human:alice", nil)
+	require.ErrorIs(t, err, ErrPlaybookRunning)
+	assert.Nil(t, resp)
+	assert.Equal(t, 1, e.jiraCards(t, "api"), "no card is written")
+	assert.Equal(t, before, e.entryNames(t, first.Playbook.ID))
+
+	list, err := e.pbs.List(ctx)
+	require.NoError(t, err)
+	assert.Len(t, list, 1, "the create returned the epic's playbook")
+}
+
+func TestImport_IgnoresCardsAndPlaybooksFromAnotherSite(t *testing.T) {
+	e := newImportEnv(t, nil)
+	e.jira.add(story("102", "PROJ-2", "Cart API"))
+
+	ctx := context.Background()
+
+	const other = "https://other.atlassian.net"
+
+	foreign, err := e.cards.CreateCard(ctx, "api", service.CreateCardInput{
+		Title: "PROJ-2 other site", Type: "task", Priority: "medium",
+		Source: &board.Source{System: jira.SourceSystem, ExternalID: "PROJ-2", ExternalURL: other + "/browse/PROJ-2"},
+		Custom: map[string]any{jira.CustomIssueID: "102"},
+	})
+	require.NoError(t, err)
+
+	foreignPlaybook, err := e.pbs.Create(ctx, service.CreatePlaybookInput{
+		Title: "PROJ-1 other site", AgentID: "human:alice",
+		Source: &board.Source{System: jira.SourceSystem, ExternalID: "PROJ-1", ExternalURL: other + "/browse/PROJ-1"},
+	})
+	require.NoError(t, err)
+
+	p, err := e.svc.Preview(ctx, "PROJ-1")
+	require.NoError(t, err)
+	assert.Nil(t, p.Playbook, "a playbook from another site is not this epic's")
+	require.Len(t, p.Children, 1)
+	assert.Nil(t, p.Children[0].Imported, "a card from another site is not this issue's")
+
+	resp, err := e.importSync(ctx, "PROJ-1", ImportRequest{Selections: []Selection{{Key: "PROJ-2", Project: "api"}}}, "human:alice")
+	require.NoError(t, err)
+	assert.NotEqual(t, foreignPlaybook.ID, resp.Playbook.ID)
+	require.Len(t, resp.Results, 1)
+	assert.Equal(t, StatusCreated, resp.Results[0].Status)
+	assert.NotEqual(t, foreign.ID, resp.Results[0].Card)
+	assert.Equal(t, 2, e.jiraCards(t, "api"))
 }
 
 func TestImport_RunStartedMidImportAppendsTheCard(t *testing.T) {
@@ -774,4 +952,83 @@ func TestFailureReason(t *testing.T) {
 			phrases[got] = tt.name
 		})
 	}
+}
+
+func TestImport_TerminalSubtaskIsNotADependency(t *testing.T) {
+	for _, state := range []string{board.StateNotPlanned, board.StateDone} {
+		t.Run(state, func(t *testing.T) {
+			e := newImportEnv(t, nil)
+			e.jira.add(story("102", "PROJ-2", "Cart API"), subtask("103", "PROJ-3", "PROJ-2", "Cart schema"))
+
+			ctx := context.Background()
+
+			first, err := e.importSync(ctx, "PROJ-1", ImportRequest{Selections: []Selection{{Key: "PROJ-3", Project: "api"}}}, "human:alice")
+			require.NoError(t, err)
+
+			_, err = e.cards.TransitionTo(ctx, "api", first.Results[0].Card, state)
+			require.NoError(t, err)
+
+			second, err := e.importSync(ctx, "PROJ-1", ImportRequest{Selections: []Selection{{Key: "PROJ-2", Project: "api"}}}, "human:alice")
+			require.NoError(t, err)
+			require.Equal(t, StatusCreated, second.Results[0].Status)
+
+			assert.Empty(t, e.card(t, "api", second.Results[0].Card).DependsOn)
+		})
+	}
+}
+
+func TestImport_StoredCardMatchesItsImportHash(t *testing.T) {
+	e := newImportEnv(t, nil)
+	empty := story("102", "PROJ-2", "Cart API")
+	empty.Description = nil
+	e.jira.add(empty, story("103", "PROJ-3", "Cart UI"))
+
+	resp, err := e.importSync(context.Background(), "PROJ-1", ImportRequest{
+		Selections: []Selection{{Key: "PROJ-2", Project: "api"}, {Key: "PROJ-3", Project: "api"}},
+	}, "human:alice")
+	require.NoError(t, err)
+
+	for _, res := range resp.Results {
+		require.Equal(t, StatusCreated, res.Status)
+
+		// The file on disk is what a later reader hashes: it ends in a newline.
+		data, err := os.ReadFile(filepath.Join(e.dir, "api", "tasks", res.Card+".md"))
+		require.NoError(t, err)
+
+		c, err := board.ParseCard(data)
+		require.NoError(t, err)
+		assert.Equal(t, importHash(c.Title, c.Body), c.Custom[jira.CustomImportHash], res.Key)
+	}
+}
+
+func TestImport_DependenciesAreCappedAtTheServiceLimit(t *testing.T) {
+	e := newImportEnv(t, nil)
+
+	issues := []jira.Issue{story("102", "PROJ-2", "Cart API")}
+	sels := []Selection{{Key: "PROJ-2", Project: "api"}}
+
+	for i := range service.MaxDependsOn + 1 {
+		key := fmt.Sprintf("PROJ-%d", 1000+i)
+		issues = append(issues, subtask(fmt.Sprintf("%d", 2000+i), key, "PROJ-2", fmt.Sprintf("Step %d", i)))
+		sels = append(sels, Selection{Key: key, Project: "api"})
+	}
+
+	e.jira.add(issues...)
+
+	resp, err := e.importSync(context.Background(), "PROJ-1", ImportRequest{Selections: sels}, "human:alice")
+	require.NoError(t, err)
+
+	var subs []string
+
+	for _, res := range resp.Results {
+		require.Equal(t, StatusCreated, res.Status, res.Key)
+
+		if res.Key != "PROJ-2" {
+			subs = append(subs, res.Card)
+		}
+	}
+
+	parent := resultsByKey(resp.Results)["PROJ-2"]
+	assert.Equal(t, subs[:service.MaxDependsOn], e.card(t, "api", parent.Card).DependsOn)
+	assert.NotEmpty(t, parent.Reason)
 }

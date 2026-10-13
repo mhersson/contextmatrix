@@ -337,4 +337,22 @@ describe('PlaybooksPage - Jira import', () => {
     const ghost = screen.getByLabelText('Playbook title').closest('.pbl-ghost') as HTMLElement;
     expect(within(ghost).getByRole('status')).toBeInTheDocument();
   });
+
+  it.each(['unauthorized', 'captcha_required'] as const)('disables the import when Jira reports %s', async (auth_error) => {
+    vi.mocked(api.getJiraStatus).mockResolvedValue({ configured: true, authenticated: false, auth_error, site_url: SITE });
+    const button = await openGhost();
+    fireEvent.change(screen.getByLabelText('Playbook title'), { target: { value: 'PROJ-12' } });
+    expect(button).toBeDisabled();
+  });
+
+  it('keeps the import enabled, with the warning, when only the status probe fails', async () => {
+    vi.mocked(api.getJiraStatus).mockResolvedValue({
+      configured: true, authenticated: false, auth_error: 'unreachable', site_url: SITE,
+    });
+    const button = await openGhost();
+    fireEvent.change(screen.getByLabelText('Playbook title'), { target: { value: 'PROJ-12' } });
+    expect(button).toBeEnabled();
+    const ghost = screen.getByLabelText('Playbook title').closest('.pbl-ghost') as HTMLElement;
+    expect(within(ghost).getByRole('status')).toBeInTheDocument();
+  });
 });

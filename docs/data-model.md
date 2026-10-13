@@ -178,7 +178,24 @@ live in [architecture](architecture.md); the HTTP surface in the
     - A matching subtask that is `done` or `not_planned` does not block:
       re-doing finished work is intentional.
 
-13. **Card deletion requires no subtasks.** `DELETE .../cards/{id}` removes
+13. **Duplicate source guard.** `CreateCard` with a `source` that has a
+    `system` and an `external_id` looks for a card in the same project with
+    the same source: equal `system` and `external_id`, and the same
+    `external_url` host, compared case-insensitively (two sources without a
+    URL match). On a match the existing card is returned in any state, and
+    the handler answers 201 with it, as for the duplicate subtask guard. On
+    a shared boards repo the check runs after the sync cycle has merged the
+    peer's latest push, so a card a peer has pushed is found. Two creates
+    whose cycles overlap, both fetching before either pushes, can still each
+    write a card.
+    - The same key from another host, a source without an `external_id`, or
+      an `external_url` that does not parse never matches.
+    - A card whose `custom.jira_issue_id` is set and differs from the
+      create's is another Jira issue under the same key and does not match.
+    - No `card.created` event is published for the returned card, and
+      `next_id` still increments.
+
+14. **Card deletion requires no subtasks.** `DELETE .../cards/{id}` removes
     the file (`os.Remove`) and enqueues a `CommitKindFile` commit; go-git
     records the deletion when the missing path is staged. It returns 422
     `VALIDATION_ERROR` if the card has subtasks, and 403 if the card is
@@ -1079,11 +1096,14 @@ Reference and cycle checks run against the resulting card, so an existing
 ## `create_pr` semantics
 
 Standalone and parent cards get a predicted feature branch: `branch_name` is
-generated at create as `<lowercase-id>/<title-slug>` (a Jira import keeps its key uppercase: `<lowercase-id>/<KEY>-<slug of the rest of the title>`). The executor never
-receives it: the worker derives its own branch from the card id and pushes
-`cm/<lowercase-card-id>`. The first `report_push` records the reported branch
-onto the card, so the stored value reflects the branch that actually exists;
-before that first push it is a prediction. Subtasks work on their parent's
+generated at create as `<lowercase-id>/<title-slug>` (a Jira import keeps its
+key uppercase: `<lowercase-id>/<KEY>-<slug of the rest of the title>`). The
+executor never receives it: the worker derives its own branch from the card id
+and pushes `cm/<lowercase-card-id>`, or `cm/<lowercase-card-id>-<KEY>` for a
+Jira-imported card, key uppercase (e.g. `cm/api-012-PROJ-123`). The first
+`report_push` records the reported branch onto the card, so the stored value
+reflects the branch that actually exists; before that first push it is a
+prediction. Subtasks work on their parent's
 branch and get no `branch_name`; `report_push` on a subtask never adds one.
 `create_pr` decides only whether the run opens a pull request after pushing.
 When absent

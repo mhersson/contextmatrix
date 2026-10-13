@@ -61,6 +61,11 @@ means changing the config or env var and restarting.
 - **Login CAPTCHA.** After repeated failed logins Jira blocks basic auth for the
   account until someone signs in through a browser. The status endpoint then
   reports `auth_error: captcha_required`.
+- **Scoped tokens.** A service account token carries scopes. Grant all three:
+  `read:jira-user` for the status probe, `read:jira-work` for preview and
+  import, and `write:jira-work` for writeback transitions. A write refused with
+  401 while the probe works fails that writeback row as insufficient scope
+  instead of pausing writeback.
 
 Check the connection:
 
@@ -72,9 +77,9 @@ curl -s -H 'X-Requested-With: contextmatrix' localhost:8080/api/jira/status
 
 1. Click **New playbook**, paste an epic key (`PROJ-1`, any case) or a Jira URL
    on the configured site into the title, and click **Import from Jira**. Enter
-   still creates an ordinary playbook. While the token fails, the form says why
-   (`unauthorized`, `captcha_required`, `unreachable`) and the button stays
-   disabled.
+   still creates an ordinary playbook. While the status probe fails, the form
+   says why (`unauthorized`, `captcha_required`, `unreachable`). The button
+   stays disabled for `unauthorized` and `captcha_required` only.
 2. The dialog shows the epic's children and their sub-tasks. Open issues that
    were never imported are preselected. Pick a project per issue, or one for
    all; defaults come from `jira.project_map`, and sub-tasks follow their
@@ -84,16 +89,28 @@ curl -s -H 'X-Requested-With: contextmatrix' localhost:8080/api/jira/status
    (`created`, `skipped`, `failed`), then offers **Open playbook**.
 
 The import re-reads every issue from Jira before it answers; the browser sends
-only keys, projects and options. It then runs in the background, bounded at 10
-minutes, and reports each issue over the event stream; closing the dialog does
-not stop it, and a reconnecting dialog catches up from
-`GET /api/jira/imports/{id}`, which keeps a finished import for an hour on the
-instance that ran it. Imports of the same epic run one at a time on an instance.
-The import is human-only.
+only keys, projects and options. It then runs in the background and reports
+each issue over the event stream. Imports of the same epic run one at a time on
+an instance, and each is bounded at 10 minutes from when its turn comes. Closing
+the dialog does not stop the import: opening the dialog for the epic again shows
+its progress instead of offering Import once the epic preview loads (so Jira
+must be reachable), and a reconnecting dialog catches up from
+`GET /api/jira/imports/{id}`, which keeps a finished import for an hour.
+Both work only on the instance that runs the import. The import is human-only.
 
 Each issue's writes are bounded at 30 seconds, room for the verified push every
 write makes on a shared boards repository. An issue that runs over fails with
 `timed out`, and the import moves on to the next.
+
+On a shared boards repository every import write runs after the instance has
+merged its peer's latest push. Creating the playbook returns the one that
+already has the same source, and creating a card returns the target project's
+card with that source, instead of writing a second. A peer's import therefore
+counts as soon as it is pushed, not only after the next pull. Two writes whose
+sync cycles overlap, both fetching before either pushes, can still each create
+one. The card check covers only the target project, and nothing is matched
+across boards repositories the two instances do not share, so import an epic
+from one instance.
 
 At server shutdown, or after the 10 minute bound, an import stops between two
 issues: the issue in flight gets 8 seconds to finish, then its writes are
@@ -112,7 +129,7 @@ when its writes were cancelled.
 | `priority`                | `Highest`, `Critical`, `Blocker` -> `critical`; `High` -> `high`; `Medium`, `Normal` -> `medium`; `Low`, `Lowest`, `Trivial`, `Minor` -> `low`; unknown -> `medium`. A missing priority falls back `critical` -> `high` -> `medium` -> the project's first |
 | `source`                  | `{system: jira, external_id: PROJ-123, external_url: <site>/browse/PROJ-123}`, immutable                                                                                                                                                                   |
 | `custom.jira_issue_id`    | The Jira issue id                                                                                                                                                                                                                                          |
-| `custom.jira_import_hash` | Hex SHA-256 of the imported title, a newline and the body                                                                                                                                                                                                  |
+| `custom.jira_import_hash` | Hex SHA-256 of the imported title, a newline and the body without trailing newlines                                                                                                                                                                       |
 | `vetted`                  | The dialog's **Mark imported cards vetted** (off by default)                                                                                                                                                                                               |
 | `branch_name`             | `<id>/PROJ-123-<slug>`, key uppercase, so GitHub for Jira links the branch (a key over 64 bytes keeps the plain name)                                                                                                                                      |
 | activity log              | `Imported from Jira PROJ-123` (with `, marked vetted on import` when vetted), attributed to the importing human                                                                                                                                            |
@@ -123,13 +140,19 @@ never `subtask`. Subtasks come only from CM's own planning.
 ## Order and dependencies
 
 - Sub-tasks are created before their parent and sit before it in the playbook.
-- A parent `depends_on` its sub-tasks that land in the same project. A sub-task
-  in another project is order only; the dialog warns about it.
+- A parent `depends_on` its sub-tasks that land in the same project, whether
+  created in the same import or an earlier one. A sub-task in another project is
+  order only; the dialog warns about it.
+- When a sub-task selected into the parent's project fails before its card
+  exists, the parent fails too, so it is never created without that dependency.
+  Import both again once the cause is fixed.
 - A new sub-task of a parent imported earlier goes directly before the parent in
   the playbook. Existing cards are never edited, so the parent does not gain the
   dependency.
-- A sub-task moved to `not_planned` keeps its same-project parent blocked:
-  dependencies need `done`. Remove the dependency by hand.
+- A sub-task imported earlier whose card is `done` or `not_planned` is not a
+  dependency of a parent imported now.
+- A card holds at most 50 dependencies. A parent with more same-project
+  sub-tasks depends on the first 50 in tree order, and its result row says so.
 
 ## Re-running
 
@@ -139,9 +162,12 @@ put back into the playbook if it is missing there. If that playbook is runnable,
 the card gets the playbook's forced card settings, as any card added to a
 runnable playbook does. The epic's playbook is found by its `source` in any
 boards repository; the title and repository typed in the form apply only when
-it is created. A failed row never blocks the others; fix the cause and import
-again. A server shutdown stops a running import between two issues, leaving the
-rest not run; running it again finishes the job.
+it is created. Both matches need the `source.external_url` host to be the
+configured site's, so a card or playbook imported from another Jira site into
+the same boards repository is never reused, even with the same key. A failed row
+blocks only its same-project parent; fix the cause and import again. A server
+shutdown stops a running import between two issues, leaving the rest not run;
+running it again finishes the job.
 
 ## Active runs
 
@@ -171,6 +197,13 @@ Every card in a runnable playbook keeps its own agent branch and opens a PR into
 `playbook/<id>` (see [playbooks](playbooks.md#the-branch-model)). The PR title
 is the card title, so it starts with the issue key and GitHub for Jira links it.
 
+The agent branch is `cm/<lowercase-card-id>-<KEY>` with the key uppercase (e.g.
+`cm/api-012-PROJ-123`), so GitHub for Jira links the branch as well; the
+predicted HITL `branch_name` is `<id>/PROJ-123-<slug>`. An agent that predates
+the Jira branch change pushes `cm/<lowercase-card-id>` for every card, and
+GitHub for Jira cannot link those branches. Upgrade contextmatrix-agent to a
+version that derives the Jira branch before importing epics.
+
 When a target project's card prefix equals a Jira project key (a CM project with
 prefix `PROJ` receiving `PROJ-...` issues), a card ID such as `PROJ-801` in a PR
 body or commit also reads as a Jira key, and GitHub for Jira may link the PR to
@@ -198,7 +231,9 @@ import; pick another project or change the prefix to avoid it.
 ## Status writeback
 
 With `jira.writeback.enabled: true`, CM moves an imported issue in Jira. The
-card must carry a Jira `source` whose URL is on the configured `site_url` host.
+card must carry a Jira `source` whose URL is `<site_url>/browse/<external_id>`,
+as the import sets it. Only the import sets a Jira source: the REST card create
+refuses one with `400`.
 
 | Card event                     | Jira                                           |
 | ------------------------------ | ---------------------------------------------- |
@@ -250,7 +285,8 @@ override `CONTEXTMATRIX_JIRA_WRITEBACK_ENABLED`.
 | Situation                                                      | Behaviour                                                                                                                                                                                         |
 | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Jira unreachable, 5xx, 429                                     | Retries with backoff (1, 2, 4, 8, 16, 32 minutes, then hourly) for 29 attempts, about 24 h, honouring `Retry-After`. Then the write fails and the card gets the same activity line.               |
-| Credentials rejected (401, or the login CAPTCHA 403)           | Writeback pauses and pending writes keep their place and attempt count. CM warns once, then re-checks the credentials with backoff of 1 to 15 minutes. The backoff keeps growing, and the warning stays quiet, until a write succeeds, so a token that passes the check but cannot write is probed ever less often. `GET /api/jira/status` reports `writeback_paused: true` until they work again. |
+| Credentials rejected (401, or the login CAPTCHA 403)           | Writeback pauses and pending writes keep their place and attempt count. CM warns once, then re-checks the credentials with backoff of 1 to 15 minutes. The backoff keeps growing, and the warning stays quiet, until a write succeeds, so a token that keeps failing the check is probed ever less often. `GET /api/jira/status` reports `writeback_paused: true` until they work again. |
+| A write is rejected (401) while the credentials check passes   | The token lacks write scope, so the write fails at once and the card gets the same activity line. Writeback does not pause. |
 | Issue missing, no permission, no unique transition, other 4xx  | The write fails at once and the card gets one activity line: `Jira writeback (<started or done>) failed: <reason>`. A failed write is not retried.                                                |
 
 A write cut off by shutdown stays pending and costs no attempt. The next start

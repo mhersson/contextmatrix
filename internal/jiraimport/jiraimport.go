@@ -6,6 +6,7 @@ package jiraimport
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -35,7 +36,7 @@ type Cards interface {
 
 // Playbooks is the slice of the playbook service the importer uses.
 type Playbooks interface {
-	FindBySource(ctx context.Context, system, externalID string) (*service.PlaybookDetail, error)
+	FindBySource(ctx context.Context, src *board.Source) (*service.PlaybookDetail, error)
 	Create(ctx context.Context, input service.CreatePlaybookInput) (*service.PlaybookDetail, error)
 	AddEntry(ctx context.Context, id string, in service.PlaybookEntryInput, agentID string) (*service.PlaybookDetail, error)
 	UpdateEntry(ctx context.Context, id, entryID string, in service.UpdateEntryInput, agentID string) (*service.PlaybookDetail, error)
@@ -83,11 +84,12 @@ type Service struct {
 	playbooks Playbooks
 	cfg       Config
 	clk       clock.Clock
-	// timeout bounds one background import.
+	// timeout bounds one import from when it holds its epic.
 	timeout time.Duration
 
-	mu    sync.Mutex
-	epics map[string]*sync.Mutex
+	mu sync.Mutex
+	// epics holds one single-slot semaphore per epic key.
+	epics map[string]chan struct{}
 
 	// runMu guards base, stop and imports; wg joins the import goroutines.
 	runMu   sync.Mutex
@@ -106,7 +108,7 @@ func New(client JiraClient, cards Cards, playbooks Playbooks, cfg Config) *Servi
 
 	return &Service{
 		jira: client, cards: cards, playbooks: playbooks, cfg: cfg, clk: clk, timeout: importTimeout,
-		epics: map[string]*sync.Mutex{}, imports: map[string]*ImportState{},
+		epics: map[string]chan struct{}{}, imports: map[string]*ImportState{},
 	}
 }
 
@@ -114,19 +116,28 @@ func (s *Service) browseURL(key string) string {
 	return strings.TrimRight(s.cfg.SiteURL, "/") + "/browse/" + key
 }
 
+// source is the source this site gives the issue key.
+func (s *Service) source(key string) *board.Source {
+	return &board.Source{System: jira.SourceSystem, ExternalID: key, ExternalURL: s.browseURL(key)}
+}
+
 // lockEpic serialises imports of one epic on this instance, so two clicks
-// cannot both create the playbook or the same card.
-func (s *Service) lockEpic(key string) func() {
+// cannot both create the playbook or the same card. The wait ends with ctx.
+func (s *Service) lockEpic(ctx context.Context, key string) (func(), error) {
 	s.mu.Lock()
 
-	m, ok := s.epics[key]
+	sem, ok := s.epics[key]
 	if !ok {
-		m = &sync.Mutex{}
-		s.epics[key] = m
+		sem = make(chan struct{}, 1)
+		s.epics[key] = sem
 	}
 
 	s.mu.Unlock()
-	m.Lock()
 
-	return m.Unlock
+	select {
+	case sem <- struct{}{}:
+		return func() { <-sem }, nil
+	case <-ctx.Done():
+		return nil, fmt.Errorf("wait for another import of %s: %w", key, context.Cause(ctx))
+	}
 }

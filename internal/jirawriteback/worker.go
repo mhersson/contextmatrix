@@ -11,6 +11,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/jira"
 	opsqlite "github.com/mhersson/contextmatrix/internal/opstore/sqlite"
+	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
 const (
@@ -105,6 +106,16 @@ func (w *Writeback) process(ctx context.Context, row opsqlite.JiraWriteback) boo
 		// the status guards make a POST that did land a no-op next time.
 		return false
 	case errors.Is(err, jira.ErrUnauthorized):
+		// Working credentials mean this write is what Jira refuses (a token
+		// without write scope): retrying would loop forever.
+		if _, perr := w.api.Myself(ctx); perr == nil {
+			return w.fail(ctx, row, fmt.Sprintf("insufficient scope: Jira refused the write although the credentials work: %v", err))
+		}
+
+		if ctx.Err() != nil {
+			return false
+		}
+
 		w.pause(err)
 
 		return false
@@ -175,16 +186,11 @@ func (w *Writeback) finish(ctx context.Context, row opsqlite.JiraWriteback, stat
 	return true
 }
 
-// fail records a permanent failure and leaves one line on the card.
+// fail leaves one line on the card, then records the permanent failure. A
+// line that cannot be written keeps the row pending so a later drain retries
+// it; a card or project that is gone cannot take one, so the row finishes.
 func (w *Writeback) fail(ctx context.Context, row opsqlite.JiraWriteback, reason string) bool {
 	reason = truncate(reason)
-
-	if !w.finish(ctx, row, opsqlite.JiraWritebackFailed, reason) {
-		return false
-	}
-
-	w.logger.Warn("jira writeback failed", "project", row.Project, "card_id", row.CardID, "issue", row.IssueKey,
-		"kind", row.Kind, "reason", reason)
 
 	// WithoutCancel: the line goes through the commit queue, which outlives
 	// this worker during shutdown.
@@ -193,8 +199,29 @@ func (w *Writeback) fail(ctx context.Context, row opsqlite.JiraWriteback, reason
 		Action:  "jira-writeback",
 		Message: fmt.Sprintf("Jira writeback (%s) failed: %s", row.Kind, reason),
 	}); err != nil {
-		w.logger.Warn("jira writeback: card log line", "project", row.Project, "card_id", row.CardID, "error", err)
+		if !errors.Is(err, storage.ErrCardNotFound) && !errors.Is(err, storage.ErrProjectNotFound) {
+			w.logger.Warn("jira writeback: card log line", "project", row.Project, "card_id", row.CardID, "error", err)
+
+			// Back off without spending an attempt, so a persistent cause
+			// neither hammers Jira nor starves younger rows.
+			now := w.clk.Now()
+			next := now.Add(retryDelay(row.Attempts+1, nil))
+
+			if rerr := w.outbox.RetryJiraWriteback(ctx, row.Project, row.CardID, row.Kind, row.Attempts, next.Unix(), reason, now.Unix()); rerr != nil {
+				w.logger.Warn("jira writeback: defer failed row", "project", row.Project, "card_id", row.CardID, "error", rerr)
+			}
+
+			return false
+		}
 	}
+
+	// WithoutCancel: the line is already written, so the outcome must land too.
+	if !w.finish(context.WithoutCancel(ctx), row, opsqlite.JiraWritebackFailed, reason) {
+		return false
+	}
+
+	w.logger.Warn("jira writeback failed", "project", row.Project, "card_id", row.CardID, "issue", row.IssueKey,
+		"kind", row.Kind, "reason", reason)
 
 	return true
 }

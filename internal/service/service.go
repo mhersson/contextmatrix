@@ -46,11 +46,12 @@ const (
 	maxReviewAttempts = 7
 
 	// Field length limits to prevent abuse.
-	maxTitleLen   = 500
-	maxBodyLen    = 512 * 1024 // 512 KB
-	maxLabelLen   = 100
-	maxLabels     = 50
-	maxDependsOn  = 50
+	maxTitleLen = 500
+	maxBodyLen  = 512 * 1024 // 512 KB
+	maxLabelLen = 100
+	maxLabels   = 50
+	// MaxDependsOn caps a card's depends_on list.
+	MaxDependsOn  = 50
 	maxAgentIDLen = 256
 	maxLogMessage = 2000
 	maxLogAction  = 200

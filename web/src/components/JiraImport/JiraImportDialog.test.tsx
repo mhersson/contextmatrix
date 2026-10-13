@@ -375,6 +375,27 @@ describe('JiraImportDialog', () => {
     });
   });
 
+  it('rejoins the epic’s running import instead of offering Import', async () => {
+    vi.mocked(api.previewJiraEpic).mockResolvedValue(
+      samplePreview({ active_import: { id: 'ji-1', keys: ['PROJ-3', 'PROJ-2', 'PROJ-7'] } }),
+    );
+    render(tree());
+
+    await waitFor(() => expect(api.getJiraImport).toHaveBeenCalledWith('ji-1'));
+    expect(screen.queryByRole('button', { name: /^Import/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Importing… 0 of 3');
+
+    emit('jira_import.done', {
+      import_id: 'ji-1',
+      status: 'failed',
+      playbook_id: 'proj-1-checkout-revamp',
+      error: 'timed out; run the import again',
+      results: [{ key: 'PROJ-3', status: 'created', project: 'api', card: 'API-001' }],
+    });
+    expect(within(screen.getByRole('list', { name: 'Import results' })).getAllByText('not run')).toHaveLength(2);
+    expect(api.importJiraEpic).not.toHaveBeenCalled();
+  });
+
   it('shows the server error when the preview fails', async () => {
     vi.mocked(api.previewJiraEpic).mockRejectedValue({ error: 'Jira authentication failed', code: 'JIRA_AUTH_FAILED' });
     render(tree());
@@ -382,11 +403,60 @@ describe('JiraImportDialog', () => {
     expect(screen.getByRole('dialog', { name: /Import Jira epic PROJ-1/ })).toBeInTheDocument();
   });
 
+  it('shows the details of a refused import', async () => {
+    vi.mocked(api.importJiraEpic).mockRejectedValueOnce({
+      error: 'invalid import request',
+      code: 'BAD_REQUEST',
+      details: 'at most 200 issues per import',
+    });
+    render(tree());
+    fireEvent.change(await screen.findByLabelText('Project for PROJ-7'), { target: { value: 'web' } });
+    fireEvent.click(importButton());
+    expect(await screen.findByRole('alert')).toHaveTextContent('at most 200 issues per import');
+  });
+
+  it('shows both the error and the details when the preview is rejected', async () => {
+    vi.mocked(api.previewJiraEpic).mockRejectedValue({
+      error: 'Jira refused the request',
+      code: 'JIRA_REQUEST_REJECTED',
+      details: 'Field x is invalid',
+    });
+    render(tree());
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Jira refused the request');
+    expect(alert).toHaveTextContent('Field x is invalid');
+  });
+
+  it('disables Import above the selection cap', async () => {
+    const base = samplePreview();
+    const children = Array.from({ length: 201 }, (_, i) => ({ ...base.children[0], key: `PROJ-${100 + i}`, subtasks: [] }));
+    vi.mocked(api.previewJiraEpic).mockResolvedValue(samplePreview({ children }));
+    render(tree());
+    expect(await screen.findByRole('button', { name: /^Import 201 issues/ })).toBeDisabled();
+  });
+
   it('closes on Escape', async () => {
     const onClose = vi.fn();
     render(tree('', onClose));
     await screen.findByLabelText('Import PROJ-2');
     fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('can be closed while the preview loads', () => {
+    vi.mocked(api.previewJiraEpic).mockReturnValue(new Promise(() => {}));
+    const onClose = vi.fn();
+    render(tree('', onClose));
+    fireEvent.click(screen.getByRole('button', { name: /^(Close|Cancel)$/ }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('can be closed after the preview fails', async () => {
+    vi.mocked(api.previewJiraEpic).mockRejectedValue({ error: 'Jira authentication failed', code: 'JIRA_AUTH_FAILED' });
+    const onClose = vi.fn();
+    render(tree('', onClose));
+    await screen.findByRole('alert');
+    fireEvent.click(screen.getByRole('button', { name: /^(Close|Cancel)$/ }));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

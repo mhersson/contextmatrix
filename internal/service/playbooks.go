@@ -186,6 +186,8 @@ type PlaybookNext struct {
 	Project string `json:"project,omitempty"`
 	Card    string `json:"card,omitempty"`
 	Title   string `json:"title"`
+	// Unvetted marks a card whose title is untrusted imported text.
+	Unvetted bool `json:"unvetted,omitempty"`
 }
 
 // PlaybookRepoLink is one project repository a runnable playbook touches and
@@ -203,8 +205,11 @@ type PlaybookEntryDetail struct {
 	CardTitle         string `json:"card_title,omitempty"`
 	CardState         string `json:"card_state,omitempty"`
 	CardAssignedAgent string `json:"card_assigned_agent,omitempty"`
-	Missing           bool   `json:"missing,omitempty"`
-	Complete          bool   `json:"complete"`
+	// CardUnvetted is true for an imported card no human has vetted; its
+	// title is untrusted text.
+	CardUnvetted bool `json:"card_unvetted,omitempty"`
+	Missing      bool `json:"missing,omitempty"`
+	Complete     bool `json:"complete"`
 }
 
 // PlaybookDetail is the full playbook view: metadata plus every entry
@@ -581,7 +586,8 @@ func (s *PlaybookService) SetSyncRunnerFor(repo string, run SyncRunner, commit D
 
 // Create builds a new playbook from input, validating and resolving every
 // entry before the first store write so a bad entry never leaves a partial
-// playbook behind.
+// playbook behind. When a stored playbook has the same source as input
+// (board.SameSource), Create returns it unchanged, ignoring the rest of input.
 func (s *PlaybookService) Create(ctx context.Context, input CreatePlaybookInput) (*PlaybookDetail, error) {
 	r, err := s.repoNamed(input.BoardsRepo)
 	if err != nil {
@@ -602,7 +608,9 @@ func (s *PlaybookService) Create(ctx context.Context, input CreatePlaybookInput)
 		return nil, err
 	}
 
-	s.publish(events.PlaybookCreated, p, input.AgentID, detail.Created)
+	if p != nil {
+		s.publish(events.PlaybookCreated, p, input.AgentID, detail.Created)
+	}
 
 	return detail, nil
 }
@@ -611,10 +619,24 @@ func (s *PlaybookService) Create(ctx context.Context, input CreatePlaybookInput)
 // chosen by it. The caller publishes playbook.created: inside a sync cycle
 // the create is not final until the push has landed. It returns the built
 // playbook alongside its detail so the caller can publish without a
-// re-fetch.
+// re-fetch, or a nil playbook when it found a stored one with the same
+// source as input.
 func (s *PlaybookService) createLocked(
 	ctx context.Context, r *PlaybookRepo, input CreatePlaybookInput, commit func(ctx context.Context, id, action string) error,
 ) (*PlaybookDetail, *board.Playbook, error) {
+	if input.Source != nil {
+		existing, err := s.playbookBySource(ctx, input.Source)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		if existing != nil {
+			detail, err := s.resolve(ctx, existing)
+
+			return detail, nil, err
+		}
+	}
+
 	now := s.clk.Now().UTC().Truncate(time.Second)
 
 	p := &board.Playbook{
@@ -678,8 +700,10 @@ func (s *PlaybookService) createLocked(
 }
 
 // createVerified allocates the slug and writes the playbook inside a sync
-// cycle, so the ID is unique against the merged playbooks directory. Playbook
-// creation is rare, so it makes one attempt rather than the card paths' three.
+// cycle, so the ID is unique against the merged playbooks directory and a
+// playbook a peer imported from the same source is found, not duplicated.
+// Playbook creation is rare, so it makes one attempt rather than the card
+// paths' three.
 func (s *PlaybookService) createVerified(ctx context.Context, r *PlaybookRepo, input CreatePlaybookInput) (*PlaybookDetail, error) {
 	var created *board.Playbook
 
@@ -699,7 +723,7 @@ func (s *PlaybookService) createVerified(ctx context.Context, r *PlaybookRepo, i
 
 	_, err := r.runner(ctx, "create playbook", SyncMutation{
 		Apply: func(ctx context.Context) error {
-			d, _, err := s.createLocked(ctx, r, input, commit)
+			d, p, err := s.createLocked(ctx, r, input, commit)
 			if err != nil {
 				applyErr = err
 
@@ -707,6 +731,12 @@ func (s *PlaybookService) createVerified(ctx context.Context, r *PlaybookRepo, i
 			}
 
 			detail = d
+
+			// An existing playbook was not written here, so Undo must not
+			// touch it.
+			if p == nil {
+				return nil
+			}
 
 			cur, err := s.store.Get(ctx, d.ID)
 			if err != nil {
@@ -747,7 +777,9 @@ func (s *PlaybookService) createVerified(ctx context.Context, r *PlaybookRepo, i
 		return nil, fmt.Errorf("create playbook: %w: %w", ErrRemoteUnreachable, err)
 	}
 
-	s.publish(events.PlaybookCreated, created, input.AgentID, detail.Created)
+	if created != nil {
+		s.publish(events.PlaybookCreated, created, input.AgentID, detail.Created)
+	}
 
 	return detail, nil
 }
@@ -783,22 +815,35 @@ func (s *PlaybookService) Get(ctx context.Context, id string) (*PlaybookDetail, 
 	return s.resolve(ctx, p)
 }
 
-// FindBySource returns the playbook imported from the given external source.
-// The store lists by id across every boards repo, so two instances that
-// imported the same epic at once on a shared board resolve to the lower id.
-func (s *PlaybookService) FindBySource(ctx context.Context, system, externalID string) (*PlaybookDetail, error) {
+// FindBySource returns the playbook imported from src. Two from one source, as
+// overlapping sync cycles on a shared board can leave, resolve to the lower id.
+func (s *PlaybookService) FindBySource(ctx context.Context, src *board.Source) (*PlaybookDetail, error) {
+	p, err := s.playbookBySource(ctx, src)
+	if err != nil {
+		return nil, err
+	}
+
+	if p == nil {
+		return nil, fmt.Errorf("%w: no playbook from this source", storage.ErrPlaybookNotFound)
+	}
+
+	return s.resolve(ctx, p)
+}
+
+// playbookBySource returns the stored playbook imported from src, or nil.
+func (s *PlaybookService) playbookBySource(ctx context.Context, src *board.Source) (*board.Playbook, error) {
 	playbooks, err := s.store.List(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list playbooks: %w", err)
 	}
 
 	for _, p := range playbooks {
-		if p.Source != nil && p.Source.System == system && p.Source.ExternalID == externalID {
-			return s.resolve(ctx, p)
+		if board.SameSource(p.Source, src) {
+			return p, nil
 		}
 	}
 
-	return nil, fmt.Errorf("%w: no playbook from %s %s", storage.ErrPlaybookNotFound, system, externalID)
+	return nil, nil
 }
 
 // UpdateMeta patches a playbook's title, description, runnable flag and
@@ -1445,6 +1490,7 @@ func (s *PlaybookService) resolve(ctx context.Context, p *board.Playbook) (*Play
 				ed.CardTitle = card.Title
 				ed.CardState = card.State
 				ed.CardAssignedAgent = card.AssignedAgent
+				ed.CardUnvetted = card.NeedsVetting()
 				ed.Complete = board.IsTerminalState(card.State)
 			case errors.Is(err, storage.ErrCardNotFound), errors.Is(err, storage.ErrProjectNotFound):
 				ed.Missing = true
@@ -1552,7 +1598,7 @@ func SummarizeDetail(d *PlaybookDetail) PlaybookSummary {
 		}
 
 		if next == nil && !ed.Complete {
-			next = &PlaybookNext{Type: ed.Type, Project: ed.Project, Card: ed.Card, Title: ed.CardTitle}
+			next = &PlaybookNext{Type: ed.Type, Project: ed.Project, Card: ed.Card, Title: ed.CardTitle, Unvetted: ed.CardUnvetted}
 			if ed.Type == board.EntryTypeManual {
 				next.Title = ed.Text
 			}

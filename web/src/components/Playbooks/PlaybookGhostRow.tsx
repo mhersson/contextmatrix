@@ -48,14 +48,16 @@ export interface PlaybookGhostRowProps {
   onRepoChange?: (repo: string) => void;
   /** The Jira site when Jira is configured; shows "Import from Jira". */
   jiraSiteURL?: string;
-  /** Why the configured Jira cannot be used; shown, and the import button stays disabled. */
+  /** Why the configured Jira may not work; shown as a warning. */
   jiraAuthProblem?: string;
+  /** Jira rejects the token, so the import button stays disabled. */
+  jiraImportBlocked?: boolean;
   onImportJira?: (epicKey: string) => void;
 }
 
 export function PlaybookGhostRow({
   title, onTitleChange, description, onDescriptionChange, onCreate, onCancel, submitting, repos, repo, onRepoChange,
-  jiraSiteURL, jiraAuthProblem, onImportJira,
+  jiraSiteURL, jiraAuthProblem, jiraImportBlocked, onImportJira,
 }: PlaybookGhostRowProps) {
   const epicKey = jiraSiteURL ? parseJiraRef(title, jiraSiteURL) : null;
 
@@ -114,7 +116,7 @@ export function PlaybookGhostRow({
           <button
             type="button"
             onClick={() => epicKey && onImportJira?.(epicKey)}
-            disabled={!epicKey || !!jiraAuthProblem || submitting}
+            disabled={!epicKey || !!jiraImportBlocked || submitting}
             className="pbl-btn-quiet"
           >
             Import from Jira

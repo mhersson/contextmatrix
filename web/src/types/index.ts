@@ -1001,6 +1001,7 @@ export interface JiraStatus {
   auth_mode?: string;
   writeback_enabled?: boolean;
   site_url?: string;
+  writeback_paused?: boolean;
   /** Only when authenticated is false. */
   auth_error?: 'unauthorized' | 'captcha_required' | 'unreachable';
 }
@@ -1032,6 +1033,8 @@ export interface JiraEpicPreview {
   children: JiraIssueNode[];
   /** The playbook an import would extend, when one exists for the epic. */
   playbook?: { id: string; title: string; boards_repo?: string; run_active?: boolean };
+  /** The epic's import running on this server, which a reopened dialog rejoins. */
+  active_import?: { id: string; keys: string[] };
 }
 
 export interface JiraImportSelection {

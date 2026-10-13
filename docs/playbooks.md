@@ -93,7 +93,8 @@ page; the switch opens a warning that lists exactly what follows.
 
 ### The branch model
 
-Every card keeps its own `cm/<card>` branch, opens a PR into
+Every card keeps its own `cm/<card>` branch (a Jira-imported card's carries its
+uppercase key, e.g. `cm/api-012-PROJ-123`), opens a PR into
 `playbook/<id>`, waits for CI and merges. The playbook branch does not need
 to exist up front: the worker of the first card in each repository creates
 it from the playbook's `base_branch`. ContextMatrix itself never writes to a

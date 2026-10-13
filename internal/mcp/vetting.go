@@ -1,7 +1,10 @@
 package mcp
 
 import (
+	"slices"
+
 	"github.com/mhersson/contextmatrix/internal/board"
+	"github.com/mhersson/contextmatrix/internal/service"
 )
 
 // unvettedBodyPlaceholder replaces the body of an unvetted external card when
@@ -12,8 +15,8 @@ import (
 const unvettedBodyPlaceholder = "[unvetted - human review required before body is exposed to agents]"
 
 // unvettedPlaceholderTitle is substituted for the title of an unvetted
-// external card when it would otherwise be rendered to a non-human caller via
-// an MCP prompt formatter (which has no agent identity available).
+// external card when it would otherwise reach a non-human caller: MCP prompt
+// formatters (no agent identity) and the playbook tools.
 const unvettedPlaceholderTitle = "[unvetted - title redacted]"
 
 // shouldRedact returns true if a non-human caller is reading an unvetted card.
@@ -102,4 +105,38 @@ func redactCardForPrompt(card *board.Card) *board.Card {
 	}
 
 	return &cp
+}
+
+// redactPlaybookDetail returns a copy of d with the title of every unvetted
+// card entry replaced by the placeholder for a non-human caller. d may be
+// shared with the service and is never mutated.
+func redactPlaybookDetail(d *service.PlaybookDetail, agentID string) *service.PlaybookDetail {
+	if d == nil || board.IsHumanAgentID(agentID) {
+		return d
+	}
+
+	cp := *d
+	cp.Entries = slices.Clone(d.Entries)
+
+	for i := range cp.Entries {
+		if cp.Entries[i].CardUnvetted {
+			cp.Entries[i].CardTitle = unvettedPlaceholderTitle
+		}
+	}
+
+	return &cp
+}
+
+// redactPlaybookSummary is the summary counterpart of redactPlaybookDetail;
+// it replaces an unvetted frontier title on a copy of the Next pointer.
+func redactPlaybookSummary(s service.PlaybookSummary, agentID string) service.PlaybookSummary {
+	if s.Next == nil || !s.Next.Unvetted || board.IsHumanAgentID(agentID) {
+		return s
+	}
+
+	next := *s.Next
+	next.Title = unvettedPlaceholderTitle
+	s.Next = &next
+
+	return s
 }

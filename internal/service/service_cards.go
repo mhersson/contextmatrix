@@ -601,7 +601,7 @@ func validateCreateType(input CreateCardInput) error {
 
 // createCardLocked is CreateCard with writeMu held by the caller and the
 // commit path chosen by it. created is false when the dedupe guard returned
-// an existing subtask.
+// an existing card.
 func (s *CardService) createCardLocked(
 	ctx context.Context, project string, input CreateCardInput, commit commitFn,
 ) (*board.Card, bool, error) {
@@ -888,16 +888,21 @@ func (s *CardService) buildNewCardFromInput(
 	return card, nil
 }
 
-// applyDedupGuard checks whether a non-terminal subtask with the same title
-// (case-insensitive, trimmed) already exists under the same parent. writeMu
-// must be held by the caller to eliminate any TOCTOU race. Returns the
-// existing card and true when a duplicate is found; returns nil, false, nil
-// when the call should proceed to creation.
+// applyDedupGuard checks whether the project already holds a card with the
+// same external source (board.SameSource, any state), or a non-terminal
+// subtask with the same title (case-insensitive, trimmed) under the same
+// parent. writeMu must be held by the caller to eliminate any TOCTOU race.
+// Returns the existing card and true when a duplicate is found; returns nil,
+// false, nil when the call should proceed to creation.
 func (s *CardService) applyDedupGuard(
 	ctx context.Context,
 	project string,
 	input CreateCardInput,
 ) (*board.Card, bool, error) {
+	if existing, err := s.cardBySource(ctx, project, input); err != nil || existing != nil {
+		return existing, existing != nil, err
+	}
+
 	parentID := strings.ToUpper(strings.TrimSpace(input.Parent))
 	if parentID == "" {
 		return nil, false, nil
@@ -926,6 +931,56 @@ func (s *CardService) applyDedupGuard(
 	}
 
 	return nil, false, nil
+}
+
+// cardBySource returns the project's card imported from input's source, or
+// nil. A terminal card still counts: an importer treats any card from the
+// source as already imported. Two recorded Jira issue ids that differ are two
+// issues under one key, as the Jira importer's own index rules.
+func (s *CardService) cardBySource(ctx context.Context, project string, input CreateCardInput) (*board.Card, error) {
+	src := input.Source
+	if src == nil || src.System == "" || src.ExternalID == "" {
+		return nil, nil
+	}
+
+	cards, err := s.store.ListCards(ctx, project, storage.CardFilter{ExternalID: src.ExternalID})
+	if err != nil {
+		return nil, fmt.Errorf("list cards for source check: %w", err)
+	}
+
+	issueID := customValue(input.Custom, jira.CustomIssueID)
+
+	for _, c := range cards {
+		if !board.SameSource(c.Source, src) {
+			continue
+		}
+
+		if id := customValue(c.Custom, jira.CustomIssueID); issueID != "" && id != "" && id != issueID {
+			continue
+		}
+
+		ctxlog.Logger(ctx).Info("card with the same source exists, returning it",
+			"existing_id", c.ID,
+			"source_system", src.System,
+			"external_id", src.ExternalID,
+			"state", c.State,
+		)
+
+		return c, nil
+	}
+
+	return nil, nil
+}
+
+// customValue renders a custom field as text, or "" when it is unset. A
+// hand-edited card can hold a number where the importer wrote a string.
+func customValue(custom map[string]any, key string) string {
+	v, ok := custom[key]
+	if !ok || v == nil {
+		return ""
+	}
+
+	return fmt.Sprint(v)
 }
 
 // commitNewCardWithNextID persists the card to the store and commits both the
@@ -1233,8 +1288,8 @@ func validatePatchFieldLimits(input PatchCardInput) error {
 	// input.DependsOn is already normalized (see PatchCard) so this bound is
 	// checked once, before writeMu, rather than after validateCardReferences
 	// has already spent one GetCard per element under the write lock.
-	if len(input.DependsOn) > maxDependsOn {
-		return fmt.Errorf("depends_on count %d exceeds limit of %d: %w", len(input.DependsOn), maxDependsOn, ErrFieldTooLong)
+	if len(input.DependsOn) > MaxDependsOn {
+		return fmt.Errorf("depends_on count %d exceeds limit of %d: %w", len(input.DependsOn), MaxDependsOn, ErrFieldTooLong)
 	}
 
 	if err := validateCardVerify(input.Verify); err != nil {
@@ -2111,8 +2166,8 @@ func validateFieldLimits(title, body, assignee string, labels, dependsOn []strin
 		}
 	}
 
-	if len(dependsOn) > maxDependsOn {
-		return fmt.Errorf("depends_on count %d exceeds limit of %d: %w", len(dependsOn), maxDependsOn, ErrFieldTooLong)
+	if len(dependsOn) > MaxDependsOn {
+		return fmt.Errorf("depends_on count %d exceeds limit of %d: %w", len(dependsOn), MaxDependsOn, ErrFieldTooLong)
 	}
 
 	return nil

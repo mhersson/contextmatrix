@@ -5,6 +5,15 @@ type Preview struct {
 	Epic     Epic         `json:"epic"`
 	Children []Node       `json:"children"`
 	Playbook *PlaybookRef `json:"playbook,omitempty"` // the playbook an import would extend
+	// ActiveImport is the epic's import running on this instance, for a
+	// reopened dialog to rejoin instead of offering Import again.
+	ActiveImport *ActiveImport `json:"active_import,omitempty"`
+}
+
+// ActiveImport names a running import and the issue keys it covers.
+type ActiveImport struct {
+	ID   string   `json:"id"`
+	Keys []string `json:"keys"`
 }
 
 // Epic is the epic itself; Description is its text as markdown.
