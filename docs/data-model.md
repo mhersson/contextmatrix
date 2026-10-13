@@ -135,13 +135,15 @@ live in [architecture](architecture.md); the HTTP surface in the
    (the run endpoint returns 403 for any caller), make-runnable refuses while
    one is a non-terminal playbook entry, and a playbook run waits on it until
    it is vetted.
-   - Internal cards (no `source`) always have `vetted: true`.
+   - Internal cards (no `source`) are never gated or redacted; new ones are
+     written with `vetted: true`.
    - `vetted` is human-only: agents get 403 `HUMAN_ONLY_FIELD` via REST, and
      the MCP `update_card` tool does not expose it.
    - `get_ready_tasks` excludes unvetted external cards. For non-human MCP
      callers, `get_card` and `get_task_context` redact an unvetted card's
-     title and body; `list_cards`, the mutation responses and the playbook
-     tools redact its title. A caller is human only with a `human:<name>`
+     title, body and `branch_name`; `list_cards` and the mutation responses
+     redact its title and `branch_name`; the playbook tools redact its
+     title. "Unvetted" means imported (has a `source`) and not yet vetted. A caller is human only with a `human:<name>`
      `agent_id`; tools with no `agent_id` treat the caller as non-human.
    - The web UI shows an "unvetted" badge and a warning banner.
 

@@ -19,18 +19,17 @@ const unvettedBodyPlaceholder = "[unvetted - human review required before body i
 // formatters (no agent identity), the playbook tools and the card tools.
 const unvettedPlaceholderTitle = "[unvetted - title redacted]"
 
-// shouldRedact returns true if a non-human caller is reading an unvetted card.
-// A card counts as unvetted only when both Vetted=false AND the caller is not
-// a human agent (agentID does not match board.IsHumanAgentID). An empty
-// agentID - and a bare "human:" with no suffix - both count as "non-human"
-// because MCP prompt handlers do not have identity information available -
-// see redactCardForPrompt.
+// shouldRedact returns true when a non-human caller reads a card that still
+// needs vetting (card.NeedsVetting: imported, not yet vetted). Internal cards
+// without a source are never redacted. An empty or bare "human:" agentID counts
+// as non-human, as MCP prompt handlers carry no identity (see
+// redactCardForPrompt).
 func shouldRedact(card *board.Card, agentID string) bool {
 	if card == nil {
 		return false
 	}
 
-	return !card.Vetted && !board.IsHumanAgentID(agentID)
+	return card.NeedsVetting() && !board.IsHumanAgentID(agentID)
 }
 
 // redactUnvettedBody returns the card body as-is for humans or for vetted
@@ -54,7 +53,7 @@ func redactUnvettedBody(card *board.Card, agentID string) string {
 }
 
 // redactCardForAgent returns a shallow copy of card with Body and Title
-// replaced for a non-human caller reading an unvetted card. The original card
+// replaced and BranchName cleared for a non-human caller reading an unvetted card. The original card
 // is left unmodified. Returns nil if card is nil. Used by the body-carrying
 // read tools (get_card, get_task_context); summary-returning tools use
 // summarizeCardForAgent. Humans get full visibility.
@@ -70,6 +69,7 @@ func redactCardForAgent(card *board.Card, agentID string) *board.Card {
 	redacted := *card
 	redacted.Body = unvettedBodyPlaceholder
 	redacted.Title = unvettedPlaceholderTitle
+	redacted.BranchName = "" // the branch slug is derived from the title
 
 	return &redacted
 }
@@ -81,6 +81,7 @@ func summarizeCardForAgent(card *board.Card, agentID string) *CardSummary {
 	s := summarizeCard(card)
 	if s != nil && shouldRedact(card, agentID) {
 		s.Title = unvettedPlaceholderTitle
+		s.BranchName = "" // the branch slug is derived from the title
 	}
 
 	return s
@@ -123,6 +124,7 @@ func redactCardForPrompt(card *board.Card) *board.Card {
 	cp := *card // shallow copy; Card contains slices/pointers we handle below
 	cp.Body = unvettedBodyPlaceholder
 	cp.Title = unvettedPlaceholderTitle
+	cp.BranchName = ""   // the branch slug is derived from the title
 	cp.ActivityLog = nil // log entries can carry injected text as "messages"
 	cp.Context = nil     // free-form strings supplied by external importers
 

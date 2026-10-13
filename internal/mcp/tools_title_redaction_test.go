@@ -62,6 +62,7 @@ func TestCardTools_RedactUnvettedTitle(t *testing.T) {
 
 	unvetted := seedImported(t, env, secretTitle, "", false)
 	require.False(t, unvetted.Vetted)
+	require.NotEmpty(t, unvetted.BranchName, "fixture must carry a branch name derived from the title")
 
 	vetted := seedImported(t, env, "Vetted imported", "", true)
 	require.True(t, vetted.Vetted)
@@ -77,8 +78,10 @@ func TestCardTools_RedactUnvettedTitle(t *testing.T) {
 
 				if tc.agent == "human:alice" {
 					assert.Contains(t, got.Body, secretBody)
+					assert.Equal(t, unvetted.BranchName, got.BranchName)
 				} else {
 					assert.Equal(t, unvettedBodyPlaceholder, got.Body)
+					assert.Empty(t, got.BranchName)
 				}
 
 				unmarshalResult(t, callTool(t, env, "get_card", withAgent(map[string]any{"card_id": vetted.ID}, tc.agent)), &got)
@@ -102,6 +105,13 @@ func TestCardTools_RedactUnvettedTitle(t *testing.T) {
 						seen++
 
 						assert.Equal(t, tc.want, c.Title)
+
+						if tc.agent == "human:alice" {
+							assert.Equal(t, unvetted.BranchName, c.BranchName)
+						} else {
+							assert.Empty(t, c.BranchName)
+						}
+
 						assert.False(t, c.Vetted)
 						assert.Equal(t, board.StateTodo, c.State)
 						require.NotNil(t, c.Source)
@@ -206,7 +216,7 @@ func TestCheckAgentHealth_RedactsUnvettedSubtaskTitle(t *testing.T) {
 }
 
 func TestSummarizeCardForAgent(t *testing.T) {
-	unvetted := &board.Card{ID: "A-1", Title: secretTitle, State: board.StateTodo, Source: &board.Source{System: "github"}}
+	unvetted := &board.Card{ID: "A-1", Title: secretTitle, BranchName: "a-1/secret", State: board.StateTodo, Source: &board.Source{System: "github"}}
 	vetted := &board.Card{ID: "A-2", Title: "ok", Vetted: true, Source: &board.Source{System: "github"}}
 
 	assert.Nil(t, summarizeCardForAgent(nil, "agent-1"))
@@ -219,6 +229,12 @@ func TestSummarizeCardForAgent(t *testing.T) {
 			assert.Equal(t, "A-1", got.ID)
 			assert.Equal(t, board.StateTodo, got.State)
 			assert.Equal(t, secretTitle, unvetted.Title, "input card is not mutated")
+
+			if tc.agent == "human:alice" {
+				assert.Equal(t, "a-1/secret", got.BranchName)
+			} else {
+				assert.Empty(t, got.BranchName)
+			}
 
 			assert.Equal(t, "ok", summarizeCardForAgent(vetted, tc.agent).Title)
 		})
@@ -260,6 +276,40 @@ func TestLifecycleTools_RedactUnvettedTitle(t *testing.T) {
 	res, err := callToolRaw(t, env, "claim_card", map[string]any{"card_id": card.ID, "agent_id": "agent-1"})
 	if err == nil {
 		require.NotNil(t, res)
+		require.True(t, res.IsError, "a non-human claim of an unvetted card is rejected")
 		assert.NotContains(t, mustMarshal(t, res.Content), secretTitle)
 	}
+}
+
+// Cards written before the vetting gate load as Vetted=false with no Source;
+// they are internal and must stay visible to every caller.
+func TestShouldRedact_LegacyInternalCardNotRedacted(t *testing.T) {
+	legacy := &board.Card{ID: "A-9", Title: "Legacy internal", Body: "plain", BranchName: "a-9/legacy-internal"}
+
+	for _, agent := range []string{"human:alice", "agent-1", ""} {
+		assert.False(t, shouldRedact(legacy, agent), "agent %q", agent)
+
+		got := redactCardForAgent(legacy, agent)
+		assert.Equal(t, "Legacy internal", got.Title)
+		assert.Equal(t, "plain", got.Body)
+		assert.Equal(t, "a-9/legacy-internal", got.BranchName)
+
+		sum := summarizeCardForAgent(legacy, agent)
+		assert.Equal(t, "Legacy internal", sum.Title)
+		assert.Equal(t, "a-9/legacy-internal", sum.BranchName)
+	}
+
+	assert.Same(t, legacy, redactCardForPrompt(legacy))
+}
+
+func TestRedactCardForPrompt_ClearsBranchName(t *testing.T) {
+	card := &board.Card{
+		ID: "A-1", Title: secretTitle, BranchName: "a-1/secret",
+		Source: &board.Source{System: "github"},
+	}
+
+	got := redactCardForPrompt(card)
+	assert.Empty(t, got.BranchName)
+	assert.Equal(t, unvettedPlaceholderTitle, got.Title)
+	assert.Equal(t, "a-1/secret", card.BranchName, "input card is not mutated")
 }

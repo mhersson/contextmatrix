@@ -340,8 +340,8 @@ order matches seq order.
   `session_id` against the caller's `CM_CHAT_SESSION` (forwarded as
   `X-CM-Chat-Session`) only when that header is present. The check guards
   against a container flipping another session by mistake; it is not a
-  security boundary, since the header is optional and CM assumes a trusted
-  network.
+  security boundary: the Bearer MCP key is the only gate in both auth
+  modes, so any holder of the key can omit the header.
 - **Cost accumulation.** Each `usage` frame carries per-turn token counts
   (one `message.usage` block per assistant turn, not cumulative totals).
   `handleUsageEntry` prices them through `chat.Pricer` and persists via
