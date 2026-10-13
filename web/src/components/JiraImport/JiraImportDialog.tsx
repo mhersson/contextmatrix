@@ -91,6 +91,13 @@ export function JiraImportDialog({ epicKey, description, boardsRepo, onClose }: 
             Loading the epic from Jira…
           </p>
         )}
+        {!preview && (
+          <div className="flex justify-end">
+            <button type="button" onClick={onClose} className="bf-btn-ghost bf-btn-sm">
+              Close
+            </button>
+          </div>
+        )}
         {run && started ? (
           <JiraImportResults
             run={run}

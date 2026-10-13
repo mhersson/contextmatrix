@@ -174,7 +174,7 @@ Catppuccin.
 When Jira is configured, the "New playbook" form's title also takes a Jira epic
 key or URL, and **Import from Jira** sits next to **Create playbook** (Enter
 still creates). It is enabled only for a key or a URL on the configured site,
-and disabled while the Jira token fails. The import dialog shows the epic's
+and disabled only while Jira rejects the token or a login CAPTCHA blocks it. The import dialog shows the epic's
 children and their sub-tasks with checkboxes (open, never-imported issues
 preselected; issues already in the playbook disabled), a project picker per
 issue plus one for all, an order-only warning on a sub-task placed in another

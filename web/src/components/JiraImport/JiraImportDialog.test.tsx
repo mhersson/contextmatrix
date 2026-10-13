@@ -442,4 +442,21 @@ describe('JiraImportDialog', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  it('can be closed while the preview loads', () => {
+    vi.mocked(api.previewJiraEpic).mockReturnValue(new Promise(() => {}));
+    const onClose = vi.fn();
+    render(tree('', onClose));
+    fireEvent.click(screen.getByRole('button', { name: /^(Close|Cancel)$/ }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('can be closed after the preview fails', async () => {
+    vi.mocked(api.previewJiraEpic).mockRejectedValue({ error: 'Jira authentication failed', code: 'JIRA_AUTH_FAILED' });
+    const onClose = vi.fn();
+    render(tree('', onClose));
+    await screen.findByRole('alert');
+    fireEvent.click(screen.getByRole('button', { name: /^(Close|Cancel)$/ }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
 });

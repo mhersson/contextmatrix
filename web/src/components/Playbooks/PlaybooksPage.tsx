@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../../api/client';
 import { useSSEBus } from '../../hooks/useSSEBus';
 import { useJiraStatus } from '../../hooks/useJiraStatus';
-import { jiraAuthProblem } from '../../lib/jiraStatus';
+import { jiraAuthProblem, jiraImportBlocked } from '../../lib/jiraStatus';
 import { JiraImportDialog } from '../JiraImport/JiraImportDialog';
 import { useToast } from '../../hooks/useToast';
 import type { PlaybookSummary } from '../../types';
@@ -53,6 +53,7 @@ export function PlaybooksPage() {
     onRepoChange: setNewRepo,
     jiraSiteURL: jira?.configured ? jira.site_url : undefined,
     jiraAuthProblem: jiraAuthProblem(jira) ?? undefined,
+    jiraImportBlocked: jiraImportBlocked(jira),
     onImportJira: setImportKey,
   };
 

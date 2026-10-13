@@ -1001,6 +1001,7 @@ export interface JiraStatus {
   auth_mode?: string;
   writeback_enabled?: boolean;
   site_url?: string;
+  writeback_paused?: boolean;
   /** Only when authenticated is false. */
   auth_error?: 'unauthorized' | 'captcha_required' | 'unreachable';
 }
