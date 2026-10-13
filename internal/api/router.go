@@ -1197,7 +1197,7 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, service.ErrDuplicateCardEntry):
 		writeError(w, http.StatusConflict, ErrCodePlaybookEntryExists, "card already in playbook", sanitizeErrorDetails(err))
 	case errors.Is(err, service.ErrPlaybookRunActive):
-		writeError(w, http.StatusConflict, ErrCodePlaybookRunActive, "playbook run is active", sanitizeErrorDetails(err))
+		writeError(w, http.StatusConflict, ErrCodePlaybookRunActive, "playbook run is active", detailsAfter(err, service.ErrPlaybookRunActive))
 	case errors.Is(err, service.ErrPlaybookMoveDuringRun):
 		writeError(w, http.StatusConflict, ErrCodePlaybookMoveDuringRun,
 			"entries cannot be reordered while the playbook run is active", "stop the run to reorder entries")

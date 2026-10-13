@@ -127,9 +127,10 @@ controls so Play can run them.
 Cards carry a derived `playbook_lock` with the owning playbook's id, title
 and, while active, its run status.
 
-Removing the run's current entry is refused (`409 PLAYBOOK_RUN_ACTIVE`)
-while the run is active; stop the run first. Other entries can be removed
-and the next pass finds a new frontier. Once the run is stopped or completed
+Removing the run's current entry, or any card entry whose card is not
+terminal and has a queued or running worker, is refused (`409
+PLAYBOOK_RUN_ACTIVE`) while the run is active; stop the run first. Other
+entries can be removed and the next pass finds a new frontier. Once the run is stopped or completed
 its former entry can be removed, which clears `entry` and `reason`.
 On a shared board a peer instance's removal of the current entry is undone
 when the boards merge.

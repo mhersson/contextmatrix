@@ -2002,7 +2002,8 @@ Response **200** with the full detail.
 Removes one entry; its id is never reused. Response **200** with the full
 detail (the playbook still exists). **Errors:** 404 `PLAYBOOK_NOT_FOUND`,
 404 `PLAYBOOK_ENTRY_NOT_FOUND`, 409 `PLAYBOOK_RUN_ACTIVE` (the entry is the
-run's current card; stop the run first).
+run's current card, or a non-terminal card with a queued or running worker;
+stop the run first).
 
 **Attribution** (`created_by`, `done_by`): the same resolved identity as
 cards - session in multi mode, else `X-Agent-ID`, falling back to
