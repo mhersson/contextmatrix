@@ -373,7 +373,7 @@ describe('provider value memoization', () => {
     const baseline = counter.n;
 
     // Firing several SSE messages must not re-render the consumer because the
-    // provider value (subscribe / connected / error) does not change.
+    // provider value (subscribe / connected) does not change.
     act(() => {
       latestInstance()._triggerMessage(sampleEvent);
       latestInstance()._triggerMessage(sampleEvent);

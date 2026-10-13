@@ -22,7 +22,6 @@ export type SSEPattern = '*' | 'card.*' | 'worker.*' | 'project.*' | 'sync.*' | 
 interface SSEBusContextValue {
   subscribe: (pattern: SSEPattern, onEvent: Subscriber) => () => void;
   connected: boolean;
-  error: string | null;
   /**
    * Increments once per true reconnect (a successful open that follows at
    * least one prior successful open) - never on the initial connect.
@@ -66,7 +65,6 @@ function eventPrefix(type: string): string {
 
 export function SSEProvider({ children }: SSEProviderProps) {
   const [connected, setConnected] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [reconnectEpoch, setReconnectEpoch] = useState(0);
 
   // Map keyed by bucket (sigil-prefixed to avoid collisions):
@@ -93,7 +91,6 @@ export function SSEProvider({ children }: SSEProviderProps) {
 
     es.onopen = () => {
       setConnected(true);
-      setError(null);
       reconnectDelayRef.current = INITIAL_RECONNECT_DELAY;
 
       if (hasConnectedOnceRef.current) {
@@ -150,7 +147,6 @@ export function SSEProvider({ children }: SSEProviderProps) {
       }
 
       const delay = reconnectDelayRef.current;
-      setError(`Disconnected. Reconnecting in ${Math.round(delay / 1000)}s...`);
 
       reconnectTimeoutRef.current = window.setTimeout(() => {
         if (!isMountedRef.current) return;
@@ -203,8 +199,8 @@ export function SSEProvider({ children }: SSEProviderProps) {
   }, []);
 
   const value = useMemo<SSEBusContextValue>(
-    () => ({ subscribe, connected, error, reconnectEpoch }),
-    [subscribe, connected, error, reconnectEpoch],
+    () => ({ subscribe, connected, reconnectEpoch }),
+    [subscribe, connected, reconnectEpoch],
   );
 
   return <SSEBusContext.Provider value={value}>{children}</SSEBusContext.Provider>;
