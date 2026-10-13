@@ -31,19 +31,19 @@ func TestRedactUnvettedBody(t *testing.T) {
 		},
 		{
 			name:    "unvetted + non-human → placeholder",
-			card:    &board.Card{Body: sensitive, Vetted: false},
+			card:    &board.Card{Body: sensitive, Vetted: false, Source: &board.Source{System: "github"}},
 			agentID: "agent:claude",
 			want:    unvettedBodyPlaceholder,
 		},
 		{
 			name:    "unvetted + empty agent → placeholder (empty is non-human)",
-			card:    &board.Card{Body: sensitive, Vetted: false},
+			card:    &board.Card{Body: sensitive, Vetted: false, Source: &board.Source{System: "github"}},
 			agentID: "",
 			want:    unvettedBodyPlaceholder,
 		},
 		{
 			name:    "unvetted + human → full body",
-			card:    &board.Card{Body: sensitive, Vetted: false},
+			card:    &board.Card{Body: sensitive, Vetted: false, Source: &board.Source{System: "github"}},
 			agentID: "human:alice",
 			want:    sensitive,
 		},
@@ -61,7 +61,7 @@ func TestRedactUnvettedBody(t *testing.T) {
 		},
 		{
 			name:    "human prefix match is exact (human:) not 'human'",
-			card:    &board.Card{Body: sensitive, Vetted: false},
+			card:    &board.Card{Body: sensitive, Vetted: false, Source: &board.Source{System: "github"}},
 			agentID: "human-worker", // no ":" - must NOT be treated as human
 			want:    unvettedBodyPlaceholder,
 		},
@@ -87,7 +87,9 @@ func TestRedactCardForAgent(t *testing.T) {
 			ID:    "ALPHA-001",
 			Title: "Externally imported",
 			Body:  "malicious payload",
-			// Vetted: false
+			// Vetted: false, imported
+			Source:     &board.Source{System: "github"},
+			BranchName: "alpha-001/externally-imported",
 		}
 
 		redacted := redactCardForAgent(orig, "agent:claude")
@@ -97,7 +99,10 @@ func TestRedactCardForAgent(t *testing.T) {
 		assert.Equal(t, "malicious payload", orig.Body)
 		// Non-body fields preserved on the copy.
 		assert.Equal(t, "ALPHA-001", redacted.ID)
-		assert.Equal(t, "Externally imported", redacted.Title)
+		assert.Equal(t, unvettedPlaceholderTitle, redacted.Title)
+		assert.Empty(t, redacted.BranchName)
+		assert.Equal(t, "Externally imported", orig.Title)
+		assert.Equal(t, "alpha-001/externally-imported", orig.BranchName)
 	})
 
 	t.Run("vetted card returned unchanged", func(t *testing.T) {
@@ -108,9 +113,10 @@ func TestRedactCardForAgent(t *testing.T) {
 	})
 
 	t.Run("human caller always sees body", func(t *testing.T) {
-		orig := &board.Card{Body: "unvetted body", Vetted: false}
+		orig := &board.Card{Body: "unvetted body", Vetted: false, BranchName: "x/y", Source: &board.Source{System: "github"}}
 		got := redactCardForAgent(orig, "human:alice")
 		assert.Equal(t, "unvetted body", got.Body)
+		assert.Equal(t, "x/y", got.BranchName)
 	})
 }
 
@@ -173,7 +179,7 @@ func TestGetCard_UnvettedBodyRedaction(t *testing.T) {
 		assert.NotContains(t, got.Body, injected)
 		// Metadata must still be visible so planning/filtering works.
 		assert.Equal(t, "TEST-100", got.ID)
-		assert.Equal(t, "Unvetted external card", got.Title)
+		assert.Equal(t, unvettedPlaceholderTitle, got.Title)
 	})
 
 	t.Run("human caller → full body returned", func(t *testing.T) {

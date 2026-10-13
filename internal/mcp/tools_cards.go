@@ -21,7 +21,7 @@ type listCardsInput struct {
 	Label   string `json:"label,omitempty" jsonschema:"filter by label"`
 	Agent   string `json:"agent,omitempty" jsonschema:"filter by assigned agent"`
 	Parent  string `json:"parent,omitempty" jsonschema:"filter by parent card ID"`
-	AgentID string `json:"agent_id,omitempty" jsonschema:"caller identity (accepted for client parity; results are card summaries with no body)"`
+	AgentID string `json:"agent_id,omitempty" jsonschema:"caller identity - unvetted external card titles are redacted for non-human callers"`
 }
 type listCardsOutput struct {
 	Cards []*CardSummary `json:"cards"`
@@ -30,7 +30,7 @@ type listCardsOutput struct {
 type getCardInput struct {
 	Project            string   `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
 	CardID             string   `json:"card_id" jsonschema:"required,card ID (e.g. ALPHA-001)"`
-	AgentID            string   `json:"agent_id,omitempty" jsonschema:"caller identity - unvetted external card bodies are redacted for non-human callers"`
+	AgentID            string   `json:"agent_id,omitempty" jsonschema:"caller identity - unvetted external card titles and bodies are redacted for non-human callers"`
 	IncludeImages      *bool    `json:"include_images,omitempty" jsonschema:"attach inline image bytes for cm-server-hosted markdown image references in the body (default true; capped at 10 images per call and ~20 MiB cumulative bytes, with later references in body order omitted when over budget)"`
 	IncludeActivityLog *bool    `json:"include_activity_log,omitempty" jsonschema:"include the activity log (default true; pass false to trim ~half of a long-lived card's payload)"`
 	Sections           []string `json:"sections,omitempty" jsonschema:"return only these H2 body sections (exact heading text without ##, e.g. 'Plan'; pass 'intro' to include the pre-heading text); unmatched names yield an empty body, not the full one"`
@@ -51,7 +51,7 @@ type createCardInput struct {
 	// the strict (additionalProperties:false) schema rejects the orchestrator's
 	// subtask creation. Threaded into the self_containment_warning activity
 	// entry's Agent field when the lint finds something to flag.
-	AgentID string `json:"agent_id,omitempty" jsonschema:"caller identity (attributed on the self_containment_warning activity entry when the lint flags the body)"`
+	AgentID string `json:"agent_id,omitempty" jsonschema:"caller identity - attributed on the self_containment_warning activity entry when the lint flags the body; unvetted external card titles are redacted for non-human callers"`
 }
 
 // NOTE: vetted, create_pr, await_ci, await_copilot_review, merge_pr,
@@ -92,7 +92,7 @@ type transitionCardInput struct {
 type getTaskContextInput struct {
 	Project       string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
 	CardID        string `json:"card_id" jsonschema:"required,card ID"`
-	AgentID       string `json:"agent_id,omitempty" jsonschema:"caller identity - unvetted external card bodies are redacted for non-human callers"`
+	AgentID       string `json:"agent_id,omitempty" jsonschema:"caller identity - unvetted external card titles and bodies are redacted for non-human callers"`
 	IncludeImages *bool  `json:"include_images,omitempty" jsonschema:"attach inline image bytes for cm-server-hosted markdown image references in the primary card body (default true; capped at 10 images per call and ~20 MiB cumulative bytes, with later references in body order omitted when over budget; siblings stay text-only)"`
 }
 type getTaskContextOutput struct {
@@ -222,10 +222,9 @@ func registerListCards(server *mcp.Server, svc *service.CardService) {
 			cards = []*board.Card{}
 		}
 
-		// No body redaction needed: summaries structurally cannot carry a
-		// body, so unvetted external card bodies never reach agent context
-		// through this tool (see TestCardSummaryMirrorsBoardCard).
-		return nil, listCardsOutput{Cards: summarizeCards(cards)}, nil
+		// Summaries structurally cannot carry a body; unvetted titles are
+		// redacted for non-human callers.
+		return nil, listCardsOutput{Cards: summarizeCardsForAgent(cards, input.AgentID)}, nil
 	})
 }
 
@@ -246,7 +245,7 @@ func registerGetCard(server *mcp.Server, svc *service.CardService, imageStore im
 			return nil, nil, fmt.Errorf("get card %s: %w", input.CardID, err)
 		}
 
-		// Redact unvetted card body for non-human callers so prompt-injection
+		// Redact unvetted card title and body for non-human callers so prompt-injection
 		// payloads from imported external cards cannot reach agent context.
 		card = redactCardForAgent(card, input.AgentID)
 
@@ -397,7 +396,7 @@ func registerCreateCard(server *mcp.Server, svc *service.CardService) {
 		submitted := strings.Join([]string{input.Title, input.Body}, "\n")
 		warnings := lintCardMutation(ctx, svc, input.Project, card.ID, input.AgentID, "created", submitted, "")
 
-		return nil, &cardMutationResult{CardSummary: *summarizeCard(card), Warnings: warnings}, nil
+		return nil, &cardMutationResult{CardSummary: *summarizeCardForAgent(card, input.AgentID), Warnings: warnings}, nil
 	})
 }
 
@@ -467,7 +466,7 @@ func registerUpdateCard(server *mcp.Server, svc *service.CardService) {
 			warnings = lintCardMutation(ctx, svc, project, card.ID, input.AgentID, "updated", lintText(card), lintText(before))
 		}
 
-		return nil, &cardMutationResult{CardSummary: *summarizeCard(card), Warnings: warnings}, nil
+		return nil, &cardMutationResult{CardSummary: *summarizeCardForAgent(card, input.AgentID), Warnings: warnings}, nil
 	})
 }
 
@@ -492,7 +491,7 @@ func registerTransitionCard(server *mcp.Server, svc *service.CardService) {
 			return nil, nil, fmt.Errorf("transition card %s to %s: %w", input.CardID, input.NewState, err)
 		}
 
-		return nil, summarizeCard(card), nil
+		return nil, summarizeCardForAgent(card, input.AgentID), nil
 	})
 }
 
@@ -516,7 +515,7 @@ func registerGetTaskContext(server *mcp.Server, svc *service.CardService, imageS
 			return nil, getTaskContextOutput{}, fmt.Errorf("get project config: %w", err)
 		}
 
-		// Redact unvetted card body for non-human callers - get_task_context
+		// Redact unvetted card title and body for non-human callers - get_task_context
 		// is the primary prompt-injection vector because its response is fed
 		// straight into agent context.
 		primary := redactCardForAgent(card, input.AgentID)
@@ -552,7 +551,7 @@ func registerGetTaskContext(server *mcp.Server, svc *service.CardService, imageS
 					}
 				}
 
-				out.Siblings = summarizeCards(filtered)
+				out.Siblings = summarizeCardsForAgent(filtered, input.AgentID)
 			}
 		}
 
@@ -618,9 +617,14 @@ func registerCheckAgentHealth(server *mcp.Server, svc *service.CardService) {
 		)
 
 		for _, card := range cards {
+			title := card.Title
+			if shouldRedact(card, "") {
+				title = unvettedPlaceholderTitle
+			}
+
 			status := AgentHealthStatus{
 				CardID:        card.ID,
-				Title:         card.Title,
+				Title:         title,
 				State:         card.State,
 				AssignedAgent: card.AssignedAgent,
 			}
@@ -708,7 +712,7 @@ func registerGetReadyTasks(server *mcp.Server, svc *service.CardService) {
 			ready = append(ready, card)
 		}
 
-		return nil, getReadyTasksOutput{Cards: summarizeCards(ready)}, nil
+		return nil, getReadyTasksOutput{Cards: summarizeCardsForAgent(ready, "")}, nil
 	})
 }
 
@@ -776,7 +780,7 @@ func registerReportUsage(server *mcp.Server, svc *service.CardService) {
 			return nil, nil, fmt.Errorf("report usage for %s: %w", input.CardID, err)
 		}
 
-		return nil, summarizeCard(card), nil
+		return nil, summarizeCardForAgent(card, input.AgentID), nil
 	})
 }
 
@@ -817,7 +821,7 @@ func registerReportPush(server *mcp.Server, svc *service.CardService) {
 			return nil, reportPushOutput{}, fmt.Errorf("report push: %w", err)
 		}
 
-		return nil, reportPushOutput{Card: summarizeCard(card)}, nil
+		return nil, reportPushOutput{Card: summarizeCardForAgent(card, input.AgentID)}, nil
 	})
 }
 
@@ -840,7 +844,7 @@ func registerReportParked(server *mcp.Server, svc *service.CardService) {
 			return nil, reportParkedOutput{}, fmt.Errorf("report parked: %w", err)
 		}
 
-		return nil, reportParkedOutput{Card: summarizeCard(card)}, nil
+		return nil, reportParkedOutput{Card: summarizeCardForAgent(card, input.AgentID)}, nil
 	})
 }
 
@@ -873,6 +877,6 @@ func registerPromoteToAutonomous(server *mcp.Server, svc *service.CardService) {
 			return nil, nil, fmt.Errorf("promote card %s to autonomous: %w", input.CardID, err)
 		}
 
-		return nil, summarizeCard(card), nil
+		return nil, summarizeCardForAgent(card, input.AgentID), nil
 	})
 }
