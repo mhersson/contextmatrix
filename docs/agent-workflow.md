@@ -116,8 +116,8 @@ through `start_review`.
 
 Workflow skills tell an agent what to do; task skills tell it how to do the
 work well. Task skills are operator-provided Claude Code skills (`SKILL.md`
-files) mounted read-only at `~/.claude/skills/` in the worker container and
-engaged by the model through its native Skill tool when their descriptions
+files) mounted read-only at `/run/cm-skills` in the worker container and
+engaged by the model through the backend's skill tool when their descriptions
 match the work. CM ships none: point `task_skills.dir` at your own repo.
 
 ### Two-channel design
@@ -125,7 +125,7 @@ match the work. CM ships none: point `task_skills.dir` at your own repo.
 | Channel         | Transport                                        | Role                     |
 | --------------- | ------------------------------------------------ | ------------------------ |
 | Workflow skills | MCP prompts injected into the first message      | Lifecycle: what to do    |
-| Task skills     | Filesystem at `~/.claude/skills/<name>/SKILL.md` | Craft: how to do it well |
+| Task skills     | Filesystem at `/run/cm-skills/<name>/SKILL.md`   | Craft: how to do it well |
 
 The channels never overlap.
 
@@ -160,7 +160,9 @@ The agent and chat backends receive the resolved per-card subset in the
 trigger and fetch a `{git_remote_url, ref}` pointer from CM -
 `GET /api/agent/task-skills-source` and `GET /api/chat/task-skills-source` -
 together with an instance-scoped clone token. Each clones the repo itself
-and mounts the subset read-only at `~/.claude/skills/`. See
+and mounts the subset read-only at `/run/cm-skills`. Each backend process
+clones once and caches the result, so restart the backend to pick up skill
+changes. See
 [remote execution](remote-execution.md#task-skills).
 
 ### Authoring convention
@@ -193,9 +195,8 @@ You are a <role>.
 - Concrete pattern 2
 ```
 
-Optional frontmatter `allowed-tools: [Read, Write]` narrows the active tool
-set while the skill is engaged; it never broadens it. Push changes to the
-remote: backends re-clone from the pointer on each run.
+Frontmatter `allowed-tools` is not honoured by either backend. Push changes
+to the remote and restart the backend: it clones the pointer once per process.
 
 ## Playbooks
 

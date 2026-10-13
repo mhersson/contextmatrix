@@ -293,7 +293,7 @@ third the body.
 
 ### `skills` (optional, `*[]string`)
 
-Task-skill names mounted into the worker container's `~/.claude/skills/`.
+Task-skill names mounted into the worker container's `/run/cm-skills`.
 Three states:
 
 | Value                   | Meaning                                                                          |

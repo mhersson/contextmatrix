@@ -216,7 +216,9 @@ clones the repo itself, so CM stays the single source of truth. CM derives the
 pointer from `task_skills.dir` (origin remote plus HEAD SHA when the dir is a
 checkout) or the configured `task_skills.git_remote_url` fallback (no ref).
 The token is an instance-scoped git credential minted best-effort: a mint
-failure omits it.
+failure omits it. Each backend process clones once and caches the clone, so
+restart the backend to pick up skill changes; the subset is mounted read-only
+at `/run/cm-skills` in the worker container.
 
 At startup, when `task_skills.dir` already holds a `.git` directory and
 `task_skills.git_remote_url` is set, CM runs a fast-forward pull with a
