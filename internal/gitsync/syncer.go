@@ -549,7 +549,7 @@ func (s *Syncer) pullRebase(ctx context.Context, trigger string) error {
 	// holds its write mutex while awaiting its queued commit - queue
 	// Pause/AwaitIdle do not drain buffered jobs, so locking in the other
 	// order deadlocks against a mutation enqueued around the pause. No
-	// ABBA risk: playbook mutations never take the card mutex.
+	// ABBA risk: every path that holds both takes the playbook lock first.
 	if s.playbooks != nil {
 		s.playbooks.LockWrites()
 		defer s.playbooks.UnlockWrites()
