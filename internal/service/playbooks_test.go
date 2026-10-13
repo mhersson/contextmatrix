@@ -1802,3 +1802,34 @@ func TestPlaybookService_UncheckDuringRun(t *testing.T) {
 		})
 	}
 }
+
+// TestPlaybookService_DeleteDuringRunRefused: deleting the file under an
+// active run leaves its worker running with no run to stop it.
+func TestPlaybookService_DeleteDuringRunRefused(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{
+		Title: "Rollout", AgentID: "human:alice",
+		Entries: []PlaybookEntryInput{{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"}},
+	})
+	require.NoError(t, err)
+	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: new(true), BaseBranch: new("main")}, "human:alice")
+	require.NoError(t, err)
+
+	now := env.clk.Now()
+
+	for _, status := range []string{board.RunStatusRunning, board.RunStatusWaiting} {
+		_, err = env.svc.SetRunIf(ctx, "rollout", nil, &board.PlaybookRun{Status: status, StartedAt: now, UpdatedAt: now, Entry: "e1"}, "human:alice")
+		require.NoError(t, err)
+
+		require.ErrorIs(t, env.svc.Delete(ctx, "rollout", "human:alice"), ErrPlaybookRunActive, status)
+
+		_, err = env.svc.Get(ctx, "rollout")
+		require.NoError(t, err, "a refused delete leaves the playbook in place")
+	}
+
+	_, err = env.svc.SetRunIf(ctx, "rollout", nil, &board.PlaybookRun{Status: board.RunStatusStopped, StartedAt: now, UpdatedAt: now}, "human:alice")
+	require.NoError(t, err)
+	require.NoError(t, env.svc.Delete(ctx, "rollout", "human:alice"))
+}

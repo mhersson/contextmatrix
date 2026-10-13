@@ -591,3 +591,48 @@ func TestResolvePlaybook_InvalidMergeKeepsTheRemote(t *testing.T) {
 	assert.Equal(t, theirsContent, out.Content)
 	assert.True(t, hasRule(out.Resolutions, RuleInvariantFallback))
 }
+
+// TestResolvePlaybook_ActiveRunBeatsADelete: a stale peer deleted the file
+// while the other side's run is active. Delete-wins would vanish the run
+// with its worker still going, so the run's side is kept.
+func TestResolvePlaybook_ActiveRunBeatsADelete(t *testing.T) {
+	stoppedRun := runningPb()
+	stoppedRun.Run.Status = board.RunStatusStopped
+
+	tests := []struct {
+		name        string
+		survivor    *board.Playbook
+		deleteOurs  bool
+		wantDeleted bool
+	}{
+		{name: "ours deleted, theirs running", survivor: runningPb(), deleteOurs: true},
+		{name: "theirs deleted, ours running", survivor: runningPb(), deleteOurs: false},
+		{name: "a stopped run lets the delete win", survivor: stoppedRun, deleteOurs: true, wantDeleted: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			kept := serializePb(t, tt.survivor)
+			in := Input{Path: "playbooks/release.yaml", Base: serializePb(t, runningPb()), Ours: kept, Theirs: kept}
+
+			if tt.deleteOurs {
+				in.Ours = nil
+			} else {
+				in.Theirs = nil
+			}
+
+			out, err := Resolve(in, testCtx())
+			require.NoError(t, err)
+
+			if tt.wantDeleted {
+				assert.True(t, out.Deleted)
+
+				return
+			}
+
+			assert.False(t, out.Deleted)
+			assert.Equal(t, kept, out.Content)
+			assert.True(t, hasRule(out.Resolutions, RulePlaybookRunOverDelete))
+		})
+	}
+}

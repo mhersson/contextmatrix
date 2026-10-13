@@ -134,6 +134,10 @@ its former entry can be removed, which clears `entry` and `reason`.
 On a shared board a peer instance's removal of the current entry is undone
 when the boards merge.
 
+Deleting the playbook is refused the same way (`409 PLAYBOOK_RUN_ACTIVE`)
+while the run is active. On a shared board a delete made on another instance
+loses to the active run in the merge; delete again once the run has stopped.
+
 Entries cannot be reordered while the run is `running` or `waiting`
 (`409 PLAYBOOK_MOVE_DURING_RUN`): the runner walks the order it last read, so
 a reorder could make it launch a second card while the current one still
@@ -202,7 +206,7 @@ required on mutations for `created_by` and `done_by` attribution.
 | `get_playbook`          | `GET /api/playbooks/{id}`                         | Full detail with every entry resolved against the card store  |
 | `create_playbook`       | `POST /api/playbooks`                             | `title`, `description`, `boards_repo`, initial `entries`; all-or-nothing |
 | `update_playbook`       | `PATCH /api/playbooks/{id}`                       | Title, description; humans also set runnable and base_branch  |
-| `delete_playbook`       | `DELETE /api/playbooks/{id}`                      | Removes the file; referenced cards are untouched              |
+| `delete_playbook`       | `DELETE /api/playbooks/{id}`                      | Removes the file; refused during an active run                |
 | `add_playbook_entry`    | `POST /api/playbooks/{id}/entries`                | Appends one card or manual entry                              |
 | `update_playbook_entry` | `PATCH /api/playbooks/{id}/entries/{entryId}`     | `done` and `text` (manual only), `note` (both), `position`    |
 | `remove_playbook_entry` | `DELETE /api/playbooks/{id}/entries/{entryId}`    | Removes one entry                                             |

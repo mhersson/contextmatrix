@@ -280,7 +280,7 @@ the request's `request_id`.
 | `PLAYBOOK_NOT_FOUND`          | 404     | Unknown playbook id                                                                                                                                                                        |
 | `PLAYBOOK_ENTRY_NOT_FOUND`    | 404     | Unknown entry id                                                                                                                                                                           |
 | `PLAYBOOK_ENTRY_EXISTS`       | 409     | Duplicate `{project, card}` entry                                                                                                                                                          |
-| `PLAYBOOK_RUN_ACTIVE`         | 409     | `runnable: false` or `base_branch` while a run is `running` or `waiting`; a card's own run trigger while its owning playbook run is active                                                 |
+| `PLAYBOOK_RUN_ACTIVE`         | 409     | `runnable: false` or `base_branch` while a run is `running` or `waiting`; a card's own run trigger while its owning playbook run is active; deleting the playbook while its run is active  |
 | `PLAYBOOK_RUN_INACTIVE`       | 409     | `POST .../stop` when the playbook has no active run                                                                                                                                        |
 | `PLAYBOOK_MOVE_DURING_RUN`    | 409     | `PATCH .../entries/{entryId}` with a `position` that moves the entry while a run is `running` or `waiting`                                                                                 |
 | `PLAYBOOK_UNCHECK_DURING_RUN` | 409     | `PATCH .../entries/{entryId}` with `done: false` on a done manual entry while a run is `running` or `waiting`                                                                              |
@@ -1944,7 +1944,8 @@ runnable playbook owns the card. `PUT` and `PATCH` on such a card return
 ### DELETE /api/playbooks/{id}
 
 Deletes the playbook file (git history preserves it). Cards are unaffected.
-**204 No Content**. **Errors:** 404 `PLAYBOOK_NOT_FOUND`.
+**204 No Content**. **Errors:** 404 `PLAYBOOK_NOT_FOUND`, 409 `PLAYBOOK_RUN_ACTIVE`
+(the run is `running` or `waiting`; stop it first).
 
 ### POST /api/playbooks/{id}/entries
 

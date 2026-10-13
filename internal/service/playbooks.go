@@ -1067,6 +1067,11 @@ func (s *PlaybookService) Delete(ctx context.Context, id, agentID string) error 
 		return fmt.Errorf("get playbook: %w", err)
 	}
 
+	// The run's worker would keep running with no run left to stop it.
+	if snapshot.RunActive() {
+		return fmt.Errorf("%w: stop the run before deleting the playbook", ErrPlaybookRunActive)
+	}
+
 	// Resolve the owning repo before the store delete: afterwards the id is
 	// gone from the router and would fall back to the first repo, so both
 	// the commit and the rollback would target the wrong repository.

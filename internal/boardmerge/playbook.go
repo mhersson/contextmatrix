@@ -19,6 +19,12 @@ import (
 // local copy to a free id instead of colliding.
 func resolvePlaybook(in Input, id string, c Context) (Output, error) {
 	if in.Ours == nil || in.Theirs == nil {
+		if kept := activeRunSurvivor(in); kept != nil {
+			return Output{Content: kept, Resolutions: []Resolution{{
+				Path: in.Path, Rule: RulePlaybookRunOverDelete, Detail: "deleted on one side while its run is active on the other; kept",
+			}}}, nil
+		}
+
 		return Output{Deleted: true, Resolutions: []Resolution{{
 			Path: in.Path, Rule: RuleDeleteWins, Detail: "playbook deleted on one side",
 		}}}, nil
@@ -360,4 +366,25 @@ func entryByID(p *board.Playbook, id string) (board.PlaybookEntry, bool) {
 	}
 
 	return board.PlaybookEntry{}, false
+}
+
+// activeRunSurvivor returns the surviving side of a delete/modify conflict
+// when it holds an active run; a local delete refuses one, so the deleter
+// was stale.
+func activeRunSurvivor(in Input) []byte {
+	survivor := in.Ours
+	if survivor == nil {
+		survivor = in.Theirs
+	}
+
+	if survivor == nil {
+		return nil
+	}
+
+	p, err := board.ParsePlaybook(survivor)
+	if err != nil || !p.Runnable || !p.RunActive() {
+		return nil
+	}
+
+	return survivor
 }

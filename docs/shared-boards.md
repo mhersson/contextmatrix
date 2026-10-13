@@ -120,7 +120,9 @@ While a run is `running` or `waiting` its current entry survives the merge: a
 removal on the other side is undone, and when the merge drops it as a
 duplicate the run moves to the surviving entry for the same card. A run entry
 left naming no entry on a run that is not active is cleared, and a merged
-playbook that still fails validation keeps the remote version.
+playbook that still fails validation keeps the remote version. A playbook
+deleted on one side while the other side's run is `running` or `waiting` is
+kept.
 
 Any other file: remote wins.
 

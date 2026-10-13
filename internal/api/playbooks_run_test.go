@@ -282,3 +282,23 @@ func TestPlaybooksAPI_PlayOnNotRunnableIs409(t *testing.T) {
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 	assert.Equal(t, ErrCodePlaybookNotRunnable, apiErr.Code)
 }
+
+func TestPlaybooksAPI_DeleteDuringRunIs409(t *testing.T) {
+	server, _, _, pbSvc, _ := runnablePlaybookServer(t)
+
+	play := doJSON(t, http.MethodPost, server.URL+"/api/playbooks/rollout/run", nil, "human:alice")
+	closeBody(t, play.Body)
+	require.Equal(t, http.StatusAccepted, play.StatusCode)
+
+	resp := doJSON(t, http.MethodDelete, server.URL+"/api/playbooks/rollout", nil, "human:alice")
+	defer closeBody(t, resp.Body)
+
+	require.Equal(t, http.StatusConflict, resp.StatusCode)
+
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodePlaybookRunActive, apiErr.Code)
+
+	_, err := pbSvc.Get(context.Background(), "rollout")
+	require.NoError(t, err, "the playbook is still there")
+}
