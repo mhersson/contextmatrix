@@ -83,23 +83,35 @@ func redactUntrustedFields(card *board.Card) *board.Card {
 	cp.ActivityLog = nil
 	cp.Context = nil
 
-	if cp.Source != nil {
-		src := *cp.Source
-		src.ExternalURL = ""
-		cp.Source = &src
+	cp.Source = withoutExternalURL(cp.Source)
+
+	return &cp
+}
+
+// withoutExternalURL returns a copy of src with ExternalURL cleared; src is
+// never mutated. Part of the shared redaction field list.
+func withoutExternalURL(src *board.Source) *board.Source {
+	if src == nil {
+		return nil
 	}
+
+	cp := *src
+	cp.ExternalURL = ""
 
 	return &cp
 }
 
 // summarizeCardForAgent is summarizeCard with the title replaced by the
-// placeholder when shouldRedact applies. The summary is a fresh struct, so the
-// source card is never mutated.
+// placeholder and Context and Source.ExternalURL cleared when shouldRedact
+// applies. The summary is a fresh struct and Source is copied, so the source
+// card is never mutated.
 func summarizeCardForAgent(card *board.Card, agentID string) *CardSummary {
 	s := summarizeCard(card)
 	if s != nil && shouldRedact(card, agentID) {
 		s.Title = unvettedPlaceholderTitle
 		s.BranchName = "" // the branch slug is derived from the title
+		s.Context = nil
+		s.Source = withoutExternalURL(s.Source)
 	}
 
 	return s

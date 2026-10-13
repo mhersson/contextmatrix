@@ -143,7 +143,8 @@ live in [architecture](architecture.md); the HTTP surface in the
      callers, `get_card` and `get_task_context` redact an unvetted card's
      title, body and `branch_name` and drop its activity log, `context` and
      source `external_url`; `list_cards` and the mutation responses
-     redact its title and `branch_name`; the playbook tools redact its
+     redact its title and `branch_name` and drop its `context` and source
+     `external_url`; the playbook tools redact its
      title. "Unvetted" means imported (has a `source`) and not yet vetted. A caller is human only with a `human:<name>`
      `agent_id`; tools with no `agent_id` treat the caller as non-human.
    - The web UI shows an "unvetted" badge and a warning banner.

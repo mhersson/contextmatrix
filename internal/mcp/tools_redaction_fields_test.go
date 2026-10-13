@@ -111,3 +111,67 @@ func TestRedactCardForPrompt_KeepsOriginalIntact(t *testing.T) {
 	assert.Len(t, card.ActivityLog, 1)
 	assert.Equal(t, []string{"c"}, card.Context)
 }
+
+func TestCardSummaries_RedactUnvettedFreeText(t *testing.T) {
+	env := setupMCP(t)
+	ctx := context.Background()
+
+	unvetted := seedImportedWithPayload(t, env, secretTitle, false)
+	vetted := seedImportedWithPayload(t, env, "Vetted imported", true)
+	wantURL := unvetted.Source.ExternalURL
+	require.NotEmpty(t, wantURL)
+
+	listed := func(t *testing.T, id, agent string) CardSummary {
+		t.Helper()
+
+		var out listCardsOutput
+
+		unmarshalResult(t, callTool(t, env, "list_cards", withAgent(map[string]any{"project": "test-project"}, agent)), &out)
+
+		for _, c := range out.Cards {
+			if c.ID == id {
+				return *c
+			}
+		}
+
+		require.Failf(t, "card not listed", "%s", id)
+
+		return CardSummary{}
+	}
+
+	mutated := func(t *testing.T, id, agent string) CardSummary {
+		t.Helper()
+
+		var sm CardSummary
+
+		unmarshalResult(t, callTool(t, env, "update_card",
+			withAgent(map[string]any{"project": "test-project", "card_id": id, "priority": "high"}, agent)), &sm)
+
+		return sm
+	}
+
+	for name, read := range map[string]func(*testing.T, string, string) CardSummary{"list_cards": listed, "update_card": mutated} {
+		t.Run(name, func(t *testing.T) {
+			for _, agent := range []string{"agent-1", "", "human:"} {
+				got := read(t, unvetted.ID, agent)
+				assert.Empty(t, got.Context, "agent %q", agent)
+				require.NotNil(t, got.Source)
+				assert.Empty(t, got.Source.ExternalURL, "agent %q", agent)
+				assert.Equal(t, "github", got.Source.System)
+			}
+
+			full := read(t, unvetted.ID, "human:alice")
+			assert.Contains(t, full.Context, injectedContext)
+			assert.Equal(t, wantURL, full.Source.ExternalURL)
+
+			v := read(t, vetted.ID, "agent-1")
+			assert.Contains(t, v.Context, injectedContext)
+			assert.NotEmpty(t, v.Source.ExternalURL)
+		})
+	}
+
+	stored, err := env.svc.GetCard(ctx, "test-project", unvetted.ID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{injectedContext}, stored.Context)
+	assert.Equal(t, wantURL, stored.Source.ExternalURL)
+}
