@@ -3,8 +3,8 @@ import { within } from '@testing-library/react';
 import { safeUrlTransform } from '../utils/safeUrlTransform';
 
 // Markup an external card author (agent, GitHub or Jira import) can plant in a
-// body. No markdown surface may run it, style the page with it, or hide any of
-// its text from the human vetting the card.
+// body. No markdown surface may run it or style the page with it; comments and
+// the text inside disallowed elements stay visible as text.
 export const RAW_HTML_BODY = [
   '<iframe srcdoc="<script>parent.alert(document.domain)</script>"></iframe>',
   '',

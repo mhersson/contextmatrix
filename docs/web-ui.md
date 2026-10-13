@@ -33,9 +33,8 @@ Every view updates live from one Server-Sent Events stream per tab
   relative path, `<details>`/`<summary>`, `<br>`, `<kbd>`, `<sub>`/`<sup>`,
   tables); scripts, styles, event handlers, forms and frames never become
   live, and the text inside a disallowed element stays visible. HTML comments
-  show as literal text so nothing is hidden from the human vetting a card,
-  except CM's own `<!-- cm:meta ... -->` machine markers (and the legacy
-  `<!-- cm:tier=... -->`). Bodies arrive from agents and from GitHub and Jira
+  show as literal text, except CM's own block-level `<!-- cm:meta ... -->`
+  machine markers (and the legacy `<!-- cm:tier=... -->`). Bodies arrive from agents and from GitHub and Jira
   imports.
 - **Models used** (Info tab) answers what a card cost and where it went: the
   total including subtasks; a cost bar and legend split by role (review,

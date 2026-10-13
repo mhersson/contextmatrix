@@ -61,8 +61,12 @@ function prepare(parent: Root | Element) {
     if ((node as { type: string }).type === 'raw') {
       return { type: 'text', value: (node as unknown as { value: string }).value };
     }
+    if ((node as { type: string }).type === 'comment') {
+      return { type: 'text', value: `<!--${(node as unknown as { value: string }).value}-->` };
+    }
     if (node.type === 'element') {
       normalizeProperties(node);
+      unprefix(node);
       const href = node.properties.href;
       if (typeof href === 'string' && href.length > 1 && href.startsWith('#') && !href.startsWith(`#${clobberPrefix}`)) {
         node.properties.href = `#${clobberPrefix}${href.slice(1)}`;
@@ -71,6 +75,21 @@ function prepare(parent: Root | Element) {
     }
     return node;
   }) as typeof parent.children;
+}
+
+// The sanitizer prefixes these unconditionally; drop an existing prefix so a
+// slug that starts with it ends up with exactly one.
+function unprefix(node: Element) {
+  const strip = (value: string) => (value.startsWith(clobberPrefix) ? value.slice(clobberPrefix.length) : value);
+  for (const key of ['id', 'name']) {
+    const value = node.properties[key];
+    if (typeof value === 'string') node.properties[key] = strip(value);
+  }
+  for (const key of ['ariaDescribedBy', 'ariaLabelledBy']) {
+    const value = node.properties[key];
+    if (typeof value === 'string') node.properties[key] = strip(value);
+    else if (Array.isArray(value)) node.properties[key] = value.map((v) => strip(String(v)));
+  }
 }
 
 function normalizeProperties(node: Element) {

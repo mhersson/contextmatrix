@@ -50,7 +50,7 @@ export const markdownSchema: Options = {
     section: ['dataFootnotes', ['className', 'footnotes']],
     span: ['line', ['className', ...codeSpanClasses]],
     svg: [
-      'viewBox', 'width', 'height', ['ariaHidden', 'true'], ['fill', 'currentColor'], ['version', '1.1'],
+      'viewBox', ['width', /^\d{1,2}$/], ['height', /^\d{1,2}$/], ['ariaHidden', 'true'], ['fill', 'currentColor'], ['version', '1.1'],
       ['className', 'octicon', 'octicon-link', 'octicon-copy', 'octicon-check'],
     ],
     td: [[...alignments]],

