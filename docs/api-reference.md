@@ -75,7 +75,7 @@ POST   /api/playbooks/{id}/entries                     # append entry (card refe
 PATCH  /api/playbooks/{id}/entries/{entryId}            # update entry (done/note/text/position)
 DELETE /api/playbooks/{id}/entries/{entryId}            # remove entry
 POST   /api/playbooks/{id}/run                         # play or resume a runnable playbook (human-only)
-POST   /api/playbooks/{id}/stop                        # stop the run and kill the current worker (human-only)
+POST   /api/playbooks/{id}/stop                        # stop the run and kill every live worker of its cards on this instance (human-only)
 
 GET    /api/task-skills                                # list available task skill names
 GET    /api/app/config                                 # server-side app config (slim pre-login payload in multi mode)
@@ -1255,7 +1255,10 @@ Deletes the card file (git history keeps it). **204 No Content**.
 **Errors:** 404 `CARD_NOT_FOUND`; 403 `AGENT_MISMATCH` on a claimed card the
 caller does not own; 422 `VALIDATION_ERROR` when the card still has subtasks
 ("cannot delete card with N subtask(s)"); 409 `WORKER_CONFLICT` while the card's
-worker is `queued` or `running` (stop it first).
+worker is `queued` or `running`. Stop the worker first; if the stop fails because
+the backend no longer has that worker, `POST /api/projects/{project}/stop-all`
+stops every worker in the project and marks this one `killed`, and force-release
+marks a claimed card's worker `failed`.
 
 ### POST /api/projects/{project}/cards/{id}/claim
 
@@ -2023,9 +2026,11 @@ Errors: `403 HUMAN_ONLY_FIELD`, `404 PLAYBOOK_NOT_FOUND`,
 
 Marks the run `stopped` (with `ended_at`), then kills the worker of every card
 entry that is queued or running on this instance and not `done` or
-`not_planned`. A launch already in
-flight finishes first, and its worker is then killed. `202` with the
-detail. Errors: `403 HUMAN_ONLY_FIELD`, `404 PLAYBOOK_NOT_FOUND`,
+`not_planned`. A launch already in flight finishes first, and Stop then kills
+the worker it queued. A backend that has not started tracking that worker yet
+refuses the kill, so Stop answers `502` (run stopped, kill failed); stop that
+card's worker from the card, or with `POST /api/projects/{project}/stop-all`.
+`202` with the detail. Errors: `403 HUMAN_ONLY_FIELD`, `404 PLAYBOOK_NOT_FOUND`,
 `409 PLAYBOOK_RUN_INACTIVE`, `502 BACKEND_UNAVAILABLE` (run stopped, a kill
 failed; the other workers were still killed).
 

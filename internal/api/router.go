@@ -1191,7 +1191,9 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, service.ErrCardTerminal):
 		writeError(w, http.StatusConflict, ErrCodeInvalidTransition, "card is in a terminal state", sanitizeErrorDetails(err))
 	case errors.Is(err, service.ErrWorkerActive):
-		writeError(w, http.StatusConflict, ErrCodeWorkerConflict, "card has a queued or running worker", "stop the worker first")
+		writeError(w, http.StatusConflict, ErrCodeWorkerConflict, "card has a queued or running worker",
+			"stop the worker first; if Stop fails because the worker no longer exists, "+
+				"use Stop All for the project, or force-release the card when it is claimed")
 	case errors.Is(err, service.ErrDuplicateCardEntry):
 		writeError(w, http.StatusConflict, ErrCodePlaybookEntryExists, "card already in playbook", sanitizeErrorDetails(err))
 	case errors.Is(err, service.ErrPlaybookRunActive):
