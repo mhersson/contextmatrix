@@ -115,6 +115,10 @@ func (r *resolver) apply(ctx context.Context, key, kind string) (outcome, error)
 			// a Jira automation): already at the target counts as success.
 			now, rerr := r.api.Issue(ctx, key)
 			if rerr != nil {
+				if errors.Is(rerr, jira.ErrUnauthorized) {
+					return 0, fmt.Errorf("re-read after transition: %w", rerr)
+				}
+
 				return 0, fmt.Errorf("transition %q: %w", next.Name, err)
 			}
 

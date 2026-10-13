@@ -164,3 +164,13 @@ func nilIfEmptyStrings(s []string) []string {
 
 	return s
 }
+
+func TestResolver_UnauthorizedReReadPropagates(t *testing.T) {
+	fj := newFakeJira(st("To Do", "new"), simpleWorkflow())
+	fj.postErrOnce = &jira.StatusError{StatusCode: 400, Message: "bad request"}
+	fj.onPostErr = func(f *fakeJira) { f.issueErr = fmt.Errorf("issue PROJ-1: %w", &jira.AuthError{}) }
+
+	// The read before the POST must pass; only the re-read after it 401s.
+	_, err := newResolver(fj, nil).apply(t.Context(), "PROJ-1", KindStarted)
+	require.ErrorIs(t, err, jira.ErrUnauthorized)
+}
