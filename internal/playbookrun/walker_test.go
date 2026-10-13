@@ -740,6 +740,85 @@ func TestStop_LetsACaughtLaunchFinish(t *testing.T) {
 	e.runner.Wait()
 }
 
+// TestStop_SparesAHandRunStartedDuringItsWait: once the stop is written a
+// human may run another card by hand while Stop still waits for its walker.
+// That worker is not the run's and must outlive the stop.
+func TestStop_SparesAHandRunStartedDuringItsWait(t *testing.T) {
+	e := newEnv(t)
+
+	c := todoCard("alpha", "ALPHA-1")
+	c.ApplyPlaybookSettings("playbook/rollout")
+	e.cards.add(c)
+	e.cards.add(todoCard("alpha", "ALPHA-2"))
+
+	p := runnablePlaybook("rollout", cardEntry("e1", "alpha", "ALPHA-1"), cardEntry("e2", "alpha", "ALPHA-2"))
+	e.activeRun(p, "")
+	e.pbs.add(p)
+
+	entered, release, _ := e.holdFirstLaunch(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	e.runner.Start(ctx)
+	<-entered
+
+	stopped := make(chan error, 1)
+
+	go func() {
+		_, err := e.runner.Stop(context.Background(), "rollout", "human:alice")
+		stopped <- err
+	}()
+
+	require.Eventually(t, func() bool { return e.pbs.lastRun().Status == board.RunStatusStopped },
+		time.Second, 5*time.Millisecond, "the stop is written")
+
+	e.cards.queue("alpha", "ALPHA-2")
+	release()
+
+	require.NoError(t, <-stopped)
+	assert.Equal(t, []string{"ALPHA-1"}, e.stopper.called(), "only the run's launch is killed")
+
+	cancel()
+	e.runner.Wait()
+}
+
+// TestStop_RestartsTheWalkerWhenItsWriteFails: a pass can see the stop before
+// its failed commit is rolled back and let its walker go, leaving the still
+// running run with nothing walking it.
+func TestStop_RestartsTheWalkerWhenItsWriteFails(t *testing.T) {
+	e := newEnv(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Started before the run is seeded, so no walker is resumed.
+	e.runner.Start(ctx)
+
+	c := todoCard("alpha", "ALPHA-1")
+	c.ApplyPlaybookSettings("playbook/rollout")
+	e.cards.add(c)
+
+	p := runnablePlaybook("rollout", cardEntry("e1", "alpha", "ALPHA-1"))
+	e.activeRun(p, "e1")
+	e.pbs.add(p)
+
+	commitErr := errors.New("commit failed")
+
+	e.pbs.mu.Lock()
+	e.pbs.failNextSetRun = commitErr
+	e.pbs.mu.Unlock()
+
+	_, err := e.runner.Stop(context.Background(), "rollout", "human:alice")
+	require.ErrorIs(t, err, commitErr)
+
+	require.Eventually(t, func() bool { return e.launcher.count() == 1 }, 2*time.Second, 10*time.Millisecond,
+		"a walker walks the run that is still running")
+
+	cancel()
+	e.runner.Wait()
+}
+
 // TestLaunchEntry_SendsNothingOnceStopped: a Stop that lands between the
 // running write and the trigger has cancelled the walker; no trigger goes out.
 func TestLaunchEntry_SendsNothingOnceStopped(t *testing.T) {

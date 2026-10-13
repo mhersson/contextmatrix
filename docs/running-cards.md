@@ -152,7 +152,7 @@ deferred commits. A stalled or failed red badge outranks the parked yellow.
 | Control             | Where                              | Effect                                                                                                                      |
 | ------------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | **Stop**            | card panel header                  | Kill webhook; `worker_status: killed`; uncommitted work is lost.                                                            |
-| **Stop** (playbook) | playbook detail page, with confirm | Marks the run `stopped`, then kills every queued or running worker of its cards on this instance.                           |
+| **Stop** (playbook) | playbook detail page, with confirm | Marks the run `stopped`, then kills the run's live workers on this instance; see [Playbook runs](#playbook-runs).           |
 | **Stop All**        | board header, with confirm         | Kills every queued or running container in the project.                                                                     |
 | Kill switch         | `config.yaml`                      | Disable or remove the task backend: the run button disappears and triggers return `503 BACKEND_DISABLED`. Restart required. |
 
@@ -171,7 +171,7 @@ first run in a repository.
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `running`   | The current card is queued or executing.                                                                                                                                       |
 | `waiting`   | A human is needed: a manual step, an imported card that is not vetted, or the current card parked, stalled, failed, was killed, or could not be launched. `reason` says which. |
-| `stopped`   | Stop was pressed. Every queued or running worker of its cards on this instance was killed.                                                                                     |
+| `stopped`   | Stop was pressed. The workers live on its cards on this instance when the stop was written were killed, and the one a launch in flight queued.                                 |
 | `completed` | Every entry is complete. The compare links open the final pull requests.                                                                                                       |
 
 - **Play** starts a run, or resumes a `stopped` one. A resume re-launches the
@@ -179,6 +179,9 @@ first run in a repository.
   that finished meanwhile is skipped; one that is running is waited on. Play
   is refused while a run is `running` or `waiting`. A Play pressed while a
   Stop is still finishing waits for it.
+- **Stop** kills the workers queued or running on this instance on the run's
+  cards when the stop is written, plus the card a launch in flight queues: that
+  launch finishes first. A card run by hand after the stop is left alone.
 - The runner never retries on its own. After a failed card, fix the cause,
   then press Stop and Play: Stop ends the `waiting` run and Play resumes it.
 - An imported card that is not vetted holds the run at `waiting` with the reason

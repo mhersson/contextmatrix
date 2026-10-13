@@ -191,7 +191,12 @@ func rawEntries(d *service.PlaybookDetail) []board.PlaybookEntry {
 // workerLive reports whether card has a queued or running worker, or a claim
 // granted by another instance.
 func (r *Runner) workerLive(card *board.Card) bool {
-	return card.WorkerStatus == "queued" || card.WorkerStatus == "running" || r.cfg.Cards.ClaimedElsewhere(card)
+	return workerInFlight(card) || r.cfg.Cards.ClaimedElsewhere(card)
+}
+
+// workerInFlight reports whether card's worker is queued or running.
+func workerInFlight(card *board.Card) bool {
+	return card.WorkerStatus == "queued" || card.WorkerStatus == "running"
 }
 
 // launchEntry brings the card back to todo when needed, re-asserts the

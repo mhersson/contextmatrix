@@ -491,6 +491,85 @@ func TestPass_SkipsForcingWhenTheCardAlreadyHasTheSettings(t *testing.T) {
 	assert.Empty(t, e.cards.forced, "no card write when the settings are already there")
 }
 
+// TestStop_BuildsTheStoppedBlockFromTheStoredRun: the run moves to another
+// entry and its old one is removed between Stop's read and its write. A block
+// built from the read would name the removed entry and fail validation, so
+// the run would keep going.
+func TestStop_BuildsTheStoppedBlockFromTheStoredRun(t *testing.T) {
+	e := newEnv(t)
+	e.cards.add(todoCard("alpha", "ALPHA-1"))
+	e.cards.add(todoCard("alpha", "ALPHA-2"))
+
+	p := runnablePlaybook("rollout", cardEntry("e1", "alpha", "ALPHA-1"), cardEntry("e2", "alpha", "ALPHA-2"))
+	e.activeRun(p, "e1")
+	e.pbs.add(p)
+
+	e.pbs.mu.Lock()
+	e.pbs.afterGet = func() {
+		e.pbs.mu.Lock()
+		defer e.pbs.mu.Unlock()
+
+		p.Run.Entry = "e2"
+		p.Entries = p.Entries[1:]
+	}
+	e.pbs.mu.Unlock()
+
+	_, err := e.runner.Stop(context.Background(), "rollout", "human:alice")
+	require.NoError(t, err)
+
+	run := e.pbs.lastRun()
+	assert.Equal(t, board.RunStatusStopped, run.Status)
+	assert.Equal(t, "e2", run.Entry)
+}
+
+func TestStop_RefusesARunThatEndedBetweenReadAndWrite(t *testing.T) {
+	e := newEnv(t)
+	e.cards.add(todoCard("alpha", "ALPHA-1"))
+
+	p := runnablePlaybook("rollout", cardEntry("e1", "alpha", "ALPHA-1"))
+	e.activeRun(p, "e1")
+	e.pbs.add(p)
+
+	e.pbs.mu.Lock()
+	e.pbs.afterGet = func() {
+		e.pbs.mu.Lock()
+		defer e.pbs.mu.Unlock()
+
+		ended := e.clk.Now()
+		p.Run.Status = board.RunStatusCompleted
+		p.Run.EndedAt = &ended
+	}
+	e.pbs.mu.Unlock()
+
+	_, err := e.runner.Stop(context.Background(), "rollout", "human:alice")
+	require.ErrorIs(t, err, ErrRunInactive)
+	assert.Equal(t, 0, e.pbs.runWrites(), "a run that already ended is not overwritten")
+}
+
+func TestPlay_RefusesARunAnotherInstanceStartedAfterItsRead(t *testing.T) {
+	e := newEnv(t)
+	e.cards.add(todoCard("alpha", "ALPHA-1"))
+
+	p := runnablePlaybook("rollout", cardEntry("e1", "alpha", "ALPHA-1"))
+	e.pbs.add(p)
+
+	e.pbs.mu.Lock()
+	e.pbs.afterGet = func() {
+		e.pbs.mu.Lock()
+		defer e.pbs.mu.Unlock()
+
+		now := e.clk.Now()
+		p.Run = &board.PlaybookRun{
+			Status: board.RunStatusRunning, Instance: "other", StartedBy: "human:bob", StartedAt: now, UpdatedAt: now,
+		}
+	}
+	e.pbs.mu.Unlock()
+
+	_, err := e.runner.Play(context.Background(), "rollout", "human:alice")
+	require.ErrorIs(t, err, service.ErrPlaybookRunActive)
+	assert.Equal(t, 0, e.pbs.runWrites(), "the other instance's run is not overwritten")
+}
+
 func TestStop_DeclinesTheStopperWhenTheCardIsClaimedElsewhere(t *testing.T) {
 	e := newEnv(t)
 	c := todoCard("alpha", "ALPHA-1")

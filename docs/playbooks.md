@@ -178,13 +178,15 @@ behavior. Both controls are human-only.
   (`503 BACKEND_DISABLED`). A Play that arrives while a Stop of the same
   playbook is still in progress waits for that Stop to finish.
 - **Stop** requires an active run (`409 PLAYBOOK_RUN_INACTIVE`) and kills the
-  worker of every card entry that is queued or running on this instance and not
-  `done` or `not_planned`, not only the current card's. A launch already in
-  flight when Stop lands finishes first, and Stop then kills the worker it
-  queued. If a kill webhook fails after the run is marked `stopped`, it
-  answers `502 BACKEND_UNAVAILABLE`. A backend that has not started tracking
-  the just-launched worker yet refuses its kill, which gives that 502; stop
-  that card's worker from the card, or with Stop All for its project.
+  workers queued or running on this instance on the run's cards when the stop
+  is written, on every card entry that is not `done` or `not_planned`, not only
+  the current card's. A launch already in flight when Stop lands finishes
+  first, and Stop then kills the worker it queued. A card run by hand after the
+  stop is left alone. If a kill webhook fails after the run is marked
+  `stopped`, it answers `502 BACKEND_UNAVAILABLE`. A backend that has not
+  started tracking the just-launched worker yet refuses its kill, which gives
+  that 502; stop that card's worker from the card, or with Stop All for its
+  project.
 - `playbook.updated` events carry `run_status` and `run_entry` so open
   detail pages track a run live.
 

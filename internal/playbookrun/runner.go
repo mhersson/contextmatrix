@@ -13,6 +13,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/service"
+	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
 // clockTicker keeps the walker's ticker the clock package's type, so tests
@@ -50,8 +51,8 @@ type Launcher func(ctx context.Context, project, cardID string, opts LaunchOptio
 type Stopper func(ctx context.Context, project, cardID string) error
 
 // Playbooks is the slice of the playbook service the runner uses. Every run
-// write is guarded: the pass and Stop decide from an earlier read and write
-// through SetRunIf's compare-and-swap; Play decides inside the write.
+// write is guarded: the pass decides from an earlier read and writes through
+// SetRunIf's compare-and-swap; Play and Stop decide inside the write.
 type Playbooks interface {
 	Get(ctx context.Context, id string) (*service.PlaybookDetail, error)
 	SetRunIf(
@@ -256,10 +257,12 @@ func (r *Runner) Play(ctx context.Context, id, agentID string) (*service.Playboo
 	return d, nil
 }
 
-// Stop marks the run stopped, then kills every live worker this instance owns
-// on the run's cards. A kill failure is reported as ErrStopWorker with the
-// stopped detail; the run stays stopped. Once the stop is persisted, the wait
-// and kills outlive ctx, bounded by stopWait.
+// Stop marks the run stopped, then kills the workers this instance owns that
+// were live on the run's cards at the stop write, and the current entry's,
+// which a launch in flight may be queuing. A worker started after the write,
+// such as a hand run, is left alone. A kill failure is reported as
+// ErrStopWorker with the stopped detail; the run stays stopped. Once the stop
+// is persisted, the wait and kills outlive ctx, bounded by stopWait.
 func (r *Runner) Stop(ctx context.Context, id, agentID string) (*service.PlaybookDetail, error) {
 	release, err := r.lockControl(ctx, id)
 	if err != nil {
@@ -277,30 +280,40 @@ func (r *Runner) Stop(ctx context.Context, id, agentID string) (*service.Playboo
 	}
 
 	now := r.cfg.Clock.Now().UTC()
-	run := *d.Run
-	run.Status = board.RunStatusStopped
-	run.Reason = "stopped by " + agentID
-	run.UpdatedAt = now
-	run.EndedAt = &now
 
-	// An entry that vanished under the run (a boards merge, a remove) would
-	// fail validation and make the run unstoppable, so carry it no further.
-	if findEntry(d, run.Entry) == nil {
-		run.Entry = ""
-	}
+	var targets []board.PlaybookEntry
 
-	// The pre-read above answers the human quickly; this guard is what makes
-	// the refusal true at the moment of the write.
-	guard := func(cur *board.PlaybookRun) error {
-		if !cur.Active() {
-			return fmt.Errorf("%w: %s", ErrRunInactive, id)
+	// Decided from the stored run, under the lock a hand run's queued write
+	// takes: the workers it records are the run's, and none started later.
+	next := func(p *board.Playbook) (*board.PlaybookRun, error) {
+		if !p.RunActive() {
+			return nil, fmt.Errorf("%w: %s", ErrRunInactive, id)
 		}
 
-		return nil
+		run := p.Run.Clone()
+		run.Status = board.RunStatusStopped
+		run.Reason = "stopped by " + agentID
+		run.UpdatedAt = now
+		run.EndedAt = &now
+
+		// An entry that vanished under the run would fail validation.
+		if p.FindEntry(run.Entry) < 0 {
+			run.Entry = ""
+		}
+
+		targets = r.stopTargets(ctx, id, p.Entries, run.Entry)
+
+		return run, nil
 	}
 
-	d, err = r.cfg.Playbooks.SetRunIf(ctx, id, guard, &run, agentID)
+	d, err = r.cfg.Playbooks.SetRunFunc(ctx, id, next, agentID)
 	if err != nil {
+		// A pass may have seen the stop before its failed commit was rolled
+		// back, and let its walker go.
+		if !errors.Is(err, ErrRunInactive) {
+			r.Ensure(id)
+		}
+
 		return nil, err
 	}
 
@@ -325,35 +338,61 @@ func (r *Runner) Stop(ctx context.Context, id, agentID string) (*service.Playboo
 		}
 	}
 
-	if err := r.killLiveWorkers(ctx, d); err != nil {
-		return d, err
-	}
-
-	return d, nil
+	return d, r.killLiveWorkers(ctx, d.ID, targets)
 }
 
-// killLiveWorkers kills every queued or running worker this instance owns
-// on a card entry that is not terminal, wherever the run points: a stopped
-// run must leave none behind. A failed kill does not spare the others.
-func (r *Runner) killLiveWorkers(ctx context.Context, d *service.PlaybookDetail) error {
-	var failed []string
+// stopTargets returns the card entries Stop may kill: those whose card is not
+// terminal and has a worker queued or running on this instance, plus the run's
+// entry, which the walker may be queuing right now.
+func (r *Runner) stopTargets(ctx context.Context, playbookID string, entries []board.PlaybookEntry, runEntry string) []board.PlaybookEntry {
+	var targets []board.PlaybookEntry
 
-	for _, e := range d.Entries {
-		if e.Type != board.EntryTypeCard || e.Missing {
+	for _, e := range entries {
+		if e.Type != board.EntryTypeCard {
+			continue
+		}
+
+		if e.ID == runEntry {
+			targets = append(targets, e)
+
 			continue
 		}
 
 		card, err := r.cfg.Cards.GetCard(ctx, e.Project, e.Card)
 		if err != nil {
-			// The reconcile sweep reaps the container of a card deleted under its worker.
-			ctxlog.Logger(ctx).Warn("playbook stop: card read failed, worker not killed",
-				"playbook", d.ID, "project", e.Project, "card", e.Card, "error", err)
+			if !errors.Is(err, storage.ErrCardNotFound) && !errors.Is(err, storage.ErrProjectNotFound) {
+				ctxlog.Logger(ctx).Warn("playbook stop: card read failed, worker not killed",
+					"playbook", playbookID, "project", e.Project, "card", e.Card, "error", err)
+			}
 
 			continue
 		}
 
-		inFlight := card.WorkerStatus == "queued" || card.WorkerStatus == "running"
-		if board.IsTerminalState(card.State) || !inFlight || r.cfg.Cards.ClaimedElsewhere(card) {
+		if !board.IsTerminalState(card.State) && workerInFlight(card) && !r.cfg.Cards.ClaimedElsewhere(card) {
+			targets = append(targets, e)
+		}
+	}
+
+	return targets
+}
+
+// killLiveWorkers kills the given entries' workers that are still queued or
+// running on this instance, on cards that are not terminal. A failed kill
+// does not spare the others.
+func (r *Runner) killLiveWorkers(ctx context.Context, playbookID string, targets []board.PlaybookEntry) error {
+	var failed []string
+
+	for _, e := range targets {
+		card, err := r.cfg.Cards.GetCard(ctx, e.Project, e.Card)
+		if err != nil {
+			// The reconcile sweep reaps the container of a card deleted under its worker.
+			ctxlog.Logger(ctx).Warn("playbook stop: card read failed, worker not killed",
+				"playbook", playbookID, "project", e.Project, "card", e.Card, "error", err)
+
+			continue
+		}
+
+		if board.IsTerminalState(card.State) || !workerInFlight(card) || r.cfg.Cards.ClaimedElsewhere(card) {
 			continue
 		}
 
