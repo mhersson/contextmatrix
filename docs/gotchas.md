@@ -113,10 +113,10 @@ Developer traps in this codebase. Each entry names the code it describes.
   mutations (heartbeats, log entries, intermediate updates) are batched and
   committed in one flush at release or completion. Two things always commit
   immediately regardless: card creation (card file and `.board.yaml`
-  together, so the card survives a pull elsewhere), and any `UpdateCard`,
-  `PatchCard`, `AddLogEntry` or parent auto-transition on a card that was
-  unclaimed when the mutation started - an unclaimed card has no release to
-  flush it, so a deferred entry would leave the file dirty forever. The
+  together, so the card survives a pull elsewhere), and any `PatchCard`,
+  `AddLogEntry` or parent auto-transition on a card that was unclaimed when
+  the mutation started - an unclaimed card has no release to flush it, so a
+  deferred entry would leave the file dirty forever. The
   decision lives in `enqueueCardCommitFor` and uses the pre-mutation
   snapshot; `ImmediateCommit` on the input only matters for a claimed card.
   `promote_to_autonomous` and a `queued` worker status still defer on an

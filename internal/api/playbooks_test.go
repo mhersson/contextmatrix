@@ -820,34 +820,6 @@ func TestCardsAPI_PlaybookLockGuards(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 	})
-
-	t.Run("PUT changing a locked field is 409", func(t *testing.T) {
-		body := map[string]any{
-			"title": "Renamed", "type": "task", "state": "todo", "priority": "high",
-			"autonomous": false, "create_pr": true, "await_ci": true, "merge_pr": true,
-		}
-
-		resp := doJSON(t, http.MethodPut, base, body, "human:alice")
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusConflict, resp.StatusCode)
-
-		var apiErr APIError
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
-		assert.Equal(t, ErrCodePlaybookLocked, apiErr.Code)
-	})
-
-	t.Run("PUT keeping the locked fields is 200", func(t *testing.T) {
-		body := map[string]any{
-			"title": "Renamed", "type": "task", "state": "todo", "priority": "high",
-			"autonomous": true, "create_pr": true, "await_ci": true, "merge_pr": true,
-		}
-
-		resp := doJSON(t, http.MethodPut, base, body, "human:alice")
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-	})
 }
 
 func TestPlaybooksAPI_RemoveEntryRefusedWhileRunActive(t *testing.T) {

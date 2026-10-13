@@ -136,7 +136,7 @@ func (h *backendHandlers) launch(ctx context.Context, project, id string, opts l
 
 	// Clamp Best-of-N against the configured max - the stored card value can
 	// exceed it if max_candidates was lowered after the card was set, since
-	// the REST PATCH/PUT validation only checks the max in effect at write
+	// the REST create/PATCH validation only checks the max in effect at write
 	// time.
 	if card.BestOfN >= 2 {
 		payload.BestOfN = min(card.BestOfN, h.bestOfN.MaxCandidates)

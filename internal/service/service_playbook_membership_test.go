@@ -144,18 +144,6 @@ func TestCardReopenDuringPlaybookRun(t *testing.T) {
 
 			return err
 		}},
-		{"UpdateCard", func(ctx context.Context, svc *CardService, id, state string) error {
-			c, err := svc.GetCard(ctx, "test-project", id)
-			if err != nil {
-				return err
-			}
-
-			_, err = svc.UpdateCard(ctx, "test-project", id, UpdateCardInput{
-				Title: c.Title, Type: c.Type, State: state, Priority: c.Priority,
-			})
-
-			return err
-		}},
 		{"PatchCard", func(ctx context.Context, svc *CardService, id, state string) error {
 			_, err := svc.PatchCard(ctx, "test-project", id, PatchCardInput{State: &state})
 

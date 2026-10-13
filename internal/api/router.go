@@ -429,7 +429,6 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	mux.HandleFunc("GET /api/projects/{project}/cards", ch.listCards)
 	mux.HandleFunc("POST /api/projects/{project}/cards", ch.createCard)
 	mux.HandleFunc("GET /api/projects/{project}/cards/{id}", ch.getCard)
-	mux.HandleFunc("PUT /api/projects/{project}/cards/{id}", ch.updateCard)
 	mux.HandleFunc("PATCH /api/projects/{project}/cards/{id}", ch.patchCard)
 	mux.HandleFunc("DELETE /api/projects/{project}/cards/{id}", ch.deleteCard)
 

@@ -157,7 +157,7 @@ the same reason:
 - Unchecking a done manual entry is refused
   (`409 PLAYBOOK_UNCHECK_DURING_RUN`); stop the run to uncheck.
 - A card that is an entry of the playbook cannot leave `done` or
-  `not_planned` by any path (REST `PUT` or `PATCH`, MCP `transition_card` and
+  `not_planned` by any path (REST `PATCH`, MCP `transition_card` and
   the other tools that change state): `409 CARD_REOPEN_DURING_RUN`, whose
   details name the playbook. Stop its run first. Moves into a terminal state
   and between non-terminal states are unaffected.

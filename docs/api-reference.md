@@ -16,7 +16,6 @@ DELETE /api/projects/{project}                            # delete project (requ
 GET    /api/projects/{project}/cards            ?state=&type=&label=&agent=&parent=&priority=&external_id=&vetted=&limit=&cursor=
 POST   /api/projects/{project}/cards
 GET    /api/projects/{project}/cards/{id}
-PUT    /api/projects/{project}/cards/{id}
 PATCH  /api/projects/{project}/cards/{id}
 DELETE /api/projects/{project}/cards/{id}
 
@@ -289,7 +288,7 @@ the request's `request_id`.
 | `PLAYBOOK_MOVE_DURING_RUN`    | 409     | `PATCH .../entries/{entryId}` with a `position` that moves the entry while a run is `running` or `waiting`                                                                                 |
 | `PLAYBOOK_UNCHECK_DURING_RUN` | 409     | `PATCH .../entries/{entryId}` with `done: false` on a done manual entry while a run is `running` or `waiting`                                                                              |
 | `CARD_REOPEN_DURING_RUN`      | 409     | A card would leave `done` or `not_planned` while a playbook holding it has a `running` or `waiting` run; `details` name the playbook                                                       |
-| `PLAYBOOK_LOCKED`             | 409     | `PUT` or `PATCH` on a card changes one of the five fields a runnable playbook forces                                                                                                       |
+| `PLAYBOOK_LOCKED`             | 409     | `PATCH` on a card changes one of the five fields a runnable playbook forces                                                                                                                |
 | `PLAYBOOK_NOT_RUNNABLE`       | 409     | An operation that requires `runnable: true` is called on a playbook that is not runnable                                                                                                   |
 | `PLAYBOOK_CARD_OWNED`         | 422     | `runnable: true` and a card entry already belongs to another runnable playbook                                                                                                             |
 | `PLAYBOOK_PROJECT_NO_REPO`    | 422     | `runnable: true` and a card entry's project has no GitHub repository URL                                                                                                                   |
@@ -319,7 +318,7 @@ the request's `request_id`.
 | Code               | HTTP | When                                                                                                                                                      |
 | ------------------ | ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `CARD_NOT_VETTED`  | 403  | A non-human agent calls `POST /claim`, or any caller calls `POST /run`, on a card with `source != null && vetted == false`.                               |
-| `HUMAN_ONLY_FIELD` | 403  | A caller without the `human:` prefix sets a human-only field on card create, PUT, or PATCH (list under § Card Endpoints), or calls a human-only endpoint. |
+| `HUMAN_ONLY_FIELD` | 403  | A caller without the `human:` prefix sets a human-only field on card create or PATCH (list under § Card Endpoints), or calls a human-only endpoint.       |
 
 ## Authentication (multi mode)
 
@@ -1192,21 +1191,19 @@ top-level cards and to off for subtasks; any present value, `false` and `0`
 included, is explicit. `merge_pr` is nullable too, but has no `card_defaults`
 entry: omitted always means off. `mob_phases` is read only alongside an
 explicit `mob_participants`. `skills` omitted means the project default; `[]`
-mounts no skills. `depends_on`, `subtasks`, `context`, and `custom` are not
-accepted on create - set them with PUT or PATCH. A `source` with `system: jira`
-is refused: Jira writeback moves the issue that source names, so only the Jira
-import sets one.
+mounts no skills. `depends_on` is not accepted on create - set it with PATCH;
+`subtasks`, `context`, and `custom` are not writable over REST. A `source`
+with `system: jira` is refused: Jira writeback moves the issue that source
+names, so only the Jira import sets one.
 
 **Human-only fields** (403 `HUMAN_ONLY_FIELD` when a non-`human:` caller sets
-any of them, on create, PUT, and PATCH alike): `autonomous`, `create_pr`,
+any of them, on create and PATCH alike): `autonomous`, `create_pr`,
 `await_ci`, `await_copilot_review`, `merge_pr`, `vetted`, `assignee`,
 `base_branch`, `model_orchestrator`, `model_coder`, `model_reviewer`, `best_of_n`,
 `max_capability`, `mob_participants`, `mob_phases`, `mob_guests`, `verify`.
-On create and PATCH the check runs before the card is loaded. PUT compares
-against the stored values, so clearing a human-only field is also gated; PUT
-does not accept `base_branch` or `verify` at all. For the nullable fields,
-presence counts as setting - an agent sending `"autonomous": false` is
-rejected, omitting it is not.
+The check runs before the card is loaded. Presence counts as setting for every
+PATCH field and for the nullable create fields - an agent sending
+`"autonomous": false` is rejected, omitting it is not.
 
 **Response:** 201 with the full card.
 
@@ -1221,26 +1218,6 @@ rejected, omitting it is not.
 | 409    | `CARD_EXISTS`                           | ID collision                                                                                                                                                   |
 | 422    | `VALIDATION_ERROR`                      | Unknown type/priority, bad `external_url`, model pin not in catalog, field too long, invalid `verify`, bad `assignee` (unknown, disabled, or set in none mode) |
 | 503    | `REMOTE_UNREACHABLE`                    | Shared boards: push could not be verified                                                                                                                      |
-
-### PUT /api/projects/{project}/cards/{id}
-
-Full replacement. Accepts `title`, `type`, `state`, `priority`, `labels`,
-`parent`, `subtasks`, `depends_on`, `context`, `custom`, `body`, `assignee`,
-`autonomous`, `create_pr`, `await_ci`, `await_copilot_review`, `merge_pr`,
-`vetted`, `skills`, `phase`, the three model pins, `best_of_n`,
-`max_capability`, and the three mob fields as plain values; every omitted
-field is written as its zero value (`skills` omitted resets to the project
-default). `phase` is the exception: omitted leaves it unchanged. A `state`
-change goes through transition validation, and a card leaving `done` or
-`not_planned` is refused while a playbook holding it has a `running` or
-`waiting` run.
-
-**Response:** 200 with the full card.
-
-**Errors:** the create set plus 404 `CARD_NOT_FOUND`, 403 `AGENT_MISMATCH`
-(the card is claimed and the caller is not the owner, or sends no
-`X-Agent-ID`), 409 `INVALID_TRANSITION`, 409 `DEPENDENCIES_NOT_MET`, and 409
-`CARD_REOPEN_DURING_RUN` (`details` name the playbook; stop its run first).
 
 ### PATCH /api/projects/{project}/cards/{id}
 
@@ -1261,8 +1238,18 @@ Partial update - only keys present in the body are applied.
 | `model_orchestrator`, `model_coder`, `model_reviewer`, `best_of_n`, `mob_participants`                | Pins and counts; mob fields are validated against the resulting card                                       |
 | `verify`                                                                                              | Replaces the whole object; a zero-value object clears it                                                   |
 
-The commit author, activity entry, and SSE event carry the resolved caller
-identity. **Response:** 200 with the full card. **Errors:** as PUT.
+A `state` change goes through transition validation, and a card leaving
+`done` or `not_planned` is refused while a playbook holding it has a `running`
+or `waiting` run. The commit author, activity entry, and SSE event carry the
+resolved caller identity.
+
+**Response:** 200 with the full card.
+
+**Errors:** the create set plus 404 `CARD_NOT_FOUND`, 403 `AGENT_MISMATCH`
+(the card is claimed and the caller is not the owner, or sends no
+`X-Agent-ID`), 409 `INVALID_TRANSITION`, 409 `DEPENDENCIES_NOT_MET`, 409
+`CARD_REOPEN_DURING_RUN` (`details` name the playbook; stop its run first),
+and 409 `PLAYBOOK_LOCKED`.
 
 ### DELETE /api/projects/{project}/cards/{id}
 
@@ -1408,7 +1395,7 @@ unflagged. The flag is informational - pinning a blacklisted model stays
 allowed by design ([model-selection.md](model-selection.md)).
 
 Card model pins (`model_orchestrator` / `model_coder` / `model_reviewer` on
-card create, PUT, and PATCH) are validated against this same served set:
+card create and PATCH) are validated against this same served set:
 a pin outside it returns 422 `VALIDATION_ERROR` ("model pin not in
 catalog"). Only changed values are checked, and an empty or unfetched catalog
 disables validation entirely (fail-open).
@@ -1782,7 +1769,7 @@ originate from a shared-board pull carry `data.source: "sync"`.
 | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | `card.created`        | `{source_system, title}` for imported cards, else none; sync diff: `{new_state}`                                                                                                    | Card created locally, or appeared via a shared-board pull                              |
 | `card.updated`        | `{old_state, new_state}`, or `{action: "pushed", branch, pr_url}`, `{action: "review_attempts_incremented", review_attempts}`, `{autonomous: true}`, `{worker_status: "completed"}` | Non-state edit, `report_push`, `increment_review_attempts`, promote, worker completion |
-| `card.state_changed`  | `{old_state, new_state}`                                                                                                                                                            | Transition via PUT/PATCH/MCP, parent auto-transition, or a sync diff                   |
+| `card.state_changed`  | `{old_state, new_state}`                                                                                                                                                            | Transition via PATCH/MCP, parent auto-transition, or a sync diff                       |
 | `card.deleted`        | none; sync diff: `{old_state}`                                                                                                                                                      | Card deleted                                                                           |
 | `card.claimed`        | none                                                                                                                                                                                | Claim granted; `agent` is the claimant                                                 |
 | `card.released`       | none; force-release: `{previous_agent, forced: true}`                                                                                                                               | Release or force-release                                                               |
@@ -1966,8 +1953,8 @@ the GitHub API and cached) when none is set; it names only the playbook
 branch while that lookup fails. Summaries carry `runnable` and `run_status`.
 
 Card responses carry `playbook_lock` (`{id, title, run_status}`) when a
-runnable playbook owns the card. `PUT` and `PATCH` on such a card return
-`409 PLAYBOOK_LOCKED` when they change one of the five locked fields, and
+runnable playbook owns the card. `PATCH` on such a card returns
+`409 PLAYBOOK_LOCKED` when it changes one of the five locked fields, and
 `POST .../run` returns `409 PLAYBOOK_RUN_ACTIVE` while the run is active.
 
 ### DELETE /api/playbooks/{id}

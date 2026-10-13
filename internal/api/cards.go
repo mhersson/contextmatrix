@@ -85,39 +85,6 @@ type createCardRequest struct {
 	Verify             *board.VerifyConfig `json:"verify,omitempty"`
 }
 
-// updateCardRequest is the JSON body for full card updates.
-// All fields use value types to match PUT's full-replacement semantics.
-type updateCardRequest struct {
-	Title              string         `json:"title"`
-	Type               string         `json:"type"`
-	State              string         `json:"state"`
-	Priority           string         `json:"priority"`
-	Labels             []string       `json:"labels"`
-	Parent             string         `json:"parent"`
-	Subtasks           []string       `json:"subtasks"`
-	DependsOn          []string       `json:"depends_on"`
-	Context            []string       `json:"context"`
-	Custom             map[string]any `json:"custom"`
-	Body               string         `json:"body"`
-	Assignee           string         `json:"assignee"`
-	Autonomous         bool           `json:"autonomous"`
-	CreatePR           bool           `json:"create_pr"`
-	AwaitCI            bool           `json:"await_ci"`
-	AwaitCopilotReview bool           `json:"await_copilot_review"`
-	MergePR            bool           `json:"merge_pr"`
-	Vetted             bool           `json:"vetted"`
-	Skills             *[]string      `json:"skills,omitempty"`
-	Phase              *string        `json:"phase,omitempty"`
-	ModelOrchestrator  string         `json:"model_orchestrator,omitempty"`
-	ModelCoder         string         `json:"model_coder,omitempty"`
-	ModelReviewer      string         `json:"model_reviewer,omitempty"`
-	BestOfN            int            `json:"best_of_n"`
-	MaxCapability      bool           `json:"max_capability"`
-	MobParticipants    int            `json:"mob_participants"`
-	MobPhases          []string       `json:"mob_phases"`
-	MobGuests          []string       `json:"mob_guests"`
-}
-
 // patchCardRequest is the JSON body for partial card updates.
 //
 // SkillsClear is the explicit "clear" sentinel: pure JSON cannot
@@ -508,7 +475,7 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Autonomous and model-pin fields can only be set by human users (UI),
-	// never by agents - mirrors the update and patch guards. Pins set at
+	// never by agents - mirrors the patch guard. Pins set at
 	// create time flow onto the card and reach the agent via get_task_context.
 	if isNonHumanAgent(r) && (req.Autonomous != nil || req.CreatePR != nil || req.AwaitCI != nil || req.AwaitCopilotReview != nil ||
 		req.MergePR != nil ||
@@ -601,139 +568,6 @@ func (h *cardHandlers) getCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	card, err := h.svc.GetCard(r.Context(), projectName, cardID)
-	if err != nil {
-		handleServiceError(w, r, err)
-
-		return
-	}
-
-	writeJSON(w, http.StatusOK, card)
-}
-
-// updateCard handles PUT /api/projects/{project}/cards/{id}.
-func (h *cardHandlers) updateCard(w http.ResponseWriter, r *http.Request) {
-	projectName := r.PathValue("project")
-	cardID := r.PathValue("id")
-
-	if projectName == "" || cardID == "" {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "project and card ID required", "")
-
-		return
-	}
-
-	var req updateCardRequest
-	if !decodeJSON(w, r, &req) {
-		return
-	}
-
-	req.Assignee = normalizeAssignee(req.Assignee)
-
-	// Check agent ownership for claimed cards
-	existingCard, err := h.svc.GetCard(r.Context(), projectName, cardID)
-	if err != nil {
-		handleServiceError(w, r, err)
-
-		return
-	}
-
-	if errMsg := validateAgentOwnership(r, existingCard, h.svc); errMsg != "" {
-		writeError(w, http.StatusForbidden, ErrCodeAgentMismatch, "agent mismatch", errMsg)
-
-		return
-	}
-
-	// Autonomous and model-pin fields can only be changed by human users (UI), never by agents.
-	// For PUT semantics, compare against existing values to catch both setting AND clearing.
-	if isNonHumanAgent(r) && (req.Autonomous != existingCard.Autonomous ||
-		req.CreatePR != existingCard.CreatePR ||
-		req.AwaitCI != existingCard.AwaitCI ||
-		req.AwaitCopilotReview != existingCard.AwaitCopilotReview ||
-		req.MergePR != existingCard.MergePR ||
-		req.Vetted != existingCard.Vetted ||
-		req.ModelOrchestrator != existingCard.ModelOrchestrator ||
-		req.ModelCoder != existingCard.ModelCoder ||
-		req.ModelReviewer != existingCard.ModelReviewer ||
-		req.BestOfN != existingCard.BestOfN ||
-		req.MaxCapability != existingCard.MaxCapability ||
-		req.MobParticipants != existingCard.MobParticipants ||
-		!slices.Equal(req.MobPhases, existingCard.MobPhases) ||
-		!slices.Equal(req.MobGuests, existingCard.MobGuests) ||
-		req.Assignee != normalizeAssignee(existingCard.Assignee)) {
-		writeError(w, http.StatusForbidden, ErrCodeHumanOnlyField,
-			"forbidden",
-			"autonomous, create_pr, await_ci, await_copilot_review, merge_pr, vetted, model pins, best_of_n, max_capability, mob fields, and assignee can only be changed via the UI")
-
-		return
-	}
-
-	if lock := existingCard.PlaybookLock; lock != nil && (req.Autonomous != existingCard.Autonomous ||
-		req.CreatePR != existingCard.CreatePR ||
-		req.AwaitCI != existingCard.AwaitCI ||
-		req.MergePR != existingCard.MergePR) {
-		writePlaybookLocked(w, lock)
-
-		return
-	}
-
-	if !validBestOfN(req.BestOfN, h.bestOfNMax) {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest,
-			"invalid best_of_n", fmt.Sprintf("must be 0 or 2..%d", h.bestOfNMax))
-
-		return
-	}
-
-	if err := validMob(h.mob, req.MobParticipants, req.MobPhases, req.MobGuests); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid mob fields", err.Error())
-
-		return
-	}
-
-	if err := h.validateCardSkills(r, projectName, req.Skills); err != nil {
-		writeError(w, http.StatusBadRequest, ErrCodeValidationError, err.Error(), "")
-
-		return
-	}
-
-	if !h.checkAssigneeChange(w, r, req.Assignee, existingCard.Assignee) {
-		return
-	}
-
-	// ImmediateCommit mirrors the service's own rule (enqueueCardCommitFor
-	// decides from its pre-mutation snapshot, so an unclaimed card commits
-	// at once either way); kept as the explicit-intent signal for PUT.
-	input := service.UpdateCardInput{
-		Title:              req.Title,
-		Type:               req.Type,
-		State:              req.State,
-		Priority:           req.Priority,
-		Labels:             req.Labels,
-		Parent:             req.Parent,
-		Subtasks:           req.Subtasks,
-		DependsOn:          req.DependsOn,
-		Context:            req.Context,
-		Custom:             req.Custom,
-		Body:               req.Body,
-		Assignee:           req.Assignee,
-		ImmediateCommit:    existingCard.AssignedAgent == "",
-		Autonomous:         req.Autonomous,
-		CreatePR:           req.CreatePR,
-		AwaitCI:            req.AwaitCI,
-		AwaitCopilotReview: req.AwaitCopilotReview,
-		MergePR:            req.MergePR,
-		Vetted:             req.Vetted,
-		Skills:             req.Skills,
-		Phase:              req.Phase,
-		ModelOrchestrator:  req.ModelOrchestrator,
-		ModelCoder:         req.ModelCoder,
-		ModelReviewer:      req.ModelReviewer,
-		BestOfN:            req.BestOfN,
-		MaxCapability:      req.MaxCapability,
-		MobParticipants:    req.MobParticipants,
-		MobPhases:          req.MobPhases,
-		MobGuests:          req.MobGuests,
-	}
-
-	card, err := h.svc.UpdateCard(r.Context(), projectName, cardID, input)
 	if err != nil {
 		handleServiceError(w, r, err)
 
@@ -849,7 +683,9 @@ func (h *cardHandlers) patchCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ImmediateCommit mirrors the service's own rule (see the PUT handler).
+	// ImmediateCommit mirrors the service's own rule: enqueueCardCommitFor
+	// decides from its pre-mutation snapshot, so an unclaimed card commits at
+	// once either way.
 	input := service.PatchCardInput{
 		Title:              req.Title,
 		Type:               req.Type,

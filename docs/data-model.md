@@ -31,11 +31,11 @@ live in [architecture](architecture.md); the HTTP surface in the
      completing a cancelled card would walk `not_planned` -> `todo` -> `done`.
      `not_planned` -> `todo` stays the way a human resumes a card.
    - A card that is an entry of a playbook with a `running` or `waiting` run
-     cannot leave `done` or `not_planned` by any path (transition, `PUT`,
-     `PATCH`, MCP): 409 `CARD_REOPEN_DURING_RUN`, naming the playbook. The
+     cannot leave `done` or `not_planned` by any path (transition, `PATCH`,
+     MCP): 409 `CARD_REOPEN_DURING_RUN`, naming the playbook. The
      runner acts on the first incomplete entry, so a reopened card ahead of
      the run's live card would be launched beside it. Stop the run first.
-   - `depends_on` gates `in_progress`: a transition, `PUT`, or `PATCH` into
+   - `depends_on` gates `in_progress`: a transition or `PATCH` into
      `in_progress` fails with `ErrDependenciesNotMet` (409) while any
      dependency is not `done`; `not_planned` does not satisfy a dependency.
      `get_ready_tasks` and the `dependencies_met` read-time field use the
@@ -57,7 +57,7 @@ live in [architecture](architecture.md); the HTTP surface in the
    `(assigned_agent, claimed_via)`: the same agent ID claiming through
    another instance is refused with 409 while that instance's lease is live,
    and takes the card over with a higher `claim_epoch` once it has expired.
-   `PUT`, `PATCH`, `DELETE`, `add_log` and `complete_task` check the pair. A
+   `PATCH`, `DELETE`, `add_log` and `complete_task` check the pair. A
    claim with no `claimed_via` predates shared boards and is honoured by any
    instance. See [shared boards](shared-boards.md).
 
@@ -101,9 +101,8 @@ live in [architecture](architecture.md); the HTTP surface in the
    owner-attributed mutation (`update_card`, `add_log`, `transition_card`,
    `report_usage`, `start_review`, `complete_task`) as part of that write.
    Only the owning agent's activity counts: a mutation by anyone else, or one
-   with no attribution (REST `PUT` is system-attributed), never bumps it.
-   REST `PATCH` passes `X-Agent-ID` through, so it bumps when the header names
-   the owner.
+   with no attribution, never bumps it. REST `PATCH` passes `X-Agent-ID`
+   through, so it bumps when the header names the owner.
 
    On a shared board a heartbeat is recorded in memory and the file's
    `last_heartbeat` (the lease) is rewritten only when older than
@@ -148,7 +147,7 @@ live in [architecture](architecture.md); the HTTP surface in the
    - The web UI shows an "unvetted" badge and a warning banner.
 
 10. **Parent auto-transitions.** When a subtask actually transitions to
-    `in_progress` (via `UpdateCard`, `PatchCard` or the state machine) and
+    `in_progress` (via `PatchCard` or the state machine) and
     its parent is in `todo`, the parent moves to `in_progress`. A claim alone
     does not trigger this: `Manager.Claim` never changes `state`. When all
     subtasks are `done` the parent stays `in_progress`; the orchestrator runs
@@ -156,20 +155,17 @@ live in [architecture](architecture.md); the HTTP surface in the
     reports when all siblings are done so the caller knows documentation can
     proceed.
 
-11. **Subtask type is automatic and immutable.** Enforced on `CreateCard` and
-    `UpdateCard` from the `parent` field:
+11. **Subtask type is automatic and immutable.** `parent` is set only at
+    create; no API changes it afterwards. `type` follows from it:
 
-    | Scenario                                           | Behaviour                                                                   |
-    | -------------------------------------------------- | --------------------------------------------------------------------------- |
-    | Created with a non-empty `parent`                  | `type` forced to `subtask`                                                  |
-    | Created with no `parent` and `type: subtask`       | rejected with 422 `VALIDATION_ERROR`; no card ID is consumed                |
-    | `UpdateCard` sets `parent` on a card that had none | `type` forced to `subtask`                                                  |
-    | `UpdateCard` clears `parent`                       | a `subtask` type resets to the first entry in the project's `types`         |
-    | `UpdateCard` keeps an existing `parent`            | `type` must stay `subtask`, else 422                                        |
-    | No `parent` before or after                        | `type: subtask` rejected with 422                                           |
+    | Scenario                                     | Behaviour                                                    |
+    | -------------------------------------------- | ------------------------------------------------------------ |
+    | Created with a non-empty `parent`            | `type` forced to `subtask`                                   |
+    | Created with no `parent` and `type: subtask` | rejected with 422 `VALIDATION_ERROR`; no card ID is consumed |
+    | `PatchCard` sets `type: subtask`             | rejected with 422                                            |
+    | `PatchCard` changes the `type` of a subtask  | rejected with 422                                            |
 
-    `subtask` is built in and never listed in `.board.yaml` `types`. Do not
-    pass `type` when setting or clearing `parent`.
+    `subtask` is built in and never listed in `.board.yaml` `types`.
 
 12. **Duplicate subtask guard.** `CreateCard` with a `parent` looks for an
     existing subtask under that parent whose title matches (case-insensitive,
@@ -224,7 +220,7 @@ claimed_via: laptop-3f9a2c   # granting instance (shared boards only)
 claimed_at: 2026-03-30T14:00:00Z
 claim_epoch: 4               # bumped on claim, release, stall, terminal move
 parent: ""
-subtasks: [ALPHA-003, ALPHA-004] # set via UpdateCard; not auto-populated
+subtasks: [ALPHA-003, ALPHA-004] # not written by any API; children carry `parent`
 depends_on: []
 context:
   - src/auth/
@@ -602,7 +598,7 @@ one of `plan`, `execute`, `judge`, `document`, `review`, `integrate`,
 run to pick a winner before `document`. `pr_gates` waits on the PR's CI and
 Copilot review when `await_ci` / `await_copilot_review` are set. Enum
 validated; the empty string clears it. Settable via `update_card` and REST
-`PUT` / `PATCH`.
+`PATCH`.
 
 **Section upsert**: the MCP `update_card` tool accepts
 `upsert_section_heading` plus `upsert_section_content` (both or neither).
@@ -621,24 +617,22 @@ the model pins (`model_orchestrator`, `model_coder`, `model_reviewer`),
 `best_of_n`, `max_capability`, the mob fields, and `verify`. Where each is
 exposed:
 
-| Field                             | POST | PUT | PATCH | MCP `update_card` |
-| --------------------------------- | ---- | --- | ----- | ----------------- |
-| `vetted`                          | yes  | yes | yes   | no                |
-| `assignee`                        | yes  | yes | yes   | no                |
-| `autonomous`                      | yes  | yes | yes   | yes (any agent)   |
-| `create_pr`                       | yes  | yes | yes   | no                |
-| `await_ci`, `await_copilot_review` | yes | yes | yes   | no                |
-| `merge_pr`                        | yes  | yes | yes   | no                |
-| `base_branch`                     | yes  | no  | yes   | no                |
-| model pins                        | yes  | yes | yes   | no                |
-| `best_of_n`                       | yes  | yes | yes   | no                |
-| `max_capability`                  | yes  | yes | yes   | no                |
-| mob fields                        | yes  | yes | yes   | no                |
-| `verify`                          | yes  | no  | yes   | no                |
+| Field                              | POST | PATCH | MCP `update_card` |
+| ---------------------------------- | ---- | ----- | ----------------- |
+| `vetted`                           | yes  | yes   | no                |
+| `assignee`                         | yes  | yes   | no                |
+| `autonomous`                       | yes  | yes   | yes (any agent)   |
+| `create_pr`                        | yes  | yes   | no                |
+| `await_ci`, `await_copilot_review` | yes  | yes   | no                |
+| `merge_pr`                         | yes  | yes   | no                |
+| `base_branch`                      | yes  | yes   | no                |
+| model pins                         | yes  | yes   | no                |
+| `best_of_n`                        | yes  | yes   | no                |
+| `max_capability`                   | yes  | yes   | no                |
+| mob fields                         | yes  | yes   | no                |
+| `verify`                           | yes  | yes   | no                |
 
-`PUT` is a full replace: omitting a field clears it (`base_branch` and
-`verify`, absent from the PUT body, are preserved). `PATCH` leaves `nil`
-fields unchanged. `autonomous`, `create_pr`, `await_ci`,
+`PATCH` leaves `nil` fields unchanged. `autonomous`, `create_pr`, `await_ci`,
 `await_copilot_review`, `merge_pr`, `max_capability` and `mob_participants`
 are nullable on POST: absent falls back to the project's
 [`card_defaults`](#card_defaults-optional-carddefaults) (see
@@ -740,8 +734,7 @@ Validation forks on `auth.mode`:
 Changing it (including clearing) appends an `assigned` activity entry
 ("Assigned to <user>" or "Unassigned (was <user>)") attributed to the acting
 identity (empty normalises to `system`). `PATCH` on a card claimed by another
-agent is 403 `AGENT_MISMATCH` regardless of fields. On `PUT`, omitting
-`assignee` clears it.
+agent is 403 `AGENT_MISMATCH` regardless of fields.
 
 The self-containment lint on MCP `create_card` / `update_card` appends a
 `self_containment_warning` activity entry when the title or body matches a
@@ -1086,15 +1079,15 @@ clearing the claim, and the next trigger's `queued` replaces it.
 
 ## `depends_on` cycle detection
 
-`UpdateCard` and `PatchCard` reject a change that would introduce a cycle.
+`PatchCard` rejects a change that would introduce a cycle.
 After applying the requested `depends_on`, `detectDependencyCycle` walks the
 graph from the card and reports any back-edge as a `ValidationError` wrapping
 `ErrDependenciesNotMet` with `field: "depends_on"` and a message of the form
 `circular dependency detected: ALPHA-001 and ALPHA-007 depend on each other`.
 The check runs under `writeMu`.
 
-`depends_on` is settable on `POST`, `PUT`, `PATCH`, `create_card` and
-`update_card`. On `PATCH` and `update_card`, omitting it leaves the list
+`depends_on` is settable on `PATCH`, `create_card` and `update_card`. On
+`PATCH` and `update_card`, omitting it leaves the list
 unchanged and `[]` clears it, the same nil/empty convention as `labels`.
 Reference and cycle checks run against the resulting card, so an existing
 `depends_on` is re-validated even when a patch touches other fields.

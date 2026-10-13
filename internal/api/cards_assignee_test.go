@@ -157,38 +157,6 @@ func TestCardAssignee_NoneMode_AgentGated(t *testing.T) {
 		assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
 		assert.Contains(t, apiErr.Details, "assignee")
 	})
-
-	t.Run("put setting assignee", func(t *testing.T) {
-		card := seedAssignedCard(t, svc, "Put set gated", "")
-
-		resp := sendCardJSON(t, http.MethodPut, cardsURL+"/"+card.ID,
-			`{"title":"Put set gated","type":"task","state":"todo","priority":"medium","create_pr":true,"vetted":true,"assignee":"alice"}`,
-			asAgent("agent-1"))
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
-
-		var apiErr APIError
-
-		require.NoError(t, jsonDecode(resp, &apiErr))
-		assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
-	})
-
-	t.Run("put clearing assignee", func(t *testing.T) {
-		card := seedAssignedCard(t, svc, "Put clear gated", "alice")
-
-		resp := sendCardJSON(t, http.MethodPut, cardsURL+"/"+card.ID,
-			`{"title":"Put clear gated","type":"task","state":"todo","priority":"medium","create_pr":true,"vetted":true}`,
-			asAgent("agent-1"))
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusForbidden, resp.StatusCode,
-			"PUT omitting assignee on an assigned card is a clear, which agents may not do")
-
-		stored, err := svc.GetCard(t.Context(), "test-project", card.ID)
-		require.NoError(t, err)
-		assert.Equal(t, "alice", stored.Assignee)
-	})
 }
 
 func TestCardAssignee_NoneMode_HumanRejectedAsMultiUserOnly(t *testing.T) {
@@ -219,9 +187,8 @@ func TestCardAssignee_NoneMode_UnchangedEchoRoundTrips(t *testing.T) {
 	t.Run("exact echo", func(t *testing.T) {
 		card := seedAssignedCard(t, svc, "Echo", "alice")
 
-		resp := sendCardJSON(t, http.MethodPut, cardsURL+"/"+card.ID,
-			`{"title":"Echo renamed","type":"task","state":"todo","priority":"medium","create_pr":true,"vetted":true,"assignee":"alice"}`,
-			asAgent("agent-1"))
+		resp := sendCardJSON(t, http.MethodPatch, cardsURL+"/"+card.ID,
+			`{"title":"Echo renamed","assignee":"alice"}`, asAgent("human:web"))
 		defer closeBody(t, resp.Body)
 
 		require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -236,9 +203,8 @@ func TestCardAssignee_NoneMode_UnchangedEchoRoundTrips(t *testing.T) {
 	t.Run("case variant echo", func(t *testing.T) {
 		card := seedAssignedCard(t, svc, "Case echo", "Alice")
 
-		resp := sendCardJSON(t, http.MethodPut, cardsURL+"/"+card.ID,
-			`{"title":"Case echo","type":"task","state":"todo","priority":"medium","create_pr":true,"vetted":true,"assignee":"alice"}`,
-			asAgent("agent-1"))
+		resp := sendCardJSON(t, http.MethodPatch, cardsURL+"/"+card.ID,
+			`{"assignee":"alice"}`, asAgent("human:web"))
 		defer closeBody(t, resp.Body)
 
 		require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -352,22 +318,6 @@ func TestCardAssignee_MultiMode_RosterValidation(t *testing.T) {
 
 		require.NoError(t, jsonDecode(resp, &got))
 		assert.Equal(t, "alice", got.Assignee)
-	})
-
-	t.Run("put unknown user", func(t *testing.T) {
-		card := seedAssignedCard(t, svc, "Unknown put", "")
-
-		resp := sendCardJSON(t, http.MethodPut, cardsURL+"/"+card.ID,
-			`{"title":"Unknown put","type":"task","state":"todo","priority":"medium","create_pr":true,"vetted":true,"assignee":"ghost"}`,
-			withCookie(cookie))
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode)
-
-		var apiErr APIError
-
-		require.NoError(t, jsonDecode(resp, &apiErr))
-		assert.Equal(t, "unknown user: ghost", apiErr.Error)
 	})
 }
 

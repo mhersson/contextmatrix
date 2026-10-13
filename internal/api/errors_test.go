@@ -271,7 +271,7 @@ func TestHandleServiceError_BoardValidationSentinels(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPut, "/api/projects/p/cards/X-1", nil)
+			req := httptest.NewRequest(http.MethodPatch, "/api/projects/p/cards/X-1", nil)
 
 			handleServiceError(rec, req, tc.err)
 

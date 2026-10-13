@@ -478,77 +478,32 @@ func TestPatchCard(t *testing.T) {
 	})
 }
 
-func TestUpdateCard(t *testing.T) {
+// TestCardRoute_PutNotAllowed pins that cards are written only through
+// PATCH: a PUT to a card's path gets the mux's 405 and changes nothing.
+func TestCardRoute_PutNotAllowed(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
 
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
-
-	server := httptest.NewServer(router)
+	server := httptest.NewServer(NewRouter(RouterConfig{Service: svc, Bus: bus}))
 	defer server.Close()
 
-	// Create a card first
-	_, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
-		Title:    "Test Card",
-		Type:     "task",
-		Priority: "medium",
+	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
+		Title: "Test Card", Type: "task", Priority: "medium",
 	})
 	require.NoError(t, err)
 
-	t.Run("full update", func(t *testing.T) {
-		body := updateCardRequest{
-			Title:    "Updated Title",
-			Type:     "bug",
-			State:    "in_progress",
-			Priority: "high",
-			Body:     "Updated body content",
-		}
-		jsonBody, _ := json.Marshal(body)
+	resp := doJSON(t, http.MethodPut, server.URL+"/api/projects/test-project/cards/"+card.ID,
+		map[string]any{"title": "Replaced", "type": "bug", "state": "todo", "priority": "high"}, "human:alice")
+	defer closeBody(t, resp.Body)
 
-		req, _ := http.NewRequest(http.MethodPut, server.URL+"/api/projects/test-project/cards/TEST-001", bytes.NewReader(jsonBody))
-		req.Header.Set("Content-Type", "application/json")
+	assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode)
+	assert.NotContains(t, resp.Header.Get("Allow"), http.MethodPut)
+	assert.Contains(t, resp.Header.Get("Allow"), http.MethodPatch)
 
-		resp, err := http.DefaultClient.Do(req)
-
-		require.NoError(t, err)
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-		var card board.Card
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&card))
-		assert.Equal(t, "Updated Title", card.Title)
-		assert.Equal(t, "bug", card.Type)
-		assert.Equal(t, "in_progress", card.State)
-		assert.Equal(t, "high", card.Priority)
-	})
-
-	t.Run("invalid phase returns 422", func(t *testing.T) {
-		badPhase := "shipping"
-		body := updateCardRequest{
-			Title:    "Updated Title",
-			Type:     "bug",
-			State:    "in_progress",
-			Priority: "high",
-			Phase:    &badPhase,
-		}
-		jsonBody, _ := json.Marshal(body)
-
-		req, _ := http.NewRequest(http.MethodPut, server.URL+"/api/projects/test-project/cards/TEST-001", bytes.NewReader(jsonBody))
-		req.Header.Set("Content-Type", "application/json")
-
-		resp, err := http.DefaultClient.Do(req)
-
-		require.NoError(t, err)
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode)
-
-		var apiErr APIError
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
-		assert.Equal(t, ErrCodeValidationError, apiErr.Code)
-		assert.Contains(t, apiErr.Details, "invalid phase")
-	})
+	stored, err := svc.GetCard(context.Background(), "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "Test Card", stored.Title)
+	assert.Equal(t, "task", stored.Type)
 }
 
 func TestDeleteCard(t *testing.T) {
@@ -1282,27 +1237,6 @@ func TestAgentAuthOnMutations(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	t.Run("update unclaimed card - no auth required", func(t *testing.T) {
-		body := updateCardRequest{
-			Title:    "Updated Without Auth",
-			Type:     "task",
-			State:    "in_progress",
-			Priority: "medium",
-		}
-		jsonBody, _ := json.Marshal(body)
-
-		req, _ := http.NewRequest(http.MethodPut, server.URL+"/api/projects/test-project/cards/TEST-001", bytes.NewReader(jsonBody))
-		req.Header.Set("Content-Type", "application/json")
-		// No X-Agent-ID header
-
-		resp, err := http.DefaultClient.Do(req)
-
-		require.NoError(t, err)
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-	})
-
 	t.Run("patch unclaimed card - no auth required", func(t *testing.T) {
 		newTitle := "Patched Without Auth"
 		body := patchCardRequest{
@@ -1326,20 +1260,14 @@ func TestAgentAuthOnMutations(t *testing.T) {
 	_, err = svc.ClaimCard(context.Background(), "test-project", "TEST-001", "owner-agent")
 	require.NoError(t, err)
 
-	t.Run("update claimed card with matching agent", func(t *testing.T) {
-		// Internal cards (no Source) are always vetted; a non-human agent
-		// must echo the existing Vetted=true on PUT to avoid the
-		// human-only-fields guard.
-		body := updateCardRequest{
-			Title:    "Updated By Owner",
-			Type:     "task",
-			State:    "in_progress",
-			Priority: "high",
-			Vetted:   true,
+	t.Run("patch claimed card with matching agent", func(t *testing.T) {
+		newTitle := "Patched By Owner"
+		body := patchCardRequest{
+			Title: &newTitle,
 		}
 		jsonBody, _ := json.Marshal(body)
 
-		req, _ := http.NewRequest(http.MethodPut, server.URL+"/api/projects/test-project/cards/TEST-001", bytes.NewReader(jsonBody))
+		req, _ := http.NewRequest(http.MethodPatch, server.URL+"/api/projects/test-project/cards/TEST-001", bytes.NewReader(jsonBody))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-Agent-ID", "owner-agent")
 
@@ -1351,41 +1279,14 @@ func TestAgentAuthOnMutations(t *testing.T) {
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 	})
 
-	t.Run("update claimed card with wrong agent - 403", func(t *testing.T) {
-		body := updateCardRequest{
-			Title:    "Attempted Update",
-			Type:     "task",
-			State:    "in_progress",
-			Priority: "medium",
+	t.Run("patch claimed card without header - 403", func(t *testing.T) {
+		newTitle := "Attempted Patch"
+		body := patchCardRequest{
+			Title: &newTitle,
 		}
 		jsonBody, _ := json.Marshal(body)
 
-		req, _ := http.NewRequest(http.MethodPut, server.URL+"/api/projects/test-project/cards/TEST-001", bytes.NewReader(jsonBody))
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Agent-ID", "wrong-agent")
-
-		resp, err := http.DefaultClient.Do(req)
-
-		require.NoError(t, err)
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
-
-		var apiErr APIError
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
-		assert.Equal(t, ErrCodeAgentMismatch, apiErr.Code)
-	})
-
-	t.Run("update claimed card without header - 403", func(t *testing.T) {
-		body := updateCardRequest{
-			Title:    "Attempted Update",
-			Type:     "task",
-			State:    "in_progress",
-			Priority: "medium",
-		}
-		jsonBody, _ := json.Marshal(body)
-
-		req, _ := http.NewRequest(http.MethodPut, server.URL+"/api/projects/test-project/cards/TEST-001", bytes.NewReader(jsonBody))
+		req, _ := http.NewRequest(http.MethodPatch, server.URL+"/api/projects/test-project/cards/TEST-001", bytes.NewReader(jsonBody))
 		req.Header.Set("Content-Type", "application/json")
 		// No X-Agent-ID header
 
@@ -1414,6 +1315,10 @@ func TestAgentAuthOnMutations(t *testing.T) {
 		defer closeBody(t, resp.Body)
 
 		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeAgentMismatch, apiErr.Code)
 	})
 
 	t.Run("delete claimed card with wrong agent - 403", func(t *testing.T) {
@@ -2472,62 +2377,6 @@ func TestHumanOnlyFields_MergePR(t *testing.T) {
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
 		assert.True(t, got.MergePR)
 	})
-
-	t.Run("agent PUT clearing the flag is rejected", func(t *testing.T) {
-		gated, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
-			Title: "Merged card", Type: "task", Priority: "medium", MergePR: new(true),
-		})
-		require.NoError(t, err)
-
-		putBody := fmt.Sprintf(`{"title":"%s","type":"task","state":"todo","priority":"medium","merge_pr":false}`, gated.Title)
-		req, _ := http.NewRequest("PUT", server.URL+"/api/projects/test-project/cards/"+gated.ID,
-			strings.NewReader(putBody))
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Agent-ID", "agent-1")
-
-		resp, err := http.DefaultClient.Do(req)
-
-		require.NoError(t, err)
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
-
-		reloaded, err := svc.GetCard(context.Background(), "test-project", gated.ID)
-		require.NoError(t, err)
-		assert.True(t, reloaded.MergePR, "merge_pr should still be true")
-	})
-
-	t.Run("human PUT sets and clears the flag", func(t *testing.T) {
-		putBody := fmt.Sprintf(`{"title":"%s","type":"task","state":"todo","priority":"medium","merge_pr":true}`, card.Title)
-		req, _ := http.NewRequest("PUT", server.URL+"/api/projects/test-project/cards/"+card.ID,
-			strings.NewReader(putBody))
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Agent-ID", "human:alice")
-
-		resp, err := http.DefaultClient.Do(req)
-		require.NoError(t, err)
-		closeBody(t, resp.Body)
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-		reloaded, err := svc.GetCard(context.Background(), "test-project", card.ID)
-		require.NoError(t, err)
-		assert.True(t, reloaded.MergePR)
-
-		putBody = fmt.Sprintf(`{"title":"%s","type":"task","state":"todo","priority":"medium"}`, card.Title)
-		req, _ = http.NewRequest("PUT", server.URL+"/api/projects/test-project/cards/"+card.ID,
-			strings.NewReader(putBody))
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Agent-ID", "human:alice")
-
-		resp, err = http.DefaultClient.Do(req)
-		require.NoError(t, err)
-		closeBody(t, resp.Body)
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-		reloaded, err = svc.GetCard(context.Background(), "test-project", card.ID)
-		require.NoError(t, err)
-		assert.False(t, reloaded.MergePR, "PUT full-replace clears an omitted merge_pr")
-	})
 }
 
 func TestHumanOnlyFields_CreateCard(t *testing.T) {
@@ -2685,200 +2534,6 @@ func TestCreateCard_CreatePRDefaultAndBaseBranch(t *testing.T) {
 
 		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
 	})
-}
-
-func TestHumanOnlyFields_PutClear(t *testing.T) {
-	svc, bus, cleanup := testSetup(t)
-	defer cleanup()
-
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
-
-	server := httptest.NewServer(router)
-	defer server.Close()
-
-	// Create a card with autonomous mode enabled (via service, simulating human)
-	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
-		Title: "Auto card", Type: "task", Priority: "medium",
-		Autonomous: new(true),
-	})
-	require.NoError(t, err)
-	assert.True(t, card.Autonomous)
-
-	// Agent tries to PUT with autonomous=false (clearing it) - must be rejected
-	putBody := fmt.Sprintf(`{"title":"%s","type":"task","state":"todo","priority":"medium","autonomous":false}`, card.Title)
-	req, _ := http.NewRequest("PUT", server.URL+"/api/projects/test-project/cards/"+card.ID,
-		strings.NewReader(putBody))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Agent-ID", "agent-1")
-
-	resp, err := http.DefaultClient.Do(req)
-
-	require.NoError(t, err)
-	defer closeBody(t, resp.Body)
-
-	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
-
-	var apiErr APIError
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
-	assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
-
-	// Verify the card was NOT modified
-	reloaded, err := svc.GetCard(context.Background(), "test-project", card.ID)
-	require.NoError(t, err)
-	assert.True(t, reloaded.Autonomous, "autonomous should still be true")
-}
-
-func TestHumanOnlyFields_PutPassthrough(t *testing.T) {
-	svc, bus, cleanup := testSetup(t)
-	defer cleanup()
-
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
-
-	server := httptest.NewServer(router)
-	defer server.Close()
-
-	// Create a card with autonomous mode enabled
-	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
-		Title: "Auto card", Type: "task", Priority: "medium",
-		Autonomous: new(true),
-	})
-	require.NoError(t, err)
-
-	// Agent sends PUT with same autonomous+vetted values - should pass through.
-	// create_pr must echo the card's value (defaulted true at create) or the
-	// human-only guard rejects the request.
-	putBody := `{"title":"Updated title","type":"task","state":"todo","priority":"medium","autonomous":true,"create_pr":true,"vetted":true}`
-	req, _ := http.NewRequest("PUT", server.URL+"/api/projects/test-project/cards/"+card.ID,
-		strings.NewReader(putBody))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Agent-ID", "agent-1")
-
-	resp, err := http.DefaultClient.Do(req)
-
-	require.NoError(t, err)
-	defer closeBody(t, resp.Body)
-
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-}
-
-func TestHumanOnlyFields_PutSet(t *testing.T) {
-	svc, bus, cleanup := testSetup(t)
-	defer cleanup()
-
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
-
-	server := httptest.NewServer(router)
-	defer server.Close()
-
-	// Create a card with autonomous=false (default)
-	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
-		Title: "Plain card", Type: "task", Priority: "medium",
-	})
-	require.NoError(t, err)
-	assert.False(t, card.Autonomous)
-
-	// Agent tries to SET autonomous to true via PUT - must be rejected
-	putBody := fmt.Sprintf(`{"title":"%s","type":"task","state":"todo","priority":"medium","autonomous":true}`, card.Title)
-	req, _ := http.NewRequest("PUT", server.URL+"/api/projects/test-project/cards/"+card.ID,
-		strings.NewReader(putBody))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Agent-ID", "agent-1")
-
-	resp, err := http.DefaultClient.Do(req)
-
-	require.NoError(t, err)
-	defer closeBody(t, resp.Body)
-
-	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
-
-	var apiErr APIError
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
-	assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
-
-	// Verify the card was NOT modified
-	reloaded, err := svc.GetCard(context.Background(), "test-project", card.ID)
-	require.NoError(t, err)
-	assert.False(t, reloaded.Autonomous, "autonomous should still be false")
-}
-
-func TestHumanOnlyFields_PutPRGatesClear(t *testing.T) {
-	svc, bus, cleanup := testSetup(t)
-	defer cleanup()
-
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
-
-	server := httptest.NewServer(router)
-	defer server.Close()
-
-	// Create a card with both PR-gate flags enabled (via service, simulating human)
-	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
-		Title: "Gated card", Type: "task", Priority: "medium",
-		AwaitCI: new(true), AwaitCopilotReview: new(true),
-	})
-	require.NoError(t, err)
-	assert.True(t, card.AwaitCI)
-	assert.True(t, card.AwaitCopilotReview)
-
-	// Agent tries to PUT with both flags cleared - must be rejected
-	putBody := fmt.Sprintf(`{"title":"%s","type":"task","state":"todo","priority":"medium","await_ci":false,"await_copilot_review":false}`, card.Title)
-	req, _ := http.NewRequest("PUT", server.URL+"/api/projects/test-project/cards/"+card.ID,
-		strings.NewReader(putBody))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Agent-ID", "agent-1")
-
-	resp, err := http.DefaultClient.Do(req)
-
-	require.NoError(t, err)
-	defer closeBody(t, resp.Body)
-
-	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
-
-	var apiErr APIError
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
-	assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
-
-	// Verify the card was NOT modified
-	reloaded, err := svc.GetCard(context.Background(), "test-project", card.ID)
-	require.NoError(t, err)
-	assert.True(t, reloaded.AwaitCI, "await_ci should still be true")
-	assert.True(t, reloaded.AwaitCopilotReview, "await_copilot_review should still be true")
-}
-
-func TestHumanOnlyFields_PutPRGatesSet(t *testing.T) {
-	svc, bus, cleanup := testSetup(t)
-	defer cleanup()
-
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
-
-	server := httptest.NewServer(router)
-	defer server.Close()
-
-	// Create a plain card (both PR-gate flags default false)
-	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
-		Title: "Plain card", Type: "task", Priority: "medium",
-	})
-	require.NoError(t, err)
-	assert.False(t, card.AwaitCI)
-	assert.False(t, card.AwaitCopilotReview)
-
-	// Human sets both flags via PUT - must be allowed and persisted
-	putBody := fmt.Sprintf(`{"title":"%s","type":"task","state":"todo","priority":"medium","await_ci":true,"await_copilot_review":true}`, card.Title)
-	req, _ := http.NewRequest("PUT", server.URL+"/api/projects/test-project/cards/"+card.ID,
-		strings.NewReader(putBody))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Agent-ID", "human:alice")
-
-	resp, err := http.DefaultClient.Do(req)
-
-	require.NoError(t, err)
-	defer closeBody(t, resp.Body)
-
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-	reloaded, err := svc.GetCard(context.Background(), "test-project", card.ID)
-	require.NoError(t, err)
-	assert.True(t, reloaded.AwaitCI)
-	assert.True(t, reloaded.AwaitCopilotReview)
 }
 
 // testSetupWithRemoteExecution creates a test environment with a project that has
@@ -3069,52 +2724,6 @@ func TestHumanOnlyFields_Vetted_CreateCard(t *testing.T) {
 	})
 }
 
-func TestHumanOnlyFields_Vetted_PutCard(t *testing.T) {
-	svc, bus, cleanup := testSetup(t)
-	defer cleanup()
-
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
-
-	server := httptest.NewServer(router)
-	defer server.Close()
-
-	// Create a card with vetted=false (default for card without source)
-	// But we need a card that is NOT vetted, so create it with an explicit false.
-	// Cards created without a source are auto-vetted, so let's use the service to
-	// create a card and then manually set vetted=false by patching via service.
-	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
-		Title: "Vetted PUT test", Type: "task", Priority: "medium",
-		Source: &board.Source{System: "jira", ExternalID: "JIRA-42", ExternalURL: "https://example.com/JIRA-42"},
-	})
-	require.NoError(t, err)
-	assert.False(t, card.Vetted)
-
-	t.Run("agent PUT changing vetted returns 403 HUMAN_ONLY_FIELD", func(t *testing.T) {
-		// Card has vetted=false; agent PUTs with vetted=true - must be rejected
-		putBody := fmt.Sprintf(`{"title":"%s","type":"task","state":"todo","priority":"medium","vetted":true}`, card.Title)
-		req, _ := http.NewRequest("PUT", server.URL+"/api/projects/test-project/cards/"+card.ID,
-			strings.NewReader(putBody))
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Agent-ID", "agent-1")
-
-		resp, err := http.DefaultClient.Do(req)
-
-		require.NoError(t, err)
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
-
-		var apiErr APIError
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
-		assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
-
-		// Verify the card was NOT modified
-		reloaded, err := svc.GetCard(context.Background(), "test-project", card.ID)
-		require.NoError(t, err)
-		assert.False(t, reloaded.Vetted, "vetted should still be false")
-	})
-}
-
 func TestHumanOnlyFields_ModelPins_PatchCard(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
@@ -3165,87 +2774,6 @@ func TestHumanOnlyFields_ModelPins_PatchCard(t *testing.T) {
 		var updated board.Card
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&updated))
 		assert.Equal(t, "anthropic/claude-opus-4", updated.ModelOrchestrator)
-	})
-}
-
-func TestHumanOnlyFields_ModelPins_PutCard(t *testing.T) {
-	svc, bus, cleanup := testSetup(t)
-	defer cleanup()
-
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
-
-	server := httptest.NewServer(router)
-	defer server.Close()
-
-	// Created without pins - all three model pin fields default to "".
-	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
-		Title: "Model pin PUT test", Type: "task", Priority: "medium",
-	})
-	require.NoError(t, err)
-	assert.Empty(t, card.ModelOrchestrator)
-
-	t.Run("agent PUT changing model_orchestrator returns 403 HUMAN_ONLY_FIELD", func(t *testing.T) {
-		// Card has model_orchestrator=""; agent PUTs a slug - must be rejected.
-		// vetted:true echoes the card's auto-vetted state (no source) so the
-		// pin is the only field the guard sees changing.
-		putBody := fmt.Sprintf(
-			`{"title":"%s","type":"task","state":"todo","priority":"medium","vetted":true,"model_orchestrator":"anthropic/claude-opus-4"}`,
-			card.Title)
-		req, _ := http.NewRequest("PUT", server.URL+"/api/projects/test-project/cards/"+card.ID,
-			strings.NewReader(putBody))
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Agent-ID", "agent-1")
-
-		resp, err := http.DefaultClient.Do(req)
-
-		require.NoError(t, err)
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
-
-		var apiErr APIError
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
-		assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
-
-		// Verify the card was NOT modified
-		reloaded, err := svc.GetCard(context.Background(), "test-project", card.ID)
-		require.NoError(t, err)
-		assert.Empty(t, reloaded.ModelOrchestrator, "model_orchestrator should still be empty")
-	})
-
-	t.Run("agent PUT with pin values equal to disk passes through", func(t *testing.T) {
-		// Pin the card as a human first.
-		patchBody := `{"model_orchestrator": "anthropic/claude-opus-4"}`
-		patchReq, _ := http.NewRequest("PATCH", server.URL+"/api/projects/test-project/cards/"+card.ID,
-			strings.NewReader(patchBody))
-		patchReq.Header.Set("Content-Type", "application/json")
-		patchReq.Header.Set("X-Agent-ID", "human:alice")
-
-		patchResp, err := http.DefaultClient.Do(patchReq)
-		require.NoError(t, err)
-		closeBody(t, patchResp.Body)
-		require.Equal(t, http.StatusOK, patchResp.StatusCode)
-
-		// Agent PUT echoing the same pin value - should pass through.
-		// vetted:true echoes the card's auto-vetted state (no source);
-		// create_pr:true echoes the value defaulted at create.
-		putBody := `{"title":"Updated title","type":"task","state":"todo","priority":"medium","vetted":true,"create_pr":true,"model_orchestrator":"anthropic/claude-opus-4"}`
-		req, _ := http.NewRequest("PUT", server.URL+"/api/projects/test-project/cards/"+card.ID,
-			strings.NewReader(putBody))
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Agent-ID", "agent-1")
-
-		resp, err := http.DefaultClient.Do(req)
-
-		require.NoError(t, err)
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-		var updated board.Card
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&updated))
-		assert.Equal(t, "anthropic/claude-opus-4", updated.ModelOrchestrator)
-		assert.Equal(t, "Updated title", updated.Title)
 	})
 }
 
@@ -3375,139 +2903,6 @@ func TestPatchCardBestOfN(t *testing.T) {
 	})
 }
 
-// TestUpdateCardBestOfN covers the PUT path: setting via a human caller,
-// range validation, the zero-value-clears semantics (mirrors autonomous),
-// and the human-only compare-to-existing gate for agents.
-func TestUpdateCardBestOfN(t *testing.T) {
-	svc, bus, cleanup := testSetup(t)
-	defer cleanup()
-
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus, BestOfN: config.BestOfNConfig{MaxCandidates: 5}})
-
-	server := httptest.NewServer(router)
-	defer server.Close()
-
-	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
-		Title: "Best of N PUT test", Type: "task", Priority: "medium",
-	})
-	require.NoError(t, err)
-	assert.Zero(t, card.BestOfN)
-
-	// vetted:true echoes the card's auto-vetted state (no source) so best_of_n
-	// is the only field under test each time.
-	putBody := func(bestOfN int) string {
-		return fmt.Sprintf(
-			`{"title":"%s","type":"task","state":"todo","priority":"medium","vetted":true,"best_of_n":%d}`,
-			card.Title, bestOfN)
-	}
-
-	putAs := func(t *testing.T, body, agentID string) *http.Response {
-		t.Helper()
-
-		req, _ := http.NewRequest(http.MethodPut, server.URL+"/api/projects/test-project/cards/"+card.ID,
-			strings.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Agent-ID", agentID)
-
-		resp, err := http.DefaultClient.Do(req)
-		require.NoError(t, err)
-
-		return resp
-	}
-
-	t.Run("human PUT sets best_of_n", func(t *testing.T) {
-		resp := putAs(t, putBody(3), "human:alice")
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-		var updated board.Card
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&updated))
-		assert.Equal(t, 3, updated.BestOfN)
-	})
-
-	t.Run("human PUT with best_of_n=1 returns 400", func(t *testing.T) {
-		resp := putAs(t, putBody(1), "human:alice")
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
-
-		var apiErr APIError
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
-		assert.Equal(t, ErrCodeBadRequest, apiErr.Code)
-
-		// Verify the card was NOT modified - still 3 from the prior subtest.
-		reloaded, err := svc.GetCard(context.Background(), "test-project", card.ID)
-		require.NoError(t, err)
-		assert.Equal(t, 3, reloaded.BestOfN)
-	})
-
-	t.Run("human PUT with best_of_n absent clears the field like autonomous:false", func(t *testing.T) {
-		body := fmt.Sprintf(
-			`{"title":"%s","type":"task","state":"todo","priority":"medium","vetted":true}`,
-			card.Title)
-
-		resp := putAs(t, body, "human:alice")
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-		var updated board.Card
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&updated))
-		assert.Zero(t, updated.BestOfN, "best_of_n absent on PUT clears the field, matching autonomous:false semantics")
-	})
-
-	t.Run("agent PUT changing best_of_n returns 403 HUMAN_ONLY_FIELD", func(t *testing.T) {
-		// Card currently has best_of_n=0 (cleared above); agent PUTs a nonzero value.
-		resp := putAs(t, putBody(4), "agent-1")
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
-
-		var apiErr APIError
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
-		assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
-		assert.Contains(t, apiErr.Details, "best_of_n")
-
-		reloaded, err := svc.GetCard(context.Background(), "test-project", card.ID)
-		require.NoError(t, err)
-		assert.Zero(t, reloaded.BestOfN, "best_of_n should still be cleared from the prior subtest")
-	})
-
-	t.Run("agent PUT echoing existing best_of_n passes through", func(t *testing.T) {
-		// Card is at best_of_n=0; agent PUT echoes 0 - no change, so the
-		// compare-to-existing gate must allow it through.
-		resp := putAs(t, putBody(0), "agent-1")
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-		var updated board.Card
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&updated))
-		assert.Zero(t, updated.BestOfN)
-	})
-
-	t.Run("agent PUT with best_of_n=9 over max returns 403 not 400", func(t *testing.T) {
-		// Card is at best_of_n=0; 9 is both out of range (max_candidates=5)
-		// and differs from the existing value, and the caller is non-human -
-		// authorization must be checked before value validation, so this is
-		// 403 HUMAN_ONLY_FIELD, not 400 invalid best_of_n.
-		resp := putAs(t, putBody(9), "agent-1")
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
-
-		var apiErr APIError
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
-		assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
-		assert.Contains(t, apiErr.Details, "best_of_n")
-
-		reloaded, err := svc.GetCard(context.Background(), "test-project", card.ID)
-		require.NoError(t, err)
-		assert.Zero(t, reloaded.BestOfN, "best_of_n should still be cleared from the prior subtest")
-	})
-}
-
 // TestPatchCardMaxCapability covers the PATCH cases for max_capability:
 // human sets the flag, non-human agent gets 403 when trying to set it,
 // and omitting the field leaves the stored value unchanged.
@@ -3597,98 +2992,6 @@ func TestPatchCardMaxCapability(t *testing.T) {
 		reloaded, err := svc.GetCard(context.Background(), "test-project", card.ID)
 		require.NoError(t, err)
 		assert.True(t, reloaded.MaxCapability, "non-human PATCH must not change max_capability")
-	})
-}
-
-// TestUpdateCardMaxCapability covers the PUT path: human sets/clears the flag,
-// non-human agent gets 403 when changing it, and echoing the existing value passes.
-func TestUpdateCardMaxCapability(t *testing.T) {
-	svc, bus, cleanup := testSetup(t)
-	defer cleanup()
-
-	router := NewRouter(RouterConfig{Service: svc, Bus: bus})
-
-	server := httptest.NewServer(router)
-	defer server.Close()
-
-	card, err := svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
-		Title: "MaxCapability PUT test", Type: "task", Priority: "medium",
-	})
-	require.NoError(t, err)
-	assert.False(t, card.MaxCapability)
-
-	putBody := func(maxCap bool) string {
-		return fmt.Sprintf(
-			`{"title":"%s","type":"task","state":"todo","priority":"medium","vetted":true,"max_capability":%v}`,
-			card.Title, maxCap)
-	}
-
-	putAs := func(t *testing.T, body, agentID string) *http.Response {
-		t.Helper()
-
-		req, _ := http.NewRequest(http.MethodPut, server.URL+"/api/projects/test-project/cards/"+card.ID,
-			strings.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Agent-ID", agentID)
-
-		resp, err := http.DefaultClient.Do(req)
-		require.NoError(t, err)
-
-		return resp
-	}
-
-	t.Run("human PUT sets max_capability", func(t *testing.T) {
-		resp := putAs(t, putBody(true), "human:alice")
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-		var updated board.Card
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&updated))
-		assert.True(t, updated.MaxCapability)
-	})
-
-	t.Run("human PUT with max_capability absent clears the field like autonomous:false", func(t *testing.T) {
-		body := fmt.Sprintf(
-			`{"title":"%s","type":"task","state":"todo","priority":"medium","vetted":true}`,
-			card.Title)
-
-		resp := putAs(t, body, "human:alice")
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-		var updated board.Card
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&updated))
-		assert.False(t, updated.MaxCapability, "max_capability absent on PUT clears the field, matching autonomous:false semantics")
-	})
-
-	t.Run("agent PUT changing max_capability returns 403 HUMAN_ONLY_FIELD", func(t *testing.T) {
-		resp := putAs(t, putBody(true), "agent-1")
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
-
-		var apiErr APIError
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
-		assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
-		assert.Contains(t, apiErr.Details, "max_capability")
-
-		reloaded, err := svc.GetCard(context.Background(), "test-project", card.ID)
-		require.NoError(t, err)
-		assert.False(t, reloaded.MaxCapability, "max_capability should still be cleared from the prior subtest")
-	})
-
-	t.Run("agent PUT echoing existing max_capability passes through", func(t *testing.T) {
-		// Card is at max_capability=false; agent PUT echoes false - no change.
-		resp := putAs(t, putBody(false), "agent-1")
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-		var updated board.Card
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&updated))
-		assert.False(t, updated.MaxCapability)
 	})
 }
 
@@ -4280,7 +3583,7 @@ func TestCardAPI_SkillsRoundTrip(t *testing.T) {
 	createCard2 := func(t *testing.T) string {
 		t.Helper()
 
-		body, _ := json.Marshal(createCardRequest{Title: "put-skills-test", Type: "task", Priority: "medium"})
+		body, _ := json.Marshal(createCardRequest{Title: "patch-skills-test", Type: "task", Priority: "medium"})
 		resp, err := http.Post(server2.URL+"/api/projects/test-project/cards", "application/json", bytes.NewReader(body))
 		require.NoError(t, err)
 		require.Equal(t, http.StatusCreated, resp.StatusCode)
@@ -4292,21 +3595,13 @@ func TestCardAPI_SkillsRoundTrip(t *testing.T) {
 		return card.ID
 	}
 
-	// putCardSkills performs a full PUT on a card with the given skills.
-	// State is kept as "todo" so the state-machine validation passes.
-	putCardSkills := func(t *testing.T, cardID string, skills *[]string) *http.Response {
+	// patchCardSkills PATCHes a card's skills.
+	patchCardSkills := func(t *testing.T, cardID string, skills *[]string) *http.Response {
 		t.Helper()
 
-		req := updateCardRequest{
-			Title:    "put-skills-test",
-			Type:     "task",
-			State:    "todo",
-			Priority: "medium",
-			Skills:   skills,
-		}
-		body, _ := json.Marshal(req)
+		body, _ := json.Marshal(patchCardRequest{Skills: skills})
 
-		httpReq, _ := http.NewRequest(http.MethodPut, server2.URL+"/api/projects/test-project/cards/"+cardID, bytes.NewReader(body))
+		httpReq, _ := http.NewRequest(http.MethodPatch, server2.URL+"/api/projects/test-project/cards/"+cardID, bytes.NewReader(body))
 		httpReq.Header.Set("Content-Type", "application/json")
 		resp, err := http.DefaultClient.Do(httpReq)
 		require.NoError(t, err)
@@ -4315,16 +3610,16 @@ func TestCardAPI_SkillsRoundTrip(t *testing.T) {
 	}
 
 	// Group: project has a non-nil default_skills subset.
-	// Set the default once here; all three subtests below share this state.
+	// Set the default once here; the subtests below share this state.
 	withDefault := []string{"go-development", "documentation"}
 	putProjectDefaults(t, &withDefault)
 
-	t.Run("update (PUT) with subset of project default → 200", func(t *testing.T) {
+	t.Run("patch with subset of project default → 200", func(t *testing.T) {
 		cardID := createCard2(t)
 
 		skills := []string{"go-development"}
 
-		resp := putCardSkills(t, cardID, &skills)
+		resp := patchCardSkills(t, cardID, &skills)
 		defer closeBody(t, resp.Body)
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -4335,35 +3630,11 @@ func TestCardAPI_SkillsRoundTrip(t *testing.T) {
 		assert.Equal(t, []string{"go-development"}, *updated.Skills)
 	})
 
-	t.Run("update (PUT) with skill outside project default → 400 with offending names", func(t *testing.T) {
-		cardID := createCard2(t)
-
-		// code-review exists in the skills dir but is not in the project default.
-		skills := []string{"go-development", "code-review"}
-
-		resp := putCardSkills(t, cardID, &skills)
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
-
-		var apiErr APIError
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
-		assert.Equal(t, ErrCodeValidationError, apiErr.Code)
-		assert.Contains(t, apiErr.Error, "code-review")
-	})
-
 	t.Run("patch with skill outside project default → 400", func(t *testing.T) {
 		cardID := createCard2(t)
 
 		// code-review is in the skills dir but not in the project default.
-		patchBody := patchCardRequest{Skills: &[]string{"code-review"}}
-		body, _ := json.Marshal(patchBody)
-
-		httpReq, _ := http.NewRequest(http.MethodPatch, server2.URL+"/api/projects/test-project/cards/"+cardID, bytes.NewReader(body))
-		httpReq.Header.Set("Content-Type", "application/json")
-		resp, err := http.DefaultClient.Do(httpReq)
-
-		require.NoError(t, err)
+		resp := patchCardSkills(t, cardID, &[]string{"code-review"})
 		defer closeBody(t, resp.Body)
 
 		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
@@ -4378,12 +3649,12 @@ func TestCardAPI_SkillsRoundTrip(t *testing.T) {
 	// Change the default once here so git always has a real diff to commit.
 	putProjectDefaults(t, nil)
 
-	t.Run("update (PUT) with unknown skill name → 400 with offending names", func(t *testing.T) {
+	t.Run("patch with unknown skill name → 400 with offending names", func(t *testing.T) {
 		cardID := createCard2(t)
 
 		skills := []string{"totally-made-up-skill"}
 
-		resp := putCardSkills(t, cardID, &skills)
+		resp := patchCardSkills(t, cardID, &skills)
 		defer closeBody(t, resp.Body)
 
 		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
@@ -4394,12 +3665,12 @@ func TestCardAPI_SkillsRoundTrip(t *testing.T) {
 		assert.Contains(t, apiErr.Error, "totally-made-up-skill")
 	})
 
-	t.Run("update (PUT) with empty skills list → 200, persisted as explicit empty", func(t *testing.T) {
+	t.Run("patch with empty skills list → 200, persisted as explicit empty", func(t *testing.T) {
 		cardID := createCard2(t)
 
 		emptySkills := []string{}
 
-		resp := putCardSkills(t, cardID, &emptySkills)
+		resp := patchCardSkills(t, cardID, &emptySkills)
 		defer closeBody(t, resp.Body)
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -4410,12 +3681,12 @@ func TestCardAPI_SkillsRoundTrip(t *testing.T) {
 		assert.Empty(t, *updated.Skills)
 	})
 
-	t.Run("update (PUT) with skills when project default is nil → 200", func(t *testing.T) {
+	t.Run("patch with skills when project default is nil → 200", func(t *testing.T) {
 		cardID := createCard2(t)
 
 		skills := []string{"go-development", "documentation"}
 
-		resp := putCardSkills(t, cardID, &skills)
+		resp := patchCardSkills(t, cardID, &skills)
 		defer closeBody(t, resp.Body)
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)

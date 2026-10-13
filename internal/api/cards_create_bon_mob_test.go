@@ -17,7 +17,7 @@ import (
 // TestCreateCardBestOfNAndMob covers the create-time acceptance of the
 // best_of_n and mob fields: valid values are persisted, invalid values
 // return 400, and non-human callers setting any of them get 403
-// HUMAN_ONLY_FIELD. Mirrors the PATCH/PUT coverage in
+// HUMAN_ONLY_FIELD. Mirrors the PATCH coverage in
 // TestPatchCardBestOfN / TestPatchCardMob_ValidationMatrix.
 func TestCreateCardBestOfNAndMob(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
