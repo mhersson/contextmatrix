@@ -12,6 +12,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/playbookrun"
+	"github.com/mhersson/contextmatrix/internal/service"
 )
 
 // launchOptions carries the per-launch inputs the HTTP handler and the
@@ -76,6 +77,7 @@ func (h *backendHandlers) launch(ctx context.Context, project, id string, opts l
 			"card must be in todo state to run", fmt.Sprintf("current state: %s", card.State))
 	}
 
+	// The early answer; MarkQueued below makes it hold at the write.
 	if card.WorkerStatus == "queued" || card.WorkerStatus == "running" {
 		return nil, launchRefused(http.StatusConflict, ErrCodeWorkerConflict,
 			"card is already being executed by a worker", fmt.Sprintf("worker_status: %s", card.WorkerStatus))
@@ -94,7 +96,12 @@ func (h *backendHandlers) launch(ctx context.Context, project, id string, opts l
 		return nil, err
 	}
 
-	card, err = h.svc.UpdateWorkerStatus(ctx, project, id, "queued", "task queued for worker")
+	card, err = h.svc.MarkQueued(ctx, project, id, "task queued for worker")
+	if errors.Is(err, service.ErrWorkerActive) {
+		return nil, launchRefused(http.StatusConflict, ErrCodeWorkerConflict,
+			"card is already being executed by a worker", sanitizeErrorDetails(err))
+	}
+
 	if err != nil {
 		return nil, err
 	}

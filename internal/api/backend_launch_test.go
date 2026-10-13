@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -270,4 +271,58 @@ func TestLaunch_RefusesUnvettedCard(t *testing.T) {
 	got, err := svc.GetCard(ctx, "test-project", card.ID)
 	require.NoError(t, err)
 	assert.Empty(t, got.WorkerStatus, "a refused launch leaves no queued status behind")
+}
+
+// TestLaunch_QueuedWriteIsACompareAndSet races two launches of one todo card.
+// Both can pass the pre-read check; the queued write decides, so exactly one
+// triggers and the other is a WORKER_CONFLICT.
+func TestLaunch_QueuedWriteIsACompareAndSet(t *testing.T) {
+	svc, _, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
+	defer cleanup()
+
+	cb := newCaptureBackend(t)
+	h := newLaunchHandlers(t, svc, cb)
+	ctx := context.Background()
+
+	const rounds = 20
+
+	for round := range rounds {
+		card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+			Title: fmt.Sprintf("race %d", round), Type: "task", Priority: "medium",
+		})
+		require.NoError(t, err)
+
+		start := make(chan struct{})
+		errs := make(chan error, 2)
+
+		for range 2 {
+			go func() {
+				<-start
+
+				_, err := h.launch(ctx, "test-project", card.ID, launchOptions{})
+				errs <- err
+			}()
+		}
+
+		close(start)
+
+		conflicts := 0
+
+		for range 2 {
+			if err := <-errs; err != nil {
+				lf, ok := errors.AsType[*launchFailure](err)
+				require.True(t, ok, "round %d: %v", round, err)
+				assert.Equal(t, ErrCodeWorkerConflict, lf.code)
+
+				conflicts++
+			}
+		}
+
+		assert.Equal(t, 1, conflicts, "round %d: exactly one launch loses", round)
+	}
+
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+
+	assert.Len(t, cb.triggers, rounds, "one trigger per card")
 }

@@ -28,6 +28,18 @@ var ErrInvalidBranch = fmt.Errorf("branch name must be a valid git branch name (
 // ErrCardTerminal is returned when an operation is not allowed on a card in a terminal state (done/not_planned).
 var ErrCardTerminal = fmt.Errorf("card is in a terminal state")
 
+// ErrWorkerActive is returned when a write needs the card's worker idle and it is queued or running.
+var ErrWorkerActive = fmt.Errorf("card has a queued or running worker")
+
+// refuseLiveWorker refuses a card whose worker is queued or running.
+func refuseLiveWorker(card *board.Card) error {
+	if card.WorkerStatus == "queued" || card.WorkerStatus == "running" {
+		return fmt.Errorf("%w: worker_status %s", ErrWorkerActive, card.WorkerStatus)
+	}
+
+	return nil
+}
+
 // ErrPromoteRequiresHuman is returned when a non-human agent attempts to promote a card to autonomous mode.
 var ErrPromoteRequiresHuman = fmt.Errorf("promote requires human agent (agent_id must start with \"human:\")")
 
@@ -359,6 +371,20 @@ func (s *CardService) IncrementReviewAttempts(ctx context.Context, project, id, 
 
 // UpdateWorkerStatus sets the worker_status field on a card.
 func (s *CardService) UpdateWorkerStatus(ctx context.Context, project, cardID, status, message string) (*board.Card, error) {
+	return s.updateWorkerStatus(ctx, project, cardID, status, message, nil)
+}
+
+// MarkQueued writes worker_status queued unless the worker is already queued
+// or running (ErrWorkerActive); the check and the write share the write lock.
+func (s *CardService) MarkQueued(ctx context.Context, project, cardID, message string) (*board.Card, error) {
+	return s.updateWorkerStatus(ctx, project, cardID, "queued", message, refuseLiveWorker)
+}
+
+// updateWorkerStatus is UpdateWorkerStatus with an optional guard run on the
+// stored card under the write lock; a guard error writes nothing.
+func (s *CardService) updateWorkerStatus(
+	ctx context.Context, project, cardID, status, message string, guard func(*board.Card) error,
+) (*board.Card, error) {
 	cardID = strings.ToUpper(cardID)
 	r := s.repoOf(project)
 
@@ -375,6 +401,14 @@ func (s *CardService) UpdateWorkerStatus(ctx context.Context, project, cardID, s
 		s.writeMu.Unlock()
 
 		return nil, fmt.Errorf("get card: %w", err)
+	}
+
+	if guard != nil {
+		if err := guard(card); err != nil {
+			s.writeMu.Unlock()
+
+			return nil, err
+		}
 	}
 
 	// Snapshot for rollback on commit failure.
