@@ -645,15 +645,18 @@ CM explicitly.
    `ContainerMaxAge` (150 minutes). These kills reason only from the
    backend's list and the card store, never from `worker_status`. The same
    tick then marks a lost worker `failed`, with an activity entry: a card
-   whose `worker_status` is `queued` or `running`, that the list shows no
-   container for, and that has not changed for 10 minutes. The margin covers
-   a slow start, since the agent pulls the worker image before its container
-   is listed. A failed listing skips the whole tick, and a card claimed
-   through another instance is left to that instance. This sweep is the agent
-   backend's only reconcile mechanism. `"0s"` disables it and is not
-   recommended: bus events drop on subscriber overflow and are never
-   delivered during a CM restart, so without the sweep one dropped event
-   leaks a container until the backend's own container timeout.
+   whose `worker_status` is `queued` or `running`, that two consecutive
+   successful listings show no container for, and that has not changed for
+   10 minutes. The margin covers a slow start, since the agent pulls the
+   worker image before its container is listed. The second listing covers a
+   worker that just exited, which the agent drops from its list before the
+   exit callback reaches CM. A failed listing skips the whole tick and does
+   not count as a listing, and a card claimed through another instance is
+   left to that instance. This sweep is the agent backend's only reconcile
+   mechanism. `"0s"` disables it and is not recommended: bus events drop on
+   subscriber overflow and are never delivered during a CM restart, so
+   without the sweep one dropped event leaks a container until the backend's
+   own container timeout.
 
 ### Best-of-N run
 

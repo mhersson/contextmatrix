@@ -171,7 +171,7 @@ first run in a repository.
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `running`   | The current card is queued or executing.                                                                                                                                       |
 | `waiting`   | A human is needed: a manual step, an imported card that is not vetted, or the current card parked, stalled, failed, was killed, or could not be launched. `reason` says which. |
-| `stopped`   | Stop was pressed. The workers live on its cards on this instance when the stop was written were killed, and the one a launch in flight queued.                                 |
+| `stopped`   | Stop was pressed; the **Stop** bullet below says which workers it killed.                                                                                                      |
 | `completed` | Every entry is complete. The compare links open the final pull requests.                                                                                                       |
 
 - **Play** starts a run, or resumes a `stopped` one. A resume re-launches the
@@ -179,9 +179,11 @@ first run in a repository.
   that finished meanwhile is skipped; one that is running is waited on. Play
   is refused while a run is `running` or `waiting`. A Play pressed while a
   Stop is still finishing waits for it.
-- **Stop** kills the workers queued or running on this instance on the run's
-  cards when the stop is written, plus the card a launch in flight queues: that
-  launch finishes first. A card run by hand after the stop is left alone.
+- **Stop** kills, on this instance, the current card's worker and every
+  worker queued or running on the run's other cards when the stop is written,
+  skipping `done` and `not_planned` cards. A launch in flight finishes first,
+  and Stop then kills the worker it queued. A hand run on another card after
+  the stop is left alone.
 - The runner never retries on its own. After a failed card, fix the cause,
   then press Stop and Play: Stop ends the `waiting` run and Play resumes it.
 - An imported card that is not vetted holds the run at `waiting` with the reason
@@ -198,8 +200,9 @@ first run in a repository.
   `running` with no worker behind it holds the run until the reconcile sweep
   marks its worker `failed`, once the agent lists no container for the card
   and the card has not changed for 10 minutes; Stop All in its project clears
-  it sooner. A claim through another instance without a worker does not hold
-  the run.
+  it sooner. A claim through another instance without a worker does not stop
+  the run from starting other cards; when it is on the next card, the run
+  waits on it until the claim goes.
 - A Play after a Stop that left a worker alive (the kill failed, or the card
   is claimed through another instance), or after a hand run while stopped,
   waits on that worker before starting anything else.

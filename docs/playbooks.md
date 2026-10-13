@@ -170,7 +170,8 @@ holds it. A card left `queued` or `running` with no worker behind it holds the
 run until the reconcile sweep marks its worker `failed`, once the agent lists no
 container for the card and the card has not changed for 10 minutes; Stop All in
 its project clears it sooner. A claim through another instance without a worker
-does not hold the run.
+does not stop the run from starting other cards; when it is on the next card,
+the run waits on it until the claim goes.
 
 ### Play and Stop
 
@@ -181,12 +182,12 @@ behavior. Both controls are human-only.
   (`409 PLAYBOOK_RUN_ACTIVE`), and a configured task backend
   (`503 BACKEND_DISABLED`). A Play that arrives while a Stop of the same
   playbook is still in progress waits for that Stop to finish.
-- **Stop** requires an active run (`409 PLAYBOOK_RUN_INACTIVE`) and kills the
-  workers queued or running on this instance on the run's cards when the stop
-  is written, on every card entry that is not `done` or `not_planned`, not only
-  the current card's. A launch already in flight when Stop lands finishes
-  first, and Stop then kills the worker it queued. A card run by hand after the
-  stop is left alone. If a kill webhook fails after the run is marked
+- **Stop** requires an active run (`409 PLAYBOOK_RUN_INACTIVE`). It kills, on
+  this instance, the current card's worker and every worker queued or running
+  on the run's other cards when the stop is written, skipping `done` and
+  `not_planned` cards. A launch already in flight when Stop lands finishes
+  first, and Stop then kills the worker it queued. A hand run on another card
+  after the stop is left alone. If a kill webhook fails after the run is marked
   `stopped`, it answers `502 BACKEND_UNAVAILABLE`. A backend that has not
   started tracking the just-launched worker yet refuses its kill, which gives
   that 502; stop that card's worker from the card, or with Stop All for its

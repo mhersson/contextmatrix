@@ -1256,8 +1256,9 @@ Deletes the card file (git history keeps it). **204 No Content**.
 caller does not own; 422 `VALIDATION_ERROR` when the card still has subtasks
 ("cannot delete card with N subtask(s)"); 409 `WORKER_CONFLICT` while a card that
 is not `done` or `not_planned` has its worker `queued` or `running`. Stop the
-worker first. A worker the backend no longer has is marked `failed` by the
-reconcile sweep once the card has gone 10 minutes without a change;
+worker first. When the reconcile sweep is enabled (a non-zero
+`reconcile_interval`), it marks a worker the backend no longer has `failed`
+once the card has gone 10 minutes without a change;
 `POST /api/projects/{project}/stop-all` clears it sooner, and force-release marks
 a claimed card's worker `failed`.
 
@@ -2026,12 +2027,14 @@ Errors: `403 HUMAN_ONLY_FIELD`, `404 PLAYBOOK_NOT_FOUND`,
 
 ### POST /api/playbooks/{id}/stop
 
-Marks the run `stopped` (with `ended_at`), then kills the worker of every card
-entry that is queued or running on this instance and not `done` or
-`not_planned`. A launch already in flight finishes first, and Stop then kills
-the worker it queued. A backend that has not started tracking that worker yet
-refuses the kill, so Stop answers `502` (run stopped, kill failed); stop that
-card's worker from the card, or with `POST /api/projects/{project}/stop-all`.
+Marks the run `stopped` (with `ended_at`), then kills, on this instance, the
+current card's worker and every worker queued or running on the run's other
+cards when the stop was written, skipping `done` and `not_planned` cards. A
+launch already in flight finishes first, and Stop then kills the worker it
+queued. A hand run on another card after the stop is left alone. A backend
+that has not started tracking that worker yet refuses the kill, so Stop answers
+`502` (run stopped, kill failed); stop that card's worker from the card, or
+with `POST /api/projects/{project}/stop-all`.
 `202` with the detail. Errors: `403 HUMAN_ONLY_FIELD`, `404 PLAYBOOK_NOT_FOUND`,
 `409 PLAYBOOK_RUN_INACTIVE`, `502 BACKEND_UNAVAILABLE` (run stopped, a kill
 failed; the other workers were still killed).
