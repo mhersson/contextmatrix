@@ -760,8 +760,8 @@ any worker implementation, including custom worker images:
   `prompt_tokens`; subtract it and report it as `cache_read_tokens`. The
   Anthropic shapes (`cache_read_input_tokens`, `cache_creation_input_tokens`)
   are already disjoint.
-- Pass `source: "collector"` when every count came from the gateway's usage block; omit it
-  (or pass `self`) when any count is estimated. The board keeps the flag per
+- Pass `source: "collector"` when every count came from the gateway's usage block;
+  omit it (or pass `self`) when any count is estimated. The board keeps the flag per
   bucket as `counts_source` and the UI labels the difference.
 - Pass `actual_cost_usd` whenever the gateway reports a per-call cost.
   Without it CM prices the counts from `token_costs` and the served catalog.

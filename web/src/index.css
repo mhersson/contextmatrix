@@ -2078,8 +2078,7 @@ textarea {
    bodies scroll. Panels adopt the board-card language (left
    accent borders, diagonal accent washes, chip pills, mono IDs).
    Uses only existing palette tokens so every palette
-   renders correctly. Component
-   naming: .apd-* (All-Projects Dashboard).
+   renders correctly. Component naming: .apd-* (All-Projects Dashboard).
    ============================================================ */
 .apd-root {
   --apd-pad: 18px;

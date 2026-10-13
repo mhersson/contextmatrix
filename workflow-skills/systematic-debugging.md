@@ -45,7 +45,7 @@ add_log(card_id=<parent_id>, agent_id=<orchestrator agent_id>,
   `on_behalf_of="debug-investigator"`, `model` (your own model identifier,
   read fresh from your system context - never copied or derived from an
   agent name), `prompt_tokens`, `completion_tokens`, and
-  `cache_read_tokens` / `cache_creation_tokens` if available. This refreshes
+  `cache_read_tokens` / `cache_creation_tokens`. This refreshes
   the orchestrator's claim as well as recording cost, so no separate
   `heartbeat` call is needed during steady work.
 - Call `heartbeat` explicitly only if a single phase runs long with no

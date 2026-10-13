@@ -128,7 +128,7 @@ Based on the card's current state and body content:
     - Spawn all ready subtasks in **parallel**.
 10. **Monitor sub-agents.** Report your token consumption since the last
     report (`prompt_tokens`, `completion_tokens`, and `cache_read_tokens` /
-    `cache_creation_tokens` if available) - this is mandatory, not optional.
+    `cache_creation_tokens`) - this is mandatory, not optional.
 
     a. Call `await_subtasks(parent_id=<card_id>, agent_id=<your_agent_id>,
        timeout_seconds=480)` - only after step 9 has spawned the sub-agents;

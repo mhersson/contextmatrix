@@ -30,7 +30,7 @@ add_log(card_id=<parent_id>, agent_id=<your_agent_id>,
 
 - Before prompting the user at any gate: call `heartbeat` + `report_usage`
   (`prompt_tokens`, `completion_tokens`, and `cache_read_tokens` /
-  `cache_creation_tokens` if available).
+  `cache_creation_tokens`).
 - On resume (first tool call after the user's reply): call `heartbeat`.
   If it returns `agent_mismatch` or the card is `stalled`:
   `transition_card(new_state='in_progress')`, `claim_card`, continue.

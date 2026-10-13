@@ -443,7 +443,8 @@ transitions to `done`, releases, and prints `AUTONOMOUS_COMPLETE`.
 the `simple` label and has no subtasks (`classifyComplexity` in
 `internal/mcp/prompts.go`). The skill then claims, works directly, runs the
 project's tests, commits, pushes, opens the PR, runs the gates, reports usage
-and transitions to `done` with no planning, review or documentation. The agent backend does not take this path. See
+and transitions to `done` with no planning, review or documentation. The
+agent backend does not take this path. See
 [reserved labels](data-model.md#reserved-labels).
 
 **Guardrails**
@@ -765,10 +766,10 @@ An agent asked to report its own token counts is guessing, and the guess
 undercounts badly. The real numbers exist only in the harness's transcripts
 and usage frames; the server never sees a raw API response and cannot
 correct a report. A harness-side collector reading those frames is the only
-correct source. contextmatrix-agent reports the usage it measures with
-`source: "collector"`; an interactive Claude Code session has no collector,
-and a `Stop` or `SubagentStop` hook that reads the session transcript and
-calls `report_usage` is the natural shape.
+correct source. contextmatrix-agent, the only shipped collector, reports the
+usage it measures with `source: "collector"`; an interactive Claude Code
+session has no collector, and a `Stop` or `SubagentStop` hook that reads the
+session transcript and calls `report_usage` is the natural shape.
 
 - Call `report_usage` with `source: "collector"`, the four token counts for
   the interval since the last report, `actual_cost_usd` when the gateway
@@ -784,8 +785,6 @@ calls `report_usage` is the natural shape.
 - The bearer key is the authentication; `source: "collector"` is a label,
   not a privilege. Once a bucket has a collector report its `counts_source`
   stays `"collector"` even if later reports omit `source`.
-
-contextmatrix-agent is the only shipped collector.
 
 The agent backend's own contract (disjoint cache buckets, vendor-prefixed
 slugs) is in [remote execution](remote-execution.md#usage-reporting).

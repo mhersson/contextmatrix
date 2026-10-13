@@ -18,8 +18,8 @@ Auto-loaded when working in `web/`. Backend conventions live in the root
   `subscribe(pattern, onEvent)` in a `useEffect` (the return value
   unsubscribes). Reconnect/backoff lives in the provider. Never open
   `/api/events` outside the provider, and never two `EventSource`s to the same
-  URL - Firefox aborts concurrent same-URL SSE with `NS_BINDING_ABORTED`
-  (`docs/gotchas.md`).
+  URL - Firefox aborts same-origin SSE past its per-origin limit
+  (`NS_BINDING_ABORTED`, `docs/gotchas.md`).
 - Theme lives in `ThemeProvider` (`web/src/hooks/useTheme.ts`); consume via
   `useTheme()`. Don't add a parallel theme mechanism.
 - `vite.config.ts` proxies `/api` → `http://localhost:8080` for dev.

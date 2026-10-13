@@ -162,7 +162,7 @@ When all work is done, committed (if applicable), and verified:
 3. Call `report_usage` with your final token consumption. Include `model`
    (your own model identifier, read fresh from your system context - never
    copied), `prompt_tokens`, `completion_tokens`, and
-   `cache_read_tokens` / `cache_creation_tokens` if available.
+   `cache_read_tokens` / `cache_creation_tokens`.
 4. Call `complete_task` with your card ID, agent ID, and a one-line summary.
 
 If `complete_task` **succeeds**, print this exact format:
