@@ -109,7 +109,7 @@ func (s *Service) importTree(
 
 	run := &importRun{
 		svc: s, req: req, agentID: agentID, tree: t, index: idx, progress: progress,
-		playbookID: pb.ID, entries: entryRefs(pb), cards: map[string]cardRef{},
+		playbookID: pb.ID, entries: entryRefs(pb), cards: map[string]cardRef{}, failed: map[string]string{},
 	}
 
 	if req.IncludeEpicContext {
@@ -172,6 +172,9 @@ type importRun struct {
 	epicSection string
 	// cards maps an issue key to its card, created in this run or earlier.
 	cards map[string]cardRef
+	// failed maps the key of an issue this run could not create to the
+	// project it was selected into.
+	failed map[string]string
 	// entries mirrors the playbook's entries after the last write.
 	entries []entryRef
 	// progress, when set, sees each result as it lands.
@@ -209,7 +212,13 @@ func (r *importRun) execute(ctx context.Context) ([]Result, error) {
 		}
 
 		delete(selected, it.issue.Key)
-		results = r.record(results, r.importIssue(ctx, it, sel))
+
+		res := r.importIssue(ctx, it, sel)
+		if res.Status == StatusFailed && res.Card == "" {
+			r.failed[res.Key] = sel.Project
+		}
+
+		results = r.record(results, res)
 	}
 
 	rest := make([]string, 0, len(selected))
@@ -249,6 +258,15 @@ func (r *importRun) importIssue(ctx context.Context, it treeItem, sel Selection)
 		return Result{Key: key, Status: StatusFailed, Reason: "no project chosen"}
 	}
 
+	// A parent created without its dependency would keep it missing for
+	// good: a re-run creates the sub-task but skips the existing parent.
+	if st := r.failedSubtask(it.issue, sel.Project); st != "" {
+		return Result{
+			Key: key, Status: StatusFailed, Project: sel.Project,
+			Reason: "its sub-task " + st + " failed; run the import again once that is fixed",
+		}
+	}
+
 	cfg, err := r.svc.cards.GetProject(ctx, sel.Project)
 	if err != nil {
 		return Result{Key: key, Status: StatusFailed, Project: sel.Project, Reason: r.reason(ctx, key, err)}
@@ -286,6 +304,18 @@ func (r *importRun) dependencies(issue jira.Issue, project string) []string {
 	}
 
 	return deps
+}
+
+// failedSubtask names a sub-task of issue that this run failed to create in
+// project, the dependency a parent created now would miss.
+func (r *importRun) failedSubtask(issue jira.Issue, project string) string {
+	for _, st := range r.tree.subtasks[issue.Key] {
+		if p, ok := r.failed[st.Key]; ok && p == project {
+			return st.Key
+		}
+	}
+
+	return ""
 }
 
 func (r *importRun) lookup(key string) (cardRef, bool) {

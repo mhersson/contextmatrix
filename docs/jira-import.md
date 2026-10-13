@@ -123,8 +123,12 @@ never `subtask`. Subtasks come only from CM's own planning.
 ## Order and dependencies
 
 - Sub-tasks are created before their parent and sit before it in the playbook.
-- A parent `depends_on` its sub-tasks that land in the same project. A sub-task
-  in another project is order only; the dialog warns about it.
+- A parent `depends_on` its sub-tasks that land in the same project, whether
+  created in the same import or an earlier one. A sub-task in another project is
+  order only; the dialog warns about it.
+- When a sub-task selected into the parent's project fails, the parent fails
+  too, so it is never created without that dependency. Import both again once
+  the cause is fixed.
 - A new sub-task of a parent imported earlier goes directly before the parent in
   the playbook. Existing cards are never edited, so the parent does not gain the
   dependency.
@@ -139,8 +143,8 @@ put back into the playbook if it is missing there. If that playbook is runnable,
 the card gets the playbook's forced card settings, as any card added to a
 runnable playbook does. The epic's playbook is found by its `source` in any
 boards repository; the title and repository typed in the form apply only when
-it is created. A failed row never blocks the others; fix the cause and import
-again. A server shutdown stops a running import between two issues, leaving the
+it is created. A failed row blocks only its same-project parent; fix the cause
+and import again. A server shutdown stops a running import between two issues, leaving the
 rest not run; running it again finishes the job.
 
 ## Active runs

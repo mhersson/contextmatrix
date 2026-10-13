@@ -124,6 +124,21 @@ func (g *gatedCards) CreateCard(ctx context.Context, project string, in service.
 	return g.Cards.CreateCard(ctx, project, in)
 }
 
+// failingCards fails every CreateCard that fail selects.
+type failingCards struct {
+	Cards
+
+	fail func(service.CreateCardInput) bool
+}
+
+func (f *failingCards) CreateCard(ctx context.Context, project string, in service.CreateCardInput) (*board.Card, error) {
+	if f.fail(in) {
+		return nil, errors.New("injected create failure")
+	}
+
+	return f.Cards.CreateCard(ctx, project, in)
+}
+
 // hookedPlaybooks runs a hook once before the next AddEntry or UpdateEntry,
 // and counts UpdateEntry calls.
 type hookedPlaybooks struct {
@@ -319,6 +334,56 @@ func TestImport_PartialFailureRerunsCleanly(t *testing.T) {
 	assert.Equal(t, StatusSkipped, r2["PROJ-2"].Status)
 	assert.Equal(t, 2, e.jiraCards(t, "api"))
 	assert.Equal(t, []string{"api/" + r2["PROJ-3"].Card, "api/" + r["PROJ-2"].Card}, e.entryNames(t, first.Playbook.ID))
+}
+
+func TestImport_ParentFailsWhenItsSameProjectSubtaskFailed(t *testing.T) {
+	e := newImportEnv(t, nil)
+	e.jira.add(story("102", "PROJ-2", "Cart API"), subtask("103", "PROJ-3", "PROJ-2", "Cart schema"))
+
+	ctx := context.Background()
+	req := ImportRequest{Selections: []Selection{{Key: "PROJ-3", Project: "api"}, {Key: "PROJ-2", Project: "api"}}}
+
+	creates := 0
+	e.svc.cards = &failingCards{Cards: e.cards, fail: func(in service.CreateCardInput) bool {
+		creates++
+
+		return in.Source.ExternalID == "PROJ-3"
+	}}
+
+	first, err := e.importSync(ctx, "PROJ-1", req, "human:alice")
+	require.NoError(t, err)
+
+	r := resultsByKey(first.Results)
+	assert.Equal(t, StatusFailed, r["PROJ-3"].Status)
+	assert.Equal(t, StatusFailed, r["PROJ-2"].Status, "a parent created now would miss the dependency for good")
+	assert.Contains(t, r["PROJ-2"].Reason, "PROJ-3")
+	assert.Equal(t, 1, creates, "the parent is never attempted")
+	assert.Zero(t, e.jiraCards(t, "api"))
+
+	e.svc.cards = e.cards
+
+	second, err := e.importSync(ctx, "PROJ-1", req, "human:alice")
+	require.NoError(t, err)
+
+	r2 := resultsByKey(second.Results)
+	require.Equal(t, StatusCreated, r2["PROJ-2"].Status)
+	assert.Equal(t, []string{r2["PROJ-3"].Card}, e.card(t, "api", r2["PROJ-2"].Card).DependsOn)
+}
+
+func TestImport_ParentDependsOnASubtaskImportedInAnEarlierRun(t *testing.T) {
+	e := newImportEnv(t, nil)
+	e.jira.add(story("102", "PROJ-2", "Cart API"), subtask("103", "PROJ-3", "PROJ-2", "Cart schema"))
+
+	ctx := context.Background()
+
+	first, err := e.importSync(ctx, "PROJ-1", ImportRequest{Selections: []Selection{{Key: "PROJ-3", Project: "api"}}}, "human:alice")
+	require.NoError(t, err)
+
+	second, err := e.importSync(ctx, "PROJ-1", ImportRequest{Selections: []Selection{{Key: "PROJ-2", Project: "api"}}}, "human:alice")
+	require.NoError(t, err)
+	require.Equal(t, StatusCreated, second.Results[0].Status)
+
+	assert.Equal(t, []string{first.Results[0].Card}, e.card(t, "api", second.Results[0].Card).DependsOn)
 }
 
 func TestImport_HostileOrStaleSelectionFailsOnlyItsRow(t *testing.T) {
