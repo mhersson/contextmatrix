@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { api, describeApiError, isAPIError } from '../api/client';
+import { api, describeApiError } from '../api/client';
 import { isTerminalState } from '../lib/cardState';
 import type { Card, PatchCardInput, CreateCardInput } from '../types';
 
@@ -118,7 +118,7 @@ export function useCardActions({
         await api.claimCard(selectedProject, selectedCard.id, claimAgentId);
         showToast('Card claimed', 'success');
       } catch (err) {
-        showToast(isAPIError(err) ? err.error : 'Failed to claim card', 'error');
+        showToast(describeApiError(err, 'Failed to claim card'), 'error');
       }
     },
     [selectedCard, selectedProject, showToast]
@@ -131,7 +131,7 @@ export function useCardActions({
         await api.releaseCard(selectedProject, selectedCard.id, releaseAgentId);
         showToast('Card released', 'success');
       } catch (err) {
-        showToast(isAPIError(err) ? err.error : 'Failed to release card', 'error');
+        showToast(describeApiError(err, 'Failed to release card'), 'error');
       }
     },
     [selectedCard, selectedProject, showToast]
@@ -175,7 +175,7 @@ export function useCardActions({
       });
       showToast('Worker stopped', 'success');
     } catch (err) {
-      showToast(isAPIError(err) ? err.error : 'Failed to stop worker', 'error');
+      showToast(describeApiError(err, 'Failed to stop worker'), 'error');
     }
   }, [selectedCard, selectedProject, updateCardLocally, showToast]);
 
@@ -189,7 +189,7 @@ export function useCardActions({
       });
       showToast('Claim force-released', 'success');
     } catch (err) {
-      showToast(isAPIError(err) ? err.error : 'Failed to force-release claim', 'error');
+      showToast(describeApiError(err, 'Failed to force-release claim'), 'error');
     }
   }, [selectedCard, selectedProject, updateCardLocally, showToast]);
 
@@ -201,7 +201,7 @@ export function useCardActions({
       }
       showToast('All workers stopped', 'success');
     } catch (err) {
-      showToast(isAPIError(err) ? err.error : 'Failed to stop all', 'error');
+      showToast(describeApiError(err, 'Failed to stop all'), 'error');
     }
   }, [selectedProject, updateCardLocally, showToast]);
 
