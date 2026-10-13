@@ -6132,6 +6132,88 @@ func TestCreateCard_DuplicateSubtaskGuard(t *testing.T) {
 	})
 }
 
+func TestCreateCard_SourceGuard(t *testing.T) {
+	ctx := context.Background()
+
+	src := func(site, key string) *board.Source {
+		return &board.Source{System: "jira", ExternalID: key, ExternalURL: "https://" + site + ".atlassian.net/browse/" + key}
+	}
+
+	create := func(t *testing.T, svc *CardService, title string, s *board.Source) *board.Card {
+		t.Helper()
+
+		c, err := svc.CreateCard(ctx, "test-project", CreateCardInput{Title: title, Type: "task", Priority: "medium", Source: s})
+		require.NoError(t, err)
+
+		return c
+	}
+
+	count := func(t *testing.T, svc *CardService) int {
+		t.Helper()
+
+		cards, err := svc.ListCards(ctx, "test-project", storage.CardFilter{})
+		require.NoError(t, err)
+
+		return len(cards)
+	}
+
+	t.Run("the same source returns the existing card and publishes nothing", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		t.Cleanup(cleanup)
+
+		first := create(t, svc, "PROJ-2 first", src("acme", "PROJ-2"))
+
+		ch, unsub := svc.bus.Subscribe()
+		defer unsub()
+
+		got := create(t, svc, "PROJ-2 again", src("ACME", "PROJ-2"))
+		assert.Equal(t, first.ID, got.ID)
+		assert.Equal(t, "PROJ-2 first", got.Title)
+		assert.Equal(t, 1, count(t, svc))
+
+		select {
+		case e := <-ch:
+			t.Fatalf("published %s for a create that returned an existing card", e.Type)
+		default:
+		}
+	})
+
+	t.Run("an existing card in a terminal state is still returned", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		t.Cleanup(cleanup)
+
+		first := create(t, svc, "PROJ-2 first", src("acme", "PROJ-2"))
+
+		notPlanned := "not_planned"
+		_, err := svc.PatchCard(ctx, "test-project", first.ID, PatchCardInput{State: &notPlanned})
+		require.NoError(t, err)
+
+		got := create(t, svc, "PROJ-2 again", src("acme", "PROJ-2"))
+		assert.Equal(t, first.ID, got.ID)
+		assert.Equal(t, 1, count(t, svc))
+	})
+
+	t.Run("the same key on another host creates a card", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		t.Cleanup(cleanup)
+
+		first := create(t, svc, "PROJ-2 acme", src("acme", "PROJ-2"))
+		got := create(t, svc, "PROJ-2 other", src("other", "PROJ-2"))
+		assert.NotEqual(t, first.ID, got.ID)
+		assert.Equal(t, 2, count(t, svc))
+	})
+
+	t.Run("a source without an external id never matches", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		t.Cleanup(cleanup)
+
+		first := create(t, svc, "first", &board.Source{System: "jira", ExternalURL: "https://acme.atlassian.net/"})
+		got := create(t, svc, "second", &board.Source{System: "jira", ExternalURL: "https://acme.atlassian.net/"})
+		assert.NotEqual(t, first.ID, got.ID)
+		assert.Equal(t, 2, count(t, svc))
+	})
+}
+
 // TestCreateCard_VettedAutoDefault verifies the auto-vetting logic on card creation.
 func TestCreateCard_VettedAutoDefault(t *testing.T) {
 	ctx := context.Background()

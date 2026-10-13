@@ -37,7 +37,7 @@ func (s *Service) Preview(ctx context.Context, epicKey string) (*Preview, error)
 
 	var entries []entryRef
 
-	d, err := s.playbooks.FindBySource(ctx, jira.SourceSystem, t.epic.Key)
+	d, err := s.playbooks.FindBySource(ctx, s.source(t.epic.Key))
 
 	switch {
 	case err == nil:

@@ -66,7 +66,7 @@ func (s *Service) prepare(ctx context.Context, epicKey string, req ImportRequest
 		return nil, err
 	}
 
-	d, err := s.playbooks.FindBySource(ctx, jira.SourceSystem, t.epic.Key)
+	d, err := s.playbooks.FindBySource(ctx, s.source(t.epic.Key))
 
 	switch {
 	case err == nil:
@@ -134,11 +134,12 @@ func (s *Service) importTree(
 
 // resolvePlaybook reuses the epic's playbook from any boards repo, ignoring
 // the submitted title and repo, or creates one sourced to the epic. A run
-// that went active since prepare refuses the import before any card exists.
+// that went active since prepare refuses the import before any card exists,
+// including on a playbook the create found instead of writing.
 func (s *Service) resolvePlaybook(
 	ctx context.Context, epic jira.Issue, req PlaybookRequest, agentID string,
 ) (*service.PlaybookDetail, error) {
-	d, err := s.playbooks.FindBySource(ctx, jira.SourceSystem, epic.Key)
+	d, err := s.playbooks.FindBySource(ctx, s.source(epic.Key))
 	if err == nil {
 		if d.Run.Active() {
 			return nil, errPlaybookRunning(d)
@@ -161,10 +162,14 @@ func (s *Service) resolvePlaybook(
 
 	d, err = s.playbooks.Create(wctx, service.CreatePlaybookInput{
 		Title: title, Description: req.Description, AgentID: agentID, BoardsRepo: req.BoardsRepo,
-		Source: &board.Source{System: jira.SourceSystem, ExternalID: epic.Key, ExternalURL: s.browseURL(epic.Key)},
+		Source: s.source(epic.Key),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create playbook for %s: %w", epic.Key, err)
+	}
+
+	if d.Run.Active() {
+		return nil, errPlaybookRunning(d)
 	}
 
 	return d, nil

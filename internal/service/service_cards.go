@@ -601,7 +601,7 @@ func validateCreateType(input CreateCardInput) error {
 
 // createCardLocked is CreateCard with writeMu held by the caller and the
 // commit path chosen by it. created is false when the dedupe guard returned
-// an existing subtask.
+// an existing card.
 func (s *CardService) createCardLocked(
 	ctx context.Context, project string, input CreateCardInput, commit commitFn,
 ) (*board.Card, bool, error) {
@@ -888,16 +888,21 @@ func (s *CardService) buildNewCardFromInput(
 	return card, nil
 }
 
-// applyDedupGuard checks whether a non-terminal subtask with the same title
-// (case-insensitive, trimmed) already exists under the same parent. writeMu
-// must be held by the caller to eliminate any TOCTOU race. Returns the
-// existing card and true when a duplicate is found; returns nil, false, nil
-// when the call should proceed to creation.
+// applyDedupGuard checks whether the project already holds a card with the
+// same external source (board.SameSource, any state), or a non-terminal
+// subtask with the same title (case-insensitive, trimmed) under the same
+// parent. writeMu must be held by the caller to eliminate any TOCTOU race.
+// Returns the existing card and true when a duplicate is found; returns nil,
+// false, nil when the call should proceed to creation.
 func (s *CardService) applyDedupGuard(
 	ctx context.Context,
 	project string,
 	input CreateCardInput,
 ) (*board.Card, bool, error) {
+	if existing, err := s.cardBySource(ctx, project, input.Source); err != nil || existing != nil {
+		return existing, existing != nil, err
+	}
+
 	parentID := strings.ToUpper(strings.TrimSpace(input.Parent))
 	if parentID == "" {
 		return nil, false, nil
@@ -926,6 +931,37 @@ func (s *CardService) applyDedupGuard(
 	}
 
 	return nil, false, nil
+}
+
+// cardBySource returns the project's card imported from src, or nil. A
+// terminal card still counts: an importer treats any card from the source
+// as already imported.
+func (s *CardService) cardBySource(ctx context.Context, project string, src *board.Source) (*board.Card, error) {
+	if src == nil || src.System == "" || src.ExternalID == "" {
+		return nil, nil
+	}
+
+	cards, err := s.store.ListCards(ctx, project, storage.CardFilter{ExternalID: src.ExternalID})
+	if err != nil {
+		return nil, fmt.Errorf("list cards for source check: %w", err)
+	}
+
+	for _, c := range cards {
+		if !board.SameSource(c.Source, src) {
+			continue
+		}
+
+		ctxlog.Logger(ctx).Info("card with the same source exists, returning it",
+			"existing_id", c.ID,
+			"source_system", src.System,
+			"external_id", src.ExternalID,
+			"state", c.State,
+		)
+
+		return c, nil
+	}
+
+	return nil, nil
 }
 
 // commitNewCardWithNextID persists the card to the store and commits both the

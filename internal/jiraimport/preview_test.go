@@ -203,7 +203,7 @@ func TestPreview_RunActive(t *testing.T) {
 
 			d, err := e.pbs.Create(ctx, service.CreatePlaybookInput{
 				Title: "PROJ-1 Checkout", AgentID: "human:alice",
-				Source:  &board.Source{System: jira.SourceSystem, ExternalID: "PROJ-1"},
+				Source:  &board.Source{System: jira.SourceSystem, ExternalID: "PROJ-1", ExternalURL: testSite + "/browse/PROJ-1"},
 				Entries: []service.PlaybookEntryInput{{Type: board.EntryTypeCard, Project: "api", Card: card.ID}},
 			})
 			require.NoError(t, err)

@@ -178,7 +178,21 @@ live in [architecture](architecture.md); the HTTP surface in the
     - A matching subtask that is `done` or `not_planned` does not block:
       re-doing finished work is intentional.
 
-13. **Card deletion requires no subtasks.** `DELETE .../cards/{id}` removes
+13. **Duplicate source guard.** `CreateCard` with a `source` that has a
+    `system` and an `external_id` looks for a card in the same project with
+    the same source: equal `system` and `external_id`, and the same
+    `external_url` host, compared case-insensitively (two sources without a
+    URL match). On a match the existing card is returned in any state, and
+    the handler answers 201 with it, as for the duplicate subtask guard. On
+    a shared boards repo the check runs after the sync cycle has merged the
+    peer's latest push, so two instances importing the same issue into one
+    project keep one card.
+    - The same key from another host, a source without an `external_id`, or
+      an `external_url` that does not parse never matches.
+    - No `card.created` event is published for the returned card, and
+      `next_id` still increments.
+
+14. **Card deletion requires no subtasks.** `DELETE .../cards/{id}` removes
     the file (`os.Remove`) and enqueues a `CommitKindFile` commit; go-git
     records the deletion when the missing path is staged. It returns 422
     `VALIDATION_ERROR` if the card has subtasks, and 403 if the card is

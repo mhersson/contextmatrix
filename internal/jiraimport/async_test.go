@@ -75,13 +75,13 @@ type scriptedPlaybooks struct {
 	createErr    error
 }
 
-func (p *scriptedPlaybooks) FindBySource(ctx context.Context, system, externalID string) (*service.PlaybookDetail, error) {
+func (p *scriptedPlaybooks) FindBySource(ctx context.Context, src *board.Source) (*service.PlaybookDetail, error) {
 	p.finds++
 	if p.finds > 1 && p.afterPrepare != nil {
 		return p.afterPrepare()
 	}
 
-	return p.Playbooks.FindBySource(ctx, system, externalID)
+	return p.Playbooks.FindBySource(ctx, src)
 }
 
 func (p *scriptedPlaybooks) Create(ctx context.Context, in service.CreatePlaybookInput) (*service.PlaybookDetail, error) {

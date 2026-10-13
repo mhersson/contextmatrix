@@ -1681,17 +1681,144 @@ func TestPlaybookService_SourceSetOnCreateAndFound(t *testing.T) {
 	_, err = env.svc.UpdateMeta(ctx, d.ID, UpdatePlaybookInput{Title: new("Renamed")}, "human:alice")
 	require.NoError(t, err)
 
-	got, err := env.svc.FindBySource(ctx, "jira", "PROJ-1")
+	got, err := env.svc.FindBySource(ctx, jiraSource("acme", "PROJ-1"))
 	require.NoError(t, err)
 	assert.Equal(t, d.ID, got.ID)
 	assert.Equal(t, "Renamed", got.Title)
 	require.NotNil(t, got.Source, "a metadata update keeps the source")
 
-	_, err = env.svc.FindBySource(ctx, "jira", "PROJ-2")
-	require.ErrorIs(t, err, storage.ErrPlaybookNotFound)
+	for _, miss := range []*board.Source{
+		jiraSource("acme", "PROJ-2"),
+		{System: "github", ExternalID: "PROJ-1", ExternalURL: "https://acme.atlassian.net/browse/PROJ-1"},
+		jiraSource("other", "PROJ-1"),
+		nil,
+	} {
+		_, err = env.svc.FindBySource(ctx, miss)
+		require.ErrorIs(t, err, storage.ErrPlaybookNotFound, "%+v", miss)
+	}
+}
 
-	_, err = env.svc.FindBySource(ctx, "github", "PROJ-1")
-	require.ErrorIs(t, err, storage.ErrPlaybookNotFound)
+func jiraSource(site, key string) *board.Source {
+	return &board.Source{System: "jira", ExternalID: key, ExternalURL: "https://" + site + ".atlassian.net/browse/" + key}
+}
+
+// drainPlaybookEvents returns the types of the playbook events published so far.
+func drainPlaybookEvents(ch <-chan events.Event) []events.EventType {
+	var got []events.EventType
+
+	for {
+		select {
+		case e := <-ch:
+			got = append(got, e.Type)
+		default:
+			return got
+		}
+	}
+}
+
+func TestPlaybookService_CreateReturnsThePlaybookWithTheSameSource(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	ch, unsub := env.bus.Subscribe()
+	defer unsub()
+
+	first, err := env.svc.Create(ctx, CreatePlaybookInput{Title: "PROJ-1 Checkout", AgentID: "human:a", Source: jiraSource("acme", "PROJ-1")})
+	require.NoError(t, err)
+
+	again, err := env.svc.Create(ctx, CreatePlaybookInput{Title: "Another title", AgentID: "human:b", Source: jiraSource("ACME", "PROJ-1")})
+	require.NoError(t, err)
+	assert.Equal(t, first.ID, again.ID)
+	assert.Equal(t, "PROJ-1 Checkout", again.Title, "the stored playbook is returned as it is")
+
+	list, err := env.svc.List(ctx)
+	require.NoError(t, err)
+	assert.Len(t, list, 1)
+	assert.Equal(t, []events.EventType{events.PlaybookCreated}, drainPlaybookEvents(ch), "only the write publishes")
+
+	other, err := env.svc.Create(ctx, CreatePlaybookInput{Title: "PROJ-1 Checkout", AgentID: "human:a", Source: jiraSource("other", "PROJ-1")})
+	require.NoError(t, err)
+	assert.NotEqual(t, first.ID, other.ID, "the same key on another site is another epic")
+
+	list, err = env.svc.List(ctx)
+	require.NoError(t, err)
+	assert.Len(t, list, 2)
+}
+
+// verifiedRunner is a sync runner that runs before, then Apply under the
+// write lock, then either lands the push or undoes the write and fails.
+func verifiedRunner(env *playbookTestEnv, before func(ctx context.Context), pushLands bool) SyncRunner {
+	return func(ctx context.Context, _ string, m SyncMutation) (SyncOutcome, error) {
+		env.svc.LockWrites()
+		defer env.svc.UnlockWrites()
+
+		if before != nil {
+			before(ctx)
+		}
+
+		if err := m.Apply(ctx); err != nil {
+			return SyncOutcome{BodyRan: true}, err
+		}
+
+		if pushLands {
+			return SyncOutcome{BodyRan: true, Pushed: true}, nil
+		}
+
+		if err := m.Undo(ctx); err != nil {
+			return SyncOutcome{BodyRan: true}, err
+		}
+
+		return SyncOutcome{BodyRan: true}, errors.New("push: remote unreachable")
+	}
+}
+
+func TestPlaybookCreateVerified_ReturnsThePlaybookAPeerMergedFirst(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	peer := &board.Playbook{
+		ID: "proj-1-peer", Title: "PROJ-1 Peer", CreatedBy: "human:peer", NextEntryID: 1,
+		Created: env.clk.Now().UTC(), Updated: env.clk.Now().UTC(), Source: jiraSource("acme", "PROJ-1"),
+	}
+
+	// The peer's playbook arrives with the cycle's fetch and merge, after
+	// any check made before the cycle.
+	env.svc.SetSyncRunner(verifiedRunner(env, func(ctx context.Context) {
+		require.NoError(t, env.svc.store.Create(ctx, peer))
+	}, true), func(_ context.Context, _ []string, _ string) error { return nil })
+
+	ch, unsub := env.bus.Subscribe()
+	defer unsub()
+
+	d, err := env.svc.Create(ctx, CreatePlaybookInput{Title: "PROJ-1 Checkout", AgentID: "human:a", Source: jiraSource("acme", "PROJ-1")})
+	require.NoError(t, err)
+	assert.Equal(t, peer.ID, d.ID)
+
+	list, err := env.svc.List(ctx)
+	require.NoError(t, err)
+	assert.Len(t, list, 1)
+	assert.Empty(t, drainPlaybookEvents(ch), "nothing was created")
+}
+
+func TestPlaybookCreateVerified_UndoKeepsTheExistingPlaybookItReturned(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	seeded, err := env.svc.Create(ctx, CreatePlaybookInput{Title: "PROJ-1 Checkout", AgentID: "human:a", Source: jiraSource("acme", "PROJ-1")})
+	require.NoError(t, err)
+
+	env.svc.SetSyncRunner(verifiedRunner(env, nil, false), func(_ context.Context, _ []string, _ string) error { return nil })
+
+	ch, unsub := env.bus.Subscribe()
+	defer unsub()
+
+	_, err = env.svc.Create(ctx, CreatePlaybookInput{Title: "PROJ-1 Checkout", AgentID: "human:b", Source: jiraSource("acme", "PROJ-1")})
+	require.ErrorIs(t, err, ErrRemoteUnreachable)
+
+	got, err := env.svc.Get(ctx, seeded.ID)
+	require.NoError(t, err, "the undo leaves a playbook it did not write")
+	assert.Equal(t, seeded.Created, got.Created)
+	assert.Empty(t, drainPlaybookEvents(ch))
 }
 
 // uncheckFixture builds a runnable "rollout" of a checked manual e1, a card

@@ -616,6 +616,81 @@ func TestImport_RefusedWhenTheRunStartsAfterPrepare(t *testing.T) {
 	assert.Equal(t, 1, e.jiraCards(t, "api"), "no card is written")
 }
 
+// blindPlaybooks never finds a playbook by source, like an instance whose
+// last pull predates a peer's import of the epic.
+type blindPlaybooks struct{ Playbooks }
+
+func (blindPlaybooks) FindBySource(context.Context, *board.Source) (*service.PlaybookDetail, error) {
+	return nil, storage.ErrPlaybookNotFound
+}
+
+func TestImport_RefusedWhenTheCreateReturnsARunningPlaybook(t *testing.T) {
+	e := newImportEnv(t, nil)
+	e.jira.add(story("102", "PROJ-2", "Cart API"), story("103", "PROJ-3", "Cart UI"))
+
+	ctx := context.Background()
+
+	first, err := e.importSync(ctx, "PROJ-1", ImportRequest{
+		Selections: []Selection{{Key: "PROJ-2", Project: "api"}}, Vetted: true,
+	}, "human:alice")
+	require.NoError(t, err)
+	e.makeRunnable(t, first.Playbook.ID)
+	e.setRun(t, first.Playbook.ID, board.RunStatusRunning)
+
+	before := e.entryNames(t, first.Playbook.ID)
+	svc, _ := e.serviceWith(t, e.cards, blindPlaybooks{Playbooks: e.pbs})
+
+	req := ImportRequest{Selections: []Selection{{Key: "PROJ-3", Project: "api"}}}
+	tr, err := svc.prepare(ctx, "PROJ-1", req)
+	require.NoError(t, err)
+
+	resp, err := svc.importTree(ctx, tr, req, "human:alice", nil)
+	require.ErrorIs(t, err, ErrPlaybookRunning)
+	assert.Nil(t, resp)
+	assert.Equal(t, 1, e.jiraCards(t, "api"), "no card is written")
+	assert.Equal(t, before, e.entryNames(t, first.Playbook.ID))
+
+	list, err := e.pbs.List(ctx)
+	require.NoError(t, err)
+	assert.Len(t, list, 1, "the create returned the epic's playbook")
+}
+
+func TestImport_IgnoresCardsAndPlaybooksFromAnotherSite(t *testing.T) {
+	e := newImportEnv(t, nil)
+	e.jira.add(story("102", "PROJ-2", "Cart API"))
+
+	ctx := context.Background()
+
+	const other = "https://other.atlassian.net"
+
+	foreign, err := e.cards.CreateCard(ctx, "api", service.CreateCardInput{
+		Title: "PROJ-2 other site", Type: "task", Priority: "medium",
+		Source: &board.Source{System: jira.SourceSystem, ExternalID: "PROJ-2", ExternalURL: other + "/browse/PROJ-2"},
+		Custom: map[string]any{jira.CustomIssueID: "102"},
+	})
+	require.NoError(t, err)
+
+	foreignPlaybook, err := e.pbs.Create(ctx, service.CreatePlaybookInput{
+		Title: "PROJ-1 other site", AgentID: "human:alice",
+		Source: &board.Source{System: jira.SourceSystem, ExternalID: "PROJ-1", ExternalURL: other + "/browse/PROJ-1"},
+	})
+	require.NoError(t, err)
+
+	p, err := e.svc.Preview(ctx, "PROJ-1")
+	require.NoError(t, err)
+	assert.Nil(t, p.Playbook, "a playbook from another site is not this epic's")
+	require.Len(t, p.Children, 1)
+	assert.Nil(t, p.Children[0].Imported, "a card from another site is not this issue's")
+
+	resp, err := e.importSync(ctx, "PROJ-1", ImportRequest{Selections: []Selection{{Key: "PROJ-2", Project: "api"}}}, "human:alice")
+	require.NoError(t, err)
+	assert.NotEqual(t, foreignPlaybook.ID, resp.Playbook.ID)
+	require.Len(t, resp.Results, 1)
+	assert.Equal(t, StatusCreated, resp.Results[0].Status)
+	assert.NotEqual(t, foreign.ID, resp.Results[0].Card)
+	assert.Equal(t, 2, e.jiraCards(t, "api"))
+}
+
 func TestImport_RunStartedMidImportAppendsTheCard(t *testing.T) {
 	tests := []struct {
 		name        string

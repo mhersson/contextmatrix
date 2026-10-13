@@ -36,7 +36,7 @@ type Cards interface {
 
 // Playbooks is the slice of the playbook service the importer uses.
 type Playbooks interface {
-	FindBySource(ctx context.Context, system, externalID string) (*service.PlaybookDetail, error)
+	FindBySource(ctx context.Context, src *board.Source) (*service.PlaybookDetail, error)
 	Create(ctx context.Context, input service.CreatePlaybookInput) (*service.PlaybookDetail, error)
 	AddEntry(ctx context.Context, id string, in service.PlaybookEntryInput, agentID string) (*service.PlaybookDetail, error)
 	UpdateEntry(ctx context.Context, id, entryID string, in service.UpdateEntryInput, agentID string) (*service.PlaybookDetail, error)
@@ -114,6 +114,11 @@ func New(client JiraClient, cards Cards, playbooks Playbooks, cfg Config) *Servi
 
 func (s *Service) browseURL(key string) string {
 	return strings.TrimRight(s.cfg.SiteURL, "/") + "/browse/" + key
+}
+
+// source is the source this site gives the issue key.
+func (s *Service) source(key string) *board.Source {
+	return &board.Source{System: jira.SourceSystem, ExternalID: key, ExternalURL: s.browseURL(key)}
 }
 
 // lockEpic serialises imports of one epic on this instance, so two clicks

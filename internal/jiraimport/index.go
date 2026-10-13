@@ -10,9 +10,9 @@ import (
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
-// importedIndex finds the card an earlier import created for an issue, in
-// any project: by Jira issue id first (stable when an issue moves between
-// Jira projects), then by key.
+// importedIndex finds the card an earlier import from this site created for
+// an issue, in any project: by Jira issue id first (stable when an issue
+// moves between Jira projects), then by key.
 type importedIndex struct {
 	byIssueID map[string]*board.Card
 	byKey     map[string]*board.Card
@@ -33,13 +33,16 @@ func (s *Service) loadImported(ctx context.Context) (*importedIndex, error) {
 		}
 
 		for _, c := range cards {
+			// Another site's card can share the key and the issue id.
+			if c.Source == nil || !board.SameSource(c.Source, s.source(c.Source.ExternalID)) {
+				continue
+			}
+
 			if id := customString(c.Custom, jira.CustomIssueID); id != "" {
 				idx.byIssueID[id] = c
 			}
 
-			if c.Source != nil && c.Source.ExternalID != "" {
-				idx.byKey[c.Source.ExternalID] = c
-			}
+			idx.byKey[c.Source.ExternalID] = c
 		}
 	}
 

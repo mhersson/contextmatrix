@@ -145,12 +145,8 @@ func (s *Service) cardInput(
 		Body:     body,
 		Type:     cardType(issue.IssueType, cfg.Types),
 		Priority: cardPriority(issue.Priority, cfg.Priorities),
-		Source: &board.Source{
-			System:      jira.SourceSystem,
-			ExternalID:  issue.Key,
-			ExternalURL: s.browseURL(issue.Key),
-		},
-		Vetted: vetted,
+		Source:   s.source(issue.Key),
+		Vetted:   vetted,
 		Custom: map[string]any{
 			jira.CustomIssueID:    issue.ID,
 			jira.CustomImportHash: importHash(title, body),

@@ -97,6 +97,14 @@ Each issue's writes are bounded at 30 seconds, room for the verified push every
 write makes on a shared boards repository. An issue that runs over fails with
 `timed out`, and the import moves on to the next.
 
+Two instances that import the same epic into one shared boards repository
+converge on one playbook, and on one card per issue in each project: every write
+runs after the instance has merged its peer's latest push, and creating the
+playbook or a card returns the one that already has the same source instead of
+writing a second. Imports into different boards repositories, or of one issue
+into different projects, can still duplicate, so import an epic from one
+instance.
+
 At server shutdown, or after the 10 minute bound, an import stops between two
 issues: the issue in flight gets 8 seconds to finish, then its writes are
 cancelled and its row fails. If selected issues remain, the import is marked
@@ -145,9 +153,12 @@ put back into the playbook if it is missing there. If that playbook is runnable,
 the card gets the playbook's forced card settings, as any card added to a
 runnable playbook does. The epic's playbook is found by its `source` in any
 boards repository; the title and repository typed in the form apply only when
-it is created. A failed row blocks only its same-project parent; fix the cause
-and import again. A server shutdown stops a running import between two issues, leaving the
-rest not run; running it again finishes the job.
+it is created. Both matches need the `source.external_url` host to be the
+configured site's, so a card or playbook imported from another Jira site into
+the same boards repository is never reused, even with the same key. A failed row
+blocks only its same-project parent; fix the cause and import again. A server
+shutdown stops a running import between two issues, leaving the rest not run;
+running it again finishes the job.
 
 ## Active runs
 

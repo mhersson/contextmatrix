@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/boardmerge"
 	"github.com/mhersson/contextmatrix/internal/lock"
 	"github.com/mhersson/contextmatrix/internal/storage"
@@ -25,6 +26,7 @@ type fakeRunner struct {
 	calls       int
 	failBefore  int                       // cycles that fail before Apply runs
 	failAfter   bool                      // the push never lands: Undo runs, the error is returned
+	beforeApply func(ctx context.Context) // simulates what the cycle's fetch and merge brought in
 	afterApply  func(ctx context.Context) // simulates the merge that follows Apply
 	resolutions []boardmerge.Resolution
 	undoCalls   int
@@ -43,6 +45,10 @@ func (f *fakeRunner) run(ctx context.Context, trigger string, m SyncMutation) (S
 	defer f.svc.UnlockWrites(f.repo)
 
 	out := SyncOutcome{BodyRan: true, Resolutions: f.resolutions}
+
+	if f.beforeApply != nil {
+		f.beforeApply(ctx)
+	}
 
 	if err := m.Apply(ctx); err != nil {
 		return out, err
@@ -169,6 +175,54 @@ func TestCreateCardVerified_UndoneWhenThePushNeverLands(t *testing.T) {
 	msg, err := svc.Repos()[0].Git.GetLastCommitMessage()
 	require.NoError(t, err)
 	assert.Contains(t, msg, "undone")
+}
+
+func TestCreateCardVerified_ReturnsTheSourcedCardAPeerMergedFirst(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		pushLands bool
+	}{{"push lands", true}, {"push never lands", false}} {
+		pushLands := tt.pushLands
+
+		t.Run(tt.name, func(t *testing.T) {
+			svc, runner, cleanup := newVerifiedService(t)
+			defer cleanup()
+
+			ctx := context.Background()
+			src := &board.Source{System: "jira", ExternalID: "PROJ-2", ExternalURL: "https://acme.atlassian.net/browse/PROJ-2"}
+			now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
+
+			runner.failAfter = !pushLands
+			runner.beforeApply = func(ctx context.Context) {
+				require.NoError(t, svc.store.CreateCard(ctx, "test-project", &board.Card{
+					ID: "TEST-007", Title: "PROJ-2 peer", Project: "test-project", Type: "task", State: "todo",
+					Priority: "medium", Source: src.Clone(), Created: now, Updated: now,
+				}))
+			}
+
+			ch, unsub := svc.bus.Subscribe()
+			defer unsub()
+
+			got, err := svc.CreateCard(ctx, "test-project", CreateCardInput{Title: "PROJ-2 ours", Type: "task", Priority: "medium", Source: src})
+			if pushLands {
+				require.NoError(t, err)
+				assert.Equal(t, "TEST-007", got.ID)
+			} else {
+				require.ErrorIs(t, err, ErrRemoteUnreachable)
+			}
+
+			cards, err := svc.store.ListCards(ctx, "test-project", storage.CardFilter{})
+			require.NoError(t, err)
+			require.Len(t, cards, 1, "the undo leaves the card it did not write")
+			assert.Equal(t, "TEST-007", cards[0].ID)
+
+			select {
+			case e := <-ch:
+				t.Fatalf("published %s for a create that returned an existing card", e.Type)
+			default:
+			}
+		})
+	}
 }
 
 func TestClaimCardVerified_ConflictAfterTheMerge(t *testing.T) {
