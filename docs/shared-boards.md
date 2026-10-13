@@ -104,8 +104,8 @@ Cards:
   both imported the same external issue, which dedupes to one card.
 - Delete versus modify: the delete wins; the modification stays in history.
   A card deleted on another instance while its worker ran has its container
-  stopped by the reconcile sweep; a local delete is refused while the worker
-  is queued or running.
+  stopped by the reconcile sweep; a local delete of a card that is not `done`
+  or `not_planned` is refused while its worker is queued or running.
 - One side unparseable: the parsing side is kept.
 - Invariants are re-applied after the merge (`not_planned` clears the claim,
   a missing parent is cleared, subtask type follows `parent`, dangling

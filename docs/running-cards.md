@@ -195,9 +195,11 @@ first run in a repository.
   points at the live card only when its current entry is unset, complete or
   gone; a run on a failed or launch-failed card keeps that entry and its
   reason while another card's worker holds it. A card left `queued` or
-  `running` with no worker behind it holds the run until Stop All in its
-  project clears it. A claim through another instance without a worker does
-  not hold the run.
+  `running` with no worker behind it holds the run until the reconcile sweep
+  marks its worker `failed`, once the agent lists no container for the card
+  and the card has not changed for 10 minutes; Stop All in its project clears
+  it sooner. A claim through another instance without a worker does not hold
+  the run.
 - A Play after a Stop that left a worker alive (the kill failed, or the card
   is claimed through another instance), or after a hand run while stopped,
   waits on that worker before starting anything else.

@@ -167,8 +167,10 @@ card) is handled once that worker ends. The run is pointed at the live card
 its current entry is unset, complete or gone; a run on a failed or
 launch-failed card keeps that entry and its reason while another card's worker
 holds it. A card left `queued` or `running` with no worker behind it holds the
-run until Stop All in its project clears it. A claim through another instance
-without a worker does not hold the run.
+run until the reconcile sweep marks its worker `failed`, once the agent lists no
+container for the card and the card has not changed for 10 minutes; Stop All in
+its project clears it sooner. A claim through another instance without a worker
+does not hold the run.
 
 ### Play and Stop
 

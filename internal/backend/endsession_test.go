@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -21,6 +22,61 @@ import (
 type fakeCardGetter struct {
 	mu    sync.RWMutex
 	cards map[string]*board.Card
+
+	// live feeds LiveWorkerCards; FailLostWorker records the call and drops
+	// the card from live, as the real write would.
+	live      []*board.Card
+	liveErr   error
+	liveCalls int
+	failed    []lostWorkerCall
+}
+
+type lostWorkerCall struct {
+	key    string
+	cutoff time.Time
+}
+
+func (f *fakeCardGetter) LiveWorkerCards(_ context.Context) ([]*board.Card, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.liveCalls++
+
+	if f.liveErr != nil {
+		return nil, f.liveErr
+	}
+
+	out := make([]*board.Card, 0, len(f.live))
+	for _, c := range f.live {
+		cp := *c
+		out = append(out, &cp)
+	}
+
+	return out, nil
+}
+
+func (f *fakeCardGetter) FailLostWorker(_ context.Context, project, id string, cutoff time.Time, _ string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.failed = append(f.failed, lostWorkerCall{key: project + "/" + id, cutoff: cutoff})
+	f.live = slices.DeleteFunc(f.live, func(c *board.Card) bool { return c.Project == project && c.ID == id })
+
+	return true, nil
+}
+
+func (f *fakeCardGetter) LiveCalls() int {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
+	return f.liveCalls
+}
+
+func (f *fakeCardGetter) Failed() []lostWorkerCall {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
+	return slices.Clone(f.failed)
 }
 
 func (f *fakeCardGetter) GetCard(_ context.Context, project, id string) (*board.Card, error) {

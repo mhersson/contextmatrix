@@ -880,23 +880,27 @@ func TestCreateUpdatePatchCard_DependsOnLimit(t *testing.T) {
 	})
 }
 
-// TestDeleteCard_RefusesWhileAWorkerIsLive: deleting a card whose worker is
-// queued or running orphans the worker, since Stop finds workers by card.
+// TestDeleteCard_RefusesWhileAWorkerIsLive: deleting an unfinished card whose
+// worker is queued or running orphans the worker, since Stop finds workers by
+// card. A finished card's worker is being reaped, so its delete goes through.
 func TestDeleteCard_RefusesWhileAWorkerIsLive(t *testing.T) {
 	tests := []struct {
+		state   string
 		status  string
 		refused bool
 	}{
-		{"", false},
-		{"failed", false},
-		{"killed", false},
-		{"parked", false},
-		{"queued", true},
-		{"running", true},
+		{board.StateTodo, "", false},
+		{board.StateTodo, "failed", false},
+		{board.StateTodo, "killed", false},
+		{board.StateTodo, "parked", false},
+		{board.StateTodo, "queued", true},
+		{board.StateTodo, "running", true},
+		{board.StateDone, "running", false},
+		{board.StateNotPlanned, "queued", false},
 	}
 
 	for _, tt := range tests {
-		t.Run("worker "+cmp.Or(tt.status, "idle"), func(t *testing.T) {
+		t.Run(tt.state+" worker "+cmp.Or(tt.status, "idle"), func(t *testing.T) {
 			svc, _, cleanup := setupTest(t)
 			defer cleanup()
 
@@ -908,6 +912,12 @@ func TestDeleteCard_RefusesWhileAWorkerIsLive(t *testing.T) {
 			if tt.status != "" {
 				_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, tt.status, "seed")
 				require.NoError(t, err)
+			}
+
+			if tt.state != board.StateTodo {
+				moved, err := svc.TransitionTo(ctx, "test-project", card.ID, tt.state)
+				require.NoError(t, err)
+				require.Equal(t, tt.status, moved.WorkerStatus, "the transition keeps the worker status")
 			}
 
 			err = svc.DeleteCard(ctx, "test-project", card.ID)
