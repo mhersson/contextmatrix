@@ -37,7 +37,7 @@ Read the relevant one before working in its area:
 | `docs/web-ui.md`               | Routes, board and sorting behaviour, dashboard, console, chat panes, images, appearance, shortcuts.                                               |
 | `docs/playbooks.md`            | Entry kinds, storage and the reserved name, REST and MCP surface.                                                                                 |
 | `docs/mcp.md`                  | Every MCP tool with its caller gate, slash commands, phase skills, payload rules.                                                                 |
-| `docs/running-cards.md`        | Run Auto / Run HITL, fast path, guardrails, execution fields, Best-of-N, mob, PR gates, parking, stop.                                            |
+| `docs/running-cards.md`        | Run Auto / Run HITL, guardrails, execution fields, Best-of-N, mob, PR gates, parking, stop.           |
 | `docs/shared-boards.md`        | Shared-repo sync cycle, merge rules, per-instance claims and leases, several boards repos.                                                        |
 | `docs/github-issue-import.md`  | Importer config, owner/repo resolution, vetting gate, `source` field, Enterprise hosts.                                                           |
 | `docs/jira-import.md`          | Jira site config and auth, connection status, epic import: wizard, card mapping, dedup, ordering, playbook source, vetting; status writeback.     |
@@ -180,6 +180,9 @@ properties only - no palette-specific code, no hardcoded hex.
 
 ### Documentation
 
+- Documentation must always be true: every statement matches the code at
+  HEAD, and a change that makes a doc line false updates it in the same
+  commit.
 - Document the current state - what exists now and why, not how it got here.
 - Comments explain only non-obvious decisions, constraints, safety invariants,
   or workarounds. Do not narrate what code does or record change history; git
@@ -296,7 +299,9 @@ make build     # builds (run make install-frontend first in a fresh checkout)
 ```
 
 - When `web/` changed: `make test-frontend` and `make lint-frontend` - both clean.
-- **Never commit without explicit user approval.** No exceptions.
+- **Never commit to `main`.** Work on a feature branch; tasks of a plan or
+  scope the user approved commit there without asking again. Never push
+  without explicit user approval.
 - Conventional commits: `type(scope): concise summary`. Always include a scope.
 - Body uses bullet points for the what and why - no long paragraphs.
 - Never reference plan phases, task numbers, or private card IDs in messages.
