@@ -578,6 +578,11 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		instanceTokenProvider:  cfg.GitHubTokenProvider,
 	}
 
+	// A nil *PlaybookService must stay a nil interface.
+	if cfg.Playbooks != nil {
+		rh.handRuns = cfg.Playbooks
+	}
+
 	if cfg.PlaybookRunner != nil && cfg.Backend != nil {
 		cfg.PlaybookRunner.SetLauncher(rh.playbookLaunch)
 		cfg.PlaybookRunner.SetStopper(rh.playbookStop)

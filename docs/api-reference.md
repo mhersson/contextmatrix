@@ -2077,6 +2077,7 @@ asynchronously.
 | 403    | `CARD_NOT_VETTED`     | The card has a `source` and is not vetted                                                                  |
 | 409    | `INVALID_TRANSITION`  | Card is not in `todo`                                                                                      |
 | 409    | `WORKER_CONFLICT`     | Card is already `queued` or `running`                                                                      |
+| 409    | `PLAYBOOK_RUN_ACTIVE` | The card's playbook run is `running` or `waiting`, including a Play that wins a race                       |
 | 409    | `VALIDATION_ERROR`    | The project's `github_credential` binding is broken (worker status reverts, activity entry `run-rejected`) |
 | 502    | `BACKEND_UNAVAILABLE` | Webhook failed                                                                                             |
 | 503    | `BACKEND_DISABLED`    | No task backend configured                                                                                 |

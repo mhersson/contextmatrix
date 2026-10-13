@@ -1070,6 +1070,29 @@ func (s *PlaybookService) SetRunFunc(
 	})
 }
 
+// QueueUnlessRunActive runs queue, a hand run's queued write, unless a
+// runnable playbook holding the card has a running or waiting run. It holds
+// writeMu, which Play's run write takes, so a Play either resumes on the
+// queued card or has started and the hand run is refused. A listing error
+// refuses. queue takes the card lock second, the order the syncer uses.
+func (s *PlaybookService) QueueUnlessRunActive(ctx context.Context, project, cardID string, queue func() error) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
+	playbooks, err := s.store.List(ctx)
+	if err != nil {
+		return fmt.Errorf("list playbooks: %w", err)
+	}
+
+	for _, p := range playbooks {
+		if p.Runnable && p.RunActive() && p.HasCardEntry(project, cardID) {
+			return fmt.Errorf("%w: card is queued in playbook %s; resume or stop the playbook run instead", ErrPlaybookRunActive, p.ID)
+		}
+	}
+
+	return queue()
+}
+
 // Delete removes a playbook. On commit failure the deleted playbook is
 // restored from its pre-delete snapshot, best-effort.
 func (s *PlaybookService) Delete(ctx context.Context, id, agentID string) error {

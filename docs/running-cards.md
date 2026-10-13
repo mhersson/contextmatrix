@@ -185,7 +185,8 @@ first run in a repository.
   `<card> not vetted`. Vetting the card is the go-ahead: the run continues by
   itself, without Play.
 - While a run is `running` or `waiting`, the cards' own run buttons are
-  disabled and `POST .../run` answers `409 PLAYBOOK_RUN_ACTIVE`.
+  disabled and `POST .../run` answers `409 PLAYBOOK_RUN_ACTIVE`. A hand run that races a Play either queues first,
+  and the run waits on its worker, or is refused the same way.
 - While any of its cards has a live worker, the run starts no other card and
   points at that card: an entry that turns incomplete is handled after that
   worker ends.

@@ -3,8 +3,11 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -22,11 +25,21 @@ import (
 func runnablePlaybookServer(t *testing.T) (*httptest.Server, *captureBackend, *service.CardService, *service.PlaybookService, *board.Card) {
 	t.Helper()
 
+	return runnablePlaybookServerWith(t, func(svc *service.CardService) playbookrun.Cards { return svc })
+}
+
+// runnablePlaybookServerWith is runnablePlaybookServer with the runner's
+// card reader built by wrap.
+func runnablePlaybookServerWith(
+	t *testing.T, wrap func(*service.CardService) playbookrun.Cards,
+) (*httptest.Server, *captureBackend, *service.CardService, *service.PlaybookService, *board.Card) {
+	t.Helper()
+
 	svc, pbSvc, bus, _ := playbookTestSetup(t)
 	cb := newCaptureBackend(t)
 
 	runner := playbookrun.New(playbookrun.Config{
-		Playbooks: pbSvc, Lister: playbookStoreOf(t, pbSvc), Cards: svc, Bus: bus,
+		Playbooks: pbSvc, Lister: playbookStoreOf(t, pbSvc), Cards: wrap(svc), Bus: bus,
 		Clock: clock.Fake(time.Date(2026, 9, 6, 10, 0, 0, 0, time.UTC)), Instance: "", Tick: time.Hour,
 	})
 
@@ -301,4 +314,219 @@ func TestPlaybooksAPI_DeleteDuringRunIs409(t *testing.T) {
 
 	_, err := pbSvc.Get(context.Background(), "rollout")
 	require.NoError(t, err, "the playbook is still there")
+}
+
+// hookCards is the runner's card reader with a one-shot hook that runs right
+// after a read of one card, so a test can act between that read and the
+// decision made from it.
+type hookCards struct {
+	*service.CardService
+
+	mu    sync.Mutex
+	card  string
+	after func()
+}
+
+func (h *hookCards) arm(card string, after func()) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	h.card, h.after = card, after
+}
+
+func (h *hookCards) GetCard(ctx context.Context, project, id string) (*board.Card, error) {
+	card, err := h.CardService.GetCard(ctx, project, id)
+
+	h.mu.Lock()
+
+	var hook func()
+	if h.after != nil && strings.EqualFold(id, h.card) {
+		hook, h.after = h.after, nil
+	}
+
+	h.mu.Unlock()
+
+	if hook != nil {
+		hook()
+	}
+
+	return card, err
+}
+
+// postAsHuman posts with no body as human:bob without the require helpers,
+// so a goroutine can call it; it returns the status and the error code.
+func postAsHuman(url string) (int, string) {
+	req, err := http.NewRequest(http.MethodPost, url, http.NoBody)
+	if err != nil {
+		return 0, err.Error()
+	}
+
+	req.Header.Set("X-Requested-With", "contextmatrix")
+	req.Header.Set("X-Agent-ID", "human:bob")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0, err.Error()
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var apiErr APIError
+
+	_ = json.NewDecoder(resp.Body).Decode(&apiErr)
+
+	return resp.StatusCode, apiErr.Code
+}
+
+// addSecondEntry adds a second todo card to the rollout playbook.
+func addSecondEntry(t *testing.T, svc *service.CardService, pbSvc *service.PlaybookService) *board.Card {
+	t.Helper()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{Title: "Second", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+
+	_, err = pbSvc.AddEntry(ctx, "rollout", service.PlaybookEntryInput{Type: board.EntryTypeCard, Project: "test-project", Card: card.ID}, "human:alice")
+	require.NoError(t, err)
+
+	return card
+}
+
+// runEntryCard is the card of the rollout run's current entry, or "".
+func runEntryCard(ctx context.Context, pbSvc *service.PlaybookService) string {
+	d, err := pbSvc.Get(ctx, "rollout")
+	if err != nil || d.Run == nil {
+		return ""
+	}
+
+	for _, e := range d.Entries {
+		if e.ID == d.Run.Entry {
+			return e.Card
+		}
+	}
+
+	return ""
+}
+
+// requireOneWorkerOnTheRunEntry waits for the run to name a card with a live
+// worker, then checks no other card has one and exactly one trigger went out.
+func requireOneWorkerOnTheRunEntry(t *testing.T, cb *captureBackend, svc *service.CardService, pbSvc *service.PlaybookService, ids ...string) {
+	t.Helper()
+
+	ctx := context.Background()
+	isLive := func(id string) bool {
+		c, err := svc.GetCard(ctx, "test-project", id)
+
+		return err == nil && (c.WorkerStatus == "queued" || c.WorkerStatus == "running")
+	}
+	triggers := func() int {
+		cb.mu.Lock()
+		defer cb.mu.Unlock()
+
+		return len(cb.triggers)
+	}
+
+	require.Eventually(t, func() bool {
+		current := runEntryCard(ctx, pbSvc)
+
+		return current != "" && isLive(current) && triggers() == 1
+	}, 2*time.Second, 10*time.Millisecond)
+
+	assert.Never(t, func() bool { return triggers() > 1 }, 100*time.Millisecond, 10*time.Millisecond, "a second trigger")
+
+	current := runEntryCard(ctx, pbSvc)
+
+	for _, id := range ids {
+		if id != current {
+			assert.False(t, isLive(id), "%s runs beside the run's card %s", id, current)
+		}
+	}
+}
+
+// TestPlaybooksAPI_HandRunRacingPlayIsRefused: a hand run of the second
+// card reaches its queued write while Play is deciding where the run starts.
+// The hand run waits on Play's write and is refused; the run starts the first
+// card, and one worker runs.
+func TestPlaybooksAPI_HandRunRacingPlayIsRefused(t *testing.T) {
+	hc := &hookCards{}
+	server, cb, svc, pbSvc, first := runnablePlaybookServerWith(t, func(s *service.CardService) playbookrun.Cards {
+		hc.CardService = s
+
+		return hc
+	})
+	second := addSecondEntry(t, svc, pbSvc)
+
+	type result struct {
+		status int
+		code   string
+	}
+
+	handRun := make(chan result, 1)
+
+	hc.arm(second.ID, func() {
+		done := make(chan struct{})
+
+		go func() {
+			defer close(done)
+
+			status, code := postAsHuman(server.URL + "/api/projects/test-project/cards/" + second.ID + "/run")
+			handRun <- result{status, code}
+		}()
+
+		// Long enough for an unguarded hand run to finish; a guarded one
+		// waits on the playbook lock this read is taken under.
+		select {
+		case <-done:
+		case <-time.After(500 * time.Millisecond):
+		}
+	})
+
+	resp := doJSON(t, http.MethodPost, server.URL+"/api/playbooks/rollout/run", nil, "human:alice")
+	defer closeBody(t, resp.Body)
+
+	require.Equal(t, http.StatusAccepted, resp.StatusCode)
+
+	var got result
+	select {
+	case got = <-handRun:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the hand run never answered")
+	}
+
+	assert.Equal(t, http.StatusConflict, got.status)
+	assert.Equal(t, ErrCodePlaybookRunActive, got.code)
+
+	requireOneWorkerOnTheRunEntry(t, cb, svc, pbSvc, first.ID, second.ID)
+	assert.Equal(t, first.ID, runEntryCard(context.Background(), pbSvc))
+}
+
+// TestPlaybooksAPI_HandRunAndPlayRaceToOneWorker fires Play and a hand run
+// of the second card together, many times. Whichever wins, one worker runs
+// and the run names it.
+func TestPlaybooksAPI_HandRunAndPlayRaceToOneWorker(t *testing.T) {
+	for round := range 20 {
+		t.Run(fmt.Sprintf("round %d", round), func(t *testing.T) {
+			server, cb, svc, pbSvc, first := runnablePlaybookServer(t)
+			second := addSecondEntry(t, svc, pbSvc)
+
+			start := make(chan struct{})
+
+			var wg sync.WaitGroup
+
+			for _, url := range []string{
+				server.URL + "/api/playbooks/rollout/run",
+				server.URL + "/api/projects/test-project/cards/" + second.ID + "/run",
+			} {
+				wg.Go(func() {
+					<-start
+					postAsHuman(url)
+				})
+			}
+
+			close(start)
+			wg.Wait()
+
+			requireOneWorkerOnTheRunEntry(t, cb, svc, pbSvc, first.ID, second.ID)
+		})
+	}
 }
