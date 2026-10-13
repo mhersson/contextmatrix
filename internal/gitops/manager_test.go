@@ -14,7 +14,7 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
-	githubauth "github.com/mhersson/contextmatrix-githubauth"
+	"github.com/mhersson/contextmatrix/internal/githubauth"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"

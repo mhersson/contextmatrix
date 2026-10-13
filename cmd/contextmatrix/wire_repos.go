@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"time"
 
-	githubauth "github.com/mhersson/contextmatrix-githubauth"
+	"github.com/mhersson/contextmatrix/internal/githubauth"
 
 	"github.com/mhersson/contextmatrix/internal/api"
 	"github.com/mhersson/contextmatrix/internal/clock"

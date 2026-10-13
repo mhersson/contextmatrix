@@ -7,11 +7,11 @@ import (
 
 	"golang.org/x/sync/singleflight"
 
-	githubauth "github.com/mhersson/contextmatrix-githubauth"
 	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/backend"
 	"github.com/mhersson/contextmatrix/internal/backend/sessionlog"
 	"github.com/mhersson/contextmatrix/internal/config"
+	"github.com/mhersson/contextmatrix/internal/githubauth"
 	"github.com/mhersson/contextmatrix/internal/service"
 )
 

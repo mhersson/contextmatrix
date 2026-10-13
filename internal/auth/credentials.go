@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	githubauth "github.com/mhersson/contextmatrix-githubauth"
 	"github.com/mhersson/contextmatrix/internal/authstore"
+	"github.com/mhersson/contextmatrix/internal/githubauth"
 )
 
 // Credential-pool errors. The HTTP layer maps shape and rejection to 422.

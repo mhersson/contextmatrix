@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	githubauth "github.com/mhersson/contextmatrix-githubauth"
+	"github.com/mhersson/contextmatrix/internal/githubauth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

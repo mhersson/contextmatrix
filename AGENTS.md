@@ -99,7 +99,8 @@ internal/modelcatalog/     → cached model catalog + candidate rating (Artifici
 internal/auth/             → sessions, users, one-time tokens, credential-pool crypto, master key
 internal/authstore/        → auth.db (SQLite): users, sessions, tokens, credentials
 internal/images/           → content-hashed image store: images.db plus <project>/images/ files in shared boards repos
-internal/github/           → GitHub auth helpers shared across services
+internal/github/           → GitHub REST client: issue import, branch listing, per-project import loop
+internal/githubauth/       → GitHub token providers (App, PAT, caching) behind TokenGenerator
 internal/jira/             → Jira Cloud REST v3 client: auth, issue reads, transitions, ADF to markdown
 internal/jiraimport/       → Jira epic preview and import: cards in existing projects plus a sourced playbook
 internal/jirawriteback/    → Jira status writeback: event subscriber, ops.db outbox worker, sweep
@@ -121,8 +122,8 @@ workflow-skills/           → agent lifecycle skills (markdown, served via MCP 
 - **Go MCP SDK** (`github.com/modelcontextprotocol/go-sdk`) - MCP over
   Streamable HTTP.
 - **modernc.org/sqlite** - pure-Go SQLite for `auth.db` and `ops.db` (no cgo).
-- **`contextmatrix-githubauth`** - shared GitHub auth module (App + PAT +
-  caching); imported by the server and the execution backends.
+- **`internal/githubauth`** - GitHub auth (App + PAT + caching) behind
+  `githubauth.TokenGenerator`.
 - **`contextmatrix-protocol`** - shared wire types across the server, the agent
   backend, and the chat backend.
 - **React 19 + TypeScript**, **Vite**, **Tailwind**, **@dnd-kit**,

@@ -10,7 +10,7 @@ import (
 	"net/url"
 	"strings"
 
-	githubauth "github.com/mhersson/contextmatrix-githubauth"
+	"github.com/mhersson/contextmatrix/internal/githubauth"
 
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/chat"
