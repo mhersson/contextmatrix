@@ -22,6 +22,10 @@ type clockTicker = clock.Ticker
 // RunnerAgent is the actor stamped on every run-state write the runner makes.
 const RunnerAgent = "system:playbook-runner"
 
+// defaultStopWait bounds Stop's walker wait and kills once the stop is
+// persisted: above the launch's worst case, about 33 s.
+const defaultStopWait = time.Minute
+
 var (
 	// ErrNoBackend is returned by Play when no task backend is configured.
 	ErrNoBackend = errors.New("no execution backend is configured")
@@ -104,8 +108,9 @@ type Runner struct {
 	control map[string]chan struct{}
 	// exiting is, per playbook, the done channel of the walker Stop last
 	// cancelled; the next walker waits on it before its first pass.
-	exiting map[string]chan struct{}
-	wg      sync.WaitGroup
+	exiting  map[string]chan struct{}
+	stopWait time.Duration
+	wg       sync.WaitGroup
 }
 
 // New creates a runner. Clock nil defaults to the real clock; Tick zero
@@ -127,7 +132,7 @@ func New(cfg Config) *Runner {
 
 	return &Runner{
 		cfg: cfg, ctx: ctx, walkers: map[string]*walker{}, watched: map[string]map[string]struct{}{},
-		control: map[string]chan struct{}{}, exiting: map[string]chan struct{}{},
+		control: map[string]chan struct{}{}, exiting: map[string]chan struct{}{}, stopWait: defaultStopWait,
 	}
 }
 
@@ -252,7 +257,8 @@ func (r *Runner) Play(ctx context.Context, id, agentID string) (*service.Playboo
 
 // Stop marks the run stopped, then kills every live worker this instance owns
 // on the run's cards. A kill failure is reported as ErrStopWorker with the
-// stopped detail; the run stays stopped.
+// stopped detail; the run stays stopped. Once the stop is persisted, the wait
+// and kills outlive ctx, bounded by stopWait.
 func (r *Runner) Stop(ctx context.Context, id, agentID string) (*service.PlaybookDetail, error) {
 	release, err := r.lockControl(ctx, id)
 	if err != nil {
@@ -297,10 +303,14 @@ func (r *Runner) Stop(ctx context.Context, id, agentID string) (*service.Playboo
 		return nil, err
 	}
 
-	// The stop is persisted: take the walker down and wait for it. A launch
-	// in flight runs to its outcome, so the card below reads queued and is
-	// killed, or its webhook failed and the launcher reverted the card.
-	// Reading the card before the walker exits could see todo and kill nothing.
+	// The stop is persisted, so a client that hangs up must not skip the kills.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), r.stopWait)
+	defer cancel()
+
+	// Take the walker down and wait for it. A launch in flight runs to its
+	// outcome, so the card below reads queued and is killed, or its webhook
+	// failed and the launcher reverted the card. Reading the card before the
+	// walker exits could see todo and kill nothing.
 	if done := r.cancelWalker(id); done != nil {
 		select {
 		case <-done:

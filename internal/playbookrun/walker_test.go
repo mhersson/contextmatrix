@@ -596,13 +596,14 @@ func TestPlay_GivesUpWhenItsContextEndsDuringAStop(t *testing.T) {
 	e.runner.Wait()
 }
 
-// TestEnsure_NewWalkerWaitsForTheCancelledOne: Stop gives up waiting when its
-// own context ends, so a Play can follow while the cancelled walker is still
+// TestEnsure_NewWalkerWaitsForTheCancelledOne: Stop gives up waiting once
+// stopWait runs out, so a Play can follow while the cancelled walker is still
 // inside its launch. The new walker must not pass until that walker exits.
 func TestEnsure_NewWalkerWaitsForTheCancelledOne(t *testing.T) {
 	e := newEnv(t)
 	e.seedOneCardRun()
 	entered, release, _ := e.holdFirstLaunch(t)
+	e.runner.stopWait = 20 * time.Millisecond
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -610,10 +611,7 @@ func TestEnsure_NewWalkerWaitsForTheCancelledOne(t *testing.T) {
 	e.runner.Start(ctx)
 	<-entered
 
-	stopCtx, stopCancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
-	defer stopCancel()
-
-	_, err := e.runner.Stop(stopCtx, "rollout", "human:alice")
+	_, err := e.runner.Stop(context.Background(), "rollout", "human:alice")
 	require.ErrorIs(t, err, ErrStopWorker, "Stop gave up waiting for the walker")
 
 	_, err = e.runner.Play(context.Background(), "rollout", "human:alice")
@@ -630,6 +628,58 @@ func TestEnsure_NewWalkerWaitsForTheCancelledOne(t *testing.T) {
 		return run.Status == board.RunStatusRunning && run.Entry == "e1"
 	}, time.Second, 5*time.Millisecond)
 	assert.Equal(t, 1, e.launcher.count(), "the new run waits on the worker the old launch queued")
+
+	cancel()
+	e.runner.Wait()
+}
+
+// TestStop_FinishesItsKillsAfterItsRequestEnds: the request behind a Stop can
+// end while Stop waits out a caught launch (a reload, a closed tab). The stop
+// is already persisted, so Stop must still kill the worker that launch queues.
+func TestStop_FinishesItsKillsAfterItsRequestEnds(t *testing.T) {
+	e := newEnv(t)
+	e.seedOneCardRun()
+	entered, release, _ := e.holdFirstLaunch(t)
+
+	// Shaped like the real kill: a call whose context has ended fails.
+	e.runner.SetStopper(func(ctx context.Context, project, card string) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		return e.stopper.stop(ctx, project, card)
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	e.runner.Start(ctx)
+	<-entered
+
+	stopCtx, stopCancel := context.WithCancel(context.Background())
+	stopped := make(chan error, 1)
+
+	go func() {
+		_, err := e.runner.Stop(stopCtx, "rollout", "human:alice")
+		stopped <- err
+	}()
+
+	require.Eventually(t, func() bool { return e.runner.walkerCount() == 0 }, time.Second, 5*time.Millisecond,
+		"Stop has cancelled the walker and is waiting for it")
+
+	stopCancel()
+
+	assert.Never(t, func() bool { return len(stopped) > 0 }, 50*time.Millisecond, 5*time.Millisecond,
+		"Stop returned when its request ended, before the launch it caught had queued")
+
+	release()
+
+	require.NoError(t, <-stopped)
+	assert.Equal(t, []string{"ALPHA-1"}, e.stopper.called(), "the worker the launch queued is killed")
+
+	card, err := e.cards.GetCard(context.Background(), "alpha", "ALPHA-1")
+	require.NoError(t, err)
+	assert.Equal(t, "killed", card.WorkerStatus)
 
 	cancel()
 	e.runner.Wait()
