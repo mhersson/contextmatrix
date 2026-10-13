@@ -121,13 +121,17 @@ func (r *Runner) pass(ctx context.Context, id string) bool {
 }
 
 // holdOnLiveWorker keeps the run on a live worker and reports whether it
-// did: run.entry's when its card has one, else the first in stored order. A
-// raced hand run, a peer's worker or a rolled-back completion can leave one
-// on any entry, and starting a card beside it would leave two.
+// did: run.entry's when its card has one, else the first in stored order. The
+// run is re-pointed only when its entry is unset, complete or gone; an entry
+// it already triggered keeps its markers so the walk waits on it later.
 func (r *Runner) holdOnLiveWorker(ctx context.Context, d *service.PlaybookDetail) bool {
 	entry := r.liveEntry(ctx, d.ID, rawEntries(d), d.Run.Entry)
 	if entry == "" {
 		return false
+	}
+
+	if cur := findEntry(d, d.Run.Entry); entry != d.Run.Entry && cur != nil && !cur.Complete {
+		return true
 	}
 
 	r.setRun(ctx, d, board.RunStatusRunning, entry, "")

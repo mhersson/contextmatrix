@@ -959,7 +959,7 @@ func TestPass_HoldsOnALiveWorkerOffTheRunEntry(t *testing.T) {
 
 			run := e.pbs.lastRun()
 			assert.Equal(t, board.RunStatusRunning, run.Status)
-			assert.Equal(t, "e2", run.Entry, "Stop targets the live worker")
+			assert.Equal(t, "e2", run.Entry, "the run points at the live worker")
 		})
 	}
 }
@@ -1068,4 +1068,63 @@ func TestStop_KillsEveryLiveEntryWorker(t *testing.T) {
 		assert.Equal(t, board.RunStatusStopped, d.Run.Status)
 		assert.ElementsMatch(t, []string{"ALPHA-1", "ALPHA-2"}, e.stopper.called())
 	})
+}
+
+// TestPass_LiveWorkerElsewhereKeepsATriggeredRunEntry: a run that already
+// triggered an entry keeps pointing at it while another entry's worker holds
+// the run, so the walk still waits for a human on it afterwards instead of
+// launching it again.
+func TestPass_LiveWorkerElsewhereKeepsATriggeredRunEntry(t *testing.T) {
+	tests := []struct {
+		name       string
+		setup      func(e *env, p *board.Playbook, c1 *board.Card)
+		wantReason string
+	}{
+		{
+			name: "the triggered entry failed",
+			setup: func(e *env, p *board.Playbook, c1 *board.Card) {
+				c1.State, c1.WorkerStatus = board.StateInProgress, "failed"
+			},
+			wantReason: "ALPHA-1",
+		},
+		{
+			name: "the launch of the triggered entry failed",
+			setup: func(e *env, p *board.Playbook, c1 *board.Card) {
+				p.Run.Status, p.Run.Reason = board.RunStatusWaiting, "launch ALPHA-1 failed"
+			},
+			wantReason: "launch ALPHA-1 failed",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+
+			c1 := todoCard("alpha", "ALPHA-1")
+			c2 := todoCard("alpha", "ALPHA-2")
+			c2.State, c2.WorkerStatus = board.StateInProgress, "running"
+
+			p := runnablePlaybook("rollout", cardEntry("e1", "alpha", "ALPHA-1"), cardEntry("e2", "alpha", "ALPHA-2"))
+			e.activeRun(p, "e1")
+			tc.setup(e, p, c1)
+			e.cards.add(c1)
+			e.cards.add(c2)
+			e.pbs.add(p)
+
+			require.False(t, e.runner.pass(context.Background(), "rollout"))
+			assert.Equal(t, 0, e.launcher.count())
+			assert.Equal(t, 0, e.pbs.runWrites(), "the run is left as it was")
+
+			e.cards.set("alpha", "ALPHA-2", func(c *board.Card) { c.State = board.StateDone })
+
+			require.False(t, e.runner.pass(context.Background(), "rollout"))
+			assert.Equal(t, 0, e.launcher.count(), "no retry without a human")
+
+			d, err := e.pbs.Get(context.Background(), "rollout")
+			require.NoError(t, err)
+			assert.Equal(t, board.RunStatusWaiting, d.Run.Status)
+			assert.Equal(t, "e1", d.Run.Entry)
+			assert.Contains(t, d.Run.Reason, tc.wantReason)
+		})
+	}
 }
