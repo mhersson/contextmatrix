@@ -1190,6 +1190,8 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusConflict, ErrCodeNotClaimed, "card is not claimed", "")
 	case errors.Is(err, service.ErrCardTerminal):
 		writeError(w, http.StatusConflict, ErrCodeInvalidTransition, "card is in a terminal state", sanitizeErrorDetails(err))
+	case errors.Is(err, service.ErrWorkerActive):
+		writeError(w, http.StatusConflict, ErrCodeWorkerConflict, "card has a queued or running worker", "stop the worker first")
 	case errors.Is(err, service.ErrDuplicateCardEntry):
 		writeError(w, http.StatusConflict, ErrCodePlaybookEntryExists, "card already in playbook", sanitizeErrorDetails(err))
 	case errors.Is(err, service.ErrPlaybookRunActive):

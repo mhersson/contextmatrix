@@ -266,7 +266,7 @@ the request's `request_id`.
 | `INVALID_MODEL`               | 400     | Chat `model` not in the active model source                                                                                                                                                |
 | `TOO_MANY_CHATS`              | 429     | `chat.max_concurrent` reached, or 32 subscribers already on one chat stream                                                                                                                |
 | `TOO_MANY_SUBSCRIBERS`        | 429     | 128 concurrent `GET /api/events` subscribers already connected                                                                                                                             |
-| `WORKER_CONFLICT`             | 409     | Card already queued or running                                                                                                                                                             |
+| `WORKER_CONFLICT`             | 409     | Card already queued or running: a run trigger, or a delete while the worker is live                                                                                                        |
 | `WORKER_NOT_RUNNING`          | 409     | Card is not running; also a cold chat session                                                                                                                                              |
 | `BACKEND_DISABLED`            | 503     | No task backend (or no such backend) configured                                                                                                                                            |
 | `BACKEND_UNAVAILABLE`         | 502     | Backend webhook or probe failed                                                                                                                                                            |
@@ -1254,7 +1254,8 @@ Deletes the card file (git history keeps it). **204 No Content**.
 
 **Errors:** 404 `CARD_NOT_FOUND`; 403 `AGENT_MISMATCH` on a claimed card the
 caller does not own; 422 `VALIDATION_ERROR` when the card still has subtasks
-("cannot delete card with N subtask(s)").
+("cannot delete card with N subtask(s)"); 409 `WORKER_CONFLICT` while the card's
+worker is `queued` or `running` (stop it first).
 
 ### POST /api/projects/{project}/cards/{id}/claim
 
