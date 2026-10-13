@@ -402,11 +402,10 @@ back to `in_progress` with `transition_card`, leaves `done` subtasks
 untouched, respawns `plan-draft` with the findings as revision feedback so
 `## Plan` holds only fix subtasks, and resumes from Phase 2.
 
-**7. Commit, push, PR** (Phase 9) - the mode is the `autonomous` flag plus
-the environment (`CM_CARD_ID` set means a worker container). Autonomous and
-remote HITL auto-commit, push, open the PR when `create_pr` is set (against
-`base_branch` when set) and call `report_push`; local HITL asks before
-committing and before pushing. PR gates run after `report_push` when
+**7. Commit, push, PR** (Phase 9) - the mode is the `autonomous` flag.
+Autonomous auto-commits, pushes, opens the PR when `create_pr` is set (against
+`base_branch` when set) and calls `report_push`; HITL asks before committing
+and before pushing. PR gates run after `report_push` when
 `await_ci` or `await_copilot_review` is set and can park the card in
 `review`; with `merge_pr`, a passed `await_ci` gate also merges the PR
 before the card completes.

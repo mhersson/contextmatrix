@@ -503,37 +503,15 @@ Heartbeat before prompting. Heartbeat on resume. See the Heartbeat section.
 
 ## Step 1: Determine the mode
 
-Do both of these before branching:
+Call `get_card(card_id=<parent_id>)` and read the `autonomous` flag. If
+`true`, follow Step 2 (auto-commit path); if `false`, follow Step 3 (prompt
+path). Only one of Step 2 or Step 3 runs. Do not read the other step.
 
-1. Call `get_card(card_id=<parent_id>)` and read the `autonomous` flag.
-2. Detect whether you're running inside a worker container by checking for
-   the `CM_CARD_ID` env var. The worker container has `CM_CARD_ID`,
-   `CM_PROJECT`, `CM_REPO_URL`, and `CM_MCP_URL` set; a local agent session
-   (e.g. Claude Code) has none of them. Run:
+## Step 2: Auto-commit path (Autonomous)
 
-   ```bash
-   printenv CM_CARD_ID
-   ```
-
-   If the command prints a value (and exits 0), the mode is `worker`.
-   If it prints nothing (and exits non-zero), the mode is `local`.
-
-Select exactly one mode from the table - the two inputs fully determine it:
-
-| `autonomous` | Environment | Mode            | Path to follow            |
-| ------------ | ----------- | --------------- | ------------------------- |
-| `true`       | any         | **Autonomous**  | Auto-commit path (Step 2) |
-| `false`      | `worker`    | **Remote HITL** | Auto-commit path (Step 2) |
-| `false`      | `local`     | **Local HITL**  | Prompt path (Step 3)      |
-
-Only one of Step 2 or Step 3 runs. Do not read the other step.
-
-## Step 2: Auto-commit path (Autonomous and Remote HITL)
-
-**Do not prompt the user at any point in this step.** In Remote HITL the
-container is disposable and uncommitted work is lost; in Autonomous there is no
-user to prompt. Execute all of the following without confirmation, then go
-straight to Phase 10:
+**Do not prompt the user at any point in this step.** There is no user to
+prompt. Execute all of the following without confirmation, then go straight to
+Phase 10:
 
 1. Commit any remaining changes in a conventional commit with a bullet-point
    body. No card IDs in commit messages.
@@ -546,7 +524,7 @@ straight to Phase 10:
    it parks the card, stop - do not proceed to Phase 10.
 6. Proceed directly to Phase 10.
 
-## Step 3: Prompt path (Local HITL only)
+## Step 3: Prompt path (HITL)
 
 Ask the user:
 

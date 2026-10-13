@@ -53,8 +53,6 @@ about what's missing.
 - **Labels** - categorization tags (e.g., `backend`, `frontend`, `security`)
 - **Dependencies** (`depends_on`) - card IDs that must be completed before this
   task can start
-- **Context files** - source files or docs relevant to the task (e.g.,
-  `src/auth/`, `docs/api-spec.md`)
 - **Parent** - parent card ID if this is a subtask
 - **Body** - additional description, requirements, acceptance criteria
 
@@ -68,12 +66,11 @@ Title:    Add JWT auth middleware
 Type:     task
 Priority: high
 Labels:   [backend, security]
-Context:  [src/auth/, docs/auth-spec.md]
 ```
 
 If the human approves, call `create_card` with the gathered fields. Include any
 body content as the card body - write clear requirements and acceptance
-criteria.
+criteria. Fold any file or doc paths the human offers into the body.
 
 After creation, confirm the card ID to the human (e.g., "Created ALPHA-007").
 
@@ -92,9 +89,9 @@ it returns a `model` field and `content` field. Use the **`Agent`** tool with
 `model` set to the returned model value (**CRITICAL** - do not omit),
 `description` set to a short summary, and `prompt` set to the returned content.
 
-- If **plan**: call `get_skill(skill_name='create-plan', card_id='<card_id>')`,
-  then use the `Agent` tool with `model` from the response, `description` set to
-  "create-plan for <card_id>", and `prompt` set to the returned content.
+- If **plan**: call `start_workflow(card_id='<card_id>')` and execute the
+  returned `content` inline in this session. Do NOT spawn it through the
+  `Agent` tool; create-plan's approval gates need the user channel.
 - If **work on it now**: call
   `get_skill(skill_name='execute-task', card_id='<card_id>')`, then use the
   Agent tool with `model` from the response, `description` set to

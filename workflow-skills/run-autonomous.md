@@ -2,9 +2,8 @@
 
 ## Agent Configuration
 
-No model specified - the orchestrator model is set by the invoker. Local
-autonomous runs on the user's model (typically Opus). Worker containers set the
-orchestrator model from the agent backend's config (default or per-card pin).
+No model specified - the orchestrator model is set by the invoker. Autonomous
+runs on the user's model (typically Opus).
 
 ---
 
@@ -192,10 +191,10 @@ Based on the card's current state and body content:
 
 ## Phase 5: Review (inline)
 
-15. Call `start_review(card_id='<card_id>', agent_id=<your_agent_id>)`. The response always has `inline: true` -
-    review-task is forced to inline because it spawns three specialist
-    sub-agents in parallel via the `Agent` tool, which only the top-level
-    (your) session has.
+15. Call `start_review(card_id='<card_id>', agent_id=<your_agent_id>)`. The
+    response always has `inline: true` - review-task is forced to inline
+    because it spawns three specialist sub-agents in parallel via the `Agent`
+    tool, which only the top-level (your) session has.
 16. Execute the returned `content` inline. Do NOT release your claim.
     The skill runs Pass 1 (test/lint gate); if Pass 1 passes, spawns three
     specialist agents in parallel (Correctness, Design &
@@ -209,7 +208,8 @@ Based on the card's current state and body content:
     - **approve**: Proceed to Phase 6.
     - **revise**: Check the card's `review_attempts` field:
       - If **< 3**:
-        1. Increment `review_attempts` by updating the card.
+        1. Call `increment_review_attempts(card_id='<card_id>',
+           agent_id=<your_agent_id>)`; use the returned count.
         2. Transition parent back to `in_progress`:
            `transition_card(card_id='<card_id>', new_state='in_progress')`.
         3. **MUST call `create_card`** to cover every Critical and Important
