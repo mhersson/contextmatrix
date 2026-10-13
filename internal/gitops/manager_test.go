@@ -62,6 +62,20 @@ func TestNewManager_OpenExistingRepo(t *testing.T) {
 	assert.NotNil(t, mgr)
 }
 
+// Partial clones and worktreeConfig set format version 1; go-git 5.19.3 then
+// writes an empty extensions.objectformat that shell git refuses to parse.
+func TestNewManager_AddOriginKeepsConfigReadableByGit(t *testing.T) {
+	tmpDir := t.TempDir()
+	gitRun(t, tmpDir, "git", "init", "-q")
+	gitRun(t, tmpDir, "git", "config", "core.repositoryformatversion", "1")
+
+	_, err := NewManager(tmpDir, "https://example.com/boards.git", "test", staticTestProvider(t))
+	require.NoError(t, err)
+
+	url := gitRun(t, tmpDir, "git", "remote", "get-url", "origin")
+	assert.Equal(t, "https://example.com/boards.git", strings.TrimSpace(url))
+}
+
 func TestCommitFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	mgr, err := NewManager(tmpDir, "", "test", staticTestProvider(t))
