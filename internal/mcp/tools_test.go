@@ -435,17 +435,12 @@ func TestStartReview_HappyPath(t *testing.T) {
 	assert.Equal(t, "review", card.State, "card must be transitioned to review")
 }
 
-// TestStartReview_RejectsCallerModel pins that start_review takes no model
-// argument: the strict input schema rejects it, and review-task is always
-// inline (see TestStartReview_HappyPath). The review skill must run inline
-// in the orchestrator's session so its Agent tool is available to spawn
-// the three parallel specialist sub-agents - sub-agents spawned via Agent
-// lack the Agent tool themselves. Regressing this gate would silently
-// degrade the review to a single-perspective walkthrough.
+// TestStartReview_RejectsCallerModel pins that the strict input schema
+// rejects a caller_model argument.
 func TestStartReview_RejectsCallerModel(t *testing.T) {
 	env := setupMCP(t)
 
-	createTestCard(t, env, "Review inline regardless of model", "feature", "high")
+	createTestCard(t, env, "Reject caller_model on start_review", "feature", "high")
 
 	callTool(t, env, "claim_card", map[string]any{
 		"project":  "test-project",
