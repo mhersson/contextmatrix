@@ -111,10 +111,10 @@ re-reads the issue, so a move that already landed becomes a no-op.
 An hourly sweep re-checks Jira cards updated in the last 24 h. It catches
 changes the worker never saw, such as a large shared-board pull (more than 16
 changed cards emit no per-card events) or a full event buffer. The sweep owes
-the started move for any recently updated Jira card whose state is not `todo`,
-`not_planned` or `done` (a card that went straight to `stalled` or `review`
-counts), if it was never recorded; the live subscriber writes started only on
-entry to `in_progress`. A card that points at a different Jira issue than a
+the started move only for recently updated Jira cards in `in_progress`,
+`review` or `stalled`, if it was never recorded; the live subscriber writes
+started only on entry to `in_progress`. Custom states are never inferred as
+started, since imports land in the project's first state. A card that points at a different Jira issue than a
 finished row did, as when a project is recreated under the same name, is
 written afresh. Turning writeback on never
 backfills older moves.
