@@ -4621,12 +4621,12 @@ func TestGenerateBranchName(t *testing.T) {
 		{"empty title", "TEST-001", "", nil, "test-001"},
 		{"unicode", "TEST-001", "Fix über bug", nil, "test-001/fix-ber-bug"},
 		{"github source unchanged", "TEST-001", "Fix login", &board.Source{System: "github", ExternalID: "acme/x#1"}, "test-001/fix-login"},
-		{"jira key kept uppercase", "CTXMAX-801", "PROJ-123 Fix login bug", jiraSrc("PROJ-123"), "ctxmax-801/PROJ-123-fix-login-bug"},
-		{"jira title edited to drop the key", "CTXMAX-801", "Fix login bug", jiraSrc("PROJ-123"), "ctxmax-801/PROJ-123-fix-login-bug"},
-		{"jira title is only the key", "CTXMAX-801", "PROJ-123", jiraSrc("PROJ-123"), "ctxmax-801/PROJ-123"},
-		{"jira longer key prefix not stripped", "CTXMAX-801", "PROJ-1234 Fix", jiraSrc("PROJ-123"), "ctxmax-801/PROJ-123-proj-1234-fix"},
-		{"jira invalid key ignored", "CTXMAX-801", "Fix", jiraSrc("proj 1;rm"), "ctxmax-801/fix"},
-		{"jira key over 64 bytes ignored", "CTXMAX-801", "Fix", jiraSrc("P" + strings.Repeat("X", 60) + "-1234"), "ctxmax-801/fix"},
+		{"jira key kept uppercase", "TEST-002", "PROJ-123 Fix login bug", jiraSrc("PROJ-123"), "test-002/PROJ-123-fix-login-bug"},
+		{"jira title edited to drop the key", "TEST-002", "Fix login bug", jiraSrc("PROJ-123"), "test-002/PROJ-123-fix-login-bug"},
+		{"jira title is only the key", "TEST-002", "PROJ-123", jiraSrc("PROJ-123"), "test-002/PROJ-123"},
+		{"jira longer key prefix not stripped", "TEST-002", "PROJ-1234 Fix", jiraSrc("PROJ-123"), "test-002/PROJ-123-proj-1234-fix"},
+		{"jira invalid key ignored", "TEST-002", "Fix", jiraSrc("proj 1;rm"), "test-002/fix"},
+		{"jira key over 64 bytes ignored", "TEST-002", "Fix", jiraSrc("P" + strings.Repeat("X", 60) + "-1234"), "test-002/fix"},
 	}
 
 	for _, tt := range tests {
