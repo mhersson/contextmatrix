@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import { render, screen, fireEvent, renderHook, act } from '@testing-library/react';
 import { ChatPanel } from './ChatPanel';
 import { useWorkerLogs } from '../../hooks/useWorkerLogs';
@@ -27,6 +27,10 @@ const localStorageMock = (() => {
 })();
 
 Object.defineProperty(globalThis, 'localStorage', { value: localStorageMock, configurable: true });
+
+// Chat entries lazy-load the markdown chunk; loading it up front keeps the
+// import from finishing after this file's environment is torn down.
+beforeAll(() => import('../Markdown/SafeMarkdownPreview'));
 
 // ---------------------------------------------------------------------------
 // Fake EventSource for the composed useWorkerLogs → ChatPanel integration test
