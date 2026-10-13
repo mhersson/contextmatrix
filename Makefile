@@ -26,7 +26,7 @@ test-race:
 	CGO_ENABLED=1 go test -race -count=1 ./internal/chat/... ./internal/api/... ./internal/mcp/...
 
 fmt:
-	go fmt ./...
+	gofumpt -w ./cmd ./internal ./test
 
 lint:
 	golangci-lint run

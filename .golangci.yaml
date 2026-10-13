@@ -93,6 +93,7 @@ issues:
   fix: false
 formatters:
   enable:
+  - gofumpt
   - goimports
   exclusions:
     paths:
