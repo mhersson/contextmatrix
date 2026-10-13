@@ -21,8 +21,9 @@ interface MetadataRelatedProps {
 
 /**
  * Related-card sections of the Info tab: Parent (id only), Subtasks, Depends on.
- * Subtask and dependency labels are hydrated via api.getCard whenever the id
- * membership changes (joined-string deps so SSE object churn does not refetch).
+ * Subtask and dependency chips read the live `cards` list; only ids the board
+ * list lacks (e.g. filtered out) are fetched via api.getCard, whenever that
+ * missing set changes (joined-string deps so SSE object churn does not refetch).
  * The dependency picker filters the board's own `cards`; add/remove compute the
  * next list from `card.depends_on` after the save settles - never a local copy.
  */
@@ -34,7 +35,7 @@ export function MetadataRelated({
   onSubtaskClick,
   onDependsOnChange,
 }: MetadataRelatedProps) {
-  const [related, setRelated] = useState<Record<string, RelatedCard>>({});
+  const [fetched, setFetched] = useState<Record<string, RelatedCard>>({});
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerFilter, setPickerFilter] = useState('');
   const [saving, setSaving] = useState(false);
@@ -51,13 +52,16 @@ export function MetadataRelated({
 
   const subtaskIds = (card.subtasks ?? []).join(',');
   const dependsIds = (card.depends_on ?? []).join(',');
+  const liveIds = useMemo(() => new Set(cards.map((c) => c.id)), [cards]);
+  const missingIds = [...(card.subtasks ?? []), ...(card.depends_on ?? [])]
+    .filter((id) => !liveIds.has(id))
+    .join(',');
   useEffect(() => {
-    const ids = [...(card.subtasks ?? []), ...(card.depends_on ?? [])];
-    if (ids.length === 0) return;
+    if (missingIds === '') return;
     const controller = new AbortController();
     const { signal } = controller;
     const out: Record<string, RelatedCard> = {};
-    Promise.allSettled(ids.map(async (id) => {
+    Promise.allSettled(missingIds.split(',').map(async (id) => {
       try {
         const c = await api.getCard(card.project, id, signal);
         out[id] = { state: c.state, title: c.title };
@@ -67,14 +71,16 @@ export function MetadataRelated({
         out[id] = { state: 'unknown', title: id };
       }
     })).then(() => {
-      if (!signal.aborted) setRelated(out);
+      if (!signal.aborted) setFetched(out);
     });
     return () => { controller.abort(); };
-    // subtaskIds / dependsIds are value-stable joined strings derived from
-    // card.subtasks / card.depends_on; listing the arrays directly would
-    // re-fire the effect on every SSE-driven card identity change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [subtaskIds, dependsIds, card.project]);
+  }, [missingIds, card.project]);
+
+  const related = useMemo(() => {
+    const out: Record<string, RelatedCard> = { ...fetched };
+    for (const c of cards) out[c.id] = { state: c.state, title: c.title };
+    return out;
+  }, [fetched, cards]);
 
   const subtasks = card.subtasks ?? [];
   const deps = card.depends_on ?? [];
@@ -82,8 +88,8 @@ export function MetadataRelated({
   const excludeIds = useMemo(
     () => new Set([card.id, ...deps, ...subtasks]),
     // deps / subtasks are new arrays every render; dependsIds / subtaskIds
-    // are the value-stable joined markers already used by the hydration
-    // effect above, so this only recomputes when membership actually changes.
+    // are value-stable joined markers, so this only recomputes when
+    // membership actually changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [card.id, dependsIds, subtaskIds],
   );

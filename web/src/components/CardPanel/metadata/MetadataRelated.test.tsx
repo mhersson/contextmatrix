@@ -266,3 +266,37 @@ describe('MetadataRelated - dependency picker', () => {
     expect(screen.getByRole('dialog', { name: 'Add dependency' })).toBeInTheDocument();
   });
 });
+
+describe('MetadataRelated - live chips', () => {
+  const renderRelated = (cards: Card[]) => (
+    <MetadataRelated
+      card={selfCard}
+      config={config}
+      workerAttached={false}
+      cards={cards}
+      onSubtaskClick={vi.fn()}
+      onDependsOnChange={vi.fn().mockResolvedValue(undefined)}
+    />
+  );
+
+  it('updates a chip when the cards prop changes state, without refetching', () => {
+    const { rerender } = render(renderRelated(boardCards));
+    expect(screen.getAllByText('todo')).toHaveLength(2);
+
+    rerender(
+      renderRelated(boardCards.map((c) => (c.id === 'TEST-003' ? { ...c, state: 'done' } : c))),
+    );
+
+    expect(screen.getByText('done')).toBeInTheDocument();
+    expect(screen.getAllByText('todo')).toHaveLength(1);
+    expect(api.getCard).not.toHaveBeenCalled();
+  });
+
+  it('fetches only the ids missing from the board list', async () => {
+    render(renderRelated([selfCard, depCard]));
+
+    await waitFor(() => expect(screen.getByText('Existing subtask')).toBeInTheDocument());
+    expect(api.getCard).toHaveBeenCalledTimes(1);
+    expect(api.getCard).toHaveBeenCalledWith('test', 'TEST-003', expect.anything());
+  });
+});

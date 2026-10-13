@@ -2194,7 +2194,8 @@ is the backend-global cap.
 { "ok": true, "running_containers": 2, "max_concurrent": 4 }
 ```
 
-- 503 `BACKEND_DISABLED` when no task backend is configured.
+- The route is registered only when a task backend is configured; without one
+  the path answers 404 (the web UI does not call it then).
 - 502 `BACKEND_UNAVAILABLE` when the probe fails (timeout, transport error,
   non-2xx). Upstream details are logged, not returned; callers should hide
   the meter.

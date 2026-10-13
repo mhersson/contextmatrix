@@ -627,3 +627,67 @@ describe('CreateCardPanel - project card defaults', () => {
     expect(screen.getByLabelText('Mob seats')).toHaveValue('0');
   });
 });
+
+describe('CreateCardPanel - Escape', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function pressEscape() {
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+  }
+
+  it('closes a pristine panel on Escape', () => {
+    const onClose = vi.fn();
+    render(<CreateCardPanel {...makeProps({ onClose })} />);
+
+    pressEscape();
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks before discarding a dirty draft on Escape', () => {
+    const onClose = vi.fn();
+    render(<CreateCardPanel {...makeProps({ onClose })} />);
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'half-typed' } });
+
+    pressEscape();
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByText('Discard unsaved changes?')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the draft when the discard prompt is dismissed with Escape', () => {
+    const onClose = vi.fn();
+    render(<CreateCardPanel {...makeProps({ onClose })} />);
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'half-typed' } });
+    pressEscape();
+
+    pressEscape();
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.queryByText('Discard unsaved changes?')).not.toBeInTheDocument();
+    expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('half-typed');
+  });
+
+  it('Escape on the template confirm cancels it and keeps the panel and draft', () => {
+    const onClose = vi.fn();
+    render(<CreateCardPanel {...makeProps({ onClose })} />);
+    const typeSelect = screen.getByLabelText('Type') as HTMLSelectElement;
+    fireEvent.change(typeSelect, { target: { value: 'bug' } });
+    const editor = screen.getByTestId('md-editor') as HTMLTextAreaElement;
+    fireEvent.change(editor, { target: { value: 'my custom description' } });
+    fireEvent.change(typeSelect, { target: { value: 'task' } });
+    expect(screen.getByText('Load template for "task"?')).toBeInTheDocument();
+
+    pressEscape();
+
+    expect(screen.queryByText('Load template for "task"?')).not.toBeInTheDocument();
+    expect(screen.queryByText('Discard unsaved changes?')).not.toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(editor.value).toBe('my custom description');
+  });
+});

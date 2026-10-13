@@ -14,7 +14,6 @@ vi.mock('../../hooks/useSSEBus', () => ({
   useSSEBus: () => ({
     subscribe: () => () => {},
     connected: true,
-    error: null,
     reconnectEpoch: 0,
   }),
 }));

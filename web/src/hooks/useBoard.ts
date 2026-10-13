@@ -61,7 +61,7 @@ export function useBoard(
 
   // Per-instance monotonic request id - only the latest fetchData call commits
   // its results to state. This prevents a slower response from a stale request
-  // (e.g. triggered by SSE sync.completed) from overwriting a newer one.
+  // (e.g. after a reconnect resync or a project/filter switch) from overwriting a newer one.
   const reqIdRef = useRef(0);
 
   // Per-instance monotonic counter for silent refreshes. These never stamp
@@ -203,6 +203,12 @@ export function useBoard(
     onCardCreatedRef.current = onCardCreated;
   }, [onCardCreated]);
 
+  // Lets async config refreshes drop a result that resolves after a project switch.
+  const projectRef = useRef(project);
+  useEffect(() => {
+    projectRef.current = project;
+  }, [project]);
+
   // Read by handleEvent so the dependents fan-out below sees the current
   // list without re-subscribing to SSE on every cards change.
   const cardsRef = useRef(cards);
@@ -215,9 +221,17 @@ export function useBoard(
       // Forward sync events to the sync handler.
       if (event.type.startsWith('sync.')) {
         onSyncEventRef.current?.(event);
-        // Also reload board when changes were pulled.
+        // Pulled changes refresh silently: the event is global, so a skeleton
+        // would blank every open board and cancel drags.
         if (event.type === 'sync.completed' && event.data?.changes_pulled) {
-          fetchData();
+          refreshCards();
+          if (project) {
+            api.getProject(project).then((c) => {
+              if (projectRef.current === project) setConfig(c);
+            }).catch((err) => {
+              console.error('Failed to refresh config after sync:', err);
+            });
+          }
         }
         return;
       }
@@ -232,7 +246,9 @@ export function useBoard(
 
       // Handle project config updates - reload to get new transitions
       if (event.type === 'project.updated' && event.project === project) {
-        api.getProject(project).then(setConfig).catch((err) => {
+        api.getProject(project).then((c) => {
+          if (projectRef.current === project) setConfig(c);
+        }).catch((err) => {
           console.error('Failed to refresh config after project.updated:', err);
         });
         return;
@@ -296,10 +312,10 @@ export function useBoard(
           break;
       }
     },
-    [project, fetchData, mergeCard, refreshCards]
+    [project, mergeCard, refreshCards]
   );
 
-  const { subscribe, connected, error: sseError, reconnectEpoch } = useSSEBus();
+  const { subscribe, connected, reconnectEpoch } = useSSEBus();
 
   // Resync after an SSE outage: useSSEBus bumps reconnectEpoch on every
   // true reconnect (never on the initial connect). Events published while
@@ -357,7 +373,7 @@ export function useBoard(
     config,
     cards,
     loading,
-    error: error || sseError,
+    error,
     connected,
     refresh: fetchData,
     listEpoch,

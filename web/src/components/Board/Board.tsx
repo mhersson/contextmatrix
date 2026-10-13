@@ -28,6 +28,7 @@ import { ProjectCrumb } from '../ProjectCrumb/ProjectCrumb';
 import { MetricsRibbon } from './MetricsRibbon';
 import { SpotlightStrip } from './SpotlightStrip';
 import { FilterChipBar } from './FilterChipBar';
+import type { BackendStatus } from '../../hooks/useBackendHealth';
 import { NowRail, type ActivityEntry } from './NowRail';
 import { BoardFooter } from './BoardFooter';
 import { BoardSkeleton } from './BoardSkeleton';
@@ -74,6 +75,7 @@ interface BoardProps {
   metricSeries?: MetricSeries;
   maxWorkers?: number;
   runningContainers?: number;
+  backendStatus?: BackendStatus;
   syncStatus?: SyncStatus | null;
   /** Name of the boards repo syncStatus describes; shown in the footer label with two or more repos. */
   syncRepoName?: string;
@@ -93,6 +95,8 @@ interface BoardProps {
    * the new fetch resolves), so the crumb must not name itself from it.
    */
   projectName?: string;
+  /** A card or create panel is open; it owns Escape, so the board's filter-clearing Escape stands down. */
+  cardPanelOpen?: boolean;
   onCardClick?: (card: Card) => void;
   onCardMove?: (cardId: string, newState: string) => Promise<boolean>;
   onCreateCard?: (state: string) => void;
@@ -118,6 +122,7 @@ export function Board({
   metricSeries,
   maxWorkers,
   runningContainers,
+  backendStatus,
   syncStatus,
   syncRepoName,
   connected,
@@ -129,6 +134,7 @@ export function Board({
   headerActions,
   onOpenSidebar,
   projectName,
+  cardPanelOpen,
   onCardClick,
   onCardMove,
   onCreateCard,
@@ -334,10 +340,10 @@ export function Board({
   // Keep a ref to the latest filter/search booleans so the shortcut handler
   // never needs to be recreated. The ref is read inside the stable wrapper, so
   // the keydown listener is added exactly once and removed only on unmount.
-  const escapeStateRef = useRef({ hasFilter, hasSearch });
+  const escapeStateRef = useRef({ hasFilter, hasSearch, cardPanelOpen });
   useEffect(() => {
-    escapeStateRef.current = { hasFilter, hasSearch };
-  }, [hasFilter, hasSearch]);
+    escapeStateRef.current = { hasFilter, hasSearch, cardPanelOpen };
+  }, [hasFilter, hasSearch, cardPanelOpen]);
 
   useKeyboardShortcuts(
     useMemo(
@@ -345,8 +351,10 @@ export function Board({
         {
           key: 'Escape',
           handler: () => {
-            if (escapeStateRef.current.hasFilter) setFilter({});
-            if (escapeStateRef.current.hasSearch) setSearchQuery('');
+            const { hasFilter, hasSearch, cardPanelOpen } = escapeStateRef.current;
+            if (cardPanelOpen || (!hasFilter && !hasSearch)) return false;
+            if (hasFilter) setFilter({});
+            if (hasSearch) setSearchQuery('');
           },
         },
       ],
@@ -631,6 +639,7 @@ export function Board({
               activityEntries={activityEntries}
               maxAgents={maxWorkers}
               runningContainers={runningContainers}
+              backendStatus={backendStatus}
               hasBackfill={activityBackfillLoaded}
               className={isMobile ? 'animate-panel-slide-in' : undefined}
             />

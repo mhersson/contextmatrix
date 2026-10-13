@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { NavLink, useLocation } from 'react-router';
 import { api } from '../../api/client';
+import { sortProjectsForSidebar } from '../../lib/projectOrder';
 import { useProjects } from '../../hooks/useProjects';
 import { useProjectSummariesContext } from '../../hooks/ProjectSummariesProvider';
 import { useSSEBus } from '../../hooks/useSSEBus';
@@ -107,8 +108,8 @@ export function Sidebar({ onNewProject, onNewChat, mobileOpen = false, onMobileC
   const [collapsed, setCollapsed] = useState(false);
   const drawerRef = useRef<HTMLDivElement>(null);
   const sortedProjects = useMemo(
-    () => [...projects].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })),
-    [projects]
+    () => sortProjectsForSidebar(projects, boardsRepos),
+    [projects, boardsRepos]
   );
   const { summaries } = useProjectSummariesContext();
   const playbooksTarget = usePlaybooksLinkTarget();

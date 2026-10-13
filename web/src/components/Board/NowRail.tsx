@@ -1,4 +1,5 @@
 import type { ActiveAgent } from '../../types';
+import type { BackendStatus } from '../../hooks/useBackendHealth';
 import { avatarGradient } from '../../utils/colorHash';
 
 export interface ActivityEntry {
@@ -14,6 +15,7 @@ interface NowRailProps {
   activityEntries: ActivityEntry[];
   maxAgents?: number;
   runningContainers?: number;
+  backendStatus?: BackendStatus;
   hasBackfill?: boolean;
   className?: string;
 }
@@ -95,8 +97,8 @@ function relativeTime(iso: string): string {
 }
 
 /**
- * Live agent list + capacity meter + activity feed. `maxAgents` shows the
- * capacity section; `hasBackfill` switches the activity label once the
+ * Live agent list + capacity meter + activity feed. Capacity section is
+ * hidden only when `backendStatus` is 'disabled'; `hasBackfill` switches the activity label once the
  * one-shot /activity backfill has loaded.
  * The Capacity meter shows `runningContainers / maxAgents` (worker-container
  * counts), not agent counts - the "Now · agents" section is the canonical
@@ -104,7 +106,7 @@ function relativeTime(iso: string): string {
  */
 const ACTIVITY_MAX = 8;
 
-export function NowRail({ agents, activityEntries, maxAgents, runningContainers, hasBackfill, className }: NowRailProps) {
+export function NowRail({ agents, activityEntries, maxAgents, runningContainers, backendStatus = 'ok', hasBackfill, className }: NowRailProps) {
   // Clamp runningContainers to a non-negative finite integer. The server types
   // running_containers as Go int with no clamp, so undefined / null / NaN /
   // negative values must not leak into width: '<n>%' (invalid CSS hides the
@@ -156,28 +158,38 @@ export function NowRail({ agents, activityEntries, maxAgents, runningContainers,
         })}
       </div>
 
-      <div className="now-rail__section">
-        <div className="now-rail__head">
-          <span className="label">Capacity</span>
-          <span className="count">{containerCount} running</span>
-        </div>
-        {showCapMeter ? (
-          <>
-            <div className="cap-bar">
-              <div className="cap-fill" style={{ width: `${capacityPct}%` }} />
-            </div>
-            <div className="cap-meta">
-              <span>{containerCount} / {maxAgents} containers</span>
-              <span>{capacityPct}%</span>
-            </div>
-          </>
-        ) : (
-          <div className="cap-meta">
-            <span>{containerCount} active · no cap set</span>
-            <span> - </span>
+      {backendStatus !== 'disabled' && (
+        <div className="now-rail__section">
+          <div className="now-rail__head">
+            <span className="label">Capacity</span>
+            {backendStatus === 'ok' && <span className="count">{containerCount} running</span>}
           </div>
-        )}
-      </div>
+          {backendStatus === 'unreachable' ? (
+            <div className="cap-meta">
+              <span>backend unreachable</span>
+            </div>
+          ) : backendStatus === 'unknown' ? (
+            <div className="cap-meta">
+              <span>checking capacity...</span>
+            </div>
+          ) : showCapMeter ? (
+            <>
+              <div className="cap-bar">
+                <div className="cap-fill" style={{ width: `${capacityPct}%` }} />
+              </div>
+              <div className="cap-meta">
+                <span>{containerCount} / {maxAgents} containers</span>
+                <span>{capacityPct}%</span>
+              </div>
+            </>
+          ) : (
+            <div className="cap-meta">
+              <span>{containerCount} active · no cap set</span>
+              <span> - </span>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="now-rail__section" role="log" aria-live="polite" aria-relevant="additions">
         <div className="now-rail__head">

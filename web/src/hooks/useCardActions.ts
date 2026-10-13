@@ -37,6 +37,7 @@ function clearSafeCardUpdate(updated: Card): Partial<Card> {
     depends_on: [],
     assigned_agent: '',
     last_heartbeat: undefined,
+    worker_status: undefined,
     ...updated,
     dependencies_met: updated.dependencies_met,
     blocked_by: updated.blocked_by,
@@ -81,8 +82,8 @@ export function useCardActions({
       suppressSSE(cardId);
       if (optimistic) updateCardLocally(cardId, { state: newState });
       try {
-        await api.patchCard(selectedProject, cardId, { state: newState });
-        if (!optimistic) updateCardLocally(cardId, { state: newState });
+        const updated = await api.patchCard(selectedProject, cardId, { state: newState });
+        updateCardLocally(cardId, clearSafeCardUpdate(updated));
         showToast(`Moved to ${newState}`, 'success');
         return true;
       } catch (err) {

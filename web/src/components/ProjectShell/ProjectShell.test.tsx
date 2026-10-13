@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, act, waitFor, within } from '@testing-library/react';
-import { MemoryRouter, Route, Routes, useNavigate, useSearchParams } from 'react-router';
+import { MemoryRouter, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router';
 import { ProjectShell } from './ProjectShell';
 import { useToast } from '../../hooks/useToast';
+import { useProjects } from '../../hooks/useProjects';
+import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 import type { Card, CreateCardInput, ProjectConfig } from '../../types';
 
 // ---------------------------------------------------------------------------
@@ -115,7 +117,6 @@ vi.mock('../../hooks/useSSEBus', () => ({
   useSSEBus: vi.fn(() => ({
     subscribe: vi.fn(() => () => {}),
     connected: true,
-    error: null,
   })),
 }));
 
@@ -127,7 +128,9 @@ vi.mock('../../hooks/useSSEBus', () => ({
 let capturedOnCreate: ((input: CreateCardInput, opts?: { run?: boolean; interactive?: boolean }) => Promise<void>) | null = null;
 
 vi.mock('../Board', () => ({
-  Board: ({ onCreateCard, headerCollapsed, onToggleHeaderCollapsed, headerActions, onOpenSidebar, onSyncClick }: {
+  Board: ({ cardPanelOpen, backendStatus, onCreateCard, headerCollapsed, onToggleHeaderCollapsed, headerActions, onOpenSidebar, onSyncClick }: {
+    cardPanelOpen?: boolean;
+    backendStatus?: string;
     onCreateCard?: () => void;
     headerCollapsed?: boolean;
     onToggleHeaderCollapsed?: () => void;
@@ -136,7 +139,7 @@ vi.mock('../Board', () => ({
     onSyncClick?: () => void;
   }) => {
     return (
-      <div data-testid="board" data-header-collapsed={String(!!headerCollapsed)}>
+      <div data-testid="board" data-header-collapsed={String(!!headerCollapsed)} data-card-panel-open={String(!!cardPanelOpen)} data-backend-status={backendStatus}>
         <button data-testid="open-create-btn" onClick={onCreateCard}>Open Create</button>
         {onToggleHeaderCollapsed && (
           <button data-testid="toggle-header-btn" onClick={onToggleHeaderCollapsed}>Toggle Header</button>
@@ -216,13 +219,14 @@ vi.mock('../../context/ConsoleStateContext', () => ({
 }));
 
 // ProjectShell now calls useTheme, which throws outside ThemeProvider.
+const themeState = vi.hoisted(() => ({ taskBackend: 'agent' }));
 vi.mock('../../hooks/useTheme', () => ({
   useTheme: () => ({
     theme: 'dark',
     palette: 'everforest',
     setTheme: () => {},
     setPalette: () => {},
-    taskBackend: 'agent',
+    taskBackend: themeState.taskBackend,
     instanceId: '',
     sharedBoards: false,
     boardsRepos: [],
@@ -260,6 +264,7 @@ function renderProjectShell() {
 }
 
 beforeEach(() => {
+  themeState.taskBackend = 'agent';
   capturedOnCreate = null;
   vi.clearAllMocks();
 
@@ -277,6 +282,30 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+describe('ProjectShell - backend capacity', () => {
+  it('reports the backend status and polls health when a task backend is configured', () => {
+    renderProjectShell();
+    expect(screen.getByTestId('board')).toHaveAttribute('data-backend-status', 'unknown');
+    expect(mockApi.getBackendHealth).toHaveBeenCalled();
+  });
+
+  it('reports disabled and sends no health request when no task backend is configured', () => {
+    themeState.taskBackend = '';
+    renderProjectShell();
+    expect(screen.getByTestId('board')).toHaveAttribute('data-backend-status', 'disabled');
+    expect(mockApi.getBackendHealth).not.toHaveBeenCalled();
+  });
+});
+
+describe('ProjectShell - create panel', () => {
+  it('tells the Board a panel is open while the create panel is showing', () => {
+    renderProjectShell();
+    expect(screen.getByTestId('board')).toHaveAttribute('data-card-panel-open', 'false');
+    act(() => screen.getByTestId('open-create-btn').click());
+    expect(screen.getByTestId('board')).toHaveAttribute('data-card-panel-open', 'true');
+  });
+});
 
 describe('ProjectShell - onCreateCard', () => {
   it('"Create & Run" opens the card panel and does not flash', async () => {
@@ -430,6 +459,31 @@ describe('ProjectShell - ?card= deep-link', () => {
 
     expect(await screen.findByTestId('card-panel-TEST-1')).toBeInTheDocument();
     expect(screen.getByTestId('card-panel-title').textContent).toBe('Deep-linked card');
+  });
+
+  it('tells the Board a card panel is open only while one is', async () => {
+    const { useBoard } = await import('../../hooks/useBoard');
+    vi.mocked(useBoard).mockReturnValue(useBoardReturn as unknown as ReturnType<typeof useBoard>);
+
+    const { unmount } = render(
+      <MemoryRouter initialEntries={['/projects/test?card=TEST-1']}>
+        <Routes>
+          <Route path="/projects/:project/*" element={<ProjectShell />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    await screen.findByTestId('card-panel-TEST-1');
+    expect(screen.getByTestId('board')).toHaveAttribute('data-card-panel-open', 'true');
+    unmount();
+
+    render(
+      <MemoryRouter initialEntries={['/projects/test']}>
+        <Routes>
+          <Route path="/projects/:project/*" element={<ProjectShell />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(screen.getByTestId('board')).toHaveAttribute('data-card-panel-open', 'false');
   });
 
   it('re-opens the panel after cross-project SPA navigation', async () => {
@@ -959,5 +1013,37 @@ describe('ProjectShell - footer sync button', () => {
     } finally {
       vi.mocked(useBoard).mockImplementation(previous!);
     }
+  });
+});
+
+describe('ProjectShell - project number shortcuts', () => {
+  it('binds key 2 to the second project of the provider list', () => {
+    const proj = (name: string) => ({ name, prefix: name.toUpperCase(), next_id: 1, states: [], types: [], priorities: [], transitions: {} });
+    vi.mocked(useProjects).mockReturnValue({
+      projects: [proj('test'), proj('second')],
+      loading: false,
+      error: null,
+      connected: true,
+      refreshProjects: vi.fn(),
+    });
+    function Where() {
+      return <div data-testid="where">{useLocation().pathname}</div>;
+    }
+    render(
+      <MemoryRouter initialEntries={['/projects/test']}>
+        <Where />
+        <Routes>
+          <Route path="/projects/:project/*" element={<ProjectShell />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const calls = vi.mocked(useKeyboardShortcuts).mock.calls;
+    const shortcuts = calls[calls.length - 1][0];
+    act(() => {
+      shortcuts.find((sc) => sc.key === '2')!.handler();
+    });
+
+    expect(screen.getByTestId('where')).toHaveTextContent('/projects/second');
   });
 });

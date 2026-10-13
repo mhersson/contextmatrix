@@ -165,6 +165,38 @@ describe('useBoard - SSE reconnect resync', () => {
   });
 });
 
+describe('useBoard - SSE disconnect', () => {
+  beforeEach(() => {
+    instances = [];
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.mocked(api.getProject).mockResolvedValue(projectConfig);
+    vi.mocked(api.getCards).mockResolvedValue([{ id: 'ALPHA-001' } as Card]);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  it('keeps the loaded board and reports no error while the stream is down', async () => {
+    const { result } = renderHook(() => useBoard('alpha'), { wrapper });
+
+    await waitFor(() => expect(result.current.cards).toHaveLength(1));
+    act(() => {
+      latestInstance()._triggerOpen();
+    });
+    expect(result.current.connected).toBe(true);
+
+    act(() => {
+      latestInstance()._triggerError();
+    });
+
+    expect(result.current.connected).toBe(false);
+    expect(result.current.error).toBeNull();
+    expect(result.current.cards).toHaveLength(1);
+  });
+});
+
 describe('useBoard - dependency state changes', () => {
   beforeEach(() => {
     instances = [];
@@ -302,6 +334,41 @@ describe('useBoard - playbook events', () => {
 
     await waitFor(() => expect(vi.mocked(api.getCards)).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(result.current.cards[0]?.in_playbooks).toEqual(['pb-1']));
+    expect(result.current.loading).toBe(false);
+  });
+
+  it('refreshes the cards on pulled changes without showing the loading skeleton', async () => {
+    const listCard: Card = {
+      id: 'ALPHA-1',
+      title: 'Alpha card',
+      project: 'alpha',
+      type: 'task',
+      state: 'todo',
+      priority: 'medium',
+      created: '2026-01-01T00:00:00Z',
+      updated: '2026-01-01T00:00:00Z',
+      body: '',
+    };
+    vi.mocked(api.getCards).mockResolvedValueOnce([listCard]);
+
+    const { result } = renderHook(() => useBoard('alpha'), { wrapper });
+    await waitFor(() => expect(vi.mocked(api.getCards)).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    vi.mocked(api.getCards).mockResolvedValueOnce([{ ...listCard, title: 'Pulled title' }]);
+
+    act(() => {
+      latestInstance()._triggerOpen();
+    });
+    act(() => {
+      latestInstance().onmessage?.({
+        data: JSON.stringify({ type: 'sync.completed', card_id: '', project: '', data: { changes_pulled: true } }),
+      } as MessageEvent);
+    });
+
+    expect(result.current.loading).toBe(false);
+
+    await waitFor(() => expect(result.current.cards[0]?.title).toBe('Pulled title'));
     expect(result.current.loading).toBe(false);
   });
 
@@ -622,10 +689,82 @@ describe('useBoard - refreshCard (panel-open hydration)', () => {
     // Initial load is the first wholesale replace.
     await waitFor(() => expect(result.current.listEpoch).toBe(1));
 
-    // refresh() reruns fetchData - e.g. what a sync.completed pull triggers.
+    // refresh() reruns fetchData.
     await act(async () => {
       await result.current.refresh();
     });
     expect(result.current.listEpoch).toBe(2);
+  });
+
+  it('ignores a config refresh for the previous project that resolves after a switch', async () => {
+    const alphaConfig = { ...projectConfig, name: 'alpha' };
+    const betaConfig = { ...projectConfig, name: 'beta' };
+    vi.mocked(api.getCards).mockResolvedValue([]);
+    vi.mocked(api.getProject).mockImplementation(async (name: string) =>
+      name === 'beta' ? betaConfig : alphaConfig,
+    );
+
+    const { result, rerender } = renderHook(({ p }) => useBoard(p), {
+      wrapper,
+      initialProps: { p: 'alpha' },
+    });
+    await waitFor(() => expect(result.current.config?.name).toBe('alpha'));
+
+    let resolveStale: (c: ProjectConfig) => void = () => {};
+    vi.mocked(api.getProject).mockImplementationOnce(
+      () => new Promise<ProjectConfig>((resolve) => { resolveStale = resolve; }),
+    );
+    act(() => {
+      latestInstance()._triggerOpen();
+    });
+    act(() => {
+      latestInstance().onmessage?.({
+        data: JSON.stringify({ type: 'project.updated', card_id: '', project: 'alpha' }),
+      } as MessageEvent);
+    });
+
+    rerender({ p: 'beta' });
+    await waitFor(() => expect(result.current.config?.name).toBe('beta'));
+
+    await act(async () => {
+      resolveStale({ ...alphaConfig, next_id: 99 });
+    });
+    expect(result.current.config?.name).toBe('beta');
+  });
+
+  it('ignores a post-sync config refresh for the previous project that resolves after a switch', async () => {
+    const alphaConfig = { ...projectConfig, name: 'alpha' };
+    const betaConfig = { ...projectConfig, name: 'beta' };
+    vi.mocked(api.getCards).mockResolvedValue([]);
+    vi.mocked(api.getProject).mockImplementation(async (name: string) =>
+      name === 'beta' ? betaConfig : alphaConfig,
+    );
+
+    const { result, rerender } = renderHook(({ p }) => useBoard(p), {
+      wrapper,
+      initialProps: { p: 'alpha' },
+    });
+    await waitFor(() => expect(result.current.config?.name).toBe('alpha'));
+
+    let resolveStale: (c: ProjectConfig) => void = () => {};
+    vi.mocked(api.getProject).mockImplementationOnce(
+      () => new Promise<ProjectConfig>((resolve) => { resolveStale = resolve; }),
+    );
+    act(() => {
+      latestInstance()._triggerOpen();
+    });
+    act(() => {
+      latestInstance().onmessage?.({
+        data: JSON.stringify({ type: 'sync.completed', card_id: '', project: '', data: { changes_pulled: true } }),
+      } as MessageEvent);
+    });
+
+    rerender({ p: 'beta' });
+    await waitFor(() => expect(result.current.config?.name).toBe('beta'));
+
+    await act(async () => {
+      resolveStale({ ...alphaConfig, next_id: 99 });
+    });
+    expect(result.current.config?.name).toBe('beta');
   });
 });

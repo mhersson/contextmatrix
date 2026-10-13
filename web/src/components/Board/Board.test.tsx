@@ -1639,3 +1639,62 @@ describe('Board header actions slot', () => {
     expect(screen.queryByText(baseConfig.name)).toBeNull();
   });
 });
+
+describe('Board - Escape', () => {
+  const props = {
+    config: baseConfig,
+    loading: false,
+    error: null,
+    activeAgents: [],
+    cardsCompletedToday: 0,
+    activityEntries: [],
+    currentAgent: null,
+  };
+  const cards = [
+    { ...sampleCard, id: 'TEST-001', title: 'Zebra-unique card' },
+    { ...sampleCard, id: 'TEST-005', title: 'Unrelated card' },
+  ];
+
+  async function searchForZebra() {
+    fireEvent.change(screen.getByLabelText('Search cards'), { target: { value: 'zebra-unique' } });
+    await waitFor(() => {
+      expect(screen.queryByLabelText('Card TEST-005: Unrelated card')).not.toBeInTheDocument();
+    });
+  }
+
+  it('clears the search and consumes Escape when no panel is open', async () => {
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    render(<Board {...props} cards={cards} />);
+    await searchForZebra();
+
+    const e = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    act(() => { document.body.dispatchEvent(e); });
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Card TEST-005: Unrelated card')).toBeInTheDocument();
+    });
+    expect(e.defaultPrevented).toBe(true);
+  });
+
+  it('leaves the search and the event alone while a card panel is open', async () => {
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    render(<Board {...props} cards={cards} cardPanelOpen />);
+    await searchForZebra();
+
+    const e = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    act(() => { document.body.dispatchEvent(e); });
+
+    expect(screen.queryByLabelText('Card TEST-005: Unrelated card')).not.toBeInTheDocument();
+    expect(e.defaultPrevented).toBe(false);
+  });
+
+  it('does not consume Escape when there is nothing to clear', () => {
+    mockMatchMediaTrueFor('(min-width: 99999px)');
+    render(<Board {...props} cards={cards} />);
+
+    const e = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    act(() => { document.body.dispatchEvent(e); });
+
+    expect(e.defaultPrevented).toBe(false);
+  });
+});

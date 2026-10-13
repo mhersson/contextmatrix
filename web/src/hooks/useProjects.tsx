@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useMemo, createContext, useContext } 
 import type { ProjectConfig } from '../types';
 import { api, isAPIError } from '../api/client';
 import { useSSEBus } from './useSSEBus';
+import { useTheme } from './useTheme';
+import { sortProjectsForSidebar } from '../lib/projectOrder';
 
 interface ProjectsContextValue {
   projects: ProjectConfig[];
@@ -14,7 +16,8 @@ interface ProjectsContextValue {
 const ProjectsContext = createContext<ProjectsContextValue | null>(null);
 
 export function ProjectsProvider({ children }: { children: React.ReactNode }) {
-  const [projects, setProjects] = useState<ProjectConfig[]>([]);
+  const [rawProjects, setProjects] = useState<ProjectConfig[]>([]);
+  const { boardsRepos } = useTheme();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -48,6 +51,12 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
     };
   }, []);
+
+  // The API returns projects in map order; every consumer sees sidebar order.
+  const projects = useMemo(
+    () => sortProjectsForSidebar(rawProjects, boardsRepos),
+    [rawProjects, boardsRepos],
+  );
 
   const { subscribe, connected } = useSSEBus();
 
