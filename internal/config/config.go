@@ -1419,11 +1419,13 @@ func defaultSQLiteDBPath(filename string) string {
 // config keeps loading.
 func warnRemovedKeys(cfg *Config) {
 	if cfg.RemovedCORSOrigin != "" {
-		slog.Warn("cors_origin is removed and ignored; delete it from the config", "value", cfg.RemovedCORSOrigin)
+		slog.Warn("cors_origin is removed and ignored; delete it from the config",
+			"key", "cors_origin", "value", cfg.RemovedCORSOrigin)
 	}
 
 	if cfg.Mob.RemovedMaxRounds != 0 {
-		slog.Warn("mob.max_rounds is removed and ignored; delete it from the config", "value", cfg.Mob.RemovedMaxRounds)
+		slog.Warn("mob.max_rounds is removed and ignored; delete it from the config",
+			"key", "mob.max_rounds", "value", cfg.Mob.RemovedMaxRounds)
 	}
 }
 
@@ -1768,11 +1770,13 @@ func applyEnvOverrides(cfg *Config) error {
 	}
 
 	if v := os.Getenv("CONTEXTMATRIX_CORS_ORIGIN"); v != "" {
-		slog.Warn("CONTEXTMATRIX_CORS_ORIGIN is removed and ignored; unset it", "value", v)
+		slog.Warn("CONTEXTMATRIX_CORS_ORIGIN is removed and ignored; unset it",
+			"key", "CONTEXTMATRIX_CORS_ORIGIN", "value", v)
 	}
 
 	if v := os.Getenv("CONTEXTMATRIX_MOB_MAX_ROUNDS"); v != "" {
-		slog.Warn("CONTEXTMATRIX_MOB_MAX_ROUNDS is removed and ignored; unset it", "value", v)
+		slog.Warn("CONTEXTMATRIX_MOB_MAX_ROUNDS is removed and ignored; unset it",
+			"key", "CONTEXTMATRIX_MOB_MAX_ROUNDS", "value", v)
 	}
 
 	if v := os.Getenv("CONTEXTMATRIX_WORKFLOW_SKILLS_DIR"); v != "" {

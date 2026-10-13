@@ -2,11 +2,13 @@ package config
 
 import (
 	"bytes"
+	"context"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -4059,47 +4061,92 @@ func TestDefaults_JiraUnconfigured(t *testing.T) {
 	assert.Equal(t, JiraAuthBasic, d.Jira.AuthMode)
 }
 
-// captureSlog routes the default logger into a buffer for the test.
-func captureSlog(t *testing.T) *bytes.Buffer {
+// slogRecords is a slog.Handler that keeps every record it handles.
+type slogRecords struct {
+	mu      sync.Mutex
+	records []slog.Record
+}
+
+// recordSlog routes the default logger into a slogRecords for the test.
+func recordSlog(t *testing.T) *slogRecords {
 	t.Helper()
 
-	var buf bytes.Buffer
-
+	h := &slogRecords{}
 	prev := slog.Default()
 
-	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	slog.SetDefault(slog.New(h))
 	t.Cleanup(func() { slog.SetDefault(prev) })
 
-	return &buf
+	return h
+}
+
+func (h *slogRecords) Enabled(context.Context, slog.Level) bool { return true }
+func (h *slogRecords) WithAttrs([]slog.Attr) slog.Handler       { return h }
+func (h *slogRecords) WithGroup(string) slog.Handler            { return h }
+
+func (h *slogRecords) Handle(_ context.Context, r slog.Record) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	h.records = append(h.records, r.Clone())
+
+	return nil
+}
+
+// warnedKeys returns the key attribute of every WARN record that has one.
+func (h *slogRecords) warnedKeys() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	var keys []string
+
+	for _, r := range h.records {
+		if r.Level != slog.LevelWarn {
+			continue
+		}
+
+		r.Attrs(func(a slog.Attr) bool {
+			if a.Key == "key" {
+				keys = append(keys, a.Value.String())
+			}
+
+			return true
+		})
+	}
+
+	return keys
 }
 
 func TestLoad_RemovedKeysDecodeAndWarn(t *testing.T) {
+	removed := []string{"cors_origin", "mob.max_rounds", "CONTEXTMATRIX_CORS_ORIGIN", "CONTEXTMATRIX_MOB_MAX_ROUNDS"}
+
 	t.Run("yaml", func(t *testing.T) {
-		buf := captureSlog(t)
+		logs := recordSlog(t)
 		cfg := loadConfigFromYAML(t, "cors_origin: \"http://x\"\nmob:\n  max_rounds: 2\n  default_rounds: 4\n")
 
-		assert.Contains(t, buf.String(), "cors_origin is removed and ignored")
-		assert.Contains(t, buf.String(), "mob.max_rounds is removed and ignored")
+		assert.Subset(t, logs.warnedKeys(), []string{"cors_origin", "mob.max_rounds"})
 		assert.Equal(t, 4, cfg.Mob.DefaultRounds, "max_rounds no longer clamps default_rounds")
 	})
 
 	t.Run("env", func(t *testing.T) {
-		buf := captureSlog(t)
+		logs := recordSlog(t)
 
 		t.Setenv("CONTEXTMATRIX_CORS_ORIGIN", "http://x")
 		t.Setenv("CONTEXTMATRIX_MOB_MAX_ROUNDS", "2")
 
 		cfg := loadConfigFromYAML(t, "port: 8080\n")
 
-		assert.Contains(t, buf.String(), "CONTEXTMATRIX_CORS_ORIGIN is removed and ignored")
-		assert.Contains(t, buf.String(), "CONTEXTMATRIX_MOB_MAX_ROUNDS is removed and ignored")
+		assert.Subset(t, logs.warnedKeys(), []string{"CONTEXTMATRIX_CORS_ORIGIN", "CONTEXTMATRIX_MOB_MAX_ROUNDS"})
 		assert.Equal(t, 2, cfg.Mob.DefaultRounds)
 	})
 
 	t.Run("absent keys do not warn", func(t *testing.T) {
-		buf := captureSlog(t)
+		logs := recordSlog(t)
 		loadConfigFromYAML(t, "port: 8080\n")
-		assert.NotContains(t, buf.String(), "removed and ignored")
+
+		for _, key := range removed {
+			assert.NotContains(t, logs.warnedKeys(), key)
+		}
 	})
 }
 
