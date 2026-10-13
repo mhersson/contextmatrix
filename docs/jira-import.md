@@ -97,13 +97,15 @@ Each issue's writes are bounded at 30 seconds, room for the verified push every
 write makes on a shared boards repository. An issue that runs over fails with
 `timed out`, and the import moves on to the next.
 
-Two instances that import the same epic into one shared boards repository
-converge on one playbook, and on one card per issue in each project: every write
-runs after the instance has merged its peer's latest push, and creating the
-playbook or a card returns the one that already has the same source instead of
-writing a second. Imports into different boards repositories, or of one issue
-into different projects, can still duplicate, so import an epic from one
-instance.
+On a shared boards repository every import write runs after the instance has
+merged its peer's latest push. Creating the playbook returns the one that
+already has the same source, and creating a card returns the target project's
+card with that source, instead of writing a second. A peer's import therefore
+counts as soon as it is pushed, not only after the next pull. Two writes whose
+sync cycles overlap, both fetching before either pushes, can still each create
+one. The card check covers only the target project, and nothing is matched
+across boards repositories the two instances do not share, so import an epic
+from one instance.
 
 At server shutdown, or after the 10 minute bound, an import stops between two
 issues: the issue in flight gets 8 seconds to finish, then its writes are

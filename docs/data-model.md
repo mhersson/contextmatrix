@@ -185,8 +185,9 @@ live in [architecture](architecture.md); the HTTP surface in the
     URL match). On a match the existing card is returned in any state, and
     the handler answers 201 with it, as for the duplicate subtask guard. On
     a shared boards repo the check runs after the sync cycle has merged the
-    peer's latest push, so two instances importing the same issue into one
-    project keep one card.
+    peer's latest push, so a card a peer has pushed is found. Two creates
+    whose cycles overlap, both fetching before either pushes, can still each
+    write a card.
     - The same key from another host, a source without an `external_id`, or
       an `external_url` that does not parse never matches.
     - A card whose `custom.jira_issue_id` is set and differs from the

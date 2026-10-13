@@ -810,10 +810,8 @@ func (s *PlaybookService) Get(ctx context.Context, id string) (*PlaybookDetail, 
 	return s.resolve(ctx, p)
 }
 
-// FindBySource returns the playbook imported from src, matched with
-// board.SameSource. The store lists by id across every boards repo, so two
-// playbooks from one source, as two separate boards repos can hold,
-// resolve to the lower id.
+// FindBySource returns the playbook imported from src. Two from one source, as
+// overlapping sync cycles on a shared board can leave, resolve to the lower id.
 func (s *PlaybookService) FindBySource(ctx context.Context, src *board.Source) (*PlaybookDetail, error) {
 	p, err := s.playbookBySource(ctx, src)
 	if err != nil {
