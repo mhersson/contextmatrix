@@ -35,6 +35,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/events"
 	ghimport "github.com/mhersson/contextmatrix/internal/github"
 	"github.com/mhersson/contextmatrix/internal/gitops"
+	"github.com/mhersson/contextmatrix/internal/jiraimport"
 	mcpserver "github.com/mhersson/contextmatrix/internal/mcp"
 	"github.com/mhersson/contextmatrix/internal/metrics"
 	"github.com/mhersson/contextmatrix/internal/modelcatalog"
@@ -617,6 +618,48 @@ func main() {
 		slog.Info("MCP authentication enabled")
 	}
 
+	jiraClient, err := wireJira(cfg.Jira)
+	if err != nil {
+		slog.Error("failed to construct jira client", "error", err)
+		cancel()
+		os.Exit(1) //nolint:gocritic // cancel called explicitly above
+	}
+
+	if jiraClient != nil {
+		if projects, listErr := svc.ListProjects(ctx); listErr != nil {
+			slog.Warn("jira: could not check project_map targets", "error", listErr)
+		} else {
+			warnUnknownJiraTargets(cfg.Jira.ProjectMap, projects)
+		}
+
+		slog.Info("jira client initialized", "site_url", cfg.Jira.SiteURL, "auth_mode", cfg.Jira.AuthMode)
+	}
+
+	jiraWriteback, err := wireJiraWriteback(ctx, cfg.Jira, jiraClient, bus, svc, opStore)
+	if err != nil {
+		slog.Error("failed to start jira writeback", "error", err)
+		cancel()
+		os.Exit(1) //nolint:gocritic // cancel called explicitly above
+	}
+
+	if jiraWriteback != nil {
+		slog.Info("jira writeback started")
+	}
+
+	// An epic imports as a playbook, so the importer needs the playbook
+	// subsystem. It runs imports on the app context, which shutdown cancels.
+	var jiraImporter *jiraimport.Service
+
+	switch {
+	case jiraClient != nil && pbSvc != nil:
+		jiraImporter = jiraimport.New(jiraClient, svc, pbSvc, jiraimport.Config{
+			SiteURL: cfg.Jira.SiteURL, ProjectMap: cfg.Jira.ProjectMap, Bus: bus, Clock: clk,
+		})
+		jiraImporter.Start(ctx)
+	case jiraClient != nil:
+		slog.Warn("jira epic import disabled: playbooks are disabled")
+	}
+
 	// Create router with all API routes. MCP is registered on the inner mux
 	// so it shares the same middleware chain as every other route - no
 	// separate wrapping needed here.
@@ -670,6 +713,25 @@ func main() {
 		Playbooks:              pbSvc,
 		PlaybookRunner:         pbRunner,
 	}
+
+	routerCfg.JiraInfo = api.JiraInfo{
+		SiteURL:          cfg.Jira.SiteURL,
+		AuthMode:         cfg.Jira.AuthMode,
+		WritebackEnabled: cfg.Jira.Writeback.Enabled,
+	}
+
+	if jiraClient != nil {
+		routerCfg.Jira = jiraClient
+	}
+
+	if jiraWriteback != nil {
+		routerCfg.JiraWriteback = jiraWriteback
+	}
+
+	if jiraImporter != nil {
+		routerCfg.JiraImport = jiraImporter
+	}
+
 	if catalogBuilder != nil && agentAA {
 		routerCfg.Catalog = catalogBuilder
 		routerCfg.SelectorCatalog = catalogBuilder
@@ -811,6 +873,8 @@ func main() {
 		SessionLog:     sessionMgr,
 		CommitQueues:   boards.queues(),
 		PlaybookRunner: pbRunner,
+		JiraImport:     jiraImporter,
+		JiraWriteback:  jiraWriteback,
 		Syncer:         syncGroup,
 		GHSyncer:       ghSyncer,
 		HTTPCancel:     httpCancel,

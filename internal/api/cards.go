@@ -12,6 +12,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/authstore"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/config"
+	"github.com/mhersson/contextmatrix/internal/jira"
 	"github.com/mhersson/contextmatrix/internal/service"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
@@ -493,6 +494,15 @@ func (h *cardHandlers) createCard(w http.ResponseWriter, r *http.Request) {
 
 	if req.Title == "" {
 		writeError(w, http.StatusBadRequest, ErrCodeBadRequest, "title is required", "")
+
+		return
+	}
+
+	// Writeback moves the issue a Jira source names, so only the importer,
+	// which reads the issue from Jira, may set one.
+	if req.Source != nil && strings.EqualFold(req.Source.System, jira.SourceSystem) {
+		writeError(w, http.StatusBadRequest, ErrCodeBadRequest,
+			"a jira source is set only by the Jira import", "import the issue from its epic instead")
 
 		return
 	}

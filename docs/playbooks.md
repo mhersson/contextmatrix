@@ -38,6 +38,11 @@ top of the list: name it, optionally describe it, pick the boards repo on a
 multi-repo instance, and Enter creates. The sidebar link jumps straight to the
 detail page when exactly one playbook exists.
 
+When Jira is configured, the title also takes a Jira epic key or URL and
+**Import from Jira** builds the playbook from the epic instead (see
+[Jira import](jira-import.md)). An imported playbook carries a `source` and
+links to its epic from the detail page.
+
 `/playbooks/:id` shows the entries as a route: a rail threads through the
 nodes, solid where the previous step is complete and dashed where it is not.
 Card nodes carry the sequence number and a state chip; an `in_progress` card
@@ -88,7 +93,8 @@ page; the switch opens a warning that lists exactly what follows.
 
 ### The branch model
 
-Every card keeps its own `cm/<card>` branch, opens a PR into
+Every card keeps its own `cm/<card>` branch (a Jira-imported card's carries its
+uppercase key, e.g. `cm/api-012-PROJ-123`), opens a PR into
 `playbook/<id>`, waits for CI and merges. The playbook branch does not need
 to exist up front: the worker of the first card in each repository creates
 it from the playbook's `base_branch`. ContextMatrix itself never writes to a
@@ -246,6 +252,10 @@ created_by: human:alice
 created_at: 2026-08-20T09:00:00Z
 updated_at: 2026-08-20T10:30:00Z
 next_entry_id: 4
+source: # present on a playbook imported from a Jira epic
+  system: jira
+  external_id: PROJ-1
+  external_url: https://acme.atlassian.net/browse/PROJ-1
 # runnable is absent until a human makes the playbook runnable
 entries:
   - id: e1
@@ -271,3 +281,4 @@ entries:
 - [API reference](api-reference.md#playbook-endpoints) - wire shapes
 - [Boards](boards.md) - the boards repository layout
 - [MCP](mcp.md) - the full tool catalogue
+- [Jira import](jira-import.md) - epics as playbooks

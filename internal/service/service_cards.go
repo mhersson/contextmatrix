@@ -18,6 +18,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/gitops"
+	"github.com/mhersson/contextmatrix/internal/jira"
 	"github.com/mhersson/contextmatrix/internal/lock"
 	"github.com/mhersson/contextmatrix/internal/storage"
 )
@@ -34,6 +35,11 @@ type CreateCardInput struct {
 	Body      string
 	Source    *board.Source // Optional, immutable after creation
 	Assignee  string        // Informational responsibility label; independent of claim ownership
+	// Custom and Log are set by internal importers only; REST and MCP never
+	// fill them. Log becomes the card's first activity entry, written in the
+	// create commit.
+	Custom map[string]any
+	Log    *board.ActivityEntry
 	// Autonomous, CreatePR, AwaitCI, AwaitCopilotReview, MaxCapability and
 	// MobParticipants are nullable: nil means "unset". At create, a top-level
 	// card fills unset fields from the project's card_defaults
@@ -595,7 +601,7 @@ func validateCreateType(input CreateCardInput) error {
 
 // createCardLocked is CreateCard with writeMu held by the caller and the
 // commit path chosen by it. created is false when the dedupe guard returned
-// an existing subtask.
+// an existing card.
 func (s *CardService) createCardLocked(
 	ctx context.Context, project string, input CreateCardInput, commit commitFn,
 ) (*board.Card, bool, error) {
@@ -797,6 +803,7 @@ func (s *CardService) buildNewCardFromInput(
 		Parent:             parentID,
 		DependsOn:          dependsOn,
 		Source:             input.Source,
+		Custom:             input.Custom,
 		Assignee:           input.Assignee,
 		Autonomous:         valueOr(input.Autonomous, defaults.autonomous),
 		CreatePR:           valueOr(input.CreatePR, defaults.createPR),
@@ -820,12 +827,21 @@ func (s *CardService) buildNewCardFromInput(
 		Body:               input.Body,
 	}
 
+	if input.Log != nil {
+		entry := *input.Log
+		if entry.Timestamp.IsZero() {
+			entry.Timestamp = now
+		}
+
+		card.ActivityLog = []board.ActivityEntry{entry}
+	}
+
 	enforceVettingInvariant(card)
 
 	// Subtasks work on their parent's branch, so they never get their own
 	// branch name - a per-subtask name would advertise a branch nobody creates.
 	if parentID == "" {
-		card.BranchName = generateBranchName(card.ID, card.Title)
+		card.BranchName = generateBranchName(card.ID, card.Title, card.Source)
 	}
 
 	if err := validateFieldLimits(card.Title, card.Body, card.Assignee, card.Labels, card.DependsOn); err != nil {
@@ -872,16 +888,21 @@ func (s *CardService) buildNewCardFromInput(
 	return card, nil
 }
 
-// applyDedupGuard checks whether a non-terminal subtask with the same title
-// (case-insensitive, trimmed) already exists under the same parent. writeMu
-// must be held by the caller to eliminate any TOCTOU race. Returns the
-// existing card and true when a duplicate is found; returns nil, false, nil
-// when the call should proceed to creation.
+// applyDedupGuard checks whether the project already holds a card with the
+// same external source (board.SameSource, any state), or a non-terminal
+// subtask with the same title (case-insensitive, trimmed) under the same
+// parent. writeMu must be held by the caller to eliminate any TOCTOU race.
+// Returns the existing card and true when a duplicate is found; returns nil,
+// false, nil when the call should proceed to creation.
 func (s *CardService) applyDedupGuard(
 	ctx context.Context,
 	project string,
 	input CreateCardInput,
 ) (*board.Card, bool, error) {
+	if existing, err := s.cardBySource(ctx, project, input); err != nil || existing != nil {
+		return existing, existing != nil, err
+	}
+
 	parentID := strings.ToUpper(strings.TrimSpace(input.Parent))
 	if parentID == "" {
 		return nil, false, nil
@@ -910,6 +931,56 @@ func (s *CardService) applyDedupGuard(
 	}
 
 	return nil, false, nil
+}
+
+// cardBySource returns the project's card imported from input's source, or
+// nil. A terminal card still counts: an importer treats any card from the
+// source as already imported. Two recorded Jira issue ids that differ are two
+// issues under one key, as the Jira importer's own index rules.
+func (s *CardService) cardBySource(ctx context.Context, project string, input CreateCardInput) (*board.Card, error) {
+	src := input.Source
+	if src == nil || src.System == "" || src.ExternalID == "" {
+		return nil, nil
+	}
+
+	cards, err := s.store.ListCards(ctx, project, storage.CardFilter{ExternalID: src.ExternalID})
+	if err != nil {
+		return nil, fmt.Errorf("list cards for source check: %w", err)
+	}
+
+	issueID := customValue(input.Custom, jira.CustomIssueID)
+
+	for _, c := range cards {
+		if !board.SameSource(c.Source, src) {
+			continue
+		}
+
+		if id := customValue(c.Custom, jira.CustomIssueID); issueID != "" && id != "" && id != issueID {
+			continue
+		}
+
+		ctxlog.Logger(ctx).Info("card with the same source exists, returning it",
+			"existing_id", c.ID,
+			"source_system", src.System,
+			"external_id", src.ExternalID,
+			"state", c.State,
+		)
+
+		return c, nil
+	}
+
+	return nil, nil
+}
+
+// customValue renders a custom field as text, or "" when it is unset. A
+// hand-edited card can hold a number where the importer wrote a string.
+func customValue(custom map[string]any, key string) string {
+	v, ok := custom[key]
+	if !ok || v == nil {
+		return ""
+	}
+
+	return fmt.Sprint(v)
 }
 
 // commitNewCardWithNextID persists the card to the store and commits both the
@@ -1117,7 +1188,7 @@ func (s *CardService) buildUpdateApply(ctx context.Context, input UpdateCardInpu
 		// the branch the worker actually pushed. Subtasks work on their
 		// parent's branch and never get one.
 		if card.BranchName == "" && card.Parent == "" {
-			card.BranchName = generateBranchName(card.ID, card.Title)
+			card.BranchName = generateBranchName(card.ID, card.Title, card.Source)
 		}
 
 		card.CreatePR = input.CreatePR
@@ -1217,8 +1288,8 @@ func validatePatchFieldLimits(input PatchCardInput) error {
 	// input.DependsOn is already normalized (see PatchCard) so this bound is
 	// checked once, before writeMu, rather than after validateCardReferences
 	// has already spent one GetCard per element under the write lock.
-	if len(input.DependsOn) > maxDependsOn {
-		return fmt.Errorf("depends_on count %d exceeds limit of %d: %w", len(input.DependsOn), maxDependsOn, ErrFieldTooLong)
+	if len(input.DependsOn) > MaxDependsOn {
+		return fmt.Errorf("depends_on count %d exceeds limit of %d: %w", len(input.DependsOn), MaxDependsOn, ErrFieldTooLong)
 	}
 
 	if err := validateCardVerify(input.Verify); err != nil {
@@ -1368,7 +1439,7 @@ func (s *CardService) buildPatchApply(ctx context.Context, input PatchCardInput)
 		// the branch the worker actually pushed. Subtasks work on their
 		// parent's branch and never get one.
 		if card.BranchName == "" && card.Parent == "" {
-			card.BranchName = generateBranchName(card.ID, card.Title)
+			card.BranchName = generateBranchName(card.ID, card.Title, card.Source)
 		}
 
 		if input.CreatePR != nil {
@@ -1609,6 +1680,22 @@ func (s *CardService) DeleteCard(ctx context.Context, project, id string) error 
 // AddLogEntry appends an activity log entry to a card and returns the updated card.
 // The activity log is capped at 50 entries (oldest dropped).
 func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry board.ActivityEntry) (*board.Card, error) {
+	return s.addLogEntry(ctx, project, id, entry, true)
+}
+
+// AddSystemLogEntry appends an entry from an in-process system writer
+// ("system" or "system:<component>") without the claim check, so background
+// components can annotate a card an agent holds. It is not reachable from
+// REST or MCP, and it never refreshes the claim heartbeat.
+func (s *CardService) AddSystemLogEntry(ctx context.Context, project, id string, entry board.ActivityEntry) (*board.Card, error) {
+	if entry.Agent != "system" && !strings.HasPrefix(entry.Agent, "system:") {
+		return nil, fmt.Errorf("add system log entry: agent %q is not a system writer: %w", entry.Agent, lock.ErrAgentMismatch)
+	}
+
+	return s.addLogEntry(ctx, project, id, entry, false)
+}
+
+func (s *CardService) addLogEntry(ctx context.Context, project, id string, entry board.ActivityEntry, checkOwner bool) (*board.Card, error) {
 	id = strings.ToUpper(id)
 	r := s.repoOf(project)
 
@@ -1638,7 +1725,7 @@ func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry
 	}
 
 	// Verify agent ownership.
-	if card.AssignedAgent != "" && !s.OwnsClaim(card, entry.Agent) {
+	if checkOwner && card.AssignedAgent != "" && !s.OwnsClaim(card, entry.Agent) {
 		s.writeMu.Unlock()
 
 		return nil, fmt.Errorf("agent authorization: %w", lock.ErrAgentMismatch)
@@ -1655,7 +1742,7 @@ func (s *CardService) AddLogEntry(ctx context.Context, project, id string, entry
 
 	// See applyCardMutation: an owner-attributed log entry is proof of
 	// liveness and refreshes the claim heartbeat on the same write.
-	if entry.Agent != "" && s.OwnsClaim(card, entry.Agent) {
+	if checkOwner && entry.Agent != "" && s.OwnsClaim(card, entry.Agent) {
 		now := card.Updated
 		card.LastHeartbeat = &now
 	}
@@ -2090,8 +2177,8 @@ func validateFieldLimits(title, body, assignee string, labels, dependsOn []strin
 		}
 	}
 
-	if len(dependsOn) > maxDependsOn {
-		return fmt.Errorf("depends_on count %d exceeds limit of %d: %w", len(dependsOn), maxDependsOn, ErrFieldTooLong)
+	if len(dependsOn) > MaxDependsOn {
+		return fmt.Errorf("depends_on count %d exceeds limit of %d: %w", len(dependsOn), MaxDependsOn, ErrFieldTooLong)
 	}
 
 	return nil
@@ -2165,10 +2252,30 @@ func valueOr[T any](explicit *T, fallback T) T {
 	return fallback
 }
 
-// generateBranchName creates a git branch name from a card ID and title.
-// Format: alpha-042/fix-login-validation (lowercase, alphanumeric + hyphens).
-// Non-ASCII characters are stripped (e.g. "über" becomes "ber").
-func generateBranchName(cardID, title string) string {
+// maxBranchKeyLen keeps a Jira key out of the branch name when it would
+// strain git ref limits and report_push's 255-byte branch field.
+const maxBranchKeyLen = 64
+
+// generateBranchName predicts a card's git branch from its ID and title:
+// alpha-042/fix-login-validation (lowercase, alphanumeric + hyphens,
+// non-ASCII stripped). A Jira import keeps its issue key uppercase after the
+// ID - alpha-042/PROJ-123-fix-login - because GitHub for Jira only links
+// uppercase keys.
+func generateBranchName(cardID, title string, source *board.Source) string {
+	prefix := strings.ToLower(cardID)
+
+	key := ""
+	if source != nil && source.System == jira.SourceSystem && len(source.ExternalID) <= maxBranchKeyLen && jira.IsIssueKey(source.ExternalID) {
+		key = source.ExternalID
+
+		title = strings.TrimSpace(title)
+		if title == key {
+			title = ""
+		} else {
+			title = strings.TrimPrefix(title, key+" ")
+		}
+	}
+
 	slug := strings.ToLower(title)
 	slug = branchNameSlugPattern.ReplaceAllString(slug, "-")
 
@@ -2178,10 +2285,14 @@ func generateBranchName(cardID, title string) string {
 		slug = strings.TrimRight(slug, "-")
 	}
 
-	prefix := strings.ToLower(cardID)
-	if slug == "" {
+	switch {
+	case key != "" && slug != "":
+		return prefix + "/" + key + "-" + slug
+	case key != "":
+		return prefix + "/" + key
+	case slug != "":
+		return prefix + "/" + slug
+	default:
 		return prefix
 	}
-
-	return prefix + "/" + slug
 }

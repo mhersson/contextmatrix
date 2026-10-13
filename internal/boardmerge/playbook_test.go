@@ -426,6 +426,45 @@ func TestResolvePlaybook_OneSidedChangeSurvivesLaterPeer(t *testing.T) {
 	assert.Empty(t, out.Resolutions)
 }
 
+func TestResolvePlaybook_SourceSurvivesASideThatDropsIt(t *testing.T) {
+	src := &board.Source{System: "jira", ExternalID: "PROJ-1", ExternalURL: "https://acme.atlassian.net/browse/PROJ-1"}
+
+	tests := []struct {
+		name       string
+		dropOurs   bool
+		dropTheirs bool
+	}{
+		{"ours rewritten by an older binary", true, false},
+		{"theirs rewritten by an older binary", false, true},
+		{"both sides keep it", false, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			base, ours, theirs := pb(), pb(), pb()
+			base.Source, ours.Source, theirs.Source = src, src, src
+
+			if tt.dropOurs {
+				ours.Source, ours.Title, ours.Updated = nil, "Ours", ts(2)
+			}
+
+			if tt.dropTheirs {
+				theirs.Source, theirs.Title, theirs.Updated = nil, "Theirs", ts(3)
+			}
+
+			out, err := Resolve(Input{
+				Path: "playbooks/release.yaml", Base: serializePb(t, base),
+				Ours: serializePb(t, ours), Theirs: serializePb(t, theirs),
+			}, testCtx())
+			require.NoError(t, err)
+
+			got, err := board.ParsePlaybook(out.Content)
+			require.NoError(t, err)
+			assert.Equal(t, src, got.Source)
+		})
+	}
+}
+
 // runningPb is pb() made runnable with two card entries and a run on e1
 // owned by lap-a.
 func runningPb() *board.Playbook {

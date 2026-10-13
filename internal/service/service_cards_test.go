@@ -812,11 +812,11 @@ func TestCreateUpdatePatchCard_MaxCapability(t *testing.T) {
 }
 
 // TestCreateUpdatePatchCard_DependsOnLimit verifies that create, PUT, and
-// PATCH all reject a depends_on list over maxDependsOn with the same error
+// PATCH all reject a depends_on list over MaxDependsOn with the same error
 // the Labels count limit produces (ErrFieldTooLong), before any card
 // mutation is applied.
 func TestCreateUpdatePatchCard_DependsOnLimit(t *testing.T) {
-	overLimit := make([]string, maxDependsOn+1)
+	overLimit := make([]string, MaxDependsOn+1)
 	for i := range overLimit {
 		overLimit[i] = fmt.Sprintf("TEST-%d", i+1)
 	}

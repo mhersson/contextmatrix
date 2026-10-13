@@ -80,6 +80,10 @@ POST   /api/playbooks/{id}/stop                        # stop the run and kill e
 GET    /api/task-skills                                # list available task skill names
 GET    /api/app/config                                 # server-side app config (slim pre-login payload in multi mode)
 GET    /api/models                                     # model catalog for the card model-pin pickers (source: openrouter|endpoint|none)
+GET    /api/jira/status                                # Jira connection status ({"configured":false} when jira.site_url is unset)
+GET    /api/jira/epics/{key}/preview                   # epic tree with import markers and defaults
+POST   /api/jira/epics/{key}/import                    # start a background import of selected issues (human-only); 202 {import_id}
+GET    /api/jira/imports/{id}                          # a background import's state
 
 POST   /api/images                                     # multipart image upload (content-hashed id; 10 MB cap)
 GET    /api/images/{id}                                # serve stored image blob (immutable cache headers)
@@ -298,6 +302,16 @@ the request's `request_id`.
 | `IMAGE_INVALID_PAYLOAD`       | 400     | Malformed multipart body                                                                                                                                                                   |
 | `MODEL_NOT_BLACKLISTED`       | 404     | `DELETE /api/admin/model-blacklist/{slug}` for a slug not on the list                                                                                                                      |
 | `CATALOG_UNAVAILABLE`         | 503     | `GET /api/admin/selector/candidates` or `POST /api/admin/selector/preview` before the candidate catalog has refreshed once, or when none is configured                                     |
+| `JIRA_NOT_CONFIGURED`         | 404     | A Jira epic or import route when Jira is not configured or playbooks are disabled                                                                                                          |
+| `JIRA_ISSUE_NOT_FOUND`        | 404     | The Jira issue does not exist or the credentials cannot see it                                                                                                                             |
+| `JIRA_IMPORT_NOT_FOUND`       | 404     | `GET /api/jira/imports/{id}` for an unknown import, one finished over an hour ago, or one another instance ran                                                                             |
+| `JIRA_NOT_EPIC`               | 422     | The Jira issue is not epic-level                                                                                                                                                           |
+| `JIRA_PLAYBOOK_RUNNING`       | 409     | `POST /api/jira/epics/{key}/import` while the epic's playbook has a `running` or `waiting` run                                                                                             |
+| `JIRA_AUTH_FAILED`            | 502     | Jira rejected the credentials; `details` names a login CAPTCHA when Jira reports one                                                                                                       |
+| `JIRA_REQUEST_REJECTED`       | 502     | Jira refused the request with another 4xx; `details` carries its message                                                                                                                   |
+| `JIRA_UNAVAILABLE`            | 502     | Jira failed, was unreachable, or timed out                                                                                                                                                 |
+| `JIRA_RATE_LIMITED`           | 503     | Jira's 429 outlasted the wait; nothing was written                                                                                                                                         |
+| `JIRA_IMPORT_UNAVAILABLE`     | 503     | `POST /api/jira/epics/{key}/import` while the server shuts down; nothing was written                                                                                                       |
 | `INTERNAL_ERROR`              | 500/502 | Unhandled server error (500); credential mint failure (502)                                                                                                                                |
 
 **Error codes relevant to vetting:**
@@ -1179,7 +1193,9 @@ included, is explicit. `merge_pr` is nullable too, but has no `card_defaults`
 entry: omitted always means off. `mob_phases` is read only alongside an
 explicit `mob_participants`. `skills` omitted means the project default; `[]`
 mounts no skills. `depends_on`, `subtasks`, `context`, and `custom` are not
-accepted on create - set them with PUT or PATCH.
+accepted on create - set them with PUT or PATCH. A `source` with `system: jira`
+is refused: Jira writeback moves the issue that source names, so only the Jira
+import sets one.
 
 **Human-only fields** (403 `HUMAN_ONLY_FIELD` when a non-`human:` caller sets
 any of them, on create, PUT, and PATCH alike): `autonomous`, `create_pr`,
@@ -1198,7 +1214,7 @@ rejected, omitting it is not.
 
 | Status | Code                                    | When                                                                                                                                                           |
 | ------ | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 400    | `BAD_REQUEST`                           | Bad JSON, empty `title`, `best_of_n` outside `0` or `2..max_candidates`, invalid mob fields                                                                    |
+| 400    | `BAD_REQUEST`                           | Bad JSON, empty `title`, a `jira` source, `best_of_n` outside `0` or `2..max_candidates`, invalid mob fields                                                    |
 | 400    | `VALIDATION_ERROR`                      | A `skills` name not in `task_skills.dir` (or outside the project's `default_skills`)                                                                           |
 | 403    | `HUMAN_ONLY_FIELD`                      | See above                                                                                                                                                      |
 | 404    | `PROJECT_NOT_FOUND`, `PARENT_NOT_FOUND` |                                                                                                                                                                |
@@ -1733,8 +1749,8 @@ syncer is wired).
 ### GET /api/events
 
 Server-Sent Events stream of every board mutation. `?project=<slug>` limits
-the stream to that project; events with an empty `project` (sync, playbook)
-pass every filter.
+the stream to that project; events with an empty `project` (sync, playbook,
+Jira import) pass every filter.
 
 - The handler sends `: connected\n\n` on subscribe, then `: keepalive\n\n`
   every 30 seconds. `X-Accel-Buffering: no` is set to bypass nginx proxy
@@ -1789,6 +1805,8 @@ originate from a shared-board pull carry `data.source: "sync"`.
 | `sync.completed`      | `{trigger, repo, changes_pulled, duration_ms}`                                                                                                                                      | Cycle finished; refetch when `changes_pulled` is true                                  |
 | `sync.conflict`       | `{trigger, repo, error}` or `{trigger, repo, resolved}`                                                                                                                             | Merge conflict hit, or `resolved` resolver actions applied                             |
 | `sync.error`          | `{trigger, repo, error}`                                                                                                                                                            | Cycle failed                                                                           |
+| `jira_import.progress` | `{import_id, key, status, project, card_id, reason}`                                                                                                                                | One selected issue of a Jira import finished; the event's own `project` is empty       |
+| `jira_import.done`    | `{import_id, status, playbook_id, results, error}`                                                                                                                                  | A Jira import finished or stopped; the event's own `project` is empty                  |
 
 A shared-board pull publishes per-card `card.created` / `card.updated` /
 `card.state_changed` / `card.deleted` diffs (with `source: "sync"`) only when
@@ -1909,8 +1927,11 @@ Resolved detail: metadata plus every entry joined against the card store.
 A card entry is `complete` when the card is in a terminal state; a broken
 reference renders with `missing: true` and counts in `total` but never in
 `complete`. `card_unvetted` is true on a card entry whose card is imported
-and not yet vetted by a human. All entry fields except `id`, `type`, and `complete` are omitted
-when empty.
+and not yet vetted by a human. All entry fields except `id`, `type`, and
+`complete` are omitted when empty.
+
+`source` (`{system, external_id, external_url}`) is present on a playbook
+imported from a Jira epic.
 
 **Errors:** 404 `PLAYBOOK_NOT_FOUND`.
 
@@ -2076,9 +2097,10 @@ cards. Best-of-N and mob settings come from the stored card, not the body.
 
 The run never modifies the card's automation flags: the stored `create_pr`
 value decides whether the worker opens a pull request. The worker pushes its
-own `cm/<lowercase-card-id>` branch; `report_push` afterward sets the stored
-`branch_name` to the worker-reported value. The trigger payload carries a project-scoped
-git token (`git_token`, `git_token_expires_at`) and the `llm_endpoint`.
+own `cm/<lowercase-card-id>` branch (`cm/<lowercase-card-id>-<KEY>` for a
+Jira-imported card, key uppercase); `report_push` afterward sets the stored
+`branch_name` to the worker-reported value. The trigger payload carries a
+project-scoped git token (`git_token`, `git_token_expires_at`) and the `llm_endpoint`.
 
 Returns **202 Accepted** with the updated card (`worker_status: "queued"`) as
 soon as the backend webhook is accepted; the container is provisioned
@@ -2785,3 +2807,172 @@ rehydration prompt.
 The caller's `X-CM-Chat-Session` header must equal `session_id`, otherwise
 the call is rejected. A caller with no header (card-mode or out-of-band) is
 allowed, but `session_id` must still resolve to an active chat session.
+
+## Jira
+
+### GET /api/jira/status
+
+Whether Jira is configured and whether its credentials work right now. It always
+answers 200. Needs a session in multi mode.
+
+```json
+{
+  "configured": true,
+  "authenticated": true,
+  "account": "Ada Lovelace",
+  "auth_mode": "basic",
+  "writeback_enabled": false,
+  "writeback_paused": false,
+  "site_url": "https://acme.atlassian.net"
+}
+```
+
+When `jira.site_url` is unset the body is `{"configured": false}`.
+
+| Field               | Type   | Description                                                                    |
+| ------------------- | ------ | ------------------------------------------------------------------------------ |
+| `configured`        | bool   | `jira.site_url` is set                                                         |
+| `authenticated`     | bool   | The credentials passed a `GET /rest/api/3/myself` probe                        |
+| `account`           | string | Display name the credentials act as; absent when unauthenticated               |
+| `auth_mode`         | string | `basic` or `bearer`                                                            |
+| `writeback_enabled` | bool   | `jira.writeback.enabled`                                                       |
+| `writeback_paused`  | bool   | Writeback is paused because Jira rejected the credentials; false when writeback is off |
+| `site_url`          | string | `jira.site_url`                                                                |
+| `auth_error`        | string | Only when unauthenticated: `unauthorized`, `captcha_required` or `unreachable` (any other failure; the server log has the cause) |
+
+The epic and import routes need a session in multi mode. When Jira is not
+configured or playbooks are disabled they answer `404 JIRA_NOT_CONFIGURED`.
+`{key}` is an issue key, upper-cased when given in lowercase; the web parses
+pasted URLs into keys. The Jira calls a preview or an import makes before
+answering are bounded at 20 seconds, so a 429 that would outlast that answers
+`503 JIRA_RATE_LIMITED`.
+
+### GET /api/jira/epics/{key}/preview
+
+```json
+{
+  "epic": {
+    "key": "PROJ-1",
+    "summary": "Checkout revamp",
+    "url": "https://acme.atlassian.net/browse/PROJ-1",
+    "description": "markdown"
+  },
+  "children": [
+    {
+      "key": "PROJ-2",
+      "id": "10102",
+      "summary": "Cart API",
+      "url": "https://acme.atlassian.net/browse/PROJ-2",
+      "issue_type": "Story",
+      "status": "To Do",
+      "status_category": "new",
+      "jira_project": "PROJ",
+      "components": ["Backend"],
+      "default_project": "api",
+      "imported": { "project": "api", "card": "API-012", "in_playbook": true }
+    }
+  ],
+  "playbook": {
+    "id": "proj-1-checkout-revamp",
+    "title": "PROJ-1 Checkout revamp",
+    "boards_repo": "team",
+    "run_active": true
+  }
+}
+```
+
+`imported` is present when a card was already imported for the issue (matched on
+`custom.jira_issue_id`, then `source.external_id`); `in_playbook` says whether
+that card is in the epic's playbook. `default_project` comes from
+`jira.project_map`; sub-tasks inherit their parent's. `playbook` is the playbook
+an import would extend, absent until the first import creates it.
+`run_active` is present and `true` while that playbook has a `running` or
+`waiting` run; an import then answers `409 JIRA_PLAYBOOK_RUNNING`.
+`active_import` is present while an import of the epic runs on this instance:
+`{"id": "ji-...", "keys": ["PROJ-2"]}`, its id and the issue keys it covers, so a
+reopened dialog follows it through `GET /api/jira/imports/{id}` instead of
+starting another. With several queued, it is the oldest.
+
+### POST /api/jira/epics/{key}/import
+
+Human-only. The server validates the body and re-reads the epic's issues from
+Jira, then answers **202** `{"import_id": "ji-..."}` and imports in the
+background, bounded at 10 minutes from when it holds the epic. The body carries
+only keys, target projects and options. Imports of the same epic run one at a
+time. Every error below is returned before anything is written.
+
+```json
+{
+  "selections": [{ "key": "PROJ-2", "project": "api" }],
+  "vetted": false,
+  "include_epic_context": true,
+  "playbook": {
+    "title": "PROJ-1 Checkout revamp",
+    "description": "Checkout revamp",
+    "boards_repo": "team"
+  }
+}
+```
+
+`playbook` is used only when no playbook for the epic exists yet.
+
+Progress arrives over `GET /api/events` as two global event types:
+
+| Event                  | `data`                                                              |
+| ---------------------- | ------------------------------------------------------------------- |
+| `jira_import.progress` | `{import_id, key, status, project, card_id, reason}`, one per issue |
+| `jira_import.done`     | `{import_id, status, playbook_id, results, error}`                  |
+
+A result's `status` is `created`, `skipped` (already imported) or `failed` with
+a `reason`. Re-running is safe: a server shutdown stops an import between two
+issues, and the next run skips what exists.
+
+| Status | Code                      | When                                                                     |
+| ------ | ------------------------- | ------------------------------------------------------------------------ |
+| 400    | `BAD_REQUEST`             | Malformed key or body, no selections, or more than 200                   |
+| 403    | `HUMAN_ONLY_FIELD`        | Import called with an agent identity                                     |
+| 404    | `JIRA_NOT_CONFIGURED`     | No `jira` block, or playbooks disabled                                   |
+| 404    | `JIRA_ISSUE_NOT_FOUND`    | Issue not found or no permission                                         |
+| 409    | `JIRA_PLAYBOOK_RUNNING`   | The epic's playbook has a `running` or `waiting` run; stop it or wait    |
+| 422    | `JIRA_NOT_EPIC`           | The issue is not epic-level                                              |
+| 502    | `JIRA_AUTH_FAILED`        | Jira rejected the token (`details` names a login CAPTCHA)                |
+| 502    | `JIRA_REQUEST_REJECTED`   | Jira refused the request with another 4xx; `details` has its message     |
+| 502    | `JIRA_UNAVAILABLE`        | Jira failed or timed out                                                 |
+| 503    | `JIRA_RATE_LIMITED`       | Jira's 429 outlasted the wait; nothing was written                       |
+| 503    | `JIRA_IMPORT_UNAVAILABLE` | The server is shutting down and takes no new imports                     |
+
+The same codes apply to the preview, except `403`, `409` and
+`503 JIRA_IMPORT_UNAVAILABLE`.
+
+### GET /api/jira/imports/{id}
+
+The import's current state, for a dialog that reconnects, or that reopens and
+finds the import through the preview's `active_import`. The registry is in
+memory on the instance that ran the import and keeps a finished import for an
+hour; after that, or after a restart, it answers `404 JIRA_IMPORT_NOT_FOUND`.
+
+```json
+{
+  "id": "ji-3f9a1c2b7d4e5f60",
+  "epic": "PROJ-1",
+  "status": "done",
+  "playbook_id": "proj-1-checkout-revamp",
+  "total": 2,
+  "results": [
+    {
+      "key": "PROJ-2",
+      "status": "created",
+      "project": "api",
+      "card": "API-012"
+    }
+  ],
+  "started_at": "2026-10-12T09:00:00Z",
+  "finished_at": "2026-10-12T09:00:04Z"
+}
+```
+
+`status` is `running`, `done` or `failed`. `failed` means the playbook could not
+be resolved or the import was stopped (shutdown, the 10-minute bound) before its
+last selection, with a safe `error` phrase and the results so far; selections
+not reached have no result. A stop during the last selection ends `done`, with
+that row `failed`.

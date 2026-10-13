@@ -301,3 +301,23 @@ func TestPlaybookStore_CopiesRun(t *testing.T) {
 		})
 	}
 }
+
+func TestPlaybookStore_CopiesSource(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewFilesystemPlaybookStore(dir)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	p := testPlaybook("epic")
+	p.Source = &board.Source{System: "jira", ExternalID: "PROJ-1", ExternalURL: "https://acme.atlassian.net/browse/PROJ-1"}
+	require.NoError(t, store.Create(ctx, p))
+
+	got, err := store.Get(ctx, "epic")
+	require.NoError(t, err)
+	require.NotNil(t, got.Source)
+	got.Source.ExternalID = "mutated"
+
+	again, err := store.Get(ctx, "epic")
+	require.NoError(t, err)
+	assert.Equal(t, "PROJ-1", again.Source.ExternalID, "a caller mutating its copy must not reach the cache")
+}

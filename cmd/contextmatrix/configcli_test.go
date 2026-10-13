@@ -35,7 +35,7 @@ func TestConfigCLI_DefaultsPrintsStrictYAML(t *testing.T) {
 	var tree map[string]any
 	require.NoError(t, yaml.Unmarshal(stdout.Bytes(), &tree))
 
-	for _, key := range []string{"port", "boards", "backends", "auth", "github", "mcp_api_key", "task_skills"} {
+	for _, key := range []string{"port", "boards", "backends", "auth", "github", "jira", "mcp_api_key", "task_skills"} {
 		assert.Contains(t, tree, key)
 	}
 

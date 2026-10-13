@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"net/url"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -137,6 +139,38 @@ type Source struct {
 	System      string `yaml:"system"       json:"system"`
 	ExternalID  string `yaml:"external_id"  json:"external_id"`
 	ExternalURL string `yaml:"external_url" json:"external_url"`
+}
+
+// Clone returns a copy that shares nothing with s. Nil-safe.
+func (s *Source) Clone() *Source {
+	if s == nil {
+		return nil
+	}
+
+	c := *s
+
+	return &c
+}
+
+// SameSource reports whether a and b name the same external item: equal
+// system and external ID, on the same host. The host keeps one key from two
+// sites apart; a missing ID or a URL that does not parse never matches.
+func SameSource(a, b *Source) bool {
+	if a == nil || b == nil || a.System != b.System || a.ExternalID == "" || a.ExternalID != b.ExternalID {
+		return false
+	}
+
+	ua, err := url.Parse(a.ExternalURL)
+	if err != nil {
+		return false
+	}
+
+	ub, err := url.Parse(b.ExternalURL)
+	if err != nil {
+		return false
+	}
+
+	return strings.EqualFold(ua.Hostname(), ub.Hostname())
 }
 
 // TokenUsage tracks cumulative token consumption and estimated cost for a card.

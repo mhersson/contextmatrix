@@ -28,6 +28,7 @@ import { NotFound } from '../NotFound';
 import { WorkerConsole } from '../WorkerConsole';
 import { api, describeApiError } from '../../api/client';
 import type { BoardEvent, Card, CreateCardInput } from '../../types';
+import { sourceToastMessage } from '../../lib/sourceToast';
 import { boardsRepoName } from '../../types';
 import { useDeepLinkCard } from './useDeepLinkCard';
 import { gateCardLogs } from './gateCardLogs';
@@ -86,10 +87,8 @@ export function ProjectShell() {
   }
 
   const handleCardCreated = useCallback((event: BoardEvent) => {
-    if (event.data?.source_system === 'github') {
-      const title = (event.data?.title as string) || event.card_id;
-      showToast(`New issue from GitHub: ${title}`, 'info');
-    }
+    const message = sourceToastMessage(event.data, event.card_id);
+    if (message) showToast(message, 'info');
   }, [showToast]);
 
   const { config, cards, loading, error, connected, refreshCard, listEpoch, updateCardLocally, removeCardLocally, suppressSSE, unsuppressSSE } = useBoard(project || '', undefined, undefined, handleCardCreated);

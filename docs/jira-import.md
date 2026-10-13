@@ -1,0 +1,309 @@
+# Jira import
+
+A human imports a Jira Cloud epic from the "New playbook" form. Each selected
+child issue and sub-task becomes a card in an existing project; the epic becomes
+a playbook that orders those cards, ready to be made runnable. The import is a
+one-shot snapshot: ContextMatrix is the source of truth afterwards and nothing
+syncs back in. The optional [status writeback](#status-writeback) works the
+other way: it moves an imported issue in Jira as its card starts and finishes.
+ContextMatrix talks to one Jira Cloud site per instance through the REST API
+v3; without a configured site the import button is hidden.
+`GET /api/jira/status` reports whether the connection works.
+
+## Configuration
+
+| Key                 | Env                               | Default            | Rule                                                                                                                                |
+| ------------------- | --------------------------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `jira.site_url`     | `CONTEXTMATRIX_JIRA_SITE_URL`     | empty              | Bare `https` origin of the Jira Cloud site, e.g. `https://acme.atlassian.net`. Empty disables Jira. |
+| `jira.api_base_url` | `CONTEXTMATRIX_JIRA_API_BASE_URL` | empty (`site_url`) | `https`. Set to `https://api.atlassian.com/ex/jira/<cloudId>` for service-account scoped tokens.                                    |
+| `jira.auth_mode`    | `CONTEXTMATRIX_JIRA_AUTH_MODE`    | `basic`            | `basic` or `bearer`.                                                                                                                |
+| `jira.email`        | `CONTEXTMATRIX_JIRA_EMAIL`        | empty              | Required for `basic`.                                                                                                               |
+| `jira.token`        | `CONTEXTMATRIX_JIRA_TOKEN`        | empty              | Required. Supply it through the env var.                                                                                            |
+| `jira.project_map`  | none (a map; set it in the file)  | empty              | Wizard defaults per Jira project key: `default` names a CM project, `components` maps a Jira component to one and wins over `default`. A target that names no CM project is logged at startup and ignored. |
+
+When `site_url` is set, startup fails if a URL is not `https`, if `site_url`
+carries a path, query, fragment or credentials, if the fields `auth_mode` needs
+are missing, if a `project_map` or `writeback.status_targets` key is not a Jira
+project key, or if a `project_map` entry has neither a `default` nor
+`components`.
+
+```yaml
+jira:
+  project_map:
+    PROJ:
+      default: api
+      components:
+        Frontend: web
+```
+
+The map only fills the import dialog's project pickers; a human can change every
+pick. For an issue with several components, the first one that maps to an
+existing CM project wins. Sub-tasks default to their parent's project.
+
+The token is read once at startup and no package other than the Jira client
+receives it. It never appears in API responses, logs or errors. Changing it
+means changing the config or env var and restarting.
+
+## Authentication
+
+| Mode                | Credential                                                                   | Base URL                                              |
+| ------------------- | ---------------------------------------------------------------------------- | ----------------------------------------------------- |
+| `basic`             | Atlassian account email + API token: a personal token, or a bot user's token | `site_url`                                            |
+| `basic` or `bearer` | Atlassian service account API token                                          | `api_base_url` set to the `api.atlassian.com` gateway |
+
+- **Personal token for testing.** Create one at
+  <https://id.atlassian.com/manage-profile/security/api-tokens> with a short
+  expiry. Set `email` to your own address. Jira records every action CM takes as
+  yours.
+- **Service account.** An org admin creates it in Atlassian Administration and
+  issues it an API token, which must go through the gateway URL. Look up the
+  site's `cloudId` at `https://<site>/_edge/tenant_info`.
+- **Login CAPTCHA.** After repeated failed logins Jira blocks basic auth for the
+  account until someone signs in through a browser. The status endpoint then
+  reports `auth_error: captcha_required`.
+- **Scoped tokens.** A service account token carries scopes. Grant all three:
+  `read:jira-user` for the status probe, `read:jira-work` for preview and
+  import, and `write:jira-work` for writeback transitions. A write refused with
+  401 while the probe works fails that writeback row as insufficient scope
+  instead of pausing writeback.
+
+Check the connection:
+
+```bash
+curl -s -H 'X-Requested-With: contextmatrix' localhost:8080/api/jira/status
+```
+
+## Importing an epic
+
+1. Click **New playbook**, paste an epic key (`PROJ-1`, any case) or a Jira URL
+   on the configured site into the title, and click **Import from Jira**. Enter
+   still creates an ordinary playbook. While the status probe fails, the form
+   says why (`unauthorized`, `captcha_required`, `unreachable`). The button
+   stays disabled for `unauthorized` and `captcha_required` only.
+2. The dialog shows the epic's children and their sub-tasks. Open issues that
+   were never imported are preselected. Pick a project per issue, or one for
+   all; defaults come from `jira.project_map`, and sub-tasks follow their
+   parent.
+3. Choose whether the cards are vetted and whether each card carries the epic
+   description, then import. The dialog lists each issue's result as it lands
+   (`created`, `skipped`, `failed`), then offers **Open playbook**.
+
+The import re-reads every issue from Jira before it answers; the browser sends
+only keys, projects and options. It then runs in the background and reports
+each issue over the event stream. Imports of the same epic run one at a time on
+an instance, and each is bounded at 10 minutes from when its turn comes. Closing
+the dialog does not stop the import: opening the dialog for the epic again shows
+its progress instead of offering Import once the epic preview loads (so Jira
+must be reachable), and a reconnecting dialog catches up from
+`GET /api/jira/imports/{id}`, which keeps a finished import for an hour.
+Both work only on the instance that runs the import. The import is human-only.
+
+Each issue's writes are bounded at 30 seconds, room for the verified push every
+write makes on a shared boards repository. An issue that runs over fails with
+`timed out`, and the import moves on to the next.
+
+On a shared boards repository every import write runs after the instance has
+merged its peer's latest push. Creating the playbook returns the one that
+already has the same source, and creating a card returns the target project's
+card with that source, instead of writing a second. A peer's import therefore
+counts as soon as it is pushed, not only after the next pull. Two writes whose
+sync cycles overlap, both fetching before either pushes, can still each create
+one. The card check covers only the target project, and nothing is matched
+across boards repositories the two instances do not share, so import an epic
+from one instance.
+
+At server shutdown, or after the 10 minute bound, an import stops between two
+issues: the issue in flight gets 8 seconds to finish, then its writes are
+cancelled and its row fails. If selected issues remain, the import is marked
+`failed` and the issues it never reached are listed as not run. If the issue in
+flight was the last one selected, the import ends `done`, with that row failed
+when its writes were cancelled.
+
+## What a card gets
+
+| Field                     | Value                                                                                                                                                                                                                                                      |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `title`                   | `PROJ-123 <summary>`, with every `#` run directly before a letter or digit removed so the merge commit cannot run a Jira smart-commit command                                                                                                              |
+| `body`                    | The issue description as markdown. With the epic option, followed by `## Epic context ([PROJ-1](<epic URL>))` and the epic description; nothing is added when the epic has none                                                                            |
+| `type`                    | `Bug` -> `bug`; `Improvement`, `New Feature`, `Feature` -> `feature` when the project lists it; anything else, and every sub-task, -> `task`. A type the project does not list falls back to its first type                                               |
+| `priority`                | `Highest`, `Critical`, `Blocker` -> `critical`; `High` -> `high`; `Medium`, `Normal` -> `medium`; `Low`, `Lowest`, `Trivial`, `Minor` -> `low`; unknown -> `medium`. A missing priority falls back `critical` -> `high` -> `medium` -> the project's first |
+| `source`                  | `{system: jira, external_id: PROJ-123, external_url: <site>/browse/PROJ-123}`, immutable                                                                                                                                                                   |
+| `custom.jira_issue_id`    | The Jira issue id                                                                                                                                                                                                                                          |
+| `custom.jira_import_hash` | Hex SHA-256 of the imported title, a newline and the body without trailing newlines                                                                                                                                                                       |
+| `vetted`                  | The dialog's **Mark imported cards vetted** (off by default)                                                                                                                                                                                               |
+| `branch_name`             | `<id>/PROJ-123-<slug>`, key uppercase, so GitHub for Jira links the branch (a key over 64 bytes keeps the plain name)                                                                                                                                      |
+| activity log              | `Imported from Jira PROJ-123` (with `, marked vetted on import` when vetted), attributed to the importing human                                                                                                                                            |
+
+Jira children never become CM subtasks: `parent` stays empty and the type is
+never `subtask`. Subtasks come only from CM's own planning.
+
+## Order and dependencies
+
+- Sub-tasks are created before their parent and sit before it in the playbook.
+- A parent `depends_on` its sub-tasks that land in the same project, whether
+  created in the same import or an earlier one. A sub-task in another project is
+  order only; the dialog warns about it.
+- When a sub-task selected into the parent's project fails before its card
+  exists, the parent fails too, so it is never created without that dependency.
+  Import both again once the cause is fixed.
+- A new sub-task of a parent imported earlier goes directly before the parent in
+  the playbook. Existing cards are never edited, so the parent does not gain the
+  dependency.
+- A sub-task imported earlier whose card is `done` or `not_planned` is not a
+  dependency of a parent imported now.
+- A card holds at most 50 dependencies. A parent with more same-project
+  sub-tasks depends on the first 50 in tree order, and its result row says so.
+
+## Re-running
+
+An issue already imported (matched on `custom.jira_issue_id`, then on
+`source.external_id` when the id agrees) is `skipped`, never duplicated, and is
+put back into the playbook if it is missing there. If that playbook is runnable,
+the card gets the playbook's forced card settings, as any card added to a
+runnable playbook does. The epic's playbook is found by its `source` in any
+boards repository; the title and repository typed in the form apply only when
+it is created. Both matches need the `source.external_url` host to be the
+configured site's, so a card or playbook imported from another Jira site into
+the same boards repository is never reused, even with the same key. A failed row
+blocks only its same-project parent; fix the cause and import again. A server
+shutdown stops a running import between two issues, leaving the rest not run;
+running it again finishes the job.
+
+## Active runs
+
+An import into an epic whose playbook has a `running` or `waiting` run is
+refused with `409 JIRA_PLAYBOOK_RUNNING`. The preview flags it up front
+(`run_active`) and the dialog says to stop the run or wait.
+
+If a run starts while an import is in progress, new cards are still added to the
+playbook but stay at the end: entry order is frozen while a run is active
+(`409 PLAYBOOK_MOVE_DURING_RUN`), so they are not moved before their parent.
+
+## Vetting
+
+Imported cards are unvetted unless the box is ticked. An unvetted card cannot be
+claimed by an agent or launched, and making the playbook runnable is refused
+until its open imported cards are vetted (see
+[playbooks](playbooks.md#make-runnable)). Unvetted imported cards can still be
+added to a playbook that is already runnable: the run then waits on each one
+until a human vets it. Re-asserting runnable on an already-runnable playbook
+(`PATCH runnable:true`) answers `422 PLAYBOOK_CARD_NOT_VETTED` until they are
+vetted, as the first make-runnable does. The epic context sits in the card body,
+so vetting covers it.
+
+## Pull requests and branches
+
+Every card in a runnable playbook keeps its own agent branch and opens a PR into
+`playbook/<id>` (see [playbooks](playbooks.md#the-branch-model)). The PR title
+is the card title, so it starts with the issue key and GitHub for Jira links it.
+
+The agent branch is `cm/<lowercase-card-id>-<KEY>` with the key uppercase (e.g.
+`cm/api-012-PROJ-123`), so GitHub for Jira links the branch as well; the
+predicted HITL `branch_name` is `<id>/PROJ-123-<slug>`. An agent that predates
+the Jira branch change pushes `cm/<lowercase-card-id>` for every card, and
+GitHub for Jira cannot link those branches. Upgrade contextmatrix-agent to a
+version that derives the Jira branch before importing epics.
+
+When a target project's card prefix equals a Jira project key (a CM project with
+prefix `PROJ` receiving `PROJ-...` issues), a card ID such as `PROJ-801` in a PR
+body or commit also reads as a Jira key, and GitHub for Jira may link the PR to
+the wrong issue. The import dialog warns on such issues but never blocks the
+import; pick another project or change the prefix to avoid it.
+
+## Import errors
+
+| Situation                                                       | Response                                                                                                     |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Malformed key or body, no selections, or more than 200          | `400 BAD_REQUEST`                                                                                            |
+| Import called with an agent identity                            | `403 HUMAN_ONLY_FIELD`                                                                                       |
+| Jira not configured, or playbooks disabled                      | `404 JIRA_NOT_CONFIGURED`; the button is hidden                                                              |
+| Not an epic (hierarchy level 1)                                 | `422 JIRA_NOT_EPIC`                                                                                          |
+| Issue missing or no permission                                  | `404 JIRA_ISSUE_NOT_FOUND`                                                                                   |
+| The epic's playbook has a `running` or `waiting` run            | `409 JIRA_PLAYBOOK_RUNNING`; stop the run or wait                                                            |
+| Token rejected                                                  | `502 JIRA_AUTH_FAILED`; `details` names a login CAPTCHA when Jira reports one                                |
+| Jira refused the request with another 4xx                       | `502 JIRA_REQUEST_REJECTED` with Jira's message                                                              |
+| Jira rate limit outlasts the wait                               | `503 JIRA_RATE_LIMITED`; nothing was written                                                                 |
+| Server not accepting imports, as during shutdown                | `503 JIRA_IMPORT_UNAVAILABLE`; try again shortly                                                             |
+| Jira down                                                       | `502 JIRA_UNAVAILABLE`                                                                                       |
+| Import state asked for after it aged out or on another instance | `404 JIRA_IMPORT_NOT_FOUND`                                                                                  |
+| A large import on a shared boards repo                          | No proxy timeout: the request answers `202` once the epic is read and progress arrives over the event stream |
+
+## Status writeback
+
+With `jira.writeback.enabled: true`, CM moves an imported issue in Jira. The
+card must carry a Jira `source` whose URL is `<site_url>/browse/<external_id>`,
+as the import sets it. Only the import sets a Jira source: the REST card create
+refuses one with `400`.
+
+| Card event                     | Jira                                           |
+| ------------------------------ | ---------------------------------------------- |
+| First entry into `in_progress` | Started (a status in the In Progress category) |
+| Reaches `done`                 | Done (a status in the Done category)           |
+
+- **Only these two moves.** Review, stall, `not_planned` and a reopen (`done` ->
+  `todo` -> `done`) write nothing. Each card triggers each move at most once, and
+  a card moved directly to `done` writes only the done move. When
+  `complete_task` walks through `in_progress` on the way, the started write is
+  recorded first and can land before the done write; the worker skips a started
+  write whose done write is also pending.
+- **A started write only moves an issue out of the To Do category, and a done
+  write only acts when the issue is not already done.** An issue someone closed
+  in Jira is never reopened.
+- **CM never waits on Jira.** A card change only records the owed write in
+  ops.db; a background worker sends it.
+- **Enabling needs Jira configured.** `jira.writeback.enabled` without
+  `jira.site_url` fails startup.
+
+### Choosing the transition
+
+Transition IDs differ per workflow, so CM resolves them from the issue's
+available transitions:
+
+1. The status named in `jira.writeback.status_targets` for the issue's Jira
+   project key. The match is case-insensitive.
+2. Otherwise, when no status is named, the one available transition into the
+   target category.
+3. Otherwise, the one forward step toward it.
+
+It follows at most 3 transitions. More than one candidate is a failure; name the
+status in `status_targets` to resolve it. If the transition's screen requires a
+resolution, CM sends the configured `resolution`, or `Done`.
+
+```yaml
+jira:
+  writeback:
+    enabled: true
+    status_targets:
+      PROJ: { started: "In Progress", done: "Done", resolution: "Done" }
+```
+
+`status_targets` is config file only; `jira.writeback.enabled` also has the env
+override `CONTEXTMATRIX_JIRA_WRITEBACK_ENABLED`.
+
+### Failures
+
+| Situation                                                      | Behaviour                                                                                                                                                                                         |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Jira unreachable, 5xx, 429                                     | Retries with backoff (1, 2, 4, 8, 16, 32 minutes, then hourly) for 29 attempts, about 24 h, honouring `Retry-After`. Then the write fails and the card gets the same activity line.               |
+| Credentials rejected (401, or the login CAPTCHA 403)           | Writeback pauses and pending writes keep their place and attempt count. CM warns once, then re-checks the credentials with backoff of 1 to 15 minutes. The backoff keeps growing, and the warning stays quiet, until a write succeeds, so a token that keeps failing the check is probed ever less often. `GET /api/jira/status` reports `writeback_paused: true` until they work again. |
+| A write is rejected (401) while the credentials check passes   | The token lacks write scope, so the write fails at once and the card gets the same activity line. Writeback does not pause. |
+| Issue missing, no permission, no unique transition, other 4xx  | The write fails at once and the card gets one activity line: `Jira writeback (<started or done>) failed: <reason>`. A failed write is not retried.                                                |
+
+A write cut off by shutdown stays pending and costs no attempt. The next start
+re-reads the issue, so a move that already landed becomes a no-op.
+
+An hourly sweep re-checks Jira cards updated in the last 24 h. It catches
+changes the worker never saw, such as a large shared-board pull (more than 16
+changed cards emit no per-card events) or a full event buffer. The sweep owes
+the started move only for recently updated Jira cards in `in_progress`,
+`review` or `stalled`, if it was never recorded; the live subscriber writes
+started only on entry to `in_progress`. Custom states are never inferred as
+started, since imports land in the project's first state. A card that points at a different Jira issue than a
+finished row did, as when a project is recreated under the same name, is
+written afresh. Turning writeback on never
+backfills older moves.
+
+**Shared boards:** every instance with writeback enabled writes for every Jira
+card change it sees, including synced ones. Duplicate writes become no-ops.
+
+Endpoints and payloads: [API reference](api-reference.md#jira).

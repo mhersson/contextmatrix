@@ -1218,3 +1218,47 @@ func TestCard_NeedsVetting(t *testing.T) {
 		})
 	}
 }
+
+func TestSource_Clone(t *testing.T) {
+	var nilSrc *Source
+	assert.Nil(t, nilSrc.Clone())
+
+	src := &Source{System: "jira", ExternalID: "PROJ-1", ExternalURL: "https://acme.atlassian.net/browse/PROJ-1"}
+	cp := src.Clone()
+	require.NotSame(t, src, cp)
+	assert.Equal(t, src, cp)
+
+	cp.ExternalID = "PROJ-2"
+	assert.Equal(t, "PROJ-1", src.ExternalID)
+}
+
+func TestSameSource(t *testing.T) {
+	jira := func(id, url string) *Source { return &Source{System: "jira", ExternalID: id, ExternalURL: url} }
+	acme := "https://acme.atlassian.net/browse/PROJ-1"
+
+	tests := []struct {
+		name string
+		a, b *Source
+		want bool
+	}{
+		{"same", jira("PROJ-1", acme), jira("PROJ-1", acme), true},
+		{"other path on the same host", jira("PROJ-1", acme), jira("PROJ-1", "https://acme.atlassian.net/jira/PROJ-1"), true},
+		{"host case differs", jira("PROJ-1", acme), jira("PROJ-1", "https://ACME.Atlassian.net/browse/PROJ-1"), true},
+		{"neither has a url", jira("PROJ-1", ""), jira("PROJ-1", ""), true},
+		{"different system", jira("PROJ-1", acme), &Source{System: "github", ExternalID: "PROJ-1", ExternalURL: acme}, false},
+		{"different external id", jira("PROJ-1", acme), jira("PROJ-2", acme), false},
+		{"empty external id", jira("", acme), jira("", acme), false},
+		{"different host", jira("PROJ-1", acme), jira("PROJ-1", "https://other.atlassian.net/browse/PROJ-1"), false},
+		{"one has no url", jira("PROJ-1", acme), jira("PROJ-1", ""), false},
+		{"unparseable url", jira("PROJ-1", "https://acme.atlassian.net/%zz"), jira("PROJ-1", "https://acme.atlassian.net/%zz"), false},
+		{"nil", nil, jira("PROJ-1", acme), false},
+		{"both nil", nil, nil, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, SameSource(tt.a, tt.b))
+			assert.Equal(t, tt.want, SameSource(tt.b, tt.a), "symmetric")
+		})
+	}
+}

@@ -19,6 +19,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/clock"
 	"github.com/mhersson/contextmatrix/internal/events"
 	"github.com/mhersson/contextmatrix/internal/gitops"
+	"github.com/mhersson/contextmatrix/internal/jira"
 	"github.com/mhersson/contextmatrix/internal/lock"
 	"github.com/mhersson/contextmatrix/internal/metrics"
 	"github.com/mhersson/contextmatrix/internal/storage"
@@ -472,6 +473,69 @@ func TestAddLogEntry(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("expected CardLogAdded event")
 	}
+}
+
+func TestAddSystemLogEntry(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{Title: "Test", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "agent-1")
+	require.NoError(t, err)
+
+	before, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+
+	entry := board.ActivityEntry{Agent: "system:jira-writeback", Action: "jira-writeback", Message: "m"}
+
+	_, err = svc.AddLogEntry(ctx, "test-project", card.ID, entry)
+	require.ErrorIs(t, err, lock.ErrAgentMismatch, "the owner-checked path still refuses a system writer on a claimed card")
+
+	updated, err := svc.AddSystemLogEntry(ctx, "test-project", card.ID, entry)
+	require.NoError(t, err)
+	require.NotEmpty(t, updated.ActivityLog)
+	assert.Equal(t, "system:jira-writeback", updated.ActivityLog[len(updated.ActivityLog)-1].Agent)
+	assert.Equal(t, "agent-1", updated.AssignedAgent, "the claim is untouched")
+
+	after, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, before.LastHeartbeat, after.LastHeartbeat, "a system line is not proof of agent liveness")
+
+	for _, agent := range []string{"agent-2", "systemd", ""} {
+		_, err = svc.AddSystemLogEntry(ctx, "test-project", card.ID, board.ActivityEntry{Agent: agent, Action: "x", Message: "y"})
+		require.ErrorIs(t, err, lock.ErrAgentMismatch, "agent %q", agent)
+	}
+}
+
+func TestAddSystemLogEntry_NoHeartbeatRefreshForSystemClaimHolder(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{Title: "Test", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+
+	_, err = svc.ClaimCard(ctx, "test-project", card.ID, "system")
+	require.NoError(t, err)
+
+	before, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	require.NotNil(t, before.LastHeartbeat)
+
+	time.Sleep(5 * time.Millisecond)
+
+	_, err = svc.AddSystemLogEntry(ctx, "test-project", card.ID, board.ActivityEntry{Agent: "system", Action: "x", Message: "y"})
+	require.NoError(t, err)
+
+	after, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	require.NotNil(t, after.LastHeartbeat)
+	assert.Equal(t, before.LastHeartbeat, after.LastHeartbeat, "a system line never refreshes the heartbeat, even for a claim held under a system ID")
 }
 
 func TestClaimCard(t *testing.T) {
@@ -4540,25 +4604,48 @@ func TestNotPlannedDoesNotAppearInStalledDetection(t *testing.T) {
 }
 
 func TestGenerateBranchName(t *testing.T) {
+	jiraSrc := func(key string) *board.Source {
+		return &board.Source{System: "jira", ExternalID: key, ExternalURL: "https://acme.atlassian.net/browse/" + key}
+	}
+
 	tests := []struct {
 		name     string
 		cardID   string
 		title    string
+		source   *board.Source
 		expected string
 	}{
-		{"simple", "TEST-001", "Fix login bug", "test-001/fix-login-bug"},
-		{"special chars", "ALPHA-042", "Add user auth & validation!", "alpha-042/add-user-auth-validation"},
-		{"long title", "X-001", strings.Repeat("word ", 20), "x-001/word-word-word-word-word-word-word-word-word-word"},
-		{"empty title", "TEST-001", "", "test-001"},
-		{"unicode", "TEST-001", "Fix über bug", "test-001/fix-ber-bug"},
+		{"simple", "TEST-001", "Fix login bug", nil, "test-001/fix-login-bug"},
+		{"special chars", "ALPHA-042", "Add user auth & validation!", nil, "alpha-042/add-user-auth-validation"},
+		{"long title", "X-001", strings.Repeat("word ", 20), nil, "x-001/word-word-word-word-word-word-word-word-word-word"},
+		{"empty title", "TEST-001", "", nil, "test-001"},
+		{"unicode", "TEST-001", "Fix über bug", nil, "test-001/fix-ber-bug"},
+		{"github source unchanged", "TEST-001", "Fix login", &board.Source{System: "github", ExternalID: "acme/x#1"}, "test-001/fix-login"},
+		{"jira key kept uppercase", "TEST-002", "PROJ-123 Fix login bug", jiraSrc("PROJ-123"), "test-002/PROJ-123-fix-login-bug"},
+		{"jira title edited to drop the key", "TEST-002", "Fix login bug", jiraSrc("PROJ-123"), "test-002/PROJ-123-fix-login-bug"},
+		{"jira title is only the key", "TEST-002", "PROJ-123", jiraSrc("PROJ-123"), "test-002/PROJ-123"},
+		{"jira longer key prefix not stripped", "TEST-002", "PROJ-1234 Fix", jiraSrc("PROJ-123"), "test-002/PROJ-123-proj-1234-fix"},
+		{"jira invalid key ignored", "TEST-002", "Fix", jiraSrc("proj 1;rm"), "test-002/fix"},
+		{"jira key over 64 bytes ignored", "TEST-002", "Fix", jiraSrc("P" + strings.Repeat("X", 60) + "-1234"), "test-002/fix"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := generateBranchName(tt.cardID, tt.title)
-			assert.Equal(t, tt.expected, result)
+			assert.Equal(t, tt.expected, generateBranchName(tt.cardID, tt.title, tt.source))
 		})
 	}
+}
+
+func TestCreateCard_JiraBranchNameKeepsKey(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	card, err := svc.CreateCard(context.Background(), "test-project", CreateCardInput{
+		Title: "PROJ-7 Fix login", Type: "task", Priority: "medium",
+		Source: &board.Source{System: "jira", ExternalID: "PROJ-7", ExternalURL: "https://acme.atlassian.net/browse/PROJ-7"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "test-001/PROJ-7-fix-login", card.BranchName)
 }
 
 func TestCreateCard_AutonomousFields(t *testing.T) {
@@ -6043,6 +6130,132 @@ func TestCreateCard_DuplicateSubtaskGuard(t *testing.T) {
 		})
 		require.NoError(t, err)
 		assert.Equal(t, existing.ID, got.ID, "title matching must trim whitespace")
+	})
+}
+
+func TestCreateCard_SourceGuard(t *testing.T) {
+	ctx := context.Background()
+
+	src := func(site, key string) *board.Source {
+		return &board.Source{System: "jira", ExternalID: key, ExternalURL: "https://" + site + ".atlassian.net/browse/" + key}
+	}
+
+	create := func(t *testing.T, svc *CardService, title string, s *board.Source) *board.Card {
+		t.Helper()
+
+		c, err := svc.CreateCard(ctx, "test-project", CreateCardInput{Title: title, Type: "task", Priority: "medium", Source: s})
+		require.NoError(t, err)
+
+		return c
+	}
+
+	count := func(t *testing.T, svc *CardService) int {
+		t.Helper()
+
+		cards, err := svc.ListCards(ctx, "test-project", storage.CardFilter{})
+		require.NoError(t, err)
+
+		return len(cards)
+	}
+
+	t.Run("the same source returns the existing card and publishes nothing", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		t.Cleanup(cleanup)
+
+		first := create(t, svc, "PROJ-2 first", src("acme", "PROJ-2"))
+
+		ch, unsub := svc.bus.Subscribe()
+		defer unsub()
+
+		got := create(t, svc, "PROJ-2 again", src("ACME", "PROJ-2"))
+		assert.Equal(t, first.ID, got.ID)
+		assert.Equal(t, "PROJ-2 first", got.Title)
+		assert.Equal(t, 1, count(t, svc))
+
+		select {
+		case e := <-ch:
+			t.Fatalf("published %s for a create that returned an existing card", e.Type)
+		default:
+		}
+	})
+
+	t.Run("an existing card in a terminal state is still returned", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		t.Cleanup(cleanup)
+
+		first := create(t, svc, "PROJ-2 first", src("acme", "PROJ-2"))
+
+		notPlanned := "not_planned"
+		_, err := svc.PatchCard(ctx, "test-project", first.ID, PatchCardInput{State: &notPlanned})
+		require.NoError(t, err)
+
+		got := create(t, svc, "PROJ-2 again", src("acme", "PROJ-2"))
+		assert.Equal(t, first.ID, got.ID)
+		assert.Equal(t, 1, count(t, svc))
+	})
+
+	t.Run("the same key on another host creates a card", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		t.Cleanup(cleanup)
+
+		first := create(t, svc, "PROJ-2 acme", src("acme", "PROJ-2"))
+		got := create(t, svc, "PROJ-2 other", src("other", "PROJ-2"))
+		assert.NotEqual(t, first.ID, got.ID)
+		assert.Equal(t, 2, count(t, svc))
+	})
+
+	t.Run("a recorded jira issue id that differs is another issue", func(t *testing.T) {
+		tests := []struct {
+			name            string
+			existing, input any // custom jira_issue_id; nil leaves it unset
+			returnsExisting bool
+		}{
+			{"different id", "102", "999", false},
+			{"same id", "102", "102", true},
+			{"no id on either side", nil, nil, true},
+			{"only the existing card has an id", "102", nil, true},
+			{"only the input has an id", nil, "102", true},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				svc, _, cleanup := setupTest(t)
+				t.Cleanup(cleanup)
+
+				in := func(title string, id any) CreateCardInput {
+					c := CreateCardInput{Title: title, Type: "task", Priority: "medium", Source: src("acme", "PROJ-5")}
+					if id != nil {
+						c.Custom = map[string]any{jira.CustomIssueID: id}
+					}
+
+					return c
+				}
+
+				first, err := svc.CreateCard(ctx, "test-project", in("PROJ-5 first", tt.existing))
+				require.NoError(t, err)
+
+				got, err := svc.CreateCard(ctx, "test-project", in("PROJ-5 again", tt.input))
+				require.NoError(t, err)
+
+				if tt.returnsExisting {
+					assert.Equal(t, first.ID, got.ID)
+					assert.Equal(t, 1, count(t, svc))
+				} else {
+					assert.NotEqual(t, first.ID, got.ID)
+					assert.Equal(t, 2, count(t, svc))
+				}
+			})
+		}
+	})
+
+	t.Run("a source without an external id never matches", func(t *testing.T) {
+		svc, _, cleanup := setupTest(t)
+		t.Cleanup(cleanup)
+
+		first := create(t, svc, "first", &board.Source{System: "jira", ExternalURL: "https://acme.atlassian.net/"})
+		got := create(t, svc, "second", &board.Source{System: "jira", ExternalURL: "https://acme.atlassian.net/"})
+		assert.NotEqual(t, first.ID, got.ID)
+		assert.Equal(t, 2, count(t, svc))
 	})
 }
 
@@ -7800,4 +8013,32 @@ func TestEnrichPlaybookLock(t *testing.T) {
 	}
 
 	assert.Equal(t, 2, locked)
+}
+
+func TestCreateCard_CustomAndInitialLog(t *testing.T) {
+	svc, tmpDir, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+		Title: "PROJ-7 Import me", Type: "task", Priority: "medium",
+		Source: &board.Source{System: "jira", ExternalID: "PROJ-7", ExternalURL: "https://acme.atlassian.net/browse/PROJ-7"},
+		Custom: map[string]any{"jira_issue_id": "10007", "jira_import_hash": "abc"},
+		Log:    &board.ActivityEntry{Agent: "human:alice", Action: "imported", Message: "Imported from Jira PROJ-7"},
+	})
+	require.NoError(t, err)
+
+	// A fresh store proves the fields went through YAML, not just the cache.
+	fresh, err := storage.NewFilesystemStore(filepath.Join(tmpDir, "boards"))
+	require.NoError(t, err)
+
+	got, err := fresh.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "10007", got.Custom["jira_issue_id"])
+	assert.Equal(t, "abc", got.Custom["jira_import_hash"])
+	require.Len(t, got.ActivityLog, 1)
+	assert.Equal(t, "human:alice", got.ActivityLog[0].Agent)
+	assert.Equal(t, "imported", got.ActivityLog[0].Action)
+	assert.False(t, got.ActivityLog[0].Timestamp.IsZero())
 }

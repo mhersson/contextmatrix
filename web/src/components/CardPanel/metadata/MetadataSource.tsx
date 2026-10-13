@@ -1,6 +1,6 @@
 import { useId } from 'react';
 import type { Card } from '../../../types';
-import { gitHubIcon } from '../../icons';
+import { sourceIcon } from '../../icons';
 import { isSafeHttpUrl } from '../utils';
 
 interface MetadataSourceProps {
@@ -34,10 +34,10 @@ export function MetadataSource({ card, editedVetted, onVettedChange }: MetadataS
           className="bf-source-link"
           title={`Imported from ${card.source.system} · ${card.source.external_id}`}
         >
-          {card.source.system === 'github' ? (
+          {sourceIcon(card.source.system) ? (
             <>
-              {gitHubIcon}
-              <span>#{card.source.external_id}</span>
+              {sourceIcon(card.source.system)}
+              <span>{card.source.system === 'github' ? `#${card.source.external_id}` : card.source.external_id}</span>
             </>
           ) : (
             <>

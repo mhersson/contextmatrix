@@ -115,8 +115,8 @@ func (s *FilesystemPlaybookStore) loadIndex(ctx context.Context) error {
 }
 
 // copyPlaybook returns a deep copy of the playbook so that callers cannot
-// mutate the cached value. Entries, each entry's DoneAt pointer and the run
-// block are cloned.
+// mutate the cached value. Entries, each entry's DoneAt pointer, the run
+// block and Source are cloned.
 func copyPlaybook(p *board.Playbook) *board.Playbook {
 	if p == nil {
 		return nil
@@ -133,6 +133,7 @@ func copyPlaybook(p *board.Playbook) *board.Playbook {
 	}
 
 	cp.Run = p.Run.Clone()
+	cp.Source = p.Source.Clone()
 
 	return &cp
 }

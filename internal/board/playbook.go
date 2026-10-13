@@ -99,6 +99,9 @@ type Playbook struct {
 	Runnable   bool         `yaml:"runnable,omitempty"    json:"runnable"`
 	BaseBranch string       `yaml:"base_branch,omitempty" json:"base_branch,omitempty"`
 	Run        *PlaybookRun `yaml:"run,omitempty"         json:"run,omitempty"`
+	// Source is the external origin of an imported playbook (a Jira epic).
+	// Set at create only; nothing updates it afterwards.
+	Source *Source `yaml:"source,omitempty" json:"source,omitempty"`
 }
 
 // PlaybookEntry is one step: a reference to a card in some project, or a

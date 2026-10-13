@@ -1,4 +1,5 @@
 import type { KeyboardEvent } from 'react';
+import { parseJiraRef } from '../../lib/jiraRef';
 import type { BoardsRepoInfo } from '../../types';
 
 const plusIcon = (
@@ -45,11 +46,21 @@ export interface PlaybookGhostRowProps {
   repos?: BoardsRepoInfo[];
   repo?: string;
   onRepoChange?: (repo: string) => void;
+  /** The Jira site when Jira is configured; shows "Import from Jira". */
+  jiraSiteURL?: string;
+  /** Why the configured Jira may not work; shown as a warning. */
+  jiraAuthProblem?: string;
+  /** Jira rejects the token, so the import button stays disabled. */
+  jiraImportBlocked?: boolean;
+  onImportJira?: (epicKey: string) => void;
 }
 
 export function PlaybookGhostRow({
   title, onTitleChange, description, onDescriptionChange, onCreate, onCancel, submitting, repos, repo, onRepoChange,
+  jiraSiteURL, jiraAuthProblem, jiraImportBlocked, onImportJira,
 }: PlaybookGhostRowProps) {
+  const epicKey = jiraSiteURL ? parseJiraRef(title, jiraSiteURL) : null;
+
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') onCreate();
     if (e.key === 'Escape') onCancel();
@@ -80,7 +91,7 @@ export function PlaybookGhostRow({
         value={title}
         onChange={(e) => onTitleChange(e.target.value)}
         onKeyDown={onKeyDown}
-        placeholder="Name this playbook"
+        placeholder={jiraSiteURL ? 'Name this playbook, or paste a Jira epic key' : 'Name this playbook'}
         aria-label="Playbook title"
         className="pbl-ghost-title"
       />
@@ -96,8 +107,21 @@ export function PlaybookGhostRow({
       <PlaceholderTrack nodes={6} gate={3} />
 
       <div className="pbl-ghost-foot">
+        {jiraAuthProblem && (
+          <span role="status" className="text-xs" style={{ color: 'var(--yellow)' }}>{jiraAuthProblem}</span>
+        )}
         <span className="pbl-ghost-keys"><kbd className="pbl-kbd">Enter</kbd> creates, <kbd className="pbl-kbd">Esc</kbd> cancels</span>
         <button type="button" onClick={onCancel} className="pbl-btn-quiet">Cancel</button>
+        {jiraSiteURL && (
+          <button
+            type="button"
+            onClick={() => epicKey && onImportJira?.(epicKey)}
+            disabled={!epicKey || !!jiraImportBlocked || submitting}
+            className="pbl-btn-quiet"
+          >
+            Import from Jira
+          </button>
+        )}
         <button type="button" onClick={onCreate} disabled={submitting} className="pbl-btn-new">Create playbook</button>
       </div>
     </div>

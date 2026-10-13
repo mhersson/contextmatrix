@@ -88,6 +88,12 @@ with `.` replaced by `_`:
 | `boards.git_auto_push`                  | `CONTEXTMATRIX_BOARDS_GIT_AUTO_PUSH`                |
 | `auth.session_idle_ttl`                 | `CONTEXTMATRIX_AUTH_SESSION_IDLE_TTL`               |
 | `github.issue_importing.sync_interval`  | `CONTEXTMATRIX_GITHUB_ISSUE_IMPORTING_SYNC_INTERVAL` |
+| `jira.site_url`                         | `CONTEXTMATRIX_JIRA_SITE_URL`                       |
+| `jira.api_base_url`                     | `CONTEXTMATRIX_JIRA_API_BASE_URL`                   |
+| `jira.auth_mode`                        | `CONTEXTMATRIX_JIRA_AUTH_MODE`                      |
+| `jira.email`                            | `CONTEXTMATRIX_JIRA_EMAIL`                          |
+| `jira.token`                            | `CONTEXTMATRIX_JIRA_TOKEN`                          |
+| `jira.writeback.enabled`                | `CONTEXTMATRIX_JIRA_WRITEBACK_ENABLED`              |
 | `instance.id`                           | `CONTEXTMATRIX_INSTANCE_ID`                         |
 
 Exceptions to the rule:
@@ -105,8 +111,8 @@ values fail validation at startup.
 
 No env override exists for `stalled_check_interval`, `token_costs`,
 `chat.resume_budget_tokens`, `chat.rehydration_timeout`, `mob.guests`,
-`backends.agent.favorites`, `model_priors`, or the list form
-of `boards`. `CONTEXTMATRIX_BOARDS_*` applies to the single-repo form only;
+`backends.agent.favorites`, `model_priors`, `jira.project_map`,
+`jira.writeback.status_targets`, or the list form of `boards`. `CONTEXTMATRIX_BOARDS_*` applies to the single-repo form only;
 setting one while `boards` is a list is a startup error.
 
 ## Command line
@@ -137,7 +143,7 @@ expansion applies to every path field.
 | Auth store              | `auth.db_path` / `CONTEXTMATRIX_AUTH_DB_PATH`                   | `<state>/auth.db`                | Users, sessions, one-time tokens, credential pool (`multi` mode only)      |
 | Master key              | `auth.master_key_file` / `CONTEXTMATRIX_AUTH_MASTER_KEY_FILE`   | `<state>/master.key`             | Hex 32-byte key encrypting pool secrets; auto-generated 0600 with a warning |
 | Image store             | `images.db_path` / `CONTEXTMATRIX_IMAGES_DB_PATH`               | `<state>/images.db`              | Pasted images for private boards repos and project-less uploads            |
-| Operational store       | `op_store.db_path` / `CONTEXTMATRIX_OP_STORE_DB_PATH`           | `<state>/ops.db`                 | Chat sessions and transcripts, model blacklist, Best-of-N outcomes, chat cost archive, selector tier ladders |
+| Operational store       | `op_store.db_path` / `CONTEXTMATRIX_OP_STORE_DB_PATH`           | `<state>/ops.db`                 | Chat sessions and transcripts, model blacklist, Best-of-N outcomes, chat cost archive, selector tier ladders, Jira writeback outbox |
 | Instance id             | `instance.id` / `CONTEXTMATRIX_INSTANCE_ID`                     | `<state>/instance_id`            | Generated `<hostname>-<6 hex>`; identifies this server on a shared boards repo |
 
 `<config-dir>` means the directory holding the loaded config file, so
@@ -200,6 +206,7 @@ unset, so a free cache rate cannot be expressed. Config file only.
 - [Authentication](authentication.md) - `auth.mode`, bootstrap, credential pool
 - [GitHub auth setup](github-auth-setup.md) - the `github` block end to end
 - [GitHub issue import](github-issue-import.md) - `github.issue_importing.*`
+- [Jira import](jira-import.md) - `jira.*`
 - [Shared boards](shared-boards.md) - the `boards` list form and `shared: true`
 - [Remote execution](remote-execution.md) - the `backends` block
 - [Deployment example](deployment-example.md) - env-only container config
