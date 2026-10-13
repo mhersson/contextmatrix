@@ -10,8 +10,8 @@ import type { Card, WorkerStatus } from '../types';
  * the panel, which is exactly the class of bug we're avoiding.
  *
  * Values are CSS custom-property references (e.g. `var(--aqua)`) so every
- * palette gets the right color without
- * the helper knowing about the palette system.
+ * palette gets the right color without the helper knowing about the palette
+ * system.
  */
 
 export const typeColors: Record<string, string> = {

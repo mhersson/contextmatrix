@@ -470,8 +470,9 @@ top-level `autonomous` field is the ONLY source of truth for mode.
 `REVIEW_FINDINGS`:
 
 - `approve`: proceed to Phase 9.
-- `revise`: call `increment_review_attempts(card_id=<parent_id>, agent_id=<your_agent_id>)`. If the
-  returned count is >= 3, call `report_usage` with your remaining token
+- `revise`: call
+  `increment_review_attempts(card_id=<parent_id>, agent_id=<your_agent_id>)`.
+  If the returned count is >= 3, call `report_usage` with your remaining token
   consumption, then print:
   ```
   AUTONOMOUS_HALTED

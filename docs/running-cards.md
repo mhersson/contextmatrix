@@ -136,6 +136,9 @@ section, and the board shows a yellow "Parked for a human" badge. A human
 re-triggers the card once the gate can pass; the next `queued` replaces
 `parked` and the fresh container resumes at the gate.
 
+A review loop that ends with findings remaining parks the card the same way
+through `report_parked`, leaving it in `review`.
+
 ## Worker status
 
 | `worker_status` | Set by                     | Badge                     |

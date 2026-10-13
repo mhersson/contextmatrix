@@ -737,9 +737,9 @@ token_costs:
 Rules for `report_usage`:
 
 - `model` is the model that actually served the calls, read from system
-  context, never derived from an agent's name: an agent
-  named `claude-opus-5-orchestrator` is no proof its calls ran on
-  `claude-opus-5`, and a wrong name prices the tokens against the wrong row.
+  context, never derived from an agent's name: an agent named
+  `claude-opus-5-orchestrator` is no proof its calls ran on `claude-opus-5`,
+  and a wrong name prices the tokens against the wrong row.
 - `prompt_tokens`, `completion_tokens`, `cache_read_tokens` and
   `cache_creation_tokens` are deltas since the last report; negative values
   are rejected. `actual_cost_usd` records provider-reported cost.
