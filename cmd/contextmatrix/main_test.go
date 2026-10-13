@@ -43,7 +43,7 @@ func cspDirectives(t *testing.T, header string) map[string]string {
 	return directives
 }
 
-func TestSPAHandler_PolicyBlocksInlineScriptAndFrames(t *testing.T) {
+func TestSPAHandler_SecurityHeaders(t *testing.T) {
 	dist := fstest.MapFS{
 		"index.html":          {Data: []byte(`<!doctype html><div id="root"></div>`)},
 		"assets/index-abc.js": {Data: []byte(`console.log("app")`)},
@@ -53,7 +53,7 @@ func TestSPAHandler_PolicyBlocksInlineScriptAndFrames(t *testing.T) {
 	})
 	handler := newSPAHandler(apiHandler, dist)
 
-	for _, path := range []string{"/", "/projects/demo", "/assets/index-abc.js"} {
+	for _, path := range []string{"/", "/projects/demo", "/projects/demo?card=DEMO-001", "/assets/index-abc.js"} {
 		t.Run(path, func(t *testing.T) {
 			rec := httptest.NewRecorder()
 			handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
@@ -64,6 +64,10 @@ func TestSPAHandler_PolicyBlocksInlineScriptAndFrames(t *testing.T) {
 			assert.Equal(t, "'self'", csp["script-src"])
 			assert.Equal(t, "'none'", csp["frame-src"])
 			assert.Equal(t, "'none'", csp["object-src"])
+			assert.Equal(t, "'self'", csp["base-uri"])
+			assert.Equal(t, "'none'", csp["frame-ancestors"])
+			assert.Equal(t, "'self'", csp["form-action"])
+			assert.Equal(t, "no-referrer", rec.Header().Get("Referrer-Policy"))
 		})
 	}
 }
