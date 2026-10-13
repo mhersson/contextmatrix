@@ -200,16 +200,16 @@ All eight MCP tools are ungated; the human-only nature of notes is a contract
 the agent-facing context honours, not a permission check. `agent_id` is
 required on mutations for `created_by` and `done_by` attribution.
 
-| MCP tool                | REST                                              | Does                                                          |
-| ----------------------- | ------------------------------------------------- | ------------------------------------------------------------- |
-| `list_playbooks`        | `GET /api/playbooks`                              | Summaries: progress, segments, project count, gates, next entry |
-| `get_playbook`          | `GET /api/playbooks/{id}`                         | Full detail with every entry resolved against the card store  |
-| `create_playbook`       | `POST /api/playbooks`                             | `title`, `description`, `boards_repo`, initial `entries`; all-or-nothing |
-| `update_playbook`       | `PATCH /api/playbooks/{id}`                       | Title, description; humans also set runnable and base_branch  |
-| `delete_playbook`       | `DELETE /api/playbooks/{id}`                      | Removes the file; refused during an active run                |
-| `add_playbook_entry`    | `POST /api/playbooks/{id}/entries`                | Appends one card or manual entry                              |
-| `update_playbook_entry` | `PATCH /api/playbooks/{id}/entries/{entryId}`     | `done` and `text` (manual only), `note` (both), `position`    |
-| `remove_playbook_entry` | `DELETE /api/playbooks/{id}/entries/{entryId}`    | Removes one entry                                             |
+| MCP tool                | REST                                           | Does                                                                     |
+| ----------------------- | ---------------------------------------------- | ------------------------------------------------------------------------ |
+| `list_playbooks`        | `GET /api/playbooks`                           | Summaries: progress, segments, project count, gates, next entry          |
+| `get_playbook`          | `GET /api/playbooks/{id}`                      | Full detail with every entry resolved against the card store             |
+| `create_playbook`       | `POST /api/playbooks`                          | `title`, `description`, `boards_repo`, initial `entries`; all-or-nothing |
+| `update_playbook`       | `PATCH /api/playbooks/{id}`                    | Title, description; humans also set runnable and base_branch             |
+| `delete_playbook`       | `DELETE /api/playbooks/{id}`                   | Removes the file, never during an active run; cards untouched            |
+| `add_playbook_entry`    | `POST /api/playbooks/{id}/entries`             | Appends one card or manual entry                                         |
+| `update_playbook_entry` | `PATCH /api/playbooks/{id}/entries/{entryId}`  | `done` and `text` (manual only), `note` (both), `position`               |
+| `remove_playbook_entry` | `DELETE /api/playbooks/{id}/entries/{entryId}` | Removes one entry                                                        |
 
 `position` is the entry's final index after the move; values past the end
 clamp, negative values are rejected, and no move is accepted while a run is
