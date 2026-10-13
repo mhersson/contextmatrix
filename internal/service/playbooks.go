@@ -1024,35 +1024,49 @@ func (s *PlaybookService) forceEntries(ctx context.Context, p *board.Playbook, e
 // the current block and may be nil, so the guard must be nil-safe; a nil
 // guard is an unconditional write. A guard error is returned unchanged and
 // nothing is written. A nil run clears the block. Refused on a playbook
-// that is not runnable.
+// that is not runnable. It is SetRunFunc with a fixed run.
 func (s *PlaybookService) SetRunIf(
 	ctx context.Context, id string, guard func(current *board.PlaybookRun) error, run *board.PlaybookRun, agentID string,
 ) (*PlaybookDetail, error) {
-	action := "run cleared"
-	if run != nil {
-		action = "run " + run.Status
-	}
-
-	return s.mutate(ctx, id, action, agentID, func(p *board.Playbook) error {
-		if !p.Runnable {
-			return fmt.Errorf("%w: %s", ErrPlaybookNotRunnable, id)
-		}
-
+	return s.SetRunFunc(ctx, id, func(p *board.Playbook) (*board.PlaybookRun, error) {
 		if guard != nil {
 			if err := guard(p.Run); err != nil {
-				return err
+				return nil, err
 			}
+		}
+
+		return run, nil
+	}, agentID)
+}
+
+// SetRunFunc replaces the run block with what next returns. next runs under
+// writeMu on the stored playbook, so a run decided from its entries and
+// their cards is atomic with every playbook write, a hand run's queued write
+// included. next may read cards but must not modify p or call this service.
+// An error from next is returned unchanged and nothing is written; a nil run
+// clears the block. Refused on a playbook that is not runnable.
+func (s *PlaybookService) SetRunFunc(
+	ctx context.Context, id string, next func(p *board.Playbook) (*board.PlaybookRun, error), agentID string,
+) (*PlaybookDetail, error) {
+	return s.mutateWith(ctx, id, agentID, func(p *board.Playbook) (string, error) {
+		if !p.Runnable {
+			return "", fmt.Errorf("%w: %s", ErrPlaybookNotRunnable, id)
+		}
+
+		run, err := next(p)
+		if err != nil {
+			return "", err
 		}
 
 		if run == nil {
 			p.Run = nil
 
-			return nil
+			return "run cleared", nil
 		}
 
 		p.Run = run.Clone()
 
-		return nil
+		return "run " + run.Status, nil
 	})
 }
 
@@ -1102,6 +1116,13 @@ func (s *PlaybookService) Delete(ctx context.Context, id, agentID string) error 
 // load, apply fn, bump Updated, validate, save, commit, publish, resolve.
 // On commit failure the pre-mutation snapshot is restored best-effort.
 func (s *PlaybookService) mutate(ctx context.Context, id, action, agentID string, fn func(p *board.Playbook) error) (*PlaybookDetail, error) {
+	return s.mutateWith(ctx, id, agentID, func(p *board.Playbook) (string, error) {
+		return action, fn(p)
+	})
+}
+
+// mutateWith is mutate for a change whose commit action fn decides.
+func (s *PlaybookService) mutateWith(ctx context.Context, id, agentID string, fn func(p *board.Playbook) (string, error)) (*PlaybookDetail, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
@@ -1115,7 +1136,8 @@ func (s *PlaybookService) mutate(ctx context.Context, id, action, agentID string
 		return nil, fmt.Errorf("get playbook: %w", err)
 	}
 
-	if err := fn(p); err != nil {
+	action, err := fn(p)
+	if err != nil {
 		return nil, err
 	}
 

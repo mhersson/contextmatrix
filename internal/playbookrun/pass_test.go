@@ -1128,3 +1128,36 @@ func TestPass_LiveWorkerElsewhereKeepsATriggeredRunEntry(t *testing.T) {
 		})
 	}
 }
+
+// TestPlay_LiveEntryRemovedDuringPlay: Play read the playbook while e2's card
+// had a live worker, then e2 was removed (allowed while stopped). A run
+// decided from that read names a removed entry and fails validation; decided
+// inside the write it sees the stored entries.
+func TestPlay_LiveEntryRemovedDuringPlay(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+
+	e.cards.add(todoCard("alpha", "ALPHA-1"))
+	e.cards.add(liveCard())
+
+	p := runnablePlaybook("rollout", cardEntry("e1", "alpha", "ALPHA-1"), cardEntry("e2", "alpha", "ALPHA-2"))
+	p.Run = &board.PlaybookRun{Status: board.RunStatusStopped, Entry: "e2", Reason: "stopped by human:alice"}
+	e.pbs.add(p)
+
+	// The removal lands right after Play's read, the way RemoveEntry does it.
+	e.pbs.mu.Lock()
+	e.pbs.afterGet = func() {
+		e.pbs.mu.Lock()
+		defer e.pbs.mu.Unlock()
+
+		stored := e.pbs.pbs["rollout"]
+		stored.Entries = stored.Entries[:1]
+		stored.Run.Entry, stored.Run.Reason = "", ""
+	}
+	e.pbs.mu.Unlock()
+
+	d, err := e.runner.Play(ctx, "rollout", "human:alice")
+	require.NoError(t, err)
+	assert.Equal(t, board.RunStatusRunning, d.Run.Status)
+	assert.Empty(t, d.Run.Entry, "no live entry is left to resume on")
+}

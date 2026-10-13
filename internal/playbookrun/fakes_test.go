@@ -219,10 +219,10 @@ func (f *fakePlaybooks) Get(ctx context.Context, id string) (*service.PlaybookDe
 	return d, nil
 }
 
-// SetRunIf runs the guard against the stored run block under the same lock
-// that applies the write, the way the real service runs it under writeMu.
-func (f *fakePlaybooks) SetRunIf(
-	ctx context.Context, id string, guard func(current *board.PlaybookRun) error, run *board.PlaybookRun, _ string,
+// SetRunFunc runs next on the stored playbook and validates the result under
+// the lock that applies the write, as the service does under writeMu.
+func (f *fakePlaybooks) SetRunFunc(
+	ctx context.Context, id string, next func(p *board.Playbook) (*board.PlaybookRun, error), _ string,
 ) (*service.PlaybookDetail, error) {
 	f.mu.Lock()
 
@@ -246,20 +246,26 @@ func (f *fakePlaybooks) SetRunIf(
 		return nil, service.ErrPlaybookNotRunnable
 	}
 
-	if guard != nil {
-		if err := guard(p.Run); err != nil {
-			f.mu.Unlock()
+	run, err := next(p)
+	if err != nil {
+		f.mu.Unlock()
 
-			return nil, err
-		}
+		return nil, err
 	}
 
-	if run == nil {
-		p.Run = nil
-	} else {
-		copied := *run
-		p.Run = &copied
-		f.runs = append(f.runs, copied)
+	candidate := *p
+	candidate.Run = run.Clone()
+
+	if err := candidate.Validate(); err != nil {
+		f.mu.Unlock()
+
+		return nil, err
+	}
+
+	p.Run = candidate.Run
+
+	if run != nil {
+		f.runs = append(f.runs, *run)
 	}
 
 	hook := f.afterSetRun
@@ -271,6 +277,22 @@ func (f *fakePlaybooks) SetRunIf(
 	}
 
 	return f.Get(ctx, id)
+}
+
+// SetRunIf runs the guard against the stored run block under the same lock
+// that applies the write, the way the real service runs it under writeMu.
+func (f *fakePlaybooks) SetRunIf(
+	ctx context.Context, id string, guard func(current *board.PlaybookRun) error, run *board.PlaybookRun, agentID string,
+) (*service.PlaybookDetail, error) {
+	return f.SetRunFunc(ctx, id, func(p *board.Playbook) (*board.PlaybookRun, error) {
+		if guard != nil {
+			if err := guard(p.Run); err != nil {
+				return nil, err
+			}
+		}
+
+		return run, nil
+	}, agentID)
 }
 
 func (f *fakePlaybooks) lastRun() board.PlaybookRun {

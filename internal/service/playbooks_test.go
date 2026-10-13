@@ -1833,3 +1833,64 @@ func TestPlaybookService_DeleteDuringRunRefused(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, env.svc.Delete(ctx, "rollout", "human:alice"))
 }
+
+// TestPlaybookService_SetRunFuncDecidesUnderTheWriteLock: next runs inside
+// the write, so a removal racing it waits and then meets the stored run
+// instead of slipping between the decision and the write.
+func TestPlaybookService_SetRunFuncDecidesUnderTheWriteLock(t *testing.T) {
+	env := newPlaybookTestEnv(t)
+	ctx := context.Background()
+
+	_, err := env.svc.Create(ctx, CreatePlaybookInput{
+		Title: "Rollout", AgentID: "human:alice",
+		Entries: []PlaybookEntryInput{
+			{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"},
+			{Type: board.EntryTypeManual, Text: "deploy"},
+		},
+	})
+	require.NoError(t, err)
+	_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: new(true), BaseBranch: new("main")}, "human:alice")
+	require.NoError(t, err)
+
+	entered := make(chan struct{})
+	gate := make(chan struct{})
+	release := sync.OnceFunc(func() { close(gate) })
+	t.Cleanup(release)
+
+	now := env.clk.Now()
+	set := make(chan error, 1)
+
+	go func() {
+		_, err := env.svc.SetRunFunc(ctx, "rollout", func(p *board.Playbook) (*board.PlaybookRun, error) {
+			close(entered)
+			<-gate
+
+			return &board.PlaybookRun{Status: board.RunStatusRunning, StartedAt: now, UpdatedAt: now, Entry: p.Entries[1].ID}, nil
+		}, "human:alice")
+		set <- err
+	}()
+
+	<-entered
+
+	removed := make(chan error, 1)
+
+	go func() {
+		_, err := env.svc.RemoveEntry(ctx, "rollout", "e2", "human:bob")
+		removed <- err
+	}()
+
+	select {
+	case err := <-removed:
+		t.Fatalf("the removal ran while the run was being decided: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	release()
+
+	require.NoError(t, <-set)
+	require.ErrorIs(t, <-removed, ErrPlaybookRunActive, "the removal meets the stored run")
+
+	d, err := env.svc.Get(ctx, "rollout")
+	require.NoError(t, err)
+	assert.Equal(t, "e2", d.Run.Entry)
+}

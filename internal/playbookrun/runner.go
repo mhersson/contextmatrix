@@ -45,13 +45,15 @@ type Launcher func(ctx context.Context, project, cardID string, opts LaunchOptio
 type Stopper func(ctx context.Context, project, cardID string) error
 
 // Playbooks is the slice of the playbook service the runner uses. Every run
-// write goes through the guarded SetRunIf: the runner decides from a detail
-// it read earlier, so an unguarded write could overwrite a Stop that landed
-// in between.
+// write is guarded: the pass and Stop decide from an earlier read and write
+// through SetRunIf's compare-and-swap; Play decides inside the write.
 type Playbooks interface {
 	Get(ctx context.Context, id string) (*service.PlaybookDetail, error)
 	SetRunIf(
 		ctx context.Context, id string, guard func(current *board.PlaybookRun) error, run *board.PlaybookRun, agentID string,
+	) (*service.PlaybookDetail, error)
+	SetRunFunc(
+		ctx context.Context, id string, next func(p *board.Playbook) (*board.PlaybookRun, error), agentID string,
 	) (*service.PlaybookDetail, error)
 }
 
@@ -181,9 +183,9 @@ func (r *Runner) stopper() Stopper {
 }
 
 // Play starts or resumes a run. It writes the run block with the reason
-// cleared and the entry on a live worker (resumeEntry), keeps started_at
-// across a resume, and starts the walker. It waits for a Stop of the same
-// playbook that is still in progress.
+// cleared and the entry on a live worker (the stopped run's own first), keeps
+// started_at across a resume, and starts the walker. It waits for a Stop of the
+// same playbook that is still in progress.
 func (r *Runner) Play(ctx context.Context, id, agentID string) (*service.PlaybookDetail, error) {
 	release, err := r.lockControl(ctx, id)
 	if err != nil {
@@ -209,28 +211,36 @@ func (r *Runner) Play(ctx context.Context, id, agentID string) (*service.Playboo
 	}
 
 	now := r.cfg.Clock.Now().UTC()
-	run := board.PlaybookRun{
-		Status: board.RunStatusRunning, Instance: r.cfg.Instance, StartedBy: agentID, StartedAt: now, UpdatedAt: now,
-		Entry: r.resumeEntry(ctx, d),
-	}
 
-	// A resume keeps the original start; a run after completion is new.
-	if d.Run != nil && d.Run.Status != board.RunStatusCompleted && !d.Run.StartedAt.IsZero() {
-		run.StartedAt = d.Run.StartedAt
-	}
-
-	// The pre-read checks above give the early answers; this guard is what
-	// makes "not already active" true at the moment of the write, so two
-	// Plays racing cannot both start a run.
-	guard := func(cur *board.PlaybookRun) error {
-		if cur.Active() {
-			return fmt.Errorf("%w: %s is %s", service.ErrPlaybookRunActive, id, cur.Status)
+	// The pre-read above gives the early answers; the run is decided inside
+	// the write, from the stored entries, under the lock a hand run's queued
+	// write takes. It never names a removed entry and sees every live worker.
+	next := func(p *board.Playbook) (*board.PlaybookRun, error) {
+		if p.RunActive() {
+			return nil, fmt.Errorf("%w: %s is %s", service.ErrPlaybookRunActive, id, p.Run.Status)
 		}
 
-		return nil
+		run := &board.PlaybookRun{
+			Status: board.RunStatusRunning, Instance: r.cfg.Instance, StartedBy: agentID, StartedAt: now, UpdatedAt: now,
+		}
+
+		prefer := ""
+
+		if p.Run != nil {
+			prefer = p.Run.Entry
+
+			// A resume keeps the original start; a run after completion is new.
+			if p.Run.Status != board.RunStatusCompleted && !p.Run.StartedAt.IsZero() {
+				run.StartedAt = p.Run.StartedAt
+			}
+		}
+
+		run.Entry = r.liveEntry(ctx, id, p.Entries, prefer)
+
+		return run, nil
 	}
 
-	d, err = r.cfg.Playbooks.SetRunIf(ctx, id, guard, &run, agentID)
+	d, err = r.cfg.Playbooks.SetRunFunc(ctx, id, next, agentID)
 	if err != nil {
 		return nil, err
 	}
@@ -238,19 +248,6 @@ func (r *Runner) Play(ctx context.Context, id, agentID string) (*service.Playboo
 	r.Ensure(id)
 
 	return d, nil
-}
-
-// resumeEntry is the entry whose card still has a live worker (one that
-// outlived Stop, or a hand run made while stopped), so the first pass holds
-// on it instead of starting a second. The stopped run's own entry wins, then
-// the first in stored order; empty when none. A failed read counts as idle.
-func (r *Runner) resumeEntry(ctx context.Context, d *service.PlaybookDetail) string {
-	prefer := ""
-	if d.Run != nil {
-		prefer = d.Run.Entry
-	}
-
-	return r.liveEntry(ctx, d.ID, rawEntries(d), prefer)
 }
 
 // Stop marks the run stopped, then kills every live worker this instance owns
