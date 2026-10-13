@@ -24,7 +24,6 @@ func mobRunConfig() config.MobConfig {
 		MaxParticipants:     5,
 		DefaultParticipants: 3,
 		DefaultRounds:       2,
-		MaxRounds:           3,
 		BudgetFactor:        0.75,
 		CheckpointMinTier:   "complex",
 		CheckpointRounds:    3,

@@ -90,7 +90,7 @@ func TestCreateCard_AssigneeTooLong(t *testing.T) {
 	assert.ErrorIs(t, err, ErrFieldTooLong)
 }
 
-func TestUpdateCard_Assignee_Replace(t *testing.T) {
+func TestPatchCard_Assignee_NoAgentAttributesSystem(t *testing.T) {
 	svc, fake, cleanup := newAssigneeTestService(t)
 	defer cleanup()
 
@@ -103,9 +103,8 @@ func TestUpdateCard_Assignee_Replace(t *testing.T) {
 
 	fake.Advance(time.Minute)
 
-	updated, err := svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
-		Title: "Test", Type: "task", State: "todo", Priority: "medium",
-		Assignee: "alice",
+	updated, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+		Assignee: new("alice"),
 	})
 	require.NoError(t, err)
 
@@ -114,53 +113,8 @@ func TestUpdateCard_Assignee_Replace(t *testing.T) {
 	entry := updated.ActivityLog[0]
 	assert.Equal(t, "assigned", entry.Action)
 	assert.Equal(t, "Assigned to alice", entry.Message)
-	assert.Equal(t, "system", entry.Agent) // UpdateCardInput has no AgentID
+	assert.Equal(t, "system", entry.Agent)
 	assert.True(t, entry.Timestamp.Equal(updated.Updated))
-}
-
-func TestUpdateCard_Assignee_Clear(t *testing.T) {
-	svc, fake, cleanup := newAssigneeTestService(t)
-	defer cleanup()
-
-	ctx := context.Background()
-
-	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-		Title: "Test", Type: "task", Priority: "medium", Assignee: "alice",
-	})
-	require.NoError(t, err)
-
-	fake.Advance(time.Minute)
-
-	updated, err := svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
-		Title: "Test", Type: "task", State: "todo", Priority: "medium",
-		Assignee: "", // PUT full-replace clears it
-	})
-	require.NoError(t, err)
-
-	assert.Empty(t, updated.Assignee)
-	require.Len(t, updated.ActivityLog, 1)
-	entry := updated.ActivityLog[0]
-	assert.Equal(t, "assigned", entry.Action)
-	assert.Equal(t, "Unassigned (was alice)", entry.Message)
-}
-
-func TestUpdateCard_AssigneeTooLong(t *testing.T) {
-	svc, _, cleanup := newAssigneeTestService(t)
-	defer cleanup()
-
-	ctx := context.Background()
-
-	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-		Title: "Test", Type: "task", Priority: "medium",
-	})
-	require.NoError(t, err)
-
-	_, err = svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
-		Title: "Test", Type: "task", State: "todo", Priority: "medium",
-		Assignee: strings.Repeat("a", 65),
-	})
-	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrFieldTooLong)
 }
 
 func TestPatchCard_Assignee_SetAppendsActivityEntry(t *testing.T) {

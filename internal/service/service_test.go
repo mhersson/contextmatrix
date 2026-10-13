@@ -193,63 +193,7 @@ func TestCreateCardInvalidType(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid")
 }
 
-func TestUpdateCard(t *testing.T) {
-	svc, _, cleanup := setupTest(t)
-	defer cleanup()
-
-	ctx := context.Background()
-
-	// Create card first
-	createInput := CreateCardInput{
-		Title:    "Original Title",
-		Type:     "task",
-		Priority: "low",
-	}
-	card, err := svc.CreateCard(ctx, "test-project", createInput)
-	require.NoError(t, err)
-
-	// Subscribe to events
-	ch, unsub := svc.bus.Subscribe()
-	defer unsub()
-
-	updateInput := UpdateCardInput{
-		Title:    "Updated Title",
-		Type:     "task",
-		State:    "in_progress",
-		Priority: "high",
-		Labels:   []string{"urgent"},
-		Body:     "Updated body",
-	}
-
-	updated, err := svc.UpdateCard(ctx, "test-project", card.ID, updateInput)
-	require.NoError(t, err)
-
-	assert.Equal(t, "Updated Title", updated.Title)
-	assert.Equal(t, "in_progress", updated.State)
-	assert.Equal(t, "high", updated.Priority)
-	assert.Equal(t, []string{"urgent"}, updated.Labels)
-	assert.Equal(t, "Updated body", updated.Body)
-
-	// Immutable fields preserved
-	assert.Equal(t, card.ID, updated.ID)
-	assert.Equal(t, card.Project, updated.Project)
-	assert.True(t, card.Created.Equal(updated.Created))
-
-	// Updated timestamp changed
-	assert.True(t, updated.Updated.After(card.Created))
-
-	// Verify state change event
-	select {
-	case event := <-ch:
-		assert.Equal(t, events.CardStateChanged, event.Type)
-		assert.Equal(t, "todo", event.Data["old_state"])
-		assert.Equal(t, "in_progress", event.Data["new_state"])
-	case <-time.After(100 * time.Millisecond):
-		t.Fatal("expected CardStateChanged event")
-	}
-}
-
-func TestUpdateCardInvalidTransition(t *testing.T) {
+func TestPatchCardInvalidTransition(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
 	defer cleanup()
 
@@ -264,16 +208,13 @@ func TestUpdateCardInvalidTransition(t *testing.T) {
 	require.NoError(t, err)
 
 	// Try invalid transition: todo -> done (not allowed)
-	updateInput := UpdateCardInput{
-		Title:    "Test",
-		Type:     "task",
-		State:    "done",
-		Priority: "medium",
-	}
-
-	_, err = svc.UpdateCard(ctx, "test-project", card.ID, updateInput)
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{State: new("done")})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "transition")
+	require.ErrorIs(t, err, board.ErrInvalidTransition)
+
+	reloaded, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "todo", reloaded.State)
 }
 
 func TestPatchCard(t *testing.T) {
@@ -390,6 +331,8 @@ func TestPatchCardStateTransition(t *testing.T) {
 	select {
 	case event := <-ch:
 		assert.Equal(t, events.CardStateChanged, event.Type)
+		assert.Equal(t, "todo", event.Data["old_state"])
+		assert.Equal(t, "in_progress", event.Data["new_state"])
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("expected event")
 	}
@@ -831,42 +774,6 @@ func TestTimeoutCheckerIntegration(t *testing.T) {
 	assert.Empty(t, stalled.AssignedAgent)
 }
 
-func TestUpdateCard_BlockedByDependency(t *testing.T) {
-	svc, _, cleanup := setupTest(t)
-	defer cleanup()
-
-	ctx := context.Background()
-
-	// Create dependency card (stays in todo)
-	depCard, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-		Title:    "Dependency",
-		Type:     "task",
-		Priority: "medium",
-	})
-	require.NoError(t, err)
-
-	// Create card that depends on depCard
-	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-		Title:    "Dependent Card",
-		Type:     "task",
-		Priority: "medium",
-	})
-	require.NoError(t, err)
-
-	// Try to transition to in_progress with unmet dependency
-	_, err = svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
-		Title:     "Dependent Card",
-		Type:      "task",
-		State:     "in_progress",
-		Priority:  "medium",
-		DependsOn: []string{depCard.ID},
-	})
-	require.Error(t, err)
-	require.ErrorIs(t, err, board.ErrDependenciesNotMet)
-	assert.Contains(t, err.Error(), depCard.ID)
-	assert.Contains(t, err.Error(), "todo")
-}
-
 func TestPatchCard_BlockedByDependency(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
 	defer cleanup()
@@ -881,7 +788,6 @@ func TestPatchCard_BlockedByDependency(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Create card with depends_on set via UpdateCard (to set DependsOn)
 	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
 		Title:    "Dependent Card",
 		Type:     "task",
@@ -889,14 +795,8 @@ func TestPatchCard_BlockedByDependency(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Set dependency via full update (no state change)
-	_, err = svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
-		Title:     "Dependent Card",
-		Type:      "task",
-		State:     "todo",
-		Priority:  "medium",
-		DependsOn: []string{depCard.ID},
-	})
+	// Set the dependency without a state change.
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{DependsOn: []string{depCard.ID}})
 	require.NoError(t, err)
 
 	// Try to patch state to in_progress
@@ -909,7 +809,7 @@ func TestPatchCard_BlockedByDependency(t *testing.T) {
 	assert.Contains(t, err.Error(), depCard.ID)
 }
 
-func TestUpdateCard_DependenciesMet(t *testing.T) {
+func TestPatchCard_DependenciesMet(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
 	defer cleanup()
 
@@ -924,14 +824,10 @@ func TestUpdateCard_DependenciesMet(t *testing.T) {
 	require.NoError(t, err)
 
 	// Transition dep: todo -> in_progress -> done
-	_, err = svc.UpdateCard(ctx, "test-project", depCard.ID, UpdateCardInput{
-		Title: "Dependency", Type: "task", State: "in_progress", Priority: "medium",
-	})
-	require.NoError(t, err)
-	_, err = svc.UpdateCard(ctx, "test-project", depCard.ID, UpdateCardInput{
-		Title: "Dependency", Type: "task", State: "done", Priority: "medium",
-	})
-	require.NoError(t, err)
+	for _, state := range []string{"in_progress", "done"} {
+		_, err = svc.PatchCard(ctx, "test-project", depCard.ID, PatchCardInput{State: &state})
+		require.NoError(t, err)
+	}
 
 	// Create dependent card and transition to in_progress (should succeed)
 	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
@@ -941,11 +837,8 @@ func TestUpdateCard_DependenciesMet(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	updated, err := svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
-		Title:     "Dependent Card",
-		Type:      "task",
-		State:     "in_progress",
-		Priority:  "medium",
+	updated, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+		State:     new("in_progress"),
 		DependsOn: []string{depCard.ID},
 	})
 	require.NoError(t, err)
@@ -975,13 +868,7 @@ func TestGetCard_DependenciesMetField(t *testing.T) {
 	require.NoError(t, err)
 
 	// Set dependency
-	_, err = svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
-		Title:     "Dependent Card",
-		Type:      "task",
-		State:     "todo",
-		Priority:  "medium",
-		DependsOn: []string{depCard.ID},
-	})
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{DependsOn: []string{depCard.ID}})
 	require.NoError(t, err)
 
 	// Fetch card - DependenciesMet should be false
@@ -991,14 +878,10 @@ func TestGetCard_DependenciesMetField(t *testing.T) {
 	assert.False(t, *fetched.DependenciesMet)
 
 	// Complete the dependency
-	_, err = svc.UpdateCard(ctx, "test-project", depCard.ID, UpdateCardInput{
-		Title: "Dependency", Type: "task", State: "in_progress", Priority: "medium",
-	})
-	require.NoError(t, err)
-	_, err = svc.UpdateCard(ctx, "test-project", depCard.ID, UpdateCardInput{
-		Title: "Dependency", Type: "task", State: "done", Priority: "medium",
-	})
-	require.NoError(t, err)
+	for _, state := range []string{"in_progress", "done"} {
+		_, err = svc.PatchCard(ctx, "test-project", depCard.ID, PatchCardInput{State: &state})
+		require.NoError(t, err)
+	}
 
 	// Fetch again - DependenciesMet should be true
 	fetched, err = svc.GetCard(ctx, "test-project", card.ID)
@@ -1027,10 +910,7 @@ func TestGetCard_BlockedByField(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
-		Title: "Dependent Card", Type: "task", State: "todo", Priority: "medium",
-		DependsOn: []string{depA.ID, depB.ID},
-	})
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{DependsOn: []string{depA.ID, depB.ID}})
 	require.NoError(t, err)
 
 	// Every unmet dependency is listed, in depends_on order.
@@ -1042,9 +922,7 @@ func TestGetCard_BlockedByField(t *testing.T) {
 
 	// Completing one dependency drops it from the list.
 	for _, state := range []string{"in_progress", "done"} {
-		_, err = svc.UpdateCard(ctx, "test-project", depA.ID, UpdateCardInput{
-			Title: "Dep A", Type: "task", State: state, Priority: "medium",
-		})
+		_, err = svc.PatchCard(ctx, "test-project", depA.ID, PatchCardInput{State: &state})
 		require.NoError(t, err)
 	}
 
@@ -1053,10 +931,7 @@ func TestGetCard_BlockedByField(t *testing.T) {
 	assert.Equal(t, []string{depB.ID}, fetched.BlockedBy)
 
 	// A card with all dependencies met carries no blocked_by at all.
-	_, err = svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
-		Title: "Dependent Card", Type: "task", State: "todo", Priority: "medium",
-		DependsOn: []string{depA.ID},
-	})
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{DependsOn: []string{depA.ID}})
 	require.NoError(t, err)
 
 	fetched, err = svc.GetCard(ctx, "test-project", card.ID)
@@ -1097,13 +972,7 @@ func TestListCards_DependenciesMetField(t *testing.T) {
 		Priority: "medium",
 	})
 	require.NoError(t, err)
-	_, err = svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
-		Title:     "Dependent",
-		Type:      "task",
-		State:     "todo",
-		Priority:  "medium",
-		DependsOn: []string{depCard.ID},
-	})
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{DependsOn: []string{depCard.ID}})
 	require.NoError(t, err)
 
 	// List cards - check DependenciesMet on each
@@ -1123,31 +992,6 @@ func TestListCards_DependenciesMetField(t *testing.T) {
 			assert.Nil(t, c.BlockedBy)
 		}
 	}
-}
-
-func TestUpdateCard_NoDeps_NoBlock(t *testing.T) {
-	svc, _, cleanup := setupTest(t)
-	defer cleanup()
-
-	ctx := context.Background()
-
-	// Create card with no dependencies
-	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-		Title:    "No Deps",
-		Type:     "task",
-		Priority: "medium",
-	})
-	require.NoError(t, err)
-
-	// Transition to in_progress should work fine
-	updated, err := svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
-		Title:    "No Deps",
-		Type:     "task",
-		State:    "in_progress",
-		Priority: "medium",
-	})
-	require.NoError(t, err)
-	assert.Equal(t, "in_progress", updated.State)
 }
 
 // testProjectWithReview creates a project config with a review state,
@@ -1203,8 +1047,8 @@ func setupTestWithReview(t *testing.T) (*CardService, string, func()) {
 	}
 }
 
-// createParentWithSubtasks creates a parent card and the given number of subtask cards,
-// setting the parent's Subtasks field and each child's Parent field.
+// createParentWithSubtasks creates a parent card and the given number of
+// subtask cards under it, returning the parent as stored afterwards.
 func createParentWithSubtasks(t *testing.T, svc *CardService, project string, numSubtasks int) (*board.Card, []*board.Card) {
 	t.Helper()
 
@@ -1218,7 +1062,6 @@ func createParentWithSubtasks(t *testing.T, svc *CardService, project string, nu
 	require.NoError(t, err)
 
 	subtasks := make([]*board.Card, numSubtasks)
-	subtaskIDs := make([]string, numSubtasks)
 
 	for i := range numSubtasks {
 		child, err := svc.CreateCard(ctx, project, CreateCardInput{
@@ -1230,20 +1073,12 @@ func createParentWithSubtasks(t *testing.T, svc *CardService, project string, nu
 		require.NoError(t, err)
 
 		subtasks[i] = child
-		subtaskIDs[i] = child.ID
 	}
 
-	// Update parent with subtask list
-	updated, err := svc.UpdateCard(ctx, project, parent.ID, UpdateCardInput{
-		Title:    parent.Title,
-		Type:     parent.Type,
-		State:    parent.State,
-		Priority: parent.Priority,
-		Subtasks: subtaskIDs,
-	})
+	stored, err := svc.GetCard(ctx, project, parent.ID)
 	require.NoError(t, err)
 
-	return updated, subtasks
+	return stored, subtasks
 }
 
 func TestParentAutoTransition_AppendsStateChangeLog(t *testing.T) {
@@ -2883,14 +2718,10 @@ func TestDeferredCommitAccumulates(t *testing.T) {
 	creationMsg := msg
 
 	// Update card twice - these should be deferred, no new commits.
-	_, err = svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
-		Title: "Updated Once", Type: "task", State: "todo", Priority: "medium",
-	})
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{Title: new("Updated Once")})
 	require.NoError(t, err)
 
-	_, err = svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
-		Title: "Updated Twice", Type: "task", State: "todo", Priority: "medium",
-	})
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{Title: new("Updated Twice")})
 	require.NoError(t, err)
 
 	// No new commits after updates - last commit is still the creation commit.
@@ -2931,16 +2762,6 @@ func TestDeferredCommitUnclaimedMutationCommitsImmediately(t *testing.T) {
 			mutate: func(ctx context.Context, svc *CardService, id string) error {
 				state := "in_progress"
 				_, err := svc.PatchCard(ctx, "test-project", id, PatchCardInput{State: &state})
-
-				return err
-			},
-		},
-		{
-			name: "update card",
-			mutate: func(ctx context.Context, svc *CardService, id string) error {
-				_, err := svc.UpdateCard(ctx, "test-project", id, UpdateCardInput{
-					Title: "Replaced", Type: "task", State: "todo", Priority: "high",
-				})
 
 				return err
 			},
@@ -3207,9 +3028,7 @@ func TestDeferredCommitNonDeferredUnchanged(t *testing.T) {
 	assert.Contains(t, msg, "created")
 
 	// Update and verify immediate commit.
-	_, err = svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
-		Title: "Updated", Type: "task", State: "todo", Priority: "medium",
-	})
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{Title: new("Updated")})
 	require.NoError(t, err)
 
 	msg, err = svc.Repos()[0].Git.GetLastCommitMessage()
@@ -3670,17 +3489,6 @@ func TestCaseInsensitiveCardID(t *testing.T) {
 		assert.Equal(t, "TEST-001", got.ID)
 	})
 
-	t.Run("UpdateCard", func(t *testing.T) {
-		updated, err := svc.UpdateCard(ctx, "test-project", lowercaseID, UpdateCardInput{
-			Title:    "Updated via lowercase",
-			Type:     "task",
-			State:    "todo",
-			Priority: "medium",
-		})
-		require.NoError(t, err)
-		assert.Equal(t, "Updated via lowercase", updated.Title)
-	})
-
 	t.Run("PatchCard", func(t *testing.T) {
 		title := "Patched via lowercase"
 		patched, err := svc.PatchCard(ctx, "test-project", lowercaseID, PatchCardInput{
@@ -3791,29 +3599,17 @@ func TestCaseInsensitiveCardID(t *testing.T) {
 		assert.Equal(t, "TEST-001", child.Parent)
 	})
 
-	t.Run("UpdateCard_LowercaseRefs", func(t *testing.T) {
-		// Create two more cards to use as subtask/dependency refs
-		s1, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-			Title: "Sub1", Type: "task", Priority: "medium",
-		})
-		require.NoError(t, err)
-		s2, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-			Title: "Sub2", Type: "task", Priority: "medium",
+	t.Run("PatchCard_LowercaseDependsOn", func(t *testing.T) {
+		dep, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+			Title: "Dep", Type: "task", Priority: "medium",
 		})
 		require.NoError(t, err)
 
-		updated, err := svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
-			Title:     "Updated refs",
-			Type:      "task",
-			State:     "todo",
-			Priority:  "medium",
-			Parent:    "",
-			Subtasks:  []string{strings.ToLower(s1.ID), strings.ToLower(s2.ID)},
-			DependsOn: []string{strings.ToLower(s1.ID)},
+		patched, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+			DependsOn: []string{strings.ToLower(dep.ID)},
 		})
 		require.NoError(t, err)
-		assert.Equal(t, []string{s1.ID, s2.ID}, updated.Subtasks)
-		assert.Equal(t, []string{s1.ID}, updated.DependsOn)
+		assert.Equal(t, []string{dep.ID}, patched.DependsOn)
 	})
 }
 
@@ -4133,153 +3929,6 @@ func TestCreateCard_RejectsSubtaskWithoutParent(t *testing.T) {
 	}
 }
 
-// TestUpdateCard_SubtaskTypeEnforcement verifies that UpdateCard enforces subtask
-// type invariants: subtasks cannot change type, and non-subtasks cannot become subtasks.
-func TestUpdateCard_SubtaskTypeEnforcement(t *testing.T) {
-	svc, _, cleanup := setupTest(t)
-	defer cleanup()
-
-	ctx := context.Background()
-
-	// Create a parent card
-	parent, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-		Title:    "Parent Card",
-		Type:     "task",
-		Priority: "medium",
-	})
-	require.NoError(t, err)
-
-	// Create a subtask (parent set → type auto-set to subtask)
-	subtask, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-		Title:    "Subtask Card",
-		Type:     "task", // will be overridden to subtask
-		Priority: "medium",
-		Parent:   parent.ID,
-	})
-	require.NoError(t, err)
-	require.Equal(t, "subtask", subtask.Type)
-
-	// Create a standalone card
-	standalone, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-		Title:    "Standalone Card",
-		Type:     "task",
-		Priority: "medium",
-	})
-	require.NoError(t, err)
-	require.Equal(t, "task", standalone.Type)
-
-	t.Run("reject changing subtask type away from subtask", func(t *testing.T) {
-		_, err := svc.UpdateCard(ctx, "test-project", subtask.ID, UpdateCardInput{
-			Title:    subtask.Title,
-			Type:     "task", // trying to change away from subtask
-			State:    subtask.State,
-			Priority: subtask.Priority,
-			Parent:   parent.ID,
-		})
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "subtask")
-		assert.ErrorIs(t, err, board.ErrInvalidType)
-	})
-
-	t.Run("reject changing subtask type to bug", func(t *testing.T) {
-		_, err := svc.UpdateCard(ctx, "test-project", subtask.ID, UpdateCardInput{
-			Title:    subtask.Title,
-			Type:     "bug",
-			State:    subtask.State,
-			Priority: subtask.Priority,
-			Parent:   parent.ID,
-		})
-		require.Error(t, err)
-		assert.ErrorIs(t, err, board.ErrInvalidType)
-	})
-
-	t.Run("allow keeping subtask type on subtask", func(t *testing.T) {
-		updated, err := svc.UpdateCard(ctx, "test-project", subtask.ID, UpdateCardInput{
-			Title:    "Updated Subtask Title",
-			Type:     "subtask",
-			State:    subtask.State,
-			Priority: subtask.Priority,
-			Parent:   parent.ID,
-		})
-		require.NoError(t, err)
-		assert.Equal(t, "subtask", updated.Type)
-		assert.Equal(t, "Updated Subtask Title", updated.Title)
-	})
-
-	t.Run("reject setting type to subtask on card without parent", func(t *testing.T) {
-		_, err := svc.UpdateCard(ctx, "test-project", standalone.ID, UpdateCardInput{
-			Title:    standalone.Title,
-			Type:     "subtask", // invalid - no parent
-			State:    standalone.State,
-			Priority: standalone.Priority,
-			Parent:   "",
-		})
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "subtask")
-		assert.ErrorIs(t, err, board.ErrInvalidType)
-	})
-
-	t.Run("allow normal type update on card without parent", func(t *testing.T) {
-		updated, err := svc.UpdateCard(ctx, "test-project", standalone.ID, UpdateCardInput{
-			Title:    standalone.Title,
-			Type:     "bug",
-			State:    standalone.State,
-			Priority: standalone.Priority,
-			Parent:   "",
-		})
-		require.NoError(t, err)
-		assert.Equal(t, "bug", updated.Type)
-	})
-
-	t.Run("auto-set type to subtask when card gains a parent", func(t *testing.T) {
-		// Create a fresh standalone card with type "task"
-		fresh, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-			Title:    "Fresh Standalone",
-			Type:     "task",
-			Priority: "medium",
-		})
-		require.NoError(t, err)
-		require.Equal(t, "task", fresh.Type)
-		require.Empty(t, fresh.Parent)
-
-		// UpdateCard sets parent - type must be auto-forced to "subtask"
-		updated, err := svc.UpdateCard(ctx, "test-project", fresh.ID, UpdateCardInput{
-			Title:    fresh.Title,
-			Type:     "task", // caller passes "task" - should be overridden
-			State:    fresh.State,
-			Priority: fresh.Priority,
-			Parent:   parent.ID,
-		})
-		require.NoError(t, err)
-		assert.Equal(t, "subtask", updated.Type)
-		assert.Equal(t, parent.ID, updated.Parent)
-	})
-
-	t.Run("auto-reset type from subtask when card loses its parent", func(t *testing.T) {
-		// Create a subtask via CreateCard so it has type "subtask"
-		orphaned, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-			Title:    "Soon-to-be-orphaned",
-			Type:     "task", // overridden to "subtask"
-			Priority: "medium",
-			Parent:   parent.ID,
-		})
-		require.NoError(t, err)
-		require.Equal(t, "subtask", orphaned.Type)
-
-		// UpdateCard clears parent and still passes type="subtask" - should be auto-reset
-		updated, err := svc.UpdateCard(ctx, "test-project", orphaned.ID, UpdateCardInput{
-			Title:    orphaned.Title,
-			Type:     "subtask", // caller still passes subtask - should be reset to first project type
-			State:    orphaned.State,
-			Priority: orphaned.Priority,
-			Parent:   "", // clearing parent
-		})
-		require.NoError(t, err)
-		assert.Equal(t, "task", updated.Type, "type should be reset to first project type when parent is cleared")
-		assert.Empty(t, updated.Parent)
-	})
-}
-
 // TestCreateCard_RejectsSubtaskAsParent verifies that a subtask cannot be used
 // as a parent for another card (no subtask-of-subtask chains).
 func TestCreateCard_RejectsSubtaskAsParent(t *testing.T) {
@@ -4426,41 +4075,6 @@ func TestDeferredCommitPatchCard_WhenImmediateCommitFalse(t *testing.T) {
 	pathCount := len(svc.deferredPaths[card.ID])
 	svc.writeMu.Unlock()
 	assert.Positive(t, pathCount, "deferredPaths should have entries when ImmediateCommit=false")
-}
-
-// TestImmediateCommitUpdateCard_WhenDeferredOn verifies that UpdateCard with
-// ImmediateCommit=true commits immediately even when gitDeferredCommit=true.
-func TestImmediateCommitUpdateCard_WhenDeferredOn(t *testing.T) {
-	svc, gitMgr := setupDeferredTest(t)
-	ctx := context.Background()
-
-	// Create card - commits immediately even in deferred mode.
-	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-		Title: "Human Full Update Card", Type: "task", Priority: "medium",
-	})
-	require.NoError(t, err)
-
-	// Record the creation commit.
-	creationMsg, err := gitMgr.GetLastCommitMessage()
-	require.NoError(t, err)
-	assert.Contains(t, creationMsg, card.ID, "creation commit must reference the card ID")
-
-	// UpdateCard with ImmediateCommit=true - should produce a new commit immediately.
-	_, err = svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
-		Title:           "Human Updated Full Title",
-		Type:            "task",
-		State:           "todo",
-		Priority:        "high",
-		ImmediateCommit: true,
-	})
-	require.NoError(t, err)
-
-	// A new commit should have been produced for this update.
-	msgAfter, err := gitMgr.GetLastCommitMessage()
-	require.NoError(t, err)
-	assert.NotEqual(t, creationMsg, msgAfter, "UpdateCard with ImmediateCommit=true should produce a new commit")
-	assert.Contains(t, msgAfter, card.ID, "commit message should reference the card ID")
-	assert.Contains(t, msgAfter, "updated", "commit message should say updated")
 }
 
 // TestDeferredCommitFlushOnNotPlanned verifies that transitioning a card to
@@ -4789,29 +4403,6 @@ func TestPatchCard_BackfillsBranchName_LegacyCard(t *testing.T) {
 	patched, err = svc.PatchCard(ctx, "test-project", "TEST-900", PatchCardInput{Title: &title})
 	require.NoError(t, err)
 	assert.Equal(t, "test-900/legacy-task", patched.BranchName)
-}
-
-func TestUpdateCard_BackfillsBranchName_LegacyCard(t *testing.T) {
-	svc, tmpDir, cleanup := setupTest(t)
-	defer cleanup()
-
-	ctx := context.Background()
-
-	store, err := storage.NewFilesystemStore(filepath.Join(tmpDir, "boards"))
-	require.NoError(t, err)
-
-	now := time.Now().UTC()
-	legacy := &board.Card{
-		ID: "TEST-901", Title: "Legacy task", Type: "task",
-		State: "todo", Priority: "medium", Created: now, Updated: now,
-	}
-	require.NoError(t, store.CreateCard(ctx, "test-project", legacy))
-
-	updated, err := svc.UpdateCard(ctx, "test-project", "TEST-901", UpdateCardInput{
-		Title: "Legacy task", Type: "task", State: "todo", Priority: "medium",
-	})
-	require.NoError(t, err)
-	assert.Equal(t, "test-901/legacy-task", updated.BranchName)
 }
 
 func TestRecordPush_BranchProtection(t *testing.T) {
@@ -5687,9 +5278,8 @@ func TestDeferredCommitFlushOnUpdateWorkerStatus(t *testing.T) {
 	require.NoError(t, err)
 
 	// Accumulate a deferred mutation (body update, no commit yet).
-	_, err = svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
-		Title: card.Title, Type: card.Type, State: card.State, Priority: card.Priority,
-		Body: "## Progress\n\n- [x] Step 1: done\n",
+	_, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+		Body: new("## Progress\n\n- [x] Step 1: done\n"),
 	})
 	require.NoError(t, err)
 
@@ -6456,67 +6046,6 @@ func TestPatchCard_VettedToggle(t *testing.T) {
 	})
 }
 
-// TestUpdateCard_VettedField verifies that UpdateCard propagates the Vetted field.
-func TestUpdateCard_VettedField(t *testing.T) {
-	ctx := context.Background()
-
-	t.Run("vetted=false on full update of internal card is auto-corrected", func(t *testing.T) {
-		// Internal cards (Source == nil) keep Vetted=true at every write.
-		// A PUT that passes Vetted=false (zero value or explicit) on such a
-		// card cannot un-vet it. This protects against callers that build
-		// UpdateCardInput from the request body without copying the existing
-		// Vetted state - for example, a depends_on follow-up inside the
-		// MCP create_card path that does not copy the auto-vetted flag.
-		svc, _, cleanup := setupTest(t)
-		defer cleanup()
-
-		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-			Title:    "Internal task",
-			Type:     "task",
-			Priority: "medium",
-		})
-		require.NoError(t, err)
-		assert.True(t, card.Vetted)
-
-		updated, err := svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
-			Title:    card.Title,
-			Type:     card.Type,
-			State:    card.State,
-			Priority: card.Priority,
-			Vetted:   false,
-		})
-		require.NoError(t, err)
-		assert.True(t, updated.Vetted, "internal cards stay vetted across PUT writes")
-	})
-
-	t.Run("vetted=true on full update sets field", func(t *testing.T) {
-		svc, _, cleanup := setupTest(t)
-		defer cleanup()
-
-		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-			Title:    "GitHub issue",
-			Type:     "task",
-			Priority: "medium",
-			Source: &board.Source{
-				System:     "github",
-				ExternalID: "5",
-			},
-		})
-		require.NoError(t, err)
-		assert.False(t, card.Vetted)
-
-		updated, err := svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
-			Title:    card.Title,
-			Type:     card.Type,
-			State:    card.State,
-			Priority: card.Priority,
-			Vetted:   true,
-		})
-		require.NoError(t, err)
-		assert.True(t, updated.Vetted)
-	})
-}
-
 // TestVettingInvariant verifies that internal cards (Source == nil) keep
 // Vetted=true at every write path, regardless of what the caller passes.
 // External cards (Source != nil) keep whatever Vetted value was set, since
@@ -6551,23 +6080,6 @@ func TestVettingInvariant(t *testing.T) {
 		assert.False(t, card.Vetted, "external cards default to unvetted")
 	})
 
-	t.Run("UpdateCard PUT cannot un-vet an internal card", func(t *testing.T) {
-		svc, _, cleanup := setupTest(t)
-		defer cleanup()
-
-		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-			Title: "Internal", Type: "task", Priority: "medium",
-		})
-		require.NoError(t, err)
-
-		updated, err := svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
-			Title: card.Title, Type: card.Type, State: card.State, Priority: card.Priority,
-			Vetted: false,
-		})
-		require.NoError(t, err)
-		assert.True(t, updated.Vetted)
-	})
-
 	t.Run("PatchCard cannot un-vet an internal card", func(t *testing.T) {
 		svc, _, cleanup := setupTest(t)
 		defer cleanup()
@@ -6582,66 +6094,6 @@ func TestVettingInvariant(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, updated.Vetted)
 	})
-
-	t.Run("UpdateCard PUT can vet an external card", func(t *testing.T) {
-		svc, _, cleanup := setupTest(t)
-		defer cleanup()
-
-		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-			Title: "External", Type: "task", Priority: "medium",
-			Source: &board.Source{System: "github", ExternalID: "2"},
-		})
-		require.NoError(t, err)
-		assert.False(t, card.Vetted)
-
-		updated, err := svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
-			Title: card.Title, Type: card.Type, State: card.State, Priority: card.Priority,
-			Vetted: true,
-		})
-		require.NoError(t, err)
-		assert.True(t, updated.Vetted, "human approval can vet an external card")
-	})
-}
-
-// TestSourceImmutability_UpdateCard verifies that the source field cannot be
-// changed through UpdateCard. The UpdateCardInput struct does not expose Source,
-// so the loaded card's Source is preserved through the full update.
-func TestSourceImmutability_UpdateCard(t *testing.T) {
-	svc, _, cleanup := setupTest(t)
-	defer cleanup()
-
-	ctx := context.Background()
-
-	// Create a card with a source.
-	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-		Title:    "Imported Issue",
-		Type:     "bug",
-		Priority: "high",
-		Source: &board.Source{
-			System:      "jira",
-			ExternalID:  "PROJ-42",
-			ExternalURL: "https://jira.example.com/PROJ-42",
-		},
-	})
-	require.NoError(t, err)
-	require.NotNil(t, card.Source)
-
-	// Full update (PUT semantics) - Source is not in UpdateCardInput, so it must
-	// be preserved from the original card.
-	updated, err := svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
-		Title:    "Renamed Issue",
-		Type:     "bug",
-		State:    "todo",
-		Priority: "medium",
-		Body:     "new body",
-	})
-	require.NoError(t, err)
-
-	// Source must be unchanged.
-	require.NotNil(t, updated.Source)
-	assert.Equal(t, "jira", updated.Source.System)
-	assert.Equal(t, "PROJ-42", updated.Source.ExternalID)
-	assert.Equal(t, "https://jira.example.com/PROJ-42", updated.Source.ExternalURL)
 }
 
 // TestSourceImmutability_PatchCard verifies that the source field cannot be
@@ -6714,37 +6166,6 @@ func TestActivityLogCapping_Integration(t *testing.T) {
 	assert.Equal(t, "Entry 6", updated.ActivityLog[0].Message)
 	// Last entry should be "Entry 55".
 	assert.Equal(t, "Entry 55", updated.ActivityLog[49].Message)
-}
-
-// TestBranchNameImmutability_UpdateCard verifies that a card's branch_name is
-// not regenerated by a full update with a new title, proving the branch name
-// is immutable after first generation.
-func TestBranchNameImmutability_UpdateCard(t *testing.T) {
-	svc, _, cleanup := setupTest(t)
-	defer cleanup()
-
-	ctx := context.Background()
-
-	// Branch name is generated at create.
-	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-		Title:    "Original Title",
-		Type:     "task",
-		Priority: "medium",
-	})
-	require.NoError(t, err)
-	require.NotEmpty(t, card.BranchName)
-	originalBranch := card.BranchName
-
-	// Full update with a different title - the branch name must NOT be
-	// regenerated from the new title.
-	updated, err := svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
-		Title:    "Completely Different Title",
-		Type:     "task",
-		State:    "todo",
-		Priority: "medium",
-	})
-	require.NoError(t, err)
-	assert.Equal(t, originalBranch, updated.BranchName, "branch name must not change after first generation")
 }
 
 // --- PromoteToAutonomous tests ---
@@ -7201,7 +6622,7 @@ func TestPatchCard_AgentOwnership(t *testing.T) {
 
 // TestPatchCard_ReferenceValidation verifies that PatchCard surfaces
 // validateCardReferences and detectDependencyCycle errors. Cards are seeded
-// with bad references via direct store writes to bypass UpdateCard's own checks.
+// with bad references via direct store writes to bypass the service's own checks.
 func TestPatchCard_ReferenceValidation(t *testing.T) {
 	ctx := context.Background()
 
@@ -7271,7 +6692,7 @@ func TestPatchCard_ReferenceValidation(t *testing.T) {
 		require.NoError(t, err)
 
 		// Seed a cycle: A depends on B, B depends on A - written directly to bypass
-		// UpdateCard's own cycle check so we can test PatchCard independently.
+		// the service's own cycle check so we can test PatchCard independently.
 		cardA.DependsOn = []string{cardB.ID}
 		require.NoError(t, svc.store.UpdateCard(ctx, "test-project", cardA))
 		cardB.DependsOn = []string{cardA.ID}

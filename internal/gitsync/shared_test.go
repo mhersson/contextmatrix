@@ -48,12 +48,12 @@ func TestSharedConvergence(t *testing.T) {
 
 	target := cards[0].ID
 
-	_, err = a.svc.UpdateCard(ctx, "test-project", target,
-		service.UpdateCardInput{Title: "cancelled", Type: "task", State: "not_planned", Priority: "medium"})
+	_, err = a.svc.PatchCard(ctx, "test-project", target,
+		service.PatchCardInput{Title: new("cancelled"), State: new("not_planned")})
 	require.NoError(t, err)
 
-	_, err = b.svc.UpdateCard(ctx, "test-project", target, service.UpdateCardInput{
-		Title: cards[0].Title, Type: "task", State: "in_progress", Priority: "high", Labels: []string{"hot"},
+	_, err = b.svc.PatchCard(ctx, "test-project", target, service.PatchCardInput{
+		State: new("in_progress"), Priority: new("high"), Labels: []string{"hot"},
 	})
 	require.NoError(t, err)
 
@@ -76,8 +76,8 @@ func TestSharedConvergence(t *testing.T) {
 	other := cards[1].ID
 	require.NoError(t, a.svc.DeleteCard(ctx, "test-project", other))
 
-	_, err = b.svc.UpdateCard(ctx, "test-project", other,
-		service.UpdateCardInput{Title: "zombie", Type: "task", State: "todo", Priority: "low"})
+	_, err = b.svc.PatchCard(ctx, "test-project", other,
+		service.PatchCardInput{Title: new("zombie"), Priority: new("low")})
 	require.NoError(t, err)
 
 	a.sync(t)

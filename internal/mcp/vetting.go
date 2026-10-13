@@ -98,8 +98,8 @@ func summarizeCardForAgent(card *board.Card, agentID string) *CardSummary {
 	return summarizeCard(redactCardForAgent(card, agentID))
 }
 
-// summarizeCardsForAgent applies summarizeCardForAgent to each card and keeps
-// nil vs empty like summarizeCards.
+// summarizeCardsForAgent applies summarizeCardForAgent to each card. A non-nil
+// empty input stays a non-nil empty slice so tools keep emitting "cards": [].
 func summarizeCardsForAgent(cards []*board.Card, agentID string) []*CardSummary {
 	if cards == nil {
 		return nil

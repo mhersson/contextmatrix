@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -626,4 +627,12 @@ func TestRequireActiveClaim_ForeignInstance(t *testing.T) {
 	err = requireActiveClaim(context.Background(), env.svc, "test-project", card.ID, "agent-1", "add_log")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "lap-b")
+}
+
+func TestGetSkillSchemaInSync(t *testing.T) {
+	field, ok := reflect.TypeFor[getSkillInput]().FieldByName("SkillName")
+	require.True(t, ok, "getSkillInput has no SkillName field")
+
+	assert.Equal(t, skillNameSchemaDescription, field.Tag.Get("jsonschema"),
+		"getSkillInput.SkillName jsonschema tag drifted from skillBuilders")
 }

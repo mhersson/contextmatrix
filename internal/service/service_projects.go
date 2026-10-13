@@ -407,9 +407,9 @@ func (s *CardService) updateProjectLocked(
 		cfg.GitHubCredential = *input.GitHubCredential
 	}
 
-	// DefaultSkills follows wholesale PUT semantics (matches cards' PUT
-	// handling): nil pointer in the request clears the field, allowing
-	// the UI to switch a project from constrained back to "mount full set".
+	// DefaultSkills follows wholesale PUT semantics: nil pointer in the
+	// request clears the field, allowing the UI to switch a project from
+	// constrained back to "mount full set".
 	cfg.DefaultSkills = input.DefaultSkills
 
 	// RemoteExecution merges field-by-field (nil pointer preserves the whole

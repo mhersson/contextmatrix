@@ -194,15 +194,13 @@ Every request walks the middleware chain in `internal/api/router.go`:
 
 ```mermaid
 flowchart LR
-  recovery --> securityHeaders --> cors["cors (only with cors_origin)"]
-  cors --> requestID --> observe --> bodyLimit --> csrfGuard --> mux
+  recovery --> securityHeaders --> requestID --> observe --> bodyLimit --> csrfGuard --> mux
 ```
 
 | Middleware        | Role                                                                                                                                         |
 | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | `recovery`        | Catches panics, returns 500.                                                                                                                 |
 | `securityHeaders` | Static security headers and CSP.                                                                                                             |
-| `cors`            | CORS preamble; registered only when `cors_origin` is set.                                                                                    |
 | `requestID`       | Mints or accepts `X-Request-ID`; stores a request-scoped `*slog.Logger` via `ctxlog.WithRequestID`.                                          |
 | `observe`         | RED metrics plus the per-request log line.                                                                                                   |
 | `bodyLimit`       | 5 MB cap; `bodyLimitOverrides` raises `POST /api/images` to 11 MB (10 MiB image plus multipart headroom).                                    |
@@ -242,11 +240,10 @@ Mutations are eager-write, async-commit:
    blocks other writers.
 
 `CommitQueue` runs one worker goroutine per project: same-project commits
-run in enqueue order, different projects commit in parallel. Workers spawn
-lazily and, with `WithIdleTimeout`, tear down after an idle window
-(`wire_repos.go` uses 30 minutes). `Pause` / `Resume` / `AwaitIdle` let the
-syncer drain in-flight commits before a shell rebase or push;
-`CardService.LockWrites` calls them in sequence.
+run in enqueue order, different projects commit in parallel. A worker spawns
+on the first `Enqueue` for its project and runs until `Close`. `Pause` /
+`Resume` / `AwaitIdle` let the syncer drain in-flight commits before a shell
+rebase or push; `CardService.LockWrites` calls them in sequence.
 
 Cache and disk can therefore run ahead of git until the commit lands. On
 failure the service layer closes the gap:

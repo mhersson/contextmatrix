@@ -161,7 +161,6 @@ boards:
   db_path: %s
 images:
   db_path: %s
-cors_origin: http://127.0.0.1:0
 theme: everforest
 auth:
   mode: multi

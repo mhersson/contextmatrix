@@ -698,8 +698,9 @@ type MobConfig struct {
 	// DefaultRounds is the critique-round count sent on every trigger
 	// (round 0, the blind proposal round, never counts). Default 2.
 	DefaultRounds int `yaml:"default_rounds"`
-	// MaxRounds is the server clamp on critique rounds. Default 3, max 5.
-	MaxRounds int `yaml:"max_rounds"`
+	// RemovedMaxRounds only lets a stale max_rounds key decode; it is warned
+	// about and never read.
+	RemovedMaxRounds int `yaml:"max_rounds,omitempty"`
 	// BudgetFactor scales the per-card cost ceiling for discussions:
 	// mob budget = budget_factor x max card cost. Default 0.75, range (0, 5].
 	BudgetFactor float64 `yaml:"budget_factor"`
@@ -712,8 +713,7 @@ type MobConfig struct {
 	// checkpoint everything until outcome data argues for a higher floor.
 	CheckpointMinTier string `yaml:"checkpoint_min_tier"`
 	// CheckpointRounds is the critique-round count for execute-checkpoint
-	// discussions (plan/review keep default_rounds). Default 3, clamped
-	// 1..max_rounds.
+	// discussions (plan/review keep default_rounds). Default 3, range 1..5.
 	CheckpointRounds int `yaml:"checkpoint_rounds"`
 	// Guests is the operator-managed guest registry. Cards reference entries
 	// by Name in mob_guests.
@@ -777,14 +777,16 @@ type Config struct {
 	// fine for production (heartbeat is typically a few minutes).
 	// Test harnesses shrink it to seconds so heartbeat-timeout
 	// scenarios don't have to wait a full tick.
-	StalledCheckInterval string               `yaml:"stalled_check_interval"`
-	CORSOrigin           string               `yaml:"cors_origin"`
-	WorkflowSkillsDir    string               `yaml:"workflow_skills_dir"`
-	TaskSkills           TaskSkillsConfig     `yaml:"task_skills"`
-	Theme                string               `yaml:"theme"`
-	TokenCosts           map[string]ModelRate `yaml:"token_costs"`
-	LLMEndpoint          LLMEndpointConfig    `yaml:"llm_endpoint"`
-	MCPAPIKey            string               `yaml:"mcp_api_key"`
+	StalledCheckInterval string `yaml:"stalled_check_interval"`
+	// RemovedCORSOrigin only lets a stale cors_origin key decode; it is
+	// warned about and never read.
+	RemovedCORSOrigin string               `yaml:"cors_origin,omitempty"`
+	WorkflowSkillsDir string               `yaml:"workflow_skills_dir"`
+	TaskSkills        TaskSkillsConfig     `yaml:"task_skills"`
+	Theme             string               `yaml:"theme"`
+	TokenCosts        map[string]ModelRate `yaml:"token_costs"`
+	LLMEndpoint       LLMEndpointConfig    `yaml:"llm_endpoint"`
+	MCPAPIKey         string               `yaml:"mcp_api_key"`
 	// Backends declares the agent (task execution) and chat backend entries.
 	// The mapping's key set is closed - see Backends.UnmarshalYAML.
 	Backends      Backends       `yaml:"backends"`
@@ -1318,6 +1320,8 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 
+	warnRemovedKeys(cfg)
+
 	applyChatDefaults(cfg)
 	applyImagesDefaults(cfg)
 	applyOpStoreDefaults(cfg)
@@ -1411,6 +1415,20 @@ func defaultSQLiteDBPath(filename string) string {
 	return filepath.Join(state, "contextmatrix", filename)
 }
 
+// warnRemovedKeys flags retired YAML keys that still decode so an existing
+// config keeps loading.
+func warnRemovedKeys(cfg *Config) {
+	if cfg.RemovedCORSOrigin != "" {
+		slog.Warn("cors_origin is removed and ignored; delete it from the config",
+			"key", "cors_origin", "value", cfg.RemovedCORSOrigin)
+	}
+
+	if cfg.Mob.RemovedMaxRounds != 0 {
+		slog.Warn("mob.max_rounds is removed and ignored; delete it from the config",
+			"key", "mob.max_rounds", "value", cfg.Mob.RemovedMaxRounds)
+	}
+}
+
 var instanceIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 
 // LoadOrCreateInstanceID returns the instance ID stored at path, creating
@@ -1490,12 +1508,15 @@ func applyBestOfNDefaults(cfg *Config) {
 	}
 }
 
+// maxMobRounds is the upper bound for mob.default_rounds and
+// mob.checkpoint_rounds.
+const maxMobRounds = 5
+
 // applyMobDefaults sets Mob fields that are zero or out of range.
 // Idempotent - safe to call again after applyEnvOverrides may have
 // introduced a new out-of-range value (see the call inside Validate, which
 // runs after applyEnvOverrides completes in Load). Order matters:
-// MaxParticipants before DefaultParticipants, MaxRounds before DefaultRounds
-// and before CheckpointRounds - the dependent checks read the
+// MaxParticipants before DefaultParticipants - the dependent check reads the
 // already-normalized bound.
 func applyMobDefaults(cfg *Config) {
 	if cfg.Mob.MaxParticipants < 2 || cfg.Mob.MaxParticipants > 10 {
@@ -1514,20 +1535,12 @@ func applyMobDefaults(cfg *Config) {
 		cfg.Mob.DefaultParticipants = min(3, cfg.Mob.MaxParticipants)
 	}
 
-	if cfg.Mob.MaxRounds < 1 || cfg.Mob.MaxRounds > 5 {
-		if cfg.Mob.MaxRounds != 0 {
-			slog.Warn("mob.max_rounds outside 1..5; using default", "value", cfg.Mob.MaxRounds)
-		}
-
-		cfg.Mob.MaxRounds = 3
-	}
-
-	if cfg.Mob.DefaultRounds < 1 || cfg.Mob.DefaultRounds > cfg.Mob.MaxRounds {
+	if cfg.Mob.DefaultRounds < 1 || cfg.Mob.DefaultRounds > maxMobRounds {
 		if cfg.Mob.DefaultRounds != 0 {
-			slog.Warn("mob.default_rounds outside 1..max_rounds; using default", "value", cfg.Mob.DefaultRounds)
+			slog.Warn("mob.default_rounds outside 1..5; using default", "value", cfg.Mob.DefaultRounds)
 		}
 
-		cfg.Mob.DefaultRounds = min(2, cfg.Mob.MaxRounds)
+		cfg.Mob.DefaultRounds = 2
 	}
 
 	if cfg.Mob.BudgetFactor <= 0 || cfg.Mob.BudgetFactor > 5 {
@@ -1538,12 +1551,12 @@ func applyMobDefaults(cfg *Config) {
 		cfg.Mob.BudgetFactor = 0.75
 	}
 
-	if cfg.Mob.CheckpointRounds < 1 || cfg.Mob.CheckpointRounds > cfg.Mob.MaxRounds {
+	if cfg.Mob.CheckpointRounds < 1 || cfg.Mob.CheckpointRounds > maxMobRounds {
 		if cfg.Mob.CheckpointRounds != 0 {
-			slog.Warn("mob.checkpoint_rounds outside 1..max_rounds; using default", "value", cfg.Mob.CheckpointRounds)
+			slog.Warn("mob.checkpoint_rounds outside 1..5; using default", "value", cfg.Mob.CheckpointRounds)
 		}
 
-		cfg.Mob.CheckpointRounds = min(3, cfg.Mob.MaxRounds)
+		cfg.Mob.CheckpointRounds = 3
 	}
 
 	if cfg.Mob.CheckpointMinTier == "" {
@@ -1757,7 +1770,13 @@ func applyEnvOverrides(cfg *Config) error {
 	}
 
 	if v := os.Getenv("CONTEXTMATRIX_CORS_ORIGIN"); v != "" {
-		cfg.CORSOrigin = v
+		slog.Warn("CONTEXTMATRIX_CORS_ORIGIN is removed and ignored; unset it",
+			"key", "CONTEXTMATRIX_CORS_ORIGIN", "value", v)
+	}
+
+	if v := os.Getenv("CONTEXTMATRIX_MOB_MAX_ROUNDS"); v != "" {
+		slog.Warn("CONTEXTMATRIX_MOB_MAX_ROUNDS is removed and ignored; unset it",
+			"key", "CONTEXTMATRIX_MOB_MAX_ROUNDS", "value", v)
 	}
 
 	if v := os.Getenv("CONTEXTMATRIX_WORKFLOW_SKILLS_DIR"); v != "" {
@@ -1927,7 +1946,6 @@ func applyEnvOverrides(cfg *Config) error {
 		{"CONTEXTMATRIX_MOB_MAX_PARTICIPANTS", &cfg.Mob.MaxParticipants},
 		{"CONTEXTMATRIX_MOB_DEFAULT_PARTICIPANTS", &cfg.Mob.DefaultParticipants},
 		{"CONTEXTMATRIX_MOB_DEFAULT_ROUNDS", &cfg.Mob.DefaultRounds},
-		{"CONTEXTMATRIX_MOB_MAX_ROUNDS", &cfg.Mob.MaxRounds},
 		{"CONTEXTMATRIX_MOB_CHECKPOINT_ROUNDS", &cfg.Mob.CheckpointRounds},
 	} {
 		if v := os.Getenv(o.env); v != "" {

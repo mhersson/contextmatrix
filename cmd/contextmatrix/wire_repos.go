@@ -154,10 +154,7 @@ func buildBoards(cfg *config.Config, provider githubauth.TokenGenerator, heartbe
 			return nil, fmt.Errorf("boards[%s]: storage: %w", e.Name, err)
 		}
 
-		// A 30-minute idle timeout tears down workers for quiet projects so
-		// long-running servers with ephemeral projects do not accumulate
-		// goroutines; the next Enqueue for that project spawns a fresh one.
-		queue := gitops.NewCommitQueue(git, 0, gitops.WithIdleTimeout(30*time.Minute))
+		queue := gitops.NewCommitQueue(git, 0)
 
 		bundle := &repoBundle{cfg: e, git: git, store: store, queue: queue, recovered: recovered}
 

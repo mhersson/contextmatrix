@@ -272,8 +272,8 @@ func (n *sharedNode) diverge(t *testing.T, priority string) string {
 	require.NoError(t, err)
 	require.NotEmpty(t, cards)
 
-	_, err = n.svc.UpdateCard(context.Background(), "test-project", cards[0].ID,
-		service.UpdateCardInput{Title: cards[0].Title, Type: "task", State: "todo", Priority: priority})
+	_, err = n.svc.PatchCard(context.Background(), "test-project", cards[0].ID,
+		service.PatchCardInput{Priority: &priority})
 	require.NoError(t, err)
 
 	return cards[0].ID
@@ -359,14 +359,14 @@ func TestSynced_RecordsResolutionsWhenThePushFails(t *testing.T) {
 	b.sync(t)
 
 	// Both sides edit the same card, so b has to resolve to integrate.
-	_, err := a.svc.UpdateCard(ctx, "test-project", c.ID,
-		service.UpdateCardInput{Title: "from a", Type: "task", State: "todo", Priority: "high"})
+	_, err := a.svc.PatchCard(ctx, "test-project", c.ID,
+		service.PatchCardInput{Title: new("from a"), Priority: new("high")})
 	require.NoError(t, err)
 
 	a.sync(t)
 
-	_, err = b.svc.UpdateCard(ctx, "test-project", c.ID,
-		service.UpdateCardInput{Title: "from b", Type: "task", State: "todo", Priority: "low"})
+	_, err = b.svc.PatchCard(ctx, "test-project", c.ID,
+		service.PatchCardInput{Title: new("from b"), Priority: new("low")})
 	require.NoError(t, err)
 
 	// One attempt, and the remote moves before it: b merges, resolves and
@@ -463,8 +463,8 @@ func TestSynced_DivergentBranchMergesThenPushes(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, first, 1)
 
-	_, err = b.svc.UpdateCard(context.Background(), "test-project", first[0].ID,
-		service.UpdateCardInput{Title: first[0].Title, Type: "task", State: "todo", Priority: "high"})
+	_, err = b.svc.PatchCard(context.Background(), "test-project", first[0].ID,
+		service.PatchCardInput{Priority: new("high")})
 	require.NoError(t, err)
 
 	r := b.sync(t)
@@ -509,14 +509,14 @@ func TestSynced_ConflictAbortsCleanlyWithoutResolver(t *testing.T) {
 	a.sync(t)
 	b.sync(t)
 
-	_, err := a.svc.UpdateCard(context.Background(), "test-project", c.ID,
-		service.UpdateCardInput{Title: "A", Type: "task", State: "todo", Priority: "high"})
+	_, err := a.svc.PatchCard(context.Background(), "test-project", c.ID,
+		service.PatchCardInput{Title: new("A"), Priority: new("high")})
 	require.NoError(t, err)
 
 	a.sync(t)
 
-	_, err = b.svc.UpdateCard(context.Background(), "test-project", c.ID,
-		service.UpdateCardInput{Title: "B", Type: "task", State: "todo", Priority: "low"})
+	_, err = b.svc.PatchCard(context.Background(), "test-project", c.ID,
+		service.PatchCardInput{Title: new("B"), Priority: new("low")})
 	require.NoError(t, err)
 
 	// The sentinel proves the merge really conflicted and reached the hook,
@@ -554,14 +554,14 @@ func TestSynced_AbortsMergeLeftByAnEarlierCycle(t *testing.T) {
 	a.sync(t)
 	b.sync(t)
 
-	_, err := a.svc.UpdateCard(context.Background(), "test-project", c.ID,
-		service.UpdateCardInput{Title: "A", Type: "task", State: "todo", Priority: "high"})
+	_, err := a.svc.PatchCard(context.Background(), "test-project", c.ID,
+		service.PatchCardInput{Title: new("A"), Priority: new("high")})
 	require.NoError(t, err)
 
 	a.sync(t)
 
-	_, err = b.svc.UpdateCard(context.Background(), "test-project", c.ID,
-		service.UpdateCardInput{Title: "B", Type: "task", State: "todo", Priority: "low"})
+	_, err = b.svc.PatchCard(context.Background(), "test-project", c.ID,
+		service.PatchCardInput{Title: new("B"), Priority: new("low")})
 	require.NoError(t, err)
 
 	// Leave a conflicted merge on disk by hand.

@@ -302,61 +302,6 @@ func TestCommitQueue_CloseDrainsBufferedJobs(t *testing.T) {
 	assert.Len(t, fake.snapshot(), n)
 }
 
-func TestCommitQueue_IdleTeardownExitsWorker(t *testing.T) {
-	// Build a queue with a tight idle timeout so the worker exits shortly
-	// after its last job completes.
-	f := &fakeCommitter{delay: 0}
-	q := NewCommitQueueWithCommitter(f, 16, WithIdleTimeout(30*time.Millisecond))
-
-	t.Cleanup(func() { _ = q.Close(context.Background()) })
-
-	// Spawn a worker for "alpha" via a single commit.
-	done := q.Enqueue(CommitJob{
-		Project: "alpha",
-		Kind:    CommitKindFile,
-		Path:    "a.md",
-		Message: "first",
-	})
-	require.NoError(t, <-done)
-
-	// The worker's idle timer should fire and tear the worker down. Wait
-	// for the map entry to disappear (the worker removes itself on exit).
-	deadline := time.Now().Add(500 * time.Millisecond)
-	for time.Now().Before(deadline) {
-		q.mu.Lock()
-		_, ok := q.workers["alpha"]
-		q.mu.Unlock()
-
-		if !ok {
-			break
-		}
-
-		time.Sleep(5 * time.Millisecond)
-	}
-
-	q.mu.Lock()
-	_, stillPresent := q.workers["alpha"]
-	q.mu.Unlock()
-	assert.False(t, stillPresent,
-		"expected idle worker for 'alpha' to be removed from the workers map")
-
-	// After teardown, a new Enqueue should transparently spawn a fresh
-	// worker and deliver the job.
-	done = q.Enqueue(CommitJob{
-		Project: "alpha",
-		Kind:    CommitKindFile,
-		Path:    "b.md",
-		Message: "second",
-	})
-	require.NoError(t, <-done)
-
-	// The fake committer should have seen both commits in order.
-	commits := f.snapshot()
-	require.Len(t, commits, 2)
-	assert.Equal(t, "first", commits[0].message)
-	assert.Equal(t, "second", commits[1].message)
-}
-
 func TestCommitQueue_EnqueueAfterCloseFails(t *testing.T) {
 	q, _ := newFakeQueue(t, 0)
 	require.NoError(t, q.Close(context.Background()))
@@ -657,6 +602,81 @@ func TestCommitQueue_ShutdownCompletesPendingJob(t *testing.T) {
 	}
 
 	assert.Len(t, fake.snapshot(), 1)
+}
+
+// wedgedCommitter blocks every commit until release is closed and closes
+// entered when the first commit starts.
+type wedgedCommitter struct {
+	fakeCommitter
+
+	once    sync.Once
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (w *wedgedCommitter) CommitFile(ctx context.Context, path, message string) error {
+	w.once.Do(func() { close(w.entered) })
+	<-w.release
+
+	return w.fakeCommitter.CommitFile(ctx, path, message)
+}
+
+// TestCommitQueue_CloseHonorsCtxWithBlockedSender pins that Close returns
+// ctx.Err() on its deadline even while an Enqueue is stuck sending into the
+// full buffer of a wedged worker.
+func TestCommitQueue_CloseHonorsCtxWithBlockedSender(t *testing.T) {
+	w := &wedgedCommitter{entered: make(chan struct{}), release: make(chan struct{})}
+	q := NewCommitQueueWithCommitter(w, 1)
+
+	job := func(msg string) CommitJob {
+		return CommitJob{Project: "alpha", Kind: CommitKindFile, Path: "a.md", Message: msg}
+	}
+
+	first := q.Enqueue(job("wedged"))
+
+	<-w.entered
+
+	second := q.Enqueue(job("buffered"))
+
+	var third <-chan error
+
+	sender := make(chan struct{})
+
+	go func() {
+		defer close(sender)
+
+		third = q.Enqueue(job("blocked"))
+	}()
+
+	t.Cleanup(func() {
+		close(w.release)
+		<-sender
+
+		for _, d := range []<-chan error{first, second, third} {
+			require.NoError(t, <-d)
+		}
+	})
+
+	require.Eventually(t, func() bool {
+		q.mu.Lock()
+		defer q.mu.Unlock()
+
+		return q.pending == 3
+	}, 2*time.Second, time.Millisecond, "third Enqueue never registered")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+
+	closed := make(chan error, 1)
+
+	go func() { closed <- q.Close(ctx) }()
+
+	select {
+	case err := <-closed:
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close ignored its ctx while a sender was blocked")
+	}
 }
 
 // TestCommitQueue_DrainRunsBufferedJobs pins the contract Drain adds over

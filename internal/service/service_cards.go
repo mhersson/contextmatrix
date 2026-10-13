@@ -79,49 +79,6 @@ type CreateCardInput struct {
 	Verify *board.VerifyConfig
 }
 
-// UpdateCardInput contains all mutable fields for a full card update.
-// Immutable fields (id, project, created, source) are not included.
-// Value types match PUT's full-replacement semantics (omitted = zero value).
-type UpdateCardInput struct {
-	Title              string
-	Type               string
-	State              string
-	Priority           string
-	Labels             []string
-	Parent             string
-	Subtasks           []string
-	DependsOn          []string
-	Context            []string
-	Custom             map[string]any
-	Body               string
-	Assignee           string // Informational responsibility label; PUT full-replace, like other value fields
-	ImmediateCommit    bool   // If true, commit immediately even when gitDeferredCommit is on. Unclaimed cards always do.
-	Autonomous         bool
-	CreatePR           bool
-	AwaitCI            bool
-	AwaitCopilotReview bool
-	MergePR            bool
-	Vetted             bool
-	Skills             *[]string
-	Phase              *string
-	// Model pins: human-set per-card OpenRouter slugs overriding the complexity
-	// selector. Excluded from the MCP agent surface; human-only via REST.
-	ModelOrchestrator string
-	ModelCoder        string
-	ModelReviewer     string
-	// BestOfN: human-set only, like the model pins. Value type matches PUT's
-	// full-replacement semantics - omitted/zero clears the field.
-	BestOfN int
-	// MaxCapability: human-set only, like the model pins. Value type matches PUT's
-	// full-replacement semantics - omitted/zero clears the field.
-	MaxCapability bool
-	// Mob session fields: human-set only, like the model pins. PUT full-replacement
-	// semantics - omitted/zero values clear them.
-	MobParticipants int
-	MobPhases       []string
-	MobGuests       []string
-}
-
 // PatchCardInput contains optional fields for partial card updates.
 // Nil values mean "do not change".
 type PatchCardInput struct {
@@ -218,7 +175,7 @@ func appendStateChangeLog(card *board.Card, oldState, newState, agent string, ts
 }
 
 // assignedAction is the activity-log Action value emitted whenever a card's
-// Assignee changes via UpdateCard or PatchCard.
+// Assignee changes via PatchCard.
 const assignedAction = "assigned"
 
 // appendAssigneeChangeLog records an assignee change on card.ActivityLog. The
@@ -245,7 +202,7 @@ func appendAssigneeChangeLog(card *board.Card, oldAssignee, agent string, ts tim
 }
 
 // dependsOnAction is the activity-log Action value emitted whenever a card's
-// DependsOn list changes via UpdateCard or PatchCard.
+// DependsOn list changes via PatchCard.
 const dependsOnAction = "dependencies_updated"
 
 // appendDependsOnChangeLog records a depends_on change on card.ActivityLog.
@@ -275,8 +232,8 @@ func appendDependsOnChangeLog(card *board.Card, agent string, ts time.Time) {
 }
 
 // dependsOnEqual reports whether two depends_on lists contain the same IDs,
-// ignoring order. Both PatchCard and UpdateCard normalize IDs to uppercase
-// and dedupe via normalizeIDs before this comparison runs, so a caller that
+// ignoring order. PatchCard normalizes IDs to uppercase and dedupes via
+// normalizeIDs before this comparison runs, so a caller that
 // resubmits the same dependencies in a different order does not produce a
 // phantom log entry.
 func dependsOnEqual(a, b []string) bool {
@@ -1058,148 +1015,6 @@ func cardNumber(id string) int {
 	return n
 }
 
-// UpdateCard performs a full update of a card's mutable fields.
-// Immutable fields (id, project, created, source) are preserved.
-func (s *CardService) UpdateCard(ctx context.Context, project, id string, input UpdateCardInput) (*board.Card, error) {
-	id = strings.ToUpper(id)
-	input.Parent = strings.ToUpper(strings.TrimSpace(input.Parent))
-	input.Subtasks = normalizeIDs(input.Subtasks)
-	input.DependsOn = normalizeIDs(input.DependsOn)
-
-	// Caller-level validation (length limits). Kept here so a rejected call
-	// never touches writeMu.
-	if err := validateFieldLimits(input.Title, input.Body, input.Assignee, input.Labels, input.DependsOn); err != nil {
-		return nil, err
-	}
-
-	return s.applyCardMutation(ctx, project, id, s.buildUpdateApply(ctx, input), mutationOpts{
-		immediateCommit: input.ImmediateCommit,
-		commitAction:    "updated",
-	})
-}
-
-// buildUpdateApply returns the mutation closure for UpdateCard: it enforces
-// subtask/parent type invariants, validates the state transition, and assigns
-// all mutable fields from input onto the loaded card.
-func (s *CardService) buildUpdateApply(ctx context.Context, input UpdateCardInput) func(*board.Card, *board.ProjectConfig) error {
-	return func(card *board.Card, cfg *board.ProjectConfig) error {
-		// Validate skill names before applying any mutations.
-		if err := validateSkillNames(input.Skills); err != nil {
-			return err
-		}
-
-		if err := s.validateModelPins(ctx,
-			pinChange{"model_orchestrator", input.ModelOrchestrator, card.ModelOrchestrator},
-			pinChange{"model_coder", input.ModelCoder, card.ModelCoder},
-			pinChange{"model_reviewer", input.ModelReviewer, card.ModelReviewer},
-		); err != nil {
-			return err
-		}
-
-		oldState := card.State
-		stateChanged := input.State != oldState
-
-		if stateChanged {
-			if err := s.validator.ValidateTransition(cfg, oldState, input.State); err != nil {
-				return fmt.Errorf("validate transition: %w", err)
-			}
-
-			if input.State == board.StateInProgress {
-				met, blockers := s.checkDependencies(ctx, card.Project, input.DependsOn)
-				if !met {
-					return dependencyError(input.State, blockers)
-				}
-			}
-		}
-
-		// Enforce subtask type invariants based on parent field transitions.
-		switch {
-		case input.Parent != "" && card.Parent == "":
-			// Card is gaining a parent: auto-force type to "subtask".
-			input.Type = board.SubtaskType
-		case input.Parent == "" && card.Parent != "":
-			// Card is losing its parent: reset "subtask" to first project type.
-			if input.Type == board.SubtaskType {
-				input.Type = cfg.Types[0]
-			}
-		case input.Parent == "" && card.Parent == "":
-			// No parent before or after: reject "subtask" - it requires a parent.
-			if input.Type == board.SubtaskType {
-				return fmt.Errorf("validate card: %w", &board.ValidationError{
-					Err:     board.ErrInvalidType,
-					Field:   "type",
-					Value:   input.Type,
-					Message: "only cards with a parent can have type \"subtask\"",
-				})
-			}
-		case input.Parent != "" && card.Parent != "":
-			// Already a subtask and staying a subtask: can't change type.
-			if input.Type != board.SubtaskType {
-				return fmt.Errorf("validate card: %w", &board.ValidationError{
-					Err:     board.ErrInvalidType,
-					Field:   "type",
-					Value:   input.Type,
-					Message: "cannot change type of a subtask; cards with a parent must have type \"subtask\"",
-				})
-			}
-		}
-
-		card.Title = input.Title
-		card.Type = input.Type
-		card.State = input.State
-		card.Priority = input.Priority
-		card.Labels = input.Labels
-		card.Parent = input.Parent
-		card.Subtasks = input.Subtasks
-		card.DependsOn = input.DependsOn
-		card.Context = input.Context
-		card.Custom = input.Custom
-		card.Body = input.Body
-		card.Assignee = input.Assignee
-		card.Autonomous = input.Autonomous
-		card.Vetted = input.Vetted
-		card.Skills = input.Skills // PUT replaces wholesale; nil clears
-		card.ModelOrchestrator = input.ModelOrchestrator
-		card.ModelCoder = input.ModelCoder
-		card.ModelReviewer = input.ModelReviewer
-		card.BestOfN = input.BestOfN                 // PUT full-replace; zero/absent clears, like Autonomous
-		card.MaxCapability = input.MaxCapability     // PUT full-replace; zero/absent clears, like BestOfN
-		card.MobParticipants = input.MobParticipants // PUT full-replace, like BestOfN
-		card.MobPhases = input.MobPhases
-		card.MobGuests = input.MobGuests
-		enforceVettingInvariant(card)
-
-		if input.Phase != nil {
-			if !board.ValidPhase(*input.Phase) {
-				return fmt.Errorf("validate card: %w", &board.ValidationError{
-					Err:     board.ErrInvalidPhase,
-					Field:   "phase",
-					Value:   *input.Phase,
-					Message: fmt.Sprintf("invalid phase %q: must be one of plan, execute, judge, document, review, integrate, pr_gates, done, or empty", *input.Phase),
-				})
-			}
-
-			card.Phase = *input.Phase
-		}
-
-		// BranchName is never taken from client input: it is generated once
-		// (backfilled here for legacy non-subtask cards created before names
-		// were generated at create) and later reconciled by RecordPush with
-		// the branch the worker actually pushed. Subtasks work on their
-		// parent's branch and never get one.
-		if card.BranchName == "" && card.Parent == "" {
-			card.BranchName = generateBranchName(card.ID, card.Title, card.Source)
-		}
-
-		card.CreatePR = input.CreatePR
-		card.AwaitCI = input.AwaitCI                       // PUT full-replace; zero/absent clears, like CreatePR
-		card.AwaitCopilotReview = input.AwaitCopilotReview // PUT full-replace; zero/absent clears, like CreatePR
-		card.MergePR = input.MergePR                       // PUT full-replace; zero/absent clears, like CreatePR
-
-		return nil
-	}
-}
-
 // PatchCard applies partial updates to a card.
 // Only non-nil fields in the input are updated.
 func (s *CardService) PatchCard(ctx context.Context, project, id string, input PatchCardInput) (*board.Card, error) {
@@ -1826,7 +1641,8 @@ type mutationOpts struct {
 	commitAction string
 }
 
-// applyCardMutation is the shared write path for UpdateCard and PatchCard.
+// applyCardMutation is the shared write path for PatchCard and
+// ForcePlaybookSettings.
 // It owns the standard flow:
 //
 //  1. Acquire writeMu.
@@ -1858,8 +1674,8 @@ type mutationOpts struct {
 // the cache and disk are then inconsistent with each other and the
 // returned error flags that condition for the caller.
 //
-// Keeping these steps in one place prevents UpdateCard and PatchCard from
-// drifting on validator order, commit path, or side-effect sequencing.
+// Keeping these steps in one place prevents the card writers from drifting
+// on validator order, commit path, or side-effect sequencing.
 func (s *CardService) applyCardMutation(
 	ctx context.Context,
 	project, id string,
@@ -1922,10 +1738,9 @@ func (s *CardService) applyCardMutation(
 	// A mutation attributed to the card's own owner is proof of liveness,
 	// same as an explicit heartbeat call - piggyback on the write already
 	// happening here instead of requiring a separate call. commitAgentID is
-	// empty for system commits (e.g. the PUT/UpdateCard path, which carries
-	// no agent attribution), and those must never bump: extending a claim
-	// nobody is actively renewing would mask a dead agent past the stall
-	// timeout.
+	// empty for system commits (e.g. a PatchCard without an AgentID), and
+	// those must never bump: extending a claim nobody is actively renewing
+	// would mask a dead agent past the stall timeout.
 	if opts.commitAgentID != "" && s.OwnsClaim(card, opts.commitAgentID) {
 		now := card.Updated
 		card.LastHeartbeat = &now
@@ -1941,9 +1756,8 @@ func (s *CardService) applyCardMutation(
 
 	// Assignee is informational and fully independent of AssignedAgent, so it
 	// gets its own activity trail. Comparing against the pre-mutation
-	// snapshot here (rather than inside each apply closure) covers both
-	// UpdateCard and PatchCard uniformly and reuses the already-stamped
-	// card.Updated.
+	// snapshot here (rather than inside each apply closure) covers every
+	// writer uniformly and reuses the already-stamped card.Updated.
 	//
 	// The API layer normalizes and compares assignees case-insensitively, so
 	// a request that only echoes a stored non-canonical value back in
@@ -1957,8 +1771,7 @@ func (s *CardService) applyCardMutation(
 	}
 
 	// DependsOn gates the in_progress transition, so it gets the same
-	// snapshot-diff activity trail as Assignee - covering both UpdateCard
-	// (full replace) and PatchCard (nil means unchanged) uniformly.
+	// snapshot-diff activity trail as Assignee.
 	if !dependsOnEqual(card.DependsOn, snapshot.DependsOn) {
 		appendDependsOnChangeLog(card, opts.commitAgentID, card.Updated)
 	}
@@ -2112,8 +1925,8 @@ func (s *CardService) publishStateOrUpdate(
 
 	// Carry the acting agent on every published event so SSE consumers that
 	// filter by agent (e.g. NowRail activity feed) can render the row
-	// without needing to refetch the card. Empty agent (UpdateCard without
-	// an X-Agent-ID) normalises to "system" - matches the convention
+	// without needing to refetch the card. Empty agent (a PatchCard without
+	// an AgentID) normalises to "system" - matches the convention
 	// appendStateChangeLog uses when writing the activity-log entry.
 	eventAgent := agentID
 	if eventAgent == "" {

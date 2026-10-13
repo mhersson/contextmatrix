@@ -72,20 +72,6 @@ type Committer interface {
 	ReloadRepo(ctx context.Context) error
 }
 
-// projectWorker bundles a per-project commit channel with the synchronization
-// state needed to safely tear it down on idle.
-//
-// The mutex serializes the Enqueue lookup→send window with the worker's
-// exit decision: the worker only exits if it can acquire mu and find both
-// an empty channel and no in-flight Enqueue. Enqueue, conversely, holds mu
-// across the channel send so a concurrent worker exit cannot strand the job.
-type projectWorker struct {
-	ch chan CommitJob
-
-	mu     sync.Mutex
-	closed bool // true after the worker has decided to exit; Enqueue must respawn
-}
-
 // CommitQueue serializes git commits per project via dedicated worker
 // goroutines. It decouples the caller's request path from the on-disk
 // go-git latency and allows different projects to commit in parallel.
@@ -94,20 +80,13 @@ type projectWorker struct {
 // order. No ordering is implied across projects.
 //
 // Lifecycle: create with NewCommitQueue; per-project workers spawn lazily on
-// Enqueue. Call Close(ctx) on shutdown to drain all pending jobs before the
-// process exits.
-//
-// Idle teardown: when constructed with WithIdleTimeout, a worker that has
-// been idle (no jobs in its channel) for the configured duration exits and
-// is removed from the workers map. The next Enqueue for that project spawns
-// a fresh worker. Per-project workers are otherwise long-lived; default
-// behaviour (idleTimeout == 0) is to keep the worker alive forever.
+// Enqueue and run until Close. Call Close(ctx) on shutdown to drain all
+// pending jobs before the process exits.
 type CommitQueue struct {
-	mgr     Committer
-	onAfter func() // optional hook, called after a successful commit
+	mgr Committer
 
 	mu       sync.Mutex
-	workers  map[string]*projectWorker
+	workers  map[string]chan CommitJob
 	closed   bool
 	paused   bool
 	pauseCh  chan struct{} // closed when unpaused; non-nil only while paused
@@ -125,30 +104,12 @@ type CommitQueue struct {
 	idleCh chan struct{}
 
 	wg sync.WaitGroup
+	// sending counts Enqueue calls between the closed check and their
+	// channel send; Close waits it out before closing any channel.
+	sending sync.WaitGroup
 
 	// queueBuf is the per-project channel buffer. Exposed for tests.
 	queueBuf int
-
-	// idleTimeout, when > 0, causes a worker idle for this duration to exit
-	// and free its channel. 0 disables idle teardown (workers live forever).
-	idleTimeout time.Duration
-}
-
-// CommitQueueOption configures optional CommitQueue behaviour.
-type CommitQueueOption func(*CommitQueue)
-
-// WithIdleTimeout enables idle worker teardown: a per-project worker that
-// receives no jobs for this duration exits and is removed from the workers
-// map. The next Enqueue for that project spawns a fresh worker. Useful for
-// long-running servers that handle many short-lived projects.
-//
-// d <= 0 is a no-op (idle teardown remains disabled).
-func WithIdleTimeout(d time.Duration) CommitQueueOption {
-	return func(q *CommitQueue) {
-		if d > 0 {
-			q.idleTimeout = d
-		}
-	}
 }
 
 // NewCommitQueue constructs a queue that routes commits through mgr.
@@ -157,22 +118,22 @@ func WithIdleTimeout(d time.Duration) CommitQueueOption {
 // to 1024. The total in-flight backlog is therefore N*bufferSize for N
 // active projects, which is plenty in practice (cards-per-second per
 // project is tiny compared to this).
-func NewCommitQueue(mgr *Manager, bufferSize int, opts ...CommitQueueOption) *CommitQueue {
-	return NewCommitQueueWithCommitter(mgr, bufferSize, opts...)
+func NewCommitQueue(mgr *Manager, bufferSize int) *CommitQueue {
+	return NewCommitQueueWithCommitter(mgr, bufferSize)
 }
 
 // NewCommitQueueWithCommitter constructs a queue backed by any Committer
 // implementation. Intended for cross-package tests that need to inject a
 // fake committer (e.g. one that always fails) to exercise the service
 // layer's commit-failure rollback path.
-func NewCommitQueueWithCommitter(c Committer, bufferSize int, opts ...CommitQueueOption) *CommitQueue {
+func NewCommitQueueWithCommitter(c Committer, bufferSize int) *CommitQueue {
 	if bufferSize <= 0 {
 		bufferSize = 1024
 	}
 
 	q := &CommitQueue{
 		mgr:      c,
-		workers:  make(map[string]*projectWorker),
+		workers:  make(map[string]chan CommitJob),
 		queueBuf: bufferSize,
 	}
 	// Start idle: install a pre-closed channel so AwaitIdle returns
@@ -180,20 +141,7 @@ func NewCommitQueueWithCommitter(c Committer, bufferSize int, opts ...CommitQueu
 	q.idleCh = make(chan struct{})
 	close(q.idleCh)
 
-	for _, opt := range opts {
-		opt(q)
-	}
-
 	return q
-}
-
-// SetOnCommit registers a callback invoked after each successful commit.
-// Safe to call any time before workers start.
-func (q *CommitQueue) SetOnCommit(fn func()) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-
-	q.onAfter = fn
 }
 
 // Enqueue submits a commit job. Returns a channel that receives the
@@ -219,140 +167,55 @@ func (q *CommitQueue) Enqueue(job CommitJob) <-chan error {
 		job.Ctx = context.Background()
 	}
 
-	// Loop: a worker may have idle-exited between our map lookup and our
-	// per-project lock; in that case we spawn a fresh worker and try again.
-	// At most one extra iteration in practice.
-	for {
-		q.mu.Lock()
-		if q.closed {
-			q.mu.Unlock()
-
-			job.Done <- ErrQueueClosed
-
-			close(job.Done)
-
-			return job.Done
-		}
-
-		pw, ok := q.workers[job.Project]
-		if !ok {
-			pw = &projectWorker{ch: make(chan CommitJob, q.queueBuf)}
-			q.workers[job.Project] = pw
-
-			q.wg.Add(1)
-
-			go q.run(job.Project, pw)
-		}
-		// Count the job before releasing the lock: from here on it either
-		// reaches a worker (processJob decrements) or the retry path below
-		// gives the count back.
-		q.pending++
+	q.mu.Lock()
+	if q.closed {
 		q.mu.Unlock()
 
-		// Take the per-project lock so the worker cannot exit between our
-		// "not closed" check and our channel send. The buffered send under
-		// pw.mu is safe: the worker reads from pw.ch without taking pw.mu,
-		// so a full buffer back-pressures Enqueue but cannot deadlock.
-		pw.mu.Lock()
-		if pw.closed {
-			// Worker exited while we were not holding pw.mu. Drop the lock
-			// and loop back to spawn a fresh worker.
-			pw.mu.Unlock()
+		job.Done <- ErrQueueClosed
 
-			q.mu.Lock()
-			q.pending--
-			q.mu.Unlock()
-
-			continue
-		}
-
-		metrics.CommitQueueDepth.Inc()
-
-		pw.ch <- job
-		pw.mu.Unlock()
+		close(job.Done)
 
 		return job.Done
 	}
+
+	ch, ok := q.workers[job.Project]
+	if !ok {
+		ch = make(chan CommitJob, q.queueBuf)
+		q.workers[job.Project] = ch
+
+		q.wg.Add(1)
+
+		go q.run(ch)
+	}
+	// Count the job under q.mu, before Close can flip closed: pending lets
+	// Drain wait it out, sending keeps Close from closing ch mid-send.
+	q.pending++
+	q.sending.Add(1)
+	q.mu.Unlock()
+
+	metrics.CommitQueueDepth.Inc()
+
+	// Sent outside q.mu: a full buffer back-pressures Enqueue while the
+	// worker, which takes q.mu per job, keeps draining.
+	ch <- job
+
+	q.sending.Done()
+
+	return job.Done
 }
 
-// run consumes jobs for a single project. It exits when the input
-// channel is closed and drained (Close) or when the queue's idle timeout
-// elapses without any job arriving.
-func (q *CommitQueue) run(project string, pw *projectWorker) {
+// run commits one project's jobs in enqueue order until Close closes ch and
+// the buffered jobs are drained.
+func (q *CommitQueue) run(ch <-chan CommitJob) {
 	defer q.wg.Done()
 
-	if q.idleTimeout <= 0 {
-		// Legacy mode: stay alive until the channel is closed by Close.
-		for job := range pw.ch {
-			q.processJob(job)
-		}
-
-		return
-	}
-
-	timer := time.NewTimer(q.idleTimeout)
-	defer timer.Stop()
-
-	for {
-		select {
-		case job, ok := <-pw.ch:
-			if !ok {
-				// Channel closed by Close; drain finished.
-				return
-			}
-
-			// Reset the idle timer for the next iteration. Per Go 1.23+
-			// semantics, Reset is safe to call without first draining the
-			// channel of a stopped timer.
-			if !timer.Stop() {
-				select {
-				case <-timer.C:
-				default:
-				}
-			}
-
-			timer.Reset(q.idleTimeout)
-			q.processJob(job)
-		case <-timer.C:
-			// Idle timeout fired. Decide whether to exit. Hold pw.mu so any
-			// Enqueue racing with this decision is serialized:
-			//   - If Enqueue acquired pw.mu first and sent a job, len > 0
-			//     and we abort the exit.
-			//   - If we acquire pw.mu first and exit, Enqueue subsequently
-			//     finds pw.closed and respawns a fresh worker.
-			pw.mu.Lock()
-
-			if len(pw.ch) > 0 {
-				// A job arrived between the timer fire and our lock; do
-				// not exit. Reset the timer and continue.
-				pw.mu.Unlock()
-				timer.Reset(q.idleTimeout)
-
-				continue
-			}
-
-			pw.closed = true
-			pw.mu.Unlock()
-
-			// Remove from the workers map so the next Enqueue spawns a
-			// fresh worker for this project.
-			q.mu.Lock()
-			// Defensive: only delete if the entry is still ours. A racing
-			// reset could in theory have replaced it (cannot happen given
-			// the pw.closed guard, but cheap to verify).
-			if existing, ok := q.workers[project]; ok && existing == pw {
-				delete(q.workers, project)
-			}
-			q.mu.Unlock()
-
-			return
-		}
+	for job := range ch {
+		q.processJob(job)
 	}
 }
 
-// processJob runs one CommitJob through the standard pause/markBusy/execute
-// pipeline and signals the caller via job.Done. Extracted so both run-loop
-// branches (legacy and idle-aware) share identical semantics.
+// processJob runs one CommitJob through the pause/markBusy/execute pipeline
+// and signals the caller via job.Done.
 func (q *CommitQueue) processJob(job CommitJob) {
 	// Every path out of this function - commit, failure, or a context
 	// cancelled before pickup - retires the job Enqueue counted.
@@ -364,12 +227,6 @@ func (q *CommitQueue) processJob(job CommitJob) {
 
 	// Depth drops when the job is taken off the channel.
 	metrics.CommitQueueDepth.Dec()
-
-	// Snapshot onAfter under the lock to avoid a data race with SetOnCommit.
-	// The hook is called after the commit result is sent, outside the lock.
-	q.mu.Lock()
-	onAfter := q.onAfter
-	q.mu.Unlock()
 
 	// If the queue is paused (e.g. rebase in progress), wait until it
 	// resumes before executing.
@@ -396,10 +253,6 @@ func (q *CommitQueue) processJob(job CommitJob) {
 	job.Done <- err
 
 	close(job.Done)
-
-	if err == nil && onAfter != nil {
-		onAfter()
-	}
 }
 
 // execute runs the job with metrics instrumentation.
@@ -615,9 +468,9 @@ func (q *CommitQueue) Drain(ctx context.Context) error {
 // Close stops the queue and drains all buffered jobs. After Close
 // returns, Enqueue rejects new jobs with ErrQueueClosed.
 //
-// Close blocks until either all workers finish or ctx is cancelled.
-// Pending jobs that cannot run before ctx deadline return context errors
-// on their Done channels.
+// Close blocks until either all workers finish or ctx is cancelled. On
+// cancellation it returns ctx.Err() and the drain carries on in the
+// background.
 func (q *CommitQueue) Close(ctx context.Context) error {
 	q.mu.Lock()
 
@@ -631,9 +484,9 @@ func (q *CommitQueue) Close(ctx context.Context) error {
 
 	// Snapshot the per-project workers so we can close their channels
 	// without holding the queue lock.
-	workers := make([]*projectWorker, 0, len(q.workers))
-	for _, pw := range q.workers {
-		workers = append(workers, pw)
+	workers := make([]chan CommitJob, 0, len(q.workers))
+	for _, ch := range q.workers {
+		workers = append(workers, ch)
 	}
 	// If paused, resume so workers can drain. Shutdown overrides pause.
 	if q.paused {
@@ -644,20 +497,17 @@ func (q *CommitQueue) Close(ctx context.Context) error {
 	}
 	q.mu.Unlock()
 
-	for _, pw := range workers {
-		// Take pw.mu so we don't race with an ongoing idle-exit decision
-		// (which would set pw.closed and race with our close(pw.ch)).
-		pw.mu.Lock()
-		if !pw.closed {
-			pw.closed = true
-			close(pw.ch)
-		}
-		pw.mu.Unlock()
-	}
-
 	done := make(chan struct{})
 
 	go func() {
+		// Every Enqueue that passed the closed check registered on sending
+		// first, so once it drains no send can hit a closed channel.
+		q.sending.Wait()
+
+		for _, ch := range workers {
+			close(ch)
+		}
+
 		q.wg.Wait()
 		close(done)
 	}()

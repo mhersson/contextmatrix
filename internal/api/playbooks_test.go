@@ -788,24 +788,28 @@ func TestCardsAPI_PlaybookLockGuards(t *testing.T) {
 	server, _, _, card := lockedCardSetup(t, nil)
 	base := server.URL + "/api/projects/test-project/cards/" + card.ID
 
-	t.Run("PATCH changing a locked field is 409", func(t *testing.T) {
-		resp := doJSON(t, http.MethodPatch, base, map[string]any{"merge_pr": false}, "human:alice")
-		defer closeBody(t, resp.Body)
+	for _, tc := range []struct {
+		field string
+		value any
+	}{
+		{"autonomous", false},
+		{"create_pr", false},
+		{"await_ci", false},
+		{"merge_pr", false},
+		{"base_branch", "main"},
+	} {
+		t.Run("PATCH changing "+tc.field+" is 409", func(t *testing.T) {
+			resp := doJSON(t, http.MethodPatch, base, map[string]any{tc.field: tc.value}, "human:alice")
+			defer closeBody(t, resp.Body)
 
-		assert.Equal(t, http.StatusConflict, resp.StatusCode)
+			assert.Equal(t, http.StatusConflict, resp.StatusCode)
 
-		var apiErr APIError
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
-		assert.Equal(t, ErrCodePlaybookLocked, apiErr.Code)
-		assert.Contains(t, apiErr.Error, "rollout")
-	})
-
-	t.Run("PATCH changing base_branch is 409", func(t *testing.T) {
-		resp := doJSON(t, http.MethodPatch, base, map[string]any{"base_branch": "main"}, "human:alice")
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusConflict, resp.StatusCode)
-	})
+			var apiErr APIError
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+			assert.Equal(t, ErrCodePlaybookLocked, apiErr.Code)
+			assert.Contains(t, apiErr.Error, "rollout")
+		})
+	}
 
 	t.Run("PATCH repeating the forced value is 200", func(t *testing.T) {
 		resp := doJSON(t, http.MethodPatch, base, map[string]any{"merge_pr": true, "base_branch": "playbook/rollout", "title": "Renamed"}, "human:alice")
@@ -816,34 +820,6 @@ func TestCardsAPI_PlaybookLockGuards(t *testing.T) {
 
 	t.Run("PATCH of an unlocked field is 200", func(t *testing.T) {
 		resp := doJSON(t, http.MethodPatch, base, map[string]any{"priority": "high"}, "human:alice")
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-	})
-
-	t.Run("PUT changing a locked field is 409", func(t *testing.T) {
-		body := map[string]any{
-			"title": "Renamed", "type": "task", "state": "todo", "priority": "high",
-			"autonomous": false, "create_pr": true, "await_ci": true, "merge_pr": true,
-		}
-
-		resp := doJSON(t, http.MethodPut, base, body, "human:alice")
-		defer closeBody(t, resp.Body)
-
-		assert.Equal(t, http.StatusConflict, resp.StatusCode)
-
-		var apiErr APIError
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
-		assert.Equal(t, ErrCodePlaybookLocked, apiErr.Code)
-	})
-
-	t.Run("PUT keeping the locked fields is 200", func(t *testing.T) {
-		body := map[string]any{
-			"title": "Renamed", "type": "task", "state": "todo", "priority": "high",
-			"autonomous": true, "create_pr": true, "await_ci": true, "merge_pr": true,
-		}
-
-		resp := doJSON(t, http.MethodPut, base, body, "human:alice")
 		defer closeBody(t, resp.Body)
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)

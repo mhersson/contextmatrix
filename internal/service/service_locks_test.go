@@ -526,9 +526,7 @@ func TestMutationsRefreshHeartbeat(t *testing.T) {
 
 		card, t0 := claimCardFixture(t, svc, fake, "owner-agent")
 
-		updated, err := svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
-			Title: "System edit", Type: card.Type, State: card.State, Priority: card.Priority,
-		})
+		updated, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{Title: new("System edit")})
 		require.NoError(t, err)
 		require.NotNil(t, updated.LastHeartbeat)
 		assert.Equal(t, t0, *updated.LastHeartbeat, "a system commit (no commit agent) must not extend a claim")

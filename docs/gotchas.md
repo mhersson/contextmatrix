@@ -89,13 +89,13 @@ Developer traps in this codebase. Each entry names the code it describes.
 - **`CONTEXTMATRIX_BOARDS_*` and the list form do not mix.** With two or more
   entries any of those variables is a load error, on purpose: an override
   that silently landed on one entry of many would be invisible.
-- **`gitops.CommitQueue` per-project ordering, idle teardown:** one goroutine
+- **`gitops.CommitQueue` per-project ordering, close handshake:** one goroutine
   per project serialises that project's commits in enqueue order; different
-  projects commit in parallel. `cmd/contextmatrix/wire_repos.go` wires
-  `WithIdleTimeout(30*time.Minute)`, so an idle worker exits and the next
-  `Enqueue` spawns a fresh one; `projectWorker.closed` plus the per-worker
-  mutex stop an `Enqueue` from sending into a channel the worker is about to
-  abandon. Do not assume worker identity across an idle gap.
+  projects commit in parallel. A worker spawns on the first `Enqueue` for its
+  project and runs until `Close`. `Enqueue` sends outside the queue lock, so
+  it registers on the `sending` WaitGroup under that lock and `Close` waits
+  it out before closing any worker channel; a send racing `Close` otherwise
+  panics on a closed channel.
 - **Network git calls are bounded by `gitops.NetworkGitTimeout` (120 s) and
   every `runGit` sets `cmd.WaitDelay = 3 * time.Second`.** Fetch, `pull
   --rebase`, `pull --ff-only`, push, and clone run under that timeout so a
@@ -113,10 +113,10 @@ Developer traps in this codebase. Each entry names the code it describes.
   mutations (heartbeats, log entries, intermediate updates) are batched and
   committed in one flush at release or completion. Two things always commit
   immediately regardless: card creation (card file and `.board.yaml`
-  together, so the card survives a pull elsewhere), and any `UpdateCard`,
-  `PatchCard`, `AddLogEntry` or parent auto-transition on a card that was
-  unclaimed when the mutation started - an unclaimed card has no release to
-  flush it, so a deferred entry would leave the file dirty forever. The
+  together, so the card survives a pull elsewhere), and any `PatchCard`,
+  `AddLogEntry` or parent auto-transition on a card that was unclaimed when
+  the mutation started - an unclaimed card has no release to flush it, so a
+  deferred entry would leave the file dirty forever. The
   decision lives in `enqueueCardCommitFor` and uses the pre-mutation
   snapshot; `ImmediateCommit` on the input only matters for a claimed card.
   `promote_to_autonomous` and a `queued` worker status still defer on an
@@ -147,7 +147,7 @@ Developer traps in this codebase. Each entry names the code it describes.
   injections (`TestGetSkill_CreatePlan_FullBodyPinned`).
 - **MCP middleware chain and body limit:** `/mcp` is registered on the same
   inner mux as the REST API, so it inherits the shared chain: recovery,
-  security headers, CORS (when configured), request ID, observe, body limit,
+  security headers, request ID, observe, body limit,
   `csrfGuard`. The cap is 5 MB (`maxRequestBodySize`) on every route unless
   registered through `bodyLimitOverrides`, which may only raise it
   (`POST /api/images` gets 11 MiB). A `Content-Length` over the cap is

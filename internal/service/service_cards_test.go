@@ -310,33 +310,6 @@ func TestCreateCard_AcceptsValidSkillNames(t *testing.T) {
 	assert.Equal(t, skills, *card.Skills)
 }
 
-func TestUpdateCard_RejectsBadSkillNames(t *testing.T) {
-	svc, _, cleanup := setupTest(t)
-	defer cleanup()
-
-	ctx := context.Background()
-
-	// Create a card with valid skills.
-	card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-		Title:    "parent",
-		Type:     "task",
-		Priority: "low",
-		Skills:   nil,
-	})
-	require.NoError(t, err)
-
-	// Try to update with invalid skill names.
-	badSkills := []string{"../etc/passwd"}
-	_, err = svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
-		Title:    card.Title,
-		Type:     card.Type,
-		Priority: card.Priority,
-		Skills:   &badSkills,
-	})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid skill name")
-}
-
 func TestPatchCard_RejectsBadSkillNames(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
 	defer cleanup()
@@ -604,7 +577,7 @@ func TestModelPinValidation(t *testing.T) {
 		assert.ErrorIs(t, err, ErrInvalidModelPin)
 	})
 
-	t.Run("unchanged legacy pin passes update", func(t *testing.T) {
+	t.Run("unchanged legacy pin passes patch", func(t *testing.T) {
 		// Simulate a pre-validation pin: allow it during create, then shrink
 		// the valid set so it would fail if re-validated.
 		valid["legacy/old-model"] = true
@@ -615,10 +588,10 @@ func TestModelPinValidation(t *testing.T) {
 		require.NoError(t, err)
 		delete(valid, "legacy/old-model")
 
-		// Full update carrying the same pin value must NOT be rejected.
-		updated, err := svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
-			Title: "t4 renamed", Type: "task", State: card.State, Priority: "medium",
-			ModelOrchestrator: "legacy/old-model",
+		// A patch carrying the same pin value must NOT be rejected.
+		updated, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+			Title:             new("t4 renamed"),
+			ModelOrchestrator: new("legacy/old-model"),
 		})
 		require.NoError(t, err)
 		assert.Equal(t, "legacy/old-model", updated.ModelOrchestrator)
@@ -759,10 +732,10 @@ func TestPatchCardUpsertSection(t *testing.T) {
 	})
 }
 
-// TestCreateUpdatePatchCard_MaxCapability verifies that MaxCapability
-// survives create (true), PUT clears (false), PATCH nil leaves unchanged,
-// and PATCH true sets.
-func TestCreateUpdatePatchCard_MaxCapability(t *testing.T) {
+// TestCreatePatchCard_MaxCapability verifies that MaxCapability survives
+// create (true), PATCH nil leaves it unchanged, PATCH false clears and
+// PATCH true sets.
+func TestCreatePatchCard_MaxCapability(t *testing.T) {
 	svc, _, cleanup := setupTest(t)
 	defer cleanup()
 
@@ -783,24 +756,20 @@ func TestCreateUpdatePatchCard_MaxCapability(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, reloaded.MaxCapability)
 
-	// PUT with MaxCapability false clears it.
-	updated, err := svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
-		Title:         "max cap test updated",
-		Type:          "task",
-		State:         card.State,
-		Priority:      "medium",
-		MaxCapability: false,
-	})
-	require.NoError(t, err)
-	assert.False(t, updated.MaxCapability)
-
 	// PATCH nil leaves MaxCapability unchanged.
 	newTitle := "max cap test patched"
 	patched, err := svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
 		Title: &newTitle,
 	})
 	require.NoError(t, err)
-	assert.False(t, patched.MaxCapability, "nil MaxCapability must leave stored value unchanged")
+	assert.True(t, patched.MaxCapability, "nil MaxCapability must leave stored value unchanged")
+
+	// PATCH false clears it.
+	patched, err = svc.PatchCard(ctx, "test-project", card.ID, PatchCardInput{
+		MaxCapability: new(false),
+	})
+	require.NoError(t, err)
+	assert.False(t, patched.MaxCapability)
 
 	// PATCH true sets it.
 	maxCap := true
@@ -811,11 +780,11 @@ func TestCreateUpdatePatchCard_MaxCapability(t *testing.T) {
 	assert.True(t, patched.MaxCapability)
 }
 
-// TestCreateUpdatePatchCard_DependsOnLimit verifies that create, PUT, and
-// PATCH all reject a depends_on list over MaxDependsOn with the same error
-// the Labels count limit produces (ErrFieldTooLong), before any card
-// mutation is applied.
-func TestCreateUpdatePatchCard_DependsOnLimit(t *testing.T) {
+// TestCreatePatchCard_DependsOnLimit verifies that create and PATCH both
+// reject a depends_on list over MaxDependsOn with the same error the Labels
+// count limit produces (ErrFieldTooLong), before any card mutation is
+// applied.
+func TestCreatePatchCard_DependsOnLimit(t *testing.T) {
 	overLimit := make([]string, MaxDependsOn+1)
 	for i := range overLimit {
 		overLimit[i] = fmt.Sprintf("TEST-%d", i+1)
@@ -829,30 +798,6 @@ func TestCreateUpdatePatchCard_DependsOnLimit(t *testing.T) {
 			Title:     "t",
 			Type:      "task",
 			Priority:  "low",
-			DependsOn: overLimit,
-		})
-		require.Error(t, err)
-		assert.ErrorIs(t, err, ErrFieldTooLong)
-	})
-
-	t.Run("update (PUT)", func(t *testing.T) {
-		svc, _, cleanup := setupTest(t)
-		defer cleanup()
-
-		ctx := context.Background()
-
-		card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
-			Title:    "t",
-			Type:     "task",
-			Priority: "low",
-		})
-		require.NoError(t, err)
-
-		_, err = svc.UpdateCard(ctx, "test-project", card.ID, UpdateCardInput{
-			Title:     card.Title,
-			Type:      card.Type,
-			State:     card.State,
-			Priority:  card.Priority,
 			DependsOn: overLimit,
 		})
 		require.Error(t, err)

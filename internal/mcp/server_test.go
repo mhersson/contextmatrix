@@ -835,7 +835,7 @@ func TestCompleteTask_NonLastSubtaskNoReviewSkill(t *testing.T) {
 	env := setupMCP(t)
 	ctx := context.Background()
 
-	parent := createTestCard(t, env, "Parent task", "feature", "high")
+	createTestCard(t, env, "Parent task", "feature", "high")
 
 	// Create two subtasks so completing one is not the last
 	callTool(t, env, "create_card", map[string]any{
@@ -852,18 +852,6 @@ func TestCompleteTask_NonLastSubtaskNoReviewSkill(t *testing.T) {
 		"priority": "medium",
 		"parent":   "TEST-001",
 	})
-
-	// Register both subtasks in parent's Subtasks list so maybeTransitionParent
-	// can correctly determine that not all siblings are done. In real usage,
-	// create-plan does this when it creates the subtasks.
-	_, err := env.svc.UpdateCard(ctx, "test-project", parent.ID, service.UpdateCardInput{
-		Title:    parent.Title,
-		Type:     parent.Type,
-		State:    parent.State,
-		Priority: parent.Priority,
-		Subtasks: []string{"TEST-002", "TEST-003"},
-	})
-	require.NoError(t, err)
 
 	// Claim and complete only the first subtask
 	callTool(t, env, "claim_card", map[string]any{

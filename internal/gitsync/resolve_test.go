@@ -23,14 +23,14 @@ func TestResolve_ConcurrentEditsConverge(t *testing.T) {
 	a.sync(t)
 	b.sync(t)
 
-	_, err := a.svc.UpdateCard(context.Background(), "test-project", c.ID,
-		service.UpdateCardInput{Title: "A", Type: "task", State: "todo", Priority: "high"})
+	_, err := a.svc.PatchCard(context.Background(), "test-project", c.ID,
+		service.PatchCardInput{Title: new("A"), Priority: new("high")})
 	require.NoError(t, err)
 
 	a.sync(t)
 
-	_, err = b.svc.UpdateCard(context.Background(), "test-project", c.ID,
-		service.UpdateCardInput{Title: "x", Type: "task", State: "todo", Priority: "medium", Labels: []string{"l"}})
+	_, err = b.svc.PatchCard(context.Background(), "test-project", c.ID,
+		service.PatchCardInput{Labels: []string{"l"}})
 	require.NoError(t, err)
 
 	r := b.sync(t)
@@ -107,8 +107,8 @@ func TestResolve_DeleteWinsOverEdit(t *testing.T) {
 	require.NoError(t, a.svc.DeleteCard(context.Background(), "test-project", c.ID))
 	a.sync(t)
 
-	_, err := b.svc.UpdateCard(context.Background(), "test-project", c.ID,
-		service.UpdateCardInput{Title: "edited", Type: "task", State: "todo", Priority: "medium"})
+	_, err := b.svc.PatchCard(context.Background(), "test-project", c.ID,
+		service.PatchCardInput{Title: new("edited")})
 	require.NoError(t, err)
 
 	b.sync(t)
@@ -128,14 +128,14 @@ func TestResolve_FailureLeavesCleanTree(t *testing.T) {
 	a.sync(t)
 	b.sync(t)
 
-	_, err := a.svc.UpdateCard(context.Background(), "test-project", c.ID,
-		service.UpdateCardInput{Title: "A", Type: "task", State: "todo", Priority: "high"})
+	_, err := a.svc.PatchCard(context.Background(), "test-project", c.ID,
+		service.PatchCardInput{Title: new("A"), Priority: new("high")})
 	require.NoError(t, err)
 
 	a.sync(t)
 
-	_, err = b.svc.UpdateCard(context.Background(), "test-project", c.ID,
-		service.UpdateCardInput{Title: "B", Type: "task", State: "todo", Priority: "low"})
+	_, err = b.svc.PatchCard(context.Background(), "test-project", c.ID,
+		service.PatchCardInput{Title: new("B"), Priority: new("low")})
 	require.NoError(t, err)
 
 	// Resolve for real, then fail: the abort must undo the staged resolution.
