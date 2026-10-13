@@ -295,7 +295,7 @@ third the body.
 
 ### `skills` (optional, `*[]string`)
 
-Task-skill names mounted into the worker container's `~/.claude/skills/`.
+Task-skill names mounted into the worker container's `/run/cm-skills`.
 Three states:
 
 | Value                   | Meaning                                                                          |
@@ -440,7 +440,7 @@ falls back to the prompt-derived multiplier. The catalog supplies cache rates
 when the gateway publishes `input_cache_read` / `input_cache_write` pricing
 (OpenRouter does; plain OpenAI-protocol gateways usually do not). The single
 1.25x fallback collapses the 5-minute and 1-hour cache-write tiers; agents
-pass `cache_creation_input_tokens` from the stream-json `usage` frame as is.
+pass the gateway's cache-write count as is.
 
 ### Usage breakdown
 
@@ -455,8 +455,9 @@ one card. Empty-agent buckets roll up to the dashboard's `unassigned` label.
   `estimated` buckets, and a bucket that ever received an actual cost stays
   `actual`.
 - Token counts are caller-reported in every mode; CM never measures tokens.
-  `counts_source` is `collector` when the counts came from a trusted collector
-  reading real usage frames (`source: "collector"`), empty when
+  `counts_source` is `collector` when the counts came from a backend reading
+  the gateway's measured usage (`source: "collector"`, which
+  contextmatrix-agent sends), empty when
   self-reported (`source: "self"` or omitted). Sticky once `collector`.
 - The bucket's `agent` key is `on_behalf_of` when passed, else `agent_id`.
   This lets the claim holder (whose `agent_id` must pass the ownership check)
@@ -754,7 +755,7 @@ local-path or foreign-repo signal; best-effort. See
 
 | Label    | Effect                                                                                                                                                                                                                                     |
 | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `simple` | Autonomous fast path. With this label and no subtasks, `run-autonomous` skips planning, subtask creation, review and documentation, works directly and moves to `done`. Claims, heartbeats, tests and release still apply. Classified in `classifyComplexity()` (`internal/mcp/prompts.go`). |
+| `simple` | Autonomous fast path. With this label and no subtasks, `run-autonomous` skips planning, subtask creation, review and documentation, works directly and moves to `done`. Claims, heartbeats, tests and release still apply. Local `run-autonomous` skill only: the agent backend does not take this path (the label skips its debug gate only when the title also starts with a mechanical verb). Classified in `classifyComplexity()` (`internal/mcp/prompts.go`). |
 
 ## Card body templates
 

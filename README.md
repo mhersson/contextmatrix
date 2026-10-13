@@ -95,8 +95,7 @@ Each bullet links to the document that covers it in full.
 - **Autonomous and HITL runs** - Run Auto drives plan, execute, document,
   review, done with no gates; Run HITL opens a per-card chat with approval
   gates and a one-click switch to autonomous. Every run streams its transcript
-  into the card's Chat tab. The `simple` label takes a fast path that skips
-  planning and review. [Running cards](docs/running-cards.md#starting-a-run)
+  into the card's Chat tab. [Running cards](docs/running-cards.md#starting-a-run)
 - **Guardrails** - pushes to `main` or `master` are refused, review cycles are
   capped, heartbeat timeouts stall the card, and a run that needs a human
   parks the card instead of failing.
@@ -216,7 +215,7 @@ run cards unattended in containers, add an agent backend; see
 | [Web UI](docs/web-ui.md)                                                   | Routes, board view, sorting, dashboard, console, chat, images, appearance              |
 | [Playbooks](docs/playbooks.md)                                             | Cross-project runbooks: entries, detail view, storage, API and MCP                     |
 | [MCP integration](docs/mcp.md)                                             | Connecting a client, every MCP tool, slash commands, payload rules                     |
-| [Running cards](docs/running-cards.md)                                     | Run Auto / Run HITL, fast path, guardrails, Best-of-N, mob, PR gates, parking, cost    |
+| [Running cards](docs/running-cards.md)                                     | Run Auto / Run HITL, guardrails, Best-of-N, mob, PR gates, parking, cost               |
 | [Agent workflow](docs/agent-workflow.md)                                   | Orchestration model, workflow and task skills, phases, heartbeat, model allocation     |
 | [Remote execution](docs/remote-execution.md)                               | Backend webhook protocol, worker lifecycle, log streaming, kill switch                 |
 | [Model selection](docs/model-selection.md)                                 | Candidate catalog, tiers, pins, favorites, blacklist, outcome ledger                   |

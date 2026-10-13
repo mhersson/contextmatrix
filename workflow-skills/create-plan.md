@@ -176,7 +176,7 @@ For `report_usage` specifically: also pass
 `on_behalf_of=<a short stable label for yourself, e.g. "plan-draft" or
 "debug-investigator">` so your usage is attributed to you instead of being
 merged into the orchestrator's bucket. Set `model` to the model that
-actually served your calls (from your system context or usage frames) -
+actually served your calls (from your system context) -
 never derive it from the orchestrator's or your own agent name.
 ```
 
@@ -359,11 +359,9 @@ the orchestrator's working tree on the feature branch.
    - `agent_id`: your agent ID
    - `model`: your own model identifier, read fresh from your system context
      ("You are powered by the model named X"), never copied from elsewhere
-   - `prompt_tokens` / `completion_tokens`: measured values from the stream-json
-     `usage` frames when available; otherwise your best estimate
-   - `cache_read_tokens` / `cache_creation_tokens`: from the stream-json `usage` frame if available
-   - `source`: `"collector"` when every count above came from `usage` frames; omit
-     it when any count is estimated
+   - `prompt_tokens` / `completion_tokens` / `cache_read_tokens` /
+     `cache_creation_tokens`: your best estimate of consumption since the last
+     report; omit `source`
 
    a. Call `await_subtasks(parent_id=<parent_id>, agent_id=<your_agent_id>,
       timeout_seconds=480)` - only after step 3 has spawned the sub-agents;
@@ -444,7 +442,7 @@ After `DOCS_WRITTEN` is received: reclaim the parent card:
 
 # Phase 7: Review
 
-Call `start_review(card_id=<parent_id>, agent_id=<your_agent_id>, caller_model='<your_model>')`.
+Call `start_review(card_id=<parent_id>, agent_id=<your_agent_id>)`.
 The response always has `inline: true` - `review-task` is forced to inline execution.
 
 Execute the returned `content` directly in this session. The three
@@ -472,8 +470,9 @@ top-level `autonomous` field is the ONLY source of truth for mode.
 `REVIEW_FINDINGS`:
 
 - `approve`: proceed to Phase 9.
-- `revise`: call `increment_review_attempts(card_id=<parent_id>)`. If the
-  returned count is >= 3, call `report_usage` with your remaining token
+- `revise`: call
+  `increment_review_attempts(card_id=<parent_id>, agent_id=<your_agent_id>)`.
+  If the returned count is >= 3, call `report_usage` with your remaining token
   consumption, then print:
   ```
   AUTONOMOUS_HALTED
@@ -503,37 +502,15 @@ Heartbeat before prompting. Heartbeat on resume. See the Heartbeat section.
 
 ## Step 1: Determine the mode
 
-Do both of these before branching:
+Call `get_card(card_id=<parent_id>)` and read the `autonomous` flag. If
+`true`, follow Step 2 (auto-commit path); if `false`, follow Step 3 (prompt
+path). Only one of Step 2 or Step 3 runs. Do not read the other step.
 
-1. Call `get_card(card_id=<parent_id>)` and read the `autonomous` flag.
-2. Detect whether you're running inside a worker container by checking for
-   the `CM_CARD_ID` env var. The worker container has `CM_CARD_ID`,
-   `CM_PROJECT`, `CM_REPO_URL`, and `CM_MCP_URL` set; a local agent session
-   (e.g. Claude Code) has none of them. Run:
+## Step 2: Auto-commit path (Autonomous)
 
-   ```bash
-   printenv CM_CARD_ID
-   ```
-
-   If the command prints a value (and exits 0), the mode is `worker`.
-   If it prints nothing (and exits non-zero), the mode is `local`.
-
-Select exactly one mode from the table - the two inputs fully determine it:
-
-| `autonomous` | Environment | Mode            | Path to follow            |
-| ------------ | ----------- | --------------- | ------------------------- |
-| `true`       | any         | **Autonomous**  | Auto-commit path (Step 2) |
-| `false`      | `worker`    | **Remote HITL** | Auto-commit path (Step 2) |
-| `false`      | `local`     | **Local HITL**  | Prompt path (Step 3)      |
-
-Only one of Step 2 or Step 3 runs. Do not read the other step.
-
-## Step 2: Auto-commit path (Autonomous and Remote HITL)
-
-**Do not prompt the user at any point in this step.** In Remote HITL the
-container is disposable and uncommitted work is lost; in Autonomous there is no
-user to prompt. Execute all of the following without confirmation, then go
-straight to Phase 10:
+**Do not prompt the user at any point in this step.** There is no user to
+prompt. Execute all of the following without confirmation, then go straight to
+Phase 10:
 
 1. Commit any remaining changes in a conventional commit with a bullet-point
    body. No card IDs in commit messages.
@@ -546,7 +523,7 @@ straight to Phase 10:
    it parks the card, stop - do not proceed to Phase 10.
 6. Proceed directly to Phase 10.
 
-## Step 3: Prompt path (Local HITL only)
+## Step 3: Prompt path (HITL)
 
 Ask the user:
 
@@ -654,11 +631,9 @@ consumption:
 - `agent_id`: your agent ID
 - `model`: your own model identifier, read fresh from your system context
   ("You are powered by the model named X"), never copied from elsewhere
-- `prompt_tokens` / `completion_tokens`: measured values from the stream-json
-  `usage` frames when available; otherwise your best estimate
-- `cache_read_tokens` / `cache_creation_tokens`: from the stream-json `usage` frame if available
-- `source`: `"collector"` when every count above came from `usage` frames; omit
-  it when any count is estimated
+- `prompt_tokens` / `completion_tokens` / `cache_read_tokens` /
+  `cache_creation_tokens`: your best estimate of consumption since the last
+  report; omit `source`
 
 Transition the parent card to `done`:
 `transition_card(card_id=<parent_id>, new_state='done')`.

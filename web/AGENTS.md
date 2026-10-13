@@ -12,17 +12,19 @@ Auto-loaded when working in `web/`. Backend conventions live in the root
   modules, no styled-components, no hardcoded hex (see Color palettes).
 - Files: `PascalCase.tsx` components, `useX.ts` hooks, `types/index.ts` shared
   types. Split components over ~150 lines.
-- **One SSE connection.** `SSEProvider` (`web/src/hooks/useSSEBus.tsx`) owns the
-  single `EventSource('/api/events')`; consumers call `useSSEBus()` and register
-  handlers via `subscribe(onEvent)` in a `useEffect` (the return value
-  unsubscribes). Reconnect/backoff lives in the provider. Never open a second
-  `EventSource` to that origin - Firefox aborts concurrent same-origin SSE with
-  `NS_BINDING_ABORTED` (`docs/gotchas.md`).
+- **One EventSource per distinct URL.** `SSEProvider`
+  (`web/src/hooks/useSSEBus.tsx`) owns the only `EventSource('/api/events')`;
+  consumers call `useSSEBus()` and register handlers via
+  `subscribe(pattern, onEvent)` in a `useEffect` (the return value
+  unsubscribes). Reconnect/backoff lives in the provider. Never open
+  `/api/events` outside the provider, and never two `EventSource`s to the same
+  URL - Firefox aborts same-origin SSE past its per-origin limit
+  (`NS_BINDING_ABORTED`, `docs/gotchas.md`).
 - Theme lives in `ThemeProvider` (`web/src/hooks/useTheme.ts`); consume via
   `useTheme()`. Don't add a parallel theme mechanism.
 - `vite.config.ts` proxies `/api` → `http://localhost:8080` for dev.
 - **No `localStorage` outside the documented allowlist:** theme, `palette`, human
-  agent ID, last project, `last_chat_id`, chat section collapse, `chat_layout`,
+  agent ID, `last_chat_id`, chat section collapse, `chat_layout`,
   collapsed column/card state, `chat_filter_prefs`, rail-expanded, NowRail-open,
   column-sort preferences, `contextmatrix-manual-order-<project>`,
   `contextmatrix-board-header-collapsed`,
@@ -38,10 +40,15 @@ Auto-loaded when working in `web/`. Backend conventions live in the root
 
 ## Color palettes
 
-Three palettes - **Everforest** (default), **Radix**, **Catppuccin** - defined
-entirely in `web/src/index.css`. All three set the _same_ CSS custom properties,
-so components reference variables only and need no changes when the palette
-switches.
+Four palettes - Everforest (default), Catppuccin, GitHub, Ayu - defined
+entirely in `web/src/index.css`. All set the _same_ CSS custom properties, so
+components reference variables only and need no changes when the palette
+switches. Catppuccin, GitHub, and Ayu map their scales onto these variables
+(Catppuccin: Mocha dark / Latte light; GitHub: Primer dark default / light;
+Ayu: Mirage dark / Light). Hex is hardcoded in `index.css` - do not add a
+palette dependency. The palette registry is `src/lib/palettes.ts`; a new
+palette needs an entry there, a dark and a light block in `index.css`, and
+the matching id in the server allow list in `internal/config/config.go`.
 
 **Selection:** the server default comes from `theme` in config
 (`GET /api/app/config`); users override it per-browser via the APPEARANCE group
@@ -87,13 +94,6 @@ keeps the hamburger and a way back to the board.
   initials-only `w-5` (1.25rem) circle - `--bg-blue` bg + `--blue` text;
   display-name initials (fallback: username initial), tooltip/aria-label
   `Assignee: <label>`.
-
-Catppuccin, GitHub, and Ayu map their scales onto these variables
-(Catppuccin: Mocha dark / Latte light; GitHub: Primer dark default / light;
-Ayu: Mirage dark / Light). Hex is hardcoded in `index.css` - do not add a
-palette dependency. The palette registry is `src/lib/palettes.ts`; a new
-palette needs an entry there, a dark and a light block in `index.css`, and
-the matching id in the server allow list in `internal/config/config.go`.
 
 ## Fonts
 

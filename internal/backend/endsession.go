@@ -152,13 +152,11 @@ func handleClaimLost(ctx context.Context, client EndSessionClient, logger *slog.
 // source labels the caller ("subscriber" or "sweep") in every log line so a
 // leaked container can be traced back to the path that handled it.
 func endSessionAndKill(ctx context.Context, client EndSessionClient, logger *slog.Logger, project, cardID, state, workerStatus, source string) {
-	// Phase 1: try graceful stdin close. This is a no-op for autonomous
-	// (non-interactive) containers, where stdin was never attached - the
-	// webhook returns 409 and we fall through to the kill step below. For
-	// interactive containers where stdin is still open it signals EOF to
-	// claude; claude may or may not exit on EOF (stream-json mode has been
-	// observed keeping the process alive well past EOF), so we always follow
-	// up with a force-kill below to guarantee the container is gone.
+	// Phase 1: try graceful stdin close. A run the backend no longer
+	// tracks is a 200 no-op; 404/409/410 are tolerated too. Otherwise the
+	// worker is told to end its session, but it may not exit promptly, so we
+	// always follow up with a force-kill below to guarantee the container is
+	// gone.
 	endSessionErr := client.EndSession(ctx, EndSessionPayload{CardID: cardID, Project: project})
 	if endSessionErr != nil && !isExpectedEndSessionErr(endSessionErr) {
 		logger.Warn("end-session webhook failed",
@@ -167,9 +165,10 @@ func endSessionAndKill(ctx context.Context, client EndSessionClient, logger *slo
 	}
 
 	// Phase 2: force-kill the container so a terminal-state card never leaves
-	// a live container behind, even if claude ignored the EOF. /kill is
-	// idempotent - it returns 200 no-op when the container is already gone
-	// (e.g. claude did exit on EOF, or reportCompleted already cleaned up).
+	// a live container behind, even if the worker ignored the end-session
+	// request. /kill is idempotent - it returns 200 no-op when the container is
+	// already gone (e.g. the worker exited, or reportCompleted already cleaned
+	// up).
 	if err := client.Kill(ctx, KillPayload{CardID: cardID, Project: project}); err != nil {
 		logger.Warn("kill webhook failed after end-session",
 			"source", source,

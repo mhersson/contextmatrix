@@ -105,8 +105,8 @@ type Message struct {
 // values mirror the backend's logbroadcast.LogEntry.Type vocabulary: "text",
 // "thinking", "tool_call", "stderr", "system", "user", "usage",
 // "tool_result", "status". The chat package translates Type → Role when
-// bridging into the transcript. "usage" entries are metadata (Claude
-// stream-json usage block) and carry token counts in Usage; they do NOT
+// bridging into the transcript. "usage" entries are metadata (the
+// backend's per-turn usage report) and carry token counts in Usage; they do NOT
 // become transcript entries. "status" frames carry run-state
 // ("working"/"idle") and never become transcript entries.
 type LogEntry struct {
@@ -117,11 +117,11 @@ type LogEntry struct {
 	Model     string
 }
 
-// TokenUsage carries per-turn (per-assistant-message) token counts from the
-// Anthropic Messages-API usage block emitted by the backend for each assistant
-// turn. These are NOT cumulative session totals - each frame reports only the
+// TokenUsage carries per-turn (per-assistant-message) token counts reported
+// by the backend on its log stream for each assistant turn. These are NOT
+// cumulative session totals - each frame reports only the
 // tokens consumed by that single turn. The sum of all four fields approximates
-// the prompt size Claude actually processed; the UI typically displays
+// the prompt size the model actually processed; the UI typically displays
 // InputTokens + CacheReadTokens + CacheCreateTokens as "context used.".
 type TokenUsage struct {
 	InputTokens       int64 `json:"input_tokens"`
@@ -132,8 +132,8 @@ type TokenUsage struct {
 
 // ResumeContext is the rehydration payload CM passes to the backend on a
 // cold-open. The backend writes it to /run/cm-chat/resume.jsonl inside the
-// container; the entrypoint instructs Claude to read it before greeting
-// the operator. Protocol-owned wire shape (protocol.ChatResumeContext),
+// container; the worker loads it and seeds it as conversation history before
+// the first turn. Protocol-owned wire shape (protocol.ChatResumeContext),
 // aliased via the transcript subpackage so the builder and the rest of
 // the chat package keep their local names.
 type ResumeContext = transcript.ResumeContext

@@ -2077,9 +2077,8 @@ textarea {
    grid of panels; zero page scroll above 1100px, only panel
    bodies scroll. Panels adopt the board-card language (left
    accent borders, diagonal accent washes, chip pills, mono IDs).
-   Uses only existing palette tokens so all three palettes
-   (Everforest, Radix, Catppuccin) render correctly. Component
-   naming: .apd-* (All-Projects Dashboard).
+   Uses only existing palette tokens so every palette renders correctly.
+   Component naming: .apd-* (All-Projects Dashboard).
    ============================================================ */
 .apd-root {
   --apd-pad: 18px;

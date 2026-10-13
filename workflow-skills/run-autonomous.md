@@ -2,9 +2,8 @@
 
 ## Agent Configuration
 
-No model specified - the orchestrator model is set by the invoker. Local
-autonomous runs on the user's model (typically Opus). Worker containers set the
-orchestrator model from the agent backend's config (default or per-card pin).
+No model specified - the orchestrator model is set by the invoker. Autonomous
+runs on the user's model (typically Opus).
 
 ---
 
@@ -44,7 +43,7 @@ If `Complexity: simple`:
    to target that branch instead of the default.
 7. Call `report_push(card_id, branch, pr_url)` after pushing.
 8. If the card context shows a PR-gate flag, run the PR Gates section before transitioning.
-9. Call `report_usage` with your token consumption (`prompt_tokens`, `completion_tokens`, `cache_read_tokens` / `cache_creation_tokens` from the stream-json `usage` frames when available - pass `source: "collector"` when all counts are measured).
+9. Call `report_usage` with your token consumption (`prompt_tokens`, `completion_tokens`, `cache_read_tokens` / `cache_creation_tokens` as your best estimate; omit `source`).
 10. Transition to `done`: `transition_card(card_id, new_state='done')`.
 11. Release: `release_card(card_id, agent_id)`.
 12. Print `AUTONOMOUS_COMPLETE` structured output and stop.
@@ -129,13 +128,7 @@ Based on the card's current state and body content:
     - Spawn all ready subtasks in **parallel**.
 10. **Monitor sub-agents.** Report your token consumption since the last
     report (`prompt_tokens`, `completion_tokens`, and `cache_read_tokens` /
-    `cache_creation_tokens` if available) - this is mandatory, not optional.
-
-    Map stream-json `usage` frame fields to `report_usage` parameters:
-    - `usage.input_tokens` → `prompt_tokens`
-    - `usage.output_tokens` → `completion_tokens`
-    - `usage.cache_read_input_tokens` → `cache_read_tokens`
-    - `usage.cache_creation_input_tokens` → `cache_creation_tokens`
+    `cache_creation_tokens`) - this is mandatory, not optional.
 
     a. Call `await_subtasks(parent_id=<card_id>, agent_id=<your_agent_id>,
        timeout_seconds=480)` - only after step 9 has spawned the sub-agents;
@@ -192,11 +185,10 @@ Based on the card's current state and body content:
 
 ## Phase 5: Review (inline)
 
-15. Call `start_review(card_id='<card_id>', agent_id=<your_agent_id>,
-    caller_model='<your_model>')`. The response always has `inline: true` -
-    review-task is forced to inline because it spawns three specialist
-    sub-agents in parallel via the `Agent` tool, which only the top-level
-    (your) session has.
+15. Call `start_review(card_id='<card_id>', agent_id=<your_agent_id>)`. The
+    response always has `inline: true` - review-task is forced to inline
+    because it spawns three specialist sub-agents in parallel via the `Agent`
+    tool, which only the top-level (your) session has.
 16. Execute the returned `content` inline. Do NOT release your claim.
     The skill runs Pass 1 (test/lint gate); if Pass 1 passes, spawns three
     specialist agents in parallel (Correctness, Design &
@@ -210,7 +202,8 @@ Based on the card's current state and body content:
     - **approve**: Proceed to Phase 6.
     - **revise**: Check the card's `review_attempts` field:
       - If **< 3**:
-        1. Increment `review_attempts` by updating the card.
+        1. Call `increment_review_attempts(card_id='<card_id>',
+           agent_id=<your_agent_id>)`; use the returned count.
         2. Transition parent back to `in_progress`:
            `transition_card(card_id='<card_id>', new_state='in_progress')`.
         3. **MUST call `create_card`** to cover every Critical and Important

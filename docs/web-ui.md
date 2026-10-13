@@ -158,8 +158,7 @@ editor. The client refuses files over 10 MiB and more than 3 uploads at once.
 
 The sidebar footer menu (the user chip in `multi` mode, a Settings chip in
 `none` mode, which also holds the admin pages that exist without accounts)
-sets Light or Dark and the palette: Everforest, Radix or
-Catppuccin.
+sets Light or Dark and the palette: Everforest, Catppuccin, GitHub or Ayu.
 
 | Setting     | Server default                     | Browser override (`localStorage`)   |
 | ----------- | ---------------------------------- | ----------------------------------- |

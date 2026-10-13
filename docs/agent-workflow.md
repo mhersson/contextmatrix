@@ -116,8 +116,8 @@ through `start_review`.
 
 Workflow skills tell an agent what to do; task skills tell it how to do the
 work well. Task skills are operator-provided Claude Code skills (`SKILL.md`
-files) mounted read-only at `~/.claude/skills/` in the worker container and
-engaged by the model through its native Skill tool when their descriptions
+files) mounted read-only at `/run/cm-skills` in the worker container and
+engaged by the model through the backend's skill tool when their descriptions
 match the work. CM ships none: point `task_skills.dir` at your own repo.
 
 ### Two-channel design
@@ -125,7 +125,7 @@ match the work. CM ships none: point `task_skills.dir` at your own repo.
 | Channel         | Transport                                        | Role                     |
 | --------------- | ------------------------------------------------ | ------------------------ |
 | Workflow skills | MCP prompts injected into the first message      | Lifecycle: what to do    |
-| Task skills     | Filesystem at `~/.claude/skills/<name>/SKILL.md` | Craft: how to do it well |
+| Task skills     | Filesystem at `/run/cm-skills/<name>/SKILL.md`   | Craft: how to do it well |
 
 The channels never overlap.
 
@@ -160,7 +160,9 @@ The agent and chat backends receive the resolved per-card subset in the
 trigger and fetch a `{git_remote_url, ref}` pointer from CM -
 `GET /api/agent/task-skills-source` and `GET /api/chat/task-skills-source` -
 together with an instance-scoped clone token. Each clones the repo itself
-and mounts the subset read-only at `~/.claude/skills/`. See
+and mounts the subset read-only at `/run/cm-skills`. Each backend process
+clones once and caches the result, so restart the backend to pick up skill
+changes. See
 [remote execution](remote-execution.md#task-skills).
 
 ### Authoring convention
@@ -193,9 +195,8 @@ You are a <role>.
 - Concrete pattern 2
 ```
 
-Optional frontmatter `allowed-tools: [Read, Write]` narrows the active tool
-set while the skill is engaged; it never broadens it. Push changes to the
-remote: backends re-clone from the pointer on each run.
+Frontmatter `allowed-tools` is not honoured by either backend. Push changes
+to the remote and restart the backend: it clones the pointer once per process.
 
 ## Playbooks
 
@@ -369,7 +370,7 @@ disk, commits only those files on the feature branch (never pushes or opens a
 PR), calls `report_usage` and `release_card`, and returns `DOCS_WRITTEN` with
 the files written. The orchestrator then reclaims the parent.
 
-**5. Review** (Phase 7) - `start_review(card_id, agent_id, caller_model)`
+**5. Review** (Phase 7) - `start_review(card_id, agent_id)`
 atomically transitions the parent to `review` and returns `review-task` with
 `inline: true`; there is no path to the review skill without committing the
 transition. The orchestrator runs it in its own session and keeps the claim.
@@ -402,11 +403,10 @@ back to `in_progress` with `transition_card`, leaves `done` subtasks
 untouched, respawns `plan-draft` with the findings as revision feedback so
 `## Plan` holds only fix subtasks, and resumes from Phase 2.
 
-**7. Commit, push, PR** (Phase 9) - the mode is the `autonomous` flag plus
-the environment (`CM_CARD_ID` set means a worker container). Autonomous and
-remote HITL auto-commit, push, open the PR when `create_pr` is set (against
-`base_branch` when set) and call `report_push`; local HITL asks before
-committing and before pushing. PR gates run after `report_push` when
+**7. Commit, push, PR** (Phase 9) - the mode is the `autonomous` flag.
+Autonomous auto-commits, pushes, opens the PR when `create_pr` is set (against
+`base_branch` when set) and calls `report_push`; HITL asks before committing
+and before pushing. PR gates run after `report_push` when
 `await_ci` or `await_copilot_review` is set and can park the card in
 `review`; with `merge_pr`, a passed `await_ci` gate also merges the PR
 before the card completes.
@@ -443,7 +443,8 @@ transitions to `done`, releases, and prints `AUTONOMOUS_COMPLETE`.
 the `simple` label and has no subtasks (`classifyComplexity` in
 `internal/mcp/prompts.go`). The skill then claims, works directly, runs the
 project's tests, commits, pushes, opens the PR, runs the gates, reports usage
-and transitions to `done` with no planning, review or documentation. See
+and transitions to `done` with no planning, review or documentation. The
+agent backend does not take this path. See
 [reserved labels](data-model.md#reserved-labels).
 
 **Guardrails**
@@ -483,7 +484,7 @@ Two typed message channels reach a live worker session:
   `POST /api/projects/{project}/cards/{id}/message` forwards human-typed
   content (8 KB max) to a running worker (`worker_status == "running"`,
   otherwise 409). Human-only: a non-human `X-Agent-ID` is rejected. The
-  backend writes it to the worker's stdin as a stream-json user frame and
+  backend writes it to the worker's stdin as a `user_message` stdin frame and
   echoes it through the worker-log stream so the console shows it inline.
 - **Global chat panel** - `/api/chats/*` drives `internal/chat.Manager`: a
   SQLite-backed session and transcript store, an idle-TTL reaper, an SSE hub
@@ -737,9 +738,9 @@ token_costs:
 Rules for `report_usage`:
 
 - `model` is the model that actually served the calls, read from system
-  context or usage frames, never derived from an agent's name: an agent
-  named `claude-opus-5-orchestrator` is no proof its calls ran on
-  `claude-opus-5`, and a wrong name prices the tokens against the wrong row.
+  context, never derived from an agent's name: an agent named
+  `claude-opus-5-orchestrator` is no proof its calls ran on `claude-opus-5`,
+  and a wrong name prices the tokens against the wrong row.
 - `prompt_tokens`, `completion_tokens`, `cache_read_tokens` and
   `cache_creation_tokens` are deltas since the last report; negative values
   are rejected. `actual_cost_usd` records provider-reported cost.
@@ -766,9 +767,10 @@ An agent asked to report its own token counts is guessing, and the guess
 undercounts badly. The real numbers exist only in the harness's transcripts
 and usage frames; the server never sees a raw API response and cannot
 correct a report. A harness-side collector reading those frames is the only
-correct source. ContextMatrix ships no collector: a Claude Code `Stop` or
-`SubagentStop` hook that reads the session transcript and calls
-`report_usage` is the natural shape.
+correct source. contextmatrix-agent, the only shipped collector, reports the
+usage it measures with `source: "collector"`; an interactive Claude Code
+session has no collector, and a `Stop` or `SubagentStop` hook that reads the
+session transcript and calls `report_usage` is the natural shape.
 
 - Call `report_usage` with `source: "collector"`, the four token counts for
   the interval since the last report, `actual_cost_usd` when the gateway

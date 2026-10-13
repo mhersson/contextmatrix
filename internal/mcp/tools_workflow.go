@@ -78,7 +78,6 @@ type startReviewInput struct {
 	Project         string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
 	CardID          string `json:"card_id" jsonschema:"required,parent card ID to enter review (e.g. ALPHA-001)"`
 	AgentID         string `json:"agent_id" jsonschema:"required,agent performing the transition - must own the card claim"`
-	CallerModel     string `json:"caller_model,omitempty" jsonschema:"your model's short name or family (e.g. sonnet, opus on Claude harnesses) - enables inline execution when matching the skill model"`
 	IncludePreamble *bool  `json:"include_preamble,omitempty" jsonschema:"include workflow rules preamble (default true, pass false to skip on subsequent calls when you already have it)"`
 	IncludeCard     *bool  `json:"include_card,omitempty" jsonschema:"include the card body in the skill content (default true; pass false when you already hold the body from get_card)"`
 }
@@ -122,12 +121,12 @@ func registerStartReview(server *mcp.Server, svc *service.CardService, workflowS
 
 		content := stripAgentConfig(result.Content)
 
-		// review-task always runs inline regardless of caller_model. The
-		// review skill spawns three specialist sub-agents in parallel via
-		// the Agent tool, which is only available to the top-level (calling)
-		// session. Running review-task as a spawned sub-agent silently
-		// degrades to a single-perspective review because spawned sub-agents
-		// lack Agent. Keep this gate-free - do not reintroduce model match.
+		// review-task always runs inline. The review skill spawns three
+		// specialist sub-agents in parallel via the Agent tool, which is only
+		// available to the top-level (calling) session. Running review-task as
+		// a spawned sub-agent silently degrades to a single-perspective review
+		// because spawned sub-agents lack Agent. Keep this gate-free - do not
+		// reintroduce a model match.
 		content = buildInlineExecutionPrompt(content, input.CardID, "review-task")
 
 		return nil, getSkillOutput{

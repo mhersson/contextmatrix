@@ -2091,7 +2091,7 @@ Optional JSON body:
 
 When `interactive` is `true`, the container starts in Human-in-the-Loop
 (HITL) mode: the worker begins plan drafting immediately and pauses at its
-built-in gates (plan approval, subtask execution decision, review) for input
+built-in gates (plan approval, review decision) for input
 delivered through `/message`. CM forces `interactive` off for autonomous
 cards. Best-of-N and mob settings come from the stored card, not the body.
 

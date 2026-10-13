@@ -227,9 +227,8 @@ export function ChatThread({ sessionID, embedded = false, isFocused = true }: Ch
   // While the container is being warmed (cold→active transition driven by
   // openChat from NewChatDialog, or the user clicking Reopen), the textarea
   // is replaced with a banner. Once status flips to 'active' the container
-  // is up and reading stdin; claude in `-p --input-format stream-json` mode
-  // doesn't emit anything until the first user message, so we cannot wait
-  // for an inbound event without deadlocking the user out of sending.
+  // is up and reading stdin, so sending is enabled at once rather than waiting
+  // for the worker's opening turn.
   const readOnlyMessage =
     isEnding ? 'Session is ending…' :
     isCold ? 'Waiting for worker…' :
