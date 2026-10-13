@@ -27,8 +27,10 @@ Every view updates live from one Server-Sent Events stream per tab
   between columns to transition it; a drop the board's `transitions` forbid is
   ignored. Mouse drags start after 5 px, touch drags after a 250 ms hold.
 - **Card detail panel** opens on click. Tabs: Chat (only while a session is
-  live), Automation, Info, Danger. `Escape` closes (a dirty create panel asks before
-  discarding), `Ctrl`/`Cmd`+`S` saves.
+  live), Automation, Info, Danger. `Escape` closes, `Ctrl`/`Cmd`+`S` saves.
+- **Create card panel** (`n`) closes on `Escape`; once a title, body, label,
+  parent, assignee, model pin, skill or mob guest is entered it asks before
+  discarding.
 - **Card bodies and chat messages** render as GitHub-flavoured markdown through
   an allowlist sanitizer. Allowlisted HTML renders (images over http, https
   or a relative path, `<details>`/`<summary>`, `<br>`, `<kbd>`,

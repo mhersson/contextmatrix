@@ -293,7 +293,7 @@ export function ProjectShell() {
                       headerActions={headerActions}
                       onOpenSidebar={openSidebar}
                       projectName={project}
-                      cardPanelOpen={!!currentSelectedCard || createPanelOpen}
+                      cardPanelOpen={panelOpen}
                       onCardClick={handleCardClick} onCardMove={handleCardMove}
                       onCreateCard={handleOpenCreate} flashCardId={flashCardId}
                       onParentClick={handleSubtaskClick}

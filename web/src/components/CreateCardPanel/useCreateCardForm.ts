@@ -35,7 +35,7 @@ export interface CreateCardForm {
   skills: string[] | null;
   assignee: string;
   isSubmitting: boolean;
-  /** The user has entered a title, body, labels or parent that closing would lose. */
+  /** The user has entered a title, body, labels, parent, assignee, model pins, skills or mob guests that closing would lose. */
   isDirty: boolean;
   pendingTemplate: PendingTemplate | null;
 
@@ -257,7 +257,17 @@ export function useCreateCardForm(
       skills,
       assignee,
       isSubmitting,
-      isDirty: title.trim() !== '' || bodyDirty || labels.length > 0 || parent !== '',
+      isDirty:
+        title.trim() !== '' ||
+        bodyDirty ||
+        labels.length > 0 ||
+        parent !== '' ||
+        assignee !== '' ||
+        modelOrchestrator !== '' ||
+        modelCoder !== '' ||
+        modelReviewer !== '' ||
+        skills !== null ||
+        mobGuests.length > 0,
       pendingTemplate,
       setTitle,
       setPriority,
