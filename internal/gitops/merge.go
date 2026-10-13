@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"testing"
 	"time"
 )
 
@@ -32,11 +31,7 @@ type UnmergedPath struct {
 // is a local operation (index, worktree, or object database), so it does not
 // build the network auth environment. Callers hold worktreeMu.
 func (m *Manager) runGitOutput(ctx context.Context, args ...string) (string, error) {
-	// Match runGit: under `go test`, disable GPG signing so the suite is
-	// hermetic regardless of the developer's global git config.
-	if testing.Testing() {
-		args = append([]string{"-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"}, args...)
-	}
+	args = HermeticTestArgs(args)
 
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = m.repoPath

@@ -497,6 +497,23 @@ func gitEnv() []string {
 	return append(os.Environ(), "LC_ALL=C", "LANG=C", "LANGUAGE=")
 }
 
+// HermeticTestArgs prefixes one-shot config to git args under `go test`:
+// GPG signing off whatever the developer's global config says, and no
+// detached `git maintenance run --auto`, which commit, merge and pull spawn
+// and which keeps writing under .git/objects after the command returns,
+// racing t.TempDir cleanup. Production builds get args unchanged.
+func HermeticTestArgs(args []string) []string {
+	if !testing.Testing() {
+		return args
+	}
+
+	return append([]string{
+		"-c", "commit.gpgsign=false",
+		"-c", "tag.gpgsign=false",
+		"-c", "maintenance.auto=false",
+	}, args...)
+}
+
 // runGit executes a git command in the repository directory.
 // This method does not acquire any locks itself; callers are responsible
 // for choosing the appropriate lock (worktreeMu for index-touching ops,
@@ -504,14 +521,7 @@ func gitEnv() []string {
 // GIT_CONFIG_* for PAT) are appended automatically from the Manager's
 // provider.
 func (m *Manager) runGit(ctx context.Context, args ...string) error {
-	// Under `go test`, prepend one-shot config that disables GPG signing
-	// so the suite is hermetic regardless of the developer's global
-	// commit.gpgsign / tag.gpgsign settings (a working gpg-agent is not
-	// guaranteed in test environments). Production code paths (built via
-	// `go build`) skip this branch entirely.
-	if testing.Testing() {
-		args = append([]string{"-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"}, args...)
-	}
+	args = HermeticTestArgs(args)
 
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = m.repoPath

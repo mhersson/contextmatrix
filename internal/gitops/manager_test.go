@@ -3,11 +3,13 @@ package gitops
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -327,7 +329,7 @@ func TestPullFastForward_NonFastForwardReturnsError(t *testing.T) {
 
 	// Force-push so the remote head is now a different commit than what the
 	// original has locally - a true divergence.
-	cmd := exec.Command("git", "push", "--force", "origin", "HEAD")
+	cmd := exec.Command("git", "-c", "maintenance.auto=false", "push", "--force", "origin", "HEAD")
 	cmd.Dir = cloneDir
 	require.NoError(t, cmd.Run())
 
@@ -817,7 +819,7 @@ func TestReloadRepo(t *testing.T) {
 	cmd := exec.Command("git", "add", "shell.txt")
 	cmd.Dir = tmpDir
 	require.NoError(t, cmd.Run())
-	cmd = exec.Command("git", "-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false", "commit", "-m", "shell commit")
+	cmd = exec.Command("git", "-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false", "-c", "maintenance.auto=false", "commit", "-m", "shell commit")
 	cmd.Dir = tmpDir
 
 	// Hermetic identity: worker containers have no global git config, and a
@@ -866,7 +868,7 @@ func createBareRepo(t *testing.T) string {
 	cmd.Dir = work
 	require.NoError(t, cmd.Run())
 
-	cmd = exec.Command("git", "-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false", "commit", "-m", "initial commit")
+	cmd = exec.Command("git", "-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false", "-c", "maintenance.auto=false", "commit", "-m", "initial commit")
 	cmd.Dir = work
 
 	cmd.Env = append(os.Environ(),
@@ -874,7 +876,7 @@ func createBareRepo(t *testing.T) string {
 		"GIT_COMMITTER_NAME=Test", "GIT_COMMITTER_EMAIL=test@test.com")
 	require.NoError(t, cmd.Run())
 
-	cmd = exec.Command("git", "push", "origin", "main")
+	cmd = exec.Command("git", "-c", "maintenance.auto=false", "push", "origin", "main")
 	cmd.Dir = work
 	require.NoError(t, cmd.Run())
 
@@ -1397,4 +1399,57 @@ func TestCheckReadable(t *testing.T) {
 
 		require.Error(t, mgr.CheckReadable())
 	})
+}
+
+// trace2Argvs returns the argv of every git process recorded in a
+// GIT_TRACE2_EVENT file: the process itself and each child it started.
+func trace2Argvs(t *testing.T, path string) [][]string {
+	t.Helper()
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	var argvs [][]string
+
+	for line := range strings.Lines(string(data)) {
+		var ev struct {
+			Event string   `json:"event"`
+			Argv  []string `json:"argv"`
+		}
+
+		require.NoError(t, json.Unmarshal([]byte(line), &ev))
+
+		if ev.Event == "start" || ev.Event == "child_start" {
+			argvs = append(argvs, ev.Argv)
+		}
+	}
+
+	return argvs
+}
+
+// A detached `git maintenance run --auto` keeps writing under .git/objects
+// after the command that spawned it returns, so under go test it races the
+// t.TempDir cleanup that removes the repository.
+func TestCommitFilesShell_SpawnsNoAutoMaintenanceUnderTest(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not found")
+	}
+
+	tmpDir := t.TempDir()
+	mgr, err := NewManager(tmpDir, "", "test", staticTestProvider(t))
+	require.NoError(t, err)
+
+	trace := filepath.Join(t.TempDir(), "trace2.json")
+	t.Setenv("GIT_TRACE2_EVENT", trace)
+
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "a.txt"), []byte("a"), 0o644))
+	require.NoError(t, mgr.CommitFilesShell(context.Background(), []string{"a.txt"}, "shell commit"))
+
+	argvs := trace2Argvs(t, trace)
+	require.True(t, slices.ContainsFunc(argvs, func(argv []string) bool { return slices.Contains(argv, "commit") }),
+		"the trace must record the commit")
+
+	for _, argv := range argvs {
+		assert.NotContains(t, argv, "maintenance", "git spawned %v", argv)
+	}
 }

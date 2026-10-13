@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -101,7 +103,7 @@ func run(t *testing.T, dir string, name string, args ...string) string {
 	t.Helper()
 
 	if name == "git" {
-		args = append([]string{"-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"}, args...)
+		args = gitops.HermeticTestArgs(args)
 	}
 
 	cmd := exec.Command(name, args...)
@@ -351,6 +353,48 @@ func TestRunGit_Error(t *testing.T) {
 
 	_, err := runGit(context.Background(), t.TempDir(), nil, "log")
 	assert.Error(t, err)
+}
+
+// The syncer's own commits and merges must not leave a detached
+// `git maintenance run --auto` writing into the repository after the test
+// returns, where it races t.TempDir cleanup.
+func TestRunGit_SpawnsNoAutoMaintenanceUnderTest(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not found")
+	}
+
+	dir := t.TempDir()
+	run(t, dir, "git", "init")
+
+	trace := filepath.Join(t.TempDir(), "trace2.json")
+	t.Setenv("GIT_TRACE2_EVENT", trace)
+
+	_, err := runGit(context.Background(), dir, nil,
+		"-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "--allow-empty", "-m", "x")
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(trace)
+	require.NoError(t, err)
+
+	var sawCommit bool
+
+	for line := range strings.Lines(string(data)) {
+		var ev struct {
+			Event string   `json:"event"`
+			Argv  []string `json:"argv"`
+		}
+
+		require.NoError(t, json.Unmarshal([]byte(line), &ev))
+
+		if ev.Event != "start" && ev.Event != "child_start" {
+			continue
+		}
+
+		sawCommit = sawCommit || slices.Contains(ev.Argv, "commit")
+		assert.NotContains(t, ev.Argv, "maintenance", "git spawned %v", ev.Argv)
+	}
+
+	assert.True(t, sawCommit, "the trace must record the commit")
 }
 
 // drainEvents reads all available events from the channel without blocking.
