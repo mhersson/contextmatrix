@@ -2209,6 +2209,73 @@ func TestHumanOnlyFields_PatchCard(t *testing.T) {
 	})
 }
 
+// TestHumanOnlyFields_PatchEachField sends each human-only PATCH field on
+// its own as an agent, so every clause of the guard is pinned by a row that
+// fails when that clause alone is dropped.
+func TestHumanOnlyFields_PatchEachField(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	server := httptest.NewServer(NewRouter(RouterConfig{
+		Service: svc,
+		Bus:     bus,
+		BestOfN: config.BestOfNConfig{MaxCandidates: 5},
+		Mob:     mobTestConfig(),
+	}))
+	defer server.Close()
+
+	tests := []struct {
+		field     string
+		value     any
+		imported  bool // an unvetted imported card, so a vetted write would show
+		unchanged func(t *testing.T, c *board.Card)
+	}{
+		{"autonomous", true, false, func(t *testing.T, c *board.Card) { assert.False(t, c.Autonomous) }},
+		{"create_pr", false, false, func(t *testing.T, c *board.Card) { assert.True(t, c.CreatePR) }},
+		{"await_ci", true, false, func(t *testing.T, c *board.Card) { assert.False(t, c.AwaitCI) }},
+		{"await_copilot_review", true, false, func(t *testing.T, c *board.Card) { assert.False(t, c.AwaitCopilotReview) }},
+		{"merge_pr", true, false, func(t *testing.T, c *board.Card) { assert.False(t, c.MergePR) }},
+		{"vetted", true, true, func(t *testing.T, c *board.Card) { assert.False(t, c.Vetted) }},
+		{"base_branch", "develop", false, func(t *testing.T, c *board.Card) { assert.Empty(t, c.BaseBranch) }},
+		{"model_orchestrator", "anthropic/claude-opus-4", false, func(t *testing.T, c *board.Card) { assert.Empty(t, c.ModelOrchestrator) }},
+		{"model_coder", "anthropic/claude-opus-4", false, func(t *testing.T, c *board.Card) { assert.Empty(t, c.ModelCoder) }},
+		{"model_reviewer", "anthropic/claude-opus-4", false, func(t *testing.T, c *board.Card) { assert.Empty(t, c.ModelReviewer) }},
+		{"best_of_n", 3, false, func(t *testing.T, c *board.Card) { assert.Zero(t, c.BestOfN) }},
+		{"max_capability", true, false, func(t *testing.T, c *board.Card) { assert.False(t, c.MaxCapability) }},
+		{"mob_participants", 3, false, func(t *testing.T, c *board.Card) { assert.Zero(t, c.MobParticipants) }},
+		{"mob_phases", []string{"plan"}, false, func(t *testing.T, c *board.Card) { assert.Empty(t, c.MobPhases) }},
+		{"mob_guests", []string{"laptop"}, false, func(t *testing.T, c *board.Card) { assert.Empty(t, c.MobGuests) }},
+		{"verify", map[string]any{"command": "make test"}, false, func(t *testing.T, c *board.Card) { assert.Nil(t, c.Verify) }},
+		{"assignee", "alice", false, func(t *testing.T, c *board.Card) { assert.Empty(t, c.Assignee) }},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.field, func(t *testing.T) {
+			input := service.CreateCardInput{Title: "Guarded " + tc.field, Type: "task", Priority: "medium"}
+			if tc.imported {
+				input.Source = &board.Source{System: "github", ExternalID: "acme/api#1", ExternalURL: "https://github.com/acme/api/issues/1"}
+			}
+
+			card, err := svc.CreateCard(context.Background(), "test-project", input)
+			require.NoError(t, err)
+
+			resp := doJSON(t, http.MethodPatch, server.URL+"/api/projects/test-project/cards/"+card.ID,
+				map[string]any{tc.field: tc.value}, "agent-1")
+			defer closeBody(t, resp.Body)
+
+			assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+
+			var apiErr APIError
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+			assert.Equal(t, ErrCodeHumanOnlyField, apiErr.Code)
+
+			stored, err := svc.GetCard(context.Background(), "test-project", card.ID)
+			require.NoError(t, err)
+			tc.unchanged(t, stored)
+		})
+	}
+}
+
 func TestHumanOnlyFields_PRGates(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()
