@@ -35,7 +35,7 @@ const sse = vi.hoisted(() => {
 });
 
 vi.mock('../../hooks/useSSEBus', () => ({
-  useSSEBus: () => ({ subscribe: sse.subscribe, connected: true, error: null, reconnectEpoch: 0 }),
+  useSSEBus: () => ({ subscribe: sse.subscribe, connected: true, reconnectEpoch: 0 }),
 }));
 
 function emit(type: string, data: Record<string, unknown>) {

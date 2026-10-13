@@ -731,4 +731,40 @@ describe('useBoard - refreshCard (panel-open hydration)', () => {
     });
     expect(result.current.config?.name).toBe('beta');
   });
+
+  it('ignores a post-sync config refresh for the previous project that resolves after a switch', async () => {
+    const alphaConfig = { ...projectConfig, name: 'alpha' };
+    const betaConfig = { ...projectConfig, name: 'beta' };
+    vi.mocked(api.getCards).mockResolvedValue([]);
+    vi.mocked(api.getProject).mockImplementation(async (name: string) =>
+      name === 'beta' ? betaConfig : alphaConfig,
+    );
+
+    const { result, rerender } = renderHook(({ p }) => useBoard(p), {
+      wrapper,
+      initialProps: { p: 'alpha' },
+    });
+    await waitFor(() => expect(result.current.config?.name).toBe('alpha'));
+
+    let resolveStale: (c: ProjectConfig) => void = () => {};
+    vi.mocked(api.getProject).mockImplementationOnce(
+      () => new Promise<ProjectConfig>((resolve) => { resolveStale = resolve; }),
+    );
+    act(() => {
+      latestInstance()._triggerOpen();
+    });
+    act(() => {
+      latestInstance().onmessage?.({
+        data: JSON.stringify({ type: 'sync.completed', card_id: '', project: '', data: { changes_pulled: true } }),
+      } as MessageEvent);
+    });
+
+    rerender({ p: 'beta' });
+    await waitFor(() => expect(result.current.config?.name).toBe('beta'));
+
+    await act(async () => {
+      resolveStale({ ...alphaConfig, next_id: 99 });
+    });
+    expect(result.current.config?.name).toBe('beta');
+  });
 });

@@ -24,7 +24,7 @@ vi.mock('../../api/client', async (importOriginal) => ({
 }));
 
 vi.mock('../../hooks/useSSEBus', () => ({
-  useSSEBus: () => ({ subscribe: () => () => {}, connected: true, error: null, reconnectEpoch: 0 }),
+  useSSEBus: () => ({ subscribe: () => () => {}, connected: true, reconnectEpoch: 0 }),
 }));
 
 // DndContext is a pass-through that captures its props, so a test can end

@@ -19,7 +19,6 @@ vi.mock('./useSSEBus', () => ({
   useSSEBus: vi.fn(() => ({
     subscribe: vi.fn(() => () => {}),
     connected: true,
-    error: null,
   })),
 }));
 

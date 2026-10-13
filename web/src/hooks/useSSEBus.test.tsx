@@ -67,6 +67,11 @@ Object.defineProperty(globalThis, 'EventSource', {
   configurable: true,
 });
 
+const auth = vi.hoisted(() => ({ mode: 'multi' as 'multi' | 'none' | undefined }));
+vi.mock('./useAuth', () => ({
+  useOptionalAuth: () => (auth.mode ? { mode: auth.mode } : null),
+}));
+
 // ---- helpers ----------------------------------------------------------------
 
 function latestInstance(): MockES {
@@ -96,6 +101,7 @@ function renderWithProvider(onMount: (ctx: ReturnType<typeof useSSEBus>) => void
 // ---- test suite -------------------------------------------------------------
 
 beforeEach(() => {
+  auth.mode = 'multi';
   instances = [];
   vi.useFakeTimers();
 });
@@ -644,6 +650,26 @@ describe('session-expired dispatch', () => {
 
     probe.mockRestore();
     window.removeEventListener(SESSION_EXPIRED_EVENT, fired);
+  });
+
+  it.each(['none', undefined] as const)('sends no session probe when the auth mode is %s', async (mode) => {
+    auth.mode = mode;
+    const probe = vi.spyOn(api, 'getAuthSession').mockResolvedValue({ username: 'a', display_name: 'A', is_admin: false });
+
+    act(() => {
+      renderWithProvider(() => {});
+    });
+    await act(async () => {
+      latestInstance().readyState = MockEventSource.CLOSED;
+      latestInstance()._triggerError();
+    });
+
+    expect(probe).not.toHaveBeenCalled();
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(instances).toHaveLength(2);
+    probe.mockRestore();
   });
 
   it('does not dispatch SESSION_EXPIRED_EVENT when onerror fires with readyState CONNECTING, and still reconnects', () => {

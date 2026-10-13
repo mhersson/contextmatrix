@@ -10,7 +10,7 @@ vi.mock('../api/client', async (importOriginal) => ({
 }));
 
 vi.mock('./useSSEBus', () => ({
-  useSSEBus: () => ({ subscribe: vi.fn(() => () => {}), connected: true, error: null }),
+  useSSEBus: () => ({ subscribe: vi.fn(() => () => {}), connected: true }),
 }));
 
 const boardsRepos = vi.hoisted(() => ({ value: [] as { name: string; shared: boolean }[] }));

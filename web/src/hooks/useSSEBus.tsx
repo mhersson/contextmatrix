@@ -2,6 +2,7 @@ import { createContext, useContext, useRef, useState, useEffect, useCallback, us
 import type { ReactNode } from 'react';
 import { api, isAPIError, SESSION_EXPIRED_EVENT } from '../api/client';
 import type { BoardEvent } from '../types';
+import { useOptionalAuth } from './useAuth';
 
 const MAX_RECONNECT_DELAY = 30000;
 const INITIAL_RECONNECT_DELAY = 1000;
@@ -66,6 +67,13 @@ function eventPrefix(type: string): string {
 export function SSEProvider({ children }: SSEProviderProps) {
   const [connected, setConnected] = useState(false);
   const [reconnectEpoch, setReconnectEpoch] = useState(0);
+
+  // Only multi mode has a session endpoint to probe; none mode would 404 per reconnect.
+  const authMode = useOptionalAuth()?.mode;
+  const authModeRef = useRef(authMode);
+  useEffect(() => {
+    authModeRef.current = authMode;
+  }, [authMode]);
 
   // Map keyed by bucket (sigil-prefixed to avoid collisions):
   //   '*'              → wildcard subscribers
@@ -136,9 +144,8 @@ export function SSEProvider({ children }: SSEProviderProps) {
       es.close();
       eventSourceRef.current = null;
 
-      if (sessionExpired) {
-        // Only a 401 from the probe ends the session. None mode has no
-        // session endpoint, so the probe fails with a non-401 and is ignored.
+      if (sessionExpired && authModeRef.current === 'multi') {
+        // Only a 401 from the probe ends the session.
         api.getAuthSession().catch((err: unknown) => {
           if (isAPIError(err) && err.code === 'UNAUTHORIZED') {
             window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));

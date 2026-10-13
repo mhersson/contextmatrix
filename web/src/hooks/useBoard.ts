@@ -203,13 +203,14 @@ export function useBoard(
     onCardCreatedRef.current = onCardCreated;
   }, [onCardCreated]);
 
-  // Read by handleEvent so the dependents fan-out below sees the current
-  // list without re-subscribing to SSE on every cards change.
+  // Lets async config refreshes drop a result that resolves after a project switch.
   const projectRef = useRef(project);
   useEffect(() => {
     projectRef.current = project;
   }, [project]);
 
+  // Read by handleEvent so the dependents fan-out below sees the current
+  // list without re-subscribing to SSE on every cards change.
   const cardsRef = useRef(cards);
   useEffect(() => {
     cardsRef.current = cards;

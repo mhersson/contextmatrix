@@ -73,7 +73,7 @@ export function ProjectShell() {
 
   const dashboard = useDashboardPolling(project, REFRESH_INTERVAL);
   const activity = useActivityFeed(project);
-  const { maxAgents: maxWorkers, runningContainers, status: backendStatus } = useBackendHealth(REFRESH_INTERVAL);
+  const { maxAgents: maxWorkers, runningContainers, status: backendStatus } = useBackendHealth(REFRESH_INTERVAL, !!taskBackend);
 
   // In-render reset on project change. This pattern (a `prev*` state marker
   // compared in render) replaces a `useEffect(..., [project])` that called

@@ -10,12 +10,14 @@ export interface BackendHealthState {
 /** unknown until the first poll settles; disabled when no task backend is configured. */
 export type BackendStatus = 'unknown' | 'ok' | 'unreachable' | 'disabled';
 
-export function useBackendHealth(intervalMs: number): BackendHealthState {
+/** With `enabled` false (no task backend configured) nothing is polled and the status is disabled. */
+export function useBackendHealth(intervalMs: number, enabled = true): BackendHealthState {
   const [maxAgents, setMaxAgents] = useState<number | undefined>(undefined);
   const [runningContainers, setRunningContainers] = useState<number | undefined>(undefined);
   const [status, setStatus] = useState<BackendStatus>('unknown');
 
   useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
     let inFlight: AbortController | null = null;
     const fetchBackendHealth = () => {
@@ -55,7 +57,8 @@ export function useBackendHealth(intervalMs: number): BackendHealthState {
       clearInterval(interval);
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, [intervalMs]);
+  }, [intervalMs, enabled]);
 
+  if (!enabled) return { maxAgents: undefined, runningContainers: undefined, status: 'disabled' };
   return { maxAgents, runningContainers, status };
 }

@@ -686,6 +686,7 @@ describe('CreateCardPanel - Escape', () => {
     pressEscape();
 
     expect(screen.queryByText('Load template for "task"?')).not.toBeInTheDocument();
+    expect(screen.queryByText('Discard unsaved changes?')).not.toBeInTheDocument();
     expect(onClose).not.toHaveBeenCalled();
     expect(editor.value).toBe('my custom description');
   });
