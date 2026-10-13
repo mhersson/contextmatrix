@@ -29,8 +29,9 @@ func (s *CardService) SyncSucceeded(ctx context.Context, repo string) {
 	}
 }
 
-// ObserveLeases is called by the syncer after every index reload of repo so
-// that repo's lease table reflects what the pull brought in.
+// ObserveLeases is called by the syncer after every index reload of repo and
+// at the end of every successful cycle that pulled nothing, so that repo's
+// lease table reflects the board on disk, including leases there at startup.
 func (s *CardService) ObserveLeases(ctx context.Context, repo string) error {
 	r, err := s.repoNamed(repo)
 	if err != nil {

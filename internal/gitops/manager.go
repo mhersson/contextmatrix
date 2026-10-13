@@ -20,6 +20,7 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	githubauth "github.com/mhersson/contextmatrix-githubauth"
 
@@ -599,6 +600,19 @@ func (m *Manager) CurrentBranch() (string, error) {
 	}
 
 	return head.Name().Short(), nil
+}
+
+// CheckReadable verifies the repository's HEAD can be read. An unborn branch
+// (no commits yet) is healthy: HEAD is resolved without requiring its target.
+func (m *Manager) CheckReadable() error {
+	m.worktreeMu.Lock()
+	defer m.worktreeMu.Unlock()
+
+	if _, err := m.repo.Reference(plumbing.HEAD, false); err != nil {
+		return fmt.Errorf("get HEAD: %w", err)
+	}
+
+	return nil
 }
 
 // HasUncommittedChanges checks if there are staged or unstaged changes.

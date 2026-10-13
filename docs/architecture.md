@@ -425,8 +425,9 @@ create, claim, force-release, project create, update and delete, playbook
 create, foreign stall) run as a cycle body through `SyncedMutation`: applied
 once after the merge under both locks, pushed with the cycle, and undone
 under the same locks if the push never lands. After a successful cycle
-`SyncSucceeded` confirms the leases this instance holds; after every reload
-`ObserveLeases` records other instances' leases, both keyed by repo name.
+`SyncSucceeded` confirms the leases this instance holds. `ObserveLeases`
+records other instances' leases after every reload and at the end of a
+successful cycle that pulled nothing. Both are keyed by repo name.
 Claims a pull took away are published as `claim.lost`.
 
 ### Metrics

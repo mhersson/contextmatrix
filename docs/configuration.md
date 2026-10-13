@@ -49,7 +49,9 @@ YAML decoding is strict: an unknown key fails startup with a `parse config`
 error naming the field.
 
 Containers use rule 1 with a path that does not exist and configure
-everything through environment variables (see
+everything through environment variables. Defaults resolved relative to the
+config file (`<config-dir>`) land beside that path, so point it into a writable
+volume (see
 [Deployment example](deployment-example.md)).
 
 ## Minimal config

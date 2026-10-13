@@ -613,7 +613,7 @@ func (s *CardService) HealthCheck(ctx context.Context) []CheckResult {
 		if r.Git == nil {
 			gitErr = fmt.Errorf("git manager not configured")
 		} else {
-			_, gitErr = r.Git.CurrentBranch()
+			gitErr = r.Git.CheckReadable()
 		}
 
 		results = append(results, CheckResult{Name: name, OK: gitErr == nil, Err: gitErr})

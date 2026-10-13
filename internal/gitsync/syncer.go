@@ -817,6 +817,15 @@ func (s *Syncer) SyncedMutation(ctx context.Context, trigger string, m service.S
 
 	s.setSuccess()
 	s.clearPushFailure()
+
+	// A cycle that pulled observed the leases on reload. One that pulled
+	// nothing must too, or a peer lease already on disk at startup never ages.
+	if !report.ChangesPulled {
+		if err := s.svc.ObserveLeases(ctx, s.repo); err != nil {
+			slog.Warn("git sync: observe leases after sync", "error", err)
+		}
+	}
+
 	s.svc.SyncSucceeded(ctx, s.repo)
 	s.publishCompleted(trigger, report.ChangesPulled, time.Since(start))
 

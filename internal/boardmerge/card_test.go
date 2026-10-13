@@ -420,6 +420,37 @@ func TestMergeCards(t *testing.T) {
 	}
 }
 
+// TestMergeCards_UsageAddsEveryCounter gives every counter a distinct value on
+// all three sides, so a counter fed from the wrong side or field changes a sum.
+func TestMergeCards_UsageAddsEveryCounter(t *testing.T) {
+	b, o, th := baseCard(), baseCard(), baseCard()
+
+	b.TokenUsage = &board.TokenUsage{PromptTokens: 1000, CompletionTokens: 2000, CacheReadTokens: 3000, CacheCreationTokens: 4000, EstimatedCostUSD: 1}
+	o.TokenUsage = &board.TokenUsage{PromptTokens: 1100, CompletionTokens: 2300, CacheReadTokens: 3500, CacheCreationTokens: 4700, EstimatedCostUSD: 1.5}
+	th.TokenUsage = &board.TokenUsage{PromptTokens: 1020, CompletionTokens: 2060, CacheReadTokens: 3080, CacheCreationTokens: 4110, EstimatedCostUSD: 1.25}
+
+	b.UsageBreakdown = []board.UsageBucket{{Agent: "x", Model: "m", PromptTokens: 10, CompletionTokens: 20, CacheReadTokens: 30, CacheCreationTokens: 40, CostUSD: 0.5}}
+	o.UsageBreakdown = []board.UsageBucket{{Agent: "x", Model: "m", PromptTokens: 11, CompletionTokens: 23, CacheReadTokens: 35, CacheCreationTokens: 47, CostUSD: 0.75}}
+	th.UsageBreakdown = []board.UsageBucket{{Agent: "x", Model: "m", PromptTokens: 12, CompletionTokens: 26, CacheReadTokens: 38, CacheCreationTokens: 51, CostUSD: 1}}
+
+	got, _ := mergeCards(b, o, th, "alpha", testCtx())
+
+	require.NotNil(t, got.TokenUsage)
+	assert.Equal(t, int64(1120), got.TokenUsage.PromptTokens)
+	assert.Equal(t, int64(2360), got.TokenUsage.CompletionTokens)
+	assert.Equal(t, int64(3580), got.TokenUsage.CacheReadTokens)
+	assert.Equal(t, int64(4810), got.TokenUsage.CacheCreationTokens)
+	assert.InDelta(t, 1.75, got.TokenUsage.EstimatedCostUSD, 1e-9)
+
+	require.Len(t, got.UsageBreakdown, 1)
+	bucket := got.UsageBreakdown[0]
+	assert.Equal(t, int64(13), bucket.PromptTokens)
+	assert.Equal(t, int64(29), bucket.CompletionTokens)
+	assert.Equal(t, int64(43), bucket.CacheReadTokens)
+	assert.Equal(t, int64(58), bucket.CacheCreationTokens)
+	assert.InDelta(t, 1.25, bucket.CostUSD, 1e-9)
+}
+
 // TestMergeCards_EqualEpochClaims covers the region where both sides raised
 // the epoch from the same claimed base. An active claim beats a tuple emptied
 // into a non-terminal state; two emptied tuples converge on the empty one.

@@ -132,7 +132,7 @@ Developer traps in this codebase. Each entry names the code it describes.
   three-field ack. Returning the full `board.Card` multiplies agent context
   cost (bodies grow during a run and every result is re-read on each model
   call) and the summary shape is what keeps unvetted external bodies out of
-  mutation results (the title is redacted there for non-human callers). Field parity is enforced by
+  mutation results (the title is redacted and `context` and source `external_url` dropped there for non-human callers). Field parity is enforced by
   `TestCardSummaryMirrorsBoardCard`; the wire contract the agent parses is
   pinned by `TestSlimToolResultsOmitBodyAndActivityLog`. Full cards come
   only from `get_card` / `get_task_context`, and even there the siblings

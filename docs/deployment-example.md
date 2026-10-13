@@ -133,6 +133,9 @@ spec:
       containers:
         - name: contextmatrix
           image: contextmatrix:latest
+          # The file need not exist; -config makes env vars drive everything and
+          # puts the default task-skills directory on the PVC (/data/task-skills).
+          args: ["-config", "/data/config.yaml"]
           ports:
             - containerPort: 8080
           securityContext:
@@ -243,8 +246,13 @@ Notes:
   `CONTEXTMATRIX_AUTH_MASTER_KEY_FILE` is unset, CM auto-generates one under
   `$XDG_STATE_HOME/contextmatrix/` (the `/home/nobody` `emptyDir` here), which
   a pod restart wipes, leaving the pool undecryptable. Always mount a real key.
-  Rotate it with `contextmatrix auth rotate-master-key`; recover a locked-out
-  admin with `contextmatrix auth reset-admin <username>`.
+  Recover a locked-out admin with
+  `contextmatrix auth reset-admin --config /data/config.yaml <username>`.
+  Here the master key file is a read-only Secret mount, so
+  `contextmatrix auth rotate-master-key` cannot run inside the pod: rotate
+  offline with the Deployment scaled to 0 (see
+  [Operator escape hatches](authentication.md#operator-escape-hatches)), and
+  update the Secret and `auth.db` together.
 - **Shared boards need a stable instance ID.** With `boards.shared: true`, CM
   identifies itself by `instance.id`, generated once and persisted under the
   state dir. In this manifest that dir is an `emptyDir`, so set
@@ -256,9 +264,10 @@ On first start with zero users the pod log prints a one-time
 
 ### Task-skills
 
-The image bakes no task-skills. To enable the feature, set
-`CONTEXTMATRIX_TASK_SKILLS_DIR` to a writable directory (add it to the PVC)
-and, to have CM clone the repo into an empty directory, set
+The image bakes no task-skills. The repo lives in `/data/task-skills` (the
+default next to the manifest's `-config /data/config.yaml`; override with
+`CONTEXTMATRIX_TASK_SKILLS_DIR`, keeping it on a writable volume). To have CM
+clone the repo into an empty directory, set
 `CONTEXTMATRIX_TASK_SKILLS_GIT_REMOTE_URL` and
 `CONTEXTMATRIX_TASK_SKILLS_GIT_CLONE_ON_EMPTY=true`. CM fast-forward pulls the
 directory at startup and serves its contents at `GET /api/task-skills`. Each

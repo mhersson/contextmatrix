@@ -30,7 +30,7 @@ type listCardsOutput struct {
 type getCardInput struct {
 	Project            string   `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
 	CardID             string   `json:"card_id" jsonschema:"required,card ID (e.g. ALPHA-001)"`
-	AgentID            string   `json:"agent_id,omitempty" jsonschema:"caller identity - unvetted external card titles and bodies are redacted for non-human callers"`
+	AgentID            string   `json:"agent_id,omitempty" jsonschema:"caller identity - unvetted external cards lose title, body, branch name, activity log, context and source URL for non-human callers"`
 	IncludeImages      *bool    `json:"include_images,omitempty" jsonschema:"attach inline image bytes for cm-server-hosted markdown image references in the body (default true; capped at 10 images per call and ~20 MiB cumulative bytes, with later references in body order omitted when over budget)"`
 	IncludeActivityLog *bool    `json:"include_activity_log,omitempty" jsonschema:"include the activity log (default true; pass false to trim ~half of a long-lived card's payload)"`
 	Sections           []string `json:"sections,omitempty" jsonschema:"return only these H2 body sections (exact heading text without ##, e.g. 'Plan'; pass 'intro' to include the pre-heading text); unmatched names yield an empty body, not the full one"`
@@ -92,7 +92,7 @@ type transitionCardInput struct {
 type getTaskContextInput struct {
 	Project       string `json:"project,omitempty" jsonschema:"project name (resolved from card ID if omitted)"`
 	CardID        string `json:"card_id" jsonschema:"required,card ID"`
-	AgentID       string `json:"agent_id,omitempty" jsonschema:"caller identity - unvetted external card titles and bodies are redacted for non-human callers"`
+	AgentID       string `json:"agent_id,omitempty" jsonschema:"caller identity - unvetted external cards lose title, body, branch name, activity log, context and source URL for non-human callers"`
 	IncludeImages *bool  `json:"include_images,omitempty" jsonschema:"attach inline image bytes for cm-server-hosted markdown image references in the primary card body (default true; capped at 10 images per call and ~20 MiB cumulative bytes, with later references in body order omitted when over budget; siblings stay text-only)"`
 }
 type getTaskContextOutput struct {
@@ -245,8 +245,9 @@ func registerGetCard(server *mcp.Server, svc *service.CardService, imageStore im
 			return nil, nil, fmt.Errorf("get card %s: %w", input.CardID, err)
 		}
 
-		// Redact unvetted card title and body for non-human callers so prompt-injection
-		// payloads from imported external cards cannot reach agent context.
+		// Redact unvetted card text (title, body, activity log, context, source URL)
+		// for non-human callers so prompt-injection payloads from imported external
+		// cards cannot reach agent context.
 		card = redactCardForAgent(card, input.AgentID)
 
 		// Shallow-copy before trimming (precedent: vetting.go's
@@ -515,7 +516,7 @@ func registerGetTaskContext(server *mcp.Server, svc *service.CardService, imageS
 			return nil, getTaskContextOutput{}, fmt.Errorf("get project config: %w", err)
 		}
 
-		// Redact unvetted card title and body for non-human callers - get_task_context
+		// Redact unvetted card text for non-human callers - get_task_context
 		// is the primary prompt-injection vector because its response is fed
 		// straight into agent context.
 		primary := redactCardForAgent(card, input.AgentID)

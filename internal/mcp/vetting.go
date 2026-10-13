@@ -36,10 +36,10 @@ func shouldRedact(card *board.Card, agentID string) bool {
 // cards. For non-human callers reading an unvetted card, it returns a
 // placeholder so prompt-injection payloads do not reach the agent.
 //
-// The body is redacted here and the title by redactCardForAgent and
-// summarizeCardForAgent. ID, State, Priority, Labels, Parent, DependsOn,
-// Source, Vetted, AssignedAgent, etc. remain visible - planning and filtering
-// must still work.
+// The body is redacted here; the other untrusted fields (title, branch name,
+// activity log, context, source URL) by redactUntrustedFields. ID, State,
+// Priority, Labels, Parent, DependsOn, Source (minus its URL), Vetted,
+// AssignedAgent, etc. remain visible - planning and filtering must still work.
 func redactUnvettedBody(card *board.Card, agentID string) string {
 	if card == nil {
 		return ""
@@ -52,11 +52,11 @@ func redactUnvettedBody(card *board.Card, agentID string) string {
 	return unvettedBodyPlaceholder
 }
 
-// redactCardForAgent returns a shallow copy of card with Body and Title
-// replaced and BranchName cleared for a non-human caller reading an unvetted card. The original card
-// is left unmodified. Returns nil if card is nil. Used by the body-carrying
-// read tools (get_card, get_task_context); summary-returning tools use
-// summarizeCardForAgent. Humans get full visibility.
+// redactCardForAgent returns a redacted copy of card for a non-human caller
+// reading an unvetted card (see redactUntrustedFields); the original is left
+// unmodified. Returns nil if card is nil. Used by the card-returning read tools
+// (get_card, get_task_context); summary-returning tools use
+// summarizeCardForAgent. Humans and vetted cards get the card unchanged.
 func redactCardForAgent(card *board.Card, agentID string) *board.Card {
 	if card == nil {
 		return nil
@@ -66,25 +66,36 @@ func redactCardForAgent(card *board.Card, agentID string) *board.Card {
 		return card
 	}
 
-	redacted := *card
-	redacted.Body = unvettedBodyPlaceholder
-	redacted.Title = unvettedPlaceholderTitle
-	redacted.BranchName = "" // the branch slug is derived from the title
-
-	return &redacted
+	return redactUntrustedFields(card)
 }
 
-// summarizeCardForAgent is summarizeCard with the title replaced by the
-// placeholder when shouldRedact applies. The summary is a fresh struct, so the
-// source card is never mutated.
-func summarizeCardForAgent(card *board.Card, agentID string) *CardSummary {
-	s := summarizeCard(card)
-	if s != nil && shouldRedact(card, agentID) {
-		s.Title = unvettedPlaceholderTitle
-		s.BranchName = "" // the branch slug is derived from the title
+// redactUntrustedFields returns a copy of card with every field that can carry
+// importer-supplied text replaced or cleared: Body, Title, BranchName (derived
+// from the title), ActivityLog, Context and Source.ExternalURL. Structural
+// metadata (ID, State, Type, Priority, ...) is preserved. card and its Source
+// are never mutated. Shared by redactCardForAgent and redactCardForPrompt so
+// the field list cannot drift.
+func redactUntrustedFields(card *board.Card) *board.Card {
+	cp := *card // shallow copy; slices and pointers are replaced below
+	cp.Body = unvettedBodyPlaceholder
+	cp.Title = unvettedPlaceholderTitle
+	cp.BranchName = ""
+	cp.ActivityLog = nil
+	cp.Context = nil
+
+	if cp.Source != nil {
+		src := *cp.Source
+		src.ExternalURL = ""
+		cp.Source = &src
 	}
 
-	return s
+	return &cp
+}
+
+// summarizeCardForAgent is summarizeCard over redactCardForAgent, so a summary
+// loses exactly the fields a full card does. The source card is never mutated.
+func summarizeCardForAgent(card *board.Card, agentID string) *CardSummary {
+	return summarizeCard(redactCardForAgent(card, agentID))
 }
 
 // summarizeCardsForAgent applies summarizeCardForAgent to each card and keeps
@@ -108,11 +119,9 @@ func summarizeCardsForAgent(cards []*board.Card, agentID string) []*CardSummary 
 // inside an agent context - so an empty agent identity is implied and unvetted
 // cards are always redacted before the skill content is rendered.
 //
-// The redaction covers every field whose content may carry prompt-injection
-// payloads: Body, Title, ActivityLog entries, Source.ExternalURL, and the
-// free-form Context slice. Structural metadata (ID, State, Type, Priority) is
-// preserved - the agent still needs to know the card exists and is blocked
-// on vetting.
+// The redacted field list is redactUntrustedFields. Structural metadata (ID,
+// State, Type, Priority) is preserved - the agent still needs to know the card
+// exists and is blocked on vetting.
 //
 // When the card is safe to render in full (vetted), the original pointer is
 // returned unchanged so callers avoid a copy.
@@ -121,20 +130,7 @@ func redactCardForPrompt(card *board.Card) *board.Card {
 		return card
 	}
 
-	cp := *card // shallow copy; Card contains slices/pointers we handle below
-	cp.Body = unvettedBodyPlaceholder
-	cp.Title = unvettedPlaceholderTitle
-	cp.BranchName = ""   // the branch slug is derived from the title
-	cp.ActivityLog = nil // log entries can carry injected text as "messages"
-	cp.Context = nil     // free-form strings supplied by external importers
-
-	if cp.Source != nil {
-		src := *cp.Source
-		src.ExternalURL = ""
-		cp.Source = &src
-	}
-
-	return &cp
+	return redactUntrustedFields(card)
 }
 
 // redactPlaybookDetail returns a copy of d with the title of every unvetted

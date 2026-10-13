@@ -132,6 +132,33 @@ func TestSharedStall_OwnClaimsOnlyThenLeaseTakeover(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestSharedStall_LeaseAgesOnCyclesThatPullNothing starts an instance after
+// the peer's claim reached the remote, as a restart does: the lease is on
+// disk, nothing is left to pull and the lease table starts empty.
+func TestSharedStall_LeaseAgesOnCyclesThatPullNothing(t *testing.T) {
+	a, _, upstream := setupSharedPair(t)
+
+	c := a.create(t, "x")
+	a.claim(t, c.ID, "agent-"+c.ID)
+
+	b := newSharedNode(t, upstream, "lap-c")
+	require.False(t, b.sync(t).ChangesPulled)
+
+	b.clk.Advance(59 * time.Minute)
+	require.False(t, b.sync(t).ChangesPulled)
+	b.sweep(t)
+	assert.Equal(t, "lap-a", b.card(t, c.ID).ClaimedVia, "the lease ages from the first cycle that saw it")
+
+	b.clk.Advance(2 * time.Minute)
+	require.False(t, b.sync(t).ChangesPulled)
+	b.sweep(t)
+
+	stalled := b.card(t, c.ID)
+	assert.Equal(t, "stalled", stalled.State, "a later cycle seeing the same lease does not restart its clock")
+	assert.Empty(t, stalled.AssignedAgent)
+	assert.Equal(t, 2, stalled.ClaimEpoch)
+}
+
 func TestSharedTerminal_DoneKeepsClaimReleaseClears(t *testing.T) {
 	a, b, _ := setupSharedPair(t)
 	ctx := context.Background()

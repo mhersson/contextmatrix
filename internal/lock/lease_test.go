@@ -230,6 +230,9 @@ func TestForeignLeaseExpired(t *testing.T) {
 	fake.Advance(59 * time.Minute)
 	assert.False(t, mgr.ForeignLeaseExpired(c))
 
+	// Seeing the same lease again keeps the time it was first seen.
+	require.NoError(t, mgr.ObserveLeases(ctx))
+
 	fake.Advance(2 * time.Minute)
 	assert.True(t, mgr.ForeignLeaseExpired(c))
 

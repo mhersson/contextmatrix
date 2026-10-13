@@ -7292,7 +7292,7 @@ func TestHealthCheck_HappyPath(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Create a card to trigger a git commit so CurrentBranch() works on the repo.
+	// Create a card to trigger a git commit so the repo has a commit.
 	_, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
 		Title:    "Seed Card",
 		Type:     "task",
@@ -7323,6 +7323,20 @@ func TestHealthCheck_HappyPath(t *testing.T) {
 	require.True(t, ok, "session_log check missing")
 	assert.True(t, sessionLog.OK)
 	assert.NoError(t, sessionLog.Err)
+}
+
+func TestHealthCheck_GitUnbornHead(t *testing.T) {
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	_, err := svc.repos[0].Git.CurrentBranch()
+	require.Error(t, err, "fixture repo must have no commits")
+
+	for _, r := range svc.HealthCheck(ctx) {
+		assert.True(t, r.OK, "check %s: %v", r.Name, r.Err)
+	}
 }
 
 func TestHealthCheck_StoreError(t *testing.T) {

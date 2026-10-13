@@ -468,7 +468,8 @@ and transitions to `done` with no planning, review or documentation. See
   to enable "Content vetted" in the card panel before an agent can claim
   them: `get_ready_tasks` filters unvetted external cards and `claim_card`
   fails with 403 `CARD_NOT_VETTED`. Non-human readers see an unvetted title
-  and body only as a placeholder. See [GitHub issue import](github-issue-import.md).
+  and body only as a placeholder, and get no activity log, `context` or source
+  `external_url`. See [GitHub issue import](github-issue-import.md).
 
 The orchestrator halts only on an exhausted review budget, a third stall, or
 a sub-agent reporting `needs_human: true`. Best-of-N, mob sessions and the
