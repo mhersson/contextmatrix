@@ -80,8 +80,9 @@ func (m *Manager) LastBeat(card *board.Card) *time.Time {
 }
 
 // ObserveLeases records, for every card another instance holds, the lease
-// value on file and the local time it was first seen with that value. Called
-// after every reload of the index.
+// value on file and the local time it was first seen with that value. The
+// syncer calls it on every reload and every successful cycle, so seeing the
+// same value again must keep its first-seen time.
 func (m *Manager) ObserveLeases(ctx context.Context) error {
 	if m.instance == "" {
 		return nil

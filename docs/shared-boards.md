@@ -65,6 +65,7 @@ sequenceDiagram
     R-->>S: rejected as non-fast-forward
     S->>S: back off with jitter, re-integrate (up to 5 attempts)
     R-->>S: accepted
+    S->>S: observe peer leases if nothing was pulled
     S->>S: confirm own leases, publish sync.completed
 ```
 
@@ -156,8 +157,9 @@ cards after `lease_timeout`.
   most once per `lease_interval` and is the lease peers judge by.
 - Stall detection runs only on cards claimed via this instance. A card held by
   a peer is stalled only when its lease has stayed unchanged for
-  `lease_timeout` on the local clock, inside a sync cycle that re-checks after
-  the merge.
+  `lease_timeout` on the local clock, counted from when this instance first
+  saw that value (a restart starts the count again), inside a sync cycle that
+  re-checks after the merge.
 - Push-verified mutations (`create_card`, `claim_card`, force release, the
   foreign stall, project create / update / delete, playbook create) run inside
   a cycle: the remote holds the decision before the caller is told it landed.
