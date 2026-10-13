@@ -132,18 +132,3 @@ func summarizeCard(c *board.Card) *CardSummary {
 		Updated:                 c.Updated,
 	}
 }
-
-// summarizeCards preserves nil vs empty: a non-nil empty input stays a
-// non-nil empty slice so tools keep emitting "cards": [] on the wire.
-func summarizeCards(cards []*board.Card) []*CardSummary {
-	if cards == nil {
-		return nil
-	}
-
-	out := make([]*CardSummary, len(cards))
-	for i, c := range cards {
-		out[i] = summarizeCard(c)
-	}
-
-	return out
-}

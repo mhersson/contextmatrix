@@ -18,27 +18,6 @@ type EndpointModel struct {
 	MaxTokens int
 }
 
-// FetchEndpointModels returns the endpoint's tool-capable models for the chat
-// picker, reusing the same authenticated /models fetch as the catalog.
-func FetchEndpointModels(ctx context.Context, baseURL, apiKey string) ([]EndpointModel, error) {
-	cat, err := fetchEndpointCatalog(ctx, baseURL, apiKey)
-	if err != nil {
-		return nil, err
-	}
-
-	out := make([]EndpointModel, 0, len(cat))
-
-	for id, e := range cat {
-		if !e.Tools {
-			continue
-		}
-
-		out = append(out, EndpointModel{ID: id, Label: id, MaxTokens: e.ContextWindow})
-	}
-
-	return out, nil
-}
-
 // EndpointModels projects the Builder's cached catalog to the picker's
 // tool-capable model list, reusing the single cached /models fetch that Rate
 // and Candidates already share instead of a second independent fetch. Nil

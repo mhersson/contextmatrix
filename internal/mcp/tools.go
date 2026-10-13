@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"reflect"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -147,9 +146,9 @@ func remoteErr(err error) error {
 
 type getSkillInput struct {
 	// The jsonschema tag is a compile-time string and cannot be derived from
-	// skillBuilders directly. assertGetSkillSchemaInSync (below) compares it
-	// to skillNameSchemaDescription at package init time and panics on drift,
-	// so adding a skill in one place but not the other fails fast in tests.
+	// skillBuilders directly. TestGetSkillSchemaInSync compares it to
+	// skillNameSchemaDescription, so adding a skill in one place but not the
+	// other fails the test.
 	SkillName       string `json:"skill_name" jsonschema:"required,skill name: brainstorming, create-plan, create-task, document-task, execute-task, init-project, plan-draft, review-task, run-autonomous, systematic-debugging"`
 	CardID          string `json:"card_id,omitempty" jsonschema:"card ID (required for create-plan, execute-task, review-task, document-task, brainstorming, systematic-debugging, plan-draft)"`
 	Description     string `json:"description,omitempty" jsonschema:"free-text description (used by create-task)"`
@@ -157,32 +156,6 @@ type getSkillInput struct {
 	CallerModel     string `json:"caller_model,omitempty" jsonschema:"your model's short name or family (e.g. sonnet, opus on Claude harnesses) - enables inline execution when matching the skill model"`
 	IncludePreamble *bool  `json:"include_preamble,omitempty" jsonschema:"include workflow rules preamble (default true, pass false to skip on subsequent calls when you already have it)"`
 	IncludeCard     *bool  `json:"include_card,omitempty" jsonschema:"include the card body in the skill content (default true; pass false when you already hold the body from get_card)"`
-}
-
-// assertGetSkillSchemaInSync enforces that the jsonschema description on
-// getSkillInput.SkillName matches skillNameSchemaDescription (derived from
-// skillBuilders). Because struct tags must be compile-time literals, we
-// cannot directly interpolate the derived list; this guard fires at package
-// init time so any drift is caught immediately by `go test ./internal/mcp/...`.
-func init() {
-	assertGetSkillSchemaInSync()
-}
-
-func assertGetSkillSchemaInSync() {
-	t := reflect.TypeFor[getSkillInput]()
-
-	field, ok := t.FieldByName("SkillName")
-	if !ok {
-		panic("mcp: getSkillInput has no SkillName field")
-	}
-
-	got := field.Tag.Get("jsonschema")
-	if got != skillNameSchemaDescription {
-		panic(fmt.Sprintf(
-			"mcp: getSkillInput.SkillName jsonschema tag drifted from skillBuilders.\n  tag:      %q\n  expected: %q\n  update one to match the other.",
-			got, skillNameSchemaDescription,
-		))
-	}
 }
 
 type getSkillOutput struct {

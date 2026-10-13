@@ -147,19 +147,6 @@ func TestSummarizeCard(t *testing.T) {
 	})
 }
 
-func TestSummarizeCards(t *testing.T) {
-	assert.Nil(t, summarizeCards(nil), "nil in, nil out")
-
-	empty := summarizeCards([]*board.Card{})
-	require.NotNil(t, empty, "empty slice must stay non-nil so the wire keeps an empty array")
-	assert.Empty(t, empty)
-
-	out := summarizeCards([]*board.Card{{ID: "CMX-001", Body: "spec"}, nil})
-	require.Len(t, out, 2)
-	assert.Equal(t, "CMX-001", out[0].ID)
-	assert.Nil(t, out[1])
-}
-
 // assertSlimCardMap checks the wire contract for a summarized card: scalar
 // identity fields present, the three unbounded fields absent.
 func assertSlimCardMap(t *testing.T, m map[string]any) {
