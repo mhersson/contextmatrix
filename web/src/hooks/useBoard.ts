@@ -205,6 +205,11 @@ export function useBoard(
 
   // Read by handleEvent so the dependents fan-out below sees the current
   // list without re-subscribing to SSE on every cards change.
+  const projectRef = useRef(project);
+  useEffect(() => {
+    projectRef.current = project;
+  }, [project]);
+
   const cardsRef = useRef(cards);
   useEffect(() => {
     cardsRef.current = cards;
@@ -220,7 +225,9 @@ export function useBoard(
         if (event.type === 'sync.completed' && event.data?.changes_pulled) {
           refreshCards();
           if (project) {
-            api.getProject(project).then(setConfig).catch((err) => {
+            api.getProject(project).then((c) => {
+              if (projectRef.current === project) setConfig(c);
+            }).catch((err) => {
               console.error('Failed to refresh config after sync:', err);
             });
           }
@@ -238,7 +245,9 @@ export function useBoard(
 
       // Handle project config updates - reload to get new transitions
       if (event.type === 'project.updated' && event.project === project) {
-        api.getProject(project).then(setConfig).catch((err) => {
+        api.getProject(project).then((c) => {
+          if (projectRef.current === project) setConfig(c);
+        }).catch((err) => {
           console.error('Failed to refresh config after project.updated:', err);
         });
         return;
