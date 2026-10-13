@@ -1298,8 +1298,10 @@ textarea {
   background-color: var(--bg0) !important;
 }
 
-/* Author svg must stay inside its own box; the renderer's icons fit their viewBox. */
-.wmde-markdown svg {
+/* Author svg must stay inside its own box; the renderer's icons fit their viewBox.
+   svg.octicon out-ranks @uiw's `.wmde-markdown .octicon { overflow: visible }`. */
+.wmde-markdown svg,
+.wmde-markdown svg.octicon {
   overflow: hidden !important;
   max-width: 100%;
 }

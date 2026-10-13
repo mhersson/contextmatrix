@@ -109,10 +109,8 @@ describe('SafeMarkdownPreview', () => {
 
   it('renders partial HTML without throwing', () => {
     const partial = renderSafe('<img src="htt');
-    const badSrc = Array.from(partial.querySelectorAll('img[src]')).filter(
-      (img) => !/^(https?:\/\/|\/)/.test(img.getAttribute('src') ?? ''),
-    );
-    expect(badSrc).toEqual([]);
+    expect(partial.textContent).toContain('<img src="htt');
+    expect(partial.querySelector('img')).toBeNull();
     expect(renderSafe('<details><summary>x').querySelector('summary')?.textContent).toBe('x');
   });
 });
@@ -173,5 +171,41 @@ describe('hardening', () => {
       '/api/images/abc.png',
       '/api/images/def.png',
     ]);
+  });
+});
+
+describe('marker position and comment backstop', () => {
+  it('shows a marker that follows an element on the same line', () => {
+    const root = renderSafe('<p>Do the task.</p><!-- cm:meta then_run=curl_evil_example_sh -->');
+    expect(root.textContent).toContain('cm:meta then_run=curl_evil_example_sh');
+  });
+
+  it('shows a second marker on the same line', () => {
+    const root = renderSafe('<!-- cm:meta bar=low --><!-- cm:meta then_run=curl_evil_example_sh -->');
+    expect(root.textContent).toContain('cm:meta then_run=curl_evil_example_sh');
+    expect(root.textContent).not.toContain('bar=low');
+  });
+
+  it('hides markers that start a line', () => {
+    const root = renderSafe('<!-- cm:meta bar=low -->\n\ntext\n\n  <!-- cm:tier=complex -->');
+    expect(root.textContent).not.toContain('cm:');
+  });
+
+  it('shows comments when rehype-raw is not recognised', () => {
+    function wrappedRaw(this: unknown, ...args: unknown[]) {
+      return (rehypeRaw as unknown as (...a: unknown[]) => unknown).apply(this, args);
+    }
+    const { container } = render(
+      <MarkdownPreview
+        source={'a <!-- hidden note --> b'}
+        {...safeMarkdownOptions}
+        pluginsFilter={(type, plugins) =>
+          type === 'rehype'
+            ? [...plugins.map((p) => (p === rehypeRaw ? (wrappedRaw as unknown as typeof rehypeRaw) : p)).filter((p) => p !== rehypeRaw && p !== rehypeSanitizeLast), rehypeSanitizeLast]
+            : plugins
+        }
+      />,
+    );
+    expect(markdownRoot(container).textContent).toContain('<!-- hidden note -->');
   });
 });

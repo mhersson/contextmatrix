@@ -1,7 +1,7 @@
 import type { Element, ElementContent, Nodes, Root, RootContent } from 'hast';
 
 // CM and agent machine markers. Hidden only at block level, where the agent
-// strips them before a model reads the body; anywhere else they show as text.
+// strips them (line start only) before a model reads the body; elsewhere they show as text.
 const machineMarker = /^<!--\s*cm:(?:meta(?:\s+[a-z_]+=[a-z0-9_]+)*|tier=[a-z]+)\s*-->$/;
 
 // Classes only the renderer may emit (heading anchors, copy button, icons).
@@ -23,10 +23,10 @@ export default function rehypeBodyMarkup() {
 }
 
 function clean(nodes: Content[], atRoot: boolean, inScript: boolean): Content[] {
-  return nodes.flatMap((node): Content[] => {
+  return nodes.flatMap((node, index): Content[] => {
     if (node.type === 'comment') {
       const text = `<!--${node.value}-->`;
-      return atRoot && machineMarker.test(text) ? [] : [{ type: 'text', value: text }];
+      return atRoot && startsLine(nodes[index - 1]) && machineMarker.test(text) ? [] : [{ type: 'text', value: text }];
     }
     if (node.type !== 'element') return [node];
     if (node.tagName === 'template') {
@@ -43,6 +43,11 @@ function clean(nodes: Content[], atRoot: boolean, inScript: boolean): Content[] 
     if (node.tagName === 'pre') node.children = flattenPre(node);
     return [node];
   });
+}
+
+// The agent strips a marker only at the start of a line.
+function startsLine(previous: Content | undefined): boolean {
+  return previous === undefined || (previous.type === 'text' && /(^|\n)[ \t]*$/.test(previous.value));
 }
 
 function flattenPre(pre: Element): ElementContent[] {
