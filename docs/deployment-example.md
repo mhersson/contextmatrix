@@ -248,10 +248,11 @@ Notes:
   a pod restart wipes, leaving the pool undecryptable. Always mount a real key.
   Recover a locked-out admin with
   `contextmatrix auth reset-admin --config /data/config.yaml <username>`.
-  `contextmatrix auth rotate-master-key --config PATH` rewrites the key file
-  and re-encrypts the pool in `auth.db`, so it fails against this read-only
-  Secret mount: run it on a copy of both, then update the Secret and restore
-  `auth.db`.
+  Here the master key file is a read-only Secret mount, so
+  `contextmatrix auth rotate-master-key` cannot run inside the pod: rotate
+  offline with the Deployment scaled to 0 (see
+  [Operator escape hatches](authentication.md#operator-escape-hatches)), and
+  update the Secret and `auth.db` together.
 - **Shared boards need a stable instance ID.** With `boards.shared: true`, CM
   identifies itself by `instance.id`, generated once and persisted under the
   state dir. In this manifest that dir is an `emptyDir`, so set
