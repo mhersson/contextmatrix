@@ -481,7 +481,7 @@ Two typed message channels reach a live worker session:
   `POST /api/projects/{project}/cards/{id}/message` forwards human-typed
   content (8 KB max) to a running worker (`worker_status == "running"`,
   otherwise 409). Human-only: a non-human `X-Agent-ID` is rejected. The
-  backend writes it to the worker's stdin as a stream-json user frame and
+  backend writes it to the worker's stdin as a `user_message` stdin frame and
   echoes it through the worker-log stream so the console shows it inline.
 - **Global chat panel** - `/api/chats/*` drives `internal/chat.Manager`: a
   SQLite-backed session and transcript store, an idle-TTL reaper, an SSE hub
@@ -735,7 +735,7 @@ token_costs:
 Rules for `report_usage`:
 
 - `model` is the model that actually served the calls, read from system
-  context or usage frames, never derived from an agent's name: an agent
+  context, never derived from an agent's name: an agent
   named `claude-opus-5-orchestrator` is no proof its calls ran on
   `claude-opus-5`, and a wrong name prices the tokens against the wrong row.
 - `prompt_tokens`, `completion_tokens`, `cache_read_tokens` and
@@ -764,9 +764,10 @@ An agent asked to report its own token counts is guessing, and the guess
 undercounts badly. The real numbers exist only in the harness's transcripts
 and usage frames; the server never sees a raw API response and cannot
 correct a report. A harness-side collector reading those frames is the only
-correct source. ContextMatrix ships no collector: a Claude Code `Stop` or
-`SubagentStop` hook that reads the session transcript and calls
-`report_usage` is the natural shape.
+correct source. contextmatrix-agent reports the usage it measures with
+`source: "collector"`; an interactive Claude Code session has no collector,
+and a `Stop` or `SubagentStop` hook that reads the session transcript and
+calls `report_usage` is the natural shape.
 
 - Call `report_usage` with `source: "collector"`, the four token counts for
   the interval since the last report, `actual_cost_usd` when the gateway

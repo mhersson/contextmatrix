@@ -758,7 +758,7 @@ any worker implementation, including custom worker images:
   `prompt_tokens`; subtract it and report it as `cache_read_tokens`. The
   Anthropic shapes (`cache_read_input_tokens`, `cache_creation_input_tokens`)
   are already disjoint.
-- Pass `source: "collector"` when every count came from usage frames; omit it
+- Pass `source: "collector"` when every count came from the gateway's usage block; omit it
   (or pass `self`) when any count is estimated. The board keeps the flag per
   bucket as `counts_source` and the UI labels the difference.
 - Pass `actual_cost_usd` whenever the gateway reports a per-call cost.
@@ -818,7 +818,7 @@ sequenceDiagram
 
     UI->>CM: POST .../cards/{id}/message
     CM->>BE: POST /message {card_id, project, message_id, content}
-    BE->>C: stdin (stream-json user message)
+    BE->>C: stdin (user_message frame)
     BE-->>CM: LogEntry{type: "user"} on /logs
     CM-->>UI: /api/worker/logs
 
