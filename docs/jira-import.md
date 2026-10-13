@@ -127,8 +127,8 @@ never `subtask`. Subtasks come only from CM's own planning.
 - A parent `depends_on` its sub-tasks that land in the same project, whether
   created in the same import or an earlier one. A sub-task in another project is
   order only; the dialog warns about it.
-- When a sub-task selected into the parent's project fails, the parent fails
-  too, so it is never created without that dependency.
+- When a sub-task selected into the parent's project fails before its card
+  exists, the parent fails too, so it is never created without that dependency.
   Import both again once the cause is fixed.
 - A new sub-task of a parent imported earlier goes directly before the parent in
   the playbook. Existing cards are never edited, so the parent does not gain the

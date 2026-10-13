@@ -139,6 +139,23 @@ func (f *failingCards) CreateCard(ctx context.Context, project string, in servic
 	return f.Cards.CreateCard(ctx, project, in)
 }
 
+// failingAdd fails the first AddEntry when failFirst is set.
+type failingAdd struct {
+	Playbooks
+
+	failFirst bool
+}
+
+func (f *failingAdd) AddEntry(ctx context.Context, id string, in service.PlaybookEntryInput, agentID string) (*service.PlaybookDetail, error) {
+	if f.failFirst {
+		f.failFirst = false
+
+		return nil, errors.New("injected add failure")
+	}
+
+	return f.Playbooks.AddEntry(ctx, id, in, agentID)
+}
+
 // hookedPlaybooks runs a hook once before the next AddEntry or UpdateEntry,
 // and counts UpdateEntry calls.
 type hookedPlaybooks struct {
@@ -368,6 +385,24 @@ func TestImport_ParentFailsWhenItsSameProjectSubtaskFailed(t *testing.T) {
 	r2 := resultsByKey(second.Results)
 	require.Equal(t, StatusCreated, r2["PROJ-2"].Status)
 	assert.Equal(t, []string{r2["PROJ-3"].Card}, e.card(t, "api", r2["PROJ-2"].Card).DependsOn)
+}
+
+func TestImport_SubtaskCreatedButNotPlacedKeepsItsParent(t *testing.T) {
+	e := newImportEnv(t, nil)
+	e.jira.add(story("102", "PROJ-2", "Cart API"), subtask("103", "PROJ-3", "PROJ-2", "Cart schema"))
+
+	e.svc.playbooks = &failingAdd{Playbooks: e.pbs, failFirst: true}
+
+	resp, err := e.importSync(context.Background(), "PROJ-1", ImportRequest{
+		Selections: []Selection{{Key: "PROJ-3", Project: "api"}, {Key: "PROJ-2", Project: "api"}},
+	}, "human:alice")
+	require.NoError(t, err)
+
+	r := resultsByKey(resp.Results)
+	require.Equal(t, StatusFailed, r["PROJ-3"].Status)
+	require.NotEmpty(t, r["PROJ-3"].Card, "the card exists; only its playbook entry failed")
+	require.Equal(t, StatusCreated, r["PROJ-2"].Status)
+	assert.Equal(t, []string{r["PROJ-3"].Card}, e.card(t, "api", r["PROJ-2"].Card).DependsOn)
 }
 
 func TestImport_ParentDependsOnASubtaskImportedInAnEarlierRun(t *testing.T) {
