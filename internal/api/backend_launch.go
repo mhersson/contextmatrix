@@ -81,6 +81,13 @@ func (h *backendHandlers) launch(ctx context.Context, project, id string, opts l
 			"card is already being executed by a worker", fmt.Sprintf("worker_status: %s", card.WorkerStatus))
 	}
 
+	// The worker's claim would fail on this card; refusing here keeps the
+	// card out of queued and gives the caller the real reason.
+	if card.NeedsVetting() {
+		return nil, launchRefused(http.StatusForbidden, ErrCodeCardNotVetted,
+			"card not vetted", card.ID+" must be vetted by a human before an agent can run it")
+	}
+
 	// Get project config to retrieve repo URL and worker image.
 	projectCfg, err := h.svc.GetProject(ctx, project)
 	if err != nil {

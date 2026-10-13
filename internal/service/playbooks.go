@@ -53,7 +53,37 @@ var (
 	// be applied to one or more card entries; the message names them as
 	// project/card. Cards forced before the failure keep their settings.
 	ErrPlaybookCardForce = errors.New("could not apply playbook settings to cards")
+	// ErrPlaybookCardNotVetted is returned by make-runnable when a
+	// non-terminal card entry is imported content no human has vetted; the
+	// message names them as project/card.
+	ErrPlaybookCardNotVetted = errors.New("cards must be vetted before the playbook can run")
+	// ErrPlaybookMoveDuringRun is returned when an entry move is refused
+	// because the playbook has a running or waiting run.
+	ErrPlaybookMoveDuringRun = errors.New("entries cannot be reordered while the playbook run is active")
+	// ErrPlaybookUncheckDuringRun refuses unchecking a done manual entry while the run is running or waiting.
+	ErrPlaybookUncheckDuringRun = errors.New("entries cannot be unchecked while the playbook run is active")
+	// ErrCardReopenDuringRun refuses moving a card out of done or not_planned while a playbook holding it has an active run.
+	ErrCardReopenDuringRun = errors.New("card cannot be reopened while its playbook run is active")
 )
+
+// CardReopenError is the ErrCardReopenDuringRun refusal with the playbook
+// that caused it, so callers can name it without repeating the refusal.
+type CardReopenError struct {
+	Playbook string // the playbook's title
+}
+
+func (e *CardReopenError) Error() string {
+	return ErrCardReopenDuringRun.Error() + ": " + e.Remedy()
+}
+
+// Remedy is what the caller has to do before the card can be reopened.
+func (e *CardReopenError) Remedy() string {
+	return fmt.Sprintf("stop the run of playbook %q first", e.Playbook)
+}
+
+func (e *CardReopenError) Unwrap() error {
+	return ErrCardReopenDuringRun
+}
 
 // PlaybookStore is the persistence interface PlaybookService depends on.
 // Implemented by storage.FilesystemPlaybookStore.
@@ -840,7 +870,44 @@ func (s *PlaybookService) makeRunnable(ctx context.Context, p *board.Playbook, a
 		return nil, err
 	}
 
+	if err := s.validateVetted(ctx, p.Entries); err != nil {
+		return nil, err
+	}
+
 	return s.forceEntries(ctx, p, p.Entries, agentID)
+}
+
+// validateVetted names every non-terminal card entry that is imported content
+// no human has vetted, so make-runnable refuses before forcing anything.
+// AddEntry deliberately skips it: on a runnable playbook the runner holds the
+// run on such a card until it is vetted.
+func (s *PlaybookService) validateVetted(ctx context.Context, entries []board.PlaybookEntry) error {
+	var unvetted []string
+
+	for _, e := range entries {
+		if e.Type != board.EntryTypeCard {
+			continue
+		}
+
+		card, err := s.cards.GetCard(ctx, e.Project, e.Card)
+		if err != nil {
+			if errors.Is(err, storage.ErrCardNotFound) || errors.Is(err, storage.ErrProjectNotFound) {
+				continue
+			}
+
+			return fmt.Errorf("get card %s/%s: %w", e.Project, e.Card, err)
+		}
+
+		if !board.IsTerminalState(card.State) && card.NeedsVetting() {
+			unvetted = append(unvetted, e.Project+"/"+e.Card)
+		}
+	}
+
+	if len(unvetted) > 0 {
+		return fmt.Errorf("%w: %s", ErrPlaybookCardNotVetted, strings.Join(unvetted, ", "))
+	}
+
+	return nil
 }
 
 // validateRunnableEntries checks that each card entry's project has a GitHub
@@ -983,8 +1050,7 @@ func (s *PlaybookService) SetRunIf(
 			return nil
 		}
 
-		copied := *run
-		p.Run = &copied
+		p.Run = run.Clone()
 
 		return nil
 	})
@@ -1259,6 +1325,12 @@ func (s *PlaybookService) UpdateEntry(ctx context.Context, id, entryID string, i
 		}
 
 		if in.Done != nil {
+			// The runner acts on the first incomplete entry; one turning
+			// incomplete ahead of the live card would become a second frontier.
+			if !*in.Done && e.Done && p.RunActive() {
+				return fmt.Errorf("%w: stop the run to uncheck entries", ErrPlaybookUncheckDuringRun)
+			}
+
 			if *in.Done {
 				e.Done = true
 				e.DoneBy = agentID
@@ -1286,6 +1358,12 @@ func (s *PlaybookService) UpdateEntry(ctx context.Context, id, entryID string, i
 
 			if pos > len(p.Entries) {
 				pos = len(p.Entries)
+			}
+
+			// A pass walks the order it read before taking the write lock, so
+			// any reorder during a run can hand the runner a second frontier.
+			if pos != i && p.RunActive() {
+				return fmt.Errorf("%w: stop the run to reorder entries", ErrPlaybookMoveDuringRun)
 			}
 
 			p.Entries = slices.Insert(p.Entries, pos, moved)
@@ -1316,10 +1394,7 @@ func (s *PlaybookService) resolve(ctx context.Context, p *board.Playbook) (*Play
 		BaseBranch:  p.BaseBranch,
 	}
 
-	if p.Run != nil {
-		run := *p.Run
-		detail.Run = &run
-	}
+	detail.Run = p.Run.Clone()
 
 	if p.Runnable {
 		detail.Branch = p.Branch()

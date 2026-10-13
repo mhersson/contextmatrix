@@ -120,11 +120,12 @@ const (
 	// ENTRY_EXISTS -> 409 (duplicate card entry). RUN_ACTIVE -> 409 (change
 	// refused during a run, or a hand run on a card the run owns). LOCKED
 	// -> 409 (playbook-owned card setting changed by hand). CARD_OWNED,
-	// PROJECT_NO_REPO and CARD_FORCE_FAILED -> 422 (make-runnable
-	// validation; the last names the cards that would not take the
-	// settings, cards forced before them keep theirs). NOT_RUNNABLE ->
-	// 409 (run state on a playbook that is not runnable).
-	// RUN_INACTIVE -> 409 (stop with no active run).
+	// PROJECT_NO_REPO, CARD_NOT_VETTED and CARD_FORCE_FAILED -> 422
+	// (make-runnable validation; the last names the cards that would not
+	// take the settings, cards forced before them keep theirs).
+	// NOT_RUNNABLE -> 409 (run state on a playbook that is not runnable).
+	// RUN_INACTIVE -> 409 (stop with no active run). MOVE_DURING_RUN -> 409
+	// (entry reorder while a run is running or waiting).
 	ErrCodePlaybookNotFound      = "PLAYBOOK_NOT_FOUND"
 	ErrCodePlaybookEntryNotFound = "PLAYBOOK_ENTRY_NOT_FOUND"
 	ErrCodePlaybookEntryExists   = "PLAYBOOK_ENTRY_EXISTS"
@@ -132,9 +133,18 @@ const (
 	ErrCodePlaybookLocked        = "PLAYBOOK_LOCKED"
 	ErrCodePlaybookCardOwned     = "PLAYBOOK_CARD_OWNED"
 	ErrCodePlaybookProjectNoRepo = "PLAYBOOK_PROJECT_NO_REPO"
+	ErrCodePlaybookCardNotVetted = "PLAYBOOK_CARD_NOT_VETTED"
 	ErrCodePlaybookCardForce     = "PLAYBOOK_CARD_FORCE_FAILED"
 	ErrCodePlaybookNotRunnable   = "PLAYBOOK_NOT_RUNNABLE"
 	ErrCodePlaybookRunInactive   = "PLAYBOOK_RUN_INACTIVE"
+	ErrCodePlaybookMoveDuringRun = "PLAYBOOK_MOVE_DURING_RUN"
+
+	// PLAYBOOK_UNCHECK_DURING_RUN -> 409 (a done manual entry unchecked while
+	// a run is running or waiting). CARD_REOPEN_DURING_RUN -> 409 (a card
+	// leaving done or not_planned while a playbook holding it has such a run;
+	// details name the playbook).
+	ErrCodePlaybookUncheckDuringRun = "PLAYBOOK_UNCHECK_DURING_RUN"
+	ErrCodeCardReopenDuringRun      = "CARD_REOPEN_DURING_RUN"
 )
 
 // APIError is the standard error response format.
@@ -1179,6 +1189,15 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusConflict, ErrCodePlaybookEntryExists, "card already in playbook", sanitizeErrorDetails(err))
 	case errors.Is(err, service.ErrPlaybookRunActive):
 		writeError(w, http.StatusConflict, ErrCodePlaybookRunActive, "playbook run is active", sanitizeErrorDetails(err))
+	case errors.Is(err, service.ErrPlaybookMoveDuringRun):
+		writeError(w, http.StatusConflict, ErrCodePlaybookMoveDuringRun,
+			"entries cannot be reordered while the playbook run is active", "stop the run to reorder entries")
+	case errors.Is(err, service.ErrPlaybookUncheckDuringRun):
+		writeError(w, http.StatusConflict, ErrCodePlaybookUncheckDuringRun,
+			"entries cannot be unchecked while the playbook run is active", "stop the run to uncheck entries")
+	case errors.Is(err, service.ErrCardReopenDuringRun):
+		writeError(w, http.StatusConflict, ErrCodeCardReopenDuringRun,
+			"card cannot be reopened while its playbook run is active", reopenDetails(err))
 	case errors.Is(err, service.ErrPlaybookNotRunnable):
 		writeError(w, http.StatusConflict, ErrCodePlaybookNotRunnable, "playbook is not runnable", sanitizeErrorDetails(err))
 	case errors.Is(err, service.ErrPlaybookLocked):
@@ -1224,6 +1243,8 @@ func handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusUnprocessableEntity, ErrCodePlaybookCardOwned, "card belongs to another runnable playbook", sanitizeErrorDetails(err))
 	case errors.Is(err, service.ErrPlaybookProjectNoRepo):
 		writeError(w, http.StatusUnprocessableEntity, ErrCodePlaybookProjectNoRepo, "project has no GitHub repository", sanitizeErrorDetails(err))
+	case errors.Is(err, service.ErrPlaybookCardNotVetted):
+		writeError(w, http.StatusUnprocessableEntity, ErrCodePlaybookCardNotVetted, "cards must be vetted before the playbook can run", sanitizeErrorDetails(err))
 	case errors.Is(err, service.ErrPlaybookCardForce):
 		writeError(w, http.StatusUnprocessableEntity, ErrCodePlaybookCardForce, "could not apply playbook settings to cards", sanitizeErrorDetails(err))
 	case errors.Is(err, service.ErrInvalidPlaybookEntry), errors.Is(err, board.ErrInvalidPlaybook):

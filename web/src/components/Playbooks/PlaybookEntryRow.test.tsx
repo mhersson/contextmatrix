@@ -74,6 +74,20 @@ describe('PlaybookEntryRowView', () => {
     expect(screen.queryByText('queued')).not.toBeInTheDocument();
   });
 
+  it('shows the reason on the frontier row, not queued, when a run is held with no entry', () => {
+    renderRow({ id: 'e1', type: 'card', project: 'alpha', card: 'ALPHA-1', card_title: 'First', card_state: 'todo', complete: false },
+      { isFrontier: true, run: { status: 'waiting', started_at: 'x', updated_at: 'x', entry: '', reason: 'ALPHA-1 not vetted' } });
+    expect(screen.getByText('ALPHA-1 not vetted')).toBeInTheDocument();
+    expect(screen.queryByText('queued')).not.toBeInTheDocument();
+  });
+
+  it('keeps later rows queued without the reason during a vetting hold', () => {
+    renderRow({ id: 'e2', type: 'card', project: 'alpha', card: 'ALPHA-2', card_title: 'Second', card_state: 'todo', complete: false },
+      { isFrontier: false, run: { status: 'waiting', started_at: 'x', updated_at: 'x', entry: '', reason: 'ALPHA-1 not vetted' } });
+    expect(screen.getByText('queued')).toBeInTheDocument();
+    expect(screen.queryByText('ALPHA-1 not vetted')).not.toBeInTheDocument();
+  });
+
   it('shows nothing extra when no run is active', () => {
     renderRow({ id: 'e2', type: 'card', project: 'alpha', card: 'ALPHA-2', card_title: 'Second', card_state: 'todo', complete: false },
       { run: { status: 'stopped', started_at: 'x', updated_at: 'x' } });

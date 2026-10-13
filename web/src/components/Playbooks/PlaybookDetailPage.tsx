@@ -66,8 +66,9 @@ export function PlaybookDetailPage() {
   const describeApiError = (err: unknown, fallback: string) =>
     isAPIError(err) ? (err.details ? `${err.error}: ${err.details}` : err.error) : fallback;
 
-  // Writes an active run can refuse (409 PLAYBOOK_RUN_ACTIVE) show the
-  // server's own text; applyPatch keeps its one-line fallback for the rest.
+  // Writes an active run can refuse (409 PLAYBOOK_RUN_ACTIVE,
+  // PLAYBOOK_UNCHECK_DURING_RUN) show the server's own text; applyPatch keeps
+  // its one-line fallback for the rest.
   const applyGuarded = useCallback((promise: Promise<PlaybookDetail>, fallback: string) => {
     return promise.then(setDetail).catch((err: unknown) => {
       showToast(describeApiError(err, fallback), 'error');
@@ -118,8 +119,8 @@ export function PlaybookDetailPage() {
 
   const handleToggleDone = useCallback((entryId: string, done: boolean) => {
     if (!detail) return;
-    applyPatch(api.patchPlaybookEntry(detail.id, entryId, { done }));
-  }, [detail, applyPatch]);
+    applyGuarded(api.patchPlaybookEntry(detail.id, entryId, { done }), 'Update failed');
+  }, [detail, applyGuarded]);
 
   const handleSaveNote = useCallback((entryId: string, note: string) => {
     if (!detail) return;
@@ -154,7 +155,7 @@ export function PlaybookDetailPage() {
     setDetail({ ...detail, entries: arrayMoveLocal(detail.entries, from, to) });
     persistReorder(snapshot.id, snapshot, activeId, overId)
       .then((updated) => { if (updated) setDetail(updated); })
-      .catch(() => { showToast('Reorder failed', 'error'); fetchDetail(); });
+      .catch((err: unknown) => { showToast(describeApiError(err, 'Reorder failed'), 'error'); fetchDetail(); });
   }, [detail, showToast, fetchDetail]);
 
   const saveTitle = (value: string) => {

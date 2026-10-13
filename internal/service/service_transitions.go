@@ -71,6 +71,30 @@ func (s *CardService) applyTerminalInvariants(project string, card *board.Card, 
 	}
 }
 
+// refuseReopenDuringRun refuses moving card out of done or not_planned while
+// a playbook holding it has a running or waiting run: the runner would find a
+// new incomplete entry ahead of its live card. Every caller-requested state
+// change (transitionStep, applyCardMutation) runs it under writeMu. A listing
+// failure refuses rather than let the reopen through unchecked.
+func (s *CardService) refuseReopenDuringRun(ctx context.Context, card *board.Card, from, to string) error {
+	if s.playbooks == nil || !board.IsTerminalState(from) || board.IsTerminalState(to) {
+		return nil
+	}
+
+	playbooks, err := s.playbooks.List(ctx)
+	if err != nil {
+		return fmt.Errorf("check playbook runs: %w", err)
+	}
+
+	for _, p := range playbooks {
+		if p.RunActive() && p.HasCardEntry(card.Project, card.ID) {
+			return &CardReopenError{Playbook: p.Title}
+		}
+	}
+
+	return nil
+}
+
 // applyStateChangeSideEffects runs post-commit side effects that fire when a
 // card's State has changed. Currently this flushes any accumulated deferred
 // commits when the card reaches a state where no subsequent Release or

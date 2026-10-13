@@ -237,70 +237,74 @@ the request's `request_id`.
 
 **Error code / HTTP status mapping:**
 
-| Code                         | HTTP    | Meaning                                                                                                                                                                                    |
-|------------------------------|---------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `BAD_REQUEST`                | 400/403 | Malformed input or unknown filter value (400); missing CSRF header (403)                                                                                                                   |
-| `VALIDATION_ERROR`           | 422     | Mutation body semantically invalid. Also 400 for an unknown task-skill name, 409 for "last active admin" and "credential bound to projects", 404 for an unknown credential name            |
-| `UNAUTHORIZED`               | 401     | No or expired session (multi mode); bad bearer on `GET /api/worker/git-credentials`                                                                                                        |
-| `FORBIDDEN`                  | 403     | Authenticated but not admin, on an admin-gated route (multi mode)                                                                                                                          |
-| `RATE_LIMITED`               | 429     | Too many failed logins for one account+IP; `Retry-After` header set                                                                                                                        |
-| `LOGIN_BUSY`                 | 503     | argon2id concurrency gate saturated; `Retry-After: 1` header set                                                                                                                           |
-| `TOKEN_INVALID`              | 404/410 | One-time token unknown (404), or already redeemed/expired (410)                                                                                                                            |
-| `USER_NOT_FOUND`             | 404     | Unknown username on an admin user-management route                                                                                                                                         |
-| `PROJECT_NOT_FOUND`          | 404     | Project slug does not exist                                                                                                                                                                |
-| `PROJECT_EXISTS`             | 409     | Project slug already exists                                                                                                                                                                |
-| `PROJECT_HAS_CARDS`          | 409     | `DELETE /api/projects/{project}` on a project that still has cards                                                                                                                         |
-| `CARD_NOT_FOUND`             | 404     | Card ID does not exist in the project                                                                                                                                                      |
-| `CARD_EXISTS`                | 409     | Card ID collision on create                                                                                                                                                                |
-| `PARENT_NOT_FOUND`           | 404     | Referenced parent card does not exist                                                                                                                                                      |
-| `INVALID_TRANSITION`         | 409     | State transition not allowed by the project config; also a claim or promote on a terminal card                                                                                             |
-| `DEPENDENCIES_NOT_MET`       | 409     | `depends_on` references an unknown, cross-project, or self card, or would form a cycle                                                                                                     |
-| `ALREADY_CLAIMED`            | 409     | Card is claimed by another agent (on a shared board the details name the holding instance)                                                                                                 |
-| `NOT_CLAIMED`                | 409     | Release or force-release on a card with no claim                                                                                                                                           |
-| `AGENT_MISMATCH`             | 403     | Caller does not own the claim on the card                                                                                                                                                  |
-| `CARD_NOT_VETTED`            | 403     | Non-human claim on an external card with `vetted: false`                                                                                                                                   |
-| `HUMAN_ONLY_FIELD`           | 403     | Non-human caller on a human-only field or endpoint                                                                                                                                         |
-| `PROTECTED_BRANCH`           | 403     | MCP `report_push` targeted `main` / `master`                                                                                                                                               |
-| `REVIEW_ATTEMPTS_CAPPED`     | 409     | Review attempts limit reached                                                                                                                                                              |
-| `CHAT_NOT_FOUND`             | 404     | Chat session ID does not exist (or belongs to another user in multi mode)                                                                                                                  |
-| `INVALID_MODEL`              | 400     | Chat `model` not in the active model source                                                                                                                                                |
-| `TOO_MANY_CHATS`             | 429     | `chat.max_concurrent` reached, or 32 subscribers already on one chat stream                                                                                                                |
-| `TOO_MANY_SUBSCRIBERS`       | 429     | 128 concurrent `GET /api/events` subscribers already connected                                                                                                                             |
-| `WORKER_CONFLICT`            | 409     | Card already queued or running                                                                                                                                                             |
-| `WORKER_NOT_RUNNING`         | 409     | Card is not running; also a cold chat session                                                                                                                                              |
-| `BACKEND_DISABLED`           | 503     | No task backend (or no such backend) configured                                                                                                                                            |
-| `BACKEND_UNAVAILABLE`        | 502     | Backend webhook or probe failed                                                                                                                                                            |
-| `BACKEND_NOT_FOUND`          | 404     | `{backend}` is not `agent` or `chat`                                                                                                                                                       |
-| `INVALID_SIGNATURE`          | 403     | HMAC signature or `X-Webhook-Timestamp` missing, wrong, replayed, or outside the 5-minute skew window                                                                                      |
-| `CONTENT_TOO_LARGE`          | 413     | Message, request body, or image exceeds the size cap                                                                                                                                       |
-| `NO_GITHUB_REPO`             | 404     | Project `repo` is not a GitHub URL                                                                                                                                                         |
-| `SYNC_DISABLED`              | 503     | Sync trigger with no remote configured                                                                                                                                                     |
-| `SYNC_ERROR`                 | 500     | Sync cycle raised an error                                                                                                                                                                 |
-| `REMOTE_UNREACHABLE`         | 503     | Shared boards: a push-verified write could not reach the remote; the board is unchanged, retry                                                                                             |
-| `PLAYBOOK_NOT_FOUND`         | 404     | Unknown playbook id                                                                                                                                                                        |
-| `PLAYBOOK_ENTRY_NOT_FOUND`   | 404     | Unknown entry id                                                                                                                                                                           |
-| `PLAYBOOK_ENTRY_EXISTS`      | 409     | Duplicate `{project, card}` entry                                                                                                                                                          |
-| `PLAYBOOK_RUN_ACTIVE`        | 409     | `runnable: false` or `base_branch` while a run is `running` or `waiting`; a card's own run trigger while its owning playbook run is active                                                 |
-| `PLAYBOOK_RUN_INACTIVE`      | 409     | `POST .../stop` when the playbook has no active run                                                                                                                                        |
-| `PLAYBOOK_LOCKED`            | 409     | `PUT` or `PATCH` on a card changes one of the five fields a runnable playbook forces                                                                                                       |
-| `PLAYBOOK_NOT_RUNNABLE`      | 409     | An operation that requires `runnable: true` is called on a playbook that is not runnable                                                                                                   |
-| `PLAYBOOK_CARD_OWNED`        | 422     | `runnable: true` and a card entry already belongs to another runnable playbook                                                                                                             |
-| `PLAYBOOK_PROJECT_NO_REPO`   | 422     | `runnable: true` and a card entry's project has no GitHub repository URL                                                                                                                   |
-| `PLAYBOOK_CARD_FORCE_FAILED` | 422     | `runnable: true` and one or more card entries would not take the forced settings; `details` names them as `project/card`. Cards forced before them keep their settings; the flag stays off |
-| `IMAGE_NOT_FOUND`            | 404     | Unknown or malformed image id                                                                                                                                                              |
-| `IMAGE_UNSUPPORTED`          | 415     | Image format not png/jpeg/gif/webp (animated WebP lands here too)                                                                                                                          |
-| `IMAGE_ANIMATED`             | 415     | Multi-frame GIF                                                                                                                                                                            |
-| `IMAGE_MISSING_FILE`         | 400     | Multipart form missing the `file` field                                                                                                                                                    |
-| `IMAGE_INVALID_PAYLOAD`      | 400     | Malformed multipart body                                                                                                                                                                   |
-| `MODEL_NOT_BLACKLISTED`      | 404     | `DELETE /api/admin/model-blacklist/{slug}` for a slug not on the list                                                                                                                      |
-| `CATALOG_UNAVAILABLE`        | 503     | `GET /api/admin/selector/candidates` or `POST /api/admin/selector/preview` before the candidate catalog has refreshed once, or when none is configured                       |
-| `INTERNAL_ERROR`             | 500/502 | Unhandled server error (500); credential mint failure (502)                                                                                                                                |
+| Code                          | HTTP    | Meaning                                                                                                                                                                                    |
+|-------------------------------|---------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `BAD_REQUEST`                 | 400/403 | Malformed input or unknown filter value (400); missing CSRF header (403)                                                                                                                   |
+| `VALIDATION_ERROR`            | 422     | Mutation body semantically invalid. Also 400 for an unknown task-skill name, 409 for "last active admin" and "credential bound to projects", 404 for an unknown credential name            |
+| `UNAUTHORIZED`                | 401     | No or expired session (multi mode); bad bearer on `GET /api/worker/git-credentials`                                                                                                        |
+| `FORBIDDEN`                   | 403     | Authenticated but not admin, on an admin-gated route (multi mode)                                                                                                                          |
+| `RATE_LIMITED`                | 429     | Too many failed logins for one account+IP; `Retry-After` header set                                                                                                                        |
+| `LOGIN_BUSY`                  | 503     | argon2id concurrency gate saturated; `Retry-After: 1` header set                                                                                                                           |
+| `TOKEN_INVALID`               | 404/410 | One-time token unknown (404), or already redeemed/expired (410)                                                                                                                            |
+| `USER_NOT_FOUND`              | 404     | Unknown username on an admin user-management route                                                                                                                                         |
+| `PROJECT_NOT_FOUND`           | 404     | Project slug does not exist                                                                                                                                                                |
+| `PROJECT_EXISTS`              | 409     | Project slug already exists                                                                                                                                                                |
+| `PROJECT_HAS_CARDS`           | 409     | `DELETE /api/projects/{project}` on a project that still has cards                                                                                                                         |
+| `CARD_NOT_FOUND`              | 404     | Card ID does not exist in the project                                                                                                                                                      |
+| `CARD_EXISTS`                 | 409     | Card ID collision on create                                                                                                                                                                |
+| `PARENT_NOT_FOUND`            | 404     | Referenced parent card does not exist                                                                                                                                                      |
+| `INVALID_TRANSITION`          | 409     | State transition not allowed by the project config; also a claim or promote on a terminal card                                                                                             |
+| `DEPENDENCIES_NOT_MET`        | 409     | `depends_on` references an unknown, cross-project, or self card, or would form a cycle                                                                                                     |
+| `ALREADY_CLAIMED`             | 409     | Card is claimed by another agent (on a shared board the details name the holding instance)                                                                                                 |
+| `NOT_CLAIMED`                 | 409     | Release or force-release on a card with no claim                                                                                                                                           |
+| `AGENT_MISMATCH`              | 403     | Caller does not own the claim on the card                                                                                                                                                  |
+| `CARD_NOT_VETTED`             | 403     | Non-human claim, or `POST .../run` by any caller, on an external card with `vetted: false`                                                                                                 |
+| `HUMAN_ONLY_FIELD`            | 403     | Non-human caller on a human-only field or endpoint                                                                                                                                         |
+| `PROTECTED_BRANCH`            | 403     | MCP `report_push` targeted `main` / `master`                                                                                                                                               |
+| `REVIEW_ATTEMPTS_CAPPED`      | 409     | Review attempts limit reached                                                                                                                                                              |
+| `CHAT_NOT_FOUND`              | 404     | Chat session ID does not exist (or belongs to another user in multi mode)                                                                                                                  |
+| `INVALID_MODEL`               | 400     | Chat `model` not in the active model source                                                                                                                                                |
+| `TOO_MANY_CHATS`              | 429     | `chat.max_concurrent` reached, or 32 subscribers already on one chat stream                                                                                                                |
+| `TOO_MANY_SUBSCRIBERS`        | 429     | 128 concurrent `GET /api/events` subscribers already connected                                                                                                                             |
+| `WORKER_CONFLICT`             | 409     | Card already queued or running                                                                                                                                                             |
+| `WORKER_NOT_RUNNING`          | 409     | Card is not running; also a cold chat session                                                                                                                                              |
+| `BACKEND_DISABLED`            | 503     | No task backend (or no such backend) configured                                                                                                                                            |
+| `BACKEND_UNAVAILABLE`         | 502     | Backend webhook or probe failed                                                                                                                                                            |
+| `BACKEND_NOT_FOUND`           | 404     | `{backend}` is not `agent` or `chat`                                                                                                                                                       |
+| `INVALID_SIGNATURE`           | 403     | HMAC signature or `X-Webhook-Timestamp` missing, wrong, replayed, or outside the 5-minute skew window                                                                                      |
+| `CONTENT_TOO_LARGE`           | 413     | Message, request body, or image exceeds the size cap                                                                                                                                       |
+| `NO_GITHUB_REPO`              | 404     | Project `repo` is not a GitHub URL                                                                                                                                                         |
+| `SYNC_DISABLED`               | 503     | Sync trigger with no remote configured                                                                                                                                                     |
+| `SYNC_ERROR`                  | 500     | Sync cycle raised an error                                                                                                                                                                 |
+| `REMOTE_UNREACHABLE`          | 503     | Shared boards: a push-verified write could not reach the remote; the board is unchanged, retry                                                                                             |
+| `PLAYBOOK_NOT_FOUND`          | 404     | Unknown playbook id                                                                                                                                                                        |
+| `PLAYBOOK_ENTRY_NOT_FOUND`    | 404     | Unknown entry id                                                                                                                                                                           |
+| `PLAYBOOK_ENTRY_EXISTS`       | 409     | Duplicate `{project, card}` entry                                                                                                                                                          |
+| `PLAYBOOK_RUN_ACTIVE`         | 409     | `runnable: false` or `base_branch` while a run is `running` or `waiting`; a card's own run trigger while its owning playbook run is active                                                 |
+| `PLAYBOOK_RUN_INACTIVE`       | 409     | `POST .../stop` when the playbook has no active run                                                                                                                                        |
+| `PLAYBOOK_MOVE_DURING_RUN`    | 409     | `PATCH .../entries/{entryId}` with a `position` that moves the entry while a run is `running` or `waiting`                                                                                 |
+| `PLAYBOOK_UNCHECK_DURING_RUN` | 409     | `PATCH .../entries/{entryId}` with `done: false` on a done manual entry while a run is `running` or `waiting`                                                                              |
+| `CARD_REOPEN_DURING_RUN`      | 409     | A card would leave `done` or `not_planned` while a playbook holding it has a `running` or `waiting` run; `details` name the playbook                                                       |
+| `PLAYBOOK_LOCKED`             | 409     | `PUT` or `PATCH` on a card changes one of the five fields a runnable playbook forces                                                                                                       |
+| `PLAYBOOK_NOT_RUNNABLE`       | 409     | An operation that requires `runnable: true` is called on a playbook that is not runnable                                                                                                   |
+| `PLAYBOOK_CARD_OWNED`         | 422     | `runnable: true` and a card entry already belongs to another runnable playbook                                                                                                             |
+| `PLAYBOOK_PROJECT_NO_REPO`    | 422     | `runnable: true` and a card entry's project has no GitHub repository URL                                                                                                                   |
+| `PLAYBOOK_CARD_NOT_VETTED`    | 422     | `runnable: true` and a non-terminal card entry is imported content not yet vetted                                                                                                          |
+| `PLAYBOOK_CARD_FORCE_FAILED`  | 422     | `runnable: true` and one or more card entries would not take the forced settings; `details` names them as `project/card`. Cards forced before them keep their settings; the flag stays off |
+| `IMAGE_NOT_FOUND`             | 404     | Unknown or malformed image id                                                                                                                                                              |
+| `IMAGE_UNSUPPORTED`           | 415     | Image format not png/jpeg/gif/webp (animated WebP lands here too)                                                                                                                          |
+| `IMAGE_ANIMATED`              | 415     | Multi-frame GIF                                                                                                                                                                            |
+| `IMAGE_MISSING_FILE`          | 400     | Multipart form missing the `file` field                                                                                                                                                    |
+| `IMAGE_INVALID_PAYLOAD`       | 400     | Malformed multipart body                                                                                                                                                                   |
+| `MODEL_NOT_BLACKLISTED`       | 404     | `DELETE /api/admin/model-blacklist/{slug}` for a slug not on the list                                                                                                                      |
+| `CATALOG_UNAVAILABLE`         | 503     | `GET /api/admin/selector/candidates` or `POST /api/admin/selector/preview` before the candidate catalog has refreshed once, or when none is configured                                     |
+| `INTERNAL_ERROR`              | 500/502 | Unhandled server error (500); credential mint failure (502)                                                                                                                                |
 
 **Error codes relevant to vetting:**
 
 | Code               | HTTP | When                                                                                                                                                      |
 | ------------------ | ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `CARD_NOT_VETTED`  | 403  | A non-human agent calls `POST /claim` on a card with `source != null && vetted == false`.                                                                 |
+| `CARD_NOT_VETTED`  | 403  | A non-human agent calls `POST /claim`, or any caller calls `POST /run`, on a card with `source != null && vetted == false`.                               |
 | `HUMAN_ONLY_FIELD` | 403  | A caller without the `human:` prefix sets a human-only field on card create, PUT, or PATCH (list under § Card Endpoints), or calls a human-only endpoint. |
 
 ## Authentication (multi mode)
@@ -1211,13 +1215,16 @@ Full replacement. Accepts `title`, `type`, `state`, `priority`, `labels`,
 `max_capability`, and the three mob fields as plain values; every omitted
 field is written as its zero value (`skills` omitted resets to the project
 default). `phase` is the exception: omitted leaves it unchanged. A `state`
-change goes through transition validation.
+change goes through transition validation, and a card leaving `done` or
+`not_planned` is refused while a playbook holding it has a `running` or
+`waiting` run.
 
 **Response:** 200 with the full card.
 
 **Errors:** the create set plus 404 `CARD_NOT_FOUND`, 403 `AGENT_MISMATCH`
 (the card is claimed and the caller is not the owner, or sends no
-`X-Agent-ID`), 409 `INVALID_TRANSITION`, and 409 `DEPENDENCIES_NOT_MET`.
+`X-Agent-ID`), 409 `INVALID_TRANSITION`, 409 `DEPENDENCIES_NOT_MET`, and 409
+`CARD_REOPEN_DURING_RUN` (`details` name the playbook; stop its run first).
 
 ### PATCH /api/projects/{project}/cards/{id}
 
@@ -1914,9 +1921,11 @@ Response **200** with the full detail. **Errors:** 404
 (string) from human callers; agents get `403 HUMAN_ONLY_FIELD`. Setting
 `runnable: true` forces `autonomous`, `create_pr`, `await_ci`, `merge_pr` and
 `base_branch: playbook/<id>` on every non-terminal card entry; it fails with
-`422 PLAYBOOK_PROJECT_NO_REPO`, `422 PLAYBOOK_CARD_OWNED`, or
-`422 PLAYBOOK_CARD_FORCE_FAILED` (the cards that would not take the
-settings, named in `details`; cards forced before them keep their settings)
+`422 PLAYBOOK_PROJECT_NO_REPO`, `422 PLAYBOOK_CARD_OWNED`,
+`422 PLAYBOOK_CARD_NOT_VETTED` (non-terminal imported cards not yet vetted,
+named in `details`), or `422 PLAYBOOK_CARD_FORCE_FAILED` (the cards that would
+not take the settings, named in `details`; cards forced before them keep their
+settings)
 and leaves the flag off. `runnable: false` and `base_branch` return
 `409 PLAYBOOK_RUN_ACTIVE` while a run is running or waiting.
 
@@ -1963,7 +1972,11 @@ Patches one entry's `done`, `note`, `text`, or `position`. `done` and `text`
 apply only to manual entries; `note` to both. Checking `done` stamps
 `done_by`/`done_at` from the caller identity and server clock; unchecking
 clears both. `position` is the entry's final index after the move: values
-beyond the end clamp, negative is rejected.
+beyond the end clamp, negative is rejected. While a run is `running` or
+`waiting`, any `position` that moves the entry is refused; stop the run to
+reorder. A `position` equal to the current index is not a move. Likewise
+`done: false` on a done manual entry is refused while the run is active;
+stop the run to uncheck.
 
 ```json
 { "done": true }
@@ -1971,11 +1984,13 @@ beyond the end clamp, negative is rejected.
 
 Response **200** with the full detail.
 
-| Status | Code                       | When                                                             |
-| ------ | -------------------------- | ---------------------------------------------------------------- |
-| 404    | `PLAYBOOK_NOT_FOUND`       | Unknown playbook id                                              |
-| 404    | `PLAYBOOK_ENTRY_NOT_FOUND` | Unknown entry id                                                 |
-| 422    | `VALIDATION_ERROR`         | `done`/`text` on a card entry, empty `text`, negative `position` |
+| Status | Code                          | When                                                                |
+| ------ | ----------------------------- | ------------------------------------------------------------------- |
+| 404    | `PLAYBOOK_NOT_FOUND`          | Unknown playbook id                                                 |
+| 404    | `PLAYBOOK_ENTRY_NOT_FOUND`    | Unknown entry id                                                    |
+| 409    | `PLAYBOOK_MOVE_DURING_RUN`    | `position` moves the entry while a run is `running` or `waiting`    |
+| 409    | `PLAYBOOK_UNCHECK_DURING_RUN` | `done: false` on a done entry while a run is `running` or `waiting` |
+| 422    | `VALIDATION_ERROR`            | `done`/`text` on a card entry, empty `text`, negative `position`    |
 
 ### DELETE /api/playbooks/{id}/entries/{entryId}
 
@@ -1990,9 +2005,14 @@ cards - session in multi mode, else `X-Agent-ID`, falling back to
 
 ### POST /api/playbooks/{id}/run
 
-Play, or resume a `waiting`/`stopped` run. Human-only. Writes the run block
-with `status: running`, `entry` and `reason` cleared, `started_at` kept
-across a resume, and starts the walker. `202` with the playbook detail.
+Play starts a run, or resumes a `stopped` one. Human-only. A `running` or
+`waiting` run is refused with `409 PLAYBOOK_RUN_ACTIVE`; resume a `waiting`
+run with Stop, then Play. Writes the run block with `status: running` and
+`reason` cleared. `entry` is cleared unless a card entry still has a live
+worker (after a Stop whose kill failed, or a hand run made while stopped); then
+the run stays on that entry, preferring the stopped run's own, and waits for
+that worker before starting anything else. `started_at` is kept across a
+resume, and the walker starts. `202` with the playbook detail.
 Errors: `403 HUMAN_ONLY_FIELD`, `404 PLAYBOOK_NOT_FOUND`,
 `409 PLAYBOOK_NOT_RUNNABLE`, `409 PLAYBOOK_RUN_ACTIVE`, `503 BACKEND_DISABLED`.
 
@@ -2050,6 +2070,7 @@ asynchronously.
 | Status | Code                  | When                                                                                                       |
 | ------ | --------------------- | ---------------------------------------------------------------------------------------------------------- |
 | 403    | `HUMAN_ONLY_FIELD`    | Caller is not `human:`                                                                                     |
+| 403    | `CARD_NOT_VETTED`     | The card has a `source` and is not vetted                                                                  |
 | 409    | `INVALID_TRANSITION`  | Card is not in `todo`                                                                                      |
 | 409    | `WORKER_CONFLICT`     | Card is already `queued` or `running`                                                                      |
 | 409    | `VALIDATION_ERROR`    | The project's `github_credential` binding is broken (worker status reverts, activity entry `run-rejected`) |

@@ -4036,6 +4036,39 @@ func TestCreateCard_SubtaskTypeEnforcement(t *testing.T) {
 	}
 }
 
+// TestCreateCard_RejectsSubtaskWithoutParent pins the create-side half of the
+// subtask invariant: the type is reserved for cards with a parent, and a
+// refused create must not burn a card ID.
+func TestCreateCard_RejectsSubtaskWithoutParent(t *testing.T) {
+	tests := []struct {
+		name   string
+		parent string
+	}{
+		{"empty parent", ""},
+		{"whitespace parent", "   "},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, _, cleanup := setupTest(t)
+			defer cleanup()
+
+			ctx := context.Background()
+
+			_, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+				Title: "Orphan", Type: board.SubtaskType, Priority: "medium", Parent: tt.parent,
+			})
+			require.ErrorIs(t, err, board.ErrInvalidType)
+
+			card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{
+				Title: "Next", Type: "task", Priority: "medium",
+			})
+			require.NoError(t, err)
+			assert.Equal(t, "TEST-001", card.ID, "the refused create must not consume an ID")
+		})
+	}
+}
+
 // TestUpdateCard_SubtaskTypeEnforcement verifies that UpdateCard enforces subtask
 // type invariants: subtasks cannot change type, and non-subtasks cannot become subtasks.
 func TestUpdateCard_SubtaskTypeEnforcement(t *testing.T) {

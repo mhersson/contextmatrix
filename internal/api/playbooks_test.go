@@ -879,6 +879,110 @@ func TestPlaybooksAPI_RemoveEntryRefusedWhileRunActive(t *testing.T) {
 	assert.Equal(t, "e1", detail.Run.Entry)
 }
 
+func TestPlaybooksAPI_MoveDuringActiveRunIs409(t *testing.T) {
+	server, _, pbSvc, _ := lockedCardSetup(t, nil)
+	ctx := context.Background()
+
+	_, err := pbSvc.AddEntry(ctx, "rollout", service.PlaybookEntryInput{Type: board.EntryTypeManual, Text: "verify"}, "human:alice")
+	require.NoError(t, err)
+
+	now := time.Now().UTC()
+	_, err = pbSvc.SetRunIf(ctx, "rollout", nil, &board.PlaybookRun{
+		Status: board.RunStatusRunning, StartedAt: now, UpdatedAt: now, Entry: "e1",
+	}, "human:alice")
+	require.NoError(t, err)
+
+	resp := doJSON(t, http.MethodPatch, server.URL+"/api/playbooks/rollout/entries/e2", map[string]any{"position": 0}, "human:alice")
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusConflict, resp.StatusCode)
+
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodePlaybookMoveDuringRun, apiErr.Code)
+	// The page renders "<error>: <details>", so details must not repeat it.
+	assert.NotEmpty(t, apiErr.Details)
+	assert.NotContains(t, apiErr.Details, apiErr.Error)
+
+	getResp := doGet(t, server.URL+"/api/playbooks/rollout")
+	defer closeBody(t, getResp.Body)
+
+	var detail service.PlaybookDetail
+	require.NoError(t, json.NewDecoder(getResp.Body).Decode(&detail))
+	require.Len(t, detail.Entries, 2)
+	assert.Equal(t, "e1", detail.Entries[0].ID)
+	assert.Equal(t, "e2", detail.Entries[1].ID)
+}
+
+func TestPlaybooksAPI_UncheckDuringActiveRunIs409(t *testing.T) {
+	server, _, pbSvc, _ := lockedCardSetup(t, nil)
+	ctx := context.Background()
+
+	_, err := pbSvc.AddEntry(ctx, "rollout", service.PlaybookEntryInput{Type: board.EntryTypeManual, Text: "verify"}, "human:alice")
+	require.NoError(t, err)
+
+	_, err = pbSvc.UpdateEntry(ctx, "rollout", "e2", service.UpdateEntryInput{Done: new(true)}, "human:alice")
+	require.NoError(t, err)
+
+	now := time.Now().UTC()
+	_, err = pbSvc.SetRunIf(ctx, "rollout", nil, &board.PlaybookRun{
+		Status: board.RunStatusRunning, StartedAt: now, UpdatedAt: now, Entry: "e1",
+	}, "human:alice")
+	require.NoError(t, err)
+
+	resp := doJSON(t, http.MethodPatch, server.URL+"/api/playbooks/rollout/entries/e2", map[string]any{"done": false}, "human:alice")
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusConflict, resp.StatusCode)
+
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodePlaybookUncheckDuringRun, apiErr.Code)
+	// The page renders "<error>: <details>", so details must not repeat it.
+	assert.NotEmpty(t, apiErr.Details)
+	assert.NotContains(t, apiErr.Details, apiErr.Error)
+
+	getResp := doGet(t, server.URL+"/api/playbooks/rollout")
+	defer closeBody(t, getResp.Body)
+
+	var detail service.PlaybookDetail
+	require.NoError(t, json.NewDecoder(getResp.Body).Decode(&detail))
+	require.Len(t, detail.Entries, 2)
+	assert.True(t, detail.Entries[1].Done, "the refused uncheck leaves the entry checked")
+}
+
+func TestCardsAPI_ReopenDuringActivePlaybookRunIs409(t *testing.T) {
+	server, svc, pbSvc, card := lockedCardSetup(t, nil)
+	ctx := context.Background()
+
+	_, err := svc.TransitionTo(ctx, "test-project", card.ID, board.StateDone)
+	require.NoError(t, err)
+
+	now := time.Now().UTC()
+	_, err = pbSvc.SetRunIf(ctx, "rollout", nil, &board.PlaybookRun{
+		Status: board.RunStatusRunning, StartedAt: now, UpdatedAt: now,
+	}, "human:alice")
+	require.NoError(t, err)
+
+	base := server.URL + "/api/projects/test-project/cards/" + card.ID
+
+	resp := doJSON(t, http.MethodPatch, base, map[string]any{"state": "todo"}, "human:alice")
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusConflict, resp.StatusCode)
+
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodeCardReopenDuringRun, apiErr.Code)
+	// details name the playbook, not the refusal again.
+	assert.Contains(t, apiErr.Details, "Rollout")
+	assert.NotContains(t, apiErr.Details, apiErr.Error)
+
+	got, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, board.StateDone, got.State)
+}
+
 func TestRunCard_RefusedWhilePlaybookRunActive(t *testing.T) {
 	mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
@@ -957,4 +1061,39 @@ func TestPlaybooksAPI_MakeRunnableCardForceFailureIs422(t *testing.T) {
 	assert.Equal(t, ErrCodePlaybookCardForce, apiErr.Code)
 	assert.Contains(t, apiErr.Details, "test-project/"+card.ID)
 	assert.NotContains(t, apiErr.Details, "commit failed")
+}
+
+func TestPlaybooksAPI_MakeRunnableUnvetted(t *testing.T) {
+	svc, pbSvc, bus, cleanup := playbookTestSetup(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+		Title: "PROJ-1 Imported", Type: "task", Priority: "medium",
+		Source: &board.Source{System: "jira", ExternalID: "PROJ-1", ExternalURL: "https://acme.atlassian.net/browse/PROJ-1"},
+	})
+	require.NoError(t, err)
+
+	router := NewRouter(RouterConfig{Service: svc, Bus: bus, Playbooks: pbSvc})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	createResp := doJSON(t, http.MethodPost, server.URL+"/api/playbooks", map[string]any{
+		"title":   "Rollout",
+		"entries": []map[string]any{{"type": "card", "project": "test-project", "card": card.ID}},
+	}, "human:alice")
+	closeBody(t, createResp.Body)
+	require.Equal(t, http.StatusCreated, createResp.StatusCode)
+
+	resp := doJSON(t, http.MethodPatch, server.URL+"/api/playbooks/rollout", map[string]any{"runnable": true}, "human:alice")
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode)
+
+	var apiErr APIError
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+	assert.Equal(t, ErrCodePlaybookCardNotVetted, apiErr.Code)
+	assert.Contains(t, apiErr.Details, card.ID)
 }

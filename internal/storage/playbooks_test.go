@@ -250,3 +250,54 @@ func TestPlaybookStore_DeletePathTraversal(t *testing.T) {
 	err = store.Delete(context.Background(), "../../../evil")
 	assert.ErrorIs(t, err, ErrInvalidPath)
 }
+
+func TestPlaybookStore_CopiesRun(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewFilesystemPlaybookStore(dir)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	ended := time.Date(2026, 9, 6, 11, 0, 0, 0, time.UTC)
+
+	p := testPlaybook("run")
+	p.Runnable = true
+	p.Run = &board.PlaybookRun{
+		Status: board.RunStatusStopped, Reason: "stopped by human:alice",
+		StartedAt: ended.Add(-time.Hour), UpdatedAt: ended, EndedAt: &ended,
+	}
+	require.NoError(t, store.Create(ctx, p))
+
+	tests := []struct {
+		name string
+		read func() *board.Playbook
+	}{
+		{"get", func() *board.Playbook {
+			got, err := store.Get(ctx, "run")
+			require.NoError(t, err)
+
+			return got
+		}},
+		{"list", func() *board.Playbook {
+			list, err := store.List(ctx)
+			require.NoError(t, err)
+			require.Len(t, list, 1)
+
+			return list[0]
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.read()
+			got.Run.Status = board.RunStatusRunning
+			got.Run.Reason = "mutated"
+			*got.Run.EndedAt = ended.Add(time.Hour)
+
+			again, err := store.Get(ctx, "run")
+			require.NoError(t, err)
+			assert.Equal(t, board.RunStatusStopped, again.Run.Status)
+			assert.Equal(t, "stopped by human:alice", again.Run.Reason)
+			assert.Equal(t, ended, *again.Run.EndedAt, "a caller mutating its copy must not reach the cache")
+		})
+	}
+}

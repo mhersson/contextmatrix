@@ -39,7 +39,9 @@ export function PlaybookEntryRowView({
   const [editingText, setEditingText] = useState(false);
   const [textDraft, setTextDraft] = useState(entry.text ?? '');
   const chip = entryStateChip(entry);
-  const queued = isRunActive(run) && entry.type === 'card' && !entry.complete && !entry.missing && run?.entry !== entry.id;
+  // A run held on an unvetted card has an empty entry; the frontier row is the held card.
+  const heldHere = run?.status === 'waiting' && isFrontier && !run.entry;
+  const queued = isRunActive(run) && entry.type === 'card' && !entry.complete && !entry.missing && run?.entry !== entry.id && !heldHere;
 
   const rowmainClass = [
     'pb-rowmain flex-1 min-w-0 flex items-start gap-2',
@@ -134,7 +136,7 @@ export function PlaybookEntryRowView({
             )}
           </div>
 
-          {run?.status === 'waiting' && run.entry === entry.id && run.reason && (
+          {run?.status === 'waiting' && (run.entry === entry.id || heldHere) && run.reason && (
             <p className="text-xs mt-1" style={{ color: 'var(--yellow)' }}>{run.reason}</p>
           )}
 

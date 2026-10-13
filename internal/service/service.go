@@ -142,7 +142,8 @@ type CardService struct {
 	chatCostSummarizer atomic.Pointer[ChatCostSummarizer]
 
 	// playbooks is optional; when non-nil card reads annotate InPlaybooks
-	// from it. Wired via SetPlaybookLister once at startup, before serving.
+	// from it and reopens are checked against its runs. Wired via
+	// SetPlaybookLister once at startup, before serving.
 	playbooks PlaybookLister
 
 	// Per-project caches
@@ -152,13 +153,15 @@ type CardService struct {
 }
 
 // PlaybookLister is the slice of the playbook store card reads need to
-// annotate playbook membership. Implemented by storage.FilesystemPlaybookStore.
+// annotate playbook membership, and state changes need to refuse a reopen
+// during a run. Implemented by storage.FilesystemPlaybookStore.
 type PlaybookLister interface {
 	List(ctx context.Context) ([]*board.Playbook, error)
 }
 
-// SetPlaybookLister wires the playbook store into card reads. Nil-safe:
-// without a lister, InPlaybooks simply stays empty.
+// SetPlaybookLister wires the playbook store into card reads and state
+// changes. Nil-safe: without a lister, InPlaybooks stays empty and no reopen
+// is refused.
 func (s *CardService) SetPlaybookLister(l PlaybookLister) {
 	s.playbooks = l
 }
@@ -490,6 +493,10 @@ func (s *CardService) transitionStep(
 
 	if err := s.validator.ValidateTransition(cfg, oldState, state); err != nil {
 		return nil, fmt.Errorf("validate transition: %w", err)
+	}
+
+	if err := s.refuseReopenDuringRun(ctx, card, oldState, state); err != nil {
+		return nil, err
 	}
 
 	if state == board.StateInProgress {

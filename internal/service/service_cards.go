@@ -577,12 +577,32 @@ func (s *CardService) CreateCard(ctx context.Context, project string, input Crea
 	return card, nil
 }
 
+// validateCreateType rejects the built-in subtask type on a card created
+// without a parent. It runs before ID allocation so a refused create leaves
+// next_id untouched.
+func validateCreateType(input CreateCardInput) error {
+	if input.Type == board.SubtaskType && strings.TrimSpace(input.Parent) == "" {
+		return fmt.Errorf("validate card: %w", &board.ValidationError{
+			Err:     board.ErrInvalidType,
+			Field:   "type",
+			Value:   input.Type,
+			Message: "only cards with a parent can have type \"subtask\"",
+		})
+	}
+
+	return nil
+}
+
 // createCardLocked is CreateCard with writeMu held by the caller and the
 // commit path chosen by it. created is false when the dedupe guard returned
 // an existing subtask.
 func (s *CardService) createCardLocked(
 	ctx context.Context, project string, input CreateCardInput, commit commitFn,
 ) (*board.Card, bool, error) {
+	if err := validateCreateType(input); err != nil {
+		return nil, false, err
+	}
+
 	// Lock to ensure atomic ID generation.
 	s.mu.Lock()
 
@@ -1787,6 +1807,12 @@ func (s *CardService) applyCardMutation(
 
 	if stateChanged {
 		if err := s.fenced(snapshot); err != nil {
+			s.writeMu.Unlock()
+
+			return nil, err
+		}
+
+		if err := s.refuseReopenDuringRun(ctx, snapshot, oldState, card.State); err != nil {
 			s.writeMu.Unlock()
 
 			return nil, err

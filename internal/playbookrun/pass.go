@@ -34,6 +34,10 @@ func (r *Runner) pass(ctx context.Context, id string) bool {
 		return true
 	}
 
+	if r.holdOnLiveWorker(ctx, d) {
+		return false
+	}
+
 	for i := range d.Entries {
 		e := &d.Entries[i]
 		if e.Complete {
@@ -69,7 +73,7 @@ func (r *Runner) pass(ctx context.Context, id string) bool {
 			continue
 		}
 
-		if card.WorkerStatus == "queued" || card.WorkerStatus == "running" || r.cfg.Cards.ClaimedElsewhere(card) {
+		if r.workerLive(card) {
 			r.setRun(ctx, d, board.RunStatusRunning, e.ID, "")
 
 			return false
@@ -100,12 +104,56 @@ func (r *Runner) pass(ctx context.Context, id string) bool {
 			return false
 		}
 
+		// An unvetted import holds the run like a manual gate. The entry
+		// stays unset so the pass after a human vets the card launches it.
+		if card.NeedsVetting() {
+			r.setRun(ctx, d, board.RunStatusWaiting, "", card.ID+" not vetted")
+
+			return false
+		}
+
 		r.launchEntry(ctx, d, e, card)
 
 		return false
 	}
 
 	return r.setRun(ctx, d, board.RunStatusCompleted, "", "")
+}
+
+// holdOnLiveWorker keeps the run on its entry while that entry's card has a
+// live worker and reports whether it did. Stop kills only run.entry's worker,
+// so an entry turning incomplete ahead of it (a raced refusal, a peer's
+// merge, a deleted card) waits until that worker ends. A failed read falls
+// back to the stored-order walk.
+func (r *Runner) holdOnLiveWorker(ctx context.Context, d *service.PlaybookDetail) bool {
+	e := findEntry(d, d.Run.Entry)
+	if e == nil || e.Type != board.EntryTypeCard || e.Missing {
+		return false
+	}
+
+	card, err := r.cfg.Cards.GetCard(ctx, e.Project, e.Card)
+	if err != nil {
+		ctxlog.Logger(ctx).Warn("playbook run: run entry's card read failed, walking entries in order",
+			"playbook", d.ID, "project", e.Project, "card", e.Card, "error", err)
+
+		return false
+	}
+
+	// A terminal card's worker is finishing up; the walk moves past it as
+	// it always has.
+	if board.IsTerminalState(card.State) || !r.workerLive(card) {
+		return false
+	}
+
+	r.setRun(ctx, d, board.RunStatusRunning, e.ID, "")
+
+	return true
+}
+
+// workerLive reports whether card has a queued or running worker, or a claim
+// granted by another instance.
+func (r *Runner) workerLive(card *board.Card) bool {
+	return card.WorkerStatus == "queued" || card.WorkerStatus == "running" || r.cfg.Cards.ClaimedElsewhere(card)
 }
 
 // launchEntry brings the card back to todo when needed, re-asserts the

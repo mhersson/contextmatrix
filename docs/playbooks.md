@@ -56,9 +56,14 @@ page; the switch opens a warning that lists exactly what follows.
 
 ### Make runnable
 
-- Every card entry's project must have a GitHub repository URL, and no card
-  may already belong to another runnable playbook. Either fails the switch
-  with a message naming the offenders.
+- Every card entry's project must have a GitHub repository URL, no card may
+  already belong to another runnable playbook, and every non-terminal imported
+  card must be vetted. Each fails the switch with a message naming the
+  offenders (`PLAYBOOK_PROJECT_NO_REPO`, `PLAYBOOK_CARD_OWNED`,
+  `PLAYBOOK_CARD_NOT_VETTED`). A card added to a playbook that is already
+  runnable is not checked for vetting; the run waits on it instead.
+  Re-asserting runnable on an already-runnable playbook checks vetting too
+  and fails the same way, leaving the playbook runnable.
 - A card that will not take the five settings also fails the switch
   (`PLAYBOOK_CARD_FORCE_FAILED`, naming the cards); cards forced before it
   keep the settings while the playbook stays not runnable.
@@ -106,7 +111,7 @@ run:
   started_by: human:alice
   started_at: 2026-09-06T10:00:00Z
   updated_at: 2026-09-06T10:41:00Z
-  entry: e3                # current entry; empty once completed
+  entry: e3                # current entry; empty once completed or held on an unvetted card
   reason: "awaiting check-off"
 ```
 
@@ -126,6 +131,30 @@ Removing the run's current entry is refused (`409 PLAYBOOK_RUN_ACTIVE`)
 while the run is active; stop the run first. Other entries can be removed
 and the next pass finds a new frontier. Once the run is stopped or completed
 its former entry can be removed, which clears `entry` and `reason`.
+
+Entries cannot be reordered while the run is `running` or `waiting`
+(`409 PLAYBOOK_MOVE_DURING_RUN`): the runner walks the order it last read, so
+a reorder could make it launch a second card while the current one still
+runs. Stop the run to reorder. A `position` equal to the entry's current
+index is not a move.
+
+No entry may turn incomplete during a `running` or `waiting` run either, for
+the same reason:
+
+- Unchecking a done manual entry is refused
+  (`409 PLAYBOOK_UNCHECK_DURING_RUN`); stop the run to uncheck.
+- A card that is an entry of the playbook cannot leave `done` or
+  `not_planned` by any path (REST `PUT` or `PATCH`, MCP `transition_card` and
+  the other tools that change state): `409 CARD_REOPEN_DURING_RUN`, whose
+  details name the playbook. Stop its run first. Moves into a terminal state
+  and between non-terminal states are unaffected.
+
+Notes, text and checking off a manual entry stay allowed during a run.
+
+Behind the refusals, the runner holds on its current card while that card's
+worker is live: an entry that turns incomplete ahead of it anyway (a peer
+instance's merge on a shared board, a deleted card) is handled once that
+worker ends.
 
 ### Play and Stop
 
@@ -177,7 +206,8 @@ required on mutations for `created_by` and `done_by` attribution.
 | `remove_playbook_entry` | `DELETE /api/playbooks/{id}/entries/{entryId}`    | Removes one entry                                             |
 
 `position` is the entry's final index after the move; values past the end
-clamp, negative values are rejected. Setting `done` or `text` on a card entry
+clamp, negative values are rejected, and no move is accepted while a run is
+active (see [Run state](#run-state)). Setting `done` or `text` on a card entry
 fails with a validation error. Request and response bodies are in the
 [API reference](api-reference.md#playbook-endpoints).
 
