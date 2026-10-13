@@ -183,6 +183,8 @@ type PlaybookNext struct {
 	Project string `json:"project,omitempty"`
 	Card    string `json:"card,omitempty"`
 	Title   string `json:"title"`
+	// Unvetted marks a card whose title is untrusted imported text.
+	Unvetted bool `json:"unvetted,omitempty"`
 }
 
 // PlaybookRepoLink is one project repository a runnable playbook touches and
@@ -200,8 +202,11 @@ type PlaybookEntryDetail struct {
 	CardTitle         string `json:"card_title,omitempty"`
 	CardState         string `json:"card_state,omitempty"`
 	CardAssignedAgent string `json:"card_assigned_agent,omitempty"`
-	Missing           bool   `json:"missing,omitempty"`
-	Complete          bool   `json:"complete"`
+	// CardUnvetted is true for an imported card no human has vetted; its
+	// title is untrusted text.
+	CardUnvetted bool `json:"card_unvetted,omitempty"`
+	Missing      bool `json:"missing,omitempty"`
+	Complete     bool `json:"complete"`
 }
 
 // PlaybookDetail is the full playbook view: metadata plus every entry
@@ -1482,6 +1487,7 @@ func (s *PlaybookService) resolve(ctx context.Context, p *board.Playbook) (*Play
 				ed.CardTitle = card.Title
 				ed.CardState = card.State
 				ed.CardAssignedAgent = card.AssignedAgent
+				ed.CardUnvetted = card.NeedsVetting()
 				ed.Complete = board.IsTerminalState(card.State)
 			case errors.Is(err, storage.ErrCardNotFound), errors.Is(err, storage.ErrProjectNotFound):
 				ed.Missing = true
@@ -1589,7 +1595,7 @@ func SummarizeDetail(d *PlaybookDetail) PlaybookSummary {
 		}
 
 		if next == nil && !ed.Complete {
-			next = &PlaybookNext{Type: ed.Type, Project: ed.Project, Card: ed.Card, Title: ed.CardTitle}
+			next = &PlaybookNext{Type: ed.Type, Project: ed.Project, Card: ed.Card, Title: ed.CardTitle, Unvetted: ed.CardUnvetted}
 			if ed.Type == board.EntryTypeManual {
 				next.Title = ed.Text
 			}

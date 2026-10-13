@@ -37,7 +37,7 @@ type createPlaybookInput struct {
 }
 
 type listPlaybooksInput struct {
-	AgentID string `json:"agent_id,omitempty" jsonschema:"caller identity (accepted for client parity)"`
+	AgentID string `json:"agent_id,omitempty" jsonschema:"caller identity - unvetted external card titles are redacted for non-human callers"`
 }
 
 type listPlaybooksOutput struct {
@@ -45,7 +45,7 @@ type listPlaybooksOutput struct {
 }
 
 type getPlaybookInput struct {
-	AgentID string `json:"agent_id,omitempty" jsonschema:"caller identity (accepted for client parity)"`
+	AgentID string `json:"agent_id,omitempty" jsonschema:"caller identity - unvetted external card titles are redacted for non-human callers"`
 	ID      string `json:"id" jsonschema:"required,playbook id"`
 }
 
@@ -122,13 +122,18 @@ func registerListPlaybooks(server *mcp.Server, pb *service.PlaybookService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_playbooks",
 		Description: "List all playbooks with their slim list-view summary (per-entry status segments, project count, completion, manual gate indexes, next entry). A runnable playbook (runnable: true) can be played from the web UI, which runs its cards in order on a shared playbook branch; play, stop, runnable and base_branch are human-only and not exposed here.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ listPlaybooksInput) (*mcp.CallToolResult, listPlaybooksOutput, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input listPlaybooksInput) (*mcp.CallToolResult, listPlaybooksOutput, error) {
 		summaries, err := pb.List(ctx)
 		if err != nil {
 			return nil, listPlaybooksOutput{}, fmt.Errorf("list playbooks: %w", err)
 		}
 
-		return nil, listPlaybooksOutput{Playbooks: summaries}, nil
+		out := make([]service.PlaybookSummary, len(summaries))
+		for i, sm := range summaries {
+			out[i] = redactPlaybookSummary(sm, input.AgentID)
+		}
+
+		return nil, listPlaybooksOutput{Playbooks: out}, nil
 	})
 }
 
@@ -142,7 +147,7 @@ func registerGetPlaybook(server *mcp.Server, pb *service.PlaybookService) {
 			return nil, nil, fmt.Errorf("get playbook %s: %w", input.ID, err)
 		}
 
-		return nil, detail, nil
+		return nil, redactPlaybookDetail(detail, input.AgentID), nil
 	})
 }
 
@@ -164,7 +169,7 @@ func registerCreatePlaybook(server *mcp.Server, pb *service.PlaybookService) {
 			return nil, service.PlaybookSummary{}, remoteErr(fmt.Errorf("create playbook %s: %w", input.Title, err))
 		}
 
-		return nil, service.SummarizeDetail(detail), nil
+		return nil, redactPlaybookSummary(service.SummarizeDetail(detail), input.AgentID), nil
 	})
 }
 
@@ -181,7 +186,7 @@ func registerUpdatePlaybook(server *mcp.Server, pb *service.PlaybookService) {
 			return nil, service.PlaybookSummary{}, fmt.Errorf("update playbook %s: %w", input.ID, err)
 		}
 
-		return nil, service.SummarizeDetail(detail), nil
+		return nil, redactPlaybookSummary(service.SummarizeDetail(detail), input.AgentID), nil
 	})
 }
 
@@ -223,7 +228,7 @@ func registerAddPlaybookEntry(server *mcp.Server, pb *service.PlaybookService) {
 			return nil, service.PlaybookSummary{}, fmt.Errorf("add playbook entry to %s: %w", input.Playbook, err)
 		}
 
-		return nil, service.SummarizeDetail(detail), nil
+		return nil, redactPlaybookSummary(service.SummarizeDetail(detail), input.AgentID), nil
 	})
 }
 
@@ -239,7 +244,7 @@ func registerUpdatePlaybookEntry(server *mcp.Server, pb *service.PlaybookService
 			return nil, service.PlaybookSummary{}, fmt.Errorf("update playbook entry %s/%s: %w", input.Playbook, input.Entry, err)
 		}
 
-		return nil, service.SummarizeDetail(detail), nil
+		return nil, redactPlaybookSummary(service.SummarizeDetail(detail), input.AgentID), nil
 	})
 }
 
@@ -253,6 +258,6 @@ func registerRemovePlaybookEntry(server *mcp.Server, pb *service.PlaybookService
 			return nil, service.PlaybookSummary{}, fmt.Errorf("remove playbook entry %s/%s: %w", input.Playbook, input.Entry, err)
 		}
 
-		return nil, service.SummarizeDetail(detail), nil
+		return nil, redactPlaybookSummary(service.SummarizeDetail(detail), input.AgentID), nil
 	})
 }
