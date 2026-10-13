@@ -98,4 +98,11 @@ describe('NowRail', () => {
     // Sanity: the worker-cap denominator still lives in the Capacity meta.
     expect(screen.getByText(/3 \/ 8 containers/)).toBeInTheDocument();
   });
+
+  it('renders "backend unreachable" instead of the meter or "no cap set" when the backend is unreachable', () => {
+    render(<NowRail agents={agents} activityEntries={[]} maxAgents={5} runningContainers={3} backendReachable={false} />);
+    expect(screen.getByText(/backend unreachable/i)).toBeInTheDocument();
+    expect(screen.queryByText(/containers/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/no cap set/i)).not.toBeInTheDocument();
+  });
 });

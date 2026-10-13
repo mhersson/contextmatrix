@@ -14,6 +14,8 @@ interface NowRailProps {
   activityEntries: ActivityEntry[];
   maxAgents?: number;
   runningContainers?: number;
+  /** false when the last health poll failed; undefined (pre-poll) is treated as reachable. */
+  backendReachable?: boolean;
   hasBackfill?: boolean;
   className?: string;
 }
@@ -104,7 +106,7 @@ function relativeTime(iso: string): string {
  */
 const ACTIVITY_MAX = 8;
 
-export function NowRail({ agents, activityEntries, maxAgents, runningContainers, hasBackfill, className }: NowRailProps) {
+export function NowRail({ agents, activityEntries, maxAgents, runningContainers, backendReachable, hasBackfill, className }: NowRailProps) {
   // Clamp runningContainers to a non-negative finite integer. The server types
   // running_containers as Go int with no clamp, so undefined / null / NaN /
   // negative values must not leak into width: '<n>%' (invalid CSS hides the
@@ -159,9 +161,13 @@ export function NowRail({ agents, activityEntries, maxAgents, runningContainers,
       <div className="now-rail__section">
         <div className="now-rail__head">
           <span className="label">Capacity</span>
-          <span className="count">{containerCount} running</span>
+          {backendReachable !== false && <span className="count">{containerCount} running</span>}
         </div>
-        {showCapMeter ? (
+        {backendReachable === false ? (
+          <div className="cap-meta">
+            <span>backend unreachable</span>
+          </div>
+        ) : showCapMeter ? (
           <>
             <div className="cap-bar">
               <div className="cap-fill" style={{ width: `${capacityPct}%` }} />

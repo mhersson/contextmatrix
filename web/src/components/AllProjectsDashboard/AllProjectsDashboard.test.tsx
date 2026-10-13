@@ -19,6 +19,10 @@ vi.mock('../../api/client', () => ({
   isAPIError: () => false,
 }));
 
+vi.mock('../../hooks/useTheme', () => ({
+  useTheme: () => ({ boardsRepos: [] }),
+}));
+
 vi.mock('../../hooks/useSync', () => ({
   useSync: () => ({
     syncStatuses: [], syncStatus: null, statusFor: () => null, triggerSync: async () => {}, refresh: async () => {},

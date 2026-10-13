@@ -73,7 +73,7 @@ export function ProjectShell() {
 
   const dashboard = useDashboardPolling(project, REFRESH_INTERVAL);
   const activity = useActivityFeed(project);
-  const { maxAgents: maxWorkers, runningContainers } = useBackendHealth(REFRESH_INTERVAL);
+  const { maxAgents: maxWorkers, runningContainers, reachable: backendReachable } = useBackendHealth(REFRESH_INTERVAL);
 
   // In-render reset on project change. This pattern (a `prev*` state marker
   // compared in render) replaces a `useEffect(..., [project])` that called
@@ -282,6 +282,7 @@ export function ProjectShell() {
                       metricSeries={dashboard?.metric_series}
                       maxWorkers={maxWorkers}
                       runningContainers={runningContainers}
+                      backendReachable={backendReachable}
                       syncStatus={syncStatus}
                       syncRepoName={syncRepoName}
                       connected={connected}

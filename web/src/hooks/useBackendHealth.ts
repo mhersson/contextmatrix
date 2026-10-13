@@ -4,11 +4,14 @@ import { api } from '../api/client';
 export interface BackendHealthState {
   maxAgents: number | undefined;
   runningContainers: number | undefined;
+  /** undefined until the first poll settles; false after a failed poll. */
+  reachable: boolean | undefined;
 }
 
 export function useBackendHealth(intervalMs: number): BackendHealthState {
   const [maxAgents, setMaxAgents] = useState<number | undefined>(undefined);
   const [runningContainers, setRunningContainers] = useState<number | undefined>(undefined);
+  const [reachable, setReachable] = useState<boolean | undefined>(undefined);
 
   useEffect(() => {
     let cancelled = false;
@@ -25,11 +28,16 @@ export function useBackendHealth(intervalMs: number): BackendHealthState {
           if (cancelled || ctrl.signal.aborted) return;
           setMaxAgents(h.max_concurrent);
           setRunningContainers(h.running_containers);
+          setReachable(true);
         })
         .catch((err) => {
           if (ctrl.signal.aborted) return;
           if (err instanceof DOMException && err.name === 'AbortError') return;
           console.warn('backend health poll failed:', err);
+          // Counts from an earlier poll must not outlive the backend they described.
+          setMaxAgents(undefined);
+          setRunningContainers(undefined);
+          setReachable(false);
         });
     };
     fetchBackendHealth();
@@ -46,5 +54,5 @@ export function useBackendHealth(intervalMs: number): BackendHealthState {
     };
   }, [intervalMs]);
 
-  return { maxAgents, runningContainers };
+  return { maxAgents, runningContainers, reachable };
 }

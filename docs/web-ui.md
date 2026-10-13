@@ -93,6 +93,9 @@ Drag-to-reorder rules:
 - **Per project**: the board header carries a metrics ribbon (Active agents,
   In flight, Stalled, Shipped today, Shipped 7d with sparklines) and a rail of
   the agents currently working, fed by `GET /api/projects/{project}/dashboard`.
+  The rail's Capacity section shows running worker containers against the
+  backend cap from `GET /api/backend/health`, and reads "backend unreachable"
+  whenever the last poll failed.
 - **All projects** (`/all`): KPI tiles (Open tasks, In progress, Done today,
   Cost 30d, Chat cost 30d), agents on duty, cost by model for the last 30 days
   (a card is attributed to the model it used last), a projects table, an
@@ -269,7 +272,7 @@ Shortcuts are ignored while typing in a field and when a modifier is held.
 | `b`            | Back to the board                                 |
 | `s`            | Project settings                                  |
 | `c`            | Toggle the execution console                      |
-| `1` to `9`     | Switch to the nth project in the sidebar          |
+| `1` to `9`     | Switch to the nth project in the sidebar (repo group, then name) |
 | `Escape`       | Close the open panel; with none open, clear filters and search |
 | `Ctrl`/`Cmd`+`S` | Save the open card panel                        |
 

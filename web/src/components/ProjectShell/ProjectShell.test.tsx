@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, act, waitFor, within } from '@testing-library/react';
-import { MemoryRouter, Route, Routes, useNavigate, useSearchParams } from 'react-router';
+import { MemoryRouter, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router';
 import { ProjectShell } from './ProjectShell';
 import { useToast } from '../../hooks/useToast';
+import { useProjects } from '../../hooks/useProjects';
+import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 import type { Card, CreateCardInput, ProjectConfig } from '../../types';
 
 // ---------------------------------------------------------------------------
@@ -959,5 +961,37 @@ describe('ProjectShell - footer sync button', () => {
     } finally {
       vi.mocked(useBoard).mockImplementation(previous!);
     }
+  });
+});
+
+describe('ProjectShell - project number shortcuts', () => {
+  it('binds key 2 to the second project of the provider list', () => {
+    const proj = (name: string) => ({ name, prefix: name.toUpperCase(), next_id: 1, states: [], types: [], priorities: [], transitions: {} });
+    vi.mocked(useProjects).mockReturnValue({
+      projects: [proj('test'), proj('second')],
+      loading: false,
+      error: null,
+      connected: true,
+      refreshProjects: vi.fn(),
+    });
+    function Where() {
+      return <div data-testid="where">{useLocation().pathname}</div>;
+    }
+    render(
+      <MemoryRouter initialEntries={['/projects/test']}>
+        <Where />
+        <Routes>
+          <Route path="/projects/:project/*" element={<ProjectShell />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const calls = vi.mocked(useKeyboardShortcuts).mock.calls;
+    const shortcuts = calls[calls.length - 1][0];
+    act(() => {
+      shortcuts.find((sc) => sc.key === '2')!.handler();
+    });
+
+    expect(screen.getByTestId('where')).toHaveTextContent('/projects/second');
   });
 });

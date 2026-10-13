@@ -74,6 +74,7 @@ interface BoardProps {
   metricSeries?: MetricSeries;
   maxWorkers?: number;
   runningContainers?: number;
+  backendReachable?: boolean;
   syncStatus?: SyncStatus | null;
   /** Name of the boards repo syncStatus describes; shown in the footer label with two or more repos. */
   syncRepoName?: string;
@@ -120,6 +121,7 @@ export function Board({
   metricSeries,
   maxWorkers,
   runningContainers,
+  backendReachable,
   syncStatus,
   syncRepoName,
   connected,
@@ -636,6 +638,7 @@ export function Board({
               activityEntries={activityEntries}
               maxAgents={maxWorkers}
               runningContainers={runningContainers}
+              backendReachable={backendReachable}
               hasBackfill={activityBackfillLoaded}
               className={isMobile ? 'animate-panel-slide-in' : undefined}
             />
