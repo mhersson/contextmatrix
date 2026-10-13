@@ -41,11 +41,9 @@ or chat execution.
 | **[contextmatrix-agent](https://github.com/mhersson/contextmatrix-agent)** | Task backend. A Go harness with per-role model selection over **OpenRouter** or any OpenAI-compatible gateway. Executes cards only. |
 | **[contextmatrix-chat](https://github.com/mhersson/contextmatrix-chat)**   | Chat backend for the global `/chat` surface: long-lived, board-aware sessions on the same LLM endpoint.                              |
 
-Four shared Go modules underpin them:
+Three shared Go modules underpin them:
 [contextmatrix-protocol](https://github.com/mhersson/contextmatrix-protocol)
 (webhook wire types),
-[contextmatrix-githubauth](https://github.com/mhersson/contextmatrix-githubauth)
-(GitHub App and PAT auth),
 [contextmatrix-harness](https://github.com/mhersson/contextmatrix-harness)
 (the agentic tool-use loop), and
 [contextmatrix-backendkit](https://github.com/mhersson/contextmatrix-backendkit)

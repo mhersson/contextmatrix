@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	githubauth "github.com/mhersson/contextmatrix-githubauth"
 	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
+	"github.com/mhersson/contextmatrix/internal/githubauth"
 )
 
 // Callback request bodies are protocol-owned; aliased so handlers keep their local names.

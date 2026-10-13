@@ -3,9 +3,9 @@ package api
 import (
 	"net/http"
 
-	githubauth "github.com/mhersson/contextmatrix-githubauth"
 	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/backend"
+	"github.com/mhersson/contextmatrix/internal/githubauth"
 )
 
 // chatBackendHandlers serves the HMAC-signed callbacks the dedicated chat

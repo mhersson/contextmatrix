@@ -16,7 +16,7 @@ import (
 	"time"
 	"unicode"
 
-	githubauth "github.com/mhersson/contextmatrix-githubauth"
+	"github.com/mhersson/contextmatrix/internal/githubauth"
 	"github.com/mhersson/contextmatrix/internal/metrics"
 )
 
