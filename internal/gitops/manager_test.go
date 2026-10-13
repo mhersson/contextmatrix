@@ -1370,3 +1370,31 @@ func TestCommitDirty(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, clean, "tree must be clean after sweep: %v", dirty)
 }
+
+func TestCheckReadable(t *testing.T) {
+	t.Run("fresh repo with no commits", func(t *testing.T) {
+		mgr, err := NewManager(t.TempDir(), "", "test", staticTestProvider(t))
+		require.NoError(t, err)
+
+		require.NoError(t, mgr.CheckReadable())
+	})
+
+	t.Run("repo with commits", func(t *testing.T) {
+		dir := t.TempDir()
+		mgr, err := NewManager(dir, "", "test", staticTestProvider(t))
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "init.txt"), []byte("init"), 0o644))
+		require.NoError(t, mgr.CommitFile(context.Background(), "init.txt", "initial commit"))
+
+		require.NoError(t, mgr.CheckReadable())
+	})
+
+	t.Run("missing HEAD", func(t *testing.T) {
+		dir := t.TempDir()
+		mgr, err := NewManager(dir, "", "test", staticTestProvider(t))
+		require.NoError(t, err)
+		require.NoError(t, os.Remove(filepath.Join(dir, ".git", "HEAD")))
+
+		require.Error(t, mgr.CheckReadable())
+	})
+}
