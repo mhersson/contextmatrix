@@ -246,8 +246,12 @@ Notes:
   `CONTEXTMATRIX_AUTH_MASTER_KEY_FILE` is unset, CM auto-generates one under
   `$XDG_STATE_HOME/contextmatrix/` (the `/home/nobody` `emptyDir` here), which
   a pod restart wipes, leaving the pool undecryptable. Always mount a real key.
-  Rotate it with `contextmatrix auth rotate-master-key`; recover a locked-out
-  admin with `contextmatrix auth reset-admin <username>`.
+  Recover a locked-out admin with
+  `contextmatrix auth reset-admin --config /data/config.yaml <username>`.
+  `contextmatrix auth rotate-master-key --config PATH` rewrites the key file
+  and re-encrypts the pool in `auth.db`, so it fails against this read-only
+  Secret mount: run it on a copy of both, then update the Secret and restore
+  `auth.db`.
 - **Shared boards need a stable instance ID.** With `boards.shared: true`, CM
   identifies itself by `instance.id`, generated once and persisted under the
   state dir. In this manifest that dir is an `emptyDir`, so set

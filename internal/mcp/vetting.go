@@ -119,11 +119,9 @@ func summarizeCardsForAgent(cards []*board.Card, agentID string) []*CardSummary 
 // inside an agent context - so an empty agent identity is implied and unvetted
 // cards are always redacted before the skill content is rendered.
 //
-// The redaction covers every field whose content may carry prompt-injection
-// payloads: Body, Title, ActivityLog entries, Source.ExternalURL, and the
-// free-form Context slice. Structural metadata (ID, State, Type, Priority) is
-// preserved - the agent still needs to know the card exists and is blocked
-// on vetting.
+// The redacted field list is redactUntrustedFields. Structural metadata (ID,
+// State, Type, Priority) is preserved - the agent still needs to know the card
+// exists and is blocked on vetting.
 //
 // When the card is safe to render in full (vetted), the original pointer is
 // returned unchanged so callers avoid a copy.
