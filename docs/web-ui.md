@@ -28,9 +28,14 @@ Every view updates live from one Server-Sent Events stream per tab
   ignored. Mouse drags start after 5 px, touch drags after a 250 ms hold.
 - **Card detail panel** opens on click. Tabs: Chat (only while a session is
   live), Automation, Info, Danger. `Escape` closes, `Ctrl`/`Cmd`+`S` saves.
-- **Card bodies and chat messages** render as GitHub-flavoured markdown. Raw
-  HTML, including HTML comments, shows as literal text, never as live markup
-  or hidden content: bodies arrive from agents and from GitHub and Jira
+- **Card bodies and chat messages** render as GitHub-flavoured markdown through
+  an allowlist sanitizer. Safe HTML renders (images over http, https or a
+  relative path, `<details>`/`<summary>`, `<br>`, `<kbd>`, `<sub>`/`<sup>`,
+  tables); scripts, styles, event handlers, forms and frames never become
+  live, and the text inside a disallowed element stays visible. HTML comments
+  show as literal text so nothing is hidden from the human vetting a card,
+  except CM's own `<!-- cm:meta ... -->` machine markers (and the legacy
+  `<!-- cm:tier=... -->`). Bodies arrive from agents and from GitHub and Jira
   imports.
 - **Models used** (Info tab) answers what a card cost and where it went: the
   total including subtasks; a cost bar and legend split by role (review,

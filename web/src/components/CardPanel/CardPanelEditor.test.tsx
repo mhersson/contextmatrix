@@ -3,9 +3,11 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { CardPanelEditor } from './CardPanelEditor';
 import {
   RAW_HTML_BODY,
+  RICH_HTML_BODY,
   SAFE_MARKDOWN_BODY,
   expectMarkdownRendered,
   expectRawHtmlInert,
+  expectRichHtmlRendered,
 } from '../../test-utils/markdownSafety';
 
 vi.mock('../../hooks/useTheme', () => ({
@@ -48,6 +50,10 @@ describe('CardPanelEditor read-only view', () => {
   it('renders headings, links and code', async () => {
     expectMarkdownRendered(await renderReadOnly(SAFE_MARKDOWN_BODY));
   });
+
+  it('renders allowlisted HTML', async () => {
+    expectRichHtmlRendered(await renderReadOnly(RICH_HTML_BODY));
+  });
 });
 
 describe('CardPanelEditor editor preview', () => {
@@ -57,5 +63,9 @@ describe('CardPanelEditor editor preview', () => {
 
   it('renders headings, links and code', async () => {
     expectMarkdownRendered(await renderEditorPreview(SAFE_MARKDOWN_BODY));
+  });
+
+  it('renders allowlisted HTML', async () => {
+    expectRichHtmlRendered(await renderEditorPreview(RICH_HTML_BODY));
   });
 });

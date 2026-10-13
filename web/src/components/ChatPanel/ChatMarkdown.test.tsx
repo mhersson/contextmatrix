@@ -3,9 +3,11 @@ import { render, waitFor } from '@testing-library/react';
 import { ChatMarkdown } from './ChatMarkdown';
 import {
   RAW_HTML_BODY,
+  RICH_HTML_BODY,
   SAFE_MARKDOWN_BODY,
   expectMarkdownRendered,
   expectRawHtmlInert,
+  expectRichHtmlRendered,
 } from '../../test-utils/markdownSafety';
 
 // Renders the real markdown library: the Suspense fallback is plain text, so
@@ -29,5 +31,9 @@ describe('ChatMarkdown', () => {
 
   it('renders headings, links and code', async () => {
     expectMarkdownRendered(await renderMarkdown(SAFE_MARKDOWN_BODY));
+  });
+
+  it('renders allowlisted HTML', async () => {
+    expectRichHtmlRendered(await renderMarkdown(RICH_HTML_BODY));
   });
 });
