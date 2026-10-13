@@ -25,8 +25,10 @@ button answers `403 CARD_NOT_VETTED` until a human ticks **Content vetted**.
 
 ## HITL runs
 
-- The worker starts plan drafting immediately and pauses at its gates: plan
-  approval, the execution decision, and review.
+- The worker starts plan drafting immediately and pauses at two gates: plan
+  approval and the review decision. A reply that is not an approval is treated
+  as feedback and the phase loops. A creative card (neither pure maintenance
+  nor bug-like) also opens a brainstorm dialogue before planning.
 - The card's **Chat** tab shows the live transcript with a compose row while
   the worker runs. Messages are capped at 8 KiB.
 - **Switch to Autonomous** in the chat footer promotes the session: the card's
@@ -47,23 +49,24 @@ tab, captioned "Autonomous run - read-only" while running and "Session ended -
 read-only" afterwards. A card claimed through another instance shows
 "Running on <instance> - read-only".
 
-## Fast path
+## Labels
 
-A card labeled `simple` with no existing subtasks is classified
-`Complexity: simple` when the workflow skill is built. The agent then skips
-planning, subtask creation, documentation and review: claim, feature branch,
-do the work, run the project's tests (one fix-and-retry), commit, push, PR
-when `create_pr` is on, `report_push`, PR gates, `report_usage`, `done`,
-release. Claims, heartbeats, tests, branch protection and release are never
-skipped. A card that already has subtasks is `standard` regardless of label.
+The agent backend always runs its code-driven phases; no label skips planning,
+subtasks, documentation or review. The `simple`, `chore`, `dependencies` and
+`infra` labels, together with a mechanical title verb (`bump`, `update`,
+`rename`, `move`, `pin`, `upgrade`, `downgrade`), mark a card as pure
+maintenance, which skips the root-cause investigation that bug-like cards get
+before planning. The `simple` fast path that skips planning and review belongs
+to the local `run-autonomous` workflow skill; see
+[agent workflow](agent-workflow.md#autonomous-mode).
 
 ## Guardrails
 
 | Guardrail            | Rule                                                                 |
 | -------------------- | -------------------------------------------------------------------- |
 | Branch protection    | `report_push` returns a hard error for `main` or `master`. Skills also forbid the push itself. |
-| Review cycles        | `run-autonomous` budgets 3 passes: at `review_attempts >= 3` it files follow-up cards, logs `review_exhausted`, moves the card to `stalled` and halts. `create-plan` halts at the same count. |
-| Server ceiling       | `increment_review_attempts` refuses once `review_attempts` reaches 7. |
+| Review cycles        | The review loop runs up to 3 rounds by default (the backend's review attempts cap, at most 6), then one authoritative pass; if findings remain it parks the card (see [Parked cards](#parked-cards)) instead of looping on. The local `run-autonomous` skill has its own 3-pass budget that stalls the card. |
+| Server ceiling       | `increment_review_attempts` refuses once `review_attempts` reaches 7; the backend parks the card when it does. |
 | Stall detection      | No heartbeat for `heartbeat_timeout` (default 30m, scanned every `stalled_check_interval`, default 1m) moves the card to `stalled` and clears the claim. Any card mutation refreshes the heartbeat. |
 | Sub-agent health     | `check_agent_health` reports `warning` at half the timeout and `stalled` at the timeout; `await_subtasks` returns as soon as a subtask stalls. |
 
@@ -212,8 +215,9 @@ first run in a repository.
 ## Cost tracking
 
 Workers call `report_usage` with prompt, completion and cache tokens, the
-model, an optional provider-reported cost, and whether the counts are
-self-estimated or collector-measured. Rates come from `token_costs` or the
+model, an optional provider-reported cost, and a `source`. The agent backend
+is the only collector: its calls carry measured counts. Skills and interactive
+callers report estimates and omit `source`. Rates come from `token_costs` or the
 endpoint catalog. Where it shows:
 
 - Card **Info** tab, "Models used": a total that includes subtasks, a cost
