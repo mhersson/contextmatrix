@@ -452,7 +452,7 @@ func roleFromLogType(typ string) Role {
 	}
 }
 
-// handleUsageEntry processes a Claude stream-json usage block reported by the
+// handleUsageEntry processes a per-turn usage entry reported by the
 // backend. Each frame carries per-turn (per-assistant-message) token counts -
 // NOT cumulative session totals. The values are passed directly to
 // IncrementSessionCost, which atomically accumulates them into the session row.

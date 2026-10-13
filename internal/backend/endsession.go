@@ -156,8 +156,7 @@ func endSessionAndKill(ctx context.Context, client EndSessionClient, logger *slo
 	// (non-interactive) containers, where stdin was never attached - the
 	// webhook returns 409 and we fall through to the kill step below. For
 	// interactive containers where stdin is still open it signals EOF to
-	// claude; claude may or may not exit on EOF (stream-json mode has been
-	// observed keeping the process alive well past EOF), so we always follow
+	// the worker; the worker may not exit promptly on EOF, so we always follow
 	// up with a force-kill below to guarantee the container is gone.
 	endSessionErr := client.EndSession(ctx, EndSessionPayload{CardID: cardID, Project: project})
 	if endSessionErr != nil && !isExpectedEndSessionErr(endSessionErr) {
