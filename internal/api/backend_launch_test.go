@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/backend"
@@ -32,6 +33,11 @@ type captureBackend struct {
 	// or the request ends; triggerEntered gets a non-blocking send first.
 	holdTriggers   chan struct{}
 	triggerEntered chan struct{}
+
+	// killDelay delays every /kill response; killEntered gets a non-blocking
+	// send first.
+	killDelay   time.Duration
+	killEntered chan struct{}
 }
 
 func newCaptureBackend(t *testing.T) *captureBackend {
@@ -56,6 +62,21 @@ func newCaptureBackend(t *testing.T) *captureBackend {
 					return
 				}
 			}
+		}
+
+		if r.URL.Path == "/kill" {
+			cb.mu.Lock()
+			delay, entered := cb.killDelay, cb.killEntered
+			cb.mu.Unlock()
+
+			if entered != nil {
+				select {
+				case entered <- struct{}{}:
+				default:
+				}
+			}
+
+			time.Sleep(delay)
 		}
 
 		cb.mu.Lock()

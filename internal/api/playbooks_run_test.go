@@ -40,7 +40,7 @@ func runnablePlaybookServerCancellable(t *testing.T) (
 
 	var runner *playbookrun.Runner
 
-	server, cb, svc, _, card := runnablePlaybookServerOpts(ctx, t, func(svc *service.CardService) playbookrun.Cards { return svc }, &runner)
+	server, cb, svc, _, card := runnablePlaybookServerOpts(ctx, t, func(svc *service.CardService) playbookrun.Cards { return svc }, &runner, 0)
 
 	return server, cb, svc, runner, card, cancel
 }
@@ -52,13 +52,15 @@ func runnablePlaybookServerWith(
 ) (*httptest.Server, *captureBackend, *service.CardService, *service.PlaybookService, *board.Card) {
 	t.Helper()
 
-	return runnablePlaybookServerOpts(t.Context(), t, wrap, nil)
+	return runnablePlaybookServerOpts(t.Context(), t, wrap, nil, 0)
 }
 
 // runnablePlaybookServerOpts starts the runner on startCtx and, when out is
-// non-nil, hands the runner back through it.
+// non-nil, hands the runner back through it. A non-zero writeTimeout is set
+// as the test server's WriteTimeout.
 func runnablePlaybookServerOpts(
 	startCtx context.Context, t *testing.T, wrap func(*service.CardService) playbookrun.Cards, out **playbookrun.Runner,
+	writeTimeout time.Duration,
 ) (*httptest.Server, *captureBackend, *service.CardService, *service.PlaybookService, *board.Card) {
 	t.Helper()
 
@@ -74,7 +76,9 @@ func runnablePlaybookServerOpts(
 		Service: svc, Bus: bus, Playbooks: pbSvc, PlaybookRunner: runner,
 		Backend: cb.client(), AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"}, MCPAPIKey: "test-mcp-key",
 	})
-	server := httptest.NewServer(router)
+	server := httptest.NewUnstartedServer(router)
+	server.Config.WriteTimeout = writeTimeout
+	server.Start()
 	t.Cleanup(server.Close)
 
 	// Start after the router, which wires the launcher and stopper. Until it
@@ -597,4 +601,82 @@ func TestPlaybooksAPI_ShutdownMidTriggerRevertsTheCard(t *testing.T) {
 	got, err := svc.GetCard(context.Background(), "test-project", card.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "failed", got.WorkerStatus)
+}
+
+// TestPlaybooksAPI_StopAndQueuedPlayOutlastTheWriteTimeout: a Stop that waits
+// on slow kills, and a Play queued behind it, answer after the server's write
+// timeout instead of dropping the connection.
+func TestPlaybooksAPI_StopAndQueuedPlayOutlastTheWriteTimeout(t *testing.T) {
+	var runner *playbookrun.Runner
+
+	server, cb, _, _, _ := runnablePlaybookServerOpts(
+		t.Context(), t, func(svc *service.CardService) playbookrun.Cards { return svc }, &runner, 300*time.Millisecond,
+	)
+
+	resp := doJSON(t, http.MethodPost, server.URL+"/api/playbooks/rollout/run", nil, "human:alice")
+	closeBody(t, resp.Body)
+	require.Equal(t, http.StatusAccepted, resp.StatusCode)
+
+	require.Eventually(t, func() bool {
+		cb.mu.Lock()
+		defer cb.mu.Unlock()
+
+		return len(cb.triggers) >= 1
+	}, 2*time.Second, 10*time.Millisecond)
+
+	entered := make(chan struct{}, 1)
+
+	cb.mu.Lock()
+	cb.killDelay, cb.killEntered = time.Second, entered
+	cb.mu.Unlock()
+
+	type result struct {
+		status int
+		err    error
+	}
+
+	post := func(path string, out chan<- result) {
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, server.URL+path, nil)
+		if err != nil {
+			out <- result{err: err}
+
+			return
+		}
+
+		req.Header.Set("X-Agent-ID", "human:alice")
+		req.Header.Set("X-Requested-With", "contextmatrix")
+
+		r, err := http.DefaultClient.Do(req)
+		if err != nil {
+			out <- result{err: err}
+
+			return
+		}
+
+		_ = r.Body.Close()
+		out <- result{status: r.StatusCode}
+	}
+
+	stopRes := make(chan result, 1)
+	playRes := make(chan result, 1)
+
+	go post("/api/playbooks/rollout/stop", stopRes)
+
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the kill never reached the backend")
+	}
+
+	go post("/api/playbooks/rollout/run", playRes)
+
+	for name, ch := range map[string]chan result{"stop": stopRes, "play": playRes} {
+		select {
+		case res := <-ch:
+			require.NoError(t, res.err, name)
+			assert.Equal(t, http.StatusAccepted, res.status, name)
+		case <-time.After(10 * time.Second):
+			t.Fatalf("%s never answered", name)
+		}
+	}
 }
