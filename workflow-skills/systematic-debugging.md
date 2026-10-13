@@ -51,12 +51,6 @@ add_log(card_id=<parent_id>, agent_id=<orchestrator agent_id>,
 - Call `heartbeat` explicitly only if a single phase runs long with no
   board calls pending (e.g. an extended read with nothing to log yet).
 
-Map stream-json `usage` frame fields to `report_usage` parameters:
-- `usage.input_tokens` → `prompt_tokens`
-- `usage.output_tokens` → `completion_tokens`
-- `usage.cache_read_input_tokens` → `cache_read_tokens`
-- `usage.cache_creation_input_tokens` → `cache_creation_tokens`
-
 ## The Iron Law
 
 ```

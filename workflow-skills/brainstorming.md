@@ -38,12 +38,6 @@ add_log(card_id=<parent_id>, agent_id=<your_agent_id>,
   `transition_card(new_state='todo')`, then `claim_card` (claiming from
   `todo` auto-transitions to `in_progress`).
 
-Map stream-json `usage` frame fields to `report_usage` parameters:
-- `usage.input_tokens` → `prompt_tokens`
-- `usage.output_tokens` → `completion_tokens`
-- `usage.cache_read_input_tokens` → `cache_read_tokens`
-- `usage.cache_creation_input_tokens` → `cache_creation_tokens`
-
 ## HARD-GATE
 
 If create-plan invoked you, the card has already been gated as

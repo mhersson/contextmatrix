@@ -43,7 +43,7 @@ If `Complexity: simple`:
    to target that branch instead of the default.
 7. Call `report_push(card_id, branch, pr_url)` after pushing.
 8. If the card context shows a PR-gate flag, run the PR Gates section before transitioning.
-9. Call `report_usage` with your token consumption (`prompt_tokens`, `completion_tokens`, `cache_read_tokens` / `cache_creation_tokens` from the stream-json `usage` frames when available - pass `source: "collector"` when all counts are measured).
+9. Call `report_usage` with your token consumption (`prompt_tokens`, `completion_tokens`, `cache_read_tokens` / `cache_creation_tokens` as your best estimate; omit `source`).
 10. Transition to `done`: `transition_card(card_id, new_state='done')`.
 11. Release: `release_card(card_id, agent_id)`.
 12. Print `AUTONOMOUS_COMPLETE` structured output and stop.
@@ -129,12 +129,6 @@ Based on the card's current state and body content:
 10. **Monitor sub-agents.** Report your token consumption since the last
     report (`prompt_tokens`, `completion_tokens`, and `cache_read_tokens` /
     `cache_creation_tokens` if available) - this is mandatory, not optional.
-
-    Map stream-json `usage` frame fields to `report_usage` parameters:
-    - `usage.input_tokens` → `prompt_tokens`
-    - `usage.output_tokens` → `completion_tokens`
-    - `usage.cache_read_input_tokens` → `cache_read_tokens`
-    - `usage.cache_creation_input_tokens` → `cache_creation_tokens`
 
     a. Call `await_subtasks(parent_id=<card_id>, agent_id=<your_agent_id>,
        timeout_seconds=480)` - only after step 9 has spawned the sub-agents;

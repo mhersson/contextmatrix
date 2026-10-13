@@ -176,7 +176,7 @@ For `report_usage` specifically: also pass
 `on_behalf_of=<a short stable label for yourself, e.g. "plan-draft" or
 "debug-investigator">` so your usage is attributed to you instead of being
 merged into the orchestrator's bucket. Set `model` to the model that
-actually served your calls (from your system context or usage frames) -
+actually served your calls (from your system context) -
 never derive it from the orchestrator's or your own agent name.
 ```
 
@@ -359,11 +359,9 @@ the orchestrator's working tree on the feature branch.
    - `agent_id`: your agent ID
    - `model`: your own model identifier, read fresh from your system context
      ("You are powered by the model named X"), never copied from elsewhere
-   - `prompt_tokens` / `completion_tokens`: measured values from the stream-json
-     `usage` frames when available; otherwise your best estimate
-   - `cache_read_tokens` / `cache_creation_tokens`: from the stream-json `usage` frame if available
-   - `source`: `"collector"` when every count above came from `usage` frames; omit
-     it when any count is estimated
+   - `prompt_tokens` / `completion_tokens` / `cache_read_tokens` /
+     `cache_creation_tokens`: your best estimate of consumption since the last
+     report; omit `source`
 
    a. Call `await_subtasks(parent_id=<parent_id>, agent_id=<your_agent_id>,
       timeout_seconds=480)` - only after step 3 has spawned the sub-agents;
@@ -472,7 +470,7 @@ top-level `autonomous` field is the ONLY source of truth for mode.
 `REVIEW_FINDINGS`:
 
 - `approve`: proceed to Phase 9.
-- `revise`: call `increment_review_attempts(card_id=<parent_id>)`. If the
+- `revise`: call `increment_review_attempts(card_id=<parent_id>, agent_id=<your_agent_id>)`. If the
   returned count is >= 3, call `report_usage` with your remaining token
   consumption, then print:
   ```
@@ -632,11 +630,9 @@ consumption:
 - `agent_id`: your agent ID
 - `model`: your own model identifier, read fresh from your system context
   ("You are powered by the model named X"), never copied from elsewhere
-- `prompt_tokens` / `completion_tokens`: measured values from the stream-json
-  `usage` frames when available; otherwise your best estimate
-- `cache_read_tokens` / `cache_creation_tokens`: from the stream-json `usage` frame if available
-- `source`: `"collector"` when every count above came from `usage` frames; omit
-  it when any count is estimated
+- `prompt_tokens` / `completion_tokens` / `cache_read_tokens` /
+  `cache_creation_tokens`: your best estimate of consumption since the last
+  report; omit `source`
 
 Transition the parent card to `done`:
 `transition_card(card_id=<parent_id>, new_state='done')`.

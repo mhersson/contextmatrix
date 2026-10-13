@@ -97,20 +97,9 @@ card and refreshes your claim. Always include:
 - `agent_id`: your agent ID
 - `model`: your own model identifier, read fresh from your system context
   ("You are powered by the model named X"), never copied from elsewhere
-- `prompt_tokens` / `completion_tokens`: measured values from the stream-json
-  `usage` frames when available; otherwise your best estimate
-- `cache_read_tokens` / `cache_creation_tokens`: from the stream-json `usage`
-  frame if available
-- `source`: `"collector"` when every count above came from `usage` frames; omit
-  it when any count is estimated
-
-Map stream-json `usage` frame fields to `report_usage` parameters:
-
-- `usage.input_tokens` → `prompt_tokens`
-- `usage.output_tokens` → `completion_tokens`
-- `usage.cache_read_input_tokens` → `cache_read_tokens`
-- `usage.cache_creation_input_tokens` → `cache_creation_tokens`
-- measured all four fields → also pass `source: "collector"`
+- `prompt_tokens` / `completion_tokens` / `cache_read_tokens` /
+  `cache_creation_tokens`: your best estimate of consumption since the last
+  report; omit `source`
 
 ### Card body structure
 
