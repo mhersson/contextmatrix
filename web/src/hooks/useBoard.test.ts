@@ -337,6 +337,41 @@ describe('useBoard - playbook events', () => {
     expect(result.current.loading).toBe(false);
   });
 
+  it('refreshes the cards on pulled changes without showing the loading skeleton', async () => {
+    const listCard: Card = {
+      id: 'ALPHA-1',
+      title: 'Alpha card',
+      project: 'alpha',
+      type: 'task',
+      state: 'todo',
+      priority: 'medium',
+      created: '2026-01-01T00:00:00Z',
+      updated: '2026-01-01T00:00:00Z',
+      body: '',
+    };
+    vi.mocked(api.getCards).mockResolvedValueOnce([listCard]);
+
+    const { result } = renderHook(() => useBoard('alpha'), { wrapper });
+    await waitFor(() => expect(vi.mocked(api.getCards)).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    vi.mocked(api.getCards).mockResolvedValueOnce([{ ...listCard, title: 'Pulled title' }]);
+
+    act(() => {
+      latestInstance()._triggerOpen();
+    });
+    act(() => {
+      latestInstance().onmessage?.({
+        data: JSON.stringify({ type: 'sync.completed', card_id: '', project: '', data: { changes_pulled: true } }),
+      } as MessageEvent);
+    });
+
+    expect(result.current.loading).toBe(false);
+
+    await waitFor(() => expect(result.current.cards[0]?.title).toBe('Pulled title'));
+    expect(result.current.loading).toBe(false);
+  });
+
   it('drops a playbook refresh for the previous project once a project switch has landed', async () => {
     const alphaCard: Card = {
       id: 'ALPHA-1',

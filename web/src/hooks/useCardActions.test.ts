@@ -160,6 +160,37 @@ describe('useCardActions - handleCardSave clear-safe merge', () => {
   });
 });
 
+describe('useCardActions - handleCardMove applies the server result', () => {
+  const failedCard: Card = { ...selectedCard, state: 'in_progress', worker_status: 'failed', assigned_agent: 'agent-1' };
+
+  it('shows the cleared worker_status after a drag to todo', async () => {
+    patchCardMock.mockResolvedValueOnce(withoutFields({ ...failedCard, state: 'todo' }, 'worker_status'));
+    const { result, updateCardLocally } = setup({ cards: [failedCard] });
+
+    await act(async () => {
+      await result.current.handleCardMove('TEST-001', 'todo');
+    });
+
+    const merged = updateCardLocally.mock.calls.reduce<Card>((acc, [, updates]) => ({ ...acc, ...updates }), failedCard);
+    expect(merged.state).toBe('todo');
+    expect(merged.worker_status).toBeUndefined();
+  });
+
+  it('shows the released claim after a drag to a terminal state', async () => {
+    patchCardMock.mockResolvedValueOnce(withoutFields({ ...failedCard, state: 'not_planned' }, 'assigned_agent', 'worker_status'));
+    const { result, updateCardLocally } = setup({ cards: [failedCard] });
+
+    await act(async () => {
+      await result.current.handleCardMove('TEST-001', 'not_planned');
+    });
+
+    const merged = updateCardLocally.mock.calls.reduce<Card>((acc, [, updates]) => ({ ...acc, ...updates }), failedCard);
+    expect(merged.state).toBe('not_planned');
+    expect(merged.assigned_agent).toBeFalsy();
+    expect(merged.worker_status).toBeUndefined();
+  });
+});
+
 describe('useCardActions - refusal toasts carry the details', () => {
   const refusal = {
     error: 'card cannot be reopened while its playbook run is active',

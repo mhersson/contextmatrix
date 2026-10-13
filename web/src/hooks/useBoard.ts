@@ -215,9 +215,15 @@ export function useBoard(
       // Forward sync events to the sync handler.
       if (event.type.startsWith('sync.')) {
         onSyncEventRef.current?.(event);
-        // Also reload board when changes were pulled.
+        // Pulled changes refresh silently: the event is global, so a skeleton
+        // would blank every open board and cancel drags.
         if (event.type === 'sync.completed' && event.data?.changes_pulled) {
-          fetchData();
+          refreshCards();
+          if (project) {
+            api.getProject(project).then(setConfig).catch((err) => {
+              console.error('Failed to refresh config after sync:', err);
+            });
+          }
         }
         return;
       }
@@ -296,7 +302,7 @@ export function useBoard(
           break;
       }
     },
-    [project, fetchData, mergeCard, refreshCards]
+    [project, mergeCard, refreshCards]
   );
 
   const { subscribe, connected, reconnectEpoch } = useSSEBus();
