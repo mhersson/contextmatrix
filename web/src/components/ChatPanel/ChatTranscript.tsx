@@ -80,7 +80,7 @@ export function ChatTranscript({
   // Warm the markdown chunk as soon as the transcript mounts so the
   // per-message Suspense fallback window is as short as possible.
   useEffect(() => {
-    void import('@uiw/react-markdown-preview');
+    void import('../Markdown/SafeMarkdownPreview');
   }, []);
 
   // Unified older-messages trigger: reveal in-memory rows first, then fall

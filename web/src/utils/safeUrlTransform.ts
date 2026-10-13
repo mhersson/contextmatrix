@@ -7,7 +7,7 @@
  * else (e.g. javascript:, data:, vbscript:) is replaced with an empty string
  * so the browser renders a harmless no-op link.
  *
- * Pass as the `urlTransform` prop on every <MarkdownPreview> usage.
+ * Every markdown surface applies it through `safeMarkdownOptions`.
  */
 const ALLOWED_SCHEMES = ['https:', 'http:', 'mailto:', 'xmpp:'];
 

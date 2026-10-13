@@ -23,22 +23,15 @@ vi.mock('@uiw/react-md-editor', () => ({
   default: ({
     value,
     onChange,
-    previewOptions,
   }: {
     value: string;
     onChange?: (v: string) => void;
-    previewOptions?: { skipHtml?: boolean };
   }) => (
-    <>
-      <textarea
-        data-testid="md-editor"
-        value={value}
-        onChange={(e) => onChange?.(e.target.value)}
-      />
-      {previewOptions?.skipHtml
-        ? <div data-testid="md-preview">{value}</div>
-        : <div data-testid="md-preview" dangerouslySetInnerHTML={{ __html: value }} />}
-    </>
+    <textarea
+      data-testid="md-editor"
+      value={value}
+      onChange={(e) => onChange?.(e.target.value)}
+    />
   ),
 }));
 
@@ -571,34 +564,6 @@ describe('CreateCardPanel - rail width controls', () => {
 
     expect(screen.getByRole('button', { name: 'Expand rail' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Full width' })).not.toBeInTheDocument();
-  });
-});
-
-describe('CreateCardPanel - MDEditor preview skipHtml XSS prevention', () => {
-  const xssBody = '<iframe src="https://example.com"></iframe>\n<script>alert(\'xss\')</script>\nhello';
-
-  it('does not render iframe in the preview pane', async () => {
-    const { container } = render(<CreateCardPanel {...makeProps()} />);
-    const editor = await screen.findByTestId('md-editor');
-    fireEvent.change(editor, { target: { value: xssBody } });
-    await screen.findByTestId('md-preview');
-    expect(container.querySelector('iframe')).toBeNull();
-  });
-
-  it('does not render script in the preview pane', async () => {
-    const { container } = render(<CreateCardPanel {...makeProps()} />);
-    const editor = await screen.findByTestId('md-editor');
-    fireEvent.change(editor, { target: { value: xssBody } });
-    await screen.findByTestId('md-preview');
-    expect(container.querySelector('script')).toBeNull();
-  });
-
-  it('still renders plain text content in the preview pane', async () => {
-    render(<CreateCardPanel {...makeProps()} />);
-    const editor = await screen.findByTestId('md-editor');
-    fireEvent.change(editor, { target: { value: xssBody } });
-    const preview = await screen.findByTestId('md-preview');
-    expect(preview.textContent).toContain('hello');
   });
 });
 

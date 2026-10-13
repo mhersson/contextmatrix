@@ -40,8 +40,8 @@ interface CreateCardPanelProps {
  *     dirty-body confirm).
  *   - Parent → subtask lock: setting a parent forces the type to "subtask"
  *     and restores the previous type when the parent is cleared.
- *   - XSS prevention: the description editor renders previews with
- *     `previewOptions={{ skipHtml: true }}` (handled by CardPanelEditor).
+ *   - XSS prevention: the description editor previews through SafeMDEditor
+ *     (handled by CardPanelEditor), so raw HTML renders as text.
  *   - create_pr is always sent as an explicit boolean: the server defaults
  *     an absent value to true at create, so an unchecked box must reach it
  *     as false, never as an omission.

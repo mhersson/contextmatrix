@@ -1068,6 +1068,11 @@ func newAdminMux() http.Handler {
 	return mux
 }
 
+// spaContentSecurityPolicy backstops the markdown renderer: card bodies come
+// from agents and external imports, so the page never runs inline script or
+// loads frames or plugins. Styles, images and connections stay unrestricted.
+const spaContentSecurityPolicy = "script-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'self'"
+
 // newSPAHandler wraps the API handler with static file serving and SPA fallback.
 // API and health check routes are forwarded to the API handler. All other requests
 // are served from the embedded frontend filesystem, falling back to index.html
@@ -1081,6 +1086,8 @@ func newSPAHandler(apiHandler http.Handler, fsys fs.FS) http.Handler {
 
 			return
 		}
+
+		w.Header().Set("Content-Security-Policy", spaContentSecurityPolicy)
 
 		// Admin endpoints live on a separate listener; serving the SPA shell
 		// for them on the main port would be confusing. 404 explicitly so
