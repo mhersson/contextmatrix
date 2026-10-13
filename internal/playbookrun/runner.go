@@ -23,7 +23,8 @@ type clockTicker = clock.Ticker
 const RunnerAgent = "system:playbook-runner"
 
 // defaultStopWait bounds Stop's walker wait and kills once the stop is
-// persisted: above the launch's worst case, about 33 s.
+// persisted: above the trigger's worst case of about 39 s (three 10 s attempts
+// plus their backoff).
 const defaultStopWait = time.Minute
 
 var (
@@ -303,6 +304,11 @@ func (r *Runner) Stop(ctx context.Context, id, agentID string) (*service.Playboo
 		return nil, err
 	}
 
+	// Shutdown joins the wait and kills, so the process cannot exit between
+	// a trigger and its kill.
+	r.wg.Add(1)
+	defer r.wg.Done()
+
 	// The stop is persisted, so a client that hangs up must not skip the kills.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), r.stopWait)
 	defer cancel()
@@ -383,6 +389,14 @@ func findEntry(d *service.PlaybookDetail, id string) *service.PlaybookEntryDetai
 	return nil
 }
 
+// parent returns the walkers' parent context, the one Start recorded.
+func (r *Runner) parent() context.Context {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return r.ctx
+}
+
 // Start records the walkers' parent context and resumes every active run
 // this instance owns. Returns immediately; walkers stop when ctx ends.
 // Until it is called the parent is an already-cancelled context, so a Play
@@ -460,7 +474,8 @@ func (r *Runner) Wait() {
 	r.wg.Wait()
 }
 
-// Shutdown waits for every walker to exit, bounded by ctx: it returns
+// Shutdown waits for every walker to exit, and for the wait and kills of any
+// Stop past its run write, bounded by ctx: it returns
 // ctx.Err() when ctx ends first, leaving the walkers running. Cancelling the
 // context given to Start is what makes them stop; this only waits, so the
 // caller must cancel before calling it.

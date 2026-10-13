@@ -28,10 +28,37 @@ func runnablePlaybookServer(t *testing.T) (*httptest.Server, *captureBackend, *s
 	return runnablePlaybookServerWith(t, func(svc *service.CardService) playbookrun.Cards { return svc })
 }
 
+// runnablePlaybookServerCancellable is runnablePlaybookServer with the
+// runner started on a context the test cancels, to drive a shutdown.
+func runnablePlaybookServerCancellable(t *testing.T) (
+	*httptest.Server, *captureBackend, *service.CardService, *playbookrun.Runner, *board.Card, context.CancelFunc,
+) {
+	t.Helper()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
+
+	var runner *playbookrun.Runner
+
+	server, cb, svc, _, card := runnablePlaybookServerOpts(ctx, t, func(svc *service.CardService) playbookrun.Cards { return svc }, &runner)
+
+	return server, cb, svc, runner, card, cancel
+}
+
 // runnablePlaybookServerWith is runnablePlaybookServer with the runner's
 // card reader built by wrap.
 func runnablePlaybookServerWith(
 	t *testing.T, wrap func(*service.CardService) playbookrun.Cards,
+) (*httptest.Server, *captureBackend, *service.CardService, *service.PlaybookService, *board.Card) {
+	t.Helper()
+
+	return runnablePlaybookServerOpts(t.Context(), t, wrap, nil)
+}
+
+// runnablePlaybookServerOpts starts the runner on startCtx and, when out is
+// non-nil, hands the runner back through it.
+func runnablePlaybookServerOpts(
+	startCtx context.Context, t *testing.T, wrap func(*service.CardService) playbookrun.Cards, out **playbookrun.Runner,
 ) (*httptest.Server, *captureBackend, *service.CardService, *service.PlaybookService, *board.Card) {
 	t.Helper()
 
@@ -54,8 +81,12 @@ func runnablePlaybookServerWith(
 	// is called the runner's walker parent is already cancelled, so a walker
 	// a Play spawned would exit before launching anything. t.Context() is
 	// cancelled just before the cleanups, so the Shutdown below joins them.
-	runner.Start(t.Context())
+	runner.Start(startCtx)
 	t.Cleanup(func() { _ = runner.Shutdown(context.Background()) })
+
+	if out != nil {
+		*out = runner
+	}
 
 	ctx := context.Background()
 	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{Title: "First", Type: "task", Priority: "medium"})
@@ -529,4 +560,41 @@ func TestPlaybooksAPI_HandRunAndPlayRaceToOneWorker(t *testing.T) {
 			requireOneWorkerOnTheRunEntry(t, cb, svc, pbSvc, first.ID, second.ID)
 		})
 	}
+}
+
+// TestPlaybooksAPI_ShutdownMidTriggerRevertsTheCard: a shutdown during a slow
+// trigger aborts it, and the launcher reverts the card instead of leaving it
+// queued with no worker.
+func TestPlaybooksAPI_ShutdownMidTriggerRevertsTheCard(t *testing.T) {
+	server, cb, svc, runner, card, cancel := runnablePlaybookServerCancellable(t)
+
+	hold := make(chan struct{})
+	entered := make(chan struct{}, 1)
+
+	cb.mu.Lock()
+	cb.holdTriggers, cb.triggerEntered = hold, entered
+	cb.mu.Unlock()
+	t.Cleanup(func() { close(hold) })
+
+	resp := doJSON(t, http.MethodPost, server.URL+"/api/playbooks/rollout/run", nil, "human:alice")
+	defer closeBody(t, resp.Body)
+
+	require.Equal(t, http.StatusAccepted, resp.StatusCode)
+
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the trigger never reached the backend")
+	}
+
+	cancel()
+
+	sctx, scancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer scancel()
+
+	require.NoError(t, runner.Shutdown(sctx))
+
+	got, err := svc.GetCard(context.Background(), "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "failed", got.WorkerStatus)
 }

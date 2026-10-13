@@ -27,6 +27,11 @@ type captureBackend struct {
 	kills     []protocol.KillPayload
 	failKills bool
 	server    *httptest.Server
+
+	// holdTriggers, when set, parks every /trigger request until it is closed
+	// or the request ends; triggerEntered gets a non-blocking send first.
+	holdTriggers   chan struct{}
+	triggerEntered chan struct{}
 }
 
 func newCaptureBackend(t *testing.T) *captureBackend {
@@ -34,6 +39,25 @@ func newCaptureBackend(t *testing.T) *captureBackend {
 
 	cb := &captureBackend{}
 	cb.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/trigger" {
+			cb.mu.Lock()
+			hold, entered := cb.holdTriggers, cb.triggerEntered
+			cb.mu.Unlock()
+
+			if hold != nil {
+				select {
+				case entered <- struct{}{}:
+				default:
+				}
+
+				select {
+				case <-hold:
+				case <-r.Context().Done():
+					return
+				}
+			}
+		}
+
 		cb.mu.Lock()
 		defer cb.mu.Unlock()
 

@@ -774,3 +774,96 @@ func TestLaunchEntry_SendsNothingOnceStopped(t *testing.T) {
 	cancel()
 	e.runner.Wait()
 }
+
+// TestLaunchEntry_ShutdownCancelsTheTrigger: cancelling the runner's context
+// aborts a trigger in flight, so Shutdown returns instead of waiting it out.
+func TestLaunchEntry_ShutdownCancelsTheTrigger(t *testing.T) {
+	e := newEnv(t)
+	e.seedOneCardRun()
+
+	entered := make(chan struct{})
+
+	e.launcher.onLaunch = func(ctx context.Context, _, _ string) error {
+		close(entered)
+		<-ctx.Done()
+
+		return ctx.Err()
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	e.runner.Start(ctx)
+
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the trigger never started")
+	}
+
+	cancel()
+
+	sctx, scancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer scancel()
+
+	require.NoError(t, e.runner.Shutdown(sctx))
+}
+
+// TestShutdown_JoinsAStopsKills: Shutdown waits for the kills a Stop runs
+// after its detached wait, so the process cannot exit between them.
+func TestShutdown_JoinsAStopsKills(t *testing.T) {
+	e := newEnv(t)
+
+	c := todoCard("alpha", "ALPHA-1")
+	c.ApplyPlaybookSettings("playbook/rollout")
+	e.cards.add(c)
+	e.cards.queue("alpha", "ALPHA-1")
+
+	p := runnablePlaybook("rollout", cardEntry("e1", "alpha", "ALPHA-1"))
+	e.activeRun(p, "e1")
+	e.pbs.add(p)
+
+	entered := make(chan struct{})
+	gate := make(chan struct{})
+	release := sync.OnceFunc(func() { close(gate) })
+	t.Cleanup(release)
+
+	e.stopper.onStop = func(_, _ string) {
+		close(entered)
+		<-gate
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	e.runner.Start(ctx)
+	require.Eventually(t, e.walkerReady, 2*time.Second, 5*time.Millisecond)
+
+	stopped := make(chan error, 1)
+
+	go func() {
+		_, err := e.runner.Stop(context.Background(), "rollout", "human:alice")
+		stopped <- err
+	}()
+
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the kill never started")
+	}
+
+	cancel()
+
+	sctx, scancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer scancel()
+
+	require.ErrorIs(t, e.runner.Shutdown(sctx), context.DeadlineExceeded)
+
+	release()
+	require.NoError(t, <-stopped)
+
+	sctx2, scancel2 := context.WithTimeout(context.Background(), 2*time.Second)
+	defer scancel2()
+
+	require.NoError(t, e.runner.Shutdown(sctx2))
+}
