@@ -488,6 +488,32 @@ func TestShutdown_StopsTheImportBetweenTwoIssues(t *testing.T) {
 	assert.Equal(t, st.Results, ev.Data["results"])
 }
 
+func TestShutdown_EndsAQueuedImportsWait(t *testing.T) {
+	e := newImportEnv(t, nil)
+	e.jira.add(story("102", "PROJ-2", "Cart API"), story("103", "PROJ-3", "Cart UI"))
+
+	svc, _ := e.serviceWith(t, e.cards, e.pbs)
+
+	unlock, err := svc.lockEpic(context.Background(), "PROJ-1")
+	require.NoError(t, err)
+
+	defer unlock()
+
+	id, err := svc.Begin(context.Background(), "PROJ-1", twoIssues(), "human:alice")
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	require.NoError(t, svc.Shutdown(ctx), "a queued import does not hold shutdown")
+
+	st, ok := svc.Lookup(id)
+	require.True(t, ok)
+	assert.Equal(t, ImportFailed, st.Status)
+	assert.Equal(t, failureReason(context.Canceled), st.Error)
+	assert.Zero(t, e.jiraCards(t, "api"))
+}
+
 func TestShutdown_LeavesARerunnablePartialImport(t *testing.T) {
 	e := newImportEnv(t, nil)
 	e.jira.add(story("102", "PROJ-2", "A"), story("103", "PROJ-3", "B"), story("104", "PROJ-4", "C"))
@@ -592,6 +618,7 @@ func TestBegin_BoundStartsOnceTheEpicIsFree(t *testing.T) {
 		close(gate.release)
 
 		done := map[string]events.Event{}
+
 		for ev := range ch {
 			if ev.Type == events.JiraImportDone {
 				done[ev.Data["import_id"].(string)] = ev

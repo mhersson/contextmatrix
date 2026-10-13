@@ -88,7 +88,8 @@ only keys, projects and options. It then runs in the background and reports
 each issue over the event stream. Imports of the same epic run one at a time on
 an instance, and each is bounded at 10 minutes from when its turn comes. Closing
 the dialog does not stop the import: opening the dialog for the epic again shows
-its progress instead of offering Import, and a reconnecting dialog catches up
+its progress instead of offering Import once the epic preview loads (so Jira must
+be reachable), and a reconnecting dialog catches up
 from `GET /api/jira/imports/{id}`, which keeps a finished import for an hour.
 Both work only on the instance that runs the import. The import is human-only.
 
