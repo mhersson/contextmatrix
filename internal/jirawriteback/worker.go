@@ -202,6 +202,15 @@ func (w *Writeback) fail(ctx context.Context, row opsqlite.JiraWriteback, reason
 		if !errors.Is(err, storage.ErrCardNotFound) && !errors.Is(err, storage.ErrProjectNotFound) {
 			w.logger.Warn("jira writeback: card log line", "project", row.Project, "card_id", row.CardID, "error", err)
 
+			// Back off without spending an attempt, so a persistent cause
+			// neither hammers Jira nor starves younger rows.
+			now := w.clk.Now()
+			next := now.Add(retryDelay(row.Attempts+1, nil))
+
+			if rerr := w.outbox.RetryJiraWriteback(ctx, row.Project, row.CardID, row.Kind, row.Attempts, next.Unix(), reason, now.Unix()); rerr != nil {
+				w.logger.Warn("jira writeback: defer failed row", "project", row.Project, "card_id", row.CardID, "error", rerr)
+			}
+
 			return false
 		}
 	}
