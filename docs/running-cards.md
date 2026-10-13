@@ -190,13 +190,14 @@ first run in a repository.
 - While a run is `running` or `waiting`, the cards' own run buttons are
   disabled and `POST .../run` answers `409 PLAYBOOK_RUN_ACTIVE`. A hand run that races a Play either queues first,
   and the run waits on its worker, or is refused the same way.
-- While any of its cards has a live worker, the run starts no other card: an
+- While any of its cards has a queued or running worker, the run starts no other card: an
   entry that turns incomplete is handled after that worker ends. The run
   points at the live card only when its current entry is unset, complete or
   gone; a run on a failed or launch-failed card keeps that entry and its
   reason while another card's worker holds it. A card left `queued` or
   `running` with no worker behind it holds the run until Stop All in its
-  project clears it.
+  project clears it. A claim through another instance without a worker does
+  not hold the run.
 - A Play after a Stop that left a worker alive (the kill failed, or the card
   is claimed through another instance), or after a hand run while stopped,
   waits on that worker before starting anything else.

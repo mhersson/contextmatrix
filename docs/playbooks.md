@@ -158,7 +158,7 @@ the same reason:
 Notes, text and checking off a manual entry stay allowed during a run.
 
 Behind the refusals, the runner holds while any card entry that is not
-`done` or `not_planned` has a live worker: an entry that turns incomplete or
+`done` or `not_planned` has a queued or running worker: an entry that turns incomplete or
 gains a worker outside the walk (a peer instance's merge on a shared board, a
 hand run on another instance, a completion whose commit failed, a deleted
 card) is handled once that worker ends. The run is pointed at the live card
@@ -166,7 +166,8 @@ card) is handled once that worker ends. The run is pointed at the live card
 its current entry is unset, complete or gone; a run on a failed or
 launch-failed card keeps that entry and its reason while another card's worker
 holds it. A card left `queued` or `running` with no worker behind it holds the
-run until Stop All in its project clears it.
+run until Stop All in its project clears it. A claim through another instance
+without a worker does not hold the run.
 
 ### Play and Stop
 

@@ -139,8 +139,9 @@ func (r *Runner) holdOnLiveWorker(ctx context.Context, d *service.PlaybookDetail
 	return true
 }
 
-// liveEntry is the card entry whose card is not terminal and has a live
-// worker: prefer when it qualifies, else the first in order; "" when none.
+// liveEntry is the card entry whose card is not terminal and has a queued or
+// running worker: prefer when it qualifies, else the first in order; "" when
+// none. A claim through another instance with no worker does not hold the run.
 // A terminal card's worker is finishing and is let go; a failed read is idle.
 func (r *Runner) liveEntry(ctx context.Context, playbookID string, entries []board.PlaybookEntry, prefer string) string {
 	live := func(e *board.PlaybookEntry) bool {
@@ -158,7 +159,7 @@ func (r *Runner) liveEntry(ctx context.Context, playbookID string, entries []boa
 			return false
 		}
 
-		return !board.IsTerminalState(card.State) && r.workerLive(card)
+		return !board.IsTerminalState(card.State) && workerInFlight(card)
 	}
 
 	if prefer != "" {

@@ -828,15 +828,16 @@ func TestLaunchEntry_SendsNothingOnceStopped(t *testing.T) {
 	stopped := make(chan error, 1)
 
 	e.pbs.mu.Lock()
-	e.pbs.afterSetRun = func() {
+	e.pbs.afterSetRun = func(ctx context.Context) {
 		go func() {
 			_, err := e.runner.Stop(context.Background(), "rollout", "human:alice")
 			stopped <- err
 		}()
 
-		// This runs on the walker; plain polling, since require must not.
-		for deadline := time.Now().Add(time.Second); e.runner.walkerCount() != 0 && time.Now().Before(deadline); {
-			time.Sleep(time.Millisecond)
+		// This runs on the walker: its pass context ends when Stop cancels it.
+		select {
+		case <-ctx.Done():
+		case <-time.After(10 * time.Second):
 		}
 	}
 	e.pbs.mu.Unlock()
