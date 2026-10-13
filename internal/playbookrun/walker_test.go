@@ -2,6 +2,9 @@ package playbookrun
 
 import (
 	"context"
+	"slices"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -76,13 +79,10 @@ func TestWalker_EventAndTickNudgeAPass(t *testing.T) {
 	// it a pass that runs again before the worker starts would relaunch, and
 	// the launch count would depend on how the walker interleaves with this
 	// test's writes.
-	e.launcher.onLaunch = func(project, card string) {
-		e.cards.mu.Lock()
-		defer e.cards.mu.Unlock()
+	e.launcher.onLaunch = func(_ context.Context, project, card string) error {
+		e.cards.queue(project, card)
 
-		queued := e.cards.cards[cardKey(project, card)]
-		queued.State = board.StateInProgress
-		queued.WorkerStatus = "queued"
+		return nil
 	}
 
 	ctx := t.Context()
@@ -369,16 +369,13 @@ func TestStop_WaitsForAnInFlightLaunch(t *testing.T) {
 
 	// The launch blocks mid-call, then queues the card the way the trigger
 	// endpoint does.
-	e.launcher.onLaunch = func(project, card string) {
+	e.launcher.onLaunch = func(_ context.Context, project, card string) error {
 		close(entered)
 		<-release
 
-		e.cards.mu.Lock()
-		defer e.cards.mu.Unlock()
+		e.cards.queue(project, card)
 
-		queued := e.cards.cards[cardKey(project, card)]
-		queued.State = board.StateInProgress
-		queued.WorkerStatus = "queued"
+		return nil
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -410,6 +407,228 @@ func TestStop_WaitsForAnInFlightLaunch(t *testing.T) {
 	assert.Equal(t, []string{"ALPHA-1"}, e.stopper.calls, "the worker the launch queued is killed")
 	assert.Equal(t, board.RunStatusStopped, e.pbs.lastRun().Status)
 	assert.Equal(t, 1, e.launcher.count())
+
+	cancel()
+	e.runner.Wait()
+}
+
+// seedOneCardRun seeds ALPHA-1, already forced, as the only entry of a
+// running run with no entry yet, so the first pass launches it.
+func (e *env) seedOneCardRun() {
+	c := todoCard("alpha", "ALPHA-1")
+	c.ApplyPlaybookSettings("playbook/rollout")
+	e.cards.add(c)
+
+	p := runnablePlaybook("rollout", cardEntry("e1", "alpha", "ALPHA-1"))
+	e.activeRun(p, "")
+	e.pbs.add(p)
+}
+
+// eventLog records launches and kills in order, and the most launches ever
+// in flight at once.
+type eventLog struct {
+	mu                  sync.Mutex
+	events              []string
+	inFlight, maxFlight int
+}
+
+func (l *eventLog) add(ev string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	l.events = append(l.events, ev)
+}
+
+func (l *eventLog) enter() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	l.inFlight++
+	l.maxFlight = max(l.maxFlight, l.inFlight)
+}
+
+func (l *eventLog) leave() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	l.inFlight--
+}
+
+func (l *eventLog) snapshot() ([]string, int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return slices.Clone(l.events), l.maxFlight
+}
+
+// holdFirstLaunch blocks the first launch inside the launcher until release
+// is called, then queues its card; later launches queue at once. Kills mark
+// the card killed. release is also a cleanup, so a failing test never leaves
+// a walker blocked.
+func (e *env) holdFirstLaunch(t *testing.T) (<-chan struct{}, func(), *eventLog) {
+	t.Helper()
+
+	entered := make(chan struct{})
+	gate := make(chan struct{})
+	release := sync.OnceFunc(func() { close(gate) })
+	t.Cleanup(release)
+
+	log := &eventLog{}
+
+	var held atomic.Bool
+
+	e.launcher.onLaunch = func(_ context.Context, project, card string) error {
+		log.enter()
+		defer log.leave()
+
+		log.add("launch " + card)
+
+		if held.CompareAndSwap(false, true) {
+			close(entered)
+			<-gate
+		}
+
+		e.cards.queue(project, card)
+
+		return nil
+	}
+
+	e.stopper.onStop = func(project, card string) {
+		log.add("kill " + card)
+		e.cards.set(project, card, func(c *board.Card) { c.WorkerStatus = "killed" })
+	}
+
+	return entered, release, log
+}
+
+// TestPlay_DuringStopWaitsForTheStop: a Play that lands while Stop waits for
+// its walker's in-flight launch must wait for that Stop's kill. Otherwise the
+// new run holds on the card the old launch queued and the old Stop kills it,
+// silently undoing the Play.
+func TestPlay_DuringStopWaitsForTheStop(t *testing.T) {
+	e := newEnv(t)
+	e.seedOneCardRun()
+	entered, release, log := e.holdFirstLaunch(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	e.runner.Start(ctx)
+	<-entered
+
+	stopped := make(chan error, 1)
+
+	go func() {
+		_, err := e.runner.Stop(context.Background(), "rollout", "human:alice")
+		stopped <- err
+	}()
+
+	require.Eventually(t, func() bool { return e.runner.walkerCount() == 0 }, time.Second, 5*time.Millisecond,
+		"Stop has cancelled the walker and is waiting for it")
+
+	played := make(chan error, 1)
+
+	go func() {
+		_, err := e.runner.Play(context.Background(), "rollout", "human:alice")
+		played <- err
+	}()
+
+	select {
+	case err := <-played:
+		t.Fatalf("Play returned while Stop was still waiting for the launch: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	assert.Equal(t, 1, e.launcher.count())
+
+	release()
+
+	require.NoError(t, <-stopped)
+	require.NoError(t, <-played)
+	require.Eventually(t, func() bool { return e.launcher.count() == 2 }, time.Second, 5*time.Millisecond,
+		"the resumed run relaunches the killed card")
+
+	events, maxFlight := log.snapshot()
+	assert.Equal(t, []string{"launch ALPHA-1", "kill ALPHA-1", "launch ALPHA-1"}, events)
+	assert.Equal(t, 1, maxFlight, "never two launches at once")
+	assert.Equal(t, []string{"ALPHA-1"}, e.stopper.called(), "only the Stop killed a worker")
+
+	cancel()
+	e.runner.Wait()
+}
+
+// TestPlay_GivesUpWhenItsContextEndsDuringAStop: a Play waiting for a Stop
+// returns when its own context ends and writes nothing, so a retry is clean.
+func TestPlay_GivesUpWhenItsContextEndsDuringAStop(t *testing.T) {
+	e := newEnv(t)
+	e.seedOneCardRun()
+	entered, release, _ := e.holdFirstLaunch(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	e.runner.Start(ctx)
+	<-entered
+
+	stopped := make(chan error, 1)
+
+	go func() {
+		_, err := e.runner.Stop(context.Background(), "rollout", "human:alice")
+		stopped <- err
+	}()
+
+	require.Eventually(t, func() bool { return e.runner.walkerCount() == 0 }, time.Second, 5*time.Millisecond)
+
+	writes := e.pbs.runWrites()
+
+	playCtx, cancelPlay := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancelPlay()
+
+	_, err := e.runner.Play(playCtx, "rollout", "human:alice")
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Equal(t, writes, e.pbs.runWrites(), "a Play that gave up wrote nothing")
+
+	release()
+	require.NoError(t, <-stopped)
+
+	cancel()
+	e.runner.Wait()
+}
+
+// TestEnsure_NewWalkerWaitsForTheCancelledOne: Stop gives up waiting when its
+// own context ends, so a Play can follow while the cancelled walker is still
+// inside its launch. The new walker must not pass until that walker exits.
+func TestEnsure_NewWalkerWaitsForTheCancelledOne(t *testing.T) {
+	e := newEnv(t)
+	e.seedOneCardRun()
+	entered, release, _ := e.holdFirstLaunch(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	e.runner.Start(ctx)
+	<-entered
+
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer stopCancel()
+
+	_, err := e.runner.Stop(stopCtx, "rollout", "human:alice")
+	require.ErrorIs(t, err, ErrStopWorker, "Stop gave up waiting for the walker")
+
+	_, err = e.runner.Play(context.Background(), "rollout", "human:alice")
+	require.NoError(t, err)
+
+	assert.Never(t, func() bool { return e.launcher.count() > 1 }, 50*time.Millisecond, 5*time.Millisecond,
+		"the new walker passed while the cancelled one was inside its launch")
+
+	release()
+
+	require.Eventually(t, func() bool {
+		run := e.pbs.lastRun()
+
+		return run.Status == board.RunStatusRunning && run.Entry == "e1"
+	}, time.Second, 5*time.Millisecond)
+	assert.Equal(t, 1, e.launcher.count(), "the new run waits on the worker the old launch queued")
 
 	cancel()
 	e.runner.Wait()

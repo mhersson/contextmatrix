@@ -23,10 +23,17 @@ type walker struct {
 // bus event for one of the playbook's cards or for the playbook itself, a
 // Play, and the tick, which guarantees progress because the bus drops events
 // on a full buffer and replays nothing across a restart.
-func (r *Runner) walk(ctx context.Context, id string, w *walker) {
+func (r *Runner) walk(ctx context.Context, id string, w *walker, prev chan struct{}) {
 	defer close(w.done)
 	defer r.wg.Done()
 	defer r.forget(id, w)
+
+	// A walker Stop cancelled may still be inside a launch. Waited for even
+	// when this walker is cancelled too, so done implies every earlier walker
+	// of the playbook has exited.
+	if prev != nil {
+		<-prev
+	}
 
 	if ctx.Err() != nil {
 		return
@@ -94,6 +101,10 @@ func (r *Runner) forget(id string, w *walker) {
 
 	r.dropLocked(id, w)
 	delete(r.watched, id)
+
+	if r.exiting[id] == w.done {
+		delete(r.exiting, id)
+	}
 }
 
 // cancelWalker cancels and drops the current walker for id, if there is
@@ -113,6 +124,7 @@ func (r *Runner) cancelWalker(id string) <-chan struct{} {
 	}
 
 	r.dropLocked(id, w)
+	r.exiting[id] = w.done
 
 	return w.done
 }

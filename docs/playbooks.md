@@ -169,7 +169,8 @@ behavior. Both controls are human-only.
 
 - **Play** requires the playbook to be runnable and no run already active
   (`409 PLAYBOOK_RUN_ACTIVE`), and a configured task backend
-  (`503 BACKEND_DISABLED`).
+  (`503 BACKEND_DISABLED`). A Play that arrives while a Stop of the same
+  playbook is still in progress waits for that Stop to finish.
 - **Stop** requires an active run (`409 PLAYBOOK_RUN_INACTIVE`). If the kill
   webhook fails after the run is marked `stopped`, it answers
   `502 BACKEND_UNAVAILABLE`.

@@ -177,7 +177,8 @@ first run in a repository.
 - **Play** starts a run, or resumes a `stopped` one. A resume re-launches the
   current card: a parked or stalled card is first moved back to `todo`. A card
   that finished meanwhile is skipped; one that is running is waited on. Play
-  is refused while a run is `running` or `waiting`.
+  is refused while a run is `running` or `waiting`. A Play pressed while a
+  Stop is still finishing waits for it.
 - The runner never retries on its own. After a failed card, fix the cause,
   then press Stop and Play: Stop ends the `waiting` run and Play resumes it.
 - An imported card that is not vetted holds the run at `waiting` with the reason

@@ -96,6 +96,12 @@ type Runner struct {
 	// it instead of resolving the playbook for every card event on the
 	// board; the pass that a playbook's own event triggers refreshes it.
 	watched map[string]map[string]struct{}
+	// control holds one token per playbook. Play and Stop each hold it for
+	// their whole call, so a Play never lands inside a Stop's wait and kill.
+	control map[string]chan struct{}
+	// exiting is, per playbook, the done channel of the walker Stop last
+	// cancelled; the next walker waits on it before its first pass.
+	exiting map[string]chan struct{}
 	wg      sync.WaitGroup
 }
 
@@ -116,7 +122,31 @@ func New(cfg Config) *Runner {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	return &Runner{cfg: cfg, ctx: ctx, walkers: map[string]*walker{}, watched: map[string]map[string]struct{}{}}
+	return &Runner{
+		cfg: cfg, ctx: ctx, walkers: map[string]*walker{}, watched: map[string]map[string]struct{}{},
+		control: map[string]chan struct{}{}, exiting: map[string]chan struct{}{},
+	}
+}
+
+// lockControl takes id's control token, waiting for a Play or Stop that
+// holds it, and returns its release. It gives up when ctx ends.
+func (r *Runner) lockControl(ctx context.Context, id string) (func(), error) {
+	r.mu.Lock()
+
+	token, ok := r.control[id]
+	if !ok {
+		token = make(chan struct{}, 1)
+		r.control[id] = token
+	}
+
+	r.mu.Unlock()
+
+	select {
+	case token <- struct{}{}:
+		return func() { <-token }, nil
+	case <-ctx.Done():
+		return nil, fmt.Errorf("wait for playbook %s: %w", id, ctx.Err())
+	}
 }
 
 // SetLauncher wires the trigger path; nil means no task backend.
@@ -151,8 +181,15 @@ func (r *Runner) stopper() Stopper {
 
 // Play starts or resumes a run. It writes the run block with the reason
 // cleared and the entry on a live worker (resumeEntry), keeps started_at
-// across a resume, and starts the walker.
+// across a resume, and starts the walker. It waits for a Stop of the same
+// playbook that is still in progress.
 func (r *Runner) Play(ctx context.Context, id, agentID string) (*service.PlaybookDetail, error) {
+	release, err := r.lockControl(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
 	d, err := r.cfg.Playbooks.Get(ctx, id)
 	if err != nil {
 		return nil, err
@@ -242,6 +279,12 @@ func (r *Runner) resumeEntry(ctx context.Context, d *service.PlaybookDetail) str
 // is in flight and owned by this instance. A kill failure is reported as
 // ErrStopWorker with the stopped detail; the run stays stopped.
 func (r *Runner) Stop(ctx context.Context, id, agentID string) (*service.PlaybookDetail, error) {
+	release, err := r.lockControl(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
 	d, err := r.cfg.Playbooks.Get(ctx, id)
 	if err != nil {
 		return nil, err
@@ -385,7 +428,7 @@ func (r *Runner) Ensure(id string) bool {
 
 	r.wg.Add(1)
 
-	go r.walk(ctx, id, w)
+	go r.walk(ctx, id, w, r.exiting[id])
 
 	return true
 }

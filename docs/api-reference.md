@@ -2013,7 +2013,8 @@ run with Stop, then Play. Writes the run block with `status: running` and
 worker (after a Stop whose kill failed, or a hand run made while stopped); then
 the run stays on that entry, preferring the stopped run's own, and waits for
 that worker before starting anything else. `started_at` is kept across a
-resume, and the walker starts. `202` with the playbook detail.
+resume, and the walker starts. A Play that arrives while a Stop of the same
+playbook is still in progress waits for it to finish first. `202` with the playbook detail.
 Errors: `403 HUMAN_ONLY_FIELD`, `404 PLAYBOOK_NOT_FOUND`,
 `409 PLAYBOOK_NOT_RUNNABLE`, `409 PLAYBOOK_RUN_ACTIVE`, `503 BACKEND_DISABLED`.
 
