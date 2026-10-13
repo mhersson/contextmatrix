@@ -192,8 +192,7 @@ Based on the card's current state and body content:
 
 ## Phase 5: Review (inline)
 
-15. Call `start_review(card_id='<card_id>', agent_id=<your_agent_id>,
-    caller_model='<your_model>')`. The response always has `inline: true` -
+15. Call `start_review(card_id='<card_id>', agent_id=<your_agent_id>)`. The response always has `inline: true` -
     review-task is forced to inline because it spawns three specialist
     sub-agents in parallel via the `Agent` tool, which only the top-level
     (your) session has.

@@ -1,7 +1,8 @@
 // Package transcript builds the rehydration payload sent to the chat backend on a
 // cold-reopen. It filters role-typed messages from SQLite into the bounded
-// shape Claude can ingest from /run/cm-chat/resume.jsonl: drop noise (thinking,
-// stderr, system, prior rehydration turns), summarise tool_result bodies, and
+// shape the chat worker seeds as history from /run/cm-chat/resume.jsonl: drop
+// noise (thinking, stderr, system, prior rehydration turns), summarise
+// tool_result bodies, and
 // truncate to fit a configurable token budget while always preserving the
 // first user turn (the original goal) and the last K turns (recent context).
 //

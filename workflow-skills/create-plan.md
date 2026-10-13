@@ -444,7 +444,7 @@ After `DOCS_WRITTEN` is received: reclaim the parent card:
 
 # Phase 7: Review
 
-Call `start_review(card_id=<parent_id>, agent_id=<your_agent_id>, caller_model='<your_model>')`.
+Call `start_review(card_id=<parent_id>, agent_id=<your_agent_id>)`.
 The response always has `inline: true` - `review-task` is forced to inline execution.
 
 Execute the returned `content` directly in this session. The three

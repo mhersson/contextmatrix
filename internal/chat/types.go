@@ -132,8 +132,8 @@ type TokenUsage struct {
 
 // ResumeContext is the rehydration payload CM passes to the backend on a
 // cold-open. The backend writes it to /run/cm-chat/resume.jsonl inside the
-// container; the entrypoint instructs Claude to read it before greeting
-// the operator. Protocol-owned wire shape (protocol.ChatResumeContext),
+// container; the worker loads it and seeds it as conversation history before
+// the first turn. Protocol-owned wire shape (protocol.ChatResumeContext),
 // aliased via the transcript subpackage so the builder and the rest of
 // the chat package keep their local names.
 type ResumeContext = transcript.ResumeContext

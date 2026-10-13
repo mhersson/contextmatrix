@@ -411,10 +411,9 @@ func TestStartReview_HappyPath(t *testing.T) {
 	})
 
 	result, err := callToolRaw(t, env, "start_review", map[string]any{
-		"project":      "test-project",
-		"card_id":      "TEST-001",
-		"agent_id":     "agent-A",
-		"caller_model": "opus",
+		"project":  "test-project",
+		"card_id":  "TEST-001",
+		"agent_id": "agent-A",
 	})
 
 	require.False(t, resultIsError(result, err), "start_review should succeed: %s", errorText(result, err))
@@ -425,7 +424,7 @@ func TestStartReview_HappyPath(t *testing.T) {
 	assert.Equal(t, "opus", out.Model)
 	assert.NotEmpty(t, out.Content, "skill content must be present")
 	assert.Contains(t, out.Content, "TEST-001", "card context must be injected")
-	assert.True(t, out.Inline, "review-task is inline-eligible when caller_model matches")
+	assert.True(t, out.Inline, "review-task is always inline")
 	assert.Contains(t, out.Content, "INLINE EXECUTION", "inline response must include the lifecycle envelope")
 
 	getResult := callTool(t, env, "get_card", map[string]any{"card_id": "TEST-001"})
@@ -436,14 +435,14 @@ func TestStartReview_HappyPath(t *testing.T) {
 	assert.Equal(t, "review", card.State, "card must be transitioned to review")
 }
 
-// TestStartReview_AlwaysInlineRegardlessOfCallerModel pins the behavior that
-// start_review returns inline=true for review-task even when the caller's
-// model does not match the skill's model. The review skill must run inline
+// TestStartReview_RejectsCallerModel pins that start_review takes no model
+// argument: the strict input schema rejects it, and review-task is always
+// inline (see TestStartReview_HappyPath). The review skill must run inline
 // in the orchestrator's session so its Agent tool is available to spawn
 // the three parallel specialist sub-agents - sub-agents spawned via Agent
 // lack the Agent tool themselves. Regressing this gate would silently
 // degrade the review to a single-perspective walkthrough.
-func TestStartReview_AlwaysInlineRegardlessOfCallerModel(t *testing.T) {
+func TestStartReview_RejectsCallerModel(t *testing.T) {
 	env := setupMCP(t)
 
 	createTestCard(t, env, "Review inline regardless of model", "feature", "high")
@@ -458,16 +457,17 @@ func TestStartReview_AlwaysInlineRegardlessOfCallerModel(t *testing.T) {
 		"project":      "test-project",
 		"card_id":      "TEST-001",
 		"agent_id":     "agent-A",
-		"caller_model": "sonnet", // mismatched against review-task's opus
+		"caller_model": "opus",
 	})
 
-	require.False(t, resultIsError(result, err), "start_review should succeed: %s", errorText(result, err))
+	assert.True(t, resultIsError(result, err), "unknown caller_model argument must be rejected")
 
-	var out getSkillOutput
-	unmarshalResult(t, result, &out)
-	assert.True(t, out.Inline, "review-task must inline regardless of caller_model")
-	assert.Contains(t, out.Content, "INLINE EXECUTION", "inline response must include the lifecycle envelope")
-	assert.Equal(t, "opus", out.Model, "skill model must still be reported as opus for specialist spawning")
+	getResult := callTool(t, env, "get_card", map[string]any{"card_id": "TEST-001"})
+	require.False(t, getResult.IsError)
+
+	var card board.Card
+	unmarshalResult(t, getResult, &card)
+	assert.Equal(t, "in_progress", card.State, "rejected call must not transition the card")
 }
 
 // TestStartReview_ForbiddenTransition verifies that start_review rejects a

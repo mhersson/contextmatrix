@@ -369,7 +369,7 @@ disk, commits only those files on the feature branch (never pushes or opens a
 PR), calls `report_usage` and `release_card`, and returns `DOCS_WRITTEN` with
 the files written. The orchestrator then reclaims the parent.
 
-**5. Review** (Phase 7) - `start_review(card_id, agent_id, caller_model)`
+**5. Review** (Phase 7) - `start_review(card_id, agent_id)`
 atomically transitions the parent to `review` and returns `review-task` with
 `inline: true`; there is no path to the review skill without committing the
 transition. The orchestrator runs it in its own session and keeps the claim.

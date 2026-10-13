@@ -42,8 +42,8 @@ type chatRehydrationCompleteOutput struct {
 }
 
 // registerChatRehydrationComplete adds the chat_rehydration_complete MCP tool.
-// The agent calls this once it has read /run/cm-chat/resume.jsonl and
-// re-established workspace state. The call:
+// The agent calls this once on a resumed chat, whose prior conversation the
+// worker has already seeded into its history. The call:
 //
 //   - flips chat_sessions.rehydration_active off so the UI un-collapses the
 //     restoration block and stops showing the "Restoring workspace…" spinner;
@@ -55,11 +55,10 @@ func registerChatRehydrationComplete(server *mcp.Server, mgr *chat.Manager) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "chat_rehydration_complete",
 		Description: "Signal that the chat-mode rehydration phase is complete. " +
-			"Call this exactly once per resumed chat session after reading " +
-			"/run/cm-chat/resume.jsonl and re-establishing any workspace state " +
-			"(re-cloning repos, restoring branches, etc.). The summary argument " +
-			"becomes the first visible message of the resumed chat - keep it " +
-			"to one short paragraph.",
+			"Call this exactly once on a resumed chat session; the prior " +
+			"conversation is already in your history. The summary argument " +
+			"is a one-paragraph recap that becomes the first visible message " +
+			"of the resumed chat.",
 	}, buildChatRehydrationCompleteTool(mgr))
 }
 
