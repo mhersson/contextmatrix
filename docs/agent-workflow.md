@@ -443,7 +443,7 @@ transitions to `done`, releases, and prints `AUTONOMOUS_COMPLETE`.
 the `simple` label and has no subtasks (`classifyComplexity` in
 `internal/mcp/prompts.go`). The skill then claims, works directly, runs the
 project's tests, commits, pushes, opens the PR, runs the gates, reports usage
-and transitions to `done` with no planning, review or documentation. See
+and transitions to `done` with no planning, review or documentation. The agent backend does not take this path. See
 [reserved labels](data-model.md#reserved-labels).
 
 **Guardrails**

@@ -753,7 +753,7 @@ local-path or foreign-repo signal; best-effort. See
 
 | Label    | Effect                                                                                                                                                                                                                                     |
 | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `simple` | Autonomous fast path. With this label and no subtasks, `run-autonomous` skips planning, subtask creation, review and documentation, works directly and moves to `done`. Claims, heartbeats, tests and release still apply. Classified in `classifyComplexity()` (`internal/mcp/prompts.go`). |
+| `simple` | Autonomous fast path. With this label and no subtasks, `run-autonomous` skips planning, subtask creation, review and documentation, works directly and moves to `done`. Claims, heartbeats, tests and release still apply. Local `run-autonomous` skill only: the agent backend does not take this path (the label only skips its debug gate). Classified in `classifyComplexity()` (`internal/mcp/prompts.go`). |
 
 ## Card body templates
 

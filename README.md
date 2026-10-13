@@ -215,7 +215,7 @@ run cards unattended in containers, add an agent backend; see
 | [Web UI](docs/web-ui.md)                                                   | Routes, board view, sorting, dashboard, console, chat, images, appearance              |
 | [Playbooks](docs/playbooks.md)                                             | Cross-project runbooks: entries, detail view, storage, API and MCP                     |
 | [MCP integration](docs/mcp.md)                                             | Connecting a client, every MCP tool, slash commands, payload rules                     |
-| [Running cards](docs/running-cards.md)                                     | Run Auto / Run HITL, guardrails, Best-of-N, mob, PR gates, parking, cost    |
+| [Running cards](docs/running-cards.md)                                     | Run Auto / Run HITL, guardrails, Best-of-N, mob, PR gates, parking, cost               |
 | [Agent workflow](docs/agent-workflow.md)                                   | Orchestration model, workflow and task skills, phases, heartbeat, model allocation     |
 | [Remote execution](docs/remote-execution.md)                               | Backend webhook protocol, worker lifecycle, log streaming, kill switch                 |
 | [Model selection](docs/model-selection.md)                                 | Candidate catalog, tiers, pins, favorites, blacklist, outcome ledger                   |

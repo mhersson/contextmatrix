@@ -65,7 +65,7 @@ to the local `run-autonomous` workflow skill; see
 | Guardrail            | Rule                                                                 |
 | -------------------- | -------------------------------------------------------------------- |
 | Branch protection    | `report_push` returns a hard error for `main` or `master`. Skills also forbid the push itself. |
-| Review cycles        | The review loop runs up to 3 rounds by default (the backend's review attempts cap, at most 6), then one authoritative pass; if findings remain it parks the card (see [Parked cards](#parked-cards)) instead of looping on. The local `run-autonomous` skill has its own 3-pass budget that stalls the card. |
+| Review cycles        | The review loop runs up to 3 rounds by default (the backend's review attempts cap, at most 6), the last of which is an authoritative pass; each verify-red round adds one round, within the server ceiling. If findings remain it parks the card (see [Parked cards](#parked-cards)) instead of looping on. The local `run-autonomous` skill has its own 3-pass budget that stalls the card. |
 | Server ceiling       | `increment_review_attempts` refuses once `review_attempts` reaches 7; the backend parks the card when it does. |
 | Stall detection      | No heartbeat for `heartbeat_timeout` (default 30m, scanned every `stalled_check_interval`, default 1m) moves the card to `stalled` and clears the claim. Any card mutation refreshes the heartbeat. |
 | Sub-agent health     | `check_agent_health` reports `warning` at half the timeout and `stalled` at the timeout; `await_subtasks` returns as soon as a subtask stalls. |
