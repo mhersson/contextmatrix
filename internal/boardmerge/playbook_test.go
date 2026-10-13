@@ -667,6 +667,12 @@ func TestResolvePlaybook_ActiveRunKeepsRunnable(t *testing.T) {
 		return p
 	}
 
+	newer := func(p *board.Playbook) *board.Playbook {
+		p.Run.StartedAt = ts(1)
+
+		return p
+	}
+
 	tests := []struct {
 		name         string
 		base         *board.Playbook
@@ -675,7 +681,7 @@ func TestResolvePlaybook_ActiveRunKeepsRunnable(t *testing.T) {
 	}{
 		{name: "ours active, theirs disabled", base: noRun(), ours: active(5), theirs: disabled(3), wantKept: true},
 		{name: "theirs active, ours disabled", base: noRun(), ours: disabled(3), theirs: active(5), wantKept: true},
-		{name: "base stopped run, disabler later", base: stopped(), ours: active(2), theirs: disabled(9), wantKept: true},
+		{name: "base stopped run, disabler later", base: stopped(), ours: newer(active(2)), theirs: disabled(9), wantKept: true},
 		{name: "base active run, disabler stopped it", base: active(0), ours: active(9), theirs: disabled(3)},
 	}
 
@@ -693,8 +699,13 @@ func TestResolvePlaybook_ActiveRunKeepsRunnable(t *testing.T) {
 
 			assert.True(t, got.Runnable)
 			require.NotNil(t, got.Run)
-			assert.True(t, got.Run.Active())
-			assert.Equal(t, "e1", got.Run.Entry)
+
+			wantRun := tt.ours.Run
+			if wantRun == nil {
+				wantRun = tt.theirs.Run
+			}
+
+			assert.Equal(t, wantRun, got.Run)
 			assert.True(t, hasRule(out.Resolutions, RulePlaybookRunKeepsRunnable))
 		})
 	}
@@ -829,4 +840,52 @@ func TestKeepRunEntry_RenamesARunEntryOursAdded(t *testing.T) {
 	}
 
 	assert.True(t, hasRule(out.Resolutions, RulePlaybookRunEntry))
+}
+
+// TestResolvePlaybook_NewerRunSurvivesAStaleStop: base holds run A; a stale peer
+// stopped it and turned runnable off or deleted, while A's owner finished A
+// and started run B. B was never seen by the peer and must survive.
+func TestResolvePlaybook_NewerRunSurvivesAStaleStop(t *testing.T) {
+	newRun := func(p *board.Playbook) {
+		p.Run = &board.PlaybookRun{
+			Status: board.RunStatusRunning, Instance: "a", StartedAt: ts(0).Add(5 * time.Minute),
+			UpdatedAt: ts(9), Entry: "e1",
+		}
+		p.Updated = ts(9)
+	}
+
+	t.Run("runnable turned off", func(t *testing.T) {
+		base, owner, peer := runningPb(), runningPb(), runningPb()
+		base.Run.Instance, owner.Run.Instance, peer.Run.Instance = "a", "a", "a"
+		newRun(owner)
+
+		peer.Runnable = false
+		peer.Run = nil
+		peer.Updated = ts(3)
+
+		got, out := resolveParsed(t, base, owner, peer)
+		assert.True(t, got.Runnable)
+		require.NotNil(t, got.Run)
+		assert.True(t, got.Run.Active())
+		assert.True(t, got.Run.StartedAt.Equal(owner.Run.StartedAt))
+		assert.True(t, hasRule(out.Resolutions, RulePlaybookRunKeepsRunnable))
+	})
+
+	t.Run("deleted", func(t *testing.T) {
+		base, owner := runningPb(), runningPb()
+		base.Run.Instance = "a"
+
+		newRun(owner)
+
+		out, err := Resolve(Input{
+			Path: "playbooks/release.yaml", Base: serializePb(t, base), Ours: nil, Theirs: serializePb(t, owner),
+		}, testCtx())
+		require.NoError(t, err)
+		require.False(t, out.Deleted)
+
+		got, err := board.ParsePlaybook(out.Content)
+		require.NoError(t, err)
+		require.NotNil(t, got.Run)
+		assert.True(t, got.Run.Active())
+	})
 }

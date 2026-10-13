@@ -20,13 +20,13 @@ import (
 // local copy to a free id instead of colliding.
 func resolvePlaybook(in Input, id string, c Context) (Output, error) {
 	if in.Ours == nil || in.Theirs == nil {
-		if kept, stopped := activeRunSurvivor(in); kept != nil {
+		if kept, survivor, stopped := activeRunSurvivor(in); kept != nil {
 			detail := "deleted on one side while its run is active on the other; kept"
 
 			if stopped {
 				// The deleter saw base's active run and a local delete refuses
 				// one, so it stopped that run first.
-				data, err := stopSurvivorRun(kept, c.Now())
+				data, err := stopSurvivorRun(survivor, c.Now())
 				if err != nil {
 					return Output{}, fmt.Errorf("stop surviving playbook run %s: %w", id, err)
 				}
@@ -185,13 +185,12 @@ func mergePlaybooks(base, ours, theirs *board.Playbook, path string, c Context) 
 		out.Run = v
 	}
 
-	// A run block only makes sense on a runnable playbook; Validate rejects
-	// the combination, so repair it here rather than leave the file unusable.
 	// Turning runnable off refuses an active run, so a side that did it never
-	// saw the other side's run unless base held it: keep that run runnable.
-	if !out.Runnable && !base.RunActive() {
+	// saw the other side's run unless it is the run base held: keep that run
+	// runnable.
+	if !out.Runnable {
 		for _, p := range []*board.Playbook{ours, theirs} {
-			if p.Runnable && p.RunActive() {
+			if p.Runnable && p.RunActive() && (!base.RunActive() || !sameRun(base.Run, p.Run)) {
 				out.Runnable = true
 				out.Run = p.Run.Clone()
 
@@ -205,6 +204,8 @@ func mergePlaybooks(base, ours, theirs *board.Playbook, path string, c Context) 
 		}
 	}
 
+	// A run block only makes sense on a runnable playbook; Validate rejects
+	// the combination, so repair it here rather than leave the file unusable.
 	if !out.Runnable {
 		out.Run = nil
 	}
@@ -422,39 +423,34 @@ func entryByID(p *board.Playbook, id string) (board.PlaybookEntry, bool) {
 
 // activeRunSurvivor returns the surviving side of a delete/modify conflict
 // when it holds an active run; a local delete refuses one, so the deleter
-// was stale. stopped reports that base's run was already active, so the
-// deleter had stopped it.
-func activeRunSurvivor(in Input) (kept []byte, stopped bool) {
+// was stale. stopped reports that the survivor's run is the active run base
+// held, so the deleter had stopped it.
+func activeRunSurvivor(in Input) (kept []byte, parsed *board.Playbook, stopped bool) {
 	survivor := in.Ours
 	if survivor == nil {
 		survivor = in.Theirs
 	}
 
 	if survivor == nil {
-		return nil, false
+		return nil, nil, false
 	}
 
 	p, err := board.ParsePlaybook(survivor)
 	if err != nil || !p.Runnable || !p.RunActive() {
-		return nil, false
+		return nil, nil, false
 	}
 
 	if in.Base != nil {
-		if b, err := board.ParsePlaybook(in.Base); err == nil && b.RunActive() {
-			return survivor, true
+		if b, err := board.ParsePlaybook(in.Base); err == nil && b.RunActive() && sameRun(b.Run, p.Run) {
+			return survivor, p, true
 		}
 	}
 
-	return survivor, false
+	return survivor, p, false
 }
 
-// stopSurvivorRun returns the playbook with its run stopped at now.
-func stopSurvivorRun(content []byte, now time.Time) ([]byte, error) {
-	p, err := board.ParsePlaybook(content)
-	if err != nil {
-		return nil, fmt.Errorf("parse playbook: %w", err)
-	}
-
+// stopSurvivorRun returns p serialized with its run stopped at now.
+func stopSurvivorRun(p *board.Playbook, now time.Time) ([]byte, error) {
 	p.Run = p.Run.Clone()
 	p.Run.Status = board.RunStatusStopped
 	p.Run.Reason = "stopped and deleted on another instance"
@@ -467,4 +463,9 @@ func stopSurvivorRun(content []byte, now time.Time) ([]byte, error) {
 	}
 
 	return data, nil
+}
+
+// sameRun reports whether a and b are the same run: one instance's start.
+func sameRun(a, b *board.PlaybookRun) bool {
+	return a != nil && b != nil && a.Instance == b.Instance && a.StartedAt.Equal(b.StartedAt)
 }
