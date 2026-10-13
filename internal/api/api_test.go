@@ -2574,6 +2574,45 @@ func TestHumanOnlyFields_CreateCard(t *testing.T) {
 	})
 }
 
+func TestCreateCard_JiraSourceIsImporterOnly(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	server := httptest.NewServer(NewRouter(RouterConfig{Service: svc, Bus: bus}))
+	defer server.Close()
+
+	post := func(t *testing.T, source *board.Source) *http.Response {
+		t.Helper()
+
+		jsonBody, err := json.Marshal(createCardRequest{Title: "Sourced", Type: "task", Priority: "medium", Source: source})
+		require.NoError(t, err)
+
+		resp, err := http.Post(server.URL+"/api/projects/test-project/cards", "application/json", bytes.NewReader(jsonBody))
+		require.NoError(t, err)
+		t.Cleanup(func() { closeBody(t, resp.Body) })
+
+		return resp
+	}
+
+	t.Run("jira is refused", func(t *testing.T) {
+		resp := post(t, &board.Source{System: "jira", ExternalID: "FIN-1", ExternalURL: "https://acme.atlassian.net/browse/PAY-9"})
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeBadRequest, apiErr.Code)
+
+		cards, err := svc.ListCards(context.Background(), "test-project", storage.CardFilter{})
+		require.NoError(t, err)
+		assert.Empty(t, cards, "nothing is created")
+	})
+
+	t.Run("another system is accepted", func(t *testing.T) {
+		resp := post(t, &board.Source{System: "github", ExternalID: "acme/api#7", ExternalURL: "https://github.com/acme/api/issues/7"})
+		assert.Equal(t, http.StatusCreated, resp.StatusCode)
+	})
+}
+
 func TestCreateCard_CreatePRDefaultAndBaseBranch(t *testing.T) {
 	svc, bus, cleanup := testSetup(t)
 	defer cleanup()

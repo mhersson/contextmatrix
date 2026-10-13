@@ -1193,7 +1193,9 @@ included, is explicit. `merge_pr` is nullable too, but has no `card_defaults`
 entry: omitted always means off. `mob_phases` is read only alongside an
 explicit `mob_participants`. `skills` omitted means the project default; `[]`
 mounts no skills. `depends_on`, `subtasks`, `context`, and `custom` are not
-accepted on create - set them with PUT or PATCH.
+accepted on create - set them with PUT or PATCH. A `source` with `system: jira`
+is refused: Jira writeback moves the issue that source names, so only the Jira
+import sets one.
 
 **Human-only fields** (403 `HUMAN_ONLY_FIELD` when a non-`human:` caller sets
 any of them, on create, PUT, and PATCH alike): `autonomous`, `create_pr`,
@@ -1212,7 +1214,7 @@ rejected, omitting it is not.
 
 | Status | Code                                    | When                                                                                                                                                           |
 | ------ | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 400    | `BAD_REQUEST`                           | Bad JSON, empty `title`, `best_of_n` outside `0` or `2..max_candidates`, invalid mob fields                                                                    |
+| 400    | `BAD_REQUEST`                           | Bad JSON, empty `title`, a `jira` source, `best_of_n` outside `0` or `2..max_candidates`, invalid mob fields                                                    |
 | 400    | `VALIDATION_ERROR`                      | A `skills` name not in `task_skills.dir` (or outside the project's `default_skills`)                                                                           |
 | 403    | `HUMAN_ONLY_FIELD`                      | See above                                                                                                                                                      |
 | 404    | `PROJECT_NOT_FOUND`, `PARENT_NOT_FOUND` |                                                                                                                                                                |

@@ -203,7 +203,9 @@ import; pick another project or change the prefix to avoid it.
 ## Status writeback
 
 With `jira.writeback.enabled: true`, CM moves an imported issue in Jira. The
-card must carry a Jira `source` whose URL is on the configured `site_url` host.
+card must carry a Jira `source` whose URL is `<site_url>/browse/<external_id>`,
+as the import sets it. Only the import sets a Jira source: the REST card create
+refuses one with `400`.
 
 | Card event                     | Jira                                           |
 | ------------------------------ | ---------------------------------------------- |

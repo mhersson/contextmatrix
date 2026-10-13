@@ -25,6 +25,13 @@ func TestSubscriber_Enqueue(t *testing.T) {
 	foreign := jiraCard("API-003", "PROJ-3", board.StateInProgress, testStart)
 	foreign.Source.ExternalURL = "https://evil.example/browse/PROJ-3"
 
+	// The link a human sees names another issue than the one written to.
+	mislinked := jiraCard("API-004", "FIN-1", board.StateInProgress, testStart)
+	mislinked.Source.ExternalURL = testSite + "/browse/PAY-9"
+
+	offPath := jiraCard("API-005", "PROJ-5", board.StateInProgress, testStart)
+	offPath.Source.ExternalURL = testSite + "/jira/software/projects/PROJ?selectedIssue=PROJ-5"
+
 	tests := []struct {
 		name     string
 		card     *board.Card
@@ -54,6 +61,14 @@ func TestSubscriber_Enqueue(t *testing.T) {
 		{
 			name: "foreign host", card: foreign,
 			event: stateEvent("api", "API-003", "todo", "in_progress", false),
+		},
+		{
+			name: "url names another issue", card: mislinked,
+			event: stateEvent("api", "API-004", "todo", "in_progress", false),
+		},
+		{
+			name: "url is not the issue's browse link", card: offPath,
+			event: stateEvent("api", "API-005", "todo", "in_progress", false),
 		},
 		{
 			name: "not a state change", card: jiraCard("API-001", "PROJ-1", board.StateInProgress, testStart),
