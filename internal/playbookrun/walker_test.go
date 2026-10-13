@@ -2,6 +2,7 @@ package playbookrun
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -629,6 +630,96 @@ func TestEnsure_NewWalkerWaitsForTheCancelledOne(t *testing.T) {
 		return run.Status == board.RunStatusRunning && run.Entry == "e1"
 	}, time.Second, 5*time.Millisecond)
 	assert.Equal(t, 1, e.launcher.count(), "the new run waits on the worker the old launch queued")
+
+	cancel()
+	e.runner.Wait()
+}
+
+// TestStop_LetsACaughtLaunchFinish: Stop cancels the walker while its launch
+// is mid-call. The launch still runs to its outcome, so the card reads queued
+// and Stop kills it; aborted, it would revert the card to failed while the
+// backend may already have started the worker.
+func TestStop_LetsACaughtLaunchFinish(t *testing.T) {
+	e := newEnv(t)
+	e.seedOneCardRun()
+
+	entered := make(chan struct{})
+	gate := make(chan struct{})
+	release := sync.OnceFunc(func() { close(gate) })
+	t.Cleanup(release)
+
+	// Shaped like the real launch: a call whose context ends mid-send fails
+	// and reverts the card.
+	e.launcher.onLaunch = func(ctx context.Context, project, card string) error {
+		close(entered)
+		<-gate
+
+		if ctx.Err() != nil {
+			e.cards.set(project, card, func(c *board.Card) { c.WorkerStatus = "failed" })
+
+			return errors.New("failed to trigger backend task")
+		}
+
+		e.cards.queue(project, card)
+
+		return nil
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	e.runner.Start(ctx)
+	<-entered
+
+	stopped := make(chan error, 1)
+
+	go func() {
+		_, err := e.runner.Stop(context.Background(), "rollout", "human:alice")
+		stopped <- err
+	}()
+
+	require.Eventually(t, func() bool { return e.runner.walkerCount() == 0 }, time.Second, 5*time.Millisecond,
+		"Stop has cancelled the walker")
+
+	release()
+
+	require.NoError(t, <-stopped)
+	assert.Equal(t, []string{"ALPHA-1"}, e.stopper.called(), "the worker the launch queued is killed")
+
+	cancel()
+	e.runner.Wait()
+}
+
+// TestLaunchEntry_SendsNothingOnceStopped: a Stop that lands between the
+// running write and the trigger has cancelled the walker; no trigger goes out.
+func TestLaunchEntry_SendsNothingOnceStopped(t *testing.T) {
+	e := newEnv(t)
+	e.seedOneCardRun()
+
+	stopped := make(chan error, 1)
+
+	e.pbs.mu.Lock()
+	e.pbs.afterSetRun = func() {
+		go func() {
+			_, err := e.runner.Stop(context.Background(), "rollout", "human:alice")
+			stopped <- err
+		}()
+
+		// This runs on the walker; plain polling, since require must not.
+		for deadline := time.Now().Add(time.Second); e.runner.walkerCount() != 0 && time.Now().Before(deadline); {
+			time.Sleep(time.Millisecond)
+		}
+	}
+	e.pbs.mu.Unlock()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	e.runner.Start(ctx)
+
+	require.NoError(t, <-stopped)
+	assert.Equal(t, 0, e.launcher.count(), "no trigger after the stop was persisted")
+	assert.Empty(t, e.stopper.called())
 
 	cancel()
 	e.runner.Wait()

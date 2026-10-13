@@ -323,10 +323,9 @@ func (r *Runner) Stop(ctx context.Context, id, agentID string) (*service.Playboo
 	}
 
 	// The stop is persisted: take the walker down and wait for it. A launch
-	// in flight either finishes, so the card below reads queued and is
-	// killed, or fails on the cancelled context and the launcher reverts
-	// the card. Reading the card before the walker exits could see todo,
-	// kill nothing, and let the launch queue a worker that outlives the stop.
+	// in flight runs to its outcome, so the card below reads queued and is
+	// killed, or its webhook failed and the launcher reverted the card.
+	// Reading the card before the walker exits could see todo and kill nothing.
 	if done := r.cancelWalker(id); done != nil {
 		select {
 		case <-done:

@@ -116,6 +116,10 @@ type fakePlaybooks struct {
 	// of writing, then cleared.
 	failNextSetRun error
 
+	// afterSetRun, when set, is called once after the next successful run
+	// write, outside the lock, then cleared.
+	afterSetRun func()
+
 	// afterGet, when set, is called once by Get after the detail is built
 	// and before it is returned, then cleared. Tests use it to hold a pass
 	// mid-flight while they mutate the board underneath it.
@@ -257,7 +261,14 @@ func (f *fakePlaybooks) SetRunIf(
 		p.Run = &copied
 		f.runs = append(f.runs, copied)
 	}
+
+	hook := f.afterSetRun
+	f.afterSetRun = nil
 	f.mu.Unlock()
+
+	if hook != nil {
+		hook()
+	}
 
 	return f.Get(ctx, id)
 }

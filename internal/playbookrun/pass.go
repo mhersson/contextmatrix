@@ -192,8 +192,16 @@ func (r *Runner) launchEntry(ctx context.Context, d *service.PlaybookDetail, e *
 		return
 	}
 
+	// A Stop that cancelled this walker after the running write gets no
+	// trigger. Once sent, the trigger runs to its outcome despite a later
+	// cancel: an aborted webhook may still start a worker the reverted card
+	// hides, while a finished one leaves a queued card Stop can kill.
+	if ctx.Err() != nil {
+		return
+	}
+
 	opts := LaunchOptions{CreateBaseBranch: true, BaseBranchFrom: d.BaseBranch}
-	if err := launch(ctx, e.Project, e.Card, opts); err != nil {
+	if err := launch(context.WithoutCancel(ctx), e.Project, e.Card, opts); err != nil {
 		r.setRun(ctx, d, board.RunStatusWaiting, e.ID, err.Error())
 	}
 }
