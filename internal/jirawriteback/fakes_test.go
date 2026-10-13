@@ -42,6 +42,7 @@ type fakeJira struct {
 	transitionsCalls int
 	issueErr         error
 	myselfErr        error
+	myselfSeq        []error         // consumed one per Myself call before myselfErr applies
 	postErr          error           // returned by every Transition
 	postErrOnce      error           // returned by the next Transition, then cleared
 	onPostErr        func(*fakeJira) // runs when postErrOnce fires (simulates a racing writer)
@@ -57,6 +58,13 @@ func newFakeJira(status jira.Status, workflow map[string][]jira.Transition) *fak
 func (f *fakeJira) Myself(context.Context) (jira.Account, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+
+	if len(f.myselfSeq) > 0 {
+		err := f.myselfSeq[0]
+		f.myselfSeq = f.myselfSeq[1:]
+
+		return jira.Account{DisplayName: "bot"}, err
+	}
 
 	return jira.Account{DisplayName: "bot"}, f.myselfErr
 }
