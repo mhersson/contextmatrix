@@ -45,6 +45,7 @@ const rawChunks = new WeakMap<SourceFile, RawChunk[]>();
 /** Runs right before rehype-raw and records the raw HTML chunks it will parse. */
 export function rehypeRawChunks() {
   return (tree: Root, file: SourceFile) => {
+    showUnclosedComments(tree as RawTree);
     const chunks: RawChunk[] = [];
     rawChunks.set(file, collectRaw(tree as RawTree, String(file.value), chunks) ? chunks : []);
   };
@@ -61,6 +62,23 @@ export default function rehypeBodyMarkup() {
     const chunks = rawChunks.get(file) ?? [];
     tree.children = clean(tree.children, { source, chunks, groups: new Set(), ancestors: [] }) as RootContent[];
   };
+}
+
+// hast-util-raw drops an unterminated comment and the rest of the document, so
+// such a chunk is shown literally instead of reaching the parser.
+function showUnclosedComments(node: RawTree) {
+  node.children?.forEach((child, i) => {
+    if (child.type === 'raw' && opensUnclosedComment(String(child.value))) {
+      node.children![i] = { type: 'text', value: child.value, position: child.position };
+    } else {
+      showUnclosedComments(child);
+    }
+  });
+}
+
+function opensUnclosedComment(value: string): boolean {
+  const open = value.lastIndexOf('<!--');
+  return open !== -1 && !/^<!--(?:-?>|[^]*-->)/.test(value.slice(open));
 }
 
 function collectRaw(node: RawTree, source: string, chunks: RawChunk[]): boolean {

@@ -358,3 +358,21 @@ describe('SafeMDEditor', () => {
     expectTypeOf<Components['preview']>().toEqualTypeOf<undefined>();
   });
 });
+describe('unclosed HTML comment', () => {
+  it.each([
+    ['text\n\n<!-- hidden to end of doc\n\nmore hidden', ['hidden to end of doc', 'more hidden']],
+    ['- <!-- hidden text\n\nafter', ['hidden text', 'after']],
+    ['a\n\n<div>\n<!-- hidden in div\n\nafter', ['hidden in div', 'after']],
+  ])('shows the text of %j', (body, words) => {
+    const text = renderSafe(body).textContent ?? '';
+    for (const word of words) expect(text).toContain(word);
+  });
+
+  it('leaves closed comments as before', () => {
+    expect(renderSafe('<!-- template comment -->\n\nx').textContent).toContain('<!-- template comment -->');
+    expect(renderSafe('<!-- cm:meta bar=simple budget=0 seed=simple -->\n\nx').textContent).not.toContain('cm:meta');
+    expect(renderSafe('<!-->x\n\nz').textContent).toContain('x');
+    expect(renderSafe('<!--->y\n\nz').textContent).toContain('y');
+    expect(renderSafe('<!-->x\n\nz').textContent).toContain('z');
+  });
+});
