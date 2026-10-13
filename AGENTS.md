@@ -250,6 +250,7 @@ make build              # binary with embedded frontend (needs make install-fron
 make run                # runs on :8080
 make test               # all Go tests; stubs web/dist for the embed (run first in a fresh clone)
 make lint               # golangci-lint run (read-only, never rewrites the tree)
+make fmt                # gofumpt -w on the Go sources (lint enforces gofumpt)
 make install-frontend   # npm install in web/; web/node_modules is gitignored and absent in fresh clones
 make test-frontend      # vitest run in web/
 make lint-frontend      # eslint in web/

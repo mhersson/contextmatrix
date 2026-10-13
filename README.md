@@ -256,10 +256,11 @@ make test-integration   # real-binary harness with a stub LLM; needs Docker
 cd web && npm run dev   # frontend hot reload, proxies /api to :8080
 ```
 
-CI lives in `.github/workflows/`: `build.yaml` runs vet, tests, the race
-suite, golangci-lint, the frontend checks, govulncheck, hadolint, shellcheck,
-and a Trivy image scan on every pull request, and builds and pushes the Docker
-image on push to `main`; `nightly.yaml` runs the full race suite daily.
+CI lives in `.github/workflows/`. Pull requests run the checks on GitHub-hosted
+runners: vet, tests, the race suite, golangci-lint, the frontend checks,
+govulncheck, hadolint, and a Trivy image scan. A push to `main` runs the Go
+checks (vet, tests, race suite, golangci-lint) before building and pushing the
+Docker image; `nightly.yaml` runs the full race suite daily.
 
 ## Acknowledgments
 
