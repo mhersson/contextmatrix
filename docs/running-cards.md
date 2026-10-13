@@ -152,7 +152,7 @@ deferred commits. A stalled or failed red badge outranks the parked yellow.
 | Control             | Where                              | Effect                                                                                                                      |
 | ------------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | **Stop**            | card panel header                  | Kill webhook; `worker_status: killed`; uncommitted work is lost.                                                            |
-| **Stop** (playbook) | playbook detail page, with confirm | Marks the run `stopped`, then kills the current card's worker.                                                              |
+| **Stop** (playbook) | playbook detail page, with confirm | Marks the run `stopped`, then kills every live worker of its cards.                                                         |
 | **Stop All**        | board header, with confirm         | Kills every queued or running container in the project.                                                                     |
 | Kill switch         | `config.yaml`                      | Disable or remove the task backend: the run button disappears and triggers return `503 BACKEND_DISABLED`. Restart required. |
 
@@ -167,12 +167,12 @@ another: each card is launched exactly as **Run Auto** would launch it, with
 `create_base_branch` set so the worker creates the playbook branch on its
 first run in a repository.
 
-| Run status  | Meaning                                                                                   |
-| ----------- | ----------------------------------------------------------------------------------------- |
-| `running`   | The current card is queued or executing.                                                  |
+| Run status  | Meaning                                                                                                                                                                        |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `running`   | The current card is queued or executing.                                                                                                                                       |
 | `waiting`   | A human is needed: a manual step, an imported card that is not vetted, or the current card parked, stalled, failed, was killed, or could not be launched. `reason` says which. |
-| `stopped`   | Stop was pressed. The current worker was killed.                                          |
-| `completed` | Every entry is complete. The compare links open the final pull requests.                 |
+| `stopped`   | Stop was pressed. Every queued or running worker of its cards on this instance was killed.                                                                                     |
+| `completed` | Every entry is complete. The compare links open the final pull requests.                                                                                                       |
 
 - **Play** starts a run, or resumes a `stopped` one. A resume re-launches the
   current card: a parked or stalled card is first moved back to `todo`. A card
@@ -186,8 +186,9 @@ first run in a repository.
   itself, without Play.
 - While a run is `running` or `waiting`, the cards' own run buttons are
   disabled and `POST .../run` answers `409 PLAYBOOK_RUN_ACTIVE`.
-- While the current card's worker is live, the run starts no other card: an
-  entry that turns incomplete ahead of it is handled after that worker ends.
+- While any of its cards has a live worker, the run starts no other card and
+  points at that card: an entry that turns incomplete is handled after that
+  worker ends.
 - A Play after a Stop that left a worker alive (the kill failed, or the card
   is claimed through another instance), or after a hand run while stopped,
   waits on that worker before starting anything else.

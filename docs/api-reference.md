@@ -2020,12 +2020,13 @@ Errors: `403 HUMAN_ONLY_FIELD`, `404 PLAYBOOK_NOT_FOUND`,
 
 ### POST /api/playbooks/{id}/stop
 
-Marks the run `stopped` (with `ended_at`), then kills the current card's
-worker when it is queued or running on this instance. A launch already in
+Marks the run `stopped` (with `ended_at`), then kills the worker of every card
+entry that is queued or running on this instance and not `done` or
+`not_planned`. A launch already in
 flight finishes first, and its worker is then killed. `202` with the
 detail. Errors: `403 HUMAN_ONLY_FIELD`, `404 PLAYBOOK_NOT_FOUND`,
-`409 PLAYBOOK_RUN_INACTIVE`, `502 BACKEND_UNAVAILABLE` (run stopped, kill
-failed).
+`409 PLAYBOOK_RUN_INACTIVE`, `502 BACKEND_UNAVAILABLE` (run stopped, a kill
+failed; the other workers were still killed).
 
 ## Worker & Backend Endpoints
 

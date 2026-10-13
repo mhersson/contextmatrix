@@ -120,34 +120,68 @@ func (r *Runner) pass(ctx context.Context, id string) bool {
 	return r.setRun(ctx, d, board.RunStatusCompleted, "", "")
 }
 
-// holdOnLiveWorker keeps the run on its entry while that entry's card has a
-// live worker and reports whether it did. Stop kills only run.entry's worker,
-// so an entry turning incomplete ahead of it (a raced refusal, a peer's
-// merge, a deleted card) waits until that worker ends. A failed read falls
-// back to the stored-order walk.
+// holdOnLiveWorker keeps the run on a live worker and reports whether it
+// did: run.entry's when its card has one, else the first in stored order. A
+// raced hand run, a peer's worker or a rolled-back completion can leave one
+// on any entry, and starting a card beside it would leave two.
 func (r *Runner) holdOnLiveWorker(ctx context.Context, d *service.PlaybookDetail) bool {
-	e := findEntry(d, d.Run.Entry)
-	if e == nil || e.Type != board.EntryTypeCard || e.Missing {
+	entry := r.liveEntry(ctx, d.ID, rawEntries(d), d.Run.Entry)
+	if entry == "" {
 		return false
 	}
 
-	card, err := r.cfg.Cards.GetCard(ctx, e.Project, e.Card)
-	if err != nil {
-		ctxlog.Logger(ctx).Warn("playbook run: run entry's card read failed, walking entries in order",
-			"playbook", d.ID, "project", e.Project, "card", e.Card, "error", err)
-
-		return false
-	}
-
-	// A terminal card's worker is finishing up; the walk moves past it as
-	// it always has.
-	if board.IsTerminalState(card.State) || !r.workerLive(card) {
-		return false
-	}
-
-	r.setRun(ctx, d, board.RunStatusRunning, e.ID, "")
+	r.setRun(ctx, d, board.RunStatusRunning, entry, "")
 
 	return true
+}
+
+// liveEntry is the card entry whose card is not terminal and has a live
+// worker: prefer when it qualifies, else the first in order; "" when none.
+// A terminal card's worker is finishing and is let go; a failed read is idle.
+func (r *Runner) liveEntry(ctx context.Context, playbookID string, entries []board.PlaybookEntry, prefer string) string {
+	live := func(e *board.PlaybookEntry) bool {
+		if e.Type != board.EntryTypeCard {
+			return false
+		}
+
+		card, err := r.cfg.Cards.GetCard(ctx, e.Project, e.Card)
+		if err != nil {
+			if !errors.Is(err, storage.ErrCardNotFound) && !errors.Is(err, storage.ErrProjectNotFound) {
+				ctxlog.Logger(ctx).Warn("playbook run: card read failed, treated as idle",
+					"playbook", playbookID, "project", e.Project, "card", e.Card, "error", err)
+			}
+
+			return false
+		}
+
+		return !board.IsTerminalState(card.State) && r.workerLive(card)
+	}
+
+	if prefer != "" {
+		for i := range entries {
+			if entries[i].ID == prefer && live(&entries[i]) {
+				return prefer
+			}
+		}
+	}
+
+	for i := range entries {
+		if entries[i].ID != prefer && live(&entries[i]) {
+			return entries[i].ID
+		}
+	}
+
+	return ""
+}
+
+// rawEntries returns d's stored entries.
+func rawEntries(d *service.PlaybookDetail) []board.PlaybookEntry {
+	out := make([]board.PlaybookEntry, len(d.Entries))
+	for i := range d.Entries {
+		out[i] = d.Entries[i].PlaybookEntry
+	}
+
+	return out
 }
 
 // workerLive reports whether card has a queued or running worker, or a claim

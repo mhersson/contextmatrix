@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -244,40 +245,17 @@ func (r *Runner) Play(ctx context.Context, id, agentID string) (*service.Playboo
 // on it instead of starting a second. The stopped run's own entry wins, then
 // the first in stored order; empty when none. A failed read counts as idle.
 func (r *Runner) resumeEntry(ctx context.Context, d *service.PlaybookDetail) string {
-	live := func(e *service.PlaybookEntryDetail) bool {
-		if e == nil || e.Type != board.EntryTypeCard || e.Missing {
-			return false
-		}
-
-		card, err := r.cfg.Cards.GetCard(ctx, e.Project, e.Card)
-		if err != nil {
-			ctxlog.Logger(ctx).Warn("playbook play: card read failed, treated as idle",
-				"playbook", d.ID, "project", e.Project, "card", e.Card, "error", err)
-
-			return false
-		}
-
-		return !board.IsTerminalState(card.State) && r.workerLive(card)
-	}
-
+	prefer := ""
 	if d.Run != nil {
-		if e := findEntry(d, d.Run.Entry); live(e) {
-			return e.ID
-		}
+		prefer = d.Run.Entry
 	}
 
-	for i := range d.Entries {
-		if e := &d.Entries[i]; live(e) {
-			return e.ID
-		}
-	}
-
-	return ""
+	return r.liveEntry(ctx, d.ID, rawEntries(d), prefer)
 }
 
-// Stop marks the run stopped, then kills the current entry's worker when one
-// is in flight and owned by this instance. A kill failure is reported as
-// ErrStopWorker with the stopped detail; the run stays stopped.
+// Stop marks the run stopped, then kills every live worker this instance owns
+// on the run's cards. A kill failure is reported as ErrStopWorker with the
+// stopped detail; the run stays stopped.
 func (r *Runner) Stop(ctx context.Context, id, agentID string) (*service.PlaybookDetail, error) {
 	release, err := r.lockControl(ctx, id)
 	if err != nil {
@@ -334,31 +312,53 @@ func (r *Runner) Stop(ctx context.Context, id, agentID string) (*service.Playboo
 		}
 	}
 
-	entry := findEntry(d, run.Entry)
-	if entry == nil || entry.Type != board.EntryTypeCard {
-		return d, nil
-	}
-
-	card, err := r.cfg.Cards.GetCard(ctx, entry.Project, entry.Card)
-	if err != nil {
-		return d, nil //nolint:nilerr // a vanished card has no worker to kill
-	}
-
-	inFlight := card.WorkerStatus == "queued" || card.WorkerStatus == "running"
-	if !inFlight || r.cfg.Cards.ClaimedElsewhere(card) {
-		return d, nil
-	}
-
-	s := r.stopper()
-	if s == nil {
-		return d, fmt.Errorf("%w: %v", ErrStopWorker, ErrNoBackend)
-	}
-
-	if err := s(ctx, entry.Project, entry.Card); err != nil {
-		return d, fmt.Errorf("%w: %v", ErrStopWorker, err)
+	if err := r.killLiveWorkers(ctx, d); err != nil {
+		return d, err
 	}
 
 	return d, nil
+}
+
+// killLiveWorkers kills every queued or running worker this instance owns
+// on a card entry that is not terminal, wherever the run points: a stopped
+// run must leave none behind. A failed kill does not spare the others.
+func (r *Runner) killLiveWorkers(ctx context.Context, d *service.PlaybookDetail) error {
+	var failed []string
+
+	for _, e := range d.Entries {
+		if e.Type != board.EntryTypeCard || e.Missing {
+			continue
+		}
+
+		card, err := r.cfg.Cards.GetCard(ctx, e.Project, e.Card)
+		if err != nil {
+			// The reconcile sweep reaps the container of a card deleted under its worker.
+			ctxlog.Logger(ctx).Warn("playbook stop: card read failed, worker not killed",
+				"playbook", d.ID, "project", e.Project, "card", e.Card, "error", err)
+
+			continue
+		}
+
+		inFlight := card.WorkerStatus == "queued" || card.WorkerStatus == "running"
+		if board.IsTerminalState(card.State) || !inFlight || r.cfg.Cards.ClaimedElsewhere(card) {
+			continue
+		}
+
+		s := r.stopper()
+		if s == nil {
+			return fmt.Errorf("%w: %v", ErrStopWorker, ErrNoBackend)
+		}
+
+		if err := s(ctx, e.Project, e.Card); err != nil {
+			failed = append(failed, card.ID+": "+err.Error())
+		}
+	}
+
+	if len(failed) > 0 {
+		return fmt.Errorf("%w: %s", ErrStopWorker, strings.Join(failed, "; "))
+	}
+
+	return nil
 }
 
 // findEntry returns the entry with the given id, or nil.
