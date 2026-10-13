@@ -7,7 +7,7 @@ import type { Element, Root } from 'hast';
 import type { MarkdownPreviewProps } from '@uiw/react-markdown-preview';
 import { safeUrlTransform } from '../../utils/safeUrlTransform';
 import { markdownSchema } from './markdownSchema';
-import rehypeBodyMarkup from './rehypeBodyMarkup';
+import rehypeBodyMarkup, { rehypeRawChunks } from './rehypeBodyMarkup';
 
 type PluginList = Parameters<NonNullable<MarkdownPreviewProps['pluginsFilter']>>[1];
 
@@ -31,7 +31,7 @@ export function secureRehypePlugins(plugins: PluginList): PluginList {
     if (attacher === rehypeRaw) {
       if (rawSeen) continue;
       rawSeen = true;
-      result.push(plugin, rehypeBodyMarkup);
+      result.push(rehypeRawChunks, plugin, rehypeBodyMarkup);
       continue;
     }
     result.push(plugin);

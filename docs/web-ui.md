@@ -29,13 +29,14 @@ Every view updates live from one Server-Sent Events stream per tab
 - **Card detail panel** opens on click. Tabs: Chat (only while a session is
   live), Automation, Info, Danger. `Escape` closes, `Ctrl`/`Cmd`+`S` saves.
 - **Card bodies and chat messages** render as GitHub-flavoured markdown through
-  an allowlist sanitizer. Safe HTML renders (images over http, https or a
-  relative path, `<details>`/`<summary>`, `<br>`, `<kbd>`, `<sub>`/`<sup>`,
-  tables); scripts, styles, event handlers, forms and frames never become
-  live, and the text inside a disallowed element stays visible. HTML comments
-  show as literal text, except CM's own block-level `<!-- cm:meta ... -->`
-  machine markers (and the legacy `<!-- cm:tier=... -->`). Bodies arrive from agents and from GitHub and Jira
-  imports.
+  an allowlist sanitizer. Allowlisted HTML renders (images over http, https
+  or a relative path, `<details>`/`<summary>`, `<br>`, `<kbd>`,
+  `<sub>`/`<sup>`, `<s>`/`<ins>`, definition lists, tables); scripts, styles,
+  event handlers, forms and frames never become live. Other tags and comments
+  show as literal text, except CM's own line-start `<!-- cm:meta ... -->`
+  machine markers (and the legacy `<!-- cm:tier=... -->`), which the agent
+  strips before a model reads the body. Attribute values the allowlist drops
+  are not shown. Bodies arrive from agents and from GitHub and Jira imports.
 - **Models used** (Info tab) answers what a card cost and where it went: the
   total including subtasks; a cost bar and legend split by role (review,
   execute, plan, judge, document, gates = pr_gates + integrate, plus a hatched

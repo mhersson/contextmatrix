@@ -23,9 +23,10 @@ const alignments = ['align', 'left', 'center', 'right'] as const;
  */
 export const markdownSchema: Options = {
   tagNames: [
-    'a', 'b', 'blockquote', 'br', 'code', 'del', 'details', 'div', 'em', 'h1', 'h2', 'h3', 'h4',
-    'h5', 'h6', 'hr', 'i', 'img', 'input', 'kbd', 'li', 'ol', 'p', 'path', 'pre', 'section', 'span',
-    'strong', 'sub', 'summary', 'sup', 'svg', 'table', 'tbody', 'td', 'th', 'thead', 'tr', 'ul',
+    'a', 'b', 'blockquote', 'br', 'caption', 'code', 'dd', 'del', 'details', 'div', 'dl', 'dt', 'em',
+    'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'i', 'img', 'input', 'ins', 'kbd', 'li', 'ol', 'p', 'path',
+    'pre', 's', 'section', 'span', 'strike', 'strong', 'sub', 'summary', 'sup', 'svg', 'table', 'tbody',
+    'td', 'tfoot', 'th', 'thead', 'tr', 'ul',
   ],
   attributes: {
     a: [
@@ -53,11 +54,14 @@ export const markdownSchema: Options = {
       'viewBox', ['width', /^\d{1,2}$/], ['height', /^\d{1,2}$/], ['ariaHidden', 'true'], ['fill', 'currentColor'], ['version', '1.1'],
       ['className', 'octicon', 'octicon-link', 'octicon-copy', 'octicon-check'],
     ],
-    td: [[...alignments]],
-    th: [[...alignments]],
+    td: [[...alignments], 'colSpan', 'rowSpan'],
+    th: [[...alignments], 'colSpan', 'rowSpan'],
     ul: [['className', 'contains-task-list']],
   },
-  ancestors: { tbody: ['table'], td: ['table'], th: ['table'], thead: ['table'], tr: ['table'], path: ['svg'] },
+  ancestors: {
+    caption: ['table'], tbody: ['table'], td: ['table'], tfoot: ['table'], th: ['table'], thead: ['table'], tr: ['table'],
+    path: ['svg'],
+  },
   clobber: ['ariaDescribedBy', 'ariaLabelledBy', 'id', 'name'],
   clobberPrefix: 'user-content-',
   protocols: { href: ['http', 'https', 'mailto', 'xmpp'], src: ['http', 'https'] },
