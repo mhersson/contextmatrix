@@ -61,12 +61,23 @@ describe('NowRail', () => {
   });
 
   it('falls back to degraded copy when maxAgents is set but runningContainers is undefined', () => {
-    // Initial render before the first running-containers poll resolves: the
-    // meter must NOT flash "0 / 8 containers · 0%". We fall through to the
-    // "no cap set" degraded copy until both values are known.
+    // The meter must NOT flash "0 / 8 containers · 0%" without a real count.
     render(<NowRail agents={agents} activityEntries={[]} maxAgents={8} />);
     expect(screen.getByText(/no cap set/i)).toBeInTheDocument();
     expect(screen.queryByText(/0 \/ 8 containers/)).not.toBeInTheDocument();
+  });
+
+  it('renders a neutral placeholder, not "no cap set", before the first poll resolves', () => {
+    render(<NowRail agents={agents} activityEntries={[]} backendStatus="unknown" />);
+    expect(screen.getByText(/checking capacity/i)).toBeInTheDocument();
+    expect(screen.queryByText(/no cap set/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/running$/)).not.toBeInTheDocument();
+  });
+
+  it('hides the Capacity section when no task backend is configured', () => {
+    render(<NowRail agents={agents} activityEntries={[]} backendStatus="disabled" />);
+    expect(screen.queryByText('Capacity')).not.toBeInTheDocument();
+    expect(screen.queryByText(/unreachable/i)).not.toBeInTheDocument();
   });
 
   it('clamps negative runningContainers to 0 in the meter', () => {
@@ -100,7 +111,7 @@ describe('NowRail', () => {
   });
 
   it('renders "backend unreachable" instead of the meter or "no cap set" when the backend is unreachable', () => {
-    render(<NowRail agents={agents} activityEntries={[]} maxAgents={5} runningContainers={3} backendReachable={false} />);
+    render(<NowRail agents={agents} activityEntries={[]} maxAgents={5} runningContainers={3} backendStatus="unreachable" />);
     expect(screen.getByText(/backend unreachable/i)).toBeInTheDocument();
     expect(screen.queryByText(/containers/)).not.toBeInTheDocument();
     expect(screen.queryByText(/no cap set/i)).not.toBeInTheDocument();

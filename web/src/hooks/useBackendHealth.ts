@@ -1,17 +1,19 @@
 import { useEffect, useState } from 'react';
-import { api } from '../api/client';
+import { api, isAPIError } from '../api/client';
 
 export interface BackendHealthState {
   maxAgents: number | undefined;
   runningContainers: number | undefined;
-  /** undefined until the first poll settles; false after a failed poll. */
-  reachable: boolean | undefined;
+  status: BackendStatus;
 }
+
+/** unknown until the first poll settles; disabled when no task backend is configured. */
+export type BackendStatus = 'unknown' | 'ok' | 'unreachable' | 'disabled';
 
 export function useBackendHealth(intervalMs: number): BackendHealthState {
   const [maxAgents, setMaxAgents] = useState<number | undefined>(undefined);
   const [runningContainers, setRunningContainers] = useState<number | undefined>(undefined);
-  const [reachable, setReachable] = useState<boolean | undefined>(undefined);
+  const [status, setStatus] = useState<BackendStatus>('unknown');
 
   useEffect(() => {
     let cancelled = false;
@@ -28,16 +30,17 @@ export function useBackendHealth(intervalMs: number): BackendHealthState {
           if (cancelled || ctrl.signal.aborted) return;
           setMaxAgents(h.max_concurrent);
           setRunningContainers(h.running_containers);
-          setReachable(true);
+          setStatus('ok');
         })
         .catch((err) => {
           if (ctrl.signal.aborted) return;
           if (err instanceof DOMException && err.name === 'AbortError') return;
-          console.warn('backend health poll failed:', err);
+          const disabled = isAPIError(err) && err.code === 'BACKEND_DISABLED';
+          if (!disabled) console.warn('backend health poll failed:', err);
           // Counts from an earlier poll must not outlive the backend they described.
           setMaxAgents(undefined);
           setRunningContainers(undefined);
-          setReachable(false);
+          setStatus(disabled ? 'disabled' : 'unreachable');
         });
     };
     fetchBackendHealth();
@@ -54,5 +57,5 @@ export function useBackendHealth(intervalMs: number): BackendHealthState {
     };
   }, [intervalMs]);
 
-  return { maxAgents, runningContainers, reachable };
+  return { maxAgents, runningContainers, status };
 }

@@ -28,6 +28,7 @@ import { ProjectCrumb } from '../ProjectCrumb/ProjectCrumb';
 import { MetricsRibbon } from './MetricsRibbon';
 import { SpotlightStrip } from './SpotlightStrip';
 import { FilterChipBar } from './FilterChipBar';
+import type { BackendStatus } from '../../hooks/useBackendHealth';
 import { NowRail, type ActivityEntry } from './NowRail';
 import { BoardFooter } from './BoardFooter';
 import { BoardSkeleton } from './BoardSkeleton';
@@ -74,7 +75,7 @@ interface BoardProps {
   metricSeries?: MetricSeries;
   maxWorkers?: number;
   runningContainers?: number;
-  backendReachable?: boolean;
+  backendStatus?: BackendStatus;
   syncStatus?: SyncStatus | null;
   /** Name of the boards repo syncStatus describes; shown in the footer label with two or more repos. */
   syncRepoName?: string;
@@ -121,7 +122,7 @@ export function Board({
   metricSeries,
   maxWorkers,
   runningContainers,
-  backendReachable,
+  backendStatus,
   syncStatus,
   syncRepoName,
   connected,
@@ -638,7 +639,7 @@ export function Board({
               activityEntries={activityEntries}
               maxAgents={maxWorkers}
               runningContainers={runningContainers}
-              backendReachable={backendReachable}
+              backendStatus={backendStatus}
               hasBackfill={activityBackfillLoaded}
               className={isMobile ? 'animate-panel-slide-in' : undefined}
             />

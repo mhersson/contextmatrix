@@ -95,7 +95,8 @@ Drag-to-reorder rules:
   the agents currently working, fed by `GET /api/projects/{project}/dashboard`.
   The rail's Capacity section shows running worker containers against the
   backend cap from `GET /api/backend/health`, and reads "backend unreachable"
-  whenever the last poll failed.
+  whenever the last poll failed; the section is hidden when no task backend is
+  configured.
 - **All projects** (`/all`): KPI tiles (Open tasks, In progress, Done today,
   Cost 30d, Chat cost 30d), agents on duty, cost by model for the last 30 days
   (a card is attributed to the model it used last), a projects table, an
