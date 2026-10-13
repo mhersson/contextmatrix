@@ -1485,6 +1485,14 @@ func (s *CardService) DeleteCard(ctx context.Context, project, id string) error 
 		return fmt.Errorf("get card: %w", err)
 	}
 
+	// Stop and the playbook runner find a worker through its card; a delete
+	// would orphan it.
+	if err := refuseLiveWorker(snapshot); err != nil {
+		s.writeMu.Unlock()
+
+		return fmt.Errorf("delete card: %w", err)
+	}
+
 	// Reject deletion if card has children (subtasks)
 	children, err := s.store.ListCards(ctx, project, storage.CardFilter{Parent: id})
 	if err != nil {

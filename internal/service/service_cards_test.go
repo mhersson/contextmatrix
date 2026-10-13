@@ -1,6 +1,7 @@
 package service
 
 import (
+	"cmp"
 	"context"
 	"encoding/base64"
 	"fmt"
@@ -877,4 +878,49 @@ func TestCreateUpdatePatchCard_DependsOnLimit(t *testing.T) {
 		require.Error(t, err)
 		assert.ErrorIs(t, err, ErrFieldTooLong)
 	})
+}
+
+// TestDeleteCard_RefusesWhileAWorkerIsLive: deleting a card whose worker is
+// queued or running orphans the worker, since Stop finds workers by card.
+func TestDeleteCard_RefusesWhileAWorkerIsLive(t *testing.T) {
+	tests := []struct {
+		status  string
+		refused bool
+	}{
+		{"", false},
+		{"failed", false},
+		{"killed", false},
+		{"parked", false},
+		{"queued", true},
+		{"running", true},
+	}
+
+	for _, tt := range tests {
+		t.Run("worker "+cmp.Or(tt.status, "idle"), func(t *testing.T) {
+			svc, _, cleanup := setupTest(t)
+			defer cleanup()
+
+			ctx := context.Background()
+
+			card, err := svc.CreateCard(ctx, "test-project", CreateCardInput{Title: "delete target", Type: "task", Priority: "medium"})
+			require.NoError(t, err)
+
+			if tt.status != "" {
+				_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, tt.status, "seed")
+				require.NoError(t, err)
+			}
+
+			err = svc.DeleteCard(ctx, "test-project", card.ID)
+			if tt.refused {
+				require.ErrorIs(t, err, ErrWorkerActive)
+
+				_, getErr := svc.GetCard(ctx, "test-project", card.ID)
+				require.NoError(t, getErr, "the refused delete keeps the card")
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
 }

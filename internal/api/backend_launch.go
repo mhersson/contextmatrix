@@ -12,6 +12,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 	"github.com/mhersson/contextmatrix/internal/playbookrun"
+	"github.com/mhersson/contextmatrix/internal/service"
 )
 
 // launchOptions carries the per-launch inputs the HTTP handler and the
@@ -21,6 +22,7 @@ type launchOptions struct {
 	interactive      bool
 	createBaseBranch bool
 	baseBranchFrom   string
+	handRun          bool // a human's run of one card, guarded against a racing playbook Play
 }
 
 // launchFailure is a refusal with the HTTP shape the handlers write and the
@@ -76,6 +78,7 @@ func (h *backendHandlers) launch(ctx context.Context, project, id string, opts l
 			"card must be in todo state to run", fmt.Sprintf("current state: %s", card.State))
 	}
 
+	// The early answer; MarkQueued below makes it hold at the write.
 	if card.WorkerStatus == "queued" || card.WorkerStatus == "running" {
 		return nil, launchRefused(http.StatusConflict, ErrCodeWorkerConflict,
 			"card is already being executed by a worker", fmt.Sprintf("worker_status: %s", card.WorkerStatus))
@@ -94,7 +97,7 @@ func (h *backendHandlers) launch(ctx context.Context, project, id string, opts l
 		return nil, err
 	}
 
-	card, err = h.svc.UpdateWorkerStatus(ctx, project, id, "queued", "task queued for worker")
+	card, err = h.markQueued(ctx, project, id, opts.handRun)
 	if err != nil {
 		return nil, err
 	}
@@ -338,4 +341,37 @@ func (h *backendHandlers) playbookStop(ctx context.Context, project, id string) 
 	_, err := h.stop(ctx, project, id)
 
 	return err
+}
+
+// markQueued is launch's queued write. A hand run makes it under the
+// playbook guard, so a racing Play either resumes on the queued card or has
+// started and the hand run is refused; the webhook fires after, unlocked.
+func (h *backendHandlers) markQueued(ctx context.Context, project, id string, handRun bool) (*board.Card, error) {
+	var card *board.Card
+
+	queue := func() error {
+		var err error
+
+		card, err = h.svc.MarkQueued(ctx, project, id, "task queued for worker")
+
+		return err
+	}
+
+	var err error
+	if handRun && h.handRuns != nil {
+		err = h.handRuns.QueueUnlessRunActive(ctx, project, id, queue)
+	} else {
+		err = queue()
+	}
+
+	if errors.Is(err, service.ErrWorkerActive) {
+		return nil, launchRefused(http.StatusConflict, ErrCodeWorkerConflict,
+			"card is already being executed by a worker", sanitizeErrorDetails(err))
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return card, nil
 }

@@ -131,6 +131,12 @@ Removing the run's current entry is refused (`409 PLAYBOOK_RUN_ACTIVE`)
 while the run is active; stop the run first. Other entries can be removed
 and the next pass finds a new frontier. Once the run is stopped or completed
 its former entry can be removed, which clears `entry` and `reason`.
+On a shared board a peer instance's removal of the current entry is undone
+when the boards merge.
+
+Deleting the playbook is refused the same way (`409 PLAYBOOK_RUN_ACTIVE`)
+while the run is active. On a shared board a delete made on another instance
+loses to the active run in the merge; delete again once the run has stopped.
 
 Entries cannot be reordered while the run is `running` or `waiting`
 (`409 PLAYBOOK_MOVE_DURING_RUN`): the runner walks the order it last read, so
@@ -151,10 +157,16 @@ the same reason:
 
 Notes, text and checking off a manual entry stay allowed during a run.
 
-Behind the refusals, the runner holds on its current card while that card's
-worker is live: an entry that turns incomplete ahead of it anyway (a peer
-instance's merge on a shared board, a deleted card) is handled once that
-worker ends.
+Behind the refusals, the runner holds while any card entry that is not
+`done` or `not_planned` has a live worker: an entry that turns incomplete or
+gains a worker outside the walk (a peer instance's merge on a shared board, a
+hand run on another instance, a completion whose commit failed, a deleted
+card) is handled once that worker ends. The run is pointed at the live card
+(its current entry when that one is live, else the first in order) only when
+its current entry is unset, complete or gone; a run on a failed or
+launch-failed card keeps that entry and its reason while another card's worker
+holds it. A card left `queued` or `running` with no worker behind it holds the
+run until Stop All in its project clears it.
 
 ### Play and Stop
 
@@ -163,10 +175,16 @@ behavior. Both controls are human-only.
 
 - **Play** requires the playbook to be runnable and no run already active
   (`409 PLAYBOOK_RUN_ACTIVE`), and a configured task backend
-  (`503 BACKEND_DISABLED`).
-- **Stop** requires an active run (`409 PLAYBOOK_RUN_INACTIVE`). If the kill
-  webhook fails after the run is marked `stopped`, it answers
-  `502 BACKEND_UNAVAILABLE`.
+  (`503 BACKEND_DISABLED`). A Play that arrives while a Stop of the same
+  playbook is still in progress waits for that Stop to finish.
+- **Stop** requires an active run (`409 PLAYBOOK_RUN_INACTIVE`) and kills the
+  worker of every card entry that is queued or running on this instance and not
+  `done` or `not_planned`, not only the current card's. A launch already in
+  flight when Stop lands finishes first, and Stop then kills the worker it
+  queued. If a kill webhook fails after the run is marked `stopped`, it
+  answers `502 BACKEND_UNAVAILABLE`. A backend that has not started tracking
+  the just-launched worker yet refuses its kill, which gives that 502; stop
+  that card's worker from the card, or with Stop All for its project.
 - `playbook.updated` events carry `run_status` and `run_entry` so open
   detail pages track a run live.
 
@@ -194,16 +212,16 @@ All eight MCP tools are ungated; the human-only nature of notes is a contract
 the agent-facing context honours, not a permission check. `agent_id` is
 required on mutations for `created_by` and `done_by` attribution.
 
-| MCP tool                | REST                                              | Does                                                          |
-| ----------------------- | ------------------------------------------------- | ------------------------------------------------------------- |
-| `list_playbooks`        | `GET /api/playbooks`                              | Summaries: progress, segments, project count, gates, next entry |
-| `get_playbook`          | `GET /api/playbooks/{id}`                         | Full detail with every entry resolved against the card store  |
-| `create_playbook`       | `POST /api/playbooks`                             | `title`, `description`, `boards_repo`, initial `entries`; all-or-nothing |
-| `update_playbook`       | `PATCH /api/playbooks/{id}`                       | Title, description; humans also set runnable and base_branch  |
-| `delete_playbook`       | `DELETE /api/playbooks/{id}`                      | Removes the file; referenced cards are untouched              |
-| `add_playbook_entry`    | `POST /api/playbooks/{id}/entries`                | Appends one card or manual entry                              |
-| `update_playbook_entry` | `PATCH /api/playbooks/{id}/entries/{entryId}`     | `done` and `text` (manual only), `note` (both), `position`    |
-| `remove_playbook_entry` | `DELETE /api/playbooks/{id}/entries/{entryId}`    | Removes one entry                                             |
+| MCP tool                | REST                                           | Does                                                                     |
+| ----------------------- | ---------------------------------------------- | ------------------------------------------------------------------------ |
+| `list_playbooks`        | `GET /api/playbooks`                           | Summaries: progress, segments, project count, gates, next entry          |
+| `get_playbook`          | `GET /api/playbooks/{id}`                      | Full detail with every entry resolved against the card store             |
+| `create_playbook`       | `POST /api/playbooks`                          | `title`, `description`, `boards_repo`, initial `entries`; all-or-nothing |
+| `update_playbook`       | `PATCH /api/playbooks/{id}`                    | Title, description; humans also set runnable and base_branch             |
+| `delete_playbook`       | `DELETE /api/playbooks/{id}`                   | Removes the file, never during an active run; cards untouched            |
+| `add_playbook_entry`    | `POST /api/playbooks/{id}/entries`             | Appends one card or manual entry                                         |
+| `update_playbook_entry` | `PATCH /api/playbooks/{id}/entries/{entryId}`  | `done` and `text` (manual only), `note` (both), `position`               |
+| `remove_playbook_entry` | `DELETE /api/playbooks/{id}/entries/{entryId}` | Removes one entry                                                        |
 
 `position` is the entry's final index after the move; values past the end
 clamp, negative values are rejected, and no move is accepted while a run is

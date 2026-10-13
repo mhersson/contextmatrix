@@ -7,7 +7,8 @@ import { api } from '../../api/client';
 import type { PlaybookDetail } from '../../types';
 import type { DndContextProps } from '@dnd-kit/core';
 
-vi.mock('../../api/client', () => ({
+vi.mock('../../api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../api/client')>()),
   api: {
     getPlaybook: vi.fn(),
     patchPlaybook: vi.fn(),
@@ -20,8 +21,6 @@ vi.mock('../../api/client', () => ({
     stopPlaybook: vi.fn(),
     fetchBranches: vi.fn().mockResolvedValue(['main']),
   },
-  isAPIError: (err: unknown): err is { error: string; code?: string; details?: string } =>
-    err != null && typeof err === 'object' && 'error' in err,
 }));
 
 vi.mock('../../hooks/useSSEBus', () => ({
@@ -238,6 +237,23 @@ describe('PlaybookDetailPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /^delete$/i }));
     dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText(/run is active/i)).toBeInTheDocument();
+  });
+
+  it('surfaces the server reason when the delete is refused', async () => {
+    vi.mocked(api.getPlaybook).mockResolvedValue(baseDetail());
+    vi.mocked(api.deletePlaybook).mockRejectedValueOnce({
+      error: 'playbook run is active', code: 'PLAYBOOK_RUN_ACTIVE', details: 'stop the run first',
+    });
+    renderPage();
+    await screen.findByText('Roll');
+
+    fireEvent.click(screen.getByRole('button', { name: /^delete$/i }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: /^delete$/i }));
+
+    await waitFor(() => expect(toast.showToast).toHaveBeenCalledWith(
+      'playbook run is active: stop the run first', 'error',
+    ));
   });
 
   it('restores the order and surfaces the server reason when a reorder is refused', async () => {

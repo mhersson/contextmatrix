@@ -425,3 +425,214 @@ func TestResolvePlaybook_OneSidedChangeSurvivesLaterPeer(t *testing.T) {
 	assert.Equal(t, "touched", got.Description)
 	assert.Empty(t, out.Resolutions)
 }
+
+// runningPb is pb() made runnable with two card entries and a run on e1
+// owned by lap-a.
+func runningPb() *board.Playbook {
+	p := pb()
+	p.Runnable = true
+	p.Entries = []board.PlaybookEntry{
+		{ID: "e1", Type: board.EntryTypeCard, Project: "alpha", Card: "ALPHA-001"},
+		{ID: "e2", Type: board.EntryTypeCard, Project: "alpha", Card: "ALPHA-002"},
+	}
+	p.Run = &board.PlaybookRun{Status: board.RunStatusRunning, Instance: "lap-a", StartedAt: ts(0), UpdatedAt: ts(0), Entry: "e1"}
+
+	return p
+}
+
+func entryIDs(p *board.Playbook) []string {
+	ids := make([]string, 0, len(p.Entries))
+	for _, e := range p.Entries {
+		ids = append(ids, e.ID)
+	}
+
+	return ids
+}
+
+func hasRule(res []Resolution, rule string) bool {
+	for _, r := range res {
+		if r.Rule == rule {
+			return true
+		}
+	}
+
+	return false
+}
+
+func resolveParsed(t *testing.T, base, ours, theirs *board.Playbook) (*board.Playbook, Output) {
+	t.Helper()
+
+	out, err := Resolve(Input{
+		Path: "playbooks/release.yaml", Base: serializePb(t, base),
+		Ours: serializePb(t, ours), Theirs: serializePb(t, theirs),
+	}, testCtx())
+	require.NoError(t, err)
+
+	got, err := board.ParsePlaybook(out.Content)
+	require.NoError(t, err)
+
+	return got, out
+}
+
+// TestResolvePlaybook_ActiveRunKeepsItsCurrentEntry: the owner advanced the
+// run to e2 while a stale peer removed e2. Removal wins the entry merge and
+// the owner's run wins the run merge, so without the rule the run names no
+// entry and every instance's index skips the playbook while its worker runs.
+func TestResolvePlaybook_ActiveRunKeepsItsCurrentEntry(t *testing.T) {
+	tests := []struct {
+		name        string
+		ownerIsOurs bool
+		peerRun     *board.PlaybookRun // nil keeps the base run on the peer
+	}{
+		{name: "owner is ours", ownerIsOurs: true},
+		{name: "owner is theirs", ownerIsOurs: false},
+		{
+			name: "both sides changed the run", ownerIsOurs: false,
+			peerRun: &board.PlaybookRun{Status: board.RunStatusWaiting, Instance: "lap-a", StartedAt: ts(0), UpdatedAt: ts(2), Entry: "e1", Reason: "gate"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			base, owner, peer := runningPb(), runningPb(), runningPb()
+			owner.Run = &board.PlaybookRun{Status: board.RunStatusRunning, Instance: "lap-a", StartedAt: ts(0), UpdatedAt: ts(5), Entry: "e2"}
+			owner.Updated = ts(5)
+			peer.Entries = peer.Entries[:1]
+			peer.Updated = ts(3)
+
+			if tt.peerRun != nil {
+				peer.Run = tt.peerRun
+			}
+
+			ours, theirs := owner, peer
+			if !tt.ownerIsOurs {
+				ours, theirs = peer, owner
+			}
+
+			got, out := resolveParsed(t, base, ours, theirs)
+			require.NoError(t, got.Validate(), "the merged playbook must load")
+			assert.Equal(t, []string{"e1", "e2"}, entryIDs(got), "e2 is back at its base position")
+			require.NotNil(t, got.Run)
+			assert.Equal(t, "e2", got.Run.Entry)
+			assert.True(t, hasRule(out.Resolutions, RulePlaybookRunEntry))
+		})
+	}
+}
+
+// TestResolvePlaybook_DedupeRepointsTheRunEntry: both sides added the same
+// card under different ids and the run names the copy the dedupe drops. The
+// run moves to the surviving entry for that card.
+func TestResolvePlaybook_DedupeRepointsTheRunEntry(t *testing.T) {
+	base := runningPb()
+	base.Entries = base.Entries[:1]
+
+	ours := runningPb()
+	ours.Entries = []board.PlaybookEntry{base.Entries[0], {ID: "e3", Type: board.EntryTypeCard, Project: "alpha", Card: "ALPHA-005"}}
+	ours.NextEntryID = 4
+	ours.Run = &board.PlaybookRun{Status: board.RunStatusRunning, Instance: "lap-a", StartedAt: ts(0), UpdatedAt: ts(5), Entry: "e3"}
+	ours.Updated = ts(5)
+
+	theirs := runningPb()
+	theirs.Entries = []board.PlaybookEntry{base.Entries[0], {ID: "e4", Type: board.EntryTypeCard, Project: "alpha", Card: "ALPHA-005"}}
+	theirs.NextEntryID = 5
+	theirs.Updated = ts(2)
+
+	got, out := resolveParsed(t, base, ours, theirs)
+	require.NoError(t, got.Validate())
+	assert.Equal(t, []string{"e1", "e4"}, entryIDs(got))
+	require.NotNil(t, got.Run)
+	assert.Equal(t, "e4", got.Run.Entry, "the run follows its card to the surviving entry")
+	assert.True(t, hasRule(out.Resolutions, RulePlaybookRunEntry))
+}
+
+// TestResolvePlaybook_InactiveRunEntryRemovedIsCleared: one side removed a
+// stopped run's entry, the other side's later run block still names it.
+// The removal stands and the dangling entry is cleared with its reason.
+func TestResolvePlaybook_InactiveRunEntryRemovedIsCleared(t *testing.T) {
+	stopped := func(updated int, entry, reason string) *board.PlaybookRun {
+		return &board.PlaybookRun{Status: board.RunStatusStopped, Instance: "lap-a", StartedAt: ts(0), UpdatedAt: ts(updated), Entry: entry, Reason: reason}
+	}
+
+	base := runningPb()
+	base.Run = stopped(0, "e2", "stopped by human:alice")
+
+	ours := runningPb()
+	ours.Entries = ours.Entries[:1]
+	ours.Run = stopped(0, "", "")
+	ours.Updated = ts(5)
+
+	theirs := runningPb()
+	theirs.Run = stopped(7, "e2", "stopped by human:bob")
+	theirs.Updated = ts(7)
+
+	got, out := resolveParsed(t, base, ours, theirs)
+	require.NoError(t, got.Validate())
+	assert.Equal(t, []string{"e1"}, entryIDs(got))
+	require.NotNil(t, got.Run)
+	assert.Empty(t, got.Run.Entry)
+	assert.Empty(t, got.Run.Reason)
+	assert.True(t, hasRule(out.Resolutions, RuleInvariantRepair))
+}
+
+// TestResolvePlaybook_InvalidMergeKeepsTheRemote: a merge result that still
+// fails validation would be skipped on load; the remote version is kept.
+func TestResolvePlaybook_InvalidMergeKeepsTheRemote(t *testing.T) {
+	base, ours, theirs := pb(), pb(), pb()
+	ours.Title, ours.Updated = " ", ts(5)
+	theirs.Title, theirs.Updated = "Theirs Title", ts(2)
+
+	theirsContent := serializePb(t, theirs)
+
+	out, err := Resolve(Input{
+		Path: "playbooks/release.yaml", Base: serializePb(t, base),
+		Ours: serializePb(t, ours), Theirs: theirsContent,
+	}, testCtx())
+	require.NoError(t, err)
+	assert.Equal(t, theirsContent, out.Content)
+	assert.True(t, hasRule(out.Resolutions, RuleInvariantFallback))
+}
+
+// TestResolvePlaybook_ActiveRunBeatsADelete: a stale peer deleted the file
+// while the other side's run is active. Delete-wins would vanish the run
+// with its worker still going, so the run's side is kept.
+func TestResolvePlaybook_ActiveRunBeatsADelete(t *testing.T) {
+	stoppedRun := runningPb()
+	stoppedRun.Run.Status = board.RunStatusStopped
+
+	tests := []struct {
+		name        string
+		survivor    *board.Playbook
+		deleteOurs  bool
+		wantDeleted bool
+	}{
+		{name: "ours deleted, theirs running", survivor: runningPb(), deleteOurs: true},
+		{name: "theirs deleted, ours running", survivor: runningPb(), deleteOurs: false},
+		{name: "a stopped run lets the delete win", survivor: stoppedRun, deleteOurs: true, wantDeleted: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			kept := serializePb(t, tt.survivor)
+			in := Input{Path: "playbooks/release.yaml", Base: serializePb(t, runningPb()), Ours: kept, Theirs: kept}
+
+			if tt.deleteOurs {
+				in.Ours = nil
+			} else {
+				in.Theirs = nil
+			}
+
+			out, err := Resolve(in, testCtx())
+			require.NoError(t, err)
+
+			if tt.wantDeleted {
+				assert.True(t, out.Deleted)
+
+				return
+			}
+
+			assert.False(t, out.Deleted)
+			assert.Equal(t, kept, out.Content)
+			assert.True(t, hasRule(out.Resolutions, RulePlaybookRunOverDelete))
+		})
+	}
+}
