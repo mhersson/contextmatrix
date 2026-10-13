@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -950,4 +952,83 @@ func TestFailureReason(t *testing.T) {
 			phrases[got] = tt.name
 		})
 	}
+}
+
+func TestImport_TerminalSubtaskIsNotADependency(t *testing.T) {
+	for _, state := range []string{board.StateNotPlanned, board.StateDone} {
+		t.Run(state, func(t *testing.T) {
+			e := newImportEnv(t, nil)
+			e.jira.add(story("102", "PROJ-2", "Cart API"), subtask("103", "PROJ-3", "PROJ-2", "Cart schema"))
+
+			ctx := context.Background()
+
+			first, err := e.importSync(ctx, "PROJ-1", ImportRequest{Selections: []Selection{{Key: "PROJ-3", Project: "api"}}}, "human:alice")
+			require.NoError(t, err)
+
+			_, err = e.cards.TransitionTo(ctx, "api", first.Results[0].Card, state)
+			require.NoError(t, err)
+
+			second, err := e.importSync(ctx, "PROJ-1", ImportRequest{Selections: []Selection{{Key: "PROJ-2", Project: "api"}}}, "human:alice")
+			require.NoError(t, err)
+			require.Equal(t, StatusCreated, second.Results[0].Status)
+
+			assert.Empty(t, e.card(t, "api", second.Results[0].Card).DependsOn)
+		})
+	}
+}
+
+func TestImport_StoredCardMatchesItsImportHash(t *testing.T) {
+	e := newImportEnv(t, nil)
+	empty := story("102", "PROJ-2", "Cart API")
+	empty.Description = nil
+	e.jira.add(empty, story("103", "PROJ-3", "Cart UI"))
+
+	resp, err := e.importSync(context.Background(), "PROJ-1", ImportRequest{
+		Selections: []Selection{{Key: "PROJ-2", Project: "api"}, {Key: "PROJ-3", Project: "api"}},
+	}, "human:alice")
+	require.NoError(t, err)
+
+	for _, res := range resp.Results {
+		require.Equal(t, StatusCreated, res.Status)
+
+		// The file on disk is what a later reader hashes: it ends in a newline.
+		data, err := os.ReadFile(filepath.Join(e.dir, "api", "tasks", res.Card+".md"))
+		require.NoError(t, err)
+
+		c, err := board.ParseCard(data)
+		require.NoError(t, err)
+		assert.Equal(t, importHash(c.Title, c.Body), c.Custom[jira.CustomImportHash], res.Key)
+	}
+}
+
+func TestImport_DependenciesAreCappedAtTheServiceLimit(t *testing.T) {
+	e := newImportEnv(t, nil)
+
+	issues := []jira.Issue{story("102", "PROJ-2", "Cart API")}
+	sels := []Selection{{Key: "PROJ-2", Project: "api"}}
+
+	for i := range service.MaxDependsOn + 1 {
+		key := fmt.Sprintf("PROJ-%d", 1000+i)
+		issues = append(issues, subtask(fmt.Sprintf("%d", 2000+i), key, "PROJ-2", fmt.Sprintf("Step %d", i)))
+		sels = append(sels, Selection{Key: key, Project: "api"})
+	}
+
+	e.jira.add(issues...)
+
+	resp, err := e.importSync(context.Background(), "PROJ-1", ImportRequest{Selections: sels}, "human:alice")
+	require.NoError(t, err)
+
+	var subs []string
+
+	for _, res := range resp.Results {
+		require.Equal(t, StatusCreated, res.Status, res.Key)
+
+		if res.Key != "PROJ-2" {
+			subs = append(subs, res.Card)
+		}
+	}
+
+	parent := resultsByKey(resp.Results)["PROJ-2"]
+	assert.Equal(t, subs[:service.MaxDependsOn], e.card(t, "api", parent.Card).DependsOn)
+	assert.NotEmpty(t, parent.Reason)
 }

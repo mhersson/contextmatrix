@@ -1288,8 +1288,8 @@ func validatePatchFieldLimits(input PatchCardInput) error {
 	// input.DependsOn is already normalized (see PatchCard) so this bound is
 	// checked once, before writeMu, rather than after validateCardReferences
 	// has already spent one GetCard per element under the write lock.
-	if len(input.DependsOn) > maxDependsOn {
-		return fmt.Errorf("depends_on count %d exceeds limit of %d: %w", len(input.DependsOn), maxDependsOn, ErrFieldTooLong)
+	if len(input.DependsOn) > MaxDependsOn {
+		return fmt.Errorf("depends_on count %d exceeds limit of %d: %w", len(input.DependsOn), MaxDependsOn, ErrFieldTooLong)
 	}
 
 	if err := validateCardVerify(input.Verify); err != nil {
@@ -2166,8 +2166,8 @@ func validateFieldLimits(title, body, assignee string, labels, dependsOn []strin
 		}
 	}
 
-	if len(dependsOn) > maxDependsOn {
-		return fmt.Errorf("depends_on count %d exceeds limit of %d: %w", len(dependsOn), maxDependsOn, ErrFieldTooLong)
+	if len(dependsOn) > MaxDependsOn {
+		return fmt.Errorf("depends_on count %d exceeds limit of %d: %w", len(dependsOn), MaxDependsOn, ErrFieldTooLong)
 	}
 
 	return nil

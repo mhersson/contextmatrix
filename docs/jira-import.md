@@ -124,7 +124,7 @@ when its writes were cancelled.
 | `priority`                | `Highest`, `Critical`, `Blocker` -> `critical`; `High` -> `high`; `Medium`, `Normal` -> `medium`; `Low`, `Lowest`, `Trivial`, `Minor` -> `low`; unknown -> `medium`. A missing priority falls back `critical` -> `high` -> `medium` -> the project's first |
 | `source`                  | `{system: jira, external_id: PROJ-123, external_url: <site>/browse/PROJ-123}`, immutable                                                                                                                                                                   |
 | `custom.jira_issue_id`    | The Jira issue id                                                                                                                                                                                                                                          |
-| `custom.jira_import_hash` | Hex SHA-256 of the imported title, a newline and the body                                                                                                                                                                                                  |
+| `custom.jira_import_hash` | Hex SHA-256 of the imported title, a newline and the body without trailing newlines                                                                                                                                                                       |
 | `vetted`                  | The dialog's **Mark imported cards vetted** (off by default)                                                                                                                                                                                               |
 | `branch_name`             | `<id>/PROJ-123-<slug>`, key uppercase, so GitHub for Jira links the branch (a key over 64 bytes keeps the plain name)                                                                                                                                      |
 | activity log              | `Imported from Jira PROJ-123` (with `, marked vetted on import` when vetted), attributed to the importing human                                                                                                                                            |
@@ -144,8 +144,10 @@ never `subtask`. Subtasks come only from CM's own planning.
 - A new sub-task of a parent imported earlier goes directly before the parent in
   the playbook. Existing cards are never edited, so the parent does not gain the
   dependency.
-- A sub-task moved to `not_planned` keeps its same-project parent blocked:
-  dependencies need `done`. Remove the dependency by hand.
+- A sub-task imported earlier whose card is `done` or `not_planned` is not a
+  dependency of a parent imported now.
+- A card holds at most 50 dependencies. A parent with more same-project
+  sub-tasks depends on the first 50 in tree order, and its result row says so.
 
 ## Re-running
 

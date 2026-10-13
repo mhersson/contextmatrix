@@ -120,9 +120,10 @@ func cardBody(issue jira.Issue, epicSection string) string {
 }
 
 // importHash is the jira_import_hash contract: hex SHA-256 of the imported
-// title, a newline, and the imported body.
+// title, a newline, and the imported body without trailing newlines, which a
+// stored card file always ends with.
 func importHash(title, body string) string {
-	sum := sha256.Sum256([]byte(title + "\n" + body))
+	sum := sha256.Sum256([]byte(title + "\n" + strings.TrimRight(body, "\n")))
 
 	return hex.EncodeToString(sum[:])
 }

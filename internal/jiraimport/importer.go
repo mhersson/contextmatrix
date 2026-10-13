@@ -286,7 +286,19 @@ func (r *importRun) importIssue(ctx context.Context, it treeItem, sel Selection)
 	}
 
 	input := r.svc.cardInput(it.issue, cfg, r.epicSection, r.req.Vetted, r.agentID)
-	input.DependsOn = r.dependencies(it.issue, sel.Project)
+
+	deps := r.dependencies(it.issue, sel.Project)
+	input.DependsOn = deps
+
+	var capNote string
+
+	if len(deps) > service.MaxDependsOn {
+		capNote = fmt.Sprintf("only the first %d of %d same-project sub-tasks are dependencies", service.MaxDependsOn, len(deps))
+		input.DependsOn = deps[:service.MaxDependsOn]
+
+		ctxlog.Logger(ctx).Warn("jira import: dependencies capped",
+			"epic", r.tree.epic.Key, "issue", key, "dependencies", len(deps), "kept", service.MaxDependsOn)
+	}
 
 	card, err := r.svc.cards.CreateCard(ctx, sel.Project, input)
 	if err != nil {
@@ -296,7 +308,7 @@ func (r *importRun) importIssue(ctx context.Context, it treeItem, sel Selection)
 	ref := cardRef{project: card.Project, card: card.ID}
 	r.cards[key] = ref
 
-	res := Result{Key: key, Status: StatusCreated, Project: ref.project, Card: ref.card}
+	res := Result{Key: key, Status: StatusCreated, Project: ref.project, Card: ref.card, Reason: capNote}
 	if err := r.place(ctx, ref, it.parentKey); err != nil {
 		res.Status = StatusFailed
 		res.Reason = "created " + ref.card + " but could not add it to the playbook; run the import again: " + r.reason(ctx, key, err)
@@ -306,12 +318,13 @@ func (r *importRun) importIssue(ctx context.Context, it treeItem, sel Selection)
 }
 
 // dependencies are the issue's sub-tasks that live in the same CM project,
-// created in this run or imported earlier. Cross-project ones are order only.
+// created in this run or imported earlier, unless already finished.
+// Cross-project ones are order only.
 func (r *importRun) dependencies(issue jira.Issue, project string) []string {
 	var deps []string
 
 	for _, st := range r.tree.subtasks[issue.Key] {
-		if ref, ok := r.lookup(st.Key); ok && ref.project == project {
+		if ref, ok := r.lookup(st.Key); ok && ref.project == project && !r.finished(st) {
 			deps = append(deps, ref.card)
 		}
 	}
@@ -329,6 +342,15 @@ func (r *importRun) failedSubtask(issue jira.Issue, project string) string {
 	}
 
 	return ""
+}
+
+// finished reports whether the sub-task was imported earlier and its card is
+// done or not planned. The index predates the run, so a card created now is
+// never in it.
+func (r *importRun) finished(st jira.Issue) bool {
+	c := r.index.find(st)
+
+	return c != nil && board.IsTerminalState(c.State)
 }
 
 func (r *importRun) lookup(key string) (cardRef, bool) {
