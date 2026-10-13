@@ -26,7 +26,7 @@ import { CreateCardPanel } from '../CreateCardPanel';
 import { ErrorBoundary } from '../ErrorBoundary';
 import { NotFound } from '../NotFound';
 import { WorkerConsole } from '../WorkerConsole';
-import { api, isAPIError } from '../../api/client';
+import { api, describeApiError } from '../../api/client';
 import type { BoardEvent, Card, CreateCardInput } from '../../types';
 import { boardsRepoName } from '../../types';
 import { useDeepLinkCard } from './useDeepLinkCard';
@@ -168,7 +168,7 @@ export function ProjectShell() {
           setSelectedCard(updatedCard);
           showToast('Task queued for worker', 'success');
         } catch (err) {
-          showToast(isAPIError(err) ? err.error : 'Failed to start worker', 'error');
+          showToast(describeApiError(err, 'Failed to start worker'), 'error');
         }
         return;
       }

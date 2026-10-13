@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { api, isAPIError } from '../api/client';
+import { api, describeApiError, isAPIError } from '../api/client';
 import { isTerminalState } from '../lib/cardState';
 import type { Card, PatchCardInput, CreateCardInput } from '../types';
 
@@ -87,7 +87,7 @@ export function useCardActions({
         return true;
       } catch (err) {
         if (optimistic) updateCardLocally(cardId, { state: oldState });
-        showToast(isAPIError(err) ? err.error : 'Failed to move card', 'error');
+        showToast(describeApiError(err, 'Failed to move card'), 'error');
         return false;
       } finally {
         unsuppressSSE(cardId);
@@ -104,7 +104,7 @@ export function useCardActions({
         updateCardLocally(selectedCard.id, clearSafeCardUpdate(updated));
         showToast('Card saved', 'success');
       } catch (err) {
-        showToast(isAPIError(err) ? err.error : 'Failed to save card', 'error');
+        showToast(describeApiError(err, 'Failed to save card'), 'error');
         throw err;
       }
     },
@@ -161,7 +161,7 @@ export function useCardActions({
       });
       showToast('Task queued for worker', 'success');
     } catch (err) {
-      showToast(isAPIError(err) ? err.error : 'Failed to start worker', 'error');
+      showToast(describeApiError(err, 'Failed to start worker'), 'error');
     }
   }, [selectedCard, selectedProject, updateCardLocally, showToast]);
 
@@ -211,7 +211,7 @@ export function useCardActions({
       removeCardLocally(cardId);
       onCardDeleted();
     } catch (err) {
-      showToast(isAPIError(err) ? err.error : 'Failed to delete card', 'error');
+      showToast(describeApiError(err, 'Failed to delete card'), 'error');
       throw err;
     }
   }, [selectedProject, removeCardLocally, showToast, onCardDeleted]);

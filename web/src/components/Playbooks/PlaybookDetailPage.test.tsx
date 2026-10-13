@@ -7,7 +7,8 @@ import { api } from '../../api/client';
 import type { PlaybookDetail } from '../../types';
 import type { DndContextProps } from '@dnd-kit/core';
 
-vi.mock('../../api/client', () => ({
+vi.mock('../../api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../api/client')>()),
   api: {
     getPlaybook: vi.fn(),
     patchPlaybook: vi.fn(),
@@ -20,8 +21,6 @@ vi.mock('../../api/client', () => ({
     stopPlaybook: vi.fn(),
     fetchBranches: vi.fn().mockResolvedValue(['main']),
   },
-  isAPIError: (err: unknown): err is { error: string; code?: string; details?: string } =>
-    err != null && typeof err === 'object' && 'error' in err,
 }));
 
 vi.mock('../../hooks/useSSEBus', () => ({
