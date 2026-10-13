@@ -66,9 +66,11 @@ func sweepKinds(state string) []string {
 	switch state {
 	case board.StateDone:
 		return []string{KindDone}
-	case board.StateTodo, board.StateNotPlanned:
-		return nil
+	case board.StateInProgress, board.StateReview, board.StateStalled:
+		return []string{KindStarted}
 	}
 
-	return []string{KindStarted}
+	// Custom states, including a project's initial one, are never inferred
+	// as started: imports land in the first state.
+	return nil
 }

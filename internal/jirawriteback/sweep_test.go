@@ -23,6 +23,8 @@ func TestSweep_EnqueuesRecentMissedWrites(t *testing.T) {
 		"api/API-005": jiraCard("API-005", "PROJ-5", board.StateTodo, recent),
 		"api/API-006": jiraCard("API-006", "PROJ-6", board.StateNotPlanned, recent),
 		"web/WEB-001": jiraCard("WEB-001", "PROJ-7", board.StateStalled, recent),
+		"web/WEB-003": jiraCard("WEB-003", "PROJ-8", "backlog", recent),
+		"web/WEB-004": jiraCard("WEB-004", "PROJ-9", "qa", recent),
 		"web/WEB-002": {ID: "WEB-002", State: board.StateDone, Updated: recent},
 	})
 
