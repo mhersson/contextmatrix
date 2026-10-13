@@ -173,8 +173,8 @@ export function PlaybookDetailPage() {
     try {
       await api.deletePlaybook(detail.id);
       navigate('/playbooks');
-    } catch {
-      showToast('Failed to delete playbook', 'error');
+    } catch (err) {
+      showToast(describeApiError(err, 'Failed to delete playbook'), 'error');
     }
     setDeleteOpen(false);
   };
