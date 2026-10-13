@@ -27,7 +27,8 @@ Every view updates live from one Server-Sent Events stream per tab
   between columns to transition it; a drop the board's `transitions` forbid is
   ignored. Mouse drags start after 5 px, touch drags after a 250 ms hold.
 - **Card detail panel** opens on click. Tabs: Chat (only while a session is
-  live), Automation, Info, Danger. `Escape` closes, `Ctrl`/`Cmd`+`S` saves.
+  live), Automation, Info, Danger. `Escape` closes (a dirty create panel asks before
+  discarding), `Ctrl`/`Cmd`+`S` saves.
 - **Card bodies and chat messages** render as GitHub-flavoured markdown through
   an allowlist sanitizer. Allowlisted HTML renders (images over http, https
   or a relative path, `<details>`/`<summary>`, `<br>`, `<kbd>`,
@@ -267,7 +268,7 @@ Shortcuts are ignored while typing in a field and when a modifier is held.
 | `s`            | Project settings                                  |
 | `c`            | Toggle the execution console                      |
 | `1` to `9`     | Switch to the nth project in the sidebar          |
-| `Escape`       | Clear filters and search, or close the card panel |
+| `Escape`       | Close the open panel; with none open, clear filters and search |
 | `Ctrl`/`Cmd`+`S` | Save the open card panel                        |
 
 ## Sync status

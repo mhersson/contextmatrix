@@ -2,7 +2,8 @@ import { useEffect } from 'react';
 
 export interface Shortcut {
   key: string;
-  handler: () => void;
+  /** Return false to decline: the event is then left unconsumed for other listeners. */
+  handler: () => boolean | void;
 }
 
 function isInputElement(el: EventTarget | null): boolean {
@@ -19,13 +20,13 @@ function isInputElement(el: EventTarget | null): boolean {
 export function useKeyboardShortcuts(shortcuts: Shortcut[]) {
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
+      if (e.defaultPrevented) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (isInputElement(e.target)) return;
 
       for (const shortcut of shortcuts) {
         if (e.key === shortcut.key) {
-          e.preventDefault();
-          shortcut.handler();
+          if (shortcut.handler() !== false) e.preventDefault();
           return;
         }
       }

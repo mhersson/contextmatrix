@@ -35,6 +35,8 @@ export interface CreateCardForm {
   skills: string[] | null;
   assignee: string;
   isSubmitting: boolean;
+  /** The user has entered a title, body, labels or parent that closing would lose. */
+  isDirty: boolean;
   pendingTemplate: PendingTemplate | null;
 
   // Field setters
@@ -255,6 +257,7 @@ export function useCreateCardForm(
       skills,
       assignee,
       isSubmitting,
+      isDirty: title.trim() !== '' || bodyDirty || labels.length > 0 || parent !== '',
       pendingTemplate,
       setTitle,
       setPriority,

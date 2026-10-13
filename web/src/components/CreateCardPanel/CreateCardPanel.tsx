@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { Card, CreateCardInput, ProjectConfig } from '../../types';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useBranches } from '../../hooks/useBranches';
@@ -89,14 +89,24 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
   const { branches, loading: branchesLoading, error: branchesError } =
     useBranches(config.name, !!taskBackend);
 
-  // Esc closes the panel.
+  const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
+  const isDirty = form.isDirty;
+  const handleClose = useCallback(() => {
+    if (isDirty) {
+      setConfirmDiscardOpen(true);
+      return;
+    }
+    onClose();
+  }, [isDirty, onClose]);
+
+  // Esc closes the panel; a confirm dialog that consumed the key keeps it open.
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape' && !e.defaultPrevented) handleClose();
     }
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
+  }, [handleClose]);
 
   const typeTint = typeColors[form.type] || 'var(--grey1)';
   const priorityTint = priorityColors[form.priority] || 'var(--grey1)';
@@ -192,7 +202,7 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
+      <div className="fixed inset-0 bg-black/50 z-40" onClick={handleClose} />
 
       <div
         ref={panelRef}
@@ -206,7 +216,7 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
           chips={
             <div className="flex items-center gap-2 flex-wrap">
               <button
-                onClick={onClose}
+                onClick={handleClose}
                 className="text-[var(--grey1)] hover:text-[var(--fg)] transition-colors shrink-0"
                 title="Cancel (Esc)"
                 aria-label="Close panel"
@@ -272,7 +282,7 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
             <>
               <button
                 type="button"
-                onClick={onClose}
+                onClick={handleClose}
                 className="px-2 py-1 rounded bg-transparent border border-[var(--bg4)] text-[var(--grey2)] hover:text-[var(--fg)] hover:border-[var(--bg5)] hover:bg-[var(--bg2)] transition-colors text-xs"
               >
                 Cancel
@@ -323,6 +333,19 @@ export function CreateCardPanel({ config, cards, onClose, onCreate }: CreateCard
           form.setPendingTemplate(null);
         }}
         onCancel={() => form.setPendingTemplate(null)}
+      />
+
+      <ConfirmModal
+        open={confirmDiscardOpen}
+        title="Discard unsaved changes?"
+        message="This card has not been created yet."
+        confirmLabel="Discard"
+        variant="danger"
+        onConfirm={() => {
+          setConfirmDiscardOpen(false);
+          onClose();
+        }}
+        onCancel={() => setConfirmDiscardOpen(false)}
       />
     </>
   );
