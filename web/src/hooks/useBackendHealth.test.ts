@@ -46,11 +46,4 @@ describe('useBackendHealth', () => {
     const { result } = renderHook(() => useBackendHealth(60_000));
     await waitFor(() => expect(result.current.status).toBe('unreachable'));
   });
-
-  it('reports disabled, not unreachable, when no task backend is configured', async () => {
-    vi.mocked(api.getBackendHealth).mockRejectedValue({ error: 'no execution backend is configured', code: 'BACKEND_DISABLED' });
-    const { result } = renderHook(() => useBackendHealth(60_000));
-    await waitFor(() => expect(result.current.status).toBe('disabled'));
-    expect(result.current.maxAgents).toBeUndefined();
-  });
 });

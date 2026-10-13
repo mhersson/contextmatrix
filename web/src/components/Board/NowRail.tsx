@@ -97,8 +97,8 @@ function relativeTime(iso: string): string {
 }
 
 /**
- * Live agent list + capacity meter + activity feed. `maxAgents` shows the
- * capacity section; `hasBackfill` switches the activity label once the
+ * Live agent list + capacity meter + activity feed. Capacity section is
+ * hidden only when `backendStatus` is 'disabled'; `hasBackfill` switches the activity label once the
  * one-shot /activity backfill has loaded.
  * The Capacity meter shows `runningContainers / maxAgents` (worker-container
  * counts), not agent counts - the "Now · agents" section is the canonical

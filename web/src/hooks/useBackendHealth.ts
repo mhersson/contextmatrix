@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, isAPIError } from '../api/client';
+import { api } from '../api/client';
 
 export interface BackendHealthState {
   maxAgents: number | undefined;
@@ -37,12 +37,11 @@ export function useBackendHealth(intervalMs: number, enabled = true): BackendHea
         .catch((err) => {
           if (ctrl.signal.aborted) return;
           if (err instanceof DOMException && err.name === 'AbortError') return;
-          const disabled = isAPIError(err) && err.code === 'BACKEND_DISABLED';
-          if (!disabled) console.warn('backend health poll failed:', err);
+          console.warn('backend health poll failed:', err);
           // Counts from an earlier poll must not outlive the backend they described.
           setMaxAgents(undefined);
           setRunningContainers(undefined);
-          setStatus(disabled ? 'disabled' : 'unreachable');
+          setStatus('unreachable');
         });
     };
     fetchBackendHealth();

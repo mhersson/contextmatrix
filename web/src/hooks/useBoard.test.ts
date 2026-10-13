@@ -689,7 +689,7 @@ describe('useBoard - refreshCard (panel-open hydration)', () => {
     // Initial load is the first wholesale replace.
     await waitFor(() => expect(result.current.listEpoch).toBe(1));
 
-    // refresh() reruns fetchData - e.g. what a sync.completed pull triggers.
+    // refresh() reruns fetchData.
     await act(async () => {
       await result.current.refresh();
     });

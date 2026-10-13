@@ -876,9 +876,10 @@ the task backend's `GET /health` and returns `{ok, running_containers,
 max_concurrent}`. `internal/api/backend_health.go` caches each probe (success
 or failure) for 2 seconds, bounds it at 3 seconds, and coalesces concurrent
 callers through singleflight on a detached context, so many open tabs and a
-backend outage never storm the backend. It returns `503 BACKEND_DISABLED`
-when no task backend is configured and `502 BACKEND_UNAVAILABLE` when the
-probe fails; callers fail soft and hide the meter.
+backend outage never storm the backend. The route is registered only
+when a task backend is configured (404 otherwise) and returns `502
+BACKEND_UNAVAILABLE` when the probe fails; callers fail soft and hide the
+meter.
 
 ### Backend worker images: GET /api/backends/{backend}/images
 

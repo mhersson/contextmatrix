@@ -267,15 +267,15 @@ once, independently of the unsaved ladders. Details in
 
 Shortcuts are ignored while typing in a field and when a modifier is held.
 
-| Key            | Action                                            |
-| -------------- | ------------------------------------------------- |
-| `n`            | New card                                          |
-| `b`            | Back to the board                                 |
-| `s`            | Project settings                                  |
-| `c`            | Toggle the execution console                      |
-| `1` to `9`     | Switch to the nth project in the sidebar (repo group, then name) |
-| `Escape`       | Close the open panel; with none open, clear filters and search |
-| `Ctrl`/`Cmd`+`S` | Save the open card panel                        |
+| Key              | Action                                                           |
+| ---------------- | ---------------------------------------------------------------- |
+| `n`              | New card                                                         |
+| `b`              | Back to the board                                                |
+| `s`              | Project settings                                                 |
+| `c`              | Toggle the execution console                                     |
+| `1` to `9`       | Switch to the nth project in the sidebar (repo group, then name) |
+| `Escape`         | Close the open panel; with none open, clear filters and search   |
+| `Ctrl`/`Cmd`+`S` | Save the open card panel                                         |
 
 ## Sync status
 

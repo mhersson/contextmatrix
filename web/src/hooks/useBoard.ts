@@ -61,7 +61,7 @@ export function useBoard(
 
   // Per-instance monotonic request id - only the latest fetchData call commits
   // its results to state. This prevents a slower response from a stale request
-  // (e.g. triggered by SSE sync.completed) from overwriting a newer one.
+  // (e.g. after a reconnect resync or a project/filter switch) from overwriting a newer one.
   const reqIdRef = useRef(0);
 
   // Per-instance monotonic counter for silent refreshes. These never stamp
