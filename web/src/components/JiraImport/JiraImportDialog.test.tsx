@@ -375,6 +375,27 @@ describe('JiraImportDialog', () => {
     });
   });
 
+  it('rejoins the epic’s running import instead of offering Import', async () => {
+    vi.mocked(api.previewJiraEpic).mockResolvedValue(
+      samplePreview({ active_import: { id: 'ji-1', keys: ['PROJ-3', 'PROJ-2', 'PROJ-7'] } }),
+    );
+    render(tree());
+
+    await waitFor(() => expect(api.getJiraImport).toHaveBeenCalledWith('ji-1'));
+    expect(screen.queryByRole('button', { name: /^Import/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Importing… 0 of 3');
+
+    emit('jira_import.done', {
+      import_id: 'ji-1',
+      status: 'failed',
+      playbook_id: 'proj-1-checkout-revamp',
+      error: 'timed out; run the import again',
+      results: [{ key: 'PROJ-3', status: 'created', project: 'api', card: 'API-001' }],
+    });
+    expect(within(screen.getByRole('list', { name: 'Import results' })).getAllByText('not run')).toHaveLength(2);
+    expect(api.importJiraEpic).not.toHaveBeenCalled();
+  });
+
   it('shows the server error when the preview fails', async () => {
     vi.mocked(api.previewJiraEpic).mockRejectedValue({ error: 'Jira authentication failed', code: 'JIRA_AUTH_FAILED' });
     render(tree());

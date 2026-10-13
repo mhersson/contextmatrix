@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/mhersson/contextmatrix/internal/board"
@@ -557,4 +558,90 @@ func TestBegin_TotalCountsEachIssueOnce(t *testing.T) {
 	assert.Equal(t, ImportDone, st.Status)
 	assert.Equal(t, 2, st.Total)
 	assert.Len(t, st.Results, st.Total, "a completed import has one result per issue")
+}
+
+func TestBegin_BoundStartsOnceTheEpicIsFree(t *testing.T) {
+	e := newImportEnv(t, nil)
+	e.jira.add(story("102", "PROJ-2", "Cart API"), story("103", "PROJ-3", "Cart UI"))
+
+	synctest.Test(t, func(t *testing.T) {
+		gate := holdCreate(e.cards, 1)
+		bus := events.NewBus()
+
+		ch, unsubscribe := bus.Subscribe()
+		defer unsubscribe()
+
+		svc := New(e.jira, gate, e.pbs, Config{SiteURL: testSite, Bus: bus, Clock: e.clk})
+		svc.timeout = 10 * time.Second
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		svc.Start(ctx)
+
+		first, err := svc.Begin(ctx, "PROJ-1", ImportRequest{Selections: []Selection{{Key: "PROJ-2", Project: "api"}}}, "human:alice")
+		require.NoError(t, err)
+
+		<-gate.reached
+
+		queued, err := svc.Begin(ctx, "PROJ-1", ImportRequest{Selections: []Selection{{Key: "PROJ-3", Project: "api"}}}, "human:alice")
+		require.NoError(t, err)
+
+		// Past the bound, and inside the first import's drain grace.
+		time.Sleep(15 * time.Second)
+		close(gate.release)
+
+		done := map[string]events.Event{}
+		for ev := range ch {
+			if ev.Type == events.JiraImportDone {
+				done[ev.Data["import_id"].(string)] = ev
+			}
+
+			if len(done) == 2 {
+				break
+			}
+		}
+
+		require.Contains(t, done, first)
+		assert.Equal(t, ImportDone, done[queued].Data["status"], "time spent queued behind the epic's other import is not its own")
+
+		results, _ := done[queued].Data["results"].([]Result)
+		require.Len(t, results, 1)
+		assert.Equal(t, StatusCreated, results[0].Status)
+	})
+}
+
+func TestPreview_ActiveImportIsTheEpicsRunningOne(t *testing.T) {
+	e := newImportEnv(t, nil)
+	e.jira.add(story("102", "PROJ-2", "Cart API"), story("103", "PROJ-3", "Cart UI"))
+
+	gate := holdCreate(e.cards, 1)
+	svc, _ := e.serviceWith(t, gate, e.pbs)
+
+	ctx := context.Background()
+
+	p, err := svc.Preview(ctx, "PROJ-1")
+	require.NoError(t, err)
+	assert.Nil(t, p.ActiveImport, "no import yet")
+
+	req := ImportRequest{Selections: []Selection{
+		{Key: "PROJ-3", Project: "api"}, {Key: "PROJ-2", Project: "api"}, {Key: "PROJ-3", Project: "web"},
+	}}
+
+	id, err := svc.Begin(ctx, "PROJ-1", req, "human:alice")
+	require.NoError(t, err)
+
+	gate.waitHeld(t)
+
+	p, err = svc.Preview(ctx, "PROJ-1")
+	require.NoError(t, err)
+	require.NotNil(t, p.ActiveImport, "a reopened dialog rejoins the running import")
+	assert.Equal(t, ActiveImport{ID: id, Keys: []string{"PROJ-3", "PROJ-2"}}, *p.ActiveImport)
+
+	close(gate.release)
+	waitDone(t, svc, id)
+
+	p, err = svc.Preview(ctx, "PROJ-1")
+	require.NoError(t, err)
+	assert.Nil(t, p.ActiveImport, "a finished import is not offered")
 }

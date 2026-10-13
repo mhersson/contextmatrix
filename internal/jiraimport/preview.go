@@ -58,6 +58,8 @@ func (s *Service) Preview(ctx context.Context, epicKey string) (*Preview, error)
 		p.Children = append(p.Children, n)
 	}
 
+	p.ActiveImport = s.activeImport(t.epic.Key)
+
 	return p, nil
 }
 

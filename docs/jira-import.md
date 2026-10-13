@@ -84,12 +84,13 @@ curl -s -H 'X-Requested-With: contextmatrix' localhost:8080/api/jira/status
    (`created`, `skipped`, `failed`), then offers **Open playbook**.
 
 The import re-reads every issue from Jira before it answers; the browser sends
-only keys, projects and options. It then runs in the background, bounded at 10
-minutes, and reports each issue over the event stream; closing the dialog does
-not stop it, and a reconnecting dialog catches up from
-`GET /api/jira/imports/{id}`, which keeps a finished import for an hour on the
-instance that ran it. Imports of the same epic run one at a time on an instance.
-The import is human-only.
+only keys, projects and options. It then runs in the background and reports
+each issue over the event stream. Imports of the same epic run one at a time on
+an instance, and each is bounded at 10 minutes from when its turn comes. Closing
+the dialog does not stop the import: opening the dialog for the epic again shows
+its progress instead of offering Import, and a reconnecting dialog catches up
+from `GET /api/jira/imports/{id}`, which keeps a finished import for an hour.
+Both work only on the instance that runs the import. The import is human-only.
 
 Each issue's writes are bounded at 30 seconds, room for the verified push every
 write makes on a shared boards repository. An issue that runs over fails with
@@ -127,8 +128,8 @@ never `subtask`. Subtasks come only from CM's own planning.
   created in the same import or an earlier one. A sub-task in another project is
   order only; the dialog warns about it.
 - When a sub-task selected into the parent's project fails, the parent fails
-  too, so it is never created without that dependency. Import both again once
-  the cause is fixed.
+  too, so it is never created without that dependency.
+  Import both again once the cause is fixed.
 - A new sub-task of a parent imported earlier goes directly before the parent in
   the playbook. Existing cards are never edited, so the parent does not gain the
   dependency.

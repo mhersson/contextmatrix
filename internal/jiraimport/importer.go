@@ -90,10 +90,18 @@ func errPlaybookRunning(d *service.PlaybookDetail) error {
 func (s *Service) importTree(
 	ctx context.Context, t *tree, req ImportRequest, agentID string, progress func(Result),
 ) (*ImportResponse, error) {
-	unlock := s.lockEpic(t.epic.Key)
+	unlock, err := s.lockEpic(ctx, t.epic.Key)
+	if err != nil {
+		return nil, err
+	}
 	defer unlock()
 
-	if err := ctx.Err(); err != nil {
+	// The bound starts once the epic is free: time queued behind another
+	// import of the epic is not this import's.
+	ctx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+
+	if err = ctx.Err(); err != nil {
 		return nil, err
 	}
 

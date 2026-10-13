@@ -2866,12 +2866,16 @@ that card is in the epic's playbook. `default_project` comes from
 an import would extend, absent until the first import creates it.
 `run_active` is present and `true` while that playbook has a `running` or
 `waiting` run; an import then answers `409 JIRA_PLAYBOOK_RUNNING`.
+`active_import` is present while an import of the epic runs on this instance:
+`{"id": "ji-...", "keys": ["PROJ-2"]}`, its id and the issue keys it covers, so a
+reopened dialog follows it through `GET /api/jira/imports/{id}` instead of
+starting another. With several queued, it is the oldest.
 
 ### POST /api/jira/epics/{key}/import
 
 Human-only. The server validates the body and re-reads the epic's issues from
 Jira, then answers **202** `{"import_id": "ji-..."}` and imports in the
-background, bounded at 10 minutes. The body carries only keys, target projects
+background, bounded at 10 minutes from when it holds the epic. The body carries only keys, target projects
 and options. Imports of the same epic run one at a time. Every error below is
 returned before anything is written.
 
@@ -2920,8 +2924,8 @@ The same codes apply to the preview, except `403`, `409` and
 
 ### GET /api/jira/imports/{id}
 
-The import's current state, for a dialog that reconnects or reopens. The
-registry is in memory on the instance that ran the import and keeps a finished
+The import's current state, for a dialog that reconnects, or that reopens and
+finds the import through the preview's `active_import`. The registry is in memory on the instance that ran the import and keeps a finished
 import for an hour; after that, or after a restart, it answers
 `404 JIRA_IMPORT_NOT_FOUND`.
 

@@ -22,7 +22,9 @@ export function JiraImportDialog({ epicKey, description, boardsRepo, onClose }: 
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [runConflict, setRunConflict] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [started, setStarted] = useState<{ id: string; keys: string[] } | null>(null);
+  const [startedHere, setStarted] = useState<{ id: string; keys: string[] } | null>(null);
+  // A dialog reopened mid-import follows that import instead of offering a second one.
+  const started = startedHere ?? preview?.active_import ?? null;
   const run = useJiraImportRun(started?.id ?? null, started?.keys.length ?? 0);
   const navigate = useNavigate();
   const dialogRef = useRef<HTMLDivElement>(null);
