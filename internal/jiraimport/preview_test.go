@@ -125,6 +125,36 @@ func TestPreview_Errors(t *testing.T) {
 	})
 }
 
+func TestPreview_EpicIsDecidedByHierarchyLevelNotName(t *testing.T) {
+	tests := []struct {
+		name    string
+		typ     jira.IssueType
+		wantErr error
+	}{
+		{"a renamed level-1 type is an epic", jira.IssueType{Name: "Initiative", HierarchyLevel: 1}, nil},
+		{"a level-0 type named Epic is not", jira.IssueType{Name: "Epic", HierarchyLevel: 0}, ErrNotEpic},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newImportEnv(t, nil)
+
+			epic := epicIssue()
+			epic.IssueType = tt.typ
+			e.jira.add(epic)
+
+			_, err := e.svc.Preview(context.Background(), "PROJ-1")
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestPreview_SkipsAChildWithAMalformedKey(t *testing.T) {
 	const bad = "PROJ-2 OR project = OPS"
 
