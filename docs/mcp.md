@@ -40,10 +40,19 @@ see [remote execution](remote-execution.md) § Security Model.
 - Agents interact with the board **only through MCP tools**. Never `curl`, the
   REST API, or direct file edits. If no tool covers an operation, the agent
   reports it blocked.
-- Identity is the `agent_id` argument. IDs starting with `human:` are human
-  callers; everything else is an agent.
-- Unvetted external cards (imported issues with `vetted: false`) return a
-  redacted body to non-human callers and are skipped by `get_ready_tasks`.
+- Identity is the `agent_id` argument. `human:<name>` (a non-empty name) is a
+  human caller; everything else is an agent.
+- Unvetted external cards (imported issues with `vetted: false`) are
+  skipped by `get_ready_tasks`. Non-human callers get a placeholder title
+  and body from `get_card` and `get_task_context` (siblings: title only),
+  and a placeholder title from `list_cards` and every mutation response;
+  `branch_name`, which is derived from the title, is blanked wherever the
+  title is replaced on a card or summary. Internal cards (no `source`) are
+  never redacted.
+  `get_subtask_summary` and `await_subtasks` return no titles. A caller is
+  human only when `agent_id` is `human:<name>`; an empty or bare `human:`
+  id is non-human. `get_ready_tasks` and `check_agent_health` take no
+  `agent_id`, so they always treat the caller as non-human.
 - One agent per card: mutations on a claimed card require the claim holder's
   `agent_id`.
 
@@ -147,9 +156,7 @@ Every tool also takes `agent_id` for redaction. Entry `card_title` and the
 list summary's `next.title` are replaced with a placeholder when the card is
 imported and unvetted and `agent_id` is empty or is not a `human:<name>` id;
 `card_unvetted` and `next.unvetted` flag those entries. Human callers and
-vetted cards see the real title. The card tools `list_cards` and `get_card`
-still return unvetted card titles and redact only the body; `get_ready_tasks`
-omits unvetted cards.
+vetted cards see the real title.
 
 | Tool                    | Description                                          | Caller |
 | ----------------------- | ---------------------------------------------------- | ------ |
