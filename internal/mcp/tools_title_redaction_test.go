@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -49,7 +50,7 @@ func seedImported(t *testing.T, env *testEnv, title, parent string, vetted bool)
 
 	card, err := env.svc.CreateCard(context.Background(), "test-project", service.CreateCardInput{
 		Title: title, Type: "task", Priority: "medium", Body: secretBody, Parent: parent, Vetted: vetted,
-		Source: &board.Source{System: "github", ExternalID: "42", ExternalURL: "https://github.com/acme/repo/issues/42"},
+		Source: &board.Source{System: "github", ExternalID: title, ExternalURL: "https://github.com/acme/repo/issues/" + url.PathEscape(title)},
 	})
 	require.NoError(t, err)
 
@@ -115,7 +116,7 @@ func TestCardTools_RedactUnvettedTitle(t *testing.T) {
 						assert.False(t, c.Vetted)
 						assert.Equal(t, board.StateTodo, c.State)
 						require.NotNil(t, c.Source)
-						assert.Equal(t, "42", c.Source.ExternalID)
+						assert.Equal(t, secretTitle, c.Source.ExternalID)
 					case vetted.ID:
 						seen++
 
