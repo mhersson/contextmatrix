@@ -42,8 +42,14 @@ see [remote execution](remote-execution.md) § Security Model.
   reports it blocked.
 - Identity is the `agent_id` argument. IDs starting with `human:` are human
   callers; everything else is an agent.
-- Unvetted external cards (imported issues with `vetted: false`) return a
-  redacted body to non-human callers and are skipped by `get_ready_tasks`.
+- Unvetted external cards (imported issues with `vetted: false`) are
+  skipped by `get_ready_tasks`. Non-human callers get a placeholder title
+  and body from `get_card` and `get_task_context` (siblings: title only),
+  and a placeholder title from `list_cards` and every mutation response.
+  `get_subtask_summary` and `await_subtasks` return no titles. A caller is
+  human only when `agent_id` is `human:<name>`; an empty or bare `human:`
+  id is non-human. `get_ready_tasks` and `check_agent_health` take no
+  `agent_id`, so they always treat the caller as non-human.
 - One agent per card: mutations on a claimed card require the claim holder's
   `agent_id`.
 

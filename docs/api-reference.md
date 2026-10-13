@@ -2694,8 +2694,9 @@ needs the per-bucket breakdown. Siblings are summaries because they exist
 for overlap awareness (title, state, labels, `depends_on`); subtask detail
 flows through per-card `get_card` fetches. A structural consequence:
 unvetted external card bodies cannot leak through any mutation or list
-result. Body redaction for non-human callers applies to the surfaces that
-carry bodies: `get_card`, `get_task_context`, and the skill-injection path
+result, and those results carry a placeholder title for non-human callers.
+Body redaction for non-human callers applies to the surfaces that carry
+bodies: `get_card`, `get_task_context`, and the skill-injection path
 (redaction runs before section filtering).
 
 #### `update_card` autonomous flag

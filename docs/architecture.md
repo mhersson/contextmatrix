@@ -336,9 +336,12 @@ order matches seq order.
   `chat.resume_budget_tokens` (default 40000). While `RehydrationActive` is
   set, incoming entries are stamped `rehydration_phase=TRUE`; the
   `chat_rehydration_complete` MCP tool clears the flag and persists the
-  agent's summary as the first visible message. That tool is gated by the
-  caller's `CM_CHAT_SESSION` (forwarded as `X-CM-Chat-Session`), so a
-  container can only flip its own session.
+  agent's summary as the first visible message. CM rejects a mismatching
+  `session_id` against the caller's `CM_CHAT_SESSION` (forwarded as
+  `X-CM-Chat-Session`) only when that header is present. The check guards
+  against a container flipping another session by mistake; it is not a
+  security boundary, since the header is optional and CM assumes a trusted
+  network.
 - **Cost accumulation.** Each `usage` frame carries per-turn token counts
   (one `message.usage` block per assistant turn, not cumulative totals).
   `handleUsageEntry` prices them through `chat.Pricer` and persists via
