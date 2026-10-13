@@ -403,6 +403,38 @@ describe('JiraImportDialog', () => {
     expect(screen.getByRole('dialog', { name: /Import Jira epic PROJ-1/ })).toBeInTheDocument();
   });
 
+  it('shows the details of a refused import', async () => {
+    vi.mocked(api.importJiraEpic).mockRejectedValueOnce({
+      error: 'invalid import request',
+      code: 'BAD_REQUEST',
+      details: 'at most 200 issues per import',
+    });
+    render(tree());
+    fireEvent.change(await screen.findByLabelText('Project for PROJ-7'), { target: { value: 'web' } });
+    fireEvent.click(importButton());
+    expect(await screen.findByRole('alert')).toHaveTextContent('at most 200 issues per import');
+  });
+
+  it('shows both the error and the details when the preview is rejected', async () => {
+    vi.mocked(api.previewJiraEpic).mockRejectedValue({
+      error: 'Jira refused the request',
+      code: 'JIRA_REQUEST_REJECTED',
+      details: 'Field x is invalid',
+    });
+    render(tree());
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Jira refused the request');
+    expect(alert).toHaveTextContent('Field x is invalid');
+  });
+
+  it('disables Import above the selection cap', async () => {
+    const base = samplePreview();
+    const children = Array.from({ length: 201 }, (_, i) => ({ ...base.children[0], key: `PROJ-${100 + i}`, subtasks: [] }));
+    vi.mocked(api.previewJiraEpic).mockResolvedValue(samplePreview({ children }));
+    render(tree());
+    expect(await screen.findByRole('button', { name: /^Import 201 issues/ })).toBeDisabled();
+  });
+
   it('closes on Escape', async () => {
     const onClose = vi.fn();
     render(tree('', onClose));

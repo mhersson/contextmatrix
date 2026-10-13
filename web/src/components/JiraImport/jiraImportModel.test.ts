@@ -3,6 +3,7 @@ import type { ProjectConfig } from '../../types';
 import {
   buildRequest,
   canSubmit,
+  MAX_SELECTIONS,
   initialForm,
   isSelectable,
   prefixClashes,
@@ -64,6 +65,17 @@ describe('jiraImportModel', () => {
     expect(canSubmit(p, form)).toBe(false); // PROJ-7 has no default
     expect(canSubmit(p, setProject(form, p, 'PROJ-7', 'api'))).toBe(true);
     expect(canSubmit(p, { ...form, selected: new Set() })).toBe(false);
+  });
+
+  it('refuses a selection above the cap', () => {
+    const many = (n: number) => {
+      const base = samplePreview();
+      const children = Array.from({ length: n }, (_, i) => ({ ...base.children[0], key: `PROJ-${100 + i}`, subtasks: [] }));
+      const p = samplePreview({ children });
+      return canSubmit(p, initialForm(p));
+    };
+    expect(many(MAX_SELECTIONS)).toBe(true);
+    expect(many(MAX_SELECTIONS + 1)).toBe(false);
   });
 
   it('blocks submitting while the playbook has an active run', () => {

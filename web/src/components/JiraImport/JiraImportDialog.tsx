@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { api, isAPIError } from '../../api/client';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
-import { errorMessage } from '../../lib/errors';
+import { errorWithDetails } from '../../lib/errors';
 import { buildRequest, canSubmit } from './jiraImportModel';
 import { JiraImportForm } from './JiraImportForm';
 import { JiraImportResults } from './JiraImportResults';
@@ -57,7 +57,7 @@ export function JiraImportDialog({ epicKey, description, boardsRepo, onClose }: 
       setStarted({ id: import_id, keys: req.selections.map((s) => s.key) });
     } catch (err) {
       if (isAPIError(err) && err.code === 'JIRA_PLAYBOOK_RUNNING') setRunConflict(true);
-      else setSubmitError(errorMessage(err, 'Import failed'));
+      else setSubmitError(errorWithDetails(err, 'Import failed'));
     } finally {
       setBusy(false);
       // The busy Import button disables itself, and on success the results view removes it.

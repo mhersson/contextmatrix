@@ -110,9 +110,12 @@ export function prefixClashes(
   return clashes;
 }
 
+/** The server refuses an import with more selections than this. */
+export const MAX_SELECTIONS = 200;
+
 export function canSubmit(preview: JiraEpicPreview, form: ImportForm): boolean {
   if (preview.playbook?.run_active) return false;
-  if (form.selected.size === 0) return false;
+  if (form.selected.size === 0 || form.selected.size > MAX_SELECTIONS) return false;
   if (!preview.playbook && !form.title.trim()) return false;
   return flatten(preview).every((n) => !form.selected.has(n.key) || !!form.projects[n.key]);
 }

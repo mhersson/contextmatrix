@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../api/client';
-import { errorMessage } from '../../lib/errors';
+import { errorWithDetails } from '../../lib/errors';
 import type { JiraEpicPreview } from '../../types';
 import { initialForm, type ImportForm } from './jiraImportModel';
 
@@ -27,7 +27,7 @@ export function useJiraEpicPreview(epicKey: string): EpicPreview {
         setForm(initialForm(p));
       })
       .catch((err) => {
-        if (!cancelled) setError(errorMessage(err, 'Could not load the epic from Jira'));
+        if (!cancelled) setError(errorWithDetails(err, 'Could not load the epic from Jira'));
       });
     return () => {
       cancelled = true;
