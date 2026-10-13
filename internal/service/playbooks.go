@@ -1402,6 +1402,19 @@ func (s *PlaybookService) RemoveEntry(ctx context.Context, id, entryID, agentID 
 			return fmt.Errorf("%w: entry is the run's current card; stop the run first", ErrPlaybookRunActive)
 		}
 
+		// Removed, another live card's worker would escape both the hold and Stop.
+		if e := p.Entries[i]; p.RunActive() && e.Type == board.EntryTypeCard {
+			card, err := s.cards.GetCard(ctx, e.Project, e.Card)
+
+			switch {
+			case err == nil && !board.IsTerminalState(card.State) &&
+				(card.WorkerStatus == "queued" || card.WorkerStatus == "running"):
+				return fmt.Errorf("%w: %s has a live worker; stop the run first", ErrPlaybookRunActive, card.ID)
+			case err != nil && !errors.Is(err, storage.ErrCardNotFound) && !errors.Is(err, storage.ErrProjectNotFound):
+				return fmt.Errorf("read card %s/%s: %w", e.Project, e.Card, err)
+			}
+		}
+
 		p.Entries = slices.Delete(p.Entries, i, i+1)
 
 		// A stopped or completed run may still point at the removed entry.

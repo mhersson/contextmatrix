@@ -740,6 +740,85 @@ func TestStop_LetsACaughtLaunchFinish(t *testing.T) {
 	e.runner.Wait()
 }
 
+// TestStop_SparesAHandRunStartedDuringItsWait: once the stop is written a
+// human may run another card by hand while Stop still waits for its walker.
+// That worker is not the run's and must outlive the stop.
+func TestStop_SparesAHandRunStartedDuringItsWait(t *testing.T) {
+	e := newEnv(t)
+
+	c := todoCard("alpha", "ALPHA-1")
+	c.ApplyPlaybookSettings("playbook/rollout")
+	e.cards.add(c)
+	e.cards.add(todoCard("alpha", "ALPHA-2"))
+
+	p := runnablePlaybook("rollout", cardEntry("e1", "alpha", "ALPHA-1"), cardEntry("e2", "alpha", "ALPHA-2"))
+	e.activeRun(p, "")
+	e.pbs.add(p)
+
+	entered, release, _ := e.holdFirstLaunch(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	e.runner.Start(ctx)
+	<-entered
+
+	stopped := make(chan error, 1)
+
+	go func() {
+		_, err := e.runner.Stop(context.Background(), "rollout", "human:alice")
+		stopped <- err
+	}()
+
+	require.Eventually(t, func() bool { return e.pbs.lastRun().Status == board.RunStatusStopped },
+		time.Second, 5*time.Millisecond, "the stop is written")
+
+	e.cards.queue("alpha", "ALPHA-2")
+	release()
+
+	require.NoError(t, <-stopped)
+	assert.Equal(t, []string{"ALPHA-1"}, e.stopper.called(), "only the run's launch is killed")
+
+	cancel()
+	e.runner.Wait()
+}
+
+// TestStop_RestartsTheWalkerWhenItsWriteFails: a pass can see the stop before
+// its failed commit is rolled back and let its walker go, leaving the still
+// running run with nothing walking it.
+func TestStop_RestartsTheWalkerWhenItsWriteFails(t *testing.T) {
+	e := newEnv(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Started before the run is seeded, so no walker is resumed.
+	e.runner.Start(ctx)
+
+	c := todoCard("alpha", "ALPHA-1")
+	c.ApplyPlaybookSettings("playbook/rollout")
+	e.cards.add(c)
+
+	p := runnablePlaybook("rollout", cardEntry("e1", "alpha", "ALPHA-1"))
+	e.activeRun(p, "e1")
+	e.pbs.add(p)
+
+	commitErr := errors.New("commit failed")
+
+	e.pbs.mu.Lock()
+	e.pbs.failNextSetRun = commitErr
+	e.pbs.mu.Unlock()
+
+	_, err := e.runner.Stop(context.Background(), "rollout", "human:alice")
+	require.ErrorIs(t, err, commitErr)
+
+	require.Eventually(t, func() bool { return e.launcher.count() == 1 }, 2*time.Second, 10*time.Millisecond,
+		"a walker walks the run that is still running")
+
+	cancel()
+	e.runner.Wait()
+}
+
 // TestLaunchEntry_SendsNothingOnceStopped: a Stop that lands between the
 // running write and the trigger has cancelled the walker; no trigger goes out.
 func TestLaunchEntry_SendsNothingOnceStopped(t *testing.T) {
@@ -749,15 +828,16 @@ func TestLaunchEntry_SendsNothingOnceStopped(t *testing.T) {
 	stopped := make(chan error, 1)
 
 	e.pbs.mu.Lock()
-	e.pbs.afterSetRun = func() {
+	e.pbs.afterSetRun = func(ctx context.Context) {
 		go func() {
 			_, err := e.runner.Stop(context.Background(), "rollout", "human:alice")
 			stopped <- err
 		}()
 
-		// This runs on the walker; plain polling, since require must not.
-		for deadline := time.Now().Add(time.Second); e.runner.walkerCount() != 0 && time.Now().Before(deadline); {
-			time.Sleep(time.Millisecond)
+		// This runs on the walker: its pass context ends when Stop cancels it.
+		select {
+		case <-ctx.Done():
+		case <-time.After(10 * time.Second):
 		}
 	}
 	e.pbs.mu.Unlock()
@@ -773,4 +853,167 @@ func TestLaunchEntry_SendsNothingOnceStopped(t *testing.T) {
 
 	cancel()
 	e.runner.Wait()
+}
+
+// TestLaunchEntry_ShutdownCancelsTheTrigger: cancelling the runner's context
+// aborts a trigger in flight, so Shutdown returns instead of waiting it out.
+func TestLaunchEntry_ShutdownCancelsTheTrigger(t *testing.T) {
+	e := newEnv(t)
+	e.seedOneCardRun()
+
+	entered := make(chan struct{})
+
+	e.launcher.onLaunch = func(ctx context.Context, _, _ string) error {
+		close(entered)
+		<-ctx.Done()
+
+		return ctx.Err()
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	e.runner.Start(ctx)
+
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the trigger never started")
+	}
+
+	cancel()
+
+	sctx, scancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer scancel()
+
+	require.NoError(t, e.runner.Shutdown(sctx))
+}
+
+// TestShutdown_JoinsAStopsKills: Shutdown waits for the kills a Stop runs
+// after its detached wait, so the process cannot exit between them.
+func TestShutdown_JoinsAStopsKills(t *testing.T) {
+	e := newEnv(t)
+
+	c := todoCard("alpha", "ALPHA-1")
+	c.ApplyPlaybookSettings("playbook/rollout")
+	e.cards.add(c)
+	e.cards.queue("alpha", "ALPHA-1")
+
+	p := runnablePlaybook("rollout", cardEntry("e1", "alpha", "ALPHA-1"))
+	e.activeRun(p, "e1")
+	e.pbs.add(p)
+
+	entered := make(chan struct{})
+	gate := make(chan struct{})
+	release := sync.OnceFunc(func() { close(gate) })
+	t.Cleanup(release)
+
+	e.stopper.onStop = func(_, _ string) {
+		close(entered)
+		<-gate
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	e.runner.Start(ctx)
+	require.Eventually(t, e.walkerReady, 2*time.Second, 5*time.Millisecond)
+
+	stopped := make(chan error, 1)
+
+	go func() {
+		_, err := e.runner.Stop(context.Background(), "rollout", "human:alice")
+		stopped <- err
+	}()
+
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the kill never started")
+	}
+
+	cancel()
+
+	sctx, scancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer scancel()
+
+	require.ErrorIs(t, e.runner.Shutdown(sctx), context.DeadlineExceeded)
+
+	release()
+	require.NoError(t, <-stopped)
+
+	sctx2, scancel2 := context.WithTimeout(context.Background(), 2*time.Second)
+	defer scancel2()
+
+	require.NoError(t, e.runner.Shutdown(sctx2))
+}
+
+// TestEnsure_SpawnsNothingAfterShutdown: a Play that lands once Shutdown has
+// begun starts no walker, whose Add would race Shutdown's Wait.
+func TestEnsure_SpawnsNothingAfterShutdown(t *testing.T) {
+	e := newEnv(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Started before the run is seeded, so no walker is resumed.
+	e.runner.Start(ctx)
+	require.NoError(t, e.runner.Shutdown(context.Background()))
+
+	e.seedOneCardRun()
+
+	assert.False(t, e.runner.Ensure("rollout"), "no walker starts after Shutdown")
+	assert.Equal(t, 0, e.runner.walkerCount())
+}
+
+// TestStop_KillsUnjoinedAfterShutdown: a Stop whose write lands once Shutdown
+// has begun still kills, without joining the WaitGroup Shutdown waits on.
+func TestStop_KillsUnjoinedAfterShutdown(t *testing.T) {
+	e := newEnv(t)
+
+	c := todoCard("alpha", "ALPHA-1")
+	c.ApplyPlaybookSettings("playbook/rollout")
+	e.cards.add(c)
+	e.cards.queue("alpha", "ALPHA-1")
+
+	p := runnablePlaybook("rollout", cardEntry("e1", "alpha", "ALPHA-1"))
+	e.activeRun(p, "e1")
+	e.pbs.add(p)
+
+	entered := make(chan struct{})
+	gate := make(chan struct{})
+	release := sync.OnceFunc(func() { close(gate) })
+	t.Cleanup(release)
+
+	e.stopper.onStop = func(_, _ string) {
+		close(entered)
+		<-gate
+	}
+
+	// Never started, so there is no walker and Shutdown returns at once.
+	require.NoError(t, e.runner.Shutdown(context.Background()))
+
+	stopped := make(chan error, 1)
+
+	go func() {
+		_, err := e.runner.Stop(context.Background(), "rollout", "human:alice")
+		stopped <- err
+	}()
+
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the kill never started")
+	}
+
+	// The kill is still held: a Stop that had joined would keep Shutdown waiting.
+	sctx, scancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer scancel()
+
+	require.NoError(t, e.runner.Shutdown(sctx))
+
+	release()
+	require.NoError(t, <-stopped)
+	assert.Equal(t, []string{"ALPHA-1"}, e.stopper.called(), "the run's worker is killed")
+	assert.Equal(t, board.RunStatusStopped, e.pbs.lastRun().Status)
 }

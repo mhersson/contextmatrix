@@ -127,13 +127,15 @@ func runShutdownSequence(ctx context.Context, c shutdownComponents) error {
 	// Phase 4: join the playbook walkers, the Jira imports and the Jira
 	// writeback worker. AppCancel above is what stops them (an import between
 	// two issues); this waits so their writes land before the commit queues
-	// close underneath them, which would otherwise roll a write back. An
-	// import's in-flight issue finishes, or is cancelled once the importer's
-	// 8 s drain grace, started by AppCancel, runs out. The drains run in turn
-	// on one budget, so a wedged drain cannot hold shutdown open. The budget is
-	// independent of the shutdown ctx, like phase 6: derived from it, it would
-	// shrink to whatever phase 1's HTTP drain left, and a slow drain could let
-	// the queues close under a write in flight.
+	// close underneath them, which would otherwise roll a write back.
+	// AppCancel also aborts a playbook trigger in flight, whose card the
+	// launcher reverts to failed before the queues close, and an import's
+	// in-flight issue finishes or is cancelled once the importer's 8 s drain
+	// grace runs out. The drains run in turn on one budget, so a wedged drain
+	// cannot hold shutdown open. The budget is independent of the shutdown
+	// ctx, like phase 6: derived from it, it would shrink to whatever phase
+	// 1's HTTP drain left, and a slow drain could let the queues close under
+	// a write in flight.
 	slog.Info("shutdown: phase=playbook_runner_drain")
 
 	const phase4Timeout = 10 * time.Second

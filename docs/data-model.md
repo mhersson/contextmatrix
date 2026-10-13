@@ -200,8 +200,9 @@ live in [architecture](architecture.md); the HTTP surface in the
     records the deletion when the missing path is staged. It returns 422
     `VALIDATION_ERROR` if the card has subtasks, 403 if the card is claimed
     by another agent, and 409 `WORKER_CONFLICT` while its `worker_status` is
-    `queued` or `running`. The web UI enables Delete only for `todo` or
-    `not_planned` cards with no `assigned_agent`, behind a `ConfirmModal`.
+    `queued` or `running` and it is not `done` or `not_planned`. The web UI
+    enables Delete only for `todo` or `not_planned` cards with no
+    `assigned_agent`, behind a `ConfirmModal`.
 
 ## Card file format
 
@@ -1067,7 +1068,7 @@ Valid values (`validWorkerStatuses` in `internal/board/validation.go`):
 | `""`         | service layer / human   | No worker attached. Default on new cards; a `completed` callback clears the stored value back to it, and a state change into `todo` or `in_progress` clears a leftover `failed` or `killed` so a rerun does not carry the previous run's failure. |
 | `queued`     | run trigger             | A run was requested; the container has not started.                       |
 | `running`    | backend status callback | The worker is executing.                                                  |
-| `failed`     | backend status callback | The worker exited with an error, or the trigger webhook failed.           |
+| `failed`     | backend status callback | The worker exited with an error, the trigger webhook failed, or the reconcile sweep found no container for it. |
 | `killed`     | stop / stop-all         | The worker was stopped by a server-initiated stop.                        |
 | `completed`  | backend status callback | The worker finished.                                                      |
 | `parked`     | MCP `report_parked`     | The run parked the card for a human (review or PR gates); reason in the activity log. |

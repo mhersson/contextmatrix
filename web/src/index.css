@@ -1298,6 +1298,14 @@ textarea {
   background-color: var(--bg0) !important;
 }
 
+/* Author svg must stay inside its own box; the renderer's icons fit their viewBox.
+   svg.octicon out-ranks @uiw's `.wmde-markdown .octicon { overflow: visible }`. */
+.wmde-markdown svg,
+.wmde-markdown svg.octicon {
+  overflow: hidden !important;
+  max-width: 100%;
+}
+
 /*
  * Tailwind v4 preflight resets ul/ol to list-style: none globally.
  * @uiw/react-markdown-preview loads markdown.css but omits list-style on

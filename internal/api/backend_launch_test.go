@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/backend"
@@ -27,6 +28,16 @@ type captureBackend struct {
 	kills     []protocol.KillPayload
 	failKills bool
 	server    *httptest.Server
+
+	// holdTriggers, when set, parks every /trigger request until it is closed
+	// or the request ends; triggerEntered gets a non-blocking send first.
+	holdTriggers   chan struct{}
+	triggerEntered chan struct{}
+
+	// killDelay delays every /kill response; killEntered gets a non-blocking
+	// send first.
+	killDelay   time.Duration
+	killEntered chan struct{}
 }
 
 func newCaptureBackend(t *testing.T) *captureBackend {
@@ -34,6 +45,40 @@ func newCaptureBackend(t *testing.T) *captureBackend {
 
 	cb := &captureBackend{}
 	cb.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/trigger" {
+			cb.mu.Lock()
+			hold, entered := cb.holdTriggers, cb.triggerEntered
+			cb.mu.Unlock()
+
+			if hold != nil {
+				select {
+				case entered <- struct{}{}:
+				default:
+				}
+
+				select {
+				case <-hold:
+				case <-r.Context().Done():
+					return
+				}
+			}
+		}
+
+		if r.URL.Path == "/kill" {
+			cb.mu.Lock()
+			delay, entered := cb.killDelay, cb.killEntered
+			cb.mu.Unlock()
+
+			if entered != nil {
+				select {
+				case entered <- struct{}{}:
+				default:
+				}
+			}
+
+			time.Sleep(delay)
+		}
+
 		cb.mu.Lock()
 		defer cb.mu.Unlock()
 

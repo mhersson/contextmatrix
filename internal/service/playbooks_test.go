@@ -1165,6 +1165,75 @@ func TestPlaybookService_RemoveEntryDuringRun(t *testing.T) {
 	assert.Empty(t, got.Run.Reason)
 }
 
+func TestRemoveEntry_RefusesAnEntryWithALiveWorkerDuringARun(t *testing.T) {
+	tests := []struct {
+		name     string
+		state    string
+		worker   string
+		stopRun  bool
+		wantKept bool
+	}{
+		{name: "queued worker is refused", state: "todo", worker: "queued", wantKept: true},
+		{name: "running worker is refused", state: "in_progress", worker: "running", wantKept: true},
+		{name: "no worker is removed", state: "todo"},
+		{name: "terminal card with a stale worker is removed", state: "done", worker: "running"},
+		{name: "stopped run removes a queued card", state: "todo", worker: "queued", stopRun: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newPlaybookTestEnv(t)
+			ctx := context.Background()
+
+			env.createCard(t, "ALPHA-002", tt.state)
+
+			_, err := env.svc.Create(ctx, CreatePlaybookInput{
+				Title: "Rollout", AgentID: "human:alice",
+				Entries: []PlaybookEntryInput{{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-001"}},
+			})
+			require.NoError(t, err)
+
+			_, err = env.svc.UpdateMeta(ctx, "rollout", UpdatePlaybookInput{Runnable: new(true)}, "human:alice")
+			require.NoError(t, err)
+
+			_, err = env.svc.AddEntry(ctx, "rollout",
+				PlaybookEntryInput{Type: board.EntryTypeCard, Project: "project-alpha", Card: "ALPHA-002"}, "human:alice")
+			require.NoError(t, err)
+
+			card, err := env.cards.GetCard(ctx, "project-alpha", "ALPHA-002")
+			require.NoError(t, err)
+
+			card.WorkerStatus = tt.worker
+			require.NoError(t, env.cards.UpdateCard(ctx, "project-alpha", card))
+
+			now := env.clk.Now()
+			run := &board.PlaybookRun{Status: board.RunStatusRunning, StartedAt: now, UpdatedAt: now, Entry: "e1"}
+
+			if tt.stopRun {
+				run.Status = board.RunStatusStopped
+				run.EndedAt = &now
+			}
+
+			_, err = env.svc.SetRunIf(ctx, "rollout", nil, run, "human:alice")
+			require.NoError(t, err)
+
+			got, err := env.svc.RemoveEntry(ctx, "rollout", "e2", "human:alice")
+			if tt.wantKept {
+				require.ErrorIs(t, err, ErrPlaybookRunActive)
+
+				got, err = env.svc.Get(ctx, "rollout")
+				require.NoError(t, err)
+				assert.Len(t, got.Entries, 2)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Len(t, got.Entries, 1)
+		})
+	}
+}
+
 // failingForcer refuses one card and delegates every other card to the
 // real card service, so a make-runnable can fail part-way.
 type failingForcer struct {

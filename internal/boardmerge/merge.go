@@ -72,27 +72,28 @@ type Context struct {
 }
 
 const (
-	RuleFieldMerge            = "card.field_merge" // conflicted file merged by field rules with no override
-	RuleLaterUpdated          = "scalar.later_updated"
-	RuleTerminalWins          = "state.terminal_wins"
-	RuleBodyLaterUpdated      = "body.later_updated"
-	RuleAddAddRemint          = "add_add.remint"
-	RuleSourceDedupe          = "add_add.source_dedupe"
-	RuleDeleteWins            = "delete_wins"
-	RuleTheirsOther           = "other.theirs_wins"
-	RuleUnparseable           = "unparseable.take_parsing"
-	RuleInvariantFallback     = "invariant.take_theirs"
-	RuleInvariantRepair       = "invariant.repair"
-	RuleProjectImmutable      = "project.immutable_theirs"
-	RulePlaybookRemint        = "playbook.entry_remint"
-	RulePlaybookReslug        = "playbook.reslug"
-	RulePlaybookDedupe        = "playbook.entry_dedupe"
-	RulePlaybookRunEntry      = "playbook.run_entry_kept"         // an active run's current entry survived a removal or dedupe
-	RulePlaybookRunOverDelete = "playbook.active_run_over_delete" // a delete lost to an active run on the other side
-	RuleEpochWins             = "claim.epoch_wins"                // the higher claim_epoch supplied the claim tuple
-	RuleTerminalOverStall     = "claim.terminal_over_stall"       // a bare stall at a higher epoch lost to a completion
-	RuleDoubleClaim           = "claim.double_claim"              // both sides claimed from empty; earlier claimed_at won
-	RuleActiveOverRelease     = "claim.active_over_release"       // at equal raised epochs an active claim beat an emptied tuple
+	RuleFieldMerge               = "card.field_merge" // conflicted file merged by field rules with no override
+	RuleLaterUpdated             = "scalar.later_updated"
+	RuleTerminalWins             = "state.terminal_wins"
+	RuleBodyLaterUpdated         = "body.later_updated"
+	RuleAddAddRemint             = "add_add.remint"
+	RuleSourceDedupe             = "add_add.source_dedupe"
+	RuleDeleteWins               = "delete_wins"
+	RuleTheirsOther              = "other.theirs_wins"
+	RuleUnparseable              = "unparseable.take_parsing"
+	RuleInvariantFallback        = "invariant.take_theirs"
+	RuleInvariantRepair          = "invariant.repair"
+	RuleProjectImmutable         = "project.immutable_theirs"
+	RulePlaybookRemint           = "playbook.entry_remint"
+	RulePlaybookReslug           = "playbook.reslug"
+	RulePlaybookDedupe           = "playbook.entry_dedupe"
+	RulePlaybookRunEntry         = "playbook.run_entry_kept"            // an active run's current entry survived a removal or dedupe
+	RulePlaybookRunOverDelete    = "playbook.active_run_over_delete"    // a delete lost to an active run on the other side
+	RulePlaybookRunKeepsRunnable = "playbook.active_run_keeps_runnable" // runnable: false lost to an active run the other side never saw
+	RuleEpochWins                = "claim.epoch_wins"                   // the higher claim_epoch supplied the claim tuple
+	RuleTerminalOverStall        = "claim.terminal_over_stall"          // a bare stall at a higher epoch lost to a completion
+	RuleDoubleClaim              = "claim.double_claim"                 // both sides claimed from empty; earlier claimed_at won
+	RuleActiveOverRelease        = "claim.active_over_release"          // at equal raised epochs an active claim beat an emptied tuple
 )
 
 // cardPath matches what the index loader accepts as a card: any .md file

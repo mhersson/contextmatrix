@@ -127,3 +127,11 @@ func reopenDetails(err error) string {
 
 	return ""
 }
+
+// detailsAfter returns the text err adds after sentinel's message, so a
+// client joining message and details does not repeat the message.
+func detailsAfter(err, sentinel error) string {
+	_, rest, _ := strings.Cut(sanitizeErrorDetails(err), sentinel.Error()+": ")
+
+	return rest
+}

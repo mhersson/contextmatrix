@@ -47,3 +47,27 @@ func TestDeleteCard_LiveWorkerIs409(t *testing.T) {
 
 	assert.Equal(t, http.StatusNoContent, again.StatusCode)
 }
+
+// TestDeleteCard_FinishedCardWithLiveWorkerIs204: a done card's worker is
+// being reaped, so the delete goes through.
+func TestDeleteCard_FinishedCardWithLiveWorkerIs204(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	defer cleanup()
+
+	server := httptest.NewServer(NewRouter(RouterConfig{Service: svc, Bus: bus}))
+	defer server.Close()
+
+	ctx := context.Background()
+
+	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{Title: "Finished", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+	_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "running", "container started")
+	require.NoError(t, err)
+	_, err = svc.TransitionTo(ctx, "test-project", card.ID, "done")
+	require.NoError(t, err)
+
+	resp := doJSON(t, http.MethodDelete, server.URL+"/api/projects/test-project/cards/"+card.ID, nil, "human:alice")
+	defer closeBody(t, resp.Body)
+
+	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
+}
