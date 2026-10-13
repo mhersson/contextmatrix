@@ -1,10 +1,12 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, expectTypeOf } from 'vitest';
+import type { ComponentProps } from 'react';
 import { render } from '@testing-library/react';
 import MarkdownPreview from '@uiw/react-markdown-preview';
 import rehypeAttrs from 'rehype-attr';
 import rehypeIgnore from 'rehype-ignore';
 import rehypeRaw from 'rehype-raw';
 import type { Root } from 'hast';
+import type SafeMDEditor from './SafeMDEditor';
 import SafeMarkdownPreview from './SafeMarkdownPreview';
 import rehypeBodyMarkup, { rehypeRawChunks } from './rehypeBodyMarkup';
 import { rehypeSanitizeLast, safeMarkdownOptions, secureRehypePlugins } from './safeMarkdownOptions';
@@ -347,5 +349,12 @@ describe('tags outside the allowlist', () => {
     expect(root.querySelector('details td kbd')?.textContent).toBe('b');
     expect(root.querySelector('pre')?.textContent).toContain('raw pre');
     expect(root.textContent).not.toContain('<');
+  });
+});
+
+describe('SafeMDEditor', () => {
+  it('takes no preview override', () => {
+    type Components = NonNullable<ComponentProps<typeof SafeMDEditor>['components']>;
+    expectTypeOf<Components['preview']>().toEqualTypeOf<undefined>();
   });
 });

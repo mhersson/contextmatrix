@@ -23,6 +23,10 @@ const guardedSyntax = [
     message: 'Pass import() a string literal so the import guards can check it.',
   },
   { selector: 'ImportExpression[source.value=/(^|.)node_modules./]', message: nodeModulesMessage },
+  {
+    selector: "MemberExpression[object.type='MetaProperty'][object.meta.name='import'][property.name=/^glob/]",
+    message: 'Vite globs load modules the import guards never see; import by name.',
+  },
   { selector: "CallExpression[callee.name='require']", message: 'The frontend is ESM; use import.' },
   { selector: "JSXAttribute[name.name='dangerouslySetInnerHTML']", message: innerHTMLMessage },
   { selector: "Property[key.name='dangerouslySetInnerHTML']", message: innerHTMLMessage },
