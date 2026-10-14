@@ -57,22 +57,24 @@ func registerRunCard(server *mcp.Server, svc *service.CardService, slot *RunnerS
 			return nil, nil, err
 		}
 
+		run := slot.Get()
+		if run == nil {
+			return nil, nil, errors.New("no execution backend is configured")
+		}
+
 		card, err := svc.GetCard(ctx, project, input.CardID)
 		if err != nil {
 			return nil, nil, fmt.Errorf("run_card %s: %w", input.CardID, err)
 		}
 
 		// The flag must be set before the trigger so the run, the agent and the UI agree on the mode.
+		// A later launch refusal (vetting, playbook lock, credential or webhook) still leaves the
+		// card autonomous with no run; the board's run then forces interactive off for it.
 		if card.State == board.StateTodo && !card.Autonomous {
 			yes := true
 			if _, err := svc.PatchCard(ctx, project, input.CardID, service.PatchCardInput{Autonomous: &yes, AgentID: input.AgentID}); err != nil {
 				return nil, nil, fmt.Errorf("run_card %s: set autonomous: %w", input.CardID, err)
 			}
-		}
-
-		run := slot.Get()
-		if run == nil {
-			return nil, nil, errors.New("no execution backend is configured")
 		}
 
 		started, err := run(ctx, project, input.CardID)

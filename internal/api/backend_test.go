@@ -209,6 +209,77 @@ func TestRunCard_BackendDisabled(t *testing.T) {
 	assert.Equal(t, ErrCodeBackendDisabled, apiErr.Code)
 }
 
+// TestRunCard_MalformedBodyNeverMasksPreflight pins the run endpoint's
+// ordering: the disabled-backend and missing-card refusals answer BEFORE the
+// optional JSON body is decoded, so a malformed body (normally a 400) cannot
+// mask a 503 or 404. The playbook-lock refusal keeps the same position
+// (exercised with a lock in playbooks_run_test.go).
+func TestRunCard_MalformedBodyNeverMasksPreflight(t *testing.T) {
+	ctx := context.Background()
+
+	const malformed = `{"interactive":"yes"}`
+
+	t.Run("disabled backend answers 503 before the malformed body", func(t *testing.T) {
+		svc, bus, cleanup := testSetup(t)
+		defer cleanup()
+
+		card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+			Title: "Auto task", Type: "task", Priority: "medium",
+			Autonomous: new(true),
+		})
+		require.NoError(t, err)
+
+		server := httptest.NewServer(NewRouter(RouterConfig{Service: svc, Bus: bus, Backend: nil}))
+		defer server.Close()
+
+		req, _ := http.NewRequest(http.MethodPost,
+			server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", strings.NewReader(malformed))
+
+		resp, err := http.DefaultClient.Do(req)
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeBackendDisabled, apiErr.Code)
+	})
+
+	t.Run("unknown card answers 404 before the malformed body", func(t *testing.T) {
+		svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
+		defer cleanup()
+
+		mockBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, http.StatusOK, protocol.SuccessResponse{OK: true})
+		}))
+		defer mockBackend.Close()
+
+		backendClient := backend.NewClient(mockBackend.URL, "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj")
+
+		server := httptest.NewServer(NewRouter(RouterConfig{
+			Service: svc, Bus: bus, Backend: backendClient,
+			AgentBackendCfg: &config.AgentBackendConfig{APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"},
+		}))
+		defer server.Close()
+
+		req, _ := http.NewRequest(http.MethodPost,
+			server.URL+"/api/projects/test-project/cards/TEST-999/run", strings.NewReader(malformed))
+
+		resp, err := http.DefaultClient.Do(req)
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodeCardNotFound, apiErr.Code)
+	})
+}
+
 func TestRunCard_NonAutonomousCardNowSucceeds(t *testing.T) {
 	svc, bus, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
 	defer cleanup()

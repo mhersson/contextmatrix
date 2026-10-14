@@ -30,6 +30,7 @@ import (
 	"github.com/mhersson/contextmatrix/internal/githubauth"
 	"github.com/mhersson/contextmatrix/internal/images"
 	"github.com/mhersson/contextmatrix/internal/lock"
+	mcpserver "github.com/mhersson/contextmatrix/internal/mcp"
 	"github.com/mhersson/contextmatrix/internal/metrics"
 	"github.com/mhersson/contextmatrix/internal/playbookrun"
 	"github.com/mhersson/contextmatrix/internal/service"
@@ -291,6 +292,10 @@ type RouterConfig struct {
 	Playbooks *service.PlaybookService
 	// PlaybookRunner drives runnable playbooks; nil disables Play and Stop.
 	PlaybookRunner *playbookrun.Runner
+	// MCPCardRunner is the slot the run_card MCP tool's runner is bound into;
+	// the router fills it with mcpRunCard when a task backend is configured.
+	// MCP is built before the router, so the slot starts empty.
+	MCPCardRunner *mcpserver.RunnerSlot
 	// Jira probes the Jira site for GET /api/jira/status; nil reports Jira as
 	// not configured. Assign only a non-nil client: a typed nil in this
 	// interface would defeat the nil check.
@@ -604,6 +609,10 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	if cfg.PlaybookRunner != nil && cfg.Backend != nil {
 		cfg.PlaybookRunner.SetLauncher(rh.playbookLaunch)
 		cfg.PlaybookRunner.SetStopper(rh.playbookStop)
+	}
+
+	if cfg.MCPCardRunner != nil && cfg.Backend != nil {
+		cfg.MCPCardRunner.Set(rh.mcpRunCard)
 	}
 
 	mux.HandleFunc("POST /api/projects/{project}/cards/{id}/run", rh.runCard)

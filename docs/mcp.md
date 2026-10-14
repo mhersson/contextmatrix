@@ -84,7 +84,8 @@ Every phase and gate is specified in [agent workflow](agent-workflow.md).
 
 ## Tools
 
-The server registers 39 tools. The "Caller" column uses these values:
+The server registers 40 tools; `run_card` only when a task backend is configured.
+The "Caller" column uses these values:
 
 | Value      | Meaning                                                          |
 | ---------- | ---------------------------------------------------------------- |
@@ -122,6 +123,7 @@ The server registers 39 tools. The "Caller" column uses these values:
 | `report_parked`             | Set `worker_status: parked` with the reason in the log      | claim  |
 | `increment_review_attempts` | Bump `review_attempts`; the server caps it at 7             | claim  |
 | `promote_to_autonomous`     | Flip `autonomous` to true; idempotent; 409 on terminal cards | human |
+| `run_card`                  | Start an autonomous (Run Auto) agent-backend run; a non-autonomous `todo` card is set autonomous first | human |
 
 ### Workflow skills
 

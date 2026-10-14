@@ -185,6 +185,10 @@ func TestRunCard_HumanOnly(t *testing.T) {
 		})
 		require.True(t, resultIsError(result, err), "unset slot must produce an error")
 		assert.Contains(t, errorText(result, err), "no execution backend is configured")
+
+		stored, err := env.svc.GetCard(ctx, "test-project", card.ID)
+		require.NoError(t, err)
+		assert.False(t, stored.Autonomous, "the empty-slot refusal must not flip the card autonomous")
 	})
 
 	t.Run("run_card is not registered without a slot", func(t *testing.T) {

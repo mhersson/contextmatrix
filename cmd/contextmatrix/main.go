@@ -589,6 +589,12 @@ func main() {
 
 	sessionMgr := backendSys.SessionLog
 
+	// run_card registers only when a task backend exists; the router fills the slot.
+	var runnerSlot *mcpserver.RunnerSlot
+	if taskBackend != nil {
+		runnerSlot = &mcpserver.RunnerSlot{}
+	}
+
 	// Bound for blocking await_subtasks calls. Validate already rejects a value
 	// that is unparseable or non-positive, so this only fires if the config was
 	// hand-built. Zero hands the MCP server its own default rather than
@@ -611,6 +617,7 @@ func main() {
 		Bus:               bus,
 		AwaitMax:          awaitMax,
 		Playbooks:         pbSvc,
+		CardRunner:        runnerSlot,
 	})
 
 	mcpHandler := mcpserver.NewHandler(mcpSrv, cfg.MCPAPIKey)
@@ -711,6 +718,7 @@ func main() {
 		Mob:                    cfg.Mob,
 		Playbooks:              pbSvc,
 		PlaybookRunner:         pbRunner,
+		MCPCardRunner:          runnerSlot,
 	}
 
 	routerCfg.JiraInfo = api.JiraInfo{

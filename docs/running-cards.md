@@ -20,6 +20,10 @@ A card in `todo` shows one run button in the card panel header. The
 Runs are human-only and need an enabled task backend. Every run gets a fresh
 container, the card's generated branch, and a claim held by the worker.
 
+The `run_card` MCP tool starts the same run as **Run Auto** and is human-only.
+It sets a non-autonomous `todo` card autonomous first, so HITL runs start only
+from the board.
+
 An imported card (one with a `source`) that is not vetted cannot run: the run
 button answers `403 CARD_NOT_VETTED` until a human ticks **Content vetted**.
 

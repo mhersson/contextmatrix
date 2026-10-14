@@ -14,6 +14,32 @@ import (
 	"github.com/mhersson/contextmatrix/internal/ctxlog"
 )
 
+// startHandRun is a human's run of one card, shared by the REST run endpoint and the MCP run_card tool.
+func (h *backendHandlers) startHandRun(ctx context.Context, project, id string, interactive bool) (*board.Card, error) {
+	card, err := h.svc.GetCard(ctx, project, id)
+	if err != nil {
+		return nil, err
+	}
+
+	// The early answer, naming the playbook; the queued write re-checks
+	// under the playbook lock.
+	if lock := card.PlaybookLock; lock.Active() {
+		return nil, launchRefused(http.StatusConflict, ErrCodePlaybookRunActive,
+			"card is queued in playbook "+lock.ID, "resume or stop the playbook run instead")
+	}
+
+	if h.backend == nil {
+		return nil, launchRefused(http.StatusServiceUnavailable, ErrCodeBackendDisabled, "no execution backend is configured", "")
+	}
+
+	return h.launch(ctx, project, id, launchOptions{interactive: interactive, handRun: true})
+}
+
+// mcpRunCard is the MCP run_card runner: always a non-interactive (Run Auto) trigger.
+func (h *backendHandlers) mcpRunCard(ctx context.Context, project, id string) (*board.Card, error) {
+	return h.startHandRun(ctx, project, id, false)
+}
+
 // runCard handles POST /api/projects/{project}/cards/{id}/run - "Run Now".
 func (h *backendHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 	if isNonHumanAgent(r) {
@@ -25,7 +51,9 @@ func (h *backendHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 	project := r.PathValue("project")
 	id := strings.ToUpper(r.PathValue("id"))
 
-	// Checked here as well as inside launch: a disabled backend must answer 503 before the card lookup can answer 404 or 409.
+	// The disabled-backend, missing-card and playbook-lock preflights run
+	// before the optional body is decoded, so a malformed body never masks a
+	// 503, 404 or 409 refusal.
 	if h.backend == nil {
 		writeError(w, http.StatusServiceUnavailable, ErrCodeBackendDisabled, "no execution backend is configured", "")
 
@@ -39,8 +67,6 @@ func (h *backendHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The early answer, naming the playbook; the queued write re-checks
-	// under the playbook lock.
 	if lock := card.PlaybookLock; lock.Active() {
 		writeError(w, http.StatusConflict, ErrCodePlaybookRunActive,
 			"card is queued in playbook "+lock.ID, "resume or stop the playbook run instead")
@@ -56,7 +82,7 @@ func (h *backendHandlers) runCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	card, err = h.launch(r.Context(), project, id, launchOptions{interactive: runBody.Interactive, handRun: true})
+	card, err = h.startHandRun(r.Context(), project, id, runBody.Interactive)
 	if err != nil {
 		writeLaunchError(w, r, err)
 
