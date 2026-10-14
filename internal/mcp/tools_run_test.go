@@ -173,6 +173,35 @@ func TestRunCard_HumanOnly(t *testing.T) {
 		assert.False(t, stored.Autonomous, "a card not in todo must never be set autonomous")
 	})
 
+	t.Run("a todo card with a queued worker is not flipped and the runner's refusal reaches the caller", func(t *testing.T) {
+		var calls []string
+
+		slot := &RunnerSlot{}
+		env := setupMCPWithRunner(t, slot)
+		slot.Set(func(ctx context.Context, project, cardID string) (*board.Card, error) {
+			calls = append(calls, project+"/"+cardID)
+
+			return nil, errors.New("card is already being executed by a worker")
+		})
+
+		card := createTestCard(t, env, "HITL in flight", "task", "medium")
+		_, err := env.svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "queued", "task queued for worker")
+		require.NoError(t, err)
+
+		result, err := callToolRaw(t, env, "run_card", map[string]any{
+			"project":  "test-project",
+			"card_id":  card.ID,
+			"agent_id": "human:alice",
+		})
+		require.True(t, resultIsError(result, err), "run on a card with a run in flight must error")
+		assert.Contains(t, errorText(result, err), "card is already being executed by a worker")
+		assert.Equal(t, []string{"test-project/" + card.ID}, calls, "runner is still called so the launch can refuse")
+
+		stored, err := env.svc.GetCard(ctx, "test-project", card.ID)
+		require.NoError(t, err)
+		assert.False(t, stored.Autonomous, "a card with a run in flight must never be set autonomous")
+	})
+
 	t.Run("an empty slot reports no execution backend", func(t *testing.T) {
 		env := setupMCPWithRunner(t, &RunnerSlot{}) // never Set
 
@@ -194,13 +223,12 @@ func TestRunCard_HumanOnly(t *testing.T) {
 	t.Run("run_card is not registered without a slot", func(t *testing.T) {
 		env := setupMCP(t) // no CardRunner in ServerConfig
 
-		card := createTestCard(t, env, "No tool", "task", "medium")
+		tools, err := env.session.ListTools(ctx, nil)
+		require.NoError(t, err)
+		require.NotEmpty(t, tools.Tools)
 
-		result, err := callToolRaw(t, env, "run_card", map[string]any{
-			"project":  "test-project",
-			"card_id":  card.ID,
-			"agent_id": "human:alice",
-		})
-		require.True(t, resultIsError(result, err), "run_card must not exist without a configured slot")
+		for _, tool := range tools.Tools {
+			assert.NotEqual(t, "run_card", tool.Name, "run_card must not exist without a configured slot")
+		}
 	})
 }
