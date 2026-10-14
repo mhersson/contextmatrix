@@ -763,6 +763,14 @@ func lockedCardSetup(t *testing.T, backendClient *backend.Client) (*httptest.Ser
 	server := httptest.NewServer(NewRouter(cfg))
 	t.Cleanup(server.Close)
 
+	return server, svc, pbSvc, lockCardInPlaybook(t, svc, pbSvc)
+}
+
+// lockCardInPlaybook creates a card owned by the runnable playbook "rollout"
+// and returns it with its (idle) playbook lock.
+func lockCardInPlaybook(t *testing.T, svc *service.CardService, pbSvc *service.PlaybookService) *board.Card {
+	t.Helper()
+
 	ctx := context.Background()
 	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{Title: "Locked", Type: "task", Priority: "medium"})
 	require.NoError(t, err)
@@ -781,7 +789,7 @@ func lockedCardSetup(t *testing.T, backendClient *backend.Client) (*httptest.Ser
 	require.NoError(t, err)
 	require.NotNil(t, card.PlaybookLock)
 
-	return server, svc, pbSvc, card
+	return card
 }
 
 func TestCardsAPI_PlaybookLockGuards(t *testing.T) {
@@ -991,6 +999,13 @@ func TestRunCard_RefusedWhilePlaybookRunActive(t *testing.T) {
 		var apiErr APIError
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 		assert.Equal(t, ErrCodePlaybookRunActive, apiErr.Code)
+	})
+
+	t.Run("a malformed body does not mask the lock refusal", func(t *testing.T) {
+		resp := doJSON(t, http.MethodPost, runURL, json.RawMessage(`{"interactive":"yes"}`), "human:alice")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusConflict, resp.StatusCode)
 	})
 }
 

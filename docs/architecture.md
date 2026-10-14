@@ -58,10 +58,10 @@ per-user permissions. Deployment assumes loopback or a trusted-network ACL
   - Claim, heartbeat and release require `X-Agent-ID` to match
     `assigned_agent`. This stops accidental clobbering, not a caller who
     sends the matching value.
-  - Human-only MCP tools (`promote_to_autonomous`) require `agent_id` to
-    start with `human:`. `human:anything` passes; the gate says "this is part
-    of the human workflow". True in multi mode too: MCP has no session
-    concept.
+  - Human-only MCP tools (`promote_to_autonomous`, `run_card`) require
+    `agent_id` to start with `human:`. `human:anything` passes; the gate says
+    "this is part of the human workflow". True in multi mode too: MCP has no
+    session concept.
   - `PromoteToAutonomous` and its REST handler use the same prefix check; the
     `human:api` fallback keeps direct API calls working in none mode.
   - The `autonomous` flag is the narrower exception: MCP `update_card` lets

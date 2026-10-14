@@ -27,6 +27,7 @@ type registerToolsConfig struct {
 	Bus               *events.Bus
 	AwaitMax          time.Duration
 	Playbooks         *service.PlaybookService
+	CardRunner        *RunnerSlot
 }
 
 // registerTools adds all MCP tools to the server.
@@ -75,6 +76,10 @@ func registerTools(cfg registerToolsConfig) {
 
 	if cfg.Playbooks != nil {
 		registerPlaybookTools(server, cfg.Playbooks)
+	}
+
+	if cfg.CardRunner != nil {
+		registerRunCard(server, svc, cfg.CardRunner)
 	}
 }
 
