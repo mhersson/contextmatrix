@@ -1000,6 +1000,13 @@ func TestRunCard_RefusedWhilePlaybookRunActive(t *testing.T) {
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 		assert.Equal(t, ErrCodePlaybookRunActive, apiErr.Code)
 	})
+
+	t.Run("a malformed body does not mask the lock refusal", func(t *testing.T) {
+		resp := doJSON(t, http.MethodPost, runURL, json.RawMessage(`{"interactive":"yes"}`), "human:alice")
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusConflict, resp.StatusCode)
+	})
 }
 
 // failingForcer refuses one card and delegates the rest to the card service.

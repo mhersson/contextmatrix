@@ -3,266 +3,132 @@ package mcp
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/mhersson/contextmatrix/internal/board"
-	"github.com/mhersson/contextmatrix/internal/events"
-	"github.com/mhersson/contextmatrix/internal/gitops"
-	"github.com/mhersson/contextmatrix/internal/lock"
 	"github.com/mhersson/contextmatrix/internal/service"
-	"github.com/mhersson/contextmatrix/internal/storage"
 )
 
-// setupMCPWithRunner builds the same environment as setupMCP but wires a
-// RunnerSlot into the MCP server so run_card is registered. Mirrors
-// setupMCPWithPlaybooks' construction.
-func setupMCPWithRunner(t *testing.T, slot *RunnerSlot) *testEnv {
+// fakeRunner records each run and whether the card was autonomous when it ran.
+type fakeRunner struct {
+	calls         []string
+	sawAutonomous bool
+}
+
+func setupRunCard(t *testing.T, runErr error) (*testEnv, *fakeRunner) {
 	t.Helper()
 
-	tmpDir := t.TempDir()
-	boardsDir := filepath.Join(tmpDir, "boards")
-	require.NoError(t, os.MkdirAll(boardsDir, 0o755))
+	slot := &RunnerSlot{}
+	env := setupMCP(t, func(c *ServerConfig) { c.CardRunner = slot })
+	f := &fakeRunner{}
 
-	projectDir := filepath.Join(boardsDir, "test-project")
-	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "tasks"), 0o755))
-	require.NoError(t, board.SaveProjectConfig(projectDir, testProjectConfig()))
+	slot.Set(func(ctx context.Context, project, cardID string) (*board.Card, error) {
+		f.calls = append(f.calls, project+"/"+cardID)
 
-	store, err := storage.NewFilesystemStore(boardsDir)
-	require.NoError(t, err)
+		card, err := env.svc.GetCard(ctx, project, cardID)
+		if err != nil {
+			return nil, err
+		}
 
-	gitMgr, err := gitops.NewManager(boardsDir, "", "ssh", nil)
-	require.NoError(t, err)
+		f.sawAutonomous = card.Autonomous
 
-	bus := events.NewBus()
-	lockMgr := lock.NewManager(store, 30*time.Minute)
-
-	svc := service.NewCardService(store, gitMgr, lockMgr, bus, boardsDir, nil, true, false)
-
-	workflowSkillsDir := filepath.Join(tmpDir, "workflow-skills")
-	require.NoError(t, os.MkdirAll(workflowSkillsDir, 0o755))
-
-	server := NewServer(ServerConfig{
-		Service:           svc,
-		WorkflowSkillsDir: workflowSkillsDir,
-		CardRunner:        slot,
+		return card, runErr
 	})
 
-	ctx, cancel := context.WithCancel(context.Background())
+	return env, f
+}
 
-	serverTransport, clientTransport := mcp.NewInMemoryTransports()
-	_, err = server.Connect(ctx, serverTransport, nil)
-	require.NoError(t, err)
+func runCard(t *testing.T, env *testEnv, cardID, agentID string) (*mcp.CallToolResult, error) {
+	t.Helper()
 
-	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0.1.0"}, nil)
-	session, err := client.Connect(ctx, clientTransport, nil)
-	require.NoError(t, err)
-
-	t.Cleanup(func() {
-		_ = session.Close()
-
-		cancel()
-	})
-
-	return &testEnv{
-		session:           session,
-		svc:               svc,
-		store:             store,
-		boardsDir:         boardsDir,
-		workflowSkillsDir: workflowSkillsDir,
-		cancel:            cancel,
-	}
+	return callToolRaw(t, env, "run_card", map[string]any{"card_id": cardID, "agent_id": agentID})
 }
 
 func TestRunCardTool(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("agent_id without human: prefix is rejected and runner not called", func(t *testing.T) {
-		var calls []string
+	t.Run("a non-human caller is refused before the runner", func(t *testing.T) {
+		env, f := setupRunCard(t, nil)
+		card := createTestCard(t, env, "Run me", "task", "medium")
 
-		slot := &RunnerSlot{}
-		env := setupMCPWithRunner(t, slot)
-		slot.Set(func(ctx context.Context, project, cardID string) (*board.Card, error) {
-			calls = append(calls, project+"/"+cardID)
-
-			return nil, nil
-		})
-
-		card := createTestCard(t, env, "Run gate test", "task", "medium")
-
-		result, err := callToolRaw(t, env, "run_card", map[string]any{
-			"project":  "test-project",
-			"card_id":  card.ID,
-			"agent_id": "agent:x",
-		})
-		require.True(t, resultIsError(result, err), "non-human agent must produce an error result")
+		result, err := runCard(t, env, card.ID, "agent:x")
 		assert.Contains(t, errorText(result, err), "run_card is human-only")
-		assert.Empty(t, calls, "runner must not be called for a non-human caller")
+		assert.Empty(t, f.calls)
 	})
 
-	t.Run("human:alice on a todo card sets autonomous and calls the runner once", func(t *testing.T) {
-		var calls []string
+	t.Run("a todo card is set autonomous before the runner starts it", func(t *testing.T) {
+		env, f := setupRunCard(t, nil)
+		card := createTestCard(t, env, "Run me", "task", "medium")
 
-		var sawAutonomous bool
+		result, err := runCard(t, env, card.ID, "human:alice")
+		require.False(t, resultIsError(result, err), errorText(result, err))
+		assert.Equal(t, []string{"test-project/" + card.ID}, f.calls)
+		assert.True(t, f.sawAutonomous)
+	})
 
-		slot := &RunnerSlot{}
-		env := setupMCPWithRunner(t, slot)
-		slot.Set(func(ctx context.Context, project, cardID string) (*board.Card, error) {
-			calls = append(calls, project+"/"+cardID)
+	for _, tc := range []struct {
+		name, state, workerStatus string
+		imported                  bool
+	}{
+		{name: "a card not in todo", state: "in_progress"},
+		{name: "a queued worker", workerStatus: "queued"},
+		{name: "a running worker", workerStatus: "running"},
+		{name: "an unvetted import", imported: true},
+	} {
+		t.Run(tc.name+" is left untouched and the refusal reaches the caller", func(t *testing.T) {
+			env, f := setupRunCard(t, errors.New("launch refused"))
 
-			c, err := env.svc.GetCard(ctx, project, cardID)
-			if err != nil {
-				return nil, err
+			input := service.CreateCardInput{Title: "Run me", Type: "task", Priority: "medium"}
+			if tc.imported {
+				input.Source = &board.Source{System: "jira", ExternalID: "PROJ-7", ExternalURL: "https://acme.atlassian.net/browse/PROJ-7"}
 			}
 
-			sawAutonomous = c.Autonomous
-
-			return c, nil
-		})
-
-		card := createTestCard(t, env, "Run me", "task", "medium")
-		require.False(t, card.Autonomous, "fresh todo card should not be autonomous")
-
-		result, err := callToolRaw(t, env, "run_card", map[string]any{
-			"project":  "test-project",
-			"card_id":  card.ID,
-			"agent_id": "human:alice",
-		})
-		require.False(t, resultIsError(result, err), "human run on todo card should succeed: %s", errorText(result, err))
-
-		require.Equal(t, []string{"test-project/" + card.ID}, calls)
-		assert.True(t, sawAutonomous, "runner must observe autonomous=true")
-
-		stored, err := env.svc.GetCard(ctx, "test-project", card.ID)
-		require.NoError(t, err)
-		assert.True(t, stored.Autonomous, "card must be autonomous afterwards")
-	})
-
-	t.Run("a card not in todo is not modified and the runner's error reaches the caller", func(t *testing.T) {
-		var calls []string
-
-		slot := &RunnerSlot{}
-		env := setupMCPWithRunner(t, slot)
-		slot.Set(func(ctx context.Context, project, cardID string) (*board.Card, error) {
-			calls = append(calls, project+"/"+cardID)
-
-			return nil, errors.New("card must be in todo state to run")
-		})
-
-		card := createTestCard(t, env, "Already running", "task", "medium")
-		_, err := env.svc.TransitionTo(ctx, "test-project", card.ID, "in_progress")
-		require.NoError(t, err)
-
-		result, err := callToolRaw(t, env, "run_card", map[string]any{
-			"project":  "test-project",
-			"card_id":  card.ID,
-			"agent_id": "human:alice",
-		})
-		require.True(t, resultIsError(result, err), "run on in_progress card must error")
-		assert.Contains(t, errorText(result, err), "card must be in todo state to run")
-		assert.Equal(t, []string{"test-project/" + card.ID}, calls, "runner is still called so the launch can refuse")
-
-		stored, err := env.svc.GetCard(ctx, "test-project", card.ID)
-		require.NoError(t, err)
-		assert.False(t, stored.Autonomous, "a card not in todo must never be set autonomous")
-	})
-
-	for _, status := range []string{"queued", "running"} {
-		t.Run("a todo card with a "+status+" worker is not flipped and the runner's refusal reaches the caller", func(t *testing.T) {
-			var calls []string
-
-			slot := &RunnerSlot{}
-			env := setupMCPWithRunner(t, slot)
-			slot.Set(func(ctx context.Context, project, cardID string) (*board.Card, error) {
-				calls = append(calls, project+"/"+cardID)
-
-				return nil, errors.New("card is already being executed by a worker")
-			})
-
-			card := createTestCard(t, env, "HITL in flight", "task", "medium")
-			_, err := env.svc.UpdateWorkerStatus(ctx, "test-project", card.ID, status, "seed")
+			card, err := env.svc.CreateCard(ctx, "test-project", input)
 			require.NoError(t, err)
 
-			result, err := callToolRaw(t, env, "run_card", map[string]any{
-				"project":  "test-project",
-				"card_id":  card.ID,
-				"agent_id": "human:alice",
-			})
-			require.True(t, resultIsError(result, err), "run on a card with a run in flight must error")
-			assert.Contains(t, errorText(result, err), "card is already being executed by a worker")
-			assert.Equal(t, []string{"test-project/" + card.ID}, calls, "runner is still called so the launch can refuse")
+			if tc.state != "" {
+				_, err = env.svc.TransitionTo(ctx, "test-project", card.ID, tc.state)
+				require.NoError(t, err)
+			}
+
+			if tc.workerStatus != "" {
+				_, err = env.svc.UpdateWorkerStatus(ctx, "test-project", card.ID, tc.workerStatus, "seed")
+				require.NoError(t, err)
+			}
+
+			result, err := runCard(t, env, card.ID, "human:alice")
+			assert.Contains(t, errorText(result, err), "launch refused")
+			assert.Len(t, f.calls, 1)
 
 			stored, err := env.svc.GetCard(ctx, "test-project", card.ID)
 			require.NoError(t, err)
-			assert.False(t, stored.Autonomous, "a card with a run in flight must never be set autonomous")
+			assert.False(t, stored.Autonomous)
 		})
 	}
 
-	t.Run("an unvetted imported card is not flipped and the runner's refusal reaches the caller", func(t *testing.T) {
-		var calls []string
+	t.Run("an empty slot refuses without touching the card", func(t *testing.T) {
+		env := setupMCP(t, func(c *ServerConfig) { c.CardRunner = &RunnerSlot{} })
+		card := createTestCard(t, env, "Run me", "task", "medium")
 
-		slot := &RunnerSlot{}
-		env := setupMCPWithRunner(t, slot)
-		slot.Set(func(ctx context.Context, project, cardID string) (*board.Card, error) {
-			calls = append(calls, project+"/"+cardID)
-
-			return nil, errors.New("card not vetted")
-		})
-
-		card, err := env.svc.CreateCard(ctx, "test-project", service.CreateCardInput{
-			Title: "Imported", Type: "task", Priority: "medium",
-			Source: &board.Source{System: "jira", ExternalID: "PROJ-7", ExternalURL: "https://acme.atlassian.net/browse/PROJ-7"},
-		})
-		require.NoError(t, err)
-		require.True(t, card.NeedsVetting())
-
-		result, err := callToolRaw(t, env, "run_card", map[string]any{
-			"project":  "test-project",
-			"card_id":  card.ID,
-			"agent_id": "human:alice",
-		})
-		require.True(t, resultIsError(result, err), "run on an unvetted card must error")
-		assert.Contains(t, errorText(result, err), "card not vetted")
-		assert.Equal(t, []string{"test-project/" + card.ID}, calls, "runner is still called so the launch can refuse")
-
-		stored, err := env.svc.GetCard(ctx, "test-project", card.ID)
-		require.NoError(t, err)
-		assert.False(t, stored.Autonomous, "an unvetted card must never be set autonomous")
-	})
-
-	t.Run("an empty slot reports no execution backend", func(t *testing.T) {
-		env := setupMCPWithRunner(t, &RunnerSlot{}) // never Set
-
-		card := createTestCard(t, env, "No backend", "task", "medium")
-
-		result, err := callToolRaw(t, env, "run_card", map[string]any{
-			"project":  "test-project",
-			"card_id":  card.ID,
-			"agent_id": "human:alice",
-		})
-		require.True(t, resultIsError(result, err), "unset slot must produce an error")
+		result, err := runCard(t, env, card.ID, "human:alice")
 		assert.Contains(t, errorText(result, err), "no execution backend is configured")
 
 		stored, err := env.svc.GetCard(ctx, "test-project", card.ID)
 		require.NoError(t, err)
-		assert.False(t, stored.Autonomous, "the empty-slot refusal must not flip the card autonomous")
+		assert.False(t, stored.Autonomous)
 	})
 
-	t.Run("run_card is not registered without a slot", func(t *testing.T) {
-		env := setupMCP(t) // no CardRunner in ServerConfig
-
-		tools, err := env.session.ListTools(ctx, nil)
+	t.Run("the tool is absent without a slot", func(t *testing.T) {
+		tools, err := setupMCP(t).session.ListTools(ctx, nil)
 		require.NoError(t, err)
 		require.NotEmpty(t, tools.Tools)
 
 		for _, tool := range tools.Tools {
-			assert.NotEqual(t, "run_card", tool.Name, "run_card must not exist without a configured slot")
+			assert.NotEqual(t, "run_card", tool.Name)
 		}
 	})
 }

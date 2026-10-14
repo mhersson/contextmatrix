@@ -55,8 +55,8 @@ type testEnv struct {
 }
 
 // setupMCP creates a full test environment: boards dir, project, service layer,
-// MCP server, and an in-process client session.
-func setupMCP(t *testing.T) *testEnv {
+// MCP server, and an in-process client session. opts adjust the server config.
+func setupMCP(t *testing.T, opts ...func(*ServerConfig)) *testEnv {
 	t.Helper()
 
 	tmpDir := t.TempDir()
@@ -102,10 +102,15 @@ func setupMCP(t *testing.T) *testEnv {
 	}
 
 	// Create MCP server and connect in-memory
-	server := NewServer(ServerConfig{
+	cfg := ServerConfig{
 		Service:           svc,
 		WorkflowSkillsDir: workflowSkillsDir,
-	})
+	}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
+	server := NewServer(cfg)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
