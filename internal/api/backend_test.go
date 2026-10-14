@@ -210,10 +210,9 @@ func TestRunCard_BackendDisabled(t *testing.T) {
 }
 
 // TestRunCard_MalformedBodyNeverMasksPreflight pins the run endpoint's
-// ordering: the disabled-backend and missing-card refusals answer BEFORE the
-// optional JSON body is decoded, so a malformed body (normally a 400) cannot
-// mask a 503 or 404. The playbook-lock refusal keeps the same position
-// (exercised with a lock in playbooks_run_test.go).
+// ordering: the disabled-backend, missing-card and playbook-lock refusals
+// answer BEFORE the optional JSON body is decoded, so a malformed body
+// (normally a 400) cannot mask a 503, 404 or 409.
 func TestRunCard_MalformedBodyNeverMasksPreflight(t *testing.T) {
 	ctx := context.Background()
 
@@ -277,6 +276,28 @@ func TestRunCard_MalformedBodyNeverMasksPreflight(t *testing.T) {
 		var apiErr APIError
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
 		assert.Equal(t, ErrCodeCardNotFound, apiErr.Code)
+	})
+
+	t.Run("active playbook lock answers 409 before the malformed body", func(t *testing.T) {
+		server, _, pbSvc, card := lockedCardSetup(t, newCaptureBackend(t).client())
+
+		now := time.Now().UTC()
+		_, err := pbSvc.SetRunIf(ctx, "rollout", nil, &board.PlaybookRun{Status: board.RunStatusRunning, StartedAt: now, UpdatedAt: now}, "human:alice")
+		require.NoError(t, err)
+
+		req, _ := http.NewRequest(http.MethodPost,
+			server.URL+"/api/projects/test-project/cards/"+card.ID+"/run", strings.NewReader(malformed))
+
+		resp, err := http.DefaultClient.Do(req)
+
+		require.NoError(t, err)
+		defer closeBody(t, resp.Body)
+
+		assert.Equal(t, http.StatusConflict, resp.StatusCode)
+
+		var apiErr APIError
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&apiErr))
+		assert.Equal(t, ErrCodePlaybookRunActive, apiErr.Code)
 	})
 }
 
