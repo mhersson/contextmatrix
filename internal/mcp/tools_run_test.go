@@ -80,7 +80,7 @@ func setupMCPWithRunner(t *testing.T, slot *RunnerSlot) *testEnv {
 	}
 }
 
-func TestRunCard_HumanOnly(t *testing.T) {
+func TestRunCardTool(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("agent_id without human: prefix is rejected and runner not called", func(t *testing.T) {
@@ -173,34 +173,36 @@ func TestRunCard_HumanOnly(t *testing.T) {
 		assert.False(t, stored.Autonomous, "a card not in todo must never be set autonomous")
 	})
 
-	t.Run("a todo card with a queued worker is not flipped and the runner's refusal reaches the caller", func(t *testing.T) {
-		var calls []string
+	for _, status := range []string{"queued", "running"} {
+		t.Run("a todo card with a "+status+" worker is not flipped and the runner's refusal reaches the caller", func(t *testing.T) {
+			var calls []string
 
-		slot := &RunnerSlot{}
-		env := setupMCPWithRunner(t, slot)
-		slot.Set(func(ctx context.Context, project, cardID string) (*board.Card, error) {
-			calls = append(calls, project+"/"+cardID)
+			slot := &RunnerSlot{}
+			env := setupMCPWithRunner(t, slot)
+			slot.Set(func(ctx context.Context, project, cardID string) (*board.Card, error) {
+				calls = append(calls, project+"/"+cardID)
 
-			return nil, errors.New("card is already being executed by a worker")
+				return nil, errors.New("card is already being executed by a worker")
+			})
+
+			card := createTestCard(t, env, "HITL in flight", "task", "medium")
+			_, err := env.svc.UpdateWorkerStatus(ctx, "test-project", card.ID, status, "seed")
+			require.NoError(t, err)
+
+			result, err := callToolRaw(t, env, "run_card", map[string]any{
+				"project":  "test-project",
+				"card_id":  card.ID,
+				"agent_id": "human:alice",
+			})
+			require.True(t, resultIsError(result, err), "run on a card with a run in flight must error")
+			assert.Contains(t, errorText(result, err), "card is already being executed by a worker")
+			assert.Equal(t, []string{"test-project/" + card.ID}, calls, "runner is still called so the launch can refuse")
+
+			stored, err := env.svc.GetCard(ctx, "test-project", card.ID)
+			require.NoError(t, err)
+			assert.False(t, stored.Autonomous, "a card with a run in flight must never be set autonomous")
 		})
-
-		card := createTestCard(t, env, "HITL in flight", "task", "medium")
-		_, err := env.svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "queued", "task queued for worker")
-		require.NoError(t, err)
-
-		result, err := callToolRaw(t, env, "run_card", map[string]any{
-			"project":  "test-project",
-			"card_id":  card.ID,
-			"agent_id": "human:alice",
-		})
-		require.True(t, resultIsError(result, err), "run on a card with a run in flight must error")
-		assert.Contains(t, errorText(result, err), "card is already being executed by a worker")
-		assert.Equal(t, []string{"test-project/" + card.ID}, calls, "runner is still called so the launch can refuse")
-
-		stored, err := env.svc.GetCard(ctx, "test-project", card.ID)
-		require.NoError(t, err)
-		assert.False(t, stored.Autonomous, "a card with a run in flight must never be set autonomous")
-	})
+	}
 
 	t.Run("an unvetted imported card is not flipped and the runner's refusal reaches the caller", func(t *testing.T) {
 		var calls []string
