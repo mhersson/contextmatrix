@@ -84,7 +84,9 @@ Every phase and gate is specified in [agent workflow](agent-workflow.md).
 
 ## Tools
 
-The server registers 40 tools; `run_card` only when a task backend is configured.
+The server registers up to 40 tools. The eight playbook tools are absent while a
+project named `playbooks` disables the playbook subsystem, and `run_card`
+registers only when a task backend is configured.
 The "Caller" column uses these values:
 
 | Value      | Meaning                                                          |
