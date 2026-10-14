@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -22,10 +21,9 @@ import (
 )
 
 // mcpRunSlotRouter builds the router side of the run_card slot: a mock task
-// backend that captures every trigger payload, a RunnerSlot bound by
-// NewRouter, and a fresh card. Mirrors runMobTrigger's setup. It returns the
-// bound runner, a pointer to the last decoded trigger payload, the card and
-// the card service.
+// backend, a RunnerSlot bound by NewRouter, and a fresh card. Mirrors
+// runMobTrigger's setup. It returns the bound runner, a pointer to the last
+// decoded trigger payload, the card and the card service.
 func mcpRunSlotRouter(t *testing.T, card service.CreateCardInput) (mcpserver.CardRunner, *backend.TriggerPayload, *board.Card, *service.CardService) {
 	t.Helper()
 
@@ -108,8 +106,8 @@ func TestMCPRunCard_PlaybookLockRefused(t *testing.T) {
 
 	_, err = run(ctx, "test-project", card.ID)
 
-	lf, ok := errors.AsType[*launchFailure](err)
-	require.True(t, ok, "the early lock answer must be a typed launchFailure, got %v", err)
+	var lf *launchFailure
+	require.ErrorAs(t, err, &lf, "the early lock answer must be a typed launchFailure")
 	assert.Equal(t, ErrCodePlaybookRunActive, lf.code)
 	assert.Contains(t, lf.message, "rollout")
 }
@@ -139,7 +137,6 @@ func TestMCPRunCard_SecondCallRefusedWorkerConflict(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = run(ctx, "test-project", card.ID)
-	require.Error(t, err)
 
 	var lf *launchFailure
 	require.ErrorAs(t, err, &lf, "a queued or running card must return a typed launchFailure")
