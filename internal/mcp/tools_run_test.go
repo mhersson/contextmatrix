@@ -202,6 +202,38 @@ func TestRunCard_HumanOnly(t *testing.T) {
 		assert.False(t, stored.Autonomous, "a card with a run in flight must never be set autonomous")
 	})
 
+	t.Run("an unvetted imported card is not flipped and the runner's refusal reaches the caller", func(t *testing.T) {
+		var calls []string
+
+		slot := &RunnerSlot{}
+		env := setupMCPWithRunner(t, slot)
+		slot.Set(func(ctx context.Context, project, cardID string) (*board.Card, error) {
+			calls = append(calls, project+"/"+cardID)
+
+			return nil, errors.New("card not vetted")
+		})
+
+		card, err := env.svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+			Title: "Imported", Type: "task", Priority: "medium",
+			Source: &board.Source{System: "jira", ExternalID: "PROJ-7", ExternalURL: "https://acme.atlassian.net/browse/PROJ-7"},
+		})
+		require.NoError(t, err)
+		require.True(t, card.NeedsVetting())
+
+		result, err := callToolRaw(t, env, "run_card", map[string]any{
+			"project":  "test-project",
+			"card_id":  card.ID,
+			"agent_id": "human:alice",
+		})
+		require.True(t, resultIsError(result, err), "run on an unvetted card must error")
+		assert.Contains(t, errorText(result, err), "card not vetted")
+		assert.Equal(t, []string{"test-project/" + card.ID}, calls, "runner is still called so the launch can refuse")
+
+		stored, err := env.svc.GetCard(ctx, "test-project", card.ID)
+		require.NoError(t, err)
+		assert.False(t, stored.Autonomous, "an unvetted card must never be set autonomous")
+	})
+
 	t.Run("an empty slot reports no execution backend", func(t *testing.T) {
 		env := setupMCPWithRunner(t, &RunnerSlot{}) // never Set
 

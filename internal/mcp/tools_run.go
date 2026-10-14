@@ -68,11 +68,11 @@ func registerRunCard(server *mcp.Server, svc *service.CardService, slot *RunnerS
 		}
 
 		// The flag must be set before the trigger so the run, the agent and the UI agree on the mode.
-		// A later launch refusal (vetting, playbook lock, credential or webhook) still leaves the
-		// card autonomous with no run; the board's run then forces interactive off for it.
-		// A queued or running worker is a run already in flight, possibly HITL, so it is left as is.
+		// A later launch refusal (playbook lock, credential or webhook) still leaves the card
+		// autonomous with no run; the board's run then forces interactive off for it.
+		// Launch always refuses a run in flight (possibly HITL) or an unvetted import; those stay as they are.
 		runInFlight := card.WorkerStatus == "queued" || card.WorkerStatus == "running"
-		if card.State == board.StateTodo && !card.Autonomous && !runInFlight {
+		if card.State == board.StateTodo && !card.Autonomous && !runInFlight && !card.NeedsVetting() {
 			yes := true
 			if _, err := svc.PatchCard(ctx, project, input.CardID, service.PatchCardInput{Autonomous: &yes, AgentID: input.AgentID}); err != nil {
 				return nil, nil, fmt.Errorf("run_card %s: set autonomous: %w", input.CardID, err)
