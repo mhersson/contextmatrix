@@ -500,6 +500,14 @@ func (e *webhookError) HTTPStatusCode() int {
 	return e.statusCode
 }
 
+// IsNotFound reports whether err is the backend answering HTTP 404, meaning
+// it does not know the card. Other statuses, including other 4xx, are false.
+func IsNotFound(err error) bool {
+	we, ok := errors.AsType[*webhookError](err)
+
+	return ok && we.statusCode == http.StatusNotFound
+}
+
 // isClientError returns true if err should not be retried (4xx or logical rejection).
 func isClientError(err error) bool {
 	if we, ok := errors.AsType[*webhookError](err); ok {

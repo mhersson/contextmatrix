@@ -174,8 +174,8 @@ its current entry is unset, complete or gone; a run on a failed or
 launch-failed card keeps that entry and its reason while another card's worker
 holds it. A card left `queued` or `running` with no worker behind it holds the
 run until the reconcile sweep marks its worker `failed`, once the agent lists no
-container for the card and the card has not changed for 10 minutes; Stop All in
-its project clears it sooner. A claim through another instance without a worker
+container for the card and the card has not changed for 10 minutes; Stop on the
+card clears it sooner. A claim through another instance without a worker
 does not stop the run from starting other cards; when it is on the next card,
 the run waits on it until the claim goes.
 
@@ -193,11 +193,11 @@ behavior. Both controls are human-only.
   on the run's other cards when the stop is written, skipping `done` and
   `not_planned` cards. A launch already in flight when Stop lands finishes
   first, and Stop then kills the worker it queued. A hand run on another card
-  after the stop is left alone. If a kill webhook fails after the run is marked
-  `stopped`, it answers `502 BACKEND_UNAVAILABLE`. A backend that has not
-  started tracking the just-launched worker yet refuses its kill, which gives
-  that 502; stop that card's worker from the card, or with Stop All for its
-  project.
+  after the stop is left alone. A kill the backend answers `404` to (it does
+  not know the card) records that worker as `killed` and is not a failure. If
+  any other kill webhook fails after the run is marked `stopped`, it answers
+  `502 BACKEND_UNAVAILABLE`; the run stays stopped and that card's worker is
+  left as it was, so stop it from the card.
 - `playbook.updated` events carry `run_status` and `run_entry` so open
   detail pages track a run live.
 

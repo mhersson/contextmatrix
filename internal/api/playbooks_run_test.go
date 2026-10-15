@@ -276,6 +276,56 @@ func TestPlaybooksAPI_StopAnswers502WhenTheKillFails(t *testing.T) {
 	assert.Equal(t, board.RunStatusStopped, detail.Run.Status, "the run is stopped even though the kill failed")
 }
 
+// TestPlaybooksAPI_StopCompletesWhenTheBackendDoesNotKnowTheCard covers a
+// /kill 404 on the run's live card: the stop succeeds, the card is recorded
+// as killed, and the run is not held on that card, so a Play starts it again.
+func TestPlaybooksAPI_StopCompletesWhenTheBackendDoesNotKnowTheCard(t *testing.T) {
+	server, cb, svc, pbSvc, card := runnablePlaybookServer(t)
+
+	resp := doJSON(t, http.MethodPost, server.URL+"/api/playbooks/rollout/run", nil, "human:alice")
+	closeBody(t, resp.Body)
+	require.Equal(t, http.StatusAccepted, resp.StatusCode)
+
+	require.Eventually(t, func() bool {
+		cb.mu.Lock()
+		defer cb.mu.Unlock()
+
+		return len(cb.triggers) >= 1
+	}, 2*time.Second, 10*time.Millisecond)
+
+	cb.mu.Lock()
+	cb.killStatus = http.StatusNotFound
+	cb.mu.Unlock()
+
+	resp = doJSON(t, http.MethodPost, server.URL+"/api/playbooks/rollout/stop", nil, "human:alice")
+	closeBody(t, resp.Body)
+
+	require.Equal(t, http.StatusAccepted, resp.StatusCode, "a 404 from /kill is not a stop failure")
+
+	detail, err := pbSvc.Get(context.Background(), "rollout")
+	require.NoError(t, err)
+	assert.Equal(t, board.RunStatusStopped, detail.Run.Status)
+
+	got, err := svc.GetCard(context.Background(), "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "killed", got.WorkerStatus)
+
+	cb.mu.Lock()
+	cb.killStatus = 0
+	cb.mu.Unlock()
+
+	resp = doJSON(t, http.MethodPost, server.URL+"/api/playbooks/rollout/run", nil, "human:alice")
+	closeBody(t, resp.Body)
+	require.Equal(t, http.StatusAccepted, resp.StatusCode, "a stopped run is not held on the killed card")
+
+	require.Eventually(t, func() bool {
+		cb.mu.Lock()
+		defer cb.mu.Unlock()
+
+		return len(cb.triggers) >= 2
+	}, 2*time.Second, 10*time.Millisecond)
+}
+
 func TestPlaybooksAPI_PlayWithoutBackendIs503(t *testing.T) {
 	svc, pbSvc, bus, _ := playbookTestSetup(t)
 	runner := playbookrun.New(playbookrun.Config{Playbooks: pbSvc, Lister: playbookStoreOf(t, pbSvc), Cards: svc, Bus: bus, Tick: time.Hour})

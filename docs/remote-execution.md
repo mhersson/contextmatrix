@@ -236,9 +236,26 @@ card reaches a terminal state.
 { "card_id": "ALPHA-042", "project": "alpha" }
 ```
 
-Idempotent: the backend answers `200` whether it stopped a container or found
-nothing to do, so CM's cleanup paths never distinguish "not found" from
-"killed".
+The backend answers `200` whether it stopped a container or found nothing to
+do. A `404` means the backend does not track the card at all: it never
+admitted the launch, or lost track of the worker after a restart. CM trusts
+any HTTP 404 from `/kill` as that signal, whether or not the body carries the
+protocol `not_found` code - a gateway or proxy 404, a wrong `agent_url` path,
+or an older agent with no `/kill` route is treated the same way, so a live
+worker is recorded as killed whenever the backend answers 404. The Stop
+path distinguishes the two responses - a `404` says there is no worker to
+stop, so CM records the card's worker as `killed` with an activity-log entry
+and the playbook run is not held on it. Any other non-2xx answer fails the
+Stop with `502` and leaves `worker_status` unchanged. The card's Stop row in
+the [API reference](api-reference.md) lists the same behaviour. The
+terminal-state cleanup paths (subscriber and reconcile sweep) log a warning
+on any kill failure and never change `worker_status` from a `/kill` alone.
+
+Treating a `404` as "no worker to stop" is safe only with an agent release
+whose `/kill` waits for a pending admission before answering `404`. Without
+that, a launch that lands just after the `404` leaves an orphan worker that CM
+believes is dead. Only run this CM against an agent backend with that
+behaviour.
 
 #### GET {agent_url}/containers
 
@@ -551,7 +568,7 @@ counts as human.
 | Endpoint                                          | Behavior                                                                                                                                                                                                                       |
 | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `POST /api/projects/{project}/cards/{id}/run`     | Body `{"interactive": bool}` (empty body OK). Requires state `todo` and `worker_status` not in `{queued, running}`. Sets `queued`, sends `/trigger`, returns `202`. A failed webhook reverts to `failed`.                        |
-| `POST /api/projects/{project}/cards/{id}/stop`    | Requires `worker_status` in `{queued, running}`. Refuses a card claimed via another instance (`403 AGENT_MISMATCH`). Sends `/kill`, then sets `killed`. Returns `202`.                                                          |
+| `POST /api/projects/{project}/cards/{id}/stop`    | Requires `worker_status` in `{queued, running}`. Refuses a card claimed via another instance (`403 AGENT_MISMATCH`). Sends `/kill`, then sets `killed`. A `/kill` `404` also sets `killed` (the backend does not know the card); any other kill failure answers `502` and leaves the status unchanged. Returns `202`. |
 | `POST /api/projects/{project}/cards/{id}/message` | Body `{"content": "..."}`, at most 8192 bytes. Requires `worker_status == running`. Mints `message_id`, forwards, returns `202 {"ok": true, "message_id": "..."}`.                                                               |
 | `POST /api/projects/{project}/cards/{id}/promote` | Requires `running`. Already-autonomous cards short-circuit with `202` and no webhook (prevents verify recursion). Otherwise flips `autonomous`, sends `/promote`, and rolls the flip back with a `promote-webhook-failed` entry if the webhook fails. |
 | `POST /api/projects/{project}/stop-all`           | Sends `/stop-all`, then sets `killed` on every project card in `{queued, running}` that this instance owns. Returns `200 {"affected_cards": [...]}`, or `207` with `failed_to_update` when some CM-side writes failed after the webhook succeeded. |

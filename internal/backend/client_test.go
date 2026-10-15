@@ -3,6 +3,8 @@ package backend
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -161,6 +163,48 @@ func TestClient_EndSessionAndKill_DistinctSignatures(t *testing.T) {
 	require.Len(t, capturedSigs, 2)
 	assert.NotEqual(t, capturedSigs[0], capturedSigs[1],
 		"end-session and kill must produce distinct signatures even with identical bodies in the same second")
+}
+
+func TestClient_Kill_NotFoundIsReportedAndNotRetried(t *testing.T) {
+	var attempts atomic.Int32
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts.Add(1)
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"ok":false,"code":"not_found","message":"unknown card"}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "key")
+	err := c.Kill(context.Background(), KillPayload{CardID: "TEST-001", Project: "p"})
+	require.Error(t, err)
+	assert.True(t, IsNotFound(err))
+	assert.Equal(t, int32(1), attempts.Load(), "a 404 is a client error and is not retried")
+}
+
+func TestClient_Kill_ServerErrorIsNotNotFound(t *testing.T) {
+	origBackoff := BackoffBase
+	BackoffBase = time.Millisecond
+
+	t.Cleanup(func() { BackoffBase = origBackoff })
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"ok":false,"code":"internal","message":"boom"}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "key")
+	err := c.Kill(context.Background(), KillPayload{CardID: "TEST-001", Project: "p"})
+	require.Error(t, err)
+	assert.False(t, IsNotFound(err))
+}
+
+func TestIsNotFound_OnlyMatchesAWebhook404(t *testing.T) {
+	assert.False(t, IsNotFound(nil))
+	assert.False(t, IsNotFound(errors.New("backend returned HTTP 404: not found")), "matching is by type, never by message text")
+	assert.False(t, IsNotFound(&webhookError{statusCode: http.StatusForbidden}), "other 4xx is not not-found")
+	assert.True(t, IsNotFound(fmt.Errorf("wrapped: %w", &webhookError{statusCode: http.StatusNotFound})))
 }
 
 func TestClient_StopAll_Success(t *testing.T) {

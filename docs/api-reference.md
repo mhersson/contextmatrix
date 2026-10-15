@@ -1258,8 +1258,9 @@ Deletes the card file (git history keeps it). **204 No Content**.
 **Errors:** 404 `CARD_NOT_FOUND`; 403 `AGENT_MISMATCH` on a claimed card the
 caller does not own; 422 `VALIDATION_ERROR` when the card still has subtasks
 ("cannot delete card with N subtask(s)"); 409 `WORKER_CONFLICT` while a card that
-is not `done` or `not_planned` has its worker `queued` or `running`. Stop the
-worker first. When the reconcile sweep is enabled (a non-zero
+is not `done` or `not_planned` has its worker `queued` or `running`. Stop on the
+card is the first remedy: it kills the worker, or records it as `killed` when
+the backend answers `404`. When the reconcile sweep is enabled (a non-zero
 `reconcile_interval`), it marks a worker the backend no longer has `failed`
 once the card has gone 10 minutes without a change;
 `POST /api/projects/{project}/stop-all` clears it sooner, and force-release marks
@@ -2041,10 +2042,10 @@ Marks the run `stopped` (with `ended_at`), then kills, on this instance, the
 current card's worker and every worker queued or running on the run's other
 cards when the stop was written, skipping `done` and `not_planned` cards. A
 launch already in flight finishes first, and Stop then kills the worker it
-queued. A hand run on another card after the stop is left alone. A backend
-that has not started tracking that worker yet refuses the kill, so Stop answers
-`502` (run stopped, kill failed); stop that card's worker from the card, or
-with `POST /api/projects/{project}/stop-all`.
+queued. A hand run on another card after the stop is left alone. A kill the
+backend answers `404` to records that worker as `killed` and is not a failure.
+Any other kill failure answers `502` (run stopped, kill failed); stop that
+card's worker from the card.
 `202` with the detail. Errors: `403 HUMAN_ONLY_FIELD`, `404 PLAYBOOK_NOT_FOUND`,
 `409 PLAYBOOK_RUN_INACTIVE`, `502 BACKEND_UNAVAILABLE` (run stopped, a kill
 failed; the other workers were still killed).
@@ -2152,11 +2153,15 @@ curl -X POST http://localhost:8080/api/projects/my-project/cards/PROJ-042/promot
 ### POST /api/projects/{project}/cards/{id}/stop
 
 Stop a running execution. Human-only. Sends a kill webhook and returns
-**202 Accepted** with the updated card (`worker_status: "killed"`).
+**202 Accepted** with the updated card (`worker_status: "killed"`). A `404`
+from the backend (it does not know the card) is also recorded as `killed`,
+with an activity-log entry saying the backend did not know the card. Any other
+kill failure leaves the status unchanged.
 
 **Errors:** 403 `AGENT_MISMATCH` when a peer instance holds the claim; 409
 `WORKER_NOT_RUNNING` unless the status is `queued` or `running`; 502
-`BACKEND_UNAVAILABLE`; 503 `BACKEND_DISABLED`.
+`BACKEND_UNAVAILABLE` (the kill failed with anything other than `404`); 503
+`BACKEND_DISABLED`.
 
 ### POST /api/projects/{project}/stop-all
 

@@ -283,7 +283,10 @@ func (h *backendHandlers) rejectLaunchForCredentialFailure(ctx context.Context, 
 // stop is the one kill path: refuses a card another instance owns or one
 // with no worker in flight, sends the kill webhook, then marks the card
 // killed. The webhook fires before the status write so a failed webhook
-// leaves worker_status untouched.
+// leaves worker_status untouched, except a 404 from the backend: it does not
+// know the card (never admitted the launch, or lost track of it), so there is
+// no worker to stop and the card is recorded as killed. Any other kill
+// failure is a 502 with the status unchanged.
 func (h *backendHandlers) stop(ctx context.Context, project, id string) (*board.Card, error) {
 	if h.backend == nil {
 		return nil, launchRefused(http.StatusServiceUnavailable, ErrCodeBackendDisabled, "no execution backend is configured", "")
@@ -306,13 +309,21 @@ func (h *backendHandlers) stop(ctx context.Context, project, id string) (*board.
 			"card is not being executed by a worker", fmt.Sprintf("worker_status: %q", card.WorkerStatus))
 	}
 
-	if err := h.backend.Kill(ctx, backend.KillPayload{CardID: id, Project: project}); err != nil {
-		ctxlog.Logger(ctx).Error("backend kill webhook failed", "card_id", id, "project", project, "error", err)
+	message := "task stopped by user"
 
-		return nil, launchRefused(http.StatusBadGateway, ErrCodeBackendUnavailable, "failed to stop backend task", "")
+	if err := h.backend.Kill(ctx, backend.KillPayload{CardID: id, Project: project}); err != nil {
+		if !backend.IsNotFound(err) {
+			ctxlog.Logger(ctx).Error("backend kill webhook failed", "card_id", id, "project", project, "error", err)
+
+			return nil, launchRefused(http.StatusBadGateway, ErrCodeBackendUnavailable, "failed to stop backend task", "")
+		}
+
+		ctxlog.Logger(ctx).Warn("backend kill webhook: backend does not know card", "card_id", id, "project", project, "error", err)
+
+		message = "backend did not know the card; worker recorded as killed"
 	}
 
-	return h.svc.UpdateWorkerStatus(ctx, project, id, "killed", "task stopped by user")
+	return h.svc.UpdateWorkerStatus(ctx, project, id, "killed", message)
 }
 
 // playbookLaunch and playbookStop adapt launch and stop for the playbook

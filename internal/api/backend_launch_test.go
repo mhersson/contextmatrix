@@ -27,7 +27,9 @@ type captureBackend struct {
 	triggers  []protocol.TriggerPayload
 	kills     []protocol.KillPayload
 	failKills bool
-	server    *httptest.Server
+	// killStatus, when non-zero, is the HTTP status every /kill answers with.
+	killStatus int
+	server     *httptest.Server
 
 	// holdTriggers, when set, parks every /trigger request until it is closed
 	// or the request ends; triggerEntered gets a non-blocking send first.
@@ -91,6 +93,12 @@ func newCaptureBackend(t *testing.T) *captureBackend {
 		case "/kill":
 			if cb.failKills {
 				writeJSON(w, http.StatusInternalServerError, protocol.ErrorResponse{Code: "internal", Message: "kill failed"})
+
+				return
+			}
+
+			if cb.killStatus != 0 {
+				writeJSON(w, cb.killStatus, protocol.ErrorResponse{Code: "not_found", Message: "unknown card"})
 
 				return
 			}
@@ -247,6 +255,88 @@ func TestStop_KillsThenMarksKilled(t *testing.T) {
 
 	require.Len(t, cb.kills, 1)
 	assert.Equal(t, card.ID, cb.kills[0].CardID)
+}
+
+// TestStop_BackendNotKnowingTheCardRecordsKilled covers a /kill 404 on a card
+// whose worker is queued or running: the stop succeeds, the worker is
+// recorded as killed, the activity log says so, and the claim is cleared.
+func TestStop_BackendNotKnowingTheCardRecordsKilled(t *testing.T) {
+	for _, status := range []string{"queued", "running"} {
+		t.Run(status, func(t *testing.T) {
+			svc, _, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
+			defer cleanup()
+
+			ctx := context.Background()
+			card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{Title: "T", Type: "task", Priority: "medium"})
+			require.NoError(t, err)
+
+			cb := newCaptureBackend(t)
+			h := newLaunchHandlers(t, svc, cb)
+
+			_, err = h.launch(ctx, "test-project", card.ID, launchOptions{})
+			require.NoError(t, err)
+
+			_, err = svc.ClaimCard(ctx, "test-project", card.ID, "claude-1")
+			require.NoError(t, err)
+
+			if status == "running" {
+				_, err = svc.UpdateWorkerStatus(ctx, "test-project", card.ID, "running", "running")
+				require.NoError(t, err)
+			}
+
+			cb.mu.Lock()
+			cb.killStatus = http.StatusNotFound
+			cb.mu.Unlock()
+
+			got, err := h.stop(ctx, "test-project", card.ID)
+			require.NoError(t, err)
+			assert.Equal(t, "killed", got.WorkerStatus)
+			assert.Empty(t, got.AssignedAgent, "the claim is cleared")
+
+			stored, err := svc.GetCard(ctx, "test-project", card.ID)
+			require.NoError(t, err)
+			assert.Equal(t, "killed", stored.WorkerStatus)
+			require.NotEmpty(t, stored.ActivityLog)
+			assert.Equal(t, "worker_status", stored.ActivityLog[len(stored.ActivityLog)-1].Action)
+		})
+	}
+}
+
+// TestStop_KillFailureOtherThanNotFoundKeepsStatus covers a /kill 5xx: the
+// stop is a 502 and the worker status is left as it was.
+func TestStop_KillFailureOtherThanNotFoundKeepsStatus(t *testing.T) {
+	origBackoff := backend.BackoffBase
+	backend.BackoffBase = time.Millisecond
+
+	t.Cleanup(func() { backend.BackoffBase = origBackoff })
+
+	svc, _, cleanup := testSetupWithRemoteExecution(t, boardConfigRemoteExec)
+	defer cleanup()
+
+	ctx := context.Background()
+	card, err := svc.CreateCard(ctx, "test-project", service.CreateCardInput{Title: "T", Type: "task", Priority: "medium"})
+	require.NoError(t, err)
+
+	cb := newCaptureBackend(t)
+	h := newLaunchHandlers(t, svc, cb)
+
+	_, err = h.launch(ctx, "test-project", card.ID, launchOptions{})
+	require.NoError(t, err)
+
+	cb.mu.Lock()
+	cb.killStatus = http.StatusInternalServerError
+	cb.mu.Unlock()
+
+	_, err = h.stop(ctx, "test-project", card.ID)
+
+	lf, ok := errors.AsType[*launchFailure](err)
+	require.True(t, ok)
+	assert.Equal(t, http.StatusBadGateway, lf.status)
+	assert.Equal(t, ErrCodeBackendUnavailable, lf.code)
+
+	stored, err := svc.GetCard(ctx, "test-project", card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "queued", stored.WorkerStatus)
 }
 
 // TestPlaybookLaunch_SanitizesServiceErrors pins the reason the playbook

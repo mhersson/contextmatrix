@@ -162,7 +162,7 @@ deferred commits. A stalled or failed red badge outranks the parked yellow.
 
 | Control             | Where                              | Effect                                                                                                                      |
 | ------------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| **Stop**            | card panel header                  | Kill webhook; `worker_status: killed`; uncommitted work is lost.                                                            |
+| **Stop**            | card panel header                  | Kill webhook; `worker_status: killed`; uncommitted work is lost. A kill the backend answers `404` (it does not know the card) is recorded as `killed` too. |
 | **Stop** (playbook) | playbook detail page, with confirm | Marks the run `stopped`, then kills the run's live workers on this instance; see [Playbook runs](#playbook-runs).           |
 | **Stop All**        | board header, with confirm         | Kills every queued or running container in the project.                                                                     |
 | Kill switch         | `config.yaml`                      | Disable or remove the task backend: the run button disappears and triggers return `503 BACKEND_DISABLED`. Restart required. |
@@ -194,7 +194,11 @@ first run in a repository.
   worker queued or running on the run's other cards when the stop is written,
   skipping `done` and `not_planned` cards. A launch in flight finishes first,
   and Stop then kills the worker it queued. A hand run on another card after
-  the stop is left alone.
+  the stop is left alone. A kill the backend answers `404` to (it does not
+  know the card) records that worker as `killed` and is not a failure, so a
+  card the backend never admitted no longer holds the run. Any other kill
+  failure stays an error: the run is `stopped`, that card's worker is left as
+  it was, and you stop it from the card.
 - The runner never retries on its own. After a failed card, fix the cause,
   then press Stop and Play: Stop ends the `waiting` run and Play resumes it.
 - An imported card that is not vetted holds the run at `waiting` with the reason
@@ -210,8 +214,8 @@ first run in a repository.
   reason while another card's worker holds it. A card left `queued` or
   `running` with no worker behind it holds the run until the reconcile sweep
   marks its worker `failed`, once the agent lists no container for the card
-  and the card has not changed for 10 minutes; Stop All in its project clears
-  it sooner. A claim through another instance without a worker does not stop
+  and the card has not changed for 10 minutes; Stop on the card clears it
+  sooner. A claim through another instance without a worker does not stop
   the run from starting other cards; when it is on the next card, the run
   waits on it until the claim goes.
 - A Play after a Stop that left a worker alive (the kill failed, or the card
