@@ -1,9 +1,14 @@
+# Every contextmatrix repo runs Dependabot at the same day and time, so
+# bumps to shared base images and modules land the same night.
 version: 2
 updates:
   - package-ecosystem: "npm"
     directory: "/web"
     schedule:
       interval: "weekly"
+      day: "saturday"
+      time: "02:00"
+      timezone: "Europe/Oslo"
     groups:
       # @size-limit/file pins an exact peer on size-limit, so a split PR pair
       # is unmergeable either way round. Listed first: groups are matched in
@@ -21,6 +26,9 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+      day: "saturday"
+      time: "02:00"
+      timezone: "Europe/Oslo"
     groups:
       minor-and-patch:
         update-types:
@@ -31,11 +39,17 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+      day: "saturday"
+      time: "02:00"
+      timezone: "Europe/Oslo"
 
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+      day: "saturday"
+      time: "02:00"
+      timezone: "Europe/Oslo"
     groups:
       minor-and-patch:
         update-types:
