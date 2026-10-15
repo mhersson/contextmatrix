@@ -210,10 +210,10 @@ first run in a repository.
   reason while another card's worker holds it. A card left `queued` or
   `running` with no worker behind it holds the run until the reconcile sweep
   marks its worker `failed`, once the agent lists no container for the card
-  and the card has not changed for 10 minutes; Stop All in its project clears
-  it sooner. A claim through another instance without a worker does not stop
-  the run from starting other cards; when it is on the next card, the run
-  waits on it until the claim goes.
+  and the card has not changed for 10 minutes; Stop on the card or Stop All in
+  its project clears it sooner. A claim through another instance without a
+  worker does not stop the run from starting other cards; when it is on the
+  next card, the run waits on it until the claim goes.
 - A Play after a Stop that left a worker alive (the kill failed, or the card
   is claimed through another instance), or after a hand run while stopped,
   waits on that worker before starting anything else.
