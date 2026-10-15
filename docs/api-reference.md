@@ -2041,10 +2041,9 @@ Marks the run `stopped` (with `ended_at`), then kills, on this instance, the
 current card's worker and every worker queued or running on the run's other
 cards when the stop was written, skipping `done` and `not_planned` cards. A
 launch already in flight finishes first, and Stop then kills the worker it
-queued. A hand run on another card after the stop is left alone. A backend
-that has not started tracking that worker yet refuses the kill, so Stop answers
-`502` (run stopped, kill failed); stop that card's worker from the card, or
-with `POST /api/projects/{project}/stop-all`.
+queued. A hand run on another card after the stop is left alone. A failed kill
+answers `502` (run stopped, kill failed); stop that card's worker from the card,
+or with `POST /api/projects/{project}/stop-all`.
 `202` with the detail. Errors: `403 HUMAN_ONLY_FIELD`, `404 PLAYBOOK_NOT_FOUND`,
 `409 PLAYBOOK_RUN_INACTIVE`, `502 BACKEND_UNAVAILABLE` (run stopped, a kill
 failed; the other workers were still killed).
