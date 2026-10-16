@@ -46,6 +46,8 @@ export function ChatPage() {
       status: s.status,
       model: s.model,
       kind: s.kind,
+      mode: s.mode,
+      cost_cap_usd: s.cost_cap_usd,
     })),
     [sessions],
   );

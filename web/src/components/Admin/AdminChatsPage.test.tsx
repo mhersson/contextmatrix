@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { AdminChatsPage } from './AdminChatsPage';
 import type { ChatSession } from '../../types';
 
@@ -95,5 +95,23 @@ describe('AdminChatsPage', () => {
 
     await waitFor(() => expect(screen.getByText('quiet')).toBeInTheDocument());
     expect(screen.queryByRole('link')).not.toBeInTheDocument();
+  });
+
+  it("shows each session's kind, mode and cost cap", async () => {
+    mocks.adminListChats.mockResolvedValue([
+      sess({ id: 'S1', title: 'blueprint one', kind: 'architect', mode: 'yolo', cost_cap_usd: 3 }),
+      sess({ id: 'S2', title: 'plain chat', kind: 'chat' }),
+      sess({ id: 'S3', title: 'legacy chat' }),
+    ]);
+
+    render(<AdminChatsPage />);
+
+    const bp = (await screen.findByText('blueprint one')).closest('tr')!;
+    expect(within(bp).getByText('Blueprint')).toBeInTheDocument();
+    expect(within(bp).getByText('yolo')).toBeInTheDocument();
+    expect(within(bp).getByText('$3.00')).toBeInTheDocument();
+
+    expect(within(screen.getByText('plain chat').closest('tr')!).getByText('Chat')).toBeInTheDocument();
+    expect(within(screen.getByText('legacy chat').closest('tr')!).getByText('Chat')).toBeInTheDocument();
   });
 });
