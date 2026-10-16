@@ -1141,6 +1141,7 @@ func TestCreateChat_ArchitectInvalidInput(t *testing.T) {
 			mux.ServeHTTP(rec, jsonReq(t, http.MethodPost, "/api/chats", body))
 			assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 			assert.Contains(t, rec.Body.String(), "INVALID_CHAT_INPUT")
+			assert.NotContains(t, rec.Body.String(), "no such project", "the store's lookup error stays out of the response")
 		})
 	}
 }

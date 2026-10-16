@@ -870,7 +870,11 @@ func (m *Manager) CreateSession(ctx context.Context, in CreateInput) (Session, e
 			}
 
 			if _, err := m.resolveProjectExec(ctx, p); err != nil {
-				return Session{}, fmt.Errorf("%w: unknown project %q: %w", ErrInvalidSessionInput, p, err)
+				// The lookup error can name a filesystem path; it is logged
+				// here and kept out of the 400 details.
+				m.logger.Warn("chat: CreateSession: project lookup failed", "project", p, "error", err)
+
+				return Session{}, fmt.Errorf("%w: unknown project %q", ErrInvalidSessionInput, p)
 			}
 		}
 
