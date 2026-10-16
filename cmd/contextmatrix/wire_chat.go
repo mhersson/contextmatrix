@@ -115,14 +115,7 @@ func wireChat(
 		ArchitectBackend:                architectBackend,
 		ArchitectDefaultModel:           architectDefaultModel,
 		ArchitectWorkerCredentialsToken: architectWorkerCredentialsToken,
-		ArchitectPrice: func(model string) (protocol.ModelPrice, bool) {
-			rate, ok := svc.ResolvedRate(model)
-			if !ok {
-				return protocol.ModelPrice{}, false
-			}
-
-			return modelPriceFromRate(rate), true
-		},
+		ArchitectPrice:                  architectPriceFor(svc),
 		ResolveProjectExec: func(rctx context.Context, project string) (chat.ProjectExecInfo, error) {
 			p, err := svc.GetProject(rctx, project)
 			if err != nil {
@@ -252,6 +245,32 @@ func chatWorkerImageFor(p *board.ProjectConfig) string {
 	}
 
 	return p.RemoteExecution.ChatWorkerImage
+}
+
+// rateResolver is the narrow slice of *service.CardService that
+// architectPriceFor needs.
+type rateResolver interface {
+	ResolvedRate(model string) (service.ModelRate, bool)
+}
+
+// architectPriceFor builds chat.Config.ArchitectPrice over the card service's
+// resolved rates. An unpriceable rate reports no price: sent as zero, a
+// capped blueprint would run under a cap that can never bind.
+func architectPriceFor(rates rateResolver) func(model string) (protocol.ModelPrice, bool) {
+	return func(model string) (protocol.ModelPrice, bool) {
+		rate, ok := rates.ResolvedRate(model)
+		if !ok || !priceable(rate) {
+			return protocol.ModelPrice{}, false
+		}
+
+		return modelPriceFromRate(rate), true
+	}
+}
+
+// priceable reports whether a rate prices prompt or completion tokens; a
+// catalog entry without pricing resolves to an all-zero rate.
+func priceable(rate service.ModelRate) bool {
+	return rate.Prompt > 0 || rate.Completion > 0
 }
 
 // modelPriceFromRate converts a rate in USD per token to the wire's USD per
