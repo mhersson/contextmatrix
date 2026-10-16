@@ -1143,8 +1143,9 @@ repo and `images.db`; the same file holds `model_blacklist` and
 `model_outcomes`. `ensureSchema` in `internal/opstore/sqlite/schema.go` runs
 `CREATE TABLE IF NOT EXISTS` for every table; there is no migration ledger.
 A column added to an existing table is grown by `addColumnIfMissing`, and an
-`ops.db` newer than the binary is refused. `chat_messages` carries `kind TEXT NOT NULL DEFAULT ''` (used for
-the clear-context divider) and a unique index on `(session_id, seq)`.
+`ops.db` newer than the binary is refused. `chat_messages` carries `kind TEXT NOT NULL DEFAULT ''` (`divider` for
+the clear-context row, `prompt` for an architect question or gate whose content
+is a `{text, prompt}` JSON envelope) and a unique index on `(session_id, seq)`.
 
 **`chat_sessions`:**
 

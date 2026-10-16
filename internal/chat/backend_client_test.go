@@ -234,3 +234,27 @@ func TestBackendClient_SendChatMessage_SessionUnknown(t *testing.T) {
 		})
 	}
 }
+
+func TestBackendClient_StreamLogs_CarriesThePrompt(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, `data: {"ts":"2026-01-02T03:04:05Z","type":"text","content":"Pick a store.",`+
+			`"prompt":{"id":"Q3","free_text":true,"actions":[{"label":"Postgres","reply":"Postgres"}]}}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"ts":"2026-01-02T03:04:06Z","type":"text","content":"plain"}`+"\n\n")
+	}))
+	t.Cleanup(srv.Close)
+
+	rc := chat.NewBackendClient(chat.BackendClientConfig{BaseURL: srv.URL, HMACKey: "k"})
+
+	var got []chat.LogEntry
+
+	require.NoError(t, rc.StreamLogs(context.Background(), "S1", func(e chat.LogEntry) { got = append(got, e) }))
+
+	require.Len(t, got, 2)
+	require.NotNil(t, got[0].Prompt)
+	assert.Equal(t, protocol.LogPrompt{
+		ID: "Q3", FreeText: true,
+		Actions: []protocol.LogAction{{Label: "Postgres", Reply: "Postgres"}},
+	}, *got[0].Prompt)
+	assert.Nil(t, got[1].Prompt, "a frame without a prompt carries none")
+}

@@ -2598,8 +2598,12 @@ exactly while the oldest loaded seq is `> 1`.
 ```
 
 `role` is `user`, `assistant_text`, `assistant_thinking`, `tool_call`,
-`tool_result`, `stderr`, or `system`. `kind` (`"divider"`) and
-`rehydration_phase` appear only when set. `content` is the raw text.
+`tool_result`, `stderr`, or `system`. `kind` (`"divider"` for the Clear
+Context row, `"prompt"` for an architect question or gate) and
+`rehydration_phase` appear only when set. `content` is the raw text, except on
+a `prompt` row, where it is the JSON envelope `{"text": "<message>", "prompt":
+{"id": "...", "free_text": true, "actions": [{"label": "...", "reply": "...",
+"feedback": true}]}}`.
 Empty transcripts return `{"messages": []}`; unknown session is 404.
 
 The browser fetches the newest page with `tail=1`, subscribes to

@@ -700,7 +700,19 @@ func (m *Manager) startConsumer(sessionID string, restart bool) {
 				return
 			}
 
-			msg, err := m.AppendMessage(ctx, sessionID, role, e.Content)
+			content, dataKind := e.Content, ""
+
+			if kind == KindArchitect && e.Type == "text" && e.Prompt != nil {
+				env, err := promptContent(e.Content, e.Prompt)
+				if err == nil {
+					content, dataKind = env, EventKindPrompt
+				} else {
+					m.logger.Warn("chat: architect prompt stored as plain text",
+						"session_id", sessionID, "error", err)
+				}
+			}
+
+			msg, err := m.appendMessageWithKind(ctx, sessionID, role, content, dataKind)
 			if err != nil {
 				m.logger.Warn("chat: consumer AppendMessage failed",
 					"session_id", sessionID, "type", e.Type, "error", err)
@@ -712,7 +724,8 @@ func (m *Manager) startConsumer(sessionID string, restart bool) {
 				m.hub.Publish(sessionID, SSEEvent{
 					Seq:              msg.Seq,
 					Role:             role,
-					Content:          e.Content,
+					Content:          content,
+					DataKind:         dataKind,
 					RehydrationPhase: msg.RehydrationPhase,
 				})
 			}

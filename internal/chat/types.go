@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"time"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
 	"github.com/mhersson/contextmatrix/internal/chat/transcript"
 )
 
@@ -106,10 +107,10 @@ type Session struct {
 }
 
 // Message is a single persisted transcript entry. Kind discriminates
-// structural markers from regular transcript rows: an empty Kind is a
-// regular message; "divider" marks the system row appended on Clear
-// Context so the frontend can render it as a horizontal rule both on
-// the live SSE wire and after a page reload via the REST bootstrap.
+// structural rows from regular ones: empty is a regular message, "divider"
+// marks the Clear Context row, and "prompt" marks an architect question or
+// gate whose Content is a {text, prompt} JSON envelope. Kind rides the live
+// SSE wire and the REST bootstrap alike, so the browser renders both the same.
 type Message struct {
 	ID               int64     `json:"id"`
 	SessionID        string    `json:"session_id"`
@@ -135,6 +136,8 @@ type LogEntry struct {
 	Content   string
 	Usage     *TokenUsage
 	Model     string
+	// Prompt is set on an architect text frame that offers reply buttons.
+	Prompt *protocol.LogPrompt
 }
 
 // TokenUsage carries per-turn (per-assistant-message) token counts reported

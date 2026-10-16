@@ -5460,3 +5460,150 @@ func TestManager_EndSession_NoRestartAfterEnd(t *testing.T) {
 	time.Sleep(700 * time.Millisecond)
 	assert.Equal(t, starts, arch.startCalls.Load(), "no start after the end")
 }
+
+// streamEntries returns a StreamLogs func that hands entries to the consumer
+// once, then holds the stream open.
+func streamEntries(entries ...chat.LogEntry) func(context.Context, string, func(chat.LogEntry)) error {
+	return func(ctx context.Context, _ string, onEntry func(chat.LogEntry)) error {
+		for _, e := range entries {
+			onEntry(e)
+		}
+
+		<-ctx.Done()
+
+		return ctx.Err()
+	}
+}
+
+// nextMessageEvent returns the next transcript event on ch, skipping session updates.
+func nextMessageEvent(t *testing.T, ch <-chan chat.SSEEvent) chat.SSEEvent {
+	t.Helper()
+
+	deadline := time.After(2 * time.Second)
+
+	for {
+		select {
+		case e := <-ch:
+			if e.Kind == chat.SSEKindSessionUpdate {
+				continue
+			}
+
+			return e
+		case <-deadline:
+			t.Fatal("no transcript event within 2s")
+
+			return chat.SSEEvent{}
+		}
+	}
+}
+
+type promptEnvelope struct {
+	Text   string             `json:"text"`
+	Prompt protocol.LogPrompt `json:"prompt"`
+}
+
+func TestManager_Consumer_PromptRows(t *testing.T) {
+	gate := &protocol.LogPrompt{ID: "gate:sign-off:v2", Actions: []protocol.LogAction{
+		{Label: "Approve", Reply: "approve"},
+		{Label: "Reject", Reply: "reject", Feedback: true},
+	}}
+	huge := &protocol.LogPrompt{Actions: []protocol.LogAction{{Label: strings.Repeat("x", 40*1024), Reply: "x"}}}
+
+	tests := []struct {
+		name       string
+		kind       chat.SessionKind
+		entry      chat.LogEntry
+		wantPrompt bool
+	}{
+		{"architect text with a prompt", chat.KindArchitect, chat.LogEntry{Type: "text", Content: "Sign off v2?", Prompt: gate}, true},
+		{"architect text without a prompt", chat.KindArchitect, chat.LogEntry{Type: "text", Content: "Sign off v2?"}, false},
+		{"architect system frame with a prompt", chat.KindArchitect, chat.LogEntry{Type: "system", Content: "Sign off v2?", Prompt: gate}, false},
+		{"chat text with a prompt", chat.KindChat, chat.LogEntry{Type: "text", Content: "Sign off v2?", Prompt: gate}, false},
+		{"architect prompt whose actions exceed the cap", chat.KindArchitect, chat.LogEntry{Type: "text", Content: "Sign off v2?", Prompt: huge}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			hub := chat.NewSSEHub(128)
+			mgr, chatStub, arch := newManagerWithArchitectStub(t, func(c *chat.Config) { c.Hub = hub })
+
+			in := chat.CreateInput{Kind: tt.kind, CreatedBy: "human:web"}
+			stub := chatStub
+
+			if tt.kind == chat.KindArchitect {
+				in.Projects = []string{"alpha"}
+				stub = arch
+			} else {
+				in.Project = "alpha"
+			}
+
+			stub.streamLogsFn = streamEntries(tt.entry)
+
+			ctx := context.Background()
+
+			sess, err := mgr.CreateSession(ctx, in)
+			require.NoError(t, err)
+
+			ch, _, err := hub.Subscribe(sess.ID, 0)
+			require.NoError(t, err)
+			t.Cleanup(func() { hub.Unsubscribe(sess.ID, ch) })
+
+			_, err = mgr.OpenSession(ctx, sess.ID)
+			require.NoError(t, err)
+
+			ev := nextMessageEvent(t, ch)
+
+			msgs, err := mgr.ListMessages(ctx, sess.ID, 0, 10)
+			require.NoError(t, err)
+			require.Len(t, msgs, 1)
+			assert.Equal(t, ev.Content, msgs[0].Content, "a reload sees what the live wire carried")
+			assert.Equal(t, ev.DataKind, msgs[0].Kind)
+
+			if !tt.wantPrompt {
+				assert.Empty(t, ev.DataKind)
+				assert.Equal(t, tt.entry.Content, ev.Content, "stored as the plain message")
+
+				return
+			}
+
+			assert.Equal(t, chat.EventKindPrompt, ev.DataKind)
+			assert.Equal(t, chat.RoleAssistantText, ev.Role)
+
+			var env promptEnvelope
+			require.NoError(t, json.Unmarshal([]byte(ev.Content), &env))
+			assert.Equal(t, tt.entry.Content, env.Text)
+			assert.Equal(t, *tt.entry.Prompt, env.Prompt)
+		})
+	}
+}
+
+func TestManager_Consumer_OversizedPromptTextKeepsTheEnvelopeValid(t *testing.T) {
+	mgr, _, arch := newManagerWithArchitectStub(t)
+
+	gate := &protocol.LogPrompt{Actions: []protocol.LogAction{{Label: "Approve", Reply: "approve"}}}
+	// Multibyte runes and characters JSON escapes, so the cut must respect both.
+	text := strings.Repeat("é<\n", 15000)
+	arch.streamLogsFn = streamEntries(chat.LogEntry{Type: "text", Content: text, Prompt: gate})
+
+	bp := openArchitect(t, mgr)
+
+	var msgs []chat.Message
+
+	require.Eventually(t, func() bool {
+		var err error
+
+		msgs, err = mgr.ListMessages(context.Background(), bp.ID, 0, 10)
+
+		return err == nil && len(msgs) == 1
+	}, 2*time.Second, 5*time.Millisecond)
+
+	content := msgs[0].Content
+	assert.LessOrEqual(t, len(content), 32*1024, "the row fits the message cap")
+	assert.True(t, utf8.ValidString(content))
+
+	var env promptEnvelope
+	require.NoError(t, json.Unmarshal([]byte(content), &env), "the stored envelope parses")
+	assert.Less(t, len(env.Text), len(text), "the text was cut")
+	assert.True(t, strings.HasPrefix(text, env.Text[:1024]), "cut at its end, not replaced")
+	assert.Equal(t, *gate, env.Prompt, "every action survives")
+}
