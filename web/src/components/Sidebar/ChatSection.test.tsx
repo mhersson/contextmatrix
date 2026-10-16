@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { ChatSection } from './ChatSection';
 import { MobileSidebarProvider } from '../../context/MobileSidebarContext';
@@ -29,6 +29,7 @@ Object.defineProperty(globalThis, 'localStorage', { value: localStorageMock, con
 const fixtures: ChatSession[] = [
   { id: 'S1', title: 'worker-auth', status: 'active', created_at: '', last_active: '', created_by: 'x' },
   { id: 'S2', title: 'triage', status: 'cold', created_at: '', last_active: '', created_by: 'x' },
+  { id: 'S3', title: 'auth-plan', status: 'cold', kind: 'architect', created_at: '', last_active: '', created_by: 'x' },
 ];
 
 describe('ChatSection', () => {
@@ -61,6 +62,18 @@ describe('ChatSection', () => {
     await screen.findByText('worker-auth');
     fireEvent.click(screen.getByRole('button', { name: /Chat/ }));
     expect(localStorageMock.setItem).toHaveBeenCalledWith('sidebar.chat_section_collapsed', '1');
+  });
+
+  it('marks architect sessions with the blueprint icon and chat sessions without', async () => {
+    render(
+      <MemoryRouter>
+        <MobileSidebarProvider><ChatSection onNewChat={() => {}} /></MobileSidebarProvider>
+      </MemoryRouter>,
+    );
+    const architectRow = (await screen.findByText('auth-plan')).closest('button')!;
+    const chatRow = screen.getByText('worker-auth').closest('button')!;
+    expect(within(architectRow).getByRole('img', { name: 'Blueprint session' })).toBeInTheDocument();
+    expect(within(chatRow).queryByRole('img', { name: 'Blueprint session' })).not.toBeInTheDocument();
   });
 
   it('calls onNewChat when "+ new" is clicked', async () => {
