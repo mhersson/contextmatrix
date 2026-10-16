@@ -1913,23 +1913,22 @@ func (m *Manager) GetSession(ctx context.Context, id string) (Session, error) {
 	return sess, nil
 }
 
-// SessionLiveness reports whether sessionID currently owns a live worker
-// container: status active, warm-idle, or ending (ending still owns a
-// container mid-teardown). A cold session reports live=false with a nil
-// error. An unknown session id returns ErrSessionNotFound so callers - the
-// worker git-credentials endpoint - can distinguish "doesn't exist" (404)
-// from "exists but cold" (409).
-func (m *Manager) SessionLiveness(ctx context.Context, sessionID string) (live bool, err error) {
+// SessionLiveness reports a session's kind and whether it is attached to its
+// backend: a chat session that owns a worker container, or a blueprint whose
+// architect session is open. active, warm-idle and ending are live; cold is
+// not. An unknown id returns ErrSessionNotFound so the worker git-credentials
+// endpoint can distinguish "does not exist" (404) from "exists but cold" (409).
+func (m *Manager) SessionLiveness(ctx context.Context, sessionID string) (kind SessionKind, live bool, err error) {
 	sess, err := m.store.GetSession(ctx, sessionID)
 	if err != nil {
-		return false, err
+		return "", false, err
 	}
 
 	switch sess.Status {
 	case StatusActive, StatusWarmIdle, StatusEnding:
-		return true, nil
+		return sess.Kind, true, nil
 	default:
-		return false, nil
+		return sess.Kind, false, nil
 	}
 }
 

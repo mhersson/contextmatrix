@@ -2366,17 +2366,33 @@ func TestManager_SessionLiveness(t *testing.T) {
 			sess.Status = tt.status
 			require.NoError(t, store.UpdateSession(ctx, sess))
 
-			live, err := mgr.SessionLiveness(ctx, sess.ID)
+			kind, live, err := mgr.SessionLiveness(ctx, sess.ID)
 			require.NoError(t, err)
+			assert.Equal(t, chat.KindChat, kind)
 			assert.Equal(t, tt.wantLive, live)
 		})
 	}
 }
 
+func TestManager_SessionLiveness_ReportsArchitectKind(t *testing.T) {
+	mgr, _, _ := newManagerWithArchitectStub(t)
+	ctx := context.Background()
+
+	bp, err := mgr.CreateSession(ctx, chat.CreateInput{Kind: chat.KindArchitect, Projects: []string{"alpha"}, CreatedBy: "human:web"})
+	require.NoError(t, err)
+	_, err = mgr.OpenSession(ctx, bp.ID)
+	require.NoError(t, err)
+
+	kind, live, err := mgr.SessionLiveness(ctx, bp.ID)
+	require.NoError(t, err)
+	assert.Equal(t, chat.KindArchitect, kind)
+	assert.True(t, live)
+}
+
 func TestManager_SessionLiveness_UnknownSession(t *testing.T) {
 	mgr, _, _ := newManagerWithStubs(t)
 
-	_, err := mgr.SessionLiveness(context.Background(), "does-not-exist")
+	_, _, err := mgr.SessionLiveness(context.Background(), "does-not-exist")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, chat.ErrSessionNotFound)
 }
