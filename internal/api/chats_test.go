@@ -74,6 +74,9 @@ type fixtureOpts struct {
 	// validateModel, when non-nil, is wired directly into chatHandlers.validateModel
 	// (no caching wrapper - the catalog builder handles its own caching).
 	validateModel func(ctx context.Context, slug string) bool
+	// architectBackendCfg, when non-nil, wires an architect stub backend and
+	// its default model into the manager, so kind=architect creates succeed.
+	architectBackendCfg *config.ArchitectBackendConfig
 }
 
 // defaultFixtureOpts is the no-backend topology: no chat backend configured
@@ -112,13 +115,32 @@ func newChatFixtureWithBackend(t *testing.T, opts fixtureOpts) (*http.ServeMux, 
 		defaultModel = opts.chatBackendCfg.DefaultModel
 	}
 
+	var (
+		archBackend chat.Backend
+		archDefault string
+	)
+
+	if opts.architectBackendCfg != nil {
+		archBackend = &chatStubBackend{}
+		archDefault = opts.architectBackendCfg.DefaultModel
+	}
+
 	backend := &chatStubBackend{}
 	mgr := chat.NewManager(chat.Config{
-		Store:        store,
-		Backend:      backend,
-		Clock:        clock.Real(),
-		IdleTTL:      time.Hour,
-		DefaultModel: defaultModel,
+		Store:                 store,
+		Backend:               backend,
+		Clock:                 clock.Real(),
+		IdleTTL:               time.Hour,
+		DefaultModel:          defaultModel,
+		ArchitectBackend:      archBackend,
+		ArchitectDefaultModel: archDefault,
+		ResolveProjectExec: func(_ context.Context, project string) (chat.ProjectExecInfo, error) {
+			if project != "alpha" && project != "beta" {
+				return chat.ProjectExecInfo{}, errors.New("no such project")
+			}
+
+			return chat.ProjectExecInfo{}, nil
+		},
 	})
 	// Cancel the manager's consumer goroutines before the store and t.TempDir
 	// go away: they hold a checked-out sqlite connection that store.Close does
@@ -1079,4 +1101,74 @@ func TestCreateChatAcceptsEndpointModel(t *testing.T) {
 	var sess chat.Session
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sess))
 	require.Equal(t, "ep-model-a", sess.Model)
+}
+
+func architectFixtureOpts() fixtureOpts {
+	return fixtureOpts{architectBackendCfg: &config.ArchitectBackendConfig{
+		URL: "http://architect:9094", APIKey: strings.Repeat("a", 32), DefaultModel: "arch/default",
+	}}
+}
+
+func TestCreateChat_ArchitectKind(t *testing.T) {
+	mux, _ := newChatFixture(t, architectFixtureOpts())
+
+	req := jsonReq(t, http.MethodPost, "/api/chats",
+		`{"kind":"architect","projects":["alpha","beta"],"mode":"auto","cost_cap_usd":4.5}`)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+
+	var sess chat.Session
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sess))
+	assert.Equal(t, chat.KindArchitect, sess.Kind)
+	assert.Equal(t, "auto", sess.Mode)
+	assert.Equal(t, []string{"alpha", "beta"}, sess.Workspace)
+	assert.InDelta(t, 4.5, sess.CostCapUSD, 1e-9)
+	assert.Empty(t, sess.Model, "architect model defaults at cold open, not at create")
+}
+
+func TestCreateChat_ArchitectInvalidInput(t *testing.T) {
+	mux, _ := newChatFixture(t, architectFixtureOpts())
+
+	for name, body := range map[string]string{
+		"no projects":     `{"kind":"architect"}`,
+		"unknown project": `{"kind":"architect","projects":["nope"]}`,
+		"bad mode":        `{"kind":"architect","projects":["alpha"],"mode":"turbo"}`,
+		"unknown kind":    `{"kind":"planner"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, jsonReq(t, http.MethodPost, "/api/chats", body))
+			assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+			assert.Contains(t, rec.Body.String(), "INVALID_CHAT_INPUT")
+		})
+	}
+}
+
+func TestCreateChat_ArchitectUnavailable(t *testing.T) {
+	mux, _ := newChatFixture(t, defaultFixtureOpts())
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, jsonReq(t, http.MethodPost, "/api/chats", `{"kind":"architect","projects":["alpha"]}`))
+	assert.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), "CHAT_KIND_UNAVAILABLE")
+}
+
+func TestListChats_FilterByKind(t *testing.T) {
+	mux, _ := newChatFixture(t, architectFixtureOpts())
+
+	for _, body := range []string{`{"title":"c"}`, `{"kind":"architect","projects":["alpha"]}`} {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, jsonReq(t, http.MethodPost, "/api/chats", body))
+		require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	}
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, jsonReq(t, http.MethodGet, "/api/chats?kind=architect", ""))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var got []chat.Session
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Len(t, got, 1)
+	assert.Equal(t, chat.KindArchitect, got[0].Kind)
 }

@@ -197,6 +197,9 @@ type RouterConfig struct {
 	// never disagree. Empty disables the route (no chat backend, or one with
 	// no configured api_key) regardless of ChatManager.
 	ChatWorkerAPIKey string
+	// ArchitectBackendCfg is the architect backend entry; feeds
+	// architect_enabled in app config. nil when not configured.
+	ArchitectBackendCfg *config.ArchitectBackendConfig
 	// ImageStore is required in production - main.go always opens a
 	// SQLite-backed store and wires it in unconditionally. Tests that do
 	// not exercise /api/images may omit it; the routes are then unregistered
@@ -371,6 +374,8 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	// both express the same condition, so it is computed once here.
 	chatBackendConfigured := cfg.ChatBackendCfg.IsEnabled() && cfg.ChatBackendCfg.APIKey != "" && cfg.ChatBackendCfg.URL != ""
 
+	architectBackendConfigured := cfg.ArchitectBackendCfg.IsEnabled() && cfg.ArchitectBackendCfg.APIKey != "" && cfg.ArchitectBackendCfg.URL != ""
+
 	ach := &appConfigHandlers{
 		theme:                  cfg.Theme,
 		version:                cfg.Version,
@@ -384,6 +389,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		mobGuestNames:          mobGuestNames(cfg.Mob.Guests),
 		mobExecuteCheckpoints:  cfg.Mob.ExecuteCheckpoints(),
 		chatEnabled:            chatBackendConfigured,
+		architectEnabled:       architectBackendConfigured,
 		instanceID:             cfg.InstanceID,
 		sharedBoards:           cfg.SharedBoards,
 		boardsRepos:            cfg.BoardsRepos,
