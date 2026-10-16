@@ -43,8 +43,11 @@ type stubBackend struct {
 	// starting at 0). Pads with nil when len(seq) is less than the call
 	// count. Takes precedence over sendErr when set.
 	sendErrSeq []error
-	mu         sync.Mutex
-	lastOpts   chat.StartChatOpts
+	// sendFn, when non-nil, runs inside SendChatMessage before the error is
+	// chosen, standing in for a backend that answers within /message.
+	sendFn   func()
+	mu       sync.Mutex
+	lastOpts chat.StartChatOpts
 	// sendArgs captures every (content, messageID) pair passed to
 	// SendChatMessage in call order. Tests assert ordering on clear+primer.
 	sendArgs []sendArg
@@ -80,6 +83,10 @@ func (s *stubBackend) SendChatMessage(ctx context.Context, sessionID, content, m
 	s.sendArgs = append(s.sendArgs, sendArg{Content: content, MessageID: messageID})
 	seq := s.sendErrSeq
 	s.mu.Unlock()
+
+	if s.sendFn != nil {
+		s.sendFn()
+	}
 
 	if idx >= 0 && int(idx) < len(seq) {
 		return seq[idx]
@@ -4037,6 +4044,31 @@ func TestManager_SendUserMessage_ArmsAssistantWorking(t *testing.T) {
 	assert.True(t, got.AssistantWorking, "successful send must arm assistant_working")
 	require.NotNil(t, got.AssistantWorkingSince)
 	assert.False(t, got.AssistantWorkingSince.IsZero())
+}
+
+// TestManager_SendUserMessage_ArmsBeforeTheBackendIsCalled pins the arm-first
+// ordering: a backend that answers inside /message publishes its idle frame
+// before the send returns, and that frame only clears the indicator if it was
+// armed beforehand.
+func TestManager_SendUserMessage_ArmsBeforeTheBackendIsCalled(t *testing.T) {
+	mgr, backend, _ := newManagerWithStubs(t)
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "arm", CreatedBy: "human:test"})
+	require.NoError(t, err)
+
+	var armedDuringSend bool
+
+	backend.sendFn = func() {
+		got, err := mgr.GetSession(ctx, sess.ID)
+		require.NoError(t, err)
+
+		armedDuringSend = got.AssistantWorking
+	}
+
+	_, err = mgr.SendUserMessage(ctx, sess.ID, "hello")
+	require.NoError(t, err)
+	assert.True(t, armedDuringSend, "a backend that answers inside /message must find the indicator already armed")
 }
 
 // TestManager_SendUserMessage_FailureDoesNotArm proves a rejected send leaves

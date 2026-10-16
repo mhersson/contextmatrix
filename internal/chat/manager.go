@@ -2217,18 +2217,21 @@ func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string
 		return "", err
 	}
 
+	// Arm before the send. A backend that answers inside /message (the
+	// architect, for a note or an abort) publishes its idle frame before
+	// SendChatMessage returns; setWorking(false) on an unarmed session is a
+	// no-op, so arming afterwards would leave the indicator on. A failed
+	// send disarms: no turn is in flight.
+	m.setWorking(sessionID, true)
+
 	if err := backend.SendChatMessage(ctx, sessionID, content, msgID); err != nil {
+		m.setWorking(sessionID, false)
 		m.recordSendFailure(ctx, sessionID, err)
 
 		return "", err
 	}
 
 	m.clearSendFailures(sessionID)
-
-	// The backend accepted the message: a turn is now in flight. CM is the
-	// source of truth for the start signal - the worker's own run-state
-	// frame follows but must not be waited on.
-	m.setWorking(sessionID, true)
 
 	// Backend accepted the message - now safe to persist + publish.
 	msg, err := m.AppendMessage(ctx, sessionID, RoleUser, content)
