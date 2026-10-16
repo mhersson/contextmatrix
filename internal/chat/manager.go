@@ -630,8 +630,8 @@ func (m *Manager) startConsumer(sessionID string) {
 
 		// Resolve the session once: the project for metric labels and the
 		// model a usage frame without one is priced at. The frame's own
-		// model wins; else the row's model (set by an earlier priced frame);
-		// else the kind's configured default.
+		// model wins; else the row's model (persisted when the session opens);
+		// else the chat default.
 		project := "none"
 		kind := KindChat
 		fallbackModel := m.defaultModel
@@ -643,11 +643,8 @@ func (m *Manager) startConsumer(sessionID string) {
 
 			kind = sess.Kind
 
-			switch {
-			case sess.Model != "":
+			if sess.Model != "" {
 				fallbackModel = sess.Model
-			case kind == KindArchitect:
-				fallbackModel = m.architectDefaultModel
 			}
 		}
 

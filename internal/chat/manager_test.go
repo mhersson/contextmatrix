@@ -3985,7 +3985,7 @@ func TestHandleUsageEntry_EmitsChatMetrics(t *testing.T) {
 		testutil.ToFloat64(metrics.ChatTokensTotal.WithLabelValues("metrics-project", model, "cache_read")), 1e-9)
 }
 
-func TestHandleUsageEntry_ArchitectFrameWithoutModelUsesArchitectDefault(t *testing.T) {
+func TestHandleUsageEntry_ArchitectFrameWithoutModelUsesSessionModel(t *testing.T) {
 	hub := chat.NewSSEHub(64)
 
 	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
@@ -4023,6 +4023,41 @@ func TestHandleUsageEntry_ArchitectFrameWithoutModelUsesArchitectDefault(t *test
 
 	assert.Equal(t, "arch/default", ev.SessionUpdate.Model)
 	assert.InDelta(t, 0.02, ev.SessionUpdate.EstimatedCostUSD, 1e-9, "priced at the architect default, not the chat default")
+}
+
+func TestHandleUsageEntry_ChatFrameWithoutModelUsesSessionModel(t *testing.T) {
+	hub := chat.NewSSEHub(64)
+
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	pricer := newStubPricer(map[string]float64{"chat/picked": 0.02, "chat/default": 0.5})
+
+	backend := &usageStreamingBackend{
+		entries: []chat.LogEntry{
+			{Type: "usage", Usage: &chat.TokenUsage{InputTokens: 100, OutputTokens: 50}},
+		},
+	}
+
+	mgr := newManager(t, chat.Config{
+		Store:        store,
+		Backend:      backend,
+		Clock:        clock.Real(),
+		IdleTTL:      time.Hour,
+		Hub:          hub,
+		DefaultModel: "chat/default",
+		Pricer:       pricer,
+	})
+
+	ctx := context.Background()
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", Project: "alpha", CreatedBy: "x", Model: "chat/picked"})
+	require.NoError(t, err)
+
+	ev := openAndWaitForUsageEvent(t, mgr, hub, sess.ID)
+
+	assert.Equal(t, "chat/picked", ev.SessionUpdate.Model)
+	assert.InDelta(t, 0.02, ev.SessionUpdate.EstimatedCostUSD, 1e-9, "priced at the session's model, not the chat default")
 }
 
 // TestManager_SendUserMessage_ArmsAssistantWorking pins the server-side start
