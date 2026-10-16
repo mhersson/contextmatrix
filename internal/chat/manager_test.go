@@ -3,8 +3,12 @@ package chat_test
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -4863,6 +4867,164 @@ func TestManager_SendUserMessage_ArchitectRestartsAndResendsOnUnknownSession(t *
 	sess, err := mgr.GetSession(ctx, bp.ID)
 	require.NoError(t, err)
 	assert.Equal(t, chat.StatusActive, sess.Status, "the row is unchanged")
+}
+
+// replayCache mimics the webhook kit's replay cache: it records every verified
+// (timestamp, signature) pair and reports a repeat.
+type replayCache struct {
+	mu   sync.Mutex
+	seen map[string]struct{}
+}
+
+func (c *replayCache) CheckAndInsert(timestamp, signature string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	k := timestamp + "|" + signature
+	if _, ok := c.seen[k]; ok {
+		return true
+	}
+
+	if c.seen == nil {
+		c.seen = map[string]struct{}{}
+	}
+
+	c.seen[k] = struct{}{}
+
+	return false
+}
+
+func (c *replayCache) reset() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.seen = nil
+}
+
+type deliveredMessage struct{ content, messageID string }
+
+// fakeArchitect is an HTTP architect with the webhook kit's replay cache. The
+// signature is verified before routing, so a pair is recorded even when the
+// handler then answers 404.
+type fakeArchitect struct {
+	srv   *httptest.Server
+	key   string
+	cache replayCache
+
+	mu        sync.Mutex
+	held      map[string]bool
+	delivered []deliveredMessage
+}
+
+func newFakeArchitect(t *testing.T, key string) *fakeArchitect {
+	t.Helper()
+
+	f := &fakeArchitect{key: key, held: map[string]bool{}}
+	f.srv = httptest.NewServer(http.HandlerFunc(f.serve))
+	t.Cleanup(f.srv.Close)
+
+	return f
+}
+
+// restart simulates an architect process restart: no sessions, empty replay cache.
+func (f *fakeArchitect) restart() {
+	f.mu.Lock()
+	f.held = map[string]bool{}
+	f.mu.Unlock()
+	f.cache.reset()
+}
+
+func (f *fakeArchitect) deliveredMessages() []deliveredMessage {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return append([]deliveredMessage(nil), f.delivered...)
+}
+
+func (f *fakeArchitect) serve(w http.ResponseWriter, r *http.Request) {
+	body, _ := io.ReadAll(r.Body)
+
+	if r.Method == http.MethodPost && !protocol.VerifySignatureWithTimestamp(f.key, r.Method, r.URL.RequestURI(),
+		strings.TrimPrefix(r.Header.Get("X-Signature-256"), "sha256="),
+		r.Header.Get("X-Webhook-Timestamp"), body, 5*time.Minute, &f.cache) {
+		w.WriteHeader(http.StatusUnauthorized)
+
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	switch {
+	case r.Method == http.MethodGet && r.URL.Path == "/logs":
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	case r.URL.Path == "/chat/start":
+		var p protocol.ChatStartPayload
+
+		_ = json.Unmarshal(body, &p)
+
+		f.mu.Lock()
+		f.held[p.SessionID] = true
+		f.mu.Unlock()
+
+		_ = json.NewEncoder(w).Encode(protocol.ChatStartResponse{OK: true})
+	case r.URL.Path == "/message":
+		var p protocol.MessagePayload
+
+		_ = json.Unmarshal(body, &p)
+
+		f.mu.Lock()
+		held := f.held[p.SessionID]
+
+		if held {
+			f.delivered = append(f.delivered, deliveredMessage{p.Content, p.MessageID})
+		}
+		f.mu.Unlock()
+
+		if !held {
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(protocol.ErrorResponse{Code: protocol.CodeNotFound, Message: "unknown session"})
+
+			return
+		}
+
+		w.WriteHeader(http.StatusAccepted)
+	default:
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
+func TestManager_SendUserMessage_ArchitectResendSignsInALaterSecond(t *testing.T) {
+	const key = "arch-hmac-key"
+
+	fake := newFakeArchitect(t, key)
+	mgr, _, _ := newManagerWithArchitectStub(t, func(c *chat.Config) {
+		c.ArchitectBackend = chat.NewBackendClient(chat.BackendClientConfig{BaseURL: fake.srv.URL, HMACKey: key})
+	})
+	ctx := context.Background()
+	bp := openArchitect(t, mgr)
+
+	fake.restart()
+
+	msgID, err := mgr.SendUserMessage(ctx, bp.ID, "approve")
+	require.NoError(t, err)
+
+	assert.Equal(t, []deliveredMessage{{"approve", msgID}}, fake.deliveredMessages(), "delivered once, same id")
+
+	msgs, err := mgr.ListMessages(ctx, bp.ID, 0, 100)
+	require.NoError(t, err)
+
+	users := 0
+
+	for _, m := range msgs {
+		if m.Role == chat.RoleUser {
+			users++
+		}
+	}
+
+	assert.Equal(t, 1, users, "persisted once")
 }
 
 func TestManager_SendUserMessage_ArchitectRetriesOnce(t *testing.T) {

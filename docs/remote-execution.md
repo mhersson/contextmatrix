@@ -458,8 +458,10 @@ response returns. Differences from a chat start:
 
 Recovery: when a `/message` is answered with 404 and the protocol's `not_found`
 code (the architect restarted and no longer holds the session), CM re-sends
-`/chat/start` with the same payload as a cold open, never a resume, then sends
-the message once more with the same message id. The session row is not
+`/chat/start` with the same payload as a cold open, never a resume, then waits
+until the clock passes the second the first send was signed in (the architect's
+replay cache already recorded that whole-second timestamp and signature pair)
+and sends the message once more with the same message id. The session row is not
 written, and a second failure is returned to the caller. The architect must
 answer an unknown session with 404 `not_found` and treat a start for a session
 it already holds as a no-op. CM also re-sends `/chat/start` with the same

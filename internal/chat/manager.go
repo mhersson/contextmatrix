@@ -1550,6 +1550,22 @@ func (m *Manager) openCold(ctx context.Context, id string) (Session, error) {
 	return sess, nil
 }
 
+// waitPastSecond blocks until the manager clock is past the Unix second of t,
+// or ctx ends.
+func (m *Manager) waitPastSecond(ctx context.Context, t time.Time) error {
+	d := time.Unix(t.Unix()+1, 0).Sub(m.clk.Now())
+	if d <= 0 {
+		return nil
+	}
+
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("wait before architect re-send: %w", ctx.Err())
+	case <-m.clk.After(d):
+		return nil
+	}
+}
+
 // restartArchitect re-sends /chat/start for an active or warm-idle architect
 // session the architect lost. It sends the plain cold-open inputs, never a
 // resume, and does not write the row; the architect no-ops a start for a
@@ -2322,9 +2338,16 @@ func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string
 	// A restarted architect no longer holds the session: re-send its start
 	// and the message once, with the same id.
 	if err != nil && sess.Kind == KindArchitect && errors.Is(err, ErrSessionUnknown) {
+		firstSend := m.clk.Now()
+
 		if rerr := m.restartArchitect(ctx, sessionID); rerr != nil {
 			err = errors.Join(err, rerr)
+		} else if werr := m.waitPastSecond(ctx, firstSend); werr != nil {
+			err = errors.Join(err, werr)
 		} else {
+			// The architect's replay cache already holds the first send's
+			// whole-second (timestamp, signature) pair despite the 404, so the
+			// re-send must sign in a later second.
 			err = backend.SendChatMessage(ctx, sessionID, content, msgID)
 		}
 	}
