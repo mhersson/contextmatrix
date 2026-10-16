@@ -388,15 +388,15 @@ func (m *Manager) publishSessionUpdate(sessionID string, u SessionUpdate) {
 // the current state again neither republishes nor resets the since timestamp
 // (model_request re-asserts "working" at every turn start by design). The
 // publish is synchronous like handleUsageEntry's - no sessionHub lock is held
-// on any caller path.
-func (m *Manager) setWorking(sessionID string, working bool) {
+// on any caller path. Reports whether it changed the state.
+func (m *Manager) setWorking(sessionID string, working bool) bool {
 	m.mu.Lock()
 
 	since, was := m.working[sessionID]
 	if working == was {
 		m.mu.Unlock()
 
-		return
+		return false
 	}
 
 	if working {
@@ -409,7 +409,7 @@ func (m *Manager) setWorking(sessionID string, working bool) {
 	m.mu.Unlock()
 
 	if m.hub == nil {
-		return
+		return true
 	}
 
 	u := SessionUpdate{AssistantWorking: &working}
@@ -418,6 +418,8 @@ func (m *Manager) setWorking(sessionID string, working bool) {
 	}
 
 	m.hub.PublishSessionUpdate(sessionID, u)
+
+	return true
 }
 
 // handleStatusEntry processes a run-state frame from the backend's log bridge
@@ -2218,11 +2220,14 @@ func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string
 	// architect, for a note or an abort) publishes its idle frame before
 	// SendChatMessage returns; setWorking(false) on an unarmed session is a
 	// no-op, so arming afterwards would leave the indicator on. A failed
-	// send disarms: no turn is in flight.
-	m.setWorking(sessionID, true)
+	// send disarms only what it armed: an earlier turn may still be running.
+	armed := m.setWorking(sessionID, true)
 
 	if err := backend.SendChatMessage(ctx, sessionID, content, msgID); err != nil {
-		m.setWorking(sessionID, false)
+		if armed {
+			m.setWorking(sessionID, false)
+		}
+
 		m.recordSendFailure(ctx, sessionID, err)
 
 		return "", err

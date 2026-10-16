@@ -4125,6 +4125,27 @@ func TestManager_SendUserMessage_FailureDoesNotArm(t *testing.T) {
 	assert.False(t, got.AssistantWorking, "failed send must not arm assistant_working")
 }
 
+// TestManager_SendUserMessage_FailureKeepsEarlierTurnArmed proves a failed send
+// does not clear the indicator of a turn that an earlier send already armed.
+func TestManager_SendUserMessage_FailureKeepsEarlierTurnArmed(t *testing.T) {
+	mgr, backend, _ := newManagerWithStubs(t)
+	backend.sendErrSeq = []error{nil, errors.New("backend down")}
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "mid-turn", CreatedBy: "human:test"})
+	require.NoError(t, err)
+
+	_, err = mgr.SendUserMessage(ctx, sess.ID, "first")
+	require.NoError(t, err)
+
+	_, err = mgr.SendUserMessage(ctx, sess.ID, "second")
+	require.Error(t, err)
+
+	got, err := mgr.GetSession(ctx, sess.ID)
+	require.NoError(t, err)
+	assert.True(t, got.AssistantWorking, "failed send must leave the earlier turn's indicator on")
+}
+
 // TestManager_EndSession_ClearsAssistantWorking pins the teardown path: ending
 // a session with a turn in flight drops the working flag.
 func TestManager_EndSession_ClearsAssistantWorking(t *testing.T) {
