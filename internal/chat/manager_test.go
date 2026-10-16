@@ -4625,3 +4625,17 @@ func TestManager_OpenSession_ArchitectIgnoresFullChatSlots(t *testing.T) {
 	assert.Equal(t, int64(1), chatStub.startCalls.Load())
 	assert.Equal(t, int64(1), archStub.startCalls.Load())
 }
+
+func TestManager_OpenSession_ArchitectStreamsFromArchitectBackend(t *testing.T) {
+	mgr, chatStub, archStub := newManagerWithArchitectStub(t)
+	ctx := context.Background()
+
+	bp, err := mgr.CreateSession(ctx, chat.CreateInput{Kind: chat.KindArchitect, Projects: []string{"alpha"}, CreatedBy: "human:web"})
+	require.NoError(t, err)
+	_, err = mgr.OpenSession(ctx, bp.ID)
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool { return archStub.streamCalls.Load() == 1 },
+		2*time.Second, 5*time.Millisecond, "the consumer must stream from the architect backend")
+	assert.Equal(t, int64(0), chatStub.streamCalls.Load(), "never from the chat backend")
+}
