@@ -225,16 +225,29 @@ func TestRunPlaybookTool(t *testing.T) {
 		assert.Equal(t, "playbook/"+id, forced.BaseBranch)
 	})
 
-	t.Run("a runnable playbook is played again without a second make-runnable", func(t *testing.T) {
+	t.Run("a runnable playbook that gained an unvetted card is still played", func(t *testing.T) {
 		env, f := setupRunPlaybook(t, nil)
 		card := createTestCard(t, env, "Run me", "task", "medium")
 		id := newPlaybook(t, env, "Ship it", card.ID)
 
-		for range 2 {
-			result, err := callToolRaw(t, env, "run_playbook", map[string]any{"id": id, "agent_id": "human:alice"})
-			require.False(t, resultIsError(result, err), errorText(result, err))
-		}
+		result, err := callToolRaw(t, env, "run_playbook", map[string]any{"id": id, "agent_id": "human:alice"})
+		require.False(t, resultIsError(result, err), errorText(result, err))
 
+		// Re-asserting runnable would re-run the vetting check and refuse this
+		// card, while Play holds the run on it until it is vetted.
+		imported, err := env.svc.CreateCard(ctx, "test-project", service.CreateCardInput{
+			Title: "Imported", Type: "task", Priority: "medium",
+			Source: &board.Source{System: "jira", ExternalID: "PROJ-9", ExternalURL: "https://acme.atlassian.net/browse/PROJ-9"},
+		})
+		require.NoError(t, err)
+
+		result, err = callToolRaw(t, env, "add_playbook_entry", map[string]any{
+			"agent_id": "human:alice", "playbook": id, "type": "card", "project": "test-project", "card": imported.ID,
+		})
+		require.False(t, resultIsError(result, err), errorText(result, err))
+
+		result, err = callToolRaw(t, env, "run_playbook", map[string]any{"id": id, "agent_id": "human:alice"})
+		require.False(t, resultIsError(result, err), errorText(result, err))
 		assert.Len(t, f.calls, 2)
 	})
 
