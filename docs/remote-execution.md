@@ -450,7 +450,7 @@ response returns. Differences from a chat start:
 | `model`                                         | The session row's model, else `backends.architect.default_model`.                                                       |
 | `llm_endpoint`, `mcp_api_key`                   | As for chat: the configured `llm_endpoint` and CM's `mcp_api_key`.                                                      |
 | `git_credentials_token`                         | Minted over the architect entry's `api_key`, in the same `<session_id>.<mac>` form as for chat.                         |
-| `architect`                                     | `{"projects": ["alpha", "beta"], "mode": "default", "cost_cap_usd": 3}`. `mode` is `default`, `auto`, `auto+emit` or `yolo`. |
+| `architect`                                     | `{"projects": ["alpha", "beta"], "mode": "default", "cost_cap_usd": 3, "price": {"prompt_usd_per_mtok": 3, "completion_usd_per_mtok": 15, "cache_read_usd_per_mtok": 0.3, "cache_write_usd_per_mtok": 3.75}}`. `mode` is `default`, `auto`, `auto+emit` or `yolo`. `price` is the model's resolved per-token rate from CM's `token_costs` and catalog lookup, in USD per million tokens with the cache defaults applied; it is omitted when CM has no price for the model, and the architect then refuses to run a capped blueprint. |
 
 `/chat/end` ends the session on the architect; reopening it sends a new
 `/chat/start` for the same session id. Architect sessions do not count toward

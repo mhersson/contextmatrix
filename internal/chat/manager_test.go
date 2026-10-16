@@ -4315,7 +4315,7 @@ func TestAppendMessage_ReseedFailureLeavesCounterAheadOfDisk(t *testing.T) {
 
 // newManagerWithArchitectStub wires a chat stub and an architect stub so
 // dispatch by session kind is observable.
-func newManagerWithArchitectStub(t *testing.T) (*chat.Manager, *stubBackend, *stubBackend) {
+func newManagerWithArchitectStub(t *testing.T, edits ...func(*chat.Config)) (*chat.Manager, *stubBackend, *stubBackend) {
 	t.Helper()
 
 	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
@@ -4324,7 +4324,7 @@ func newManagerWithArchitectStub(t *testing.T) (*chat.Manager, *stubBackend, *st
 
 	chatStub := &stubBackend{}
 	archStub := &stubBackend{}
-	mgr := newManager(t, chat.Config{
+	cfg := chat.Config{
 		Store:                 store,
 		Backend:               chatStub,
 		ArchitectBackend:      archStub,
@@ -4340,7 +4340,13 @@ func newManagerWithArchitectStub(t *testing.T) (*chat.Manager, *stubBackend, *st
 			return chat.ProjectExecInfo{RepoURL: "https://example.com/" + project + ".git"}, nil
 		},
 		ArchitectWorkerCredentialsToken: func(id string) string { return "arch-token-" + id },
-	})
+	}
+
+	for _, edit := range edits {
+		edit(&cfg)
+	}
+
+	mgr := newManager(t, cfg)
 
 	return mgr, chatStub, archStub
 }
@@ -4496,6 +4502,52 @@ func TestManager_CreateSession_ChatKindIgnoresCostCap(t *testing.T) {
 	got, err := mgr.GetSession(context.Background(), sess.ID)
 	require.NoError(t, err)
 	assert.InDelta(t, 0.0, got.CostCapUSD, 1e-9)
+}
+
+func TestManager_OpenSession_ArchitectStartCarriesPrice(t *testing.T) {
+	want := protocol.ModelPrice{PromptUSDPerMTok: 3, CompletionUSDPerMTok: 15, CacheReadUSDPerMTok: 0.3, CacheWriteUSDPerMTok: 3.75}
+	mgr, _, archStub := newManagerWithArchitectStub(t, func(c *chat.Config) {
+		c.ArchitectPrice = func(model string) (protocol.ModelPrice, bool) {
+			if model == "arch/default" {
+				return want, true
+			}
+
+			return protocol.ModelPrice{}, false
+		}
+	})
+	ctx := context.Background()
+
+	bp, err := mgr.CreateSession(ctx, chat.CreateInput{Kind: chat.KindArchitect, Projects: []string{"alpha"}, CreatedBy: "human:web"})
+	require.NoError(t, err)
+	_, err = mgr.OpenSession(ctx, bp.ID)
+	require.NoError(t, err)
+
+	archStub.mu.Lock()
+	got := archStub.lastOpts
+	archStub.mu.Unlock()
+
+	require.NotNil(t, got.Architect)
+	require.NotNil(t, got.Architect.Price)
+	assert.Equal(t, want, *got.Architect.Price)
+}
+
+func TestManager_OpenSession_ArchitectStartOmitsUnknownPrice(t *testing.T) {
+	mgr, _, archStub := newManagerWithArchitectStub(t, func(c *chat.Config) {
+		c.ArchitectPrice = func(string) (protocol.ModelPrice, bool) { return protocol.ModelPrice{}, false }
+	})
+	ctx := context.Background()
+
+	bp, err := mgr.CreateSession(ctx, chat.CreateInput{Kind: chat.KindArchitect, Projects: []string{"alpha"}, CreatedBy: "human:web"})
+	require.NoError(t, err)
+	_, err = mgr.OpenSession(ctx, bp.ID)
+	require.NoError(t, err, "an unpriced model still starts")
+
+	archStub.mu.Lock()
+	got := archStub.lastOpts
+	archStub.mu.Unlock()
+
+	require.NotNil(t, got.Architect)
+	assert.Nil(t, got.Architect.Price)
 }
 
 func TestManager_OpenSession_ArchitectIgnoresFullChatSlots(t *testing.T) {

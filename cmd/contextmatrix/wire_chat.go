@@ -6,6 +6,8 @@ import (
 	"sync"
 	"time"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
+
 	"github.com/mhersson/contextmatrix/internal/api"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/chat"
@@ -114,6 +116,22 @@ func wireChat(
 		ArchitectBackend:                architectBackend,
 		ArchitectDefaultModel:           architectDefaultModel,
 		ArchitectWorkerCredentialsToken: architectWorkerCredentialsToken,
+		ArchitectPrice: func(model string) (protocol.ModelPrice, bool) {
+			rate, ok := svc.ResolvedRate(model)
+			if !ok {
+				return protocol.ModelPrice{}, false
+			}
+
+			// ModelRate is USD per token; the wire carries USD per million tokens.
+			const perMTok = 1e6
+
+			return protocol.ModelPrice{
+				PromptUSDPerMTok:     rate.Prompt * perMTok,
+				CompletionUSDPerMTok: rate.Completion * perMTok,
+				CacheReadUSDPerMTok:  rate.CacheRead * perMTok,
+				CacheWriteUSDPerMTok: rate.CacheWrite * perMTok,
+			}, true
+		},
 		ResolveProjectExec: func(rctx context.Context, project string) (chat.ProjectExecInfo, error) {
 			p, err := svc.GetProject(rctx, project)
 			if err != nil {

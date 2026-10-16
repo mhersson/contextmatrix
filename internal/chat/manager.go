@@ -174,6 +174,12 @@ type Config struct {
 	// bearer for architect sessions, over the architect entry's api_key.
 	// nil leaves the token empty.
 	ArchitectWorkerCredentialsToken func(sessionID string) string
+	// ArchitectPrice resolves the per-token price of a blueprint's model so
+	// the start payload can carry it and the architect's cost cap binds. nil
+	// or a false return leaves the price off the payload; the architect then
+	// refuses capped runs. Production wires this over the card service's
+	// ResolvedRate in cmd/contextmatrix/wire_chat.go.
+	ArchitectPrice func(model string) (protocol.ModelPrice, bool)
 }
 
 // Manager orchestrates chat session lifecycle, transcript persistence,
@@ -204,6 +210,7 @@ type Manager struct {
 	architectBackend                Backend
 	architectDefaultModel           string
 	architectWorkerCredentialsToken func(sessionID string) string
+	architectPrice                  func(model string) (protocol.ModelPrice, bool)
 
 	mu           sync.Mutex
 	seqMap       map[string]int64           // sessionID → last assigned seq
@@ -299,6 +306,7 @@ func NewManager(cfg Config) *Manager {
 		architectBackend:                cfg.ArchitectBackend,
 		architectDefaultModel:           cfg.ArchitectDefaultModel,
 		architectWorkerCredentialsToken: cfg.ArchitectWorkerCredentialsToken,
+		architectPrice:                  cfg.ArchitectPrice,
 
 		seqMap:            make(map[string]int64),
 		titled:            make(map[string]bool),
@@ -1492,7 +1500,7 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, er
 		m.logger.Info("chat: opening cold blueprint session",
 			"session_id", sess.ID, "projects", sess.Workspace, "mode", sess.Mode, "model", model)
 
-		return StartChatOpts{
+		start := StartChatOpts{
 			SessionID:           sess.ID,
 			Model:               model,
 			LLMEndpoint:         m.llmEndpoint,
@@ -1502,7 +1510,18 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, er
 				Mode:       sess.Mode,
 				CostCapUSD: sess.CostCapUSD,
 			},
-		}, nil
+		}
+
+		if m.architectPrice != nil {
+			if price, ok := m.architectPrice(model); ok {
+				start.Architect.Price = &price
+			} else {
+				m.logger.Warn("chat: blueprint model has no price, the architect cannot bind its cost cap",
+					"session_id", sess.ID, "model", model)
+			}
+		}
+
+		return start, nil
 	}
 
 	var execInfo ProjectExecInfo
