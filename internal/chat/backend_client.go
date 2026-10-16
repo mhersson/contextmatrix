@@ -85,6 +85,7 @@ func (c *backendClient) StartChat(ctx context.Context, opts StartChatOpts) (stri
 		Resume:              opts.Resume,
 		LLMEndpoint:         opts.LLMEndpoint,
 		GitCredentialsToken: opts.GitCredentialsToken,
+		Architect:           opts.Architect,
 	})
 	if err != nil {
 		return "", fmt.Errorf("chat: backend: marshal StartChat payload: %w", err)

@@ -34,6 +34,14 @@ var ErrBackendSend = errors.New("chat: backend send failed")
 // The API layer maps this to 409 WORKER_NOT_RUNNING.
 var ErrSessionNotRunning = errors.New("chat: session is not running")
 
+// ErrKindUnavailable is returned when a session's kind has no configured
+// backend (an architect session on an instance without an architect entry).
+var ErrKindUnavailable = errors.New("chat: no backend configured for this session kind")
+
+// ErrInvalidSessionInput wraps every CreateSession validation failure so the
+// API layer can map the whole family to one 400.
+var ErrInvalidSessionInput = errors.New("chat: invalid session input")
+
 // ContextClearedMarker is the canonical content string written to the
 // system-role transcript row appended on Clear Context. The frontend uses
 // this in conjunction with the persisted kind ("divider") to render a
@@ -85,6 +93,9 @@ type StartChatOpts struct {
 	// worker-fetched credentials). Treat as a secret carrier: never log this
 	// value.
 	GitCredentialsToken string
+	// Architect is set for architect-kind sessions only: the blueprint's
+	// target projects, mode and cost cap. Nil for chat sessions.
+	Architect *protocol.ArchitectStart
 }
 
 // ProjectExecInfo carries the per-project execution inputs a cold open needs:
@@ -152,6 +163,17 @@ type Config struct {
 	// GET /api/worker/git-credentials verifies against, so mint and verify
 	// never disagree.
 	WorkerCredentialsToken func(sessionID string) string
+
+	// ArchitectBackend serves architect-kind sessions. nil means no
+	// architect backend is configured: CreateSession refuses the kind.
+	ArchitectBackend Backend
+	// ArchitectDefaultModel is the cold-open fallback for architect sessions
+	// with an empty model, from backends.architect.default_model.
+	ArchitectDefaultModel string
+	// ArchitectWorkerCredentialsToken mints the per-session git-credentials
+	// bearer for architect sessions, over the architect entry's api_key.
+	// nil leaves the token empty.
+	ArchitectWorkerCredentialsToken func(sessionID string) string
 }
 
 // Manager orchestrates chat session lifecycle, transcript persistence,
@@ -178,6 +200,10 @@ type Manager struct {
 	// token" (no chat-backend api_key configured, or tests that don't
 	// exercise this path).
 	workerCredentialsToken func(sessionID string) string
+
+	architectBackend                Backend
+	architectDefaultModel           string
+	architectWorkerCredentialsToken func(sessionID string) string
 
 	mu           sync.Mutex
 	seqMap       map[string]int64           // sessionID → last assigned seq
@@ -269,14 +295,19 @@ func NewManager(cfg Config) *Manager {
 		pricer:                 cfg.Pricer,
 		llmEndpoint:            cfg.LLMEndpoint,
 		workerCredentialsToken: cfg.WorkerCredentialsToken,
-		seqMap:                 make(map[string]int64),
-		titled:                 make(map[string]bool),
-		consumers:              make(map[string]*consumerHandle),
-		sendFailures:           make(map[string]int),
-		rehydrationActive:      make(map[string]bool),
-		working:                make(map[string]time.Time),
-		appendLocks:            map[string]*sync.Mutex{},
-		statusLocks:            map[string]*sync.Mutex{},
+
+		architectBackend:                cfg.ArchitectBackend,
+		architectDefaultModel:           cfg.ArchitectDefaultModel,
+		architectWorkerCredentialsToken: cfg.ArchitectWorkerCredentialsToken,
+
+		seqMap:            make(map[string]int64),
+		titled:            make(map[string]bool),
+		consumers:         make(map[string]*consumerHandle),
+		sendFailures:      make(map[string]int),
+		rehydrationActive: make(map[string]bool),
+		working:           make(map[string]time.Time),
+		appendLocks:       map[string]*sync.Mutex{},
+		statusLocks:       map[string]*sync.Mutex{},
 	}
 }
 
@@ -592,8 +623,21 @@ func (m *Manager) startConsumer(sessionID string) {
 		// Resolve the session's project once for metric labels; usage frames
 		// carry only the session ID. Project-less global sessions map to "none".
 		project := "none"
-		if sess, err := m.store.GetSession(ctx, sessionID); err == nil && sess.Project != "" {
-			project = sess.Project
+		kind := KindChat
+
+		if sess, err := m.store.GetSession(ctx, sessionID); err == nil {
+			if sess.Project != "" {
+				project = sess.Project
+			}
+
+			kind = sess.Kind
+		}
+
+		backend, err := m.backendFor(kind)
+		if err != nil {
+			m.logger.Error("chat: worker-log consumer has no backend", "session_id", sessionID, "error", err)
+
+			return
 		}
 
 		onEntry := func(e LogEntry) {
@@ -654,7 +698,7 @@ func (m *Manager) startConsumer(sessionID string) {
 				return
 			}
 
-			err := m.backend.StreamLogs(ctx, sessionID, onEntry)
+			err := backend.StreamLogs(ctx, sessionID, onEntry)
 			if err == nil || errors.Is(err, context.Canceled) {
 				// Clean stream close or external cancellation. The
 				// backend has explicitly signalled "no more events"
@@ -742,23 +786,103 @@ func (m *Manager) Close(ctx context.Context) error {
 	}
 }
 
+// backendFor returns the backend that serves sessions of kind. An empty kind
+// is a chat session (rows written before kinds existed read back as chat).
+func (m *Manager) backendFor(kind SessionKind) (Backend, error) {
+	switch kind {
+	case KindChat, "":
+		return m.backend, nil
+	case KindArchitect:
+		if m.architectBackend == nil {
+			return nil, ErrKindUnavailable
+		}
+
+		return m.architectBackend, nil
+	default:
+		return nil, fmt.Errorf("%w: unknown session kind %q", ErrInvalidSessionInput, kind)
+	}
+}
+
 // CreateInput is the user-facing payload for creating a new session.
 type CreateInput struct {
 	Title     string
 	Project   string
 	CreatedBy string
 	Model     string
+	// Kind selects the backend; empty means KindChat.
+	Kind SessionKind
+	// Projects, Mode and CostCapUSD apply to KindArchitect only.
+	Projects   []string
+	Mode       string
+	CostCapUSD float64
 }
 
 // CreateSession inserts a cold-state session row. The container is
 // not started until OpenSession is called.
 func (m *Manager) CreateSession(ctx context.Context, in CreateInput) (Session, error) {
+	kind := in.Kind
+	if kind == "" {
+		kind = KindChat
+	}
+
+	var (
+		workspace []string
+		mode      string
+	)
+
+	switch kind {
+	case KindChat:
+	case KindArchitect:
+		if m.architectBackend == nil {
+			return Session{}, ErrKindUnavailable
+		}
+
+		if in.Project != "" {
+			return Session{}, fmt.Errorf("%w: a blueprint session takes projects, not project", ErrInvalidSessionInput)
+		}
+
+		if len(in.Projects) == 0 {
+			return Session{}, fmt.Errorf("%w: a blueprint session needs at least one project", ErrInvalidSessionInput)
+		}
+
+		for _, p := range in.Projects {
+			if m.resolveProjectExec == nil {
+				continue
+			}
+
+			if _, err := m.resolveProjectExec(ctx, p); err != nil {
+				return Session{}, fmt.Errorf("%w: unknown project %q", ErrInvalidSessionInput, p)
+			}
+		}
+
+		mode = in.Mode
+		if mode == "" {
+			mode = protocol.ArchitectModeDefault
+		}
+
+		if !protocol.ValidArchitectMode(mode) {
+			return Session{}, fmt.Errorf("%w: unknown mode %q", ErrInvalidSessionInput, in.Mode)
+		}
+
+		if in.CostCapUSD < 0 {
+			return Session{}, fmt.Errorf("%w: cost cap must not be negative", ErrInvalidSessionInput)
+		}
+
+		workspace = slices.Clone(in.Projects)
+	default:
+		return Session{}, fmt.Errorf("%w: unknown session kind %q", ErrInvalidSessionInput, in.Kind)
+	}
+
 	now := m.clk.Now().UTC().Truncate(time.Second)
 
 	sess := Session{
 		ID:         NewID(),
 		Title:      in.Title,
 		Project:    in.Project,
+		Kind:       kind,
+		Mode:       mode,
+		CostCapUSD: in.CostCapUSD,
+		Workspace:  workspace,
 		Status:     StatusCold,
 		CreatedAt:  now,
 		LastActive: now,
@@ -951,8 +1075,18 @@ func (m *Manager) ClearContext(ctx context.Context, sessionID string) error {
 // session. The session-not-running guard is checked before entering
 // clearGroup, so this function can assume the session is active or warm-idle.
 func (m *Manager) doClearContext(ctx context.Context, sessionID string) error {
+	sess, err := m.store.GetSession(ctx, sessionID)
+	if err != nil {
+		return fmt.Errorf("chat: ClearContext: %w", err)
+	}
+
+	backend, err := m.backendFor(sess.Kind)
+	if err != nil {
+		return fmt.Errorf("chat: ClearContext: %w", err)
+	}
+
 	clearMsgID := NewID()
-	if err := m.backend.SendChatMessage(ctx, sessionID, "/clear", clearMsgID); err != nil {
+	if err := backend.SendChatMessage(ctx, sessionID, "/clear", clearMsgID); err != nil {
 		return fmt.Errorf("chat: ClearContext: /clear: %w: %w", ErrBackendSend, err)
 	}
 
@@ -1176,7 +1310,9 @@ func (m *Manager) openCold(ctx context.Context, id string) (Session, error) {
 	}
 	defer releaseReservation()
 
-	if m.maxConcurrent > 0 {
+	// Architect sessions run no container and are not counted (see
+	// CountSessionsByStatus).
+	if m.maxConcurrent > 0 && sess.Kind != KindArchitect {
 		// Brief lock window: count persisted active/warm rows + in-flight
 		// reservations, then increment pendingActive if there's room.
 		// Reservations cover the StartChat window so two callers can't
@@ -1206,7 +1342,12 @@ func (m *Manager) openCold(ctx context.Context, id string) (Session, error) {
 		return Session{}, err
 	}
 
-	containerID, err := m.backend.StartChat(ctx, opts)
+	backend, err := m.backendFor(sess.Kind)
+	if err != nil {
+		return Session{}, fmt.Errorf("chat: start container: %w", err)
+	}
+
+	containerID, err := backend.StartChat(ctx, opts)
 	if err != nil {
 		return Session{}, fmt.Errorf("chat: start container: %w", err)
 	}
@@ -1227,7 +1368,7 @@ func (m *Manager) openCold(ctx context.Context, id string) (Session, error) {
 
 		if fresh.Status != StatusCold {
 			// Status drifted while StartChat was in flight. Roll back.
-			m.rollbackContainer(ctx, "status drift during StartChat", sess.ID, containerID, nil)
+			m.rollbackContainer(ctx, "status drift during StartChat", sess.Kind, sess.ID, containerID, nil)
 
 			persistErr = fmt.Errorf("chat: openCold: session status changed during StartChat (now %q)", fresh.Status)
 
@@ -1245,7 +1386,7 @@ func (m *Manager) openCold(ctx context.Context, id string) (Session, error) {
 
 		if err := m.store.UpdateSession(ctx, fresh); err != nil {
 			// Roll back the container start so we don't leak.
-			m.rollbackContainer(ctx, "persist active failure", sess.ID, containerID, err)
+			m.rollbackContainer(ctx, "persist active failure", sess.Kind, sess.ID, containerID, err)
 
 			return fmt.Errorf("chat: persist active: %w", err)
 		}
@@ -1286,7 +1427,7 @@ func (m *Manager) openCold(ctx context.Context, id string) (Session, error) {
 			delete(m.rehydrationActive, sess.ID)
 			m.mu.Unlock()
 
-			m.rollbackContainer(ctx, "rehydration persist failure", sess.ID, containerID, err)
+			m.rollbackContainer(ctx, "rehydration persist failure", sess.Kind, sess.ID, containerID, err)
 
 			// Rollback persist uses a fresh background context so a cancelled
 			// caller ctx (e.g. the HTTP request that initiated OpenSession
@@ -1330,6 +1471,33 @@ func (m *Manager) openCold(ctx context.Context, id string) (Session, error) {
 // coldPrep gathers the inputs needed by Backend.StartChat for a cold open.
 // Returns the options struct and an error if any preparatory step failed.
 func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, error) {
+	if sess.Kind == KindArchitect {
+		model := sess.Model
+		if model == "" {
+			model = m.architectDefaultModel
+		}
+
+		var token string
+		if m.architectWorkerCredentialsToken != nil {
+			token = m.architectWorkerCredentialsToken(sess.ID)
+		}
+
+		m.logger.Info("chat: opening cold blueprint session",
+			"session_id", sess.ID, "projects", sess.Workspace, "mode", sess.Mode, "model", model)
+
+		return StartChatOpts{
+			SessionID:           sess.ID,
+			Model:               model,
+			LLMEndpoint:         m.llmEndpoint,
+			GitCredentialsToken: token,
+			Architect: &protocol.ArchitectStart{
+				Projects:   sess.Workspace,
+				Mode:       sess.Mode,
+				CostCapUSD: sess.CostCapUSD,
+			},
+		}, nil
+	}
+
 	var execInfo ProjectExecInfo
 
 	if sess.Project != "" && m.resolveProjectExec != nil {
@@ -1380,8 +1548,16 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, er
 // rollbackContainer ends the worker container started during a cold open and
 // logs the rollback reason. Should be called when openCold fails after the
 // container has been provisioned.
-func (m *Manager) rollbackContainer(_ context.Context, reason, sessID, containerID string, opErr error) {
-	if rbErr := m.backend.EndChat(context.Background(), sessID); rbErr != nil {
+func (m *Manager) rollbackContainer(_ context.Context, reason string, kind SessionKind, sessID, containerID string, opErr error) {
+	backend, err := m.backendFor(kind)
+	if err != nil {
+		m.logger.Warn("chat: rollback has no backend",
+			"reason", reason, "session_id", sessID, "container_id", containerID, "error", err)
+
+		return
+	}
+
+	if rbErr := backend.EndChat(context.Background(), sessID); rbErr != nil {
 		m.logger.Warn("chat: rollback EndChat failed",
 			"reason", reason,
 			"session_id", sessID,
@@ -1768,7 +1944,10 @@ func (m *Manager) EndSession(ctx context.Context, id string) error {
 		// status=ending row is safe. Held under statusLock so no racing
 		// OpenSession can re-read sess.Status=active/warm-idle and
 		// reattach to the now-dead container.
-		if err := m.backend.EndChat(ctx, sess.ID); err != nil {
+		if backend, err := m.backendFor(sess.Kind); err != nil {
+			m.logger.Warn("chat: no backend for session kind, marking cold anyway",
+				"session_id", sess.ID, "error", err)
+		} else if err := backend.EndChat(ctx, sess.ID); err != nil {
 			m.logger.Warn("chat: backend end failed, marking cold anyway",
 				"session_id", sess.ID, "error", err)
 		}
@@ -1994,7 +2173,12 @@ func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string
 	m.logger.Info("chat: forwarding user message to backend",
 		"session_id", sessionID, "message_id", msgID, "content_len", len(content))
 
-	if err := m.backend.SendChatMessage(ctx, sessionID, content, msgID); err != nil {
+	backend, err := m.backendFor(sess.Kind)
+	if err != nil {
+		return "", err
+	}
+
+	if err := backend.SendChatMessage(ctx, sessionID, content, msgID); err != nil {
 		m.recordSendFailure(ctx, sessionID, err)
 
 		return "", err
