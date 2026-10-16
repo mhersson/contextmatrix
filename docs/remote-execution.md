@@ -441,8 +441,8 @@ protocol. CM drives it with the same `POST /chat/start`, `POST /chat/end` and
 `POST /message`, and reads its signed `GET /logs?session_id=` stream into the
 transcript, all signed with the architect entry's `api_key`. CM sends no
 health or readiness probe to it. A session is a blueprint bound to its
-session id, not a container: `container_id` stays empty. Differences from a
-chat start:
+session id, not a container; CM records whatever `container_id` the start
+response returns. Differences from a chat start:
 
 | Field                                           | Architect start                                                                                                         |
 | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
