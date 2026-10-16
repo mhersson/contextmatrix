@@ -18,12 +18,12 @@ import (
 	"github.com/mhersson/contextmatrix/internal/metrics"
 )
 
-// ErrTooManyConcurrent is returned by OpenSession when the number of active
-// or warm-idle sessions has reached the configured MaxConcurrent ceiling.
-// errArchitectNotLive means a restart found the row gone, cold or not an
-// architect, so nothing is left for a consumer to serve.
+// errArchitectNotLive means a restart found the row cold or not an architect,
+// so nothing is left for a consumer to serve.
 var errArchitectNotLive = errors.New("chat: architect session is not live")
 
+// ErrTooManyConcurrent is returned by OpenSession when the number of active
+// or warm-idle sessions has reached the configured MaxConcurrent ceiling.
 var ErrTooManyConcurrent = errors.New("chat: too many concurrent sessions")
 
 // ErrBackendSend is the sentinel wrapped around Backend.SendChatMessage
@@ -1553,7 +1553,8 @@ func (m *Manager) openCold(ctx context.Context, id string) (Session, error) {
 // restartArchitect re-sends /chat/start for an active or warm-idle architect
 // session the architect lost. It sends the plain cold-open inputs, never a
 // resume, and does not write the row; the architect no-ops a start for a held
-// session, or returns errArchitectNotLive for any other row. The status lock keeps the start from landing after EndSession's EndChat.
+// session, or returns errArchitectNotLive for any other row. The status lock
+// keeps the start from landing after EndSession's EndChat.
 func (m *Manager) restartArchitect(ctx context.Context, sessionID string) error {
 	_, err, _ := m.restartGroup.Do(sessionID, func() (any, error) {
 		return nil, m.withStatusLock(sessionID, func() error {

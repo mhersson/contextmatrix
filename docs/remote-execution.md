@@ -465,8 +465,9 @@ answer an unknown session with 404 `not_found` and treat a start for a session
 it already holds as a no-op. CM also re-sends `/chat/start` with the same
 payload when the architect's `/logs` stream ends or drops, and before the first
 stream of a consumer CM attaches after its own restart; frames the architect
-publishes in between are kept and replayed. Chat sessions do not take these
-paths.
+publishes in between are kept and replayed. The consumer stops once its
+session row is gone, cold or no longer an architect session. Chat sessions do
+not take these paths.
 
 ### Task/chat backend → CM: log stream
 
