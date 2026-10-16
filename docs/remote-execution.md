@@ -456,6 +456,14 @@ response returns. Differences from a chat start:
 `/chat/start` for the same session id. Architect sessions do not count toward
 `chat.max_concurrent`.
 
+Recovery: when a `/message` is answered with 404 and the protocol's `not_found`
+code (the architect restarted and no longer holds the session), CM re-sends
+`/chat/start` with the same payload as a cold open, never a resume, then sends
+the message once more with the same message id. The session row is not
+written, and a second failure is returned to the caller. The architect must
+answer an unknown session with 404 `not_found` and treat a start for a session
+it already holds as a no-op. Chat sessions do not take this path.
+
 ### Task/chat backend → CM: log stream
 
 #### GET {backend_url}/logs

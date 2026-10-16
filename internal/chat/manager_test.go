@@ -4787,3 +4787,113 @@ func TestHandleUsageEntry_RowModel(t *testing.T) {
 		})
 	}
 }
+
+func errSessionUnknown() error {
+	return fmt.Errorf("chat: /message: status 404: %w", chat.ErrSessionUnknown)
+}
+
+func openArchitect(t *testing.T, mgr *chat.Manager) chat.Session {
+	t.Helper()
+
+	ctx := context.Background()
+
+	bp, err := mgr.CreateSession(ctx, chat.CreateInput{Kind: chat.KindArchitect, Projects: []string{"alpha"}, CreatedBy: "human:web"})
+	require.NoError(t, err)
+
+	_, err = mgr.OpenSession(ctx, bp.ID)
+	require.NoError(t, err)
+
+	return bp
+}
+
+func TestManager_SendUserMessage_ArchitectRestartsAndResendsOnUnknownSession(t *testing.T) {
+	mgr, _, arch := newManagerWithArchitectStub(t)
+	ctx := context.Background()
+	bp := openArchitect(t, mgr)
+	require.Equal(t, int64(1), arch.startCalls.Load())
+
+	arch.mu.Lock()
+	arch.sendErrSeq = []error{errSessionUnknown(), nil}
+	arch.mu.Unlock()
+
+	msgID, err := mgr.SendUserMessage(ctx, bp.ID, "approve")
+	require.NoError(t, err)
+
+	assert.Equal(t, int64(2), arch.startCalls.Load(), "one re-sent start")
+
+	arch.mu.Lock()
+	opts := arch.lastOpts
+	sends := append([]sendArg(nil), arch.sendArgs...)
+	arch.mu.Unlock()
+
+	require.NotNil(t, opts.Architect, "the plain cold-open inputs: the architect block")
+	assert.Equal(t, []string{"alpha"}, opts.Architect.Projects)
+	assert.Nil(t, opts.Resume, "architect sessions never rehydrate")
+	assert.Equal(t, "arch-token-"+bp.ID, opts.GitCredentialsToken)
+
+	require.Len(t, sends, 2)
+	assert.Equal(t, msgID, sends[0].MessageID)
+	assert.Equal(t, msgID, sends[1].MessageID, "the same message id")
+
+	msgs, err := mgr.ListMessages(ctx, bp.ID, 0, 100)
+	require.NoError(t, err)
+
+	users := 0
+
+	for _, m := range msgs {
+		if m.Role == chat.RoleUser {
+			users++
+		}
+	}
+
+	assert.Equal(t, 1, users, "persisted once")
+
+	sess, err := mgr.GetSession(ctx, bp.ID)
+	require.NoError(t, err)
+	assert.Equal(t, chat.StatusActive, sess.Status, "the row is unchanged")
+}
+
+func TestManager_SendUserMessage_ArchitectRetriesOnce(t *testing.T) {
+	mgr, _, arch := newManagerWithArchitectStub(t)
+	ctx := context.Background()
+	bp := openArchitect(t, mgr)
+
+	arch.mu.Lock()
+	arch.sendErrSeq = []error{errSessionUnknown(), errSessionUnknown(), nil}
+	arch.mu.Unlock()
+
+	_, err := mgr.SendUserMessage(ctx, bp.ID, "approve")
+	require.ErrorIs(t, err, chat.ErrSessionUnknown)
+	assert.Equal(t, int64(2), arch.sendCalls.Load(), "one retry, no loop")
+
+	msgs, err := mgr.ListMessages(ctx, bp.ID, 0, 100)
+	require.NoError(t, err)
+
+	for _, m := range msgs {
+		assert.NotEqual(t, chat.RoleUser, m.Role, "a failed send persists nothing")
+	}
+}
+
+func TestManager_SendUserMessage_ChatDoesNotRestartOnUnknownSession(t *testing.T) {
+	mgr, backend, _ := newManagerWithStubs(t)
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Project: "alpha", CreatedBy: "x"})
+	require.NoError(t, err)
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+
+	starts := backend.startCalls.Load()
+
+	backend.mu.Lock()
+	backend.sendErr = errSessionUnknown()
+	backend.mu.Unlock()
+
+	_, err = mgr.SendUserMessage(ctx, sess.ID, "hi")
+	require.Error(t, err)
+	assert.Equal(t, starts, backend.startCalls.Load(), "chat sessions take today's path")
+
+	got, err := mgr.GetSession(ctx, sess.ID)
+	require.NoError(t, err)
+	assert.Equal(t, chat.StatusActive, got.Status)
+}
