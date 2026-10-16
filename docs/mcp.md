@@ -84,9 +84,10 @@ Every phase and gate is specified in [agent workflow](agent-workflow.md).
 
 ## Tools
 
-The server registers up to 40 tools. The eight playbook tools are absent while a
-project named `playbooks` disables the playbook subsystem, and `run_card`
-registers only when a task backend is configured.
+The server registers up to 41 tools. The eight playbook tools are absent while a
+project named `playbooks` disables the playbook subsystem, `run_card`
+registers only when a task backend is configured, and `run_playbook` registers
+only when a task backend is configured and the playbook subsystem is enabled.
 The "Caller" column uses these values:
 
 | Value      | Meaning                                                          |
@@ -126,6 +127,7 @@ The "Caller" column uses these values:
 | `increment_review_attempts` | Bump `review_attempts`; the server caps it at 7             | claim  |
 | `promote_to_autonomous`     | Flip `autonomous` to true; idempotent; 409 on terminal cards | human |
 | `run_card`                  | Start an autonomous (Run Auto) agent-backend run; a non-autonomous `todo` card is set autonomous first | human |
+| `run_playbook`              | Make a playbook runnable if it is not, then play it; same guards as the playbook page | human |
 
 ### Workflow skills
 
@@ -175,8 +177,9 @@ vetted cards see the real title.
 | `update_playbook_entry` | Done state, note, text, or position                  | any    |
 | `remove_playbook_entry` | Remove one entry; its id is never reused             | any    |
 
-Making a playbook runnable, playing and stopping it are human-only web UI
-operations; no tool exposes them. Card summaries (`get_card`, `list_cards`,
+Making a playbook runnable and playing it are available to a `human:` caller
+through `run_playbook`; stopping a run and setting the base branch stay web UI
+controls. Card summaries (`get_card`, `list_cards`,
 task context) carry `playbook_lock` mirrored from the card, naming the
 runnable playbook that owns its execution settings.
 

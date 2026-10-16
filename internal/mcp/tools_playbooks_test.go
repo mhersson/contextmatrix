@@ -23,7 +23,7 @@ import (
 // setupMCPWithPlaybooks builds the same environment as setupMCP but also
 // wires the playbook subsystem (store + service) into the MCP server, for
 // tests exercising the playbook tools. Mirrors setupMCP's construction.
-func setupMCPWithPlaybooks(t *testing.T) *testEnv {
+func setupMCPWithPlaybooks(t *testing.T, opts ...func(*ServerConfig)) *testEnv {
 	t.Helper()
 
 	tmpDir := t.TempDir()
@@ -75,11 +75,17 @@ func setupMCPWithPlaybooks(t *testing.T) *testEnv {
 		require.NoError(t, os.WriteFile(filepath.Join(workflowSkillsDir, name), []byte(content), 0o644))
 	}
 
-	server := NewServer(ServerConfig{
+	scfg := ServerConfig{
 		Service:           svc,
 		WorkflowSkillsDir: workflowSkillsDir,
 		Playbooks:         pbSvc,
-	})
+	}
+
+	for _, opt := range opts {
+		opt(&scfg)
+	}
+
+	server := NewServer(scfg)
 
 	ctx, cancel := context.WithCancel(context.Background())
 

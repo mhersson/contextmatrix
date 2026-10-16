@@ -769,7 +769,7 @@ A playbook is a cross-project ordered list of steps: card references, manual
 gate steps, or both. Playbooks are global team artifacts stored one file per
 playbook at `<boards.dir>/playbooks/<id>.yaml`, at the top level of the boards
 repo. Order is array order. A playbook is coordination state until a human
-makes it runnable; then its cards carry forced execution settings and a run
+makes it runnable (web UI or `run_playbook`); then its cards carry forced execution settings and a run
 can be played (see [playbooks](playbooks.md#running-a-playbook)).
 
 Each boards repo has its own `playbooks/` directory. IDs are unique across
@@ -897,7 +897,7 @@ type PlaybookRun struct {
 that joins card entries against the live card store; see the
 [API reference](api-reference.md) for the JSON shape.
 
-`Runnable` is human-set and forces five card settings (see
+`Runnable` is human-set (web UI or the `run_playbook` MCP tool) and forces five card settings (see
 [playbooks](playbooks.md#make-runnable)). `BaseBranch` is the branch
 `playbook/<id>` is cut from on the first run; empty means the repository
 default. `Run` is present once a run has started; `Status` is `running`,

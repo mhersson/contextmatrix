@@ -38,6 +38,19 @@ func resultIsError(result *mcp.CallToolResult, err error) bool {
 	return result != nil && result.IsError
 }
 
+// resultText concatenates a tool result's text content.
+func resultText(result *mcp.CallToolResult) string {
+	var sb strings.Builder
+
+	for _, c := range result.Content {
+		if tc, ok := c.(*mcp.TextContent); ok {
+			sb.WriteString(tc.Text)
+		}
+	}
+
+	return sb.String()
+}
+
 // errorText extracts the error string from a failed tool result.
 func errorText(result *mcp.CallToolResult, err error) string {
 	if err != nil {

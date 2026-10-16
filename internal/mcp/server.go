@@ -68,6 +68,10 @@ type ServerConfig struct {
 	// CardRunner is optional; the run_card tool is registered only when set.
 	// The router binds the slot after the MCP server exists.
 	CardRunner *RunnerSlot
+
+	// PlaybookPlayer is optional; the run_playbook tool is registered only
+	// when it and Playbooks are set.
+	PlaybookPlayer PlaybookPlayer
 }
 
 // NewServer creates a configured MCP server with all tools and prompts registered.
@@ -91,6 +95,7 @@ func NewServer(cfg ServerConfig) *mcp.Server {
 		AwaitMax:          cfg.AwaitMax,
 		Playbooks:         cfg.Playbooks,
 		CardRunner:        cfg.CardRunner,
+		PlaybookPlayer:    cfg.PlaybookPlayer,
 	})
 	registerPrompts(server, cfg.Service, cfg.WorkflowSkillsDir)
 
@@ -244,6 +249,12 @@ func mcpRequestInfoMiddleware(next http.Handler) http.Handler {
 							// absolute deadline not reset by writes.
 							_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
 						}
+
+						if msg.Params.Name == "run_playbook" {
+							// Play can wait behind a Stop of the same playbook,
+							// past the 60s WriteTimeout; REST bounds it the same way.
+							_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(runPlaybookWriteTimeout))
+						}
 					}
 				}
 			}
@@ -252,6 +263,10 @@ func mcpRequestInfoMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
+
+// runPlaybookWriteTimeout bounds a run_playbook call: Play can wait behind a
+// Stop of the same playbook for up to about two minutes.
+const runPlaybookWriteTimeout = 3 * time.Minute
 
 // maxLogFieldLen bounds the mcp_method / mcp_tool values written to the request
 // log line. Real MCP method names and tool names are <40 chars; 64 leaves room

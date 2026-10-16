@@ -57,7 +57,9 @@ read `queued` while a run is active (see [web UI](web-ui.md#playbooks)).
 ## Running a playbook
 
 Playbooks start not runnable. A human makes one runnable from the detail
-page; the switch opens a warning that lists exactly what follows.
+page (the switch opens a warning that lists exactly what follows) or through
+the `run_playbook` MCP tool, which makes it runnable if it is not and then
+plays it.
 
 ### Make runnable
 
@@ -182,7 +184,8 @@ it is on the next card, the run waits on it until the claim goes.
 ### Play and Stop
 
 See [Playbook runs](running-cards.md#playbook-runs) for the runner's
-behavior. Both controls are human-only.
+behavior. Both controls are human-only; `run_playbook` is the MCP path to Play
+and is gated on a `human:` caller. Stop is a web UI control only.
 
 - **Play** requires the playbook to be runnable and no run already active
   (`409 PLAYBOOK_RUN_ACTIVE`), and a configured task backend
@@ -219,7 +222,8 @@ is skipped with a warning.
 ## API and MCP
 
 Playbook tools and routes are registered only while the subsystem is enabled.
-All eight MCP tools are ungated; the human-only nature of notes is a contract
+Eight MCP tools are ungated; `run_playbook` is a ninth, gated on a `human:`
+`agent_id` and registered only when a task backend is configured. The human-only nature of notes is a contract
 the agent-facing context honours, not a permission check. `agent_id` is
 required on mutations for `created_by` and `done_by` attribution.
 
@@ -233,6 +237,7 @@ required on mutations for `created_by` and `done_by` attribution.
 | `add_playbook_entry`    | `POST /api/playbooks/{id}/entries`             | Appends one card or manual entry                                         |
 | `update_playbook_entry` | `PATCH /api/playbooks/{id}/entries/{entryId}`  | `done` and `text` (manual only), `note` (both), `position`               |
 | `remove_playbook_entry` | `DELETE /api/playbooks/{id}/entries/{entryId}` | Removes one entry                                                        |
+| `run_playbook`          | `PATCH /api/playbooks/{id}` (`runnable`) then `POST /api/playbooks/{id}/run` | Human-only; makes it runnable if it is not, then plays it |
 
 `position` is the entry's final index after the move; values past the end
 clamp, negative values are rejected, and no move is accepted while a run is

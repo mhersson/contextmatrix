@@ -73,7 +73,7 @@ DELETE /api/playbooks/{id}                             # delete playbook
 POST   /api/playbooks/{id}/entries                     # append entry (card reference or manual step)
 PATCH  /api/playbooks/{id}/entries/{entryId}            # update entry (done/note/text/position)
 DELETE /api/playbooks/{id}/entries/{entryId}            # remove entry
-POST   /api/playbooks/{id}/run                         # play or resume a runnable playbook (human-only)
+POST   /api/playbooks/{id}/run                         # play or resume a runnable playbook (human-only; MCP equivalent: `run_playbook`)
 POST   /api/playbooks/{id}/stop                        # stop the run and kill every live worker of its cards on this instance (human-only)
 
 GET    /api/task-skills                                # list available task skill names
@@ -2025,7 +2025,8 @@ cards - session in multi mode, else `X-Agent-ID`, falling back to
 
 ### POST /api/playbooks/{id}/run
 
-Play starts a run, or resumes a `stopped` one. Human-only. A `running` or
+Play starts a run, or resumes a `stopped` one. Human-only; the MCP equivalent
+is `run_playbook`, which also makes the playbook runnable first. A `running` or
 `waiting` run is refused with `409 PLAYBOOK_RUN_ACTIVE`; resume a `waiting`
 run with Stop, then Play. Writes the run block with `status: running` and
 `reason` cleared. `entry` is cleared unless a card entry still has a live

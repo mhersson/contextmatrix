@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -129,6 +130,148 @@ func TestRunCardTool(t *testing.T) {
 
 		for _, tool := range tools.Tools {
 			assert.NotEqual(t, "run_card", tool.Name)
+		}
+	})
+}
+
+// fakePlayer records each Play and answers with err, or with a minimal
+// detail of a runnable playbook.
+type fakePlayer struct {
+	calls []string
+	err   error
+}
+
+func (f *fakePlayer) Play(_ context.Context, id, agentID string) (*service.PlaybookDetail, error) {
+	f.calls = append(f.calls, id+"|"+agentID)
+
+	if f.err != nil {
+		return nil, f.err
+	}
+
+	return &service.PlaybookDetail{ID: id, Runnable: true}, nil
+}
+
+func setupRunPlaybook(t *testing.T, playErr error) (*testEnv, *fakePlayer) {
+	t.Helper()
+
+	f := &fakePlayer{err: playErr}
+	env := setupMCPWithPlaybooks(t, func(c *ServerConfig) { c.PlaybookPlayer = f })
+
+	return env, f
+}
+
+// newPlaybook creates a playbook over the given cards through the MCP tool
+// and returns its id.
+func newPlaybook(t *testing.T, env *testEnv, title string, cardIDs ...string) string {
+	t.Helper()
+
+	entries := make([]any, 0, len(cardIDs))
+	for _, id := range cardIDs {
+		entries = append(entries, map[string]any{"type": "card", "project": "test-project", "card": id})
+	}
+
+	result, err := callToolRaw(t, env, "create_playbook", map[string]any{"agent_id": "human:alice", "title": title, "entries": entries})
+	require.False(t, resultIsError(result, err), errorText(result, err))
+
+	var summary service.PlaybookSummary
+	require.NoError(t, json.Unmarshal([]byte(resultText(result)), &summary))
+
+	return summary.ID
+}
+
+func playbookRunnable(t *testing.T, env *testEnv, id string) bool {
+	t.Helper()
+
+	result, err := callToolRaw(t, env, "get_playbook", map[string]any{"id": id})
+	require.False(t, resultIsError(result, err), errorText(result, err))
+
+	var detail service.PlaybookDetail
+	require.NoError(t, json.Unmarshal([]byte(resultText(result)), &detail))
+
+	return detail.Runnable
+}
+
+func TestRunPlaybookTool(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("a non-human caller is refused before any write", func(t *testing.T) {
+		env, f := setupRunPlaybook(t, nil)
+		card := createTestCard(t, env, "Run me", "task", "medium")
+		id := newPlaybook(t, env, "Ship it", card.ID)
+
+		result, err := callToolRaw(t, env, "run_playbook", map[string]any{"id": id, "agent_id": "agent:x"})
+		assert.Contains(t, errorText(result, err), "run_playbook is human-only")
+		assert.Empty(t, f.calls)
+		assert.False(t, playbookRunnable(t, env, id))
+	})
+
+	t.Run("a playbook that is not runnable is made runnable, then played", func(t *testing.T) {
+		env, f := setupRunPlaybook(t, nil)
+		card := createTestCard(t, env, "Run me", "task", "medium")
+		id := newPlaybook(t, env, "Ship it", card.ID)
+
+		result, err := callToolRaw(t, env, "run_playbook", map[string]any{"id": id, "agent_id": "human:alice"})
+		require.False(t, resultIsError(result, err), errorText(result, err))
+
+		assert.Equal(t, []string{id + "|human:alice"}, f.calls)
+		assert.True(t, playbookRunnable(t, env, id))
+
+		forced, err := env.svc.GetCard(ctx, "test-project", card.ID)
+		require.NoError(t, err)
+		assert.True(t, forced.Autonomous)
+		assert.True(t, forced.CreatePR)
+		assert.True(t, forced.AwaitCI)
+		assert.True(t, forced.MergePR)
+		assert.Equal(t, "playbook/"+id, forced.BaseBranch)
+	})
+
+	t.Run("a runnable playbook is played again without a second make-runnable", func(t *testing.T) {
+		env, f := setupRunPlaybook(t, nil)
+		card := createTestCard(t, env, "Run me", "task", "medium")
+		id := newPlaybook(t, env, "Ship it", card.ID)
+
+		for range 2 {
+			result, err := callToolRaw(t, env, "run_playbook", map[string]any{"id": id, "agent_id": "human:alice"})
+			require.False(t, resultIsError(result, err), errorText(result, err))
+		}
+
+		assert.Len(t, f.calls, 2)
+	})
+
+	t.Run("a card owned by another runnable playbook stops make-runnable and Play", func(t *testing.T) {
+		env, f := setupRunPlaybook(t, nil)
+		card := createTestCard(t, env, "Run me", "task", "medium")
+		first := newPlaybook(t, env, "First", card.ID)
+		second := newPlaybook(t, env, "Second", card.ID)
+
+		result, err := callToolRaw(t, env, "run_playbook", map[string]any{"id": first, "agent_id": "human:alice"})
+		require.False(t, resultIsError(result, err), errorText(result, err))
+
+		result, err = callToolRaw(t, env, "run_playbook", map[string]any{"id": second, "agent_id": "human:alice"})
+		assert.Contains(t, errorText(result, err), "make runnable")
+		assert.Equal(t, []string{first + "|human:alice"}, f.calls, "the second playbook is never played")
+		assert.False(t, playbookRunnable(t, env, second))
+	})
+
+	t.Run("a refused Play reaches the caller and the playbook stays runnable", func(t *testing.T) {
+		env, f := setupRunPlaybook(t, errors.New("no execution backend is configured"))
+		card := createTestCard(t, env, "Run me", "task", "medium")
+		id := newPlaybook(t, env, "Ship it", card.ID)
+
+		result, err := callToolRaw(t, env, "run_playbook", map[string]any{"id": id, "agent_id": "human:alice"})
+		assert.Contains(t, errorText(result, err), "no execution backend is configured")
+		assert.Len(t, f.calls, 1)
+		assert.True(t, playbookRunnable(t, env, id))
+	})
+
+	t.Run("the tool is absent without a player", func(t *testing.T) {
+		env := setupMCPWithPlaybooks(t)
+
+		res, err := env.session.ListTools(ctx, nil)
+		require.NoError(t, err)
+
+		for _, tool := range res.Tools {
+			assert.NotEqual(t, "run_playbook", tool.Name)
 		}
 	})
 }
