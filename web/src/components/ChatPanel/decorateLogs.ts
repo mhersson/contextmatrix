@@ -24,13 +24,14 @@ const SYSTEM_EVENT_JSON = /^\s*\{"/;
 /** Filter-bar predicate: text / tool traffic / thinking are toggleable, tool
  *  results ride the Tool calls checkbox, stderr drops INFO/DEBUG slog
  *  diagnostics and system drops raw JSON event dumps unconditionally;
- *  everything else always shows. */
+ *  everything else always shows. An architect prompt shows with Text off:
+ *  it may be waiting on the user. */
 export function filterLogEntries(
   logs: readonly LogEntry[],
   prefs: ChatFilterPrefs,
 ): LogEntry[] {
   return logs.filter((e) => {
-    if (e.type === 'text') return prefs.showText;
+    if (e.type === 'text') return e.kind === 'prompt' || prefs.showText;
     if (e.type === 'tool_call' || e.type === 'tool_result') return prefs.showToolCalls;
     if (e.type === 'thinking') return prefs.showThinking;
     if (e.type === 'stderr') return !SLOG_DIAGNOSTIC.test(e.content);
