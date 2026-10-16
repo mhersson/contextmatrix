@@ -5221,6 +5221,51 @@ func TestManager_Consumer_ArchitectBacksOffWhenTheRestartFails(t *testing.T) {
 	require.Eventually(t, func() bool { return streams.Load() == 2 }, 5*time.Second, 10*time.Millisecond)
 }
 
+// A consumer deep in backoff reconnects as soon as the send path has
+// restarted the architect, and sends no start of its own on top of it.
+func TestManager_Consumer_ArchitectReconnectsAtOnceAfterTheSendPathRestart(t *testing.T) {
+	mgr, _, arch := newManagerWithArchitectStub(t)
+
+	var streams atomic.Int64
+
+	arch.streamLogsFn = func(ctx context.Context, _ string, _ func(chat.LogEntry)) error {
+		if streams.Add(1) == 1 {
+			arch.mu.Lock()
+			arch.startErr = errors.New("architect down")
+			arch.mu.Unlock()
+
+			return nil
+		}
+
+		<-ctx.Done()
+
+		return ctx.Err()
+	}
+
+	bp := openArchitect(t, mgr)
+
+	// The cold open plus three failed restarts after waits of 250 ms, 500 ms
+	// and 1 s: the consumer is now in a 2 s backoff.
+	require.Eventually(t, func() bool { return arch.startCalls.Load() == 4 }, 5*time.Second, 5*time.Millisecond)
+
+	arch.mu.Lock()
+	arch.startErr = nil
+	arch.sendErrSeq = []error{errSessionUnknown(), nil}
+	arch.mu.Unlock()
+
+	sendDone := make(chan error, 1)
+
+	go func() {
+		_, err := mgr.SendUserMessage(context.Background(), bp.ID, "approve")
+		sendDone <- err
+	}()
+
+	require.Eventually(t, func() bool { return streams.Load() == 2 }, time.Second, 5*time.Millisecond,
+		"the consumer reconnects well inside its 2 s backoff")
+	require.NoError(t, <-sendDone)
+	assert.Equal(t, int64(5), arch.startCalls.Load(), "the woken consumer sent no start of its own")
+}
+
 // Streams end at once and every restart succeeds: only the wait between
 // restarts keeps the consumer from spinning. With backoff 250 ms, 500 ms,
 // 1 s about 3 streams fit the 1.2 s window; a spin would hit the stub's cap.

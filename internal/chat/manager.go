@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -471,6 +472,10 @@ func (m *Manager) decorateWorking(sess *Session) {
 type consumerHandle struct {
 	cancel context.CancelFunc
 	done   chan struct{}
+	// wake cuts an architect consumer's backoff short. starts counts the
+	// architect starts that succeeded while this consumer ran.
+	wake   chan struct{}
+	starts atomic.Uint64
 }
 
 // roleFromLogType maps a backend LogEntry.Type to a chat.Role.
@@ -628,7 +633,7 @@ func (m *Manager) startConsumer(sessionID string, restart bool) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	handle := &consumerHandle{cancel: cancel, done: make(chan struct{})}
+	handle := &consumerHandle{cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1)}
 	m.consumers[sessionID] = handle
 	m.mu.Unlock()
 
@@ -739,6 +744,11 @@ func (m *Manager) startConsumer(sessionID string, restart bool) {
 				return false
 			case <-time.After(backoff):
 				return true
+			case <-handle.wake:
+				// A successful restart proves the architect is live.
+				attempt = 0
+
+				return true
 			}
 		}
 
@@ -746,12 +756,20 @@ func (m *Manager) startConsumer(sessionID string, restart bool) {
 		// /logs answers any id, so the start goes out before every stream
 		// that follows a lost one.
 		pendingStart := restart && kind == KindArchitect
+		lost := handle.starts.Load()
 
 		for {
 			if ctx.Err() != nil {
 				m.logger.Info("chat: worker-log consumer stopped", "session_id", sessionID)
 
 				return
+			}
+
+			// A start that succeeded since the stream was lost already
+			// restored the session. Re-sending it in the same second would
+			// repeat a signed request and the replay cache would reject it.
+			if pendingStart && handle.starts.Load() != lost {
+				pendingStart = false
 			}
 
 			if pendingStart {
@@ -787,6 +805,7 @@ func (m *Manager) startConsumer(sessionID string, restart bool) {
 
 			if kind == KindArchitect {
 				pendingStart = true
+				lost = handle.starts.Load()
 
 				if err == nil {
 					err = errors.New("architect closed the log stream")
@@ -1574,7 +1593,7 @@ func (m *Manager) waitPastSecond(ctx context.Context, t time.Time) error {
 // EndSession's EndChat.
 func (m *Manager) restartArchitect(ctx context.Context, sessionID string) error {
 	_, err, _ := m.restartGroup.Do(sessionID, func() (any, error) {
-		return nil, m.withStatusLock(sessionID, func() error {
+		if err := m.withStatusLock(sessionID, func() error {
 			sess, err := m.store.GetSession(ctx, sessionID)
 			if err != nil {
 				return fmt.Errorf("chat: restart architect: %w", err)
@@ -1601,10 +1620,40 @@ func (m *Manager) restartArchitect(ctx context.Context, sessionID string) error 
 			m.logger.Info("chat: architect session restarted in place", "session_id", sessionID)
 
 			return nil
-		})
+		}); err != nil {
+			return nil, err
+		}
+
+		// Outside the status lock; m.mu only guards the consumers map.
+		m.mu.Lock()
+		if h, ok := m.consumers[sessionID]; ok {
+			h.starts.Add(1)
+		}
+		m.mu.Unlock()
+
+		return nil, nil
 	})
 
 	return err
+}
+
+// wakeConsumer cuts the session's consumer backoff short. Only the send path
+// calls it: a wake from restartArchitect would leave the consumer's own
+// restarts a token that shortens every later backoff, a spin on a stream that
+// keeps ending.
+func (m *Manager) wakeConsumer(sessionID string) {
+	m.mu.Lock()
+	h, ok := m.consumers[sessionID]
+	m.mu.Unlock()
+
+	if !ok {
+		return
+	}
+
+	select {
+	case h.wake <- struct{}{}:
+	default:
+	}
 }
 
 // coldPrep gathers the inputs needed by Backend.StartChat for a cold open.
@@ -2342,13 +2391,17 @@ func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string
 
 		if rerr := m.restartArchitect(ctx, sessionID); rerr != nil {
 			err = errors.Join(err, rerr)
-		} else if werr := m.waitPastSecond(ctx, firstSend); werr != nil {
-			err = errors.Join(err, werr)
 		} else {
-			// The architect's replay cache already holds the first send's
-			// whole-second (timestamp, signature) pair despite the 404, so the
-			// re-send must sign in a later second.
-			err = backend.SendChatMessage(ctx, sessionID, content, msgID)
+			m.wakeConsumer(sessionID)
+
+			if werr := m.waitPastSecond(ctx, firstSend); werr != nil {
+				err = errors.Join(err, werr)
+			} else {
+				// The architect's replay cache already holds the first send's
+				// whole-second (timestamp, signature) pair despite the 404, so
+				// the re-send must sign in a later second.
+				err = backend.SendChatMessage(ctx, sessionID, content, msgID)
+			}
 		}
 	}
 

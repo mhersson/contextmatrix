@@ -462,7 +462,9 @@ code (the architect restarted and no longer holds the session), CM re-sends
 until the clock passes the second the first send was signed in (the architect's
 replay cache already recorded that whole-second timestamp and signature pair)
 and sends the message once more with the same message id. The session row is not
-written, and a second failure is returned to the caller. The architect must
+written, and a second failure is returned to the caller. After that re-sent
+start, an architect consumer waiting out its backoff reconnects at once, without
+a start of its own. The architect must
 answer an unknown session with 404 `not_found` and treat a start for a session
 it already holds as a no-op. CM also re-sends `/chat/start` with the same
 payload when the architect's `/logs` stream ends or drops, and before the first
