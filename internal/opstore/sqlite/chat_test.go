@@ -823,3 +823,80 @@ func TestAggregateCost_IncludesArchivedSessions(t *testing.T) {
 
 	assert.InDelta(t, last30d, seriesSum, 1e-9, "sum(series30d) must equal last30d")
 }
+
+// sessionRow builds a minimal valid cold chat session with the given ID.
+func sessionRow(id string) chat.Session {
+	now := time.Now().UTC().Truncate(time.Second)
+
+	return chat.Session{
+		ID:         id,
+		Title:      "test",
+		Status:     chat.StatusCold,
+		CreatedAt:  now,
+		LastActive: now,
+		CreatedBy:  "human:test",
+	}
+}
+
+func TestSession_KindModeCostCapRoundTrip(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	sess := sessionRow("BP1")
+	sess.Kind = chat.KindArchitect
+	sess.Mode = "yolo"
+	sess.CostCapUSD = 7.25
+	sess.Workspace = []string{"alpha", "beta"}
+	require.NoError(t, s.CreateSession(ctx, sess))
+
+	got, err := s.GetSession(ctx, "BP1")
+	require.NoError(t, err)
+	assert.Equal(t, chat.KindArchitect, got.Kind)
+	assert.Equal(t, "yolo", got.Mode)
+	assert.InDelta(t, 7.25, got.CostCapUSD, 1e-9)
+	assert.Equal(t, []string{"alpha", "beta"}, got.Workspace)
+
+	plain := sessionRow("C1")
+	require.NoError(t, s.CreateSession(ctx, plain))
+
+	gotPlain, err := s.GetSession(ctx, "C1")
+	require.NoError(t, err)
+	assert.Equal(t, chat.KindChat, gotPlain.Kind)
+}
+
+func TestListSessions_FilterByKind(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	bp := sessionRow("BP1")
+	bp.Kind = chat.KindArchitect
+	require.NoError(t, s.CreateSession(ctx, bp))
+	require.NoError(t, s.CreateSession(ctx, sessionRow("C1")))
+
+	got, err := s.ListSessions(ctx, chat.SessionFilter{Kind: chat.KindArchitect})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "BP1", got[0].ID)
+
+	all, err := s.ListSessions(ctx, chat.SessionFilter{})
+	require.NoError(t, err)
+	assert.Len(t, all, 2)
+}
+
+func TestCountSessionsByStatus_ExcludesArchitectSessions(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	bp := sessionRow("BP1")
+	bp.Kind = chat.KindArchitect
+	bp.Status = chat.StatusActive
+	require.NoError(t, s.CreateSession(ctx, bp))
+
+	c := sessionRow("C1")
+	c.Status = chat.StatusActive
+	require.NoError(t, s.CreateSession(ctx, c))
+
+	n, err := s.CountSessionsByStatus(ctx, chat.StatusActive, chat.StatusWarmIdle)
+	require.NoError(t, err)
+	assert.Equal(t, 1, n)
+}

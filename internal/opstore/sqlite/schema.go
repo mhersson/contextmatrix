@@ -9,11 +9,11 @@ import (
 // schemaVersion is the current opstore schema revision. Bump it when adding
 // tables/columns: every CREATE is IF NOT EXISTS, so an older database grows
 // the new table on open and is stamped; a newer database is refused.
-const schemaVersion = 5
+const schemaVersion = 6
 
-// ensureSchema creates every operational table if absent. Clean-cut: there is
-// no migration ledger and no backward-compat path - an obsolete DB is deleted
-// and recreated by the operator. One ops.db holds the chat schema (sessions,
+// ensureSchema creates every operational table if absent. There is no
+// migration ledger: columns added to an existing table are grown by
+// addColumnIfMissing, and a newer database is refused. One ops.db holds the chat schema (sessions,
 // messages, cost archive), the model blacklist, Best-of-N model outcomes, the
 // selector tier ladders and price headroom, and the Jira writeback outbox.
 func ensureSchema(ctx context.Context, db *sql.DB) error {
@@ -55,7 +55,10 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			completion_tokens         INTEGER NOT NULL DEFAULT 0,
 			cache_read_tokens         INTEGER NOT NULL DEFAULT 0,
 			cache_creation_tokens     INTEGER NOT NULL DEFAULT 0,
-			estimated_cost_usd        REAL NOT NULL DEFAULT 0
+			estimated_cost_usd        REAL NOT NULL DEFAULT 0,
+			kind                      TEXT NOT NULL DEFAULT 'chat',
+			mode                      TEXT NOT NULL DEFAULT '',
+			cost_cap_usd              REAL NOT NULL DEFAULT 0
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_chat_sessions_last_active ON chat_sessions(last_active)`,
 		`CREATE INDEX IF NOT EXISTS idx_chat_sessions_status ON chat_sessions(status)`,
@@ -133,10 +136,61 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 		}
 	}
 
+	for _, col := range []struct{ name, decl string }{
+		{"kind", "TEXT NOT NULL DEFAULT 'chat'"},
+		{"mode", "TEXT NOT NULL DEFAULT ''"},
+		{"cost_cap_usd", "REAL NOT NULL DEFAULT 0"},
+	} {
+		if err := addColumnIfMissing(ctx, db, "chat_sessions", col.name, col.decl); err != nil {
+			return err
+		}
+	}
+
 	// Stamp the version. PRAGMA user_version takes no bound parameter; the value
 	// is a compile-time constant, not user input.
 	if _, err := db.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", schemaVersion)); err != nil {
 		return fmt.Errorf("opstore: stamp schema version: %w", err)
+	}
+
+	return nil
+}
+
+// addColumnIfMissing grows an existing table by one column. CREATE TABLE IF
+// NOT EXISTS leaves an existing table untouched, so a column added after a
+// database was first created only exists on fresh databases without this.
+func addColumnIfMissing(ctx context.Context, db *sql.DB, table, column, decl string) error {
+	rows, err := db.QueryContext(ctx, `PRAGMA table_info(`+table+`)`)
+	if err != nil {
+		return fmt.Errorf("opstore: table_info %s: %w", table, err)
+	}
+
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			cid       int
+			name      string
+			ctype     string
+			notnull   int
+			dfltValue sql.NullString
+			pk        int
+		)
+
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err != nil {
+			return fmt.Errorf("opstore: scan table_info %s: %w", table, err)
+		}
+
+		if name == column {
+			return nil
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("opstore: table_info %s: %w", table, err)
+	}
+
+	if _, err := db.ExecContext(ctx, `ALTER TABLE `+table+` ADD COLUMN `+column+` `+decl); err != nil {
+		return fmt.Errorf("opstore: add column %s.%s: %w", table, column, err)
 	}
 
 	return nil
