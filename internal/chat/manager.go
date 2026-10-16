@@ -2431,11 +2431,18 @@ func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string
 		tl.Lock()
 	}
 
+	// held makes unlock idempotent, so the deferred call releases the lock on
+	// a panic without ever unlocking an unlocked mutex (a fatal error).
+	held := tl != nil
+
 	unlock := func() {
-		if tl != nil {
+		if held {
+			held = false
+
 			tl.Unlock()
 		}
 	}
+	defer unlock()
 
 	// Arm before the send. A backend that answers inside /message (the
 	// architect, for a note or an abort) publishes its idle frame before
@@ -2453,7 +2460,7 @@ func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string
 
 		// Released while the start and the wait run: what the reopened
 		// architect publishes precedes this message.
-		tl.Unlock()
+		unlock()
 
 		rerr := m.restartArchitect(ctx, sessionID)
 		if rerr == nil {
@@ -2462,6 +2469,8 @@ func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string
 		}
 
 		tl.Lock()
+
+		held = true
 
 		if rerr != nil {
 			err = errors.Join(err, rerr)

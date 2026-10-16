@@ -5735,6 +5735,53 @@ func TestManager_SendUserMessage_ArchitectFailureEndsTheSessionWithoutDeadlock(t
 	assert.Equal(t, chat.StatusCold, sess.Status, "the third failure ended the session")
 }
 
+// A panic inside the send must not leave the transcript lock held: net/http
+// recovers the handler, and a held lock would wedge the session for good.
+func TestManager_SendUserMessage_ArchitectPanicInTheSendReleasesTheTranscriptLock(t *testing.T) {
+	hub := chat.NewSSEHub(128)
+	mgr, _, arch := newManagerWithArchitectStub(t, func(c *chat.Config) { c.Hub = hub })
+	ctx := context.Background()
+
+	frames := make(chan chat.LogEntry)
+	arch.streamLogsFn = frameStream(frames)
+
+	bp := openArchitect(t, mgr)
+
+	ch, _, err := hub.Subscribe(bp.ID, 0)
+	require.NoError(t, err)
+	t.Cleanup(func() { hub.Unsubscribe(bp.ID, ch) })
+
+	arch.sendFn = func() { panic("backend send blew up") }
+
+	require.Panics(t, func() { _, _ = mgr.SendUserMessage(ctx, bp.ID, "approve") })
+
+	arch.sendFn = nil
+
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		select {
+		case frames <- chat.LogEntry{Type: "system", Content: "after the panic"}:
+		case <-time.After(2 * time.Second):
+			t.Error("the consumer never took the frame")
+		}
+
+		_, err := mgr.SendUserMessage(ctx, bp.ID, "approve")
+		assert.NoError(t, err)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the session is wedged: the transcript lock was left held")
+	}
+
+	assert.Equal(t, "after the panic", nextMessageEvent(t, ch).Content)
+	assert.Equal(t, chat.RoleUser, nextMessageEvent(t, ch).Role)
+}
+
 func TestManager_SendUserMessage_ChatConsumerDoesNotWaitOnTheSend(t *testing.T) {
 	hub := chat.NewSSEHub(128)
 	mgr, chatStub, _ := newManagerWithArchitectStub(t, func(c *chat.Config) { c.Hub = hub })
