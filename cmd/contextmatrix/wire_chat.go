@@ -89,8 +89,7 @@ func wireChat(
 		})
 		architectDefaultModel = entry.DefaultModel
 
-		// GET /api/worker/git-credentials verifies only against the chat key
-		// until the next slice widens it.
+		// GET /api/worker/git-credentials verifies only against the chat key, so it refuses these tokens.
 		architectKey := entry.APIKey
 		architectWorkerCredentialsToken = func(sessionID string) string {
 			return api.WorkerCredentialsToken(architectKey, sessionID)
