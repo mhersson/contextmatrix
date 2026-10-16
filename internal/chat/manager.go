@@ -20,6 +20,10 @@ import (
 
 // ErrTooManyConcurrent is returned by OpenSession when the number of active
 // or warm-idle sessions has reached the configured MaxConcurrent ceiling.
+// errArchitectNotLive means a restart found the row gone, cold or not an
+// architect, so nothing is left for a consumer to serve.
+var errArchitectNotLive = errors.New("chat: architect session is not live")
+
 var ErrTooManyConcurrent = errors.New("chat: too many concurrent sessions")
 
 // ErrBackendSend is the sentinel wrapped around Backend.SendChatMessage
@@ -559,9 +563,10 @@ func (m *Manager) handleUsageEntry(ctx context.Context, sessionID, project, fall
 		}
 	}
 
-	// A blueprint's model is fixed at create: it is the next reopen's start
-	// model and price key, so a frame from a persona override must not move
-	// it. An empty model keeps the column. Chat rows take the echoed name.
+	// A blueprint's model is fixed once its first open persists it: it is the
+	// next reopen's start model and price key, so a frame from a persona
+	// override must not move it. An empty model keeps the column. Chat rows
+	// take the echoed name.
 	rowModel := model
 	if kind == KindArchitect {
 		rowModel = ""
@@ -751,7 +756,8 @@ func (m *Manager) startConsumer(sessionID string, restart bool) {
 
 			if pendingStart {
 				if err := m.restartArchitect(ctx, sessionID); err != nil {
-					if ctx.Err() != nil || !wait(err) {
+					if errors.Is(err, errArchitectNotLive) || errors.Is(err, ErrSessionNotFound) ||
+						ctx.Err() != nil || !wait(err) {
 						m.logger.Info("chat: worker-log consumer stopped", "session_id", sessionID)
 
 						return
@@ -1547,7 +1553,7 @@ func (m *Manager) openCold(ctx context.Context, id string) (Session, error) {
 // restartArchitect re-sends /chat/start for an active or warm-idle architect
 // session the architect lost. It sends the plain cold-open inputs, never a
 // resume, and does not write the row; the architect no-ops a start for a held
-// session. The status lock keeps the start from landing after EndSession's EndChat.
+// session, or returns errArchitectNotLive for any other row. The status lock keeps the start from landing after EndSession's EndChat.
 func (m *Manager) restartArchitect(ctx context.Context, sessionID string) error {
 	_, err, _ := m.restartGroup.Do(sessionID, func() (any, error) {
 		return nil, m.withStatusLock(sessionID, func() error {
@@ -1557,7 +1563,7 @@ func (m *Manager) restartArchitect(ctx context.Context, sessionID string) error 
 			}
 
 			if sess.Kind != KindArchitect || (sess.Status != StatusActive && sess.Status != StatusWarmIdle) {
-				return nil
+				return errArchitectNotLive
 			}
 
 			opts, err := m.coldPrep(ctx, sess)

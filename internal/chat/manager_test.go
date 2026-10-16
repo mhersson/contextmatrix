@@ -4924,7 +4924,9 @@ func TestManager_SendUserMessage_ArchitectRestartFailureIsNotResent(t *testing.T
 	arch.sendErrSeq = []error{errSessionUnknown()}
 	arch.mu.Unlock()
 
+	arch.mu.Lock()
 	arch.startErr = startErr
+	arch.mu.Unlock()
 
 	_, err := mgr.SendUserMessage(ctx, bp.ID, "approve")
 	require.ErrorIs(t, err, chat.ErrSessionUnknown)
@@ -5126,32 +5128,99 @@ func TestManager_Consumer_ChatStopsOnACleanClose(t *testing.T) {
 	assert.Equal(t, int64(1), backend.startCalls.Load(), "and re-sends nothing")
 }
 
-func TestManager_Reattach_ArchitectSendsTheStartBeforeStreaming(t *testing.T) {
-	mgr, _, arch := newManagerWithArchitectStub(t)
+func TestManager_ArchitectConsumerEntryPoints_SendTheStartBeforeStreaming(t *testing.T) {
+	cases := []struct {
+		name  string
+		enter func(ctx context.Context, t *testing.T, mgr *chat.Manager, id string)
+	}{
+		{"open an active row", func(ctx context.Context, t *testing.T, mgr *chat.Manager, id string) {
+			t.Helper()
+
+			_, err := mgr.OpenSession(ctx, id)
+			require.NoError(t, err)
+		}},
+		{"open a warm-idle row", func(ctx context.Context, t *testing.T, mgr *chat.Manager, id string) {
+			t.Helper()
+			require.NoError(t, mgr.MarkWarmIdle(ctx, id))
+			mgr.StopConsumerForTest(id)
+
+			_, err := mgr.OpenSession(ctx, id)
+			require.NoError(t, err)
+		}},
+		{"reattach", func(ctx context.Context, t *testing.T, mgr *chat.Manager, id string) {
+			t.Helper()
+
+			_, err := mgr.Reattach(ctx, id)
+			require.NoError(t, err)
+		}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mgr, _, arch := newManagerWithArchitectStub(t)
+			ctx := context.Background()
+			bp := openArchitect(t, mgr)
+
+			require.Eventually(t, func() bool { return arch.streamCalls.Load() == 1 }, time.Second, 5*time.Millisecond)
+
+			// A CM restart drops the consumer; the entry point replaces it.
+			mgr.StopConsumerForTest(bp.ID)
+
+			var startsAtStream atomic.Int64
+
+			arch.mu.Lock()
+			arch.streamLogsFn = func(ctx context.Context, _ string, _ func(chat.LogEntry)) error {
+				startsAtStream.Store(arch.startCalls.Load())
+				<-ctx.Done()
+
+				return ctx.Err()
+			}
+			arch.mu.Unlock()
+
+			tc.enter(ctx, t, mgr, bp.ID)
+
+			require.Eventually(t, func() bool { return arch.streamCalls.Load() == 2 }, 2*time.Second, 5*time.Millisecond)
+			assert.Equal(t, int64(2), startsAtStream.Load(), "the start went out before the stream")
+		})
+	}
+}
+
+func TestManager_ArchitectConsumer_ExitsWhenTheRowIsNoLongerLive(t *testing.T) {
+	var store chat.Store
+
+	mgr, _, arch := newManagerWithArchitectStub(t, func(c *chat.Config) { store = c.Store })
 	ctx := context.Background()
+
+	arch.streamLogsFn = func(context.Context, string, func(chat.LogEntry)) error { return nil }
+
 	bp := openArchitect(t, mgr)
 
-	require.Eventually(t, func() bool { return arch.streamCalls.Load() == 1 }, time.Second, 5*time.Millisecond)
+	require.Eventually(t, func() bool { return arch.streamCalls.Load() >= 1 }, time.Second, 5*time.Millisecond)
 
-	// A CM restart drops the consumer; the startup sweep reattaches.
-	mgr.StopConsumerForTest(bp.ID)
-
-	var startsAtStream atomic.Int64
-
-	arch.mu.Lock()
-	arch.streamLogsFn = func(ctx context.Context, _ string, _ func(chat.LogEntry)) error {
-		startsAtStream.Store(arch.startCalls.Load())
-		<-ctx.Done()
-
-		return ctx.Err()
-	}
-	arch.mu.Unlock()
-
-	_, err := mgr.Reattach(ctx, bp.ID)
+	// Cold the row behind the consumer's back, as a racing EndSession does.
+	sess, err := store.GetSession(ctx, bp.ID)
 	require.NoError(t, err)
 
-	require.Eventually(t, func() bool { return arch.streamCalls.Load() == 2 }, 2*time.Second, 5*time.Millisecond)
-	assert.Equal(t, int64(2), startsAtStream.Load(), "the start went out before the stream")
+	sess.Status = chat.StatusCold
+	require.NoError(t, store.UpdateSession(ctx, sess))
+
+	// Let the consumer's in-flight cycle settle, then watch for more traffic.
+	time.Sleep(1500 * time.Millisecond)
+
+	streams, starts := arch.streamCalls.Load(), arch.startCalls.Load()
+
+	time.Sleep(1500 * time.Millisecond)
+	assert.Equal(t, streams, arch.streamCalls.Load(), "no stream after the row went cold")
+	assert.Equal(t, starts, arch.startCalls.Load(), "no start after the row went cold")
+
+	// The exited consumer left no map entry behind.
+	sess.Status = chat.StatusActive
+	require.NoError(t, store.UpdateSession(ctx, sess))
+
+	_, err = mgr.Reattach(ctx, bp.ID)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return arch.streamCalls.Load() > streams }, 2*time.Second, 5*time.Millisecond,
+		"a later start for the id is not a no-op")
 }
 
 func TestManager_EndSession_NoRestartAfterEnd(t *testing.T) {
