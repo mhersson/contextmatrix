@@ -579,6 +579,11 @@ export interface AppConfig {
    */
   chat_enabled?: boolean;
   /**
+   * Whether an architect backend is configured. Drives the blueprint option
+   * in the New Chat dialog. Full-payload-only, same posture as chat_enabled.
+   */
+  architect_enabled?: boolean;
+  /**
    * Operator-configured favorite model slugs per tier (key = tier name,
    * value = All slugs for that tier). Only present when the agent backend
    * has favorites configured. Tiers with only ByRole slugs are excluded.
@@ -821,6 +826,12 @@ export interface ChatSession {
   id: string;
   title: string;
   project?: string;
+  /** Session kind; absent on servers older than the architect backend (treat as 'chat'). */
+  kind?: 'chat' | 'architect';
+  /** Architect autonomy mode; architect sessions only. */
+  mode?: string;
+  /** Architect cost cap in USD; architect sessions only. */
+  cost_cap_usd?: number;
   status: ChatStatus;
   created_at: string;
   last_active: string;

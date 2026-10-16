@@ -4,7 +4,11 @@ import { api, isAPIError } from '../../api/client';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useProjects } from '../../hooks/useProjects';
 import { notifyChatSessionsChanged } from '../../hooks/useChatSessions';
+import { useTheme } from '../../hooks/useTheme';
+import { SessionTypePicker } from './SessionTypePicker';
 import { ChatModelPicker } from './ChatModelPicker';
+import { BlueprintSessionForm } from './BlueprintSessionForm';
+import { EMPTY_BLUEPRINT_DRAFT, type BlueprintDraft } from './blueprintDraft';
 import type { ChatModel } from '../../types';
 
 interface NewChatDialogProps {
@@ -15,6 +19,9 @@ interface NewChatDialogProps {
 export function NewChatDialog({ open, onClose }: NewChatDialogProps) {
   const navigate = useNavigate();
   const { projects } = useProjects();
+  const { architectEnabled } = useTheme();
+  const [blueprint, setBlueprint] = useState(false);
+  const [draft, setDraft] = useState<BlueprintDraft>(EMPTY_BLUEPRINT_DRAFT);
   const [title, setTitle] = useState('');
   const [project, setProject] = useState('');
   const [model, setModel] = useState('');
@@ -80,21 +87,37 @@ export function NewChatDialog({ open, onClose }: NewChatDialogProps) {
     if (open) {
       setTitle('');
       setProject('');
+      setBlueprint(false);
+      setDraft(EMPTY_BLUEPRINT_DRAFT);
       setError(null);
     }
   }
 
   if (!open) return null;
 
+  const canCreate = !creating && (!blueprint || draft.projects.length > 0);
+
   const handleCreate = async () => {
     setCreating(true);
     setError(null);
     try {
-      const sess = await api.createChat({
-        title: title.trim() || undefined,
-        project: project || undefined,
-        model: model || undefined,
-      });
+      const cap = draft.costCapUSD.trim() === '' ? undefined : Number(draft.costCapUSD);
+      const sess = await api.createChat(
+        blueprint
+          ? {
+              title: title.trim() || undefined,
+              model: model || undefined,
+              kind: 'architect',
+              projects: draft.projects,
+              mode: draft.mode,
+              cost_cap_usd: cap,
+            }
+          : {
+              title: title.trim() || undefined,
+              project: project || undefined,
+              model: model || undefined,
+            },
+      );
       // Tell any mounted sidebar to refresh its list before we navigate -
       // otherwise the user lands on the new chat but the sidebar still
       // shows the old set until a manual refresh.
@@ -145,7 +168,7 @@ export function NewChatDialog({ open, onClose }: NewChatDialogProps) {
           className="text-sm font-semibold mb-4"
           style={{ color: 'var(--fg)' }}
         >
-          New chat
+          {blueprint ? 'New blueprint' : 'New chat'}
         </h2>
 
         <label
@@ -159,30 +182,40 @@ export function NewChatDialog({ open, onClose }: NewChatDialogProps) {
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !creating) void handleCreate();
+            if (e.key === 'Enter' && canCreate) void handleCreate();
           }}
           className="bf-input w-full mb-3"
           placeholder="Auto-generated from your first message if blank"
         />
 
-        <label
-          className="block text-xs mb-1"
-          style={{ color: 'var(--grey2)' }}
-        >
-          Project <span style={{ color: 'var(--grey1)' }}>(optional)</span>
-        </label>
-        <select
-          value={project}
-          onChange={(e) => setProject(e.target.value)}
-          className="bf-input w-full mb-3"
-        >
-          <option value="">- Cross-project (no clone) -</option>
-          {projects.map((p) => (
-            <option key={p.name} value={p.name}>
-              {p.display_name ?? p.name}
-            </option>
-          ))}
-        </select>
+        {architectEnabled && (
+          <SessionTypePicker blueprint={blueprint} onChange={setBlueprint} />
+        )}
+
+        {blueprint ? (
+          <BlueprintSessionForm projects={projects} value={draft} onChange={setDraft} />
+        ) : (
+          <>
+          <label
+            className="block text-xs mb-1"
+            style={{ color: 'var(--grey2)' }}
+          >
+            Project <span style={{ color: 'var(--grey1)' }}>(optional)</span>
+          </label>
+          <select
+            value={project}
+            onChange={(e) => setProject(e.target.value)}
+            className="bf-input w-full mb-3"
+          >
+            <option value="">- Cross-project (no clone) -</option>
+            {projects.map((p) => (
+              <option key={p.name} value={p.name}>
+                {p.display_name ?? p.name}
+              </option>
+            ))}
+          </select>
+          </>
+        )}
 
         <ChatModelPicker
           source={modelSource}
@@ -210,7 +243,7 @@ export function NewChatDialog({ open, onClose }: NewChatDialogProps) {
           <button
             type="button"
             onClick={() => void handleCreate()}
-            disabled={creating}
+            disabled={!canCreate}
             className="bf-btn-primary"
           >
             {creating ? 'Creating…' : 'Create'}
