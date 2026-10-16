@@ -73,21 +73,48 @@ func wireChat(
 		}
 	}
 
+	// The architect entry speaks the chat protocol, so it gets the same
+	// client; nil leaves the kind unavailable and CreateSession refuses it.
+	var (
+		architectBackend                chat.Backend
+		architectDefaultModel           string
+		architectWorkerCredentialsToken func(sessionID string) string
+	)
+
+	if entry, ok := cfg.ArchitectBackend(); ok {
+		architectBackend = chat.NewBackendClient(chat.BackendClientConfig{
+			BaseURL:   entry.URL,
+			HMACKey:   entry.APIKey,
+			MCPAPIKey: cfg.MCPAPIKey,
+		})
+		architectDefaultModel = entry.DefaultModel
+
+		// GET /api/worker/git-credentials verifies only against the chat key
+		// until the next slice widens it.
+		architectKey := entry.APIKey
+		architectWorkerCredentialsToken = func(sessionID string) string {
+			return api.WorkerCredentialsToken(architectKey, sessionID)
+		}
+	}
+
 	chatHub := chat.NewSSEHub(128)
 
 	chatMgr := chat.NewManager(chat.Config{
-		Store:                  chatStore,
-		Backend:                chatBackend,
-		Clock:                  clock.Real(),
-		IdleTTL:                cfg.Chat.IdleTTL,
-		MaxConcurrent:          cfg.Chat.MaxConcurrent,
-		Hub:                    chatHub,
-		ResumeBudgetTokens:     cfg.Chat.ResumeBudgetTokens,
-		RehydrationTimeout:     cfg.Chat.RehydrationTimeout,
-		DefaultModel:           chatDefaultModel,
-		Pricer:                 svc,
-		LLMEndpoint:            llmEndpointFromConfig(cfg.LLMEndpoint),
-		WorkerCredentialsToken: workerCredentialsToken,
+		Store:                           chatStore,
+		Backend:                         chatBackend,
+		Clock:                           clock.Real(),
+		IdleTTL:                         cfg.Chat.IdleTTL,
+		MaxConcurrent:                   cfg.Chat.MaxConcurrent,
+		Hub:                             chatHub,
+		ResumeBudgetTokens:              cfg.Chat.ResumeBudgetTokens,
+		RehydrationTimeout:              cfg.Chat.RehydrationTimeout,
+		DefaultModel:                    chatDefaultModel,
+		Pricer:                          svc,
+		LLMEndpoint:                     llmEndpointFromConfig(cfg.LLMEndpoint),
+		WorkerCredentialsToken:          workerCredentialsToken,
+		ArchitectBackend:                architectBackend,
+		ArchitectDefaultModel:           architectDefaultModel,
+		ArchitectWorkerCredentialsToken: architectWorkerCredentialsToken,
 		ResolveProjectExec: func(rctx context.Context, project string) (chat.ProjectExecInfo, error) {
 			p, err := svc.GetProject(rctx, project)
 			if err != nil {
