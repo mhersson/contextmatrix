@@ -107,12 +107,12 @@ const (
 	BackendNameArchitect = "architect"
 )
 
-// Backend callback paths. The agent, chat and architect repos hardcode these - they
-// must not change.
+// Backend callback paths. The agent and chat repos hardcode these - they must
+// not change. The architect has no callback path: it reaches CM over MCP and
+// the bearer-authed GET /api/worker/git-credentials.
 const (
-	AgentCallbackPath     = "/api/agent"
-	ChatCallbackPath      = "/api/chat"
-	ArchitectCallbackPath = "/api/architect"
+	AgentCallbackPath = "/api/agent"
+	ChatCallbackPath  = "/api/chat"
 )
 
 // Auth modes. AuthModeMulti (the default) requires login; AuthModeNone is

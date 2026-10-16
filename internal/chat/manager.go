@@ -174,6 +174,12 @@ type Config struct {
 	// bearer for architect sessions, over the architect entry's api_key.
 	// nil leaves the token empty.
 	ArchitectWorkerCredentialsToken func(sessionID string) string
+	// ArchitectPrice resolves the per-token price of a blueprint's model so
+	// the start payload can carry it and the architect's cost cap binds. nil
+	// or a false return leaves the price off the payload; the architect then
+	// refuses capped runs. Production wires this over the card service's
+	// ResolvedRate in cmd/contextmatrix/wire_chat.go.
+	ArchitectPrice func(model string) (protocol.ModelPrice, bool)
 }
 
 // Manager orchestrates chat session lifecycle, transcript persistence,
@@ -204,6 +210,7 @@ type Manager struct {
 	architectBackend                Backend
 	architectDefaultModel           string
 	architectWorkerCredentialsToken func(sessionID string) string
+	architectPrice                  func(model string) (protocol.ModelPrice, bool)
 
 	mu           sync.Mutex
 	seqMap       map[string]int64           // sessionID → last assigned seq
@@ -299,6 +306,7 @@ func NewManager(cfg Config) *Manager {
 		architectBackend:                cfg.ArchitectBackend,
 		architectDefaultModel:           cfg.ArchitectDefaultModel,
 		architectWorkerCredentialsToken: cfg.ArchitectWorkerCredentialsToken,
+		architectPrice:                  cfg.ArchitectPrice,
 
 		seqMap:            make(map[string]int64),
 		titled:            make(map[string]bool),
@@ -380,15 +388,15 @@ func (m *Manager) publishSessionUpdate(sessionID string, u SessionUpdate) {
 // the current state again neither republishes nor resets the since timestamp
 // (model_request re-asserts "working" at every turn start by design). The
 // publish is synchronous like handleUsageEntry's - no sessionHub lock is held
-// on any caller path.
-func (m *Manager) setWorking(sessionID string, working bool) {
+// on any caller path. Reports whether it changed the state.
+func (m *Manager) setWorking(sessionID string, working bool) bool {
 	m.mu.Lock()
 
 	since, was := m.working[sessionID]
 	if working == was {
 		m.mu.Unlock()
 
-		return
+		return false
 	}
 
 	if working {
@@ -401,7 +409,7 @@ func (m *Manager) setWorking(sessionID string, working bool) {
 	m.mu.Unlock()
 
 	if m.hub == nil {
-		return
+		return true
 	}
 
 	u := SessionUpdate{AssistantWorking: &working}
@@ -410,6 +418,8 @@ func (m *Manager) setWorking(sessionID string, working bool) {
 	}
 
 	m.hub.PublishSessionUpdate(sessionID, u)
+
+	return true
 }
 
 // handleStatusEntry processes a run-state frame from the backend's log bridge
@@ -494,7 +504,7 @@ func roleFromLogType(typ string) Role {
 // Invoked only from the per-session worker-log consumer goroutine.
 // IncrementSessionCost is atomic so any future change weakening that invariant
 // cannot lose updates.
-func (m *Manager) handleUsageEntry(ctx context.Context, sessionID, project string, e LogEntry) {
+func (m *Manager) handleUsageEntry(ctx context.Context, sessionID, project, fallbackModel string, e LogEntry) {
 	if e.Usage == nil {
 		return
 	}
@@ -523,10 +533,10 @@ func (m *Manager) handleUsageEntry(ctx context.Context, sessionID, project strin
 	cacheRead := e.Usage.CacheReadTokens
 	cacheCreate := e.Usage.CacheCreateTokens
 
-	// Resolve model: prefer frame-level model, fall back to default.
+	// Resolve model: prefer the frame's model, else the session's fallback.
 	model := e.Model
 	if model == "" {
-		model = m.defaultModel
+		model = fallbackModel
 	}
 
 	// Price the per-turn tokens.
@@ -620,10 +630,13 @@ func (m *Manager) startConsumer(sessionID string) {
 			m.mu.Unlock()
 		}()
 
-		// Resolve the session's project once for metric labels; usage frames
-		// carry only the session ID. Project-less global sessions map to "none".
+		// Resolve the session once: the project for metric labels and the
+		// model a usage frame without one is priced at. The frame's own
+		// model wins; else the row's model (persisted when the session opens);
+		// else the chat default.
 		project := "none"
 		kind := KindChat
+		fallbackModel := m.defaultModel
 
 		if sess, err := m.store.GetSession(ctx, sessionID); err == nil {
 			if sess.Project != "" {
@@ -631,6 +644,10 @@ func (m *Manager) startConsumer(sessionID string) {
 			}
 
 			kind = sess.Kind
+
+			if sess.Model != "" {
+				fallbackModel = sess.Model
+			}
 		}
 
 		backend, err := m.backendFor(kind)
@@ -648,7 +665,7 @@ func (m *Manager) startConsumer(sessionID string) {
 			}
 
 			if e.Type == "usage" {
-				m.handleUsageEntry(ctx, sessionID, project, e)
+				m.handleUsageEntry(ctx, sessionID, project, fallbackModel, e)
 
 				return
 			}
@@ -852,7 +869,11 @@ func (m *Manager) CreateSession(ctx context.Context, in CreateInput) (Session, e
 			}
 
 			if _, err := m.resolveProjectExec(ctx, p); err != nil {
-				return Session{}, fmt.Errorf("%w: unknown project %q: %w", ErrInvalidSessionInput, p, err)
+				// The lookup error can name a filesystem path; it is logged
+				// here and kept out of the 400 details.
+				m.logger.Warn("chat: CreateSession: project lookup failed", "project", p, "error", err)
+
+				return Session{}, fmt.Errorf("%w: unknown project %q", ErrInvalidSessionInput, p)
 			}
 		}
 
@@ -1492,7 +1513,7 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, er
 		m.logger.Info("chat: opening cold blueprint session",
 			"session_id", sess.ID, "projects", sess.Workspace, "mode", sess.Mode, "model", model)
 
-		return StartChatOpts{
+		start := StartChatOpts{
 			SessionID:           sess.ID,
 			Model:               model,
 			LLMEndpoint:         m.llmEndpoint,
@@ -1502,7 +1523,18 @@ func (m *Manager) coldPrep(ctx context.Context, sess Session) (StartChatOpts, er
 				Mode:       sess.Mode,
 				CostCapUSD: sess.CostCapUSD,
 			},
-		}, nil
+		}
+
+		if m.architectPrice != nil {
+			if price, ok := m.architectPrice(model); ok {
+				start.Architect.Price = &price
+			} else {
+				m.logger.Warn("chat: blueprint model has no price, the architect cannot bind its cost cap",
+					"session_id", sess.ID, "model", model)
+			}
+		}
+
+		return start, nil
 	}
 
 	var execInfo ProjectExecInfo
@@ -1894,23 +1926,22 @@ func (m *Manager) GetSession(ctx context.Context, id string) (Session, error) {
 	return sess, nil
 }
 
-// SessionLiveness reports whether sessionID currently owns a live worker
-// container: status active, warm-idle, or ending (ending still owns a
-// container mid-teardown). A cold session reports live=false with a nil
-// error. An unknown session id returns ErrSessionNotFound so callers - the
-// worker git-credentials endpoint - can distinguish "doesn't exist" (404)
-// from "exists but cold" (409).
-func (m *Manager) SessionLiveness(ctx context.Context, sessionID string) (live bool, err error) {
+// SessionLiveness reports a session's kind and whether it is attached to its
+// backend: a chat session that owns a worker container, or a blueprint whose
+// architect session is open. active, warm-idle and ending are live; cold is
+// not. An unknown id returns ErrSessionNotFound so the worker git-credentials
+// endpoint can distinguish "does not exist" (404) from "exists but cold" (409).
+func (m *Manager) SessionLiveness(ctx context.Context, sessionID string) (kind SessionKind, live bool, err error) {
 	sess, err := m.store.GetSession(ctx, sessionID)
 	if err != nil {
-		return false, err
+		return "", false, err
 	}
 
 	switch sess.Status {
 	case StatusActive, StatusWarmIdle, StatusEnding:
-		return true, nil
+		return sess.Kind, true, nil
 	default:
-		return false, nil
+		return sess.Kind, false, nil
 	}
 }
 
@@ -2185,18 +2216,24 @@ func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string
 		return "", err
 	}
 
+	// Arm before the send. A backend that answers inside /message (the
+	// architect, for a note or an abort) publishes its idle frame before
+	// SendChatMessage returns; setWorking(false) on an unarmed session is a
+	// no-op, so arming afterwards would leave the indicator on. A failed
+	// send disarms only what it armed: an earlier turn may still be running.
+	armed := m.setWorking(sessionID, true)
+
 	if err := backend.SendChatMessage(ctx, sessionID, content, msgID); err != nil {
+		if armed {
+			m.setWorking(sessionID, false)
+		}
+
 		m.recordSendFailure(ctx, sessionID, err)
 
 		return "", err
 	}
 
 	m.clearSendFailures(sessionID)
-
-	// The backend accepted the message: a turn is now in flight. CM is the
-	// source of truth for the start signal - the worker's own run-state
-	// frame follows but must not be waited on.
-	m.setWorking(sessionID, true)
 
 	// Backend accepted the message - now safe to persist + publish.
 	msg, err := m.AppendMessage(ctx, sessionID, RoleUser, content)

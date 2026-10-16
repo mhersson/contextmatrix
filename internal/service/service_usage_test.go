@@ -146,6 +146,56 @@ func TestCardServicePriceTokens(t *testing.T) {
 	})
 }
 
+func TestModelRate_Resolved(t *testing.T) {
+	tests := []struct {
+		name string
+		in   ModelRate
+		want ModelRate
+	}{
+		{
+			name: "cache rates default from the prompt rate",
+			in:   ModelRate{Prompt: 2e-6, Completion: 8e-6},
+			want: ModelRate{Prompt: 2e-6, Completion: 8e-6, CacheRead: 2e-7, CacheWrite: 2.5e-6},
+		},
+		{
+			name: "explicit cache rates are kept",
+			in:   ModelRate{Prompt: 2e-6, Completion: 8e-6, CacheRead: 1e-7, CacheWrite: 3e-6},
+			want: ModelRate{Prompt: 2e-6, Completion: 8e-6, CacheRead: 1e-7, CacheWrite: 3e-6},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.in.Resolved()
+			assert.InDelta(t, tt.want.Prompt, got.Prompt, 1e-15)
+			assert.InDelta(t, tt.want.Completion, got.Completion, 1e-15)
+			assert.InDelta(t, tt.want.CacheRead, got.CacheRead, 1e-15)
+			assert.InDelta(t, tt.want.CacheWrite, got.CacheWrite, 1e-15)
+		})
+	}
+}
+
+func TestResolvedRate_PricesLikePriceTokens(t *testing.T) {
+	t.Parallel()
+
+	svc, _, cleanup := setupTest(t)
+	defer cleanup()
+
+	svc.tokenCosts = map[string]ModelRate{"priced": {Prompt: 2e-6, Completion: 8e-6}}
+
+	rate, ok := svc.ResolvedRate("priced")
+	require.True(t, ok)
+
+	// The resolved rate multiplied by hand must equal PriceTokens on the raw rate.
+	byHand := 100*rate.Prompt + 50*rate.CacheRead + 10*rate.CacheWrite + 20*rate.Completion
+	viaService, known := svc.PriceTokens("priced", 100, 50, 10, 20)
+	require.True(t, known)
+	assert.InDelta(t, viaService, byHand, 1e-15)
+
+	_, ok = svc.ResolvedRate("unknown")
+	assert.False(t, ok)
+}
+
 // TestRateForFallsBackToCatalog verifies that rateFor (and the methods that
 // route through it) uses the catalog fallback when a model is absent from the
 // static tokenCosts map.

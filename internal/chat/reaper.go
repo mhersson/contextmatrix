@@ -38,7 +38,7 @@ func (r *IdleReaper) tick(ctx context.Context) {
 	r.sweepStaleRehydration(ctx)
 }
 
-// sweepWarmIdle ends sessions whose warm-idle TTL has elapsed.
+// sweepWarmIdle ends chat sessions whose warm-idle TTL has elapsed; blueprints are exempt.
 func (r *IdleReaper) sweepWarmIdle(ctx context.Context) {
 	sessions, err := r.mgr.store.ListSessions(ctx, SessionFilter{Status: StatusWarmIdle})
 	if err != nil {
@@ -50,6 +50,13 @@ func (r *IdleReaper) sweepWarmIdle(ctx context.Context) {
 	cutoff := r.mgr.clk.Now().Add(-r.mgr.idleTTL)
 
 	for _, sess := range sessions {
+		// A blueprint has no container to reclaim and its architect may be
+		// mid-stage long after the last pane closed (log traffic never bumps
+		// last_active). The idle reaper never ends a blueprint.
+		if sess.Kind == KindArchitect {
+			continue
+		}
+
 		if sess.LastActive.Before(cutoff) {
 			if err := r.mgr.EndSession(ctx, sess.ID); err != nil {
 				r.mgr.logger.Warn("chat: reaper end failed", "session_id", sess.ID, "error", err)

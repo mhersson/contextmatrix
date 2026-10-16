@@ -31,24 +31,31 @@ const (
 	cacheCreationMultiplier = 1.25
 )
 
-// PriceTokens computes the estimated cost in USD for a single usage delta.
-// CacheRead/CacheWrite rates are used when the rate sets them; otherwise the
-// Prompt-derived multipliers below apply.
+// Resolved returns the rate with CM's cache defaults applied where CacheRead
+// or CacheWrite is unset. Every cost path prices through this, so a consumer
+// that multiplies tokens by a resolved rate (the architect) agrees with
+// PriceTokens to the cent.
+func (r ModelRate) Resolved() ModelRate {
+	if r.CacheRead == 0 {
+		r.CacheRead = r.Prompt * cacheReadMultiplier
+	}
+
+	if r.CacheWrite == 0 {
+		r.CacheWrite = r.Prompt * cacheCreationMultiplier
+	}
+
+	return r
+}
+
+// PriceTokens computes the estimated cost in USD for a single usage delta
+// using the resolved rate.
 func PriceTokens(rate ModelRate, prompt, cacheRead, cacheCreation, completion int64) float64 {
-	crRate := rate.CacheRead
-	if crRate == 0 {
-		crRate = rate.Prompt * cacheReadMultiplier
-	}
+	r := rate.Resolved()
 
-	cwRate := rate.CacheWrite
-	if cwRate == 0 {
-		cwRate = rate.Prompt * cacheCreationMultiplier
-	}
-
-	return float64(prompt)*rate.Prompt +
-		float64(cacheRead)*crRate +
-		float64(cacheCreation)*cwRate +
-		float64(completion)*rate.Completion
+	return float64(prompt)*r.Prompt +
+		float64(cacheRead)*r.CacheRead +
+		float64(cacheCreation)*r.CacheWrite +
+		float64(completion)*r.Completion
 }
 
 // SetCatalogRateLookup installs a catalog-backed rate fallback used when a
@@ -91,6 +98,18 @@ func (s *CardService) PriceTokens(model string, prompt, cacheRead, cacheCreation
 	}
 
 	return PriceTokens(rate, prompt, cacheRead, cacheCreation, completion), true
+}
+
+// ResolvedRate resolves a model's per-token rate the way every cost path
+// does (static token_costs first, then the catalog) and applies the cache
+// defaults. Returns (ModelRate{}, false) for an unknown model.
+func (s *CardService) ResolvedRate(model string) (ModelRate, bool) {
+	rate, ok := s.rateFor(model)
+	if !ok {
+		return ModelRate{}, false
+	}
+
+	return rate.Resolved(), true
 }
 
 // ReportUsageInput contains the fields for reporting token usage on a card.

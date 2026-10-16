@@ -194,11 +194,12 @@ type RouterConfig struct {
 	// cmd/contextmatrix/wire_chat.go used to mint
 	// StartChatOpts.GitCredentialsToken. GET /api/worker/git-credentials
 	// verifies bearer tokens against this exact value, so mint and verify
-	// never disagree. Empty disables the route (no chat backend, or one with
-	// no configured api_key) regardless of ChatManager.
+	// never disagree. Empty with no architect key disables the route
+	// regardless of ChatManager.
 	ChatWorkerAPIKey string
 	// ArchitectBackendCfg is the architect backend entry; feeds
-	// architect_enabled in app config. nil when not configured.
+	// architect_enabled in app config and supplies the architect key for
+	// GET /api/worker/git-credentials. nil when not configured.
 	ArchitectBackendCfg *config.ArchitectBackendConfig
 	// ImageStore is required in production - main.go always opens a
 	// SQLite-backed store and wires it in unconditionally. Tests that do
@@ -731,16 +732,23 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		mux.HandleFunc("GET "+config.ChatCallbackPath+"/task-skills-source", cbh.getTaskSkillsSource)
 	}
 
-	// Worker git-credentials: chat workers fetch per-repo git credentials on
-	// demand, authenticated by the deterministic per-session bearer minted at
-	// chat-start (ChatStartPayload.GitCredentialsToken) - not HMAC, not the
-	// session cookie. Registered only when both a chat manager (session
-	// liveness lookup) AND a resolved chat-backend api_key (bearer secret)
-	// are wired; either missing means worker-fetched credentials are not in
-	// play for this deployment.
-	if cfg.ChatManager != nil && cfg.ChatWorkerAPIKey != "" {
+	// Worker git-credentials: chat workers and the architect fetch per-repo
+	// git credentials on demand, authenticated by the deterministic
+	// per-session bearer minted at session start
+	// (ChatStartPayload.GitCredentialsToken), not HMAC and not the session
+	// cookie. Registered when a chat manager (session lookup) is wired and at
+	// least one keyed backend can mint tokens: the chat entry, the architect
+	// entry, or both. The architect key comes from the same entry wireChat
+	// mints from, so mint and verify cannot disagree.
+	architectWorkerAPIKey := ""
+	if cfg.ArchitectBackendCfg.IsEnabled() && cfg.ArchitectBackendCfg.APIKey != "" {
+		architectWorkerAPIKey = cfg.ArchitectBackendCfg.APIKey
+	}
+
+	if cfg.ChatManager != nil && (cfg.ChatWorkerAPIKey != "" || architectWorkerAPIKey != "") {
 		wch := &workerCredentialsHandlers{
 			chatAPIKey:         cfg.ChatWorkerAPIKey,
+			architectAPIKey:    architectWorkerAPIKey,
 			liveness:           cfg.ChatManager,
 			providerForProject: cfg.ProviderForProject,
 			instanceProvider:   cfg.GitHubTokenProvider,

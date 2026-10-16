@@ -373,8 +373,9 @@ order matches seq order.
   the pool. The unique index on `(session_id, seq)` backs the in-memory seq
   cache. `DeleteSession` archives cost columns to `chat_cost_archive` before
   the hard delete, and `AggregateCost` unions both tables.
-- **IdleReaper.** Periodically ends `warm-idle` sessions older than the idle
-  TTL and sweeps sessions stuck in rehydration past the rehydration timeout.
+- **IdleReaper.** Periodically ends `warm-idle` chat sessions older than the idle
+  TTL (blueprints are exempt) and sweeps sessions stuck in rehydration past the
+  rehydration timeout.
 
 ### Session log manager
 

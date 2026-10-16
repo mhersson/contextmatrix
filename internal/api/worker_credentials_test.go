@@ -160,9 +160,9 @@ func cutFirstDot(t *testing.T, s string) (before, after string, found bool) {
 
 // --- GET /api/worker/git-credentials ---
 //
-// Chat workers fetch per-repo git credentials on demand, authenticated by
-// the deterministic per-session bearer minted at chat-start
-// (ChatStartPayload.GitCredentialsToken). See docs/api-reference.md § Worker
+// Chat and architect workers fetch per-repo git credentials on demand,
+// authenticated by the deterministic per-session bearer minted at session
+// start (ChatStartPayload.GitCredentialsToken). See docs/api-reference.md § Worker
 // Endpoints for the full contract.
 
 // stubSessionLiveness is a chatSessionLiveness test double. gotSessionID
@@ -170,15 +170,21 @@ func cutFirstDot(t *testing.T, s string) (before, after string, found bool) {
 // can pin that the endpoint checks liveness for the session embedded in the
 // bearer token, not some other input.
 type stubSessionLiveness struct {
+	kind         chat.SessionKind
 	live         bool
 	err          error
 	gotSessionID string
 }
 
-func (s *stubSessionLiveness) SessionLiveness(_ context.Context, sessionID string) (bool, error) {
+func (s *stubSessionLiveness) SessionLiveness(_ context.Context, sessionID string) (chat.SessionKind, bool, error) {
 	s.gotSessionID = sessionID
 
-	return s.live, s.err
+	kind := s.kind
+	if kind == "" {
+		kind = chat.KindChat
+	}
+
+	return kind, s.live, s.err
 }
 
 // countingTokenProvider wraps a githubauth.TokenGenerator and counts
@@ -943,4 +949,132 @@ func TestGetWorkerGitCredentials_MatchesAnyOfProjectsMultipleRepos(t *testing.T)
 	var body workerGitCredentialsResponse
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&body))
 	assert.Equal(t, "matched-token", body.Token)
+}
+
+func newKindBoundHandlers(t *testing.T, chatKey, architectKey string, sessKind chat.SessionKind) (*workerCredentialsHandlers, *countingTokenProvider) {
+	t.Helper()
+
+	instance := &countingTokenProvider{inner: &fakeTokenProvider{token: "instance-token"}}
+
+	return &workerCredentialsHandlers{
+		chatAPIKey:       chatKey,
+		architectAPIKey:  architectKey,
+		liveness:         &stubSessionLiveness{kind: sessKind, live: true},
+		listProjects:     noProjects,
+		instanceProvider: instance,
+	}, instance
+}
+
+func TestGetWorkerGitCredentials_ArchitectTokenOnArchitectSession(t *testing.T) {
+	h, instance := newKindBoundHandlers(t, "chat-key", "architect-key", chat.KindArchitect)
+
+	token := WorkerCredentialsToken("architect-key", "bp-1")
+	rec := doWorkerGitCredentialsRequest(t, h, token, "github.com", "acme/alpha")
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Equal(t, int32(1), instance.calls.Load())
+}
+
+func TestGetWorkerGitCredentials_KindMismatchIsIndistinguishableFromBadToken(t *testing.T) {
+	bad := doWorkerGitCredentialsRequest(t, &workerCredentialsHandlers{chatAPIKey: "chat-key", architectAPIKey: "architect-key", liveness: &stubSessionLiveness{live: true}}, "sess-1.notamac", "github.com", "acme/alpha")
+	require.Equal(t, http.StatusUnauthorized, bad.Code)
+
+	tests := []struct {
+		name     string
+		mintKey  string
+		sessKind chat.SessionKind
+	}{
+		{name: "architect token for a chat session", mintKey: "architect-key", sessKind: chat.KindChat},
+		{name: "chat token for a blueprint", mintKey: "chat-key", sessKind: chat.KindArchitect},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h, instance := newKindBoundHandlers(t, "chat-key", "architect-key", tt.sessKind)
+
+			rec := doWorkerGitCredentialsRequest(t, h, WorkerCredentialsToken(tt.mintKey, "sess-1"), "github.com", "acme/alpha")
+
+			assert.Equal(t, http.StatusUnauthorized, rec.Code)
+			assert.Equal(t, bad.Body.String(), rec.Body.String(), "same body as a malformed token: no oracle")
+			assert.Equal(t, int32(0), instance.calls.Load(), "nothing minted")
+		})
+	}
+}
+
+func TestGetWorkerGitCredentials_SharedKeyVerifiesBothKinds(t *testing.T) {
+	for _, kind := range []chat.SessionKind{chat.KindChat, chat.KindArchitect} {
+		t.Run(string(kind), func(t *testing.T) {
+			h, _ := newKindBoundHandlers(t, "same-key", "same-key", kind)
+
+			rec := doWorkerGitCredentialsRequest(t, h, WorkerCredentialsToken("same-key", "sess-1"), "github.com", "acme/alpha")
+
+			assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		})
+	}
+}
+
+func TestGetWorkerGitCredentials_EmptyKeyTokenNeverVerifies(t *testing.T) {
+	bad := doWorkerGitCredentialsRequest(t, &workerCredentialsHandlers{chatAPIKey: "chat-key", liveness: &stubSessionLiveness{live: true}}, "sess-1.notamac", "github.com", "acme/alpha")
+	require.Equal(t, http.StatusUnauthorized, bad.Code)
+
+	tests := []struct {
+		name         string
+		chatKey      string
+		architectKey string
+		sessKind     chat.SessionKind
+	}{
+		{name: "chat-only deployment, architect session", chatKey: "chat-key", sessKind: chat.KindArchitect},
+		{name: "architect-only deployment, chat session", architectKey: "architect-key", sessKind: chat.KindChat},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h, instance := newKindBoundHandlers(t, tt.chatKey, tt.architectKey, tt.sessKind)
+
+			rec := doWorkerGitCredentialsRequest(t, h, WorkerCredentialsToken("", "sess-1"), "github.com", "acme/alpha")
+
+			assert.Equal(t, http.StatusUnauthorized, rec.Code)
+			assert.Equal(t, bad.Body.String(), rec.Body.String())
+			assert.Equal(t, int32(0), instance.calls.Load(), "nothing minted")
+		})
+	}
+}
+
+func TestGetWorkerGitCredentials_ArchitectOnlyDeployment(t *testing.T) {
+	h, _ := newKindBoundHandlers(t, "", "architect-key", chat.KindArchitect)
+
+	rec := doWorkerGitCredentialsRequest(t, h, WorkerCredentialsToken("architect-key", "bp-1"), "github.com", "acme/alpha")
+
+	assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+}
+
+func TestWorkerGitCredentials_RegisteredWithArchitectBackendOnly(t *testing.T) {
+	_, mgr := newChatFixture(t, architectFixtureOpts())
+	archCfg := architectFixtureOpts().architectBackendCfg
+	disabled := *archCfg
+	disabled.Enabled = new(bool)
+
+	tests := []struct {
+		name string
+		cfg  RouterConfig
+		want int
+	}{
+		{name: "architect key only registers the route", cfg: RouterConfig{ChatManager: mgr, ArchitectBackendCfg: archCfg}, want: http.StatusUnauthorized},
+		{name: "disabled architect entry leaves it unregistered", cfg: RouterConfig{ChatManager: mgr, ArchitectBackendCfg: &disabled}, want: http.StatusNotFound},
+		{name: "no keyed backend leaves it unregistered", cfg: RouterConfig{ChatManager: mgr}, want: http.StatusNotFound},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(NewRouter(tt.cfg))
+			t.Cleanup(server.Close)
+
+			resp, err := http.Get(server.URL + "/api/worker/git-credentials?host=github.com&path=acme/alpha")
+			require.NoError(t, err)
+
+			defer closeBody(t, resp.Body)
+
+			assert.Equal(t, tt.want, resp.StatusCode)
+		})
+	}
 }

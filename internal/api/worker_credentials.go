@@ -17,34 +17,35 @@ import (
 )
 
 // WorkerCredentialsToken mints the deterministic per-session bearer a chat
-// worker presents to GET /api/worker/git-credentials. Form:
-// "<sessionID>.<base64url(HMAC-SHA256(chatAPIKey, sessionID))>".
+// or architect worker presents to GET /api/worker/git-credentials. Form:
+// "<sessionID>.<base64url(HMAC-SHA256(apiKey, sessionID))>", where apiKey is
+// the owning backend's api_key.
 //
 // Deterministic by design: CM never persists the token anywhere. Instead it
-// is reminted on demand from chatAPIKey + sessionID (both already known to
-// CM at verification time), so there is nothing to look up and nothing to
-// leak from a token store. The chat-start payload carries the token to the
-// worker once (protocol.ChatStartPayload.GitCredentialsToken); the worker
-// treats it as an opaque bearer and never inspects it.
-func WorkerCredentialsToken(chatAPIKey, sessionID string) string {
-	return sessionID + "." + workerCredentialsMAC(chatAPIKey, sessionID)
+// is reminted on demand from apiKey + sessionID (both already known to CM at
+// verification time), so there is nothing to look up and nothing to leak
+// from a token store. The start payload carries the token to the worker
+// once (GitCredentialsToken); the worker treats it as an opaque bearer and
+// never inspects it.
+func WorkerCredentialsToken(apiKey, sessionID string) string {
+	return sessionID + "." + workerCredentialsMAC(apiKey, sessionID)
 }
 
 // VerifyWorkerCredentialsToken splits token on the FIRST '.' (session ids are
 // UUIDs/ULIDs and never contain a dot), recomputes the expected token from
-// chatAPIKey + the extracted session id, and constant-time-compares it
+// apiKey + the extracted session id, and constant-time-compares it
 // against the presented token via hmac.Equal. Returns the session id and
 // ok=true only when the whole reconstructed token matches byte-for-byte -
 // a tampered mac OR a session id swapped in from a different token both fail
 // this comparison, since the mac only matches the session id it was minted
 // for.
-func VerifyWorkerCredentialsToken(chatAPIKey, token string) (sessionID string, ok bool) {
+func VerifyWorkerCredentialsToken(apiKey, token string) (sessionID string, ok bool) {
 	sessionID, macPart, found := strings.Cut(token, ".")
 	if !found || sessionID == "" || macPart == "" {
 		return "", false
 	}
 
-	want := WorkerCredentialsToken(chatAPIKey, sessionID)
+	want := WorkerCredentialsToken(apiKey, sessionID)
 	if !hmac.Equal([]byte(token), []byte(want)) {
 		return "", false
 	}
@@ -53,22 +54,45 @@ func VerifyWorkerCredentialsToken(chatAPIKey, token string) (sessionID string, o
 }
 
 // workerCredentialsMAC computes the base64url (no padding) HMAC-SHA256 of
-// sessionID keyed by chatAPIKey.
-func workerCredentialsMAC(chatAPIKey, sessionID string) string {
-	mac := hmac.New(sha256.New, []byte(chatAPIKey))
+// sessionID keyed by apiKey.
+func workerCredentialsMAC(apiKey, sessionID string) string {
+	mac := hmac.New(sha256.New, []byte(apiKey))
 	mac.Write([]byte(sessionID))
 
 	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 
+// verifyToken checks token against every configured key and returns the
+// session id and the kinds the token is valid for: the chat key vouches for
+// chat sessions, the architect key for blueprints. Both kinds verify when the
+// two entries share a key. ok is false when no key matches.
+func (h *workerCredentialsHandlers) verifyToken(token string) (sessionID string, kinds map[chat.SessionKind]bool, ok bool) {
+	kinds = map[chat.SessionKind]bool{}
+
+	for kind, key := range map[chat.SessionKind]string{chat.KindChat: h.chatAPIKey, chat.KindArchitect: h.architectAPIKey} {
+		// An empty key must never verify: WorkerCredentialsToken("", id) is forgeable.
+		if key == "" {
+			continue
+		}
+
+		sid, match := VerifyWorkerCredentialsToken(key, token)
+		if !match {
+			continue
+		}
+
+		sessionID = sid
+		kinds[kind] = true
+	}
+
+	return sessionID, kinds, len(kinds) > 0
+}
+
 // chatSessionLiveness is the narrow slice of *chat.Manager the worker
-// credentials endpoint needs: whether a session currently owns a live
-// worker container. Defined here, in the consuming package, per project
-// convention (interfaces belong where they're used) - *chat.Manager
-// satisfies it via SessionLiveness without either package importing the
-// other's handler types.
+// credentials endpoint needs: a session's kind and whether it is attached to
+// its backend (a chat worker container, or an open architect session).
+// Defined here, in the consuming package, per project convention.
 type chatSessionLiveness interface {
-	SessionLiveness(ctx context.Context, sessionID string) (live bool, err error)
+	SessionLiveness(ctx context.Context, sessionID string) (kind chat.SessionKind, live bool, err error)
 }
 
 // workerGitCredentialsResponse is the success body of
@@ -81,19 +105,23 @@ type workerGitCredentialsResponse struct {
 }
 
 // workerCredentialsHandlers serves GET /api/worker/git-credentials: chat
-// workers fetch per-repo git credentials on demand, authenticated by the
-// deterministic per-session bearer minted at chat-start
-// (ChatStartPayload.GitCredentialsToken), independent of auth.mode. See
+// workers and the architect fetch per-repo git credentials on demand,
+// authenticated by the deterministic per-session bearer minted at session
+// start (GitCredentialsToken), independent of auth.mode. See
 // docs/api-reference.md § Worker Endpoints for the full contract.
 type workerCredentialsHandlers struct {
-	// chatAPIKey is the resolved chat backend's api_key - the same secret
-	// WorkerCredentialsToken minted the bearer with. NewRouter only registers
-	// this handler when the key is non-empty.
+	// chatAPIKey is the chat backend's api_key, the secret chat-session
+	// tokens are minted with. Empty when no chat backend is keyed.
 	chatAPIKey string
 
-	// liveness reports whether a session currently owns a live worker
-	// container. Narrow interface (see chatSessionLiveness) so tests can
-	// stub it without constructing a real *chat.Manager.
+	// architectAPIKey is the architect backend's api_key, the secret
+	// blueprint-session tokens are minted with. Empty when no architect
+	// backend is keyed. NewRouter registers the handler when either key is
+	// non-empty.
+	architectAPIKey string
+
+	// liveness reports a session's kind and whether it is attached to its
+	// backend. Narrow so tests can stub it without a real *chat.Manager.
 	liveness chatSessionLiveness
 
 	// listProjects enumerates every project so the handler can match the
@@ -116,10 +144,11 @@ type workerCredentialsHandlers struct {
 
 // getGitCredentials handles GET /api/worker/git-credentials. Order of checks:
 // bearer auth (401) → host/path presence (400 when exactly one is empty) →
-// session liveness (404 unknown / 409 cold / 500 liveness lookup error) →
-// project match + provider resolution (409 fail-closed on a broken binding;
-// an empty (host, path) pair skips project matching and resolves straight to
-// the instance credential, see resolveProvider) → token mint (502) → 200.
+// session lookup (404 unknown / 500 lookup error) → kind binding (401 on a
+// mismatch) → liveness (409 cold) → project match + provider resolution
+// (409 fail-closed on a broken binding; an empty (host, path) pair skips
+// project matching and resolves straight to the instance credential, see
+// resolveProvider) → token mint (502) → 200.
 func (h *workerCredentialsHandlers) getGitCredentials(w http.ResponseWriter, r *http.Request) {
 	token, ok := extractBearerToken(r)
 	if !ok {
@@ -128,7 +157,7 @@ func (h *workerCredentialsHandlers) getGitCredentials(w http.ResponseWriter, r *
 		return
 	}
 
-	sessionID, ok := VerifyWorkerCredentialsToken(h.chatAPIKey, token)
+	sessionID, kinds, ok := h.verifyToken(token)
 	if !ok {
 		writeError(w, http.StatusUnauthorized, ErrCodeUnauthorized, "missing or invalid bearer token", "")
 
@@ -159,7 +188,7 @@ func (h *workerCredentialsHandlers) getGitCredentials(w http.ResponseWriter, r *
 		return
 	}
 
-	live, err := h.liveness.SessionLiveness(r.Context(), sessionID)
+	kind, live, err := h.liveness.SessionLiveness(r.Context(), sessionID)
 	if err != nil {
 		if errors.Is(err, chat.ErrSessionNotFound) {
 			writeError(w, http.StatusNotFound, ErrCodeChatNotFound, "chat session not found", "")
@@ -168,6 +197,15 @@ func (h *workerCredentialsHandlers) getGitCredentials(w http.ResponseWriter, r *
 		}
 
 		writeError(w, http.StatusInternalServerError, ErrCodeInternalError, "internal error", "")
+
+		return
+	}
+
+	// A token is bound to the kind of the key that minted it. A key holder
+	// for one backend must not mint tokens for the other kind's session ids,
+	// so a mismatch is the same 401 as a malformed token: no oracle.
+	if !kinds[kind] {
+		writeError(w, http.StatusUnauthorized, ErrCodeUnauthorized, "missing or invalid bearer token", "")
 
 		return
 	}

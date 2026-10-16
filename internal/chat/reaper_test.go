@@ -71,6 +71,70 @@ func TestIdleReaper_EndsWarmIdlePastTTL(t *testing.T) {
 	assert.Equal(t, int64(1), backend.endCalls.Load())
 }
 
+func TestIdleReaper_LeavesBlueprintsAttached(t *testing.T) {
+	t.Parallel()
+
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	fakeClock := clock.Fake(time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC))
+	chatStub := &stubBackend{}
+	archStub := &stubBackend{}
+	mgr := newManager(t, chat.Config{
+		Store:                 store,
+		Backend:               chatStub,
+		ArchitectBackend:      archStub,
+		ArchitectDefaultModel: "arch/default",
+		Clock:                 fakeClock,
+		IdleTTL:               30 * time.Minute,
+		ResolveProjectExec: func(context.Context, string) (chat.ProjectExecInfo, error) {
+			return chat.ProjectExecInfo{}, nil
+		},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	chatSess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "c", CreatedBy: "x"})
+	require.NoError(t, err)
+
+	chatSess.Status = chat.StatusWarmIdle
+	chatSess.LastActive = fakeClock.Now().Add(-2 * time.Hour)
+	require.NoError(t, store.UpdateSession(ctx, chatSess))
+
+	bp, err := mgr.CreateSession(ctx, chat.CreateInput{Kind: chat.KindArchitect, Projects: []string{"alpha"}, CreatedBy: "x"})
+	require.NoError(t, err)
+
+	bp.Status = chat.StatusWarmIdle
+	bp.LastActive = fakeClock.Now().Add(-2 * time.Hour)
+	require.NoError(t, store.UpdateSession(ctx, bp))
+
+	reaper := chat.NewIdleReaper(mgr, 1*time.Millisecond)
+	reaperDone := make(chan struct{})
+
+	go func() {
+		defer close(reaperDone)
+
+		reaper.Run(ctx)
+	}()
+
+	t.Cleanup(func() {
+		cancel()
+		<-reaperDone
+	})
+
+	require.Eventually(t, func() bool {
+		got, err := store.GetSession(ctx, chatSess.ID)
+
+		return err == nil && got.Status == chat.StatusCold
+	}, 2*time.Second, 5*time.Millisecond, "the chat session past its TTL must still be reaped")
+
+	got, err := store.GetSession(ctx, bp.ID)
+	require.NoError(t, err)
+	assert.Equal(t, chat.StatusWarmIdle, got.Status, "the idle reaper never ends a blueprint")
+	assert.Equal(t, int64(0), archStub.endCalls.Load())
+}
+
 func TestIdleReaper_SweepStaleRehydration_FlipsTimeoutSessions(t *testing.T) {
 	t.Parallel()
 	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))

@@ -47,7 +47,7 @@ GET    /api/worker/logs  ?project=&card_id=            # SSE log stream (card-sc
 GET    /api/v1/cards/{project}/{id}/autonomous         # backend autonomous-flag read (HMAC-signed; task-backend required)
 # /api/agent/* - task-backend callback path; /api/chat/* - chat-backend callback path (paths are fixed)
 
-GET    /api/worker/git-credentials  ?host=&path=       # per-repo git credentials for chat workers (bearer-authed, not HMAC; chat backend + manager required)
+GET    /api/worker/git-credentials  ?host=&path=       # per-repo git credentials for chat workers and the architect (bearer-authed, not HMAC; chat manager plus an enabled, keyed chat or architect backend required)
 
 GET    /api/chats                                      ?project=&status=&created_by=&limit=
 POST   /api/chats                                      # create a new chat session (cold)
@@ -2343,20 +2343,24 @@ closed and never substitutes the instance credential.
 
 ### GET /api/worker/git-credentials
 
-Serves per-repo git credentials to chat workers on demand. Authentication is
-a **bearer token**, not HMAC request signing and not the session cookie:
+Serves per-repo git credentials to chat workers and to the architect on
+demand. Authentication is a **bearer token**, not HMAC request signing and
+not the session cookie:
 
 ```
 Authorization: Bearer <session_id>.<base64url HMAC-SHA256 mac>
 ```
 
-The token is minted once per chat session at chat-start
-(`git_credentials_token` in the chat-start payload) from the chat backend's
-`api_key` and the session id. It is deterministic and never persisted:
-verification re-derives it from the session id embedded in the token and
-compares in constant time. The model is identical in both auth modes.
-Verification uses the chat entry's `api_key` only, so tokens minted for
-architect sessions (over the architect entry's `api_key`) are refused.
+The token is minted once per session at session start (`git_credentials_token`
+in the start payload) from the backend's `api_key` and the session id: the
+chat entry's key for chat sessions, the architect entry's key for blueprint
+sessions. It is deterministic and never persisted: verification re-derives it
+from the session id embedded in the token and compares in constant time
+against every configured key. A token is bound to the kind of the key that
+minted it, so an architect-minted token for a chat session id (or the
+reverse) is refused exactly like a malformed token. When both entries share
+one `api_key`, a token verifies for either kind. The model is identical in
+both auth modes.
 
 | Param  | Meaning                                                                     |
 | ------ | --------------------------------------------------------------------------- |
@@ -2379,20 +2383,20 @@ the instance credential; exactly one present is 400.
 `username` is always the literal `x-access-token`. `expires_at` is omitted
 for PAT-backed credentials.
 
-| Status | Code                 | When                                                                     |
-| ------ | -------------------- | ------------------------------------------------------------------------ |
-| 400    | `BAD_REQUEST`        | Exactly one of `host`/`path` is missing                                  |
-| 401    | `UNAUTHORIZED`       | Bearer absent, malformed, or fails the HMAC comparison                   |
-| 404    | `CHAT_NOT_FOUND`     | The session id embedded in the bearer does not exist                     |
-| 409    | `WORKER_NOT_RUNNING` | The session exists but is cold                                           |
-| 409    | `VALIDATION_ERROR`   | Matched project's binding is broken, or no provider is configured at all |
-| 500    | `INTERNAL_ERROR`     | Session-liveness lookup failed for another reason                        |
-| 502    | `INTERNAL_ERROR`     | A provider resolved but minting failed                                   |
+| Status | Code                 | When                                                                                                                       |
+| ------ | -------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| 400    | `BAD_REQUEST`        | Exactly one of `host`/`path` is missing                                                                                    |
+| 401    | `UNAUTHORIZED`       | Bearer absent, malformed, fails the HMAC comparison against every configured key, or was minted for the other session kind |
+| 404    | `CHAT_NOT_FOUND`     | The session id embedded in the bearer does not exist                                                                       |
+| 409    | `WORKER_NOT_RUNNING` | The session exists but is cold (chat container gone, or blueprint ended)                                                   |
+| 409    | `VALIDATION_ERROR`   | Matched project's binding is broken, or no provider is configured at all                                                   |
+| 500    | `INTERNAL_ERROR`     | Session-liveness lookup failed for another reason                                                                          |
+| 502    | `INTERNAL_ERROR`     | A provider resolved but minting failed                                                                                     |
 
 Neither the bearer nor any minted token is ever logged or echoed in
-`details`. The route is registered only when a chat backend with an
-`api_key` and the chat manager are both wired; GET-only, so the CSRF guard
-does not apply.
+`details`. The route is registered when the chat manager is wired and at
+least one of the chat and architect entries is enabled with an `api_key`;
+GET-only, so the CSRF guard does not apply.
 
 ## Chat Endpoints
 
@@ -2637,8 +2641,8 @@ Two event kinds share the wire:
   first message; `warm-idle → active` when a browser subscriber attaches or
   `/open` is called; `active → warm-idle` 30 s after the last subscriber
   leaves; `active/warm-idle → cold` on `/end` or the idle reaper
-  (`chat.idle_ttl`). Clients should refetch `GET /api/chats` on a `status`
-  change.
+  (`chat.idle_ttl`; blueprints are exempt from the reaper). Clients should
+  refetch `GET /api/chats` on a `status` change.
 
 ## Image Endpoints
 

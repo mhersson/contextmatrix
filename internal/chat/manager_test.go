@@ -43,8 +43,11 @@ type stubBackend struct {
 	// starting at 0). Pads with nil when len(seq) is less than the call
 	// count. Takes precedence over sendErr when set.
 	sendErrSeq []error
-	mu         sync.Mutex
-	lastOpts   chat.StartChatOpts
+	// sendFn, when non-nil, runs inside SendChatMessage before the error is
+	// chosen, standing in for a backend that answers within /message.
+	sendFn   func()
+	mu       sync.Mutex
+	lastOpts chat.StartChatOpts
 	// sendArgs captures every (content, messageID) pair passed to
 	// SendChatMessage in call order. Tests assert ordering on clear+primer.
 	sendArgs []sendArg
@@ -80,6 +83,10 @@ func (s *stubBackend) SendChatMessage(ctx context.Context, sessionID, content, m
 	s.sendArgs = append(s.sendArgs, sendArg{Content: content, MessageID: messageID})
 	seq := s.sendErrSeq
 	s.mu.Unlock()
+
+	if s.sendFn != nil {
+		s.sendFn()
+	}
 
 	if idx >= 0 && int(idx) < len(seq) {
 		return seq[idx]
@@ -2366,17 +2373,33 @@ func TestManager_SessionLiveness(t *testing.T) {
 			sess.Status = tt.status
 			require.NoError(t, store.UpdateSession(ctx, sess))
 
-			live, err := mgr.SessionLiveness(ctx, sess.ID)
+			kind, live, err := mgr.SessionLiveness(ctx, sess.ID)
 			require.NoError(t, err)
+			assert.Equal(t, chat.KindChat, kind)
 			assert.Equal(t, tt.wantLive, live)
 		})
 	}
 }
 
+func TestManager_SessionLiveness_ReportsArchitectKind(t *testing.T) {
+	mgr, _, _ := newManagerWithArchitectStub(t)
+	ctx := context.Background()
+
+	bp, err := mgr.CreateSession(ctx, chat.CreateInput{Kind: chat.KindArchitect, Projects: []string{"alpha"}, CreatedBy: "human:web"})
+	require.NoError(t, err)
+	_, err = mgr.OpenSession(ctx, bp.ID)
+	require.NoError(t, err)
+
+	kind, live, err := mgr.SessionLiveness(ctx, bp.ID)
+	require.NoError(t, err)
+	assert.Equal(t, chat.KindArchitect, kind)
+	assert.True(t, live)
+}
+
 func TestManager_SessionLiveness_UnknownSession(t *testing.T) {
 	mgr, _, _ := newManagerWithStubs(t)
 
-	_, err := mgr.SessionLiveness(context.Background(), "does-not-exist")
+	_, _, err := mgr.SessionLiveness(context.Background(), "does-not-exist")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, chat.ErrSessionNotFound)
 }
@@ -3962,6 +3985,81 @@ func TestHandleUsageEntry_EmitsChatMetrics(t *testing.T) {
 		testutil.ToFloat64(metrics.ChatTokensTotal.WithLabelValues("metrics-project", model, "cache_read")), 1e-9)
 }
 
+func TestHandleUsageEntry_ArchitectFrameWithoutModelUsesSessionModel(t *testing.T) {
+	hub := chat.NewSSEHub(64)
+
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	pricer := newStubPricer(map[string]float64{"arch/default": 0.02, "chat/default": 0.5})
+
+	archBackend := &usageStreamingBackend{
+		entries: []chat.LogEntry{
+			{Type: "usage", Usage: &chat.TokenUsage{InputTokens: 100, OutputTokens: 50}},
+		},
+	}
+
+	mgr := newManager(t, chat.Config{
+		Store:                 store,
+		Backend:               &stubBackend{},
+		ArchitectBackend:      archBackend,
+		ArchitectDefaultModel: "arch/default",
+		Clock:                 clock.Real(),
+		IdleTTL:               time.Hour,
+		Hub:                   hub,
+		DefaultModel:          "chat/default",
+		Pricer:                pricer,
+		ResolveProjectExec: func(context.Context, string) (chat.ProjectExecInfo, error) {
+			return chat.ProjectExecInfo{}, nil
+		},
+	})
+
+	ctx := context.Background()
+	bp, err := mgr.CreateSession(ctx, chat.CreateInput{Kind: chat.KindArchitect, Projects: []string{"alpha"}, CreatedBy: "x"})
+	require.NoError(t, err)
+
+	ev := openAndWaitForUsageEvent(t, mgr, hub, bp.ID)
+
+	assert.Equal(t, "arch/default", ev.SessionUpdate.Model)
+	assert.InDelta(t, 0.02, ev.SessionUpdate.EstimatedCostUSD, 1e-9, "priced at the architect default, not the chat default")
+}
+
+func TestHandleUsageEntry_ChatFrameWithoutModelUsesSessionModel(t *testing.T) {
+	hub := chat.NewSSEHub(64)
+
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	pricer := newStubPricer(map[string]float64{"chat/picked": 0.02, "chat/default": 0.5})
+
+	backend := &usageStreamingBackend{
+		entries: []chat.LogEntry{
+			{Type: "usage", Usage: &chat.TokenUsage{InputTokens: 100, OutputTokens: 50}},
+		},
+	}
+
+	mgr := newManager(t, chat.Config{
+		Store:        store,
+		Backend:      backend,
+		Clock:        clock.Real(),
+		IdleTTL:      time.Hour,
+		Hub:          hub,
+		DefaultModel: "chat/default",
+		Pricer:       pricer,
+	})
+
+	ctx := context.Background()
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", Project: "alpha", CreatedBy: "x", Model: "chat/picked"})
+	require.NoError(t, err)
+
+	ev := openAndWaitForUsageEvent(t, mgr, hub, sess.ID)
+
+	assert.Equal(t, "chat/picked", ev.SessionUpdate.Model)
+	assert.InDelta(t, 0.02, ev.SessionUpdate.EstimatedCostUSD, 1e-9, "priced at the session's model, not the chat default")
+}
+
 // TestManager_SendUserMessage_ArmsAssistantWorking pins the server-side start
 // signal: a successful send flips assistant_working before the HTTP response
 // returns, so every subscriber (including the sender) learns a turn is in
@@ -3983,6 +4081,31 @@ func TestManager_SendUserMessage_ArmsAssistantWorking(t *testing.T) {
 	assert.False(t, got.AssistantWorkingSince.IsZero())
 }
 
+// TestManager_SendUserMessage_ArmsBeforeTheBackendIsCalled pins the arm-first
+// ordering: a backend that answers inside /message publishes its idle frame
+// before the send returns, and that frame only clears the indicator if it was
+// armed beforehand.
+func TestManager_SendUserMessage_ArmsBeforeTheBackendIsCalled(t *testing.T) {
+	mgr, backend, _ := newManagerWithStubs(t)
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "arm", CreatedBy: "human:test"})
+	require.NoError(t, err)
+
+	var armedDuringSend bool
+
+	backend.sendFn = func() {
+		got, err := mgr.GetSession(ctx, sess.ID)
+		require.NoError(t, err)
+
+		armedDuringSend = got.AssistantWorking
+	}
+
+	_, err = mgr.SendUserMessage(ctx, sess.ID, "hello")
+	require.NoError(t, err)
+	assert.True(t, armedDuringSend, "a backend that answers inside /message must find the indicator already armed")
+}
+
 // TestManager_SendUserMessage_FailureDoesNotArm proves a rejected send leaves
 // the indicator off - no turn is in flight if the backend never accepted the
 // message.
@@ -4000,6 +4123,27 @@ func TestManager_SendUserMessage_FailureDoesNotArm(t *testing.T) {
 	got, err := mgr.GetSession(ctx, sess.ID)
 	require.NoError(t, err)
 	assert.False(t, got.AssistantWorking, "failed send must not arm assistant_working")
+}
+
+// TestManager_SendUserMessage_FailureKeepsEarlierTurnArmed proves a failed send
+// does not clear the indicator of a turn that an earlier send already armed.
+func TestManager_SendUserMessage_FailureKeepsEarlierTurnArmed(t *testing.T) {
+	mgr, backend, _ := newManagerWithStubs(t)
+	backend.sendErrSeq = []error{nil, errors.New("backend down")}
+	ctx := context.Background()
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "mid-turn", CreatedBy: "human:test"})
+	require.NoError(t, err)
+
+	_, err = mgr.SendUserMessage(ctx, sess.ID, "first")
+	require.NoError(t, err)
+
+	_, err = mgr.SendUserMessage(ctx, sess.ID, "second")
+	require.Error(t, err)
+
+	got, err := mgr.GetSession(ctx, sess.ID)
+	require.NoError(t, err)
+	assert.True(t, got.AssistantWorking, "failed send must leave the earlier turn's indicator on")
 }
 
 // TestManager_EndSession_ClearsAssistantWorking pins the teardown path: ending
@@ -4315,7 +4459,7 @@ func TestAppendMessage_ReseedFailureLeavesCounterAheadOfDisk(t *testing.T) {
 
 // newManagerWithArchitectStub wires a chat stub and an architect stub so
 // dispatch by session kind is observable.
-func newManagerWithArchitectStub(t *testing.T) (*chat.Manager, *stubBackend, *stubBackend) {
+func newManagerWithArchitectStub(t *testing.T, edits ...func(*chat.Config)) (*chat.Manager, *stubBackend, *stubBackend) {
 	t.Helper()
 
 	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
@@ -4324,7 +4468,7 @@ func newManagerWithArchitectStub(t *testing.T) (*chat.Manager, *stubBackend, *st
 
 	chatStub := &stubBackend{}
 	archStub := &stubBackend{}
-	mgr := newManager(t, chat.Config{
+	cfg := chat.Config{
 		Store:                 store,
 		Backend:               chatStub,
 		ArchitectBackend:      archStub,
@@ -4340,7 +4484,13 @@ func newManagerWithArchitectStub(t *testing.T) (*chat.Manager, *stubBackend, *st
 			return chat.ProjectExecInfo{RepoURL: "https://example.com/" + project + ".git"}, nil
 		},
 		ArchitectWorkerCredentialsToken: func(id string) string { return "arch-token-" + id },
-	})
+	}
+
+	for _, edit := range edits {
+		edit(&cfg)
+	}
+
+	mgr := newManager(t, cfg)
 
 	return mgr, chatStub, archStub
 }
@@ -4498,6 +4648,52 @@ func TestManager_CreateSession_ChatKindIgnoresCostCap(t *testing.T) {
 	assert.InDelta(t, 0.0, got.CostCapUSD, 1e-9)
 }
 
+func TestManager_OpenSession_ArchitectStartCarriesPrice(t *testing.T) {
+	want := protocol.ModelPrice{PromptUSDPerMTok: 3, CompletionUSDPerMTok: 15, CacheReadUSDPerMTok: 0.3, CacheWriteUSDPerMTok: 3.75}
+	mgr, _, archStub := newManagerWithArchitectStub(t, func(c *chat.Config) {
+		c.ArchitectPrice = func(model string) (protocol.ModelPrice, bool) {
+			if model == "arch/default" {
+				return want, true
+			}
+
+			return protocol.ModelPrice{}, false
+		}
+	})
+	ctx := context.Background()
+
+	bp, err := mgr.CreateSession(ctx, chat.CreateInput{Kind: chat.KindArchitect, Projects: []string{"alpha"}, CreatedBy: "human:web"})
+	require.NoError(t, err)
+	_, err = mgr.OpenSession(ctx, bp.ID)
+	require.NoError(t, err)
+
+	archStub.mu.Lock()
+	got := archStub.lastOpts
+	archStub.mu.Unlock()
+
+	require.NotNil(t, got.Architect)
+	require.NotNil(t, got.Architect.Price)
+	assert.Equal(t, want, *got.Architect.Price)
+}
+
+func TestManager_OpenSession_ArchitectStartOmitsUnknownPrice(t *testing.T) {
+	mgr, _, archStub := newManagerWithArchitectStub(t, func(c *chat.Config) {
+		c.ArchitectPrice = func(string) (protocol.ModelPrice, bool) { return protocol.ModelPrice{}, false }
+	})
+	ctx := context.Background()
+
+	bp, err := mgr.CreateSession(ctx, chat.CreateInput{Kind: chat.KindArchitect, Projects: []string{"alpha"}, CreatedBy: "human:web"})
+	require.NoError(t, err)
+	_, err = mgr.OpenSession(ctx, bp.ID)
+	require.NoError(t, err, "an unpriced model still starts")
+
+	archStub.mu.Lock()
+	got := archStub.lastOpts
+	archStub.mu.Unlock()
+
+	require.NotNil(t, got.Architect)
+	assert.Nil(t, got.Architect.Price)
+}
+
 func TestManager_OpenSession_ArchitectIgnoresFullChatSlots(t *testing.T) {
 	mgr, chatStub, archStub := newManagerWithArchitectStub(t)
 	ctx := context.Background()
@@ -4516,4 +4712,18 @@ func TestManager_OpenSession_ArchitectIgnoresFullChatSlots(t *testing.T) {
 
 	assert.Equal(t, int64(1), chatStub.startCalls.Load())
 	assert.Equal(t, int64(1), archStub.startCalls.Load())
+}
+
+func TestManager_OpenSession_ArchitectStreamsFromArchitectBackend(t *testing.T) {
+	mgr, chatStub, archStub := newManagerWithArchitectStub(t)
+	ctx := context.Background()
+
+	bp, err := mgr.CreateSession(ctx, chat.CreateInput{Kind: chat.KindArchitect, Projects: []string{"alpha"}, CreatedBy: "human:web"})
+	require.NoError(t, err)
+	_, err = mgr.OpenSession(ctx, bp.ID)
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool { return archStub.streamCalls.Load() == 1 },
+		2*time.Second, 5*time.Millisecond, "the consumer must stream from the architect backend")
+	assert.Equal(t, int64(0), chatStub.streamCalls.Load(), "never from the chat backend")
 }

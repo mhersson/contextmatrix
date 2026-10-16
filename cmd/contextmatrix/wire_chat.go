@@ -6,6 +6,8 @@ import (
 	"sync"
 	"time"
 
+	protocol "github.com/mhersson/contextmatrix-protocol"
+
 	"github.com/mhersson/contextmatrix/internal/api"
 	"github.com/mhersson/contextmatrix/internal/board"
 	"github.com/mhersson/contextmatrix/internal/chat"
@@ -59,9 +61,8 @@ func wireChat(
 	}
 
 	// chatWorkerAPIKey is the secret behind WorkerCredentialsToken: empty
-	// unless a chat backend is configured AND carries an api_key, matching
-	// the router's registration gate for GET /api/worker/git-credentials
-	// (see RouterConfig.ChatWorkerAPIKey).
+	// unless a chat backend is configured AND carries an api_key (see
+	// RouterConfig.ChatWorkerAPIKey).
 	chatWorkerAPIKey := ""
 
 	var workerCredentialsToken func(sessionID string) string
@@ -89,7 +90,7 @@ func wireChat(
 		})
 		architectDefaultModel = entry.DefaultModel
 
-		// GET /api/worker/git-credentials verifies only against the chat key, so it refuses these tokens.
+		// GET /api/worker/git-credentials verifies these against the same architect entry's api_key.
 		architectKey := entry.APIKey
 		architectWorkerCredentialsToken = func(sessionID string) string {
 			return api.WorkerCredentialsToken(architectKey, sessionID)
@@ -114,6 +115,14 @@ func wireChat(
 		ArchitectBackend:                architectBackend,
 		ArchitectDefaultModel:           architectDefaultModel,
 		ArchitectWorkerCredentialsToken: architectWorkerCredentialsToken,
+		ArchitectPrice: func(model string) (protocol.ModelPrice, bool) {
+			rate, ok := svc.ResolvedRate(model)
+			if !ok {
+				return protocol.ModelPrice{}, false
+			}
+
+			return modelPriceFromRate(rate), true
+		},
 		ResolveProjectExec: func(rctx context.Context, project string) (chat.ProjectExecInfo, error) {
 			p, err := svc.GetProject(rctx, project)
 			if err != nil {
@@ -243,4 +252,17 @@ func chatWorkerImageFor(p *board.ProjectConfig) string {
 	}
 
 	return p.RemoteExecution.ChatWorkerImage
+}
+
+// modelPriceFromRate converts a rate in USD per token to the wire's USD per
+// million tokens.
+func modelPriceFromRate(rate service.ModelRate) protocol.ModelPrice {
+	const perMTok = 1e6
+
+	return protocol.ModelPrice{
+		PromptUSDPerMTok:     rate.Prompt * perMTok,
+		CompletionUSDPerMTok: rate.Completion * perMTok,
+		CacheReadUSDPerMTok:  rate.CacheRead * perMTok,
+		CacheWriteUSDPerMTok: rate.CacheWrite * perMTok,
+	}
 }
