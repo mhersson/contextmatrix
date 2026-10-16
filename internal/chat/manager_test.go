@@ -5607,3 +5607,175 @@ func TestManager_Consumer_OversizedPromptTextKeepsTheEnvelopeValid(t *testing.T)
 	assert.True(t, strings.HasPrefix(text, env.Text[:1024]), "cut at its end, not replaced")
 	assert.Equal(t, *gate, env.Prompt, "every action survives")
 }
+
+// frameStream returns a StreamLogs func that hands each frame sent on frames
+// to the consumer, one at a time.
+func frameStream(frames <-chan chat.LogEntry) func(context.Context, string, func(chat.LogEntry)) error {
+	return func(ctx context.Context, _ string, onEntry func(chat.LogEntry)) error {
+		for {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case e := <-frames:
+				onEntry(e)
+			}
+		}
+	}
+}
+
+// pushFrame hands a frame to the consumer, then leaves a consumer that does
+// not wait on the send time to persist it.
+func pushFrame(t *testing.T, frames chan<- chat.LogEntry, e chat.LogEntry) {
+	t.Helper()
+
+	select {
+	case frames <- e:
+	case <-time.After(2 * time.Second):
+		t.Error("the consumer never took the frame")
+	}
+
+	time.Sleep(100 * time.Millisecond)
+}
+
+func TestManager_SendUserMessage_ArchitectAnswerInsideTheSendLandsAfterTheUserRow(t *testing.T) {
+	hub := chat.NewSSEHub(128)
+	mgr, _, arch := newManagerWithArchitectStub(t, func(c *chat.Config) { c.Hub = hub })
+	ctx := context.Background()
+
+	frames := make(chan chat.LogEntry)
+	arch.streamLogsFn = frameStream(frames)
+
+	bp := openArchitect(t, mgr)
+
+	ch, _, err := hub.Subscribe(bp.ID, 0)
+	require.NoError(t, err)
+	t.Cleanup(func() { hub.Unsubscribe(bp.ID, ch) })
+
+	arch.sendFn = func() {
+		pushFrame(t, frames, chat.LogEntry{Type: "system", Content: "Approved. Emission starts."})
+	}
+
+	_, err = mgr.SendUserMessage(ctx, bp.ID, "approve")
+	require.NoError(t, err)
+
+	first := nextMessageEvent(t, ch)
+	second := nextMessageEvent(t, ch)
+
+	assert.Equal(t, chat.RoleUser, first.Role, "the user's row is published first")
+	assert.Equal(t, chat.RoleSystem, second.Role)
+	assert.Less(t, first.Seq, second.Seq, "and holds the lower seq")
+}
+
+func TestManager_SendUserMessage_ArchitectReopenFramesLandBeforeTheResentMessage(t *testing.T) {
+	hub := chat.NewSSEHub(128)
+	mgr, _, arch := newManagerWithArchitectStub(t, func(c *chat.Config) { c.Hub = hub })
+	ctx := context.Background()
+
+	frames := make(chan chat.LogEntry)
+	arch.streamLogsFn = frameStream(frames)
+
+	bp := openArchitect(t, mgr)
+
+	ch, _, err := hub.Subscribe(bp.ID, 0)
+	require.NoError(t, err)
+	t.Cleanup(func() { hub.Unsubscribe(bp.ID, ch) })
+
+	arch.mu.Lock()
+	arch.sendErrSeq = []error{errSessionUnknown(), nil}
+	arch.startFn = func() {
+		pushFrame(t, frames, chat.LogEntry{Type: "system", Content: "Blueprint reopened."})
+	}
+	arch.mu.Unlock()
+
+	_, err = mgr.SendUserMessage(ctx, bp.ID, "approve")
+	require.NoError(t, err)
+
+	first := nextMessageEvent(t, ch)
+	second := nextMessageEvent(t, ch)
+
+	assert.Equal(t, "Blueprint reopened.", first.Content, "the restart's frames precede the message that caused it")
+	assert.Equal(t, chat.RoleUser, second.Role)
+	assert.Less(t, first.Seq, second.Seq)
+}
+
+// The third unreachable send ends the session, and EndSession waits for the
+// consumer, so a consumer holding a frame must not be waiting on that send.
+func TestManager_SendUserMessage_ArchitectFailureEndsTheSessionWithoutDeadlock(t *testing.T) {
+	mgr, _, arch := newManagerWithArchitectStub(t)
+	ctx := context.Background()
+
+	frames := make(chan chat.LogEntry)
+	arch.streamLogsFn = frameStream(frames)
+
+	bp := openArchitect(t, mgr)
+
+	arch.sendErr = fmt.Errorf("chat: /message: %w", chat.ErrBackendUnreachable)
+	arch.sendFn = func() {
+		pushFrame(t, frames, chat.LogEntry{Type: "system", Content: "noted"})
+	}
+
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		for range 3 {
+			_, _ = mgr.SendUserMessage(ctx, bp.ID, "hello")
+		}
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("SendUserMessage deadlocked against the consumer")
+	}
+
+	sess, err := mgr.GetSession(ctx, bp.ID)
+	require.NoError(t, err)
+	assert.Equal(t, chat.StatusCold, sess.Status, "the third failure ended the session")
+}
+
+func TestManager_SendUserMessage_ChatConsumerDoesNotWaitOnTheSend(t *testing.T) {
+	hub := chat.NewSSEHub(128)
+	mgr, chatStub, _ := newManagerWithArchitectStub(t, func(c *chat.Config) { c.Hub = hub })
+	ctx := context.Background()
+
+	frames := make(chan chat.LogEntry)
+	chatStub.streamLogsFn = frameStream(frames)
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "t", Project: "alpha", CreatedBy: "human:web"})
+	require.NoError(t, err)
+
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+
+	ch, _, err := hub.Subscribe(sess.ID, 0)
+	require.NoError(t, err)
+	t.Cleanup(func() { hub.Unsubscribe(sess.ID, ch) })
+
+	chatStub.sendFn = func() {
+		frames <- chat.LogEntry{Type: "text", Content: "streamed during the send"}
+
+		deadline := time.After(2 * time.Second)
+
+		for {
+			select {
+			case e := <-ch:
+				if e.Kind == chat.SSEKindSessionUpdate {
+					continue
+				}
+
+				assert.Equal(t, chat.RoleAssistantText, e.Role, "a chat consumer persists while a send is in flight")
+
+				return
+			case <-deadline:
+				t.Error("the chat consumer waited on the send")
+
+				return
+			}
+		}
+	}
+
+	_, err = mgr.SendUserMessage(ctx, sess.ID, "hello")
+	require.NoError(t, err)
+}
