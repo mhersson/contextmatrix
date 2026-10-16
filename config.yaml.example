@@ -321,10 +321,11 @@ task_skills:
 # entry (or CONTEXTMATRIX_BACKEND_RUNNER_* env var) fails startup. The
 # runner-eos git tag marks the last CM commit that supported it.
 #
-# Callback paths are fixed: /api/agent, /api/chat and /api/architect (the
-# backend repos hardcode them). The browser-facing /api/worker/logs and
-# /api/backend/health endpoints are hard-wired whenever a task backend is
-# configured; they do not move.
+# Callback paths are fixed: /api/agent and /api/chat (the backend repos
+# hardcode them). The architect backend has no callback path; it reaches CM
+# over MCP and the bearer-authed /api/worker/git-credentials. The
+# browser-facing /api/worker/logs and /api/backend/health endpoints are
+# hard-wired whenever a task backend is configured; they do not move.
 #
 # ENABLED FLAG: each entry has an optional `enabled` field (default: true).
 # Omitting `enabled` means the entry is active. Set `enabled: false` to keep
