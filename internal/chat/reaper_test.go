@@ -131,7 +131,7 @@ func TestIdleReaper_LeavesBlueprintsAttached(t *testing.T) {
 
 	got, err := store.GetSession(ctx, bp.ID)
 	require.NoError(t, err)
-	assert.Equal(t, chat.StatusWarmIdle, got.Status, "a blueprint is never reaped; only an explicit end detaches it")
+	assert.Equal(t, chat.StatusWarmIdle, got.Status, "the idle reaper never ends a blueprint")
 	assert.Equal(t, int64(0), archStub.endCalls.Load())
 }
 

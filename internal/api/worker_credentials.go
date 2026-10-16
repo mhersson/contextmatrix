@@ -121,8 +121,7 @@ type workerCredentialsHandlers struct {
 	architectAPIKey string
 
 	// liveness reports a session's kind and whether it is attached to its
-	// backend (see chatSessionLiveness). Narrow interface (see chatSessionLiveness) so tests can
-	// stub it without constructing a real *chat.Manager.
+	// backend. Narrow so tests can stub it without a real *chat.Manager.
 	liveness chatSessionLiveness
 
 	// listProjects enumerates every project so the handler can match the
@@ -147,8 +146,9 @@ type workerCredentialsHandlers struct {
 // bearer auth (401) → host/path presence (400 when exactly one is empty) →
 // session lookup (404 unknown / 500 lookup error) → kind binding (401 on a
 // mismatch) → liveness (409 cold) → project match + provider resolution
-// (409 fail-closed on a broken binding; an empty (host, path) pair skips project matching and resolves straight to
-// the instance credential, see resolveProvider) → token mint (502) → 200.
+// (409 fail-closed on a broken binding; an empty (host, path) pair skips
+// project matching and resolves straight to the instance credential, see
+// resolveProvider) → token mint (502) → 200.
 func (h *workerCredentialsHandlers) getGitCredentials(w http.ResponseWriter, r *http.Request) {
 	token, ok := extractBearerToken(r)
 	if !ok {

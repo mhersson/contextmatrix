@@ -160,9 +160,9 @@ func cutFirstDot(t *testing.T, s string) (before, after string, found bool) {
 
 // --- GET /api/worker/git-credentials ---
 //
-// Chat workers fetch per-repo git credentials on demand, authenticated by
-// the deterministic per-session bearer minted at chat-start
-// (ChatStartPayload.GitCredentialsToken). See docs/api-reference.md § Worker
+// Chat and architect workers fetch per-repo git credentials on demand,
+// authenticated by the deterministic per-session bearer minted at session
+// start (ChatStartPayload.GitCredentialsToken). See docs/api-reference.md § Worker
 // Endpoints for the full contract.
 
 // stubSessionLiveness is a chatSessionLiveness test double. gotSessionID

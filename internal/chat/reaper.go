@@ -52,7 +52,7 @@ func (r *IdleReaper) sweepWarmIdle(ctx context.Context) {
 	for _, sess := range sessions {
 		// A blueprint has no container to reclaim and its architect may be
 		// mid-stage long after the last pane closed (log traffic never bumps
-		// last_active). Only an explicit end or delete detaches it.
+		// last_active). The idle reaper never ends a blueprint.
 		if sess.Kind == KindArchitect {
 			continue
 		}
