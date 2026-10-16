@@ -702,6 +702,7 @@ func main() {
 		ChatManager:            chatMgr,
 		ChatHub:                chatHub,
 		ChatBackendCfg:         chatBackendCfg,
+		ArchitectBackendCfg:    cfg.Backends.Architect,
 		ChatWorkerAPIKey:       chatWorkerAPIKey,
 		ImageStore:             imageStore,
 		Blacklist:              opStore,

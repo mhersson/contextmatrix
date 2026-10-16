@@ -6,7 +6,7 @@ package config
 // re-deriving the values, so a default added upstream to any of those
 // helpers reaches the schema without a second edit here.
 //
-// Both backend entries are declared before the chain runs and left enabled
+// All three backend entries are declared before the chain runs and left enabled
 // while it runs, because applyBackendDefaults only fills an entry that is
 // enabled; they are switched off afterwards so their key sets are visible
 // without turning either backend on. The four path-valued keys whose default
@@ -19,6 +19,7 @@ func Defaults() *Config {
 	// A nil Enabled means enabled, so these entries are live for the chain.
 	cfg.Backends.Agent = &AgentBackendConfig{}
 	cfg.Backends.Chat = &ChatBackendConfig{}
+	cfg.Backends.Architect = &ArchitectBackendConfig{}
 
 	applyChatDefaults(cfg)
 	applyImagesDefaults(cfg)
@@ -32,6 +33,7 @@ func Defaults() *Config {
 	disabled := false
 	cfg.Backends.Agent.Enabled = &disabled
 	cfg.Backends.Chat.Enabled = &disabled
+	cfg.Backends.Architect.Enabled = &disabled
 
 	cfg.Auth.DBPath, cfg.Auth.MasterKeyFile = "", ""
 	cfg.Images.DBPath, cfg.OpStore.DBPath = "", ""

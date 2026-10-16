@@ -21,7 +21,7 @@ var _ chat.Store = (*Store)(nil)
 const sessionColumns = `id, title, project, status, created_at, last_active, created_by,
     container_id, workspace, model, context_tokens, context_tokens_updated_at, rehydration_active,
     rehydration_started_at, prompt_tokens, completion_tokens, cache_read_tokens,
-    cache_creation_tokens, estimated_cost_usd`
+    cache_creation_tokens, estimated_cost_usd, kind, mode, cost_cap_usd`
 
 func (s *Store) CreateSession(ctx context.Context, sess chat.Session) error {
 	workspaceJSON, err := json.Marshal(sess.Workspace)
@@ -29,12 +29,19 @@ func (s *Store) CreateSession(ctx context.Context, sess chat.Session) error {
 		return fmt.Errorf("chat: marshal workspace: %w", err)
 	}
 
+	kind := sess.Kind
+	if kind == "" {
+		kind = chat.KindChat
+	}
+
 	_, err = s.db.ExecContext(ctx, `INSERT INTO chat_sessions
-        (id, title, project, status, created_at, last_active, created_by, container_id, workspace, model)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, title, project, status, created_at, last_active, created_by, container_id, workspace, model,
+         kind, mode, cost_cap_usd)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		sess.ID, sess.Title, nullIf(sess.Project), string(sess.Status),
 		sess.CreatedAt.Unix(), sess.LastActive.Unix(), sess.CreatedBy,
 		nullIf(sess.ContainerID), string(workspaceJSON), sess.Model,
+		string(kind), sess.Mode, sess.CostCapUSD,
 	)
 	if err != nil {
 		return fmt.Errorf("chat: insert session: %w", err)
@@ -53,6 +60,12 @@ func (s *Store) ListSessions(ctx context.Context, f chat.SessionFilter) ([]chat.
 	q := `SELECT ` + sessionColumns + ` FROM chat_sessions WHERE 1=1`
 
 	var args []any
+
+	if f.Kind != "" {
+		q += " AND kind = ?"
+
+		args = append(args, string(f.Kind))
+	}
 
 	if f.Project != "" {
 		q += " AND project = ?"
@@ -123,18 +136,21 @@ func (s *Store) ListSessions(ctx context.Context, f chat.SessionFilter) ([]chat.
 	return out, rows.Err()
 }
 
-// CountSessionsByStatus returns the number of sessions whose status is one of
-// the supplied values. A single SELECT COUNT(*) query avoids fetching full rows
+// CountSessionsByStatus returns the number of chat-kind sessions whose status
+// is one of the supplied values; the limit bounds containers, which architect
+// sessions do not run. A single SELECT COUNT(*) query avoids fetching full rows
 // just to call len() on the result - used by openCold to enforce MaxConcurrent.
 func (s *Store) CountSessionsByStatus(ctx context.Context, statuses ...chat.Status) (int, error) {
 	if len(statuses) == 0 {
 		return 0, nil
 	}
 
-	args := make([]any, len(statuses))
-	for i, st := range statuses {
-		args[i] = string(st)
+	args := make([]any, 0, len(statuses)+1)
+	for _, st := range statuses {
+		args = append(args, string(st))
 	}
+
+	args = append(args, string(chat.KindChat))
 
 	var placeholders strings.Builder
 	placeholders.WriteString("?")
@@ -146,7 +162,7 @@ func (s *Store) CountSessionsByStatus(ctx context.Context, statuses ...chat.Stat
 	var n int
 
 	err := s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM chat_sessions WHERE status IN (`+placeholders.String()+`)`,
+		`SELECT COUNT(*) FROM chat_sessions WHERE status IN (`+placeholders.String()+`) AND kind = ?`,
 		args...,
 	).Scan(&n)
 	if err != nil {
@@ -488,6 +504,8 @@ func scanSession(sc scanner) (chat.Session, error) {
 		cacheReadTokens             int64
 		cacheCreationTokens         int64
 		estimatedCostUSD            float64
+		kind, mode                  string
+		costCapUSD                  float64
 	)
 
 	if err := sc.Scan(
@@ -496,7 +514,7 @@ func scanSession(sc scanner) (chat.Session, error) {
 		&model, &contextTokens, &contextTokensUpdatedAt, &rehydrationActive,
 		&rehydrationStartedAt,
 		&promptTokens, &completionTokens, &cacheReadTokens, &cacheCreationTokens,
-		&estimatedCostUSD,
+		&estimatedCostUSD, &kind, &mode, &costCapUSD,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return chat.Session{}, chat.ErrSessionNotFound
@@ -508,6 +526,9 @@ func scanSession(sc scanner) (chat.Session, error) {
 	s.Project = project.String
 	s.ContainerID = containerID.String
 	s.Status = chat.Status(status)
+	s.Kind = chat.SessionKind(kind)
+	s.Mode = mode
+	s.CostCapUSD = costCapUSD
 	s.CreatedAt = time.Unix(createdAt, 0).UTC()
 	s.LastActive = time.Unix(lastActive, 0).UTC()
 	s.Model = model.String

@@ -44,11 +44,31 @@ const (
 	RoleSystem            Role = "system"
 )
 
+// SessionKind selects the backend a session runs on and what it binds to.
+type SessionKind string
+
+const (
+	// KindChat is a chat session: one optional project, a worker container
+	// on the chat backend.
+	KindChat SessionKind = "chat"
+	// KindArchitect is a blueprint session on the architect backend: its
+	// target projects live in Workspace, its blueprint id is the session id,
+	// and it runs no container.
+	KindArchitect SessionKind = "architect"
+)
+
 // Session is the persisted shape of a chat session row.
 type Session struct {
-	ID                     string    `json:"id"`
-	Title                  string    `json:"title"`
-	Project                string    `json:"project,omitempty"`
+	ID      string      `json:"id"`
+	Title   string      `json:"title"`
+	Project string      `json:"project,omitempty"`
+	Kind    SessionKind `json:"kind"`
+	// Mode is the architect autonomy mode (protocol.ArchitectMode*); empty
+	// for chat sessions. Fixed at creation.
+	Mode string `json:"mode,omitempty"`
+	// CostCapUSD bounds the architect's spend for this blueprint; zero means
+	// the architect's own default. Fixed at creation.
+	CostCapUSD             float64   `json:"cost_cap_usd,omitempty"`
 	Status                 Status    `json:"status"`
 	CreatedAt              time.Time `json:"created_at"`
 	LastActive             time.Time `json:"last_active"`

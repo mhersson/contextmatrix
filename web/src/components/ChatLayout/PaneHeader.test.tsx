@@ -69,6 +69,19 @@ describe('PaneHeader Clear context menu', () => {
     expect(screen.getByRole('menuitem', { name: 'Clear context' })).toBeInTheDocument();
   });
 
+  it('hides Clear context for a blueprint session', () => {
+    render(
+      <PaneHeader
+        {...baseProps}
+        chat={{ ...activeChat(), kind: 'architect' }}
+        onClearContext={() => {}}
+        onEndSession={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText('More chat actions'));
+    expect(screen.queryByRole('menuitem', { name: 'Clear context' })).not.toBeInTheDocument();
+  });
+
   it('hides Clear context when session is cold (matches End Session gating)', () => {
     render(
       <PaneHeader

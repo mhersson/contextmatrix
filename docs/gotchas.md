@@ -298,9 +298,10 @@ Developer traps in this codebase. Each entry names the code it describes.
   `internal/opstore/sqlite/schema.go` runs idempotent
   `CREATE TABLE IF NOT EXISTS` DDL for `model_blacklist`, `chat_sessions`,
   `chat_messages`, `chat_cost_archive`, and `model_outcomes` in `ops.db`.
-  There is no `schema_migrations` table and no column-add helper. A schema
-  change is an edit to that DDL; an incompatible `ops.db` is deleted and
-  recreated by the operator.
+  There is no `schema_migrations` table. A new table is an edit to that DDL;
+  a column added to an existing table also needs an `addColumnIfMissing` call
+  after the DDL, since `IF NOT EXISTS` leaves an old table untouched. An
+  `ops.db` newer than the binary is refused.
 - **Chat rehydration seeds from `resume.jsonl`:** the chat-start payload
   carries `resume` (`ChatResumeContext`), which the chat backend writes to
   the session run dir and the worker reads in-process from

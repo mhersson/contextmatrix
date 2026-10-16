@@ -4312,3 +4312,208 @@ func TestAppendMessage_ReseedFailureLeavesCounterAheadOfDisk(t *testing.T) {
 	require.NoError(t, err, "append after a failed reseed must not UNIQUE-collide with the committed row")
 	assert.Equal(t, int64(3), msg3.Seq, "seq must be 3: the committed row owns seq 2")
 }
+
+// newManagerWithArchitectStub wires a chat stub and an architect stub so
+// dispatch by session kind is observable.
+func newManagerWithArchitectStub(t *testing.T) (*chat.Manager, *stubBackend, *stubBackend) {
+	t.Helper()
+
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	chatStub := &stubBackend{}
+	archStub := &stubBackend{}
+	mgr := newManager(t, chat.Config{
+		Store:                 store,
+		Backend:               chatStub,
+		ArchitectBackend:      archStub,
+		ArchitectDefaultModel: "arch/default",
+		Clock:                 clock.Real(),
+		IdleTTL:               time.Hour,
+		MaxConcurrent:         1,
+		ResolveProjectExec: func(_ context.Context, project string) (chat.ProjectExecInfo, error) {
+			if project != "alpha" && project != "beta" {
+				return chat.ProjectExecInfo{}, errors.New("no such project")
+			}
+
+			return chat.ProjectExecInfo{RepoURL: "https://example.com/" + project + ".git"}, nil
+		},
+		ArchitectWorkerCredentialsToken: func(id string) string { return "arch-token-" + id },
+	})
+
+	return mgr, chatStub, archStub
+}
+
+func TestManager_CreateSession_ArchitectValidation(t *testing.T) {
+	mgr, _, _ := newManagerWithArchitectStub(t)
+	ctx := context.Background()
+
+	cases := []struct {
+		name string
+		in   chat.CreateInput
+	}{
+		{"no projects", chat.CreateInput{Kind: chat.KindArchitect, CreatedBy: "human:web"}},
+		{"unknown project", chat.CreateInput{Kind: chat.KindArchitect, Projects: []string{"nope"}, CreatedBy: "human:web"}},
+		{"bad mode", chat.CreateInput{Kind: chat.KindArchitect, Projects: []string{"alpha"}, Mode: "turbo", CreatedBy: "human:web"}},
+		{"negative cap", chat.CreateInput{Kind: chat.KindArchitect, Projects: []string{"alpha"}, CostCapUSD: -1, CreatedBy: "human:web"}},
+		{"project on blueprint", chat.CreateInput{Kind: chat.KindArchitect, Project: "alpha", Projects: []string{"alpha"}, CreatedBy: "human:web"}},
+		{"unknown kind", chat.CreateInput{Kind: "planner", CreatedBy: "human:web"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := mgr.CreateSession(ctx, tc.in)
+			require.ErrorIs(t, err, chat.ErrInvalidSessionInput)
+		})
+	}
+}
+
+func TestManager_CreateSession_ArchitectDefaultsAndWorkspace(t *testing.T) {
+	mgr, _, _ := newManagerWithArchitectStub(t)
+
+	sess, err := mgr.CreateSession(context.Background(), chat.CreateInput{
+		Kind: chat.KindArchitect, Projects: []string{"alpha", "beta"}, CreatedBy: "human:web", CostCapUSD: 3,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, chat.KindArchitect, sess.Kind)
+	assert.Equal(t, "default", sess.Mode)
+	assert.Equal(t, []string{"alpha", "beta"}, sess.Workspace)
+	assert.Empty(t, sess.Project)
+	assert.InDelta(t, 3.0, sess.CostCapUSD, 1e-9)
+}
+
+func TestManager_CreateSession_ArchitectUnavailableWithoutBackend(t *testing.T) {
+	mgr, _, _ := newManagerWithStubs(t)
+
+	_, err := mgr.CreateSession(context.Background(), chat.CreateInput{
+		Kind: chat.KindArchitect, Projects: []string{"alpha"}, CreatedBy: "human:web",
+	})
+	require.ErrorIs(t, err, chat.ErrKindUnavailable)
+}
+
+func TestManager_CreateSession_DefaultsToChatKind(t *testing.T) {
+	mgr, _, _ := newManagerWithArchitectStub(t)
+
+	sess, err := mgr.CreateSession(context.Background(), chat.CreateInput{Title: "t", CreatedBy: "human:web"})
+	require.NoError(t, err)
+	assert.Equal(t, chat.KindChat, sess.Kind)
+}
+
+func TestManager_OpenSession_DispatchesByKind(t *testing.T) {
+	mgr, chatStub, archStub := newManagerWithArchitectStub(t)
+	ctx := context.Background()
+
+	bp, err := mgr.CreateSession(ctx, chat.CreateInput{
+		Kind: chat.KindArchitect, Projects: []string{"alpha", "beta"}, Mode: "yolo", CostCapUSD: 5, CreatedBy: "human:web",
+	})
+	require.NoError(t, err)
+
+	_, err = mgr.OpenSession(ctx, bp.ID)
+	require.NoError(t, err)
+
+	assert.Equal(t, int64(1), archStub.startCalls.Load())
+	assert.Equal(t, int64(0), chatStub.startCalls.Load())
+
+	archStub.mu.Lock()
+	opts := archStub.lastOpts
+	archStub.mu.Unlock()
+
+	require.NotNil(t, opts.Architect)
+	assert.Equal(t, []string{"alpha", "beta"}, opts.Architect.Projects)
+	assert.Equal(t, "yolo", opts.Architect.Mode)
+	assert.InDelta(t, 5.0, opts.Architect.CostCapUSD, 1e-9)
+	assert.Equal(t, "arch/default", opts.Model)
+	assert.Equal(t, "arch-token-"+bp.ID, opts.GitCredentialsToken)
+	assert.Empty(t, opts.Project)
+	assert.Empty(t, opts.RepoURL)
+	assert.Empty(t, opts.WorkerImage)
+	assert.Nil(t, opts.Resume)
+
+	// A chat session still goes to the chat backend, and the open architect
+	// session did not consume the single chat slot (MaxConcurrent is 1).
+	c, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "c", CreatedBy: "human:web"})
+	require.NoError(t, err)
+	_, err = mgr.OpenSession(ctx, c.ID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), chatStub.startCalls.Load())
+	assert.Equal(t, int64(1), archStub.startCalls.Load())
+
+	chatStub.mu.Lock()
+	chatOpts := chatStub.lastOpts
+	chatStub.mu.Unlock()
+	assert.Nil(t, chatOpts.Architect)
+}
+
+func TestManager_EndAndSend_DispatchByKind(t *testing.T) {
+	mgr, chatStub, archStub := newManagerWithArchitectStub(t)
+	ctx := context.Background()
+
+	bp, err := mgr.CreateSession(ctx, chat.CreateInput{
+		Kind: chat.KindArchitect, Projects: []string{"alpha"}, CreatedBy: "human:web",
+	})
+	require.NoError(t, err)
+	_, err = mgr.OpenSession(ctx, bp.ID)
+	require.NoError(t, err)
+
+	_, err = mgr.SendUserMessage(ctx, bp.ID, "containerise this")
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), archStub.sendCalls.Load())
+	assert.Equal(t, int64(0), chatStub.sendCalls.Load())
+
+	require.NoError(t, mgr.EndSession(ctx, bp.ID))
+	assert.Equal(t, int64(1), archStub.endCalls.Load())
+	assert.Equal(t, int64(0), chatStub.endCalls.Load())
+}
+
+func TestManager_ClearContext_RefusesArchitectSession(t *testing.T) {
+	mgr, _, archStub := newManagerWithArchitectStub(t)
+	ctx := context.Background()
+
+	bp, err := mgr.CreateSession(ctx, chat.CreateInput{
+		Kind: chat.KindArchitect, Projects: []string{"alpha"}, CreatedBy: "human:web",
+	})
+	require.NoError(t, err)
+	_, err = mgr.OpenSession(ctx, bp.ID)
+	require.NoError(t, err)
+
+	err = mgr.ClearContext(ctx, bp.ID)
+	require.ErrorIs(t, err, chat.ErrInvalidSessionInput)
+	assert.Equal(t, int64(0), archStub.sendCalls.Load())
+
+	msgs, err := mgr.ListMessagesTail(ctx, bp.ID, 10)
+	require.NoError(t, err)
+	assert.Empty(t, msgs, "no divider may be appended")
+}
+
+func TestManager_CreateSession_ChatKindIgnoresCostCap(t *testing.T) {
+	mgr, _, _ := newManagerWithArchitectStub(t)
+
+	sess, err := mgr.CreateSession(context.Background(), chat.CreateInput{
+		Title: "c", CreatedBy: "human:web", CostCapUSD: 7,
+	})
+	require.NoError(t, err)
+
+	got, err := mgr.GetSession(context.Background(), sess.ID)
+	require.NoError(t, err)
+	assert.InDelta(t, 0.0, got.CostCapUSD, 1e-9)
+}
+
+func TestManager_OpenSession_ArchitectIgnoresFullChatSlots(t *testing.T) {
+	mgr, chatStub, archStub := newManagerWithArchitectStub(t)
+	ctx := context.Background()
+
+	c, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "c", CreatedBy: "human:web"})
+	require.NoError(t, err)
+	_, err = mgr.OpenSession(ctx, c.ID)
+	require.NoError(t, err)
+
+	bp, err := mgr.CreateSession(ctx, chat.CreateInput{
+		Kind: chat.KindArchitect, Projects: []string{"alpha"}, CreatedBy: "human:web",
+	})
+	require.NoError(t, err)
+	_, err = mgr.OpenSession(ctx, bp.ID)
+	require.NoError(t, err)
+
+	assert.Equal(t, int64(1), chatStub.startCalls.Load())
+	assert.Equal(t, int64(1), archStub.startCalls.Load())
+}

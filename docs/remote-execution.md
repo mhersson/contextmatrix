@@ -434,6 +434,28 @@ worker endpoint.
 Closes the container's stdin and stops it. A session the backend no longer
 tracks answers `404 not_found`.
 
+### CM → architect backend
+
+The architect backend (contextmatrix-architect) speaks the chat-backend
+protocol. CM drives it with the same `POST /chat/start`, `POST /chat/end` and
+`POST /message`, and reads its signed `GET /logs?session_id=` stream into the
+transcript, all signed with the architect entry's `api_key`. CM sends no
+health or readiness probe to it. A session is a blueprint bound to its
+session id, not a container; CM records whatever `container_id` the start
+response returns. Differences from a chat start:
+
+| Field                                           | Architect start                                                                                                         |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `project`, `repo_url`, `worker_image`, `resume` | Never set. The target projects travel in the `architect` block; the transcript is not replayed on a reopen.             |
+| `model`                                         | The session row's model, else `backends.architect.default_model`.                                                       |
+| `llm_endpoint`, `mcp_api_key`                   | As for chat: the configured `llm_endpoint` and CM's `mcp_api_key`.                                                      |
+| `git_credentials_token`                         | Minted over the architect entry's `api_key`, in the same `<session_id>.<mac>` form as for chat.                         |
+| `architect`                                     | `{"projects": ["alpha", "beta"], "mode": "default", "cost_cap_usd": 3}`. `mode` is `default`, `auto`, `auto+emit` or `yolo`. |
+
+`/chat/end` ends the session on the architect; reopening it sends a new
+`/chat/start` for the same session id. Architect sessions do not count toward
+`chat.max_concurrent`.
+
 ### Task/chat backend → CM: log stream
 
 #### GET {backend_url}/logs
@@ -929,50 +951,50 @@ the UI's SSE updates. The enum lives in
 
 ### ContextMatrix (`config.yaml`)
 
-`backends` is a typed map with a closed set of two entry names, `agent` and
-`chat`. Roles and callback paths are fixed. Backends are read once at
+`backends` is a typed map with a closed set of three entry names, `agent`,
+`chat` and `architect`. Roles and callback paths are fixed. Backends are read once at
 startup; any change needs a restart. Decoding is strict: an unknown backend
 name, a leftover `runner` entry, or an unknown per-entry key fails startup.
 `config.yaml.example` carries the fully commented block; the keys are:
 
-| Key                                    | Entry        | Default    | Notes                                                                                         |
-| -------------------------------------- | ------------ | ---------- | --------------------------------------------------------------------------------------------- |
-| `backends.<name>.url`                  | agent, chat  | required   | Base URL; protocol paths are appended.                                                        |
-| `backends.<name>.api_key`              | agent, chat  | required   | Shared HMAC secret, at least 32 characters (`MinBackendAPIKeyLength`).                        |
-| `backends.<name>.enabled`              | agent, chat  | `true`     | `false` keeps the block as an inert placeholder and skips its validation.                     |
-| `backends.<name>.default_model`        | agent, chat  | unset      | Optional on `agent` (empty `model` in the trigger); required on an enabled `chat` entry.       |
-| `backends.agent.reconcile_interval`    | agent        | `60s`      | Backstop sweep tick; `"0s"` disables. Rejected on the `chat` entry.                           |
-| `backends.agent.aa_api_key`            | agent        | unset      | Enables the selection catalog. See [model selection](model-selection.md).                     |
-| `backends.agent.model_allowlist`       | agent        | built-in   | Trusted vendor prefixes; screens the OpenRouter catalog and the openai leg's automatic AA matches. |
-| `backends.agent.catalog_quality_floor` | agent        | `0` (0.65) | Must be in `[0, 1)`; `0` means the Builder's 0.65 default.                                    |
-| `backends.agent.favorites`             | agent        | none       | Per-tier preferred models, optionally per role.                                               |
-| `backends.agent.model_priors`          | agent        | none       | Verbatim priors for endpoint slugs AA does not rate (`openai` leg).                            |
-| `mcp_api_key`                          | global       | unset      | Forwarded to workers so they can reach CM's MCP endpoint.                                     |
-| `llm_endpoint.{type,base_url,api_key}` | global       | unset      | Forwarded on every trigger and chat start whenever `type` is set.                             |
-| `llm_endpoint.reasoning_effort`        | global       | unset      | CM-side only: the effort the gateway pins for its OpenAI models, used to pick the AA row on the `openai` leg. Not forwarded. |
-| `best_of_n.max_candidates`             | global       | `5`        | Hard cap on a card's race size.                                                               |
-| `best_of_n.default_candidates`         | global       | `3`        | Race size the UI suggests.                                                                    |
-| `mob.*`                                | global       | see example | Participant and round caps, budget factor, checkpoint flags, guest registry.                |
-| `chat.idle_ttl`                        | global       | `1h`       | How long a chat container survives after the browser disconnects.                            |
-| `chat.max_concurrent`                  | global       | `0`        | Cap on active plus warm-idle chat containers; `0` means unlimited.                            |
-| `chat.resume_budget_tokens`            | global       | `40000`    | Rough token budget for the rehydration payload.                                               |
-| `chat.rehydration_timeout`             | global       | `10m`      | Forces the rehydration phase off if the worker never signals completion.                      |
-| `op_store.db_path`                     | global       | state dir  | `ops.db`: chat sessions and transcripts, the model blacklist, Best-of-N outcomes.             |
+| Key                                    | Entry                  | Default     | Notes                                                                                                                        |
+| -------------------------------------- | ---------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `backends.<name>.url`                  | agent, chat, architect | required    | Base URL; protocol paths are appended.                                                                                       |
+| `backends.<name>.api_key`              | agent, chat, architect | required    | Shared HMAC secret, at least 32 characters (`MinBackendAPIKeyLength`).                                                       |
+| `backends.<name>.enabled`              | agent, chat, architect | `true`      | `false` keeps the block as an inert placeholder and skips its validation.                                                    |
+| `backends.<name>.default_model`        | agent, chat, architect | unset       | Optional on `agent` (empty `model` in the trigger); required on an enabled `chat` or `architect` entry.                      |
+| `backends.agent.reconcile_interval`    | agent                  | `60s`       | Backstop sweep tick; `"0s"` disables. Rejected on the `chat` and `architect` entries.                                        |
+| `backends.agent.aa_api_key`            | agent                  | unset       | Enables the selection catalog. See [model selection](model-selection.md).                                                    |
+| `backends.agent.model_allowlist`       | agent                  | built-in    | Trusted vendor prefixes; screens the OpenRouter catalog and the openai leg's automatic AA matches.                           |
+| `backends.agent.catalog_quality_floor` | agent                  | `0` (0.65)  | Must be in `[0, 1)`; `0` means the Builder's 0.65 default.                                                                   |
+| `backends.agent.favorites`             | agent                  | none        | Per-tier preferred models, optionally per role.                                                                              |
+| `backends.agent.model_priors`          | agent                  | none        | Verbatim priors for endpoint slugs AA does not rate (`openai` leg).                                                          |
+| `mcp_api_key`                          | global                 | unset       | Forwarded to workers so they can reach CM's MCP endpoint.                                                                    |
+| `llm_endpoint.{type,base_url,api_key}` | global                 | unset       | Forwarded on every trigger and chat start whenever `type` is set.                                                            |
+| `llm_endpoint.reasoning_effort`        | global                 | unset       | CM-side only: the effort the gateway pins for its OpenAI models, used to pick the AA row on the `openai` leg. Not forwarded. |
+| `best_of_n.max_candidates`             | global                 | `5`         | Hard cap on a card's race size.                                                                                              |
+| `best_of_n.default_candidates`         | global                 | `3`         | Race size the UI suggests.                                                                                                   |
+| `mob.*`                                | global                 | see example | Participant and round caps, budget factor, checkpoint flags, guest registry.                                                 |
+| `chat.idle_ttl`                        | global                 | `1h`        | How long a chat container survives after the browser disconnects.                                                            |
+| `chat.max_concurrent`                  | global                 | `0`         | Cap on active plus warm-idle chat containers; `0` means unlimited.                                                           |
+| `chat.resume_budget_tokens`            | global                 | `40000`     | Rough token budget for the rehydration payload.                                                                              |
+| `chat.rehydration_timeout`             | global                 | `10m`       | Forces the rehydration phase off if the worker never signals completion.                                                     |
+| `op_store.db_path`                     | global                 | state dir   | `ops.db`: chat sessions and transcripts, the model blacklist, Best-of-N outcomes.                                            |
 
 **Environment overrides** map to each entry as `CONTEXTMATRIX_BACKEND_<NAME>_*`
-(`<NAME>` is `AGENT` or `CHAT`); env values win over the file, and a backend
+(`<NAME>` is `AGENT`, `CHAT` or `ARCHITECT`); env values win over the file, and a backend
 can be configured through env alone. Unknown suffixes fail startup.
 
-| Suffix                   | Entries      |
-| ------------------------ | ------------ |
-| `_URL`                   | agent, chat  |
-| `_API_KEY`               | agent, chat  |
-| `_ENABLED`               | agent, chat  |
-| `_DEFAULT_MODEL`         | agent, chat  |
-| `_RECONCILE_INTERVAL`    | agent        |
-| `_AA_API_KEY`            | agent        |
-| `_MODEL_ALLOWLIST`       | agent        |
-| `_CATALOG_QUALITY_FLOOR` | agent        |
+| Suffix                   | Entries                |
+| ------------------------ | ---------------------- |
+| `_URL`                   | agent, chat, architect |
+| `_API_KEY`               | agent, chat, architect |
+| `_ENABLED`               | agent, chat, architect |
+| `_DEFAULT_MODEL`         | agent, chat, architect |
+| `_RECONCILE_INTERVAL`    | agent                  |
+| `_AA_API_KEY`            | agent                  |
+| `_MODEL_ALLOWLIST`       | agent                  |
+| `_CATALOG_QUALITY_FLOOR` | agent                  |
 
 The related globals have their own names: `CONTEXTMATRIX_MCP_API_KEY`,
 `CONTEXTMATRIX_LLM_ENDPOINT_{TYPE,BASE_URL,API_KEY}`,
@@ -983,7 +1005,7 @@ secrets).
 
 ### Backend configuration
 
-The task and chat backends carry their own configuration: listener ports,
+The task, chat and architect backends carry their own configuration: listener ports,
 container image and resource limits, secrets directory, replay-cache sizing,
 idle watchdog, orphan sweep, and drain behavior. Those knobs live in each
 backend's `serve.yaml.example` in its own repository. The only values that

@@ -19,7 +19,10 @@ import (
 const (
 	ErrCodeChatNotFound = "CHAT_NOT_FOUND"
 	ErrCodeTooManyChats = "TOO_MANY_CHATS"
-	ErrCodeInvalidModel = "INVALID_MODEL"
+
+	ErrCodeInvalidChatInput    = "INVALID_CHAT_INPUT"
+	ErrCodeChatKindUnavailable = "CHAT_KIND_UNAVAILABLE"
+	ErrCodeInvalidModel        = "INVALID_MODEL"
 )
 
 // endpointModelCacheTTL is the lifetime of the cached endpoint model list.
@@ -166,6 +169,7 @@ func parseChatListFilter(w http.ResponseWriter, q url.Values) (chat.SessionFilte
 	f := chat.SessionFilter{
 		Project:   q.Get("project"),
 		CreatedBy: q.Get("created_by"),
+		Kind:      chat.SessionKind(q.Get("kind")),
 		Limit:     listChatsDefaultLimit,
 	}
 
@@ -228,19 +232,28 @@ func (h *chatHandlers) listChats(w http.ResponseWriter, r *http.Request) {
 
 func (h *chatHandlers) createChat(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Title   string `json:"title"`
-		Project string `json:"project"`
-		Model   string `json:"model"`
+		Title      string   `json:"title"`
+		Project    string   `json:"project"`
+		Model      string   `json:"model"`
+		Kind       string   `json:"kind"`
+		Projects   []string `json:"projects"`
+		Mode       string   `json:"mode"`
+		CostCapUSD float64  `json:"cost_cap_usd"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
 	}
 
+	kind := chat.SessionKind(body.Kind)
 	model := body.Model
+	// The chat default model belongs to the chat backend; an architect
+	// session with no model is defaulted at cold open from the architect
+	// entry instead.
+	applyDefault := kind != chat.KindArchitect
 
 	switch {
 	case h.endpointModels != nil:
-		if model == "" {
+		if model == "" && applyDefault {
 			model = h.orDefault
 		}
 		// Validate against the same cached list that feeds the picker; a
@@ -255,7 +268,7 @@ func (h *chatHandlers) createChat(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	case h.openRouter:
-		if model == "" {
+		if model == "" && applyDefault {
 			model = h.orDefault
 		}
 		// Validate against CM's vendor-screened catalog copy. validateModel
@@ -276,6 +289,11 @@ func (h *chatHandlers) createChat(w http.ResponseWriter, r *http.Request) {
 		Project:   body.Project,
 		CreatedBy: agentIDForChat(r),
 		Model:     model,
+
+		Kind:       kind,
+		Projects:   body.Projects,
+		Mode:       body.Mode,
+		CostCapUSD: body.CostCapUSD,
 	})
 	if err != nil {
 		handleChatError(w, r, err)
@@ -812,6 +830,12 @@ func handleChatError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, chat.ErrTooManyConcurrent):
 		logger.Error("chat error", "error", err)
 		writeError(w, http.StatusTooManyRequests, ErrCodeTooManyChats, "concurrent chat limit reached", "")
+	case errors.Is(err, chat.ErrInvalidSessionInput):
+		logger.Warn("chat error", "error", err)
+		writeError(w, http.StatusBadRequest, ErrCodeInvalidChatInput, "invalid chat session input", err.Error())
+	case errors.Is(err, chat.ErrKindUnavailable):
+		logger.Warn("chat error", "error", err)
+		writeError(w, http.StatusConflict, ErrCodeChatKindUnavailable, "no backend configured for this session kind", "")
 	default:
 		logger.Error("chat error", "error", err)
 		writeError(w, http.StatusInternalServerError, ErrCodeInternalError, "internal error", "")

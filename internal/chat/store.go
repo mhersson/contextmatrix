@@ -81,8 +81,9 @@ type Store interface {
 	// without scanning the full transcript.
 	MaxSeq(ctx context.Context, sessionID string) (int64, error)
 
-	// CountSessionsByStatus returns the number of sessions whose status is
-	// one of the supplied values. Used by openCold to enforce MaxConcurrent
+	// CountSessionsByStatus returns the number of chat-kind sessions whose
+	// status is one of the supplied values; the limit bounds containers, and
+	// architect sessions run none. Used by openCold to enforce MaxConcurrent
 	// without fetching full rows just for len().
 	CountSessionsByStatus(ctx context.Context, statuses ...Status) (int, error)
 
@@ -100,6 +101,7 @@ type Store interface {
 
 // SessionFilter narrows ListSessions.
 type SessionFilter struct {
+	Kind      SessionKind
 	Project   string
 	Status    Status
 	CreatedBy string

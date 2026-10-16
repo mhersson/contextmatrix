@@ -20,6 +20,7 @@ export interface AvailableChat {
   title: string;
   status?: string;
   model?: string;
+  kind?: 'chat' | 'architect';
 }
 
 export const EMPTY_PANES: PaneSlots = { TL: null, BL: null, TR: null, BR: null };

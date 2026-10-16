@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"context"
 	"database/sql"
 	"path/filepath"
 	"testing"
@@ -8,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mhersson/contextmatrix/internal/chat"
 	"github.com/mhersson/contextmatrix/internal/sqliteutil"
 )
 
@@ -139,6 +141,58 @@ func TestEnsureSchema_AddsSelectorLadderToOlderDB(t *testing.T) {
 
 	require.NoError(t, s2.db.QueryRow("PRAGMA user_version").Scan(&v))
 	assert.Equal(t, schemaVersion, v)
+}
+
+func TestEnsureSchema_AddsSessionKindColumnsToV5DB(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ops.db")
+
+	s, err := Open(path)
+	require.NoError(t, err)
+	require.NoError(t, s.Close())
+
+	// A v5 database has chat_sessions without kind, mode and cost_cap_usd.
+	db, err := sql.Open("sqlite", sqliteutil.DSN(path, sqliteutil.WithForeignKeys()))
+	require.NoError(t, err)
+
+	for _, stmt := range []string{
+		"DROP TABLE chat_sessions",
+		`CREATE TABLE chat_sessions (
+			id TEXT PRIMARY KEY, title TEXT NOT NULL, project TEXT, status TEXT NOT NULL,
+			created_at INTEGER NOT NULL, last_active INTEGER NOT NULL, created_by TEXT NOT NULL,
+			container_id TEXT, workspace TEXT, model TEXT NOT NULL DEFAULT '',
+			context_tokens INTEGER NOT NULL DEFAULT 0, context_tokens_updated_at INTEGER,
+			rehydration_active INTEGER NOT NULL DEFAULT 0, rehydration_started_at INTEGER,
+			prompt_tokens INTEGER NOT NULL DEFAULT 0, completion_tokens INTEGER NOT NULL DEFAULT 0,
+			cache_read_tokens INTEGER NOT NULL DEFAULT 0, cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+			estimated_cost_usd REAL NOT NULL DEFAULT 0)`,
+		`INSERT INTO chat_sessions (id, title, status, created_at, last_active, created_by)
+			VALUES ('OLD', 'old', 'cold', 1, 1, 'human:web')`,
+		"PRAGMA user_version = 5",
+	} {
+		_, err = db.Exec(stmt)
+		require.NoError(t, err, stmt)
+	}
+
+	require.NoError(t, db.Close())
+
+	s2, err := Open(path)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s2.Close() })
+
+	for _, col := range []string{"kind", "mode", "cost_cap_usd"} {
+		assert.True(t, columnExists(t, s2.db, "chat_sessions", col), col)
+	}
+
+	var v int
+
+	require.NoError(t, s2.db.QueryRow("PRAGMA user_version").Scan(&v))
+	assert.Equal(t, schemaVersion, v)
+
+	old, err := s2.GetSession(context.Background(), "OLD")
+	require.NoError(t, err)
+	assert.Equal(t, chat.KindChat, old.Kind)
+	assert.Empty(t, old.Mode)
+	assert.Zero(t, old.CostCapUSD)
 }
 
 func columnExists(t *testing.T, db *sql.DB, table, column string) bool {

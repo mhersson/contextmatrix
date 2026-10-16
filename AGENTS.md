@@ -10,7 +10,8 @@ multi-model Go harness - driving OpenRouter or any OpenAI-compatible gateway -
 that claims a card, works it in a separate project repo, and reports progress
 back to the board over MCP. The global chat panel is served by
 `contextmatrix-chat`, a sister backend that runs a worker container per chat
-session. Humans drive the same board through the web UI.
+session. Blueprint sessions in the same panel are served by
+`contextmatrix-architect`, a third backend speaking the chat protocol. Humans drive the same board through the web UI.
 
 **Boundary: ContextMatrix is a coordination layer only.** It never clones,
 builds, or touches project code repositories. Each project's `.board.yaml`
@@ -93,7 +94,7 @@ internal/service/          → CardService: orchestrates store, git, lock, event
 internal/api/              → REST handlers (stdlib http.ServeMux) + SSE endpoint
 internal/mcp/              → MCP server: tools + prompts
 internal/backend/          → task-backend webhook client + reconcile sweep + end-session subscriber + session-log bridge (sessionlog subpkg)
-internal/chat/             → chat session manager, SSE hub, chat-backend log bridge (persists via opstore)
+internal/chat/             → chat session manager (dispatches by session kind: chat, architect), SSE hub, chat-backend log bridge (persists via opstore)
 internal/opstore/          → ops.db (SQLite): chat sessions/messages, model outcomes, blacklist, cost archive
 internal/modelcatalog/     → cached model catalog + candidate rating (Artificial Analysis + OpenRouter or OpenAI-compatible endpoint)
 internal/auth/             → sessions, users, one-time tokens, credential-pool crypto, master key

@@ -304,6 +304,36 @@ func TestAppConfig_ChatEnabledTrue(t *testing.T) {
 	assert.True(t, got.ChatEnabled)
 }
 
+func TestAppConfig_ArchitectEnabled(t *testing.T) {
+	svc, bus, cleanup := testSetup(t)
+	t.Cleanup(cleanup)
+
+	for name, tc := range map[string]struct {
+		cfg  *config.ArchitectBackendConfig
+		want bool
+	}{
+		"nil":     {nil, false},
+		"enabled": {&config.ArchitectBackendConfig{URL: "http://architect.invalid", APIKey: "aaaabbbbccccddddeeeeffffgggghhhhiiiijjjj"}, true},
+		"no key":  {&config.ArchitectBackendConfig{URL: "http://architect.invalid"}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(NewRouter(RouterConfig{Service: svc, Bus: bus, ArchitectBackendCfg: tc.cfg}))
+			t.Cleanup(server.Close)
+
+			resp := doGet(t, server.URL+"/api/app/config")
+			defer closeBody(t, resp.Body)
+
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+
+			var got struct {
+				ArchitectEnabled bool `json:"architect_enabled"`
+			}
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
+			assert.Equal(t, tc.want, got.ArchitectEnabled)
+		})
+	}
+}
+
 func TestMobGuestNames(t *testing.T) {
 	assert.Nil(t, mobGuestNames(nil))
 	assert.Equal(t, []string{"laptop", "desk"}, mobGuestNames([]config.MobGuest{

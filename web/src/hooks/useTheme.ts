@@ -62,6 +62,12 @@ interface ThemeContextValue {
    */
   chatEnabled: boolean;
   /**
+   * Whether an architect backend is configured (`architect_enabled`). False
+   * on the slim pre-login payload. Drives the blueprint option in the New
+   * Chat dialog.
+   */
+  architectEnabled: boolean;
+  /**
    * Operator-configured favorite model slugs per tier, from `/api/app/config`.
    * Key = tier name, value = All slugs for that tier. Null when the backend
    * has no favorites configured.
@@ -119,6 +125,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [version, setVersion] = useState('');
   const [taskBackend, setTaskBackend] = useState('');
   const [chatEnabled, setChatEnabled] = useState(false);
+  const [architectEnabled, setArchitectEnabled] = useState(false);
   const [favorites, setFavorites] = useState<Record<string, string[]> | null>(null);
   const [bestOfNMax, setBestOfNMax] = useState<number | undefined>(undefined);
   const [bestOfNDefault, setBestOfNDefault] = useState<number | undefined>(undefined);
@@ -157,6 +164,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       }
       if (config.chat_enabled !== undefined) {
         setChatEnabled(config.chat_enabled);
+      }
+      if (config.architect_enabled !== undefined) {
+        setArchitectEnabled(config.architect_enabled);
       }
       if (config.favorites) {
         setFavorites(config.favorites);
@@ -206,12 +216,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<ThemeContextValue>(
     () => ({
-      theme, palette, version, taskBackend, chatEnabled, favorites, bestOfNMax, bestOfNDefault,
+      theme, palette, version, taskBackend, chatEnabled, architectEnabled, favorites, bestOfNMax, bestOfNDefault,
       mobMaxParticipants, mobDefaultParticipants, mobGuestNames, mobExecuteCheckpoints,
       instanceId, sharedBoards, boardsRepos,
       setTheme, setPalette,
     }),
-    [theme, palette, version, taskBackend, chatEnabled, favorites, bestOfNMax, bestOfNDefault,
+    [theme, palette, version, taskBackend, chatEnabled, architectEnabled, favorites, bestOfNMax, bestOfNDefault,
       mobMaxParticipants, mobDefaultParticipants, mobGuestNames, mobExecuteCheckpoints,
       instanceId, sharedBoards, boardsRepos,
       setTheme, setPalette],

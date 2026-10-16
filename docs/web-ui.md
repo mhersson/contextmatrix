@@ -138,6 +138,13 @@ board. Promote-to-autonomous lives in that tab.
   split to open an empty slot.
 - Panes, focus and divider sizes persist under the `chat_layout` key; the
   focused chat id under `last_chat_id`. `/chat/:id` opens that chat in a pane.
+- The New Chat dialog offers a **Blueprint** session type when an architect
+  backend is configured (`architect_enabled` in app config). A blueprint
+  session picks one or more target projects, a mode (default, auto,
+  auto + emit, yolo) and an optional cost cap, and runs on the architect
+  backend instead of a chat worker. The sidebar marks such sessions with
+  `bp`. Questions and gates arrive as ordinary messages; the reply is the
+  answer.
 
 ## Image attachments
 

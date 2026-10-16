@@ -4164,3 +4164,87 @@ func TestDefaults_OmitsRemovedKeys(t *testing.T) {
 	assert.NotContains(t, mob, "max_rounds")
 	assert.Contains(t, mob, "default_rounds")
 }
+
+func TestBackendsConfigDefaults_ArchitectEntryParses(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	yaml := minValidBase(boardsDir) + `
+backends:
+  architect:
+    url: http://localhost:9094
+    api_key: "0123456789abcdef0123456789abcdef"
+    default_model: "anthropic/claude-sonnet-4"
+`
+	path := writeConfigFile(t, dir, yaml)
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	ab, ok := cfg.ArchitectBackend()
+	require.True(t, ok)
+	assert.Equal(t, "http://localhost:9094", ab.URL)
+	assert.Equal(t, "anthropic/claude-sonnet-4", ab.DefaultModel)
+	assert.Nil(t, cfg.Backends.Chat)
+	assert.Nil(t, cfg.Backends.Agent)
+}
+
+func TestValidate_ArchitectBackendRequiresDefaultModel(t *testing.T) {
+	apiKey := strings.Repeat("k", 32)
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	yaml := minValidBase(boardsDir) + `
+backends:
+  architect:
+    url: http://localhost:9094
+    api_key: "` + apiKey + `"
+`
+	path := writeConfigFile(t, dir, yaml)
+
+	_, err := Load(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "backends.architect.default_model")
+}
+
+func TestBackendEnvOnlyArchitectConfiguration(t *testing.T) {
+	t.Setenv("CONTEXTMATRIX_BACKEND_ARCHITECT_URL", "http://architect:9094")
+	t.Setenv("CONTEXTMATRIX_BACKEND_ARCHITECT_API_KEY", strings.Repeat("a", 32))
+	t.Setenv("CONTEXTMATRIX_BACKEND_ARCHITECT_DEFAULT_MODEL", "openai/gpt-5.5")
+
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	path := writeConfigFile(t, dir, minValidBase(boardsDir))
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+
+	ab, ok := cfg.ArchitectBackend()
+	require.True(t, ok)
+	assert.Equal(t, "http://architect:9094", ab.URL)
+	assert.Equal(t, "openai/gpt-5.5", ab.DefaultModel)
+}
+
+func TestBackendEnvUnknownArchitectSuffixErrors(t *testing.T) {
+	t.Setenv("CONTEXTMATRIX_BACKEND_ARCHITECT_RECONCILE_INTERVAL", "60s")
+
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	path := writeConfigFile(t, dir, minValidBase(boardsDir))
+
+	_, err := Load(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "CONTEXTMATRIX_BACKEND_ARCHITECT_RECONCILE_INTERVAL")
+}
+
+func TestBackendsUnknownNameErrorListsArchitect(t *testing.T) {
+	dir := t.TempDir()
+	boardsDir := t.TempDir()
+	path := writeConfigFile(t, dir, minValidBase(boardsDir)+`
+backends:
+  planner:
+    url: http://x
+`)
+
+	_, err := Load(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `"architect"`)
+}

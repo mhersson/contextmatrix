@@ -26,8 +26,8 @@ are missing and removes keys that no longer exist. Renaming a key upstream
 therefore drops the user's old value at the next update; prefer adding the new
 key and reading the old one for a release when a rename is unavoidable.
 
-Two keys are exceptions to that merge rule. `backends.agent.enabled` and
-`backends.chat.enabled` print as `false` so the backend key sets are visible,
+Two keys are exceptions to that merge rule. `backends.agent.enabled`,
+`backends.chat.enabled` and `backends.architect.enabled` print as `false` so the backend key sets are visible,
 but an omitted `enabled` means the backend is enabled, so a merge must never
 add `enabled: false` on the schema's word alone. And `boards` prints only the
 single mapping form, while the loader also accepts a list of named repos, so a
@@ -106,7 +106,7 @@ Exceptions to the rule:
 
 | YAML path                        | Env var                                    | Note                                      |
 | -------------------------------- | ------------------------------------------ | ----------------------------------------- |
-| `backends.<name>.<field>`        | `CONTEXTMATRIX_BACKEND_<NAME>_<FIELD>`     | Singular `BACKEND`; NAME is `AGENT` or `CHAT` |
+| `backends.<name>.<field>`        | `CONTEXTMATRIX_BACKEND_<NAME>_<FIELD>`     | Singular `BACKEND`; NAME is `AGENT`, `CHAT` or `ARCHITECT` |
 | `github.app.installation_id`     | `CONTEXTMATRIX_GITHUB_INSTALLATION_ID`     | No `APP_` segment                         |
 | `github.app.private_key_path`    | `CONTEXTMATRIX_GITHUB_PRIVATE_KEY_PATH`    | No `APP_` segment                         |
 | `backends.agent.model_allowlist` | `CONTEXTMATRIX_BACKEND_AGENT_MODEL_ALLOWLIST` | Comma-separated list                   |
@@ -149,7 +149,7 @@ expansion applies to every path field.
 | Auth store              | `auth.db_path` / `CONTEXTMATRIX_AUTH_DB_PATH`                   | `<state>/auth.db`                | Users, sessions, one-time tokens, credential pool (`multi` mode only)      |
 | Master key              | `auth.master_key_file` / `CONTEXTMATRIX_AUTH_MASTER_KEY_FILE`   | `<state>/master.key`             | Hex 32-byte key encrypting pool secrets; auto-generated 0600 with a warning |
 | Image store             | `images.db_path` / `CONTEXTMATRIX_IMAGES_DB_PATH`               | `<state>/images.db`              | Pasted images for private boards repos and project-less uploads            |
-| Operational store       | `op_store.db_path` / `CONTEXTMATRIX_OP_STORE_DB_PATH`           | `<state>/ops.db`                 | Chat sessions and transcripts, model blacklist, Best-of-N outcomes, chat cost archive, selector tier ladders, Jira writeback outbox |
+| Operational store       | `op_store.db_path` / `CONTEXTMATRIX_OP_STORE_DB_PATH`           | `<state>/ops.db`                 | Chat sessions and transcripts, model blacklist, Best-of-N outcomes, chat cost archive, selector tier ladders, Jira writeback outbox. Schema v6; an older binary refuses a newer database |
 | Instance id             | `instance.id` / `CONTEXTMATRIX_INSTANCE_ID`                     | `<state>/instance_id`            | Generated `<hostname>-<6 hex>`; identifies this server on a shared boards repo |
 
 `<config-dir>` means the directory holding the loaded config file, so

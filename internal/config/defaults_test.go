@@ -32,6 +32,8 @@ func TestDefaultsRoundTrip(t *testing.T) {
 	require.NotNil(t, back.Backends.Chat)
 	assert.False(t, back.Backends.Agent.IsEnabled())
 	assert.False(t, back.Backends.Chat.IsEnabled())
+	require.NotNil(t, back.Backends.Architect)
+	assert.False(t, back.Backends.Architect.IsEnabled())
 	assert.Equal(t, "60s", back.Backends.Agent.ReconcileInterval)
 
 	// Boards print in the single mapping form, not the list form. Decoding

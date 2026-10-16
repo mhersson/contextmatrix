@@ -105,6 +105,15 @@ export function ChatSection({ onNewChat }: { onNewChat: () => void }) {
                   className="cm-chat-row block w-full text-left px-3 py-1.5 rounded text-[12.5px] flex items-center gap-2"
                   style={{ cursor: draggable ? 'grab' : 'pointer' }}
                 >
+                  {s.kind === 'architect' && (
+                    <span
+                      className="text-[10px] uppercase tracking-wide"
+                      style={{ color: 'var(--aqua)' }}
+                      title="Blueprint session"
+                    >
+                      bp
+                    </span>
+                  )}
                   <span className="truncate flex-1">{s.title || '(untitled)'}</span>
                   {statusDotColor(s.status) && (
                     <span

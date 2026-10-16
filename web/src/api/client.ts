@@ -523,7 +523,15 @@ class APIClient {
     return this.request<ChatSession[]>(`/chats${qs ? `?${qs}` : ''}`);
   }
 
-  async createChat(body: { title?: string; project?: string; model?: string }): Promise<ChatSession> {
+  async createChat(body: {
+    title?: string;
+    project?: string;
+    model?: string;
+    kind?: 'chat' | 'architect';
+    projects?: string[];
+    mode?: string;
+    cost_cap_usd?: number;
+  }): Promise<ChatSession> {
     return this.request<ChatSession>('/chats', {
       method: 'POST',
       body: JSON.stringify(body),
