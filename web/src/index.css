@@ -1629,6 +1629,9 @@ textarea {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.chat-pane-blueprint-pill {
+  max-width: 260px;
+}
 .chat-pane-pct {
   font-family: var(--font-mono);
   font-size: 10px;

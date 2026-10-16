@@ -239,7 +239,7 @@ function BlueprintMeta({ mode, capUsd }: { mode?: string; capUsd?: number }) {
   const cap = capUsd != null && capUsd > 0 ? `$${capUsd.toFixed(2)} cap` : undefined;
   const text = ['Blueprint', mode, cap].filter(Boolean).join(' · ');
   return (
-    <span className="chat-pane-model-pill" title={text}>
+    <span className="chat-pane-model-pill chat-pane-blueprint-pill" title={text}>
       {text}
     </span>
   );
