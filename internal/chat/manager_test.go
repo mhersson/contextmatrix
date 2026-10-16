@@ -45,7 +45,9 @@ type stubBackend struct {
 	sendErrSeq []error
 	// sendFn, when non-nil, runs inside SendChatMessage before the error is
 	// chosen, standing in for a backend that answers within /message.
-	sendFn   func()
+	sendFn func()
+	// startFn, when non-nil, runs inside StartChat before it returns.
+	startFn  func()
 	mu       sync.Mutex
 	lastOpts chat.StartChatOpts
 	// sendArgs captures every (content, messageID) pair passed to
@@ -61,7 +63,12 @@ func (s *stubBackend) StartChat(ctx context.Context, opts chat.StartChatOpts) (s
 	s.startCalls.Add(1)
 	s.mu.Lock()
 	s.lastOpts = opts
+	fn := s.startFn
 	s.mu.Unlock()
+
+	if fn != nil {
+		fn()
+	}
 
 	if s.startErr != nil {
 		return "", s.startErr
@@ -4865,6 +4872,7 @@ func TestManager_SendUserMessage_ArchitectRetriesOnce(t *testing.T) {
 	_, err := mgr.SendUserMessage(ctx, bp.ID, "approve")
 	require.ErrorIs(t, err, chat.ErrSessionUnknown)
 	assert.Equal(t, int64(2), arch.sendCalls.Load(), "one retry, no loop")
+	assert.Equal(t, int64(2), arch.startCalls.Load(), "one re-sent start")
 
 	msgs, err := mgr.ListMessages(ctx, bp.ID, 0, 100)
 	require.NoError(t, err)
@@ -4884,6 +4892,7 @@ func TestManager_SendUserMessage_ChatDoesNotRestartOnUnknownSession(t *testing.T
 	require.NoError(t, err)
 
 	starts := backend.startCalls.Load()
+	sends := backend.sendCalls.Load()
 
 	backend.mu.Lock()
 	backend.sendErr = errSessionUnknown()
@@ -4892,8 +4901,83 @@ func TestManager_SendUserMessage_ChatDoesNotRestartOnUnknownSession(t *testing.T
 	_, err = mgr.SendUserMessage(ctx, sess.ID, "hi")
 	require.Error(t, err)
 	assert.Equal(t, starts, backend.startCalls.Load(), "chat sessions take today's path")
+	assert.Equal(t, sends+1, backend.sendCalls.Load(), "the message is not re-sent")
 
 	got, err := mgr.GetSession(ctx, sess.ID)
 	require.NoError(t, err)
 	assert.Equal(t, chat.StatusActive, got.Status)
+}
+
+func TestManager_SendUserMessage_ArchitectRestartFailureIsNotResent(t *testing.T) {
+	mgr, _, arch := newManagerWithArchitectStub(t)
+	ctx := context.Background()
+	bp := openArchitect(t, mgr)
+
+	startErr := errors.New("start refused")
+
+	arch.mu.Lock()
+	arch.sendErrSeq = []error{errSessionUnknown()}
+	arch.mu.Unlock()
+
+	arch.startErr = startErr
+
+	_, err := mgr.SendUserMessage(ctx, bp.ID, "approve")
+	require.ErrorIs(t, err, chat.ErrSessionUnknown)
+	require.ErrorIs(t, err, startErr)
+	assert.Equal(t, int64(1), arch.sendCalls.Load(), "no resend after a failed start")
+	assert.Equal(t, int64(2), arch.startCalls.Load())
+
+	msgs, err := mgr.ListMessages(ctx, bp.ID, 0, 100)
+	require.NoError(t, err)
+
+	for _, m := range msgs {
+		assert.NotEqual(t, chat.RoleUser, m.Role, "a failed send persists nothing")
+	}
+
+	got, err := mgr.GetSession(ctx, bp.ID)
+	require.NoError(t, err)
+	assert.False(t, got.AssistantWorking, "the indicator is disarmed")
+}
+
+func TestManager_RestartArchitect_EndSessionWaitsForTheStart(t *testing.T) {
+	mgr, _, arch := newManagerWithArchitectStub(t)
+	ctx := context.Background()
+	bp := openArchitect(t, mgr)
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+
+	arch.mu.Lock()
+	arch.sendErrSeq = []error{errSessionUnknown(), nil}
+	arch.startFn = func() {
+		close(entered)
+		<-release
+	}
+	arch.mu.Unlock()
+
+	sendDone := make(chan error, 1)
+
+	go func() {
+		_, err := mgr.SendUserMessage(ctx, bp.ID, "approve")
+		sendDone <- err
+	}()
+
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("restart start never began")
+	}
+
+	endDone := make(chan error, 1)
+
+	go func() { endDone <- mgr.EndSession(ctx, bp.ID) }()
+
+	// EndChat must not run while the restart's start is in flight.
+	assert.Never(t, func() bool { return arch.endCalls.Load() > 0 }, 200*time.Millisecond, 10*time.Millisecond)
+
+	close(release)
+
+	require.NoError(t, <-sendDone)
+	require.NoError(t, <-endDone)
+	assert.Equal(t, int64(1), arch.endCalls.Load(), "EndChat follows the start")
 }

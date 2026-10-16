@@ -1509,39 +1509,40 @@ func (m *Manager) openCold(ctx context.Context, id string) (Session, error) {
 	return sess, nil
 }
 
-// restartArchitect re-sends /chat/start for an architect session CM holds as
-// active or warm-idle, after the architect lost it (a restart). The
-// architect restores the blueprint from its own store and ignores a start
-// for a session it holds. The plain cold-open inputs are sent, never a
-// resume, and the row is not written.
+// restartArchitect re-sends /chat/start for an active or warm-idle architect
+// session the architect lost. It sends the plain cold-open inputs, never a
+// resume, and does not write the row; the architect no-ops a start for a held
+// session. The status lock keeps the start from landing after EndSession's EndChat.
 func (m *Manager) restartArchitect(ctx context.Context, sessionID string) error {
-	_, err, _ := m.restartGroup.Do("restart:"+sessionID, func() (any, error) {
-		sess, err := m.store.GetSession(ctx, sessionID)
-		if err != nil {
-			return nil, fmt.Errorf("chat: restart architect: %w", err)
-		}
+	_, err, _ := m.restartGroup.Do(sessionID, func() (any, error) {
+		return nil, m.withStatusLock(sessionID, func() error {
+			sess, err := m.store.GetSession(ctx, sessionID)
+			if err != nil {
+				return fmt.Errorf("chat: restart architect: %w", err)
+			}
 
-		if sess.Kind != KindArchitect || (sess.Status != StatusActive && sess.Status != StatusWarmIdle) {
-			return nil, nil
-		}
+			if sess.Kind != KindArchitect || (sess.Status != StatusActive && sess.Status != StatusWarmIdle) {
+				return nil
+			}
 
-		opts, err := m.coldPrep(ctx, sess)
-		if err != nil {
-			return nil, fmt.Errorf("chat: restart architect: %w", err)
-		}
+			opts, err := m.coldPrep(ctx, sess)
+			if err != nil {
+				return fmt.Errorf("chat: restart architect: %w", err)
+			}
 
-		backend, err := m.backendFor(sess.Kind)
-		if err != nil {
-			return nil, err
-		}
+			backend, err := m.backendFor(sess.Kind)
+			if err != nil {
+				return fmt.Errorf("chat: restart architect: %w", err)
+			}
 
-		if _, err := backend.StartChat(ctx, opts); err != nil {
-			return nil, fmt.Errorf("chat: restart architect: %w", err)
-		}
+			if _, err := backend.StartChat(ctx, opts); err != nil {
+				return fmt.Errorf("chat: restart architect: %w", err)
+			}
 
-		m.logger.Info("chat: architect session restarted in place", "session_id", sessionID)
+			m.logger.Info("chat: architect session restarted in place", "session_id", sessionID)
 
-		return nil, nil
+			return nil
+		})
 	})
 
 	return err

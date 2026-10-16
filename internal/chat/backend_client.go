@@ -47,9 +47,9 @@ var ErrOversizedSSELine = errors.New("chat: /logs: oversized SSE line exceeded b
 var ErrBackendUnreachable = errors.New("chat: backend unreachable")
 
 // ErrSessionUnknown is wrapped around a 404 whose body is the protocol's
-// not_found error: the backend answered and does not hold the session. Only
-// the architect acts on it, by re-sending the start; a plain 404 or another
-// code stays an ordinary error.
+// not_found error: the backend answered and does not hold the session. CM acts
+// on it only for architect sessions, by re-sending the start; a plain 404 or
+// another code stays an ordinary error.
 var ErrSessionUnknown = errors.New("chat: backend does not know the session")
 
 // BackendClientConfig wires the HMAC-signed webhook client.
