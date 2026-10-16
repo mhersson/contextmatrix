@@ -233,6 +233,22 @@ describe('ChatModelPicker', () => {
     expect(onChange).toHaveBeenCalledWith('anthropic/claude-opus-4');
   });
 
+  it('openrouter mode: combobox wrapper fills the flex row with flex-1', () => {
+    render(
+      <ChatModelPicker
+        source="openrouter"
+        model=""
+        defaultModel=""
+        models={[
+          { id: 'anthropic/claude-sonnet-4.5', label: 'anthropic/claude-sonnet-4.5', max_tokens: 200000 },
+        ]}
+        onChange={vi.fn()}
+      />,
+    );
+    const input = screen.getByRole('combobox');
+    expect(input.parentElement).toHaveClass('flex-1');
+  });
+
   it('endpoint mode: selecting the flagged model still calls onChange with its id', () => {
     const onChange = vi.fn();
     render(
