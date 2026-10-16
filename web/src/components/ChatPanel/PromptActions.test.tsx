@@ -49,6 +49,32 @@ describe('PromptActions', () => {
     expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled();
   });
 
+  it('returns focus to the clicked action when a plain reply fails', async () => {
+    const onReply = vi.fn().mockRejectedValue(new Error('backend unreachable'));
+    render(<PromptActions prompt={gate} status="open" onReply={onReply} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+
+    await screen.findByRole('alert');
+    expect(screen.getByRole('button', { name: 'Approve' })).toHaveFocus();
+  });
+
+  it('returns focus to the feedback box when a feedback reply fails', async () => {
+    const onReply = vi.fn().mockRejectedValue(new Error('backend unreachable'));
+    render(<PromptActions prompt={gate} status="open" onReply={onReply} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reject' }));
+    const box = screen.getByRole('textbox', { name: /Reject/ });
+    fireEvent.change(box, { target: { value: 'too vague' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    // jsdom keeps focus on a disabled control, so watch for the explicit hand-back.
+    const refocus = vi.spyOn(box, 'focus');
+
+    await screen.findByRole('alert');
+    expect(refocus).toHaveBeenCalled();
+    expect(box).toHaveFocus();
+  });
+
   it('asks for feedback before sending a feedback action', () => {
     const onReply = vi.fn().mockResolvedValue(undefined);
     render(<PromptActions prompt={gate} status="open" onReply={onReply} />);

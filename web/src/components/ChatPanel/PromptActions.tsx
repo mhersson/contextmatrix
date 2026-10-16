@@ -29,6 +29,12 @@ export function PromptActions({ prompt, status, answer, onReply }: PromptActions
     if (feedbackFor) textareaRef.current?.focus();
   }, [feedbackFor]);
 
+  // Disabling the controls during a send drops focus; a failed send hands it back.
+  useEffect(() => {
+    if (phase !== 'idle' || !error) return;
+    (textareaRef.current ?? returnFocusRef.current)?.focus();
+  }, [phase, error]);
+
   if (status === 'answered' || status === 'superseded') {
     const summary =
       status === 'superseded' ? 'No longer open' : answer ? `Answered: ${answer}` : 'Answered below';
@@ -57,8 +63,8 @@ export function PromptActions({ prompt, status, answer, onReply }: PromptActions
   };
 
   const choose = (action: PromptAction, button: HTMLButtonElement) => {
+    returnFocusRef.current = button;
     if (action.feedback) {
-      returnFocusRef.current = button;
       setFeedbackFor(action);
       return;
     }
