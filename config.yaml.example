@@ -453,6 +453,7 @@ backends: {}
 # (op_store.db_path / ops.db) - there is no separate chat database.
 chat:
   # How long a chat container survives after browser disconnects.
+  # Blueprint (architect) sessions are never reaped by this TTL; end them explicitly.
   # CONTEXTMATRIX_CHAT_IDLE_TTL overrides this.
   idle_ttl: 1h
 

@@ -2641,8 +2641,8 @@ Two event kinds share the wire:
   first message; `warm-idle → active` when a browser subscriber attaches or
   `/open` is called; `active → warm-idle` 30 s after the last subscriber
   leaves; `active/warm-idle → cold` on `/end` or the idle reaper
-  (`chat.idle_ttl`). Clients should refetch `GET /api/chats` on a `status`
-  change.
+  (`chat.idle_ttl`; blueprints are exempt from the reaper). Clients should
+  refetch `GET /api/chats` on a `status` change.
 
 ## Image Endpoints
 
