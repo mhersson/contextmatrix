@@ -143,8 +143,8 @@ board. Promote-to-autonomous lives in that tab.
   session picks one or more target projects, a mode (default, auto,
   auto + emit, yolo) and an optional cost cap, and runs on the architect
   backend instead of a chat worker. The sidebar marks such sessions with
-  `bp`. Questions and gates arrive as ordinary messages; the reply is the
-  answer.
+  an aqua drafting-compass icon. Questions and gates arrive as ordinary
+  messages; the reply is the answer.
 
 ## Image attachments
 

@@ -21,6 +21,18 @@ function statusDotColor(status: ChatStatus): string | null {
   }
 }
 
+function BlueprintIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" role="img" aria-label="Blueprint session">
+      <path d="M12 2v2" />
+      <circle cx="12" cy="6" r="2" />
+      <path d="M11.15 7.81 5 21" />
+      <path d="M12.85 7.81 19 21" />
+      <path d="M7.8 15a9.93 9.93 0 0 0 8.4 0" />
+    </svg>
+  );
+}
+
 export function ChatSection({ onNewChat }: { onNewChat: () => void }) {
   const { sessions } = useChatSessions();
   const navigate = useNavigate();
@@ -107,11 +119,11 @@ export function ChatSection({ onNewChat }: { onNewChat: () => void }) {
                 >
                   {s.kind === 'architect' && (
                     <span
-                      className="text-[10px] uppercase tracking-wide"
+                      className="inline-flex shrink-0"
                       style={{ color: 'var(--aqua)' }}
                       title="Blueprint session"
                     >
-                      bp
+                      <BlueprintIcon />
                     </span>
                   )}
                   <span className="truncate flex-1">{s.title || '(untitled)'}</span>
