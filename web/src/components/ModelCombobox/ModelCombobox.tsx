@@ -15,6 +15,14 @@ interface ModelComboboxProps {
   id?: string;
   className?: string;
   inputStyle?: CSSProperties;
+  /**
+   * Class(es) for the outer wrapper <div> when the combobox is rendered
+   * (options non-empty). Defaults to "relative" to leave the existing
+   * ModelPinsSection layout unchanged. Pass a flex-grow value (e.g.
+   * "relative flex-1 min-w-0") in a flex context so the combobox fills its
+   * row.
+   */
+  wrapperClassName?: string;
 }
 
 /**
@@ -36,6 +44,7 @@ export function ModelCombobox({
   id,
   className = 'bf-input font-mono',
   inputStyle,
+  wrapperClassName = 'relative',
 }: ModelComboboxProps) {
   const listboxId = useId();
   const [draft, setDraft] = useState(value);
@@ -115,7 +124,7 @@ export function ModelCombobox({
   }
 
   return (
-    <div className="relative" style={{ minWidth: 0 }}>
+    <div className={wrapperClassName} style={{ minWidth: 0 }}>
       <input
         id={id}
         type="text"

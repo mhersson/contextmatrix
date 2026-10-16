@@ -86,4 +86,28 @@ describe('ModelCombobox', () => {
     const { input } = setup();
     expect(input).not.toHaveAttribute('aria-controls');
   });
+
+  it('applies wrapperClassName to the combobox wrapper', () => {
+    render(
+      <ModelCombobox
+        value=""
+        onChange={vi.fn()}
+        options={OPTIONS}
+        ariaLabel="Model"
+        wrapperClassName="relative flex-1 min-w-0"
+      />,
+    );
+    const input = screen.getByRole('combobox');
+    expect(input.parentElement).toHaveClass('flex-1');
+    expect(input.parentElement).toHaveClass('relative');
+  });
+
+  it('defaults wrapperClassName to "relative"', () => {
+    render(
+      <ModelCombobox value="" onChange={vi.fn()} options={OPTIONS} ariaLabel="Model" />,
+    );
+    const input = screen.getByRole('combobox');
+    expect(input.parentElement).toHaveClass('relative');
+    expect(input.parentElement).not.toHaveClass('flex-1');
+  });
 });

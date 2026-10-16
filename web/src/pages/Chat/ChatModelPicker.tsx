@@ -126,7 +126,8 @@ export function ChatModelPicker({
             flaggedSlugs={blacklistedSlugs}
             placeholder="OpenRouter slug, e.g. anthropic/claude-sonnet-4"
             ariaLabel="Model"
-            className="bf-input w-full font-mono"
+            className="bf-input w-full font-mono flex-1 min-w-0"
+            wrapperClassName="relative flex-1 min-w-0"
           />
           {current && current.blacklisted && <BlacklistedChip />}
         </div>
