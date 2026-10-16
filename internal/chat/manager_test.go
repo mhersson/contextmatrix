@@ -5605,6 +5605,10 @@ func TestManager_Consumer_OversizedPromptTextKeepsTheEnvelopeValid(t *testing.T)
 	require.NoError(t, json.Unmarshal([]byte(content), &env), "the stored envelope parses")
 	assert.Less(t, len(env.Text), len(text), "the text was cut")
 	assert.True(t, strings.HasPrefix(text, env.Text[:1024]), "cut at its end, not replaced")
+	assert.True(t, strings.HasSuffix(env.Text, "\n... [truncated]"), "the cut leaves the marker")
+	// The widest rune in the text, '<', escapes to 6 bytes, so a maximal cut
+	// leaves less than that unused.
+	assert.Greater(t, len(content), 32*1024-6, "the cut keeps as much text as fits")
 	assert.Equal(t, *gate, env.Prompt, "every action survives")
 }
 
@@ -5680,10 +5684,38 @@ func TestManager_SendUserMessage_ArchitectReopenFramesLandBeforeTheResentMessage
 	require.NoError(t, err)
 	t.Cleanup(func() { hub.Unsubscribe(bp.ID, ch) })
 
+	// A second subscription, so the assertions below still see both events.
+	probe, _, err := hub.Subscribe(bp.ID, 0)
+	require.NoError(t, err)
+	t.Cleanup(func() { hub.Unsubscribe(bp.ID, probe) })
+
 	arch.mu.Lock()
 	arch.sendErrSeq = []error{errSessionUnknown(), nil}
 	arch.startFn = func() {
-		pushFrame(t, frames, chat.LogEntry{Type: "system", Content: "Blueprint reopened."})
+		select {
+		case frames <- chat.LogEntry{Type: "system", Content: "Blueprint reopened."}:
+		case <-time.After(2 * time.Second):
+			t.Error("the consumer never took the frame")
+
+			return
+		}
+
+		// The frame is published once the consumer has taken and released
+		// the lock, so the sender cannot re-lock ahead of it.
+		deadline := time.After(2 * time.Second)
+
+		for {
+			select {
+			case e := <-probe:
+				if e.Kind == chat.SSEKindSessionUpdate {
+					continue
+				}
+			case <-deadline:
+				t.Error("the reopened architect's frame was never published")
+			}
+
+			return
+		}
 	}
 	arch.mu.Unlock()
 
