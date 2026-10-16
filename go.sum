@@ -66,8 +66,8 @@ github.com/kylelemons/godebug v1.1.0 h1:RPNrshWIDI6G2gRW9EHilWtl7Z6Sb1BR0xunSBf0
 github.com/kylelemons/godebug v1.1.0/go.mod h1:9/0rRGxNHcop5bhtWyNeEfOS8JIWk580+fNqagV/RAw=
 github.com/mattn/go-isatty v0.0.24 h1:tGZZoVgT/KiqK1c8ocVLeDS8BSWMRd47J3Lbz7vsReI=
 github.com/mattn/go-isatty v0.0.24/go.mod h1:nMCL3Zebbrt45jsMDgnfIwz6ydEQApk5oEI3HqDio6A=
-github.com/mhersson/contextmatrix-protocol v0.22.0 h1:ujEA2Z73PsKeVMgN1MokJY6QH5ccNWcNlA6vs/iCNlA=
-github.com/mhersson/contextmatrix-protocol v0.22.0/go.mod h1:68KJbXOaeQouWKCXqMyrW+Q+LXkf4EFgUKkaWFOy65o=
+github.com/mhersson/contextmatrix-protocol v0.23.0 h1:Us+/XN7368uuNKw9mJCpgUmyGok4IMDg1Dop0ELEVTo=
+github.com/mhersson/contextmatrix-protocol v0.23.0/go.mod h1:68KJbXOaeQouWKCXqMyrW+Q+LXkf4EFgUKkaWFOy65o=
 github.com/modelcontextprotocol/go-sdk v1.8.0 h1:KIvahhYqwtbeniWVPs3TcXEA7b8jEtwfBpOTAI+Urx4=
 github.com/modelcontextprotocol/go-sdk v1.8.0/go.mod h1:dL7u98E/zjJTGzEq+j30jQ8K2k1mb6LeAH4inEcSGts=
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 h1:C3w9PqII01/Oq1c1nUAm88MOHcQC9l5mIlSMApZMrHA=
