@@ -121,15 +121,7 @@ func wireChat(
 				return protocol.ModelPrice{}, false
 			}
 
-			// ModelRate is USD per token; the wire carries USD per million tokens.
-			const perMTok = 1e6
-
-			return protocol.ModelPrice{
-				PromptUSDPerMTok:     rate.Prompt * perMTok,
-				CompletionUSDPerMTok: rate.Completion * perMTok,
-				CacheReadUSDPerMTok:  rate.CacheRead * perMTok,
-				CacheWriteUSDPerMTok: rate.CacheWrite * perMTok,
-			}, true
+			return modelPriceFromRate(rate), true
 		},
 		ResolveProjectExec: func(rctx context.Context, project string) (chat.ProjectExecInfo, error) {
 			p, err := svc.GetProject(rctx, project)
@@ -260,4 +252,17 @@ func chatWorkerImageFor(p *board.ProjectConfig) string {
 	}
 
 	return p.RemoteExecution.ChatWorkerImage
+}
+
+// modelPriceFromRate converts a rate in USD per token to the wire's USD per
+// million tokens.
+func modelPriceFromRate(rate service.ModelRate) protocol.ModelPrice {
+	const perMTok = 1e6
+
+	return protocol.ModelPrice{
+		PromptUSDPerMTok:     rate.Prompt * perMTok,
+		CompletionUSDPerMTok: rate.Completion * perMTok,
+		CacheReadUSDPerMTok:  rate.CacheRead * perMTok,
+		CacheWriteUSDPerMTok: rate.CacheWrite * perMTok,
+	}
 }
