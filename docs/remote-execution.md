@@ -462,7 +462,11 @@ code (the architect restarted and no longer holds the session), CM re-sends
 the message once more with the same message id. The session row is not
 written, and a second failure is returned to the caller. The architect must
 answer an unknown session with 404 `not_found` and treat a start for a session
-it already holds as a no-op. Chat sessions do not take this path.
+it already holds as a no-op. CM also re-sends `/chat/start` with the same
+payload when the architect's `/logs` stream ends or drops, and before the first
+stream of a consumer CM attaches after its own restart; frames the architect
+publishes in between are kept and replayed. Chat sessions do not take these
+paths.
 
 ### Task/chat backend → CM: log stream
 
@@ -901,7 +905,10 @@ flowchart LR
   by `session_id`, persists each transcript frame to `ops.db`, and
   republishes it on the per-session chat SSE hub. `usage` frames update the
   session's context-token counter and cost; `status` frames drive the
-  working indicator and are never persisted.
+  working indicator and are never persisted. The consumer stops when the
+  stream closes cleanly. An architect consumer instead reconnects with
+  backoff (250 ms to 30 s, reset after a stream that lived a minute) and
+  re-sends the start first.
 
 ### Backend capacity: GET /api/backend/health
 

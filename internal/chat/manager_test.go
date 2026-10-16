@@ -64,14 +64,15 @@ func (s *stubBackend) StartChat(ctx context.Context, opts chat.StartChatOpts) (s
 	s.mu.Lock()
 	s.lastOpts = opts
 	fn := s.startFn
+	startErr := s.startErr
 	s.mu.Unlock()
 
 	if fn != nil {
 		fn()
 	}
 
-	if s.startErr != nil {
-		return "", s.startErr
+	if startErr != nil {
+		return "", startErr
 	}
 
 	return "container-abc", nil
@@ -108,8 +109,12 @@ func (s *stubBackend) StreamLogs(ctx context.Context, sessionID string, onEntry 
 	s.activeStreams.Add(1)
 	defer s.activeStreams.Add(-1)
 
-	if s.streamLogsFn != nil {
-		return s.streamLogsFn(ctx, sessionID, onEntry)
+	s.mu.Lock()
+	streamFn := s.streamLogsFn
+	s.mu.Unlock()
+
+	if streamFn != nil {
+		return streamFn(ctx, sessionID, onEntry)
 	}
 
 	<-ctx.Done()
@@ -4980,4 +4985,160 @@ func TestManager_RestartArchitect_EndSessionWaitsForTheStart(t *testing.T) {
 	require.NoError(t, <-sendDone)
 	require.NoError(t, <-endDone)
 	assert.Equal(t, int64(1), arch.endCalls.Load(), "EndChat follows the start")
+}
+
+func TestManager_Consumer_ArchitectRestartsAfterTheStreamEnds(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		end  error
+	}{
+		{"clean close", nil},
+		{"transport error", errors.New("connection reset")},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			mgr, _, arch := newManagerWithArchitectStub(t)
+
+			var streams atomic.Int64
+
+			arch.streamLogsFn = func(ctx context.Context, _ string, _ func(chat.LogEntry)) error {
+				if streams.Add(1) == 1 {
+					return tt.end
+				}
+
+				<-ctx.Done()
+
+				return ctx.Err()
+			}
+
+			_ = openArchitect(t, mgr)
+
+			require.Eventually(t, func() bool { return streams.Load() == 2 }, 3*time.Second, 10*time.Millisecond,
+				"the consumer streams again")
+			assert.Equal(t, int64(2), arch.startCalls.Load(), "the cold open, then one re-sent start before the second stream")
+		})
+	}
+}
+
+func TestManager_Consumer_ArchitectBacksOffWhenTheRestartFails(t *testing.T) {
+	mgr, _, arch := newManagerWithArchitectStub(t)
+
+	var streams atomic.Int64
+
+	arch.streamLogsFn = func(ctx context.Context, _ string, _ func(chat.LogEntry)) error {
+		if streams.Add(1) == 1 {
+			return nil
+		}
+
+		<-ctx.Done()
+
+		return ctx.Err()
+	}
+
+	_ = openArchitect(t, mgr)
+
+	require.Eventually(t, func() bool { return streams.Load() == 1 }, time.Second, 5*time.Millisecond)
+
+	arch.mu.Lock()
+	arch.startErr = errors.New("architect down")
+	arch.mu.Unlock()
+
+	time.Sleep(700 * time.Millisecond)
+	assert.Equal(t, int64(1), streams.Load(), "no stream while the start fails")
+
+	failed := arch.startCalls.Load()
+	assert.GreaterOrEqual(t, failed, int64(2), "the start is retried")
+	assert.LessOrEqual(t, failed, int64(5), "with backoff, not a spin")
+
+	arch.mu.Lock()
+	arch.startErr = nil
+	arch.mu.Unlock()
+
+	require.Eventually(t, func() bool { return streams.Load() == 2 }, 5*time.Second, 10*time.Millisecond)
+}
+
+// Streams end at once and every restart succeeds: only the wait between
+// restarts keeps the consumer from spinning. With backoff 250 ms, 500 ms,
+// 1 s the streams land at about 0, 250 and 750 ms, so a 1.2 s window holds
+// 3 or 4 (the fourth at about 1.75 s is outside); a spin would hold hundreds.
+func TestManager_Consumer_ArchitectBacksOffWhenTheStreamKeepsEnding(t *testing.T) {
+	mgr, _, arch := newManagerWithArchitectStub(t)
+
+	var streams atomic.Int64
+
+	arch.streamLogsFn = func(ctx context.Context, _ string, _ func(chat.LogEntry)) error {
+		if streams.Add(1) > 20 {
+			<-ctx.Done()
+		}
+
+		return nil
+	}
+
+	_ = openArchitect(t, mgr)
+
+	require.Eventually(t, func() bool { return streams.Load() >= 1 }, time.Second, 2*time.Millisecond)
+	time.Sleep(1200 * time.Millisecond)
+
+	n := streams.Load()
+	assert.GreaterOrEqual(t, n, int64(2), "the consumer keeps reconnecting")
+	assert.LessOrEqual(t, n, int64(4), "with backoff between restarts, not a spin")
+	assert.Equal(t, n, arch.startCalls.Load(), "one start for the cold open, then one before each later stream")
+}
+
+func TestManager_Consumer_ChatStopsOnACleanClose(t *testing.T) {
+	mgr, backend, _ := newManagerWithStubs(t)
+	ctx := context.Background()
+
+	backend.streamLogsFn = func(context.Context, string, func(chat.LogEntry)) error { return nil }
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Project: "alpha", CreatedBy: "x"})
+	require.NoError(t, err)
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+
+	time.Sleep(500 * time.Millisecond)
+	assert.Equal(t, int64(1), backend.streamCalls.Load(), "a chat consumer ends on a clean close")
+	assert.Equal(t, int64(1), backend.startCalls.Load(), "and re-sends nothing")
+}
+
+func TestManager_Reattach_ArchitectSendsTheStartBeforeStreaming(t *testing.T) {
+	mgr, _, arch := newManagerWithArchitectStub(t)
+	ctx := context.Background()
+	bp := openArchitect(t, mgr)
+
+	require.Eventually(t, func() bool { return arch.streamCalls.Load() == 1 }, time.Second, 5*time.Millisecond)
+
+	// A CM restart drops the consumer; the startup sweep reattaches.
+	mgr.StopConsumerForTest(bp.ID)
+
+	var startsAtStream atomic.Int64
+
+	arch.mu.Lock()
+	arch.streamLogsFn = func(ctx context.Context, _ string, _ func(chat.LogEntry)) error {
+		startsAtStream.Store(arch.startCalls.Load())
+		<-ctx.Done()
+
+		return ctx.Err()
+	}
+	arch.mu.Unlock()
+
+	_, err := mgr.Reattach(ctx, bp.ID)
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool { return arch.streamCalls.Load() == 2 }, 2*time.Second, 5*time.Millisecond)
+	assert.Equal(t, int64(2), startsAtStream.Load(), "the start went out before the stream")
+}
+
+func TestManager_EndSession_NoRestartAfterEnd(t *testing.T) {
+	mgr, _, arch := newManagerWithArchitectStub(t)
+	ctx := context.Background()
+
+	arch.streamLogsFn = func(context.Context, string, func(chat.LogEntry)) error { return nil }
+
+	bp := openArchitect(t, mgr)
+	require.NoError(t, mgr.EndSession(ctx, bp.ID))
+
+	starts := arch.startCalls.Load()
+
+	time.Sleep(700 * time.Millisecond)
+	assert.Equal(t, starts, arch.startCalls.Load(), "no start after the end")
 }

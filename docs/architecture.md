@@ -331,7 +331,8 @@ card runs but use long-lived containers. Owns the lifecycle (`cold` ->
 `/chat/start` and `/chat/end`; the sole implementation is `NewBackendClient`).
 Sessions carry a kind: the manager dispatches by it to the chat backend or the
 architect backend, which speaks the same protocol, runs no containers and
-binds a session to a blueprint.
+binds a session to a blueprint. Architect sessions recover in place after an
+architect restart, with no status change.
 The backend's `/logs?session_id=` SSE feed is bridged into the transcript via
 `AppendMessage`, which holds `m.mu` across seq assignment and insert so disk
 order matches seq order.

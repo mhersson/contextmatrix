@@ -27,3 +27,6 @@ func (m *Manager) RehydrationActiveCacheForTest(sessionID string) (bool, bool) {
 
 	return v, ok
 }
+
+// StopConsumerForTest drops a session's log consumer, as a CM restart does.
+func (m *Manager) StopConsumerForTest(sessionID string) { m.stopConsumer(sessionID) }

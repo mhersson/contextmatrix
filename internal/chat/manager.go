@@ -609,9 +609,11 @@ func (m *Manager) handleUsageEntry(ctx context.Context, sessionID, project, fall
 }
 
 // startConsumer ensures a goroutine is bridging backend /logs for sessionID
-// into AppendMessage + hub.Publish. Idempotent: subsequent calls for the
-// same session are no-ops while a consumer is already running.
-func (m *Manager) startConsumer(sessionID string) {
+// into AppendMessage + hub.Publish. restart makes an architect consumer
+// re-send the start before its first stream, for a consumer that replaces one
+// CM lost. Idempotent: subsequent calls for the same session are no-ops while
+// a consumer is already running.
+func (m *Manager) startConsumer(sessionID string, restart bool) {
 	m.mu.Lock()
 
 	if _, ok := m.consumers[sessionID]; ok {
@@ -708,18 +710,37 @@ func (m *Manager) startConsumer(sessionID string) {
 
 		m.logger.Info("chat: worker-log consumer started", "session_id", sessionID)
 
-		// Exponential backoff retry loop. A bare StreamLogs failure used
-		// to log WARN and exit, stranding the SSE bridge permanently
-		// across a transient backend restart. Mirror the pattern from
-		// internal/backend/sessionlog/manager.go runUpstream: retry with
-		// exponential backoff, cap at 30s, exit cleanly on ctx
-		// cancellation.
 		const (
 			backoffBase = 250 * time.Millisecond
 			backoffCap  = 30 * time.Second
+			// A stream that lived this long was healthy; the next failure
+			// starts the backoff again from the base.
+			healthyStream = time.Minute
 		)
 
 		attempt := 0
+
+		wait := func(err error) bool {
+			attempt++
+
+			shift := min(attempt-1, 16)
+			backoff := min(time.Duration(float64(backoffBase)*float64(int64(1)<<shift)), backoffCap)
+
+			m.logger.Warn("chat: worker-log consumer stream error, retrying",
+				"session_id", sessionID, "attempt", attempt, "backoff", backoff, "error", err)
+
+			select {
+			case <-ctx.Done():
+				return false
+			case <-time.After(backoff):
+				return true
+			}
+		}
+
+		// An architect that restarted no longer holds the session and its
+		// /logs answers any id, so the start goes out before every stream
+		// that follows a lost one.
+		pendingStart := restart && kind == KindArchitect
 
 		for {
 			if ctx.Err() != nil {
@@ -728,38 +749,52 @@ func (m *Manager) startConsumer(sessionID string) {
 				return
 			}
 
+			if pendingStart {
+				if err := m.restartArchitect(ctx, sessionID); err != nil {
+					if !wait(err) {
+						m.logger.Info("chat: worker-log consumer stopped", "session_id", sessionID)
+
+						return
+					}
+
+					continue
+				}
+
+				pendingStart = false
+			}
+
+			began := time.Now()
 			err := backend.StreamLogs(ctx, sessionID, onEntry)
-			if err == nil || errors.Is(err, context.Canceled) {
-				// Clean stream close or external cancellation. The
-				// backend has explicitly signalled "no more events"
-				// (typically because the session ended), so exit.
+
+			if errors.Is(err, context.Canceled) || ctx.Err() != nil {
 				m.logger.Info("chat: worker-log consumer stopped", "session_id", sessionID)
 
 				return
 			}
 
-			if ctx.Err() != nil {
+			if err == nil && kind != KindArchitect {
+				// A chat backend closes the stream when the session ended.
 				m.logger.Info("chat: worker-log consumer stopped", "session_id", sessionID)
 
 				return
 			}
 
-			attempt++
+			if kind == KindArchitect {
+				pendingStart = true
 
-			shift := min(attempt-1, 16)
+				if err == nil {
+					err = errors.New("architect closed the log stream")
+				}
+			}
 
-			backoff := min(time.Duration(float64(backoffBase)*float64(int64(1)<<shift)), backoffCap)
+			if time.Since(began) >= healthyStream {
+				attempt = 0
+			}
 
-			m.logger.Warn("chat: worker-log consumer stream error, retrying",
-				"session_id", sessionID, "attempt", attempt,
-				"backoff", backoff, "error", err)
-
-			select {
-			case <-ctx.Done():
+			if !wait(err) {
 				m.logger.Info("chat: worker-log consumer stopped", "session_id", sessionID)
 
 				return
-			case <-time.After(backoff):
 			}
 		}
 	})
@@ -1232,7 +1267,7 @@ func (m *Manager) OpenSession(ctx context.Context, id string) (Session, error) {
 		// restarts the consumer in place instead of forcing an End → Reopen
 		// that kills the container and rehydrates a fresh one. startConsumer
 		// is a no-op when a consumer for this session is already running.
-		m.startConsumer(sess.ID)
+		m.startConsumer(sess.ID, true)
 
 		return sess, nil
 
@@ -1278,7 +1313,7 @@ func (m *Manager) OpenSession(ctx context.Context, id string) (Session, error) {
 		}
 
 		m.logger.Info("chat: warm-idle reattached", "session_id", reattached.ID)
-		m.startConsumer(reattached.ID)
+		m.startConsumer(reattached.ID, true)
 
 		s := StatusActive
 		m.publishSessionUpdate(reattached.ID, SessionUpdate{Status: &s})
@@ -1501,7 +1536,7 @@ func (m *Manager) openCold(ctx context.Context, id string) (Session, error) {
 
 	m.logger.Info("chat: cold session active",
 		"session_id", sess.ID, "container_id", containerID)
-	m.startConsumer(sess.ID)
+	m.startConsumer(sess.ID, false)
 
 	s := StatusActive
 	m.publishSessionUpdate(sess.ID, SessionUpdate{Status: &s})
@@ -1860,7 +1895,7 @@ func (m *Manager) Reattach(ctx context.Context, sessionID string) (Session, erro
 		return Session{}, fmt.Errorf("chat: Reattach: persist last-active: %w", err)
 	}
 
-	m.startConsumer(sess.ID)
+	m.startConsumer(sess.ID, true)
 
 	return sess, nil
 }
