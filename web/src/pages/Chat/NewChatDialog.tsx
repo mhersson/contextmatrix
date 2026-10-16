@@ -106,7 +106,6 @@ export function NewChatDialog({ open, onClose }: NewChatDialogProps) {
         blueprint
           ? {
               title: title.trim() || undefined,
-              model: model || undefined,
               kind: 'architect',
               projects: draft.projects,
               mode: draft.mode,
@@ -217,13 +216,15 @@ export function NewChatDialog({ open, onClose }: NewChatDialogProps) {
           </>
         )}
 
-        <ChatModelPicker
-          source={modelSource}
-          model={model}
-          defaultModel={defaultModel}
-          models={models}
-          onChange={setModel}
-        />
+        {!blueprint && (
+          <ChatModelPicker
+            source={modelSource}
+            model={model}
+            defaultModel={defaultModel}
+            models={models}
+            onChange={setModel}
+          />
+        )}
 
         {error && (
           <div className="text-xs mb-3" style={{ color: 'var(--red)' }}>

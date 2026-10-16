@@ -11,7 +11,8 @@ vi.mock('../../api/client', () => ({
   api: {
     createChat: (...args: unknown[]) => createChat(...args),
     openChat: (...args: unknown[]) => openChat(...args),
-    listChatModels: () => Promise.resolve({ source: 'endpoint', models: [], default: '' }),
+    listChatModels: () =>
+      Promise.resolve({ source: 'endpoint', models: [{ id: 'chat/default', label: 'Chat default' }], default: 'chat/default' }),
   },
   isAPIError: () => false,
 }));
@@ -53,6 +54,7 @@ describe('NewChatDialog blueprint sessions', () => {
 
   it('creates an architect session with projects, mode and cost cap', async () => {
     render(<NewChatDialog open onClose={() => {}} />);
+    await screen.findByLabelText('Model');
     fireEvent.click(screen.getByLabelText('Blueprint'));
     fireEvent.click(screen.getByLabelText('Alpha'));
     fireEvent.click(screen.getByLabelText('beta'));
@@ -62,19 +64,27 @@ describe('NewChatDialog blueprint sessions', () => {
     await waitFor(() => expect(createChat).toHaveBeenCalled());
     expect(createChat).toHaveBeenCalledWith({
       title: undefined,
-      model: undefined,
       kind: 'architect',
       projects: ['alpha', 'beta'],
       mode: 'auto',
       cost_cap_usd: 3,
     });
+    expect(createChat.mock.calls[0][0]).not.toHaveProperty('model');
     await waitFor(() => expect(navigate).toHaveBeenCalledWith('/chat/S1'));
+  });
+
+  it('does not show the chat model picker in blueprint mode', async () => {
+    render(<NewChatDialog open onClose={() => {}} />);
+    expect(await screen.findByLabelText('Model')).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('Blueprint'));
+    expect(screen.queryByLabelText('Model')).not.toBeInTheDocument();
   });
 
   it('creates a plain chat without blueprint fields', async () => {
     render(<NewChatDialog open onClose={() => {}} />);
+    await screen.findByLabelText('Model');
     fireEvent.click(screen.getByRole('button', { name: 'Create' }));
     await waitFor(() => expect(createChat).toHaveBeenCalled());
-    expect(createChat).toHaveBeenCalledWith({ title: undefined, project: undefined, model: undefined });
+    expect(createChat).toHaveBeenCalledWith({ title: undefined, project: undefined, model: 'chat/default' });
   });
 });

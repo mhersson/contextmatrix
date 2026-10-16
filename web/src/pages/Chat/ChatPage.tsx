@@ -45,6 +45,7 @@ export function ChatPage() {
       title: s.title || '(untitled)',
       status: s.status,
       model: s.model,
+      kind: s.kind,
     })),
     [sessions],
   );

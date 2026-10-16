@@ -127,7 +127,7 @@ export function PaneHeader({
                     onClick={(e) => { e.stopPropagation(); runAndClose(onEndSession)(); }}
                   >End session</button>
                 )}
-                {isRunning && onClearContext && (
+                {isRunning && onClearContext && chat?.kind !== 'architect' && (
                   <button
                     type="button"
                     className="chat-pane-menu-item"
