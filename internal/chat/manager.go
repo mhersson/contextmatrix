@@ -828,6 +828,7 @@ func (m *Manager) CreateSession(ctx context.Context, in CreateInput) (Session, e
 	var (
 		workspace []string
 		mode      string
+		costCap   float64
 	)
 
 	switch kind {
@@ -851,7 +852,7 @@ func (m *Manager) CreateSession(ctx context.Context, in CreateInput) (Session, e
 			}
 
 			if _, err := m.resolveProjectExec(ctx, p); err != nil {
-				return Session{}, fmt.Errorf("%w: unknown project %q", ErrInvalidSessionInput, p)
+				return Session{}, fmt.Errorf("%w: unknown project %q: %w", ErrInvalidSessionInput, p, err)
 			}
 		}
 
@@ -868,6 +869,7 @@ func (m *Manager) CreateSession(ctx context.Context, in CreateInput) (Session, e
 			return Session{}, fmt.Errorf("%w: cost cap must not be negative", ErrInvalidSessionInput)
 		}
 
+		costCap = in.CostCapUSD
 		workspace = slices.Clone(in.Projects)
 	default:
 		return Session{}, fmt.Errorf("%w: unknown session kind %q", ErrInvalidSessionInput, in.Kind)
@@ -881,7 +883,7 @@ func (m *Manager) CreateSession(ctx context.Context, in CreateInput) (Session, e
 		Project:    in.Project,
 		Kind:       kind,
 		Mode:       mode,
-		CostCapUSD: in.CostCapUSD,
+		CostCapUSD: costCap,
 		Workspace:  workspace,
 		Status:     StatusCold,
 		CreatedAt:  now,
@@ -1054,6 +1056,11 @@ func (m *Manager) ClearContext(ctx context.Context, sessionID string) error {
 	sess, err := m.store.GetSession(ctx, sessionID)
 	if err != nil {
 		return fmt.Errorf("chat: ClearContext: %w", err)
+	}
+
+	// A blueprint worker would receive "/clear" as a user message.
+	if sess.Kind == KindArchitect {
+		return fmt.Errorf("%w: clear context is not supported for blueprint sessions", ErrInvalidSessionInput)
 	}
 
 	// Only active and warm-idle sessions have a live worker container. A cold

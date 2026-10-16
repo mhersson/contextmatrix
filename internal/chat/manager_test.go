@@ -4464,3 +4464,56 @@ func TestManager_EndAndSend_DispatchByKind(t *testing.T) {
 	assert.Equal(t, int64(1), archStub.endCalls.Load())
 	assert.Equal(t, int64(0), chatStub.endCalls.Load())
 }
+
+func TestManager_ClearContext_RefusesArchitectSession(t *testing.T) {
+	mgr, _, archStub := newManagerWithArchitectStub(t)
+	ctx := context.Background()
+
+	bp, err := mgr.CreateSession(ctx, chat.CreateInput{
+		Kind: chat.KindArchitect, Projects: []string{"alpha"}, CreatedBy: "human:web",
+	})
+	require.NoError(t, err)
+	_, err = mgr.OpenSession(ctx, bp.ID)
+	require.NoError(t, err)
+
+	err = mgr.ClearContext(ctx, bp.ID)
+	require.ErrorIs(t, err, chat.ErrInvalidSessionInput)
+	assert.Equal(t, int64(0), archStub.sendCalls.Load())
+
+	msgs, err := mgr.ListMessagesTail(ctx, bp.ID, 10)
+	require.NoError(t, err)
+	assert.Empty(t, msgs, "no divider may be appended")
+}
+
+func TestManager_CreateSession_ChatKindIgnoresCostCap(t *testing.T) {
+	mgr, _, _ := newManagerWithArchitectStub(t)
+
+	sess, err := mgr.CreateSession(context.Background(), chat.CreateInput{
+		Title: "c", CreatedBy: "human:web", CostCapUSD: 7,
+	})
+	require.NoError(t, err)
+
+	got, err := mgr.GetSession(context.Background(), sess.ID)
+	require.NoError(t, err)
+	assert.InDelta(t, 0.0, got.CostCapUSD, 1e-9)
+}
+
+func TestManager_OpenSession_ArchitectIgnoresFullChatSlots(t *testing.T) {
+	mgr, chatStub, archStub := newManagerWithArchitectStub(t)
+	ctx := context.Background()
+
+	c, err := mgr.CreateSession(ctx, chat.CreateInput{Title: "c", CreatedBy: "human:web"})
+	require.NoError(t, err)
+	_, err = mgr.OpenSession(ctx, c.ID)
+	require.NoError(t, err)
+
+	bp, err := mgr.CreateSession(ctx, chat.CreateInput{
+		Kind: chat.KindArchitect, Projects: []string{"alpha"}, CreatedBy: "human:web",
+	})
+	require.NoError(t, err)
+	_, err = mgr.OpenSession(ctx, bp.ID)
+	require.NoError(t, err)
+
+	assert.Equal(t, int64(1), chatStub.startCalls.Load())
+	assert.Equal(t, int64(1), archStub.startCalls.Load())
+}
