@@ -440,14 +440,14 @@ backends: {}
 #    # contextmatrix-architect: blueprint sessions in the chat panel. Runs no
 #    # containers; CM provisions the model, LLM endpoint and git credentials
 #    # on every session start.
-#    url: "http://localhost:9094"
+#    url: "http://localhost:9095"
 #    api_key: ""
 #    enabled: false
 #
 #    # Default model slug for new blueprint sessions. REQUIRED when this
 #    # entry is enabled; the architect has no server-side default.
 #    # Env: CONTEXTMATRIX_BACKEND_ARCHITECT_DEFAULT_MODEL
-#    default_model: "anthropic/claude-sonnet-4"
+#    default_model: "anthropic/claude-sonnet-5.5"
 
 # Chat (global chat panel)
 # Chat sessions and transcripts are stored in the shared operational store
