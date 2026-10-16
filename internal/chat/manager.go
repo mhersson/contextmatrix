@@ -1624,7 +1624,7 @@ func (m *Manager) restartArchitect(ctx context.Context, sessionID string) error 
 			return nil, err
 		}
 
-		// Outside the status lock; m.mu only guards the consumers map.
+		// After the status lock is released; m.mu is held only for the map lookup.
 		m.mu.Lock()
 		if h, ok := m.consumers[sessionID]; ok {
 			h.starts.Add(1)

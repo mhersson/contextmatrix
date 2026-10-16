@@ -5228,13 +5228,23 @@ func TestManager_Consumer_ArchitectReconnectsAtOnceAfterTheSendPathRestart(t *te
 
 	var streams atomic.Int64
 
+	endSecond := make(chan struct{})
+
 	arch.streamLogsFn = func(ctx context.Context, _ string, _ func(chat.LogEntry)) error {
-		if streams.Add(1) == 1 {
+		switch streams.Add(1) {
+		case 1:
 			arch.mu.Lock()
 			arch.startErr = errors.New("architect down")
 			arch.mu.Unlock()
 
 			return nil
+		case 2:
+			select {
+			case <-endSecond:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
 		}
 
 		<-ctx.Done()
@@ -5264,6 +5274,12 @@ func TestManager_Consumer_ArchitectReconnectsAtOnceAfterTheSendPathRestart(t *te
 		"the consumer reconnects well inside its 2 s backoff")
 	require.NoError(t, <-sendDone)
 	assert.Equal(t, int64(5), arch.startCalls.Load(), "the woken consumer sent no start of its own")
+
+	// The wake reset the backoff ladder: the next drop waits 250 ms, not the
+	// 4 s the old ladder would give.
+	close(endSecond)
+	require.Eventually(t, func() bool { return streams.Load() == 3 }, 1500*time.Millisecond, 5*time.Millisecond,
+		"the next stream starts from the base backoff")
 }
 
 // Streams end at once and every restart succeeds: only the wait between

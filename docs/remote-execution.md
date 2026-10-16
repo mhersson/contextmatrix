@@ -464,12 +464,11 @@ replay cache already recorded that whole-second timestamp and signature pair)
 and sends the message once more with the same message id. The session row is not
 written, and a second failure is returned to the caller. After that re-sent
 start, an architect consumer waiting out its backoff reconnects at once, without
-a start of its own. The architect must
-answer an unknown session with 404 `not_found` and treat a start for a session
-it already holds as a no-op. CM also re-sends `/chat/start` with the same
-payload when the architect's `/logs` stream ends or drops, and before the first
-stream of a consumer CM attaches after its own restart; frames the architect
-publishes in between are kept and replayed. The consumer stops once its
+a start of its own. The architect must answer an unknown session with 404
+`not_found` and treat a start for a session it already holds as a no-op. CM also
+re-sends `/chat/start` with the same payload when the architect's `/logs` stream
+ends or drops, and before the first stream of a consumer CM attaches after its
+own restart; frames the architect publishes in between are kept and replayed. The consumer stops once its
 session row is gone, cold or no longer an architect session. Chat sessions do
 not take these paths.
 
@@ -913,7 +912,9 @@ flowchart LR
   working indicator and are never persisted. Both consumers reconnect with
   backoff after a stream error (250 ms to 30 s, reset after a stream that
   lived a minute). A chat consumer stops when the stream closes cleanly; an
-  architect consumer reconnects after that too, re-sending the start first.
+  architect consumer reconnects after that too, re-sending the start first
+  unless the send path's re-sent start already restored the session, which also
+  ends the backoff at once.
 
 ### Backend capacity: GET /api/backend/health
 
