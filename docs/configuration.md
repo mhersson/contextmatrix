@@ -26,8 +26,8 @@ are missing and removes keys that no longer exist. Renaming a key upstream
 therefore drops the user's old value at the next update; prefer adding the new
 key and reading the old one for a release when a rename is unavoidable.
 
-Two keys are exceptions to that merge rule. `backends.agent.enabled` and
-`backends.chat.enabled` print as `false` so the backend key sets are visible,
+Two keys are exceptions to that merge rule. `backends.agent.enabled`,
+`backends.chat.enabled` and `backends.architect.enabled` print as `false` so the backend key sets are visible,
 but an omitted `enabled` means the backend is enabled, so a merge must never
 add `enabled: false` on the schema's word alone. And `boards` prints only the
 single mapping form, while the loader also accepts a list of named repos, so a
@@ -106,7 +106,7 @@ Exceptions to the rule:
 
 | YAML path                        | Env var                                    | Note                                      |
 | -------------------------------- | ------------------------------------------ | ----------------------------------------- |
-| `backends.<name>.<field>`        | `CONTEXTMATRIX_BACKEND_<NAME>_<FIELD>`     | Singular `BACKEND`; NAME is `AGENT` or `CHAT` |
+| `backends.<name>.<field>`        | `CONTEXTMATRIX_BACKEND_<NAME>_<FIELD>`     | Singular `BACKEND`; NAME is `AGENT`, `CHAT` or `ARCHITECT` |
 | `github.app.installation_id`     | `CONTEXTMATRIX_GITHUB_INSTALLATION_ID`     | No `APP_` segment                         |
 | `github.app.private_key_path`    | `CONTEXTMATRIX_GITHUB_PRIVATE_KEY_PATH`    | No `APP_` segment                         |
 | `backends.agent.model_allowlist` | `CONTEXTMATRIX_BACKEND_AGENT_MODEL_ALLOWLIST` | Comma-separated list                   |

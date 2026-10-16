@@ -102,15 +102,17 @@ const (
 
 // Backend name constants - the closed set of valid backends mapping keys.
 const (
-	BackendNameAgent = "agent"
-	BackendNameChat  = "chat"
+	BackendNameAgent     = "agent"
+	BackendNameChat      = "chat"
+	BackendNameArchitect = "architect"
 )
 
-// Backend callback paths. The agent and chat repos hardcode these - they
+// Backend callback paths. The agent, chat and architect repos hardcode these - they
 // must not change.
 const (
-	AgentCallbackPath = "/api/agent"
-	ChatCallbackPath  = "/api/chat"
+	AgentCallbackPath     = "/api/agent"
+	ChatCallbackPath      = "/api/chat"
+	ArchitectCallbackPath = "/api/architect"
 )
 
 // Auth modes. AuthModeMulti (the default) requires login; AuthModeNone is
@@ -121,7 +123,7 @@ const (
 )
 
 // Per-backend CONTEXTMATRIX_BACKEND_<NAME>_* env var suffixes.
-// applyAgentBackendEnv / applyChatBackendEnv read each one;
+// applyAgentBackendEnv / applyChatBackendEnv / applyArchitectBackendEnv read each one;
 // checkBackendEnvKeys allowlists the same sets - keep them in sync.
 var (
 	agentBackendEnvSuffixes = []string{
@@ -140,14 +142,21 @@ var (
 		"_ENABLED",
 		"_DEFAULT_MODEL",
 	}
+	architectBackendEnvSuffixes = []string{
+		"_URL",
+		"_API_KEY",
+		"_ENABLED",
+		"_DEFAULT_MODEL",
+	}
 )
 
 // Backends declares the execution backends CM drives over the
 // contextmatrix-protocol webhook contract. Read once at startup -
 // changing backends requires a CM restart.
 type Backends struct {
-	Agent *AgentBackendConfig
-	Chat  *ChatBackendConfig
+	Agent     *AgentBackendConfig
+	Chat      *ChatBackendConfig
+	Architect *ArchitectBackendConfig
 }
 
 // UnmarshalYAML decodes the backends mapping with a closed key set. Unknown
@@ -172,12 +181,17 @@ func (b *Backends) UnmarshalYAML(node *yaml.Node) error {
 			if err := decodeStrictEntry(val, b.Chat); err != nil {
 				return fmt.Errorf("backends.chat: %w", err)
 			}
+		case BackendNameArchitect:
+			b.Architect = &ArchitectBackendConfig{}
+			if err := decodeStrictEntry(val, b.Architect); err != nil {
+				return fmt.Errorf("backends.architect: %w", err)
+			}
 		case "runner":
 			return fmt.Errorf("backends.runner: the runner backend has been removed " +
 				"(deprecate-frozen since multi-user; see the runner-eos tag for the last supported commit): " +
 				"use backends.agent for task execution and backends.chat for chat")
 		default:
-			return fmt.Errorf("invalid backend name %q: must be one of \"agent\", \"chat\"", key)
+			return fmt.Errorf("invalid backend name %q: must be one of \"agent\", \"chat\", \"architect\"", key)
 		}
 	}
 
@@ -196,6 +210,10 @@ func (b Backends) MarshalYAML() (any, error) {
 
 	if b.Chat != nil {
 		out[BackendNameChat] = b.Chat
+	}
+
+	if b.Architect != nil {
+		out[BackendNameArchitect] = b.Architect
 	}
 
 	return out, nil
@@ -259,6 +277,18 @@ type ChatBackendConfig struct {
 	DefaultModel string `yaml:"default_model"`
 }
 
+// ArchitectBackendConfig is the contextmatrix-architect blueprint backend
+// entry. The architect speaks the chat-backend protocol, so the entry has
+// the chat entry's fields.
+type ArchitectBackendConfig struct {
+	URL     string `yaml:"url"`
+	APIKey  string `yaml:"api_key"`
+	Enabled *bool  `yaml:"enabled"`
+	// DefaultModel - required when enabled: the architect has no server-side
+	// default and takes the model from every session start.
+	DefaultModel string `yaml:"default_model"`
+}
+
 // IsEnabled reports whether the agent entry is present and active. A nil
 // receiver (entry not declared) is disabled; nil Enabled defaults to true
 // (declaring the entry = active; disabled entries are inert placeholders).
@@ -270,6 +300,12 @@ func (a *AgentBackendConfig) IsEnabled() bool {
 // nil-safe semantics as AgentBackendConfig.IsEnabled.
 func (c *ChatBackendConfig) IsEnabled() bool {
 	return c != nil && (c.Enabled == nil || *c.Enabled)
+}
+
+// IsEnabled reports whether the architect entry is present and active. Same
+// nil-safe semantics as ChatBackendConfig.IsEnabled.
+func (a *ArchitectBackendConfig) IsEnabled() bool {
+	return a != nil && (a.Enabled == nil || *a.Enabled)
 }
 
 // ReconcileIntervalDuration parses ReconcileInterval. Zero/unset/invalid
@@ -993,6 +1029,21 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	if ab := c.Backends.Architect; ab.IsEnabled() {
+		if ab.URL == "" {
+			return fmt.Errorf("backends.architect.url is required")
+		}
+
+		if len(ab.APIKey) < MinBackendAPIKeyLength {
+			return fmt.Errorf("backends.architect.api_key must be at least %d characters", MinBackendAPIKeyLength)
+		}
+
+		if ab.DefaultModel == "" {
+			return fmt.Errorf("backends.architect.default_model is required when the architect backend " +
+				"is enabled (the architect has no server-side default; CM supplies the model on every session start)")
+		}
+	}
+
 	if c.Theme == "" {
 		c.Theme = "everforest"
 	}
@@ -1611,6 +1662,16 @@ func (c *Config) ChatBackend() (*ChatBackendConfig, bool) {
 	return nil, false
 }
 
+// ArchitectBackend returns the backend responsible for blueprint sessions
+// (the architect entry), true iff it is declared and enabled.
+func (c *Config) ArchitectBackend() (*ArchitectBackendConfig, bool) {
+	if c.Backends.Architect.IsEnabled() {
+		return c.Backends.Architect, true
+	}
+
+	return nil, false
+}
+
 // applyBackendDefaults fills per-entry defaults for fields not supplied by
 // YAML. Idempotent. Load calls it before applyEnvOverrides, so an entry
 // flipped on via CONTEXTMATRIX_BACKEND_<NAME>_ENABLED gets its task defaults
@@ -1991,6 +2052,10 @@ func applyEnvOverrides(cfg *Config) error {
 		return err
 	}
 
+	if err := applyArchitectBackendEnv(cfg); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -2131,8 +2196,47 @@ func applyChatBackendEnv(cfg *Config) error {
 	return nil
 }
 
+// applyArchitectBackendEnv applies the CONTEXTMATRIX_BACKEND_ARCHITECT_*
+// overrides. Entry-creating like applyChatBackendEnv.
+func applyArchitectBackendEnv(cfg *Config) error {
+	const prefix = "CONTEXTMATRIX_BACKEND_ARCHITECT"
+
+	if cfg.Backends.Architect == nil {
+		if !anyBackendEnvSet(prefix, architectBackendEnvSuffixes) {
+			return nil
+		}
+
+		cfg.Backends.Architect = &ArchitectBackendConfig{}
+	}
+
+	a := cfg.Backends.Architect
+
+	if v := os.Getenv(prefix + "_URL"); v != "" {
+		a.URL = v
+	}
+
+	if v := os.Getenv(prefix + "_API_KEY"); v != "" {
+		a.APIKey = v
+	}
+
+	enabled, err := parseBackendEnabledEnv(prefix)
+	if err != nil {
+		return err
+	}
+
+	if enabled != nil {
+		a.Enabled = enabled
+	}
+
+	if v := os.Getenv(prefix + "_DEFAULT_MODEL"); v != "" {
+		a.DefaultModel = v
+	}
+
+	return nil
+}
+
 // checkBackendEnvKeys rejects CONTEXTMATRIX_BACKEND_* variables that do not
-// map to a known (name, suffix) pair: the name must be agent or chat, and the
+// map to a known (name, suffix) pair: the name must be agent, chat or architect, and the
 // suffix must be in that backend's suffix set. A typo'd or stale variable -
 // including any CONTEXTMATRIX_BACKEND_RUNNER_* leftover, or an agent-only
 // suffix on the chat entry - must fail loudly, not silently configure
@@ -2149,6 +2253,10 @@ func checkBackendEnvKeys() error {
 		known["CONTEXTMATRIX_BACKEND_CHAT"+suffix] = true
 	}
 
+	for _, suffix := range architectBackendEnvSuffixes {
+		known["CONTEXTMATRIX_BACKEND_ARCHITECT"+suffix] = true
+	}
+
 	for _, kv := range os.Environ() {
 		key, _, _ := strings.Cut(kv, "=")
 		if !strings.HasPrefix(key, "CONTEXTMATRIX_BACKEND_") {
@@ -2157,10 +2265,11 @@ func checkBackendEnvKeys() error {
 
 		if !known[key] {
 			return fmt.Errorf("%s is not a recognised backend env var "+
-				"(agent suffixes: %s; chat suffixes: %s) - fix the variable name",
+				"(agent suffixes: %s; chat suffixes: %s; architect suffixes: %s) - fix the variable name",
 				key,
 				strings.Join(agentBackendEnvSuffixes, ", "),
-				strings.Join(chatBackendEnvSuffixes, ", "))
+				strings.Join(chatBackendEnvSuffixes, ", "),
+				strings.Join(architectBackendEnvSuffixes, ", "))
 		}
 	}
 
