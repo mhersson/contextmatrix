@@ -709,8 +709,8 @@ Refuses to delete a credential that any project's `.board.yaml`
 
 Lists every chat session on the instance - no owner scoping. Metadata and
 cost totals only; transcript content is never included. Query parameters
-`project`, `status`, and `limit` behave as on `GET /api/chats` (default 500,
-max 5000, bad values 400); `created_by` is ignored. Registered in both auth
+`project`, `status`, `kind`, and `limit` behave as on `GET /api/chats` (default
+500, max 5000, bad values 400); `created_by` is ignored. Registered in both auth
 modes (admin-gated only in `multi`) and only when a
 chat manager is wired.
 
@@ -1344,6 +1344,7 @@ payload.
   "mob_guest_names": ["laptop"],
   "mob_execute_checkpoints": true,
   "chat_enabled": true,
+  "architect_enabled": false,
   "instance_id": "laptop-3f9a2c",
   "shared_boards": true,
   "boards_repos": [{ "name": "team", "shared": true }, { "name": "private", "shared": false }]
@@ -1362,6 +1363,7 @@ payload.
 | `mob_guest_names`                                  | full, omitempty | Names from the `mob.guests` registry - never URLs or tokens                                        |
 | `mob_execute_checkpoints`                          | full, omitempty | `true` when `mob.execute_checkpoints_enabled` is on; absent (not `false`) when off                 |
 | `chat_enabled`                                     | full, always    | A chat backend entry is enabled with `url` and `api_key` set                                       |
+| `architect_enabled`                                | full, always    | An architect backend entry is enabled with `url` and `api_key` set; gates the blueprint option in the New Chat dialog |
 | `instance_id`, `shared_boards`                     | full, omitempty | `instance.id` and whether any boards repo is shared; both drop out on a private board              |
 | `boards_repos`                                     | full, omitempty | Every configured boards repository in config order, `{name, shared}`                               |
 
@@ -2353,6 +2355,8 @@ The token is minted once per chat session at chat-start
 `api_key` and the session id. It is deterministic and never persisted:
 verification re-derives it from the session id embedded in the token and
 compares in constant time. The model is identical in both auth modes.
+Verification uses the chat entry's `api_key` only, so tokens minted for
+architect sessions (over the architect entry's `api_key`) are refused.
 
 | Param  | Meaning                                                                     |
 | ------ | --------------------------------------------------------------------------- |
@@ -2409,7 +2413,9 @@ management lives under `/api/admin/chats`.
 | Field                                                                              | Presence  | Meaning                                                                                    |
 | ---------------------------------------------------------------------------------- | --------- | ------------------------------------------------------------------------------------------ |
 | `id`, `title`, `status`, `created_at`, `last_active`, `created_by`                 | always    | `id` is a 26-character base32 ULID; `status` is `cold`, `active`, `warm-idle`, or `ending` |
+| `kind`                                                                             | always    | `chat` or `architect`; rows written before kinds existed read as `chat`                    |
 | `project`, `container_id`, `workspace`, `model`                                    | omitempty | `workspace` is a string list; `model` is set at creation and reused on every `/open`       |
+| `mode`, `cost_cap_usd`                                                             | omitempty | Architect sessions only; fixed at creation. `workspace` holds the target projects          |
 | `context_tokens`                                                                   | omitempty | Last `input + cache_read + cache_create` reported by the model                             |
 | `context_tokens_updated_at`                                                        | always    | Zero time (`0001-01-01T00:00:00Z`) until the first usage entry                             |
 | `rehydration_active`, `rehydration_started_at`                                     | omitempty | `true` between a cold reopen and the agent's `chat_rehydration_complete` call              |
@@ -2437,6 +2443,20 @@ in `endpoint` mode `model` must be in the endpoint's served list, in
 is 400 `INVALID_MODEL`, and an unfetched or failed list fails open. When both
 an OpenAI-compatible endpoint and an OpenRouter chat backend are configured,
 endpoint mode wins. With neither, the value is accepted unvalidated.
+
+A blueprint session on the architect backend takes its own fields:
+
+```json
+{ "kind": "architect", "projects": ["alpha", "beta"], "mode": "auto", "cost_cap_usd": 3 }
+```
+
+`kind` defaults to `chat`. An architect session needs at least one existing
+project in `projects`, a valid `mode` (`default`, `auto`, `auto+emit` or
+`yolo`; `default` when omitted), a non-negative `cost_cap_usd` and no
+`project`. `model` is not defaulted at create for architect sessions: the
+cold open uses `backends.architect.default_model`. Violations are 400
+`INVALID_CHAT_INPUT` with the reason in `details`; a create with no architect
+backend configured is 409 `CHAT_KIND_UNAVAILABLE`.
 
 **Response:** 201 with the session.
 
@@ -2473,6 +2493,7 @@ empty.
 | ------------ | ------- | ---- | ------------------------------------------------------------------ |
 | `project`    | -       | -    | Filter by project name                                             |
 | `status`     | -       | -    | `cold` / `active` / `warm-idle` / `ending`; unknown values are 400 |
+| `kind`       | -       | -    | `chat` or `architect`; an unknown kind matches nothing             |
 | `created_by` | -       | -    | Filter by agent ID (`none` mode only)                              |
 | `limit`      | `500`   | 5000 | Above the max clamps; non-numeric or `< 1` is 400                  |
 

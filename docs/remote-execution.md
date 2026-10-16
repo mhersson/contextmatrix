@@ -434,6 +434,28 @@ worker endpoint.
 Closes the container's stdin and stops it. A session the backend no longer
 tracks answers `404 not_found`.
 
+### CM → architect backend
+
+The architect backend (contextmatrix-architect) speaks the chat-backend
+protocol. CM drives it with the same `POST /chat/start`, `POST /chat/end` and
+`POST /message`, and reads its signed `GET /logs?session_id=` stream into the
+transcript, all signed with the architect entry's `api_key`. CM sends no
+health or readiness probe to it. A session is a blueprint bound to its
+session id, not a container: `container_id` stays empty. Differences from a
+chat start:
+
+| Field                                           | Architect start                                                                                                         |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `project`, `repo_url`, `worker_image`, `resume` | Never set. The target projects travel in the `architect` block; the transcript is not replayed on a reopen.             |
+| `model`                                         | The session row's model, else `backends.architect.default_model`.                                                       |
+| `llm_endpoint`, `mcp_api_key`                   | As for chat: the configured `llm_endpoint` and CM's `mcp_api_key`.                                                      |
+| `git_credentials_token`                         | Minted over the architect entry's `api_key`, in the same `<session_id>.<mac>` form as for chat.                         |
+| `architect`                                     | `{"projects": ["alpha", "beta"], "mode": "default", "cost_cap_usd": 3}`. `mode` is `default`, `auto`, `auto+emit` or `yolo`. |
+
+`/chat/end` ends the session on the architect; reopening it sends a new
+`/chat/start` for the same session id. Architect sessions do not count toward
+`chat.max_concurrent`.
+
 ### Task/chat backend → CM: log stream
 
 #### GET {backend_url}/logs
@@ -983,7 +1005,7 @@ secrets).
 
 ### Backend configuration
 
-The task and chat backends carry their own configuration: listener ports,
+The task, chat and architect backends carry their own configuration: listener ports,
 container image and resource limits, secrets directory, replay-cache sizing,
 idle watchdog, orphan sweep, and drain behavior. Those knobs live in each
 backend's `serve.yaml.example` in its own repository. The only values that

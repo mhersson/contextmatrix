@@ -4,6 +4,8 @@ ContextMatrix (CM) is a coordination layer: one Go binary serving a REST API,
 an MCP server and an embedded web UI over a boards git repository of markdown
 cards. It never clones or builds project code. The agent and chat backends do
 that in worker containers and report back over MCP and HMAC-signed webhooks.
+The architect backend speaks the chat protocol, runs no containers and binds a
+session to a blueprint.
 
 ```mermaid
 flowchart LR
@@ -327,6 +329,9 @@ card runs but use long-lived containers. Owns the lifecycle (`cold` ->
 `active` -> `warm-idle` -> `ending`), persists transcripts through
 `chat.Store`, and delegates containers to `chat.Backend` (HMAC-signed
 `/chat/start` and `/chat/end`; the sole implementation is `NewBackendClient`).
+Sessions carry a kind: the manager dispatches by it to the chat backend or the
+architect backend, which speaks the same protocol, runs no containers and
+binds a session to a blueprint.
 The backend's `/logs?session_id=` SSE feed is bridged into the transcript via
 `AppendMessage`, which holds `m.mu` across seq assignment and insert so disk
 order matches seq order.
