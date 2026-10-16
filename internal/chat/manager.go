@@ -1552,9 +1552,10 @@ func (m *Manager) openCold(ctx context.Context, id string) (Session, error) {
 
 // restartArchitect re-sends /chat/start for an active or warm-idle architect
 // session the architect lost. It sends the plain cold-open inputs, never a
-// resume, and does not write the row; the architect no-ops a start for a held
-// session, or returns errArchitectNotLive for any other row. The status lock
-// keeps the start from landing after EndSession's EndChat.
+// resume, and does not write the row; the architect no-ops a start for a
+// session it holds. A row that is not a live architect session returns
+// errArchitectNotLive. The status lock keeps the start from landing after
+// EndSession's EndChat.
 func (m *Manager) restartArchitect(ctx context.Context, sessionID string) error {
 	_, err, _ := m.restartGroup.Do(sessionID, func() (any, error) {
 		return nil, m.withStatusLock(sessionID, func() error {
