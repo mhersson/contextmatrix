@@ -143,8 +143,13 @@ board. Promote-to-autonomous lives in that tab.
   session picks one or more target projects, a mode (default, auto,
   auto + emit, yolo) and an optional cost cap, and runs on the architect
   backend instead of a chat worker. The sidebar marks such sessions with
-  an aqua drafting-compass icon. Questions and gates arrive as ordinary
-  messages; the reply is the answer.
+  an aqua drafting-compass icon. The architect's questions and gates
+  show reply buttons under the message: a click sends that reply as your
+  message, a feedback action such as Reject asks for text first, and typing
+  the reply works too. A prompt closes when a reply answers it or a later
+  prompt replaces it, and then shows a one-line summary instead of buttons.
+  The buttons are disabled while the session is not live or its stream is
+  disconnected, and prompts show with the Text filter off.
 
 ## Image attachments
 

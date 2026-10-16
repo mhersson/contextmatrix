@@ -11,9 +11,11 @@ export interface ChatComposerProps {
    * is mounted), the textarea grabs focus. Leave undefined to opt out.
    */
   focusKey?: string | number;
+  /** Bumped after a prompt reply sent from the transcript; focuses the textarea. */
+  refocus?: number;
 }
 
-export function ChatComposer({ onSend, sendDisabled, footer, focusKey }: ChatComposerProps) {
+export function ChatComposer({ onSend, sendDisabled, footer, focusKey, refocus }: ChatComposerProps) {
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -27,6 +29,11 @@ export function ChatComposer({ onSend, sendDisabled, footer, focusKey }: ChatCom
     if (sendDisabled) return;
     textareaRef.current?.focus();
   }, [focusKey, sendDisabled]);
+
+  useEffect(() => {
+    if (!refocus) return;
+    textareaRef.current?.focus();
+  }, [refocus]);
 
   const isOverLimit = message.length > MAX_MESSAGE_LENGTH;
   const canSend = message.trim().length > 0 && !sending && !isOverLimit && !sendDisabled;

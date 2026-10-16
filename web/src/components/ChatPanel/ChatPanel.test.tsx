@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
-import { render, screen, fireEvent, renderHook, act } from '@testing-library/react';
+import { render, screen, fireEvent, renderHook, act, waitFor } from '@testing-library/react';
 import { ChatPanel } from './ChatPanel';
 import { useWorkerLogs } from '../../hooks/useWorkerLogs';
 import { formatHHMM, formatTitle } from '../../utils/chatTimestamp';
@@ -536,5 +536,72 @@ describe('ChatPanel', () => {
       // Also verify it matches our local formatter (locale-pinned, TZ-stable).
       expect(result).toBe(hhmmFormatter.format(new Date(TS_14_32_A)));
     });
+  });
+});
+
+function promptRow(seq: number): LogEntry {
+  return {
+    ts: '2026-05-13T10:00:00Z',
+    card_id: '',
+    type: 'text',
+    kind: 'prompt',
+    seq,
+    content: JSON.stringify({
+      text: 'Sign off v2?',
+      prompt: {
+        id: 'gate:sign-off:v2',
+        actions: [
+          { label: 'Approve', reply: 'approve' },
+          { label: 'Reject', reply: 'reject', feedback: true },
+        ],
+      },
+    }),
+  };
+}
+
+describe('ChatPanel architect prompts', () => {
+  beforeEach(() => {
+    localStorageMock.clear();
+    vi.clearAllMocks();
+  });
+
+  it('sends the clicked reply and returns focus to the composer', async () => {
+    const onSend = vi.fn().mockResolvedValue(undefined);
+    render(<ChatPanel logs={[promptRow(1)]} onSend={onSend} sendDisabled={false} promptsLive />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve' }));
+
+    expect(onSend).toHaveBeenCalledWith('approve');
+    await waitFor(() => expect(screen.getByPlaceholderText(/Type a message/)).toHaveFocus());
+  });
+
+  it('shows a summary instead of actions once a later reply answers the prompt', () => {
+    const reply: LogEntry = { ts: '2026-05-13T10:00:01Z', card_id: '', type: 'user', content: 'Approve', seq: 2 };
+    render(<ChatPanel logs={[promptRow(1), reply]} onSend={vi.fn()} sendDisabled={false} promptsLive />);
+
+    expect(screen.queryByRole('group', { name: 'Reply options' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('prompt-summary')).toHaveTextContent('Approve');
+  });
+
+  it('leaves only the newest unanswered prompt actionable', () => {
+    render(<ChatPanel logs={[promptRow(1), promptRow(2)]} onSend={vi.fn()} sendDisabled={false} promptsLive />);
+
+    expect(screen.getAllByRole('group', { name: 'Reply options' })).toHaveLength(1);
+    expect(screen.getAllByTestId('prompt-summary')).toHaveLength(1);
+  });
+
+  it('disables the actions while prompts are not live', () => {
+    render(<ChatPanel logs={[promptRow(1)]} onSend={vi.fn()} sendDisabled={false} promptsLive={false} />);
+
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeDisabled();
+  });
+
+  it('keeps prompts visible with the Text filter off', async () => {
+    render(<ChatPanel logs={[promptRow(1)]} onSend={vi.fn()} sendDisabled={false} promptsLive />);
+
+    fireEvent.click(screen.getByLabelText('Text'));
+
+    expect(await screen.findByText('Sign off v2?')).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Reply options' })).toBeInTheDocument();
   });
 });

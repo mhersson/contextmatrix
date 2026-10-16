@@ -1,9 +1,10 @@
-import { useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LogEntry } from '../../types';
 import { useChatFilterPrefs } from '../../hooks/useChatFilterPrefs';
 import { ChatComposer } from './ChatComposer';
 import { ChatTranscript } from './ChatTranscript';
 import { filterLogEntries } from './decorateLogs';
+import { derivePromptStates } from './prompts';
 import type { WorkingState } from '../../hooks/useWorkingState';
 
 export interface ChatPanelProps {
@@ -43,6 +44,11 @@ export interface ChatPanelProps {
   hasMoreHistory?: boolean;
   loadingOlder?: boolean;
   onLoadOlder?: () => Promise<void> | void;
+  /**
+   * Whether an open architect prompt takes a click: the session accepts
+   * sends and its stream is connected. Card-bound chat passes nothing.
+   */
+  promptsLive?: boolean;
 }
 
 export function ChatPanel({
@@ -56,6 +62,7 @@ export function ChatPanel({
   hasMoreHistory,
   loadingOlder,
   onLoadOlder,
+  promptsLive = false,
 }: ChatPanelProps) {
   const { prefs, setPref } = useChatFilterPrefs();
   const { showText, showToolCalls, showThinking } = prefs;
@@ -66,6 +73,22 @@ export function ChatPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [logs, showText, showToolCalls, showThinking],
   );
+
+  // Over the whole ring, not the filtered tail: a reply further down closes
+  // a prompt even when the reply's row is filtered or not yet revealed.
+  const promptStates = useMemo(() => derivePromptStates(logs, promptsLive), [logs, promptsLive]);
+
+  // Ref-stable, so memoized rows never re-render on the parent's per-render
+  // onSend. A sent reply returns focus to the composer, as a send does.
+  const onSendRef = useRef(onSend);
+  useEffect(() => {
+    onSendRef.current = onSend;
+  });
+  const [refocus, setRefocus] = useState(0);
+  const sendReply = useCallback(async (text: string) => {
+    await onSendRef.current(text);
+    setRefocus((n) => n + 1);
+  }, []);
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -103,6 +126,8 @@ export function ChatPanel({
         hasMoreHistory={hasMoreHistory}
         loadingOlder={loadingOlder}
         onLoadOlder={onLoadOlder}
+        promptStates={promptStates}
+        onReply={sendReply}
       />
 
       {readOnlyMessage ? (
@@ -119,6 +144,7 @@ export function ChatPanel({
           sendDisabled={sendDisabled}
           footer={footer}
           focusKey={focusKey}
+          refocus={refocus}
         />
       )}
     </div>
