@@ -4727,3 +4727,63 @@ func TestManager_OpenSession_ArchitectStreamsFromArchitectBackend(t *testing.T) 
 		2*time.Second, 5*time.Millisecond, "the consumer must stream from the architect backend")
 	assert.Equal(t, int64(0), chatStub.streamCalls.Load(), "never from the chat backend")
 }
+
+func TestHandleUsageEntry_RowModel(t *testing.T) {
+	tests := []struct {
+		name      string
+		kind      chat.SessionKind
+		wantFrame bool // the row takes the frame's model
+	}{
+		{"architect row keeps its model", chat.KindArchitect, false},
+		{"chat row takes the gateway-echoed model", chat.KindChat, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			hub := chat.NewSSEHub(64)
+
+			store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = store.Close() })
+
+			frames := &usageStreamingBackend{entries: []chat.LogEntry{
+				{Type: "usage", Model: "gateway/echoed", Usage: &chat.TokenUsage{InputTokens: 100, OutputTokens: 50}},
+			}}
+
+			cfg := chat.Config{
+				Store: store, Backend: frames, ArchitectBackend: frames,
+				ArchitectDefaultModel: "arch/default", DefaultModel: "chat/default",
+				Clock: clock.Real(), IdleTTL: time.Hour, Hub: hub,
+				Pricer: newStubPricer(map[string]float64{"gateway/echoed": 0.01}),
+				ResolveProjectExec: func(context.Context, string) (chat.ProjectExecInfo, error) {
+					return chat.ProjectExecInfo{}, nil
+				},
+			}
+			mgr := newManager(t, cfg)
+
+			ctx := context.Background()
+			in := chat.CreateInput{Kind: tt.kind, CreatedBy: "x"}
+
+			if tt.kind == chat.KindArchitect {
+				in.Projects = []string{"alpha"}
+			} else {
+				in.Project = "alpha"
+			}
+
+			sess, err := mgr.CreateSession(ctx, in)
+			require.NoError(t, err)
+
+			_ = openAndWaitForUsageEvent(t, mgr, hub, sess.ID)
+
+			after, err := store.GetSession(ctx, sess.ID)
+			require.NoError(t, err)
+
+			if tt.wantFrame {
+				assert.Equal(t, "gateway/echoed", after.Model)
+			} else {
+				assert.Equal(t, "arch/default", after.Model, "the blueprint's model is the one cold open persisted")
+				assert.Positive(t, after.EstimatedCostUSD, "the frame is still priced")
+			}
+		})
+	}
+}

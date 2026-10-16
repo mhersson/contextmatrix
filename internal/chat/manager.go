@@ -504,7 +504,8 @@ func roleFromLogType(typ string) Role {
 // Invoked only from the per-session worker-log consumer goroutine.
 // IncrementSessionCost is atomic so any future change weakening that invariant
 // cannot lose updates.
-func (m *Manager) handleUsageEntry(ctx context.Context, sessionID, project, fallbackModel string, e LogEntry) {
+// An architect row's model is never rewritten; see rowModel.
+func (m *Manager) handleUsageEntry(ctx context.Context, sessionID, project, fallbackModel string, kind SessionKind, e LogEntry) {
 	if e.Usage == nil {
 		return
 	}
@@ -554,7 +555,15 @@ func (m *Manager) handleUsageEntry(ctx context.Context, sessionID, project, fall
 		}
 	}
 
-	newPrompt, newCompletion, newCacheRead, newCacheCreation, newCost, err := m.store.IncrementSessionCost(ctx, sessionID, prompt, completion, cacheRead, cacheCreate, cost, model)
+	// A blueprint's model is fixed at create: it is the next reopen's start
+	// model and price key, so a frame from a persona override must not move
+	// it. An empty model keeps the column. Chat rows take the echoed name.
+	rowModel := model
+	if kind == KindArchitect {
+		rowModel = ""
+	}
+
+	newPrompt, newCompletion, newCacheRead, newCacheCreation, newCost, err := m.store.IncrementSessionCost(ctx, sessionID, prompt, completion, cacheRead, cacheCreate, cost, rowModel)
 	if err != nil {
 		m.logger.Debug("chat: handleUsageEntry: increment session cost failed",
 			"session_id", sessionID, "error", err)
@@ -665,7 +674,7 @@ func (m *Manager) startConsumer(sessionID string) {
 			}
 
 			if e.Type == "usage" {
-				m.handleUsageEntry(ctx, sessionID, project, fallbackModel, e)
+				m.handleUsageEntry(ctx, sessionID, project, fallbackModel, kind, e)
 
 				return
 			}
