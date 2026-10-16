@@ -502,7 +502,7 @@ func roleFromLogType(typ string) Role {
 // Invoked only from the per-session worker-log consumer goroutine.
 // IncrementSessionCost is atomic so any future change weakening that invariant
 // cannot lose updates.
-func (m *Manager) handleUsageEntry(ctx context.Context, sessionID, project string, e LogEntry) {
+func (m *Manager) handleUsageEntry(ctx context.Context, sessionID, project, fallbackModel string, e LogEntry) {
 	if e.Usage == nil {
 		return
 	}
@@ -531,10 +531,10 @@ func (m *Manager) handleUsageEntry(ctx context.Context, sessionID, project strin
 	cacheRead := e.Usage.CacheReadTokens
 	cacheCreate := e.Usage.CacheCreateTokens
 
-	// Resolve model: prefer frame-level model, fall back to default.
+	// Resolve model: prefer the frame's model, else the session's fallback.
 	model := e.Model
 	if model == "" {
-		model = m.defaultModel
+		model = fallbackModel
 	}
 
 	// Price the per-turn tokens.
@@ -628,10 +628,13 @@ func (m *Manager) startConsumer(sessionID string) {
 			m.mu.Unlock()
 		}()
 
-		// Resolve the session's project once for metric labels; usage frames
-		// carry only the session ID. Project-less global sessions map to "none".
+		// Resolve the session once: the project for metric labels and the
+		// model a usage frame without one is priced at. The frame's own
+		// model wins; else the row's model (set by an earlier priced frame);
+		// else the kind's configured default.
 		project := "none"
 		kind := KindChat
+		fallbackModel := m.defaultModel
 
 		if sess, err := m.store.GetSession(ctx, sessionID); err == nil {
 			if sess.Project != "" {
@@ -639,6 +642,13 @@ func (m *Manager) startConsumer(sessionID string) {
 			}
 
 			kind = sess.Kind
+
+			switch {
+			case sess.Model != "":
+				fallbackModel = sess.Model
+			case kind == KindArchitect:
+				fallbackModel = m.architectDefaultModel
+			}
 		}
 
 		backend, err := m.backendFor(kind)
@@ -656,7 +666,7 @@ func (m *Manager) startConsumer(sessionID string) {
 			}
 
 			if e.Type == "usage" {
-				m.handleUsageEntry(ctx, sessionID, project, e)
+				m.handleUsageEntry(ctx, sessionID, project, fallbackModel, e)
 
 				return
 			}

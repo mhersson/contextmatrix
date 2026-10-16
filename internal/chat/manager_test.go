@@ -3978,6 +3978,46 @@ func TestHandleUsageEntry_EmitsChatMetrics(t *testing.T) {
 		testutil.ToFloat64(metrics.ChatTokensTotal.WithLabelValues("metrics-project", model, "cache_read")), 1e-9)
 }
 
+func TestHandleUsageEntry_ArchitectFrameWithoutModelUsesArchitectDefault(t *testing.T) {
+	hub := chat.NewSSEHub(64)
+
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "chats.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	pricer := newStubPricer(map[string]float64{"arch/default": 0.02, "chat/default": 0.5})
+
+	archBackend := &usageStreamingBackend{
+		entries: []chat.LogEntry{
+			{Type: "usage", Usage: &chat.TokenUsage{InputTokens: 100, OutputTokens: 50}},
+		},
+	}
+
+	mgr := newManager(t, chat.Config{
+		Store:                 store,
+		Backend:               &stubBackend{},
+		ArchitectBackend:      archBackend,
+		ArchitectDefaultModel: "arch/default",
+		Clock:                 clock.Real(),
+		IdleTTL:               time.Hour,
+		Hub:                   hub,
+		DefaultModel:          "chat/default",
+		Pricer:                pricer,
+		ResolveProjectExec: func(context.Context, string) (chat.ProjectExecInfo, error) {
+			return chat.ProjectExecInfo{}, nil
+		},
+	})
+
+	ctx := context.Background()
+	bp, err := mgr.CreateSession(ctx, chat.CreateInput{Kind: chat.KindArchitect, Projects: []string{"alpha"}, CreatedBy: "x"})
+	require.NoError(t, err)
+
+	ev := openAndWaitForUsageEvent(t, mgr, hub, bp.ID)
+
+	assert.Equal(t, "arch/default", ev.SessionUpdate.Model)
+	assert.InDelta(t, 0.02, ev.SessionUpdate.EstimatedCostUSD, 1e-9, "priced at the architect default, not the chat default")
+}
+
 // TestManager_SendUserMessage_ArmsAssistantWorking pins the server-side start
 // signal: a successful send flips assistant_working before the HTTP response
 // returns, so every subscriber (including the sender) learns a turn is in
