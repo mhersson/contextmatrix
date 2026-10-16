@@ -606,6 +606,13 @@ func main() {
 		awaitMax = 0
 	}
 
+	// run_playbook registers only when a task backend can launch the cards.
+	// The interface is assigned only when non-nil (typed-nil gotcha).
+	var playbookPlayer mcpserver.PlaybookPlayer
+	if taskBackend != nil && pbRunner != nil {
+		playbookPlayer = pbRunner
+	}
+
 	// Create MCP server
 	mcpSrv := mcpserver.NewServer(mcpserver.ServerConfig{
 		Service:           svc,
@@ -618,6 +625,7 @@ func main() {
 		AwaitMax:          awaitMax,
 		Playbooks:         pbSvc,
 		CardRunner:        runnerSlot,
+		PlaybookPlayer:    playbookPlayer,
 	})
 
 	mcpHandler := mcpserver.NewHandler(mcpSrv, cfg.MCPAPIKey)

@@ -28,6 +28,7 @@ type registerToolsConfig struct {
 	AwaitMax          time.Duration
 	Playbooks         *service.PlaybookService
 	CardRunner        *RunnerSlot
+	PlaybookPlayer    PlaybookPlayer
 }
 
 // registerTools adds all MCP tools to the server.
@@ -80,6 +81,10 @@ func registerTools(cfg registerToolsConfig) {
 
 	if cfg.CardRunner != nil {
 		registerRunCard(server, svc, cfg.CardRunner)
+	}
+
+	if cfg.Playbooks != nil && cfg.PlaybookPlayer != nil {
+		registerRunPlaybook(server, cfg.Playbooks, cfg.PlaybookPlayer)
 	}
 }
 

@@ -196,9 +196,10 @@ func wireChat(
 	// Without this, active/warm-idle sessions stay marked alive in the DB
 	// while their consumer goroutines are gone (in-memory state lost), so
 	// the UI can't see worker output even though the container is still
-	// up. Reattach is idempotent and tolerant of dead containers - the
-	// consumer exits on first /logs error and the reconcile sweep below
-	// will flip orphaned sessions to cold.
+	// up. Reattach is idempotent and tolerant of dead containers - a chat
+	// consumer retries with backoff and stops on a clean close, an architect
+	// consumer reconnects and re-sends the start; the reconcile sweep below
+	// flips orphaned sessions to cold.
 	go func() {
 		rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()

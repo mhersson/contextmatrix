@@ -128,8 +128,8 @@ All POSTs carry `Content-Type: application/json` and go to
 
 #### POST {agent_url}/trigger
 
-Sent when a human clicks Run Auto or Run HITL on a `todo` card, or calls the
-`run_card` MCP tool. CM builds the payload in `internal/api/backend_launch.go`
+Sent when a human clicks Run Auto or Run HITL on a `todo` card, calls the
+`run_card` MCP tool, or plays a playbook (web UI or `run_playbook`). CM builds the payload in `internal/api/backend_launch.go`
 (`launch`, shared with the playbook runner):
 
 ```json
@@ -455,6 +455,19 @@ response returns. Differences from a chat start:
 `/chat/end` ends the session on the architect; reopening it sends a new
 `/chat/start` for the same session id. Architect sessions do not count toward
 `chat.max_concurrent`.
+
+Recovery: when a `/message` is answered with 404 and the protocol's `not_found`
+code (the architect restarted and no longer holds the session), CM re-sends
+`/chat/start` with the same payload as a cold open, never a resume, then sends
+the message once more with the same message id. The session row is not
+written, and a second failure is returned to the caller. The architect must
+answer an unknown session with 404 `not_found` and treat a start for a session
+it already holds as a no-op. CM also re-sends `/chat/start` with the same
+payload when the architect's `/logs` stream ends or drops, and before the first
+stream of a consumer CM attaches after its own restart; frames the architect
+publishes in between are kept and replayed. The consumer stops once its
+session row is gone, cold or no longer an architect session. Chat sessions do
+not take these paths.
 
 ### Task/chat backend → CM: log stream
 
@@ -893,7 +906,10 @@ flowchart LR
   by `session_id`, persists each transcript frame to `ops.db`, and
   republishes it on the per-session chat SSE hub. `usage` frames update the
   session's context-token counter and cost; `status` frames drive the
-  working indicator and are never persisted.
+  working indicator and are never persisted. Both consumers reconnect with
+  backoff after a stream error (250 ms to 30 s, reset after a stream that
+  lived a minute). A chat consumer stops when the stream closes cleanly; an
+  architect consumer reconnects after that too, re-sending the start first.
 
 ### Backend capacity: GET /api/backend/health
 

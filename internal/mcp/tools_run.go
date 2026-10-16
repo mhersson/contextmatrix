@@ -87,3 +87,53 @@ func registerRunCard(server *mcp.Server, svc *service.CardService, slot *RunnerS
 		return nil, summarizeCardForAgent(started, input.AgentID), nil
 	})
 }
+
+// PlaybookPlayer starts or resumes a runnable playbook's run.
+type PlaybookPlayer interface {
+	Play(ctx context.Context, id, agentID string) (*service.PlaybookDetail, error)
+}
+
+// --- run_playbook tool ---
+
+type runPlaybookInput struct {
+	ID      string `json:"id" jsonschema:"required,playbook id"`
+	AgentID string `json:"agent_id" jsonschema:"required,human caller identity, human:<name>"`
+}
+
+func registerRunPlaybook(server *mcp.Server, pb *service.PlaybookService, player PlaybookPlayer) {
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "run_playbook",
+		Description: "Run a playbook: make it runnable if it is not, then play it, " +
+			"through the same service calls and guards as the playbook page's controls. " +
+			"Human-only: agent_id must start with \"human:\". " +
+			"Making it runnable forces autonomous, create_pr, await_ci and merge_pr on every card and locks them, " +
+			"and each card's pull request merges into the playbook branch once CI passes; a Play refused after that " +
+			"leaves the playbook runnable. A running or waiting run is refused; a run waiting on a failed card " +
+			"needs a human to Stop and Play it from the board. Follow the run with get_playbook.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input runPlaybookInput) (*mcp.CallToolResult, service.PlaybookSummary, error) {
+		if err := requireHumanAgent(input.AgentID, "run_playbook"); err != nil {
+			return nil, service.PlaybookSummary{}, err
+		}
+
+		detail, err := pb.Get(ctx, input.ID)
+		if err != nil {
+			return nil, service.PlaybookSummary{}, fmt.Errorf("run_playbook %s: %w", input.ID, err)
+		}
+
+		// An already-runnable playbook skips make-runnable: the re-assert
+		// costs a commit, and the runner re-forces each card before launch.
+		if !detail.Runnable {
+			yes := true
+			if _, err := pb.UpdateMeta(ctx, input.ID, service.UpdatePlaybookInput{Runnable: &yes}, input.AgentID); err != nil {
+				return nil, service.PlaybookSummary{}, fmt.Errorf("run_playbook %s: make runnable: %w", input.ID, err)
+			}
+		}
+
+		played, err := player.Play(ctx, input.ID, input.AgentID)
+		if err != nil {
+			return nil, service.PlaybookSummary{}, fmt.Errorf("run_playbook %s: %w", input.ID, err)
+		}
+
+		return nil, redactPlaybookSummary(service.SummarizeDetail(played), input.AgentID), nil
+	})
+}

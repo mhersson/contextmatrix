@@ -46,6 +46,12 @@ var ErrOversizedSSELine = errors.New("chat: /logs: oversized SSE line exceeded b
 // backend is unresponsive.
 var ErrBackendUnreachable = errors.New("chat: backend unreachable")
 
+// ErrSessionUnknown is wrapped around a 404 whose body is the protocol's
+// not_found error: the backend answered and does not hold the session. CM acts
+// on it only for architect sessions, by re-sending the start; a plain 404 or
+// another code stays an ordinary error.
+var ErrSessionUnknown = errors.New("chat: backend does not know the session")
+
 // BackendClientConfig wires the HMAC-signed webhook client.
 type BackendClientConfig struct {
 	BaseURL    string       // e.g. http://contextmatrix-chat:8080
@@ -272,6 +278,13 @@ func (c *backendClient) post(ctx context.Context, path string, body []byte) ([]b
 	}
 
 	if resp.StatusCode >= 300 {
+		if resp.StatusCode == http.StatusNotFound {
+			var e protocol.ErrorResponse
+			if json.Unmarshal(respBody, &e) == nil && e.Code == protocol.CodeNotFound {
+				return nil, fmt.Errorf("chat: %s: status %d: %s: %w", path, resp.StatusCode, string(respBody), ErrSessionUnknown)
+			}
+		}
+
 		return nil, fmt.Errorf("chat: %s: status %d: %s", path, resp.StatusCode, string(respBody))
 	}
 

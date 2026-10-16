@@ -25,6 +25,10 @@ It sets a non-autonomous `todo` card autonomous first, so HITL runs start only
 from the board. A card whose worker is already `queued` or `running`, or an
 unvetted import, is left unchanged and the run is refused.
 
+The `run_playbook` MCP tool is the playbook counterpart, also human-only: it
+makes a playbook runnable if it is not, then plays it (see
+[Playbook runs](#playbook-runs)).
+
 An imported card (one with a `source`) that is not vetted cannot run: the run
 button answers `403 CARD_NOT_VETTED` until a human ticks **Content vetted**.
 
@@ -173,7 +177,7 @@ of Stop, and Stop All skips it; that instance owns the container.
 ## Playbook runs
 
 A runnable playbook (see [playbooks](playbooks.md#running-a-playbook)) is
-played from its detail page. The server then runs its card entries one after
+played from its detail page or by the `run_playbook` MCP tool. The server then runs its card entries one after
 another: each card is launched exactly as **Run Auto** would launch it, with
 `create_base_branch` set so the worker creates the playbook branch on its
 first run in a repository.

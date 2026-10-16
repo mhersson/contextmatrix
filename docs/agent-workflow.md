@@ -205,9 +205,11 @@ managed through eight ungated MCP tools: `list_playbooks`, `get_playbook`,
 `create_playbook`, `update_playbook`, `delete_playbook`,
 `add_playbook_entry`, `update_playbook_entry`, `remove_playbook_entry`.
 `create_playbook` accepts `boards_repo` to pick the boards repository when
-several are configured. They serve planning sessions and the web UI, not
+several are configured. The human-gated `run_playbook` makes a playbook
+runnable and plays it. The tools serve planning sessions and the web UI, not
 card-working agents: no workflow skill directs an agent at a playbook, and a
-card-execution session has no reason to call these tools. An entry's `note`
+card-execution session has no reason to call these tools; `run_playbook`, like
+`run_card`, needs a `human:` `agent_id`. An entry's `note`
 is a human-only channel, excluded from any agent-facing context. See
 [playbooks](playbooks.md) and the [data model](data-model.md#playbooks).
 

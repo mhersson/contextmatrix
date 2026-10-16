@@ -121,7 +121,7 @@ func registerPlaybookTools(server *mcp.Server, pb *service.PlaybookService) {
 func registerListPlaybooks(server *mcp.Server, pb *service.PlaybookService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_playbooks",
-		Description: "List all playbooks with their slim list-view summary (per-entry status segments, project count, completion, manual gate indexes, next entry). A runnable playbook (runnable: true) can be played from the web UI, which runs its cards in order on a shared playbook branch; play, stop, runnable and base_branch are human-only and not exposed here.",
+		Description: "List all playbooks with their slim list-view summary (per-entry status segments, project count, completion, manual gate indexes, next entry). A runnable playbook (runnable: true) runs its cards in order on a shared playbook branch; the run_playbook tool and the web UI start it; stop and base_branch are human-only web UI controls.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input listPlaybooksInput) (*mcp.CallToolResult, listPlaybooksOutput, error) {
 		summaries, err := pb.List(ctx)
 		if err != nil {
@@ -154,7 +154,7 @@ func registerGetPlaybook(server *mcp.Server, pb *service.PlaybookService) {
 func registerCreatePlaybook(server *mcp.Server, pb *service.PlaybookService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "create_playbook",
-		Description: "Create a cross-project playbook: an ordered list of card references and manual gate steps. Entries are validated against existing cards; the call is all-or-nothing. The playbook id is derived from the title and never changes. Playbooks are created not runnable; a human makes one runnable from the web UI. boards_repo picks the boards repository when several are configured.",
+		Description: "Create a cross-project playbook: an ordered list of card references and manual gate steps. Entries are validated against existing cards; the call is all-or-nothing. The playbook id is derived from the title and never changes. Playbooks are created not runnable; run_playbook or a human in the web UI makes one runnable. boards_repo picks the boards repository when several are configured.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input createPlaybookInput) (*mcp.CallToolResult, service.PlaybookSummary, error) {
 		entries := make([]service.PlaybookEntryInput, len(input.Entries))
 		for i, e := range input.Entries {
@@ -176,7 +176,7 @@ func registerCreatePlaybook(server *mcp.Server, pb *service.PlaybookService) {
 func registerUpdatePlaybook(server *mcp.Server, pb *service.PlaybookService) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "update_playbook",
-		Description: "Update a playbook's title and/or description. Empty fields are left unchanged. The playbook id is immutable - a title edit never re-slugs it. runnable, base_branch and run state are operator fields preserved by this tool; a human sets them from the web UI.",
+		Description: "Update a playbook's title and/or description. Empty fields are left unchanged. The playbook id is immutable - a title edit never re-slugs it. runnable, base_branch and run state are operator fields this tool preserves; run_playbook makes a playbook runnable and plays it.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input updatePlaybookInput) (*mcp.CallToolResult, service.PlaybookSummary, error) {
 		detail, err := pb.UpdateMeta(ctx, input.ID, service.UpdatePlaybookInput{
 			Title:       nonEmptyPtr(input.Title),

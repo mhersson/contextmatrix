@@ -3,6 +3,7 @@ package chat_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -202,4 +203,34 @@ func TestBackendClient_SendChatMessage_DoesNotWrapErrBackendUnreachableOnCallerC
 	require.Error(t, err)
 	require.NotErrorIs(t, err, chat.ErrBackendUnreachable)
 	assert.ErrorIs(t, err, context.Canceled)
+}
+
+func TestBackendClient_SendChatMessage_SessionUnknown(t *testing.T) {
+	tests := []struct {
+		name    string
+		status  int
+		body    string
+		unknown bool
+	}{
+		{"protocol not_found", http.StatusNotFound, `{"ok":false,"code":"not_found","message":"no such blueprint session"}`, true},
+		{"mux 404 text", http.StatusNotFound, "404 page not found", false},
+		{"404 with another code", http.StatusNotFound, `{"ok":false,"code":"invalid_field"}`, false},
+		{"not_found code on another status", http.StatusBadRequest, `{"ok":false,"code":"not_found"}`, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(tt.status)
+				_, _ = w.Write([]byte(tt.body))
+			}))
+			t.Cleanup(srv.Close)
+
+			rc := chat.NewBackendClient(chat.BackendClientConfig{BaseURL: srv.URL, HMACKey: "k"})
+			err := rc.SendChatMessage(context.Background(), "S1", "hi", "m1")
+			require.Error(t, err)
+			assert.Equal(t, tt.unknown, errors.Is(err, chat.ErrSessionUnknown))
+			assert.NotErrorIs(t, err, chat.ErrBackendUnreachable)
+		})
+	}
 }
