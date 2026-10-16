@@ -460,8 +460,9 @@ A send to an architect session holds that session's transcript writes from
 the `/message` call until the user's row is persisted and published, so a frame
 the architect publishes inside `/message` (a decided gate, the reply to a note)
 lands after the message that caused it, in `seq` and on the browser stream.
-Recovery releases the hold for its start and wait, so frames from the reopened
-architect land first. Chat sessions do not take it.
+Recovery releases the hold for its start and wait, so only frames the reopened
+architect delivers during them land first; a later frame, for example one that
+arrives after CM's log stream reconnects, can follow the message. Chat sessions do not take it.
 
 Recovery: when a `/message` is answered with 404 and the protocol's `not_found`
 code (the architect restarted and no longer holds the session), CM re-sends

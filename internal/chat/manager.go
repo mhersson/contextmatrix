@@ -2458,8 +2458,8 @@ func (m *Manager) SendUserMessage(ctx context.Context, sessionID, content string
 	if err != nil && sess.Kind == KindArchitect && errors.Is(err, ErrSessionUnknown) {
 		firstSend := m.clk.Now()
 
-		// Released while the start and the wait run: what the reopened
-		// architect publishes precedes this message.
+		// Released while the start and the wait run: only frames the reopened
+		// architect delivers meanwhile precede this message; later ones can follow.
 		unlock()
 
 		rerr := m.restartArchitect(ctx, sessionID)
