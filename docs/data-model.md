@@ -1141,9 +1141,9 @@ no server-side coupling to `create_pr` or `await_ci`.
 Chat state lives in the operational store `ops.db`, separate from the boards
 repo and `images.db`; the same file holds `model_blacklist` and
 `model_outcomes`. `ensureSchema` in `internal/opstore/sqlite/schema.go` runs
-`CREATE TABLE IF NOT EXISTS` for every table in its final shape: no
-migration ledger and no compatibility path, so schema changes are edits to
-that DDL. `chat_messages` carries `kind TEXT NOT NULL DEFAULT ''` (used for
+`CREATE TABLE IF NOT EXISTS` for every table; there is no migration ledger.
+A column added to an existing table is grown by `addColumnIfMissing`, and an
+`ops.db` newer than the binary is refused. `chat_messages` carries `kind TEXT NOT NULL DEFAULT ''` (used for
 the clear-context divider) and a unique index on `(session_id, seq)`.
 
 **`chat_sessions`:**
@@ -1169,6 +1169,9 @@ the clear-context divider) and a unique index on `(session_id, seq)`.
 | `cache_read_tokens`         | INTEGER | `0`     | Cumulative cache-read tokens.                                  |
 | `cache_creation_tokens`     | INTEGER | `0`     | Cumulative cache-creation tokens.                              |
 | `estimated_cost_usd`        | REAL    | `0`     | Running USD total, accumulated via `IncrementSessionCost`.     |
+| `kind`                      | TEXT    | `chat`  | `chat` or `architect` (blueprint); selects the backend.        |
+| `mode`                      | TEXT    | `''`    | Architect session mode; empty for chat sessions.               |
+| `cost_cap_usd`              | REAL    | `0`     | Architect session cost cap in USD; `0` for chat sessions.      |
 
 **`chat_cost_archive`:** `DeleteSession` copies the cost columns here before
 removing the session row; transcript and title are not kept. `AggregateCost`

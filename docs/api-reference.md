@@ -2523,11 +2523,14 @@ Starts the chat container for a `cold` session. Idempotent for `active`;
 reattaches for `warm-idle`. **200** with the refreshed session (`status:
 active`, `container_id` set). 429 `TOO_MANY_CHATS` when `chat.max_concurrent`
 (active plus warm-idle plus in-flight opens; `0` = unlimited) is reached.
+An `architect` (blueprint) session starts on the architect backend instead,
+is never counted against `chat.max_concurrent`, and so never gets 429.
 
 ### POST /api/chats/{id}/end
 
 Closes the container's stdin and force-stops it. **200** with the refreshed
 session (`status: cold`, `container_id` cleared). Already-cold is a no-op.
+An `architect` session is ended on the architect backend.
 
 ### POST /api/chats/{id}/clear
 
@@ -2536,6 +2539,8 @@ sends `/clear` to the worker, marks every prior transcript row
 `rehydration_phase = true` (excluded from future cold-open resume payloads),
 and appends a divider row (`role: system`, `content: "Context cleared"`,
 `kind: "divider"`) that is both broadcast and persisted. The body is ignored.
+An `architect` session is refused with 400 `INVALID_CHAT_INPUT` before
+anything is sent.
 
 | Status | Code                  | Meaning                                                                     |
 | ------ | --------------------- | --------------------------------------------------------------------------- |
@@ -2548,7 +2553,8 @@ and appends a divider row (`role: system`, `content: "Context cleared"`,
 ### POST /api/chats/{id}/messages
 
 Sends a user message. The content checks run before the ownership check. The
-message goes to the chat backend first; only on success is the row appended
+message goes to the session's backend first (the architect backend for an
+`architect` session); only on success is the row appended
 with a server-assigned `seq` and broadcast as a `user` event. A `cold`
 session is opened automatically (so 429 `TOO_MANY_CHATS` is possible);
 `warm-idle` is promoted to `active`.

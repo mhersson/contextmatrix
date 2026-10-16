@@ -2041,8 +2041,8 @@ func applyEnvOverrides(cfg *Config) error {
 		cfg.Mob.CheckpointMinTier = v
 	}
 
-	// Backend entries can be configured entirely via env: a variable for one
-	// of the two backends creates the entry when YAML does not declare it,
+	// Backend entries can be configured entirely via env: a variable for any
+	// backend creates the entry when YAML does not declare it,
 	// so pure-env deployments need no backends stub in the config file.
 	if err := applyAgentBackendEnv(cfg); err != nil {
 		return err
