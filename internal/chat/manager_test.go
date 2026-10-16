@@ -5026,6 +5026,11 @@ func TestManager_Consumer_ArchitectBacksOffWhenTheRestartFails(t *testing.T) {
 
 	arch.streamLogsFn = func(ctx context.Context, _ string, _ func(chat.LogEntry)) error {
 		if streams.Add(1) == 1 {
+			// Set before the stream ends so the first restart already fails.
+			arch.mu.Lock()
+			arch.startErr = errors.New("architect down")
+			arch.mu.Unlock()
+
 			return nil
 		}
 
@@ -5037,10 +5042,6 @@ func TestManager_Consumer_ArchitectBacksOffWhenTheRestartFails(t *testing.T) {
 	_ = openArchitect(t, mgr)
 
 	require.Eventually(t, func() bool { return streams.Load() == 1 }, time.Second, 5*time.Millisecond)
-
-	arch.mu.Lock()
-	arch.startErr = errors.New("architect down")
-	arch.mu.Unlock()
 
 	time.Sleep(700 * time.Millisecond)
 	assert.Equal(t, int64(1), streams.Load(), "no stream while the start fails")
@@ -5058,8 +5059,7 @@ func TestManager_Consumer_ArchitectBacksOffWhenTheRestartFails(t *testing.T) {
 
 // Streams end at once and every restart succeeds: only the wait between
 // restarts keeps the consumer from spinning. With backoff 250 ms, 500 ms,
-// 1 s the streams land at about 0, 250 and 750 ms, so a 1.2 s window holds
-// 3 or 4 (the fourth at about 1.75 s is outside); a spin would hold hundreds.
+// 1 s about 3 streams fit the 1.2 s window; a spin would hit the stub's cap.
 func TestManager_Consumer_ArchitectBacksOffWhenTheStreamKeepsEnding(t *testing.T) {
 	mgr, _, arch := newManagerWithArchitectStub(t)
 
@@ -5082,6 +5082,32 @@ func TestManager_Consumer_ArchitectBacksOffWhenTheStreamKeepsEnding(t *testing.T
 	assert.GreaterOrEqual(t, n, int64(2), "the consumer keeps reconnecting")
 	assert.LessOrEqual(t, n, int64(4), "with backoff between restarts, not a spin")
 	assert.Equal(t, n, arch.startCalls.Load(), "one start for the cold open, then one before each later stream")
+}
+
+func TestManager_Consumer_ChatRetriesATransportErrorWithoutRestart(t *testing.T) {
+	mgr, backend, _ := newManagerWithStubs(t)
+	ctx := context.Background()
+
+	var streams atomic.Int64
+
+	backend.streamLogsFn = func(ctx context.Context, _ string, _ func(chat.LogEntry)) error {
+		if streams.Add(1) == 1 {
+			return errors.New("connection reset")
+		}
+
+		<-ctx.Done()
+
+		return ctx.Err()
+	}
+
+	sess, err := mgr.CreateSession(ctx, chat.CreateInput{Project: "alpha", CreatedBy: "x"})
+	require.NoError(t, err)
+	_, err = mgr.OpenSession(ctx, sess.ID)
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool { return backend.streamCalls.Load() == 2 }, 3*time.Second, 10*time.Millisecond,
+		"a chat consumer streams again after a transport error")
+	assert.Equal(t, int64(1), backend.startCalls.Load(), "and re-sends no start")
 }
 
 func TestManager_Consumer_ChatStopsOnACleanClose(t *testing.T) {

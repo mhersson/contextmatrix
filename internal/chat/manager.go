@@ -751,7 +751,7 @@ func (m *Manager) startConsumer(sessionID string, restart bool) {
 
 			if pendingStart {
 				if err := m.restartArchitect(ctx, sessionID); err != nil {
-					if !wait(err) {
+					if ctx.Err() != nil || !wait(err) {
 						m.logger.Info("chat: worker-log consumer stopped", "session_id", sessionID)
 
 						return
@@ -2059,9 +2059,8 @@ func (m *Manager) EndSession(ctx context.Context, id string) error {
 	m.logger.Info("chat: ending session", "session_id", sess.ID,
 		"from_status", string(sess.Status))
 
-	// Stop the consumer outside the statusLock - stopConsumer waits for the
-	// consumer goroutine to exit, and the goroutine's AppendMessage path
-	// touches m.mu / appendLock but never statusLock, so this is safe.
+	// Stop the consumer outside the statusLock: it takes that lock to re-send
+	// an architect start, and stopConsumer waits for it to exit.
 	m.stopConsumer(sess.ID)
 
 	if err := m.withStatusLock(sess.ID, func() error {
