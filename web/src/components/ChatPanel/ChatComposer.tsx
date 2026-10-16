@@ -1,7 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
-
-const MAX_MESSAGE_LENGTH = 8000;
+import { MAX_MESSAGE_LENGTH } from './chatEntryUtils';
 
 export interface ChatComposerProps {
   onSend: (content: string) => void | Promise<void>;

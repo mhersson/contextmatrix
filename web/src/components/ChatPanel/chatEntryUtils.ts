@@ -4,6 +4,8 @@ import type { LogEntry } from '../../types';
 export const INITIAL_TAIL = 50;
 /** Older messages revealed per "Show older" step. */
 export const REVEAL_CHUNK = 100;
+/** Longest message the composer or a prompt reply sends. */
+export const MAX_MESSAGE_LENGTH = 8000;
 
 /** A plain-text payload longer than this collapses to a preview. */
 export const COLLAPSE_CHAR_THRESHOLD = 600;
